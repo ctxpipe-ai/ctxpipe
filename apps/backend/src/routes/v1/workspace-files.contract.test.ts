@@ -13,12 +13,9 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
 import { workspaces } from "../../db/schema/workspaces.js"
-import { adaptTanstackHandle } from "../../domain/workspaces/job-sandbox.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
-import {
-  attachWorkspaceSandbox,
-  destroyWorkspaceSandbox,
-} from "../../domain/workspaces/sandbox-registry.js"
+import { destroyWorkspaceSandbox } from "../../domain/workspaces/workspace-sandbox-cleanup.js"
+import { persistSandboxInstance } from "../../models/workspaces.js"
 import { withNativeIndexFixture } from "../../test/native-index-fixture.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 import { workspaceFilesRoutes } from "./workspace-files-routes.js"
@@ -148,13 +145,15 @@ it(
   async () => {
     await withFilesWorkspace(async ({ app, orgId, workspaceId, revision }) => {
       const raw = await localProcessSandbox().create({ id: workspaceId })
-      attachWorkspaceSandbox({
+      await persistSandboxInstance({
         id: workspaceId,
         kind: "job",
         workspaceId,
         orgId,
-        handle: adaptTanstackHandle(raw),
-        destroy: () => raw.destroy(),
+        provider: raw.provider,
+        providerSandboxId: raw.id,
+        state: "live",
+        lastHeartbeatAt: new Date(),
       })
       try {
         await raw.process.exec(

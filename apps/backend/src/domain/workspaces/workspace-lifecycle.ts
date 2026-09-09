@@ -13,8 +13,8 @@ import {
   type WorkspaceAddSource,
 } from "./bind-github-connection.js"
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
-import { destroySandboxesForWorkspace } from "./sandbox-registry.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
+import { destroySandboxesForWorkspace } from "./workspace-sandbox-cleanup.js"
 import {
   githubConnectionIdForWriteProbe,
   writeStatusFromClassification,

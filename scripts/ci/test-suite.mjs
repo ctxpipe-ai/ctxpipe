@@ -101,12 +101,13 @@ try {
         cwd,
         stdio: "inherit",
         // Native contracts include real lease expiry and resource cleanup deadlines.
-        // Each file now runs in exactly one lane; keep both runs bounded.
+        // Each file runs in exactly one lane. Ownership contracts add real lease
+        // expiry and renewal intervals; allow the same bounded ceiling as backend.
         timeout:
           name === "backend"
             ? 1_800_000
             : name === "contracts"
-              ? 1_200_000
+              ? 1_800_000
               : 600_000,
       },
     )

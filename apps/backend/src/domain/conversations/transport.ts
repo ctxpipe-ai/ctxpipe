@@ -1,6 +1,8 @@
-import { chatParamsFromRequestBody, modelMessagesToUIMessages } from "@tanstack/ai"
+import {
+  chatParamsFromRequestBody,
+  modelMessagesToUIMessages,
+} from "@tanstack/ai"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
-import { workspaceChatPersistence } from "../workspaces/workspace-chat-persistence.js"
 import {
   runTanstackWorkspaceChat,
   streamTanstackWorkspaceChat,
@@ -8,10 +10,10 @@ import {
 } from "../workspaces/tanstack-workspace-chat.js"
 import {
   type WorkspaceChatWireFormat,
-  withWorkspaceChatHeartbeats,
   workspaceChatHttpResponse,
   workspaceChatWireFormat,
 } from "../workspaces/workspace-chat-agui.js"
+import { workspaceChatPersistence } from "../workspaces/workspace-chat-persistence.js"
 
 export type ConversationChatRequest = {
   prompt: string
@@ -139,7 +141,7 @@ export function workspaceChatStreamResponse(
   const format =
     input.wireFormat ?? (request ? workspaceChatWireFormat(request) : "sse")
   return workspaceChatHttpResponse(
-    withWorkspaceChatHeartbeats(streamTanstackWorkspaceChat(chatInput)),
+    streamTanstackWorkspaceChat(chatInput),
     format,
     request,
   )

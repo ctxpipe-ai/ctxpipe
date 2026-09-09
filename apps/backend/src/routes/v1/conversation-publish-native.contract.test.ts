@@ -8,20 +8,20 @@ import type { AppEnv } from "../../app/env.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
-import { workspaces } from "../../db/schema/workspaces.js"
+import {
+  workspaceSandboxInstances,
+  workspaces,
+} from "../../db/schema/workspaces.js"
 import { conversationSessionBranch } from "../../domain/workspaces/chat-lifecycle.js"
 import { shellSingleQuote } from "../../domain/workspaces/conversation-publish.js"
-import { adaptTanstackHandle } from "../../domain/workspaces/job-sandbox.js"
-import {
-  attachWorkspaceSandbox,
-  resetRegisteredSandboxes,
-} from "../../domain/workspaces/sandbox-registry.js"
+import { warmTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
 import { getConversation } from "../../models/conversations.js"
 import {
   contextStorage,
   withTestRequestLogger,
 } from "../../test/hono-test-logger.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
+import { withTestLogger } from "../../test/with-test-logger.js"
 import { conversationRoutes } from "./conversations.js"
 
 it.each([
@@ -84,9 +84,8 @@ it.each([
           )
         }
         const previousProvider = process.env.SANDBOX_PROVIDER
-        if (scenario === "warm_files")
-          process.env.SANDBOX_PROVIDER = "unsandboxed"
-        const raw = await localProcessSandbox().create({ id: conversationId })
+        process.env.SANDBOX_PROVIDER = "unsandboxed"
+        let raw = await localProcessSandbox().create({ id: conversationId })
         try {
           await withOrgDbContext(f.org.id, (db) =>
             db.insert(conversations).values({
@@ -114,32 +113,70 @@ it.each([
             )
             await relink()
           }
+          if (scenario !== "missing" && scenario !== "warm_files") {
+            const warmed = await withOrgIdContext(f.org, () =>
+              withTestLogger(() =>
+                warmTanstackWorkspaceChat({
+                  conversationId,
+                  orgId: f.org.id,
+                  orgSlug: f.org.slug,
+                  workspaceId: f.workspaceId,
+                  desiredUrl: f.workspaceUrl,
+                  desiredSha: f.sha,
+                  desiredGeneration:
+                    f.revision.generation +
+                    (scenario === "pr_collision" ? 1 : 0),
+                  githubConnectionId: f.connectionId,
+                  defaultBranch: "main",
+                  lastBranch: conversationSessionBranch(conversationId),
+                  writeStatus: "writable",
+                  prompt: "prepare",
+                  cloneToken: "fixture-native-clone",
+                }),
+              ),
+            )
+            if (!warmed.ok) throw new Error(warmed.error)
+            await raw.destroy()
+            raw = warmed.handle
+          }
           await raw.process.exec("git init -b main")
           await raw.process.exec(`git fetch ${shellSingleQuote(f.remote)} main`)
           await raw.process.exec("git checkout -B main FETCH_HEAD")
           await raw.fs.write("notes.md", "# Saved conversation\n")
-          if (scenario !== "missing" && scenario !== "warm_files")
-            attachWorkspaceSandbox({
-              id: conversationId,
-              kind: "chat",
-              orgId: f.org.id,
-              workspaceId: f.workspaceId,
-              conversationId,
-              githubConnectionId:
-                scenario === "stale_connection" ? "con_other" : f.connectionId,
-              handle: adaptTanstackHandle(raw),
-              desiredUrl:
-                scenario === "stale" || scenario === "stale_push"
-                  ? "https://github.com/fixture/other"
-                  : f.workspaceUrl,
-              desiredSha: scenario === "stale_sha" ? "0".repeat(40) : f.sha,
-              desiredGeneration:
-                scenario === "stale_generation" || scenario === "pr_collision"
-                  ? f.revision.generation + 1
-                  : f.revision.generation,
-              defaultBranch:
-                scenario === "stale_default_branch" ? "other" : "main",
-            })
+          if (scenario !== "missing" && scenario !== "warm_files") {
+            await withOrgDbContext(f.org.id, (db) =>
+              db
+                .update(workspaceSandboxInstances)
+                .set({
+                  revision: {
+                    ...f.revision,
+                    access: "read",
+                    remote: {
+                      url:
+                        scenario === "stale" || scenario === "stale_push"
+                          ? "https://github.com/fixture/other"
+                          : f.workspaceUrl,
+                      connectionId:
+                        scenario === "stale_connection"
+                          ? "con_other"
+                          : f.connectionId,
+                    },
+                    sha: scenario === "stale_sha" ? "0".repeat(40) : f.sha,
+                    generation:
+                      f.revision.generation +
+                      (scenario === "stale_generation" ||
+                      scenario === "pr_collision"
+                        ? 1
+                        : 0),
+                    defaultBranch:
+                      scenario === "stale_default_branch" ? "other" : "main",
+                  },
+                })
+                .where(
+                  eq(workspaceSandboxInstances.conversationId, conversationId),
+                ),
+            )
+          }
           if (scenario.startsWith("relink_after_push")) {
             await raw.fs.write(
               ".git/hooks/reference-transaction",
@@ -282,29 +319,27 @@ fi
           }
           expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
         } finally {
-          if (scenario === "warm_files") {
-            const {
-              memoizedConversationSandboxHandle,
-              resetWorkspaceChatSandboxMemos,
-            } = await import(
-              "../../domain/workspaces/workspace-chat-sandbox-memo.js"
-            )
-            await memoizedConversationSandboxHandle(conversationId)?.destroy?.()
-            resetWorkspaceChatSandboxMemos()
+          {
             const { listSandboxInstances, deleteSandboxInstance } =
               await import("../../models/workspaces.js")
-            await withOrgDbContext(f.org.id, async () => {
-              for (const instance of await listSandboxInstances({
-                conversationId,
-                kind: "chat",
-              }))
-                await deleteSandboxInstance(instance.id, f.org.id)
-            })
+            const { destroyDetachedProviderSandbox } = await import(
+              "../../domain/workspaces/sandbox-provider.js"
+            )
+            const instances = await withOrgDbContext(f.org.id, () =>
+              listSandboxInstances({ conversationId, kind: "chat" }),
+            )
+            for (const instance of instances) {
+              if (instance.providerSandboxId)
+                await destroyDetachedProviderSandbox({
+                  provider: instance.provider,
+                  providerSandboxId: instance.providerSandboxId,
+                })
+              await deleteSandboxInstance(instance.id, f.org.id)
+            }
           }
           if (previousProvider === undefined)
             delete process.env.SANDBOX_PROVIDER
           else process.env.SANDBOX_PROVIDER = previousProvider
-          resetRegisteredSandboxes()
           await raw.destroy()
           await withOrgDbContext(f.org.id, (db) =>
             db

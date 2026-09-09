@@ -1,3 +1,4 @@
+import { listSandboxInstances } from "../../models/workspaces.js"
 import {
   conversationSessionBranch,
   mayForcePushBranch,
@@ -14,10 +15,7 @@ import {
   explorerGitStatusFromPorcelain,
   withExplorerGitLineCounts,
 } from "./git-explorer.js"
-import { adaptTanstackHandle } from "./job-sandbox.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
-import { getRegisteredChatSandbox } from "./sandbox-registry.js"
-import { memoizedConversationSandboxHandle } from "./workspace-chat-sandbox-memo.js"
 
 export { conversationSessionBranch }
 
@@ -44,13 +42,26 @@ function isConversationSandboxListedPath(path: string): boolean {
   )
 }
 
-export function resolveConversationSandboxHandle(
-  conversationId: string,
-): JobSandboxHandle | null {
-  const registered = getRegisteredChatSandbox(conversationId)?.handle
-  if (registered) return registered
-  const raw = memoizedConversationSandboxHandle(conversationId)
-  return raw ? adaptTanstackHandle(raw) : null
+export async function getConversationSandboxBinding(conversationId: string) {
+  const rows = await listSandboxInstances({
+    conversationId,
+    kind: "chat",
+    state: "live",
+  })
+  const revision = rows
+    .filter((row) => row.providerSandboxId && row.revision)
+    .sort(
+      (a, b) => b.lastHeartbeatAt.getTime() - a.lastHeartbeatAt.getTime(),
+    )[0]?.revision
+  return revision
+    ? {
+        githubConnectionId: revision.remote.connectionId,
+        defaultBranch: revision.defaultBranch,
+        desiredGeneration: revision.generation,
+        desiredUrl: revision.remote.url,
+        desiredSha: revision.sha,
+      }
+    : null
 }
 
 async function execGit(

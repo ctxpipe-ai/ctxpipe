@@ -1,26 +1,26 @@
-import { and, asc, desc, eq, isNotNull, lte } from "drizzle-orm"
 import type { ModelMessage } from "@tanstack/ai"
 import {
+  type ChatPersistence,
   composePersistence,
   defineAIPersistence,
-  memoryPersistence,
-  type ChatPersistence,
   type InterruptRecord,
   type InterruptStore,
   type MessageStore,
   type MetadataStore,
+  memoryPersistence,
   type RunRecord,
   type RunStore,
 } from "@tanstack/ai-persistence"
+import { and, asc, desc, eq, isNotNull, lte } from "drizzle-orm"
 import { requireCurrentOrgId } from "../../auth/context.js"
 import { getOrgDb } from "../../db/client.js"
+import { withAmbientOrgDb } from "../../db/org-sql.js"
 import {
   chatInterrupts,
   chatMetadata,
   chatRuns,
   chatThreads,
 } from "../../db/schema/chat-persistence.js"
-import { withAmbientOrgDb } from "../../db/org-sql.js"
 
 function orgSql<T>(fn: () => Promise<T>): Promise<T> {
   return withAmbientOrgDb(fn)
@@ -53,7 +53,9 @@ function mapRun(row: typeof chatRuns.$inferSelect): RunRecord {
   }
 }
 
-function mapInterrupt(row: typeof chatInterrupts.$inferSelect): InterruptRecord {
+function mapInterrupt(
+  row: typeof chatInterrupts.$inferSelect,
+): InterruptRecord {
   return {
     interruptId: row.interruptId,
     runId: row.runId,
@@ -155,7 +157,10 @@ function createRunStore(): RunStore {
       if ("driverEpoch" in patch) set.driverEpoch = patch.driverEpoch ?? null
       if (Object.keys(set).length === 0) return
       await orgSql(async () => {
-        await getOrgDb().update(chatRuns).set(set).where(eq(chatRuns.runId, runId))
+        await getOrgDb()
+          .update(chatRuns)
+          .set(set)
+          .where(eq(chatRuns.runId, runId))
       })
     },
     async findActiveRun(threadId) {
@@ -164,7 +169,10 @@ function createRunStore(): RunStore {
           .select()
           .from(chatRuns)
           .where(
-            and(eq(chatRuns.threadId, threadId), eq(chatRuns.status, "running")),
+            and(
+              eq(chatRuns.threadId, threadId),
+              eq(chatRuns.status, "running"),
+            ),
           )
           .orderBy(desc(chatRuns.startedAt))
           .limit(1)
@@ -369,22 +377,5 @@ export function workspaceChatPersistence() {
       interrupts: chatStores.stores.interrupts,
       metadata: chatStores.stores.metadata,
     },
-  })
-}
-
-/** Mark a detachable run completed after the client already saw RUN_FINISHED. */
-export async function completePersistedWorkspaceChatRun(
-  threadId: string,
-  persistence: {
-    stores: {
-      runs: Pick<RunStore, "findActiveRun" | "update">
-    }
-  } = workspaceChatPersistence(),
-) {
-  const active = await persistence.stores.runs.findActiveRun(threadId)
-  if (!active) return
-  await persistence.stores.runs.update(active.runId, {
-    status: "completed",
-    finishedAt: Date.now(),
   })
 }

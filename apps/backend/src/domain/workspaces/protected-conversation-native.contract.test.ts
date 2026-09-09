@@ -1,5 +1,4 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
-import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
 import type { AppEnv } from "../../app/env.js"
@@ -17,11 +16,9 @@ import {
   withTestRequestLogger,
 } from "../../test/hono-test-logger.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
-import { adaptTanstackHandle } from "./job-sandbox.js"
-import {
-  attachWorkspaceSandbox,
-  resetRegisteredSandboxes,
-} from "./sandbox-registry.js"
+import { withTestLogger } from "../../test/with-test-logger.js"
+import { warmTanstackWorkspaceChat } from "./tanstack-workspace-chat.js"
+import { destroySandboxesForConversation } from "./workspace-sandbox-cleanup.js"
 import { WRITE_STATUS_REASONS } from "./write-status.js"
 
 it(
@@ -29,12 +26,17 @@ it(
   { timeout: 30_000 },
   async () => {
     await withNativeHydrationFixture(
-      { github: true, writeStatus: "writable" },
+      {
+        github: true,
+        writeStatus: "writable",
+        files: [{ path: "AGENTS.md", body: "# Original default\n" }],
+      },
       async (f) => {
         await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)
         const conversationId = `conv_${f.id}`
         const userId = `user_${f.id}`
-        const raw = await localProcessSandbox().create({ id: conversationId })
+        const previousProvider = process.env.SANDBOX_PROVIDER
+        process.env.SANDBOX_PROVIDER = "unsandboxed"
         try {
           await withOrgDbContext(f.org.id, (db) =>
             db.insert(conversations).values({
@@ -44,20 +46,25 @@ it(
               workspaceId: f.workspaceId,
             }),
           )
-          await raw.process.exec("git init -b main")
-          await raw.process.exec("git config user.email fixture@example.test")
-          await raw.process.exec("git config user.name Fixture")
-          await raw.fs.write("AGENTS.md", "# Original default\n")
-          await raw.process.exec("git add AGENTS.md")
-          await raw.process.exec("git commit -m Initial")
-          attachWorkspaceSandbox({
-            id: conversationId,
-            kind: "chat",
-            workspaceId: f.workspaceId,
-            conversationId,
-            orgId: f.org.id,
-            handle: adaptTanstackHandle(raw),
-          })
+          const warmed = await withOrgIdContext(f.org, () =>
+            withTestLogger(() =>
+              warmTanstackWorkspaceChat({
+                conversationId,
+                orgId: f.org.id,
+                orgSlug: f.org.slug,
+                workspaceId: f.workspaceId,
+                desiredUrl: f.workspaceUrl,
+                desiredSha: f.sha,
+                desiredGeneration: f.revision.generation,
+                githubConnectionId: f.connectionId,
+                defaultBranch: "main",
+                writeStatus: "writable",
+                prompt: "prepare",
+              }),
+            ),
+          )
+          if (!warmed.ok) throw new Error(warmed.error)
+          const raw = warmed.handle
           const app = new OpenAPIHono<AppEnv>()
           app.use(contextStorage())
           app.use(withTestRequestLogger)
@@ -124,8 +131,12 @@ it(
           })
           expect((await save()).status).toBe(403)
         } finally {
-          resetRegisteredSandboxes()
-          await raw.destroy()
+          await withOrgIdContext(f.org, () =>
+            destroySandboxesForConversation(conversationId),
+          )
+          if (previousProvider === undefined)
+            delete process.env.SANDBOX_PROVIDER
+          else process.env.SANDBOX_PROVIDER = previousProvider
           await withOrgDbContext(f.org.id, (db) =>
             db
               .delete(conversations)

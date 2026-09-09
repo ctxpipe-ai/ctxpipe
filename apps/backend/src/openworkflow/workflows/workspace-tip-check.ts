@@ -8,13 +8,13 @@ import {
   resolveWorkspaceReadRevision,
 } from "../../domain/workspaces/resolve-revision.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
+import { shouldEnqueueCronHydrate } from "../../domain/workspaces/tip-resolve.js"
 import {
   chatSandboxesDueForDestroy,
   destroySandboxesForConversation,
   destroySandboxesForWorkspace,
   jobSandboxesDueForDestroy,
-} from "../../domain/workspaces/sandbox-registry.js"
-import { shouldEnqueueCronHydrate } from "../../domain/workspaces/tip-resolve.js"
+} from "../../domain/workspaces/workspace-sandbox-cleanup.js"
 import { resumePausedWriteJobs } from "../../domain/workspaces/write-job-resume.js"
 import {
   nextPersistedWriteProbe,

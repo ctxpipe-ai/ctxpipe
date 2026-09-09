@@ -7,22 +7,16 @@ import {
 } from "@tanstack/ai"
 import { otelMiddleware } from "@tanstack/ai/middlewares/otel"
 import { withPersistence } from "@tanstack/ai-persistence"
+import type { SandboxHandle } from "@tanstack/ai-sandbox"
 import { eq } from "drizzle-orm"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { nameConversationIfUnnamed } from "../../graphs/conversationGraph/nodes/conversationNaming.js"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
-import {
-  getWorkspaceProjectionSnapshot,
-  listSandboxInstances,
-} from "../../models/workspaces.js"
+import { getWorkspaceProjectionSnapshot } from "../../models/workspaces.js"
 import { getLogger, log } from "../../observability/logger.js"
 import { hybridSearch } from "../../retrieval/index.js"
 import { generateEmbedding } from "../../retrieval/services/modelProvider.js"
-import {
-  CHAT_HEARTBEAT_INTERVAL_MS,
-  shouldHeartbeatChatSandbox,
-} from "./chat-lifecycle.js"
 import {
   WORKSPACE_CHAT_CLONE_BRANCH_SECRET,
   WORKSPACE_CHAT_CLONE_SHA_SECRET,
@@ -35,39 +29,22 @@ import {
   workspaceChatCloneTokenRef,
   workspaceChatGitSource,
   workspaceChatRuntimeConfig,
-  workspaceChatSandboxId,
   workspaceChatSandboxSpec,
 } from "./chat-runtime.js"
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
-import type { TanstackLikeHandle } from "./job-sandbox.js"
-import {
-  emitOpencodeChatAttempt,
-  opencodeChatStreamEvent,
-  shouldFailEmptyChatTurn,
-} from "./opencode-chat-stream.js"
+import { ensureConversationSessionBranch } from "./conversation-files.js"
+import { adaptTanstackHandle } from "./job-sandbox.js"
+import { workspaceRevisionSchema } from "./revision.js"
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
-import {
-  destroySandboxesForConversation,
-  heartbeatChatSandboxes,
-} from "./sandbox-registry.js"
+import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import { loadTanstackChatModules } from "./tanstack-runtime.js"
 import {
   aguiTextDelta,
   conversationRenameChunk,
-  takeWorkspaceChatProducer,
   type WorkspaceChatWireFormat,
-  withWorkspaceChatHeartbeats,
   workspaceChatHttpResponse,
-  workspaceChatRunError,
-  workspaceChatRunFinished,
-  workspaceChatRunStarted,
-  workspaceChatSandboxSetupChunk,
   workspaceChatWireFormat,
 } from "./workspace-chat-agui.js"
-import {
-  createWorkspaceChatAssistantGate,
-  isOpenCodePlanningHold,
-} from "./workspace-chat-assistant-text.js"
 import { workspaceChatCompletionsBaseUrl } from "./workspace-chat-model-proxy.js"
 import {
   WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV,
@@ -85,18 +62,12 @@ import {
   finishWorkspaceChatTurn,
   markWorkspaceChatFirstShownToken,
 } from "./workspace-chat-otel.js"
-import {
-  completePersistedWorkspaceChatRun,
-  workspaceChatPersistence,
-} from "./workspace-chat-persistence.js"
-import {
-  memoizedChatProvider,
-  memoizedConversationSandbox,
-} from "./workspace-chat-sandbox-memo.js"
+import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
 import { mintWorkspaceChatToken } from "./workspace-chat-token.js"
 import { workspaceChatTools } from "./workspace-chat-tools.js"
 
 export type TanstackWorkspaceChatMessage = {
+  id?: string
   role: string
   content?: unknown
   parts?: unknown[]
@@ -115,6 +86,7 @@ export type TanstackWorkspaceChatInput = {
   desiredUrl?: string
   desiredSha?: string | null
   desiredGeneration?: number
+  githubConnectionId?: string | null
   defaultBranch?: string
   lastBranch?: string | null
   ref?: string
@@ -127,9 +99,6 @@ export type TanstackWorkspaceChatInput = {
   onDelta?: (delta: string) => Promise<void> | void
   resolveRuntime?: () => Promise<Partial<TanstackWorkspaceChatInput>>
   wireFormat?: WorkspaceChatWireFormat
-  streamSetupMs?: number
-  streamIdleMs?: number
-  streamDrainMs?: number
 }
 
 export { conversationRenameChunk } from "./workspace-chat-agui.js"
@@ -139,32 +108,14 @@ function providerFactoryForChat(
   provider: string,
 ) {
   if (provider === "docker") {
-    return memoizedChatProvider("docker", () =>
-      modules.dockerSandbox?.(WORKSPACE_CHAT_DOCKER_SANDBOX),
-    )
+    return modules.dockerSandbox?.(WORKSPACE_CHAT_DOCKER_SANDBOX)
   }
   if (provider === "unsandboxed") {
-    return memoizedChatProvider("unsandboxed", () =>
-      modules.localProcessSandbox?.({
-        scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
-      }),
-    )
+    return modules.localProcessSandbox?.({
+      scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
+    })
   }
   return undefined
-}
-
-function chatProviderMatchesEffective(
-  storedProvider: string | null,
-  effective: string,
-): boolean {
-  return storedProvider === effective
-}
-
-function asTanstackLikeHandle(value: unknown): TanstackLikeHandle | null {
-  if (!value || typeof value !== "object") return null
-  const exec = (value as { process?: { exec?: unknown } }).process?.exec
-  if (typeof exec !== "function") return null
-  return value as TanstackLikeHandle
 }
 
 function abortControllerFrom(signal?: AbortSignal): AbortController {
@@ -225,157 +176,29 @@ async function* streamTanstackWorkspaceChatBody(
   const resolved = input.resolveRuntime ? await input.resolveRuntime() : {}
   const turn: TanstackWorkspaceChatInput = { ...input, ...resolved }
   await turn.onUserPersist?.()
-
-  yield workspaceChatRunStarted({
-    conversationId: turn.conversationId,
-    runId: turn.runId,
-  })
-  yield workspaceChatSandboxSetupChunk("starting")
-
   const prepared = await startWorkspaceChat(turn)
-  if (!prepared.ok) {
-    await turn.onError?.()
-    yield workspaceChatRunError(prepared.error)
-    return
-  }
-  yield workspaceChatSandboxSetupChunk("ready")
-
-  let lastHeartbeatAt: Date | null = new Date()
-  heartbeatChatSandboxes(turn.conversationId, lastHeartbeatAt)
-  void turn.onHeartbeat?.()
-  const heartbeat = setInterval(() => {
-    const now = new Date()
-    if (
-      !shouldHeartbeatChatSandbox({
-        turnInProgress: true,
-        lastHeartbeatAt,
-        now,
-      })
-    ) {
-      return
-    }
-    lastHeartbeatAt = now
-    heartbeatChatSandboxes(turn.conversationId, now)
-    void turn.onHeartbeat?.()
-  }, CHAT_HEARTBEAT_INTERVAL_MS)
-
-  const startedAt = Date.now()
-  const runtime = workspaceChatRuntimeConfig({
-    writeStatus: turn.writeStatus,
-    currentBranch: turn.ref,
-    defaultBranch: turn.defaultBranch,
-  })
-  const recordChatAttempt = (error?: unknown) => {
-    const fields = opencodeChatStreamEvent({
-      conversationId: turn.conversationId,
-      workspaceId: turn.workspaceId,
-      error,
-      provider: runtime.provider,
-      opencodePort: prepared.servePort,
-      durationMs: Date.now() - startedAt,
-    })
-    const message = String(fields.message ?? "OpenCode chat stream failed")
-    emitOpencodeChatAttempt(
-      fields,
-      error == null
-        ? null
-        : error instanceof Error
-          ? error
-          : new Error(message),
-    )
-    return message
-  }
-
-  let streamError: Error | null = null
-  let assistant = ""
-  const gate = createWorkspaceChatAssistantGate(turn.prompt)
+  if (!prepared.ok) throw new Error(prepared.error)
   try {
-    let finished: StreamChunk | null = null
-    const release = function* (chunks: object[]): Generator<StreamChunk> {
-      for (const next of chunks) {
-        const typed = next as StreamChunk
-        if (typed.type === "RUN_ERROR") {
-          streamError = new Error(
-            "message" in typed && typeof typed.message === "string"
-              ? typed.message
-              : "OpenCode chat stream failed",
-          )
-          continue
-        }
-        if (typed.type === "RUN_STARTED") {
-          continue
-        }
-        if (typed.type === "RUN_FINISHED") {
-          finished = typed
-          continue
-        }
-        const delta = aguiTextDelta(typed)
-        if (delta) assistant += delta
-        if (
-          typed.type === "TEXT_MESSAGE_CONTENT" ||
-          typed.type === "REASONING_MESSAGE_CONTENT" ||
-          typed.type === "TOOL_CALL_START"
-        ) {
-          markWorkspaceChatFirstShownToken(turn.conversationId)
-        }
-        yield typed
-      }
-    }
-    for await (const chunk of takeWorkspaceChatProducer(prepared.stream, {
-      setupMs: turn.streamSetupMs,
-      idleMs: turn.streamIdleMs,
-      drainMs: turn.streamDrainMs,
-      afterTerminal: (chunk) => {
-        if ((chunk as { type?: string }).type !== "RUN_FINISHED") return
-        return completePersistedWorkspaceChatRun(
-          turn.threadId ?? turn.conversationId,
-        ).catch(() => undefined)
-      },
-    })) {
+    for await (const chunk of prepared.stream) {
       const typed = chunk as StreamChunk
-      if (typed.type === "RUN_ERROR") {
-        streamError = new Error(
-          "message" in typed && typeof typed.message === "string"
-            ? typed.message
-            : "OpenCode chat stream failed",
-        )
-        continue
+      if (typed.type === "RUN_ERROR") await turn.onError?.()
+      if (typed.type === "RUN_FINISHED") {
+        const name = await nameConversationIfUnnamed({
+          conversationId: turn.conversationId,
+          prompt: turn.prompt,
+        })
+        if (name) yield conversationRenameChunk(name)
+        await turn.onFinish?.()
       }
-      yield* release(gate.take(chunk))
+      if (
+        typed.type === "TEXT_MESSAGE_CONTENT" ||
+        typed.type === "REASONING_MESSAGE_CONTENT" ||
+        typed.type === "TOOL_CALL_START"
+      )
+        markWorkspaceChatFirstShownToken(turn.conversationId)
+      yield typed
     }
-    yield* release(gate.flush())
-    assistant = gate.assistant() || assistant
-    const failed =
-      streamError != null ||
-      !assistant.trim() ||
-      isOpenCodePlanningHold(assistant) ||
-      shouldFailEmptyChatTurn({ assistant, error: streamError })
-    if (failed) {
-      const error =
-        streamError ?? new Error("workspace chat produced no assistant reply")
-      const message = recordChatAttempt(error)
-      await turn.onError?.()
-      yield workspaceChatRunError(message)
-      return
-    }
-    const name = await nameConversationIfUnnamed({
-      conversationId: turn.conversationId,
-      prompt: turn.prompt,
-    }).catch(() => null)
-    if (name) yield conversationRenameChunk(name)
-    if (turn.onFinish) await turn.onFinish()
-    recordChatAttempt()
-    yield finished ??
-      workspaceChatRunFinished({
-        conversationId: turn.conversationId,
-        runId: turn.runId,
-      })
-  } catch (error) {
-    const message = recordChatAttempt(error)
-    await turn.onError?.()
-    yield workspaceChatRunError(message)
   } finally {
-    clearInterval(heartbeat)
     await prepared.dispose()
   }
 }
@@ -384,50 +207,49 @@ export async function runTanstackWorkspaceChat(
   input: TanstackWorkspaceChatInput,
 ): Promise<Response> {
   return workspaceChatHttpResponse(
-    withWorkspaceChatHeartbeats(streamTanstackWorkspaceChat(input)),
+    streamTanstackWorkspaceChat(input),
     input.wireFormat ?? workspaceChatWireFormat(new Request("http://local")),
   )
 }
 
 export async function warmTanstackWorkspaceChat(
   input: TanstackWorkspaceChatInput,
-): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  options?: { existingOnly?: boolean },
+): Promise<
+  | { ok: true; handle: SandboxHandle }
+  | { ok: false; status: number; error: string }
+> {
   const prepareStarted = Date.now()
   const built = await buildWorkspaceChatSandbox(input)
   if (!built.ok) return built
   const session = await resolveWorkspaceChatSession(input, built.spec.isolation)
   if (!session.ok) return session
-  const { definition, handle } = memoizedConversationSandbox({
-    conversationId: input.conversationId,
-    specId: built.spec.id,
-    isolation: built.spec.isolation,
-    create: (box) =>
-      defineConversationSandbox({
-        modules: built.modules,
-        spec: built.spec,
-        input,
-        provider: built.provider,
-        runToken: session.runToken,
-        proxyUrl: session.proxyUrl,
-        modelBase: built.contract.modelBase,
-        handle: box,
-      }),
+  const definition = defineConversationSandbox({
+    modules: built.modules,
+    spec: built.spec,
+    input,
+    provider: built.provider,
+    runToken: session.runToken,
+    proxyUrl: session.proxyUrl,
+    modelBase: built.contract.modelBase,
   })
   const ensureStarted = Date.now()
+  const abortController = abortControllerFrom(input.abortSignal)
   try {
-    if (typeof definition.ensure !== "function") {
-      return { ok: false, status: 503, error: "sandbox ensure is unavailable" }
-    }
-    const ready = asTanstackLikeHandle(
-      await definition.ensure({
-        threadId: input.conversationId,
-        runId: input.runId ?? `prepare-${input.conversationId}`,
-        store: built.instances,
-        tenant: { orgId: input.orgId },
-        adapterName: "opencode",
-      }),
-    )
-    if (ready) handle.current = ready
+    const ensure = options?.existingOnly
+      ? definition.ensureExisting
+      : definition.ensure
+    const ready = await ensure({
+      threadId: input.conversationId,
+      runId: input.runId ?? `prepare-${input.conversationId}`,
+      store: built.instances,
+      locks: postgresSandboxLocks(input.orgId, abortController),
+      signal: abortController.signal,
+      // Match the optional fields emitted by native withSandbox's tenantFrom.
+      tenant: { userId: undefined, orgId: input.orgId },
+      adapterName: "opencode",
+    })
+    if (!ready) return { ok: false, status: 409, error: "missing_sandbox" }
     log.info({
       step: "workspace-chat-timing",
       phase: "ensure",
@@ -442,7 +264,7 @@ export async function warmTanstackWorkspaceChat(
       ms: Date.now() - prepareStarted,
       conversationId: input.conversationId,
     })
-    return { ok: true }
+    return { ok: true, handle: ready }
   } catch (error) {
     getLogger().error(
       error instanceof Error ? error : new Error(String(error)),
@@ -458,8 +280,6 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   | {
       ok: true
       stream: AsyncIterable<object>
-      servePort: number
-      handle: { current: TanstackLikeHandle | null }
       dispose: () => Promise<void>
     }
   | { ok: false; status: number; error: string }
@@ -477,21 +297,14 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     built.spec.isolation === "unsandboxed"
       ? await leaseLocalProcessOpenCodePort()
       : null
-  const { definition, handle } = memoizedConversationSandbox({
-    conversationId: input.conversationId,
-    specId: built.spec.id,
-    isolation: built.spec.isolation,
-    create: (box) =>
-      defineConversationSandbox({
-        modules: built.modules,
-        spec: built.spec,
-        input,
-        provider: built.provider,
-        runToken: session.runToken,
-        proxyUrl: session.proxyUrl,
-        modelBase: built.contract.modelBase,
-        handle: box,
-      }),
+  const definition = defineConversationSandbox({
+    modules: built.modules,
+    spec: built.spec,
+    input,
+    provider: built.provider,
+    runToken: session.runToken,
+    proxyUrl: session.proxyUrl,
+    modelBase: built.contract.modelBase,
   })
   try {
     const toolsStarted = Date.now()
@@ -515,18 +328,20 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       persistence,
     }
     const chatStarted = Date.now()
+    const abortController = abortControllerFrom(input.abortSignal)
     const stream = await modules.chat({
       adapter: modules.opencodeText(built.contract.opencodeModel, {
         port: servePort,
         permissionMode: runtime.permissionMode,
         onPermissionRequest: runtime.onPermissionRequest,
       }),
-      threadId: input.threadId ?? input.conversationId,
+      threadId: input.conversationId,
       runId: input.runId,
+      context: { orgId: input.orgId },
       messages: messagesForOpenCodeChat(input.messages, input.prompt) as Array<
         ModelMessage | UIMessage
       >,
-      abortController: abortControllerFrom(input.abortSignal),
+      abortController,
       tools,
       middleware: [
         otelMiddleware({
@@ -535,6 +350,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         withPersistence(persistence, { snapshotStreaming: true }),
         modules.withSandbox(definition, {
           instances,
+          locks: postgresSandboxLocks(input.orgId, abortController),
           snapshots,
         }),
         openCodeTrailingUserMiddleware(input.prompt),
@@ -551,8 +367,6 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     return {
       ok: true,
       stream,
-      servePort,
-      handle,
       dispose: async () => {
         await portLease?.release().catch(() => undefined)
       },
@@ -636,15 +450,16 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
       error: contract.error,
     }
   }
-  const snapshotId = workspaceChatSandboxId({
-    orgId: input.orgId,
+  const revision = workspaceRevisionSchema.safeParse({
     workspaceId: input.workspaceId,
-    desiredUrl,
-    desiredSha: input.desiredSha ?? null,
-    image: "chat:1",
+    remote: { url: desiredUrl, connectionId: input.githubConnectionId ?? null },
+    sha: input.desiredSha,
+    generation: input.desiredGeneration ?? 1,
+    defaultBranch: input.defaultBranch ?? "main",
+    access: "read",
   })
   const ref = input.desiredSha?.trim() || input.ref?.trim()
-  if (!snapshotId || !ref) {
+  if (!revision.success || !ref) {
     return {
       ok: false as const,
       status: 409,
@@ -652,7 +467,7 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
     }
   }
   const spec = workspaceChatSandboxSpec({
-    sandboxId: snapshotId,
+    sandboxId: `${input.orgId}:${JSON.stringify(revision.data)}:chat:1`,
     provider: runtime.provider,
     gitUrl: desiredUrl,
     ref,
@@ -666,23 +481,7 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
     }
   }
   const modules = await loadTanstackChatModules()
-  const storedChat = await withOrgDbContext(input.orgId, () =>
-    listSandboxInstances({
-      conversationId: input.conversationId,
-      kind: "chat",
-    }),
-  )
-  const storedProvider =
-    storedChat.find((row) => row.providerSandboxId)?.provider ??
-    storedChat[0]?.provider ??
-    null
   const effective = runtime.provider
-  if (
-    storedProvider &&
-    !chatProviderMatchesEffective(storedProvider, effective)
-  ) {
-    await destroySandboxesForConversation(input.conversationId)
-  }
   const provider = providerFactoryForChat(modules, effective)
   if (!provider) {
     return {
@@ -701,6 +500,7 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
       orgId: input.orgId,
       workspaceId: input.workspaceId,
       conversationId: input.conversationId,
+      revision: revision.data,
     }),
   }
 }
@@ -713,9 +513,8 @@ function defineConversationSandbox(input: {
   runToken: string
   proxyUrl: string
   modelBase: string
-  handle: { current: TanstackLikeHandle | null }
 }) {
-  const { modules, spec, provider, input: chatInput, handle } = input
+  const { modules, spec, provider, input: chatInput } = input
   const opencodeHome = writeWorkspaceChatOpenCodeConfig({
     conversationId: chatInput.conversationId,
     modelBase: input.modelBase,
@@ -734,9 +533,7 @@ function defineConversationSandbox(input: {
       ? { [WORKSPACE_CHAT_SESSION_BRANCH_SECRET]: chatInput.lastBranch }
       : {}),
     ...opencodeHome.homeEnv,
-    ...(chatInput.cloneToken
-      ? { [WORKSPACE_CHAT_CLONE_TOKEN_SECRET]: chatInput.cloneToken }
-      : {}),
+    [WORKSPACE_CHAT_CLONE_TOKEN_SECRET]: chatInput.cloneToken ?? "",
   })
   return modules.defineSandbox({
     id: spec.id,
@@ -757,13 +554,14 @@ function defineConversationSandbox(input: {
     }),
     lifecycle: spec.lifecycle,
     hooks: {
-      onReady: async (ready: TanstackLikeHandle) => {
-        handle.current = ready
+      onReady: async (ready: SandboxHandle) => {
         const session = chatInput.lastBranch?.trim()
-        if (session?.startsWith("ctxpipe/chat/") && ready.process?.exec) {
-          await ready.process
-            .exec(`git checkout -B ${session}`)
-            .catch(() => undefined)
+        if (session?.startsWith("ctxpipe/chat/")) {
+          await ensureConversationSessionBranch({
+            handle: adaptTanstackHandle(ready),
+            conversationId: chatInput.conversationId,
+            defaultBranch: chatInput.defaultBranch ?? "main",
+          })
         }
         log.info({
           step: "workspace-chat-sandbox-ready",

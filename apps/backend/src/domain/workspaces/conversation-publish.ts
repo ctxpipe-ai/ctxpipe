@@ -28,16 +28,23 @@ import {
   sameWorkspaceRevision,
   type WorkspaceRevision,
 } from "./revision.js"
-import type { RegisteredSandbox } from "./sandbox-registry.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 export type ConversationPublishPlan = ReturnType<typeof planChatPullRequest>
+
+export type ConversationSandboxBinding = {
+  githubConnectionId?: string | null
+  defaultBranch?: string | null
+  desiredGeneration?: number | null
+  desiredUrl?: string | null
+  desiredSha?: string | null
+}
 
 export function planCapturedConversationPublication(input: {
   revision: WorkspaceRevision
   writeStatus: string
   readOnlyReason?: string | null
-  sandbox: RegisteredSandbox | null
+  sandbox: ConversationSandboxBinding | null
 }): ConversationPublishPlan {
   if (input.sandbox?.githubConnectionId !== input.revision.remote.connectionId)
     return { publish: false, reason: "stale_connection" }

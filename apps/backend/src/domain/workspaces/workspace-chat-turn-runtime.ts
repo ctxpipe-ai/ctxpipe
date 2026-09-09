@@ -1,5 +1,4 @@
 import type { Env } from "../../config/env.js"
-import { persistConversationLastBranch } from "../../models/conversations.js"
 import { getRepoReadCloneToken } from "../../models/github-installation.js"
 import { log } from "../../observability/logger.js"
 import { resolveGithubDefaultBranch } from "../../routes/webhooks/github/github-workspace-tip.js"
@@ -39,6 +38,7 @@ export async function resolveWorkspaceChatTurnRuntime(input: {
   cloneRef: string
   defaultBranch: string
   cloneToken: string | null
+  githubConnectionId: string | null
   writeStatus: string
   desiredUrl: string | null
   desiredSha: string | null
@@ -114,17 +114,12 @@ export async function resolveWorkspaceChatTurnRuntime(input: {
       : restored === defaultBranch
         ? (workspace?.desiredSha ?? defaultBranch)
         : restored
-  if (lastBranch.startsWith("ctxpipe/chat/")) {
-    await persistConversationLastBranch({
-      conversationId: conversation.id,
-      lastBranch,
-    })
-  }
   return {
     lastBranch,
     cloneRef: cloneRef || workspace?.desiredSha || defaultBranch,
     defaultBranch,
     cloneToken,
+    githubConnectionId: workspace?.githubConnectionId ?? null,
     // This runtime permission applies to the conversation session branch.
     writeStatus: canEdit ? "writable" : (workspace?.writeStatus ?? "read_only"),
     desiredUrl: workspace?.workspaceRepositoryUrl ?? null,

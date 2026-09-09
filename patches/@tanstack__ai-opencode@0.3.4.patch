@@ -1,0 +1,164 @@
+diff --git a/dist/esm/stream/sdk-types.d.ts b/dist/esm/stream/sdk-types.d.ts
+index ced4f2b07b9d85f940844bc08ecc1f201cae1723..7cbf1dddd996ce036b6ba56dc2a6572fb7c4fc96 100644
+--- a/dist/esm/stream/sdk-types.d.ts
++++ b/dist/esm/stream/sdk-types.d.ts
+@@ -61,16 +61,19 @@ export type OpencodeToolState = {
+ export type OpencodePart = {
+     id: string;
+     sessionID?: string;
++    messageID?: string;
+     type: 'text';
+     text: string;
+ } | {
+     id: string;
+     sessionID?: string;
++    messageID?: string;
+     type: 'reasoning';
+     text: string;
+ } | {
+     id: string;
+     sessionID?: string;
++    messageID?: string;
+     type: 'tool';
+     callID: string;
+     tool: string;
+@@ -78,6 +81,7 @@ export type OpencodePart = {
+ } | {
+     id: string;
+     sessionID?: string;
++    messageID?: string;
+     type: string;
+ };
+ /**
+@@ -96,6 +100,8 @@ export type OpencodeEvent = {
+     type: 'message.updated';
+     properties: {
+         info: {
++            id: string;
++            role: string;
+             sessionID?: string;
+         };
+     };
+diff --git a/dist/esm/stream/translate.js b/dist/esm/stream/translate.js
+index a63df2314be1bf53f30f08bf21b6d56a6408122f..e874a57268631e962e675a5ac2dbb8a2f240fa51 100644
+--- a/dist/esm/stream/translate.js
++++ b/dist/esm/stream/translate.js
+@@ -62,6 +62,8 @@ function messageError(message) {
+ async function* translateOpencodeStream(events, ctx) {
+ 	const { model, runId, threadId, genId } = ctx;
+ 	const now = () => Date.now();
++	const messageRoles = new Map();
++	const pendingParts = new Map();
+ 	let runStarted = false;
+ 	/** Tool calls started but with no result yet, keyed by callID. */
+ 	const unresolvedToolCalls = /* @__PURE__ */ new Set();
+@@ -249,8 +251,23 @@ async function* translateOpencodeStream(events, ctx) {
+ 		};
+ 	}
+ 	function* handleEvent(event) {
+-		if (event.type === "message.part.updated") {
+-			const { part, delta } = event.properties;
++		if (event.type === "message.updated") {
++            const { id, role } = event.properties.info;
++            messageRoles.set(id, role);
++            const pending = pendingParts.get(id) ?? [];
++            pendingParts.delete(id);
++            for (const partEvent of pending) yield* handleEvent(partEvent);
++        } else if (event.type === "message.part.updated") {
++            const { part, delta } = event.properties;
++            if (!part.messageID) return;
++            const role = messageRoles.get(part.messageID);
++            if (role === undefined) {
++                const pending = pendingParts.get(part.messageID) ?? [];
++                pending.push(event);
++                pendingParts.set(part.messageID, pending);
++                return;
++            }
++            if (role !== "assistant") return;
+ 			if (isTextPart(part)) yield* handleTextPart(part, delta);
+ 			else if (isReasoningPart(part)) yield* handleReasoningPart(part, delta);
+ 			else if (isToolPart(part)) yield* handleToolPart(part);
+diff --git a/src/stream/sdk-types.ts b/src/stream/sdk-types.ts
+index 8deb3ce87a3f77b048513fd5796607cad2009310..b4937a948c147738caa5c782f0423496345885d3 100644
+--- a/src/stream/sdk-types.ts
++++ b/src/stream/sdk-types.ts
+@@ -56,17 +56,18 @@ export type OpencodeToolState =
+  * the `is*Part` type guards, so those kinds simply match no guard.
+  */
+ export type OpencodePart =
+-  | { id: string; sessionID?: string; type: 'text'; text: string }
+-  | { id: string; sessionID?: string; type: 'reasoning'; text: string }
++  | { id: string; sessionID?: string; messageID?: string; type: 'text'; text: string }
++  | { id: string; sessionID?: string; messageID?: string; type: 'reasoning'; text: string }
+   | {
+       id: string
+       sessionID?: string
++      messageID?: string
+       type: 'tool'
+       callID: string
+       tool: string
+       state: OpencodeToolState
+     }
+-  | { id: string; sessionID?: string; type: string }
++  | { id: string; sessionID?: string; messageID?: string; type: string }
+ 
+ /**
+  * The OpenCode events the translator understands. This is a closed
+@@ -81,7 +82,7 @@ export type OpencodeEvent =
+     }
+   | {
+       type: 'message.updated'
+-      properties: { info: { sessionID?: string } }
++      properties: { info: { sessionID?: string; id: string; role: string } }
+     }
+   | { type: 'session.idle'; properties: { sessionID: string } }
+   | {
+diff --git a/src/stream/translate.ts b/src/stream/translate.ts
+index a20c901f532cf94cd817038cb78298367c481ff7..5f2ddf5f7744837576e5d4b7f92087e29ce418fe 100644
+--- a/src/stream/translate.ts
++++ b/src/stream/translate.ts
+@@ -116,6 +116,10 @@ export async function* translateOpencodeStream(
+   const { model, runId, threadId, genId } = ctx
+   const now = () => Date.now()
+ 
++  // OpenCode broadcasts user and assistant parts on the same session stream.
++  // Classify by message identity, never by prompt text (an answer may quote it).
++  const messageRoles = new Map<string, string>()
++  const pendingParts = new Map<string, Array<OpencodeEvent>>()
+   let runStarted = false
+   /** Tool calls started but with no result yet, keyed by callID. */
+   const unresolvedToolCalls = new Set<string>()
+@@ -331,8 +335,23 @@ export async function* translateOpencodeStream(
+   }
+ 
+   function* handleEvent(event: OpencodeEvent): Generator<AdapterYieldChunk> {
+-    if (event.type === 'message.part.updated') {
++    if (event.type === 'message.updated') {
++      const { id, role } = event.properties.info
++      messageRoles.set(id, role)
++      const pending = pendingParts.get(id) ?? []
++      pendingParts.delete(id)
++      for (const partEvent of pending) yield* handleEvent(partEvent)
++    } else if (event.type === 'message.part.updated') {
+       const { part, delta } = event.properties
++      if (!part.messageID) return
++      const role = messageRoles.get(part.messageID)
++      if (role === undefined) {
++        const pending = pendingParts.get(part.messageID) ?? []
++        pending.push(event)
++        pendingParts.set(part.messageID, pending)
++        return
++      }
++      if (role !== 'assistant') return
+       if (isTextPart(part)) {
+         yield* handleTextPart(part, delta)
+       } else if (isReasoningPart(part)) {
+@@ -351,7 +370,7 @@ export async function* translateOpencodeStream(
+         value: { todos: event.properties.todos },
+       }
+     }
+-    // session.idle / session.status / message.updated are redundant with the
++    // session.idle / session.status are redundant with the
+     // terminal `done` event and are ignored.
+   }
+ 

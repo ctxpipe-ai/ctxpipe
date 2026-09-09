@@ -13,6 +13,7 @@ import {
   shouldDestroyChatSandbox,
 } from "../../domain/workspaces/chat-lifecycle.js"
 import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
+import { getConversationSandboxBinding } from "../../domain/workspaces/conversation-files.js"
 import {
   planCapturedConversationPublication,
   pushConversationSessionBranch,
@@ -21,11 +22,6 @@ import {
   sameWorkspaceBinding,
   sameWorkspaceRevision,
 } from "../../domain/workspaces/revision.js"
-import {
-  destroySandboxesForConversation,
-  getRegisteredChatSandbox,
-  withDestroyedConversationSandboxes,
-} from "../../domain/workspaces/sandbox-registry.js"
 import {
   conversationHasStoredTurns,
   warmTanstackWorkspaceChat,
@@ -36,6 +32,10 @@ import {
   resolveWorkspaceChatSendRuntime,
 } from "../../domain/workspaces/workspace-chat-send-runtime.js"
 import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
+import {
+  destroySandboxesForConversation,
+  withDestroyedConversationSandboxes,
+} from "../../domain/workspaces/workspace-sandbox-cleanup.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import { PageInfoSchema } from "../../lib/pagination.js"
 import {
@@ -62,6 +62,7 @@ import {
   conversationFileRoutes,
   conversationPublicPrUrl,
   conversationPublicTreeUrl,
+  readySandboxHandle,
 } from "./conversation-files-routes.js"
 
 const ErrorResponseSchema = z
@@ -689,9 +690,15 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       ref: runtime.cloneRef || runtime.desiredSha || "HEAD",
       writeStatus: runtime.writeStatus,
       cloneToken: runtime.cloneToken,
+      githubConnectionId: runtime.githubConnectionId,
     })
     if (!warmed.ok) return c.json({ error: warmed.error }, 503)
     await checkoutPreparedConversationBranch({
+      handle: {
+        exec: (command, options) =>
+          warmed.handle.process.exec(command, options),
+        fs: warmed.handle.fs,
+      },
       conversationId,
       githubConnectionId: workspace.githubConnectionId,
       workspaceId: runtime.workspaceId ?? workspace.id,
@@ -765,9 +772,8 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     ) {
       return c.json({ error: "read_only" }, 400)
     }
-    const sandbox = getRegisteredChatSandbox(conversationId)
-    const handle = sandbox?.handle
-    if (!handle) {
+    const sandbox = await getConversationSandboxBinding(conversationId)
+    if (!sandbox) {
       return c.json({ error: "missing_sandbox" }, 409)
     }
     const env = parseEnv(process.env as Record<string, string | undefined>)
@@ -788,6 +794,12 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!planned.publish) {
       return c.json({ error: planned.reason }, 400)
     }
+    const handle = await readySandboxHandle({
+      conversation,
+      workspace,
+      existingOnly: true,
+    })
+    if (!handle) return c.json({ error: "missing_sandbox" }, 409)
     const title = body.title ?? conversation.name
     const pushed = await pushConversationSessionBranch({
       handle,

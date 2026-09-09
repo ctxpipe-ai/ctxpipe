@@ -29,3 +29,5 @@ A second `lockPool` checked out a `PoolClient` and held **session** `pg_advisory
 - Replace session locks with `pg_advisory_xact_lock` that still spans provider I/O: rejected; still holds a transaction across Docker/`sbx`.
 - `deletingAt` tombstone: rejected; uniqueness plus fail-closed delete is enough.
 - `SET SESSION app.organization_id` on the pooler URL: rejected; transaction-mode PgBouncer does not preserve session GUCs.
+
+Gate 4 supersedes conversation-row uniqueness and the check-only LockStore with [ADR-034](ADR-034-native-postgres-sandbox-ownership.md). Short RLS transactions and the ban on held SQL clients remain in force.

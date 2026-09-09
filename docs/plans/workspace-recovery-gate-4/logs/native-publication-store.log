@@ -1,0 +1,162 @@
+{"name": "native-publication-store", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/routes/v1/conversation-publish-native.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/bun-1.4.2/bun-darwin-aarch64:/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-09T02:46:29Z", "log": "logs/native-publication-store.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-rmesyX/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-t6uwpx/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-PGbiyn/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-FX0sCN/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-AJXXBx/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-2arKU4/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-h6L7ZL/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-KRwFII/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-EYaNGU/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-fnnL7F/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-hWok7w/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-wUcHnM/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-kYjv0A/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-l7V95A/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-opI4IY/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-pnbvNj/remote.git'...
+done.
+ ❯ src/routes/v1/conversation-publish-native.contract.test.ts (16 tests | 4 failed) 31378ms
+   ✓ publishes from the authenticated conversation HTTP boundary: push  3808ms
+   ✓ publishes from the authenticated conversation HTTP boundary: warm_files  4947ms
+   ✓ publishes from the authenticated conversation HTTP boundary: pull-request  2303ms
+   ✓ publishes from the authenticated conversation HTTP boundary: pr_collision  2991ms
+   ✓ publishes from the authenticated conversation HTTP boundary: missing  623ms
+   ✓ publishes from the authenticated conversation HTTP boundary: stale  934ms
+   ✓ publishes from the authenticated conversation HTTP boundary: stale_push  730ms
+   ✓ publishes from the authenticated conversation HTTP boundary: stale_connection  723ms
+   ✓ publishes from the authenticated conversation HTTP boundary: stale_generation  821ms
+   ✓ publishes from the authenticated conversation HTTP boundary: stale_sha  773ms
+   ✓ publishes from the authenticated conversation HTTP boundary: stale_default_branch  833ms
+   × publishes from the authenticated conversation HTTP boundary: relink_after_push 3189ms
+   × publishes from the authenticated conversation HTTP boundary: relink_after_push_push 3116ms
+   × publishes from the authenticated conversation HTTP boundary: relink_during_pr 2496ms
+   × publishes from the authenticated conversation HTTP boundary: relink_before_pr 2606ms
+   ✓ hides a saved PR when its workspace relinks during the provider read  481ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/routes/v1/conversation-publish-native.contract.test.ts > publishes from the authenticated conversation HTTP boundary: relink_after_push
+AssertionError: expected { …(12) } to match object { lastChatPrNumber: null, …(1) }
+(10 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "lastBranch": null,
++   "lastBranch": "ctxpipe/chat/conv_hydrate_1788922016187_nbuaqjawvwj/1",
+    "lastChatPrNumber": null,
+  }
+
+ ❯ src/routes/v1/conversation-publish-native.contract.test.ts:271:15
+    269|                 ),
+    270|               ),
+    271|             ).toMatchObject({ lastChatPrNumber: null, lastBranch: null…
+       |               ^
+    272|           } else if (scenario === "missing" || scenario.startsWith("st…
+    273|             expect({ status: response.status, body }).toEqual({
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:657:5
+ ❯ src/routes/v1/conversation-publish-native.contract.test.ts:49:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  src/routes/v1/conversation-publish-native.contract.test.ts > publishes from the authenticated conversation HTTP boundary: relink_after_push_push
+AssertionError: expected { …(12) } to match object { lastChatPrNumber: null, …(1) }
+(10 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "lastBranch": null,
++   "lastBranch": "ctxpipe/chat/conv_hydrate_1788922019376_xvvqwvugug/1",
+    "lastChatPrNumber": null,
+  }
+
+ ❯ src/routes/v1/conversation-publish-native.contract.test.ts:271:15
+    269|                 ),
+    270|               ),
+    271|             ).toMatchObject({ lastChatPrNumber: null, lastBranch: null…
+       |               ^
+    272|           } else if (scenario === "missing" || scenario.startsWith("st…
+    273|             expect({ status: response.status, body }).toEqual({
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:657:5
+ ❯ src/routes/v1/conversation-publish-native.contract.test.ts:49:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  src/routes/v1/conversation-publish-native.contract.test.ts > publishes from the authenticated conversation HTTP boundary: relink_during_pr
+AssertionError: expected { …(12) } to match object { lastChatPrNumber: null, …(1) }
+(10 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "lastBranch": null,
++   "lastBranch": "ctxpipe/chat/conv_hydrate_1788922022492_f7j2qiy9kea/1",
+    "lastChatPrNumber": null,
+  }
+
+ ❯ src/routes/v1/conversation-publish-native.contract.test.ts:271:15
+    269|                 ),
+    270|               ),
+    271|             ).toMatchObject({ lastChatPrNumber: null, lastBranch: null…
+       |               ^
+    272|           } else if (scenario === "missing" || scenario.startsWith("st…
+    273|             expect({ status: response.status, body }).toEqual({
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:657:5
+ ❯ src/routes/v1/conversation-publish-native.contract.test.ts:49:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  src/routes/v1/conversation-publish-native.contract.test.ts > publishes from the authenticated conversation HTTP boundary: relink_before_pr
+AssertionError: expected { …(12) } to match object { lastChatPrNumber: null, …(1) }
+(10 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "lastBranch": null,
++   "lastBranch": "ctxpipe/chat/conv_hydrate_1788922024988_znlww46b77q/1",
+    "lastChatPrNumber": null,
+  }
+
+ ❯ src/routes/v1/conversation-publish-native.contract.test.ts:271:15
+    269|                 ),
+    270|               ),
+    271|             ).toMatchObject({ lastChatPrNumber: null, lastBranch: null…
+       |               ^
+    272|           } else if (scenario === "missing" || scenario.startsWith("st…
+    273|             expect({ status: response.status, body }).toEqual({
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:657:5
+ ❯ src/routes/v1/conversation-publish-native.contract.test.ts:49:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 12 passed (16)
+   Start at  12:46:29
+   Duration  38.49s (transform 2.28s, setup 49ms, import 6.86s, tests 31.38s, environment 0ms)
+

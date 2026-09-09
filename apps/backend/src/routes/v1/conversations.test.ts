@@ -19,7 +19,6 @@ const loadConversationTurnsMock = vi.hoisted(() =>
 )
 
 const getWorkspaceByIdMock = vi.hoisted(() => vi.fn())
-const getRegisteredChatSandboxMock = vi.hoisted(() => vi.fn())
 const resolveConversationSandboxHandleMock = vi.hoisted(() => vi.fn())
 const pushConversationSessionBranchMock = vi.hoisted(() => vi.fn())
 const createPullRequestFromBranchMock = vi.hoisted(() => vi.fn())
@@ -79,14 +78,11 @@ vi.mock("../../models/conversations.js", () => ({
   deleteConversation: deleteConversationMock,
 }))
 
-vi.mock("../../domain/workspaces/sandbox-registry.js", () => ({
+vi.mock("../../domain/workspaces/workspace-sandbox-cleanup.js", () => ({
   destroySandboxesForConversation: vi.fn(),
   withDestroyedConversationSandboxes: vi.fn(
     async (_input: unknown, fn: () => Promise<unknown>) => fn(),
   ),
-  getChatSandbox: vi.fn(() => null),
-  getRegisteredChatSandbox: getRegisteredChatSandboxMock,
-  attachChatSandboxHandle: vi.fn(),
 }))
 
 vi.mock("../../models/conversation-messages.js", () => ({
@@ -208,7 +204,6 @@ describe("conversations API", () => {
       desiredSha: "abc",
       desiredGeneration: 1,
     })
-    getRegisteredChatSandboxMock.mockReturnValue(null)
     resolveConversationSandboxHandleMock.mockReturnValue({
       exec: vi.fn(),
       fs: {},
@@ -274,30 +269,6 @@ describe("conversations API", () => {
     expect(getConversationMock).toHaveBeenCalledWith("conv_1", {
       workspaceId: "ws_other",
     })
-  })
-
-  it("prepares the conversation sandbox without opening a chat turn", async () => {
-    ensureConversationMock.mockResolvedValue(conversationRow)
-    getWorkspaceByIdMock.mockResolvedValue({
-      id: "ws_abc",
-      orgId: "org_mock",
-      workspaceRepositoryUrl: "https://github.com/acme/docs",
-      desiredSha: "abc",
-      writeStatus: "read_only",
-    })
-    const res = await app().request("/conversations/conv_1/prepare", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ workspaceId: "ws_abc" }),
-    })
-    expect(res.status).toBe(204)
-    expect(warmTanstackWorkspaceChatMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        conversationId: "conv_1",
-        workspaceId: "ws_abc",
-      }),
-    )
-    expect(workspaceChatStreamResponseMock).not.toHaveBeenCalled()
   })
 
   it("reconstructs the official persisted chat transcript", async () => {

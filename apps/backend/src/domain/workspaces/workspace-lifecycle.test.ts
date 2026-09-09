@@ -22,7 +22,7 @@ vi.mock("./ensure-org-repository.js", () => ({
   ensureOrgRepositoryForGitUrl: ensureOrgRepositoryForGitUrlMock,
 }))
 
-vi.mock("./sandbox-registry.js", () => ({
+vi.mock("./workspace-sandbox-cleanup.js", () => ({
   destroySandboxesForWorkspace: destroySandboxesForWorkspaceMock,
 }))
 

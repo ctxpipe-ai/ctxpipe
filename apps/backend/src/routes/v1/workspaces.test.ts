@@ -44,7 +44,7 @@ vi.mock("../../openworkflow/enqueue-workspace-commit-projection.js", () => ({
   enqueueWorkspaceCommitProjection: vi.fn().mockResolvedValue(undefined),
 }))
 
-vi.mock("../../domain/workspaces/sandbox-registry.js", () => ({
+vi.mock("../../domain/workspaces/workspace-sandbox-cleanup.js", () => ({
   destroySandboxesForWorkspace: destroySandboxesForWorkspaceMock,
   withDestroyedWorkspaceSandboxes: withDestroyedWorkspaceSandboxesMock,
 }))

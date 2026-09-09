@@ -1,0 +1,59 @@
+{"name": "native-http-chat-files", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/workspace-chat-native.contract.test.ts", "src/routes/v1/conversation-files-routes.live.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/bun-1.4.2/bun-darwin-aarch64:/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-09T02:56:12Z", "log": "logs/native-http-chat-files.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+stdout | src/domain/workspaces/workspace-chat-native.contract.test.ts > pins the native OpenCode durable-attach gap without rerunning a completed prompt
+{
+  error: DurableAttachNotSupportedError: opencode: this code path cannot ATTACH to an existing durable run (this adapter drives the harness over the opencode HTTP server and does not journal). It does not journal, so there is no stored output to replay and no alignment to suppress what was already delivered. Proceeding would re-run the agent from scratch against the workspace the previous attempt already modified, and double-append its entire output to the run log. Route the attach through a journaling spawn path, or drop `runs`/`durability` from withSandbox(...) so the run is never resumed in the first place. This is not a transient condition — unlike `JournalAttachUnavailableError`, waiting and retrying can never make it succeed.
+      at OpencodeTextAdapter.chatStream [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai-opencode@0.3.4_@tanstack+ai-sandbox@0.5.0_@cfworker+json-schema@4.1.1_@tan_7f7a95e07b7a5a0385ec082384e30481/node_modules/[4m@tanstack[24m/ai-opencode/dist/esm/adapters/text.js:71:34[90m)[39m
+      at chatStream.next (<anonymous>)
+      at TextEngine.streamModelResponse [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/activities/chat/index.js:506:20[90m)[39m
+      at streamModelResponse.next (<anonymous>)
+      at TextEngine.run [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/activities/chat/index.js:344:18[90m)[39m
+  [90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+      at streamTextChunks [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/activities/chat/index.js:2299:20[90m)[39m
+      at [90m/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/domain/workspaces/workspace-chat-native.contract.test.ts:62:24
+      at [90m/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/observability/logger.ts:131:16
+      at withNativeChatFixture [90m(/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/test/native-chat-fixture.ts:180:12[90m)[39m {
+    adapter: [32m'opencode'[39m,
+    reason: [32m'this adapter drives the harness over the opencode HTTP server and does not journal'[39m
+  },
+  source: [32m'opencode.chatStream'[39m
+}
+
+stderr | src/domain/workspaces/workspace-chat-native.contract.test.ts > pins the native OpenCode durable-attach gap without rerunning a completed prompt
+❌ [tanstack-ai:errors] ❌ opencode.chatStream fatal
+
+ ❯ src/domain/workspaces/workspace-chat-native.contract.test.ts (2 tests | 1 failed) 4461ms
+   ✓ pins the native OpenCode durable-attach gap without rerunning a completed prompt  554ms
+   × uses the prepared native worktree for two stock chat turns and persists their transcript 3906ms
+ ✓ src/routes/v1/conversation-files-routes.live.test.ts (1 test) 1030ms
+   ✓ resumes Files through native persisted ownership and never clones for a missing tree/status GET  1029ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/workspace-chat-native.contract.test.ts > uses the prepared native worktree for two stock chat turns and persists their transcript
+AssertionError: expected 'First questionNative reply completed.' to be 'Native reply completed.' // Object.is equality
+
+Expected: "Native reply completed."
+Received: "First questionNative reply completed."
+
+ ❯ src/domain/workspaces/workspace-chat-native.contract.test.ts:141:11
+    139|             .map((chunk) => chunk.delta)
+    140|             .join(""),
+    141|         ).toBe("Native reply completed.")
+       |           ^
+    142|         const rows = await withOrgDbContext(f.orgId, () =>
+    143|           listSandboxInstances({
+ ❯ src/observability/logger.ts:131:16
+ ❯ withNativeChatFixture src/test/native-chat-fixture.ts:180:12
+ ❯ src/domain/workspaces/workspace-chat-native.contract.test.ts:84:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 2 passed (3)
+   Start at  12:56:12
+   Duration  11.01s (transform 1.05s, setup 37ms, import 5.28s, tests 5.49s, environment 0ms)
+

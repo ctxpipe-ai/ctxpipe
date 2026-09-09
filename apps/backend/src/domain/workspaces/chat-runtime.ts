@@ -59,12 +59,12 @@ else
   git rev-parse --is-inside-work-tree >/dev/null
 fi
 if [ -n "\${CTXPIPE_SESSION_BRANCH:-}" ]; then
-  git checkout -B "\$CTXPIPE_SESSION_BRANCH" || true
+  git checkout -B "$CTXPIPE_SESSION_BRANCH" || true
 fi
 OPENCODE_HOME="\${HOME:-/tmp/ctxpipe-opencode-home}"
 mkdir -p "$OPENCODE_HOME"
 if [ -n "\${CTXPIPE_OPENCODE_JSON:-}" ]; then
-  printf '%s\\n' "\$CTXPIPE_OPENCODE_JSON" > "$OPENCODE_HOME/opencode.json"
+  printf '%s\\n' "$CTXPIPE_OPENCODE_JSON" > "$OPENCODE_HOME/opencode.json"
 fi
 if git rev-parse --git-dir >/dev/null 2>&1; then
   EXCLUDE="$(git rev-parse --git-dir)/info/exclude"
@@ -99,7 +99,8 @@ export function workspaceChatLiveSandboxId(input: {
 
 export const WORKSPACE_CHAT_CLONE_TOKEN_SECRET = "CTXPIPE_CLONE_TOKEN" as const
 export const WORKSPACE_CHAT_CLONE_URL_SECRET = "CTXPIPE_CLONE_URL" as const
-export const WORKSPACE_CHAT_CLONE_BRANCH_SECRET = "CTXPIPE_CLONE_BRANCH" as const
+export const WORKSPACE_CHAT_CLONE_BRANCH_SECRET =
+  "CTXPIPE_CLONE_BRANCH" as const
 export const WORKSPACE_CHAT_CLONE_SHA_SECRET = "CTXPIPE_CLONE_SHA" as const
 export const WORKSPACE_CHAT_SESSION_BRANCH_SECRET =
   "CTXPIPE_SESSION_BRANCH" as const
@@ -122,14 +123,13 @@ export function bindWorkspaceChatSecretRef(
 export function workspaceChatCloneTokenRef(
   secrets: Record<string, unknown>,
   token: string | null | undefined,
-): { readonly __secretName: string } | null {
-  if (!token) return null
+): { readonly __secretName: string } {
   const ref = secrets[WORKSPACE_CHAT_CLONE_TOKEN_SECRET]
   const named =
     ref && typeof ref === "object" && "__secretName" in ref
       ? (ref as { readonly __secretName: string })
       : { __secretName: WORKSPACE_CHAT_CLONE_TOKEN_SECRET }
-  return bindWorkspaceChatSecretRef(named, token)
+  return bindWorkspaceChatSecretRef(named, token ?? "")
 }
 
 /** Clone auth is a SecretRef (or omitted). Plaintext tokens must not enter the workspace hash. */

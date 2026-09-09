@@ -1,10 +1,4 @@
 {
   "version": 1,
-  "failures": [
-    {
-      "file": "src/domain/workspaces/tanstack-workspace-chat.live.test.ts",
-      "title": "workspace chat OpenCode fallback (live) conversation POST streams through the same local_process fallback",
-      "message": "AssertionError: expected -1 to be greater than 15"
-    }
-  ]
+  "failures": []
 }

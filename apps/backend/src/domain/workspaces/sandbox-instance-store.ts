@@ -2,14 +2,13 @@ import type {
   SandboxInstanceStore,
   SandboxInstanceRecord as TanstackSandboxInstanceRecord,
 } from "@tanstack/ai-sandbox"
-import { withOrgDbContext } from "../../db/client.js"
+import type { SandboxInstanceRecord } from "../../models/workspace-sandboxes.js"
 import {
   deleteSandboxInstance,
   getSandboxInstance,
-  listSandboxInstances,
   persistSandboxInstance,
 } from "../../models/workspaces.js"
-import type { SandboxInstanceRecord } from "../../models/workspace-sandboxes.js"
+import type { WorkspaceRevision } from "./revision.js"
 
 function toTanstackRecord(
   row: SandboxInstanceRecord,
@@ -31,23 +30,12 @@ export function postgresSandboxInstanceStore(input: {
   orgId: string
   workspaceId: string
   conversationId?: string | null
+  revision?: WorkspaceRevision
 }): SandboxInstanceStore {
   return {
     async get(key) {
       const row = await getSandboxInstance(key, input.orgId)
-      const keyed = row ? toTanstackRecord(row) : null
-      if (keyed) return keyed
-      const conversationId = input.conversationId?.trim()
-      if (!conversationId) return null
-      const live = await withOrgDbContext(input.orgId, () =>
-        listSandboxInstances({
-          conversationId,
-          kind: "chat",
-          state: "live",
-        }),
-      )
-      const found = live.find((item) => item.providerSandboxId)
-      return found ? toTanstackRecord(found) : null
+      return row ? toTanstackRecord(row) : null
     },
     async upsert(record) {
       const conversationId = record.threadId.trim() || null
@@ -59,6 +47,7 @@ export function postgresSandboxInstanceStore(input: {
         conversationId,
         provider: record.provider,
         providerSandboxId: record.providerSandboxId,
+        revision: input.revision,
         latestSnapshotId: record.latestSnapshotId ?? null,
         latestRunId: record.latestRunId ?? null,
         state: "live",

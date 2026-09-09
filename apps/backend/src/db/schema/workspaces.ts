@@ -247,6 +247,7 @@ export const workspaceSandboxInstances = pgTable.withRLS(
     desiredSha: text("desired_sha"),
     provider: text("provider"),
     providerSandboxId: text("provider_sandbox_id"),
+    revision: jsonb("revision").$type<WorkspaceRevision>(),
     latestSnapshotId: text("latest_snapshot_id"),
     latestRunId: text("latest_run_id"),
     state: text("state").notNull().default("live"),
@@ -271,11 +272,6 @@ export const workspaceSandboxInstances = pgTable.withRLS(
       .on(t.workspaceId)
       .where(
         sql`${t.kind} = 'job' and ${t.state} in ('live', 'destroy_failed')`,
-      ),
-    uniqueIndex("workspace_sandbox_instances_live_chat_conversation_uidx")
-      .on(t.conversationId)
-      .where(
-        sql`${t.kind} = 'chat' and ${t.conversationId} is not null and ${t.state} in ('live', 'destroy_failed')`,
       ),
     orgIsolationPolicy(t.orgId),
   ],
