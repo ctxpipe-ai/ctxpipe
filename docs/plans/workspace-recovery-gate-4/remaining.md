@@ -64,13 +64,15 @@ Key evidence:
    necessary but not sufficient. The prepare contract asserts the exact
    railway 503 without allocating a sandbox. Do not implement an SDK
    provider.
-5. All three cumulative implementation review defects now have native green
-   evidence and reviewer closure: provider-error propagation, immutable-image
-   base collection, and detached cleanup after external agent loss. The proxy
-   response-header deadline regression also passes. Items 1–4 are closed on
-   CI `34410598235`. Gate 4 still needs two independent cumulative Sol
-   reviews (`gpt-5.6-sol-high`, Standards + Spec + Simplicity) of
-   `20cf0791...HEAD` and a `Gate 4:` close commit on a later SHA.
+5. Independent cumulative reviews of `20cf0791...032c5b23` both returned
+   `BLOCKED`. Shared blockers: per-call Docker `defineSandbox` rebuild,
+   incomplete warm-turn budget proof, and dead `console.*` capture. Reviewer
+   A also blocked on `tanstack-runtime` catch-and-empty and conversation-
+   keyed OTEL. Those are being corrected on this SHA; do not write
+   `Gate 4:` until both reviews are re-run at zero blockers and full CI is
+   green. Reports:
+   [reviewer A](checkpoint-032c5b23-reviewer-a.md),
+   [reviewer B](checkpoint-032c5b23-reviewer-b.md).
 
 ## Current CI and cost controls
 

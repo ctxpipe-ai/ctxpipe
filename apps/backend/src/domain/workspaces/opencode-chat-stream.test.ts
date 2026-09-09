@@ -9,7 +9,6 @@ import {
   opencodeChatStreamExcerpt,
   shouldFailEmptyChatTurn,
   stripAnsi,
-  withTanstackConsoleCapture,
 } from "./opencode-chat-stream.js"
 
 describe("opencodeChatStreamEvent", () => {
@@ -116,15 +115,6 @@ describe("opencodeChatStreamEvent", () => {
       status: 500,
       bodyExcerpt: "Unexpected server error. Check server logs for details.",
     })
-  })
-
-  it("captures a TanStack console fatal as one error", async () => {
-    const { result, fatal } = await withTanstackConsoleCapture(async () => {
-      console.error("❌ [tanstack-ai:errors] ❌ opencode.chatStream fatal")
-      return 1
-    })
-    expect(result).toBe(1)
-    expect(fatal?.message).toContain("opencode.chatStream")
   })
 })
 

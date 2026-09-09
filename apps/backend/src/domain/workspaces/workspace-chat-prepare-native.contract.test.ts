@@ -32,6 +32,7 @@ import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import {
   streamTanstackWorkspaceChat,
   warmTanstackWorkspaceChat,
+  workspaceChatDockerOwnership,
 } from "./tanstack-workspace-chat.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
 import { resolveWorkspaceChatTurnRuntime } from "./workspace-chat-turn-runtime.js"
@@ -614,6 +615,7 @@ it(
                       defaultBranch: "main",
                       writeStatus: "read_only" as const,
                     }
+                    workspaceChatDockerOwnership.reset()
                     const first = await warmTanstackWorkspaceChat({
                       ...input,
                       prompt: "prepare",
@@ -713,6 +715,8 @@ it(
                     expect(recoveredEvents).not.toContain("RUN_ERROR")
                     expect(recoveredText).toBe("Native reply completed.")
                     expect(f.modelRequests.length).toBeGreaterThanOrEqual(2)
+                    expect(workspaceChatDockerOwnership.imageInspects).toBe(1)
+                    expect(workspaceChatDockerOwnership.providerCreates).toBe(1)
                   } catch (error) {
                     throw new Error(
                       `Docker chat fixture ${phase} failed: ${String(error)}`,
@@ -769,7 +773,13 @@ it(
           }
           const cold = await resolveWorkspaceChatTurnRuntime(input)
           requests.length = 0
-          const warm = await resolveWorkspaceChatTurnRuntime(input)
+          const samples: number[] = []
+          let warm = cold
+          for (let i = 0; i < 20; i += 1) {
+            const started = Date.now()
+            warm = await resolveWorkspaceChatTurnRuntime(input)
+            samples.push(Date.now() - started)
+          }
           expect(warm.defaultBranch).toBe("main")
           expect(warm.lastBranch).toBe("ctxpipe/chat/conv_warm/1")
           expect(warm.cloneRef).toBe(f.sha)
@@ -777,6 +787,10 @@ it(
           expect(warm.cloneToken).toBe("fixture-only-github-read-token")
           expect(warm).toEqual(cold)
           expect(requests).toEqual([])
+          const ranked = [...samples].sort((left, right) => left - right)
+          expect(ranked[Math.floor((ranked.length - 1) * 0.95)]).toBeLessThan(
+            5_000,
+          )
         })
       },
     )

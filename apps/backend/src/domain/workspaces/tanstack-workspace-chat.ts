@@ -1,6 +1,7 @@
 import { createServer } from "node:net"
 import { trace } from "@opentelemetry/api"
 import {
+  chat,
   defineChatMiddleware,
   type ModelMessage,
   modelMessagesToUIMessages,
@@ -8,14 +9,20 @@ import {
   type UIMessage,
 } from "@tanstack/ai"
 import { otelMiddleware } from "@tanstack/ai/middlewares/otel"
+import { opencodeText } from "@tanstack/ai-opencode"
 import { withPersistence } from "@tanstack/ai-persistence"
 import {
+  createSecrets,
   defineSandbox,
+  defineWorkspace,
   getSandbox,
+  gitSource,
+  memorySandboxSnapshots,
   SandboxCapability,
   type SandboxEnsureContext,
   type SandboxHandle,
   type SandboxProvider,
+  withSandbox,
 } from "@tanstack/ai-sandbox"
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
@@ -58,7 +65,6 @@ import {
 } from "./sandbox-instance-store.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import { discoverSandboxProvider } from "./sandbox-provider.js"
-import { loadTanstackChatModules } from "./tanstack-runtime.js"
 import {
   aguiTextDelta,
   conversationRenameChunk,
@@ -163,6 +169,85 @@ const LOCAL_CHAT_SANDBOX_DEFINITION = conversationSandboxDefinition(
   }),
 )
 
+type DockerChatSandbox = {
+  definition: ReturnType<typeof conversationSandboxDefinition>
+  image: string
+  policyIdentity: string
+}
+
+const dockerChatSandboxes = new Map<string, DockerChatSandbox>()
+let dockerImageInspect: Promise<{
+  agentImageId: string
+  proxyImageId: string
+}> | null = null
+
+/** Test-visible ownership counters. Image inspect and provider create happen once per process/policy. */
+export const workspaceChatDockerOwnership = {
+  imageInspects: 0,
+  providerCreates: 0,
+  reset() {
+    this.imageInspects = 0
+    this.providerCreates = 0
+    dockerImageInspect = null
+    dockerChatSandboxes.clear()
+  },
+}
+
+function inspectWorkspaceChatDockerImages() {
+  dockerImageInspect ??= (async () => {
+    workspaceChatDockerOwnership.imageInspects += 1
+    const docker = new Docker({ timeout: 30_000 })
+    const [agentImage, proxyImage] = await Promise.all([
+      docker.getImage(workspaceChatDockerImage()).inspect(),
+      docker.getImage(WORKSPACE_CHAT_DOCKER_SANDBOX.image).inspect(),
+    ])
+    return { agentImageId: agentImage.Id, proxyImageId: proxyImage.Id }
+  })()
+  return dockerImageInspect
+}
+
+async function workspaceChatDockerSandbox(input: {
+  modelBaseUrl: string
+  workspaceGitUrl: string
+}): Promise<DockerChatSandbox | { ok: false; status: 503; error: string }> {
+  try {
+    const images = await inspectWorkspaceChatDockerImages()
+    const policy = buildWorkspaceChatDockerPolicy({
+      agentImageId: images.agentImageId,
+      proxyImageId: images.proxyImageId,
+      modelBaseUrl: input.modelBaseUrl,
+      workspaceGitUrl: input.workspaceGitUrl,
+    })
+    const cached = dockerChatSandboxes.get(policy.policyIdentity)
+    if (cached) return cached
+    workspaceChatDockerOwnership.providerCreates += 1
+    const { policyIdentity, ...nativeConfig } = policy
+    const created: DockerChatSandbox = {
+      definition: conversationSandboxDefinition(
+        dockerSandbox({
+          ...nativeConfig,
+          dockerodeOptions: { timeout: 120_000 },
+        }),
+      ),
+      image: policy.image,
+      policyIdentity,
+    }
+    dockerChatSandboxes.set(policyIdentity, created)
+    return created
+  } catch (error) {
+    getLogger().error(
+      error instanceof Error ? error : new Error(String(error)),
+      { step: "workspace-chat-docker-policy" },
+    )
+    return {
+      ok: false,
+      status: 503,
+      error:
+        "Workspace chat requires initialized Docker images and isolation policy.",
+    }
+  }
+}
+
 function abortControllerFrom(signal?: AbortSignal): AbortController {
   const abortController = new AbortController()
   if (!signal) return abortController
@@ -203,20 +288,23 @@ export async function collectTanstackWorkspaceChatText(
 export async function* streamTanstackWorkspaceChat(
   input: TanstackWorkspaceChatInput,
 ): AsyncGenerator<StreamChunk> {
-  beginWorkspaceChatTurn(input.conversationId)
+  const turnId = input.runId ?? input.conversationId
+  beginWorkspaceChatTurn(input.conversationId, turnId)
   try {
-    yield* streamTanstackWorkspaceChatBody(input)
-    finishWorkspaceChatTurn(input.conversationId)
+    yield* streamTanstackWorkspaceChatBody(input, turnId)
   } catch (error) {
-    finishWorkspaceChatTurn(input.conversationId, {
+    finishWorkspaceChatTurn(turnId, {
       error: error instanceof Error ? error.message : String(error),
     })
     throw error
+  } finally {
+    finishWorkspaceChatTurn(turnId)
   }
 }
 
 async function* streamTanstackWorkspaceChatBody(
   input: TanstackWorkspaceChatInput,
+  turnId: string,
 ): AsyncGenerator<StreamChunk> {
   const resolved = input.resolveRuntime ? await input.resolveRuntime() : {}
   const turn: TanstackWorkspaceChatInput = { ...input, ...resolved }
@@ -239,7 +327,7 @@ async function* streamTanstackWorkspaceChatBody(
       typed.type === "REASONING_MESSAGE_CONTENT" ||
       typed.type === "TOOL_CALL_START"
     )
-      markWorkspaceChatFirstShownToken(turn.conversationId)
+      markWorkspaceChatFirstShownToken(turnId)
     yield typed
   }
 }
@@ -321,7 +409,6 @@ export async function warmTanstackWorkspaceChat(
   const { session } = built
   const definition = built.definition
   const workspace = conversationSandboxWorkspace({
-    modules: built.modules,
     spec: built.spec,
     input,
     runToken: session.runToken,
@@ -416,7 +503,6 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   const { session, callbackHost } = built
   const definition = built.definition
   const workspace = conversationSandboxWorkspace({
-    modules: built.modules,
     spec: built.spec,
     input,
     runToken: session.runToken,
@@ -449,12 +535,11 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       }),
     }
   }
-  const modules = built.modules
   const instances = built.instances
   let revisionRecoveryNotice: string | undefined
   const persistence = workspaceChatPersistence()
   const snapshots = {
-    ...(await modules.memorySandboxSnapshots({
+    ...(await memorySandboxSnapshots({
       sandbox: definition,
       workspace,
       instances,
@@ -464,8 +549,8 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   const chatStarted = Date.now()
   const abortController = abortControllerFrom(input.abortSignal)
   let transcriptOwner: string | undefined
-  const stream = await modules.chat({
-    adapter: modules.opencodeText(built.contract.opencodeModel, {
+  const stream = await chat({
+    adapter: opencodeText(built.contract.opencodeModel, {
       ...opencodeListen,
       permissionMode: runtime.permissionMode,
       onPermissionRequest: runtime.onPermissionRequest,
@@ -541,7 +626,6 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
           Object.assign(
             workspace,
             conversationSandboxWorkspace({
-              modules,
               spec: retained.spec,
               input: retainedInput,
               runToken: session.runToken,
@@ -560,7 +644,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
           }
         },
       }),
-      modules.withSandbox(definition, {
+      withSandbox(definition, {
         workspace,
         instances,
         locks: postgresSandboxLocks(
@@ -739,38 +823,14 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
   let policyIdentity = "1"
   let definition = LOCAL_CHAT_SANDBOX_DEFINITION
   if (selectedProvider === "docker") {
-    try {
-      // Snapshot commits can exceed 30 seconds on a quota-backed daemon.
-      const dockerodeOptions = { timeout: 120_000 }
-      const docker = new Docker({ timeout: 30_000 })
-      const [agentImage, proxyImage] = await Promise.all([
-        docker.getImage(workspaceChatDockerImage()).inspect(),
-        docker.getImage(WORKSPACE_CHAT_DOCKER_SANDBOX.image).inspect(),
-      ])
-      const policy = buildWorkspaceChatDockerPolicy({
-        agentImageId: agentImage.Id,
-        proxyImageId: proxyImage.Id,
-        modelBaseUrl: session.proxyUrl,
-        workspaceGitUrl: desiredUrl,
-      })
-      const { policyIdentity: identity, ...nativeConfig } = policy
-      image = policy.image
-      policyIdentity = identity
-      definition = conversationSandboxDefinition(
-        dockerSandbox({ ...nativeConfig, dockerodeOptions }),
-      )
-    } catch (error) {
-      getLogger().error(
-        error instanceof Error ? error : new Error(String(error)),
-        { step: "workspace-chat-docker-policy" },
-      )
-      return {
-        ok: false as const,
-        status: 503 as const,
-        error:
-          "Workspace chat requires initialized Docker images and isolation policy.",
-      }
-    }
+    const dockerSandboxReady = await workspaceChatDockerSandbox({
+      modelBaseUrl: session.proxyUrl,
+      workspaceGitUrl: desiredUrl,
+    })
+    if ("ok" in dockerSandboxReady) return dockerSandboxReady
+    image = dockerSandboxReady.image
+    policyIdentity = dockerSandboxReady.policyIdentity
+    definition = dockerSandboxReady.definition
   }
   const spec = workspaceChatSandboxSpec({
     sandboxId: `${input.orgId}:${JSON.stringify(revision.data)}:chat:${image}${selectedProvider === "docker" ? `:${policyIdentity}` : ""}`,
@@ -786,10 +846,8 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
         "Workspace chat requires an isolated TanStack sandbox provider. Host OpenCode is not a fallback.",
     }
   }
-  const modules = await loadTanstackChatModules()
   return {
     ok: true as const,
-    modules,
     spec,
     definition,
     contract,
@@ -810,7 +868,6 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
 }
 
 function conversationSandboxWorkspace(input: {
-  modules: Awaited<ReturnType<typeof loadTanstackChatModules>>
   spec: Extract<ReturnType<typeof workspaceChatSandboxSpec>, { ok: true }>
   input: TanstackWorkspaceChatInput
   runToken: string
@@ -819,13 +876,13 @@ function conversationSandboxWorkspace(input: {
   image: string
   policyIdentity: string
 }) {
-  const { modules, spec, input: chatInput } = input
+  const { spec, input: chatInput } = input
   const opencodeHome = writeWorkspaceChatOpenCodeConfig({
     conversationId: chatInput.conversationId,
     modelBase: input.modelBase,
     isolation: spec.isolation,
   })
-  const secrets = modules.createSecrets({
+  const secrets = createSecrets({
     ...(spec.isolation === "unsandboxed"
       ? { CTXPIPE_OPENCODE_RUN_TOKEN: input.runToken }
       : {}),
@@ -843,7 +900,7 @@ function conversationSandboxWorkspace(input: {
     ...opencodeHome.homeEnv,
     [WORKSPACE_CHAT_CLONE_TOKEN_SECRET]: chatInput.cloneToken ?? "",
   })
-  return modules.defineWorkspace({
+  return defineWorkspace({
     identity: spec.id,
     transitionIdentity: JSON.stringify({
       orgId: chatInput.orgId,
@@ -857,7 +914,7 @@ function conversationSandboxWorkspace(input: {
         ? { policyIdentity: input.policyIdentity }
         : {}),
     }),
-    source: modules.gitSource({
+    source: gitSource({
       url: spec.source.url,
       ref: chatInput.defaultBranch ?? spec.source.ref,
       commit: chatInput.desiredSha ?? undefined,
