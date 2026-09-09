@@ -1,7 +1,7 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { writeFile } from "node:fs/promises"
-import { createServer } from "node:net"
+import { createServer, type Socket } from "node:net"
 import { networkInterfaces } from "node:os"
 import { join } from "node:path"
 import { PassThrough } from "node:stream"
@@ -33,6 +33,7 @@ import {
   streamTanstackWorkspaceChat,
   warmTanstackWorkspaceChat,
 } from "./tanstack-workspace-chat.js"
+import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
 import { resolveWorkspaceChatTurnRuntime } from "./workspace-chat-turn-runtime.js"
 import { destroySandboxesForConversation } from "./workspace-sandbox-cleanup.js"
 
@@ -635,6 +636,7 @@ it(
                     phase = "opencode ingress"
                     await publishOpenCode()
                     phase = "first chat"
+                    const persistence = workspaceChatPersistence()
                     const firstEvents: string[] = []
                     let firstText = ""
                     for await (const chunk of streamTanstackWorkspaceChat({
@@ -642,6 +644,9 @@ it(
                       prompt: "First question",
                       runId: `${f.conversationId}-quota-chat-1`,
                       messages: [
+                        ...(await persistence.stores.messages.loadThread(
+                          f.conversationId,
+                        )),
                         {
                           id: "user-quota-chat-1",
                           role: "user",
@@ -690,6 +695,9 @@ it(
                       prompt: "Second question",
                       runId: `${f.conversationId}-quota-chat-2`,
                       messages: [
+                        ...(await persistence.stores.messages.loadThread(
+                          f.conversationId,
+                        )),
                         {
                           id: "user-quota-chat-2",
                           role: "user",
@@ -1624,7 +1632,9 @@ async function startNestedPortForward(input: {
   port: number
 }): Promise<{ stop: () => Promise<void> }> {
   const children = new Set<ChildProcess>()
+  const sockets = new Set<Socket>()
   const server = createServer((socket) => {
+    sockets.add(socket)
     const env = { ...process.env }
     delete env.DOCKER_HOST
     delete env.DOCKER_TLS_VERIFY
@@ -1658,6 +1668,7 @@ async function startNestedPortForward(input: {
     })
     socket.on("error", close)
     socket.on("close", () => {
+      sockets.delete(socket)
       child.stdin?.end()
     })
   })
@@ -1667,12 +1678,12 @@ async function startNestedPortForward(input: {
   })
   return {
     async stop() {
+      for (const socket of sockets) socket.destroy()
       for (const child of children) {
         if (child.exitCode === null) child.kill()
       }
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()))
-        server.closeAllConnections()
       })
     },
   }
