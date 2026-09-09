@@ -45,6 +45,17 @@ describe("conversation publish helpers", () => {
     ).toBe(true)
   })
 
+  it("blocks publishing a stale conversation branch", () => {
+    expect(
+      conversationCommitPushEnabled({
+        dirty: true,
+        differsFromDefault: true,
+        unpushed: true,
+        stale: true,
+      }),
+    ).toBe(false)
+  })
+
   it("builds a GitHub tree href after the first push", () => {
     expect(
       conversationGithubTreeHref(

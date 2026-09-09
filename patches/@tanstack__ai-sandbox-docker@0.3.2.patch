@@ -1,3 +1,841 @@
+diff --git a/dist/esm/handle.js b/dist/esm/handle.js
+index 004a79a0840d869a08ac048b4f4774fb5e29156d..0febcd77da8a67ec5faa37214417fe895d3a107b 100644
+--- a/dist/esm/handle.js
++++ b/dist/esm/handle.js
+@@ -206,378 +206,461 @@ async function* decodeStream(stream) {
+ 	const tail = decoder.decode();
+ 	if (tail !== "") yield tail;
+ }
+-var DockerHandle = class {
+-	id;
+-	provider = "docker";
+-	workspaceRoot;
+-	capabilities = DOCKER_CAPS;
+-	fs;
+-	git;
+-	process;
+-	ports;
+-	env;
+-	docker;
+-	container;
+-	workdir;
+-	deps;
+-	logger;
+-	envVars = {};
+-	constructor(deps) {
+-		this.docker = deps.docker;
+-		this.container = deps.container;
+-		this.workdir = deps.workdir;
+-		this.logger = deps.logger;
+-		this.workspaceRoot = deps.workdir;
+-		this.deps = deps;
+-		this.id = deps.container.id;
+-		this.process = {
+-			exec: (command, opts) => this.exec(command, opts),
+-			spawn: (command, opts) => this.spawnProcess(command, opts)
+-		};
+-		this.fs = {
+-			read: async (p) => {
+-				const r = await this.exec(`base64 ${q(this.abs(p))}`);
+-				if (r.exitCode !== 0) throw new Error(`read failed: ${r.stderr.trim()}`);
+-				return Buffer.from(r.stdout, "base64").toString("utf8");
+-			},
+-			readBytes: async (p) => {
+-				const r = await this.exec(`base64 ${q(this.abs(p))}`);
+-				if (r.exitCode !== 0) throw new Error(`read failed: ${r.stderr.trim()}`);
+-				return new Uint8Array(Buffer.from(r.stdout, "base64"));
+-			},
+-			write: async (p, data) => {
+-				for (const command of fsWriteCommands(this.abs(p), data)) {
+-					const r = await this.exec(command);
+-					if (r.exitCode !== 0) throw new Error(`write failed: ${r.stderr.trim()}`);
+-				}
+-			},
+-			list: async (p) => {
+-				const r = await this.exec(`ls -1Ap ${q(this.abs(p))}`);
+-				if (r.exitCode !== 0) throw new Error(`list failed: ${r.stderr.trim()}`);
+-				return r.stdout.split("\n").filter((line) => line.trim() !== "").map((entry) => {
+-					const isDir = entry.endsWith("/");
+-					const name = isDir ? entry.slice(0, -1) : entry;
+-					return {
+-						name,
+-						path: `${p.replace(/\/$/, "")}/${name}`,
+-						type: isDir ? "dir" : "file"
+-					};
+-				});
+-			},
+-			lstat: async (p) => this.lstat(this.abs(p)),
+-			mkdir: async (p) => {
+-				await this.exec(`mkdir -p ${q(this.abs(p))}`);
+-			},
+-			remove: async (p) => {
+-				await this.exec(`rm -rf ${q(this.abs(p))}`);
+-			},
+-			rename: async (from, to) => {
+-				await this.exec(`mv ${q(this.abs(from))} ${q(this.abs(to))}`);
+-			},
+-			exists: async (p) => {
+-				return (await this.exec(`test -e ${q(this.abs(p))}`)).exitCode === 0;
+-			}
+-		};
+-		this.git = createExecBackedGit(this.process, this.workdir);
+-		this.ports = { connect: (port) => this.connectPort(port) };
+-		this.env = { set: (vars) => {
+-			Object.assign(this.envVars, vars);
+-			return Promise.resolve();
+-		} };
+-	}
+-	/** Map the conventional `/workspace` virtual root to the container workdir. */
+-	abs(p) {
+-		if (this.workdir === "/workspace") return p;
+-		if (p === "/workspace") return this.workdir;
+-		if (p.startsWith("/workspace/")) return `${this.workdir}/${p.slice(11)}`;
+-		return p;
+-	}
+-	async lstat(path) {
+-		const r = await this.exec(lstatCommand(path));
+-		if (r.exitCode === 0 && r.stdout.trim() === LSTAT_MISSING) return void 0;
+-		if (r.exitCode !== 0) throw new Error(`lstat failed: ${r.stderr.trim()}`);
+-		return parseLstatOutput(r.stdout);
+-	}
+-	envArray(extra) {
+-		return Object.entries({
+-			PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+-			HOME: "/root",
+-			...this.envVars,
+-			...extra
+-		}).map(([k, v]) => `${k}=${v}`);
+-	}
+-	/**
+-	* Signal the container-side process that recorded its pid to `pidFile`, and
+-	* REPORT anything that says the process may still be alive.
+-	*
+-	* AWAITABLE, and callers on the `kill()` path must await it. It used to be
+-	* fire-and-forget (`void this.exec(...)`), which meant `await proc.kill()`
+-	* resolved before the container had been asked to do anything — so the
+-	* documented ordering of `await proc.kill(); await handle.destroy()` did not
+-	* hold, and a caller could not know whether the kill had even been attempted.
+-	*
+-	* NEVER THROWS. The container may already be stopping — itself a terminal kill
+-	* of everything inside it — and this runs from teardown paths where a
+-	* rejection would wedge the caller instead of freeing anything. But "does not
+-	* throw" is not "cannot be observed to fail": a refusal reported by the shell
+-	* (see {@link killRecordedPidCommand}) or a rejected exec both reach the
+-	* logger, so an unkillable process is visible rather than silently assumed
+-	* dead.
+-	*
+-	* A NO-OP ONCE THE OWNER HAS EXITED. `state.exited` says the pid file is gone
+-	* because we removed it, not because the container-side shell has yet to write
+-	* it — see {@link PidFileState}. Without that distinction every clean teardown
+-	* (`followJournal` kills in a `finally` on all paths) spent
+-	* {@link PID_WAIT_TIMEOUT_MS} waiting for a file nothing would ever write and
+-	* then warned about an orphan that did not exist, which is exactly the
+-	* cried-wolf channel `killableProcesses: true` cannot be evidenced by.
+-	*
+-	* ONE KILL PER WRAPPER. Concurrent callers join the first kill's promise
+-	* instead of issuing a second `container.exec()` that would arrive after the
+-	* first shell's `rm -f` and report the same phantom. The first escalates to
+-	* `SIGKILL` unconditionally, so a second adds nothing.
+-	*/
+-	killRecordedPid(pidFile, state, signal) {
+-		if (state.exited) return Promise.resolve();
+-		state.killRequested = true;
+-		state.kill ??= this.runRecordedKill(pidFile, signal);
+-		return state.kill;
+-	}
+-	async runRecordedKill(pidFile, signal) {
+-		let result;
+-		try {
+-			result = await this.exec(killRecordedPidCommand(pidFile, signal));
+-		} catch (error) {
+-			this.logger?.warn("docker: could not run the in-container kill", {
+-				pidFile,
+-				error: error instanceof Error ? error.message : String(error)
+-			});
+-			return;
+-		}
+-		if (result.stderr.includes(KILL_FAILED_MARKER)) this.logger?.warn("docker: in-container process survived the kill; it may be orphaned", {
+-			pidFile,
+-			stderr: result.stderr.trim()
+-		});
+-		else if (result.stderr.includes(KILL_NO_PID_MARKER)) this.logger?.warn("docker: no pid was recorded for this process, so it could not be signalled", {
+-			pidFile,
+-			stderr: result.stderr.trim()
+-		});
+-	}
+-	/**
+-	* Remove a pid file whose owner has exited on its own.
+-	*
+-	* `killRecordedPidCommand` already removes it on the kill path, which covered
+-	* only killed processes: every signal-bearing `exec` and every `spawn` wrote
+-	* one, and a normally-exiting command left it in `/tmp` for the life of the
+-	* container. Being dot-prefixed, `journalListCommand`'s `ls -1` never showed
+-	* them, so the accumulation was silent.
+-	*
+-	* Fire-and-forget on purpose — it runs from stream-completion handlers, races
+-	* a container that may already be gone, and a leftover file in a doomed
+-	* container's `/tmp` is not worth failing or delaying anything for.
+-	*/
+-	removePidFile(pidFile) {
+-		this.exec(`rm -f ${q(pidFile)}`).catch(() => {});
+-	}
+-	async exec(command, opts) {
+-		const pidFile = opts?.signal ? `/tmp/.tanstack-sandbox-exec-${randomUUID()}.pid` : void 0;
+-		const exec = await this.container.exec({
+-			Cmd: [
+-				"sh",
+-				"-c",
+-				pidFile ? pidRecordingCommand(command, pidFile) : command
+-			],
+-			AttachStdout: true,
+-			AttachStderr: true,
+-			WorkingDir: opts?.cwd ? this.abs(opts.cwd) : this.workdir,
+-			Env: this.envArray(opts?.env)
+-		});
+-		const stream = await exec.start({
+-			hijack: true,
+-			stdin: false
+-		});
+-		const stdoutChunks = [];
+-		const stderrChunks = [];
+-		const outW = new Writable({ write(chunk, _enc, cb) {
+-			stdoutChunks.push(chunk);
+-			cb();
+-		} });
+-		const errW = new Writable({ write(chunk, _enc, cb) {
+-			stderrChunks.push(chunk);
+-			cb();
+-		} });
+-		this.docker.modem.demuxStream(stream, outW, errW);
+-		const state = {
+-			exited: false,
+-			killRequested: false
+-		};
+-		const signal = opts?.signal;
+-		const onAbort = () => {
+-			if (pidFile !== void 0) this.killRecordedPid(pidFile, state);
+-			stream.destroy();
+-		};
+-		if (signal) signal.addEventListener("abort", onAbort, { once: true });
+-		try {
+-			await new Promise((resolve, reject) => {
+-				stream.on("end", resolve);
+-				stream.on("close", resolve);
+-				stream.on("error", reject);
+-			});
+-		} finally {
+-			if (signal) signal.removeEventListener("abort", onAbort);
+-			if (pidFile !== void 0 && !state.killRequested) {
+-				state.exited = true;
+-				this.removePidFile(pidFile);
+-			}
+-		}
+-		const info = await exec.inspect();
+-		return {
+-			stdout: Buffer.concat(stdoutChunks).toString("utf8"),
+-			stderr: Buffer.concat(stderrChunks).toString("utf8"),
+-			exitCode: info.ExitCode ?? 0
+-		};
+-	}
+-	async spawnProcess(command, opts) {
+-		const pidFile = `/tmp/.tanstack-sandbox-spawn-${randomUUID()}.pid`;
+-		const exec = await this.container.exec({
+-			Cmd: [
+-				"sh",
+-				"-c",
+-				pidRecordingCommand(command, pidFile)
+-			],
+-			AttachStdin: true,
+-			AttachStdout: true,
+-			AttachStderr: true,
+-			WorkingDir: opts?.cwd ? this.abs(opts.cwd) : this.workdir,
+-			Env: this.envArray(opts?.env)
+-		});
+-		const stream = await exec.start({
+-			hijack: true,
+-			stdin: true
+-		});
+-		const outPT = new PassThrough();
+-		const errPT = new PassThrough();
+-		this.docker.modem.demuxStream(stream, outPT, errPT);
+-		const endOutputs = () => {
+-			outPT.end();
+-			errPT.end();
+-		};
+-		stream.on("end", endOutputs);
+-		stream.on("close", endOutputs);
+-		stream.on("error", endOutputs);
+-		const state = {
+-			exited: false,
+-			killRequested: false
+-		};
+-		const ownerExited = () => {
+-			if (state.killRequested || state.exited) return;
+-			state.exited = true;
+-			this.removePidFile(pidFile);
+-		};
+-		stream.on("end", ownerExited);
+-		stream.on("close", ownerExited);
+-		stream.on("error", ownerExited);
+-		const signal = opts?.signal;
+-		const onAbort = () => {
+-			this.killRecordedPid(pidFile, state);
+-			stream.destroy();
+-		};
+-		if (signal) {
+-			signal.addEventListener("abort", onAbort, { once: true });
+-			const detach = () => signal.removeEventListener("abort", onAbort);
+-			stream.on("end", detach);
+-			stream.on("close", detach);
+-			stream.on("error", detach);
+-		}
+-		return {
+-			pid: -1,
+-			stdout: decodeStream(outPT),
+-			stderr: decodeStream(errPT),
+-			stdin: {
+-				write: (data) => new Promise((resolve, reject) => {
+-					stream.write(data, (err) => err ? reject(err) : resolve());
+-				}),
+-				end: () => {
+-					stream.end();
+-					return Promise.resolve();
+-				}
+-			},
+-			wait: async () => {
+-				await new Promise((resolve) => {
+-					if (outPT.readableEnded) {
+-						resolve();
+-						return;
+-					}
+-					stream.once("end", resolve);
+-					stream.once("close", resolve);
+-					stream.once("error", resolve);
+-				});
+-				return (await exec.inspect()).ExitCode ?? 0;
+-			},
+-			/**
+-			* Kill the container-side process, THEN detach. Detaching alone would
+-			* leave it running (see `pidRecordingCommand`) — a silent orphan leak.
+-			*
+-			* AWAITS the in-container kill, so when this resolves the container has
+-			* been asked and has answered. It previously returned an
+-			* already-resolved promise while the kill was still in flight, which gave
+-			* `await proc.kill(); await handle.destroy()` no ordering at all.
+-			*
+-			* ESCALATES TO `SIGKILL` unconditionally, {@link KILL_ESCALATION_DELAY_MS}
+-			* after `signal`. This is a teardown primitive, not a graceful-shutdown
+-			* one: a process that ignores `TERM` is a leak, and the container-side pid
+-			* is the only handle we have on it. A `signal` argument therefore selects
+-			* WHICH signal the process gets a brief chance to handle — NOT whether it
+-			* may take its time. A handler needing longer than that must be given its
+-			* time before calling this (send the signal yourself and await the
+-			* process's own exit via {@link SpawnHandle.wait}).
+-			*
+-			* Never rejects — see `killRecordedPid`. A kill the container refused is
+-			* reported through the handle's `logger`, not thrown.
+-			*
+-			* CHEAP AND SILENT WHEN THE PROCESS ALREADY EXITED. Callers kill
+-			* unconditionally in `finally` blocks — `journal-reader`'s `followJournal`
+-			* does so on every exit path, clean ones included — so this is routinely
+-			* called on a process that is already gone. That case is not a failed kill:
+-			* no wait, no signal, no warning (see `PidFileState`).
+-			*/
+-			kill: async (killSignal) => {
+-				await this.killRecordedPid(pidFile, state, killSignal);
+-				stream.destroy();
+-			}
+-		};
+-	}
+-	async connectPort(port) {
+-		const hostPort = (await this.container.inspect()).NetworkSettings.Ports[`${port}/tcp`]?.[0]?.HostPort;
+-		if (!hostPort) throw new Error(`docker: container port ${port} is not published. Pass publishPorts: [${port}] to dockerSandbox() to reach it from the host.`);
+-		return { url: `http://localhost:${hostPort}` };
+-	}
+-	async snapshot(label) {
+-		const tag = `tanstack-ai-sandbox-snapshot:${this.id.slice(0, 12)}-${label ?? "snap"}`;
+-		const [repo, tagName] = tag.split(":");
+-		await this.container.commit({
+-			repo,
+-			tag: tagName
+-		});
+-		return {
+-			id: tag,
+-			label
+-		};
+-	}
+-	fork = async () => {
+-		if (!this.capabilities.fork) throw new UnsupportedCapabilityError("docker", "fork");
+-		return this.deps.forkFactory(this.id);
+-	};
+-	async destroy() {
+-		try {
+-			await this.container.stop({ t: 5 });
+-		} catch {}
+-		if (this.deps.removeOnDestroy) await this.container.remove({
+-			force: true,
+-			v: true
+-		});
+-	}
+-};
++class DockerHandle {
++    id;
++    provider = 'docker';
++    workspaceRoot;
++    capabilities = DOCKER_CAPS;
++    fs;
++    git;
++    process;
++    ports;
++    env;
++    docker;
++    container;
++    workdir;
++    deps;
++    logger;
++    envVars = {};
++    constructor(deps) {
++        this.docker = deps.docker;
++        this.container = deps.container;
++        this.workdir = deps.workdir;
++        this.logger = deps.logger;
++        this.workspaceRoot = deps.workdir;
++        this.deps = deps;
++        this.id = deps.container.id;
++        this.process = {
++            exec: (command, opts) => this.exec(command, opts),
++            spawn: (command, opts) => this.spawnProcess(command, opts),
++        };
++        this.fs = {
++            read: async (p, opts) => {
++                const r = await this.exec(`base64 ${q(this.abs(p))}`, opts);
++                if (r.exitCode !== 0)
++                    throw new Error(`read failed: ${r.stderr.trim()}`);
++                return Buffer.from(r.stdout, 'base64').toString('utf8');
++            },
++            readBytes: async (p) => {
++                const r = await this.exec(`base64 ${q(this.abs(p))}`);
++                if (r.exitCode !== 0)
++                    throw new Error(`read failed: ${r.stderr.trim()}`);
++                return new Uint8Array(Buffer.from(r.stdout, 'base64'));
++            },
++            write: async (p, data, opts) => {
++                for (const command of fsWriteCommands(this.abs(p), data)) {
++                    const r = await this.exec(command, opts);
++                    if (r.exitCode !== 0)
++                        throw new Error(`write failed: ${r.stderr.trim()}`);
++                }
++            },
++            list: async (p) => {
++                const r = await this.exec(`ls -1Ap ${q(this.abs(p))}`);
++                if (r.exitCode !== 0)
++                    throw new Error(`list failed: ${r.stderr.trim()}`);
++                return r.stdout
++                    .split('\n')
++                    .filter((line) => line.trim() !== '')
++                    .map((entry) => {
++                    const isDir = entry.endsWith('/');
++                    const name = isDir ? entry.slice(0, -1) : entry;
++                    return {
++                        name,
++                        path: `${p.replace(/\/$/, '')}/${name}`,
++                        type: isDir ? 'dir' : 'file',
++                    };
++                });
++            },
++            lstat: async (p) => this.lstat(this.abs(p)),
++            mkdir: async (p, opts) => {
++                const result = await this.exec(`mkdir -p ${q(this.abs(p))}`, opts);
++                if (result.exitCode !== 0)
++                    throw new Error(`mkdir failed: ${result.stderr.trim()}`);
++            },
++            remove: async (p, opts) => {
++                const result = await this.exec(`rm -rf ${q(this.abs(p))}`, opts);
++                if (result.exitCode !== 0)
++                    throw new Error(`remove failed: ${result.stderr.trim()}`);
++            },
++            rename: async (from, to) => {
++                await this.exec(`mv ${q(this.abs(from))} ${q(this.abs(to))}`);
++            },
++            exists: async (p) => {
++                const r = await this.exec(`test -e ${q(this.abs(p))}`);
++                return r.exitCode === 0;
++            },
++        };
++        this.git = createExecBackedGit(this.process, this.workdir);
++        this.ports = {
++            connect: (port) => this.connectPort(port),
++        };
++        this.env = {
++            set: (vars) => {
++                Object.assign(this.envVars, vars);
++                return Promise.resolve();
++            },
++        };
++    }
++    /** Map the conventional `/workspace` virtual root to the container workdir. */
++    abs(p) {
++        if (!p.startsWith('/'))
++            return `${this.workdir}/${p}`;
++        if (this.workdir === '/workspace')
++            return p;
++        if (p === '/workspace')
++            return this.workdir;
++        if (p.startsWith('/workspace/'))
++            return `${this.workdir}/${p.slice('/workspace/'.length)}`;
++        return p;
++    }
++    async lstat(path) {
++        const r = await this.exec(lstatCommand(path));
++        if (r.exitCode === 0 && r.stdout.trim() === LSTAT_MISSING)
++            return undefined;
++        if (r.exitCode !== 0) {
++            throw new Error(`lstat failed: ${r.stderr.trim()}`);
++        }
++        return parseLstatOutput(r.stdout);
++    }
++    envArray(extra) {
++        // Docker `exec` Env replaces the container env. Keep a PATH and HOME so
++        // CLIs still resolve and `~/.claude` has a home when secrets are the only
++        // other vars.
++        return Object.entries({
++            PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
++            HOME: '/root',
++            ...this.envVars,
++            ...extra,
++        }).map(([k, v]) => `${k}=${v}`);
++    }
++    /**
++     * Signal the container-side process that recorded its pid to `pidFile`, and
++     * REPORT anything that says the process may still be alive.
++     *
++     * AWAITABLE, and callers on the `kill()` path must await it. It used to be
++     * fire-and-forget (`void this.exec(...)`), which meant `await proc.kill()`
++     * resolved before the container had been asked to do anything — so the
++     * documented ordering of `await proc.kill(); await handle.destroy()` did not
++     * hold, and a caller could not know whether the kill had even been attempted.
++     *
++     * NEVER THROWS. The container may already be stopping — itself a terminal kill
++     * of everything inside it — and this runs from teardown paths where a
++     * rejection would wedge the caller instead of freeing anything. But "does not
++     * throw" is not "cannot be observed to fail": a refusal reported by the shell
++     * (see {@link killRecordedPidCommand}) or a rejected exec both reach the
++     * logger, so an unkillable process is visible rather than silently assumed
++     * dead.
++     *
++     * A NO-OP ONCE THE OWNER HAS EXITED. `state.exited` says the pid file is gone
++     * because we removed it, not because the container-side shell has yet to write
++     * it — see {@link PidFileState}. Without that distinction every clean teardown
++     * (`followJournal` kills in a `finally` on all paths) spent
++     * {@link PID_WAIT_TIMEOUT_MS} waiting for a file nothing would ever write and
++     * then warned about an orphan that did not exist, which is exactly the
++     * cried-wolf channel `killableProcesses: true` cannot be evidenced by.
++     *
++     * ONE KILL PER WRAPPER. Concurrent callers join the first kill's promise
++     * instead of issuing a second `container.exec()` that would arrive after the
++     * first shell's `rm -f` and report the same phantom. The first escalates to
++     * `SIGKILL` unconditionally, so a second adds nothing.
++     */
++    killRecordedPid(pidFile, state, signal) {
++        if (state.exited)
++            return Promise.resolve();
++        state.killRequested = true;
++        state.kill ??= this.runRecordedKill(pidFile, signal);
++        return state.kill;
++    }
++    async runRecordedKill(pidFile, signal) {
++        let result;
++        try {
++            result = await this.exec(killRecordedPidCommand(pidFile, signal));
++        }
++        catch (error) {
++            this.logger?.warn('docker: could not run the in-container kill', {
++                pidFile,
++                error: error instanceof Error ? error.message : String(error),
++            });
++            return;
++        }
++        if (result.stderr.includes(KILL_FAILED_MARKER)) {
++            this.logger?.warn('docker: in-container process survived the kill; it may be orphaned', { pidFile, stderr: result.stderr.trim() });
++        }
++        else if (result.stderr.includes(KILL_NO_PID_MARKER)) {
++            // The pid file never appeared within `PID_WAIT_TIMEOUT_MS`, so NO signal
++            // was sent. Nothing here can fix that; saying so is the whole point.
++            this.logger?.warn('docker: no pid was recorded for this process, so it could not be signalled', { pidFile, stderr: result.stderr.trim() });
++        }
++    }
++    /**
++     * Remove a pid file whose owner has exited on its own.
++     *
++     * `killRecordedPidCommand` already removes it on the kill path, which covered
++     * only killed processes: every signal-bearing `exec` and every `spawn` wrote
++     * one, and a normally-exiting command left it in `/tmp` for the life of the
++     * container. Being dot-prefixed, `journalListCommand`'s `ls -1` never showed
++     * them, so the accumulation was silent.
++     *
++     * Fire-and-forget on purpose — it runs from stream-completion handlers, races
++     * a container that may already be gone, and a leftover file in a doomed
++     * container's `/tmp` is not worth failing or delaying anything for.
++     */
++    removePidFile(pidFile) {
++        void this.exec(`rm -f ${q(pidFile)}`).catch(() => {
++            // Container already stopped/removed — its whole `/tmp` went with it.
++        });
++    }
++    async exec(command, opts) {
++        opts?.signal?.throwIfAborted();
++        // Files and Git share the native cancellable process path.
++        const pidFile = opts?.signal
++            ? `/tmp/.tanstack-sandbox-exec-${randomUUID()}.pid`
++            : undefined;
++        const exec = await this.container.exec({
++            Cmd: [
++                'sh',
++                '-c',
++                pidFile ? pidRecordingCommand(command, pidFile) : command,
++            ],
++            AttachStdout: true,
++            AttachStderr: true,
++            WorkingDir: opts?.cwd ? this.abs(opts.cwd) : this.workdir,
++            Env: this.envArray(opts?.env),
++        });
++        const stream = await exec.start({ hijack: true, stdin: false });
++        const stdoutChunks = [];
++        const stderrChunks = [];
++        const outW = new Writable({
++            write(chunk, _enc, cb) {
++                stdoutChunks.push(chunk);
++                cb();
++            },
++        });
++        const errW = new Writable({
++            write(chunk, _enc, cb) {
++                stderrChunks.push(chunk);
++                cb();
++            },
++        });
++        this.docker.modem.demuxStream(stream, outW, errW);
++        const state = { exited: false, killRequested: false };
++        const signal = opts?.signal;
++        // Named so it can be DETACHED below. With `{ once: true }` alone the
++        // listener outlives the exec, so an abort fired after the command had
++        // already finished re-entered the kill path for a pid file we had removed —
++        // 2s of waiting and a phantom orphan warning for a process that was long
++        // gone.
++        const onAbort = () => {
++            // Kill inside the container FIRST — detaching the stream on its own
++            // leaves the command running (see `pidRecordingCommand`). This one
++            // handler cannot await (an `AbortSignal` listener is synchronous), so
++            // the kill is dispatched and its own reporting is left to
++            // `killRecordedPid`'s logger. `SpawnHandle.kill` — the path a caller
++            // sequences teardown on — DOES await.
++            if (pidFile !== undefined)
++                void this.killRecordedPid(pidFile, state);
++            stream.destroy();
++        };
++        if (signal)
++            signal.addEventListener('abort', onAbort, { once: true });
++        try {
++            await new Promise((resolve, reject) => {
++                stream.on('end', resolve);
++                // A destroyed stream (abort) emits only `close`, never `end`, so without
++                // this an aborted exec would never settle at all.
++                stream.on('close', resolve);
++                stream.on('error', reject);
++                if (signal?.aborted)
++                    onAbort();
++            });
++        }
++        finally {
++            // `finally`, not a statement after the `await`: `stream.on('error')`
++            // REJECTS, and on that path the straight-line cleanup never ran at all —
++            // so an erroring exec left its pid file in the container's `/tmp` for the
++            // container's whole life, the exact leak this cleanup exists to prevent.
++            if (signal)
++                signal.removeEventListener('abort', onAbort);
++            // The wrapper exited (or failed) on its own, so nothing will ever read its
++            // pid file again. On the kill path `killRecordedPidCommand` removes it
++            // instead — removing it here too would race that kill's `cat`.
++            if (pidFile !== undefined && !state.killRequested) {
++                state.exited = true;
++                this.removePidFile(pidFile);
++            }
++        }
++        if (state.kill)
++            await state.kill;
++        signal?.throwIfAborted();
++        const info = await exec.inspect();
++        return {
++            stdout: Buffer.concat(stdoutChunks).toString('utf8'),
++            stderr: Buffer.concat(stderrChunks).toString('utf8'),
++            exitCode: info.ExitCode ?? 0,
++        };
++    }
++    async spawnProcess(command, opts) {
++        const pidFile = `/tmp/.tanstack-sandbox-spawn-${randomUUID()}.pid`;
++        const exec = await this.container.exec({
++            Cmd: ['sh', '-c', pidRecordingCommand(command, pidFile)],
++            AttachStdin: true,
++            AttachStdout: true,
++            AttachStderr: true,
++            WorkingDir: opts?.cwd ? this.abs(opts.cwd) : this.workdir,
++            Env: this.envArray(opts?.env),
++        });
++        const stream = await exec.start({ hijack: true, stdin: true });
++        const outPT = new PassThrough();
++        const errPT = new PassThrough();
++        this.docker.modem.demuxStream(stream, outPT, errPT);
++        /*
++         * Close the demuxed output streams when the hijacked exec stream finishes,
++         * so consumers iterating `stdout`/`stderr` (for await ... of) terminate.
++         * A normal EOF emits `end`, but a destroyed stream (e.g. from kill()) emits
++         * only `close` and never `end` — so we must also end the PassThroughs on
++         * `close`/`error`, or the consumer hangs forever waiting for the iterator to
++         * complete. `end()` is idempotent, so handling multiple events is safe.
++         */
++        const endOutputs = () => {
++            outPT.end();
++            errPT.end();
++        };
++        stream.on('end', endOutputs);
++        stream.on('close', endOutputs);
++        stream.on('error', endOutputs);
++        const state = { exited: false, killRequested: false };
++        /*
++         * The owner exited without anyone killing it, so ITS pid file is ours to
++         * remove — and, just as importantly, its absence from here on means "gone",
++         * not "not written yet" (`state.exited`; see `PidFileState`). `kill()`/abort
++         * own the file instead when they ran, because their shell reads it before
++         * `rm -f`-ing it.
++         *
++         * All three events, not just `end`: `end` fires only on a clean EOF, so a
++         * stream reaching `close` or `error` without one — a broken connection to
++         * the daemon, a container stopping under us — used to leak the file for the
++         * container's whole life. `state.exited` keeps the removal idempotent across
++         * the `end`+`close` pair a clean exit emits.
++         */
++        const ownerExited = () => {
++            if (state.killRequested || state.exited)
++                return;
++            state.exited = true;
++            this.removePidFile(pidFile);
++        };
++        stream.on('end', ownerExited);
++        stream.on('close', ownerExited);
++        stream.on('error', ownerExited);
++        const signal = opts?.signal;
++        // Detached once the stream settles — see the twin comment in `exec` for why
++        // a listener outliving its process is a source of phantom orphan warnings.
++        const onAbort = () => {
++            // Synchronous listener — cannot await. See the twin comment in `exec`.
++            void this.killRecordedPid(pidFile, state);
++            stream.destroy();
++        };
++        if (signal) {
++            signal.addEventListener('abort', onAbort, { once: true });
++            const detach = () => signal.removeEventListener('abort', onAbort);
++            stream.on('end', detach);
++            stream.on('close', detach);
++            stream.on('error', detach);
++        }
++        return {
++            pid: -1, // docker exec does not surface a host-visible pid
++            stdout: decodeStream(outPT),
++            stderr: decodeStream(errPT),
++            stdin: {
++                write: (data) => new Promise((resolve, reject) => {
++                    stream.write(data, (err) => (err ? reject(err) : resolve()));
++                }),
++                end: () => {
++                    stream.end();
++                    return Promise.resolve();
++                },
++            },
++            wait: async () => {
++                await new Promise((resolve) => {
++                    if (outPT.readableEnded) {
++                        resolve();
++                        return;
++                    }
++                    // Resolve on whichever of these fires first. A clean exit emits
++                    // `end`; a destroyed/killed stream emits only `close` (never `end`),
++                    // so wait on both or this hangs after kill().
++                    stream.once('end', resolve);
++                    stream.once('close', resolve);
++                    stream.once('error', resolve);
++                });
++                const info = await exec.inspect();
++                return info.ExitCode ?? 0;
++            },
++            /**
++             * Kill the container-side process, THEN detach. Detaching alone would
++             * leave it running (see `pidRecordingCommand`) — a silent orphan leak.
++             *
++             * AWAITS the in-container kill, so when this resolves the container has
++             * been asked and has answered. It previously returned an
++             * already-resolved promise while the kill was still in flight, which gave
++             * `await proc.kill(); await handle.destroy()` no ordering at all.
++             *
++             * ESCALATES TO `SIGKILL` unconditionally, {@link KILL_ESCALATION_DELAY_MS}
++             * after `signal`. This is a teardown primitive, not a graceful-shutdown
++             * one: a process that ignores `TERM` is a leak, and the container-side pid
++             * is the only handle we have on it. A `signal` argument therefore selects
++             * WHICH signal the process gets a brief chance to handle — NOT whether it
++             * may take its time. A handler needing longer than that must be given its
++             * time before calling this (send the signal yourself and await the
++             * process's own exit via {@link SpawnHandle.wait}).
++             *
++             * Never rejects — see `killRecordedPid`. A kill the container refused is
++             * reported through the handle's `logger`, not thrown.
++             *
++             * CHEAP AND SILENT WHEN THE PROCESS ALREADY EXITED. Callers kill
++             * unconditionally in `finally` blocks — `journal-reader`'s `followJournal`
++             * does so on every exit path, clean ones included — so this is routinely
++             * called on a process that is already gone. That case is not a failed kill:
++             * no wait, no signal, no warning (see `PidFileState`).
++             */
++            kill: async (killSignal) => {
++                await this.killRecordedPid(pidFile, state, killSignal);
++                stream.destroy();
++            },
++        };
++    }
++    async connectPort(port) {
++        const info = await this.container.inspect();
++        const mapping = info.NetworkSettings.Ports[`${port}/tcp`];
++        const hostPort = mapping?.[0]?.HostPort;
++        if (!hostPort) {
++            throw new Error(`docker: container port ${port} is not published. Pass publishPorts: [${port}] to dockerSandbox() to reach it from the host.`);
++        }
++        return { url: `http://localhost:${hostPort}` };
++    }
++    async snapshot(label) {
++        const tag = `tanstack-ai-sandbox-snapshot:${this.id.slice(0, 12)}-${label ?? 'snap'}`;
++        const [repo, tagName] = tag.split(':');
++        await this.container.commit({ repo, tag: tagName });
++        return { id: tag, label };
++    }
++    fork = async () => {
++        if (!this.capabilities.fork) {
++            throw new UnsupportedCapabilityError('docker', 'fork');
++        }
++        return this.deps.forkFactory(this.id);
++    };
++    async destroy() {
++        try {
++            await this.container.stop({ t: 5 });
++        }
++        catch {
++            // already stopped
++        }
++        if (this.deps.removeOnDestroy) {
++            await this.container.remove({ force: true, v: true });
++        }
++    }
++}
+ //#endregion
+ export { DOCKER_CAPS, DockerHandle };
+ 
 diff --git a/dist/esm/provider.d.ts b/dist/esm/provider.d.ts
 index b8e7f9a0d2aa3ddcde6c46e787ed646b5252f05f..9d46ec3a7c757d888b8377dc9c45bc4593f020eb 100644
 --- a/dist/esm/provider.d.ts
@@ -12,10 +850,10 @@ index b8e7f9a0d2aa3ddcde6c46e787ed646b5252f05f..9d46ec3a7c757d888b8377dc9c45bc45
      workdir?: string;
      /** Options forwarded to `new Dockerode(...)` (socketPath, host, port, …). */
 diff --git a/dist/esm/provider.js b/dist/esm/provider.js
-index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..c25e7eaceec43d67a04604ec2cd4cc86f39a7823 100644
+index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..5dd79d054144d8a50e4afc8dd0cbbdbebe840a44 100644
 --- a/dist/esm/provider.js
 +++ b/dist/esm/provider.js
-@@ -1,135 +1,190 @@
+@@ -1,135 +1,198 @@
 -import { DOCKER_CAPS, DockerHandle } from "./handle.js";
 -import Dockerode from "dockerode";
 -//#region src/provider.ts
@@ -303,6 +1141,14 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..c25e7eaceec43d67a04604ec2cd4cc86
 +    async restoreSnapshot(input) {
 +        return this.startContainer(input.snapshotId, input.env, undefined, input.signal);
 +    }
++  async deleteSnapshot(input) {
++    input.signal?.throwIfAborted()
++    try { await this.docker.getImage(input.snapshotId).remove() }
++    catch (error) {
++      if (!(typeof error === 'object' && error !== null && 'statusCode' in error && error.statusCode === 404)) throw error
++    }
++  }
++
 +    async destroy(input) {
 +        const container = this.docker.getContainer(input.id);
 +        try {
@@ -340,8 +1186,89 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..c25e7eaceec43d67a04604ec2cd4cc86
 -
 -//# sourceMappingURL=provider.js.map
 \ No newline at end of file
+diff --git a/src/handle.ts b/src/handle.ts
+index 1daea6f076f438fdfd5e78d7c17055d0b01c0e87..326551c5d306b75689b0242f0a0ba8312ed5b891 100644
+--- a/src/handle.ts
++++ b/src/handle.ts
+@@ -382,8 +382,8 @@ export class DockerHandle implements SandboxHandle {
+     }
+ 
+     this.fs = {
+-      read: async (p) => {
+-        const r = await this.exec(`base64 ${q(this.abs(p))}`)
++      read: async (p, opts) => {
++        const r = await this.exec(`base64 ${q(this.abs(p))}`, opts)
+         if (r.exitCode !== 0) throw new Error(`read failed: ${r.stderr.trim()}`)
+         return Buffer.from(r.stdout, 'base64').toString('utf8')
+       },
+@@ -392,9 +392,9 @@ export class DockerHandle implements SandboxHandle {
+         if (r.exitCode !== 0) throw new Error(`read failed: ${r.stderr.trim()}`)
+         return new Uint8Array(Buffer.from(r.stdout, 'base64'))
+       },
+-      write: async (p, data) => {
++      write: async (p, data, opts) => {
+         for (const command of fsWriteCommands(this.abs(p), data)) {
+-          const r = await this.exec(command)
++          const r = await this.exec(command, opts)
+           if (r.exitCode !== 0)
+             throw new Error(`write failed: ${r.stderr.trim()}`)
+         }
+@@ -416,11 +416,13 @@ export class DockerHandle implements SandboxHandle {
+           })
+       },
+       lstat: async (p) => this.lstat(this.abs(p)),
+-      mkdir: async (p) => {
+-        await this.exec(`mkdir -p ${q(this.abs(p))}`)
++      mkdir: async (p, opts) => {
++        const result = await this.exec(`mkdir -p ${q(this.abs(p))}`, opts)
++        if (result.exitCode !== 0) throw new Error(`mkdir failed: ${result.stderr.trim()}`)
+       },
+-      remove: async (p) => {
+-        await this.exec(`rm -rf ${q(this.abs(p))}`)
++      remove: async (p, opts) => {
++        const result = await this.exec(`rm -rf ${q(this.abs(p))}`, opts)
++        if (result.exitCode !== 0) throw new Error(`remove failed: ${result.stderr.trim()}`)
+       },
+       rename: async (from, to) => {
+         await this.exec(`mv ${q(this.abs(from))} ${q(this.abs(to))}`)
+@@ -447,6 +449,7 @@ export class DockerHandle implements SandboxHandle {
+ 
+   /** Map the conventional `/workspace` virtual root to the container workdir. */
+   private abs(p: string): string {
++    if (!p.startsWith('/')) return `${this.workdir}/${p}`
+     if (this.workdir === '/workspace') return p
+     if (p === '/workspace') return this.workdir
+     if (p.startsWith('/workspace/'))
+@@ -569,8 +572,8 @@ export class DockerHandle implements SandboxHandle {
+     command: string,
+     opts?: ProcessOptions,
+   ): Promise<ExecResult> {
+-    // Only pay for the pid-recording wrapper when the caller can actually abort
+-    // — `exec` also backs every fs operation, which never needs a kill path.
++    opts?.signal?.throwIfAborted()
++    // Files and Git share the native cancellable process path.
+     const pidFile = opts?.signal
+       ? `/tmp/.tanstack-sandbox-exec-${randomUUID()}.pid`
+       : undefined
+@@ -629,6 +632,7 @@ export class DockerHandle implements SandboxHandle {
+         // this an aborted exec would never settle at all.
+         stream.on('close', resolve)
+         stream.on('error', reject)
++        if (signal?.aborted) onAbort()
+       })
+     } finally {
+       // `finally`, not a statement after the `await`: `stream.on('error')`
+@@ -645,6 +649,8 @@ export class DockerHandle implements SandboxHandle {
+       }
+     }
+ 
++    if (state.kill) await state.kill
++    signal?.throwIfAborted()
+     const info = await exec.inspect()
+     return {
+       stdout: Buffer.concat(stdoutChunks).toString('utf8'),
 diff --git a/src/provider.ts b/src/provider.ts
-index 2eba55337bedb778404a042347c0b7811f91c595..4c89e47b2f9272c4eed7ba006199c7bdf8ecffe7 100644
+index 2eba55337bedb778404a042347c0b7811f91c595..4bde2e0bbd3a7f75120ebfd2f2b08103818b43cd 100644
 --- a/src/provider.ts
 +++ b/src/provider.ts
 @@ -14,6 +14,8 @@ import type {
@@ -482,12 +1409,20 @@ index 2eba55337bedb778404a042347c0b7811f91c595..4c89e47b2f9272c4eed7ba006199c7bd
          return null
        }
      }
-@@ -171,7 +215,7 @@ class DockerProvider implements SandboxProvider {
+@@ -171,7 +215,15 @@ class DockerProvider implements SandboxProvider {
    }
  
    async restoreSnapshot(input: SandboxRestoreInput): Promise<SandboxHandle> {
 -    return this.startContainer(input.snapshotId, input.env)
 +    return this.startContainer(input.snapshotId, input.env, undefined, input.signal)
++  }
++
++  async deleteSnapshot(input: { snapshotId: string; signal?: AbortSignal }): Promise<void> {
++    input.signal?.throwIfAborted()
++    try { await this.docker.getImage(input.snapshotId).remove() }
++    catch (error) {
++      if (!(typeof error === 'object' && error !== null && 'statusCode' in error && error.statusCode === 404)) throw error
++    }
    }
  
    async destroy(input: SandboxDestroyInput): Promise<void> {

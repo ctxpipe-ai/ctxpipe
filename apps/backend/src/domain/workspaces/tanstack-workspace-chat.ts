@@ -19,10 +19,14 @@ import {
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { eq } from "drizzle-orm"
-import { getSystemDb } from "../../db/client.js"
+import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { nameConversationIfUnnamed } from "../../graphs/conversationGraph/nodes/conversationNaming.js"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
+import {
+  getDesiredWorkspaceRevision,
+  listSandboxInstances,
+} from "../../models/workspaces.js"
 import { getLogger, log } from "../../observability/logger.js"
 import {
   CHAT_SANDBOX_KEEP_ALIVE,
@@ -34,14 +38,20 @@ import {
   WORKSPACE_CHAT_OPENCODE_PORT,
   WORKSPACE_CHAT_SANDBOX_SETUP,
   WORKSPACE_CHAT_SESSION_BRANCH_SECRET,
-  workspaceChatCloneTokenRef,
-  workspaceChatGitSource,
+  WORKSPACE_CHAT_THREAD_SETUP,
   workspaceChatRuntimeConfig,
   workspaceChatSandboxSpec,
 } from "./chat-runtime.js"
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
-import { workspaceRevisionSchema } from "./revision.js"
-import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
+import {
+  sameWorkspaceBinding,
+  type WorkspaceRevision,
+  workspaceRevisionSchema,
+} from "./revision.js"
+import {
+  LegacyWorkspaceSandboxConflict,
+  postgresSandboxInstanceStore,
+} from "./sandbox-instance-store.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import { discoverSandboxProvider } from "./sandbox-provider.js"
 import { loadTanstackChatModules } from "./tanstack-runtime.js"
@@ -70,6 +80,10 @@ import {
   markWorkspaceChatFirstShownToken,
 } from "./workspace-chat-otel.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
+import {
+  transitionWorkspaceChatRevision,
+  WorkspaceChatRevisionConflict,
+} from "./workspace-chat-revision-transition.js"
 import { mintWorkspaceChatToken } from "./workspace-chat-token.js"
 import { WORKSPACE_CHAT_TOOLS } from "./workspace-chat-tools.js"
 
@@ -116,10 +130,12 @@ function conversationSandboxDefinition(provider: SandboxProvider) {
     lifecycle: {
       reuse: "thread",
       snapshot: "after-setup",
+      baseSnapshot: true,
       keepAlive: CHAT_SANDBOX_KEEP_ALIVE,
       destroyOnComplete: false,
     },
     hooks: {
+      onWorkspaceTransition: transitionWorkspaceChatRevision,
       onReady: async (ready: SandboxHandle, ctx: SandboxEnsureContext) => {
         log.info({
           step: "workspace-chat-sandbox-ready",
@@ -237,13 +253,68 @@ export async function runTanstackWorkspaceChat(
   )
 }
 
+async function previousChatRevision(input: TanstackWorkspaceChatInput) {
+  const expected = workspaceRevisionSchema.safeParse({
+    workspaceId: input.workspaceId,
+    remote: {
+      url: input.desiredUrl,
+      connectionId: input.githubConnectionId ?? null,
+    },
+    generation: input.desiredGeneration ?? 1,
+    defaultBranch: input.defaultBranch ?? "main",
+    sha: input.desiredSha,
+    access: "read",
+  })
+  if (!expected.success) return null
+  const rows = await withOrgDbContext(input.orgId, () =>
+    listSandboxInstances({
+      conversationId: input.conversationId,
+      kind: "chat",
+      state: "live",
+    }),
+  )
+  const compatible = rows.filter(
+    (row) => row.revision && sameWorkspaceBinding(row.revision, expected.data),
+  )
+  if (compatible.some((row) => row.revision?.sha === input.desiredSha))
+    return null
+  return (
+    compatible.sort(
+      (a, b) => b.lastHeartbeatAt.getTime() - a.lastHeartbeatAt.getTime(),
+    )[0]?.revision ?? null
+  )
+}
+
+async function resumeStaleChatRevision(
+  input: TanstackWorkspaceChatInput,
+  revision: WorkspaceRevision,
+) {
+  const result = await warmTanstackWorkspaceChat(
+    { ...input, desiredSha: revision.sha },
+    { existingOnly: true, allowStale: false },
+  )
+  return result.ok ? { ...result, effectiveRevision: revision } : result
+}
+
 export async function warmTanstackWorkspaceChat(
   input: TanstackWorkspaceChatInput,
-  options?: { existingOnly?: boolean },
+  options?: {
+    existingOnly?: boolean
+    allowStale?: boolean
+    transcriptLocked?: boolean
+  },
 ): Promise<
-  | { ok: true; handle: SandboxHandle }
+  | { ok: true; handle: SandboxHandle; effectiveRevision?: WorkspaceRevision }
   | { ok: false; status: number; error: string }
 > {
+  if (!options?.existingOnly && !options?.transcriptLocked) {
+    return postgresSandboxLocks(
+      input.orgId,
+      abortControllerFrom(input.abortSignal),
+    ).withLock(`chat-thread:${input.conversationId}`, () =>
+      warmTanstackWorkspaceChat(input, { ...options, transcriptLocked: true }),
+    )
+  }
   const prepareStarted = Date.now()
   const built = await buildWorkspaceChatSandbox(input)
   if (!built.ok) return built
@@ -279,7 +350,12 @@ export async function warmTanstackWorkspaceChat(
       tenant: { userId: undefined, orgId: input.orgId },
       adapterName: "opencode",
     })
-    if (!ready) return { ok: false, status: 409, error: "missing_sandbox" }
+    if (!ready) {
+      const previous =
+        options?.allowStale === false ? null : await previousChatRevision(input)
+      if (previous) return resumeStaleChatRevision(input, previous)
+      return { ok: false, status: 409, error: "missing_sandbox" }
+    }
     log.info({
       step: "workspace-chat-timing",
       phase: "ensure",
@@ -296,6 +372,13 @@ export async function warmTanstackWorkspaceChat(
     })
     return { ok: true, handle: ready }
   } catch (error) {
+    if (error instanceof LegacyWorkspaceSandboxConflict)
+      return { ok: false, status: 409, error: error.message }
+    if (error instanceof WorkspaceChatRevisionConflict) {
+      if (options?.allowStale !== false)
+        return resumeStaleChatRevision(input, error.revision)
+      return { ok: false, status: 409, error: error.message }
+    }
     getLogger().error(
       error instanceof Error ? error : new Error(String(error)),
       {
@@ -349,6 +432,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     const servePort = portLease?.port ?? WORKSPACE_CHAT_OPENCODE_PORT
     const modules = built.modules
     const instances = built.instances
+    let revisionRecoveryNotice: string | undefined
     const persistence = workspaceChatPersistence()
     const snapshots = {
       ...(await modules.memorySandboxSnapshots({
@@ -385,6 +469,62 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         withPersistence(persistence, {
           snapshotStreaming: true,
           threadLocks: postgresSandboxLocks(input.orgId, abortController),
+        }),
+        defineChatMiddleware({
+          name: "workspace-chat-revision",
+          async setup() {
+            if (!(await previousChatRevision(input))) return
+            const prepared = await warmTanstackWorkspaceChat(input, {
+              transcriptLocked: true,
+            })
+            if (!prepared.ok) throw new Error(prepared.error)
+            if (!prepared.effectiveRevision) return
+            const currentTarget = await withOrgDbContext(input.orgId, () =>
+              getDesiredWorkspaceRevision(input.workspaceId),
+            )
+            if (!currentTarget)
+              throw new Error("Workspace revision is no longer available")
+            revisionRecoveryNotice =
+              currentTarget.sha === prepared.effectiveRevision.sha
+                ? undefined
+                : JSON.stringify({
+                    type: "workspace_revision_conflict",
+                    effectiveSha: prepared.effectiveRevision.sha,
+                    desiredSha: currentTarget.sha,
+                    instructions:
+                      "Keep the current branch. Publishing is blocked until it is rebased onto desiredSha. Inspect Git status and saved stashes before repairing. An interrupted transition is recorded at .git/ctxpipe-revision-transition; after recovering its saved edits and resolving the rebase, remove that marker so the next turn can validate the new revision. Never discard saved edits without the user's request.",
+                  })
+            const retainedInput = {
+              ...input,
+              desiredSha: prepared.effectiveRevision.sha,
+            }
+            const retained = await buildWorkspaceChatSandbox(retainedInput)
+            if (!retained.ok) throw new Error(retained.error)
+            if (retained.definition !== definition)
+              throw new Error(
+                "Sandbox provider changed during revision recovery",
+              )
+            // These objects belong only to this run. Resolve them before native
+            // middleware captures its exact key, projection and checkpoint state.
+            Object.assign(
+              workspace,
+              conversationSandboxWorkspace({
+                modules,
+                spec: retained.spec,
+                input: retainedInput,
+                runToken: session.runToken,
+                proxyUrl: session.proxyUrl,
+                modelBase: built.contract.modelBase,
+              }),
+            )
+            Object.assign(instances, retained.instances)
+          },
+          onConfig(_ctx, config) {
+            if (!revisionRecoveryNotice) return
+            return {
+              systemPrompts: [...config.systemPrompts, revisionRecoveryNotice],
+            }
+          },
         }),
         modules.withSandbox(definition, {
           workspace,
@@ -550,6 +690,7 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
       workspaceId: input.workspaceId,
       conversationId: input.conversationId,
       revision: revision.data,
+      image: effective === "docker" ? WORKSPACE_CHAT_DOCKER_SANDBOX.image : "1",
     }),
   }
 }
@@ -585,17 +726,24 @@ function conversationSandboxWorkspace(input: {
   })
   return modules.defineWorkspace({
     identity: spec.id,
-    source: modules.gitSource(
-      workspaceChatGitSource({
-        url: spec.source.url,
-        ref: chatInput.defaultBranch ?? spec.source.ref,
-        token: workspaceChatCloneTokenRef(
-          secrets as Record<string, unknown>,
-          chatInput.cloneToken,
-        ),
-      }) as Parameters<typeof modules.gitSource>[0],
-    ),
+    transitionIdentity: JSON.stringify({
+      orgId: chatInput.orgId,
+      workspaceId: chatInput.workspaceId,
+      generation: chatInput.desiredGeneration ?? 1,
+      url: spec.source.url,
+      connectionId: chatInput.githubConnectionId ?? null,
+      defaultBranch: chatInput.defaultBranch ?? "main",
+      image:
+        spec.isolation === "docker" ? WORKSPACE_CHAT_DOCKER_SANDBOX.image : "1",
+    }),
+    source: modules.gitSource({
+      url: spec.source.url,
+      ref: chatInput.defaultBranch ?? spec.source.ref,
+      commit: chatInput.desiredSha ?? undefined,
+      auth: { token: secrets[WORKSPACE_CHAT_CLONE_TOKEN_SECRET] },
+    }),
     setup: [...WORKSPACE_CHAT_SANDBOX_SETUP],
+    threadSetup: [...WORKSPACE_CHAT_THREAD_SETUP],
     secrets,
   })
 }

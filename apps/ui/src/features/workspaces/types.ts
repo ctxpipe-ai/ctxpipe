@@ -116,6 +116,9 @@ export type WorkspaceGitStatusResponse = {
 
 export type ConversationGitStatusResponse = {
   branch: string | null
+  sha?: string | null
+  desiredSha?: string | null
+  stale?: boolean
   source: "sandbox"
   dirty: boolean
   differsFromDefault: boolean

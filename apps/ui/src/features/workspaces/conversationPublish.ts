@@ -44,8 +44,9 @@ export function conversationCommitPushEnabled(
     dirty: boolean
     differsFromDefault: boolean
     unpushed: boolean
+    stale?: boolean
   } | null,
 ): boolean {
-  if (!status) return false
+  if (!status || status.stale) return false
   return status.dirty || status.differsFromDefault || status.unpushed
 }

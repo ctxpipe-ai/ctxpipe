@@ -5,6 +5,7 @@ import {
   type SandboxInstanceRecord,
 } from "@tanstack/ai-sandbox"
 import { runSandboxInstanceStoreConformance } from "@tanstack/ai-sandbox/testkit"
+import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { eq } from "drizzle-orm"
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest"
@@ -17,6 +18,7 @@ import {
 import { organizations } from "../../db/schema/auth.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
+import { WORKSPACE_CHAT_DOCKER_SANDBOX } from "./chat-runtime.js"
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 
@@ -188,3 +190,58 @@ it("one static definition isolates runtime bindings, rotates secrets and saves t
     await definition.destroy(b)
   }
 })
+
+it(
+  "cancels an in-flight native Docker filesystem write before a new owner can use the worktree",
+  { timeout: 30_000 },
+  async () => {
+    const provider = dockerSandbox(WORKSPACE_CHAT_DOCKER_SANDBOX)
+    const handle = await provider.create({
+      workspace: { source: { type: "none" } },
+    })
+    const controller = new AbortController()
+    let settled = false
+    let failure = ""
+    try {
+      expect((await handle.process.exec("mkfifo blocked-write")).exitCode).toBe(
+        0,
+      )
+      const pending = handle.fs
+        .write("/workspace/blocked-write", "must not survive lease loss", {
+          signal: controller.signal,
+        })
+        .then(
+          () => {
+            settled = true
+            return "completed"
+          },
+          (error) => {
+            settled = true
+            failure = String(error)
+            return "aborted"
+          },
+        )
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      expect(settled, failure).toBe(false)
+      controller.abort(new Error("Native ownership lost"))
+      await expect.poll(() => settled, { timeout: 5_000 }).toBe(true)
+      expect(await pending).toBe("aborted")
+      const observed = await handle.process.exec("timeout 1 cat blocked-write")
+      expect(observed.stdout).toBe("")
+      expect(observed.exitCode).toBe(124)
+      const valid = new AbortController()
+      await handle.fs.write(
+        "relative-notes.md",
+        "A subsequent owner can write",
+        { signal: valid.signal },
+      )
+      expect(
+        await handle.fs.read("relative-notes.md", { signal: valid.signal }),
+      ).toBe("A subsequent owner can write")
+      await handle.fs.remove("relative-notes.md", { signal: valid.signal })
+    } finally {
+      controller.abort()
+      await handle.destroy()
+    }
+  },
+)

@@ -19,8 +19,8 @@ import {
 } from "../db/schema/chat-persistence.js"
 import { conversations } from "../db/schema/conversations.js"
 import { orgFirstWorkspaces, workspaces } from "../db/schema/workspaces.js"
-import { destroyDetachedProviderSandbox } from "../domain/workspaces/sandbox-provider.js"
 import { workspaceChatOpenCodeHomeDir } from "../domain/workspaces/workspace-chat-opencode-contract.js"
+import { destroySandboxesForWorkspace } from "../domain/workspaces/workspace-sandbox-cleanup.js"
 import { generateObjectId } from "../lib/id.js"
 import { listSandboxInstances } from "../models/workspaces.js"
 import { conversationRoutes } from "../routes/v1/conversations.js"
@@ -211,12 +211,11 @@ export async function withNativeChatFixture<T>(
     const instances = await withOrgDbContext(orgId, () =>
       listSandboxInstances({ workspaceId }),
     )
-    for (const instance of instances)
-      if (instance.providerSandboxId)
-        await destroyDetachedProviderSandbox({
-          provider: instance.provider,
-          providerSandboxId: instance.providerSandboxId,
-        })
+    await withOrgIdContext(org, async () => {
+      const destroyed = await destroySandboxesForWorkspace(workspaceId)
+      if (destroyed !== instances.length)
+        throw new Error("Native fixture workspace cleanup failed")
+    })
     await withOrgDbContext(orgId, async (db) => {
       for (const table of [chatInterrupts, chatMetadata, chatRuns, chatThreads])
         await db.delete(table).where(eq(table.orgId, orgId))

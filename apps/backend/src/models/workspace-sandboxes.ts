@@ -15,6 +15,8 @@ export type SandboxInstanceRecord = {
   desiredSha?: string | null
   provider?: string | null
   providerSandboxId?: string | null
+  image?: string | null
+  transitionKey?: string | null
   revision?: WorkspaceRevision | null
   latestSnapshotId?: string | null
   latestRunId?: string | null
@@ -38,6 +40,8 @@ function toSandboxInstanceRecord(
     desiredSha: row.desiredSha,
     provider: row.provider,
     providerSandboxId: row.providerSandboxId,
+    image: row.image,
+    transitionKey: row.transitionKey,
     revision: row.revision,
     latestSnapshotId: row.latestSnapshotId,
     latestRunId: row.latestRunId,
@@ -78,6 +82,8 @@ export async function persistSandboxInstance(
         desiredSha: input.desiredSha ?? null,
         provider: input.provider ?? null,
         providerSandboxId: input.providerSandboxId ?? null,
+        image: input.image ?? null,
+        transitionKey: input.transitionKey ?? null,
         revision: input.revision ?? null,
         latestSnapshotId: input.latestSnapshotId ?? null,
         latestRunId: input.latestRunId ?? null,
@@ -96,6 +102,8 @@ export async function persistSandboxInstance(
           desiredSha: input.desiredSha ?? null,
           provider: input.provider ?? null,
           providerSandboxId: input.providerSandboxId ?? null,
+          image: input.image ?? null,
+          transitionKey: input.transitionKey ?? null,
           revision: input.revision ?? null,
           latestSnapshotId: input.latestSnapshotId ?? null,
           latestRunId: input.latestRunId ?? null,

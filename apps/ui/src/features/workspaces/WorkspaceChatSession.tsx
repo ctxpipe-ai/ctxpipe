@@ -379,6 +379,13 @@ export function WorkspaceChatSession(props: {
           : null
       }
     >
+      {statusQuery.data?.stale ? (
+        <InlineAlert variant="warning" title="Branch needs a rebase">
+          This conversation is on {statusQuery.data.sha?.slice(0, 7)}; the
+          workspace is now {statusQuery.data.desiredSha?.slice(0, 7)}. Continue
+          chatting to resolve the conflict before publishing.
+        </InlineAlert>
+      ) : null}
       {composing && messages.length === 0 ? (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 py-10">
           <div className="w-full max-w-2xl space-y-5">

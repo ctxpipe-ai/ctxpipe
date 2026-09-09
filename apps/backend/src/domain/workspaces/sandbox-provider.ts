@@ -54,6 +54,7 @@ export async function discoverSandboxProvider(): Promise<SandboxProvider> {
 export async function destroyDetachedProviderSandbox(input: {
   provider?: string | null
   providerSandboxId: string
+  snapshotId?: string
 }): Promise<void> {
   if (input.provider === "docker") {
     const docker = await import("@tanstack/ai-sandbox-docker").catch(() => null)
@@ -62,6 +63,7 @@ export async function destroyDetachedProviderSandbox(input: {
       factory: docker?.dockerSandbox?.({ image: "node:22" }),
       provider: "docker",
       providerSandboxId: input.providerSandboxId,
+      snapshotId: input.snapshotId,
     })
     return
   }
@@ -71,6 +73,7 @@ export async function destroyDetachedProviderSandbox(input: {
       factory: docker?.sbxSandbox?.(),
       provider: "sbx",
       providerSandboxId: input.providerSandboxId,
+      snapshotId: input.snapshotId,
     })
     return
   }
@@ -85,6 +88,7 @@ export async function destroyDetachedProviderSandbox(input: {
       factory: local?.localProcessSandbox?.(),
       provider: "local-process",
       providerSandboxId: input.providerSandboxId,
+      snapshotId: input.snapshotId,
     })
     return
   }
@@ -106,15 +110,22 @@ async function destroyWithProviderFactory(input: {
   factory?: {
     destroy: (args: { id: string }) => Promise<void>
     resume?: (args: { id: string }) => Promise<unknown>
+    deleteSnapshot?: (args: { snapshotId: string }) => Promise<void>
   }
   provider: string
   providerSandboxId: string
+  snapshotId?: string
 }): Promise<void> {
   assertNotInOrgDbContext()
   if (!input.factory) {
     throw new Error(`Cannot destroy detached ${input.provider} sandbox`)
   }
   await input.factory.destroy({ id: input.providerSandboxId })
+  if (input.snapshotId) {
+    if (!input.factory.deleteSnapshot)
+      throw new Error(`Provider ${input.provider} cannot delete snapshots`)
+    await input.factory.deleteSnapshot({ snapshotId: input.snapshotId })
+  }
   const remaining = await input.factory.resume?.({
     id: input.providerSandboxId,
   })

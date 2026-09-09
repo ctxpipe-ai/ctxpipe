@@ -1,7 +1,8 @@
-import { execFileSync } from "node:child_process"
+import { execFileSync, spawn } from "node:child_process"
 import { writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import { eq } from "drizzle-orm"
+import { fileURLToPath } from "node:url"
+import { eq, sql } from "drizzle-orm"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
@@ -18,7 +19,10 @@ import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.
 import { withTestLogger } from "../../test/with-test-logger.js"
 import { workspaceChatRuntimeConfig } from "./chat-runtime.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
-import { warmTanstackWorkspaceChat } from "./tanstack-workspace-chat.js"
+import {
+  streamTanstackWorkspaceChat,
+  warmTanstackWorkspaceChat,
+} from "./tanstack-workspace-chat.js"
 import { resolveWorkspaceChatTurnRuntime } from "./workspace-chat-turn-runtime.js"
 import { destroySandboxesForConversation } from "./workspace-sandbox-cleanup.js"
 
@@ -219,7 +223,7 @@ it(
 
 it(
   "prepare discovers Docker and reuses its isolated worktree when the provider is unlocked",
-  { timeout: 120_000 },
+  { timeout: 180_000 },
   async () => {
     await withNativeChatFixture(async (f) => {
       delete process.env.SANDBOX_PROVIDER
@@ -253,6 +257,61 @@ it(
         expect(await second.handle.fs.read("/workspace/unsaved.txt")).toBe(
           "Docker worktree survives prepare",
         )
+        await writeFile(
+          join(f.directory, "README.md"),
+          "# Docker revision advanced\n",
+        )
+        execFileSync(
+          "git",
+          [
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.test",
+            "commit",
+            "-am",
+            "Advance Docker source",
+          ],
+          { cwd: f.directory },
+        )
+        const sha = execFileSync("git", ["rev-parse", "HEAD"], {
+          cwd: f.directory,
+          encoding: "utf8",
+        }).trim()
+        await withOrgDbContext(f.orgId, (db) =>
+          db
+            .update(workspaces)
+            .set({ desiredSha: sha })
+            .where(eq(workspaces.id, f.workspaceId)),
+        )
+        const advanced = await warmTanstackWorkspaceChat({
+          ...input,
+          desiredSha: sha,
+        })
+        if (!advanced.ok) throw new Error(advanced.error)
+        expect(advanced.handle.id).toBe(first.handle.id)
+        expect(await advanced.handle.fs.read("/workspace/unsaved.txt")).toBe(
+          "Docker worktree survives prepare",
+        )
+        // Simulate provider loss while the exact native record survives.
+        await advanced.handle.destroy()
+        const recovered = await warmTanstackWorkspaceChat({
+          ...input,
+          desiredSha: sha,
+        })
+        if (!recovered.ok) throw new Error(recovered.error)
+        expect(recovered.handle.id).not.toBe(first.handle.id)
+        expect(await recovered.handle.fs.read("/workspace/README.md")).toBe(
+          "# Docker revision advanced\n",
+        )
+        expect(await recovered.handle.fs.exists("/workspace/unsaved.txt")).toBe(
+          false,
+        )
+        expect(
+          (
+            await recovered.handle.process.exec("git branch --show-current")
+          ).stdout.trim(),
+        ).toBe("main")
       })
     })
   },
@@ -429,6 +488,608 @@ it(
           title: "git commit -am save",
         }),
       ).toBe("reject")
+    })
+  },
+)
+
+it(
+  "advances a live default branch in place and preserves compatible uncommitted work",
+  { timeout: 45_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      const input = {
+        conversationId: f.conversationId,
+        orgId: f.orgId,
+        orgSlug: f.orgSlug,
+        workspaceId: f.workspaceId,
+        desiredUrl: f.directory,
+        desiredSha: f.sha,
+        defaultBranch: "main",
+        writeStatus: "read_only",
+        prompt: "prepare",
+      }
+      const first = await warmTanstackWorkspaceChat(input)
+      if (!first.ok) throw new Error(first.error)
+      await first.handle.fs.write("notes.txt", "Keep my uncommitted notes\n")
+      await writeFile(join(f.directory, "README.md"), "# Updated workspace\n")
+      execFileSync(
+        "git",
+        [
+          "-c",
+          "user.name=Fixture",
+          "-c",
+          "user.email=fixture@example.test",
+          "commit",
+          "-am",
+          "Advance main",
+        ],
+        { cwd: f.directory },
+      )
+      const sha = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: f.directory,
+        encoding: "utf8",
+      }).trim()
+      await withOrgDbContext(f.orgId, (db) =>
+        db
+          .update(workspaces)
+          .set({ desiredSha: sha })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      const second = await warmTanstackWorkspaceChat({
+        ...input,
+        desiredSha: sha,
+      })
+      if (!second.ok) throw new Error(second.error)
+      expect(second.handle.id).toBe(first.handle.id)
+      expect(
+        (
+          await second.handle.process.exec("git branch --show-current")
+        ).stdout.trim(),
+      ).toBe("main")
+      expect(await second.handle.fs.read("README.md")).toBe(
+        "# Updated workspace\n",
+      )
+      expect(await second.handle.fs.read("notes.txt")).toBe(
+        "Keep my uncommitted notes\n",
+      )
+      expect(
+        (
+          await second.handle.process.exec("git status --porcelain")
+        ).stdout.trim(),
+      ).toBe("?? notes.txt")
+      // A rewind is a real transition even though the target is already an
+      // ancestor. Afterwards a queued request for the superseded tip cannot
+      // move either the branch or native owner back to that tip.
+      await withOrgDbContext(f.orgId, (db) =>
+        db
+          .update(workspaces)
+          .set({ desiredSha: f.sha })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      const rewound = await warmTanstackWorkspaceChat(input)
+      if (!rewound.ok) throw new Error(rewound.error)
+      expect(rewound.handle.id).toBe(first.handle.id)
+      expect(
+        (await rewound.handle.process.exec("git rev-parse HEAD")).stdout.trim(),
+      ).toBe(f.sha)
+      expect(await rewound.handle.fs.read("notes.txt")).toBe(
+        "Keep my uncommitted notes\n",
+      )
+      const superseded = await warmTanstackWorkspaceChat({
+        ...input,
+        desiredSha: sha,
+      })
+      expect(superseded).toMatchObject({
+        ok: true,
+        effectiveRevision: { sha: f.sha },
+      })
+      expect(
+        (await first.handle.process.exec("git rev-parse HEAD")).stdout.trim(),
+      ).toBe(f.sha)
+      const events: string[] = []
+      for await (const chunk of streamTanstackWorkspaceChat({
+        ...input,
+        desiredSha: sha,
+        runId: `${f.conversationId}-queued-stale`,
+        prompt: "Continue after the workspace rewind",
+      }))
+        events.push(chunk.type)
+      expect(events).toContain("RUN_FINISHED")
+      expect(events).not.toContain("RUN_ERROR")
+      expect(JSON.stringify(f.modelRequests)).not.toContain(
+        "workspace_revision_conflict",
+      )
+    })
+  },
+)
+
+it.each(["main", "published"] as const)(
+  "retains recoverable edits when %s conflicts with a new workspace tip",
+  { timeout: 45_000 },
+  async (branchKind) => {
+    await withNativeChatFixture(async (f) => {
+      const input = {
+        conversationId: f.conversationId,
+        orgId: f.orgId,
+        orgSlug: f.orgSlug,
+        workspaceId: f.workspaceId,
+        desiredUrl: f.directory,
+        desiredSha: f.sha,
+        defaultBranch: "main",
+        writeStatus: "read_only",
+        prompt: "prepare",
+      }
+      const first = await warmTanstackWorkspaceChat(input)
+      if (!first.ok) throw new Error(first.error)
+      const branch =
+        branchKind === "published"
+          ? `ctxpipe/chat/${f.conversationId}/1`
+          : "main"
+      if (branchKind === "published") {
+        await first.handle.process.exec(`git checkout -b '${branch}'`)
+      }
+      await first.handle.fs.write("README.md", "# My conversation edit\n")
+      if (branchKind === "published") {
+        const committed = await first.handle.process.exec(
+          "git add README.md && git -c user.name=Fixture -c user.email=fixture@example.test commit -m 'Conversation change'",
+        )
+        expect(committed.exitCode).toBe(0)
+        const published = await first.handle.process.exec(
+          `git push origin '${branch}'`,
+        )
+        expect(published.exitCode).toBe(0)
+      }
+      await first.handle.fs.write("notes.txt", "Keep these notes too\n")
+      const original = (
+        await first.handle.process.exec("git rev-parse HEAD")
+      ).stdout.trim()
+      await writeFile(
+        join(f.directory, "README.md"),
+        "# Conflicting new workspace\n",
+      )
+      execFileSync(
+        "git",
+        [
+          "-c",
+          "user.name=Fixture",
+          "-c",
+          "user.email=fixture@example.test",
+          "commit",
+          "-am",
+          "Advance main",
+        ],
+        { cwd: f.directory },
+      )
+      const sha = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: f.directory,
+        encoding: "utf8",
+      }).trim()
+      await withOrgDbContext(f.orgId, (db) =>
+        db
+          .update(workspaces)
+          .set({ desiredSha: sha })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      const second = await warmTanstackWorkspaceChat({
+        ...input,
+        desiredSha: sha,
+      })
+      expect(
+        (
+          await first.handle.process.exec("git branch --show-current")
+        ).stdout.trim(),
+      ).toBe(branch)
+      if (branchKind === "published") {
+        expect(second).toMatchObject({
+          ok: true,
+          effectiveRevision: { sha: f.sha },
+        })
+        expect(
+          (await first.handle.process.exec("git rev-parse HEAD")).stdout.trim(),
+        ).toBe(original)
+        expect(await first.handle.fs.read("README.md")).toBe(
+          "# My conversation edit\n",
+        )
+        expect(await first.handle.fs.read("notes.txt")).toBe(
+          "Keep these notes too\n",
+        )
+        await withOrgDbContext(f.orgId, (db) =>
+          db
+            .update(workspaces)
+            .set({ desiredSha: sha })
+            .where(eq(workspaces.id, f.workspaceId)),
+        )
+        const status = await f.request(
+          `/conversations/${f.conversationId}/files/status`,
+        )
+        expect(status.status).toBe(200)
+        expect(await status.json()).toMatchObject({
+          branch,
+          sha: f.sha,
+          desiredSha: sha,
+          stale: true,
+        })
+        const events: string[] = []
+        for await (const chunk of streamTanstackWorkspaceChat({
+          ...input,
+          desiredSha: sha,
+          prompt: "Help repair this branch",
+          runId: `${f.conversationId}-repair`,
+          messages: [
+            {
+              id: "repair-message",
+              role: "user",
+              content: "Help repair this branch",
+            },
+          ],
+        }))
+          events.push(chunk.type)
+        expect(events.filter((type) => type === "RUN_FINISHED")).toHaveLength(1)
+        expect(events).not.toContain("RUN_ERROR")
+        expect(JSON.stringify(f.modelRequests)).toContain(
+          "workspace_revision_conflict",
+        )
+        expect(JSON.stringify(f.modelRequests)).toContain(sha)
+
+        expect(
+          (await first.handle.process.exec("git rev-parse HEAD")).stdout.trim(),
+        ).toBe(original)
+      } else {
+        expect(second.ok).toBe(true)
+        expect(
+          (await first.handle.process.exec("git rev-parse HEAD")).stdout.trim(),
+        ).toBe(sha)
+        expect(await first.handle.fs.read("README.md")).toBe(
+          "# Conflicting new workspace\n",
+        )
+        expect(
+          (await first.handle.process.exec("git show stash@{0}:README.md"))
+            .stdout,
+        ).toBe("# My conversation edit\n")
+        expect(
+          (await first.handle.process.exec("git show stash@{0}^3:notes.txt"))
+            .stdout,
+        ).toBe("Keep these notes too\n")
+      }
+    })
+  },
+)
+
+it(
+  "recovers a process lost after Git advanced but before its native record moved",
+  { timeout: 90_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      const input = {
+        conversationId: f.conversationId,
+        orgId: f.orgId,
+        orgSlug: f.orgSlug,
+        workspaceId: f.workspaceId,
+        desiredUrl: f.directory,
+        desiredSha: f.sha,
+        defaultBranch: "main",
+        writeStatus: "read_only",
+        prompt: "prepare",
+      }
+      const first = await warmTanstackWorkspaceChat(input)
+      if (!first.ok) throw new Error(first.error)
+      await first.handle.fs.write(
+        "notes.txt",
+        "Survives the interrupted transition\n",
+      )
+      await writeFile(
+        join(f.directory, "README.md"),
+        "# Revision after process loss\n",
+      )
+      execFileSync(
+        "git",
+        [
+          "-c",
+          "user.name=Fixture",
+          "-c",
+          "user.email=fixture@example.test",
+          "commit",
+          "-am",
+          "Advance main",
+        ],
+        { cwd: f.directory },
+      )
+      const sha = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: f.directory,
+        encoding: "utf8",
+      }).trim()
+      await withOrgDbContext(f.orgId, (db) =>
+        db
+          .update(workspaces)
+          .set({ desiredSha: sha })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      let release!: () => void
+      let entered!: () => void
+      const barrier = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const ready = new Promise<void>((resolve) => {
+        entered = resolve
+      })
+      // A real row lock blocks only the final native ownership move. Provider
+      // IO runs in the separate process, with no held application transaction.
+      const holding = withOrgDbContext(f.orgId, (db) =>
+        db.transaction(async (tx) => {
+          await tx.execute(
+            sql`SELECT id FROM workspace_sandbox_instances WHERE conversation_id = ${f.conversationId} FOR UPDATE`,
+          )
+          entered()
+          await barrier
+        }),
+      )
+      await ready
+      const child = spawn(
+        "bun",
+        [
+          fileURLToPath(
+            new URL(
+              "../../test/native-chat-revision-client.ts",
+              import.meta.url,
+            ),
+          ),
+          f.orgId,
+          f.workspaceId,
+          f.conversationId,
+          f.directory,
+          sha,
+        ],
+        { detached: true, stdio: ["ignore", "pipe", "pipe"] },
+      )
+      let errors = ""
+      child.stderr.on("data", (data) => {
+        errors += String(data)
+      })
+      const exited = new Promise<void>((resolve, reject) => {
+        child.once("error", reject)
+        child.once("exit", () => resolve())
+      })
+      try {
+        const deadline = Date.now() + 20_000
+        let completed = false
+        while (Date.now() < deadline) {
+          if (child.exitCode !== null)
+            throw new Error(`Revision client exited before its move: ${errors}`)
+          if (
+            await first.handle.fs.exists(".git/ctxpipe-revision-transition")
+          ) {
+            const state = await first.handle.fs.read(
+              ".git/ctxpipe-revision-transition",
+            )
+            if (
+              typeof state === "string" &&
+              state.split("\n")[4] === "complete"
+            ) {
+              completed = true
+              break
+            }
+          }
+          await new Promise((resolve) => setTimeout(resolve, 25))
+        }
+        expect(completed).toBe(true)
+      } finally {
+        if (child.pid && child.exitCode === null)
+          process.kill(-child.pid, "SIGKILL")
+        await exited
+        release()
+        await holding
+      }
+      // The crashed owner's native lease expires; the next process/caller
+      // resumes the completed Git phase and performs only the atomic move.
+      await withOrgDbContext(f.orgId, (db) =>
+        db
+          .update(workspaces)
+          .set({ desiredSha: sha })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      const second = await warmTanstackWorkspaceChat({
+        ...input,
+        desiredSha: sha,
+      })
+      if (!second.ok) throw new Error(second.error)
+      expect(second.handle.id).toBe(first.handle.id)
+      expect(await second.handle.fs.read("README.md")).toBe(
+        "# Revision after process loss\n",
+      )
+      expect(await second.handle.fs.read("notes.txt")).toBe(
+        "Survives the interrupted transition\n",
+      )
+      expect(
+        (
+          await second.handle.process.exec("git branch --show-current")
+        ).stdout.trim(),
+      ).toBe("main")
+      expect(
+        (await second.handle.process.exec("git stash list --format=%s")).stdout
+          .trim()
+          .split("\n"),
+      ).toHaveLength(1)
+    })
+  },
+)
+
+it(
+  "identifies a legacy live worktree instead of silently allocating over saved edits",
+  { timeout: 45_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      const input = {
+        conversationId: f.conversationId,
+        orgId: f.orgId,
+        orgSlug: f.orgSlug,
+        workspaceId: f.workspaceId,
+        desiredUrl: f.directory,
+        desiredSha: f.sha,
+        defaultBranch: "main",
+        writeStatus: "read_only",
+        prompt: "prepare",
+      }
+      const first = await warmTanstackWorkspaceChat(input)
+      if (!first.ok) throw new Error(first.error)
+      await first.handle.fs.write("notes.txt", "Pre-upgrade saved edits\n")
+      const legacyId = `legacy-${f.conversationId}`
+      // Fixture represents a pre-upgrade identity whose setup/image cannot
+      // safely be inferred from the newly introduced transition metadata.
+      await withOrgDbContext(f.orgId, (db) =>
+        db.execute(sql`
+        UPDATE workspace_sandbox_instances SET id = ${legacyId}, transition_key = NULL
+        WHERE conversation_id = ${f.conversationId}
+      `),
+      )
+      const resumed = await warmTanstackWorkspaceChat(input)
+      expect(resumed.ok).toBe(false)
+      if (resumed.ok) throw new Error("Legacy worktree was silently replaced")
+      expect(resumed.status).toBe(409)
+      expect(resumed.error).toContain(legacyId)
+      expect(resumed.error).toContain(first.handle.id)
+      expect(await first.handle.fs.read("notes.txt")).toBe(
+        "Pre-upgrade saved edits\n",
+      )
+      const owners = await withOrgDbContext(f.orgId, () =>
+        listSandboxInstances({
+          conversationId: f.conversationId,
+          kind: "chat",
+          state: "live",
+        }),
+      )
+      expect(owners).toHaveLength(1)
+      expect(owners[0]?.id).toBe(legacyId)
+    })
+  },
+)
+
+it(
+  "reconciles a newer workspace tip when Git completes before the ownership compare-and-swap",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      const input = {
+        conversationId: f.conversationId,
+        orgId: f.orgId,
+        orgSlug: f.orgSlug,
+        workspaceId: f.workspaceId,
+        desiredUrl: f.directory,
+        desiredSha: f.sha,
+        defaultBranch: "main",
+        writeStatus: "read_only",
+        prompt: "prepare",
+      }
+      const first = await warmTanstackWorkspaceChat(input)
+      if (!first.ok) throw new Error(first.error)
+      await first.handle.fs.write(
+        "notes.txt",
+        "Retain across a superseded move\n",
+      )
+      const advance = async (body: string) => {
+        await writeFile(join(f.directory, "README.md"), body)
+        execFileSync(
+          "git",
+          [
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.test",
+            "commit",
+            "-am",
+            "Advance main",
+          ],
+          { cwd: f.directory },
+        )
+        return execFileSync("git", ["rev-parse", "HEAD"], {
+          cwd: f.directory,
+          encoding: "utf8",
+        }).trim()
+      }
+      const middleSha = await advance("# Intermediate target\n")
+      const newestSha = await advance("# Newest target\n")
+      await withOrgDbContext(f.orgId, (db) =>
+        db
+          .update(workspaces)
+          .set({ desiredSha: middleSha })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      let release!: () => void
+      let entered!: () => void
+      const barrier = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const ready = new Promise<void>((resolve) => {
+        entered = resolve
+      })
+      // MVCC readers see the middle target; only the final ownership CAS waits.
+      const holding = withOrgDbContext(f.orgId, (db) =>
+        db.transaction(async (tx) => {
+          await tx.execute(
+            sql`SELECT id FROM workspaces WHERE id = ${f.workspaceId} FOR UPDATE`,
+          )
+          entered()
+          await barrier
+          await tx
+            .update(workspaces)
+            .set({ desiredSha: newestSha })
+            .where(eq(workspaces.id, f.workspaceId))
+        }),
+      )
+      await ready
+      const pending = warmTanstackWorkspaceChat({
+        ...input,
+        desiredSha: middleSha,
+      })
+      try {
+        const deadline = Date.now() + 20_000
+        let completed = false
+        while (Date.now() < deadline) {
+          if (
+            await first.handle.fs.exists(".git/ctxpipe-revision-transition")
+          ) {
+            const state = await first.handle.fs.read(
+              ".git/ctxpipe-revision-transition",
+            )
+            if (
+              typeof state === "string" &&
+              state.split("\n")[4] === "complete"
+            ) {
+              completed = true
+              break
+            }
+          }
+          await new Promise((resolve) => setTimeout(resolve, 25))
+        }
+        expect(completed).toBe(true)
+      } finally {
+        release()
+        await holding
+      }
+      expect(await pending).toMatchObject({ ok: false, status: 503 })
+      const retained = await withOrgDbContext(f.orgId, () =>
+        listSandboxInstances({
+          conversationId: f.conversationId,
+          kind: "chat",
+          state: "live",
+        }),
+      )
+      expect(retained).toHaveLength(1)
+      expect(retained[0]?.revision?.sha).toBe(f.sha)
+      const current = await warmTanstackWorkspaceChat({
+        ...input,
+        desiredSha: newestSha,
+      })
+      if (!current.ok) throw new Error(current.error)
+      expect(current.handle.id).toBe(first.handle.id)
+      expect(
+        (await current.handle.process.exec("git rev-parse HEAD")).stdout.trim(),
+      ).toBe(newestSha)
+      expect(await current.handle.fs.read("README.md")).toBe(
+        "# Newest target\n",
+      )
+      expect(await current.handle.fs.read("notes.txt")).toBe(
+        "Retain across a superseded move\n",
+      )
     })
   },
 )

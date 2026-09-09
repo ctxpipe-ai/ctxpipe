@@ -1,0 +1,1 @@
+ALTER TABLE "workspace_sandbox_instances" ADD COLUMN "image" text;

@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
+import { createMiddleware } from "hono/factory"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import { conversationSessionBranch as sessionBranchName } from "../../domain/workspaces/chat-lifecycle.js"
@@ -20,6 +21,7 @@ import {
   pushConversationSessionBranch,
 } from "../../domain/workspaces/conversation-publish.js"
 import { adaptTanstackHandle } from "../../domain/workspaces/job-sandbox.js"
+import { postgresSandboxLocks } from "../../domain/workspaces/sandbox-lock-store.js"
 import { warmTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
 import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
@@ -68,6 +70,9 @@ const ConversationGitStatusResponseSchema = z
   .object({
     source: z.literal("sandbox"),
     branch: z.string().min(1),
+    sha: z.string().nullable(),
+    desiredSha: z.string().nullable(),
+    stale: z.boolean(),
     dirty: z.boolean(),
     differsFromDefault: z.boolean(),
     unpushed: z.boolean(),
@@ -291,12 +296,15 @@ const postPushRoute = createRoute({
   },
 })
 
-async function loadConversationWorkspace(conversationId: string) {
+async function loadConversationWorkspace(
+  conversationId: string,
+  abortSignal?: AbortSignal,
+) {
   const conversation = await getConversation(conversationId)
   if (!conversation?.workspaceId) return null
   const workspace = await getWorkspaceById(conversation.workspaceId)
   if (!workspace) return null
-  return { conversation, workspace }
+  return { conversation, workspace, transcriptLocked: true, abortSignal }
 }
 
 function requireUser(c: { get: (key: "user" | "session") => unknown }) {
@@ -304,6 +312,8 @@ function requireUser(c: { get: (key: "user" | "session") => unknown }) {
 }
 
 type ConversationSandboxAttachInput = {
+  abortSignal?: AbortSignal
+  transcriptLocked?: boolean
   conversation: {
     id: string
     orgId: string
@@ -337,6 +347,7 @@ async function warmConversationSandbox(
   const warmed = await warmTanstackWorkspaceChat(
     {
       conversationId: input.conversation.id,
+      abortSignal: input.abortSignal,
       prompt: "prepare",
       orgId: runtime.orgId,
       workspaceId: runtime.workspaceId ?? input.workspace.id,
@@ -350,13 +361,15 @@ async function warmConversationSandbox(
       cloneToken: runtime.cloneToken,
       githubConnectionId: runtime.githubConnectionId,
     },
-    { existingOnly },
+    { existingOnly, transcriptLocked: input.transcriptLocked },
   )
   if (!warmed.ok) return null
-  return adaptTanstackHandle(warmed.handle)
+  return adaptTanstackHandle(warmed.handle, input.abortSignal)
 }
 
 export async function readySandboxHandle(input: {
+  abortSignal?: AbortSignal
+  transcriptLocked?: boolean
   existingOnly?: boolean
   conversation: {
     id: string
@@ -381,26 +394,65 @@ export async function readySandboxHandle(input: {
   return handle
 }
 
-export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
+type ConversationFileEnv = AppEnv & {
+  Variables: { sandboxAbortSignal: AbortSignal }
+}
+const withConversationFileLock = createMiddleware<ConversationFileEnv>(
+  async (c, next) => {
+    if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
+    const conversationId = c.req.param("conversationId")
+    const loaded = conversationId
+      ? await loadConversationWorkspace(conversationId)
+      : null
+    if (!loaded) return c.json({ error: "Not found" }, 404)
+    const controller = new AbortController()
+    const onRequestAbort = () => controller.abort(c.req.raw.signal.reason)
+    c.req.raw.signal.addEventListener("abort", onRequestAbort, { once: true })
+    if (c.req.raw.signal.aborted) onRequestAbort()
+    c.set("sandboxAbortSignal", controller.signal)
+    try {
+      return await postgresSandboxLocks(
+        loaded.conversation.orgId,
+        controller,
+      ).withLock(`chat-thread:${conversationId}`, () => next())
+    } finally {
+      c.req.raw.signal.removeEventListener("abort", onRequestAbort)
+    }
+  },
+)
+const fileRoutes = new OpenAPIHono<ConversationFileEnv>()
+fileRoutes.use("/:conversationId/files/*", withConversationFileLock)
+fileRoutes.use("/:conversationId/push", withConversationFileLock)
+export const conversationFileRoutes = fileRoutes
   .openapi(listTreeRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
     const conversationId = c.req.param("conversationId")
-    const loaded = await loadConversationWorkspace(conversationId)
+    const loaded = await loadConversationWorkspace(
+      conversationId,
+      c.get("sandboxAbortSignal"),
+    )
     if (!loaded) return c.json({ error: "Not found" }, 404)
     const handle = await readySandboxHandle({ ...loaded, existingOnly: true })
     if (!handle) return c.json({ error: "missing_sandbox" }, 409)
     const paths = await listConversationSandboxPaths(handle)
-    const branch = sessionBranchName(conversationId)
-    return c.json(
-      { sha: loaded.workspace.desiredSha ?? "HEAD", paths, branch },
-      200,
-    )
+    const branchResult = await handle.exec("git branch --show-current")
+    if (branchResult.exitCode !== 0)
+      throw new Error("Conversation branch is unavailable")
+    const branch = branchResult.stdout.trim()
+    const revision = await getDesiredWorkspaceRevision(loaded.workspace.id)
+    const binding = revision
+      ? await getConversationSandboxBinding(conversationId, revision)
+      : null
+    return c.json({ sha: binding?.desiredSha ?? "HEAD", paths, branch }, 200)
   })
   .openapi(getBlobRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
     const conversationId = c.req.param("conversationId")
     const path = c.req.query("path") ?? ""
-    const loaded = await loadConversationWorkspace(conversationId)
+    const loaded = await loadConversationWorkspace(
+      conversationId,
+      c.get("sandboxAbortSignal"),
+    )
     if (!loaded) return c.json({ error: "Not found" }, 404)
     const handle = await readySandboxHandle(loaded)
     if (!handle) return c.json({ error: "missing_sandbox" }, 409)
@@ -411,7 +463,10 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
   .openapi(getStatusRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
     const conversationId = c.req.param("conversationId")
-    const loaded = await loadConversationWorkspace(conversationId)
+    const loaded = await loadConversationWorkspace(
+      conversationId,
+      c.get("sandboxAbortSignal"),
+    )
     if (!loaded) return c.json({ error: "Not found" }, 404)
     const handle = await readySandboxHandle({ ...loaded, existingOnly: true })
     if (!handle) return c.json({ error: "missing_sandbox" }, 409)
@@ -422,12 +477,28 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
       defaultBranch,
       sessionBranch: sessionBranchName(conversationId),
     })
-    return c.json({ source: "sandbox" as const, ...status }, 200)
+    const revision = await getDesiredWorkspaceRevision(loaded.workspace.id)
+    const binding = revision
+      ? await getConversationSandboxBinding(conversationId, revision)
+      : null
+    return c.json(
+      {
+        source: "sandbox" as const,
+        ...status,
+        sha: binding?.desiredSha ?? null,
+        desiredSha: revision?.sha ?? null,
+        stale: binding?.desiredSha !== revision?.sha,
+      },
+      200,
+    )
   })
   .openapi(getDiffRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
     const conversationId = c.req.param("conversationId")
-    const loaded = await loadConversationWorkspace(conversationId)
+    const loaded = await loadConversationWorkspace(
+      conversationId,
+      c.get("sandboxAbortSignal"),
+    )
     if (!loaded) return c.json({ error: "Not found" }, 404)
     const defaultBranch =
       loaded.workspace.desiredDefaultBranch?.trim() || "main"
@@ -442,7 +513,10 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
   .openapi(putFileRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
     const conversationId = c.req.param("conversationId")
-    const loaded = await loadConversationWorkspace(conversationId)
+    const loaded = await loadConversationWorkspace(
+      conversationId,
+      c.get("sandboxAbortSignal"),
+    )
     if (!loaded) return c.json({ error: "Not found" }, 404)
     if (
       !workspaceAllowsConversationEdits(
@@ -485,7 +559,10 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
   .openapi(postPushRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
     const conversationId = c.req.param("conversationId")
-    const loaded = await loadConversationWorkspace(conversationId)
+    const loaded = await loadConversationWorkspace(
+      conversationId,
+      c.get("sandboxAbortSignal"),
+    )
     if (!loaded) return c.json({ error: "Not found" }, 404)
     if (
       !workspaceAllowsConversationEdits(

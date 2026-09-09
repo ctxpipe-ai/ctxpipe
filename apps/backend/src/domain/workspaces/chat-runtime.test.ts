@@ -9,7 +9,7 @@ import {
   WORKSPACE_CHAT_OPENCODE_PORT,
   WORKSPACE_CHAT_RUNTIME,
   WORKSPACE_CHAT_SANDBOX_SETUP,
-  workspaceChatGitSource,
+  WORKSPACE_CHAT_THREAD_SETUP,
   workspaceChatRuntimeConfig,
   workspaceChatSandboxSpec,
 } from "./chat-runtime.js"
@@ -41,7 +41,10 @@ describe("workspace chat runtime", () => {
   })
 
   it("writes OpenCode config under HOME and excludes harness paths from git", () => {
-    const cloneSetup = WORKSPACE_CHAT_SANDBOX_SETUP[3]
+    const cloneSetup = [
+      WORKSPACE_CHAT_SANDBOX_SETUP[1],
+      WORKSPACE_CHAT_THREAD_SETUP[1],
+    ].join("\n")
     const repo = mkdtempSync(join(tmpdir(), "ws-chat-exclude-"))
     const home = mkdtempSync(join(tmpdir(), "ws-chat-opencode-home-"))
     execFileSync("git", ["init", "-b", "main"], { cwd: repo })
@@ -164,17 +167,6 @@ describe("workspace chat runtime", () => {
     ).toMatchObject({
       ok: true,
       isolation: "railway",
-    })
-    expect(
-      workspaceChatGitSource({
-        url: "https://github.com/acme/docs",
-        ref: "abc",
-        token: { __secretName: "CTXPIPE_CLONE_TOKEN" },
-      }),
-    ).toEqual({
-      url: "https://github.com/acme/docs",
-      ref: "abc",
-      auth: { token: { __secretName: "CTXPIPE_CLONE_TOKEN" } },
     })
   })
 })

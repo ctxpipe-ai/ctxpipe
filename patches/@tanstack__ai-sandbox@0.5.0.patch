@@ -1,3 +1,291 @@
+diff --git a/dist/esm/bootstrap.d.ts b/dist/esm/bootstrap.d.ts
+index d14ba7a3bff4e214a95844a10e815681cdf47896..11ae62c37143f1a3d9dadcfb3bf999cb2c4245ad 100644
+--- a/dist/esm/bootstrap.d.ts
++++ b/dist/esm/bootstrap.d.ts
+@@ -14,4 +14,6 @@ export interface BootstrapResult {
+  */
+ export declare function bootstrapWorkspace(handle: SandboxHandle, workspace: WorkspaceDefinition, options?: {
+     signal?: AbortSignal;
++    injectSecrets?: boolean;
++    includeThreadSetup?: boolean;
+ }): Promise<BootstrapResult>;
+diff --git a/dist/esm/bootstrap.js b/dist/esm/bootstrap.js
+index 57844dc2d199b9997d0edc3eddfc7ba2fb1d91cf..d0354166988bbc1d84220fbdfa2d13418cd368a1 100644
+--- a/dist/esm/bootstrap.js
++++ b/dist/esm/bootstrap.js
+@@ -33,77 +33,143 @@ async function detectPackageManager(handle, workspace, root) {
+ * target dir first.
+ */
+ async function bootstrapWorkspace(handle, workspace, options = {}) {
+-	const root = workspace.root ?? "/workspace";
+-	if (workspace.secrets !== void 0) {
+-		const resolved = resolveAllSecrets(workspace.secrets);
+-		if (Object.keys(resolved).length > 0) await handle.env.set(resolved);
+-	}
+-	if (workspace.source.type === "git") {
+-		if (!await handle.fs.exists(`${root}/.git`)) await handle.git.clone({
+-			url: workspace.source.url,
+-			ref: workspace.source.ref,
+-			auth: workspace.source.auth,
+-			...workspace.source.depth !== void 0 ? { depth: workspace.source.depth } : {}
+-		});
+-	}
+-	const skills = workspace.skills ?? [];
+-	for (const skill of skills) if (skill.kind === "git") {
+-		const url = skill.repo.startsWith("http") ? skill.repo : `https://github.com/${skill.repo}.git`;
+-		const dir = resolveHarnessCwd(handle, skill.into ?? resolveGitSkillDir(root, skill));
+-		const auth = skill.secret !== void 0 && workspace.secrets !== void 0 ? { token: resolveSecret(workspace.secrets, skill.secret) } : void 0;
+-		await handle.git.clone({
+-			url,
+-			dir,
+-			...auth !== void 0 ? { auth } : {},
+-			depth: 1
+-		});
+-	}
+-	let agentsContent;
+-	if (workspace.instructions !== void 0 && workspace.instructions.length > 0) agentsContent = workspace.instructions;
+-	else {
+-		const agentsFileSkill = skills.find((s) => s.kind === "file" && s.path === "AGENTS.md");
+-		if (agentsFileSkill !== void 0) agentsContent = agentsFileSkill.content;
+-	}
+-	agentsContent = mergeAgentsContent(agentsContent, workspace.scripts);
+-	if (agentsContent !== void 0) await writeAgentsFile(handle, root, agentsContent);
+-	for (const skill of skills) if (skill.kind === "file" && skill.path !== "AGENTS.md") await handle.fs.write(`${root}/${skill.path}`, skill.content);
+-	const packageManager = await detectPackageManager(handle, workspace, root);
+-	const ranSetup = [];
+-	const plan = buildSetupPlan(workspace.setup);
+-	if (plan.length > 0) {
+-		const shell = await createBootstrapShell(handle, { cwd: root });
+-		try {
+-			for (const group of plan) if (group.kind === "serial") {
+-				const result = await shell.run(group.command);
+-				if (result.exitCode !== 0) {
+-					const tail = result.stdout.trim().slice(-1500);
+-					throw new Error(`setup step failed: ${group.command} (exit ${result.exitCode})${tail ? `\n${tail}` : ""}`);
+-				}
+-				ranSetup.push(group.command);
+-			} else {
+-				const { cwd, env } = await shell.forkState();
+-				const failed = (await Promise.all(group.commands.map((command) => handle.process.exec(command, {
+-					cwd,
+-					env,
+-					...options.signal ? { signal: options.signal } : {}
+-				}).then((res) => ({
+-					command,
+-					res
+-				}))))).find((entry) => entry.res.exitCode !== 0);
+-				if (failed !== void 0) {
+-					const tail = `${failed.res.stdout}\n${failed.res.stderr}`.trim().slice(-1500);
+-					throw new Error(`setup step failed: ${failed.command} (exit ${failed.res.exitCode})${tail ? `\n${tail}` : ""}`);
+-				}
+-				ranSetup.push(...group.commands);
+-			}
+-		} finally {
+-			await shell.dispose();
+-		}
+-	}
+-	return {
+-		packageManager,
+-		ranSetup
+-	};
++    const root = workspace.root ?? DEFAULT_WORKSPACE_ROOT;
++    // Secrets live only in the running sandbox env (never persisted).
++    if (options.injectSecrets !== false && workspace.secrets !== undefined) {
++        const resolved = resolveAllSecrets(workspace.secrets);
++        if (Object.keys(resolved).length > 0) {
++            await handle.env.set(resolved);
++        }
++    }
++    // Land the source. Clone into the handle's own default root (each provider
++    // maps the conventional `/workspace` virtual root to its real backing dir),
++    // rather than passing a virtual `dir` that can't be remapped inside a shell
++    // command string.
++    if (workspace.source.type === 'git') {
++        const alreadyCloned = await handle.fs.exists(`${root}/.git`);
++        if (!alreadyCloned) {
++            await handle.git.clone({
++                url: workspace.source.url,
++                ref: workspace.source.ref,
++                auth: workspace.source.auth ? {
++                    ...workspace.source.auth,
++                    token: typeof workspace.source.auth.token === 'string'
++                        ? workspace.source.auth.token
++                        : resolveSecret(workspace.secrets, workspace.source.auth.token),
++                } : undefined,
++                ...(workspace.source.depth !== undefined
++                    ? { depth: workspace.source.depth }
++                    : {}),
++            });
++        }
++    }
++    if (workspace.source.type === 'git' && workspace.source.commit) {
++        const commit = workspace.source.commit;
++        if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(commit)) {
++            throw new Error('Workspace git commit must be a full object id');
++        }
++        const present = await handle.process.exec(`git cat-file -e '${commit}^{commit}'`, { signal: options.signal });
++        if (present.exitCode !== 0) {
++            const auth = workspace.source.auth;
++            const token = auth ? typeof auth.token === 'string' ? auth.token : resolveSecret(workspace.secrets, auth.token) : '';
++            const fetched = await handle.process.exec(`git -c credential.helper='!f() { echo "username=$GIT_ASKPASS_USER"; echo "password=$GIT_ASKPASS_TOKEN"; }; f' fetch --depth 1 origin '${commit}'`, { signal: options.signal, env: { GIT_ASKPASS_USER: auth?.username ?? 'x-access-token', GIT_ASKPASS_TOKEN: token, GIT_TERMINAL_PROMPT: '0' } });
++            if (fetched.exitCode !== 0)
++                throw new Error(`Workspace commit fetch failed: ${fetched.stderr}`);
++        }
++        const checkedOut = await handle.process.exec(`git checkout --detach '${commit}'`, { signal: options.signal });
++        if (checkedOut.exitCode !== 0)
++            throw new Error(`Workspace commit checkout failed: ${checkedOut.stderr}`);
++    }
++    // 'local' is provider-pre-populated at create; 'none' starts empty.
++    // Clone git-skill repos so setup steps (and the harness projector) can use
++    // them. gitSkill clones are always shallow (depth 1) unless the skill's own
++    // repo entry carries a depth override — the WorkspaceSkill `git` variant
++    // does not expose one, so depth always defaults to 1 inside git.clone.
++    const skills = workspace.skills ?? [];
++    for (const skill of skills) {
++        if (skill.kind === 'git') {
++            const url = skill.repo.startsWith('http')
++                ? skill.repo
++                : `https://github.com/${skill.repo}.git`;
++            const dir = resolveHarnessCwd(handle, skill.into ?? resolveGitSkillDir(root, skill));
++            const auth = skill.secret !== undefined && workspace.secrets !== undefined
++                ? { token: resolveSecret(workspace.secrets, skill.secret) }
++                : undefined;
++            await handle.git.clone({
++                url,
++                dir,
++                ...(auth !== undefined ? { auth } : {}),
++                depth: 1,
++            });
++        }
++    }
++    // Write AGENTS.md (and its per-CLI symlinks) when instructions are provided
++    // directly on the workspace, via a fileSkill whose path is `AGENTS.md`, or
++    // when named workspace scripts should be surfaced for the agent.
++    let agentsContent;
++    if (workspace.instructions !== undefined &&
++        workspace.instructions.length > 0) {
++        agentsContent = workspace.instructions;
++    }
++    else {
++        const agentsFileSkill = skills.find((s) => s.kind === 'file' && s.path === 'AGENTS.md');
++        if (agentsFileSkill !== undefined) {
++            agentsContent = agentsFileSkill.content;
++        }
++    }
++    agentsContent = mergeAgentsContent(agentsContent, workspace.scripts);
++    if (agentsContent !== undefined) {
++        await writeAgentsFile(handle, root, agentsContent);
++    }
++    // Write all other fileSkills directly into the workspace root.
++    for (const skill of skills) {
++        if (skill.kind === 'file' && skill.path !== 'AGENTS.md') {
++            await handle.fs.write(`${root}/${skill.path}`, skill.content);
++        }
++    }
++    const packageManager = await detectPackageManager(handle, workspace, root);
++    // Run setup over a single persistent shell so `cd`/exports persist across
++    // serial steps. Parallel groups fork the shell's current cwd+env into
++    // concurrent one-shot exec calls.
++    const ranSetup = [];
++    const plan = [...buildSetupPlan(workspace.setup), ...(options.includeThreadSetup !== false ? buildSetupPlan(workspace.threadSetup) : [])];
++    if (plan.length > 0) {
++        const shell = await createBootstrapShell(handle, { cwd: root });
++        try {
++            for (const group of plan) {
++                if (group.kind === 'serial') {
++                    const result = await shell.run(group.command);
++                    if (result.exitCode !== 0) {
++                        const tail = result.stdout.trim().slice(-1500);
++                        throw new Error(`setup step failed: ${group.command} (exit ${result.exitCode})${tail ? `\n${tail}` : ''}`);
++                    }
++                    ranSetup.push(group.command);
++                }
++                else {
++                    const { cwd, env } = await shell.forkState();
++                    const results = await Promise.all(group.commands.map((command) => handle.process
++                        .exec(command, {
++                        cwd,
++                        env,
++                        ...(options.signal ? { signal: options.signal } : {}),
++                    })
++                        .then((res) => ({ command, res }))));
++                    const failed = results.find((entry) => entry.res.exitCode !== 0);
++                    if (failed !== undefined) {
++                        const tail = `${failed.res.stdout}\n${failed.res.stderr}`
++                            .trim()
++                            .slice(-1500);
++                        throw new Error(`setup step failed: ${failed.command} (exit ${failed.res.exitCode})${tail ? `\n${tail}` : ''}`);
++                    }
++                    ranSetup.push(...group.commands);
++                }
++            }
++        }
++        finally {
++            await shell.dispose();
++        }
++    }
++    return { packageManager, ranSetup };
+ }
+ //#endregion
+ export { DEFAULT_WORKSPACE_ROOT, bootstrapWorkspace, detectPackageManager };
+diff --git a/dist/esm/contracts.d.ts b/dist/esm/contracts.d.ts
+index 99d1da33e8c6bcae96cb29a41367b1c5861691b6..1f7ea10ac051bbfdbfac7aba697da604787c38cc 100644
+--- a/dist/esm/contracts.d.ts
++++ b/dist/esm/contracts.d.ts
+@@ -86,16 +86,16 @@ export interface SandboxProcess {
+ }
+ /** Common, portable filesystem operations every provider implements. */
+ export interface SandboxFs {
+-    read: (path: string) => Promise<string>;
++    read: (path: string, options?: { signal?: AbortSignal }) => Promise<string>;
+     readBytes: (path: string) => Promise<Uint8Array>;
+-    write: (path: string, data: string | Uint8Array) => Promise<void>;
++    write: (path: string, data: string | Uint8Array, options?: { signal?: AbortSignal }) => Promise<void>;
+     list: (path: string) => Promise<Array<{
+         name: string;
+         path: string;
+         type: 'file' | 'dir';
+     }>>;
+-    mkdir: (path: string) => Promise<void>;
+-    remove: (path: string) => Promise<void>;
++    mkdir: (path: string, options?: { signal?: AbortSignal }) => Promise<void>;
++    remove: (path: string, options?: { signal?: AbortSignal }) => Promise<void>;
+     rename: (from: string, to: string) => Promise<void>;
+     exists: (path: string) => Promise<boolean>;
+     /**
+@@ -255,5 +255,7 @@ export interface SandboxProvider {
+     resume: (input: SandboxResumeInput) => Promise<SandboxHandle | null>;
+     /** Capability-gated: present only when `capabilities().snapshots` is true. */
+     restoreSnapshot?: (input: SandboxRestoreInput) => Promise<SandboxHandle>;
++  /** Delete an unreferenced provider snapshot. */
++  deleteSnapshot?: (input: { snapshotId: string; signal?: AbortSignal }) => Promise<void>;
+     destroy: (input: SandboxDestroyInput) => Promise<void>;
+ }
+diff --git a/dist/esm/instance-store.d.ts b/dist/esm/instance-store.d.ts
+index 42611ebb2d54bdd39a8c8523ccc91aaf011313dd..2dd408a130e354a32e6fdc8ef47a4c91290d1086 100644
+--- a/dist/esm/instance-store.d.ts
++++ b/dist/esm/instance-store.d.ts
+@@ -2,6 +2,8 @@
+ export interface SandboxInstanceRecord {
+     /** Compound key (see `computeSandboxKey`). */
+     key: string;
++  /** Compatible workspace/thread identity; never an alias for get(key). */
++  transitionKey?: string;
+     /** Provider name that owns `providerSandboxId`. */
+     provider: string;
+     /** Provider-assigned sandbox id used to resume. */
+@@ -22,6 +24,11 @@ export interface SandboxInstanceRecord {
+  * `runSandboxInstanceStoreConformance` from `@tanstack/ai-sandbox/testkit`.
+  */
+ export interface SandboxInstanceStore {
++  /** Most recently used compatible thread record, for an explicit transition. */
++  findByTransitionKey?: (key: string) => Promise<SandboxInstanceRecord | null>;
++  /** Atomically move an existing record to a new exact identity. */
++  move?: (fromKey: string, record: SandboxInstanceRecord) => Promise<void>;
++
+     /**
+      * Return the record for `key`, or `null` if none exists.
+      *
 diff --git a/dist/esm/middleware.d.ts b/dist/esm/middleware.d.ts
 index 4945a5a31ad3bb5b3e162667f5b70347487685a9..c8057d1985b13ac9bea1518006d7986c7cb52574 100644
 --- a/dist/esm/middleware.d.ts
@@ -96,10 +384,23 @@ index 74b7bbca9f7bc2c3365691378f100406ed5b04c4..2c01d5b04fc942bfacfa8b8aecf53fc6
  					const parentCheckpointId = await config.checkpoints.getHead(ctx.threadId);
  					if (!canPublishPortableSnapshot(state, lease)) return;
 diff --git a/dist/esm/sandbox.d.ts b/dist/esm/sandbox.d.ts
-index 913b324750fd5abdb973b9a28df5f67ac0e3dee3..94d142b5b17c9fa28e132e75ea83b7b3de30801b 100644
+index 913b324750fd5abdb973b9a28df5f67ac0e3dee3..5d0314f48478f58373e18bcbcfc2e4c63722265b 100644
 --- a/dist/esm/sandbox.d.ts
 +++ b/dist/esm/sandbox.d.ts
-@@ -13,7 +13,7 @@ export interface SandboxHooks {
+@@ -1,6 +1,6 @@
+ import { LockStore } from '@tanstack/ai/locks';
+ import { SandboxFileHookEvent } from '@tanstack/ai';
+-import { SandboxInstanceStore } from './instance-store.js';
++import { SandboxInstanceStore, SandboxInstanceRecord } from './instance-store.js';
+ import { SandboxHandle, SandboxProvider } from './contracts.js';
+ import { SandboxPolicy } from './policy.js';
+ import { WorkspaceDefinition } from './workspace.js';
+@@ -9,17 +9,19 @@ import { WorkspaceDefinition } from './workspace.js';
+  * create/change/delete during a chat run; lifecycle hooks fire server-side.
+  */
+ export interface SandboxHooks {
++  onWorkspaceTransition?: (handle: SandboxHandle, previous: SandboxInstanceRecord, ctx: SandboxEnsureContext) => Promise<void>;
+     onFile?: (e: SandboxFileHookEvent) => void | Promise<void>;
      onFileCreate?: (e: SandboxFileHookEvent) => void | Promise<void>;
      onFileChange?: (e: SandboxFileHookEvent) => void | Promise<void>;
      onFileDelete?: (e: SandboxFileHookEvent) => void | Promise<void>;
@@ -108,7 +409,14 @@ index 913b324750fd5abdb973b9a28df5f67ac0e3dee3..94d142b5b17c9fa28e132e75ea83b7b3
      onError?: (err: unknown) => void | Promise<void>;
      onDestroy?: () => void | Promise<void>;
  }
-@@ -51,6 +51,8 @@ export interface SandboxConfig {
+ export type ReuseStrategy = 'thread' | 'none';
+ export type SnapshotStrategy = 'after-setup' | 'after-run' | 'none';
+ export interface SandboxLifecycle {
++    baseSnapshot?: boolean;
+     /** `'thread'` resumes one sandbox per thread; `'none'` is fresh per run. */
+     reuse?: ReuseStrategy;
+     /** When to snapshot (provider-permitting). */
+@@ -51,6 +53,8 @@ export interface SandboxConfig {
  }
  /** Context passed to `ensure()` by `withSandbox` (or advanced callers). */
  export interface SandboxEnsureContext {
@@ -118,80 +426,442 @@ index 913b324750fd5abdb973b9a28df5f67ac0e3dee3..94d142b5b17c9fa28e132e75ea83b7b3
      runId: string;
      /** Persistence seam; falls back to an in-memory store when absent. */
 diff --git a/dist/esm/sandbox.js b/dist/esm/sandbox.js
-index afbf4b7cd5bed5cac60e5d1887880c9806a29ede..47742dd4fdb6f60c0c912331f1f26b86388a538d 100644
+index afbf4b7cd5bed5cac60e5d1887880c9806a29ede..eb1cf282676eeb177618d2028fb24d332aeef350 100644
 --- a/dist/esm/sandbox.js
 +++ b/dist/esm/sandbox.js
-@@ -64,13 +64,14 @@ function defineSandbox(config) {
- 		threadId: config.lifecycle?.reuse === "none" ? `${ctx.threadId}:${ctx.runId}` : ctx.threadId,
- 		sandboxId: config.id,
- 		providerName: config.provider.name,
+@@ -60,153 +60,285 @@ async function applyWorkspaceSecrets(handle, workspace, stagedSecrets) {
+ 	await handle.env.set(resolved);
+ }
+ function defineSandbox(config) {
+-	const keyInputFor = (ctx) => ({
+-		threadId: config.lifecycle?.reuse === "none" ? `${ctx.threadId}:${ctx.runId}` : ctx.threadId,
+-		sandboxId: config.id,
+-		providerName: config.provider.name,
 -		workspace: config.workspace,
-+		workspace: ctx.workspace ?? config.workspace,
- 		tenant: ctx.tenant
- 	});
- 	const ensureWithOutcome = async (ctx) => {
+-		tenant: ctx.tenant
+-	});
+-	const ensureWithOutcome = async (ctx) => {
 -		const store = ctx.store ?? fallbackStore;
-+		const workspace = ctx.workspace ?? config.workspace;
-+    const store = ctx.store ?? fallbackStore;
- 		const locks = ctx.locks ?? fallbackLocks;
+-		const locks = ctx.locks ?? fallbackLocks;
 -		const key = computeSandboxKey(keyInputFor(ctx));
-+		const key = computeSandboxKey(keyInputFor({ ...ctx, workspace }));
- 		const caps = config.provider.capabilities();
- 		return locks.withLock(`sandbox:${key}`, async () => {
- 			const effectiveSnapshot = config.lifecycle?.snapshot ?? (caps.snapshots ? "after-setup" : "none");
-@@ -83,7 +84,7 @@ function defineSandbox(config) {
- 						signal: ctx.signal
- 					});
- 					if (resumed) {
+-		const caps = config.provider.capabilities();
+-		return locks.withLock(`sandbox:${key}`, async () => {
+-			const effectiveSnapshot = config.lifecycle?.snapshot ?? (caps.snapshots ? "after-setup" : "none");
+-			const maxAgeMs = parseMaxAgeMs(config.lifecycle?.snapshotMaxAge);
+-			const existing = await store.get(key);
+-			if (existing) {
+-				if (!(maxAgeMs !== void 0 && Date.now() - existing.updatedAt > maxAgeMs)) {
+-					const resumed = await config.provider.resume({
+-						id: existing.providerSandboxId,
+-						signal: ctx.signal
+-					});
+-					if (resumed) {
 -						await applyWorkspaceSecrets(resumed, config.workspace);
-+						await applyWorkspaceSecrets(resumed, workspace);
- 						await store.upsert({
- 							...existing,
- 							latestRunId: ctx.runId,
-@@ -97,12 +98,12 @@ function defineSandbox(config) {
- 					if (existing.latestSnapshotId && caps.snapshots && config.provider.restoreSnapshot) {
- 						const restored = await config.provider.restoreSnapshot({
- 							snapshotId: existing.latestSnapshotId,
+-						await store.upsert({
+-							...existing,
+-							latestRunId: ctx.runId,
+-							updatedAt: Date.now()
+-						});
+-						return {
+-							handle: resumed,
+-							outcome: "resumed"
+-						};
+-					}
+-					if (existing.latestSnapshotId && caps.snapshots && config.provider.restoreSnapshot) {
+-						const restored = await config.provider.restoreSnapshot({
+-							snapshotId: existing.latestSnapshotId,
 -							workspace: config.workspace,
-+							workspace: workspace,
- 							policy: config.policy,
+-							policy: config.policy,
 -							env: config.workspace?.secrets !== void 0 ? resolveAllSecrets(config.workspace.secrets) : void 0,
-+							env: workspace?.secrets !== void 0 ? resolveAllSecrets(workspace.secrets) : void 0,
- 							signal: ctx.signal
- 						});
+-							signal: ctx.signal
+-						});
 -						await applyWorkspaceSecrets(restored, config.workspace);
-+						await applyWorkspaceSecrets(restored, workspace);
- 						await store.upsert({
- 							...existing,
- 							providerSandboxId: restored.id,
-@@ -118,14 +119,14 @@ function defineSandbox(config) {
- 			}
- 			const created = await config.provider.create({
- 				id: key,
+-						await store.upsert({
+-							...existing,
+-							providerSandboxId: restored.id,
+-							latestRunId: ctx.runId,
+-							updatedAt: Date.now()
+-						});
+-						return {
+-							handle: restored,
+-							outcome: "native-restored"
+-						};
+-					}
+-				}
+-			}
+-			const created = await config.provider.create({
+-				id: key,
 -				workspace: config.workspace,
-+				workspace: workspace,
- 				policy: config.policy,
+-				policy: config.policy,
 -				env: config.workspace?.secrets !== void 0 ? resolveAllSecrets(config.workspace.secrets) : void 0,
-+				env: workspace?.secrets !== void 0 ? resolveAllSecrets(workspace.secrets) : void 0,
- 				signal: ctx.signal,
- 				adapterName: ctx.adapterName
- 			});
+-				signal: ctx.signal,
+-				adapterName: ctx.adapterName
+-			});
 -			if (config.workspace) try {
 -				await bootstrapWorkspace(created, config.workspace, { signal: ctx.signal });
-+			if (workspace) try {
-+				await bootstrapWorkspace(created, workspace, { signal: ctx.signal });
- 			} catch (error) {
- 				await created.destroy().catch(() => {});
- 				throw error;
-@@ -152,7 +153,7 @@ function defineSandbox(config) {
- 		const store = ctx.store ?? fallbackStore;
- 		const locks = ctx.locks ?? fallbackLocks;
- 		const key = stage?.key ?? computeSandboxKey(keyInputFor(ctx));
+-			} catch (error) {
+-				await created.destroy().catch(() => {});
+-				throw error;
+-			}
+-			let latestSnapshotId;
+-			if (effectiveSnapshot === "after-setup" && caps.snapshots && created.snapshot) latestSnapshotId = (await created.snapshot("after-setup")).id;
+-			await store.upsert({
+-				key,
+-				provider: config.provider.name,
+-				providerSandboxId: created.id,
+-				latestSnapshotId,
+-				threadId: ctx.threadId,
+-				latestRunId: ctx.runId,
+-				updatedAt: Date.now()
+-			});
+-			return {
+-				handle: created,
+-				outcome: "created"
+-			};
+-		});
+-	};
+-	const ensure = async (ctx) => (await ensureWithOutcome(ctx)).handle;
+-	const ensureExistingWithStage = async (ctx, stage) => {
+-		const store = ctx.store ?? fallbackStore;
+-		const locks = ctx.locks ?? fallbackLocks;
+-		const key = stage?.key ?? computeSandboxKey(keyInputFor(ctx));
 -		const workspace = stage?.workspace ?? config.workspace;
-+		const workspace = stage?.workspace ?? ctx.workspace ?? config.workspace;
- 		const snapshotMaxAge = stage ? stage.snapshotMaxAge : config.lifecycle?.snapshotMaxAge;
- 		const resume = stage?.resume ?? config.provider.resume.bind(config.provider);
- 		return locks.withLock(`sandbox:${key}`, async () => {
+-		const snapshotMaxAge = stage ? stage.snapshotMaxAge : config.lifecycle?.snapshotMaxAge;
+-		const resume = stage?.resume ?? config.provider.resume.bind(config.provider);
+-		return locks.withLock(`sandbox:${key}`, async () => {
+-			const existing = await store.get(key);
+-			const maxAgeMs = parseMaxAgeMs(snapshotMaxAge);
+-			if (!existing || maxAgeMs !== void 0 && Date.now() - existing.updatedAt > maxAgeMs) return null;
+-			const resumed = await resume({
+-				id: existing.providerSandboxId,
+-				signal: ctx.signal
+-			});
+-			if (!resumed) return null;
+-			await applyWorkspaceSecrets(resumed, workspace, stage?.resolvedSecrets);
+-			await store.upsert({
+-				...existing,
+-				latestRunId: ctx.runId,
+-				updatedAt: Date.now()
+-			});
+-			return resumed;
+-		});
+-	};
+-	const ensureExisting = (ctx) => ensureExistingWithStage(ctx);
+-	const destroy = async (ctx) => {
+-		const store = ctx.store ?? fallbackStore;
+-		const key = computeSandboxKey(keyInputFor(ctx));
+-		const existing = await store.get(key);
+-		if (!existing) return;
+-		const teardown = new AbortController();
+-		const timer = setTimeout(() => teardown.abort(), DESTROY_TIMEOUT_MS);
+-		try {
+-			await config.provider.destroy({
+-				id: existing.providerSandboxId,
+-				signal: teardown.signal
+-			});
+-		} finally {
+-			clearTimeout(timer);
+-		}
+-		await store.delete(key);
+-	};
+-	const definition = {
+-		id: config.id,
+-		provider: config.provider,
+-		workspace: config.workspace,
+-		policy: config.policy,
+-		lifecycle: config.lifecycle,
+-		hooks: config.hooks,
+-		fileEvents: config.fileEvents,
+-		key: (ctx) => computeSandboxKey(keyInputFor(ctx)),
+-		ensure,
+-		ensureExisting,
+-		destroy
+-	};
+-	outcomeEnsure.set(definition, ensureWithOutcome);
+-	existingEnsure.set(definition, ensureExistingWithStage);
+-	return definition;
++    const keyInputFor = (ctx) => ({
++        threadId: config.lifecycle?.reuse === 'none'
++            ? `${ctx.threadId}:${ctx.runId}`
++            : ctx.threadId,
++        sandboxId: config.id,
++        providerName: config.provider.name,
++        workspace: ctx.workspace ?? config.workspace,
++        tenant: ctx.tenant,
++    });
++    const transitionKeyFor = (ctx, threadId = ctx.threadId) => {
++        const workspace = ctx.workspace ?? config.workspace;
++        if (!workspace?.transitionIdentity)
++            return undefined;
++        return computeSandboxKey({ ...keyInputFor(ctx), threadId, workspace: { identity: workspace.transitionIdentity, source: { type: 'none' } } });
++    };
++    const ensureUnlocked = async (ctx, options = {}) => {
++        const workspace = ctx.workspace ?? config.workspace;
++        const store = ctx.store ?? fallbackStore;
++        const key = options.key ?? computeSandboxKey(keyInputFor({ ...ctx, workspace }));
++        const caps = config.provider.capabilities();
++        const effectiveSnapshot = config.lifecycle?.snapshot ?? (caps.snapshots ? 'after-setup' : 'none');
++        const maxAgeMs = parseMaxAgeMs(config.lifecycle?.snapshotMaxAge);
++        const existing = await store.get(key);
++        if (existing) {
++            // Check whether the record has exceeded snapshotMaxAge; if so,
++            // discard and fall through to a fresh create.
++            const tooOld = maxAgeMs !== undefined && Date.now() - existing.updatedAt > maxAgeMs;
++            if (!tooOld) {
++                // 1) Try to reconnect to the still-running sandbox.
++                const resumed = await config.provider.resume({
++                    id: existing.providerSandboxId,
++                    signal: ctx.signal,
++                });
++                if (resumed) {
++                    if (!options.base)
++                        await applyWorkspaceSecrets(resumed, workspace);
++                    await store.upsert({
++                        ...existing,
++                        latestRunId: ctx.runId,
++                        updatedAt: Date.now(),
++                    });
++                    return { handle: resumed, outcome: 'resumed' };
++                }
++                // 2) Else restore from the latest snapshot, if supported.
++                if (existing.latestSnapshotId &&
++                    caps.snapshots &&
++                    config.provider.restoreSnapshot) {
++                    const restored = await config.provider.restoreSnapshot({
++                        snapshotId: existing.latestSnapshotId,
++                        workspace: workspace,
++                        policy: config.policy,
++                        env: !options.base && workspace?.secrets !== undefined
++                            ? resolveAllSecrets(workspace.secrets)
++                            : undefined,
++                        signal: ctx.signal,
++                    });
++                    if (!options.base) {
++                        await applyWorkspaceSecrets(restored, workspace);
++                        if (config.lifecycle?.baseSnapshot && workspace?.threadSetup) {
++                            await bootstrapWorkspace(restored, { ...workspace, setup: workspace.threadSetup, threadSetup: undefined }, { signal: ctx.signal });
++                        }
++                    }
++                    await store.upsert({
++                        ...existing,
++                        providerSandboxId: restored.id,
++                        latestRunId: ctx.runId,
++                        updatedAt: Date.now(),
++                    });
++                    return { handle: restored, outcome: 'native-restored' };
++                }
++            }
++            // 3) Else fall through and re-create under the same identity
++            //    (capability-aware degradation for ephemeral-disk providers, or
++            //    snapshotMaxAge TTL exceeded).
++        }
++        if (options.existingOnly)
++            return null;
++        if (options.snapshotId) {
++            const restored = await config.provider.restoreSnapshot({ snapshotId: options.snapshotId, workspace, policy: config.policy, signal: ctx.signal });
++            try {
++                await applyWorkspaceSecrets(restored, workspace);
++                if (workspace?.threadSetup) {
++                    await bootstrapWorkspace(restored, { ...workspace, setup: workspace.threadSetup, threadSetup: undefined }, { signal: ctx.signal });
++                }
++                await store.upsert({ key, transitionKey: options.base ? undefined : transitionKeyFor(ctx), provider: config.provider.name, providerSandboxId: restored.id, latestSnapshotId: options.snapshotId, threadId: ctx.threadId, latestRunId: ctx.runId, updatedAt: Date.now() });
++                return { handle: restored, outcome: 'native-restored' };
++            }
++            catch (error) {
++                await restored.destroy();
++                throw error;
++            }
++        }
++        const created = await config.provider.create({
++            // Deterministic id so consumers can reconstruct the provider sandbox
++            // address from run context (not just from the store record).
++            id: key,
++            workspace: workspace,
++            policy: config.policy,
++            env: !options.base && workspace?.secrets !== undefined
++                ? resolveAllSecrets(workspace.secrets)
++                : undefined,
++            signal: ctx.signal,
++            adapterName: ctx.adapterName,
++        });
++        if (workspace) {
++            try {
++                await bootstrapWorkspace(created, workspace, {
++                    injectSecrets: !options.base,
++                    includeThreadSetup: !options.base,
++                    signal: ctx.signal,
++                });
++            }
++            catch (error) {
++                // Bootstrap failed after the sandbox was created but before it was
++                // recorded — destroy the orphan so a failed/retried run doesn't leak
++                // a (billed) sandbox, then surface the original error.
++                await created.destroy().catch(() => { });
++                throw error;
++            }
++        }
++        let latestSnapshotId;
++        if ((options.base || effectiveSnapshot === 'after-setup') &&
++            caps.snapshots &&
++            created.snapshot) {
++            latestSnapshotId = (await created.snapshot('after-setup')).id;
++        }
++        await store.upsert({
++            key,
++            transitionKey: options.base ? undefined : transitionKeyFor(ctx),
++            provider: config.provider.name,
++            providerSandboxId: created.id,
++            latestSnapshotId,
++            threadId: ctx.threadId,
++            latestRunId: ctx.runId,
++            updatedAt: Date.now(),
++        });
++        return { handle: created, outcome: 'created' };
++    };
++    const ensureWithOutcome = async (ctx) => {
++        const workspace = ctx.workspace ?? config.workspace;
++        const staged = { ...ctx, workspace };
++        const locks = ctx.locks ?? fallbackLocks;
++        const key = computeSandboxKey(keyInputFor(staged));
++        const transitionKey = transitionKeyFor(staged);
++        if (transitionKey) {
++            const store = ctx.store ?? fallbackStore;
++            if (!store.findByTransitionKey || !store.move || !config.hooks?.onWorkspaceTransition) {
++                throw new Error('Workspace transitions require a transition store and onWorkspaceTransition hook');
++            }
++            // One stable workspace lock covers old/new identities and shared base creation.
++            // Do not nest injected locks: hosts may add their own workspace deletion fence.
++            return locks.withLock(`sandbox-transition:${transitionKeyFor(staged, '')}`, async () => {
++                const exact = await ensureUnlocked(staged, { existingOnly: true });
++                if (exact)
++                    return exact;
++                const previous = await store.findByTransitionKey(transitionKey);
++                if (previous && previous.key !== key && previous.provider === config.provider.name) {
++                    const handle = await config.provider.resume({ id: previous.providerSandboxId, signal: ctx.signal });
++                    if (handle) {
++                        await applyWorkspaceSecrets(handle, workspace);
++                        await config.hooks.onWorkspaceTransition(handle, previous, staged);
++                        ctx.signal?.throwIfAborted();
++                        await store.move(previous.key, { ...previous, key, transitionKey, latestSnapshotId: undefined, latestRunId: ctx.runId, updatedAt: Date.now() });
++                        return { handle, outcome: 'resumed' };
++                    }
++                }
++                if (config.lifecycle?.baseSnapshot && config.provider.capabilities().snapshots && config.provider.restoreSnapshot) {
++                    const baseKey = `base:${computeSandboxKey({ ...keyInputFor(staged), threadId: '' })}`;
++                    await ensureUnlocked({ ...staged, threadId: '' }, { key: baseKey, base: true });
++                    const base = await store.get(baseKey);
++                    if (!base?.latestSnapshotId)
++                        throw new Error('Workspace base snapshot was not persisted');
++                    return (await ensureUnlocked(staged, { snapshotId: base.latestSnapshotId }));
++                }
++                return (await ensureUnlocked(staged));
++            });
++        }
++        if (!config.lifecycle?.baseSnapshot || !config.provider.capabilities().snapshots || !config.provider.restoreSnapshot) {
++            return (await locks.withLock(`sandbox:${key}`, () => ensureUnlocked(staged)));
++        }
++        // Keep the warm path to one provider attach and no base lookup.
++        const warm = await ensureExistingWithStage(staged);
++        if (warm)
++            return { handle: warm, outcome: 'resumed' };
++        const baseKey = `base:${computeSandboxKey({ ...keyInputFor(staged), threadId: '' })}`;
++        return locks.withLock(`sandbox:${baseKey}`, async () => {
++            const existing = await ensureUnlocked(staged, { existingOnly: true });
++            if (existing)
++                return existing;
++            await ensureUnlocked({ ...staged, threadId: '' }, { key: baseKey, base: true });
++            const base = await (ctx.store ?? fallbackStore).get(baseKey);
++            if (!base?.latestSnapshotId)
++                throw new Error('Workspace base snapshot was not persisted');
++            return (await ensureUnlocked(staged, { snapshotId: base.latestSnapshotId }));
++        });
++    };
++    const ensure = async (ctx) => (await ensureWithOutcome(ctx)).handle;
++    const ensureExistingWithStage = async (ctx, stage) => {
++        const store = ctx.store ?? fallbackStore;
++        const locks = ctx.locks ?? fallbackLocks;
++        const key = stage?.key ?? computeSandboxKey(keyInputFor(ctx));
++        const workspace = stage?.workspace ?? ctx.workspace ?? config.workspace;
++        const snapshotMaxAge = stage
++            ? stage.snapshotMaxAge
++            : config.lifecycle?.snapshotMaxAge;
++        const resume = stage?.resume ?? config.provider.resume.bind(config.provider);
++        const lockKey = transitionKeyFor(ctx, '');
++        return locks.withLock(lockKey ? `sandbox-transition:${lockKey}` : `sandbox:${key}`, async () => {
++            const existing = await store.get(key);
++            const maxAgeMs = parseMaxAgeMs(snapshotMaxAge);
++            if (!existing ||
++                (maxAgeMs !== undefined && Date.now() - existing.updatedAt > maxAgeMs))
++                return null;
++            const resumed = await resume({
++                id: existing.providerSandboxId,
++                signal: ctx.signal,
++            });
++            if (!resumed)
++                return null;
++            await applyWorkspaceSecrets(resumed, workspace, stage?.resolvedSecrets);
++            await store.upsert({
++                ...existing,
++                latestRunId: ctx.runId,
++                updatedAt: Date.now(),
++            });
++            return resumed;
++        });
++    };
++    const ensureExisting = (ctx) => ensureExistingWithStage(ctx);
++    const destroy = async (ctx) => {
++        const store = ctx.store ?? fallbackStore;
++        const key = computeSandboxKey(keyInputFor(ctx));
++        const existing = await store.get(key);
++        if (!existing)
++            return;
++        /*
++         * TEARDOWN IS DELIBERATELY NOT FENCED BY `ctx.signal`.
++         *
++         * `destroy` runs on every teardown path INCLUDING the one caused by that
++         * very signal aborting, so forwarding it hands the provider a signal that is
++         * already aborted: a provider that honors it does nothing and returns
++         * successfully, and `store.delete` below then removes the only pointer to a
++         * live, billed sandbox. `SandboxInstanceStore` has no `list` (see the note
++         * at the top of `reclaim.ts`), so that sandbox is unreachable from then on.
++         *
++         * Same reasoning as `close()` never being fenced by the run claim (see
++         * `fenceDurability` in `claim.ts`): cleanup must outlive whatever cancelled
++         * the work. A fresh controller with its own bounded timeout keeps the call
++         * from hanging forever without letting the caller's abort cancel it.
++         */
++        const teardown = new AbortController();
++        const timer = setTimeout(() => teardown.abort(), DESTROY_TIMEOUT_MS);
++        try {
++            await config.provider.destroy({
++                id: existing.providerSandboxId,
++                signal: teardown.signal,
++            });
++        }
++        finally {
++            clearTimeout(timer);
++        }
++        await store.delete(key);
++    };
++    const definition = {
++        id: config.id,
++        provider: config.provider,
++        workspace: config.workspace,
++        policy: config.policy,
++        lifecycle: config.lifecycle,
++        hooks: config.hooks,
++        fileEvents: config.fileEvents,
++        key: (ctx) => computeSandboxKey(keyInputFor(ctx)),
++        ensure,
++        ensureExisting,
++        destroy,
++    };
++    outcomeEnsure.set(definition, ensureWithOutcome);
++    existingEnsure.set(definition, ensureExistingWithStage);
++    return definition;
+ }
+ //#endregion
+ export { defineSandbox, ensureSandboxWithOutcome, stageEnsureExistingSandbox };
 diff --git a/dist/esm/snapshot-operations.d.ts b/dist/esm/snapshot-operations.d.ts
 index 2214860b957991a7ea8d9b54a72d531e595c1ebe..aeb16956f934ce763822dabc0d49c626115fa0ca 100644
 --- a/dist/esm/snapshot-operations.d.ts
@@ -222,28 +892,36 @@ index 2214860b957991a7ea8d9b54a72d531e595c1ebe..aeb16956f934ce763822dabc0d49c626
      tenant?: {
          userId?: string;
 diff --git a/dist/esm/snapshot-operations.js b/dist/esm/snapshot-operations.js
-index 20dc5be9d346fd0d36b5a3a94de4b006fd5fe933..8bfc3fef6084813aa06db9f4718ac9ea081b3402 100644
+index 20dc5be9d346fd0d36b5a3a94de4b006fd5fe933..ada8c88109656739b323f565c5effafb52ce5f84 100644
 --- a/dist/esm/snapshot-operations.js
 +++ b/dist/esm/snapshot-operations.js
-@@ -57,7 +57,8 @@ async function withWriterLease(acquire, renew, operation) {
+@@ -57,9 +57,12 @@ async function withWriterLease(acquire, renew, operation) {
  }
  function stageWorkspace(workspace) {
  	if (workspace === void 0) return void 0;
 -	const source = workspace.source;
 +	const identity = workspace.identity;
++  const transitionIdentity = workspace.transitionIdentity;
 +  const source = workspace.source;
  	const packageManager = workspace.packageManager;
  	const setup = workspace.setup;
++  const threadSetup = workspace.threadSetup;
  	const scripts = workspace.scripts;
-@@ -68,6 +69,7 @@ function stageWorkspace(workspace) {
+ 	const skills = workspace.skills;
+ 	const instructions = workspace.instructions;
+@@ -68,8 +71,11 @@ function stageWorkspace(workspace) {
  	const root = workspace.root;
  	return {
  		source,
 +    ...(Object.hasOwn(workspace, "identity") ? { identity } : {}),
++    ...(Object.hasOwn(workspace, "transitionIdentity") ? { transitionIdentity } : {}),
  		...Object.hasOwn(workspace, "packageManager") ? { packageManager } : {},
  		...Object.hasOwn(workspace, "setup") ? { setup } : {},
++    ...Object.hasOwn(workspace, "threadSetup") ? { threadSetup } : {},
  		...Object.hasOwn(workspace, "scripts") ? { scripts } : {},
-@@ -101,7 +103,8 @@ function createSandboxSnapshots(input) {
+ 		...Object.hasOwn(workspace, "skills") ? { skills } : {},
+ 		...Object.hasOwn(workspace, "instructions") ? { instructions } : {},
+@@ -101,7 +107,8 @@ function createSandboxSnapshots(input) {
  	const persistence = requireSnapshotPersistence(input.persistence);
  	const checkpoints = input.checkpoints;
  	const policy = input.policy;
@@ -253,7 +931,7 @@ index 20dc5be9d346fd0d36b5a3a94de4b006fd5fe933..8bfc3fef6084813aa06db9f4718ac9ea
  	const boundInstances = input.instances;
  	const boundTenant = input.tenant;
  	const boundLocks = input.locks;
-@@ -116,6 +119,7 @@ function createSandboxSnapshots(input) {
+@@ -116,6 +123,7 @@ function createSandboxSnapshots(input) {
  			if (instances === void 0) throw new SandboxSnapshotError("SANDBOX_SNAPSHOT_MISSING_INSTANCES", "Named snapshots require instances at create time or on save");
  			return saveNamedSandboxSnapshot({
  				definition: sandbox,
@@ -261,7 +939,7 @@ index 20dc5be9d346fd0d36b5a3a94de4b006fd5fe933..8bfc3fef6084813aa06db9f4718ac9ea
  				threadId: saveInput.threadId,
  				runId: saveInput.runId,
  				instances,
-@@ -169,7 +173,7 @@ async function saveNamedSandboxSnapshot(input) {
+@@ -169,7 +177,7 @@ async function saveNamedSandboxSnapshot(input) {
  	const lifecycle = definition.lifecycle;
  	const reuse = lifecycle?.reuse;
  	const snapshotMaxAge = lifecycle?.snapshotMaxAge;
@@ -270,7 +948,7 @@ index 20dc5be9d346fd0d36b5a3a94de4b006fd5fe933..8bfc3fef6084813aa06db9f4718ac9ea
  	const sandboxId = definition.id;
  	const provider = definition.provider;
  	const providerName = provider.name;
-@@ -207,6 +211,7 @@ async function saveNamedSandboxSnapshot(input) {
+@@ -207,6 +215,7 @@ async function saveNamedSandboxSnapshot(input) {
  			threadId,
  			runId,
  			store: instances,
@@ -279,18 +957,199 @@ index 20dc5be9d346fd0d36b5a3a94de4b006fd5fe933..8bfc3fef6084813aa06db9f4718ac9ea
  			tenant,
  			signal,
 diff --git a/dist/esm/workspace.d.ts b/dist/esm/workspace.d.ts
-index e1ed4af17e86354bcb763eb47a0503ae328da9f0..647644ea6c2ae6af4732f5a35638e9c4567e040d 100644
+index e1ed4af17e86354bcb763eb47a0503ae328da9f0..b8b3ab0ce77189ae5c7beb84e9140efe03b4d64d 100644
 --- a/dist/esm/workspace.d.ts
 +++ b/dist/esm/workspace.d.ts
-@@ -97,6 +97,8 @@ export declare function gitSkill(input: {
+@@ -10,10 +10,11 @@ import { BearerRef, SecretRef, Secrets } from './secrets.js';
+ export type WorkspaceSource = {
+     type: 'git';
+     url: string;
+-    ref?: string;
++    commit?: string;
++  ref?: string;
+     auth?: {
+         username?: string;
+-        token: string;
++        token: string | SecretRef;
+     };
+     /**
+      * Clone depth. Defaults to `1` (shallow). Pass a number for a specific
+@@ -29,19 +30,21 @@ export type WorkspaceSource = {
+ /** Clone a git repo into the workspace. `githubRepo` is a convenience wrapper. */
+ export declare function gitSource(input: {
+     url: string;
+-    ref?: string;
++    commit?: string;
++  ref?: string;
+     auth?: {
+         username?: string;
+-        token: string;
++        token: string | SecretRef;
+     };
+     depth?: number | 'full';
+ }): WorkspaceSource;
+ export declare function githubRepo(input: {
+     repo: string;
+-    ref?: string;
++    commit?: string;
++  ref?: string;
+     auth?: {
+         username?: string;
+-        token: string;
++        token: string | SecretRef;
+     };
+     depth?: number | 'full';
+ }): WorkspaceSource;
+@@ -97,10 +100,15 @@ export declare function gitSkill(input: {
  }): WorkspaceSkill;
  export type PackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun' | 'auto';
  export interface WorkspaceDefinition {
 +  /** Immutable revision identity, included in sandbox and checkpoint hashes. */
 +  identity?: string;
++  /** Stable compatibility identity for opt-in live workspace transitions. */
++  transitionIdentity?: string;
      source: WorkspaceSource;
      /** Defaults to `'auto'` — detect from the lockfile after the source lands. */
      packageManager?: PackageManager;
+     /** Commands run once during bootstrap. Accepts a string array (serial) or a builder function for serial/parallel groups. */
++    threadSetup?: SetupInput;
+     setup?: SetupInput;
+     /** Named commands the agent/user can invoke (e.g. { test: 'pnpm test' }). */
+     scripts?: Record<string, string>;
+diff --git a/dist/esm/workspace.js b/dist/esm/workspace.js
+index f74cd29d0126b6471698924d30c01c1d1e8c90f9..0cc810fe03b290864659c1e348eaf99106482c6d 100644
+--- a/dist/esm/workspace.js
++++ b/dist/esm/workspace.js
+@@ -11,6 +11,7 @@ function githubRepo(input) {
+ 		type: "git",
+ 		url: input.repo.startsWith("http") ? input.repo : `https://github.com/${input.repo}.git`,
+ 		ref: input.ref,
++    commit: input.commit,
+ 		auth: input.auth,
+ 		depth: input.depth
+ 	};
+diff --git a/src/bootstrap.ts b/src/bootstrap.ts
+index 2945377260029e996e3317c2e79a15f72accc3f0..178f279b7a9d4cabe63e6e7534b05b2a5e525a79 100644
+--- a/src/bootstrap.ts
++++ b/src/bootstrap.ts
+@@ -58,12 +58,12 @@ export interface BootstrapResult {
+ export async function bootstrapWorkspace(
+   handle: SandboxHandle,
+   workspace: WorkspaceDefinition,
+-  options: { signal?: AbortSignal } = {},
++  options: { signal?: AbortSignal; injectSecrets?: boolean; includeThreadSetup?: boolean } = {},
+ ): Promise<BootstrapResult> {
+   const root = workspace.root ?? DEFAULT_WORKSPACE_ROOT
+ 
+   // Secrets live only in the running sandbox env (never persisted).
+-  if (workspace.secrets !== undefined) {
++  if (options.injectSecrets !== false && workspace.secrets !== undefined) {
+     const resolved = resolveAllSecrets(workspace.secrets)
+     if (Object.keys(resolved).length > 0) {
+       await handle.env.set(resolved)
+@@ -80,13 +80,36 @@ export async function bootstrapWorkspace(
+       await handle.git.clone({
+         url: workspace.source.url,
+         ref: workspace.source.ref,
+-        auth: workspace.source.auth,
++        auth: workspace.source.auth ? {
++          ...workspace.source.auth,
++          token: typeof workspace.source.auth.token === 'string'
++            ? workspace.source.auth.token
++            : resolveSecret(workspace.secrets!, workspace.source.auth.token),
++        } : undefined,
+         ...(workspace.source.depth !== undefined
+           ? { depth: workspace.source.depth }
+           : {}),
+       })
+     }
+   }
++  if (workspace.source.type === 'git' && workspace.source.commit) {
++    const commit = workspace.source.commit
++    if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(commit)) {
++      throw new Error('Workspace git commit must be a full object id')
++    }
++    const present = await handle.process.exec(`git cat-file -e '${commit}^{commit}'`, { signal: options.signal })
++    if (present.exitCode !== 0) {
++      const auth = workspace.source.auth
++      const token = auth ? typeof auth.token === 'string' ? auth.token : resolveSecret(workspace.secrets!, auth.token) : ''
++      const fetched = await handle.process.exec(
++        `git -c credential.helper='!f() { echo "username=$GIT_ASKPASS_USER"; echo "password=$GIT_ASKPASS_TOKEN"; }; f' fetch --depth 1 origin '${commit}'`,
++        { signal: options.signal, env: { GIT_ASKPASS_USER: auth?.username ?? 'x-access-token', GIT_ASKPASS_TOKEN: token, GIT_TERMINAL_PROMPT: '0' } },
++      )
++      if (fetched.exitCode !== 0) throw new Error(`Workspace commit fetch failed: ${fetched.stderr}`)
++    }
++    const checkedOut = await handle.process.exec(`git checkout --detach '${commit}'`, { signal: options.signal })
++    if (checkedOut.exitCode !== 0) throw new Error(`Workspace commit checkout failed: ${checkedOut.stderr}`)
++  }
+   // 'local' is provider-pre-populated at create; 'none' starts empty.
+ 
+   // Clone git-skill repos so setup steps (and the harness projector) can use
+@@ -152,7 +175,7 @@ export async function bootstrapWorkspace(
+   // serial steps. Parallel groups fork the shell's current cwd+env into
+   // concurrent one-shot exec calls.
+   const ranSetup: Array<string> = []
+-  const plan = buildSetupPlan(workspace.setup)
++  const plan = [...buildSetupPlan(workspace.setup), ...(options.includeThreadSetup !== false ? buildSetupPlan(workspace.threadSetup) : [])]
+   if (plan.length > 0) {
+     const shell = await createBootstrapShell(handle, { cwd: root })
+     try {
+diff --git a/src/contracts.ts b/src/contracts.ts
+index 0b5c028dd934ce7a6a2e4e3e6fb09c6e0b224fae..6946ad6613f7c097d458d9f364a84940dd4df94a 100644
+--- a/src/contracts.ts
++++ b/src/contracts.ts
+@@ -107,14 +107,14 @@ export interface SandboxProcess {
+ 
+ /** Common, portable filesystem operations every provider implements. */
+ export interface SandboxFs {
+-  read: (path: string) => Promise<string>
++  read: (path: string, options?: { signal?: AbortSignal }) => Promise<string>
+   readBytes: (path: string) => Promise<Uint8Array>
+-  write: (path: string, data: string | Uint8Array) => Promise<void>
++  write: (path: string, data: string | Uint8Array, options?: { signal?: AbortSignal }) => Promise<void>
+   list: (
+     path: string,
+   ) => Promise<Array<{ name: string; path: string; type: 'file' | 'dir' }>>
+-  mkdir: (path: string) => Promise<void>
+-  remove: (path: string) => Promise<void>
++  mkdir: (path: string, options?: { signal?: AbortSignal }) => Promise<void>
++  remove: (path: string, options?: { signal?: AbortSignal }) => Promise<void>
+   rename: (from: string, to: string) => Promise<void>
+   exists: (path: string) => Promise<boolean>
+   /**
+@@ -273,5 +273,7 @@ export interface SandboxProvider {
+   resume: (input: SandboxResumeInput) => Promise<SandboxHandle | null>
+   /** Capability-gated: present only when `capabilities().snapshots` is true. */
+   restoreSnapshot?: (input: SandboxRestoreInput) => Promise<SandboxHandle>
++  /** Delete an unreferenced provider snapshot. */
++  deleteSnapshot?: (input: { snapshotId: string; signal?: AbortSignal }) => Promise<void>
+   destroy: (input: SandboxDestroyInput) => Promise<void>
+ }
+diff --git a/src/instance-store.ts b/src/instance-store.ts
+index dfdfc7de3bbde04e78346d83b2a7ae045fe169fd..a436fd7cbf6207638266aa60d62a9203e8005e8a 100644
+--- a/src/instance-store.ts
++++ b/src/instance-store.ts
+@@ -13,6 +13,8 @@ import { createCapability } from '@tanstack/ai'
+ export interface SandboxInstanceRecord {
+   /** Compound key (see `computeSandboxKey`). */
+   key: string
++  /** Compatible workspace/thread identity; never an alias for get(key). */
++  transitionKey?: string;
+   /** Provider name that owns `providerSandboxId`. */
+   provider: string
+   /** Provider-assigned sandbox id used to resume. */
+@@ -34,6 +36,11 @@ export interface SandboxInstanceRecord {
+  * `runSandboxInstanceStoreConformance` from `@tanstack/ai-sandbox/testkit`.
+  */
+ export interface SandboxInstanceStore {
++  /** Most recently used compatible thread record, for an explicit transition. */
++  findByTransitionKey?: (key: string) => Promise<SandboxInstanceRecord | null>;
++  /** Atomically move an existing record to a new exact identity. */
++  move?: (fromKey: string, record: SandboxInstanceRecord) => Promise<void>;
++
+   /**
+    * Return the record for `key`, or `null` if none exists.
+    *
 diff --git a/src/middleware.ts b/src/middleware.ts
 index aba99a20932262570dc48c7578c6406aad92d54c..d21d034e194d3c6fdf8f6fb7b8aae427b87e7c2b 100644
 --- a/src/middleware.ts
@@ -405,10 +1264,26 @@ index aba99a20932262570dc48c7578c6406aad92d54c..d21d034e194d3c6fdf8f6fb7b8aae427
              )
              if (!canPublishPortableSnapshot(state, lease)) return
 diff --git a/src/sandbox.ts b/src/sandbox.ts
-index f8058c35e9ed316e09fa2ed437267bd8150dd287..ce4fff4eb635d07129cbe9615cc526e282194c82 100644
+index f8058c35e9ed316e09fa2ed437267bd8150dd287..f1b5fde53b582f58ec7e1d1d7869c9cf0d82ca05 100644
 --- a/src/sandbox.ts
 +++ b/src/sandbox.ts
-@@ -28,7 +28,7 @@ export interface SandboxHooks {
+@@ -13,7 +13,7 @@ import { InMemoryLockStore } from '@tanstack/ai/locks'
+ import type { LockStore } from '@tanstack/ai/locks'
+ import type { SandboxFileHookEvent } from '@tanstack/ai'
+ import { InMemorySandboxInstanceStore } from './instance-store'
+-import type { SandboxInstanceStore } from './instance-store'
++import type { SandboxInstanceStore, SandboxInstanceRecord } from './instance-store'
+ import type { SandboxHandle, SandboxProvider } from './contracts'
+ import type { SandboxKeyInput } from './key'
+ import type { SandboxPolicy } from './policy'
+@@ -24,11 +24,14 @@ import type { WorkspaceDefinition } from './workspace'
+  * create/change/delete during a chat run; lifecycle hooks fire server-side.
+  */
+ export interface SandboxHooks {
++  /** Update the retained live tree before atomically moving its exact key. Failure retains the old record. */
++  onWorkspaceTransition?: (handle: SandboxHandle, previous: SandboxInstanceRecord, ctx: SandboxEnsureContext) => Promise<void>
++
+   onFile?: (e: SandboxFileHookEvent) => void | Promise<void>
    onFileCreate?: (e: SandboxFileHookEvent) => void | Promise<void>
    onFileChange?: (e: SandboxFileHookEvent) => void | Promise<void>
    onFileDelete?: (e: SandboxFileHookEvent) => void | Promise<void>
@@ -417,7 +1292,16 @@ index f8058c35e9ed316e09fa2ed437267bd8150dd287..ce4fff4eb635d07129cbe9615cc526e2
    onError?: (err: unknown) => void | Promise<void>
    onDestroy?: () => void | Promise<void>
  }
-@@ -68,6 +68,8 @@ export interface SandboxConfig {
+@@ -37,6 +40,8 @@ export type ReuseStrategy = 'thread' | 'none'
+ export type SnapshotStrategy = 'after-setup' | 'after-run' | 'none'
+ 
+ export interface SandboxLifecycle {
++  /** Reuse one credential-free workspace snapshot across thread sandboxes. */
++  baseSnapshot?: boolean
+   /** `'thread'` resumes one sandbox per thread; `'none'` is fresh per run. */
+   reuse?: ReuseStrategy
+   /** When to snapshot (provider-permitting). */
+@@ -68,6 +73,8 @@ export interface SandboxConfig {
  
  /** Context passed to `ensure()` by `withSandbox` (or advanced callers). */
  export interface SandboxEnsureContext {
@@ -426,7 +1310,7 @@ index f8058c35e9ed316e09fa2ed437267bd8150dd287..ce4fff4eb635d07129cbe9615cc526e2
    threadId: string
    runId: string
    /** Persistence seam; falls back to an in-memory store when absent. */
-@@ -204,16 +206,17 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
+@@ -204,19 +211,25 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
          : ctx.threadId,
      sandboxId: config.id,
      providerName: config.provider.name,
@@ -435,27 +1319,39 @@ index f8058c35e9ed316e09fa2ed437267bd8150dd287..ce4fff4eb635d07129cbe9615cc526e2
      tenant: ctx.tenant,
    })
  
-   const ensureWithOutcome = async (
+-  const ensureWithOutcome = async (
++  const transitionKeyFor = (ctx: SandboxEnsureContext, threadId = ctx.threadId): string | undefined => {
++    const workspace = ctx.workspace ?? config.workspace
++    if (!workspace?.transitionIdentity) return undefined
++    return computeSandboxKey({ ...keyInputFor(ctx), threadId, workspace: { identity: workspace.transitionIdentity, source: { type: 'none' } } })
++  }
++
++  const ensureUnlocked = async (
      ctx: SandboxEnsureContext,
-   ): Promise<SandboxEnsureOutcome> => {
+-  ): Promise<SandboxEnsureOutcome> => {
++    options: { key?: string; base?: boolean; existingOnly?: boolean; snapshotId?: string } = {},
++  ): Promise<SandboxEnsureOutcome | null> => {
 +    const workspace = ctx.workspace ?? config.workspace
      const store = ctx.store ?? fallbackStore
-     const locks = ctx.locks ?? fallbackLocks
+-    const locks = ctx.locks ?? fallbackLocks
 -    const key = computeSandboxKey(keyInputFor(ctx))
-+    const key = computeSandboxKey(keyInputFor({ ...ctx, workspace }))
++    const key = options.key ?? computeSandboxKey(keyInputFor({ ...ctx, workspace }))
      const caps = config.provider.capabilities()
  
-     return locks.withLock(`sandbox:${key}`, async () => {
-@@ -235,7 +238,7 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
+-    return locks.withLock(`sandbox:${key}`, async () => {
+       const effectiveSnapshot: SnapshotStrategy =
+         config.lifecycle?.snapshot ?? (caps.snapshots ? 'after-setup' : 'none')
+       const maxAgeMs = parseMaxAgeMs(config.lifecycle?.snapshotMaxAge)
+@@ -235,7 +248,7 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
              signal: ctx.signal,
            })
            if (resumed) {
 -            await applyWorkspaceSecrets(resumed, config.workspace)
-+            await applyWorkspaceSecrets(resumed, workspace)
++            if (!options.base) await applyWorkspaceSecrets(resumed, workspace)
              await store.upsert({
                ...existing,
                latestRunId: ctx.runId,
-@@ -251,15 +254,15 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
+@@ -251,15 +264,20 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
            ) {
              const restored = await config.provider.restoreSnapshot({
                snapshotId: existing.latestSnapshotId,
@@ -465,17 +1361,42 @@ index f8058c35e9ed316e09fa2ed437267bd8150dd287..ce4fff4eb635d07129cbe9615cc526e2
                env:
 -                config.workspace?.secrets !== undefined
 -                  ? resolveAllSecrets(config.workspace.secrets)
-+                workspace?.secrets !== undefined
++                !options.base && workspace?.secrets !== undefined
 +                  ? resolveAllSecrets(workspace.secrets)
                    : undefined,
                signal: ctx.signal,
              })
 -            await applyWorkspaceSecrets(restored, config.workspace)
-+            await applyWorkspaceSecrets(restored, workspace)
++            if (!options.base) {
++              await applyWorkspaceSecrets(restored, workspace)
++              if (config.lifecycle?.baseSnapshot && workspace?.threadSetup) {
++                await bootstrapWorkspace(restored, { ...workspace, setup: workspace.threadSetup, threadSetup: undefined }, { signal: ctx.signal })
++              }
++            }
              await store.upsert({
                ...existing,
                providerSandboxId: restored.id,
-@@ -278,19 +281,19 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
+@@ -274,23 +292,41 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
+         //    snapshotMaxAge TTL exceeded).
+       }
+ 
++      if (options.existingOnly) return null
++      if (options.snapshotId) {
++        const restored = await config.provider.restoreSnapshot!({ snapshotId: options.snapshotId, workspace, policy: config.policy, signal: ctx.signal })
++        try {
++          await applyWorkspaceSecrets(restored, workspace)
++          if (workspace?.threadSetup) {
++            await bootstrapWorkspace(restored, { ...workspace, setup: workspace.threadSetup, threadSetup: undefined }, { signal: ctx.signal })
++          }
++          await store.upsert({ key, transitionKey: options.base ? undefined : transitionKeyFor(ctx), provider: config.provider.name, providerSandboxId: restored.id, latestSnapshotId: options.snapshotId, threadId: ctx.threadId, latestRunId: ctx.runId, updatedAt: Date.now() })
++          return { handle: restored, outcome: 'native-restored' }
++        } catch (error) {
++          await restored.destroy()
++          throw error
++        }
++      }
++
+       const created = await config.provider.create({
          // Deterministic id so consumers can reconstruct the provider sandbox
          // address from run context (not just from the store record).
          id: key,
@@ -485,7 +1406,7 @@ index f8058c35e9ed316e09fa2ed437267bd8150dd287..ce4fff4eb635d07129cbe9615cc526e2
          env:
 -          config.workspace?.secrets !== undefined
 -            ? resolveAllSecrets(config.workspace.secrets)
-+          workspace?.secrets !== undefined
++          !options.base && workspace?.secrets !== undefined
 +            ? resolveAllSecrets(workspace.secrets)
              : undefined,
          signal: ctx.signal,
@@ -497,10 +1418,89 @@ index f8058c35e9ed316e09fa2ed437267bd8150dd287..ce4fff4eb635d07129cbe9615cc526e2
          try {
 -          await bootstrapWorkspace(created, config.workspace, {
 +          await bootstrapWorkspace(created, workspace, {
++            injectSecrets: !options.base,
++            includeThreadSetup: !options.base,
              signal: ctx.signal,
            })
          } catch (error) {
-@@ -334,7 +337,7 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
+@@ -304,7 +340,7 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
+ 
+       let latestSnapshotId: string | undefined
+       if (
+-        effectiveSnapshot === 'after-setup' &&
++        (options.base || effectiveSnapshot === 'after-setup') &&
+         caps.snapshots &&
+         created.snapshot
+       ) {
+@@ -313,6 +349,7 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
+ 
+       await store.upsert({
+         key,
++        transitionKey: options.base ? undefined : transitionKeyFor(ctx),
+         provider: config.provider.name,
+         providerSandboxId: created.id,
+         latestSnapshotId,
+@@ -321,6 +358,59 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
+         updatedAt: Date.now(),
+       })
+       return { handle: created, outcome: 'created' }
++  }
++
++  const ensureWithOutcome = async (ctx: SandboxEnsureContext): Promise<SandboxEnsureOutcome> => {
++    const workspace = ctx.workspace ?? config.workspace
++    const staged = { ...ctx, workspace }
++    const locks = ctx.locks ?? fallbackLocks
++    const key = computeSandboxKey(keyInputFor(staged))
++    const transitionKey = transitionKeyFor(staged)
++    if (transitionKey) {
++      const store = ctx.store ?? fallbackStore
++      if (!store.findByTransitionKey || !store.move || !config.hooks?.onWorkspaceTransition) {
++        throw new Error('Workspace transitions require a transition store and onWorkspaceTransition hook')
++      }
++      // One stable workspace lock covers old/new identities and shared base creation.
++      // Do not nest injected locks: hosts may add their own workspace deletion fence.
++      return locks.withLock(`sandbox-transition:${transitionKeyFor(staged, '')}`, async () => {
++        const exact = await ensureUnlocked(staged, { existingOnly: true })
++        if (exact) return exact
++        const previous = await store.findByTransitionKey!(transitionKey)
++        if (previous && previous.key !== key && previous.provider === config.provider.name) {
++          const handle = await config.provider.resume({ id: previous.providerSandboxId, signal: ctx.signal })
++          if (handle) {
++            await applyWorkspaceSecrets(handle, workspace)
++            await config.hooks!.onWorkspaceTransition!(handle, previous, staged)
++            ctx.signal?.throwIfAborted()
++            await store.move!(previous.key, { ...previous, key, transitionKey, latestSnapshotId: undefined, latestRunId: ctx.runId, updatedAt: Date.now() })
++            return { handle, outcome: 'resumed' }
++          }
++        }
++        if (config.lifecycle?.baseSnapshot && config.provider.capabilities().snapshots && config.provider.restoreSnapshot) {
++          const baseKey = `base:${computeSandboxKey({ ...keyInputFor(staged), threadId: '' })}`
++          await ensureUnlocked({ ...staged, threadId: '' }, { key: baseKey, base: true })
++          const base = await store.get(baseKey)
++          if (!base?.latestSnapshotId) throw new Error('Workspace base snapshot was not persisted')
++          return (await ensureUnlocked(staged, { snapshotId: base.latestSnapshotId }))!
++        }
++        return (await ensureUnlocked(staged))!
++      })
++    }
++    if (!config.lifecycle?.baseSnapshot || !config.provider.capabilities().snapshots || !config.provider.restoreSnapshot) {
++      return (await locks.withLock(`sandbox:${key}`, () => ensureUnlocked(staged)))!
++    }
++    // Keep the warm path to one provider attach and no base lookup.
++    const warm = await ensureExistingWithStage(staged)
++    if (warm) return { handle: warm, outcome: 'resumed' }
++    const baseKey = `base:${computeSandboxKey({ ...keyInputFor(staged), threadId: '' })}`
++    return locks.withLock(`sandbox:${baseKey}`, async () => {
++      const existing = await ensureUnlocked(staged, { existingOnly: true })
++      if (existing) return existing
++      await ensureUnlocked({ ...staged, threadId: '' }, { key: baseKey, base: true })
++      const base = await (ctx.store ?? fallbackStore).get(baseKey)
++      if (!base?.latestSnapshotId) throw new Error('Workspace base snapshot was not persisted')
++      return (await ensureUnlocked(staged, { snapshotId: base.latestSnapshotId }))!
+     })
+   }
+ 
+@@ -334,12 +424,13 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
      const store = ctx.store ?? fallbackStore
      const locks = ctx.locks ?? fallbackLocks
      const key = stage?.key ?? computeSandboxKey(keyInputFor(ctx))
@@ -509,8 +1509,15 @@ index f8058c35e9ed316e09fa2ed437267bd8150dd287..ce4fff4eb635d07129cbe9615cc526e2
      const snapshotMaxAge = stage
        ? stage.snapshotMaxAge
        : config.lifecycle?.snapshotMaxAge
+     const resume = stage?.resume ?? config.provider.resume.bind(config.provider)
+-    return locks.withLock(`sandbox:${key}`, async () => {
++    const lockKey = transitionKeyFor(ctx, '')
++    return locks.withLock(lockKey ? `sandbox-transition:${lockKey}` : `sandbox:${key}`, async () => {
+       const existing = await store.get(key)
+       const maxAgeMs = parseMaxAgeMs(snapshotMaxAge)
+       if (
 diff --git a/src/snapshot-operations.ts b/src/snapshot-operations.ts
-index ff9a29542db7e999de9727b5eca17a71c05bbbcb..474b60a1e20f4fdf270ca7cb12f101a425abdb9d 100644
+index ff9a29542db7e999de9727b5eca17a71c05bbbcb..4a95d93853e8b103b3c54d81d03af1840ba97379 100644
 --- a/src/snapshot-operations.ts
 +++ b/src/snapshot-operations.ts
 @@ -36,6 +36,7 @@ export interface CreateSandboxSnapshotsInput<
@@ -529,23 +1536,32 @@ index ff9a29542db7e999de9727b5eca17a71c05bbbcb..474b60a1e20f4fdf270ca7cb12f101a4
    sandbox?: SandboxDefinition
    instances?: SandboxInstanceStore
    tenant?: { userId?: string; orgId?: string }
-@@ -154,6 +156,7 @@ function stageWorkspace(
+@@ -154,9 +156,12 @@ function stageWorkspace(
    workspace: WorkspaceDefinition | undefined,
  ): WorkspaceDefinition | undefined {
    if (workspace === undefined) return undefined
 +  const identity = workspace.identity
++  const transitionIdentity = workspace.transitionIdentity;
    const source = workspace.source
    const packageManager = workspace.packageManager
    const setup = workspace.setup
-@@ -165,6 +168,7 @@ function stageWorkspace(
++  const threadSetup = workspace.threadSetup
+   const scripts = workspace.scripts
+   const skills = workspace.skills
+   const instructions = workspace.instructions
+@@ -165,8 +170,11 @@ function stageWorkspace(
    const root = workspace.root
    return {
      source,
 +    ...(Object.hasOwn(workspace, "identity") ? { identity } : {}),
++    ...(Object.hasOwn(workspace, "transitionIdentity") ? { transitionIdentity } : {}),
      ...(Object.hasOwn(workspace, 'packageManager') ? { packageManager } : {}),
      ...(Object.hasOwn(workspace, 'setup') ? { setup } : {}),
++    ...(Object.hasOwn(workspace, "threadSetup") ? { threadSetup } : {}),
      ...(Object.hasOwn(workspace, 'scripts') ? { scripts } : {}),
-@@ -218,6 +222,7 @@ export function createSandboxSnapshots<
+     ...(Object.hasOwn(workspace, 'skills') ? { skills } : {}),
+     ...(Object.hasOwn(workspace, 'instructions') ? { instructions } : {}),
+@@ -218,6 +226,7 @@ export function createSandboxSnapshots<
    const persistence = requireSnapshotPersistence(input.persistence)
    const checkpoints = input.checkpoints
    const policy = input.policy
@@ -553,7 +1569,7 @@ index ff9a29542db7e999de9727b5eca17a71c05bbbcb..474b60a1e20f4fdf270ca7cb12f101a4
    const boundSandbox = input.sandbox
    const boundInstances = input.instances
    const boundTenant = input.tenant
-@@ -242,6 +247,7 @@ export function createSandboxSnapshots<
+@@ -242,6 +251,7 @@ export function createSandboxSnapshots<
          )
        return saveNamedSandboxSnapshot({
          definition: sandbox,
@@ -561,7 +1577,7 @@ index ff9a29542db7e999de9727b5eca17a71c05bbbcb..474b60a1e20f4fdf270ca7cb12f101a4
          threadId: saveInput.threadId,
          runId: saveInput.runId,
          instances,
-@@ -279,6 +285,7 @@ export function createSandboxSnapshots<
+@@ -279,6 +289,7 @@ export function createSandboxSnapshots<
  
  async function saveNamedSandboxSnapshot(input: {
    definition: SandboxDefinition
@@ -569,7 +1585,7 @@ index ff9a29542db7e999de9727b5eca17a71c05bbbcb..474b60a1e20f4fdf270ca7cb12f101a4
    threadId: string
    runId: string
    instances: SandboxInstanceStore
-@@ -311,7 +318,7 @@ async function saveNamedSandboxSnapshot(input: {
+@@ -311,7 +322,7 @@ async function saveNamedSandboxSnapshot(input: {
    const lifecycle = definition.lifecycle
    const reuse = lifecycle?.reuse
    const snapshotMaxAge = lifecycle?.snapshotMaxAge
@@ -578,7 +1594,7 @@ index ff9a29542db7e999de9727b5eca17a71c05bbbcb..474b60a1e20f4fdf270ca7cb12f101a4
    const sandboxId = definition.id
    const provider = definition.provider
    const providerName = provider.name
-@@ -365,6 +372,7 @@ async function saveNamedSandboxSnapshot(input: {
+@@ -365,6 +376,7 @@ async function saveNamedSandboxSnapshot(input: {
            threadId,
            runId,
            store: instances,
@@ -587,15 +1603,65 @@ index ff9a29542db7e999de9727b5eca17a71c05bbbcb..474b60a1e20f4fdf270ca7cb12f101a4
            tenant,
            signal,
 diff --git a/src/workspace.ts b/src/workspace.ts
-index 0a9a602b38bbe0c9b8b8a3e889ee71c949c2d6da..6a21fa7493468290fd5ac45c1343ee7e0e5dd042 100644
+index 0a9a602b38bbe0c9b8b8a3e889ee71c949c2d6da..aeff0eb916db35b1551382e90d693af3d7e364dd 100644
 --- a/src/workspace.ts
 +++ b/src/workspace.ts
-@@ -115,6 +115,8 @@ export function gitSkill(input: {
+@@ -13,8 +13,9 @@ export type WorkspaceSource =
+   | {
+       type: 'git'
+       url: string
+-      ref?: string
+-      auth?: { username?: string; token: string }
++      commit?: string
++  ref?: string
++      auth?: { username?: string; token: string | SecretRef }
+       /**
+        * Clone depth. Defaults to `1` (shallow). Pass a number for a specific
+        * depth, or `'full'` to fetch the entire history.
+@@ -27,8 +28,9 @@ export type WorkspaceSource =
+ /** Clone a git repo into the workspace. `githubRepo` is a convenience wrapper. */
+ export function gitSource(input: {
+   url: string
++  commit?: string
+   ref?: string
+-  auth?: { username?: string; token: string }
++  auth?: { username?: string; token: string | SecretRef }
+   depth?: number | 'full'
+ }): WorkspaceSource {
+   return { type: 'git', ...input }
+@@ -36,8 +38,9 @@ export function gitSource(input: {
+ 
+ export function githubRepo(input: {
+   repo: string
++  commit?: string
+   ref?: string
+-  auth?: { username?: string; token: string }
++  auth?: { username?: string; token: string | SecretRef }
+   depth?: number | 'full'
+ }): WorkspaceSource {
+   const url = input.repo.startsWith('http')
+@@ -47,6 +50,7 @@ export function githubRepo(input: {
+     type: 'git',
+     url,
+     ref: input.ref,
++    commit: input.commit,
+     auth: input.auth,
+     depth: input.depth,
+   }
+@@ -115,10 +119,16 @@ export function gitSkill(input: {
  export type PackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun' | 'auto'
  
  export interface WorkspaceDefinition {
 +  /** Immutable revision identity, included in sandbox and checkpoint hashes. */
 +  identity?: string
++  /** Stable compatibility identity for opt-in live workspace transitions. */
++  transitionIdentity?: string;
    source: WorkspaceSource
    /** Defaults to `'auto'` — detect from the lockfile after the source lands. */
    packageManager?: PackageManager
+   /** Commands run once during bootstrap. Accepts a string array (serial) or a builder function for serial/parallel groups. */
++  /** Initialization after a clean base is forked, with thread-local secrets. */
++  threadSetup?: SetupInput
+   setup?: SetupInput
+   /** Named commands the agent/user can invoke (e.g. { test: 'pnpm test' }). */
+   scripts?: Record<string, string>

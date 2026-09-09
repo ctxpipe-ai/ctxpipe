@@ -34,15 +34,18 @@ export const WORKSPACE_CHAT_DOCKER_SANDBOX: {
  */
 export const WORKSPACE_CHAT_SANDBOX_SETUP = [
   `PATH="/usr/local/bin:/usr/bin:/bin:$PATH"; command -v opencode >/dev/null 2>&1 || npm install -g ${WORKSPACE_CHAT_OPENCODE_CLI}`,
-  // Native gitSource lands the branch; pin its checkout before creating the
-  // session branch. A missing captured commit is a setup error, never a fallback.
-  `git rev-parse --is-inside-work-tree >/dev/null && test -n "$CTXPIPE_CLONE_SHA" && {
-  if git cat-file -e "$CTXPIPE_CLONE_SHA^{commit}" 2>/dev/null; then
-    true
-  else
-    git -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f' fetch --depth 1 origin "$CTXPIPE_CLONE_SHA"
-  fi
-} && git checkout --detach "$CTXPIPE_CLONE_SHA"`,
+  `if git rev-parse --git-dir >/dev/null 2>&1; then
+  EXCLUDE="$(git rev-parse --git-dir)/info/exclude"
+  mkdir -p "$(dirname "$EXCLUDE")"
+  for line in ${CONVERSATION_SANDBOX_GIT_EXCLUDE_LINES.map((line) => JSON.stringify(line)).join(" ")}; do
+    grep -qxF "$line" "$EXCLUDE" 2>/dev/null || printf '%s\\n' "$line" >> "$EXCLUDE"
+  done
+fi
+true`,
+] as const
+
+/** Applied only to each thread, after restoring the credential-free base. */
+export const WORKSPACE_CHAT_THREAD_SETUP = [
   `(git checkout -B "$CTXPIPE_CLONE_BRANCH" "$CTXPIPE_CLONE_SHA" &&
 if [ -n "\${CTXPIPE_SESSION_BRANCH:-}" ]; then
   git check-ref-format "refs/heads/$CTXPIPE_SESSION_BRANCH" || exit 1
@@ -60,13 +63,6 @@ mkdir -p "$OPENCODE_HOME"
 if [ -n "\${CTXPIPE_OPENCODE_JSON:-}" ]; then
   printf '%s\\n' "$CTXPIPE_OPENCODE_JSON" > "$OPENCODE_HOME/opencode.json"
 fi
-if git rev-parse --git-dir >/dev/null 2>&1; then
-  EXCLUDE="$(git rev-parse --git-dir)/info/exclude"
-  mkdir -p "$(dirname "$EXCLUDE")"
-  for line in ${CONVERSATION_SANDBOX_GIT_EXCLUDE_LINES.map((line) => JSON.stringify(line)).join(" ")}; do
-    grep -qxF "$line" "$EXCLUDE" 2>/dev/null || printf '%s\\n' "$line" >> "$EXCLUDE"
-  done
-fi
 true`,
 ] as const
 
@@ -79,47 +75,6 @@ export const WORKSPACE_CHAT_CLONE_BRANCH_SECRET =
 export const WORKSPACE_CHAT_CLONE_SHA_SECRET = "CTXPIPE_CLONE_SHA" as const
 export const WORKSPACE_CHAT_SESSION_BRANCH_SECRET =
   "CTXPIPE_SESSION_BRANCH" as const
-
-/**
- * Bind a TanStack SecretRef so JSON hashing sees only `{ __secretName }`,
- * while `String(ref)` (Node child env) still yields the live token.
- */
-export function bindWorkspaceChatSecretRef(
-  ref: { readonly __secretName: string },
-  value: string,
-): { readonly __secretName: string } {
-  return Object.create(null, {
-    __secretName: { value: ref.__secretName, enumerable: true },
-    toString: { value: () => value, enumerable: false },
-    valueOf: { value: () => value, enumerable: false },
-  })
-}
-
-export function workspaceChatCloneTokenRef(
-  secrets: Record<string, unknown>,
-  token: string | null | undefined,
-): { readonly __secretName: string } {
-  const ref = secrets[WORKSPACE_CHAT_CLONE_TOKEN_SECRET]
-  const named =
-    ref && typeof ref === "object" && "__secretName" in ref
-      ? (ref as { readonly __secretName: string })
-      : { __secretName: WORKSPACE_CHAT_CLONE_TOKEN_SECRET }
-  return bindWorkspaceChatSecretRef(named, token ?? "")
-}
-
-/** Clone auth is a SecretRef (or omitted). Plaintext tokens must not enter the workspace hash. */
-export function workspaceChatGitSource(input: {
-  url: string
-  ref: string
-  token?: { readonly __secretName: string } | null
-}): {
-  url: string
-  ref: string
-  auth?: { token: { readonly __secretName: string } }
-} {
-  if (!input.token) return { url: input.url, ref: input.ref }
-  return { url: input.url, ref: input.ref, auth: { token: input.token } }
-}
 
 export function workspaceChatSandboxSpec(input: {
   sandboxId: string

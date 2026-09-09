@@ -247,6 +247,8 @@ export const workspaceSandboxInstances = pgTable.withRLS(
     desiredSha: text("desired_sha"),
     provider: text("provider"),
     providerSandboxId: text("provider_sandbox_id"),
+    image: text("image"),
+    transitionKey: text("transition_key"),
     revision: jsonb("revision").$type<WorkspaceRevision>(),
     latestSnapshotId: text("latest_snapshot_id"),
     latestRunId: text("latest_run_id"),
