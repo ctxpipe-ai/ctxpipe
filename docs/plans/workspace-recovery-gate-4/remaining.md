@@ -63,9 +63,10 @@ Key evidence:
 
 ## Current CI and cost controls
 
-CI [34364900628](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34364900628)
-on `936106c9` is the latest full Tests failure. Do not dispatch a
-duplicate of an unchanged SHA.
+CI [34371493449](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34371493449)
+on `9141fea2` died during Zoekt install (`proxy.golang.org` stream
+INTERNAL_ERROR) before any contract ran. Do not treat that as a
+contract regression. Do not dispatch a duplicate of an unchanged SHA.
 
 Backend/UI diagnostic allowances are 124/223, with no additions. Gate 6 must
 resolve them. The current complete backend check passes with 124 diagnostics; the unchanged

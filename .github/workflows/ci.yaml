@@ -126,8 +126,17 @@ jobs:
         run: |
           npm install --global @ast-grep/cli@0.45.0
           mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
-          GOBIN="$RUNNER_TEMP/ctxpipe-zoekt" go install github.com/sourcegraph/zoekt/cmd/zoekt-index@596c362fcf1388fe0082acfcfc80c4d172efb7c1
-          GOBIN="$RUNNER_TEMP/ctxpipe-zoekt" go install github.com/sourcegraph/zoekt/cmd/zoekt-webserver@596c362fcf1388fe0082acfcfc80c4d172efb7c1
+          # proxy.golang.org occasionally resets the zoekt zip mid-download.
+          for tool in zoekt-index zoekt-webserver; do
+            n=0
+            until GOBIN="$RUNNER_TEMP/ctxpipe-zoekt" go install \
+              "github.com/sourcegraph/zoekt/cmd/${tool}@596c362fcf1388fe0082acfcfc80c4d172efb7c1"
+            do
+              n=$((n + 1))
+              [ "$n" -lt 4 ] || exit 1
+              sleep $((n * 4))
+            done
+          done
           echo "$RUNNER_TEMP/ctxpipe-zoekt" >> "$GITHUB_PATH"
       - name: Migrate backend schema
         env:
