@@ -18,6 +18,7 @@ import { type Db, initDb } from "../db/client.js"
 import { members } from "../db/schema/auth.js"
 import { schema } from "../db/schema.js"
 import { generateObjectId } from "../lib/id.js"
+import { invitationEmailLink } from "./invitation-email-url.js"
 import {
   getOAuthConsentOrganizationId,
   OAUTH_ORGANIZATION_CLAIM,
@@ -199,8 +200,11 @@ export function createBetterAuth() {
           },
         },
         async sendInvitationEmail(data) {
-          const acceptPath = `/.auth/accept-invitation?invitationId=${encodeURIComponent(data.id)}`
-          const inviteLink = `${env.AUTH_BASE_URL}/.auth/sign-up?redirectTo=${encodeURIComponent(`${acceptPath}&email=${encodeURIComponent(data.email)}`)}`
+          const inviteLink = invitationEmailLink(
+            env.AUTH_BASE_URL,
+            data.id,
+            data.email,
+          )
           const [{ sendEmail }, { InvitationEmail }] = await Promise.all([
             import("../email/index.js"),
             import("../email/templates/invitation.js"),
