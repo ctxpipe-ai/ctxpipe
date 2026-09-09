@@ -10,11 +10,11 @@ git history.
 | Item | Requirement | Current evidence |
 | --- | --- | --- |
 | G4-A | Native instance/lock stores; two replicas and restart reuse one worktree; no SQL connection held across provider IO | Native ownership, replacement semantics, lock renewal, and workspace/conversation deletion-allocation races pass |
-| G4-B | Stock TanStack chat across HTTP/WS/prepare; native persistence, durability and reconstruction | Two turns, offsets, terminal/transcript equality, process reload, simultaneous-send preservation, cancellation and replay pass; CI concurrency correction remains |
+| G4-B | Stock TanStack chat across HTTP/WS/prepare; native persistence, durability and reconstruction | Two turns, offsets, terminal/transcript equality, process reload, simultaneous-send preservation, cancellation and replay pass; overlapping stale send passed on CI `34384336581` |
 | G4-C | Warm reuse, captured revision, credentials, native shared bases/forks and provider selection | Warm GitHub budget, base reuse, revision conflicts/repair, process loss, Docker replacement and image collection pass; production provider/security activation remains open |
 | G4-D | Files/publish/delete/idle use native handles; remove duplicate ownership/repair layers | Registry, memo and manual terminal repair removed; Files/publication/cancellation, persisted-first MCP targets and branch/run ownership pass; collision guards pass; final audit remains open |
 | G4-E | Railway SDK conformance, live Bun chat and honest provider/deployment behavior | Native Docker capabilities have focused proof; sbx fails closed because disk/PID limits are unavailable; Railway is a 503 selector only — no provider, SDK dependency, or live proof. SDK 3.11.0 also lacks CPU/memory/PID/disk/user/egress controls. Access is necessary but not sufficient |
-| G4-F | Full entry-point audit, focused native evidence, full CI and two cumulative zero-blocker reviews | Pending final implementation and validation |
+| G4-F | Full entry-point audit, focused native evidence, full CI and two cumulative zero-blocker reviews | Full CI `34384336581` on `21164618` is green (330/330 contracts). Live authenticated Docker journey and two independent cumulative reviews remain |
 
 Key evidence:
 
@@ -30,18 +30,14 @@ Key evidence:
 
 ## Remaining work, in order
 
-1. Reconfirm the 4 GiB quota probe, GitHub HTTPS fixture observations,
-   and overlapping-chat OpenCode session create on GitHub CI. CI
-   `34379462234` on `ddad6df8` finished the contracts suite (45 minute
-   ceiling): overlapping stale send passed, GitHub HTTPS fixture passed
-   (6140ms), 329/330 tests passed. Quota hit the 4 GiB limit in 22s
-   (`quota-status=1`, `quota-blocks=510` = 4080 MiB) but the persisted
-   `dd` file was empty: redirecting onto the full qgroup truncates the
-   error file and cannot write EDQUOT. Capture `dd` text in memory and
-   print it after deleting the fill.
-   This host cannot run the Btrfs quota runner (`unknown filesystem type
-   'btrfs'`). Do not substitute overlay Docker. Preserve ownership
-   checks and dirty worktrees.
+1. Closed on CI
+   [34384336581](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34384336581)
+   (`21164618`): all 29 checks green. Contracts 330/330, including
+   native resource limits (`25256ms`), overlapping stale send
+   (`6798ms`), GitHub HTTPS fixture (`6081ms`), and prepare quota-Docker
+   HTTPS clone (`78422ms`). This host still cannot run the Btrfs quota
+   runner (`unknown filesystem type 'btrfs'`). Do not substitute overlay
+   Docker. Preserve ownership checks and dirty worktrees.
 2. Finish integrated acceptance of the activated immutable chat image,
    1 CPU / 1 GiB / 128 PID / 4 GiB limits and per-workspace egress. The factory,
    policy identity and credential-free deployment relay now have focused proof;
@@ -66,11 +62,10 @@ Key evidence:
 
 ## Current CI and cost controls
 
-CI [34379462234](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34379462234)
-on `ddad6df8` finished contracts in 1659s: one failure, the quota
-resource-limits assertion (`expected '' to match /quota exceeded/i`
-after a successful 4 GiB reject). Overlapping and GitHub HTTPS fixture
-passed. Do not dispatch a duplicate of an unchanged SHA.
+CI [34384336581](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34384336581)
+on `21164618` is green: backend 1201, contracts 330, UI 292, CLI 93,
+CDK 32. Do not dispatch a duplicate of an unchanged SHA. The next SHA
+is for remaining Gate 4 work, not a CI retry.
 
 Backend/UI diagnostic allowances are 124/223, with no additions. Gate 6 must
 resolve them. The current complete backend check passes with 124 diagnostics; the unchanged
