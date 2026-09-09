@@ -141,9 +141,8 @@ function createRunStore(): RunStore {
           .onConflictDoNothing({ target: chatRuns.runId })
       })
       const stored = await get(runId)
-      return (
-        stored ?? { runId, threadId, status: status ?? "running", startedAt }
-      )
+      if (!stored) throw new Error("Chat run could not be persisted")
+      return stored
     },
     async update(runId, patch) {
       const set: Partial<typeof chatRuns.$inferInsert> = {}

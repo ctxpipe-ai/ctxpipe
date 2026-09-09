@@ -18,13 +18,14 @@ import {
   chatThreads,
 } from "../db/schema/chat-persistence.js"
 import { conversations } from "../db/schema/conversations.js"
-import { workspaces } from "../db/schema/workspaces.js"
+import { orgFirstWorkspaces, workspaces } from "../db/schema/workspaces.js"
 import { destroyDetachedProviderSandbox } from "../domain/workspaces/sandbox-provider.js"
 import { workspaceChatOpenCodeHomeDir } from "../domain/workspaces/workspace-chat-opencode-contract.js"
 import { generateObjectId } from "../lib/id.js"
 import { listSandboxInstances } from "../models/workspaces.js"
 import { conversationRoutes } from "../routes/v1/conversations.js"
 import { workspaceChatOpenaiRoutes } from "../routes/v1/workspace-chat-openai.js"
+import { workspaceRoutes } from "../routes/v1/workspaces.js"
 import { contextStorage, withTestRequestLogger } from "./hono-test-logger.js"
 import { withTestLogger } from "./with-test-logger.js"
 
@@ -77,6 +78,7 @@ export async function withNativeChatFixture<T>(
   })
   app.route(`/${orgId}/api/v1/workspace-chat/openai`, workspaceChatOpenaiRoutes)
   app.route("/conversations", conversationRoutes)
+  app.route("/workspaces", workspaceRoutes)
   const server = createServer((req, res) => {
     void (async () => {
       const chunks: Buffer[] = []
@@ -218,8 +220,11 @@ export async function withNativeChatFixture<T>(
     await withOrgDbContext(orgId, async (db) => {
       for (const table of [chatInterrupts, chatMetadata, chatRuns, chatThreads])
         await db.delete(table).where(eq(table.orgId, orgId))
-      await db.delete(conversations).where(eq(conversations.id, conversationId))
-      await db.delete(workspaces).where(eq(workspaces.id, workspaceId))
+      await db.delete(conversations).where(eq(conversations.orgId, orgId))
+      await db
+        .delete(orgFirstWorkspaces)
+        .where(eq(orgFirstWorkspaces.orgId, orgId))
+      await db.delete(workspaces).where(eq(workspaces.orgId, orgId))
     })
     await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
     await closeDb()
@@ -232,9 +237,16 @@ export async function withNativeChatFixture<T>(
       else process.env[key] = value
     }
     await rm(directory, { recursive: true, force: true })
-    await rm(workspaceChatOpenCodeHomeDir(conversationId), {
-      recursive: true,
-      force: true,
-    })
+    for (const threadId of new Set([
+      conversationId,
+      ...instances.flatMap((instance) =>
+        instance.conversationId ? [instance.conversationId] : [],
+      ),
+    ])) {
+      await rm(workspaceChatOpenCodeHomeDir(threadId), {
+        recursive: true,
+        force: true,
+      })
+    }
   }
 }

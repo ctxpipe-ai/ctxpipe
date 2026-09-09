@@ -96,3 +96,45 @@ describe("workspaceChatPersistence", () => {
     })
   })
 })
+
+it("does not fabricate a persisted run when another organization owns its id", async () => {
+  const otherOrg = {
+    id: `${runId}_other`,
+    slug: `${runId}-other`,
+    name: "Other org",
+  }
+  const persistence = workspaceChatPersistence()
+  await getSystemDb()
+    .insert(organizations)
+    .values({ ...otherOrg, createdAt: new Date() })
+  try {
+    await withOrgIdContext(org, () =>
+      persistence.stores.runs.createOrResume({
+        runId,
+        threadId: conversationId,
+        startedAt: Date.now(),
+      }),
+    )
+    await expect(
+      withOrgIdContext(otherOrg, () =>
+        persistence.stores.runs.createOrResume({
+          runId,
+          threadId: "other-thread",
+          startedAt: Date.now(),
+        }),
+      ),
+    ).rejects.toThrow()
+    expect(
+      await withOrgIdContext(otherOrg, () =>
+        persistence.stores.runs.get(runId),
+      ),
+    ).toBeNull()
+  } finally {
+    await withOrgDbContext(otherOrg.id, (db) =>
+      db.delete(chatRuns).where(eq(chatRuns.orgId, otherOrg.id)),
+    )
+    await getSystemDb()
+      .delete(organizations)
+      .where(eq(organizations.id, otherOrg.id))
+  }
+})

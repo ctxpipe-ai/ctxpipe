@@ -321,6 +321,7 @@ type ConversationSandboxAttachInput = {
     writeStatus: string
     readOnlyReason?: string | null
     desiredSha: string | null
+    desiredDefaultBranch?: string | null
     desiredGeneration?: number
   }
 }

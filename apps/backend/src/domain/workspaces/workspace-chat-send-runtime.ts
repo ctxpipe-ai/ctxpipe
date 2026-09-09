@@ -31,6 +31,8 @@ export async function resolveWorkspaceChatSendRuntime(input: {
           githubConnectionId: workspace.githubConnectionId ?? null,
           writeStatus: workspace.writeStatus,
           desiredSha: workspace.desiredSha,
+          desiredDefaultBranch: workspace.desiredDefaultBranch,
+          readOnlyReason: workspace.readOnlyReason,
           desiredGeneration: workspace.desiredGeneration,
         }
       : null,

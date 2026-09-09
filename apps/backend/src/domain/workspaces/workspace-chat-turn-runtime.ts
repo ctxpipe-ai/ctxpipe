@@ -1,13 +1,7 @@
 import type { Env } from "../../config/env.js"
 import { getRepoReadCloneToken } from "../../models/github-installation.js"
 import { log } from "../../observability/logger.js"
-import { resolveGithubDefaultBranch } from "../../routes/webhooks/github/github-workspace-tip.js"
-import { githubRefExists } from "../../services/github/installation-write-client.js"
-import {
-  conversationSessionBranch,
-  lastBranchExistsOnRemote,
-  restoreBranchAfterIdle,
-} from "./chat-lifecycle.js"
+import { conversationSessionBranch } from "./chat-lifecycle.js"
 import { workspaceAllowsConversationEdits } from "./chat-sandbox-policy.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
@@ -26,6 +20,7 @@ export type WorkspaceChatTurnWorkspace = {
   writeStatus: string
   readOnlyReason?: string | null
   desiredSha: string | null
+  desiredDefaultBranch?: string | null
   desiredGeneration?: number
 }
 
@@ -51,31 +46,17 @@ export async function resolveWorkspaceChatTurnRuntime(input: {
     ? githubRepoFullNameFromWorkspaceUrl(workspace.workspaceRepositoryUrl)
     : null
   const githubStarted = Date.now()
-  const [defaultBranch, cloneToken, remoteHasLastBranch] = await Promise.all([
+  const defaultBranch = workspace?.desiredDefaultBranch?.trim() || "main"
+  if (repoName && !workspace?.desiredDefaultBranch?.trim()) {
+    throw new Error("Workspace chat needs a captured default branch")
+  }
+  const cloneToken =
     workspace && repoName
-      ? resolveGithubDefaultBranch({
-          orgId: workspace.orgId,
-          githubConnectionId: workspace.githubConnectionId,
-          repoFullName: repoName,
-          env,
-        }).then((branch) => branch ?? "main")
-      : Promise.resolve("main"),
-    workspace && repoName
-      ? getRepoReadCloneToken(workspace.orgId, env, {
+      ? ((await getRepoReadCloneToken(workspace.orgId, env, {
           githubConnectionId: workspace.githubConnectionId ?? undefined,
           repoFullName: repoName,
-        }).then((token) => token ?? null)
-      : Promise.resolve(null),
-    conversation.lastBranch && workspace && repoName
-      ? githubRefExists({
-          orgId: workspace.orgId,
-          repositoryName: repoName,
-          env,
-          githubConnectionId: workspace.githubConnectionId ?? undefined,
-          ref: conversation.lastBranch,
-        }).catch(() => false)
-      : Promise.resolve(false),
-  ])
+        })) ?? null)
+      : null
   log.info({
     step: "workspace-chat-timing",
     phase: "github-resolve",
@@ -83,37 +64,13 @@ export async function resolveWorkspaceChatTurnRuntime(input: {
     ms: Date.now() - githubStarted,
     conversationId: conversation.id,
   })
-  const restored = restoreBranchAfterIdle({
-    lastBranch: conversation.lastBranch,
-    lastBranchExistsOnRemote: lastBranchExistsOnRemote({
-      lastBranch: conversation.lastBranch,
-      remoteBranches:
-        remoteHasLastBranch && conversation.lastBranch
-          ? [conversation.lastBranch]
-          : [],
-    }),
-    defaultBranch,
-  })
   const canEdit = workspaceAllowsConversationEdits(
     workspace?.writeStatus ?? "read_only",
     workspace?.readOnlyReason,
   )
   const sessionBranch = conversationSessionBranch(conversation.id)
-  const lastBranch = canEdit ? sessionBranch : restored
-  const cloneRef =
-    canEdit &&
-    conversation.lastBranch === sessionBranch &&
-    lastBranchExistsOnRemote({
-      lastBranch: conversation.lastBranch,
-      remoteBranches:
-        remoteHasLastBranch && conversation.lastBranch
-          ? [conversation.lastBranch]
-          : [],
-    })
-      ? sessionBranch
-      : restored === defaultBranch
-        ? (workspace?.desiredSha ?? defaultBranch)
-        : restored
+  const lastBranch = canEdit ? sessionBranch : defaultBranch
+  const cloneRef = workspace?.desiredSha ?? defaultBranch
   return {
     lastBranch,
     cloneRef: cloneRef || workspace?.desiredSha || defaultBranch,

@@ -4,15 +4,20 @@ import { join } from "node:path"
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
+import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
-import { listSandboxInstances } from "../../models/workspaces.js"
+import {
+  getWorkspaceById,
+  listSandboxInstances,
+} from "../../models/workspaces.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
 import { withNativeGitRemote } from "../../test/native-git-remote.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import { warmTanstackWorkspaceChat } from "./tanstack-workspace-chat.js"
+import { resolveWorkspaceChatTurnRuntime } from "./workspace-chat-turn-runtime.js"
 import { destroySandboxesForConversation } from "./workspace-sandbox-cleanup.js"
 
 it(
@@ -91,10 +96,10 @@ it(
   },
 )
 
-it(
-  "deletion fences a first allocation that has not persisted its handle",
+it.each(["conversation", "workspace"] as const)(
+  "%s deletion fences a first allocation that has not persisted its handle",
   { timeout: 45_000 },
-  async () => {
+  async (scope) => {
     await withNativeChatFixture(async (f) => {
       const input = {
         conversationId: f.conversationId,
@@ -133,9 +138,16 @@ it(
       await entered
       const preparing = warmTanstackWorkspaceChat(input)
       // The native key barrier prevents provider creation while DELETE races.
-      const deleting = f.request(`/conversations/${f.conversationId}`, {
-        method: "DELETE",
-      })
+      const deleting =
+        scope === "conversation"
+          ? f.request(`/conversations/${f.conversationId}`, {
+              method: "DELETE",
+            })
+          : f.request("/workspaces/context", {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ confirmName: "Context" }),
+            })
       try {
         await new Promise((resolve) => setTimeout(resolve, 100))
       } finally {
@@ -241,5 +253,47 @@ it(
         )
       })
     })
+  },
+)
+
+it(
+  "warm runtime uses its captured branch and cached repository credential without GitHub requests",
+  { timeout: 60_000 },
+  async () => {
+    const requests: string[] = []
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        onGithubRequest: (method, url) => requests.push(`${method} ${url}`),
+      },
+      async (f) => {
+        await f.publish()
+        await withOrgIdContext(f.org, async () => {
+          const workspace = await getWorkspaceById(f.workspaceId)
+          if (!workspace) throw new Error("Workspace fixture missing")
+          const input = {
+            conversation: {
+              id: "conv_warm",
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              lastBranch: "ctxpipe/chat/conv_warm/1",
+            },
+            workspace,
+            env: parseEnv(process.env),
+          }
+          const cold = await resolveWorkspaceChatTurnRuntime(input)
+          requests.length = 0
+          const warm = await resolveWorkspaceChatTurnRuntime(input)
+          expect(warm.defaultBranch).toBe("main")
+          expect(warm.lastBranch).toBe("ctxpipe/chat/conv_warm/1")
+          expect(warm.cloneRef).toBe(f.sha)
+          expect(warm.desiredSha).toBe(f.sha)
+          expect(warm.cloneToken).toBe("fixture-only-github-read-token")
+          expect(warm).toEqual(cold)
+          expect(requests).toEqual([])
+        })
+      },
+    )
   },
 )

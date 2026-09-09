@@ -10,4 +10,6 @@
 | Mock prepare-route case | Native prepare HTTP followed by Files write/tree/status/read without opening a model turn |
 | Registered-handle Files/publication fixtures | Native persisted binding and real Git; 16 publication race/policy cases; cleanup failure retention/retry |
 
-The existing small conversations route suite retains unrelated route/parser characterization until deeper gate coverage replaces it. This checkpoint does not claim active-run restart, warm-call budgets, delete-vs-allocation races, Railway, or all Gate 4 acceptance complete.
+| Mocked per-turn GitHub resolver and MCP handler suites | Native external-request count, captured branch/SHA, actual SDK progress and isolated MCP turns, persisted first target and no-workspace error |
+
+The existing small conversations route suite retains unrelated route/parser characterization until deeper gate coverage replaces it. Native warm GitHub count, active abort/replay and both delete/allocation races now pass. Base reuse, Railway, latency sampling and final Gate 4 audit remain open; active generation takeover after process death is outside accepted scope.

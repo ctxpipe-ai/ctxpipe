@@ -1,6 +1,9 @@
 import { execFile } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
+import { Client } from "@modelcontextprotocol/sdk/client/index.js"
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import {
   modelMessagesToUIMessages,
   RUN_CANCEL_REASON,
@@ -8,9 +11,15 @@ import {
   uiMessagesToWire,
 } from "@tanstack/ai"
 import { reconstructChat } from "@tanstack/ai-persistence"
+import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
 import { withOrgDbContext } from "../../db/client.js"
-import { listSandboxInstances } from "../../models/workspaces.js"
+import { workspaces } from "../../db/schema/workspaces.js"
+import { registerMcpTools } from "../../mcp/tools.js"
+import {
+  listSandboxInstances,
+  persistOrgFirstWorkspace,
+} from "../../models/workspaces.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
 import {
   streamTanstackWorkspaceChat,
@@ -294,10 +303,10 @@ it(
   },
 )
 
-it(
-  "replays native WebSocket offsets and reloads the transcript in a fresh process",
+it.each([false, true])(
+  "replays native WebSocket offsets and reloads the transcript in a fresh process (active disconnect: %s)",
   { timeout: 90_000 },
-  async () => {
+  async (activeDisconnect) => {
     const { stdout, stderr } = await promisify(execFile)(
       "bun",
       [
@@ -307,16 +316,30 @@ it(
             import.meta.url,
           ),
         ),
+        ...(activeDisconnect ? ["--active-disconnect"] : []),
       ],
       { timeout: 80_000 },
     )
     expect(stderr).not.toMatch(/hook failed|durability failure|AbortError/)
     const result = JSON.parse(stdout.trim().split("\n").at(-1) ?? "")
     expect(result).toEqual({
+      ...(activeDisconnect
+        ? {
+            disconnectedBeforeTerminal: true,
+            abortedTerminal: true,
+            retryMadeOneModelCall: true,
+          }
+        : {}),
       replayMatches: true,
       oneTerminal: true,
       noReplayModelCall: true,
-      freshTranscript: ["First socket question", "Native reply completed."],
+      freshTranscript: activeDisconnect
+        ? [
+            "First socket question",
+            "Question after disconnect",
+            "Native reply completed.",
+          ]
+        : ["First socket question", "Native reply completed."],
     })
   },
 )
@@ -390,5 +413,119 @@ it(
         await modelResponse
       },
     )
+  },
+)
+
+it(
+  "MCP compatibility chat uses the captured non-main workspace branch",
+  { timeout: 45_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      await promisify(execFile)("git", ["branch", "-m", "trunk"], {
+        cwd: f.directory,
+      })
+      await withOrgDbContext(f.orgId, (db) =>
+        db
+          .update(workspaces)
+          .set({ desiredDefaultBranch: "trunk" })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      await withOrgDbContext(f.orgId, async (db) => {
+        await db.insert(workspaces).values({
+          id: `${f.workspaceId}_older`,
+          orgId: f.orgId,
+          slug: "older",
+          displayName: "Older",
+          workspaceRepositoryUrl: `${f.directory}/older`,
+          createdAt: new Date("2000-01-01"),
+        })
+        await persistOrgFirstWorkspace({
+          orgId: f.orgId,
+          workspaceId: f.workspaceId,
+          sourceRepositoryId: "repo_fixture",
+        })
+      })
+      const server = new McpServer({
+        name: "native-chat-fixture",
+        version: "1",
+      })
+      const client = new Client({ name: "native-chat-client", version: "1" })
+      registerMcpTools(server)
+      const [clientTransport, serverTransport] =
+        InMemoryTransport.createLinkedPair()
+      try {
+        await Promise.all([
+          server.connect(serverTransport),
+          client.connect(clientTransport),
+        ])
+        const tools = await client.listTools()
+        expect(tools.tools.map((tool) => tool.name)).toEqual(["ctx_advisor"])
+        const before = await (
+          await f.request(`/conversations?workspaceId=${f.workspaceId}`)
+        ).json()
+        const progress: unknown[] = []
+        const reply = await client.callTool(
+          {
+            name: "ctx_advisor",
+            arguments: {
+              prompt: "Read the workspace",
+              currentProjectName: "Fixture app",
+              conversationId: "ignored-client-id",
+            },
+          },
+          undefined,
+          { onprogress: (event) => progress.push(event) },
+        )
+        expect(reply.isError, JSON.stringify(reply.content)).not.toBe(true)
+        expect(reply.content).toEqual([
+          { type: "text", text: "Native reply completed." },
+        ])
+        expect(progress.length).toBeGreaterThan(0)
+        const second = await client.callTool({
+          name: "ctx_advisor",
+          arguments: {
+            prompt: "A separate question",
+            conversationId: "ignored-client-id",
+          },
+        })
+        expect(second.isError, JSON.stringify(second.content)).not.toBe(true)
+        const calls = f.modelRequests.filter((request) =>
+          Array.isArray(request.tools),
+        )
+        expect(calls).toHaveLength(2)
+        expect(JSON.stringify(calls[0]?.messages)).toContain(
+          "Project: Fixture app",
+        )
+        expect(JSON.stringify(calls[1]?.messages)).not.toContain(
+          "Read the workspace",
+        )
+        const after = await (
+          await f.request(`/conversations?workspaceId=${f.workspaceId}`)
+        ).json()
+        expect(after.items.map((item: { id: string }) => item.id)).toEqual(
+          before.items.map((item: { id: string }) => item.id),
+        )
+        for (const [slug, confirmName] of [
+          ["context", "Context"],
+          ["older", "Older"],
+        ]) {
+          const deleted = await f.request(`/workspaces/${slug}`, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ confirmName }),
+          })
+          expect(deleted.status).toBe(204)
+        }
+        const missing = await client.callTool({
+          name: "ctx_advisor",
+          arguments: { prompt: "No workspace remains" },
+        })
+        expect(missing.isError).toBe(true)
+        expect(JSON.stringify(missing.content)).toContain("Create a Workspace")
+      } finally {
+        await client.close()
+        await server.close()
+      }
+    })
   },
 )

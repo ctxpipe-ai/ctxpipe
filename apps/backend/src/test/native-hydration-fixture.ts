@@ -57,6 +57,7 @@ export type NativeHydrationOptions = {
   onGithubPrCredential?: () => void | Promise<void>
   onGithubPullRequest?: (body: unknown) => void | Promise<void>
   githubGitResponses?: Record<string, { status?: number; body: unknown }>
+  onGithubRequest?: (method: string, url: string) => void
   onGithubGitRequest?: (method: string, path: string, body: unknown) => void
   onGithubContentsWrite?: (path: string, body: unknown) => void
   slackCaptureIntent?: boolean
@@ -394,6 +395,10 @@ async function createNativeHydrationFixture(
       },
     ),
   )
+  server.events.on("request:start", ({ request }) => {
+    if (new URL(request.url).hostname === "api.github.com")
+      options.onGithubRequest?.(request.method, request.url)
+  })
   server.listen({ onUnhandledRequest: "error" })
   initDb(databaseUrl)
   const backend = await BackendPostgres.connect(databaseUrl, {

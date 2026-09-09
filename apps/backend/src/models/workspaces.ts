@@ -883,6 +883,14 @@ export async function deleteWorkspace(
       }
 
       await tx
+        .delete(orgFirstWorkspaces)
+        .where(
+          and(
+            eq(orgFirstWorkspaces.orgId, orgId),
+            eq(orgFirstWorkspaces.workspaceId, row.id),
+          ),
+        )
+      await tx
         .delete(conversations)
         .where(
           and(
