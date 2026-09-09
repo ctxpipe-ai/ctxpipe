@@ -31,16 +31,14 @@ Key evidence:
 ## Remaining work, in order
 
 1. Reconfirm the 4 GiB quota probe, GitHub HTTPS fixture observations,
-   and overlapping-chat OpenCode session create on GitHub CI. Overlapping
-   stale send passed on `1e0da797` (`34373200396`). The GitHub HTTPS
-   fixture had no pass/fail line because `test-suite.mjs` hit its 30
-   minute spawnSync ceiling after the quota test failed. Quota
-   `enforces native Docker resource limits` failed at 150908ms (under the
-   180s test timeout) with no assertion dump: 5120×1 MiB `conv=fsync`
-   writes are too slow on nested Btrfs and still lose EDQUOT to OOM.
-   The probe now uses 8 MiB `oflag=direct` seeks and keeps the last `dd`
-   error on disk. The contracts spawnSync ceiling is 45 minutes; backend
-   stays at 30.
+   and overlapping-chat OpenCode session create on GitHub CI. CI
+   `34379462234` on `ddad6df8` finished the contracts suite (45 minute
+   ceiling): overlapping stale send passed, GitHub HTTPS fixture passed
+   (6140ms), 329/330 tests passed. Quota hit the 4 GiB limit in 22s
+   (`quota-status=1`, `quota-blocks=510` = 4080 MiB) but the persisted
+   `dd` file was empty: redirecting onto the full qgroup truncates the
+   error file and cannot write EDQUOT. Capture `dd` text in memory and
+   print it after deleting the fill.
    This host cannot run the Btrfs quota runner (`unknown filesystem type
    'btrfs'`). Do not substitute overlay Docker. Preserve ownership
    checks and dirty worktrees.
@@ -68,13 +66,11 @@ Key evidence:
 
 ## Current CI and cost controls
 
-CI [34373200396](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34373200396)
-on `1e0da797` ran contracts: overlapping stale send passed; quota
-resource-limits failed at 150s; the 30 minute parent then `ETIMEDOUT`
-so `contracts/results.json` was never written. Earlier
-[34371493449](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34371493449)
-on `9141fea2` died during Zoekt install before any contract ran. Do not
-dispatch a duplicate of an unchanged SHA.
+CI [34379462234](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34379462234)
+on `ddad6df8` finished contracts in 1659s: one failure, the quota
+resource-limits assertion (`expected '' to match /quota exceeded/i`
+after a successful 4 GiB reject). Overlapping and GitHub HTTPS fixture
+passed. Do not dispatch a duplicate of an unchanged SHA.
 
 Backend/UI diagnostic allowances are 124/223, with no additions. Gate 6 must
 resolve them. The current complete backend check passes with 124 diagnostics; the unchanged

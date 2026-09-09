@@ -1228,35 +1228,32 @@ fi'`,
         "bounded workspace",
       )
       // count=1 so BusyBox cannot buffer the 4 GiB fill. oflag=direct keeps
-      // each 8 MiB write out of the 1 GiB page cache (conv=fsync every 1 MiB
-      // ran ~150s on nested Btrfs and still OOM-killed before EDQUOT). Keep
-      // the failing write on disk; Docker demux can drop the last stderr frame.
+      // each 8 MiB write out of the 1 GiB page cache. Capture dd's text in
+      // memory: redirecting onto the quota volume truncates the error file
+      // and then cannot write EDQUOT. Print after deleting the fill.
       const quotaWrite = await handle.process.exec(
         `sh -eu -c '
 set +e
-err=/tmp/native-policy-quota.err
 : > /tmp/native-policy-quota.bin
 i=0
 status=0
+last=
 while [ "$i" -lt 640 ]; do
-  dd if=/dev/zero of=/tmp/native-policy-quota.bin bs=8192k count=1 seek="$i" oflag=direct conv=notrunc >"$err" 2>&1
+  last=$(dd if=/dev/zero of=/tmp/native-policy-quota.bin bs=8192k count=1 seek="$i" oflag=direct conv=notrunc 2>&1)
   status=$?
   [ "$status" -eq 0 ] || break
   i=$((i + 1))
 done
 rm -f /tmp/native-policy-quota.bin
-printf "quota-status=%s\\nquota-blocks=%s\\n" "$status" "$i"'`,
+printf "quota-status=%s\\nquota-blocks=%s\\nquota-error=%s\\nquota-end=1\\n" "$status" "$i" "$last"'`,
       )
-      const quotaError = await handle.process.exec(
-        "cat /tmp/native-policy-quota.err",
+      expect(quotaWrite.stdout, quotaWrite.stdout).toMatch(/quota exceeded/i)
+      expect(quotaWrite.stdout, quotaWrite.stdout).toMatch(
+        /quota-status=[1-9]\d*/,
       )
-      const quotaLog = `write:${quotaWrite.stdout}\nerror:${quotaError.stdout}`
-      expect(quotaError.exitCode, quotaLog).toBe(0)
-      expect(quotaError.stdout, quotaLog).toMatch(/quota exceeded/i)
-      expect(quotaWrite.stdout, quotaLog).toMatch(/quota-status=[1-9]\d*/)
       expect(
         Number(/quota-blocks=(\d+)/.exec(quotaWrite.stdout)?.[1]),
-        quotaLog,
+        quotaWrite.stdout,
       ).toBeGreaterThanOrEqual(500)
     }
 
