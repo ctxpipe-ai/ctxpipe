@@ -333,9 +333,9 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         orgSlug: await resolveWorkspaceChatOrgSlug(input),
         workspaceId: input.workspaceId,
       },
-      messages: messagesForOpenCodeChat(input.messages, input.prompt) as Array<
-        ModelMessage | UIMessage
-      >,
+      messages: (input.messages
+        ? messagesForOpenCodeChat(input.messages, input.prompt)
+        : []) as Array<ModelMessage | UIMessage>,
       abortController,
       tools: WORKSPACE_CHAT_TOOLS,
       middleware: [

@@ -1,0 +1,54 @@
+{"name": "native-chat-late-stale-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/workspace-chat-native.contract.test.ts", "-t", "overlapping stale"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/bun-1.4.2/bun-darwin-aarch64:/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-09T04:00:06Z", "log": "logs/native-chat-late-stale-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+stdout | src/domain/workspaces/workspace-chat-native.contract.test.ts > rejects an overlapping stale send without replacing the accepted transcript
+{
+  error: Error: Conversation changed during another send; reload before retrying
+      at [90mfile:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai-persistence@0.5.1_patch_hash=a83aba868f0c13f7535ca4f2d90693e096e28837cbaff_cc82b3b6ce518b0c711ac876d23fa616/node_modules/[4m@tanstack[24m/ai-persistence/dist/esm/middleware.js:992:23
+  [90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+      at Object.withLock [90m(/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/domain/workspaces/sandbox-lock-store.ts:105:24[90m)[39m,
+  threadId: [32m'conv_org_agqiiuwcjr323jhwiyy6xfbbs4'[39m
+}
+
+stderr | src/domain/workspaces/workspace-chat-native.contract.test.ts > rejects an overlapping stale send without replacing the accepted transcript
+❌ [tanstack-ai:errors] ❌ chat run failed
+
+ ❯ src/domain/workspaces/workspace-chat-native.contract.test.ts (4 tests | 1 failed | 3 skipped) 7764ms
+   ↓ uses the prepared native worktree for two stock chat turns and persists their transcript
+   × rejects an overlapping stale send without replacing the accepted transcript 7763ms
+   ↓ replays native WebSocket offsets and reloads the transcript in a fresh process
+   ↓ releases native transcript ownership after cancellation
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/workspace-chat-native.contract.test.ts > rejects an overlapping stale send without replacing the accepted transcript
+AssertionError: expected [] to deeply equal [ Array(1) ]
+
+- Expected
++ Received
+
+- [
+-   "Conversation changed during another send; reload before retrying",
+- ]
++ []
+
+ ❯ src/domain/workspaces/workspace-chat-native.contract.test.ts:231:41
+    229|       expect((parseSseDataLines(await lateStale.text()) as StreamChunk…
+    230|         .filter((chunk) => chunk.type === "RUN_ERROR")
+    231|         .map((chunk) => chunk.message)).toEqual([
+       |                                         ^
+    232|           "Conversation changed during another send; reload before ret…
+    233|         ])
+ ❯ src/observability/logger.ts:131:16
+ ❯ withNativeChatFixture src/test/native-chat-fixture.ts:191:12
+ ❯ src/domain/workspaces/workspace-chat-native.contract.test.ts:152:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 skipped (4)
+   Start at  14:00:06
+   Duration  12.19s (transform 1.31s, setup 37ms, import 4.28s, tests 7.76s, environment 0ms)
+

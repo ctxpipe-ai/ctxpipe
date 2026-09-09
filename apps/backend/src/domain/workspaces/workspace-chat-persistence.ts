@@ -77,7 +77,16 @@ function createMessageStore(): MessageStore {
           .from(chatThreads)
           .where(eq(chatThreads.threadId, threadId))
           .limit(1)
-        return (rows[0]?.messagesJson ?? []) as ModelMessage[]
+        // JSONB stores dates as strings; native chat/wire converters require Date.
+        return ((rows[0]?.messagesJson ?? []) as ModelMessage[]).map(
+          (message) =>
+            message.createdAt == null
+              ? message
+              : {
+                  ...message,
+                  createdAt: new Date(message.createdAt),
+                },
+        )
       })
     },
     async saveThread(threadId, messages) {

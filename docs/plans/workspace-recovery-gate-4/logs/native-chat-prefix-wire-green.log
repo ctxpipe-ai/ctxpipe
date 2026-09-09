@@ -1,0 +1,70 @@
+{"name": "native-chat-prefix-wire-green", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/workspace-chat-native.contract.test.ts", "-t", "overlapping stale"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/bun-1.4.2/bun-darwin-aarch64:/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-09T04:02:36Z", "log": "logs/native-chat-prefix-wire-green.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+stdout | src/domain/workspaces/workspace-chat-native.contract.test.ts > rejects an overlapping stale send without replacing the accepted transcript
+{
+  error: Error: Conversation changed during another send; reload before retrying
+      at Object.onConfig [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai-persistence@0.5.1_patch_hash=7ddffef9cd90c840815640250e339953f3a6c0ab799e5_2b91f39f3833c4c226800bc0eab3665c/node_modules/[4m@tanstack[24m/ai-persistence/dist/esm/middleware.js:1096:158[90m)[39m
+  [90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+      at MiddlewareRunner.runOnConfig [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/activities/chat/middleware/compose.js:95:19[90m)[39m
+      at TextEngine.run [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/activities/chat/index.js:310:30[90m)[39m
+      at streamTextChunks [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/activities/chat/index.js:2299:20[90m)[39m
+      at streamTanstackWorkspaceChatBody [90m(/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/domain/workspaces/tanstack-workspace-chat.ts:178:22[90m)[39m
+      at streamTanstackWorkspaceChat [90m(/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/domain/workspaces/tanstack-workspace-chat.ts:159:5[90m)[39m
+      at [90mfile:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/stream-to-response.js:101:22,
+  threadId: [32m'conv_org_agqiivihin2prhuyksvmc57e7a'[39m
+}
+
+stderr | src/domain/workspaces/workspace-chat-native.contract.test.ts > rejects an overlapping stale send without replacing the accepted transcript
+❌ [tanstack-ai:errors] ❌ chat run failed
+
+stdout | src/domain/workspaces/workspace-chat-native.contract.test.ts > rejects an overlapping stale send without replacing the accepted transcript
+{
+  error: Error: Conversation changed during another send; reload before retrying
+      at Object.onConfig [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai-persistence@0.5.1_patch_hash=7ddffef9cd90c840815640250e339953f3a6c0ab799e5_2b91f39f3833c4c226800bc0eab3665c/node_modules/[4m@tanstack[24m/ai-persistence/dist/esm/middleware.js:1096:158[90m)[39m
+  [90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+      at MiddlewareRunner.runOnConfig [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/activities/chat/middleware/compose.js:95:19[90m)[39m
+      at TextEngine.run [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/activities/chat/index.js:310:30[90m)[39m
+      at streamTextChunks [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/activities/chat/index.js:2299:20[90m)[39m
+      at streamTanstackWorkspaceChatBody [90m(/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/domain/workspaces/tanstack-workspace-chat.ts:178:22[90m)[39m
+      at streamTanstackWorkspaceChat [90m(/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/domain/workspaces/tanstack-workspace-chat.ts:159:5[90m)[39m
+      at [90mfile:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/stream-to-response.js:101:22,
+  threadId: [32m'conv_org_agqiivihin2prhuyksvmc57e7a'[39m
+}
+
+stderr | src/domain/workspaces/workspace-chat-native.contract.test.ts > rejects an overlapping stale send without replacing the accepted transcript
+❌ [tanstack-ai:errors] ❌ chat run failed
+
+ ❯ src/domain/workspaces/workspace-chat-native.contract.test.ts (4 tests | 1 failed | 3 skipped) 4686ms
+   ↓ uses the prepared native worktree for two stock chat turns and persists their transcript
+   × rejects an overlapping stale send without replacing the accepted transcript 4685ms
+   ↓ replays native WebSocket offsets and reloads the transcript in a fresh process
+   ↓ releases native transcript ownership after cancellation
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/workspace-chat-native.contract.test.ts > rejects an overlapping stale send without replacing the accepted transcript
+TypeError: msg.createdAt.toISOString is not a function
+ ❯ messageMetadata ../../node_modules/.pnpm/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/@tanstack/ai/dist/esm/utilities/ag-ui-wire.js:61:56
+ ❯ toAnchor ../../node_modules/.pnpm/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/@tanstack/ai/dist/esm/utilities/ag-ui-wire.js:48:19
+ ❯ uiMessagesToWire ../../node_modules/.pnpm/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/@tanstack/ai/dist/esm/utilities/ag-ui-wire.js:33:13
+ ❯ src/domain/workspaces/workspace-chat-native.contract.test.ts:258:16
+    256|           runId: `retry-${f.conversationId}`,
+    257|           messages: [
+    258|             ...uiMessagesToWire(modelMessagesToUIMessages(transcript)),
+       |                ^
+    259|             {
+    260|               id: "retry-user",
+ ❯ src/observability/logger.ts:131:16
+ ❯ withNativeChatFixture src/test/native-chat-fixture.ts:191:12
+ ❯ src/domain/workspaces/workspace-chat-native.contract.test.ts:153:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 skipped (4)
+   Start at  14:02:36
+   Duration  8.20s (transform 1.12s, setup 27ms, import 3.40s, tests 4.69s, environment 0ms)
+

@@ -16,15 +16,33 @@ index 65d63d00f9b22cceb2b3ea4245691106b7168ea1..6376d3144522fb437ceb5fcba923b322
       * Also persist a throttled snapshot of the in-progress assistant reply while
       * it streams. Off by default — the transcript is otherwise persisted at the
 diff --git a/dist/esm/middleware.js b/dist/esm/middleware.js
-index 8480a78aac5ab6a161051bcd85509d2b749b9bfc..25d8ee41735cb07d9f9081ebe1fc5bbbf7f1e558 100644
+index 8480a78aac5ab6a161051bcd85509d2b749b9bfc..06bee88601b2315f4d42e210a98898ce346bbde8 100644
 --- a/dist/esm/middleware.js
 +++ b/dist/esm/middleware.js
-@@ -969,6 +969,53 @@ function detachableRun(ctx) {
+@@ -1,7 +1,7 @@
+ import { validateChatPersistenceStores, validateGenerationPersistenceStores } from "./types.js";
+ import { InterruptsCapability, PersistenceCapability, PersistenceCompletionCapability, provideInterrupts, providePersistence, providePersistenceCompletion } from "./capabilities.js";
+ import { artifactBlobKey } from "./retrieve.js";
+-import { InterruptResumeValidationError, defineChatMiddleware, fromSpecTokenUsage, getDetachableRun, readInterruptBinding, validateInterruptResumeBatch, wasCancelRequested } from "@tanstack/ai";
++import { convertMessagesToModelMessages, modelMessagesToUIMessages, InterruptResumeValidationError, defineChatMiddleware, fromSpecTokenUsage, getDetachableRun, readInterruptBinding, validateInterruptResumeBatch, wasCancelRequested } from "@tanstack/ai";
+ import { createInterruptBinding, getGenericInterruptDefinitionRegistry, providePendingTurn, rehydrateInterruptRequest, toRunErrorPayload } from "@tanstack/ai/adapter-internals";
+ import { base64ToUint8Array } from "@tanstack/ai-utils";
+ //#region src/middleware.ts
+@@ -969,6 +969,59 @@ function detachableRun(ctx) {
  *   required). Known-absent `messages` or `interrupts` without `runs` fail at
  *   compile time; fully dynamic bags are checked at runtime.
  */
-+async function lockTranscript(ctx, messages, locks) {
-+    const before = JSON.stringify(await messages.loadThread(ctx.threadId));
++/** Compare persisted message content after the native UI round-trip, ignoring display identity. */
++function transcriptContent(messages) {
++  const normalized = convertMessagesToModelMessages(modelMessagesToUIMessages([...messages]))
++    .map(({ id: _id, createdAt: _createdAt, ...message }) => message)
++  return JSON.stringify(normalized, (_key, value) => {
++    if (!value || typeof value !== 'object' || Array.isArray(value)) return value
++    return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)))
++  })
++}
++
++async function lockTranscript(ctx, locks) {
 +    let ready;
 +    let failed;
 +    let release;
@@ -41,9 +59,6 @@ index 8480a78aac5ab6a161051bcd85509d2b749b9bfc..25d8ee41735cb07d9f9081ebe1fc5bbb
 +        try {
 +            signal.throwIfAborted();
 +            ctx.signal?.throwIfAborted();
-+            const current = JSON.stringify(await messages.loadThread(ctx.threadId));
-+            if (current !== before)
-+                throw new Error('Conversation changed during another send; reload before retrying');
 +            ready();
 +            await finished;
 +        }
@@ -73,7 +88,7 @@ index 8480a78aac5ab6a161051bcd85509d2b749b9bfc..25d8ee41735cb07d9f9081ebe1fc5bbb
  function withPersistence(persistence, options = {}) {
  	validateChatPersistenceStores(persistence);
  	const snapshotStreaming = options.snapshotStreaming ?? false;
-@@ -984,7 +1031,7 @@ function withPersistence(persistence, options = {}) {
+@@ -984,7 +1037,7 @@ function withPersistence(persistence, options = {}) {
  	return defineChatMiddleware({
  		name: "chat-persistence",
  		provides,
@@ -82,19 +97,27 @@ index 8480a78aac5ab6a161051bcd85509d2b749b9bfc..25d8ee41735cb07d9f9081ebe1fc5bbb
  			providePersistence(ctx, persistence);
  			let resolveCompletion = () => void 0;
  			let rejectCompletion = () => void 0;
-@@ -1009,6 +1056,11 @@ function withPersistence(persistence, options = {}) {
+@@ -1009,6 +1062,11 @@ function withPersistence(persistence, options = {}) {
  				const list = ctx.messages.length > 0 ? [...ctx.messages] : stored;
  				await messageStore.saveThread(ctx.threadId, list);
  			} });
 +			if (options.threadLocks) {
-+				const release = await lockTranscript(ctx, messageStore, options.threadLocks);
++				const release = await lockTranscript(ctx, options.threadLocks);
 +				const state = runState.get(ctx);
 +				if (state) state.releaseThread = release;
 +			}
  		},
  		async onConfig(ctx, config) {
  			if (ctx.phase !== "init") return;
-@@ -1100,6 +1152,7 @@ function withPersistence(persistence, options = {}) {
+@@ -1035,6 +1093,7 @@ function withPersistence(persistence, options = {}) {
+ 			if (!state?.merged) {
+ 				if (state) state.merged = true;
+ 				const stored = await messageStore.loadThread(ctx.threadId);
++				if (options.threadLocks && config.messages.length > 0 && transcriptContent(config.messages.slice(0, stored.length)) !== transcriptContent(stored)) throw new Error('Conversation changed during another send; reload before retrying');
+ 				patch.messages = config.messages.length > 0 ? config.messages : stored;
+ 			}
+ 			return Object.keys(patch).length > 0 ? patch : void 0;
+@@ -1100,6 +1159,7 @@ function withPersistence(persistence, options = {}) {
  			state.usage = accumulateTokenUsage(state.usage, usage);
  		},
  		async onFinish(ctx, info) {
@@ -102,7 +125,7 @@ index 8480a78aac5ab6a161051bcd85509d2b749b9bfc..25d8ee41735cb07d9f9081ebe1fc5bbb
  			const state = runState.get(ctx);
  			if (state?.interrupted) return;
  			try {
-@@ -1115,15 +1168,19 @@ function withPersistence(persistence, options = {}) {
+@@ -1115,15 +1175,19 @@ function withPersistence(persistence, options = {}) {
  				}
  				throw error;
  			}
@@ -122,7 +145,7 @@ index 8480a78aac5ab6a161051bcd85509d2b749b9bfc..25d8ee41735cb07d9f9081ebe1fc5bbb
  			const state = runState.get(ctx);
  			let terminal = false;
  			try {
-@@ -1132,6 +1189,7 @@ function withPersistence(persistence, options = {}) {
+@@ -1132,6 +1196,7 @@ function withPersistence(persistence, options = {}) {
  			} finally {
  				if (terminal) state?.completion?.reject(info.reason);
  			}
@@ -131,23 +154,27 @@ index 8480a78aac5ab6a161051bcd85509d2b749b9bfc..25d8ee41735cb07d9f9081ebe1fc5bbb
  	});
  }
 diff --git a/src/middleware.ts b/src/middleware.ts
-index 7e8eb184e2457ffbf9b4f10d6d7ac304f4bfafe1..2c72534cd893a5d5684cfcc2405f413489cfd99d 100644
+index 7e8eb184e2457ffbf9b4f10d6d7ac304f4bfafe1..83a50a43744039f21853db02836d4538c7357061 100644
 --- a/src/middleware.ts
 +++ b/src/middleware.ts
-@@ -1,3 +1,4 @@
+@@ -1,5 +1,8 @@
 +import type { LockStore } from '@tanstack/ai/locks'
  import {
    defineChatMiddleware,
++  convertMessagesToModelMessages,
++  modelMessagesToUIMessages,
    fromSpecTokenUsage,
-@@ -57,6 +58,7 @@ import type {
-   TokenUsage,
- } from '@tanstack/ai'
+   getDetachableRun,
+   InterruptResumeValidationError,
+@@ -32,6 +35,7 @@ import {
+   validateGenerationPersistenceStores,
+ } from './types'
  import type {
-+  MessageStore,
-   AIPersistence,
-   AIPersistenceStores,
-   ArtifactRecord,
-@@ -262,6 +264,7 @@ export interface GenerationArtifactNameInput {
++  ModelMessage,
+   AbortInfo,
+   ChatMiddleware,
+   ChatMiddlewareConfig,
+@@ -262,6 +266,7 @@ export interface GenerationArtifactNameInput {
  }
  
  interface RunStateEntry {
@@ -155,12 +182,21 @@ index 7e8eb184e2457ffbf9b4f10d6d7ac304f4bfafe1..2c72534cd893a5d5684cfcc2405f4134
    merged: boolean
    interrupted: boolean
    /**
-@@ -297,6 +300,55 @@ interface RunStateEntry {
+@@ -297,6 +302,62 @@ interface RunStateEntry {
  
  const runState = new WeakMap<object, RunStateEntry>()
  
-+async function lockTranscript(ctx: ChatMiddlewareContext, messages: MessageStore, locks: LockStore): Promise<() => Promise<void>> {
-+  const before = JSON.stringify(await messages.loadThread(ctx.threadId))
++/** Compare persisted message content after the native UI round-trip, ignoring display identity. */
++function transcriptContent(messages: ReadonlyArray<ModelMessage>): string {
++  const normalized = convertMessagesToModelMessages(modelMessagesToUIMessages([...messages]))
++    .map(({ id: _id, createdAt: _createdAt, ...message }) => message)
++  return JSON.stringify(normalized, (_key, value) => {
++    if (!value || typeof value !== 'object' || Array.isArray(value)) return value
++    return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)))
++  })
++}
++
++async function lockTranscript(ctx: ChatMiddlewareContext, locks: LockStore): Promise<() => Promise<void>> {
 +  let ready!: () => void
 +  let failed!: (error: unknown) => void
 +  let release!: () => void
@@ -177,8 +213,6 @@ index 7e8eb184e2457ffbf9b4f10d6d7ac304f4bfafe1..2c72534cd893a5d5684cfcc2405f4134
 +    try {
 +      signal.throwIfAborted()
 +      ctx.signal?.throwIfAborted()
-+      const current = JSON.stringify(await messages.loadThread(ctx.threadId))
-+      if (current !== before) throw new Error('Conversation changed during another send; reload before retrying')
 +      ready()
 +      await finished
 +    } finally {
@@ -211,7 +245,7 @@ index 7e8eb184e2457ffbf9b4f10d6d7ac304f4bfafe1..2c72534cd893a5d5684cfcc2405f4134
  const validResumeStatuses = new Set(['resolved', 'cancelled'])
  
  function mergeMaps<K, V>(
-@@ -1921,6 +1973,8 @@ function detachableRun(ctx: ChatMiddlewareContext): boolean {
+@@ -1921,6 +1982,8 @@ function detachableRun(ctx: ChatMiddlewareContext): boolean {
   * is loaded and used.
   */
  export interface WithPersistenceOptions {
@@ -220,7 +254,7 @@ index 7e8eb184e2457ffbf9b4f10d6d7ac304f4bfafe1..2c72534cd893a5d5684cfcc2405f4134
    /**
     * Also persist a throttled snapshot of the in-progress assistant reply while
     * it streams. Off by default — the transcript is otherwise persisted at the
-@@ -1967,7 +2021,7 @@ export function withPersistence<TStores extends ChatTranscriptStores>(
+@@ -1967,7 +2030,7 @@ export function withPersistence<TStores extends ChatTranscriptStores>(
    return defineChatMiddleware({
      name: 'chat-persistence',
      provides,
@@ -229,19 +263,32 @@ index 7e8eb184e2457ffbf9b4f10d6d7ac304f4bfafe1..2c72534cd893a5d5684cfcc2405f4134
        providePersistence(ctx, persistence)
  
        let resolveCompletion: () => void = () => undefined
-@@ -2016,6 +2070,11 @@ export function withPersistence<TStores extends ChatTranscriptStores>(
+@@ -2016,6 +2079,11 @@ export function withPersistence<TStores extends ChatTranscriptStores>(
            await messageStore.saveThread(ctx.threadId, list)
          },
        })
 +      if (options.threadLocks) {
-+        const release = await lockTranscript(ctx, messageStore, options.threadLocks)
++        const release = await lockTranscript(ctx, options.threadLocks)
 +        const state = runState.get(ctx)
 +        if (state) state.releaseThread = release
 +      }
      },
  
      async onConfig(ctx: ChatMiddlewareContext, config: ChatMiddlewareConfig) {
-@@ -2208,74 +2267,86 @@ export function withPersistence<TStores extends ChatTranscriptStores>(
+@@ -2078,6 +2146,12 @@ export function withPersistence<TStores extends ChatTranscriptStores>(
+       if (!state?.merged) {
+         if (state) state.merged = true
+         const stored = await messageStore.loadThread(ctx.threadId)
++        // Validate the submitted prefix while holding the transcript lock. Reading
++        // the store before waiting misses a send that arrived just after a save.
++        if (options.threadLocks && config.messages.length > 0 &&
++            transcriptContent(config.messages.slice(0, stored.length)) !== transcriptContent(stored)) {
++          throw new Error('Conversation changed during another send; reload before retrying')
++        }
+         patch.messages = config.messages.length > 0 ? config.messages : stored
+       }
+ 
+@@ -2208,74 +2282,86 @@ export function withPersistence<TStores extends ChatTranscriptStores>(
      },
  
      async onFinish(ctx: ChatMiddlewareContext, info: FinishInfo) {

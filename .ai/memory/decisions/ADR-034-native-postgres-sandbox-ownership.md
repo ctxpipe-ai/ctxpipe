@@ -20,7 +20,7 @@ The accepted recovery plan Gate 4 and locked topology issue 08 require native Ta
 
 - Creation and destructive workspace/conversation deletion take the same workspace-scoped native Postgres lock before any per-instance key lock. This covers the window before a first handle is persisted. The instance-store admission check rejects a missing conversation/workspace under that lock. Each query remains short; no SQL connection spans provider I/O. Warm ensures for different conversations in a workspace serialize only during acquisition, not the model run.
 
-- Native persistence must coordinate replacement of a thread transcript. A reproducible opt-in `withPersistence` package patch takes the native Postgres thread lock, rejects history changed while queued before a new model call, and releases via native terminal hooks. Terminal release distinguishes the already-settled caller abort from actual lease loss; only the former is ignored after persistence settles. Keep MessageStore replacement semantics unchanged. Remove the patch when the upstream package passes the retained concurrent-send/cancellation proof.
+- Native persistence must coordinate replacement of a thread transcript. A reproducible opt-in `withPersistence` package patch takes the native Postgres thread lock, validates submitted history against persisted messages under that lock before a new model call, and releases via native terminal hooks. Terminal release distinguishes the already-settled caller abort from actual lease loss; only the former is ignored after persistence settles. Keep MessageStore replacement semantics unchanged. Remove the patch when the upstream package passes the retained concurrent-send/cancellation proof.
 
 ## Consequences
 

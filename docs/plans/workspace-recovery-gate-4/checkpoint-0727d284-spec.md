@@ -1,0 +1,9 @@
+# Gate 4 Spec review — `0727d284`
+
+## Findings
+
+1. **P1 — A stale overlapping request can still replace the accepted transcript.** The new package patch snapshots the persisted thread before acquiring the mutex, then only compares that store value with a second store read after acquisition (`patches/@tanstack__ai-persistence@0.5.1.patch:26-48`). It never compares persisted history with the request’s `ctx.messages`. Existing native persistence continues to prefer any nonempty client message list (`:85-87`) and later replaces the complete thread with `ctx.messages` (`:269-275`). Trigger: send A and stale send B overlap, but B reaches its initial `loadThread` after A has saved its final transcript and before A releases the lock. B observes the same value before/after waiting, runs its model, and replaces A with B’s client list. The test covers only the scheduling where both initial reads precede A’s save. Gate 4 explicitly requires “simultaneous sends” (`workspace-chat-recovery.md:676-678`), and ADR-030 says reload uses the message store (`ADR-030:23`). Under the lock, validate the client history against the stored history or build the turn from server-authoritative stored history plus the newly submitted user message; add a barrier at A’s final save/release boundary.
+
+The cancellation/disposal changes otherwise preserve the native contract. Client abort releases the thread lock through the native abort hook and suppresses only its already-settled identical abort reason; actual ownership loss marks `ownershipLost`, aborts chat, and remains an error. OpenCode disposal aborts the subscription, the SDK stops intentional-abort retries, and asynchronous `reader.cancel()` rejection is handled. I found no new blocker in those paths.
+
+Warm definitions/GitHub, base snapshots/forks, Railway, and other declared Gate 4 work remain outside this checkpoint verdict. No separate nonblocking heuristic arose.

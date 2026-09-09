@@ -5,6 +5,7 @@ import {
   modelMessagesToUIMessages,
   RUN_CANCEL_REASON,
   type StreamChunk,
+  uiMessagesToWire,
 } from "@tanstack/ai"
 import { reconstructChat } from "@tanstack/ai-persistence"
 import { expect, it } from "vitest"
@@ -125,7 +126,12 @@ it(
         { authorize: (threadId) => threadId === f.conversationId },
       )
       expect(await reconstructed.json()).toEqual({
-        messages: modelMessagesToUIMessages(transcript),
+        messages: modelMessagesToUIMessages(transcript).map((message) => ({
+          ...message,
+          ...(message.createdAt
+            ? { createdAt: message.createdAt.toISOString() }
+            : {}),
+        })),
         activeRun: null,
         interrupts: null,
       })
@@ -215,6 +221,38 @@ it(
           listSandboxInstances({ conversationId: f.conversationId }),
         ),
       ).toHaveLength(1)
+      const lateStale = await f.request(`/conversations/${f.conversationId}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          threadId: f.conversationId,
+          runId: `late-stale-${f.conversationId}`,
+          messages: [
+            { id: "stale-user", role: "user", content: "Late stale send" },
+          ],
+          tools: [],
+          context: [],
+          state: {},
+          forwardedProps: { workspaceId: f.workspaceId },
+        }),
+      })
+      expect(
+        (parseSseDataLines(await lateStale.text()) as StreamChunk[])
+          .filter((chunk) => chunk.type === "RUN_ERROR")
+          .map((chunk) => chunk.message),
+      ).toEqual([
+        "Conversation changed during another send; reload before retrying",
+      ])
+      expect(
+        await workspaceChatPersistence().stores.messages.loadThread(
+          f.conversationId,
+        ),
+      ).toEqual(transcript)
+      expect(
+        f.modelRequests.some((request) =>
+          JSON.stringify(request).includes("Late stale send"),
+        ),
+      ).toBe(false)
       const retried = await f.request(`/conversations/${f.conversationId}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -222,7 +260,7 @@ it(
           threadId: f.conversationId,
           runId: `retry-${f.conversationId}`,
           messages: [
-            ...transcript,
+            ...uiMessagesToWire(modelMessagesToUIMessages(transcript)),
             {
               id: "retry-user",
               role: "user",
@@ -235,6 +273,7 @@ it(
           forwardedProps: { workspaceId: f.workspaceId },
         }),
       })
+      expect(retried.status).toBe(200)
       const retriedChunks = parseSseDataLines(
         await retried.text(),
       ) as StreamChunk[]
