@@ -28,6 +28,7 @@ import {
   WORKSPACE_CHAT_OPENCODE_PORT,
   workspaceChatRuntimeConfig,
 } from "./chat-runtime.js"
+import { workspaceChatInstanceAccess } from "./sandbox-instance-store.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import {
   streamTanstackWorkspaceChat,
@@ -616,6 +617,7 @@ it(
                       writeStatus: "read_only" as const,
                     }
                     workspaceChatDockerOwnership.reset()
+                    workspaceChatInstanceAccess.reset()
                     const first = await warmTanstackWorkspaceChat({
                       ...input,
                       prompt: "prepare",
@@ -674,9 +676,10 @@ it(
                     expect(remoteHeads.exitCode).toBe(0)
                     expect(remoteHeads.stdout).toContain(f.sha)
                     phase = "warm chat"
-                    const ensuresBeforeWarm =
-                      workspaceChatDockerOwnership.ensures
-                    const createsBeforeWarm =
+                    const instanceCreatesBeforeWarm =
+                      workspaceChatInstanceAccess.creates
+                    const hitsBeforeWarm = workspaceChatInstanceAccess.hits
+                    const providerCreatesBeforeWarm =
                       workspaceChatDockerOwnership.providerCreates
                     const inspectsBeforeWarm =
                       workspaceChatDockerOwnership.imageInspects
@@ -711,14 +714,17 @@ it(
                       modelRequestsBeforeWarm,
                     )
                     expect(workspaceChatDockerOwnership.providerCreates).toBe(
-                      createsBeforeWarm,
+                      providerCreatesBeforeWarm,
                     )
                     expect(workspaceChatDockerOwnership.imageInspects).toBe(
                       inspectsBeforeWarm,
                     )
+                    expect(workspaceChatInstanceAccess.creates).toBe(
+                      instanceCreatesBeforeWarm,
+                    )
                     expect(
-                      workspaceChatDockerOwnership.ensures - ensuresBeforeWarm,
-                    ).toBeLessThanOrEqual(1)
+                      workspaceChatInstanceAccess.hits - hitsBeforeWarm,
+                    ).toBeGreaterThanOrEqual(1)
                     phase = "provider loss"
                     await first.handle.destroy()
                     phase = "recovery prepare"

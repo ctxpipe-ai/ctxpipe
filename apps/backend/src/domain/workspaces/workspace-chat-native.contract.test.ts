@@ -21,6 +21,7 @@ import {
   persistOrgFirstWorkspace,
 } from "../../models/workspaces.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
+import { workspaceChatInstanceAccess } from "./sandbox-instance-store.js"
 import {
   streamTanstackWorkspaceChat,
   warmTanstackWorkspaceChat,
@@ -44,6 +45,7 @@ it(
         writeStatus: "read_only",
       }
       workspaceChatDockerOwnership.reset()
+      workspaceChatInstanceAccess.reset()
       const prepared = await warmTanstackWorkspaceChat({
         ...input,
         prompt: "prepare",
@@ -90,15 +92,17 @@ it(
             ...(parseSseDataLines(await response.text()) as StreamChunk[]),
           )
         } else {
-          const ensuresBeforeWarm = workspaceChatDockerOwnership.ensures
+          const createsBeforeWarm = workspaceChatInstanceAccess.creates
+          const hitsBeforeWarm = workspaceChatInstanceAccess.hits
           const warmStarted = Date.now()
           for await (const chunk of streamTanstackWorkspaceChat(turn))
             chunks.push(chunk)
           expect(Date.now() - warmStarted).toBeLessThan(5_000)
           expect(workspaceChatDockerOwnership.providerCreates).toBe(0)
+          expect(workspaceChatInstanceAccess.creates).toBe(createsBeforeWarm)
           expect(
-            workspaceChatDockerOwnership.ensures - ensuresBeforeWarm,
-          ).toBeLessThanOrEqual(1)
+            workspaceChatInstanceAccess.hits - hitsBeforeWarm,
+          ).toBeGreaterThanOrEqual(1)
         }
         expect(chunks.filter((chunk) => chunk.type === "RUN_ERROR")).toEqual([])
         expect(

@@ -22,6 +22,16 @@ import {
 } from "../../models/workspaces.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
 
+/** Native instance-store access for warm-turn attach proof. */
+export const workspaceChatInstanceAccess = {
+  hits: 0,
+  creates: 0,
+  reset() {
+    this.hits = 0
+    this.creates = 0
+  },
+}
+
 export class LegacyWorkspaceSandboxConflict extends Error {
   constructor(recordId: string, providerSandboxId: string | null) {
     super(
@@ -279,6 +289,7 @@ export function postgresSandboxInstanceStore(input: {
       const row = await getSandboxInstance(key, input.orgId)
       if (!row) return null
       assertOwnedRecord(key, row)
+      workspaceChatInstanceAccess.hits += 1
       return toTanstackRecord(row)
     },
     async upsert(record) {
@@ -309,6 +320,8 @@ export function postgresSandboxInstanceStore(input: {
         state: "live",
         lastHeartbeatAt: new Date(record.updatedAt),
       }
+      const existing = await getSandboxInstance(persisted.id, input.orgId)
+      if (!existing) workspaceChatInstanceAccess.creates += 1
       await persistSandboxInstance(persisted, ownershipOf(persisted))
     },
     async delete(key) {
