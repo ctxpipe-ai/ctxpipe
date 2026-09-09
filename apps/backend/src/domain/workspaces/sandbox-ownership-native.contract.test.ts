@@ -1257,7 +1257,7 @@ printf "quota-status=%s\\nquota-blocks=%s\\n" "$status" "$i"'`,
       expect(
         Number(/quota-blocks=(\d+)/.exec(quotaWrite.stdout)?.[1]),
         quotaLog,
-      ).toBeGreaterThanOrEqual(400)
+      ).toBeGreaterThanOrEqual(500)
     }
 
     let testError: unknown

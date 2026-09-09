@@ -39,7 +39,8 @@ Key evidence:
    180s test timeout) with no assertion dump: 5120×1 MiB `conv=fsync`
    writes are too slow on nested Btrfs and still lose EDQUOT to OOM.
    The probe now uses 8 MiB `oflag=direct` seeks and keeps the last `dd`
-   error on disk. Contracts/backend spawnSync ceiling is 45 minutes.
+   error on disk. The contracts spawnSync ceiling is 45 minutes; backend
+   stays at 30.
    This host cannot run the Btrfs quota runner (`unknown filesystem type
    'btrfs'`). Do not substitute overlay Docker. Preserve ownership
    checks and dirty worktrees.
