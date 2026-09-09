@@ -152,9 +152,9 @@ export async function loadConversationUiMessages(input: {
 }): Promise<ConversationChatMessage[]> {
   void input.checkpointNamespace
   if (!input.workspaceId?.trim()) return []
-  const stored = await workspaceChatPersistence()
-    .stores.messages.loadThread(input.conversationId)
-    .catch(() => [])
+  const stored = await workspaceChatPersistence().stores.messages.loadThread(
+    input.conversationId,
+  )
   if (stored.length > 0) {
     return modelMessagesToUIMessages(stored) as ConversationChatMessage[]
   }

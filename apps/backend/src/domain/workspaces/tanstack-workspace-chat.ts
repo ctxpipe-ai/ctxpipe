@@ -239,7 +239,11 @@ export async function warmTanstackWorkspaceChat(
       threadId: input.conversationId,
       runId: input.runId ?? `prepare-${input.conversationId}`,
       store: built.instances,
-      locks: postgresSandboxLocks(input.orgId, abortController),
+      locks: postgresSandboxLocks(
+        input.orgId,
+        abortController,
+        `workspace-sandboxes:${input.workspaceId}`,
+      ),
       signal: abortController.signal,
       // Match the optional fields emitted by native withSandbox's tenantFrom.
       tenant: { userId: undefined, orgId: input.orgId },
@@ -341,7 +345,11 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         withPersistence(persistence, { snapshotStreaming: true }),
         modules.withSandbox(definition, {
           instances,
-          locks: postgresSandboxLocks(input.orgId, abortController),
+          locks: postgresSandboxLocks(
+            input.orgId,
+            abortController,
+            `workspace-sandboxes:${input.workspaceId}`,
+          ),
           snapshots,
         }),
         openCodeTrailingUserMiddleware(input.prompt),
@@ -569,9 +577,8 @@ function defineConversationSandbox(input: {
 export async function conversationHasStoredTurns(
   conversationId: string,
 ): Promise<boolean> {
-  const persisted = await workspaceChatPersistence()
-    .stores.messages.loadThread(conversationId)
-    .catch(() => [])
+  const persisted =
+    await workspaceChatPersistence().stores.messages.loadThread(conversationId)
   if (persisted.length > 0) return true
   const turns = await loadConversationTurns(conversationId)
   return turns.length > 0

@@ -1,18 +1,8 @@
-import {
-  chat,
-  defineChatMiddleware,
-  memoryStream,
-  modelMessagesToUIMessages,
-  type StreamChunk,
-} from "@tanstack/ai"
-import { opencodeText } from "@tanstack/ai-opencode"
+import { execFile } from "node:child_process"
+import { fileURLToPath } from "node:url"
+import { promisify } from "node:util"
+import { modelMessagesToUIMessages, type StreamChunk } from "@tanstack/ai"
 import { reconstructChat } from "@tanstack/ai-persistence"
-import {
-  provideSandbox,
-  provideSandboxDurability,
-  SandboxCapability,
-  SandboxDurabilityCapability,
-} from "@tanstack/ai-sandbox"
 import { expect, it } from "vitest"
 import { withOrgDbContext } from "../../db/client.js"
 import { listSandboxInstances } from "../../models/workspaces.js"
@@ -22,58 +12,6 @@ import {
   warmTanstackWorkspaceChat,
 } from "./tanstack-workspace-chat.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
-
-it(
-  "pins the native OpenCode durable-attach gap without rerunning a completed prompt",
-  { timeout: 30_000 },
-  async () => {
-    await withNativeChatFixture(async (f) => {
-      const prepared = await warmTanstackWorkspaceChat({
-        conversationId: f.conversationId,
-        orgId: f.orgId,
-        orgSlug: f.orgSlug,
-        workspaceId: f.workspaceId,
-        desiredUrl: f.directory,
-        desiredSha: f.sha,
-        defaultBranch: "main",
-        writeStatus: "read_only",
-        prompt: "prepare",
-      })
-      if (!prepared.ok) throw new Error(prepared.error)
-      const fixtureCapabilities = defineChatMiddleware({
-        name: "native-opencode-attach-contract",
-        provides: [SandboxCapability, SandboxDurabilityCapability],
-        setup(ctx) {
-          provideSandbox(ctx, prepared.handle)
-          provideSandboxDurability(ctx, {
-            runs: workspaceChatPersistence().stores.runs,
-            adapter: memoryStream(
-              new Request(`http://native.test?runId=${f.conversationId}`),
-            ),
-            journalDir: "/tmp/tanstack-runs",
-            attach: true,
-            detachOnDisconnect: true,
-          })
-        },
-      })
-      const chunks: StreamChunk[] = []
-      for await (const chunk of chat({
-        adapter: opencodeText("openai/gpt-5.6-terra"),
-        threadId: f.conversationId,
-        runId: f.conversationId,
-        messages: [{ role: "user", content: "Do not execute again" }],
-        middleware: [fixtureCapabilities],
-      }))
-        chunks.push(chunk)
-      const errors = chunks.filter((chunk) => chunk.type === "RUN_ERROR")
-      expect(errors).toHaveLength(1)
-      expect(errors[0]?.message).toContain(
-        "cannot ATTACH to an existing durable run",
-      )
-      expect(f.modelRequests).toEqual([])
-    })
-  },
-)
 
 it(
   "uses the prepared native worktree for two stock chat turns and persists their transcript",
@@ -202,3 +140,29 @@ function parseSseDataLines(body: string): object[] {
   }
   return events
 }
+
+it(
+  "replays native WebSocket offsets and reloads the transcript in a fresh process",
+  { timeout: 90_000 },
+  async () => {
+    const { stdout } = await promisify(execFile)(
+      "bun",
+      [
+        fileURLToPath(
+          new URL(
+            "../../test/native-chat-websocket-client.ts",
+            import.meta.url,
+          ),
+        ),
+      ],
+      { timeout: 80_000 },
+    )
+    const result = JSON.parse(stdout.trim().split("\n").at(-1) ?? "")
+    expect(result).toEqual({
+      replayMatches: true,
+      oneTerminal: true,
+      noReplayModelCall: true,
+      freshTranscript: ["First socket question", "Native reply completed."],
+    })
+  },
+)

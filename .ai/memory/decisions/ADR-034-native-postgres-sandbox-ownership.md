@@ -16,7 +16,9 @@ The accepted recovery plan Gate 4 and locked topology issue 08 require native Ta
 
 - Store the captured immutable WorkspaceRevision beside the exact native record. Definition identity includes remote, connection, generation, SHA, default branch, access, and chat image identity. Revision changes allocate separately; credential values and their optional presence do not change workspace identity.
 - Files and publication load this captured binding from Postgres. Missing tree/status/publish ownership is a conflict, not permission to clone a replacement. Focused provider cleanup acquires the native key lock and retains failed rows for retry.
-- The OpenCode package translator must classify message parts by native message role. The temporary reproducible patch fixes a native exact-text regression without restoring application text heuristics. Delete it once an upstream release passes the retained HTTP/two-turn proof. Durable attach remains a separate proven upstream gap and is not claimed implemented.
+- The OpenCode package translator must classify message parts by native message role. The temporary reproducible patch fixes a native exact-text regression without restoring application text heuristics. Delete it once an upstream release passes the retained HTTP/two-turn proof. Active generation takeover is outside the accepted scope: ADR-030 retains native memoryStream for socket replay and native persisted messages for reload after process restart.
+
+- Creation and destructive workspace/conversation deletion take the same workspace-scoped native Postgres lock before any per-instance key lock. This covers the window before a first handle is persisted. The instance-store admission check rejects a missing conversation/workspace under that lock. Each query remains short; no SQL connection spans provider I/O. Warm ensures for different conversations in a workspace serialize only during acquisition, not the model run.
 
 ## Consequences
 

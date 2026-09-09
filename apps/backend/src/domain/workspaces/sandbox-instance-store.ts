@@ -2,6 +2,10 @@ import type {
   SandboxInstanceStore,
   SandboxInstanceRecord as TanstackSandboxInstanceRecord,
 } from "@tanstack/ai-sandbox"
+import { and, eq } from "drizzle-orm"
+import { withOrgDbContext } from "../../db/client.js"
+import { conversations } from "../../db/schema/conversations.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import type { SandboxInstanceRecord } from "../../models/workspace-sandboxes.js"
 import {
   deleteSandboxInstance,
@@ -34,6 +38,29 @@ export function postgresSandboxInstanceStore(input: {
 }): SandboxInstanceStore {
   return {
     async get(key) {
+      if (input.conversationId) {
+        const rows = await withOrgDbContext(input.orgId, (db) =>
+          db
+            .select({ id: conversations.id })
+            .from(conversations)
+            .innerJoin(
+              workspaces,
+              and(
+                eq(workspaces.id, conversations.workspaceId),
+                eq(workspaces.orgId, conversations.orgId),
+              ),
+            )
+            .where(
+              and(
+                eq(conversations.id, input.conversationId ?? ""),
+                eq(workspaces.id, input.workspaceId),
+              ),
+            )
+            .limit(1),
+        )
+        if (!rows.length)
+          throw new Error("Conversation workspace is no longer available")
+      }
       const row = await getSandboxInstance(key, input.orgId)
       return row ? toTanstackRecord(row) : null
     },

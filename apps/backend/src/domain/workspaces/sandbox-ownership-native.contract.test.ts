@@ -59,7 +59,6 @@ async function makeStore() {
   return postgresSandboxInstanceStore({
     orgId,
     workspaceId,
-    conversationId: "thread-1",
   })
 }
 

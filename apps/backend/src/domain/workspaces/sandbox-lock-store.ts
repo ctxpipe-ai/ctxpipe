@@ -12,7 +12,16 @@ const expiresAt = sql`clock_timestamp() + interval '30 seconds'`
 export function postgresSandboxLocks(
   orgId: string,
   abortController?: AbortController,
+  scopeKey?: string,
 ): LockStore {
+  if (scopeKey) {
+    const controller = abortController ?? new AbortController()
+    const locks = postgresSandboxLocks(orgId, controller)
+    return defineLock({
+      withLock: (key, fn) =>
+        locks.withLock(scopeKey, () => locks.withLock(key, fn)),
+    })
+  }
   return defineLock({
     async withLock(key, fn) {
       assertNotInOrgDbContext()

@@ -79,14 +79,20 @@ export async function withDestroyedConversationSandboxes<T>(
   input: { conversationId: string; orgId: string; workspaceId: string },
   fn: () => Promise<T>,
 ): Promise<T> {
-  const rows = await withOrgDbContext(input.orgId, () =>
-    listSandboxInstances({
-      conversationId: input.conversationId,
-      kind: "chat",
-    }),
+  return postgresSandboxLocks(input.orgId).withLock(
+    `workspace-sandboxes:${input.workspaceId}`,
+    async (signal) => {
+      const rows = await withOrgDbContext(input.orgId, () =>
+        listSandboxInstances({
+          conversationId: input.conversationId,
+          kind: "chat",
+        }),
+      )
+      await destroyRows(rows, true)
+      signal.throwIfAborted()
+      return withOrgDbContext(input.orgId, fn)
+    },
   )
-  await destroyRows(rows, true)
-  return withOrgDbContext(input.orgId, fn)
 }
 
 export async function destroySandboxesForWorkspace(
@@ -105,12 +111,18 @@ export async function withDestroyedWorkspaceSandboxes<T>(
   input: { workspaceId: string; orgId: string },
   fn: (remaining: SandboxInstanceRecord[]) => Promise<T>,
 ): Promise<T> {
-  const rows = await withOrgDbContext(input.orgId, () =>
-    listSandboxInstances({ workspaceId: input.workspaceId }),
-  )
-  await destroyRows(rows, true)
-  return withOrgDbContext(input.orgId, async () =>
-    fn(await listSandboxInstances({ workspaceId: input.workspaceId })),
+  return postgresSandboxLocks(input.orgId).withLock(
+    `workspace-sandboxes:${input.workspaceId}`,
+    async (signal) => {
+      const rows = await withOrgDbContext(input.orgId, () =>
+        listSandboxInstances({ workspaceId: input.workspaceId }),
+      )
+      await destroyRows(rows, true)
+      signal.throwIfAborted()
+      return withOrgDbContext(input.orgId, async () =>
+        fn(await listSandboxInstances({ workspaceId: input.workspaceId })),
+      )
+    },
   )
 }
 

@@ -1,6 +1,6 @@
 # Gate 4 progress
 
-Gate 3 closed at 20cf0791 with full CI 34295857469 and both review axes at zero blockers; closure docs 83465ae6 pushed. Gate 4 remains in progress; no Gate 4 checkpoint pushed yet.
+Gate 3 closed at 20cf0791 with full CI 34295857469 and both review axes at zero blockers; closure docs 83465ae6 pushed. Gate 4 remains in progress. Reviewed checkpoint `21912ff7` is pushed; milestone CI `34306895512` is running.
 
 ## Native ownership
 
@@ -32,11 +32,11 @@ Gate 3 closed at 20cf0791 with full CI 34295857469 and both review axes at zero 
 
 ## Remaining
 
-Gate 4 is not complete. Warm turns still reconstruct sandbox definitions and resolve GitHub metadata; native base snapshots/forks and provider selection remain to be finished. Active-run restart/resume and simultaneous-send proof are outstanding. Cleanup enumerates persisted rows, so allocation concurrent with conversation/workspace deletion needs a separate race proof/fix before closure. Legacy message compatibility and remaining catch-empty paths still require audit.
+Gate 4 is not complete. Warm turns still reconstruct sandbox definitions and resolve GitHub metadata; native base snapshots/forks and provider selection remain to be finished. Persisted transcript reload after process restart, native WebSocket disconnect/offset recovery and simultaneous-send proof are outstanding. Conversation deletion versus unpersisted allocation is now fenced through a workspace-scoped native lock; the same boundary is wired to workspace deletion. Workspace deletion and active-run cleanup still need final adversarial coverage. Legacy message compatibility and remaining catch-empty paths still require audit.
 
-Native OpenCode adapter 0.3.4 explicitly does not journal runs and refuses durable attach. Latest official 0.4.4 was inspected and has the same gap; upgrading alone cannot satisfy active-run restart. `opencode-native-attach-gap` and the retained native contract pin refusal without executing the prompt again. An upstream implementation or narrow package patch with deletion condition is required; no application-owned journal/engine is authorized by the accepted design. Railway access remains undiscovered; the credential-location question is pending while independent work continues.
+Scope correction: the accepted Gate 4 plan (lines 663–678) anchors restart/replica proof to native sandbox ownership; ADR-030 explicitly chooses native `memoryStream` and persisted-message reload. Spec review confirmed uninterrupted active model generation takeover was an added inference, not a requirement. No application journal or OpenCode takeover implementation will be added. The inspected adapter attach limitation is documented evidence, not a Gate 4 blocker. Railway access remains undiscovered; the credential-location question is pending while independent work continues.
 
-Milestone two-axis review and full CI are pending. Gates 5–6 have not started.
+Milestone two-axis reviews passed; full CI is running. Gates 5–6 have not started.
 
 ## Milestone review corrections and static tools
 
@@ -47,3 +47,11 @@ Milestone two-axis review and full CI are pending. Gates 5–6 have not started.
 - Removed unused heartbeat callbacks, old sandbox identity helpers and their fake-provider tests, and moved the SSE parser into its native test. Exact native store/prepare/chat tests own these invariants. The remaining Data Clumps review heuristic is nonblocking.
 
 Narrow correction review of `0f207a22...f185020b` passed: Spec 0 findings; Standards 0 blockers, 0 new heuristics and 1 retained nonblocking Data Clumps judgment. Reports are retained beside this ledger. Authorized push and one milestone CI run follow. This remains an intermediate Gate 4 checkpoint.
+
+## Native socket/restart and deletion checkpoint
+
+- Native Bun WebSocket handlers complete a real OpenCode turn, disconnect, replay strictly after the first native offset without another model call, and reconstruct the literal transcript from a fresh Bun process against Postgres. `native-websocket-fixture-close` passed. The first attempt failed only because Bun closes its Node HTTP server during `closeAllConnections`; fixture cleanup now closes the listener first.
+- Removed the attach-gap executable test after Spec confirmed active generation takeover was outside accepted scope; retained its earlier evidence. Removed catch-empty persistence reads from conversation hydration and stored-turn detection.
+- `native-delete-allocation-red` reproduced DELETE succeeding before a blocked first native allocation persisted, then leaving a live orphan record. Both native ensure paths now acquire the workspace-scoped Postgres lock before their native key lock; destructive conversation/workspace deletion acquires the same outer lock. Instance-store admission checks reject deleted conversation/workspace bindings before provider I/O. `native-delete-allocation-green` passes, including rejected preparation after deletion.
+- One grouped regression covers POST/two turns, actual WebSocket/reload, Files, all 18 publication cases, protected conversations, prepare and native store conformance: **34/34 across 6 files**, 75.71 seconds, `native-deletion-chat-group`. Whole backend types: 132 acknowledged diagnostics, zero new (`types-deletion-fence`).
+- The native sandbox 0.5.6 source was inspected without installing: its workspace definition remains static. The remaining warm-definition/base-fork work must preserve native ownership and meet the one-attach budget; no duplicate probe/ensure workaround was introduced.

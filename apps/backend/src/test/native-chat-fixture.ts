@@ -32,6 +32,7 @@ import { withTestLogger } from "./with-test-logger.js"
 export async function withNativeChatFixture<T>(
   fn: (fixture: {
     orgId: string
+    userId: string
     orgSlug: string
     workspaceId: string
     conversationId: string
@@ -190,6 +191,7 @@ export async function withNativeChatFixture<T>(
         withTestLogger(() =>
           fn({
             orgId,
+            userId,
             orgSlug: orgId,
             workspaceId,
             conversationId,
@@ -219,10 +221,10 @@ export async function withNativeChatFixture<T>(
     })
     await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
     await closeDb()
-    server.closeAllConnections()
-    await new Promise<void>((resolve, reject) =>
-      server.close((error) => (error ? reject(error) : resolve())),
-    )
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()))
+      server.closeAllConnections()
+    })
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key]
       else process.env[key] = value
