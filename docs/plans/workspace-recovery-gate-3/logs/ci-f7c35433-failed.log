@@ -1,0 +1,970 @@
+Tests	Backend tests	﻿2026-09-09T00:21:49.2044314Z ##[group]Run pnpm --filter @ctxpipe/backend test
+Tests	Backend tests	2026-09-09T00:21:49.2044955Z [36;1mpnpm --filter @ctxpipe/backend test[0m
+Tests	Backend tests	2026-09-09T00:21:49.2075384Z shell: /usr/bin/bash -e {0}
+Tests	Backend tests	2026-09-09T00:21:49.2075978Z env:
+Tests	Backend tests	2026-09-09T00:21:49.2076409Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+Tests	Backend tests	2026-09-09T00:21:49.2077017Z   GRAPH_DB_URI: redis://127.0.0.1:6379
+Tests	Backend tests	2026-09-09T00:21:49.2077570Z   AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
+Tests	Backend tests	2026-09-09T00:21:49.2078399Z   DATABASE_URL: ***localhost:5432/ctxpipe
+Tests	Backend tests	2026-09-09T00:21:49.2078733Z ##[endgroup]
+Tests	Backend tests	2026-09-09T00:21:49.4707124Z 
+Tests	Backend tests	2026-09-09T00:21:49.4708384Z > @ctxpipe/backend@0.1.0 test /home/runner/work/ctxpipe/ctxpipe/apps/backend
+Tests	Backend tests	2026-09-09T00:21:49.4709396Z > node ../../scripts/ci/test-suite.mjs backend
+Tests	Backend tests	2026-09-09T00:21:49.4709970Z 
+Tests	Backend tests	2026-09-09T00:21:49.5310469Z git version 2.55.0
+Tests	Backend tests	2026-09-09T00:21:49.5334245Z ast-grep 0.45.0
+Tests	Backend tests	2026-09-09T00:21:50.1097731Z Prerequisites ready: Bun 1.4.2, OpenCode 1.18.18, migrated PostgreSQL role ctxpipe_app
+Tests	Backend tests	2026-09-09T00:21:50.2567880Z Native FalkorDB graph prerequisite ready
+Tests	Backend tests	2026-09-09T00:21:50.3132700Z scripts/ci/failures/backend.json: allowance history only shrinks
+Tests	Backend tests	2026-09-09T00:21:50.5471250Z 
+Tests	Backend tests	2026-09-09T00:21:50.5473288Z [1m[46m RUN [49m[22m [36mv4.0.18 [39m[90m/home/runner/work/ctxpipe/ctxpipe/apps/backend[39m
+Tests	Backend tests	2026-09-09T00:21:50.5473905Z 
+Tests	Backend tests	2026-09-09T00:21:52.7110277Z  [32m✓[39m src/routes/v1/github-installation.test.ts [2m([22m[2m27 tests[22m[2m)[22m[32m 67[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:21:54.3626636Z  [32m✓[39m src/routes/v1/workspaces.test.ts [2m([22m[2m26 tests[22m[2m)[22m[32m 63[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:21:55.9711396Z  [32m✓[39m src/domain/workspaces/tanstack-workspace-chat.test.ts [2m([22m[2m23 tests[22m[2m)[22m[32m 105[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:21:58.2773586Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-NyEv5i/remote.git'...
+Tests	Backend tests	2026-09-09T00:21:58.2774250Z done.
+Tests	Backend tests	2026-09-09T00:22:00.1240624Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-XE6jDq/remote.git'...
+Tests	Backend tests	2026-09-09T00:22:00.1241217Z done.
+Tests	Backend tests	2026-09-09T00:22:01.2650746Z To /tmp/ctxpipe-hydration-contract-XE6jDq/remote.git
+Tests	Backend tests	2026-09-09T00:22:01.2651326Z    d5bef82..16867b7  HEAD -> main
+Tests	Backend tests	2026-09-09T00:22:04.2334537Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-nWlPnD/remote.git'...
+Tests	Backend tests	2026-09-09T00:22:04.2335319Z done.
+Tests	Backend tests	2026-09-09T00:22:05.3360570Z To /tmp/ctxpipe-hydration-contract-nWlPnD/remote.git
+Tests	Backend tests	2026-09-09T00:22:05.3361917Z    37bae7a..b4ca8fb  HEAD -> main
+Tests	Backend tests	2026-09-09T00:22:05.4193249Z To /tmp/ctxpipe-hydration-contract-nWlPnD/remote.git
+Tests	Backend tests	2026-09-09T00:22:05.4193829Z    b4ca8fb..091a99c  HEAD -> main
+Tests	Backend tests	2026-09-09T00:22:07.4822092Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-sJ1tSA/remote.git'...
+Tests	Backend tests	2026-09-09T00:22:07.4822687Z done.
+Tests	Backend tests	2026-09-09T00:23:08.3643184Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-Ud4Ymc/remote.git'...
+Tests	Backend tests	2026-09-09T00:23:08.3643897Z done.
+Tests	Backend tests	2026-09-09T00:24:09.4414119Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-Gvb9y3/remote.git'...
+Tests	Backend tests	2026-09-09T00:24:09.4415030Z done.
+Tests	Backend tests	2026-09-09T00:24:10.9113043Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-lwrzSN/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:13.3497982Z done.
+Tests	Backend tests	2026-09-09T00:25:13.3499047Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-7KJqKQ/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:13.3499571Z done.
+Tests	Backend tests	2026-09-09T00:25:13.5600648Z  [32m✓[39m src/domain/workspaces/write-pause-native.contract.test.ts [2m([22m[2m8 tests[22m[2m)[22m[33m 195326[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:25:13.5603785Z    [33m[2m✓[22m[39m completes an already-satisfied edit when write access is revoked after acquisition [33m 1857[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:25:13.5604998Z    [33m[2m✓[22m[39m resumes a paused captured command after a human advances the same repository [33m 4111[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:25:13.5606328Z    [33m[2m✓[22m[39m resumes a paused legacy command after a human advances the same repository [33m 3248[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:25:13.5608204Z    [33m[2m✓[22m[39m bootstrap keeps its native owner while waiting for write access before acquisition [33m 60883[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:25:13.5610015Z    [33m[2m✓[22m[39m ui_file_edit keeps its native owner while waiting for write access before acquisition [33m 61077[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:25:13.5610988Z    [33m[2m✓[22m[39m does not apply a permission probe from before a relink to the new binding [33m 1468[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:25:13.5611910Z    [33m[2m✓[22m[39m retains one prepared commit and native owner through default-branch protection [33m 62437[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:25:16.1245594Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-9DbKjh/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:16.1246201Z done.
+Tests	Backend tests	2026-09-09T00:25:16.3504760Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-JqLTB3/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:16.3505547Z done.
+Tests	Backend tests	2026-09-09T00:25:16.4939739Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-79Fq0B/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:16.4940537Z done.
+Tests	Backend tests	2026-09-09T00:25:17.9155675Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-gibKqQ/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:17.9157200Z done.
+Tests	Backend tests	2026-09-09T00:25:19.1602121Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-wEZ6Z5/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:19.1602724Z done.
+Tests	Backend tests	2026-09-09T00:25:20.5181269Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-2lDmcg/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:20.5181842Z done.
+Tests	Backend tests	2026-09-09T00:25:21.9712071Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-rJI5aF/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:21.9713108Z done.
+Tests	Backend tests	2026-09-09T00:25:24.6505441Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-UfQqVJ/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:24.6506135Z done.
+Tests	Backend tests	2026-09-09T00:25:27.3405344Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-oKUm9Y/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:27.3406129Z done.
+Tests	Backend tests	2026-09-09T00:25:30.0737391Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-GYE8RR/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:30.0737938Z done.
+Tests	Backend tests	2026-09-09T00:25:32.6043646Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-8JTqRV/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:32.6044239Z done.
+Tests	Backend tests	2026-09-09T00:25:35.3076789Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-f86Pkc/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:35.3077316Z done.
+Tests	Backend tests	2026-09-09T00:25:38.0151491Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-Ko8naa/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:38.0152628Z done.
+Tests	Backend tests	2026-09-09T00:25:38.1359592Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-GrOyel/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:38.1360545Z done.
+Tests	Backend tests	2026-09-09T00:25:38.2831547Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-BSU05V/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:38.2832129Z done.
+Tests	Backend tests	2026-09-09T00:25:38.4245325Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-npKkt3/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:38.4246023Z done.
+Tests	Backend tests	2026-09-09T00:25:38.7091012Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-49OWLF/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:38.7091668Z done.
+Tests	Backend tests	2026-09-09T00:25:38.8554722Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-osUAJt/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:38.8555480Z done.
+Tests	Backend tests	2026-09-09T00:25:38.9959134Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-wZEdL9/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:38.9960181Z done.
+Tests	Backend tests	2026-09-09T00:25:39.2523377Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-U9Cbab/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:39.2523953Z done.
+Tests	Backend tests	2026-09-09T00:25:39.3623378Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-hL3Hbq/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:39.3624130Z done.
+Tests	Backend tests	2026-09-09T00:25:39.4797395Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-3Xv7FM/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:39.4798121Z done.
+Tests	Backend tests	2026-09-09T00:25:39.6008459Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-yLRkl3/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:39.6009223Z done.
+Tests	Backend tests	2026-09-09T00:25:39.8514826Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-spWRj6/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:39.8517206Z done.
+Tests	Backend tests	2026-09-09T00:25:39.9682266Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-Sc1heF/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:39.9683306Z done.
+Tests	Backend tests	2026-09-09T00:25:40.1400567Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-iMfHaW/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:40.1401319Z done.
+Tests	Backend tests	2026-09-09T00:25:40.3959983Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-Jlz4Vc/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:40.3960744Z done.
+Tests	Backend tests	2026-09-09T00:25:40.5240192Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-bOTb51/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:40.5241010Z done.
+Tests	Backend tests	2026-09-09T00:25:40.6527034Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-PEBWTz/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:40.6527819Z done.
+Tests	Backend tests	2026-09-09T00:25:40.9379996Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-Rwubwj/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:40.9380778Z done.
+Tests	Backend tests	2026-09-09T00:25:41.0666280Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-YppnxY/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:41.0666924Z done.
+Tests	Backend tests	2026-09-09T00:25:43.7235250Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-GPmhXL/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:43.7235815Z done.
+Tests	Backend tests	2026-09-09T00:25:46.6546723Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-tWZG1R/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:46.6547657Z done.
+Tests	Backend tests	2026-09-09T00:25:49.1324349Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-Rcc2S1/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:49.1325001Z done.
+Tests	Backend tests	2026-09-09T00:25:51.5206357Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-JWssog/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:51.5207527Z done.
+Tests	Backend tests	2026-09-09T00:25:54.1207312Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-MfoVZj/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:54.1208106Z done.
+Tests	Backend tests	2026-09-09T00:25:56.3577323Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-BvupYm/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:56.3578498Z done.
+Tests	Backend tests	2026-09-09T00:25:56.4782528Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-ypdCjz/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:56.4783597Z done.
+Tests	Backend tests	2026-09-09T00:25:56.8045394Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-TmW9Fi/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:56.8046150Z done.
+Tests	Backend tests	2026-09-09T00:25:57.0055609Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-6XIf7N/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:57.0056453Z done.
+Tests	Backend tests	2026-09-09T00:25:57.1282679Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-KO3M1f/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:57.1283564Z done.
+Tests	Backend tests	2026-09-09T00:25:57.2274794Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-7H5E15/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:57.2275312Z done.
+Tests	Backend tests	2026-09-09T00:25:57.6227753Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-zDUU9H/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:57.6228276Z done.
+Tests	Backend tests	2026-09-09T00:25:59.2945665Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-rvAZVd/remote.git'...
+Tests	Backend tests	2026-09-09T00:25:59.2946329Z done.
+Tests	Backend tests	2026-09-09T00:26:00.7777743Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-wSSGYw/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:00.7778403Z done.
+Tests	Backend tests	2026-09-09T00:26:02.1878863Z  [32m✓[39m src/domain/workspaces/connector-finalization-native.contract.test.ts [2m([22m[2m45 tests[22m[2m)[22m[33m 46107[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:02.1881367Z    [33m[2m✓[22m[39m projects 'linear' 'failed' onto the same initial binding as 'draft'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined; staleLegacy=true [33m 1421[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:02.1883715Z    [33m[2m✓[22m[39m projects 'notion' 'failed' onto the same initial binding as 'draft'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined; staleLegacy=true [33m 1244[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:02.1887517Z    [33m[2m✓[22m[39m projects 'confluence' 'failed' onto the same initial binding as 'draft'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined; staleLegacy=true [33m 1356[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:02.1891377Z    [33m[2m✓[22m[39m projects 'confluence' 'failed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=true; legacyProviderChanged=true; staleLegacy=undefined [33m 1454[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:02.1894762Z    [33m[2m✓[22m[39m projects 'linear' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined; staleLegacy=undefined [33m 2572[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:02.1898361Z    [33m[2m✓[22m[39m projects 'linear' 'failed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined; staleLegacy=undefined [33m 2718[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:02.1902993Z    [33m[2m✓[22m[39m projects 'notion' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined; staleLegacy=undefined [33m 2810[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:02.1905370Z    [33m[2m✓[22m[39m projects 'notion' 'failed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined; staleLegacy=undefined [33m 2529[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:02.1907734Z    [33m[2m✓[22m[39m projects 'confluence' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined; staleLegacy=undefined [33m 2694[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:02.1910472Z    [33m[2m✓[22m[39m projects 'confluence' 'failed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined; staleLegacy=undefined [33m 2718[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:02.1913975Z    [33m[2m✓[22m[39m projects 'linear' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined; staleLegacy=undefined [33m 2657[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:02.1917630Z    [33m[2m✓[22m[39m projects 'notion' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined; staleLegacy=undefined [33m 2931[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:02.1920942Z    [33m[2m✓[22m[39m projects 'confluence' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined; staleLegacy=undefined [33m 2476[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:02.1923533Z    [33m[2m✓[22m[39m projects 'linear' 'failed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=true; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined; staleLegacy=undefined [33m 2354[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:02.1925958Z    [33m[2m✓[22m[39m projects 'notion' 'failed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=true; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined; staleLegacy=undefined [33m 2635[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:02.1928195Z    [33m[2m✓[22m[39m projects 'confluence' 'failed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=true; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined; staleLegacy=undefined [33m 2232[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:02.1952120Z    [33m[2m✓[22m[39m projects 'notion' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=true; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined; staleLegacy=undefined [33m 328[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:02.1955021Z    [33m[2m✓[22m[39m projects 'linear' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=true; legacyProviderChanged=undefined; staleLegacy=undefined [33m 1810[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:02.1957613Z    [33m[2m✓[22m[39m projects 'notion' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=true; legacyProviderChanged=undefined; staleLegacy=undefined [33m 1485[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:02.1960457Z    [33m[2m✓[22m[39m projects 'confluence' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=true; legacyProviderChanged=undefined; staleLegacy=undefined [33m 1440[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:04.6243095Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-OvYk09/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:04.6243609Z done.
+Tests	Backend tests	2026-09-09T00:26:04.9501102Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-ESx4zO/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:04.9501738Z done.
+Tests	Backend tests	2026-09-09T00:26:05.2340423Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-TJ0Gac/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:05.2340979Z done.
+Tests	Backend tests	2026-09-09T00:26:05.5751873Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-HocFb8/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:05.5752583Z done.
+Tests	Backend tests	2026-09-09T00:26:06.0239588Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-RAtqwr/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:06.0240637Z done.
+Tests	Backend tests	2026-09-09T00:26:06.3424422Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-iCGwcd/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:06.3425106Z done.
+Tests	Backend tests	2026-09-09T00:26:06.6546361Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-5VSlY3/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:06.6546913Z done.
+Tests	Backend tests	2026-09-09T00:26:06.9642954Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-Ja1UaL/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:06.9643527Z done.
+Tests	Backend tests	2026-09-09T00:26:07.2147043Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-vtZvQx/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:07.2147971Z done.
+Tests	Backend tests	2026-09-09T00:26:07.5563256Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-3fzwhP/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:07.5564393Z done.
+Tests	Backend tests	2026-09-09T00:26:07.8546827Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-aNCoMl/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:07.8547964Z done.
+Tests	Backend tests	2026-09-09T00:26:08.2848137Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-P8cH4P/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:08.2848959Z done.
+Tests	Backend tests	2026-09-09T00:26:08.7360069Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-N2J7Qa/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:08.7360612Z done.
+Tests	Backend tests	2026-09-09T00:26:09.0105026Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-wrLF9l/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:09.0105639Z done.
+Tests	Backend tests	2026-09-09T00:26:09.2134167Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-ZaJzUO/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:09.2134714Z done.
+Tests	Backend tests	2026-09-09T00:26:09.4716698Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-m6CRK9/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:09.4717290Z done.
+Tests	Backend tests	2026-09-09T00:26:09.6853902Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-MqY81V/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:09.6854447Z done.
+Tests	Backend tests	2026-09-09T00:26:09.8388402Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-FswgyA/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:09.8388912Z done.
+Tests	Backend tests	2026-09-09T00:26:10.0294110Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-tqX043/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:10.0294732Z done.
+Tests	Backend tests	2026-09-09T00:26:10.2317675Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-7DmjGn/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:10.2318448Z done.
+Tests	Backend tests	2026-09-09T00:26:10.4153208Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-GhJMA4/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:10.4154110Z done.
+Tests	Backend tests	2026-09-09T00:26:10.5886701Z  [32m✓[39m src/routes/v1/connector-content-admission-native.contract.test.ts [2m([22m[2m21 tests[22m[2m)[22m[33m 6008[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:10.5887944Z    [33m[2m✓[22m[39m admits a durable content owner through the native linear-retry boundary [33m 337[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:10.5888879Z    [33m[2m✓[22m[39m admits a durable content owner through the native linear-config boundary [33m 342[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:10.5890095Z    [33m[2m✓[22m[39m admits a durable content owner through the native linear-enqueue-failure boundary [33m 447[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:10.5891173Z    [33m[2m✓[22m[39m admits a durable content owner through the native linear-config-enqueue-failure boundary [33m 341[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:10.5892201Z    [33m[2m✓[22m[39m admits a durable content owner through the native notion-config-enqueue-failure boundary [33m 344[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:10.5893185Z    [33m[2m✓[22m[39m admits a durable content owner through the native notion-config-save boundary [33m 430[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:10.5894081Z    [33m[2m✓[22m[39m admits a durable content owner through the native linear-config-save boundary [33m 440[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:12.5820830Z  [32m✓[39m src/routes/webhooks/atlassian/atlassian.test.ts [2m([22m[2m22 tests[22m[2m)[22m[32m 25[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:14.5500129Z  [32m✓[39m src/routes/webhooks/github/github.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 29[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:26:16.8935561Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-t5ml30/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:16.8936415Z done.
+Tests	Backend tests	2026-09-09T00:26:18.2010112Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-YL8ZUz/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:18.2010684Z done.
+Tests	Backend tests	2026-09-09T00:26:19.6791301Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-uiCzKc/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:19.6791930Z done.
+Tests	Backend tests	2026-09-09T00:26:26.4478838Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-nqlK7n/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:26.4479871Z done.
+Tests	Backend tests	2026-09-09T00:26:27.6782561Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-p6nMyp/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:27.6783249Z done.
+Tests	Backend tests	2026-09-09T00:26:27.9073096Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-c2taKQ/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:27.9073807Z done.
+Tests	Backend tests	2026-09-09T00:26:28.0601785Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-NSGB2s/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:28.0602370Z done.
+Tests	Backend tests	2026-09-09T00:26:33.4901248Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-uUOawz/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:33.4902071Z done.
+Tests	Backend tests	2026-09-09T00:26:34.7941918Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-1I3eic/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:34.7942732Z done.
+Tests	Backend tests	2026-09-09T00:26:44.6211135Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-lMVfi4/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:44.6211805Z done.
+Tests	Backend tests	2026-09-09T00:26:54.3060174Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-MXCK5o/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:54.3060927Z done.
+Tests	Backend tests	2026-09-09T00:26:55.9040844Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-hqh1XA/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:55.9041658Z done.
+Tests	Backend tests	2026-09-09T00:26:57.4103519Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-FNRw3J/remote.git'...
+Tests	Backend tests	2026-09-09T00:26:57.4104287Z done.
+Tests	Backend tests	2026-09-09T00:27:04.0592432Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-aNDh1H/remote.git'...
+Tests	Backend tests	2026-09-09T00:27:04.0592957Z done.
+Tests	Backend tests	2026-09-09T00:27:05.3300418Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-arRIfz/remote.git'...
+Tests	Backend tests	2026-09-09T00:27:05.3301074Z done.
+Tests	Backend tests	2026-09-09T00:27:05.5184478Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-LrKcL5/remote.git'...
+Tests	Backend tests	2026-09-09T00:27:05.5185164Z done.
+Tests	Backend tests	2026-09-09T00:27:05.7365999Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-nss4xW/remote.git'...
+Tests	Backend tests	2026-09-09T00:27:05.7366649Z done.
+Tests	Backend tests	2026-09-09T00:27:11.0308556Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-jJQ73Y/remote.git'...
+Tests	Backend tests	2026-09-09T00:27:11.0309258Z done.
+Tests	Backend tests	2026-09-09T00:27:12.6298176Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-2F7yNk/remote.git'...
+Tests	Backend tests	2026-09-09T00:27:12.6298735Z done.
+Tests	Backend tests	2026-09-09T00:27:22.0729376Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-KQrIvY/remote.git'...
+Tests	Backend tests	2026-09-09T00:27:22.0730461Z done.
+Tests	Backend tests	2026-09-09T00:27:32.3478434Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-BVqPaf/remote.git'...
+Tests	Backend tests	2026-09-09T00:27:32.3479530Z done.
+Tests	Backend tests	2026-09-09T00:27:34.0679055Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-QY2Fmi/remote.git'...
+Tests	Backend tests	2026-09-09T00:27:34.0680199Z done.
+Tests	Backend tests	2026-09-09T00:27:35.4270893Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-4s5Oot/remote.git'...
+Tests	Backend tests	2026-09-09T00:27:35.4271584Z done.
+Tests	Backend tests	2026-09-09T00:27:42.0937131Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-Dlyvz2/remote.git'...
+Tests	Backend tests	2026-09-09T00:27:42.0937649Z done.
+Tests	Backend tests	2026-09-09T00:27:43.6741577Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-0TYCuo/remote.git'...
+Tests	Backend tests	2026-09-09T00:27:43.6742414Z done.
+Tests	Backend tests	2026-09-09T00:27:43.8778526Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-uEub5x/remote.git'...
+Tests	Backend tests	2026-09-09T00:27:43.8779523Z done.
+Tests	Backend tests	2026-09-09T00:27:44.0385652Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-sTj7Ox/remote.git'...
+Tests	Backend tests	2026-09-09T00:27:44.0386196Z done.
+Tests	Backend tests	2026-09-09T00:27:49.5373887Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-VoNO3i/remote.git'...
+Tests	Backend tests	2026-09-09T00:27:49.5375156Z done.
+Tests	Backend tests	2026-09-09T00:27:50.8455334Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-Ew1kFf/remote.git'...
+Tests	Backend tests	2026-09-09T00:27:50.8455954Z done.
+Tests	Backend tests	2026-09-09T00:28:00.1387103Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-LqBfYi/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:00.1387920Z done.
+Tests	Backend tests	2026-09-09T00:28:09.7619550Z  [32m✓[39m src/openworkflow/workflows/connector-config-native.contract.test.ts [2m([22m[2m30 tests[22m[2m)[22m[33m 112941[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7622340Z    [33m[2m✓[22m[39m native 'linear' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined; captureRestart=undefined) [33m 1327[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7624505Z    [33m[2m✓[22m[39m native 'linear' config admission (failure=false; stale=false; close=false; ownerFirst=true; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined; captureRestart=undefined) [33m 1497[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7626177Z    [33m[2m✓[22m[39m native 'linear' config admission (failure=false; stale=false; close=false; ownerFirst=true; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined; captureRestart=true) [33m 6770[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7627804Z    [33m[2m✓[22m[39m native 'linear' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=true; cancel=undefined; captureRestart=undefined) [33m 1230[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7629383Z    [33m[2m✓[22m[39m native 'linear' config admission (failure=true; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined; captureRestart=undefined) [33m 5431[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7631260Z    [33m[2m✓[22m[39m native 'linear' config admission (failure=false; stale=true; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined; captureRestart=undefined) [33m 1231[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7632860Z    [33m[2m✓[22m[39m native 'linear' config admission (failure=false; stale=false; close=true; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined; captureRestart=undefined) [33m 9901[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7634422Z    [33m[2m✓[22m[39m native 'linear' config admission (failure=false; stale=false; close=true; ownerFirst=false; upgrade=undefined; generationSwap=true; replay=undefined; cancel=undefined; captureRestart=undefined) [33m 9687[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7636000Z    [33m[2m✓[22m[39m native 'notion' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined; captureRestart=undefined) [33m 1600[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7637649Z    [33m[2m✓[22m[39m native 'notion' config admission (failure=false; stale=false; close=false; ownerFirst=true; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined; captureRestart=undefined) [33m 1427[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7639200Z    [33m[2m✓[22m[39m native 'notion' config admission (failure=false; stale=false; close=false; ownerFirst=true; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined; captureRestart=true) [33m 6605[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7641190Z    [33m[2m✓[22m[39m native 'notion' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=true; cancel=undefined; captureRestart=undefined) [33m 1379[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7642838Z    [33m[2m✓[22m[39m native 'notion' config admission (failure=true; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined; captureRestart=undefined) [33m 5355[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7644459Z    [33m[2m✓[22m[39m native 'notion' config admission (failure=false; stale=true; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined; captureRestart=undefined) [33m 1598[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7646046Z    [33m[2m✓[22m[39m native 'notion' config admission (failure=false; stale=false; close=true; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined; captureRestart=undefined) [33m 9444[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7647610Z    [33m[2m✓[22m[39m native 'notion' config admission (failure=false; stale=false; close=true; ownerFirst=false; upgrade=undefined; generationSwap=true; replay=undefined; cancel=undefined; captureRestart=undefined) [33m 10191[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7649357Z    [33m[2m✓[22m[39m native 'confluence' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined; captureRestart=undefined) [33m 1721[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7651245Z    [33m[2m✓[22m[39m native 'confluence' config admission (failure=false; stale=false; close=false; ownerFirst=true; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined; captureRestart=undefined) [33m 1398[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7652935Z    [33m[2m✓[22m[39m native 'confluence' config admission (failure=false; stale=false; close=false; ownerFirst=true; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined; captureRestart=true) [33m 6712[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7654682Z    [33m[2m✓[22m[39m native 'confluence' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=true; cancel=undefined; captureRestart=undefined) [33m 1548[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7656391Z    [33m[2m✓[22m[39m native 'confluence' config admission (failure=true; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined; captureRestart=undefined) [33m 5542[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7658791Z    [33m[2m✓[22m[39m native 'confluence' config admission (failure=false; stale=true; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined; captureRestart=undefined) [33m 1308[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7661399Z    [33m[2m✓[22m[39m native 'confluence' config admission (failure=false; stale=false; close=true; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined; captureRestart=undefined) [33m 9292[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:09.7663651Z    [33m[2m✓[22m[39m native 'confluence' config admission (failure=false; stale=false; close=true; ownerFirst=false; upgrade=undefined; generationSwap=true; replay=undefined; cancel=undefined; captureRestart=undefined) [33m 9653[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:14.2192027Z [90mstdout[2m | src/domain/workspaces/tanstack-workspace-chat.live.test.ts[2m > [22m[2mworkspace chat OpenCode fallback (live)[2m > [22m[2mconversation POST streams through the same local_process fallback
+Tests	Backend tests	2026-09-09T00:28:14.2194424Z [90mstderr[2m | src/domain/workspaces/tanstack-workspace-chat.live.test.ts[2m > [22m[2mworkspace chat OpenCode fallback (live)[2m > [22m[2mconversation POST streams through the same local_process fallback
+Tests	Backend tests	2026-09-09T00:28:14.2195396Z [22m[39m❌ [tanstack-ai:errors] ❌ chat run failed
+Tests	Backend tests	2026-09-09T00:28:14.2195596Z 
+Tests	Backend tests	2026-09-09T00:28:14.2196423Z [90mstderr[2m | src/domain/workspaces/tanstack-workspace-chat.live.test.ts[2m > [22m[2mworkspace chat OpenCode fallback (live)[2m > [22m[2mconversation POST streams through the same local_process fallback
+Tests	Backend tests	2026-09-09T00:28:14.2197343Z [22m[39m❌ [tanstack-ai:errors] ❌ middleware onError hook failed
+Tests	Backend tests	2026-09-09T00:28:14.2197637Z 
+Tests	Backend tests	2026-09-09T00:28:14.2197763Z [22m[39m{
+Tests	Backend tests	2026-09-09T00:28:14.2198428Z   error: Error: [vitest] No "orgIdStorage" export is defined on the "../../auth/withAuth.js" mock. Did you forget to return it from "vi.mock"?
+Tests	Backend tests	2026-09-09T00:28:14.2199136Z   If you need to partially mock a module, you can use "importOriginal" helper inside:
+Tests	Backend tests	2026-09-09T00:28:14.2199548Z   
+Tests	Backend tests	2026-09-09T00:28:14.2201364Z       at VitestMocker.createError (file:///home/runner/work/ctxpipe/ctxpipe/node_modules/[4m.pnpm[24m/vitest@4.0.18_@opentelemetry+api@1.9.0_@types+node@25.3.0_jiti@2.6.1_jsdom@27.4.0_@nobl_3b8f616f1c840ca5079e010765321adc/node_modules/[4mvitest[24m/dist/chunks/startModuleRunner.DEj0jb3e.js:311:17)
+Tests	Backend tests	2026-09-09T00:28:14.2203402Z       at Object.get (file:///home/runner/work/ctxpipe/ctxpipe/node_modules/[4m.pnpm[24m/vitest@4.0.18_@opentelemetry+api@1.9.0_@types+node@25.3.0_jiti@2.6.1_jsdom@27.4.0_@nobl_3b8f616f1c840ca5079e010765321adc/node_modules/[4mvitest[24m/dist/chunks/startModuleRunner.DEj0jb3e.js:384:16)
+Tests	Backend tests	2026-09-09T00:28:14.2204975Z       at withAmbientOrgDb [90m(/home/runner/work/ctxpipe/ctxpipe/apps/backend/[39msrc/db/org-sql.ts:10:17[90m)[39m
+Tests	Backend tests	2026-09-09T00:28:14.2205961Z       at orgSql [90m(/home/runner/work/ctxpipe/ctxpipe/apps/backend/[39msrc/domain/workspaces/workspace-chat-persistence.ts:26:10[90m)[39m
+Tests	Backend tests	2026-09-09T00:28:14.2207126Z       at Object.listPending [90m(/home/runner/work/ctxpipe/ctxpipe/apps/backend/[39msrc/domain/workspaces/workspace-chat-persistence.ts:265:7[90m)[39m
+Tests	Backend tests	2026-09-09T00:28:14.2208883Z       at Object.onConfig (file:///home/runner/work/ctxpipe/ctxpipe/node_modules/[4m.pnpm[24m/@tanstack+ai-persistence@0.5.1_@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6___e5542883a52dc449e91f58df604d929c/node_modules/[4m@tanstack/ai-persistence[24m/dist/esm/middleware.js:1017:63)
+Tests	Backend tests	2026-09-09T00:28:14.2211147Z       at MiddlewareRunner.runOnConfig (file:///home/runner/work/ctxpipe/ctxpipe/node_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack/ai[24m/dist/esm/activities/chat/middleware/compose.js:95:28)
+Tests	Backend tests	2026-09-09T00:28:14.2212807Z       at TextEngine.run (file:///home/runner/work/ctxpipe/ctxpipe/node_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack/ai[24m/dist/esm/activities/chat/index.js:310:30)
+Tests	Backend tests	2026-09-09T00:28:14.2214376Z       at streamTextChunks (file:///home/runner/work/ctxpipe/ctxpipe/node_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack/ai[24m/dist/esm/activities/chat/index.js:2299:20)
+Tests	Backend tests	2026-09-09T00:28:14.2215668Z       at takeWorkspaceChatProducer [90m(/home/runner/work/ctxpipe/ctxpipe/apps/backend/[39msrc/domain/workspaces/workspace-chat-agui.ts:195:21[90m)[39m {
+Tests	Backend tests	2026-09-09T00:28:14.2216546Z     codeFrame: [32m'vi.mock(import("../../auth/withAuth.js"), async (importOriginal) => {\n'[39m +
+Tests	Backend tests	2026-09-09T00:28:14.2217153Z       [32m'  const actual = await importOriginal()\n'[39m +
+Tests	Backend tests	2026-09-09T00:28:14.2217604Z       [32m'  return {\n'[39m +
+Tests	Backend tests	2026-09-09T00:28:14.2218015Z       [32m'    ...actual,\n'[39m +
+Tests	Backend tests	2026-09-09T00:28:14.2218462Z       [32m'    // your mocked methods\n'[39m +
+Tests	Backend tests	2026-09-09T00:28:14.2218830Z       [32m'  }\n'[39m +
+Tests	Backend tests	2026-09-09T00:28:14.2219183Z       [32m'})'[39m
+Tests	Backend tests	2026-09-09T00:28:14.2219448Z   },
+Tests	Backend tests	2026-09-09T00:28:14.2220064Z   threadId: [32m'conv_live_post'[39m
+Tests	Backend tests	2026-09-09T00:28:14.2220364Z }
+Tests	Backend tests	2026-09-09T00:28:14.2220510Z 
+Tests	Backend tests	2026-09-09T00:28:14.2221376Z [90mstdout[2m | src/domain/workspaces/tanstack-workspace-chat.live.test.ts[2m > [22m[2mworkspace chat OpenCode fallback (live)[2m > [22m[2mconversation POST streams through the same local_process fallback
+Tests	Backend tests	2026-09-09T00:28:14.2222096Z [22m[39m{
+Tests	Backend tests	2026-09-09T00:28:14.2222494Z   middleware: [32m'chat-persistence'[39m,
+Tests	Backend tests	2026-09-09T00:28:14.2222881Z   hook: [32m'onError'[39m,
+Tests	Backend tests	2026-09-09T00:28:14.2223549Z   error: Error: [vitest] No "orgIdStorage" export is defined on the "../../auth/withAuth.js" mock. Did you forget to return it from "vi.mock"?
+Tests	Backend tests	2026-09-09T00:28:14.2224256Z   If you need to partially mock a module, you can use "importOriginal" helper inside:
+Tests	Backend tests	2026-09-09T00:28:14.2224694Z   
+Tests	Backend tests	2026-09-09T00:28:14.2226793Z       at VitestMocker.createError (file:///home/runner/work/ctxpipe/ctxpipe/node_modules/[4m.pnpm[24m/vitest@4.0.18_@opentelemetry+api@1.9.0_@types+node@25.3.0_jiti@2.6.1_jsdom@27.4.0_@nobl_3b8f616f1c840ca5079e010765321adc/node_modules/[4mvitest[24m/dist/chunks/startModuleRunner.DEj0jb3e.js:311:17)
+Tests	Backend tests	2026-09-09T00:28:14.2230200Z       at Object.get (file:///home/runner/work/ctxpipe/ctxpipe/node_modules/[4m.pnpm[24m/vitest@4.0.18_@opentelemetry+api@1.9.0_@types+node@25.3.0_jiti@2.6.1_jsdom@27.4.0_@nobl_3b8f616f1c840ca5079e010765321adc/node_modules/[4mvitest[24m/dist/chunks/startModuleRunner.DEj0jb3e.js:384:16)
+Tests	Backend tests	2026-09-09T00:28:14.2232584Z       at withAmbientOrgDb [90m(/home/runner/work/ctxpipe/ctxpipe/apps/backend/[39msrc/db/org-sql.ts:10:17[90m)[39m
+Tests	Backend tests	2026-09-09T00:28:14.2234476Z       at orgSql [90m(/home/runner/work/ctxpipe/ctxpipe/apps/backend/[39msrc/domain/workspaces/workspace-chat-persistence.ts:26:10[90m)[39m
+Tests	Backend tests	2026-09-09T00:28:14.2236394Z       at Object.update [90m(/home/runner/work/ctxpipe/ctxpipe/apps/backend/[39msrc/domain/workspaces/workspace-chat-persistence.ts:157:13[90m)[39m
+Tests	Backend tests	2026-09-09T00:28:14.2239283Z       at failRun (file:///home/runner/work/ctxpipe/ctxpipe/node_modules/[4m.pnpm[24m/@tanstack+ai-persistence@0.5.1_@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6___e5542883a52dc449e91f58df604d929c/node_modules/[4m@tanstack/ai-persistence[24m/dist/esm/middleware.js:919:14)
+Tests	Backend tests	2026-09-09T00:28:14.2242877Z       at Object.onError (file:///home/runner/work/ctxpipe/ctxpipe/node_modules/[4m.pnpm[24m/@tanstack+ai-persistence@0.5.1_@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6___e5542883a52dc449e91f58df604d929c/node_modules/[4m@tanstack/ai-persistence[24m/dist/esm/middleware.js:1121:11)
+Tests	Backend tests	2026-09-09T00:28:14.2245891Z       at file:///home/runner/work/ctxpipe/ctxpipe/node_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack/ai[24m/dist/esm/activities/chat/middleware/compose.js:584:66
+Tests	Backend tests	2026-09-09T00:28:14.2248769Z       at MiddlewareRunner.captureTerminalHook (file:///home/runner/work/ctxpipe/ctxpipe/node_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack/ai[24m/dist/esm/activities/chat/middleware/compose.js:425:10)
+Tests	Backend tests	2026-09-09T00:28:14.2252015Z       at MiddlewareRunner.runOnError (file:///home/runner/work/ctxpipe/ctxpipe/node_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack/ai[24m/dist/esm/activities/chat/middleware/compose.js:584:20) {
+Tests	Backend tests	2026-09-09T00:28:14.2253906Z     codeFrame: [32m'vi.mock(import("../../auth/withAuth.js"), async (importOriginal) => {\n'[39m +
+Tests	Backend tests	2026-09-09T00:28:14.2254964Z       [32m'  const actual = await importOriginal()\n'[39m +
+Tests	Backend tests	2026-09-09T00:28:14.2255664Z       [32m'  return {\n'[39m +
+Tests	Backend tests	2026-09-09T00:28:14.2256258Z       [32m'    ...actual,\n'[39m +
+Tests	Backend tests	2026-09-09T00:28:14.2256937Z       [32m'    // your mocked methods\n'[39m +
+Tests	Backend tests	2026-09-09T00:28:14.2257500Z       [32m'  }\n'[39m +
+Tests	Backend tests	2026-09-09T00:28:14.2258036Z       [32m'})'[39m
+Tests	Backend tests	2026-09-09T00:28:14.2258394Z   }
+Tests	Backend tests	2026-09-09T00:28:14.2258768Z }
+Tests	Backend tests	2026-09-09T00:28:14.2258969Z 
+Tests	Backend tests	2026-09-09T00:28:14.2262688Z  [31m❯[39m src/domain/workspaces/tanstack-workspace-chat.live.test.ts [2m([22m[2m3 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[33m 2765[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:14.2263807Z      [32m✓[39m scrubs host provider keys from the local-process env[32m 46[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:14.2264649Z      [33m[2m✓[22m[39m streams a stub completion through the ctxpipe proxy on local_process [33m 2439[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:14.2265532Z [31m     [31m×[31m conversation POST streams through the same local_process fallback[39m[32m 279[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:14.9714770Z  [32m✓[39m src/auth/withAuth.test.ts [2m([22m[2m18 tests[22m[2m)[22m[32m 43[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:16.7765461Z  [32m✓[39m src/graphs/codeIngestionGraph/nodes/extractInstructionUnits.test.ts [2m([22m[2m22 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:17.8946612Z  [32m✓[39m src/retrieval/services/modelProvider.test.ts [2m([22m[2m19 tests[22m[2m)[22m[33m 1003[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:17.8947878Z      [33m[2m✓[22m[39m getModel uses OpenRouter extras only when MODEL_PROVIDER=openrouter [33m 660[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:18.2490845Z  [32m✓[39m src/domain/workspaces/sandbox-registry.test.ts [2m([22m[2m16 tests[22m[2m)[22m[32m 117[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:18.6726530Z  [32m✓[39m src/routes/v1/conversations.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 58[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:18.9232341Z  [32m✓[39m src/domain/workspaces/migration-export.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 24[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:19.4186328Z  [32m✓[39m src/routes/v1/openai.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 192[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:21.7741900Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-nXa7rl/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:22.1698084Z done.
+Tests	Backend tests	2026-09-09T00:28:22.1698741Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-DAn8GT/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:22.1699196Z done.
+Tests	Backend tests	2026-09-09T00:28:22.7906894Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-eSHnof/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:22.7907494Z done.
+Tests	Backend tests	2026-09-09T00:28:23.1621081Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-39CurO/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:23.1622182Z done.
+Tests	Backend tests	2026-09-09T00:28:26.1923214Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-j8cXYw/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:26.1923946Z done.
+Tests	Backend tests	2026-09-09T00:28:26.3410189Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-9hnawh/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:26.3411116Z done.
+Tests	Backend tests	2026-09-09T00:28:26.5096624Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-KMfCGV/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:26.5097408Z done.
+Tests	Backend tests	2026-09-09T00:28:26.6735829Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-TH3gRB/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:26.6736535Z done.
+Tests	Backend tests	2026-09-09T00:28:26.8574250Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-kXIXJi/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:26.8574891Z done.
+Tests	Backend tests	2026-09-09T00:28:27.1081062Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-ssv9Vx/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:27.1081861Z done.
+Tests	Backend tests	2026-09-09T00:28:27.3284149Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-6Gssgo/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:27.3284738Z done.
+Tests	Backend tests	2026-09-09T00:28:27.4733517Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-ErBZ1F/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:27.4734390Z done.
+Tests	Backend tests	2026-09-09T00:28:27.8917845Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-eSdGP0/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:27.8918754Z done.
+Tests	Backend tests	2026-09-09T00:28:28.2821459Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-hYRyb8/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:28.2822076Z done.
+Tests	Backend tests	2026-09-09T00:28:29.1646540Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-sZ5afj/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:29.1647342Z done.
+Tests	Backend tests	2026-09-09T00:28:29.5478424Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-Sv4KcR/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:29.5479211Z done.
+Tests	Backend tests	2026-09-09T00:28:29.7841381Z  [32m✓[39m src/routes/v1/conversation-publish-native.contract.test.ts [2m([22m[2m16 tests[22m[2m)[22m[33m 8050[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:29.7842507Z    [33m[2m✓[22m[39m publishes from the authenticated conversation HTTP boundary: push [33m 407[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:29.7843494Z    [33m[2m✓[22m[39m publishes from the authenticated conversation HTTP boundary: warm_files [33m 621[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:29.7844449Z    [33m[2m✓[22m[39m publishes from the authenticated conversation HTTP boundary: pull-request [33m 373[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:29.7845359Z    [33m[2m✓[22m[39m publishes from the authenticated conversation HTTP boundary: pr_collision [33m 3002[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:29.7846300Z    [33m[2m✓[22m[39m publishes from the authenticated conversation HTTP boundary: relink_after_push [33m 418[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:29.7847215Z    [33m[2m✓[22m[39m publishes from the authenticated conversation HTTP boundary: relink_after_push_push [33m 388[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:29.7848167Z    [33m[2m✓[22m[39m publishes from the authenticated conversation HTTP boundary: relink_during_pr [33m 884[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:29.7849035Z    [33m[2m✓[22m[39m publishes from the authenticated conversation HTTP boundary: relink_before_pr [33m 384[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:31.9604918Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-yROd4j/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:31.9606044Z done.
+Tests	Backend tests	2026-09-09T00:28:34.4006256Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-PUyc2N/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:34.4007079Z done.
+Tests	Backend tests	2026-09-09T00:28:39.2373738Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-kasChy/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:39.2374496Z done.
+Tests	Backend tests	2026-09-09T00:28:40.5540697Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-6AGDv7/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:40.5541523Z done.
+Tests	Backend tests	2026-09-09T00:28:41.9970902Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-t7vRsF/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:41.9971581Z done.
+Tests	Backend tests	2026-09-09T00:28:43.4382223Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-DiZRap/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:43.4383087Z done.
+Tests	Backend tests	2026-09-09T00:28:44.5595756Z To /tmp/ctxpipe-hydration-contract-DiZRap/remote.git
+Tests	Backend tests	2026-09-09T00:28:44.5596524Z    40103d3..579515a  HEAD -> main
+Tests	Backend tests	2026-09-09T00:28:47.0397222Z  [32m✓[39m src/domain/workspaces/hydrate-planner-native.contract.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 15149[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:47.0398445Z    [33m[2m✓[22m[39m hydration durably admits each remaining maintenance concern once [33m 2474[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:47.0399506Z    [33m[2m✓[22m[39m queued maintenance jobs retain their work when an earlier job advances default [33m 4826[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:47.0400695Z    [33m[2m✓[22m[39m hydrate stops 'capped' concerns without blocking another kind [33m 1328[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:47.0401702Z    [33m[2m✓[22m[39m hydrate stops 'non-shrinking' concerns without blocking another kind [33m 1444[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:47.0402666Z    [33m[2m✓[22m[39m a failed admission probe leaves planned jobs paused and resumable [33m 1442[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:47.0403614Z    [33m[2m✓[22m[39m hydration plans one rename repair bound to both immutable trees [33m 3633[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:48.6180788Z  [32m✓[39m src/routes/v1/connectors-linear.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 29[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:28:50.8592655Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-ZFmQhy/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:50.8593605Z done.
+Tests	Backend tests	2026-09-09T00:28:52.5804288Z [90mstderr[2m | src/domain/workspaces/confluence-mirror-native.contract.test.ts[2m > [22m[2mcaptures Confluence full with scoped deletion and transient credentials
+Tests	Backend tests	2026-09-09T00:28:52.5805984Z [22m[39m[MSW] Error: intercepted a request without a matching request handler:
+Tests	Backend tests	2026-09-09T00:28:52.5806447Z 
+Tests	Backend tests	2026-09-09T00:28:52.5807061Z   • POST http://codesearch:3001/repo_agqihekfqr2exggcfagfushfme/index/clone-checkout
+Tests	Backend tests	2026-09-09T00:28:52.5807558Z 
+Tests	Backend tests	2026-09-09T00:28:52.5808288Z   • Request body: {"githubToken":"fixture-only-github-read-token","targetHash":"e1a9dd11bf6e6e7a90340d34ee7483a4f6377b67"}
+Tests	Backend tests	2026-09-09T00:28:52.5809006Z 
+Tests	Backend tests	2026-09-09T00:28:52.5809585Z If you still wish to intercept this unhandled request, please create a request handler for it.
+Tests	Backend tests	2026-09-09T00:28:52.5810866Z Read more: https://mswjs.io/docs/http/intercepting-requests
+Tests	Backend tests	2026-09-09T00:28:52.5811134Z 
+Tests	Backend tests	2026-09-09T00:28:53.2162228Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-S36lmL/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:53.2162834Z done.
+Tests	Backend tests	2026-09-09T00:28:54.7413740Z [90mstderr[2m | src/domain/workspaces/confluence-mirror-native.contract.test.ts[2m > [22m[2mcaptures Confluence space with scoped deletion and transient credentials
+Tests	Backend tests	2026-09-09T00:28:54.7415357Z [22m[39m[MSW] Error: intercepted a request without a matching request handler:
+Tests	Backend tests	2026-09-09T00:28:54.7415765Z 
+Tests	Backend tests	2026-09-09T00:28:54.7416386Z   • POST http://codesearch:3001/repo_agqihekovz2hpa25rfwphc64mm/index/clone-checkout
+Tests	Backend tests	2026-09-09T00:28:54.7416917Z 
+Tests	Backend tests	2026-09-09T00:28:54.7417723Z   • Request body: {"githubToken":"fixture-only-github-read-token","targetHash":"2a36a2a0459a6aeb9369386947e1183357ffcf28"}
+Tests	Backend tests	2026-09-09T00:28:54.7418347Z 
+Tests	Backend tests	2026-09-09T00:28:54.7418987Z If you still wish to intercept this unhandled request, please create a request handler for it.
+Tests	Backend tests	2026-09-09T00:28:54.7419889Z Read more: https://mswjs.io/docs/http/intercepting-requests
+Tests	Backend tests	2026-09-09T00:28:54.7420480Z 
+Tests	Backend tests	2026-09-09T00:28:55.9944267Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-RfituV/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:55.9944795Z done.
+Tests	Backend tests	2026-09-09T00:28:57.4188988Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-vqxpun/remote.git'...
+Tests	Backend tests	2026-09-09T00:28:57.4190271Z done.
+Tests	Backend tests	2026-09-09T00:29:01.1583491Z [90mstderr[2m | src/domain/workspaces/confluence-mirror-native.contract.test.ts[2m > [22m[2mcaptures Confluence rebind with scoped deletion and transient credentials
+Tests	Backend tests	2026-09-09T00:29:01.1586759Z [22m[39m[MSW] Error: intercepted a request without a matching request handler:
+Tests	Backend tests	2026-09-09T00:29:01.1587210Z 
+Tests	Backend tests	2026-09-09T00:29:01.1587867Z   • POST http://codesearch:3001/repo_agqihek7ff2u7obkg74eafqcfa/index/clone-checkout
+Tests	Backend tests	2026-09-09T00:29:01.1588336Z 
+Tests	Backend tests	2026-09-09T00:29:01.1589168Z   • Request body: {"githubToken":"fixture-only-github-read-token","targetHash":"d69618ab6e8b1c35cc9f4725fd85976fc113e1b9"}
+Tests	Backend tests	2026-09-09T00:29:01.1590092Z 
+Tests	Backend tests	2026-09-09T00:29:01.1590601Z If you still wish to intercept this unhandled request, please create a request handler for it.
+Tests	Backend tests	2026-09-09T00:29:01.1591433Z Read more: https://mswjs.io/docs/http/intercepting-requests
+Tests	Backend tests	2026-09-09T00:29:01.1595206Z 
+Tests	Backend tests	2026-09-09T00:29:01.5064867Z  [32m✓[39m src/domain/workspaces/confluence-mirror-native.contract.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 10690[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:29:01.5136051Z    [33m[2m✓[22m[39m captures Confluence full with scoped deletion and transient credentials [33m 2368[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:29:01.5141325Z    [33m[2m✓[22m[39m captures Confluence space with scoped deletion and transient credentials [33m 2777[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:29:01.5173779Z    [33m[2m✓[22m[39m captures Confluence failed with scoped deletion and transient credentials [33m 1424[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:29:01.5181622Z    [33m[2m✓[22m[39m captures Confluence rebind with scoped deletion and transient credentials [33m 4119[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:29:01.7877792Z  [32m✓[39m src/routes/v1/connectors-slack.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 41[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:29:03.7936015Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-rfP4XV/remote.git'...
+Tests	Backend tests	2026-09-09T00:29:03.7936747Z done.
+Tests	Backend tests	2026-09-09T00:29:04.0369361Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-Bkt5fv/remote.git'...
+Tests	Backend tests	2026-09-09T00:29:04.0370389Z done.
+Tests	Backend tests	2026-09-09T00:29:04.2395564Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-8GyAkZ/remote.git'...
+Tests	Backend tests	2026-09-09T00:29:18.4336250Z done.
+Tests	Backend tests	2026-09-09T00:29:18.4336933Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-JbpMfZ/remote.git'...
+Tests	Backend tests	2026-09-09T00:29:18.4337489Z done.
+Tests	Backend tests	2026-09-09T00:29:18.6385994Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-PPIEXF/remote.git'...
+Tests	Backend tests	2026-09-09T00:29:18.6386608Z done.
+Tests	Backend tests	2026-09-09T00:29:18.9430749Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-Lu01Wd/remote.git'...
+Tests	Backend tests	2026-09-09T00:29:18.9431575Z done.
+Tests	Backend tests	2026-09-09T00:29:24.9044388Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-1hvCoy/remote.git'...
+Tests	Backend tests	2026-09-09T00:29:24.9044923Z done.
+Tests	Backend tests	2026-09-09T00:29:28.8823017Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-626cNC/remote.git'...
+Tests	Backend tests	2026-09-09T00:29:28.8823717Z done.
+Tests	Backend tests	2026-09-09T00:29:43.0828489Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-lSJ3wo/remote.git'...
+Tests	Backend tests	2026-09-09T00:29:43.0829382Z done.
+Tests	Backend tests	2026-09-09T00:29:43.2014151Z  [32m✓[39m src/services/github/repository-client-native.contract.test.ts [2m([22m[2m9 tests[22m[2m)[22m[33m 39452[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:29:43.2015811Z    [33m[2m✓[22m[39m returns an empty tree without initializing the default branch during a read [33m 14204[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:29:43.2017404Z    [33m[2m✓[22m[39m refuses MCP config writes if its new branch becomes the default [33m 319[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:29:43.2019081Z    [33m[2m✓[22m[39m keeps config PR changes on a review branch: feature [33m 5944[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:29:43.2020778Z    [33m[2m✓[22m[39m keeps config PR changes on a review branch: advanced [33m 3993[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:29:43.2021884Z    [33m[2m✓[22m[39m keeps config PR changes on a review branch: empty [33m 14201[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:29:44.7814899Z  [32m✓[39m src/routes/v1/repositories.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 31[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:29:44.9535474Z  [32m✓[39m src/graphs/codeIngestionGraph/nodes/identifyRootsDeterministic.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:29:45.2749381Z  [32m✓[39m src/routes/webhooks/slack/slack.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 96[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:29:47.2882549Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-s8FY4P/remote.git'...
+Tests	Backend tests	2026-09-09T00:29:47.2883462Z done.
+Tests	Backend tests	2026-09-09T00:29:48.5526594Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-gSFlhf/remote.git'...
+Tests	Backend tests	2026-09-09T00:29:48.5527489Z done.
+Tests	Backend tests	2026-09-09T00:29:49.9605789Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-z5uKi5/remote.git'...
+Tests	Backend tests	2026-09-09T00:29:49.9606642Z done.
+Tests	Backend tests	2026-09-09T00:29:51.2004611Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-whDKSF/remote.git'...
+Tests	Backend tests	2026-09-09T00:29:51.2005488Z done.
+Tests	Backend tests	2026-09-09T00:29:52.6386098Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-XxHldw/remote.git'...
+Tests	Backend tests	2026-09-09T00:29:52.6386698Z done.
+Tests	Backend tests	2026-09-09T00:29:53.8045153Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-nm0Y8B/remote.git'...
+Tests	Backend tests	2026-09-09T00:29:53.8045658Z done.
+Tests	Backend tests	2026-09-09T00:29:55.4016590Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-PZTqkW/remote.git'...
+Tests	Backend tests	2026-09-09T00:29:55.4017106Z done.
+Tests	Backend tests	2026-09-09T00:29:56.9006076Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-sADVTv/remote.git'...
+Tests	Backend tests	2026-09-09T00:29:56.9007604Z done.
+Tests	Backend tests	2026-09-09T00:29:58.1191660Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-dKJZc9/remote.git'...
+Tests	Backend tests	2026-09-09T00:29:58.1192348Z done.
+Tests	Backend tests	2026-09-09T00:29:59.5453825Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-Q2nVAW/remote.git'...
+Tests	Backend tests	2026-09-09T00:29:59.5454616Z done.
+Tests	Backend tests	2026-09-09T00:30:00.9924640Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-q8uus0/remote.git'...
+Tests	Backend tests	2026-09-09T00:30:00.9925470Z done.
+Tests	Backend tests	2026-09-09T00:30:02.5331563Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-9V1jjR/remote.git'...
+Tests	Backend tests	2026-09-09T00:30:02.5332438Z done.
+Tests	Backend tests	2026-09-09T00:30:03.6898482Z  [32m✓[39m src/domain/workspaces/write-extraction-retraction-native.contract.test.ts [2m([22m[2m12 tests[22m[2m)[22m[33m 16444[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:03.6900522Z    [33m[2m✓[22m[39m expires unsupported 'full' source claims at 'knowledge/services/billing.md' while retaining owner prose and unrelated evidence [33m 1276[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:03.6902297Z    [33m[2m✓[22m[39m expires unsupported 'partial' source claims at 'handbook/services/billing.md' while retaining owner prose and unrelated evidence [33m 1406[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:03.6904395Z    [33m[2m✓[22m[39m expires unsupported 'directory' source claims at 'knowledge/services/billing.md' while retaining owner prose and unrelated evidence [33m 1239[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:03.6906092Z    [33m[2m✓[22m[39m reasserts an expired captured claim from 'src/billing.ts' ('canonical') and preserves source history [33m 1436[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:03.6907557Z    [33m[2m✓[22m[39m reasserts an expired captured claim from 'src/a#b.ts' ('encoded') and preserves source history [33m 1168[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:03.6908840Z    [33m[2m✓[22m[39m reasserts an expired captured claim from 'src/a#b.ts' ('legacy unescaped fragment') and preserves source history [33m 1596[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:03.6910176Z    [33m[2m✓[22m[39m reasserts an expired captured claim from 'src/billing.ts' ('relative evidence') and preserves source history [33m 1500[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:03.6911646Z    [33m[2m✓[22m[39m reasserts an expired captured claim from 'src/billing.ts' ('dot segment evidence') and preserves source history [33m 1218[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:03.6912758Z    [33m[2m✓[22m[39m reasserts an expired captured claim from undefined ('repository root ./') and preserves source history [33m 1427[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:03.6913802Z    [33m[2m✓[22m[39m reasserts an expired captured claim from undefined ('repository root src/..') and preserves source history [33m 1445[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:03.6914931Z    [33m[2m✓[22m[39m reasserts an expired captured claim from undefined ('repository root relative') and preserves source history [33m 1544[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:03.6916273Z    [33m[2m✓[22m[39m reasserts an expired captured claim from 'src/billing.ts' ('normalized URL evidence') and preserves source history [33m 1187[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:03.8074574Z  [32m✓[39m src/domain/workspaces/workspace-chat-assistant-text.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:05.5062090Z  [32m✓[39m src/routes/v1/connectors-atlassian.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 26[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:07.6967930Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-SzVthL/remote.git'...
+Tests	Backend tests	2026-09-09T00:30:07.6968537Z done.
+Tests	Backend tests	2026-09-09T00:30:09.4806764Z [90mstderr[2m | src/domain/workspaces/notion-mirror-native.contract.test.ts[2m > [22m[2mcaptures a Notion entity deletion without persisting its credential and runs one native mirror child
+Tests	Backend tests	2026-09-09T00:30:09.4808079Z [22m[39m[MSW] Error: intercepted a request without a matching request handler:
+Tests	Backend tests	2026-09-09T00:30:09.4808389Z 
+Tests	Backend tests	2026-09-09T00:30:09.4808787Z   • POST http://codesearch:3001/repo_agqihetrv53o7oobwdvebqdkoy/index/clone-checkout
+Tests	Backend tests	2026-09-09T00:30:09.4809137Z 
+Tests	Backend tests	2026-09-09T00:30:09.4809858Z   • Request body: {"githubToken":"fixture-only-github-read-token","targetHash":"e9019baf47d9ea72fe8965e5112ba2e4aabe43de"}
+Tests	Backend tests	2026-09-09T00:30:09.4810296Z 
+Tests	Backend tests	2026-09-09T00:30:09.4810693Z If you still wish to intercept this unhandled request, please create a request handler for it.
+Tests	Backend tests	2026-09-09T00:30:09.4811371Z Read more: https://mswjs.io/docs/http/intercepting-requests
+Tests	Backend tests	2026-09-09T00:30:10.6827524Z 
+Tests	Backend tests	2026-09-09T00:30:10.6828985Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-IC0yuq/remote.git'...
+Tests	Backend tests	2026-09-09T00:30:10.6829966Z done.
+Tests	Backend tests	2026-09-09T00:30:12.5620216Z [90mstderr[2m | src/domain/workspaces/notion-mirror-native.contract.test.ts[2m > [22m[2mcaptures a Notion full deletion without persisting its credential and runs one native mirror child
+Tests	Backend tests	2026-09-09T00:30:12.5621830Z [22m[39m[MSW] Error: intercepted a request without a matching request handler:
+Tests	Backend tests	2026-09-09T00:30:12.5622218Z 
+Tests	Backend tests	2026-09-09T00:30:12.5622742Z   • POST http://codesearch:3001/repo_agqihet5jvz35gbggot6yyf6gy/index/clone-checkout
+Tests	Backend tests	2026-09-09T00:30:12.5623348Z 
+Tests	Backend tests	2026-09-09T00:30:12.5624169Z   • Request body: {"githubToken":"fixture-only-github-read-token","targetHash":"0cbd8ca16a708f8c8ac23af6cc346df0c3278559"}
+Tests	Backend tests	2026-09-09T00:30:12.5624808Z 
+Tests	Backend tests	2026-09-09T00:30:12.5625302Z If you still wish to intercept this unhandled request, please create a request handler for it.
+Tests	Backend tests	2026-09-09T00:30:12.5626297Z Read more: https://mswjs.io/docs/http/intercepting-requests
+Tests	Backend tests	2026-09-09T00:30:12.5626697Z 
+Tests	Backend tests	2026-09-09T00:30:13.1080629Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-L7NULr/remote.git'...
+Tests	Backend tests	2026-09-09T00:30:13.1081160Z done.
+Tests	Backend tests	2026-09-09T00:30:16.6801722Z [90mstderr[2m | src/domain/workspaces/notion-mirror-native.contract.test.ts[2m > [22m[2mcaptures a Notion rebind deletion without persisting its credential and runs one native mirror child
+Tests	Backend tests	2026-09-09T00:30:16.6803567Z [22m[39m[MSW] Error: intercepted a request without a matching request handler:
+Tests	Backend tests	2026-09-09T00:30:16.6804330Z 
+Tests	Backend tests	2026-09-09T00:30:16.6806835Z   • POST http://codesearch:3001/repo_agqiheugy5zshdadjfk6m33iwm/index/clone-checkout
+Tests	Backend tests	2026-09-09T00:30:16.6807777Z 
+Tests	Backend tests	2026-09-09T00:30:16.6810201Z   • Request body: {"githubToken":"fixture-only-github-read-token","targetHash":"eb156b5e62db80f71cf55ade6aafe0fc9ad17e50"}
+Tests	Backend tests	2026-09-09T00:30:16.6811444Z 
+Tests	Backend tests	2026-09-09T00:30:16.6812131Z If you still wish to intercept this unhandled request, please create a request handler for it.
+Tests	Backend tests	2026-09-09T00:30:16.6813112Z Read more: https://mswjs.io/docs/http/intercepting-requests
+Tests	Backend tests	2026-09-09T00:30:16.6813662Z 
+Tests	Backend tests	2026-09-09T00:30:17.2208634Z  [32m✓[39m src/domain/workspaces/notion-mirror-native.contract.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 9567[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:17.2210770Z    [33m[2m✓[22m[39m captures a Notion entity deletion without persisting its credential and runs one native mirror child [33m 2996[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:17.2212283Z    [33m[2m✓[22m[39m captures a Notion full deletion without persisting its credential and runs one native mirror child [33m 2423[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:17.2213927Z    [33m[2m✓[22m[39m captures a Notion rebind deletion without persisting its credential and runs one native mirror child [33m 4147[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:19.3734148Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-LRhhdt/remote.git'...
+Tests	Backend tests	2026-09-09T00:30:19.3734768Z done.
+Tests	Backend tests	2026-09-09T00:30:22.6045469Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-n2bJir/remote.git'...
+Tests	Backend tests	2026-09-09T00:30:22.6046230Z done.
+Tests	Backend tests	2026-09-09T00:30:25.0320108Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-4Gfesp/remote.git'...
+Tests	Backend tests	2026-09-09T00:30:25.0320693Z done.
+Tests	Backend tests	2026-09-09T00:30:26.8005737Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-HM8quf/remote.git'...
+Tests	Backend tests	2026-09-09T00:30:26.8006321Z done.
+Tests	Backend tests	2026-09-09T00:30:32.3504887Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-RlGvke/remote.git'...
+Tests	Backend tests	2026-09-09T00:30:32.3505677Z done.
+Tests	Backend tests	2026-09-09T00:30:38.1833410Z  [32m✓[39m src/domain/workspaces/slack-mirror-native.contract.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 18851[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:38.1835011Z    [33m[2m✓[22m[39m handles Slack bare through durable intent and mirror steps before publishing status [33m 3238[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:38.1836526Z    [33m[2m✓[22m[39m handles Slack intent through durable intent and mirror steps before publishing status [33m 2429[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:38.1837988Z    [33m[2m✓[22m[39m handles Slack capability through durable intent and mirror steps before publishing status [33m 1768[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:38.1839418Z    [33m[2m✓[22m[39m handles Slack child_failure through durable intent and mirror steps before publishing status [33m 5515[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:38.1840991Z    [33m[2m✓[22m[39m handles Slack child_failure_fallback through durable intent and mirror steps before publishing status [33m 5899[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:40.3238531Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-vm5F08/remote.git'...
+Tests	Backend tests	2026-09-09T00:30:40.3239593Z done.
+Tests	Backend tests	2026-09-09T00:30:42.1712863Z [90mstderr[2m | src/domain/workspaces/linear-mirror-native.contract.test.ts[2m > [22m[2mcaptures a Linear entity deletion without persisting its credential and runs one native mirror child
+Tests	Backend tests	2026-09-09T00:30:42.1714848Z [22m[39m[MSW] Error: intercepted a request without a matching request handler:
+Tests	Backend tests	2026-09-09T00:30:42.1715411Z 
+Tests	Backend tests	2026-09-09T00:30:42.1716813Z   • POST http://codesearch:3001/repo_agqihexrizyl7p6rnt5do3wlza/index/clone-checkout
+Tests	Backend tests	2026-09-09T00:30:42.1717361Z 
+Tests	Backend tests	2026-09-09T00:30:42.1718298Z   • Request body: {"githubToken":"fixture-only-github-read-token","targetHash":"d3b4507a888f542fd31b3bb007d7f113d28a1c40"}
+Tests	Backend tests	2026-09-09T00:30:42.1718951Z 
+Tests	Backend tests	2026-09-09T00:30:42.1719448Z If you still wish to intercept this unhandled request, please create a request handler for it.
+Tests	Backend tests	2026-09-09T00:30:42.1720655Z Read more: https://mswjs.io/docs/http/intercepting-requests
+Tests	Backend tests	2026-09-09T00:30:42.1721169Z 
+Tests	Backend tests	2026-09-09T00:30:42.8672013Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-KlN7vs/remote.git'...
+Tests	Backend tests	2026-09-09T00:30:42.8672812Z done.
+Tests	Backend tests	2026-09-09T00:30:44.1641577Z [90mstderr[2m | src/domain/workspaces/linear-mirror-native.contract.test.ts[2m > [22m[2mcaptures a Linear full deletion without persisting its credential and runs one native mirror child
+Tests	Backend tests	2026-09-09T00:30:44.1643195Z [22m[39m[MSW] Error: intercepted a request without a matching request handler:
+Tests	Backend tests	2026-09-09T00:30:44.1643760Z 
+Tests	Backend tests	2026-09-09T00:30:44.1644186Z   • POST http://codesearch:3001/repo_agqihex24rylporyzjgjipp22q/index/clone-checkout
+Tests	Backend tests	2026-09-09T00:30:44.1644519Z 
+Tests	Backend tests	2026-09-09T00:30:44.1645062Z   • Request body: {"githubToken":"fixture-only-github-read-token","targetHash":"ab78763b4c9e8a1996c93689dcdf73a5a59b169d"}
+Tests	Backend tests	2026-09-09T00:30:44.1645483Z 
+Tests	Backend tests	2026-09-09T00:30:44.1645872Z If you still wish to intercept this unhandled request, please create a request handler for it.
+Tests	Backend tests	2026-09-09T00:30:44.1646422Z Read more: https://mswjs.io/docs/http/intercepting-requests
+Tests	Backend tests	2026-09-09T00:30:44.1646743Z 
+Tests	Backend tests	2026-09-09T00:30:45.4431201Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-2ulADH/remote.git'...
+Tests	Backend tests	2026-09-09T00:30:45.4431891Z done.
+Tests	Backend tests	2026-09-09T00:30:48.9156057Z [90mstderr[2m | src/domain/workspaces/linear-mirror-native.contract.test.ts[2m > [22m[2mcaptures a Linear rebind deletion without persisting its credential and runs one native mirror child
+Tests	Backend tests	2026-09-09T00:30:48.9157929Z [22m[39m[MSW] Error: intercepted a request without a matching request handler:
+Tests	Backend tests	2026-09-09T00:30:48.9158542Z 
+Tests	Backend tests	2026-09-09T00:30:48.9159248Z   • POST http://codesearch:3001/repo_agqiheyfbzyu5gnm5vo7dj5hsq/index/clone-checkout
+Tests	Backend tests	2026-09-09T00:30:48.9160145Z 
+Tests	Backend tests	2026-09-09T00:30:48.9161111Z   • Request body: {"githubToken":"fixture-only-github-read-token","targetHash":"813f487230f52d9e3601bff6087d8b51703134f6"}
+Tests	Backend tests	2026-09-09T00:30:48.9161839Z 
+Tests	Backend tests	2026-09-09T00:30:48.9162527Z If you still wish to intercept this unhandled request, please create a request handler for it.
+Tests	Backend tests	2026-09-09T00:30:48.9163549Z Read more: https://mswjs.io/docs/http/intercepting-requests
+Tests	Backend tests	2026-09-09T00:30:48.9164085Z 
+Tests	Backend tests	2026-09-09T00:30:49.4361373Z  [32m✓[39m src/domain/workspaces/linear-mirror-native.contract.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 9156[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:49.4362809Z    [33m[2m✓[22m[39m captures a Linear entity deletion without persisting its credential and runs one native mirror child [33m 2556[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:49.4364459Z    [33m[2m✓[22m[39m captures a Linear full deletion without persisting its credential and runs one native mirror child [33m 2574[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:49.4366048Z    [33m[2m✓[22m[39m captures a Linear rebind deletion without persisting its credential and runs one native mirror child [33m 4024[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:51.4703408Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-vBNHLr/remote.git'...
+Tests	Backend tests	2026-09-09T00:30:51.4703916Z done.
+Tests	Backend tests	2026-09-09T00:30:51.8976309Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-qE4Qh6/remote.git'...
+Tests	Backend tests	2026-09-09T00:30:52.1697701Z done.
+Tests	Backend tests	2026-09-09T00:30:52.1698485Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-TiL4Yc/remote.git'...
+Tests	Backend tests	2026-09-09T00:30:52.1699108Z done.
+Tests	Backend tests	2026-09-09T00:30:52.4584781Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-3CKD7C/remote.git'...
+Tests	Backend tests	2026-09-09T00:30:52.4585598Z done.
+Tests	Backend tests	2026-09-09T00:30:53.1681543Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-dcgXae/remote.git'...
+Tests	Backend tests	2026-09-09T00:30:53.1682341Z done.
+Tests	Backend tests	2026-09-09T00:30:55.4331730Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-YCeQcV/remote.git'...
+Tests	Backend tests	2026-09-09T00:30:55.4332414Z done.
+Tests	Backend tests	2026-09-09T00:30:55.5250126Z Switched to a new branch 'ctxpipe/chat/conv_hydrate_1788913855405_ked76fbp62/1'
+Tests	Backend tests	2026-09-09T00:30:55.5468952Z To /tmp/ctxpipe-hydration-contract-YCeQcV/remote.git
+Tests	Backend tests	2026-09-09T00:30:55.5469913Z  * [new branch]      HEAD -> ctxpipe/chat/conv_hydrate_1788913855405_ked76fbp62/1
+Tests	Backend tests	2026-09-09T00:30:55.6724808Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-svyAAA/remote.git'...
+Tests	Backend tests	2026-09-09T00:30:55.6725960Z done.
+Tests	Backend tests	2026-09-09T00:30:55.8304963Z Switched to a new branch 'ctxpipe/chat/conv_hydrate_1788913855643_5o9eau5zg6o/1'
+Tests	Backend tests	2026-09-09T00:30:55.8537052Z To /tmp/ctxpipe-hydration-contract-svyAAA/remote.git
+Tests	Backend tests	2026-09-09T00:30:55.8537671Z  * [new branch]      HEAD -> ctxpipe/chat/conv_hydrate_1788913855643_5o9eau5zg6o/1
+Tests	Backend tests	2026-09-09T00:30:56.0654212Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-CcgAHh/remote.git'...
+Tests	Backend tests	2026-09-09T00:30:56.0654766Z done.
+Tests	Backend tests	2026-09-09T00:30:56.1334865Z Switched to a new branch 'ctxpipe/chat/conv_hydrate_1788913856036_k5o1m323lu/1'
+Tests	Backend tests	2026-09-09T00:30:56.1563520Z To /tmp/ctxpipe-hydration-contract-CcgAHh/remote.git
+Tests	Backend tests	2026-09-09T00:30:56.1564274Z  * [new branch]      HEAD -> ctxpipe/chat/conv_hydrate_1788913856036_k5o1m323lu/1
+Tests	Backend tests	2026-09-09T00:30:56.1807335Z Switched to branch 'main'
+Tests	Backend tests	2026-09-09T00:30:56.2034280Z To /tmp/ctxpipe-hydration-contract-CcgAHh/remote.git
+Tests	Backend tests	2026-09-09T00:30:56.2035056Z    efd340f..2729cd4  HEAD -> main
+Tests	Backend tests	2026-09-09T00:30:56.4542879Z  [32m✓[39m src/domain/workspaces/conversation-publish-native.contract.test.ts [2m([22m[2m8 tests[22m[2m)[22m[33m 5024[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:56.4544126Z    [33m[2m✓[22m[39m brokers conversation publishing without agent write credentials: publish [33m 420[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:56.4545215Z    [33m[2m✓[22m[39m brokers conversation publishing without agent write credentials: large_base [33m 2684[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:56.4546158Z    [33m[2m✓[22m[39m publishes a restored shallow session branch: edited [33m 393[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:56.4747975Z    [33m[2m✓[22m[39m publishes a restored shallow session branch: rebased [33m 417[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:58.4110232Z  [32m✓[39m src/domain/workspaces/tanstack-workspace-chat-persist.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 80[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:58.6760983Z  [32m✓[39m src/routes/webhooks/notion/notion.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 36[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:30:59.8469268Z  [32m✓[39m src/models/repositories.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:00.5363636Z  [32m✓[39m src/retrieval/services/ingestionRetraction.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:00.7898777Z  [32m✓[39m src/mcp/tools.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:02.2043039Z  [32m✓[39m src/domain/workspaces/workspace-chat-sandbox-key.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:03.5745919Z [90mstdout[2m | src/retrieval/services/ingestionRetraction.integration.test.ts
+Tests	Backend tests	2026-09-09T00:31:03.5746862Z [22m[39m[dotenv@17.3.1] injecting env (0) from .env.local -- tip: 🛡️ auth for agents: https://vestauth.com
+Tests	Backend tests	2026-09-09T00:31:03.5747207Z 
+Tests	Backend tests	2026-09-09T00:31:03.6615342Z  [32m✓[39m src/retrieval/services/ingestionRetraction.integration.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 82[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:04.9287934Z  [32m✓[39m src/domain/workspaces/chat-runtime.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 74[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:05.6874765Z  [32m✓[39m src/services/linear/incremental.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:07.0993480Z  [32m✓[39m src/models/slack-connector.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:07.3775705Z  [32m✓[39m src/routes/webhooks/linear/linear.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 29[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:07.9795413Z  [32m✓[39m src/routes/v1/workspace-chat-openai.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 43[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:08.0967941Z  [32m✓[39m src/domain/workspaces/write-status.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:09.2199968Z  [32m✓[39m src/routes/v1/org-atlassian-oauth.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 34[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:09.4413436Z  [32m✓[39m src/domain/workspaces/chat-lifecycle.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:10.5872416Z  [32m✓[39m src/retrieval/services/graphProjection.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:12.7866189Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-4sM7de/remote.git'...
+Tests	Backend tests	2026-09-09T00:31:12.7866898Z done.
+Tests	Backend tests	2026-09-09T00:31:13.1035332Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-8bi5nl/remote.git'...
+Tests	Backend tests	2026-09-09T00:31:13.1035794Z done.
+Tests	Backend tests	2026-09-09T00:31:13.2240647Z  [31m❯[39m src/openworkflow/enqueue-notion-push-sync.test.ts [2m([22m[2m2 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[33m 481[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:13.2241802Z    [33m[2m✓[22m[39m accepts a durable Notion activation (canceled before activation: false) [33m 327[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:13.2242590Z [31m   [31m×[31m accepts a durable Notion activation (canceled before activation: true)[39m[32m 153[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:13.4104669Z  [32m✓[39m src/domain/conversations/workspace-history.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 22[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:13.5271764Z  [32m✓[39m src/domain/workspaces/git-file-jobs.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:13.7453453Z  [32m✓[39m src/domain/workspaces/dest-workspace-first.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 25[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:15.3220240Z  [32m✓[39m src/models/linear-connector.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 134[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:16.4740090Z  [32m✓[39m src/services/github/installation-write-client.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:16.6063093Z  [32m✓[39m src/services/notion/incremental.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:21.3896081Z  [32m✓[39m src/routes/mcp.conformance.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 4677[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:21.3897451Z      [33m[2m✓[22m[39m passes server conformance against in-test MCP endpoint [33m 609[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:21.3898582Z      [33m[2m✓[22m[39m passes MCPJam protocol conformance against the production transport [33m 3473[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:21.6199118Z  [32m✓[39m src/domain/workspaces/hydrate-write-jobs.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:21.8411227Z  [32m✓[39m src/domain/workspaces/chat-sandbox-policy.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:22.0516543Z  [32m✓[39m src/domain/workspaces/workspace-chat-opencode-contract.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:22.2751459Z  [32m✓[39m src/domain/workspaces/hydrate.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:24.1813681Z  [32m✓[39m src/routes/v1/connectors-notion.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:24.9011277Z  [32m✓[39m src/services/notion/converter.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:25.1849570Z  [32m✓[39m src/routes/mcp.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 42[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:26.3138256Z  [32m✓[39m src/models/workspaces-sandbox-instances.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:27.1758478Z  [32m✓[39m src/lib/withTransientHttpRetry.test.ts [2m([22m[2m15 tests[22m[2m)[22m[33m 752[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:28.6574005Z  [32m✓[39m src/routes/auth.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 1370[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:28.6575625Z      [33m[2m✓[22m[39m returns protected resource metadata for MCP endpoint [33m 1138[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:28.7759969Z  [32m✓[39m src/graphs/codeIngestionGraph/nodes/identifyAPIClients.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:28.8820035Z  [32m✓[39m src/domain/workspaces/write-jobs.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:30.7916137Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-b1E4Gd/remote.git'...
+Tests	Backend tests	2026-09-09T00:31:30.7916813Z done.
+Tests	Backend tests	2026-09-09T00:31:31.0990973Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-GxypiL/remote.git'...
+Tests	Backend tests	2026-09-09T00:31:31.0991669Z done.
+Tests	Backend tests	2026-09-09T00:31:31.2722918Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-illhpa/remote.git'...
+Tests	Backend tests	2026-09-09T00:31:31.2723382Z done.
+Tests	Backend tests	2026-09-09T00:31:31.5627466Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-xj27OK/remote.git'...
+Tests	Backend tests	2026-09-09T00:31:31.5627961Z done.
+Tests	Backend tests	2026-09-09T00:31:32.0654969Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-DakgnP/remote.git'...
+Tests	Backend tests	2026-09-09T00:31:32.0655432Z done.
+Tests	Backend tests	2026-09-09T00:31:32.3449912Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-TK2hfT/remote.git'...
+Tests	Backend tests	2026-09-09T00:31:32.3450641Z done.
+Tests	Backend tests	2026-09-09T00:31:32.6126078Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-0a8CBd/remote.git'...
+Tests	Backend tests	2026-09-09T00:31:32.6126886Z done.
+Tests	Backend tests	2026-09-09T00:31:32.8864495Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-m0gnp6/remote.git'...
+Tests	Backend tests	2026-09-09T00:31:32.8865202Z done.
+Tests	Backend tests	2026-09-09T00:31:33.0929955Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-cFYCaM/remote.git'...
+Tests	Backend tests	2026-09-09T00:31:33.0930444Z done.
+Tests	Backend tests	2026-09-09T00:31:33.3818209Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-DDnm6Z/remote.git'...
+Tests	Backend tests	2026-09-09T00:31:33.3818687Z done.
+Tests	Backend tests	2026-09-09T00:31:33.5690068Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-YyCTz8/remote.git'...
+Tests	Backend tests	2026-09-09T00:31:33.5690549Z done.
+Tests	Backend tests	2026-09-09T00:31:33.7163736Z  [32m✓[39m src/domain/workspaces/write-extraction-admission-native.contract.test.ts [2m([22m[2m11 tests[22m[2m)[22m[33m 2965[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:33.7165593Z    [33m[2m✓[22m[39m extraction publication cannot alter 'linked' source declaration 'branch' [33m 521[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:33.8300949Z  [32m✓[39m src/routes/webhooks/github/github-confluence-push.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:35.0475024Z  [32m✓[39m src/domain/workspaces/conversation-files.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:37.3057583Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-4kCNE2/remote.git'...
+Tests	Backend tests	2026-09-09T00:31:37.3058362Z done.
+Tests	Backend tests	2026-09-09T00:31:37.5711461Z  [32m✓[39m src/domain/workspaces/protected-conversation-native.contract.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 309[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:37.5712874Z    [33m[2m✓[22m[39m permits session-branch edits under default protection but denies repository permission loss [33m 308[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:38.6377086Z  [32m✓[39m src/app/app.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 41[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:39.9616919Z  [32m✓[39m src/services/linear/sync.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 22[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:40.1093921Z  [32m✓[39m src/services/linear/converter.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:41.6535692Z  [32m✓[39m src/models/notion-connector.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 78[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:41.9200623Z  [32m✓[39m src/domain/workspaces/workspace-chat-agui.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 107[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:42.0388381Z  [32m✓[39m src/graphs/codeIngestionGraph/nodes/identifyStreams.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:42.2423131Z  [32m✓[39m src/db/provision-app-role.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:42.3517289Z  [32m✓[39m src/graphs/codeIngestionGraph/nodes/identifyInfrastructure.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:43.1104505Z  [32m✓[39m src/services/slack/client.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 22[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:43.2219825Z  [32m✓[39m src/domain/workspaces/chat-pull-request.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:43.3853654Z  [32m✓[39m src/domain/codeIngestion/codesearchClient.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 24[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:44.8478450Z  [32m✓[39m src/openworkflow/workflows/forge-provision.devspace.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 19[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:46.9013321Z  [32m✓[39m src/routes/v1/conversation-files-routes.live.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 77[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:47.1394532Z  [32m✓[39m src/graphs/conversationGraph/nodes/conversationNaming.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:47.2741421Z  [32m✓[39m src/db/get-org-db-audit.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 30[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:47.4637776Z  [32m✓[39m src/routes/v1/workspace-activity-routes.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 28[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:48.6654997Z  [32m✓[39m src/domain/workspaces/workspace-lifecycle.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:48.8165225Z  [32m✓[39m src/domain/workspaces/workspace-chat-opencode-messages.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:49.0268997Z  [32m✓[39m src/routes/webhooks/github/github-notion-push.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:49.2353146Z [90mstdout[2m | src/domain/workspaces/opencode-chat-stream.test.ts[2m > [22m[2mopencodeChatStreamEvent[2m > [22m[2memits a standalone chat event after the HTTP logger is sealed
+Tests	Backend tests	2026-09-09T00:31:49.2354562Z [90mstderr[2m | src/domain/workspaces/opencode-chat-stream.test.ts[2m > [22m[2mopencodeChatStreamEvent[2m > [22m[2memits a standalone chat event after the HTTP logger is sealed
+Tests	Backend tests	2026-09-09T00:31:49.2356258Z [22m[39m[evlog] log.set() called after the wide event was emitted — Keys dropped: step. This data will not appear in observability. For intentional background work tied to this request, use log.fork('label', fn) when your integration supports it (see https://evlog.dev).
+Tests	Backend tests	2026-09-09T00:31:49.2358768Z {"timestamp":"2026-09-09T00:31:49.234Z","level":"error","service":"ctxpipe-backend-test","environment":"test","commitHash":"f7c354334bb91310f3a49f74563bce6497c688ca","step":"opencode.chatStream","conversationId":"conv_1","workspaceId":"ws_1","status":500,"bodyExcerpt":"Unexpected server error. Check server logs for details.","message":"Unexpected server error. Check server logs for details.","provider":"local-process","error":"Unexpected server error. Check server logs for details."}
+Tests	Backend tests	2026-09-09T00:31:49.2360301Z 
+Tests	Backend tests	2026-09-09T00:31:49.2361326Z [22m[39m{"method":"POST","path":"/api/v1/conversations/conv_1","duration":"0ms","timestamp":"2026-09-09T00:31:49.233Z","level":"info","service":"ctxpipe-backend-test","environment":"test","commitHash":"f7c354334bb91310f3a49f74563bce6497c688ca"}
+Tests	Backend tests	2026-09-09T00:31:49.2362013Z 
+Tests	Backend tests	2026-09-09T00:31:49.2373660Z  [32m✓[39m src/domain/workspaces/opencode-chat-stream.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:49.5442137Z  [32m✓[39m src/db/transientDbRetry.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 110[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:51.4158650Z  [32m✓[39m src/graphs/codeIngestionGraph/nodes/identifyPatterns.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:51.6338618Z  [32m✓[39m src/auth/oauth-gateway-request.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 21[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:51.8617767Z  [32m✓[39m src/domain/workspaces/write-job-intent.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:51.9775332Z  [32m✓[39m src/domain/workspaces/ensure-org-repository.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:53.1412165Z  [32m✓[39m src/retrieval/services/claimWrite.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:53.2478619Z  [32m✓[39m src/domain/indexingSteps.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:53.3640214Z  [32m✓[39m src/domain/workspaces/project-workspace-commits.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:55.1972432Z  [32m✓[39m src/graphs/codeIngestionGraph/nodes/identifyServiceDependencies.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:55.3129123Z  [32m✓[39m src/domain/workspaces/sandbox-instance-store.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:56.0525034Z  [32m✓[39m src/services/linear/client.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:56.7808409Z  [32m✓[39m src/services/notion/client.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:58.0188367Z  [32m✓[39m src/domain/workspaces/workspace-chat-persistence.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 57[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:31:59.8904279Z  [32m✓[39m src/routes/webhooks/github/github-linear-push.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:01.7176574Z  [32m✓[39m src/graphs/codeIngestionGraph/nodes/identifyLibraries.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:01.8280798Z  [32m✓[39m src/domain/workspaces/git-explorer.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:03.6792681Z  [32m✓[39m src/models/linear-token-refresh.org-tx.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 315[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:04.3492558Z  [32m✓[39m src/db/client.org-context.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:04.4621975Z  [32m✓[39m src/graphs/codeIngestionGraph/withIngestAgentContext.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 5[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:04.5661045Z  [32m✓[39m src/graphs/codeIngestionGraph/nodes/partialIngestionScope.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:05.7965912Z  [32m✓[39m src/models/github-mcp-config-pr.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:05.9996112Z  [32m✓[39m src/graphs/codeIngestionGraph/setIngestionIndexingStep.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:06.4073203Z  [32m✓[39m src/tools/structuralSearch.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 27[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:07.0189479Z  [32m✓[39m src/lib/connection-config.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 402[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:07.1939822Z  [32m✓[39m src/routes/v1/conversation-websocket.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 29[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:07.9087025Z  [32m✓[39m src/domain/workspaces/sandbox-provider.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:09.8940765Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-OJNpjQ/remote.git'...
+Tests	Backend tests	2026-09-09T00:32:09.8941471Z done.
+Tests	Backend tests	2026-09-09T00:32:10.2535134Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-4rS8pc/remote.git'...
+Tests	Backend tests	2026-09-09T00:32:10.2535906Z done.
+Tests	Backend tests	2026-09-09T00:32:10.4076023Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-0CKywv/remote.git'...
+Tests	Backend tests	2026-09-09T00:32:10.4076674Z done.
+Tests	Backend tests	2026-09-09T00:32:10.6176642Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-gslERD/remote.git'...
+Tests	Backend tests	2026-09-09T00:32:10.6177138Z done.
+Tests	Backend tests	2026-09-09T00:32:10.7880162Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-zSAlDk/remote.git'...
+Tests	Backend tests	2026-09-09T00:32:10.7880913Z done.
+Tests	Backend tests	2026-09-09T00:32:10.9915299Z Cloning into bare repository '/tmp/ctxpipe-hydration-contract-7l9Mot/remote.git'...
+Tests	Backend tests	2026-09-09T00:32:10.9916309Z done.
+Tests	Backend tests	2026-09-09T00:32:11.0276493Z  [32m✓[39m src/routes/webhooks/github/github-workspace-tip.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 1178[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:11.0278477Z    [33m[2m✓[22m[39m probes 'repository contents write' with repository read credentials and app authentication [33m 331[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:11.1426431Z  [32m✓[39m src/domain/workspaces/workspace-chat-sandbox-memo.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:11.3478673Z  [32m✓[39m src/domain/workspaces/dest-workspace-assignment.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:12.0892473Z  [32m✓[39m src/services/linear/client-discovery.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:12.2025688Z  [32m✓[39m src/lib/memoryFitError.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:12.4343344Z  [32m✓[39m src/domain/workspaces/bootstrap.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:12.6533775Z  [32m✓[39m src/openworkflow/enqueue-repository-deletion.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:12.8737627Z  [32m✓[39m src/domain/workspaces/dest-workspace-backfill.migration.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 109[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:13.0800256Z  [32m✓[39m src/retrieval/services/parseModelSpec.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:13.1946728Z  [32m✓[39m src/domain/workspaces/workspace-chat-retrieval.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:13.3211889Z  [32m✓[39m src/services/slack/converter.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:13.4337495Z  [32m✓[39m src/domain/workspaces/slug.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:15.2448695Z  [32m✓[39m src/services/confluence/forge-confluence-webhook.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:15.4306584Z  [32m✓[39m src/routes/ui.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 64[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:15.5399990Z  [32m✓[39m src/retrieval/services/ingestionPathMatching.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:15.6444494Z  [32m✓[39m src/domain/workspaces/commit-activity.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:15.8566338Z  [32m✓[39m src/domain/codeIngestion/codesearchIndexPhases.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:16.0915722Z  [32m✓[39m src/domain/workspaces/workspace-chat-turn-runtime.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:16.3191221Z  [32m✓[39m src/domain/workspaces/write-job-resume.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:16.5394187Z  [32m✓[39m src/services/notion/config-yaml.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 22[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:16.6481579Z  [32m✓[39m src/lib/atlassian-api-base-url.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:16.8047817Z  [32m✓[39m src/retrieval/schema/llm-prompt.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:16.9128996Z  [32m✓[39m src/graphs/codeIngestionGraph/nodes/narrowRootsForPartialDiff.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:17.1395421Z  [32m✓[39m src/domain/workspaces/layout.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:19.8270615Z  [32m✓[39m src/openworkflow/enqueue-follow-up-native.contract.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 773[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:19.8271686Z    [33m[2m✓[22m[39m retries failed follow-up admission against the real source tip and reuses its native owner [33m 772[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:19.9554266Z  [32m✓[39m src/lib/id.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:20.0640810Z  [32m✓[39m src/domain/workspaces/bind-github-connection.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:20.2651406Z  [32m✓[39m src/domain/workspaces/rename-rewrite.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:20.5473958Z  [32m✓[39m src/lib/connection-config-slack.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 73[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:21.9833719Z  [32m✓[39m src/lib/agentToolRuntime.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:22.1984502Z  [32m✓[39m src/openworkflow/withLoggedStepAttempt.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:22.4491929Z  [32m✓[39m src/services/linear/config-yaml.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 30[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:24.6281820Z  [32m✓[39m src/routes/v1/index.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 13[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:24.8144571Z  [32m✓[39m src/routes/v1/connectors-list.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 20[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:24.9284820Z  [32m✓[39m src/domain/workspaces/claim-confidence.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:25.0388520Z  [32m✓[39m src/domain/workspaces/workspace-chat-send-runtime.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 2[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:25.1500978Z  [32m✓[39m src/domain/codeIngestion/dependencyVendorPaths.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:26.5654896Z  [32m✓[39m src/models/atlassian-connector.org-tx.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:27.8270205Z  [32m✓[39m src/routes/v1/health.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 1160[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:27.8271522Z      [33m[2m✓[22m[39m returns 200 and status ok [33m 1159[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:28.5427570Z  [32m✓[39m src/models/connector-sync-target.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:28.6503023Z  [32m✓[39m src/retrieval/services/confidenceAggregation.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:28.8378231Z  [32m✓[39m src/domain/workspaces/workspace-chat-opencode-port.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 65[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:28.9458218Z  [32m✓[39m src/tools/zoektSymbolQuery.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:29.3440070Z  [32m✓[39m src/tools/getFile.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:29.5463468Z  [32m✓[39m src/domain/workspaces/workspace-chat-sandbox-health.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:29.6522847Z  [32m✓[39m src/lib/forge-provision-error-map.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:31.3542290Z  [32m✓[39m src/domain/workspaces/workspace-chat-tools.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:31.4626289Z  [32m✓[39m src/domain/workspaces/commit-subject.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:31.5697306Z  [32m✓[39m src/domain/workspaces/clone-credentials.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:31.7022004Z  [32m✓[39m src/lib/forge-app-manifest.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:31.8097492Z  [32m✓[39m src/services/slack/verify-signature.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:32.0122666Z  [32m✓[39m src/domain/workspaces/workspace-chat-otel.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:33.4943051Z  [32m✓[39m src/services/notion/sync.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:33.6979617Z  [32m✓[39m src/db/migrate-openworkflow.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:33.8048481Z  [32m✓[39m src/services/confluence/github-push-config-sync.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:34.0032756Z  [32m✓[39m src/db/migrate-checkpoints.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:34.3306238Z  [32m✓[39m src/graphs/conversationGraph/nodes/knowledgeGraphFocus.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 2[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:34.5214769Z  [32m✓[39m src/services/linear/oauth-state.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:35.6968273Z  [32m✓[39m src/domain/workspaces/complete-persisted-workspace-chat-run.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:35.8069537Z  [32m✓[39m src/db/owner-migrate-url.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:37.2224740Z  [32m✓[39m src/services/confluence/sync.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:37.5400067Z  [32m✓[39m src/retrieval/services/langchainReasoningParams.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:37.7578354Z  [32m✓[39m src/services/confluence/config-yaml.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:37.8630215Z  [32m✓[39m src/domain/workspaces/derived-stores.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:38.5744816Z  [32m✓[39m src/openworkflow/enqueue-workspace-commit-projection.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:38.7044130Z  [32m✓[39m src/retrieval/schema/predicateValidation.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:38.8064278Z  [32m✓[39m src/domain/workspaces/hydrate-phases.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:39.0148129Z  [32m✓[39m src/domain/workspaces/workspace-chat-model-proxy.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:39.1226164Z  [32m✓[39m src/graphs/codeIngestionGraph/nodes/extractionSubmissionRoot.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:39.2258302Z  [32m✓[39m src/lib/buildSourceLink.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:39.3278761Z  [32m✓[39m src/domain/workspaces/relink.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:40.0336385Z  [32m✓[39m src/openworkflow/enqueue-workspace-tip-check.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:40.7880735Z  [32m✓[39m src/graphs/codeIngestionGraph/nodes/openApiSpecDiscovery.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:40.9913882Z [90mstdout[2m | src/observability/workflow-log.test.ts[2m > [22m[2mflushWorkflowLog[2m > [22m[2mrotates so later set/info are not late writes
+Tests	Backend tests	2026-09-09T00:32:40.9916537Z [22m[39m{"test":true,"step":"first","requestLogs":[{"level":"info","message":"first","timestamp":"2026-09-09T00:32:40.989Z"}],"duration":"1ms","timestamp":"2026-09-09T00:32:40.989Z","level":"info","service":"ctxpipe-backend-test","environment":"test","commitHash":"f7c354334bb91310f3a49f74563bce6497c688ca"}
+Tests	Backend tests	2026-09-09T00:32:40.9917371Z 
+Tests	Backend tests	2026-09-09T00:32:40.9917985Z [90mstdout[2m | src/observability/workflow-log.test.ts[2m > [22m[2mflushWorkflowLog[2m > [22m[2mrotates so later set/info are not late writes
+Tests	Backend tests	2026-09-09T00:32:40.9920177Z [22m[39m{"test":true,"step":"codeIngestion.deduplicateAndStore.progress","requestLogs":[{"level":"info","message":"second","timestamp":"2026-09-09T00:32:40.990Z"}],"duration":"1ms","timestamp":"2026-09-09T00:32:40.991Z","level":"info","service":"ctxpipe-backend-test","environment":"test","commitHash":"f7c354334bb91310f3a49f74563bce6497c688ca"}
+Tests	Backend tests	2026-09-09T00:32:40.9921539Z 
+Tests	Backend tests	2026-09-09T00:32:40.9940280Z  [32m✓[39m src/observability/workflow-log.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 5[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:41.1036657Z  [32m✓[39m src/domain/workspaces/file-tree.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 2[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:41.2810360Z  [32m✓[39m src/retrieval/services/logicalSourceKey.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:41.4158454Z  [32m✓[39m src/routes/mcp-brand-asset.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 20[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:41.7290840Z  [32m✓[39m src/retrieval/services/providers/openAILikeModelProvider.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:42.9866663Z  [32m✓[39m src/domain/workspaces/conversation-publish.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:44.1534135Z  [32m✓[39m src/services/slack/mention-agent.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:45.3300667Z  [32m✓[39m src/auth/config.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 46[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:46.5497349Z  [32m✓[39m src/models/github-installation-token.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 2[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:46.8918110Z  [32m✓[39m src/retrieval/services/providers/openrouterModelProvider.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:47.4316279Z  [32m✓[39m src/routes/langsmith.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 18[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:47.5451386Z  [32m✓[39m src/graphs/codeIngestionGraph/nodes/identifyApiClaims.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:49.3450963Z  [32m✓[39m src/graphs/codeIngestionGraph/nodes/extractKind.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:49.4522796Z  [32m✓[39m src/auth/verification-email-url.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 2[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:51.2609593Z  [32m✓[39m src/graphs/codeIngestionGraph/runExtractRoot.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:51.4600111Z  [32m✓[39m src/domain/workspaces/revision.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 2[2mms[22m[39m
+Tests	Backend tests	2026-09-09T00:32:51.4679739Z 
+Tests	Backend tests	2026-09-09T00:32:51.4680740Z [31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 2 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+Tests	Backend tests	2026-09-09T00:32:51.4681047Z 
+Tests	Backend tests	2026-09-09T00:32:51.4683045Z [41m[1m FAIL [22m[49m src/openworkflow/enqueue-notion-push-sync.test.ts[2m > [22maccepts a durable Notion activation (canceled before activation: true)
+Tests	Backend tests	2026-09-09T00:32:51.4687888Z [31m[1mAssertionError[22m: expected { …(14) } to match object { setupPhase: 'sync_failed' }
+Tests	Backend tests	2026-09-09T00:32:51.4688519Z (13 matching properties omitted from actual)[39m
+Tests	Backend tests	2026-09-09T00:32:51.4688911Z 
+Tests	Backend tests	2026-09-09T00:32:51.4689083Z [32m- Expected[39m
+Tests	Backend tests	2026-09-09T00:32:51.4689455Z [31m+ Received[39m
+Tests	Backend tests	2026-09-09T00:32:51.4689863Z 
+Tests	Backend tests	2026-09-09T00:32:51.4689983Z [2m  {[22m
+Tests	Backend tests	2026-09-09T00:32:51.4690278Z [32m-   "setupPhase": "sync_failed",[39m
+Tests	Backend tests	2026-09-09T00:32:51.4690605Z [31m+   "setupPhase": "initial_sync",[39m
+Tests	Backend tests	2026-09-09T00:32:51.4690856Z [2m  }[22m
+Tests	Backend tests	2026-09-09T00:32:51.4690964Z 
+Tests	Backend tests	2026-09-09T00:32:51.4691319Z [36m [2m❯[22m src/openworkflow/enqueue-notion-push-sync.test.ts:[2m100:15[22m[39m
+Tests	Backend tests	2026-09-09T00:32:51.4719581Z     [90m 98| [39m                connectionId[33m,[39m
+Tests	Backend tests	2026-09-09T00:32:51.4720151Z     [90m 99| [39m              )[33m,[39m
+Tests	Backend tests	2026-09-09T00:32:51.4720753Z     [90m100| [39m            )[33m.[39m[34mtoMatchObject[39m({ setupPhase[33m:[39m [32m"sync_failed"[39m })
+Tests	Backend tests	2026-09-09T00:32:51.4721217Z     [90m   | [39m              [31m^[39m
+Tests	Backend tests	2026-09-09T00:32:51.4721553Z     [90m101| [39m            [34mexpect[39m(
+Tests	Backend tests	2026-09-09T00:32:51.4722457Z     [90m102| [39m              [35mawait[39m [34menqueueConnectorContentSync[39m({
+Tests	Backend tests	2026-09-09T00:32:51.4723273Z [90m [2m❯[22m withNativeHydrationFixture src/test/native-hydration-fixture.ts:[2m657:5[22m[39m
+Tests	Backend tests	2026-09-09T00:32:51.4724003Z [90m [2m❯[22m src/openworkflow/enqueue-notion-push-sync.test.ts:[2m21:5[22m[39m
+Tests	Backend tests	2026-09-09T00:32:51.4724265Z 
+Tests	Backend tests	2026-09-09T00:32:51.4724499Z [31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯[22m[39m
+Tests	Backend tests	2026-09-09T00:32:51.4724740Z 
+Tests	Backend tests	2026-09-09T00:32:51.4725712Z [41m[1m FAIL [22m[49m src/domain/workspaces/tanstack-workspace-chat.live.test.ts[2m > [22mworkspace chat OpenCode fallback (live)[2m > [22mconversation POST streams through the same local_process fallback
+Tests	Backend tests	2026-09-09T00:32:51.4726533Z [31m[1mAssertionError[22m: expected -1 to be greater than 15[39m
+Tests	Backend tests	2026-09-09T00:32:51.4727104Z [36m [2m❯[22m src/domain/workspaces/tanstack-workspace-chat.live.test.ts:[2m353:23[22m[39m
+Tests	Backend tests	2026-09-09T00:32:51.4781398Z     [90m351| [39m        [35mconst[39m finished [33m=[39m body[33m.[39m[34mindexOf[39m([32m"RUN_FINISHED"[39m)
+Tests	Backend tests	2026-09-09T00:32:51.4782034Z 
+Tests	Backend tests	2026-09-09T00:32:51.4800809Z     [90m352| [39m        [34mexpect[39m(started)[33m.[39m[34mtoBeGreaterThanOrEqual[39m([34m0[39m)
+Tests	Backend tests	2026-09-09T00:32:51.4801942Z [2m Test Files [22m [1m[31m2 failed[39m[22m[2m | [22m[1m[32m206 passed[39m[22m[90m (208)[39m
+Tests	Backend tests	2026-09-09T00:32:51.4855894Z     [90m353| [39m        [34mexpect[39m(delta)[33m.[39m[34mtoBeGreaterThan[39m(started)
+Tests	Backend tests	2026-09-09T00:32:51.4857016Z [2m      Tests [22m [1m[31m2 failed[39m[22m[2m | [22m[1m[32m1306 passed[39m[22m[90m (1308)[39m
+Tests	Backend tests	2026-09-09T00:32:51.4864542Z     [90m   | [39m                      [31m^[39m
+Tests	Backend tests	2026-09-09T00:32:51.4865077Z [2m   Start at [22m 00:21:50
+Tests	Backend tests	2026-09-09T00:32:51.4867439Z [2m   Duration [22m 660.75s[2m (transform 4.32s, setup 1.20s, import 126.15s, tests 514.40s, environment 20ms)[22m
+Tests	Backend tests	2026-09-09T00:32:51.4869161Z     [90m354| [39m        [35mif[39m (finished [33m>=[39m [34m0[39m) [34mexpect[39m(delta)[33m.[39m[34mtoBeLessThan[39m(finished)
+Tests	Backend tests	2026-09-09T00:32:51.4869914Z 
+Tests	Backend tests	2026-09-09T00:32:51.4870782Z     [90m355| [39m        [34mexpect[39m(upstreamHits[33m.[39mlength)[33m.[39m[34mtoBeGreaterThan[39m([34m0[39m)
+Tests	Backend tests	2026-09-09T00:32:51.4871316Z 
+Tests	Backend tests	2026-09-09T00:32:51.4871700Z [31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯[22m[39m
+Tests	Backend tests	2026-09-09T00:32:51.4872015Z 
+Tests	Backend tests	2026-09-09T00:32:51.4889877Z JSON report written to /home/runner/work/ctxpipe/ctxpipe/.ci-results/backend/results.json
+Tests	Backend tests	2026-09-09T00:32:51.5516842Z Unexpected failure: src/openworkflow/enqueue-notion-push-sync.test.ts accepts a durable Notion activation (canceled before activation: true)
+Tests	Backend tests	2026-09-09T00:32:51.5517813Z AssertionError: expected { …(14) } to match object { setupPhase: 'sync_failed' }
+Tests	Backend tests	2026-09-09T00:32:51.5518296Z (13 matching properties omitted from actual)
+Tests	Backend tests	2026-09-09T00:32:51.5549446Z scripts/ci/check-test-report.mjs failed
+Tests	Backend tests	2026-09-09T00:32:51.5721748Z /home/runner/work/ctxpipe/ctxpipe/apps/backend:
+Tests	Backend tests	2026-09-09T00:32:51.5722867Z  ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @ctxpipe/backend@0.1.0 test: `node ../../scripts/ci/test-suite.mjs backend`
+Tests	Backend tests	2026-09-09T00:32:51.5723634Z Exit status 1
+Tests	Backend tests	2026-09-09T00:32:51.5956366Z ##[error]Process completed with exit code 1.

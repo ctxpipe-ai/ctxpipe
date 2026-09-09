@@ -7,6 +7,7 @@ import { connections } from "../db/schema/connections.js"
 import { ensureOrgRepositoryForGitUrl } from "../domain/workspaces/ensure-org-repository.js"
 import { upsertConnectionDirectory } from "../models/connection-directory.js"
 import { getNotionBindingWithRepoByConnectionId } from "../models/notion-connector.js"
+import { renderNotionConfigYaml } from "../services/notion/config-yaml.js"
 import { withNativeHydrationFixture } from "../test/native-hydration-fixture.js"
 import {
   connectorConfigKey,
@@ -67,7 +68,7 @@ it.each([false, true])(
             const owner = await backend.createWorkflowRun({
               workflowName: "notion-sync-content",
               version: null,
-              idempotencyKey: `connector-content:${connectionId}:1:${connectorConfigKey(input.scopeFromRepo)}`,
+              idempotencyKey: `connector-content:${connectionId}:1:${connectorConfigKey(renderNotionConfigYaml(input.scopeFromRepo))}`,
               config: {},
               context: null,
               input: {
@@ -75,7 +76,9 @@ it.each([false, true])(
                 orgSlug: f.org.slug,
                 connectionId,
                 contentSyncGeneration: 1,
-                configKey: connectorConfigKey(input.scopeFromRepo),
+                configKey: connectorConfigKey(
+                  renderNotionConfigYaml(input.scopeFromRepo),
+                ),
                 contentSyncBinding: {
                   provider: "notion",
                   repositoryId: repository.id,
