@@ -22,7 +22,7 @@ async function mergeProvider(
 ): Promise<SandboxProvider> {
   if (provider === "docker") {
     const { dockerSandbox } = await import("@tanstack/ai-sandbox-docker")
-    const options = { timeout: 30_000, connectionTimeout: 2_000 }
+    const options = { timeout: 30_000 }
     return dockerSandbox({
       image: "node:22",
       containerName: id,
@@ -45,7 +45,7 @@ export async function planMergeSandbox(
   resourceKey: string,
 ): Promise<MergeSandbox> {
   const provider = await discoverSandboxProvider()
-  if (provider === "railway")
+  if (provider === "railway" || provider === "sbx")
     throw new Error(
       "Semantic merge requires a configured TanStack job sandbox provider",
     )

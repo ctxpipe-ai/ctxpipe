@@ -23,6 +23,13 @@ vi.mock("dockerode", () => ({
 describe("detectSandboxProvider", () => {
   it("locks a known provider and fail-closes on an unknown lock", () => {
     expect(detectSandboxProvider({ locked: "railway" })).toBe("railway")
+    expect(detectSandboxProvider({ locked: "sbx", hasDocker: true })).toBe(
+      "sbx",
+    )
+    expect(detectSandboxProvider({ hasSbx: true, hasDocker: true })).toBe("sbx")
+    expect(detectSandboxProvider({ locked: "docker", hasSbx: true })).toBe(
+      "docker",
+    )
     expect(() => detectSandboxProvider({ locked: "heroku" })).toThrow(
       /Unknown SANDBOX_PROVIDER/,
     )
@@ -39,7 +46,6 @@ describe("detectSandboxProvider", () => {
       }),
     ).toThrow(/Unknown SANDBOX_PROVIDER/)
   })
-
 })
 
 describe("destroyDetachedProviderSandbox", () => {

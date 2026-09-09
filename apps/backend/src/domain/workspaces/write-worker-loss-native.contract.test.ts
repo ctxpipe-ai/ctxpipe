@@ -21,6 +21,7 @@ import { getWriteJobCommitSha } from "../../models/workspace-write-jobs.js"
 import { workspaceBootstrap } from "../../openworkflow/workflows/workspace-bootstrap.js"
 import { workspaceSemanticMerge } from "../../openworkflow/workflows/workspace-semantic-merge.js"
 import { holdDockerAllocationReply } from "../../test/native-docker-ack-loss.js"
+import { nativeDockerFailureDiagnostics } from "../../test/native-docker-failure-diagnostics.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { withHeldSemanticHandoffCommit } from "../../test/native-workflow-ack-loss.js"
 
@@ -71,6 +72,7 @@ it.each([
           })
         const docker = new Docker()
         let resourceId: string | undefined
+        let resourceName: string | undefined
         const unexpectedRequests: string[] = []
         // Only paid/third-party HTTP is substituted. Both child processes execute
         // the real workflow, database, model client, credential broker and Git.
@@ -259,6 +261,8 @@ process.exit(result.status ?? 1);
             process.kill(-entry.child.pid, "SIGKILL")
           await entry.exited
         }
+        let testError: unknown
+        const cleanupErrors: unknown[] = []
         try {
           await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)
           const jobId = `wjob_${f.id}_worker_loss`
@@ -352,6 +356,7 @@ process.exit(result.status ?? 1);
               const locator = steps.find(
                 (step) => step.stepName === "plan-merge-sandbox",
               )?.output as { id: string; expiresAt: string }
+              resourceName = locator.id
               expect(locator.id).toContain("ctxpipe-semantic-merge-")
               resourceId = (await docker.getContainer(locator.id).inspect()).Id
               if (allocation) expect(resourceId).toBe(allocation.id)
@@ -520,6 +525,16 @@ process.exit(result.status ?? 1);
             expect(fault.lostAcknowledgement).toBe(true)
           } else await exercise(f.databaseUrl)
         } catch (error) {
+          const dockerDiagnostics = resourceBoundary
+            ? await nativeDockerFailureDiagnostics({
+                childRuntime: "bun",
+                ownedName: resourceName,
+                proxyTrace: dockerFault?.trace(),
+                transport: dockerFault
+                  ? "allocation fault proxy, then default host Docker socket"
+                  : "default host Docker socket",
+              })
+            : undefined
           const runs = await f.backend.listWorkflowRuns({ limit: 100 })
           const failures = await Promise.all(
             runs.data
@@ -541,28 +556,62 @@ process.exit(result.status ?? 1);
               })),
           )
           childErrors += JSON.stringify(failures)
-          throw new Error(
-            `${error instanceof Error ? error.message : String(error)}\nNative child diagnostics: ${childErrors}`,
+          testError = new Error(
+            `${error instanceof Error ? error.message : String(error)}\nNative child diagnostics: ${childErrors}${dockerDiagnostics ? `\nNative Docker diagnostics: ${JSON.stringify(dockerDiagnostics)}` : ""}`,
             { cause: error },
           )
         } finally {
           releaseOriginalModel()
           releaseReplacementModel()
           dockerFault?.release()
-          for (const child of children) await kill(child)
-          await dockerFault?.close()
+          for (const child of children) {
+            try {
+              await kill(child)
+            } catch (error) {
+              cleanupErrors.push(error)
+            }
+          }
+          try {
+            await dockerFault?.close()
+          } catch (error) {
+            cleanupErrors.push(error)
+          }
           const ownedResourceId = resourceId ?? allocation?.id
-          if (ownedResourceId)
-            await docker
-              .getContainer(ownedResourceId)
-              .remove({ force: true, v: true })
-              .catch((error) => {
-                if (error.statusCode !== 404) throw error
-              })
-          await new Promise<void>((resolve, reject) =>
-            server.close((error) => (error ? reject(error) : resolve())),
+          if (ownedResourceId) {
+            try {
+              await docker
+                .getContainer(ownedResourceId)
+                .remove({ force: true, v: true })
+            } catch (error) {
+              if (
+                !error ||
+                typeof error !== "object" ||
+                !("statusCode" in error) ||
+                error.statusCode !== 404
+              )
+                cleanupErrors.push(error)
+            }
+          }
+          try {
+            await new Promise<void>((resolve, reject) =>
+              server.close((error) => (error ? reject(error) : resolve())),
+            )
+          } catch (error) {
+            cleanupErrors.push(error)
+          }
+        }
+        if (testError && cleanupErrors.length > 0) {
+          throw new AggregateError(
+            [testError, ...cleanupErrors],
+            "Native worker-loss contract and cleanup both failed",
           )
         }
+        if (testError) throw testError
+        if (cleanupErrors.length > 0)
+          throw new AggregateError(
+            cleanupErrors,
+            "Native worker-loss contract cleanup failed",
+          )
       },
     )
   },

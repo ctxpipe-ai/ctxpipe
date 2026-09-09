@@ -17,6 +17,7 @@ export async function holdDockerAllocationReply(socketPath: string) {
   const allocation = new Promise<{ id: string; name: string }>((resolve) => {
     allocated = resolve
   })
+  const lifecycle: string[] = []
   let held = false
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://docker")
@@ -26,6 +27,7 @@ export async function holdDockerAllocationReply(socketPath: string) {
       url.pathname.endsWith("/containers/create") &&
       name?.startsWith("ctxpipe-semantic-merge-") &&
       !held
+    if (target) lifecycle.push("allocation-request-forwarded")
     const forwarded = nativeRequest(
       {
         socketPath: upstreamSocket,
@@ -36,6 +38,7 @@ export async function holdDockerAllocationReply(socketPath: string) {
       async (upstreamResponse) => {
         if (target && upstreamResponse.statusCode === 201 && name) {
           held = true
+          lifecycle.push("allocation-created-reply-held")
           const chunks: Buffer[] = []
           for await (const chunk of upstreamResponse)
             chunks.push(Buffer.from(chunk))
@@ -43,9 +46,13 @@ export async function holdDockerAllocationReply(socketPath: string) {
           const created = JSON.parse(body.toString()) as { Id: string }
           allocated({ id: created.Id, name })
           await released
+          lifecycle.push("allocation-release-observed")
           if (!response.destroyed) {
+            lifecycle.push("allocation-reply-forwarded")
             response.writeHead(201, upstreamResponse.headers)
             response.end(body)
+          } else {
+            lifecycle.push("allocation-client-disconnected")
           }
         } else {
           response.writeHead(
@@ -57,6 +64,7 @@ export async function holdDockerAllocationReply(socketPath: string) {
       },
     )
     forwarded.on("error", (error) => {
+      if (target) lifecycle.push("allocation-upstream-error")
       if (!response.destroyed) {
         response.writeHead(502)
         response.end(error.message)
@@ -68,16 +76,23 @@ export async function holdDockerAllocationReply(socketPath: string) {
     server.once("error", reject)
     server.listen(socketPath, resolve)
   })
+  lifecycle.push("listener-started")
   return {
     socketPath,
     allocation,
-    release,
+    release: () => {
+      lifecycle.push("release-requested")
+      release()
+    },
+    trace: () => [...lifecycle],
     close: async () => {
+      lifecycle.push("close-requested")
       release()
       server.closeAllConnections()
       await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
       )
+      lifecycle.push("closed")
     },
   }
 }

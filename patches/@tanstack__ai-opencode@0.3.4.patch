@@ -1,3 +1,15 @@
+diff --git a/dist/esm/adapters/text.js b/dist/esm/adapters/text.js
+index d11df14ae2159d0558a0f928b72c3d24867b164a..d4cdd33d1b8b72cf0d09ac3ab3cd8a113ef02935 100644
+--- a/dist/esm/adapters/text.js
++++ b/dist/esm/adapters/text.js
+@@ -126,6 +126,7 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
+ 				providerID,
+ 				modelID,
+ 				...sessionId !== void 0 && { resumeSessionId: sessionId },
++				...externalSignal !== void 0 && { signal: externalSignal },
+ 				onEvent: (event) => queue.push({
+ 					kind: "event",
+ 					event
 diff --git a/dist/esm/process/sandbox-server.js b/dist/esm/process/sandbox-server.js
 index 51278c92b6c5df3627d885c29e8f94b0b50adb1b..d35c4f74557cc69b3a8a638b0e5aa8302fcfae15 100644
 --- a/dist/esm/process/sandbox-server.js
@@ -202,40 +214,475 @@ index 51278c92b6c5df3627d885c29e8f94b0b50adb1b..d35c4f74557cc69b3a8a638b0e5aa830
 -
 -//# sourceMappingURL=sandbox-server.js.map
 \ No newline at end of file
+diff --git a/dist/esm/process/server.d.ts b/dist/esm/process/server.d.ts
+index 1fe0fef723a6e5b5910fb014626798653e4641bd..206f89734e751ce870a1139305cd1e37340b2fe4 100644
+--- a/dist/esm/process/server.d.ts
++++ b/dist/esm/process/server.d.ts
+@@ -57,6 +57,8 @@ export interface StartOpencodeSessionOptions {
+     }>;
+     /** Session id to resume; falls back to a fresh session when not found. */
+     resumeSessionId?: string;
++    /** Abort startup while waiting for the event stream to become ready. */
++    signal?: AbortSignal;
+     onEvent: (event: OpencodeEvent) => void;
+     onPermissionRequest: (request: OpencodePermissionRequest) => Promise<OpencodePermissionResponse> | OpencodePermissionResponse;
+     /** Called when the event subscription fails mid-turn. */
 diff --git a/dist/esm/process/server.js b/dist/esm/process/server.js
-index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..09318a6f0c5347d54b3ac364a9e635026dc69734 100644
+index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..ebc352c521703fbf3905c1a2cb8fdcd3f353c0d3 100644
 --- a/dist/esm/process/server.js
 +++ b/dist/esm/process/server.js
-@@ -53,10 +53,12 @@ async function startOpencodeSession(options) {
- 		client = result.client;
- 		ownedServer = result.server;
- 	}
-+	const subscriptionAbort = new AbortController();
- 	const lifecycle = { disposed: false };
- 	const teardown = async () => {
- 		if (lifecycle.disposed) return;
- 		lifecycle.disposed = true;
-+		subscriptionAbort.abort();
- 		ownedServer?.close();
- 		await Promise.resolve();
- 	};
-@@ -100,7 +102,7 @@ async function startOpencodeSession(options) {
- 				if (!lifecycle.disposed) options.onError?.(error);
- 			}
- 		};
+@@ -1,168 +1,289 @@
+-import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk";
+-//#region src/process/server.ts
++import { createOpencode, createOpencodeClient } from '@opencode-ai/sdk';
++const EVENT_SUBSCRIPTION_READY_TIMEOUT_MS = 10_000;
++function waitForStreamEvent(ready, signal, eventName) {
++    return new Promise((resolve, reject) => {
++        let settled = false;
++        let timer;
++        const onAbort = () => {
++            settle(() => reject(signal?.reason ?? new Error(`OpenCode ${eventName} aborted`)));
++        };
++        const settle = (finish) => {
++            if (settled)
++                return;
++            settled = true;
++            if (timer !== undefined)
++                clearTimeout(timer);
++            signal?.removeEventListener('abort', onAbort);
++            finish();
++        };
++        void ready.then(() => settle(resolve), (error) => settle(() => reject(error)));
++        if (signal?.aborted) {
++            onAbort();
++            return;
++        }
++        signal?.addEventListener('abort', onAbort, { once: true });
++        timer = setTimeout(() => settle(() => reject(new Error(`OpenCode ${eventName} was not observed within ${EVENT_SUBSCRIPTION_READY_TIMEOUT_MS}ms`))), EVENT_SUBSCRIPTION_READY_TIMEOUT_MS);
++    });
++}
+ /** Locate the session id an OpenCode event belongs to, when it carries one. */
+ function sessionIdOf(event) {
+-	const props = event.properties;
+-	if (props?.sessionID !== void 0) return props.sessionID;
+-	if (event.type === "message.part.updated") return event.properties.part.sessionID;
+-	if (event.type === "message.updated") return event.properties.info.sessionID;
+-	if (event.type === "permission.updated") return event.properties.sessionID;
++    const props = event.properties;
++    if (props?.sessionID !== undefined)
++        return props.sessionID;
++    if (event.type === 'message.part.updated') {
++        return event.properties.part.sessionID;
++    }
++    if (event.type === 'message.updated') {
++        return event.properties.info.sessionID;
++    }
++    if (event.type === 'permission.updated') {
++        return event.properties.sessionID;
++    }
++    return undefined;
+ }
+ function buildConfig(options) {
+-	const mcp = { ...options.config?.mcp };
+-	for (const server of options.mcpServers ?? []) mcp[server.name] = {
+-		type: "remote",
+-		url: server.url,
+-		enabled: true
+-	};
+-	return {
+-		...options.config,
+-		...Object.keys(mcp).length > 0 && { mcp },
+-		...options.permission !== void 0 && { permission: options.permission }
+-	};
++    const mcp = { ...options.config?.mcp };
++    for (const server of options.mcpServers ?? []) {
++        mcp[server.name] = { type: 'remote', url: server.url, enabled: true };
++    }
++    return {
++        ...options.config,
++        ...(Object.keys(mcp).length > 0 && { mcp }),
++        ...(options.permission !== undefined && { permission: options.permission }),
++    };
+ }
+ /**
+-* Boot (or attach to) an OpenCode HTTP server, resolve a session, and wire its
+-* event subscription + permission replies.
+-*
+-* This module is the only place that touches `@opencode-ai/sdk`; the rest of
+-* the package works with the structural types in `sdk-types.ts`.
+-*
+-* Resume semantics: when `resumeSessionId` is set and the server still knows
+-* the session (same machine, same data dir), it is reused. Otherwise a fresh
+-* session is created and `resumed: false` tells the adapter to send the
+-* flattened transcript.
+-*/
+-async function startOpencodeSession(options) {
+-	const { directory } = options;
+-	const dirQuery = directory !== void 0 ? { directory } : {};
+-	let client;
+-	let ownedServer;
+-	if (options.baseUrl !== void 0) client = createOpencodeClient({
+-		baseUrl: options.baseUrl,
+-		...options.headers !== void 0 && { headers: options.headers },
+-		...directory !== void 0 && { directory }
+-	});
+-	else {
+-		const config = buildConfig(options);
+-		const result = await createOpencode({
+-			...options.hostname !== void 0 && { hostname: options.hostname },
+-			...options.port !== void 0 && { port: options.port },
+-			...Object.keys(config).length > 0 && { config }
+-		});
+-		client = result.client;
+-		ownedServer = result.server;
+-	}
+-	const lifecycle = { disposed: false };
+-	const teardown = async () => {
+-		if (lifecycle.disposed) return;
+-		lifecycle.disposed = true;
+-		ownedServer?.close();
+-		await Promise.resolve();
+-	};
+-	try {
+-		let sessionId;
+-		let resumed = false;
+-		if (options.resumeSessionId !== void 0) {
+-			if ((await client.session.get({
+-				path: { id: options.resumeSessionId },
+-				query: dirQuery
+-			})).data) {
+-				sessionId = options.resumeSessionId;
+-				resumed = true;
+-			}
+-		}
+-		if (sessionId === void 0) sessionId = (await client.session.create({
+-			query: dirQuery,
+-			body: {},
+-			throwOnError: true
+-		})).data.id;
+-		const resolvedSessionId = sessionId;
+-		const handlePermission = async (permission) => {
+-			try {
+-				const response = await options.onPermissionRequest({
+-					id: permission.id,
+-					sessionID: permission.sessionID,
+-					type: permission.type,
+-					title: permission.title,
+-					...permission.callID !== void 0 && { callID: permission.callID }
+-				});
+-				await client.postSessionIdPermissionsPermissionId({
+-					path: {
+-						id: permission.sessionID,
+-						permissionID: permission.id
+-					},
+-					query: dirQuery,
+-					body: { response },
+-					throwOnError: true
+-				});
+-			} catch (error) {
+-				if (!lifecycle.disposed) options.onError?.(error);
+-			}
+-		};
 -		const stream = (await client.event.subscribe()).stream;
-+		const stream = (await client.event.subscribe({ signal: subscriptionAbort.signal })).stream;
- 		(async () => {
- 			try {
- 				for await (const event of stream) {
-@@ -151,6 +153,7 @@ async function startOpencodeSession(options) {
- 			},
- 			dispose: async () => {
- 				lifecycle.disposed = true;
-+				subscriptionAbort.abort();
- 				try {
- 					await stream.return(void 0);
- 				} catch {}
+-		(async () => {
+-			try {
+-				for await (const event of stream) {
+-					if (lifecycle.disposed) break;
+-					const sid = sessionIdOf(event);
+-					if (sid !== void 0 && sid !== resolvedSessionId) continue;
+-					if (event.type === "permission.updated") {
+-						handlePermission(event.properties);
+-						continue;
+-					}
+-					options.onEvent(event);
+-				}
+-			} catch (error) {
+-				if (!lifecycle.disposed) options.onError?.(error);
+-			}
+-		})();
+-		return {
+-			sessionId: resolvedSessionId,
+-			resumed,
+-			prompt: async (text) => {
+-				const data = (await client.session.prompt({
+-					path: { id: resolvedSessionId },
+-					query: dirQuery,
+-					body: {
+-						model: {
+-							providerID: options.providerID,
+-							modelID: options.modelID
+-						},
+-						parts: [{
+-							type: "text",
+-							text
+-						}]
+-					},
+-					throwOnError: true
+-				})).data;
+-				return {
+-					message: data.info,
+-					text: data.parts.filter((part) => part.type === "text").map((part) => part.text).join("")
+-				};
+-			},
+-			abort: async () => {
+-				try {
+-					await client.session.abort({
+-						path: { id: resolvedSessionId },
+-						query: dirQuery
+-					});
+-				} catch {}
+-			},
+-			dispose: async () => {
+-				lifecycle.disposed = true;
+-				try {
+-					await stream.return(void 0);
+-				} catch {}
+-				ownedServer?.close();
+-			}
+-		};
+-	} catch (error) {
+-		await teardown();
+-		throw error;
+-	}
++ * Boot (or attach to) an OpenCode HTTP server, resolve a session, and wire its
++ * event subscription + permission replies.
++ *
++ * This module is the only place that touches `@opencode-ai/sdk`; the rest of
++ * the package works with the structural types in `sdk-types.ts`.
++ *
++ * Resume semantics: when `resumeSessionId` is set and the server still knows
++ * the session (same machine, same data dir), it is reused. Otherwise a fresh
++ * session is created and `resumed: false` tells the adapter to send the
++ * flattened transcript.
++ */
++export async function startOpencodeSession(options) {
++    const { directory } = options;
++    // Spread into a `query` object only when set; omitting lets opencode use the
++    // server's launch cwd (correct for every provider — see `directory` docs).
++    const dirQuery = directory !== undefined ? { directory } : {};
++    let client;
++    let ownedServer;
++    if (options.baseUrl !== undefined) {
++        client = createOpencodeClient({
++            baseUrl: options.baseUrl,
++            ...(options.headers !== undefined && { headers: options.headers }),
++            ...(directory !== undefined && { directory }),
++        });
++    }
++    else {
++        const config = buildConfig(options);
++        const result = await createOpencode({
++            ...(options.hostname !== undefined && { hostname: options.hostname }),
++            ...(options.port !== undefined && { port: options.port }),
++            ...(Object.keys(config).length > 0 && { config }),
++        });
++        client = result.client;
++        ownedServer = result.server;
++    }
++    // Mutated from several closures (the subscription loop, dispose, teardown);
++    // a holder object keeps reads typed as `boolean` rather than being
++    // flow-narrowed to a literal across those boundaries.
++    const subscriptionAbort = new AbortController();
++    const lifecycle = { disposed: false };
++    // Native transport state only: HTTP completion may arrive before its SSE
++    // events, or after the terminal event has already been delivered.
++    const terminalMessages = new Set();
++    const terminalWaiters = new Map();
++    let subscriptionFailure;
++    const rejectTerminalWaiters = (error) => {
++        for (const waiter of terminalWaiters.values())
++            waiter.reject(error);
++        terminalWaiters.clear();
++        terminalMessages.clear();
++    };
++    const teardown = async () => {
++        if (lifecycle.disposed)
++            return;
++        lifecycle.disposed = true;
++        rejectTerminalWaiters(new Error('OpenCode session disposed'));
++        subscriptionAbort.abort();
++        ownedServer?.close();
++        await Promise.resolve();
++    };
++    try {
++        // Resolve the session before subscribing so the event filter has an id.
++        let sessionId;
++        let resumed = false;
++        if (options.resumeSessionId !== undefined) {
++            const existing = await client.session.get({
++                path: { id: options.resumeSessionId },
++                query: dirQuery,
++            });
++            if (existing.data) {
++                sessionId = options.resumeSessionId;
++                resumed = true;
++            }
++        }
++        if (sessionId === undefined) {
++            const created = await client.session.create({
++                query: dirQuery,
++                body: {},
++                throwOnError: true,
++            });
++            sessionId = created.data.id;
++        }
++        const resolvedSessionId = sessionId;
++        const handlePermission = async (permission) => {
++            try {
++                const response = await options.onPermissionRequest({
++                    id: permission.id,
++                    sessionID: permission.sessionID,
++                    type: permission.type,
++                    title: permission.title,
++                    ...(permission.callID !== undefined && { callID: permission.callID }),
++                });
++                await client.postSessionIdPermissionsPermissionId({
++                    path: { id: permission.sessionID, permissionID: permission.id },
++                    query: dirQuery,
++                    body: { response },
++                    throwOnError: true,
++                });
++            }
++            catch (error) {
++                if (!lifecycle.disposed)
++                    options.onError?.(error);
++            }
++        };
++        const subscription = await client.event.subscribe({ signal: subscriptionAbort.signal });
++        const stream = subscription.stream;
++        let resolveReady;
++        let rejectReady;
++        const ready = new Promise((resolve, reject) => {
++            resolveReady = resolve;
++            rejectReady = reject;
++        });
++        let sawFirstEvent = false;
++        void (async () => {
++            try {
++                for await (const event of stream) {
++                    if (lifecycle.disposed)
++                        break;
++                    if (!sawFirstEvent) {
++                        sawFirstEvent = true;
++                        if (event.type !== 'server.connected') {
++                            throw new Error(`OpenCode event subscription started with ${event.type}, expected server.connected`);
++                        }
++                        resolveReady();
++                    }
++                    const sid = sessionIdOf(event);
++                    if (sid !== undefined && sid !== resolvedSessionId)
++                        continue;
++                    if (event.type === 'permission.updated') {
++                        void handlePermission(event.properties);
++                        continue;
++                    }
++                    // The SDK event union is a structural superset of the subset the
++                    // translator consumes; unknown event types match no translator
++                    // branch and are ignored.
++                    options.onEvent(event);
++                    if (event.type === 'message.updated' &&
++                        event.properties.info.role === 'assistant' &&
++                        (event.properties.info.time.completed !== undefined ||
++                            event.properties.info.error !== undefined)) {
++                        const id = event.properties.info.id;
++                        terminalMessages.add(id);
++                        terminalWaiters.get(id)?.resolve();
++                    }
++                }
++                if (!lifecycle.disposed)
++                    throw new Error('OpenCode event subscription ended unexpectedly');
++            }
++            catch (error) {
++                subscriptionFailure = error instanceof Error ? error : new Error(String(error));
++                rejectReady(subscriptionFailure);
++                rejectTerminalWaiters(subscriptionFailure);
++                if (!lifecycle.disposed)
++                    options.onError?.(subscriptionFailure);
++            }
++        })();
++        // The generated SDK's subscribe() call is lazy: the HTTP request does not
++        // start until the async iterator is consumed. Await its first real event
++        // so a prompt cannot race the SSE handshake on a fast server.
++        await waitForStreamEvent(ready, options.signal, 'event subscription');
++        return {
++            sessionId: resolvedSessionId,
++            resumed,
++            prompt: async (text) => {
++                options.signal?.throwIfAborted();
++                if (lifecycle.disposed)
++                    throw new Error('OpenCode session disposed');
++                if (subscriptionFailure)
++                    throw subscriptionFailure;
++                terminalMessages.clear();
++                const result = await client.session.prompt({
++                    signal: subscriptionAbort.signal,
++                    path: { id: resolvedSessionId },
++                    query: dirQuery,
++                    body: {
++                        model: { providerID: options.providerID, modelID: options.modelID },
++                        parts: [{ type: 'text', text }],
++                    },
++                    throwOnError: true,
++                });
++                const data = result.data;
++                const message = data.info;
++                if (lifecycle.disposed)
++                    throw new Error('OpenCode session disposed');
++                if (subscriptionFailure)
++                    throw subscriptionFailure;
++                // The adapter ends its event queue when this call resolves. Wait for
++                // this exact assistant's terminal SSE update, after onEvent enqueues
++                // it, so delayed text/tool events cannot be discarded by HTTP racing.
++                if (!terminalMessages.has(message.id)) {
++                    const terminal = new Promise((resolve, reject) => {
++                        terminalWaiters.set(message.id, { resolve, reject });
++                    });
++                    try {
++                        await waitForStreamEvent(terminal, options.signal, 'assistant completion');
++                    }
++                    finally {
++                        terminalWaiters.delete(message.id);
++                    }
++                }
++                terminalMessages.delete(message.id);
++                const responseText = data.parts
++                    .filter((part) => part.type === 'text')
++                    .map((part) => part.text)
++                    .join('');
++                return { message, text: responseText };
++            },
++            abort: async () => {
++                try {
++                    await client.session.abort({
++                        path: { id: resolvedSessionId },
++                        query: dirQuery,
++                    });
++                }
++                catch {
++                    // Best-effort: the turn may already be finishing.
++                }
++            },
++            dispose: async () => {
++                await teardown();
++                try {
++                    await stream.return(undefined);
++                }
++                catch {
++                    // Ignore: stream may already be closed.
++                }
++            },
++        };
++    }
++    catch (error) {
++        await teardown();
++        throw error;
++    }
+ }
+-//#endregion
+-export { startOpencodeSession };
+-
+-//# sourceMappingURL=server.js.map
+\ No newline at end of file
 diff --git a/dist/esm/stream/sdk-types.d.ts b/dist/esm/stream/sdk-types.d.ts
 index ced4f2b07b9d85f940844bc08ecc1f201cae1723..7cbf1dddd996ce036b6ba56dc2a6572fb7c4fc96 100644
 --- a/dist/esm/stream/sdk-types.d.ts
@@ -316,6 +763,18 @@ index a63df2314be1bf53f30f08bf21b6d56a6408122f..e874a57268631e962e675a5ac2dbb8a2
  			if (isTextPart(part)) yield* handleTextPart(part, delta);
  			else if (isReasoningPart(part)) yield* handleReasoningPart(part, delta);
  			else if (isToolPart(part)) yield* handleToolPart(part);
+diff --git a/src/adapters/text.ts b/src/adapters/text.ts
+index ee6ee29530377f5ba53b0f6eb1f35f7153dca886..3cf4c7350b49ffab7cc26169ea8cebdb48415964 100644
+--- a/src/adapters/text.ts
++++ b/src/adapters/text.ts
+@@ -321,6 +321,7 @@ export class OpencodeTextAdapter<
+         providerID,
+         modelID,
+         ...(sessionId !== undefined && { resumeSessionId: sessionId }),
++        ...(externalSignal !== undefined && { signal: externalSignal }),
+         onEvent: (event) => queue.push({ kind: 'event', event }),
+         onPermissionRequest: permissionHandler,
+         onError: (error) => queue.fail(error),
 diff --git a/src/process/sandbox-server.ts b/src/process/sandbox-server.ts
 index 4ee8d45f78988096a8ed2d86f108a8d4de9396bb..afefc7d8714fc0777b9716d49ff375a028b42bf7 100644
 --- a/src/process/sandbox-server.ts
@@ -459,40 +918,214 @@ index 4ee8d45f78988096a8ed2d86f108a8d4de9396bb..afefc7d8714fc0777b9716d49ff375a0
            }
          }
 diff --git a/src/process/server.ts b/src/process/server.ts
-index d6aaae76712a012d4b7a8c8848e715a83ab5a890..2fd072af92a6cc5d12e8091e3f1995e542bf37b4 100644
+index d6aaae76712a012d4b7a8c8848e715a83ab5a890..a8e36cf1a31d135b76ba5f107f599ad41c840fc4 100644
 --- a/src/process/server.ts
 +++ b/src/process/server.ts
-@@ -141,11 +141,13 @@ export async function startOpencodeSession(
+@@ -62,6 +62,8 @@ export interface StartOpencodeSessionOptions {
+   mcpServers?: Array<{ name: string; url: string }>
+   /** Session id to resume; falls back to a fresh session when not found. */
+   resumeSessionId?: string
++  /** Abort startup while waiting for the event stream to become ready. */
++  signal?: AbortSignal
+   onEvent: (event: OpencodeEvent) => void
+   onPermissionRequest: (
+     request: OpencodePermissionRequest,
+@@ -70,6 +72,54 @@ export interface StartOpencodeSessionOptions {
+   onError?: (error: unknown) => void
+ }
+ 
++const EVENT_SUBSCRIPTION_READY_TIMEOUT_MS = 10_000
++
++function waitForStreamEvent(
++  ready: Promise<void>,
++  signal: AbortSignal | undefined,
++  eventName: string,
++): Promise<void> {
++  return new Promise((resolve, reject) => {
++    let settled = false
++    let timer: ReturnType<typeof setTimeout> | undefined
++    const onAbort = (): void => {
++      settle(() =>
++        reject(
++          signal?.reason ?? new Error(`OpenCode ${eventName} aborted`),
++        ),
++      )
++    }
++    const settle = (finish: () => void): void => {
++      if (settled) return
++      settled = true
++      if (timer !== undefined) clearTimeout(timer)
++      signal?.removeEventListener('abort', onAbort)
++      finish()
++    }
++
++    void ready.then(
++      () => settle(resolve),
++      (error: unknown) => settle(() => reject(error)),
++    )
++    if (signal?.aborted) {
++      onAbort()
++      return
++    }
++    signal?.addEventListener('abort', onAbort, { once: true })
++    timer = setTimeout(
++      () =>
++        settle(() =>
++          reject(
++            new Error(
++              `OpenCode ${eventName} was not observed within ${EVENT_SUBSCRIPTION_READY_TIMEOUT_MS}ms`,
++            ),
++          ),
++        ),
++      EVENT_SUBSCRIPTION_READY_TIMEOUT_MS,
++    )
++  })
++}
++
+ /** Locate the session id an OpenCode event belongs to, when it carries one. */
+ function sessionIdOf(event: Event): string | undefined {
+   const props = event.properties as { sessionID?: string } | undefined
+@@ -141,11 +191,27 @@ export async function startOpencodeSession(
    // Mutated from several closures (the subscription loop, dispose, teardown);
    // a holder object keeps reads typed as `boolean` rather than being
    // flow-narrowed to a literal across those boundaries.
 +  const subscriptionAbort = new AbortController()
    const lifecycle = { disposed: false }
++  // Native transport state only: HTTP completion may arrive before its SSE
++  // events, or after the terminal event has already been delivered.
++  const terminalMessages = new Set<string>()
++  const terminalWaiters = new Map<string, {
++    resolve: () => void
++    reject: (error: unknown) => void
++  }>()
++  let subscriptionFailure: Error | undefined
++  const rejectTerminalWaiters = (error: unknown): void => {
++    for (const waiter of terminalWaiters.values()) waiter.reject(error)
++    terminalWaiters.clear()
++    terminalMessages.clear()
++  }
  
    const teardown = async (): Promise<void> => {
      if (lifecycle.disposed) return
      lifecycle.disposed = true
++    rejectTerminalWaiters(new Error('OpenCode session disposed'))
 +    subscriptionAbort.abort()
      ownedServer?.close()
      await Promise.resolve()
    }
-@@ -196,7 +198,7 @@ export async function startOpencodeSession(
+@@ -196,13 +262,29 @@ export async function startOpencodeSession(
        }
      }
  
 -    const subscription = await client.event.subscribe()
 +    const subscription = await client.event.subscribe({ signal: subscriptionAbort.signal })
      const stream = subscription.stream
++    let resolveReady!: () => void
++    let rejectReady!: (error: unknown) => void
++    const ready = new Promise<void>((resolve, reject) => {
++      resolveReady = resolve
++      rejectReady = reject
++    })
++    let sawFirstEvent = false
  
      void (async () => {
-@@ -255,6 +257,7 @@ export async function startOpencodeSession(
+       try {
+         for await (const event of stream) {
+           if (lifecycle.disposed) break
++          if (!sawFirstEvent) {
++            sawFirstEvent = true
++            if (event.type !== 'server.connected') {
++              throw new Error(
++                `OpenCode event subscription started with ${event.type}, expected server.connected`,
++              )
++            }
++            resolveReady()
++          }
+           const sid = sessionIdOf(event)
+           if (sid !== undefined && sid !== resolvedSessionId) continue
+           if (event.type === 'permission.updated') {
+@@ -213,17 +295,42 @@ export async function startOpencodeSession(
+           // translator consumes; unknown event types match no translator
+           // branch and are ignored.
+           options.onEvent(event as OpencodeEvent)
++          if (
++            event.type === 'message.updated' &&
++            event.properties.info.role === 'assistant' &&
++            (event.properties.info.time.completed !== undefined ||
++              event.properties.info.error !== undefined)
++          ) {
++            const id = event.properties.info.id
++            terminalMessages.add(id)
++            terminalWaiters.get(id)?.resolve()
++          }
+         }
++        if (!lifecycle.disposed)
++          throw new Error('OpenCode event subscription ended unexpectedly')
+       } catch (error) {
+-        if (!lifecycle.disposed) options.onError?.(error)
++        subscriptionFailure = error instanceof Error ? error : new Error(String(error))
++        rejectReady(subscriptionFailure)
++        rejectTerminalWaiters(subscriptionFailure)
++        if (!lifecycle.disposed) options.onError?.(subscriptionFailure)
+       }
+     })()
+ 
++    // The generated SDK's subscribe() call is lazy: the HTTP request does not
++    // start until the async iterator is consumed. Await its first real event
++    // so a prompt cannot race the SSE handshake on a fast server.
++    await waitForStreamEvent(ready, options.signal, 'event subscription')
++
+     return {
+       sessionId: resolvedSessionId,
+       resumed,
+       prompt: async (text: string) => {
++        options.signal?.throwIfAborted()
++        if (lifecycle.disposed) throw new Error('OpenCode session disposed')
++        if (subscriptionFailure) throw subscriptionFailure
++        terminalMessages.clear()
+         const result = await client.session.prompt({
++          signal: subscriptionAbort.signal,
+           path: { id: resolvedSessionId },
+           query: dirQuery,
+           body: {
+@@ -234,6 +341,22 @@ export async function startOpencodeSession(
+         })
+         const data = result.data
+         const message = data.info as OpencodeAssistantMessage
++        if (lifecycle.disposed) throw new Error('OpenCode session disposed')
++        if (subscriptionFailure) throw subscriptionFailure
++        // The adapter ends its event queue when this call resolves. Wait for
++        // this exact assistant's terminal SSE update, after onEvent enqueues
++        // it, so delayed text/tool events cannot be discarded by HTTP racing.
++        if (!terminalMessages.has(message.id)) {
++          const terminal = new Promise<void>((resolve, reject) => {
++            terminalWaiters.set(message.id, { resolve, reject })
++          })
++          try {
++            await waitForStreamEvent(terminal, options.signal, 'assistant completion')
++          } finally {
++            terminalWaiters.delete(message.id)
++          }
++        }
++        terminalMessages.delete(message.id)
+         const responseText = data.parts
+           .filter(
+             (part): part is Extract<Part, { type: 'text' }> =>
+@@ -254,13 +377,12 @@ export async function startOpencodeSession(
+         }
        },
        dispose: async () => {
-         lifecycle.disposed = true
-+        subscriptionAbort.abort()
+-        lifecycle.disposed = true
++        await teardown()
          try {
            await stream.return(undefined)
          } catch {
+           // Ignore: stream may already be closed.
+         }
+-        ownedServer?.close()
+       },
+     }
+   } catch (error) {
 diff --git a/src/stream/sdk-types.ts b/src/stream/sdk-types.ts
 index 8deb3ce87a3f77b048513fd5796607cad2009310..b4937a948c147738caa5c782f0423496345885d3 100644
 --- a/src/stream/sdk-types.ts

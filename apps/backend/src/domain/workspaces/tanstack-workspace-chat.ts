@@ -626,6 +626,14 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
     }
   }
   const selectedProvider = await discoverSandboxProvider()
+  if (selectedProvider === "sbx") {
+    return {
+      ok: false as const,
+      status: 503,
+      error:
+        "The sbx adapter cannot enforce the required 4 GiB disk and 128 PID limits. Workspace chat is unavailable for this provider.",
+    }
+  }
   const contract = workspaceChatOpenCodeContract(process.env)
   if (!contract.ok) {
     return {

@@ -68,3 +68,34 @@ subscription readiness is under investigation. A focused Bun native Docker
 create/replay/exec/destroy probe passes, so the writer failure is not yet
 attributed to the Docker request-body patch. Runner diagnostics and lifecycle
 are being examined before another full CI run.
+
+Provider selection now preserves `sbx` as its own identity instead of translating
+it to Docker. Explicit locks retain precedence. The pinned sbx adapter has no disk/PID
+enforcement, so it is ineligible for automatic selection. Explicit sbx chat and
+write allocation refuse the provider without allocating a weaker fallback. This is honest failure behavior, not a claim of supported sbx execution.
+
+The selector regression passes (2.29 seconds). Native preparation proves that a
+locked sbx request returns 503 with no persisted allocation/model request, while
+unlocked Docker still prepares, reuses and advances the existing worktree (two
+cases, 115.64 seconds including startup). The initial native attempt was denied
+loopback binding by the local sandbox; the authorized rerun is the passing proof.
+
+The three CI Docker recovery failures are resolved by removing Docker Modem's
+misleading two-second `connectionTimeout` from the writer provider. That timer
+aborted requests while Docker was still performing a five-second stop; the
+30-second request deadline and workflow abort signals remain. A controlled native
+stop reproduced the failure at 2,014 ms; create replay then passed in 7.8 seconds,
+and both process-loss boundaries passed together in 331.45 seconds. Failure
+diagnostics preserve body and cleanup errors and report only credential-free
+transport/owned-container state. Combined backend/UI typechecks pass with
+124/223 allowances (84.37/107.13 seconds), with no new or stale entries.
+
+The native SSE startup and prompt-completion races now have independent real
+OpenCode red/green regressions. The installed native patch passes all three
+port/startup/completion tests (9.10 seconds). See
+[stream/provider checkpoint](validation-native-stream-and-provider.md).
+
+The two original CI chat failures and native cancellation pass together (57.55
+seconds). Final backend types pass with 124 existing allowances (90.89 seconds);
+UI remains at 223. No diagnostic allowances were added. Full CI on this code
+checkpoint is the next required confirmation.

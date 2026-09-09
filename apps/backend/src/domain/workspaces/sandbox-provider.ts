@@ -1,6 +1,11 @@
 import { assertNotInOrgDbContext } from "../../db/client.js"
 
-export const SANDBOX_PROVIDERS = ["docker", "railway", "unsandboxed"] as const
+export const SANDBOX_PROVIDERS = [
+  "sbx",
+  "docker",
+  "railway",
+  "unsandboxed",
+] as const
 
 export type SandboxProvider = (typeof SANDBOX_PROVIDERS)[number]
 
@@ -16,7 +21,7 @@ export function detectSandboxProvider(input: {
     }
     throw new Error(`Unknown SANDBOX_PROVIDER "${locked}"`)
   }
-  if (input.hasSbx) return "docker"
+  if (input.hasSbx) return "sbx"
   if (input.hasDocker) return "docker"
   return "unsandboxed"
 }
@@ -34,10 +39,13 @@ export function detectSandboxProviderFromEnv(input?: {
   })
 }
 
-/** Probe the same Docker client/environment used by the native provider, with a bounded deadline. */
+/** Discover an eligible provider using the native Docker client/environment. */
 export async function discoverSandboxProvider(): Promise<SandboxProvider> {
   if (process.env.SANDBOX_PROVIDER?.trim())
     return detectSandboxProviderFromEnv()
+  // The pinned sbx adapter cannot enforce the required disk/PID limits, so
+  // it is ineligible for automatic selection even if its CLI is installed.
+  // Explicit locks still reach the caller's fail-closed provider check.
   const { default: Docker } = await import("dockerode")
   // docker-modem accepts a connection deadline beyond Dockerode's declarations.
   const options = {

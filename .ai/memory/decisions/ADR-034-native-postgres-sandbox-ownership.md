@@ -101,3 +101,42 @@ per-run bearer tokens and listener cleanup; no application run registry or route
 is added. Compose derives its current backend container IP and explicitly retains
 the Bun startup command. Advertised-only NAT addresses are unsupported by this
 exact-interface binding.
+
+### Provider identity and required limits
+
+An explicit provider lock remains authoritative. The application keeps sbx and
+Docker identities distinct. The pinned sbx adapter cannot enforce the locked
+writable-disk and PID limits, so it is ineligible for automatic selection. An
+explicit sbx lock fails closed for chat and write allocation rather than silently
+using Docker or local-process. Automatic selection ranks eligible providers.
+
+### Native OpenCode stream ordering
+
+The adapter waits for OpenCode's `server.connected` event before returning a
+session. The generated SDK returns a lazy iterator, so awaiting `subscribe()`
+alone does not establish the event connection. A blocking prompt's HTTP response
+can also arrive before its SSE events. The native session therefore waits for the
+exact assistant message's terminal update after forwarding that event, then lets
+the stock adapter close its queue. This preserves text and intermediate tools.
+The event waits are bounded and abortable; stream failure and disposal reject
+waiters and release native process/subscription ownership. No application text
+reconstruction or terminal-event repair is introduced.
+
+### Planned native egress boundary (not activated)
+
+A protected Docker sandbox will belong only to its own internal network. A
+trusted, unprivileged proxy owns allowed outbound HTTP/CONNECT and narrow reverse
+HTTP ingress; the agent has no direct external network or DNS path. The native
+provider owns the agent, proxy and network through deterministic allocation
+identity and Docker labels, including validation, recovery and teardown. No
+application sandbox/proxy registry is added. The existing quota-capable runner
+remains the resource boundary; this topology alone does not enforce disk limits.
+
+Per-run MCP ports must be admitted exactly after the native bridge chooses its
+URL, using the ensured handle. An optional native handle admission capability
+receives that URL and its per-run token and returns a revoker. Bridge close owns
+revocation as well as listener closure; failed admission closes the listener and
+fails the turn. Dynamic grants are ephemeral and disappear on proxy restart.
+Static admission of all backend ports is not the design. Provider enforcement,
+production activation and integrated proof remain required before this section
+is implemented acceptance evidence.

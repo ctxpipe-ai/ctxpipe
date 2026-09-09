@@ -5,6 +5,7 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
+import { nativeDockerFailureDiagnostics } from "../../test/native-docker-failure-diagnostics.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
 
@@ -474,9 +475,13 @@ it(
     const savedDockerHost = process.env.DOCKER_HOST
     process.env.SANDBOX_PROVIDER = "docker"
     const locators: Awaited<ReturnType<typeof createMergeSandbox>>[] = []
+    let ownedName: string | undefined
+    let testError: unknown
+    const cleanupErrors: unknown[] = []
     try {
       const key = `native-merge-resource-${Date.now()}-${Math.random()}`
       const planned = await planMergeSandbox(key)
+      ownedName = planned.id
       const first = await createMergeSandbox(planned)
       locators.push(first)
       const provider = dockerSandbox({ image: "node:22" })
@@ -499,12 +504,32 @@ it(
       expect(await resumed?.fs.read("/workspace/captured.txt")).toBe(
         "captured before lost acknowledgement",
       )
+    } catch (error) {
+      testError = error
     } finally {
       if (savedDockerHost === undefined) delete process.env.DOCKER_HOST
       else process.env.DOCKER_HOST = savedDockerHost
-      for (const locator of locators) await destroyMergeSandbox(locator)
+      for (const locator of locators) {
+        try {
+          await destroyMergeSandbox(locator)
+        } catch (error) {
+          cleanupErrors.push(error)
+        }
+      }
       if (savedProvider === undefined) delete process.env.SANDBOX_PROVIDER
       else process.env.SANDBOX_PROVIDER = savedProvider
+    }
+    if (testError || cleanupErrors.length > 0) {
+      const diagnostics = await nativeDockerFailureDiagnostics({
+        ownedName,
+        transport: "default host Docker socket after missing-socket replay",
+      })
+      const phase = testError ? "replay" : "cleanup"
+      const failures = [...(testError ? [testError] : []), ...cleanupErrors]
+      throw new AggregateError(
+        failures,
+        `${phase} failed: ${failures.map((error) => (error instanceof Error ? error.message : String(error))).join(" | ")}\nNative Docker diagnostics: ${JSON.stringify(diagnostics)}`,
+      )
     }
   },
 )

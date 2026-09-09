@@ -27,6 +27,42 @@ import { resolveWorkspaceChatTurnRuntime } from "./workspace-chat-turn-runtime.j
 import { destroySandboxesForConversation } from "./workspace-sandbox-cleanup.js"
 
 it(
+  "rejects locked sbx without allocating a weaker fallback",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      process.env.SANDBOX_PROVIDER = "sbx"
+      const result = await warmTanstackWorkspaceChat({
+        conversationId: f.conversationId,
+        orgId: f.orgId,
+        orgSlug: f.orgSlug,
+        workspaceId: f.workspaceId,
+        desiredUrl: f.directory,
+        desiredSha: f.sha,
+        defaultBranch: "main",
+        writeStatus: "read_only",
+        prompt: "prepare",
+      })
+      expect(result).toEqual({
+        ok: false,
+        status: 503,
+        error:
+          "The sbx adapter cannot enforce the required 4 GiB disk and 128 PID limits. Workspace chat is unavailable for this provider.",
+      })
+      expect(f.modelRequests).toHaveLength(0)
+      expect(
+        await withOrgDbContext(f.orgId, () =>
+          listSandboxInstances({
+            conversationId: f.conversationId,
+            kind: "chat",
+          }),
+        ),
+      ).toEqual([])
+    })
+  },
+)
+
+it(
   "prepare preserves the native worktree while refreshing its credentials",
   { timeout: 60_000 },
   async () => {
