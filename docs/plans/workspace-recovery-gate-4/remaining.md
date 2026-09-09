@@ -13,7 +13,7 @@ git history.
 | G4-B | Stock TanStack chat across HTTP/WS/prepare; native persistence, durability and reconstruction | Two turns, offsets, terminal/transcript equality, process reload, simultaneous-send preservation, cancellation and replay pass; CI concurrency correction remains |
 | G4-C | Warm reuse, captured revision, credentials, native shared bases/forks and provider selection | Warm GitHub budget, base reuse, revision conflicts/repair, process loss, Docker replacement and image collection pass; production provider/security activation remains open |
 | G4-D | Files/publish/delete/idle use native handles; remove duplicate ownership/repair layers | Registry, memo and manual terminal repair removed; Files/publication/cancellation, persisted-first MCP targets and branch/run ownership pass; collision guards pass; final audit remains open |
-| G4-E | Railway SDK conformance, live Bun chat and honest provider/deployment behavior | Native Docker capabilities have focused proof; sbx explicitly fails closed because disk/PID limits are unavailable; Railway live proof remains blocked on access |
+| G4-E | Railway SDK conformance, live Bun chat and honest provider/deployment behavior | Native Docker capabilities have focused proof; sbx fails closed because disk/PID limits are unavailable; Railway is a 503 selector only — no provider, SDK dependency, or live proof. SDK 3.11.0 also lacks CPU/memory/PID/disk/user/egress controls. Access is necessary but not sufficient |
 | G4-F | Full entry-point audit, focused native evidence, full CI and two cumulative zero-blocker reviews | Pending final implementation and validation |
 
 Key evidence:
@@ -30,17 +30,13 @@ Key evidence:
 
 ## Remaining work, in order
 
-1. Current CI [34352646163](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34352646163)
-   on `1c7b9657` passed 12 jobs and failed Required deterministic contracts
-   (327/329). Job-row cleanup no longer appears. Remaining: the 4 GiB quota
-   probe was still `Killed` before a quota error, and overlapping chat still
-   saw an OpenCode `ECONNRESET` during session create. The overlapping case
-   passed locally on this host (20.63s). The quota probe now writes 1 MiB
-   seeks instead of one 4 GiB `dd` so BusyBox cannot buffer the fill and
-   trip the 1 GiB memory cgroup. Preserve ownership checks and dirty
-   worktrees. This host cannot run the Btrfs quota runner (`unknown
-   filesystem type 'btrfs'`; kernel has no module). Do not substitute
-   overlay Docker. Reconfirm both cases on GitHub CI.
+1. Reconfirm the 4 GiB quota probe and overlapping-chat OpenCode session
+   create on GitHub CI. The overlapping case passed locally (unsandboxed,
+   20.63s). The quota probe now writes 1 MiB seeks so BusyBox cannot
+   buffer a 4 GiB fill and trip the memory cgroup. This host cannot run
+   the Btrfs quota runner (`unknown filesystem type 'btrfs'`). Do not
+   substitute overlay Docker. Preserve ownership checks and dirty
+   worktrees.
 2. Finish integrated acceptance of the activated immutable chat image,
    1 CPU / 1 GiB / 128 PID / 4 GiB limits and per-workspace egress. The factory,
    policy identity and credential-free deployment relay now have focused proof;
@@ -65,13 +61,15 @@ Key evidence:
 
 ## Current CI and cost controls
 
-CI [34352646163](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34352646163)
-on `1c7b9657` passed 12 jobs. Tests failed at Required deterministic contracts
-(2 failed / 327 passed). UI/CLI/CDK steps were skipped. The older run
-[34342455444](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34342455444)
-on `4e31f0f5` is historical. Job-row cleanup is not in the current failure
-set. Do not dispatch a duplicate of 34352646163; the next full run belongs
-to a new pushed SHA.
+CI [34361746839](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34361746839)
+on `60ae1c10` is the current full run (Biome, typecheck, migrations, and
+production builds already green; Tests still running). The previous run
+[34352646163](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34352646163)
+on `1c7b9657` passed 12 jobs and failed Required deterministic contracts
+(2 failed / 327 passed): quota probe `Killed` before a quota error, and
+overlapping chat `ECONNRESET` during session create. UI/CLI/CDK steps were
+skipped. Job-row cleanup is not in that failure set. Do not dispatch a
+duplicate of an unchanged SHA.
 
 Backend/UI diagnostic allowances are 124/223, with no additions. Gate 6 must
 resolve them. The current complete backend check passes with 124 diagnostics; the unchanged
