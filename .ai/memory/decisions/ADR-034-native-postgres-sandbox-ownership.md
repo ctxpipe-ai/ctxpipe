@@ -78,3 +78,26 @@ readiness URL before connecting. The OS owns allocation and the native adapter
 owns process termination and exit observation. Kill/wait phases are bounded and
 startup plus cleanup errors remain visible. The application no longer leases
 ports or owns a second disposer. Docker retains its configured published port.
+
+### Remote Docker and runner restart
+
+Native Docker port channels derive their advertised host from the TCP daemon
+connection, with an explicit host/origin override for separate routing. Docker
+API TLS does not change the application channel's HTTP scheme. This stays in the
+native provider and applies to resumed and forked handles.
+
+Compose uses the quota-capable runner with persistent Btrfs storage and native
+mutual TLS. Backend and worker receive only read-only client certificates; the
+API is not host-published. Native init owns PID 1 while the storage wrapper owns
+mount cleanup. Startup clears stale daemon PID files only under `/run/docker`,
+leaving saved sandbox data and certificates intact. Real replacement and three
+restart cycles prove native file persistence, authenticated reconnection and
+published HTTP access. This infrastructure proof does not close remaining
+integrated chat, egress and provider acceptance work.
+
+Remote callback routing uses one validated reachable backend-local interface for
+the model proxy and native tool-bridge provisioner. Native TanStack code retains
+per-run bearer tokens and listener cleanup; no application run registry or route
+is added. Compose derives its current backend container IP and explicitly retains
+the Bun startup command. Advertised-only NAT addresses are unsupported by this
+exact-interface binding.

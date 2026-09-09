@@ -32,4 +32,18 @@ describe("workspace chat completions URL", () => {
       "http://host.docker.internal:3000/acme/api/v1/workspace-chat/openai/v1",
     )
   })
+
+  it("uses one explicit callback host for remote provider URLs", () => {
+    expect(workspaceChatModelProxyAdvertisedHost("docker", "10.0.0.8")).toBe(
+      "10.0.0.8",
+    )
+    expect(
+      workspaceChatCompletionsBaseUrl({
+        isolation: "railway",
+        orgSlug: "acme",
+        port: 3000,
+        callbackHost: "backend.internal",
+      }),
+    ).toBe("http://backend.internal:3000/acme/api/v1/workspace-chat/openai/v1")
+  })
 })

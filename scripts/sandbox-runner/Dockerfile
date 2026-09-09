@@ -3,4 +3,6 @@ RUN apk add --no-cache btrfs-progs util-linux
 COPY entrypoint.sh /usr/local/bin/ctxpipe-sandbox-runner
 RUN chmod 755 /usr/local/bin/ctxpipe-sandbox-runner
 VOLUME /var/lib/ctxpipe-sandbox-storage
-ENTRYPOINT ["ctxpipe-sandbox-runner"]
+# Keep a native tini as PID 1 and subreaper while the storage wrapper owns
+# mount teardown. Docker's nested docker-init then has a real subreaper parent.
+ENTRYPOINT ["docker-init", "-s", "--", "ctxpipe-sandbox-runner"]

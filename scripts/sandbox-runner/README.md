@@ -20,9 +20,16 @@ external mounts and disables container logging. The aggregate filesystem and hos
 disk still need capacity monitoring. Loop-backed storage is intended for the
 locked small-scale Compose topology, not a general high-I/O container platform.
 
+Native `docker-init` owns PID 1 and child reaping. Startup removes stale daemon
+PID files only from `/run/docker`; persistent image data and certificates survive
+runner restarts. Compose mounts the Btrfs data and TLS CA/server/client volumes,
+waits for the Btrfs daemon healthcheck, and shares only read-only client
+certificates with backend and worker. The daemon API is not host-published.
+
 Docker's TLS-enabled entrypoint remains the default. Do not publish an unauthenticated
 daemon API beyond a disposable test runner's loopback endpoint. Network enforcement,
-the production chat image, and Compose/provider wiring are separate Gate 4 work;
+production chat-image activation, callback routing and provider wiring remain
+separate Gate 4 work;
 this resource contract alone does not establish complete sandbox isolation.
 
 References: [Docker Btrfs driver](https://docs.docker.com/engine/storage/drivers/btrfs-driver/)

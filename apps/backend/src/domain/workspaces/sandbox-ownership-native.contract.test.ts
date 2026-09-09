@@ -3,6 +3,7 @@ import {
   createSecrets,
   defineSandbox,
   memorySandboxSnapshots,
+  type SandboxHandle,
   type SandboxInstanceRecord,
 } from "@tanstack/ai-sandbox"
 import { runSandboxInstanceStoreConformance } from "@tanstack/ai-sandbox/testkit"
@@ -390,6 +391,171 @@ it(
       if (timer) clearTimeout(timer)
       await handle.destroy()
     }
+  },
+)
+
+it(
+  "connects to native Docker published ports through the public channel",
+  { timeout: 60_000 },
+  async () => {
+    const host = process.env.CTXPIPE_TEST_QUOTA_DOCKER_HOST
+    const port = Number(process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT)
+    if (!host || !Number.isInteger(port) || port <= 0)
+      throw new Error("Native quota Docker endpoint is required")
+    const dockerodeOptions = { host, port }
+    const docker = new Dockerode(dockerodeOptions)
+    const baseConfig = {
+      image: "alpine:3.22",
+      workdir: "/tmp",
+      dockerodeOptions,
+      publishPorts: [8080],
+    }
+    const defaultProvider = dockerSandbox(baseConfig)
+    const overrideProvider = dockerSandbox({
+      ...baseConfig,
+      advertisedPortHost: "http://localhost",
+    })
+
+    type RunningServer = {
+      handle: SandboxHandle
+      process: Awaited<ReturnType<SandboxHandle["process"]["spawn"]>>
+      channel: { url: string }
+    }
+    async function startServer(
+      provider: typeof defaultProvider,
+      body: string,
+    ): Promise<RunningServer> {
+      const handle = await provider.create({
+        workspace: { source: { type: "none" } },
+      })
+      let serverProcess: RunningServer["process"] | undefined
+      try {
+        const responseScript = [
+          "#!/bin/sh",
+          `body=${shellQuote(body)}`,
+          `printf 'HTTP/1.1 200 OK\\r\\nContent-Length: %s\\r\\nConnection: close\\r\\nContent-Type: text/plain\\r\\n\\r\\n%s' "\${#body}" "$body"`,
+        ].join("\n")
+        await handle.fs.write("reply.sh", responseScript)
+        await handle.process.exec("chmod +x reply.sh", { cwd: "/tmp" })
+        serverProcess = await handle.process.spawn(
+          "nc -lk -p 8080 -e /tmp/reply.sh",
+          { cwd: "/tmp" },
+        )
+        const channel = await handle.ports.connect(8080)
+        return { handle, process: serverProcess, channel }
+      } catch (error) {
+        const cleanup = await Promise.allSettled([
+          serverProcess?.kill() ?? Promise.resolve(),
+          handle.destroy(),
+        ])
+        const cleanupErrors = cleanup
+          .filter(
+            (result): result is PromiseRejectedResult =>
+              result.status === "rejected",
+          )
+          .map((result) => result.reason)
+        if (cleanupErrors.length)
+          throw new AggregateError(
+            [error, ...cleanupErrors],
+            "Native port server startup and cleanup failed",
+          )
+        throw error
+      }
+    }
+    async function fetchBody(url: string, expected: string): Promise<void> {
+      // The quota daemon runs inside a privileged runner. A host-network
+      // client inside that same daemon can reach its published loopback ports
+      // even when the outer development host cannot route into the runner.
+      const client = await docker.createContainer({
+        Image: "alpine:3.22",
+        Cmd: [
+          "sh",
+          "-c",
+          `for attempt in $(seq 1 30); do wget -qO- --timeout=1 --tries=1 ${shellQuote(url)} && exit 0; sleep 0.1; done; exit 1`,
+        ],
+        HostConfig: { AutoRemove: false, NetworkMode: "host" },
+      })
+      try {
+        await client.start()
+        const result = await client.wait()
+        const logs = await client.logs({ stderr: true, stdout: true })
+        const output = logs.toString()
+        expect(result.StatusCode, output).toBe(0)
+        expect(output).toContain(expected)
+      } finally {
+        await removeClient(client)
+      }
+    }
+    function shellQuote(value: string): string {
+      return `'${value.replaceAll("'", "'\\''")}'`
+    }
+    async function removeClient(client: Dockerode.Container): Promise<void> {
+      try {
+        await client.remove({ force: true, v: true })
+      } catch (error) {
+        if (
+          !(
+            error instanceof Error &&
+            "statusCode" in error &&
+            error.statusCode === 404
+          )
+        )
+          throw error
+      }
+    }
+    async function disposeServer(server: RunningServer | undefined) {
+      if (!server) return
+      const cleanup = await Promise.allSettled([
+        server.process.kill(),
+        server.handle.destroy(),
+      ])
+      const cleanupErrors = cleanup
+        .filter(
+          (result): result is PromiseRejectedResult =>
+            result.status === "rejected",
+        )
+        .map((result) => result.reason)
+      if (cleanupErrors.length)
+        throw new AggregateError(
+          cleanupErrors,
+          "Native port server cleanup failed",
+        )
+    }
+
+    let defaultServer: RunningServer | undefined
+    let overrideServer: RunningServer | undefined
+    let testError: unknown
+    try {
+      defaultServer = await startServer(defaultProvider, "default-channel")
+      const defaultUrl = new URL(defaultServer.channel.url)
+      expect(defaultUrl.hostname).toBe(host)
+      await fetchBody(defaultUrl.href, "default-channel")
+
+      overrideServer = await startServer(overrideProvider, "override-channel")
+      const overrideUrl = new URL(overrideServer.channel.url)
+      expect(overrideUrl.hostname).toBe("localhost")
+      await fetchBody(overrideUrl.href, "override-channel")
+    } catch (error) {
+      testError = error
+    }
+    const cleanup = await Promise.allSettled([
+      disposeServer(overrideServer),
+      disposeServer(defaultServer),
+    ])
+    const cleanupErrors = cleanup
+      .filter(
+        (result): result is PromiseRejectedResult =>
+          result.status === "rejected",
+      )
+      .map((result) => result.reason)
+    if (testError && cleanupErrors.length)
+      throw new AggregateError(
+        [testError, ...cleanupErrors],
+        "Native port contract and cleanup both failed",
+      )
+    if (testError) throw testError
+    if (cleanupErrors.length)
+      throw new AggregateError(cleanupErrors, "Native port cleanup failed")
   },
 )
 

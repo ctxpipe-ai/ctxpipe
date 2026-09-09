@@ -1,8 +1,20 @@
 import { createServer, type Server } from "node:http"
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { OpenAPIHono } from "@hono/zod-openapi"
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 import type { AppEnv } from "../../app/env.js"
-import { contextStorage, withTestRequestLogger } from "../../test/hono-test-logger.js"
+import { parseEnv } from "../../config/env.js"
+import {
+  contextStorage,
+  withTestRequestLogger,
+} from "../../test/hono-test-logger.js"
 
 const mockChatInvoke = vi.hoisted(() =>
   vi.fn(async () => ({ content: "from bedrock" })),
@@ -112,6 +124,10 @@ type AppOpts = {
 function appWithRoutes(opts: AppOpts): OpenAPIHono<AppEnv> {
   const env: Partial<Record<string, string>> = {
     AUTH_BASE_URL: "https://backend.example.com",
+    NODE_ENV: "test",
+    DATABASE_URL: "postgresql://fixture:fixture@localhost:5432/fixture",
+    GRAPH_DB_URI: "redis://localhost:6379",
+    AUTH_SECRET: "fixture-openai-proxy-secret-minimum-32-chars",
   }
   if (opts.upstreamUrl) env.MODEL_PROVIDER_URL = opts.upstreamUrl
   if (opts.apiKey) env.MODEL_PROVIDER_API_KEY = opts.apiKey
@@ -124,11 +140,12 @@ function appWithRoutes(opts: AppOpts): OpenAPIHono<AppEnv> {
   const embeddings = opts.allowedEmbeddingModels ?? ["text-embedding-3-small"]
   if (embeddings[0]) env.MODEL_EMBEDDING_NAME = embeddings[0]
 
+  const parsedEnv = parseEnv(env)
   const app = new OpenAPIHono<AppEnv>().basePath("/:orgSlug/api/v1/openai")
   app.use(contextStorage())
   app.use(withTestRequestLogger)
   app.use("*", async (c, next) => {
-    c.set("env", env as AppEnv["Variables"]["env"])
+    c.set("env", parsedEnv)
     if (opts.authed) {
       c.set("user", {
         id: "user_test",
@@ -181,14 +198,17 @@ describe("v1/openai proxy", () => {
 
   it("returns 404 when the org slug isn't bound (withNetworkOrgContext upstream sets orgId=null)", async () => {
     const app = appWithRoutes({ authed: true, orgId: null })
-    const res = await app.request("/missing/api/v1/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        model: "gpt-5.4-nano",
-        messages: [{ role: "user", content: "hi" }],
-      }),
-    })
+    const res = await app.request(
+      "/missing/api/v1/openai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "gpt-5.4-nano",
+          messages: [{ role: "user", content: "hi" }],
+        }),
+      },
+    )
     expect(res.status).toBe(404)
   })
 
@@ -203,7 +223,11 @@ describe("v1/openai proxy", () => {
       }),
     })
     expect(res.status).toBe(503)
-    const body = (await res.json()) as { status: string; reason: string; message: string }
+    const body = (await res.json()) as {
+      status: string
+      reason: string
+      message: string
+    }
     expect(body.status).toBe("enhanced-memory-unavailable")
     expect(body.reason).toBe("no-upstream-key")
     expect(body.message).toMatch(/MODEL_PROVIDER_API_KEY/)
@@ -228,7 +252,10 @@ describe("v1/openai proxy", () => {
       }),
     })
     expect(res.status).toBe(400)
-    const body = (await res.json()) as { error: string; allowedModels: string[] }
+    const body = (await res.json()) as {
+      error: string
+      allowedModels: string[]
+    }
     expect(body.error).toMatch(/model not allowed/i)
     expect(body.allowedModels).toContain("gpt-5.4-nano")
   })

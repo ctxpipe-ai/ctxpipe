@@ -29,6 +29,9 @@
   "native OpenCode port ownership": [
     "src/domain/workspaces/workspace-chat-opencode-native.contract.test.ts"
   ],
+  "native callback bridge": [
+    "src/domain/workspaces/workspace-chat-callback.contract.test.ts"
+  ],
   "published-revision search": [
     "src/retrieval/services/code-search-projection.contract.test.ts"
   ],

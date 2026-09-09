@@ -62,6 +62,10 @@ import {
   workspaceChatHttpResponse,
   workspaceChatWireFormat,
 } from "./workspace-chat-agui.js"
+import {
+  sandboxCallbackHost,
+  workspaceChatCallbackMiddleware,
+} from "./workspace-chat-callback.js"
 import { workspaceChatCompletionsBaseUrl } from "./workspace-chat-model-proxy.js"
 import {
   WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV,
@@ -313,7 +317,12 @@ export async function warmTanstackWorkspaceChat(
   const prepareStarted = Date.now()
   const built = await buildWorkspaceChatSandbox(input)
   if (!built.ok) return built
-  const session = await resolveWorkspaceChatSession(input, built.spec.isolation)
+  const callbackHost = sandboxCallbackHost()
+  const session = await resolveWorkspaceChatSession(
+    input,
+    built.spec.isolation,
+    callbackHost,
+  )
   if (!session.ok) return session
   const definition = built.definition
   const workspace = conversationSandboxWorkspace({
@@ -407,7 +416,12 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     },
     defaultBranch: input.defaultBranch,
   })
-  const session = await resolveWorkspaceChatSession(input, built.spec.isolation)
+  const callbackHost = sandboxCallbackHost()
+  const session = await resolveWorkspaceChatSession(
+    input,
+    built.spec.isolation,
+    callbackHost,
+  )
   if (!session.ok) return session
   const definition = built.definition
   const workspace = conversationSandboxWorkspace({
@@ -524,6 +538,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         ),
         snapshots,
       }),
+      workspaceChatCallbackMiddleware(callbackHost),
       defineChatMiddleware({
         name: "workspace-chat-permissions",
         requires: [SandboxCapability],
@@ -551,6 +566,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
 async function resolveWorkspaceChatSession(
   input: TanstackWorkspaceChatInput,
   isolation: "docker" | "unsandboxed" | "railway",
+  callbackHost?: string,
 ): Promise<
   | { ok: true; runToken: string; proxyUrl: string }
   | { ok: false; status: number; error: string }
@@ -582,6 +598,7 @@ async function resolveWorkspaceChatSession(
       isolation,
       orgSlug,
       port: Number(process.env.PORT) || 3000,
+      ...(callbackHost ? { callbackHost } : {}),
     }),
   }
 }

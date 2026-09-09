@@ -34,8 +34,14 @@ application allocator; two concurrent real OpenCode servers pass health and
 teardown checks. The non-root chat image passes native Git/OpenCode/resource
 startup and disposal proof. See
 [validation-native-process-and-image.md](validation-native-process-and-image.md).
-Remote-Docker addressing is being implemented next; production image/egress and
-Compose wiring remain pending.
+Remote-Docker addressing now passes a real OpenCode health/disposal proof and a
+retained native HTTP contract. Compose TLS/persistence passes native sandbox
+recovery after replacement and three restart cycles. Stale containerd runtime
+PID files and init ownership found during that proof are fixed. Native callback routing now passes a real nested Docker bearer/tool-call/close
+proof. Production image/egress activation and integrated Docker chat remain
+pending. The final combined backend check has 124 allowances after replacing an
+unsafe environment fixture cast; all 12 affected proxy tests pass. UI remains223. See
+[remote Docker evidence](validation-remote-docker.md).
 
 CI 34319040516 on 33503fd5 passed 12 jobs and failed only the Tests job: 292 of
 293 deterministic contract tests passed. Its protected-conversation assertion
@@ -50,3 +56,15 @@ contract's empty error file on the full filesystem (1,190 backend tests and
 295/296 contracts passed). Capture that error through the host stderr stream
 while retaining the exact quota-exceeded assertion, then run full CI on the new
 checkpoint.
+
+CI [34327385395](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34327385395)
+on 1257e3f4 passed 12 jobs and all 1,186 default backend tests. The native
+resource/quota contract now passes, including the exact quota-exceeded diagnostic.
+The contract phase passed 297 tests and failed five: two native chat tests
+returned no text despite successful terminal events, and three writer-recovery
+tests encountered a Docker socket hang-up after sandbox creation. UI, CLI and CDK
+test steps were skipped after that failure. The two chat cases pass locally;
+subscription readiness is under investigation. A focused Bun native Docker
+create/replay/exec/destroy probe passes, so the writer failure is not yet
+attributed to the Docker request-body patch. Runner diagnostics and lifecycle
+are being examined before another full CI run.

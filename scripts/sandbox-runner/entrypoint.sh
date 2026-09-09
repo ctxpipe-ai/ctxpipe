@@ -23,6 +23,12 @@ if [ ! -e "$state/data.img" ]; then
   mv "$state/data.img.new" "$state/data.img"
 fi
 mount -t btrfs -o loop "$state/data.img" "$data"
+# Docker's entrypoint clears docker*.pid files, but containerd's runtime PID
+# lives at /run/docker/containerd/containerd.pid and can survive a restart.
+# This is ephemeral daemon state; persistent image data remains in $data.
+if [ -d /run/docker ]; then
+  find /run/docker -type f -name '*.pid' -delete
+fi
 daemon_pid=''
 cleanup() {
   if [ -n "$daemon_pid" ]; then

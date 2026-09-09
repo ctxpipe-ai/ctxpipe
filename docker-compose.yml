@@ -66,12 +66,26 @@ services:
 
   dind:
     profiles: [deploy]
-    image: docker:27-dind
+    build:
+      context: ./scripts/sandbox-runner
     restart: unless-stopped
+    # Only the infrastructure runner is privileged; agent containers are not.
     privileged: true
     environment:
-      DOCKER_TLS_CERTDIR: ""
-    command: ["--host=tcp://0.0.0.0:2375"]
+      DOCKER_TLS_CERTDIR: /certs
+      DOCKER_TLS_SAN: DNS:dind
+      CTXPIPE_SANDBOX_STORAGE_GIB: ${CTXPIPE_SANDBOX_STORAGE_GIB:-64}
+    volumes:
+      - sandbox_storage:/var/lib/ctxpipe-sandbox-storage
+      - sandbox_server_certs:/certs/server
+      - sandbox_client_certs:/certs/client
+      - sandbox_ca:/certs/ca
+    healthcheck:
+      test: ["CMD-SHELL", "docker --host unix:///var/run/docker.sock info --format '{{.Driver}}' | grep -qx btrfs"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
   backend:
     profiles: [deploy]
@@ -79,6 +93,20 @@ services:
       context: .
       dockerfile: apps/backend/Dockerfile
     restart: unless-stopped
+    entrypoint:
+      - sh
+      - -c
+      - |
+        if [ -z "$${SANDBOX_CALLBACK_HOST:-}" ]; then
+          SANDBOX_CALLBACK_HOST="$$(hostname -i | awk '{ for (i = 1; i <= NF; i++) { count++; address = $$i } } END { if (count == 1) print address; else exit 1 }')" || {
+            echo "backend must have exactly one container IP or SANDBOX_CALLBACK_HOST must be set" >&2
+            exit 1
+          }
+          export SANDBOX_CALLBACK_HOST
+        fi
+        exec "$$@"
+      - --
+    command: ["bun", "run", "apps/backend/src/server.ts"]
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
@@ -86,7 +114,10 @@ services:
       UI_PROXY_URL: http://ui:3002
       CODESEARCH_URL: http://codesearch:3001
       SANDBOX_PROVIDER: docker
-      DOCKER_HOST: tcp://dind:2375
+      SANDBOX_CALLBACK_HOST: ${SANDBOX_CALLBACK_HOST:-}
+      DOCKER_HOST: tcp://dind:2376
+      DOCKER_TLS_VERIFY: "1"
+      DOCKER_CERT_PATH: /certs/client
       PORT: "3000"
       AUTH_SECRET: ${AUTH_SECRET:-}
       AUTH_BASE_URL: ${AUTH_BASE_URL:-http://localhost:3000}
@@ -109,6 +140,8 @@ services:
       LINEAR_WEBHOOK_SECRET: ${LINEAR_WEBHOOK_SECRET:-}
     ports:
       - "${CTXPIPE_BACKEND_HOST_PORT:-3000}:3000"
+    volumes:
+      - sandbox_client_certs:/certs/client:ro
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -121,7 +154,7 @@ services:
       ui:
         condition: service_started
       dind:
-        condition: service_started
+        condition: service_healthy
 
   worker:
     profiles: [deploy]
@@ -134,7 +167,9 @@ services:
       DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       GRAPH_DB_URI: redis://falkordb:6379
       SANDBOX_PROVIDER: docker
-      DOCKER_HOST: tcp://dind:2375
+      DOCKER_HOST: tcp://dind:2376
+      DOCKER_TLS_VERIFY: "1"
+      DOCKER_CERT_PATH: /certs/client
       # Required to decrypt connection secrets (Slack bot tokens, GitHub App keys).
       AUTH_SECRET: ${AUTH_SECRET:-}
       AUTH_BASE_URL: ${AUTH_BASE_URL:-http://localhost:3000}
@@ -150,6 +185,8 @@ services:
       LINEAR_CLIENT_SECRET: ${LINEAR_CLIENT_SECRET:-}
       LINEAR_REDIRECT_URI: ${LINEAR_REDIRECT_URI:-}
       LINEAR_WEBHOOK_SECRET: ${LINEAR_WEBHOOK_SECRET:-}
+    volumes:
+      - sandbox_client_certs:/certs/client:ro
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -158,7 +195,7 @@ services:
       falkordb:
         condition: service_started
       dind:
-        condition: service_started
+        condition: service_healthy
 
   ui:
     profiles: [deploy]
@@ -209,5 +246,9 @@ services:
         condition: service_started
 
 volumes:
+  sandbox_storage:
+  sandbox_server_certs:
+  sandbox_client_certs:
+  sandbox_ca:
   zoekt_index_deploy:
   repo_cache:
