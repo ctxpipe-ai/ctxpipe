@@ -7,7 +7,15 @@ import {
 } from "@tanstack/ai"
 import { otelMiddleware } from "@tanstack/ai/middlewares/otel"
 import { withPersistence } from "@tanstack/ai-persistence"
-import type { SandboxHandle } from "@tanstack/ai-sandbox"
+import {
+  defineSandbox,
+  resolveAllSecrets,
+  type SandboxEnsureContext,
+  type SandboxHandle,
+  type SandboxProvider,
+} from "@tanstack/ai-sandbox"
+import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
+import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { eq } from "drizzle-orm"
 import { getSystemDb } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
@@ -15,6 +23,7 @@ import { nameConversationIfUnnamed } from "../../graphs/conversationGraph/nodes/
 import { loadConversationTurns } from "../../models/conversation-messages.js"
 import { getLogger, log } from "../../observability/logger.js"
 import {
+  CHAT_SANDBOX_KEEP_ALIVE,
   WORKSPACE_CHAT_CLONE_BRANCH_SECRET,
   WORKSPACE_CHAT_CLONE_SHA_SECRET,
   WORKSPACE_CHAT_CLONE_TOKEN_SECRET,
@@ -34,6 +43,7 @@ import { adaptTanstackHandle } from "./job-sandbox.js"
 import { workspaceRevisionSchema } from "./revision.js"
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
+import { discoverSandboxProvider } from "./sandbox-provider.js"
 import { loadTanstackChatModules } from "./tanstack-runtime.js"
 import {
   aguiTextDelta,
@@ -99,19 +109,51 @@ export type TanstackWorkspaceChatInput = {
 
 export { conversationRenameChunk } from "./workspace-chat-agui.js"
 
-function providerFactoryForChat(
-  modules: Awaited<ReturnType<typeof loadTanstackChatModules>>,
-  provider: string,
-) {
-  if (provider === "docker") {
-    return modules.dockerSandbox?.(WORKSPACE_CHAT_DOCKER_SANDBOX)
-  }
-  if (provider === "unsandboxed") {
-    return modules.localProcessSandbox?.({
+function conversationSandboxDefinition(provider: SandboxProvider) {
+  return defineSandbox({
+    id: "workspace-chat",
+    provider,
+    lifecycle: {
+      reuse: "thread",
+      snapshot: "after-setup",
+      keepAlive: CHAT_SANDBOX_KEEP_ALIVE,
+      destroyOnComplete: false,
+    },
+    hooks: {
+      onReady: async (ready: SandboxHandle, ctx: SandboxEnsureContext) => {
+        const secrets = ctx.workspace?.secrets
+          ? resolveAllSecrets(ctx.workspace.secrets)
+          : {}
+        const session = secrets[WORKSPACE_CHAT_SESSION_BRANCH_SECRET]?.trim()
+        if (session?.startsWith("ctxpipe/chat/")) {
+          await ensureConversationSessionBranch({
+            handle: adaptTanstackHandle(ready),
+            conversationId: ctx.threadId,
+            defaultBranch:
+              secrets[WORKSPACE_CHAT_CLONE_BRANCH_SECRET] ?? "main",
+          })
+        }
+        log.info({
+          step: "workspace-chat-sandbox-ready",
+          message: `workspace chat sandbox ready ${ready.id}`,
+          conversationId: ctx.threadId,
+          sandboxId: ready.id,
+          lastBranch: session ?? null,
+        })
+      },
+    },
+  })
+}
+
+const CHAT_SANDBOX_DEFINITIONS = {
+  docker: conversationSandboxDefinition(
+    dockerSandbox(WORKSPACE_CHAT_DOCKER_SANDBOX),
+  ),
+  unsandboxed: conversationSandboxDefinition(
+    localProcessSandbox({
       scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
-    })
-  }
-  return undefined
+    }),
+  ),
 }
 
 function abortControllerFrom(signal?: AbortSignal): AbortController {
@@ -220,11 +262,11 @@ export async function warmTanstackWorkspaceChat(
   if (!built.ok) return built
   const session = await resolveWorkspaceChatSession(input, built.spec.isolation)
   if (!session.ok) return session
-  const definition = defineConversationSandbox({
+  const definition = built.definition
+  const workspace = conversationSandboxWorkspace({
     modules: built.modules,
     spec: built.spec,
     input,
-    provider: built.provider,
     runToken: session.runToken,
     proxyUrl: session.proxyUrl,
     modelBase: built.contract.modelBase,
@@ -236,6 +278,7 @@ export async function warmTanstackWorkspaceChat(
       ? definition.ensureExisting
       : definition.ensure
     const ready = await ensure({
+      workspace,
       threadId: input.conversationId,
       runId: input.runId ?? `prepare-${input.conversationId}`,
       store: built.instances,
@@ -297,11 +340,11 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     built.spec.isolation === "unsandboxed"
       ? await leaseLocalProcessOpenCodePort()
       : null
-  const definition = defineConversationSandbox({
+  const definition = built.definition
+  const workspace = conversationSandboxWorkspace({
     modules: built.modules,
     spec: built.spec,
     input,
-    provider: built.provider,
     runToken: session.runToken,
     proxyUrl: session.proxyUrl,
     modelBase: built.contract.modelBase,
@@ -314,6 +357,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     const snapshots = {
       ...(await modules.memorySandboxSnapshots({
         sandbox: definition,
+        workspace,
         instances,
       })),
       persistence,
@@ -347,6 +391,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
           threadLocks: postgresSandboxLocks(input.orgId, abortController),
         }),
         modules.withSandbox(definition, {
+          workspace,
           instances,
           locks: postgresSandboxLocks(
             input.orgId,
@@ -439,11 +484,7 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
       error: "workspace_required",
     }
   }
-  const runtime = workspaceChatRuntimeConfig({
-    writeStatus: input.writeStatus,
-    currentBranch: input.lastBranch ?? input.ref,
-    defaultBranch: input.defaultBranch,
-  })
+  const selectedProvider = await discoverSandboxProvider()
   const contract = workspaceChatOpenCodeContract(process.env)
   if (!contract.ok) {
     return {
@@ -469,8 +510,8 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
     }
   }
   const spec = workspaceChatSandboxSpec({
-    sandboxId: `${input.orgId}:${JSON.stringify(revision.data)}:chat:1`,
-    provider: runtime.provider,
+    sandboxId: `${input.orgId}:${JSON.stringify(revision.data)}:chat:${selectedProvider === "docker" ? WORKSPACE_CHAT_DOCKER_SANDBOX.image : "1"}`,
+    provider: selectedProvider,
     gitUrl: desiredUrl,
     ref,
   })
@@ -483,9 +524,12 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
     }
   }
   const modules = await loadTanstackChatModules()
-  const effective = runtime.provider
-  const provider = providerFactoryForChat(modules, effective)
-  if (!provider) {
+  const effective = selectedProvider
+  const definition =
+    effective === "docker" || effective === "unsandboxed"
+      ? CHAT_SANDBOX_DEFINITIONS[effective]
+      : undefined
+  if (!definition) {
     return {
       ok: false as const,
       status: 503,
@@ -496,7 +540,7 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
     ok: true as const,
     modules,
     spec,
-    provider,
+    definition,
     contract,
     instances: postgresSandboxInstanceStore({
       orgId: input.orgId,
@@ -507,16 +551,15 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
   }
 }
 
-function defineConversationSandbox(input: {
+function conversationSandboxWorkspace(input: {
   modules: Awaited<ReturnType<typeof loadTanstackChatModules>>
   spec: Extract<ReturnType<typeof workspaceChatSandboxSpec>, { ok: true }>
-  provider: NonNullable<ReturnType<typeof providerFactoryForChat>>
   input: TanstackWorkspaceChatInput
   runToken: string
   proxyUrl: string
   modelBase: string
 }) {
-  const { modules, spec, provider, input: chatInput } = input
+  const { modules, spec, input: chatInput } = input
   const opencodeHome = writeWorkspaceChatOpenCodeConfig({
     conversationId: chatInput.conversationId,
     modelBase: input.modelBase,
@@ -537,43 +580,20 @@ function defineConversationSandbox(input: {
     ...opencodeHome.homeEnv,
     [WORKSPACE_CHAT_CLONE_TOKEN_SECRET]: chatInput.cloneToken ?? "",
   })
-  return modules.defineSandbox({
-    id: spec.id,
-    provider,
-    workspace: modules.defineWorkspace({
-      source: modules.gitSource(
-        workspaceChatGitSource({
-          url: spec.source.url,
-          ref: chatInput.defaultBranch ?? spec.source.ref,
-          token: workspaceChatCloneTokenRef(
-            secrets as Record<string, unknown>,
-            chatInput.cloneToken,
-          ),
-        }) as Parameters<typeof modules.gitSource>[0],
-      ),
-      setup: [...WORKSPACE_CHAT_SANDBOX_SETUP],
-      secrets,
-    }),
-    lifecycle: spec.lifecycle,
-    hooks: {
-      onReady: async (ready: SandboxHandle) => {
-        const session = chatInput.lastBranch?.trim()
-        if (session?.startsWith("ctxpipe/chat/")) {
-          await ensureConversationSessionBranch({
-            handle: adaptTanstackHandle(ready),
-            conversationId: chatInput.conversationId,
-            defaultBranch: chatInput.defaultBranch ?? "main",
-          })
-        }
-        log.info({
-          step: "workspace-chat-sandbox-ready",
-          message: `workspace chat sandbox ready ${ready.id ?? "unknown"}`,
-          conversationId: chatInput.conversationId,
-          sandboxId: ready.id ?? null,
-          lastBranch: session ?? null,
-        })
-      },
-    },
+  return modules.defineWorkspace({
+    identity: spec.id,
+    source: modules.gitSource(
+      workspaceChatGitSource({
+        url: spec.source.url,
+        ref: chatInput.defaultBranch ?? spec.source.ref,
+        token: workspaceChatCloneTokenRef(
+          secrets as Record<string, unknown>,
+          chatInput.cloneToken,
+        ),
+      }) as Parameters<typeof modules.gitSource>[0],
+    ),
+    setup: [...WORKSPACE_CHAT_SANDBOX_SETUP],
+    secrets,
   })
 }
 

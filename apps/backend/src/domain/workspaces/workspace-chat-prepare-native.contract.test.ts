@@ -8,6 +8,7 @@ import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
 import { listSandboxInstances } from "../../models/workspaces.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
+import { withNativeGitRemote } from "../../test/native-git-remote.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
@@ -198,6 +199,47 @@ it(
       expect(await prepared.handle.fs.read("README.md")).toBe(
         "# Native chat workspace\n",
       )
+    })
+  },
+)
+
+it(
+  "prepare discovers Docker and reuses its isolated worktree when the provider is unlocked",
+  { timeout: 120_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      delete process.env.SANDBOX_PROVIDER
+      await withNativeGitRemote(f.directory, async (remote) => {
+        const input = {
+          conversationId: f.conversationId,
+          orgId: f.orgId,
+          orgSlug: f.orgSlug,
+          workspaceId: f.workspaceId,
+          desiredUrl: remote,
+          desiredSha: f.sha,
+          defaultBranch: "main",
+          writeStatus: "read_only",
+          prompt: "prepare",
+        }
+        const first = await warmTanstackWorkspaceChat(input)
+        if (!first.ok) throw new Error(first.error)
+        expect(
+          (await first.handle.process.exec("uname -s")).stdout.trim(),
+        ).toBe("Linux")
+        expect(await first.handle.fs.read("/workspace/README.md")).toBe(
+          "# Native chat workspace\n",
+        )
+        await first.handle.fs.write(
+          "/workspace/unsaved.txt",
+          "Docker worktree survives prepare",
+        )
+        const second = await warmTanstackWorkspaceChat(input)
+        if (!second.ok) throw new Error(second.error)
+        expect(second.handle.id).toBe(first.handle.id)
+        expect(await second.handle.fs.read("/workspace/unsaved.txt")).toBe(
+          "Docker worktree survives prepare",
+        )
+      })
     })
   },
 )

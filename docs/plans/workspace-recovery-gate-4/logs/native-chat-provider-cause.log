@@ -1,0 +1,44 @@
+{"name": "native-chat-provider-cause", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/workspace-chat-prepare-native.contract.test.ts", "-t", "discovers Docker"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/bun-1.4.2/bun-darwin-aarch64:/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-09T04:10:30Z", "log": "logs/native-chat-provider-cause.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ❯ src/domain/workspaces/workspace-chat-prepare-native.contract.test.ts (4 tests | 1 failed | 3 skipped) 20650ms
+   ↓ prepare preserves the native worktree while refreshing its credentials
+   ↓ deletion fences a first allocation that has not persisted its handle
+   ↓ prepares the captured SHA when the remote default branch has advanced
+   × prepare discovers Docker and reuses its isolated worktree when the provider is unlocked 20649ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/workspace-chat-prepare-native.contract.test.ts > prepare discovers Docker and reuses its isolated worktree when the provider is unlocked
+Error: setup step failed: git rev-parse --is-inside-work-tree >/dev/null && test -n "$CTXPIPE_CLONE_SHA" && {
+  if git cat-file -e "$CTXPIPE_CLONE_SHA^{commit}" 2>/dev/null; then
+    true
+  else
+    git -c credential.helper='!f() { echo username=x-access-token; echo password=${CTXPIPE_CLONE_TOKEN}; }; f' fetch --depth 1 origin "$CTXPIPE_CLONE_SHA"
+  fi
+} && git checkout --detach "$CTXPIPE_CLONE_SHA" (exit 128)
+ ❯ bootstrapWorkspace ../../node_modules/.pnpm/@tanstack+ai-sandbox@0.5.0_@cfworker+json-schema@4.1.1_@tanstack+ai-persistence@0.5.1_p_5eda00121b3787fa0c0685671f6b5e96/node_modules/@tanstack/ai-sandbox/dist/esm/bootstrap.js:80:12
+ ❯ ../../node_modules/.pnpm/@tanstack+ai-sandbox@0.5.0_@cfworker+json-schema@4.1.1_@tanstack+ai-persistence@0.5.1_p_5eda00121b3787fa0c0685671f6b5e96/node_modules/@tanstack/ai-sandbox/dist/esm/sandbox.js:128:5
+ ❯ Object.withLock src/domain/workspaces/sandbox-lock-store.ts:105:24
+    103|       try {
+    104|         signal.throwIfAborted()
+    105|         const result = await fn(signal)
+       |                        ^
+    106|         if (deadline <= Date.now())
+    107|           lose(new Error("Sandbox lock ownership expired"))
+ ❯ Object.withLock src/domain/workspaces/sandbox-lock-store.ts:105:24
+ ❯ ensure ../../node_modules/.pnpm/@tanstack+ai-sandbox@0.5.0_@cfworker+json-schema@4.1.1_@tanstack+ai-persistence@0.5.1_p_5eda00121b3787fa0c0685671f6b5e96/node_modules/@tanstack/ai-sandbox/dist/esm/sandbox.js:150:33
+ ❯ warmTanstackWorkspaceChat src/domain/workspaces/tanstack-workspace-chat.ts:239:19
+ ❯ src/domain/workspaces/workspace-chat-prepare-native.contract.test.ts:225:23
+ ❯ withNativeGitRemote src/test/native-git-remote.ts:60:12
+ ❯ src/domain/workspaces/workspace-chat-prepare-native.contract.test.ts:213:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 skipped (4)
+   Start at  14:10:31
+   Duration  24.27s (transform 1.21s, setup 25ms, import 3.49s, tests 20.65s, environment 0ms)
+

@@ -22,7 +22,8 @@ export const WORKSPACE_CHAT_DOCKER_SANDBOX: {
   image: string
   publishPorts: number[]
 } = {
-  image: "node:22",
+  image:
+    "node@sha256:8a34c4ab3ea2c5cd194f07e317b2a8f09461d3c8b05c4e34c8ccd56d56024c4d",
   publishPorts: [WORKSPACE_CHAT_OPENCODE_PORT],
 }
 
