@@ -140,7 +140,8 @@ export const workspaceExtractIngest = defineWorkflow(
               const files = plan.files.filter(
                 (file) =>
                   !file.path.startsWith(".agents/") &&
-                  !isLinkedRepositoryDeclaration(file.path) &&
+                  (!isLinkedRepositoryDeclaration(file.path) ||
+                    file.path === input.extraction.sourceDeclaration?.path) &&
                   !isConnectorMirrorPath(file.path) &&
                   existing.get(file.path) !== file.content,
               )

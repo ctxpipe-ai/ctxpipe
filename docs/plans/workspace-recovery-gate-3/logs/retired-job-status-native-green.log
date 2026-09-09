@@ -1,0 +1,30 @@
+{"name": "retired-job-status-native-green", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/routes/v1/workspace-files.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/bun-1.4.2/bun-darwin-aarch64:/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T23:59:13Z", "log": "logs/retired-job-status-native-green.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ✓ src/routes/v1/workspace-files.contract.test.ts (19 tests) 34758ms
+   ✓ serves the last indexed tree while the Workspace relinks  2586ms
+   ✓ serves the indexed Files HTTP contract for published text  1630ms
+   ✓ serves the indexed Files HTTP contract for binary files  1624ms
+   ✓ serves the indexed Files HTTP contract for missing files  2175ms
+   ✓ serves the indexed Files HTTP contract for path traversal  1792ms
+   ✓ reports clean Files status when no sandbox is attached  1742ms
+   ✓ keeps published Files status clean when a retired job sandbox has edits  1740ms
+   ✓ rejects Files write paths outside the repository  1975ms
+   ✓ rejects edits when the Workspace has no supported write binding  1750ms
+   ✓ requires a published index for Files tree  615ms
+   ✓ requires a published index for Files blob?path=AGENTS.md  549ms
+   ✓ requires reindexing legacy Files tree  1756ms
+   ✓ requires reindexing legacy Files blob?path=AGENTS.md  1794ms
+   ✓ durably queues a Files HTTP save with writable access and the literal edit payload  2546ms
+   ✓ durably queues a Files HTTP save with read_only access and the literal edit payload  2361ms
+   ✓ durably queues a Files HTTP save with unknown access and the literal edit payload  1953ms
+   ✓ serves indexed Files bytes after the remote disappears  1786ms
+   ✓ serves an empty indexed file as an empty body  2003ms
+   ✓ does not acknowledge a Files save when write admission cannot queue it  2379ms
+
+ Test Files  1 passed (1)
+      Tests  19 passed (19)
+   Start at  09:59:13
+   Duration  37.25s (transform 759ms, setup 20ms, import 2.39s, tests 34.76s, environment 0ms)
+

@@ -19,7 +19,7 @@ type NotionTokenRefresh = (tokens: {
   refreshToken: string | null
 }) => Promise<void>
 
-/** File the mirror wants to write, matching the shape `commitFiles` expects. */
+/** File captured by the Notion mirror for its typed workspace write. */
 export type NotionMirrorFile = { path: string; content: string }
 
 /**

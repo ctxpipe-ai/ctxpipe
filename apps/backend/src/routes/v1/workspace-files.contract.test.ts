@@ -143,7 +143,7 @@ it(
 )
 
 it(
-  "reports real sandbox edits in Files status",
+  "keeps published Files status clean when a retired job sandbox has edits",
   { timeout: 30_000 },
   async () => {
     await withFilesWorkspace(async ({ app, orgId, workspaceId, revision }) => {
@@ -168,23 +168,8 @@ it(
         expect(dirty.status).toBe(200)
         expect(await dirty.json()).toEqual({
           sha: revision.sha,
-          source: "sandbox",
-          items: [
-            {
-              path: "AGENTS.md",
-              status: "modified",
-              body: "# Edited instructions\n",
-              additions: 1,
-              deletions: 1,
-            },
-            {
-              path: "scratch.ts",
-              status: "untracked",
-              body: "export {}\n",
-              additions: 1,
-              deletions: 0,
-            },
-          ],
+          source: "clean",
+          items: [],
         })
       } finally {
         await destroyWorkspaceSandbox(workspaceId, orgId)

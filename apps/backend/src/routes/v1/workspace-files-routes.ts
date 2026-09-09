@@ -8,19 +8,14 @@ import {
 } from "../../domain/workspaces/checkout-read.js"
 import { fileTreeFromPaths } from "../../domain/workspaces/file-tree.js"
 import {
-  explorerBlobFromContent,
   explorerBlobFromGitFile,
   explorerBlobPath,
-  explorerGitNumstatFromStdout,
-  explorerGitStatusFromPorcelain,
-  withExplorerGitLineCounts,
 } from "../../domain/workspaces/git-explorer.js"
 import {
   parseWorkspaceFileJobRequest,
   planWorkspaceFileJob,
 } from "../../domain/workspaces/git-file-jobs.js"
 import { publishedProjection } from "../../domain/workspaces/revision.js"
-import { getJobSandbox } from "../../domain/workspaces/sandbox-registry.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
   getWorkspaceBySlug,
@@ -385,61 +380,10 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
   .openapi(listWorkspaceGitStatusRoute, async (c) => {
     const loaded = await loadWorkspaceGitExplorer(c)
     if (!loaded.ok) return c.json({ error: loaded.error }, loaded.status)
-    const sandbox = getJobSandbox(loaded.workspace.id)
-    if (!sandbox) {
-      return c.json(
-        { sha: loaded.input.sha, source: "clean" as const, items: [] },
-        200,
-      )
-    }
-    try {
-      const status = await sandbox.exec("git status --porcelain", { env: {} })
-      if (status.exitCode !== 0) {
-        getLogger().error(new Error(status.stderr || "git status failed"), {
-          step: "workspace.git_explorer.status",
-        })
-        return c.json(
-          { sha: loaded.input.sha, source: "sandbox" as const, items: [] },
-          200,
-        )
-      }
-      const numstat = await sandbox.exec("git diff --numstat HEAD", { env: {} })
-      const lineCounts =
-        numstat.exitCode === 0
-          ? explorerGitNumstatFromStdout(numstat.stdout)
-          : new Map()
-      const entries = explorerGitStatusFromPorcelain(status.stdout)
-      const items = await Promise.all(
-        entries.map(async (entry) => {
-          if (entry.status === "deleted" || entry.status === "ignored") {
-            return withExplorerGitLineCounts(entry, lineCounts)
-          }
-          try {
-            const content = await sandbox.fs.read(entry.path)
-            const blob = explorerBlobFromContent(content)
-            if (!blob || blob.binary) {
-              return withExplorerGitLineCounts(entry, lineCounts)
-            }
-            return {
-              ...withExplorerGitLineCounts(entry, lineCounts, blob.body),
-              body: blob.body,
-            }
-          } catch {
-            return withExplorerGitLineCounts(entry, lineCounts)
-          }
-        }),
-      )
-      return c.json(
-        { sha: loaded.input.sha, source: "sandbox" as const, items },
-        200,
-      )
-    } catch (error) {
-      gitExplorerUpstreamError(error, "workspace.git_explorer.status")
-      return c.json(
-        { sha: loaded.input.sha, source: "sandbox" as const, items: [] },
-        200,
-      )
-    }
+    return c.json(
+      { sha: loaded.input.sha, source: "clean" as const, items: [] },
+      200,
+    )
   })
   .openapi(enqueueWorkspaceFileJobRoute, async (c) => {
     const loaded = await loadWorkspaceGitExplorer(c)

@@ -1,0 +1,78 @@
+{"name": "retired-job-status-native-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/routes/v1/workspace-files.contract.test.ts", "-t", "retired job sandbox"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/bun-1.4.2/bun-darwin-aarch64:/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T23:58:39Z", "log": "logs/retired-job-status-native-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ❯ src/routes/v1/workspace-files.contract.test.ts (19 tests | 1 failed | 18 skipped) 3262ms
+   ↓ serves the last indexed tree while the Workspace relinks
+   ↓ serves the indexed Files HTTP contract for published text
+   ↓ serves the indexed Files HTTP contract for binary files
+   ↓ serves the indexed Files HTTP contract for missing files
+   ↓ serves the indexed Files HTTP contract for path traversal
+   ↓ reports clean Files status when no sandbox is attached
+   × keeps published Files status clean when a retired job sandbox has edits 3261ms
+   ↓ rejects Files write paths outside the repository
+   ↓ rejects edits when the Workspace has no supported write binding
+   ↓ requires a published index for Files tree
+   ↓ requires a published index for Files blob?path=AGENTS.md
+   ↓ requires reindexing legacy Files tree
+   ↓ requires reindexing legacy Files blob?path=AGENTS.md
+   ↓ durably queues a Files HTTP save with writable access and the literal edit payload
+   ↓ durably queues a Files HTTP save with read_only access and the literal edit payload
+   ↓ durably queues a Files HTTP save with unknown access and the literal edit payload
+   ↓ serves indexed Files bytes after the remote disappears
+   ↓ serves an empty indexed file as an empty body
+   ↓ does not acknowledge a Files save when write admission cannot queue it
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/routes/v1/workspace-files.contract.test.ts > keeps published Files status clean when a retired job sandbox has edits
+AssertionError: expected { …(3) } to deeply equal { …(3) }
+
+- Expected
++ Received
+
+  {
+-   "items": [],
++   "items": [
++     {
++       "additions": 1,
++       "body": "# Edited instructions
++ ",
++       "deletions": 1,
++       "path": "AGENTS.md",
++       "status": "modified",
++     },
++     {
++       "additions": 1,
++       "body": "export {}
++ ",
++       "deletions": 0,
++       "path": "scratch.ts",
++       "status": "untracked",
++     },
++   ],
+    "sha": "bd12c0f15c6f99355b4ef1b45535ba1b178be9f0",
+-   "source": "clean",
++   "source": "sandbox",
+  }
+
+ ❯ src/routes/v1/workspace-files.contract.test.ts:169:36
+    167|         const dirty = await app.request("/workspaces/knowledge/files/s…
+    168|         expect(dirty.status).toBe(200)
+    169|         expect(await dirty.json()).toEqual({
+       |                                    ^
+    170|           sha: revision.sha,
+    171|           source: "clean",
+ ❯ src/routes/v1/workspace-files.contract.test.ts:61:7
+ ❯ withNativeIndexFixture src/test/native-index-fixture.ts:300:5
+ ❯ withFilesWorkspace src/routes/v1/workspace-files.contract.test.ts:35:3
+ ❯ src/routes/v1/workspace-files.contract.test.ts:149:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 18 skipped (19)
+   Start at  09:58:39
+   Duration  5.70s (transform 760ms, setup 21ms, import 2.34s, tests 3.26s, environment 0ms)
+

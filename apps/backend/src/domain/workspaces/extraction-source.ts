@@ -9,6 +9,7 @@ import type { WorkspaceExtraction } from "./extraction.js"
 import {
   isLinkedRepositoryDeclaration,
   parseLinkedRepositoryMarkdown,
+  parseSimpleFrontMatter,
 } from "./layout.js"
 import type { WorkspaceRevision } from "./revision.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
@@ -66,8 +67,11 @@ export async function assertExtractionSource(
     return
   }
   const expected = extraction.sourceDeclaration
+  // Publication may add claims to the source document. The captured authority
+  // must still match its exact blob in the parent revision, before those edits.
+  const base = pack.sha === revision.sha ? pack : { ...pack, sha: revision.sha }
   const actual = expected
-    ? await captureExtractionSourceDeclaration(pack, extraction.repositoryUrl)
+    ? await captureExtractionSourceDeclaration(base, extraction.repositoryUrl)
     : null
   if (
     !expected ||
@@ -76,4 +80,38 @@ export async function assertExtractionSource(
     actual.blobSha !== expected.blobSha
   )
     throw new Error("Extraction source declaration changed")
+  if (pack.sha !== revision.sha) {
+    const candidateDeclaration = await captureExtractionSourceDeclaration(
+      pack,
+      extraction.repositoryUrl,
+    )
+    if (candidateDeclaration?.path !== expected.path)
+      throw new Error(
+        "Extraction may only update claims in its source declaration",
+      )
+    const [before] = await readGitFiles(base, (path) => path === expected.path)
+    const [after] = await readGitFiles(pack, (path) => path === expected.path)
+    if (!before || !after)
+      throw new Error("Extraction cannot remove its source declaration")
+    const original = parseSimpleFrontMatter(before.content)
+    const candidate = parseSimpleFrontMatter(after.content)
+    const metadata = (attributes: Record<string, unknown>) =>
+      Object.fromEntries(
+        Object.entries(attributes).filter(([key]) => key !== "claims"),
+      )
+    if (
+      original.malformed ||
+      candidate.malformed ||
+      original.body !== candidate.body ||
+      !isDeepStrictEqual(
+        metadata(original.attributes),
+        metadata(candidate.attributes),
+      )
+    )
+      throw new Error(
+        "Extraction may only update claims in its source declaration",
+      )
+  }
 }
+
+import { isDeepStrictEqual } from "node:util"

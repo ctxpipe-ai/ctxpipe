@@ -26,11 +26,141 @@ import {
   getNotionConnectionByConnectionId,
   updateNotionConnectionTokens,
 } from "../../models/notion-connector.js"
+import { enqueueConfluenceFullSyncAfterConfigPush } from "../../openworkflow/enqueue-confluence-push-sync.js"
 import { enqueueConnectorContentSync } from "../../openworkflow/enqueue-connector-content-sync.js"
+import { enqueueNotionFullSyncAfterConfigPush } from "../../openworkflow/enqueue-notion-push-sync.js"
 import { confluenceSyncContent } from "../../openworkflow/workflows/confluence-sync-content.js"
 import { linearSyncContent } from "../../openworkflow/workflows/linear-sync-content.js"
 import { notionSyncContent } from "../../openworkflow/workflows/notion-sync-content.js"
+import { parseConfluenceConfigYamlContent } from "../../services/confluence/config-yaml.js"
+import { parseNotionConfigYamlContent } from "../../services/notion/config-yaml.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
+
+it.each(["notion", "confluence"] as const)(
+  "reordered %s config pushes reuse their native owner while A-B-A changes get new owners",
+  { timeout: 30_000 },
+  async (provider) => {
+    await withNativeHydrationFixture(
+      { namespaceId: "default", github: true },
+      async (f) => {
+        await f.handle.cancel()
+        const repository = await withOrgIdContext(f.org, () =>
+          ensureOrgRepositoryForGitUrl({
+            orgId: f.org.id,
+            gitUrl: f.workspaceUrl,
+            githubConnectionId: f.connectionId,
+          }),
+        )
+        if (!repository) throw new Error("Fixture repository missing")
+        const connectionId = `con_${f.id}_ordered_push`
+        await withOrgDbContext(f.org.id, (db) =>
+          db.insert(connections).values({
+            id: connectionId,
+            orgId: f.org.id,
+            type: provider === "confluence" ? "forge" : "notion",
+            config: {
+              workspaceId: "provider-workspace",
+              workspaceName: "Fixture",
+              ownerUserId: "fixture-owner",
+              cloudId: "fixture-cloud",
+              status: "installed",
+              repositoryId: repository.id,
+              branch: "main",
+              enabled: true,
+              setupPhase: "initial_sync",
+              pendingConfigPrCreating: false,
+            },
+          }),
+        )
+        if (provider === "confluence")
+          await withOrgDbContext(f.org.id, (db) =>
+            db.insert(confluenceSyncTargets).values({
+              id: `cst_${f.id}`,
+              orgId: f.org.id,
+              connectionId,
+              repositoryId: repository.id,
+              branch: "main",
+              enabled: true,
+              setupPhase: "initial_sync",
+            }),
+          )
+        try {
+          const admit = async (reordered: boolean, changed = false) => {
+            if (provider === "notion") {
+              const resources = [
+                { id: "a", type: "page", title: changed ? "Changed" : "A" },
+                { title: "B", type: "database", id: "b" },
+              ]
+              const scopeFromRepo = parseNotionConfigYamlContent(
+                JSON.stringify({
+                  resources: reordered ? resources.reverse() : resources,
+                }),
+              )
+              if (!scopeFromRepo) throw new Error("Invalid fixture scope")
+              await enqueueNotionFullSyncAfterConfigPush({
+                orgId: f.org.id,
+                connectionId,
+                repositoryId: repository.id,
+                branch: "main",
+                scopeFromRepo,
+              })
+            } else {
+              const spaces = [
+                {
+                  key: changed ? "OTHER" : "ENG",
+                  selectedPageIds: reordered ? ["2", "1"] : ["1", "2"],
+                },
+                { key: "DOC", selectedPageIds: reordered ? null : [] },
+              ]
+              const scopeFromRepo = parseConfluenceConfigYamlContent(
+                JSON.stringify({
+                  spaces: reordered ? spaces.reverse() : spaces,
+                }),
+              )
+              if (!scopeFromRepo) throw new Error("Invalid fixture scope")
+              await enqueueConfluenceFullSyncAfterConfigPush({
+                orgId: f.org.id,
+                connectionId,
+                repositoryName: "fixture/hydration-contract",
+                githubConnectionId: f.connectionId,
+                branch: "main",
+                scopeFromRepo,
+                log: {
+                  error: (error) => {
+                    throw error
+                  },
+                },
+              })
+            }
+          }
+          const owners = async () =>
+            (await f.backend.listWorkflowRuns({ limit: 100 })).data.filter(
+              (run) =>
+                run.workflowName === `${provider}-sync-content` &&
+                (run.input as { connectionId?: string }).connectionId ===
+                  connectionId,
+            )
+          await admit(false)
+          expect(await owners()).toHaveLength(1)
+          await admit(true)
+          expect(await owners()).toHaveLength(1)
+          await admit(false, true)
+          expect(await owners()).toHaveLength(2)
+          await admit(false)
+          expect(await owners()).toHaveLength(3)
+        } finally {
+          if (provider === "confluence")
+            await withOrgDbContext(f.org.id, (db) =>
+              db
+                .delete(confluenceSyncTargets)
+                .where(eq(confluenceSyncTargets.connectionId, connectionId)),
+            )
+        }
+      },
+    )
+  },
+)
+
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 
 it.each([

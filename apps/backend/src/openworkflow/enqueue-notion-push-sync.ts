@@ -1,7 +1,10 @@
 import { parseEnv } from "../config/env.js"
 import { getOrganizationSlugForNotionOrgId } from "../models/notion-connector.js"
 import { loadNotionScopeFromRepo } from "../services/notion/config-from-repo.js"
-import type { ParsedNotionRepoConfig } from "../services/notion/config-yaml.js"
+import {
+  type ParsedNotionRepoConfig,
+  renderNotionConfigYaml,
+} from "../services/notion/config-yaml.js"
 import {
   connectorConfigKey,
   enqueueConnectorContentSync,
@@ -23,7 +26,7 @@ export async function enqueueNotionFullSyncAfterConfigPush(input: {
     ...input,
     orgSlug,
     provider: "notion",
-    configKey: connectorConfigKey(input.scopeFromRepo),
+    configKey: connectorConfigKey(renderNotionConfigYaml(input.scopeFromRepo)),
   })
 }
 

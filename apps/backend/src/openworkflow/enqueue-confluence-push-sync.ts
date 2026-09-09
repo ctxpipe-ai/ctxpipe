@@ -1,7 +1,10 @@
 import { parseEnv } from "../config/env.js"
 import { getOrganizationSlugByOrgId } from "../models/confluence-sync-target.js"
 import { loadConfluenceScopeFromRepo } from "../services/confluence/config-from-repo.js"
-import type { ParsedConfluenceRepoConfig } from "../services/confluence/config-yaml.js"
+import {
+  confluenceSpaceSelection,
+  type ParsedConfluenceRepoConfig,
+} from "../services/confluence/config-yaml.js"
 import {
   connectorConfigKey,
   enqueueConnectorContentSync,
@@ -30,7 +33,9 @@ export async function enqueueConfluenceFullSyncAfterConfigPush(input: {
     connectionId: input.connectionId,
     provider: "confluence",
     branch: input.branch,
-    configKey: connectorConfigKey(input.scopeFromRepo),
+    configKey: connectorConfigKey({
+      spaces: confluenceSpaceSelection(input.scopeFromRepo.spaces),
+    }),
   })
 }
 

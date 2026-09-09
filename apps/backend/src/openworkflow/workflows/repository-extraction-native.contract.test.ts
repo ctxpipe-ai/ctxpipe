@@ -93,6 +93,13 @@ it.each([
           ],
           extractedClaims: [
             {
+              subjectRef: repository.id,
+              objectRef: `svc:${repository.id}:billing`,
+              predicate: "HAS_SERVICE",
+              confidence: 0.9,
+              sourceId: `extractKind:${repository.id}:billing:${f.sha}`,
+            },
+            {
               subjectRef: `svc:${repository.id}:billing`,
               objectRef: repository.id,
               predicate: "IMPLEMENTED_IN",
@@ -319,9 +326,31 @@ it.each([
             return
           }
           await handle.result({ timeoutMs: 25_000 })
+          const repositoryPath = ownSource
+            ? "AGENTS.md"
+            : "repositories/source.md"
+          const repositoryMarkdown = f.git(
+            "--git-dir",
+            f.remote,
+            "show",
+            `main:${repositoryPath}`,
+          )
+          expect(repositoryMarkdown).toContain("predicate: HAS_SERVICE")
+          if (!ownSource)
+            expect(repositoryMarkdown).toContain(
+              "git: https://github.com/fixture/extraction-source",
+            )
           expect(
             f.git("--git-dir", f.remote, "diff", "--name-only", f.sha, "main"),
-          ).toBe("knowledge/apis/billing-api.md\nknowledge/services/billing.md")
+          ).toBe(
+            [
+              "knowledge/apis/billing-api.md",
+              "knowledge/services/billing.md",
+              repositoryPath,
+            ]
+              .sort()
+              .join("\n"),
+          )
           expect(
             f.git(
               "--git-dir",
