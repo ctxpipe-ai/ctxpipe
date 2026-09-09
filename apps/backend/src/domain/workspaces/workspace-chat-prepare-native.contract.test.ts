@@ -1,5 +1,9 @@
+import { execFileSync } from "node:child_process"
+import { writeFile } from "node:fs/promises"
+import { join } from "node:path"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
+import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
 import { warmTanstackWorkspaceChat } from "./tanstack-workspace-chat.js"
@@ -67,6 +71,52 @@ it(
         if (previous === undefined) delete process.env.SANDBOX_PROVIDER
         else process.env.SANDBOX_PROVIDER = previous
       }
+    })
+  },
+)
+
+it(
+  "prepares the captured SHA when the remote default branch has advanced",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      await writeFile(
+        join(f.directory, "README.md"),
+        "# Newer unselected revision\n",
+      )
+      execFileSync(
+        "git",
+        [
+          "-c",
+          "user.name=Fixture",
+          "-c",
+          "user.email=fixture@example.test",
+          "commit",
+          "-am",
+          "Advance default branch",
+        ],
+        { cwd: f.directory },
+      )
+      const prepared = await warmTanstackWorkspaceChat({
+        conversationId: f.conversationId,
+        orgId: f.orgId,
+        orgSlug: f.orgSlug,
+        workspaceId: f.workspaceId,
+        desiredUrl: f.directory,
+        desiredSha: f.sha,
+        defaultBranch: "main",
+        writeStatus: "read_only",
+        prompt: "prepare",
+      })
+      if (!prepared.ok) throw new Error(prepared.error)
+      expect(
+        (
+          await prepared.handle.process.exec("git rev-parse HEAD")
+        ).stdout.trim(),
+      ).toBe(f.sha)
+      expect(await prepared.handle.fs.read("README.md")).toBe(
+        "# Native chat workspace\n",
+      )
     })
   },
 )

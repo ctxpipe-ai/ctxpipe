@@ -9,14 +9,11 @@ import { otelMiddleware } from "@tanstack/ai/middlewares/otel"
 import { withPersistence } from "@tanstack/ai-persistence"
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
 import { eq } from "drizzle-orm"
-import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { getSystemDb } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { nameConversationIfUnnamed } from "../../graphs/conversationGraph/nodes/conversationNaming.js"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
-import { getWorkspaceProjectionSnapshot } from "../../models/workspaces.js"
 import { getLogger, log } from "../../observability/logger.js"
-import { hybridSearch } from "../../retrieval/index.js"
-import { generateEmbedding } from "../../retrieval/services/modelProvider.js"
 import {
   WORKSPACE_CHAT_CLONE_BRANCH_SECRET,
   WORKSPACE_CHAT_CLONE_SHA_SECRET,
@@ -64,7 +61,7 @@ import {
 } from "./workspace-chat-otel.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
 import { mintWorkspaceChatToken } from "./workspace-chat-token.js"
-import { workspaceChatTools } from "./workspace-chat-tools.js"
+import { WORKSPACE_CHAT_TOOLS } from "./workspace-chat-tools.js"
 
 export type TanstackWorkspaceChatMessage = {
   id?: string
@@ -92,7 +89,6 @@ export type TanstackWorkspaceChatInput = {
   ref?: string
   writeStatus: string
   cloneToken?: string | null
-  onHeartbeat?: () => Promise<void> | void
   onFinish?: () => Promise<void> | void
   onError?: () => Promise<void> | void
   onUserPersist?: () => Promise<void> | void
@@ -307,15 +303,6 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     modelBase: built.contract.modelBase,
   })
   try {
-    const toolsStarted = Date.now()
-    const tools = await loadWorkspaceChatTools(input)
-    log.info({
-      step: "workspace-chat-timing",
-      phase: "proxy-and-tools",
-      message: `workspace chat timing proxy-and-tools ${Date.now() - toolsStarted}ms`,
-      ms: Date.now() - toolsStarted,
-      conversationId: input.conversationId,
-    })
     const servePort = portLease?.port ?? WORKSPACE_CHAT_OPENCODE_PORT
     const modules = built.modules
     const instances = built.instances
@@ -337,12 +324,16 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       }),
       threadId: input.conversationId,
       runId: input.runId,
-      context: { orgId: input.orgId },
+      context: {
+        orgId: input.orgId,
+        orgSlug: await resolveWorkspaceChatOrgSlug(input),
+        workspaceId: input.workspaceId,
+      },
       messages: messagesForOpenCodeChat(input.messages, input.prompt) as Array<
         ModelMessage | UIMessage
       >,
       abortController,
-      tools,
+      tools: WORKSPACE_CHAT_TOOLS,
       middleware: [
         otelMiddleware({
           tracer: trace.getTracer("ctxpipe-workspace-chat"),
@@ -573,27 +564,6 @@ function defineConversationSandbox(input: {
       },
     },
   })
-}
-
-async function loadWorkspaceChatTools(input: TanstackWorkspaceChatInput) {
-  return withOrgDbContext(input.orgId, () =>
-    getWorkspaceProjectionSnapshot(input.workspaceId),
-  )
-    .then(async (snapshot) => {
-      const orgSlug = await resolveWorkspaceChatOrgSlug(input)
-      if (!orgSlug)
-        throw new Error("Workspace chat needs an organization slug.")
-      return workspaceChatTools({
-        orgId: input.orgId,
-        orgSlug,
-        workspaceId: input.workspaceId,
-        snapshot,
-        embedQuery: generateEmbedding,
-        searchObjects: async (query, embedding) =>
-          hybridSearch(input.orgId, { embedding, query }, { limit: 20 }),
-      })
-    })
-    .catch(() => [])
 }
 
 export async function conversationHasStoredTurns(

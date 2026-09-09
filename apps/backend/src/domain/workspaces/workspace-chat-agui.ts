@@ -94,15 +94,3 @@ export function workspaceChatHttpResponse(
     ? toHttpResponse(stream, { abortController, headers })
     : toServerSentEventsResponse(stream, { abortController, headers })
 }
-
-export function parseSseDataLines(body: string): object[] {
-  const events: object[] = []
-  for (const block of body.split("\n\n")) {
-    const line = block.split("\n").find((entry) => entry.startsWith("data: "))
-    if (!line) continue
-    try {
-      events.push(JSON.parse(line.slice(6)) as object)
-    } catch {}
-  }
-  return events
-}

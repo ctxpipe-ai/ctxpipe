@@ -4,7 +4,6 @@ import {
   judgeChatToolWithFastModel,
 } from "./chat-sandbox-policy.js"
 import { CONVERSATION_SANDBOX_GIT_EXCLUDE_LINES } from "./conversation-files.js"
-import { sandboxSnapshotKey } from "./revision.js"
 import { detectSandboxProviderFromEnv } from "./sandbox-provider.js"
 import { WORKSPACE_CHAT_OPENCODE_CLI } from "./workspace-chat-opencode-contract.js"
 
@@ -34,33 +33,18 @@ export const WORKSPACE_CHAT_DOCKER_SANDBOX: {
  */
 export const WORKSPACE_CHAT_SANDBOX_SETUP = [
   `PATH="/usr/local/bin:/usr/bin:/bin:$PATH"; command -v opencode >/dev/null 2>&1 || npm install -g ${WORKSPACE_CHAT_OPENCODE_CLI}`,
-  // TanStack drives setup on a persistent `sh` (`{ $command ; } 2>&1; printf
-  // sentinel`). `exit` / `set -e` kill that shell before the sentinel. End
-  // on `true` so dash accepts the wrapper's trailing `;`.
-  `if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  true
-else
-  DEST=/tmp/ctxpipe-repo-clone
-  rm -rf "$DEST"
-  clone_repo() {
-    if [ -n "\${CTXPIPE_CLONE_TOKEN:-}" ]; then
-      git -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f' "$@"
-    else
-      git "$@"
-    fi
-  }
-  if ! clone_repo clone --depth 1 --single-branch --branch "$CTXPIPE_CLONE_BRANCH" -- "$CTXPIPE_CLONE_URL" "$DEST"; then
-    clone_repo clone --depth 1 -- "$CTXPIPE_CLONE_URL" "$DEST"
+  // Native gitSource lands the branch; pin its checkout before creating the
+  // session branch. A missing captured commit is a setup error, never a fallback.
+  `git rev-parse --is-inside-work-tree >/dev/null && test -n "$CTXPIPE_CLONE_SHA" && {
+  if git cat-file -e "$CTXPIPE_CLONE_SHA^{commit}" 2>/dev/null; then
+    true
+  else
+    git -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f' fetch --depth 1 origin "$CTXPIPE_CLONE_SHA"
   fi
-  cp -a "$DEST"/. .
-  if [ -n "\${CTXPIPE_CLONE_SHA:-}" ]; then
-    git fetch --depth 1 origin "$CTXPIPE_CLONE_SHA" && git checkout --detach "$CTXPIPE_CLONE_SHA" || true
-  fi
-  git rev-parse --is-inside-work-tree >/dev/null
-fi
-if [ -n "\${CTXPIPE_SESSION_BRANCH:-}" ]; then
-  git checkout -B "$CTXPIPE_SESSION_BRANCH" || true
-fi
+} && git checkout --detach "$CTXPIPE_CLONE_SHA"`,
+  `if [ -n "\${CTXPIPE_SESSION_BRANCH:-}" ]; then
+  git checkout -B "$CTXPIPE_SESSION_BRANCH"
+fi &&
 OPENCODE_HOME="\${HOME:-/tmp/ctxpipe-opencode-home}"
 mkdir -p "$OPENCODE_HOME"
 if [ -n "\${CTXPIPE_OPENCODE_JSON:-}" ]; then
@@ -76,26 +60,7 @@ fi
 true`,
 ] as const
 
-export function workspaceChatSandboxId(input: {
-  orgId: string
-  workspaceId: string
-  desiredUrl: string
-  desiredSha: string | null
-  image: string
-}): string | null {
-  const snapshot = sandboxSnapshotKey(input.desiredUrl, input.desiredSha)
-  if (!snapshot) return null
-  return `${input.orgId}:${input.workspaceId}:${snapshot}:${input.image}`
-}
-
 export const CHAT_SANDBOX_KEEP_ALIVE = "30m" as const
-
-export function workspaceChatLiveSandboxId(input: {
-  snapshotId: string
-  conversationId: string
-}): string {
-  return `${input.snapshotId}:thread:${input.conversationId}`
-}
 
 export const WORKSPACE_CHAT_CLONE_TOKEN_SECRET = "CTXPIPE_CLONE_TOKEN" as const
 export const WORKSPACE_CHAT_CLONE_URL_SECRET = "CTXPIPE_CLONE_URL" as const

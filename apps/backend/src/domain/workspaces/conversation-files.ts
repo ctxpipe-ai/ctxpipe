@@ -16,6 +16,7 @@ import {
   withExplorerGitLineCounts,
 } from "./git-explorer.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
+import { sameWorkspaceBinding, type WorkspaceRevision } from "./revision.js"
 
 export { conversationSessionBranch }
 
@@ -42,17 +43,30 @@ function isConversationSandboxListedPath(path: string): boolean {
   )
 }
 
-export async function getConversationSandboxBinding(conversationId: string) {
+export async function getConversationSandboxBinding(
+  conversationId: string,
+  expected: WorkspaceRevision,
+) {
   const rows = await listSandboxInstances({
     conversationId,
     kind: "chat",
     state: "live",
   })
-  const revision = rows
-    .filter((row) => row.providerSandboxId && row.revision)
-    .sort(
+  const available = rows.filter((row) => row.providerSandboxId && row.revision)
+  const matching = available.find(
+    (row) =>
+      row.revision &&
+      sameWorkspaceBinding(row.revision, expected) &&
+      row.revision.sha === expected.sha,
+  )
+  // A nonmatching row is used only to report the precise stale-binding reason.
+  // A valid current revision always wins, regardless of another run's heartbeat.
+  const revision = (
+    matching ??
+    available.sort(
       (a, b) => b.lastHeartbeatAt.getTime() - a.lastHeartbeatAt.getTime(),
-    )[0]?.revision
+    )[0]
+  )?.revision
   return revision
     ? {
         githubConnectionId: revision.remote.connectionId,

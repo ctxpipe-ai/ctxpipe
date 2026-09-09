@@ -21,7 +21,6 @@ import {
   streamTanstackWorkspaceChat,
   warmTanstackWorkspaceChat,
 } from "./tanstack-workspace-chat.js"
-import { parseSseDataLines } from "./workspace-chat-agui.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
 
 it(
@@ -191,3 +190,15 @@ it(
     })
   },
 )
+
+function parseSseDataLines(body: string): object[] {
+  const events: object[] = []
+  for (const block of body.split("\n\n")) {
+    const line = block.split("\n").find((entry) => entry.startsWith("data: "))
+    if (!line) continue
+    try {
+      events.push(JSON.parse(line.slice(6)) as object)
+    } catch {}
+  }
+  return events
+}

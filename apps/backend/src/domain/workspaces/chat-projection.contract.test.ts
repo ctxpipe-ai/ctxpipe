@@ -11,20 +11,23 @@ import { organizations } from "../../db/schema/auth.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
 import {
-  workspaces,
   workspaceLinkedRepositories,
+  workspaces,
 } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
 import {
   captureWorkspaceRevision,
-  listOrgLinkedRepositories,
   commitHydrateProjection,
-  persistWorkspaceIndexResult,
   getWorkspaceProjectionSnapshot,
+  listOrgLinkedRepositories,
+  persistWorkspaceIndexResult,
 } from "../../models/workspaces.js"
 import { hydrateKnowledgeTree } from "./hydrate.js"
 import type { WorkspaceRevision } from "./revision.js"
-import { workspaceChatTools } from "./workspace-chat-tools.js"
+import {
+  WORKSPACE_CHAT_TOOLS,
+  workspaceChatTools,
+} from "./workspace-chat-tools.js"
 
 type ChatFixture = {
   org: { id: string; slug: string; name: string }
@@ -285,6 +288,45 @@ it(
           indexedSha: null,
         },
       ])
+    })
+  },
+)
+
+it(
+  "static chat tools resolve the authorized projection only when invoked",
+  { timeout: 30_000 },
+  async () => {
+    await withChatProjection(async (f) => {
+      const scope = {
+        context: {
+          orgId: f.org.id,
+          orgSlug: f.org.slug,
+          workspaceId: f.workspaceId,
+        },
+      }
+      const listed = WORKSPACE_CHAT_TOOLS.find(
+        (tool) => tool.name === "list_repositories",
+      )
+      if (!listed)
+        throw new Error("Native chat tool catalogue lacks list_repositories")
+      expect(String(await listed.execute({}, scope))).toContain(f.repositoryId)
+      expect(String(await listed.execute({}, scope))).not.toContain(
+        f.excludedRepositoryId,
+      )
+      await expect(
+        listed.execute(
+          {},
+          {
+            context: { ...scope.context, workspaceId: generateObjectId("ws") },
+          },
+        ),
+      ).rejects.toThrow("Workspace projection is unavailable")
+      await expect(
+        listed.execute(
+          {},
+          { context: { ...scope.context, orgId: generateObjectId("org") } },
+        ),
+      ).rejects.toThrow()
     })
   },
 )

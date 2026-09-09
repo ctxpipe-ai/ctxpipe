@@ -100,14 +100,6 @@ export function publishedProjection(
 }
 
 /** Legacy chat runtime key; Gate 4 removes this caller during native sandbox adoption. */
-export function sandboxSnapshotKey(
-  desiredUrl: string,
-  desiredSha: string | null,
-): string | null {
-  if (!desiredSha) return null
-  return `${desiredUrl}@${desiredSha}`
-}
-
 export function sameLinkedReadBinding(
   a: LinkedReadBinding | null,
   b: LinkedReadBinding,

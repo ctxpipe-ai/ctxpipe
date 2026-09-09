@@ -1,0 +1,84 @@
+{"name": "native-publication-revision-race-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/routes/v1/conversation-publish-native.contract.test.ts", "-t", "sha_before_push|other_revision_heartbeat"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/bun-1.4.2/bun-darwin-aarch64:/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-09T03:13:24Z", "log": "logs/native-publication-revision-race-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-yP80b3/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-XbZhWf/remote.git'...
+done.
+ ❯ src/routes/v1/conversation-publish-native.contract.test.ts (18 tests | 2 failed | 16 skipped) 3759ms
+   ↓ publishes from the authenticated conversation HTTP boundary: push
+   × publishes from the authenticated conversation HTTP boundary: sha_before_push 2719ms
+   × publishes from the authenticated conversation HTTP boundary: other_revision_heartbeat 1038ms
+   ↓ publishes from the authenticated conversation HTTP boundary: warm_files
+   ↓ publishes from the authenticated conversation HTTP boundary: pull-request
+   ↓ publishes from the authenticated conversation HTTP boundary: pr_collision
+   ↓ publishes from the authenticated conversation HTTP boundary: missing
+   ↓ publishes from the authenticated conversation HTTP boundary: stale
+   ↓ publishes from the authenticated conversation HTTP boundary: stale_push
+   ↓ publishes from the authenticated conversation HTTP boundary: stale_connection
+   ↓ publishes from the authenticated conversation HTTP boundary: stale_generation
+   ↓ publishes from the authenticated conversation HTTP boundary: stale_sha
+   ↓ publishes from the authenticated conversation HTTP boundary: stale_default_branch
+   ↓ publishes from the authenticated conversation HTTP boundary: relink_after_push
+   ↓ publishes from the authenticated conversation HTTP boundary: relink_after_push_push
+   ↓ publishes from the authenticated conversation HTTP boundary: relink_during_pr
+   ↓ publishes from the authenticated conversation HTTP boundary: relink_before_pr
+   ↓ hides a saved PR when its workspace relinks during the provider read
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/routes/v1/conversation-publish-native.contract.test.ts > publishes from the authenticated conversation HTTP boundary: sha_before_push
+AssertionError: expected { status: 409, …(1) } to deeply equal { status: 400, …(1) }
+
+- Expected
++ Received
+
+  {
+    "body": {
+-     "error": "Conversation write binding changed before push",
++     "error": "stale_binding",
+    },
+-   "status": 400,
++   "status": 409,
+  }
+
+ ❯ src/routes/v1/conversation-publish-native.contract.test.ts:292:55
+    290|           const branch = conversationSessionBranch(conversationId)
+    291|           if (scenario === "sha_before_push") {
+    292|             expect({ status: response.status, body }).toEqual({
+       |                                                       ^
+    293|               status: 400,
+    294|               body: { error: "Conversation write binding changed befor…
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:657:5
+ ❯ src/routes/v1/conversation-publish-native.contract.test.ts:51:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/routes/v1/conversation-publish-native.contract.test.ts > publishes from the authenticated conversation HTTP boundary: other_revision_heartbeat
+AssertionError: expected 400 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 400
+
+ ❯ src/routes/v1/conversation-publish-native.contract.test.ts:333:37
+    331|             ).toBe("1")
+    332|           } else {
+    333|             expect(response.status).toBe(200)
+       |                                     ^
+    334|             expect(body).toMatchObject({ branch })
+    335|             expect(
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:657:5
+ ❯ src/routes/v1/conversation-publish-native.contract.test.ts:51:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 16 skipped (18)
+   Start at  13:13:24
+   Duration  7.38s (transform 1.14s, setup 26ms, import 3.50s, tests 3.76s, environment 0ms)
+

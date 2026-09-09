@@ -542,14 +542,17 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
     ) {
       return c.json({ error: "read_only" }, 400)
     }
-    const sandbox = await getConversationSandboxBinding(conversationId)
-    if (!sandbox) return c.json({ error: "missing_sandbox" }, 409)
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const revision = await getDesiredWorkspaceRevision(
       loaded.workspace.id,
       "publish-session",
     )
     if (!revision) return c.json({ error: "missing_revision" }, 409)
+    const sandbox = await getConversationSandboxBinding(
+      conversationId,
+      revision,
+    )
+    if (!sandbox) return c.json({ error: "missing_sandbox" }, 409)
     const repoName = githubRepoFullNameFromWorkspaceUrl(revision.remote.url)
     if (!repoName) return c.json({ error: "not_github" }, 400)
     const planned = planCapturedConversationPublication({

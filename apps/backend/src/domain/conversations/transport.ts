@@ -43,7 +43,6 @@ export type StreamInput = {
   defaultBranch?: string
   cloneToken?: string | null
   resolveRuntime?: TanstackWorkspaceChatInput["resolveRuntime"]
-  onHeartbeat?: () => Promise<void> | void
   onFinish?: () => Promise<void> | void
   onError?: () => Promise<void> | void
   onUserPersist?: () => Promise<void> | void
@@ -112,7 +111,6 @@ function toChatInput(input: StreamInput): TanstackWorkspaceChatInput | null {
     cloneToken: input.cloneToken,
     abortSignal: input.abortSignal,
     resolveRuntime: input.resolveRuntime,
-    onHeartbeat: input.onHeartbeat,
     onFinish: input.onFinish,
     onError: input.onError,
     onUserPersist: input.onUserPersist,

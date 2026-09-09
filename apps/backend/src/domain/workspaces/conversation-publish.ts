@@ -130,7 +130,6 @@ export async function pushConversationSessionBranch(input: {
       !current ||
       !sameWorkspaceRevision(current.revision, {
         ...revision,
-        sha: current.revision.sha,
         access: current.revision.access,
       })
     )

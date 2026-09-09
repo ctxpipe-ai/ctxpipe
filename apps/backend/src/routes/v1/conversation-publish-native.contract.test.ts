@@ -26,6 +26,8 @@ import { conversationRoutes } from "./conversations.js"
 
 it.each([
   "push",
+  "sha_before_push",
+  "other_revision_heartbeat",
   "warm_files",
   "pull-request",
   "pr_collision",
@@ -177,6 +179,39 @@ it.each([
                 ),
             )
           }
+          if (scenario === "sha_before_push") {
+            f.onWriteCredentialRequest(async () => {
+              await withOrgDbContext(f.org.id, (db) =>
+                db
+                  .update(workspaces)
+                  .set({ desiredSha: "f".repeat(40) })
+                  .where(eq(workspaces.id, f.workspaceId)),
+              )
+            })
+          }
+          if (scenario === "other_revision_heartbeat") {
+            const other = await withOrgIdContext(f.org, () =>
+              withTestLogger(() =>
+                warmTanstackWorkspaceChat({
+                  conversationId,
+                  orgId: f.org.id,
+                  orgSlug: f.org.slug,
+                  workspaceId: f.workspaceId,
+                  desiredUrl: f.workspaceUrl,
+                  desiredSha: f.sha,
+                  desiredGeneration: f.revision.generation + 1,
+                  githubConnectionId: f.connectionId,
+                  defaultBranch: "main",
+                  writeStatus: "writable",
+                  lastBranch: conversationSessionBranch(conversationId),
+                  prompt: "prepare",
+                  cloneToken: "fixture-native-clone",
+                }),
+              ),
+            )
+            if (!other.ok) throw new Error(other.error)
+            expect(other.handle.id).not.toBe(raw.id)
+          }
           if (scenario.startsWith("relink_after_push")) {
             await raw.fs.write(
               ".git/hooks/reference-transaction",
@@ -253,7 +288,16 @@ fi
           const response = await pendingResponse
           const body = await response.json()
           const branch = conversationSessionBranch(conversationId)
-          if (scenario.startsWith("relink_")) {
+          if (scenario === "sha_before_push") {
+            expect({ status: response.status, body }).toEqual({
+              status: 400,
+              body: { error: "Conversation write binding changed before push" },
+            })
+            expect(pullRequests).toEqual([])
+            expect(
+              f.git("--git-dir", f.remote, "rev-list", "--all", "--count"),
+            ).toBe("1")
+          } else if (scenario.startsWith("relink_")) {
             expect({ status: response.status, body }).toEqual({
               status: 409,
               body: { error: "stale_binding" },

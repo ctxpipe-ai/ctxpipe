@@ -1,36 +1,43 @@
-import { readWorkspaceGraph } from "./graph-projection.js"
-import {
-  globCheckoutPaths,
-  type CheckoutGlobRequest,
-} from "../../tools/globFiles.js"
-import {
-  readCheckoutFile,
-  type CheckoutFileRequest,
-} from "../../tools/getFile.js"
-import { codesearchStructuralSearch } from "../../tools/structuralSearch.js"
+import type { ToolExecutionContext } from "@tanstack/ai"
 import { z } from "zod"
+import { withOrgDbContext } from "../../db/client.js"
+import { toToon } from "../../lib/agentToolRuntime.js"
 import { assertStructuralGraphAnchor } from "../../lib/repoExplorerPlanner.js"
+import {
+  getWorkspaceProjectionSnapshot,
+  type WorkspaceProjectionSnapshot,
+} from "../../models/workspaces.js"
+import { hybridSearch } from "../../retrieval/index.js"
+import { codeSearch } from "../../retrieval/services/codeSearch.js"
+import { generateEmbedding } from "../../retrieval/services/modelProvider.js"
 import {
   codesearchGraphQuery,
   type GraphPrimitive,
 } from "../../tools/codesearchGraph.js"
-import { toToon } from "../../lib/agentToolRuntime.js"
-import { type WorkspaceProjectionSnapshot } from "../../models/workspaces.js"
-import { codeSearch } from "../../retrieval/services/codeSearch.js"
+import {
+  type CheckoutFileRequest,
+  readCheckoutFile,
+} from "../../tools/getFile.js"
+import {
+  type CheckoutGlobRequest,
+  globCheckoutPaths,
+} from "../../tools/globFiles.js"
+import { listRepositoriesTool } from "../../tools/listRepositories.js"
+import { standardRepoExplorerTools } from "../../tools/repoExplorerTools.js"
+import { codesearchStructuralSearch } from "../../tools/structuralSearch.js"
 import { compactSearchResponse } from "../../tools/zoektCompact.js"
 import {
   buildSymbolDefinitionQuery,
   buildSymbolReferencesQuery,
 } from "../../tools/zoektSymbolQuery.js"
-import { listRepositoriesTool } from "../../tools/listRepositories.js"
-import { standardRepoExplorerTools } from "../../tools/repoExplorerTools.js"
-import { publishedProjection, type PublishedProjection } from "./revision.js"
-import type { WorkspaceGraphPayload } from "./workspace-graph.js"
+import { readWorkspaceGraph } from "./graph-projection.js"
+import { type PublishedProjection, publishedProjection } from "./revision.js"
 import {
   formatWorkspaceChatHits,
   type WorkspaceChatUnit,
   workspaceChatHybridHits,
 } from "./workspace-chat-retrieval.js"
+import type { WorkspaceGraphPayload } from "./workspace-graph.js"
 
 export type WorkspaceChatTanstackTool = {
   name: string
@@ -39,7 +46,10 @@ export type WorkspaceChatTanstackTool = {
     type: "object"
     properties?: Record<string, unknown>
   } & Record<string, unknown>
-  execute: (args: unknown) => Promise<unknown>
+  execute: (
+    args: unknown,
+    context?: Pick<ToolExecutionContext, "context" | "abortSignal">,
+  ) => Promise<unknown>
 }
 
 type ExplorerTool = {
@@ -251,14 +261,7 @@ function hybridSearchTool(input: {
   ) => Promise<Array<{ objectId: string }>>
 }): WorkspaceChatTanstackTool {
   return {
-    name: "hybrid_search",
-    description:
-      "Search this Workspace's active projection (Postgres knowledge and claims). Input: { query }.",
-    inputSchema: {
-      type: "object",
-      properties: { query: { type: "string", minLength: 1 } },
-      required: ["query"],
-    },
+    ...HYBRID_SEARCH_DEFINITION,
     execute: async (args) => {
       const query =
         args &&
@@ -307,16 +310,10 @@ function wrapExplorerTool(input: {
   workspaceId: string
   projection: PublishedProjection
 }): WorkspaceChatTanstackTool {
-  const schema = EXPLORER_INPUT_SCHEMAS[input.tool.name] ?? {
-    type: "object" as const,
-    properties: {},
-  }
+  const definition = explorerToolDefinition(input.tool)
+  const schema = definition.inputSchema
   return {
-    name: input.tool.name,
-    description: SCIP_GRAPH_TOOL_NAMES.has(input.tool.name)
-      ? `${input.tool.description.replace(/Requires checkoutKey[^.]*\./gi, "").trim()} Uses this Workspace's codesearch checkout.`
-      : input.tool.description,
-    inputSchema: schema,
+    ...definition,
     execute: async (args) => {
       if (
         !workspaceChatToolAllowed({
@@ -504,14 +501,7 @@ function graphLookupTool(input: {
   sha: string
 }): WorkspaceChatTanstackTool {
   return {
-    name: "graph_lookup",
-    description:
-      "Look up a node in this Workspace's published knowledge graph. Input: { nodeId }.",
-    inputSchema: {
-      type: "object",
-      properties: { nodeId: { type: "string", minLength: 1 } },
-      required: ["nodeId"],
-    },
+    ...GRAPH_LOOKUP_DEFINITION,
     execute: async (args) => {
       const nodeId = stringArg(args, "nodeId")
       if (!nodeId) return toToon({ error: "nodeId_required" })
@@ -530,17 +520,7 @@ function graphNeighborsTool(input: {
   sha: string
 }): WorkspaceChatTanstackTool {
   return {
-    name: "graph_neighbors",
-    description:
-      "Traverse neighbors in this Workspace's published knowledge graph. Input: { nodeId, limit? }.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        nodeId: { type: "string", minLength: 1 },
-        limit: { type: "integer", minimum: 1, maximum: 50 },
-      },
-      required: ["nodeId"],
-    },
+    ...GRAPH_NEIGHBORS_DEFINITION,
     execute: async (args) => {
       const nodeId = stringArg(args, "nodeId")
       if (!nodeId) return toToon({ error: "nodeId_required" })
@@ -575,3 +555,95 @@ function stringArg(args: unknown, key: string): string {
   const value = (args as Record<string, unknown>)[key]
   return typeof value === "string" ? value.trim() : ""
 }
+
+function explorerToolDefinition(tool: ExplorerTool) {
+  const schema = EXPLORER_INPUT_SCHEMAS[tool.name] ?? {
+    type: "object" as const,
+    properties: {},
+  }
+  return {
+    name: tool.name,
+    description: SCIP_GRAPH_TOOL_NAMES.has(tool.name)
+      ? `${tool.description.replace(/Requires checkoutKey[^.]*\./gi, "").trim()} Uses this Workspace's codesearch checkout.`
+      : tool.description,
+    inputSchema: schema,
+  }
+}
+
+const HYBRID_SEARCH_DEFINITION: Omit<WorkspaceChatTanstackTool, "execute"> = {
+  name: "hybrid_search",
+  description:
+    "Search this Workspace's active projection (Postgres knowledge and claims). Input: { query }.",
+  inputSchema: {
+    type: "object",
+    properties: { query: { type: "string", minLength: 1 } },
+    required: ["query"],
+  },
+}
+
+const GRAPH_LOOKUP_DEFINITION: Omit<WorkspaceChatTanstackTool, "execute"> = {
+  name: "graph_lookup",
+  description:
+    "Look up a node in this Workspace's published knowledge graph. Input: { nodeId }.",
+  inputSchema: {
+    type: "object",
+    properties: { nodeId: { type: "string", minLength: 1 } },
+    required: ["nodeId"],
+  },
+}
+
+const GRAPH_NEIGHBORS_DEFINITION: Omit<WorkspaceChatTanstackTool, "execute"> = {
+  name: "graph_neighbors",
+  description:
+    "Traverse neighbors in this Workspace's published knowledge graph. Input: { nodeId, limit? }.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      nodeId: { type: "string", minLength: 1 },
+      limit: { type: "integer", minimum: 1, maximum: 50 },
+    },
+    required: ["nodeId"],
+  },
+}
+
+const chatToolScope = z.object({
+  orgId: z.string().min(1),
+  orgSlug: z.string().min(1),
+  workspaceId: z.string().min(1),
+})
+
+/** Static catalogue. Tenant-bound data is read only on an actual tool invocation. */
+export const WORKSPACE_CHAT_TOOLS: WorkspaceChatTanstackTool[] = [
+  HYBRID_SEARCH_DEFINITION,
+  ...(
+    [
+      listRepositoriesTool,
+      ...standardRepoExplorerTools,
+    ] as unknown as ExplorerTool[]
+  ).map(explorerToolDefinition),
+  GRAPH_LOOKUP_DEFINITION,
+  GRAPH_NEIGHBORS_DEFINITION,
+].map((definition) => ({
+  ...definition,
+  execute: async (args, execution) => {
+    execution?.abortSignal?.throwIfAborted()
+    const scope = chatToolScope.parse(execution?.context)
+    const snapshot = await withOrgDbContext(scope.orgId, () =>
+      getWorkspaceProjectionSnapshot(scope.workspaceId),
+    )
+    if (!publishedProjection(snapshot.projection))
+      throw new Error("Workspace projection is unavailable")
+    const tools = await workspaceChatTools({
+      ...scope,
+      snapshot,
+      embedQuery: generateEmbedding,
+      searchObjects: (query, embedding) =>
+        hybridSearch(scope.orgId, { embedding, query }, { limit: 20 }),
+    })
+    const tool = tools.find((tool) => tool.name === definition.name)
+    if (!tool)
+      throw new Error(`Workspace tool ${definition.name} is unavailable`)
+    execution?.abortSignal?.throwIfAborted()
+    return tool.execute(args, execution)
+  },
+}))
