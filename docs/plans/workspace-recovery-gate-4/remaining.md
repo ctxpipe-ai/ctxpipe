@@ -64,15 +64,17 @@ Key evidence:
    necessary but not sufficient. The prepare contract asserts the exact
    railway 503 without allocating a sandbox. Do not implement an SDK
    provider.
-5. Independent cumulative reviews of `20cf0791...032c5b23` both returned
-   `BLOCKED`. Shared blockers: per-call Docker `defineSandbox` rebuild,
-   incomplete warm-turn budget proof, and dead `console.*` capture. Reviewer
-   A also blocked on `tanstack-runtime` catch-and-empty and conversation-
-   keyed OTEL. Those are being corrected on this SHA; do not write
+5. Independent reviews of `032c5b23` and `058a4a3b` both returned
+   `BLOCKED`. Shared remaining items after `058a4a3b`: conversation-keyed
+   OTEL attribution and a composed warm Send proof. This SHA binds proxy
+   telemetry to the minted `runId` and retains a warm Send (zero extra
+   provider creates, at most one ensure, useful answer). Do not write
    `Gate 4:` until both reviews are re-run at zero blockers and full CI is
    green. Reports:
-   [reviewer A](checkpoint-032c5b23-reviewer-a.md),
-   [reviewer B](checkpoint-032c5b23-reviewer-b.md).
+   [032c5b23 A](checkpoint-032c5b23-reviewer-a.md),
+   [032c5b23 B](checkpoint-032c5b23-reviewer-b.md),
+   [058a4a3b A](checkpoint-058a4a3b-reviewer-a.md),
+   [058a4a3b B](checkpoint-058a4a3b-reviewer-b.md).
 
 ## Current CI and cost controls
 
