@@ -1233,12 +1233,11 @@ fi'`,
         `sh -eu -c '
 set +e
 err=/tmp/native-policy-quota.err
-: > "$err"
 : > /tmp/native-policy-quota.bin
 i=0
 status=0
 while [ "$i" -lt 5120 ]; do
-  dd if=/dev/zero of=/tmp/native-policy-quota.bin bs=1024k count=1 seek="$i" conv=notrunc,fsync >>"$err" 2>&1
+  dd if=/dev/zero of=/tmp/native-policy-quota.bin bs=1024k count=1 seek="$i" conv=notrunc,fsync >"$err" 2>&1
   status=$?
   [ "$status" -eq 0 ] || break
   i=$((i + 1))
