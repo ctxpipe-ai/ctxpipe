@@ -4,14 +4,7 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query"
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router"
-import {
-  Component,
-  type ReactNode,
-  Suspense,
-  useEffect,
-  useRef,
-  useState,
-} from "react"
+import { Component, type ReactNode, Suspense, useEffect, useState } from "react"
 import { parseSideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { pollWhileOk } from "@/lib/api-result"
 import { cn } from "@/lib/utils"
@@ -187,7 +180,6 @@ function WorkspaceSurfaceReady(props: {
   paneParam?: string
 }) {
   const { orgSlug, workspaceSlug, conversationId } = props
-  const navigate = useNavigate()
   const search = useSearch({ strict: false }) as { pane?: string }
   const paneParam =
     typeof search.pane === "string" ? search.pane : props.paneParam
@@ -203,25 +195,6 @@ function WorkspaceSurfaceReady(props: {
     },
   })
 
-  const conversationKey = conversationId ?? "compose"
-  const chromeKey = `${orgSlug}/${workspaceSlug}/${conversationKey}:${paneParam ?? ""}`
-  const initialPane = landingPane(paneParam)
-  const [shownPane, setShownPane] = useState<ParsedPane | null>(initialPane)
-  const [maximized, setMaximized] = useState(false)
-  const [paneWidth, setPaneWidth] = useState<number | null>(null)
-  const [treeCollapsed, setTreeCollapsed] = useState(false)
-  const [paneCollapsed, setPaneCollapsed] = useState(initialPane == null)
-  const [fileTabs, setFileTabs] = useState<FileTabSession>({
-    tabs: [],
-    previewPath: null,
-  })
-  const [hydrated, setHydrated] = useState(false)
-  const [seenChromeKey, setSeenChromeKey] = useState(chromeKey)
-  const identityRef = useRef({ orgSlug, workspaceSlug, conversationId })
-
-  const fileFromPane = shownPane?.kind === "file" ? shownPane.path : null
-  const openFileTabs = tabsIncludingPanePath(fileTabs.tabs, fileFromPane)
-
   useEffect(() => {
     void touchWorkspace(orgSlug, workspaceSlug).then(() => {
       void queryClient.invalidateQueries({
@@ -229,44 +202,6 @@ function WorkspaceSurfaceReady(props: {
       })
     })
   }, [orgSlug, workspaceSlug, queryClient])
-
-  useEffect(() => {
-    if (!hydrated) setHydrated(true)
-  }, [hydrated])
-
-  if (hydrated && seenChromeKey !== chromeKey) {
-    identityRef.current = { orgSlug, workspaceSlug, conversationId }
-    setSeenChromeKey(chromeKey)
-    const pane = landingPane(paneParam)
-    setShownPane(pane)
-    setPaneCollapsed(pane == null)
-    setMaximized(false)
-  }
-
-  const navigatePaneSearch = (next: ParsedPane | null) => {
-    void navigate({
-      to: conversationId
-        ? "/$orgSlug/ws/$workspaceSlug/$conversationId"
-        : "/$orgSlug/ws/$workspaceSlug",
-      params: conversationId
-        ? { orgSlug, workspaceSlug, conversationId }
-        : { orgSlug, workspaceSlug },
-      search: (prev) => {
-        const pane = next ? serializePane(next) : undefined
-        if (prev.pane === pane) return prev
-        return { ...prev, pane }
-      },
-      replace: true,
-    })
-  }
-
-  const setPane = (next: ParsedPane | null, tabs = fileTabs) => {
-    const pane = next ? visiblePane(next) : null
-    setShownPane(pane)
-    setPaneCollapsed(pane == null)
-    setFileTabs(tabs)
-    navigatePaneSearch(pane)
-  }
 
   if (workspace === null) {
     return (
@@ -292,6 +227,73 @@ function WorkspaceSurfaceReady(props: {
       )
     }
     return <WorkspaceHydrateProgress orgSlug={orgSlug} workspace={workspace} />
+  }
+
+  return (
+    <WorkspaceSurfaceSession
+      key={`${orgSlug}/${workspaceSlug}/${conversationId ?? "compose"}`}
+      orgSlug={orgSlug}
+      workspaceSlug={workspaceSlug}
+      workspace={workspace}
+      conversationId={conversationId}
+      paneParam={paneParam}
+    />
+  )
+}
+
+function WorkspaceSurfaceSession(props: {
+  orgSlug: string
+  workspaceSlug: string
+  workspace: WorkspaceDetail
+  conversationId?: string
+  paneParam?: string
+}) {
+  const { orgSlug, workspaceSlug, workspace, conversationId, paneParam } = props
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const initialPane = landingPane(paneParam)
+  const [shownPane, setShownPane] = useState<ParsedPane | null>(initialPane)
+  const [maximized, setMaximized] = useState(false)
+  const [paneWidth, setPaneWidth] = useState<number | null>(null)
+  const [treeCollapsed, setTreeCollapsed] = useState(false)
+  const [paneCollapsed, setPaneCollapsed] = useState(initialPane == null)
+  const [fileTabs, setFileTabs] = useState<FileTabSession>({
+    tabs: [],
+    previewPath: null,
+  })
+
+  const fileFromPane = shownPane?.kind === "file" ? shownPane.path : null
+  const openFileTabs = tabsIncludingPanePath(fileTabs.tabs, fileFromPane)
+
+  useEffect(() => {
+    const pane = landingPane(paneParam)
+    setShownPane(pane)
+    setPaneCollapsed(pane == null)
+  }, [paneParam])
+
+  const navigatePaneSearch = (next: ParsedPane | null) => {
+    void navigate({
+      to: conversationId
+        ? "/$orgSlug/ws/$workspaceSlug/$conversationId"
+        : "/$orgSlug/ws/$workspaceSlug",
+      params: conversationId
+        ? { orgSlug, workspaceSlug, conversationId }
+        : { orgSlug, workspaceSlug },
+      search: (prev) => {
+        const pane = next ? serializePane(next) : undefined
+        if (prev.pane === pane) return prev
+        return { ...prev, pane }
+      },
+      replace: true,
+    })
+  }
+
+  const setPane = (next: ParsedPane | null, tabs = fileTabs) => {
+    const pane = next ? visiblePane(next) : null
+    setShownPane(pane)
+    setPaneCollapsed(pane == null)
+    setFileTabs(tabs)
+    navigatePaneSearch(pane)
   }
 
   return (
@@ -443,10 +445,7 @@ function WorkspaceSurfaceColumns(props: {
                 onExpand={
                   fileTabs.length > 0
                     ? () => {
-                        setPane(
-                          shownPane ?? { kind: "files" },
-                          fileTabSession,
-                        )
+                        setPane(shownPane ?? { kind: "files" }, fileTabSession)
                       }
                     : undefined
                 }

@@ -505,7 +505,7 @@ function WorkspaceFilesPaneContent(props: {
             !(error instanceof ApiError) ||
             error.body.error !== "stale_worktree" ||
             !props.conversationId ||
-            attempt >= 7
+            attempt >= 31
           ) {
             if (attempt > 0) {
               setJobError(
