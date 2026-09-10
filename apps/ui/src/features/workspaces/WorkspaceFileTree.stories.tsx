@@ -174,6 +174,7 @@ function PierreKeyboardFocusHarness(
 }
 
 export const PierreKeyboardFocus: Story = {
+  tags: ["workspace-golden"],
   args: {
     paths: ["AGENTS.md", "knowledge/billing.md"],
     selectedPath: "AGENTS.md",

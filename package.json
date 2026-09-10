@@ -18,6 +18,7 @@
     "typecheck": "node scripts/ci/typecheck-all.mjs",
     "test:contracts": "node scripts/ci/test-suite.mjs contracts",
     "test:policy": "node scripts/ci/check-test-policy.mjs",
+    "test:storybook-golden": "node scripts/ci/storybook-golden.mjs",
     "lint": "biome lint apps packages",
     "format": "biome format apps packages adr",
     "mcp:inspect": "pnpm --filter @ctxpipe/backend run mcp:inspect",

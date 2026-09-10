@@ -1,6 +1,6 @@
 # ADR-034: Native Postgres sandbox ownership
 
-**Status:** Accepted design; Gate 4 implementation in progress | **Date:** 2026-09-09 | **Tags:** tanstack, postgres, sandbox, chat
+**Status:** Accepted | **Date:** 2026-09-09 | **Tags:** tanstack, postgres, sandbox, chat
 
 ## Context
 

@@ -679,6 +679,7 @@ export const CachedSandboxWhile409: Story = {
 const filesTreeGets = { count: 0 }
 
 export const StableFilesRequestBudget: Story = {
+  tags: ["workspace-golden"],
   args: {
     conversationId: "conv_1",
     pane: { kind: "files" },
@@ -815,6 +816,7 @@ function EditThenNavigateHarness(props: ComponentProps<typeof WorkspacePane>) {
 }
 
 export const EditThenNavigate: Story = {
+  tags: ["workspace-golden"],
   args: {
     conversationId: "conv_1",
     pane: { kind: "file", path: ledgerPath },
@@ -942,6 +944,7 @@ const orderedWrites = {
 }
 
 export const OutOfOrderSaves: Story = {
+  tags: ["workspace-golden"],
   args: {
     conversationId: "conv_1",
     pane: { kind: "file", path: ledgerPath },

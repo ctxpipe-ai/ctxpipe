@@ -274,6 +274,7 @@ export const ConversationMissing: Story = {
 }
 
 export const SharedPublishPending: Story = {
+  tags: ["workspace-golden"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
@@ -329,6 +330,7 @@ export const SharedPublishPending: Story = {
 const idleBudget = { conversation: 0, tree: 0, status: 0, chat: 0, diff: 0 }
 
 export const StableRequestBudget: Story = {
+  tags: ["workspace-golden"],
   args: { conversationId: "conv_1", paneParam: "files" },
   decorators: [
     (Story) => (

@@ -234,6 +234,38 @@ jobs:
       - run: pnpm --filter ctxpipe build
       - run: pnpm --filter @ctxpipe/aws-cdk-self-host typecheck
 
+  storybook-golden:
+    timeout-minutes: 30
+    name: Storybook Playwright golden journey
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Chromium for Storybook Playwright
+        working-directory: apps/ui
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Required Storybook golden plays
+        run: node scripts/ci/storybook-golden.mjs
+      - name: Preserve golden play results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: storybook-golden-results
+          path: .ci-results/storybook-golden/
+          include-hidden-files: true
+          if-no-files-found: error
+
   codesearch:
     timeout-minutes: 30
     name: Codesearch real toolchain contracts

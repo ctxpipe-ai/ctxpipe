@@ -96,6 +96,7 @@ export const FirstMessageSendsOnce: Story = {
 }
 
 export const FirstMessageSendsOnceInStrictMode: Story = {
+  tags: ["workspace-golden"],
   decorators: [
     (Story) => (
       <StrictMode>

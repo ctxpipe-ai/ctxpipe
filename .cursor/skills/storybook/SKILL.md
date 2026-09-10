@@ -68,9 +68,11 @@ portable/browser test facilities and `run-story-tests` when available.
 - A story that only paints a state is visual coverage, not an interaction test;
   critical behavior needs a `play` function with assertions.
 
-The repository may need additional Storybook Test wiring before all interaction
-tests can run in CI. Add that wiring as infrastructure for the Storybook strategy,
-not as a parallel DOM-test stack.
+Required workspace recovery plays carry an inline `tags: ["workspace-golden"]`
+array. CI job **Storybook Playwright golden journey** runs
+`node scripts/ci/storybook-golden.mjs`, which builds Storybook and executes
+those plays in Chromium through `@storybook/test-runner`. Do not add a
+parallel jsdom component-test stack.
 
 ## Quick reference (commands)
 
@@ -78,6 +80,7 @@ not as a parallel DOM-test stack.
 |--------|--------|
 | Start Storybook | `pnpm --filter @ctxpipe/ui storybook` |
 | Build static | `pnpm --filter @ctxpipe/ui build-storybook` |
+| Golden plays (uses `STORYBOOK_URL` if set) | `pnpm test:storybook-golden` |
 
 ## Related docs in-repo
 

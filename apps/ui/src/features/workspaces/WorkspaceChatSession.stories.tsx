@@ -84,8 +84,6 @@ function threadArgs(
   }
 }
 
-export const ComposeEmpty: Story = {}
-
 export const ThreadShort: Story = {
   args: threadArgs(docsConversationDetail.messages),
   parameters: {

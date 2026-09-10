@@ -167,6 +167,7 @@ function SocketCleanupHarness() {
 }
 
 export const SocketCleansUpOnLeave: Story = {
+  tags: ["workspace-golden"],
   render: () => <SocketCleanupHarness />,
   parameters: {
     msw: {
@@ -270,6 +271,7 @@ function ReloadReconnectHarness() {
 }
 
 export const ReloadReconnects: Story = {
+  tags: ["workspace-golden"],
   render: () => <ReloadReconnectHarness />,
   parameters: {
     storyRoute: {
@@ -391,6 +393,7 @@ function RapidRouteHarness() {
 }
 
 export const RapidRouteChanges: Story = {
+  tags: ["workspace-golden"],
   render: () => <RapidRouteHarness />,
   parameters: {
     storyRoute: {
@@ -498,6 +501,7 @@ function LateErrorComposeHarness() {
 }
 
 export const LateErrorDoesNotClobberSuccess: Story = {
+  tags: ["workspace-golden"],
   render: () => <LateErrorComposeHarness />,
   parameters: {
     storyRoute: {
