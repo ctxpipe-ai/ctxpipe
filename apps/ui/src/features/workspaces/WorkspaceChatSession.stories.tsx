@@ -392,19 +392,30 @@ export const LateErrorDoesNotClobberSuccess: Story = {
     lateErrorPosts.count = 0
     const canvas = within(canvasElement)
     const Original = window.WebSocket
-    function FailingWebSocket(
-      url: string | URL,
-      protocols?: string | string[],
-    ) {
-      const socket = protocols
-        ? new Original(url, protocols)
-        : new Original(url)
-      const fail = () => {
+    function FailingWebSocket(url: string | URL) {
+      const target = new EventTarget()
+      const socket = Object.assign(target, {
+        url: String(url),
+        readyState: Original.CONNECTING,
+        bufferedAmount: 0,
+        extensions: "",
+        protocol: "",
+        binaryType: "blob" as BinaryType,
+        close() {
+          this.readyState = Original.CLOSED
+          this.dispatchEvent(new CloseEvent("close"))
+        },
+        send() {},
+        onopen: null,
+        onerror: null,
+        onclose: null,
+        onmessage: null,
+      })
+      queueMicrotask(() => {
+        socket.readyState = Original.CLOSED
         socket.dispatchEvent(new Event("error"))
-        socket.close()
-      }
-      socket.addEventListener("open", fail, { once: true })
-      queueMicrotask(fail)
+        socket.dispatchEvent(new CloseEvent("close"))
+      })
       return socket
     }
     FailingWebSocket.prototype = Original.prototype
