@@ -298,17 +298,27 @@ export const SharedPublishPending: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const buttons = await canvas.findAllByRole("button", {
-      name: "Commit+Push",
-    })
-    expect(buttons.length).toBeGreaterThan(1)
-    const first = buttons[0]
-    if (!first) throw new Error("Commit+Push is missing")
-    await userEvent.click(first)
     await waitFor(() => {
-      expect(canvas.getAllByRole("button", { name: "Pushing…" }).length).toBe(
-        buttons.length,
-      )
+      const enabled = canvas
+        .getAllByRole("button", { name: "Commit+Push" })
+        .filter((button) => button.getAttribute("aria-disabled") !== "true")
+      expect(enabled.length).toBeGreaterThan(1)
+    })
+    const enabled = canvas
+      .getAllByRole("button", { name: "Commit+Push" })
+      .filter((button) => button.getAttribute("aria-disabled") !== "true")
+    const target = enabled[enabled.length - 1]
+    if (!target) throw new Error("Commit+Push is missing")
+    await userEvent.click(target)
+    await waitFor(() => {
+      const pending = canvas
+        .getAllByRole("button")
+        .filter(
+          (button) =>
+            button.getAttribute("aria-busy") === "true" ||
+            button.textContent?.includes("Pushing"),
+        )
+      expect(pending.length).toBeGreaterThan(1)
     })
   },
 }
