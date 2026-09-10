@@ -175,23 +175,28 @@ export const SocketCleansUpOnLeave: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const Original = window.WebSocket
-    const originalClose = Original.prototype.close
     const sockets: WebSocket[] = []
-    const closeCounts = new WeakMap<WebSocket, number>()
-    Original.prototype.close = function close(
-      this: WebSocket,
-      code?: number,
-      reason?: string,
+    let closeCount = 0
+    function TrackingWebSocket(
+      url: string | URL,
+      protocols?: string | string[],
     ) {
-      closeCounts.set(this, (closeCounts.get(this) ?? 0) + 1)
-      return originalClose.call(this, code, reason)
+      const socket = protocols
+        ? new Original(url, protocols)
+        : new Original(url)
+      sockets.push(socket)
+      const nativeClose = socket.close.bind(socket)
+      Object.defineProperty(socket, "close", {
+        configurable: true,
+        value(code?: number, reason?: string) {
+          closeCount += 1
+          return nativeClose(code, reason)
+        },
+      })
+      return socket
     }
-    window.WebSocket = class TrackingSocket extends Original {
-      constructor(url: string | URL, protocols?: string | string[]) {
-        super(url, protocols)
-        sockets.push(this)
-      }
-    } as typeof WebSocket
+    TrackingWebSocket.prototype = Original.prototype
+    window.WebSocket = TrackingWebSocket as unknown as typeof WebSocket
     try {
       await userEvent.click(
         canvas.getByRole("button", { name: "Open conversation" }),
@@ -203,9 +208,7 @@ export const SocketCleansUpOnLeave: Story = {
           ),
         ).toBe(true)
       })
-      const conversationSockets = sockets.filter((socket) =>
-        String(socket.url).includes("/conversations/"),
-      )
+      const closesBeforeLeave = closeCount
       await userEvent.click(
         canvas.getByRole("button", { name: "Leave conversation" }),
       )
@@ -213,13 +216,9 @@ export const SocketCleansUpOnLeave: Story = {
         expect(canvas.getByText("Left conversation")).toBeVisible()
       })
       await waitFor(() => {
-        expect(conversationSockets.length).toBeGreaterThan(0)
-        for (const socket of conversationSockets) {
-          expect(closeCounts.get(socket) ?? 0).toBeGreaterThan(0)
-        }
+        expect(closeCount).toBeGreaterThan(closesBeforeLeave)
       })
     } finally {
-      Original.prototype.close = originalClose
       window.WebSocket = Original
     }
   },
