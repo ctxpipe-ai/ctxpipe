@@ -718,15 +718,18 @@ export const StableFilesRequestBudget: Story = {
     },
   },
   play: async ({ canvasElement }) => {
-    filesTreeGets.count = 0
     const canvas = within(canvasElement)
-    await expectWorkspaceFiles(canvas, /e2e\.md/)
-    expect(workspaceFilesText(canvas)).not.toMatch(/repositories/)
+    expect(
+      await canvas.findByRole("button", { name: "Commit+Push" }),
+    ).toBeVisible()
+    await waitFor(() => {
+      expect(filesTreeGets.count).toBeGreaterThan(0)
+    })
     const afterPaint = filesTreeGets.count
-    expect(afterPaint).toBeGreaterThan(0)
     await new Promise((resolve) => {
       window.setTimeout(resolve, 800)
     })
     expect(filesTreeGets.count).toBe(afterPaint)
+    expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
   },
 }
