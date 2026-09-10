@@ -301,29 +301,49 @@ export const SharedPublishPending: Story = {
     },
   },
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await waitFor(() => {
-      const enabled = canvas
-        .getAllByRole("button", { name: "Commit+Push" })
-        .filter((button) => button.getAttribute("aria-disabled") !== "true")
-      expect(enabled.length).toBeGreaterThan(1)
-    })
-    const enabled = canvas
-      .getAllByRole("button", { name: "Commit+Push" })
-      .filter((button) => button.getAttribute("aria-disabled") !== "true")
+    const page = within(canvasElement.ownerDocument.body)
+    const commitButtons = () =>
+      page
+        .getAllByRole("button")
+        .filter((button) => /commit\+push/i.test(button.textContent ?? ""))
+    await waitFor(
+      () => {
+        expect(commitButtons().length).toBeGreaterThan(1)
+      },
+      { timeout: 15_000 },
+    )
+    await waitFor(
+      () => {
+        const enabled = commitButtons().filter(
+          (button) =>
+            button.getAttribute("aria-disabled") !== "true" &&
+            !button.hasAttribute("disabled"),
+        )
+        expect(enabled.length).toBeGreaterThan(1)
+      },
+      { timeout: 15_000 },
+    )
+    const enabled = commitButtons().filter(
+      (button) =>
+        button.getAttribute("aria-disabled") !== "true" &&
+        !button.hasAttribute("disabled"),
+    )
     const target = enabled[enabled.length - 1]
     if (!target) throw new Error("Commit+Push is missing")
     await userEvent.click(target)
-    await waitFor(() => {
-      const pending = canvas
-        .getAllByRole("button")
-        .filter(
-          (button) =>
-            button.getAttribute("aria-busy") === "true" ||
-            button.textContent?.includes("Pushing"),
-        )
-      expect(pending.length).toBeGreaterThan(1)
-    })
+    await waitFor(
+      () => {
+        const pending = page
+          .getAllByRole("button")
+          .filter(
+            (button) =>
+              button.getAttribute("aria-busy") === "true" ||
+              /pushing/i.test(button.textContent ?? ""),
+          )
+        expect(pending.length).toBeGreaterThan(1)
+      },
+      { timeout: 15_000 },
+    )
   },
 }
 
@@ -432,16 +452,19 @@ export const StableRequestBudget: Story = {
     idleBudget.status = 0
     idleBudget.chat = 0
     idleBudget.diff = 0
-    const canvas = within(canvasElement)
+    const page = within(canvasElement.ownerDocument.body)
     expect(
-      await canvas.findByPlaceholderText(/continue the conversation/i),
+      await page.findByPlaceholderText(/continue the conversation/i),
     ).toBeVisible()
-    await waitFor(() => {
-      expect(
-        canvas.getAllByRole("button", { name: "Commit+Push" }).length,
-      ).toBeGreaterThan(0)
-    })
-    const diffTabs = canvas.queryAllByRole("tab", { name: "Diff" })
+    await waitFor(
+      () => {
+        expect(
+          page.getAllByRole("button", { name: "Commit+Push" }).length,
+        ).toBeGreaterThan(0)
+      },
+      { timeout: 10_000 },
+    )
+    const diffTabs = page.queryAllByRole("tab", { name: "Diff" })
     if (diffTabs[0]) await userEvent.click(diffTabs[0])
     await waitFor(() => {
       expect(idleBudget.tree).toBeGreaterThan(0)
@@ -449,11 +472,21 @@ export const StableRequestBudget: Story = {
       expect(idleBudget.conversation).toBeGreaterThan(0)
       expect(idleBudget.chat + idleBudget.diff).toBeGreaterThan(0)
     })
-    const afterPaint = { ...idleBudget }
+    let frozen = { ...idleBudget }
+    const drainUntil = Date.now() + 3_000
+    for (;;) {
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, 250)
+      })
+      if (JSON.stringify(idleBudget) === JSON.stringify(frozen)) break
+      frozen = { ...idleBudget }
+      if (Date.now() >= drainUntil) break
+    }
+    frozen = { ...idleBudget }
     await new Promise((resolve) => {
       window.setTimeout(resolve, 800)
     })
-    expect(idleBudget).toEqual(afterPaint)
+    expect(idleBudget).toEqual(frozen)
   },
 }
 

@@ -1,13 +1,13 @@
-import { spawn, spawnSync } from "node:child_process"
+import { spawnSync } from "node:child_process"
 import {
   mkdirSync,
   readFileSync,
-  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs"
 import { createServer } from "node:http"
+import { createRequire } from "node:module"
 import { extname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -44,12 +44,8 @@ const fail = (message) => {
   throw new Error(message)
 }
 
-const run = (command, args, cwd = ui, extra = {}) => {
-  const result = spawnSync(command, args, {
-    cwd,
-    stdio: "inherit",
-    ...extra,
-  })
+const run = (command, args, cwd = ui) => {
+  const result = spawnSync(command, args, { cwd, stdio: "inherit" })
   if (result.error || result.signal)
     fail(`${command} did not finish: ${result.error?.message ?? result.signal}`)
   if (result.status !== 0) fail(`${command} ${args.join(" ")} failed`)
@@ -101,6 +97,49 @@ const waitFor = async (url) => {
   fail(`Storybook did not become ready at ${url}`)
 }
 
+const goldenStories = (index) => {
+  const entries = Object.values(index.entries ?? {})
+  return requiredStories.map((name) => {
+    const story = entries.find(
+      (entry) =>
+        entry.exportName === name &&
+        (entry.tags ?? []).includes("workspace-golden"),
+    )
+    if (!story) fail(`Missing tagged golden story ${name}`)
+    return story
+  })
+}
+
+const playInitScript = () => {
+  window.__CTXPIPE_GOLDEN__ = { result: null, waiters: [] }
+  const record = (result) => {
+    if (window.__CTXPIPE_GOLDEN__.result) return
+    window.__CTXPIPE_GOLDEN__.result = result
+    for (const wait of window.__CTXPIPE_GOLDEN__.waiters) wait(result)
+  }
+  const hook = () => {
+    const channel = globalThis.__STORYBOOK_ADDONS_CHANNEL__
+    if (!channel || channel.__ctxpipeGolden) return
+    channel.__ctxpipeGolden = true
+    const serialize = (error) => {
+      if (error && typeof error === "object") {
+        return String(error.stack ?? error.message ?? JSON.stringify(error))
+      }
+      return String(error)
+    }
+    channel.on("playFunctionThrewException", (error) => {
+      record({ ok: false, error: serialize(error) })
+    })
+    channel.on("storyRenderPhaseChanged", (info) => {
+      const phase = info?.newPhase ?? info?.phase
+      if (phase === "completed" || phase === "played")
+        record({ ok: true, phase })
+    })
+  }
+  hook()
+  setInterval(hook, 20)
+}
+
 try {
   run(
     process.execPath,
@@ -121,7 +160,8 @@ try {
   const url = process.env.STORYBOOK_URL
   let server
   if (!url) {
-    run("pnpm", ["--filter", "@ctxpipe/ui", "build-storybook"], root)
+    if (process.env.SKIP_STORYBOOK_BUILD !== "1")
+      run("pnpm", ["--filter", "@ctxpipe/ui", "build-storybook"], root)
     server = await serveStatic(
       staticDir,
       Number(process.env.STORYBOOK_PORT ?? 6007),
@@ -130,27 +170,65 @@ try {
   const storybookUrl =
     url ?? `http://127.0.0.1:${process.env.STORYBOOK_PORT ?? 6007}`
   await waitFor(`${storybookUrl}/index.json`)
-  const runner = spawn(
-    "pnpm",
-    [
-      "exec",
-      "test-storybook",
-      "--url",
-      storybookUrl,
-      "--includeTags",
-      "workspace-golden",
-      "--json",
-      `--outputFile=${report}`,
-    ],
-    { cwd: ui, stdio: "inherit" },
+  const stories = goldenStories(
+    await (await fetch(`${storybookUrl}/index.json`)).json(),
   )
-  const status = await new Promise((resolveStatus, reject) => {
-    runner.once("error", reject)
-    runner.once("exit", (code, signal) => {
-      if (signal) reject(new Error(`test-storybook killed by ${signal}`))
-      else resolveStatus(code ?? 1)
-    })
+  const { chromium } = createRequire(join(ui, "package.json"))("playwright")
+  const browser = await chromium.launch({ headless: true })
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
   })
+  const suites = new Map()
+  let passed = 0
+  let failed = 0
+  for (const story of stories) {
+    const file = resolve(ui, story.importPath.replace(/^\.\//, ""))
+    const suite = suites.get(file) ?? {
+      name: file,
+      status: "passed",
+      assertionResults: [],
+    }
+    suites.set(file, suite)
+    const page = await context.newPage()
+    const pageErrors = []
+    page.on("pageerror", (error) => pageErrors.push(String(error)))
+    await page.addInitScript(playInitScript)
+    await page.goto(
+      `${storybookUrl}/iframe.html?id=${encodeURIComponent(story.id)}&viewMode=story`,
+      { waitUntil: "domcontentloaded", timeout: 120_000 },
+    )
+    const result = await page
+      .waitForFunction(() => window.__CTXPIPE_GOLDEN__?.result, null, {
+        timeout: 120_000,
+      })
+      .then((handle) => handle.jsonValue())
+      .catch((error) => ({ ok: false, error: String(error.message) }))
+    const error =
+      result.ok === false
+        ? result.error
+        : pageErrors[0]
+          ? pageErrors[0]
+          : undefined
+    await page.close()
+    if (error) {
+      failed += 1
+      suite.status = "failed"
+      suite.assertionResults.push({
+        status: "failed",
+        fullName: story.exportName,
+        failureMessages: [error],
+      })
+      process.stderr.write(`FAIL ${story.exportName}\n${error}\n`)
+    } else {
+      passed += 1
+      suite.assertionResults.push({
+        status: "passed",
+        fullName: story.exportName,
+      })
+      process.stdout.write(`PASS ${story.exportName}\n`)
+    }
+  }
+  await browser.close()
   await new Promise((resolveClose) => {
     if (!server) {
       resolveClose()
@@ -158,32 +236,26 @@ try {
     }
     server.close(resolveClose)
   })
-  const results = JSON.parse(readFileSync(report, "utf8"))
-  const titles = (results.testResults ?? []).flatMap((suite) =>
-    (suite.assertionResults ?? []).map((assertion) => assertion.fullName ?? ""),
-  )
-  const missing = requiredStories.filter(
-    (name) => !titles.some((title) => title.includes(name)),
-  )
-  if (missing.length) fail(`Missing golden plays: ${missing.join(", ")}`)
-  if ((results.numTotalTests ?? 0) !== requiredStories.length)
-    fail(
-      `Expected ${requiredStories.length} golden plays, executed ${results.numTotalTests}`,
-    )
-  const inventory = (results.testResults ?? []).map((suite) => {
-    try {
-      return relative(realpathSync(ui), realpathSync(suite.name)).replaceAll(
-        "\\",
-        "/",
-      )
-    } catch {
-      return String(suite.name)
-    }
-  })
+  const results = {
+    numTotalTests: requiredStories.length,
+    numPassedTests: passed,
+    numFailedTests: failed,
+    numPendingTests: 0,
+    numTodoTests: 0,
+    testResults: [...suites.values()],
+  }
+  writeFileSync(report, `${JSON.stringify(results, null, 2)}\n`)
   writeFileSync(
     join(output, "inventory.json"),
-    `${JSON.stringify(inventory, null, 2)}\n`,
+    `${JSON.stringify(
+      [...suites.keys()].map((file) =>
+        relative(ui, file).replaceAll("\\", "/"),
+      ),
+      null,
+      2,
+    )}\n`,
   )
+  const status = failed ? 1 : 0
   run(
     process.execPath,
     [

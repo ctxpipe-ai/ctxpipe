@@ -71,7 +71,7 @@ portable/browser test facilities and `run-story-tests` when available.
 Required workspace recovery plays carry an inline `tags: ["workspace-golden"]`
 array. CI job **Storybook Playwright golden journey** runs
 `node scripts/ci/storybook-golden.mjs`, which builds Storybook and executes
-those plays in Chromium through `@storybook/test-runner`. Do not add a
+those plays in Chromium by opening each story iframe. Do not add a
 parallel jsdom component-test stack.
 
 ## Quick reference (commands)

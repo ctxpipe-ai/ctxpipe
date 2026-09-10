@@ -77,8 +77,8 @@ test("CI requires the Storybook Playwright golden job without retries", () => {
     new URL("../../scripts/ci/storybook-golden.mjs", import.meta.url),
     "utf8",
   )
-  assert.match(runner, /includeTags/)
   assert.match(runner, /workspace-golden/)
+  assert.match(runner, /playwright/)
   assert.doesNotMatch(runner, /--retry(?:ies)?(?:=|\s+)/)
   void root
 })

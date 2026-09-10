@@ -41,11 +41,11 @@ truthful before Gates 2–6 change product behavior.
   Run pnpm installation and frontend compilation under Node 22 in Docker;
   Bun remains the production service runtime. Native Linux builds stalled during
   pnpm installation under Bun, while the Node 22 CI installation completed.
-- Run the tagged Storybook `workspace-golden` plays in Chromium through
-  `@storybook/test-runner`. That job is the mandatory deterministic UI
-  golden journey. A skip, missing required play, or unexpected failure
-  fails CI. Direct Playwright against a live backend remains optional
-  and is not a substitute for these plays.
+- Run the tagged Storybook `workspace-golden` plays in Chromium. The
+  `storybook-golden` job builds Storybook and opens each tagged story
+  iframe until the play function completes. A skip, missing required
+  play, or unexpected failure fails CI. Direct Playwright against a live
+  backend remains optional and is not a substitute for these plays.
 
 ## Consequences
 
