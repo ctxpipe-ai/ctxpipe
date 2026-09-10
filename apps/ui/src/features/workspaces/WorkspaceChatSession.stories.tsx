@@ -476,10 +476,15 @@ export const LateErrorDoesNotClobberSuccess: Story = {
           timeout: SEND_WAIT_MS,
         }),
       ).toBeVisible()
-      await userEvent.type(
-        canvas.getByPlaceholderText(/continue the conversation/i),
-        "This send should fail",
+      const followUp = await canvas.findByPlaceholderText(
+        /continue the conversation/i,
+        undefined,
+        { timeout: SEND_WAIT_MS },
       )
+      await waitFor(() => canvas.getByRole("button", { name: /send/i }), {
+        timeout: SEND_WAIT_MS,
+      })
+      await userEvent.type(followUp, "This send should fail")
       await userEvent.click(canvas.getByRole("button", { name: /send/i }))
       await waitFor(() => canvas.getByRole("alert"), { timeout: SEND_WAIT_MS })
       expect(canvas.getByText(/First answer should remain/)).toBeVisible()
