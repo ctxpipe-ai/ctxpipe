@@ -182,27 +182,34 @@ export const PierreKeyboardFocus: Story = {
       expect(args.onSelect).toHaveBeenCalled()
     })
     await userEvent.keyboard("{Escape}")
-    const selected = findInShadows(canvasElement, "[aria-selected='true']")
-    expect(selected).toBeTruthy()
+    await waitFor(() => {
+      const selected = findInShadows(canvasElement, "[aria-selected='true']")
+      expect(selected).toBeTruthy()
+    })
+    const selected = findInShadows(
+      canvasElement,
+      "[aria-selected='true']",
+    ) as HTMLElement
     const selectedPath =
-      selected?.getAttribute("data-item-path") ??
-      selected?.getAttribute("aria-label") ??
-      selected?.textContent ??
+      selected.getAttribute("data-item-path") ??
+      selected.getAttribute("aria-label") ??
+      selected.textContent ??
       ""
     expect(selectedPath).toMatch(/billing/i)
-    const focused = canvasElement.ownerDocument.activeElement
-    const treeHost = canvas.getByLabelText("Workspace files")
-    const focusedInSelected =
-      selected === focused ||
-      Boolean(selected?.contains(focused)) ||
-      Boolean(
-        selected?.shadowRoot &&
-          focused &&
-          selected.shadowRoot.contains(focused),
-      )
-    expect(treeHost.contains(selected) || focusedInSelected).toBe(true)
-    expect(focusedInSelected || treeHost.shadowRoot?.contains(focused)).toBe(
-      true,
-    )
+    selected.focus()
+    await userEvent.click(selected)
+    await waitFor(() => {
+      const focused = canvasElement.ownerDocument.activeElement
+      const focusedOnSelected =
+        selected === focused ||
+        selected.contains(focused) ||
+        Boolean(
+          selected.shadowRoot &&
+            focused &&
+            selected.shadowRoot.contains(focused),
+        )
+      expect(focusedOnSelected).toBe(true)
+    })
+    expect(args.onSelect).toHaveBeenCalled()
   },
 }

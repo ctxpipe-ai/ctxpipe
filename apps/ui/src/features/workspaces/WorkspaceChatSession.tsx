@@ -1,11 +1,9 @@
 import type { StreamChunk, UIMessage } from "@tanstack/ai"
 import { useChat } from "@tanstack/ai-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { useNavigate } from "@tanstack/react-router"
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useState } from "react"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { ConversationThread } from "@/features/chat/ConversationThread"
-import { insertConversationListItem } from "@/features/chat/insertConversationListItem"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
 import type {
   ChatMessage,
@@ -93,9 +91,6 @@ export function WorkspaceChatSession(props: {
     initialMessages,
   } = props
   const queryClient = useQueryClient()
-  const navigate = useNavigate()
-  const sendFailedRef = useRef(false)
-  const committedRef = useRef(false)
   const [headerTitle, setHeaderTitle] = useState(title)
   const [seenTitle, setSeenTitle] = useState(title)
   const [sandboxPhase, setSandboxPhase] = useState<SandboxPhase>("idle")
@@ -172,9 +167,6 @@ export function WorkspaceChatSession(props: {
       workspaceId: workspace.id,
       source: "ui",
     },
-    onError: () => {
-      sendFailedRef.current = true
-    },
     onChunk: (chunk) => {
       const name = renameFromChunk(chunk)
       if (name) applyRename(name)
@@ -200,48 +192,13 @@ export function WorkspaceChatSession(props: {
     },
   })
 
-  const insertComposeRow = () => {
-    queryClient.setQueriesData<ConversationListInfiniteData>(
-      { queryKey: workspaceKeys.conversations(orgSlug, workspace.id) },
-      (old) =>
-        insertConversationListItem(old, {
-          id: conversationId,
-          name: headerTitle || "New conversation",
-          source: "ui",
-          lastMessageAt: new Date().toISOString(),
-        }),
-    )
-  }
-
-  const commitComposeRoute = () => {
-    if (!composing || committedRef.current || sendFailedRef.current) return
-    committedRef.current = true
-    void navigate({
-      to: "/$orgSlug/ws/$workspaceSlug/$conversationId",
-      params: {
-        orgSlug,
-        workspaceSlug: workspace.slug,
-        conversationId,
-      },
-      search: (prev) => prev,
-    })
-  }
-
   const handleSendMessage = async (params: { text: string }) => {
-    sendFailedRef.current = false
     setSandboxPhase("idle")
     try {
       await sendMessage(params.text)
     } catch {
       setSandboxPhase("idle")
-      return
     }
-    if (sendFailedRef.current) {
-      setSandboxPhase("idle")
-      return
-    }
-    insertComposeRow()
-    commitComposeRoute()
   }
 
   return (

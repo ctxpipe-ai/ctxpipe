@@ -5,6 +5,11 @@ import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { Button } from "@/components/ui/Button"
 import {
+  conversationAguiSseResponse,
+  conversationAguiTextEvents,
+  conversationPostPath,
+} from "@/mocks/conversation-agui"
+import {
   conversationDetailHandler,
   conversationDetailLoadingHandler,
   workspaceShellHandlers,
@@ -449,5 +454,198 @@ export const RapidRouteChanges: Story = {
     expect(
       canvas.queryByRole("heading", { name: "Conversation not found" }),
     ).toBeNull()
+  },
+}
+
+const SEND_WAIT_MS = 8_000
+const lateErrorConversationId = "conv_late"
+const lateErrorFirstAnswer = "First answer should remain"
+
+const lateErrorDetail = {
+  ...docsConversationDetail,
+  conversation: {
+    ...docsConversationDetail.conversation,
+    id: lateErrorConversationId,
+    name: "New conversation",
+  },
+  messages: [
+    {
+      id: "msg_user_late",
+      role: "user" as const,
+      parts: [{ type: "text" as const, content: "What is in this Workspace?" }],
+    },
+    {
+      id: "msg_assistant_late",
+      role: "assistant" as const,
+      parts: [{ type: "text" as const, content: lateErrorFirstAnswer }],
+    },
+  ],
+}
+
+function LateErrorComposeHarness() {
+  const params = useParams({ strict: false })
+  const conversationId =
+    typeof params.conversationId === "string"
+      ? params.conversationId
+      : undefined
+  return (
+    <WorkspaceChat
+      orgSlug="acme"
+      workspace={docsWorkspace}
+      conversationId={conversationId}
+    />
+  )
+}
+
+export const LateErrorDoesNotClobberSuccess: Story = {
+  render: () => <LateErrorComposeHarness />,
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          http.post(conversationPostPath, ({ request }) => {
+            const path = new URL(request.url).pathname
+            if (/\/api\/v1\/conversations\/?$/.test(path)) {
+              return conversationAguiSseResponse(
+                conversationAguiTextEvents({
+                  threadId: lateErrorConversationId,
+                  messageId: "msg_first",
+                  text: lateErrorFirstAnswer,
+                }),
+              )
+            }
+            return HttpResponse.json({ error: "late failure" }, { status: 500 })
+          }),
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/chat$/.test(
+                new URL(request.url).pathname,
+              ),
+            () =>
+              HttpResponse.json({
+                messages: lateErrorDetail.messages,
+                activeRun: null,
+                interrupts: null,
+              }),
+          ),
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+$/.test(
+                new URL(request.url).pathname,
+              ),
+            ({ request }) => {
+              const id = new URL(request.url).pathname.split("/").pop()
+              if (id !== lateErrorConversationId) {
+                return HttpResponse.json(
+                  { error: "not found" },
+                  { status: 404 },
+                )
+              }
+              return HttpResponse.json(lateErrorDetail)
+            },
+          ),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const Original = window.WebSocket
+    let failNextRun = false
+    function ScriptedWebSocket(url: string | URL) {
+      const socket: {
+        url: string
+        readyState: number
+        bufferedAmount: number
+        extensions: string
+        protocol: string
+        binaryType: BinaryType
+        onopen: ((event: Event) => void) | null
+        onerror: ((event: Event) => void) | null
+        onclose: ((event: CloseEvent) => void) | null
+        onmessage: ((event: MessageEvent<string>) => void) | null
+        close: () => void
+        send: () => void
+        addEventListener: () => void
+        removeEventListener: () => void
+        dispatchEvent: () => boolean
+      } = {
+        url: String(url),
+        readyState: Original.CONNECTING,
+        bufferedAmount: 0,
+        extensions: "",
+        protocol: "",
+        binaryType: "blob" as BinaryType,
+        onopen: null,
+        onerror: null,
+        onclose: null,
+        onmessage: null,
+        close() {
+          this.readyState = Original.CLOSED
+          this.onclose?.(new CloseEvent("close"))
+        },
+        send() {
+          if (!failNextRun) return
+          queueMicrotask(() => {
+            this.onmessage?.(
+              new MessageEvent("message", {
+                data: JSON.stringify({
+                  type: "RUN_ERROR",
+                  message: "late failure",
+                }),
+              }),
+            )
+          })
+        },
+        addEventListener() {},
+        removeEventListener() {},
+        dispatchEvent() {
+          return true
+        },
+      }
+      queueMicrotask(() => {
+        socket.readyState = Original.OPEN
+        socket.onopen?.(new Event("open"))
+      })
+      return socket
+    }
+    ScriptedWebSocket.prototype = Original.prototype
+    Object.assign(ScriptedWebSocket, {
+      CONNECTING: Original.CONNECTING,
+      OPEN: Original.OPEN,
+      CLOSING: Original.CLOSING,
+      CLOSED: Original.CLOSED,
+    })
+    window.WebSocket = ScriptedWebSocket as unknown as typeof WebSocket
+    try {
+      await userEvent.type(
+        canvas.getByPlaceholderText(/ask about this workspace/i),
+        "What is in this Workspace?",
+      )
+      await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+      expect(
+        await canvas.findByText(lateErrorFirstAnswer, undefined, {
+          timeout: SEND_WAIT_MS,
+        }),
+      ).toBeVisible()
+      const followUp = await canvas.findByPlaceholderText(
+        /continue the conversation/i,
+        undefined,
+        { timeout: SEND_WAIT_MS },
+      )
+      failNextRun = true
+      await userEvent.type(followUp, "This send should fail")
+      await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+      await waitFor(() => canvas.getByRole("alert"), { timeout: SEND_WAIT_MS })
+      expect(canvas.getByText(lateErrorFirstAnswer)).toBeVisible()
+    } finally {
+      window.WebSocket = Original
+    }
   },
 }

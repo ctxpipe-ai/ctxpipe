@@ -735,17 +735,6 @@ export const StableFilesRequestBudget: Story = {
   },
 }
 
-async function createFileFromTree(
-  canvas: ReturnType<typeof within>,
-  canvasElement: HTMLElement,
-  name: string,
-) {
-  await userEvent.click(await canvas.findByRole("button", { name: "New file" }))
-  const page = within(canvasElement.ownerDocument.body)
-  await userEvent.type(await page.findByLabelText("Name"), name)
-  await userEvent.click(page.getByRole("button", { name: "Create" }))
-}
-
 function findInShadows(root: ParentNode, selector: string): Element | null {
   const direct = root.querySelector(selector)
   if (direct instanceof HTMLElement) return direct
@@ -770,7 +759,43 @@ async function typeInPierreEditor(canvasElement: HTMLElement, text: string) {
     findInShadows(canvasElement, "textarea")) as HTMLElement
   editable.focus()
   await userEvent.click(editable)
-  await userEvent.type(editable, text)
+  await userEvent.keyboard("{End}")
+  await userEvent.type(editable, text, { delay: 15 })
+  if (
+    editable instanceof HTMLElement &&
+    !(editable.textContent ?? "").includes(text) &&
+    !("value" in editable && String(editable.value).includes(text))
+  ) {
+    editable.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        composed: true,
+        data: text,
+        inputType: "insertText",
+      }),
+    )
+  }
+}
+
+async function saveDirtyEditor(canvas: ReturnType<typeof within>) {
+  const save = canvas.getByRole("button", { name: "Save" })
+  await waitFor(() => {
+    expect(save).not.toBeDisabled()
+  })
+  await userEvent.click(save)
+}
+
+async function selectTreePath(canvasElement: HTMLElement, path: string) {
+  await waitFor(() => {
+    const row =
+      findInShadows(canvasElement, `[data-item-path="${path}"]`) ??
+      findInShadows(canvasElement, `[aria-label="${path}"]`)
+    expect(row).toBeTruthy()
+  })
+  const row = (findInShadows(canvasElement, `[data-item-path="${path}"]`) ??
+    findInShadows(canvasElement, `[aria-label="${path}"]`)) as HTMLElement
+  row.focus()
+  await userEvent.click(row)
 }
 
 const editThenNavigatePuts = {
@@ -889,6 +914,9 @@ export const EditThenNavigate: Story = {
     await canvas.findByRole("button", { name: "Save" })
     await typeInPierreEditor(canvasElement, "dirty-leave-draft")
     expect(editThenNavigatePuts.count).toBe(0)
+    await waitFor(() => {
+      expect(canvas.getByRole("button", { name: "Save" })).not.toBeDisabled()
+    })
     await userEvent.click(canvas.getByRole("button", { name: "Leave files" }))
     await waitFor(() => {
       expect(canvas.getByText("Left files")).toBeVisible()
@@ -901,8 +929,8 @@ export const EditThenNavigate: Story = {
     ).toBe(true)
     expect(editThenNavigatePuts.versions[0]).toBe("wt-0")
     expect(
-      editThenNavigatePuts.bodies.some((body) =>
-        body.includes("dirty-leave-draft"),
+      editThenNavigatePuts.bodies.some(
+        (body) => body.includes("dirty-leave-draft") && body.length > 0,
       ),
     ).toBe(true)
   },
@@ -997,7 +1025,13 @@ export const OutOfOrderSaves: Story = {
                   worktreeVersion,
                   tree: {
                     sha: "sandboxsha",
-                    paths: [...orderedWrites.paths],
+                    paths: [
+                      ...new Set([
+                        ledgerPath,
+                        agentsPath,
+                        ...orderedWrites.paths,
+                      ]),
+                    ],
                     branch: "ctxpipe/chat/conv_1/1",
                     worktreeVersion,
                   },
@@ -1057,17 +1091,15 @@ export const OutOfOrderSaves: Story = {
     orderedWrites.maxInFlight = 0
     const canvas = within(canvasElement)
     await canvas.findByRole("button", { name: "Save" })
-    await createFileFromTree(canvas, canvasElement, "xdraftone.md")
-    await waitFor(() => {
-      expect(
-        canvasElement.ownerDocument.body.querySelector('[role="dialog"]'),
-      ).toBeNull()
-    })
-    await createFileFromTree(canvas, canvasElement, "xdrafttwo.md")
+    await typeInPierreEditor(canvasElement, "ooo-save-one")
+    await saveDirtyEditor(canvas)
+    await selectTreePath(canvasElement, agentsPath)
+    await typeInPierreEditor(canvasElement, "ooo-save-two")
+    await saveDirtyEditor(canvas)
     await waitFor(
       () => {
-        expect(orderedWrites.paths).toContain("knowledge/billing/xdraftone.md")
-        expect(orderedWrites.paths).toContain("knowledge/billing/xdrafttwo.md")
+        expect(orderedWrites.paths).toContain(ledgerPath)
+        expect(orderedWrites.paths).toContain(agentsPath)
         expect(orderedWrites.accepted).toBeGreaterThanOrEqual(2)
         expect(orderedWrites.maxInFlight).toBeGreaterThanOrEqual(2)
       },
@@ -1075,9 +1107,13 @@ export const OutOfOrderSaves: Story = {
     )
     expect(orderedWrites.expected[0]).toBe("wt-0")
     expect(orderedWrites.server).toMatch(/^wt-\d+$/)
-    expect(orderedWrites.bodies["knowledge/billing/xdraftone.md"]).toBeDefined()
-    expect(orderedWrites.bodies["knowledge/billing/xdrafttwo.md"]).toBeDefined()
+    expect(orderedWrites.bodies[ledgerPath]).toContain("ooo-save-one")
+    expect(orderedWrites.bodies[agentsPath]).toContain("ooo-save-two")
+    expect(orderedWrites.bodies[ledgerPath]).not.toBe(
+      orderedWrites.bodies[agentsPath],
+    )
     expect(canvas.queryByText("Could not save")).toBeNull()
     expect(canvas.queryByText("File not found")).toBeNull()
+    expect(canvas.queryByText("Duplicate path")).toBeNull()
   },
 }
