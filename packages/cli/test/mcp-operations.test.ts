@@ -299,20 +299,29 @@ describe("MCP operation builders", () => {
       }),
     })
 
-    expect(withCli).toMatchObject({
+    expect(withCli).toEqual({
       type: "run",
-      command: expect.arrayContaining([
+      command: [
+        "claude",
+        "mcp",
+        "add",
+        "--transport",
+        "http",
+        "ctxpipe",
+        "--scope",
+        "user",
+        "https://app.ctxpipe.ai/mcp?orgSlug=acme",
         "--header",
         `x-api-key: \${CTXPIPE_API_KEY}`,
-      ]),
+      ],
+      description: "run Claude Code MCP add command",
     })
-    expect(withoutCli).toMatchObject({
+    expect(withoutCli).toEqual({
       type: "manual",
       description: "show Claude Code user MCP add command",
+      detail:
+        "Run: claude mcp add --transport http ctxpipe --scope user https://app.ctxpipe.ai/mcp?orgSlug=acme --header 'x-api-key: ${CTXPIPE_API_KEY}'",
     })
-    expect(withoutCli?.type === "manual" ? withoutCli.detail : "").toContain(
-      `--header 'x-api-key: \${CTXPIPE_API_KEY}'`,
-    )
   })
 
   it("prints Claude user env-header commands with single-quoted interpolants", () => {
@@ -334,7 +343,9 @@ describe("MCP operation builders", () => {
       description: "show Claude Code user MCP add command",
     })
     const detail = operation?.type === "manual" ? operation.detail : ""
-    expect(detail).toContain(`--header 'x-api-key: \${CTXPIPE_API_KEY}'`)
+    expect(detail).toBe(
+      "Run: claude mcp add --transport http ctxpipe --scope user https://app.ctxpipe.ai/mcp?orgSlug=acme --header 'x-api-key: ${CTXPIPE_API_KEY}'",
+    )
     expect(detail).not.toContain('--header "x-api-key:')
   })
 
