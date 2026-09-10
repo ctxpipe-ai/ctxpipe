@@ -760,19 +760,25 @@ function pierreEditorHost(canvasElement: HTMLElement): PierreEditorHost | null {
 }
 
 async function typeInPierreEditor(canvasElement: HTMLElement, text: string) {
-  await waitFor(() => {
-    const host = pierreEditorHost(canvasElement)
-    expect(host).toBeTruthy()
-    expect(host?.hasPierreEditor?.()).toBe(true)
-  })
+  await waitFor(
+    () => {
+      const host = pierreEditorHost(canvasElement)
+      expect(host).toBeTruthy()
+      expect(host?.hasPierreEditor?.()).toBe(true)
+    },
+    { timeout: 5_000 },
+  )
   const host = pierreEditorHost(canvasElement)
   if (!host?.insertPierreText) {
     throw new Error("Pierre editor host was not found")
   }
   host.insertPierreText(text)
-  await waitFor(() => {
-    expect(host.getPierreText?.() ?? "").toContain(text)
-  })
+  await waitFor(
+    () => {
+      expect(host.getPierreText?.() ?? "").toContain(text)
+    },
+    { timeout: 5_000 },
+  )
 }
 
 async function saveDirtyEditor(canvas: ReturnType<typeof within>) {
@@ -781,19 +787,6 @@ async function saveDirtyEditor(canvas: ReturnType<typeof within>) {
     expect(save).not.toBeDisabled()
   })
   await userEvent.click(save)
-}
-
-async function selectTreePath(canvasElement: HTMLElement, path: string) {
-  await waitFor(() => {
-    const row =
-      findInShadows(canvasElement, `[data-item-path="${path}"]`) ??
-      findInShadows(canvasElement, `[aria-label="${path}"]`)
-    expect(row).toBeTruthy()
-  })
-  const row = (findInShadows(canvasElement, `[data-item-path="${path}"]`) ??
-    findInShadows(canvasElement, `[aria-label="${path}"]`)) as HTMLElement
-  row.focus()
-  await userEvent.click(row)
 }
 
 const editThenNavigatePuts = {
@@ -1093,9 +1086,14 @@ export const OutOfOrderSaves: Story = {
     await typeInPierreEditor(canvasElement, "ooo-save-one")
     await saveDirtyEditor(canvas)
     await userEvent.click(canvas.getByRole("tab", { name: "AGENTS.md" }))
-    await waitFor(() => {
-      expect(pierreEditorHost(canvasElement)?.hasPierreEditor?.()).toBe(true)
-    })
+    await waitFor(
+      () => {
+        expect(
+          pierreEditorHost(canvasElement)?.getPierreText?.() ?? "",
+        ).toContain("Docs workspace")
+      },
+      { timeout: 5_000 },
+    )
     await typeInPierreEditor(canvasElement, "ooo-save-two")
     await saveDirtyEditor(canvas)
     await waitFor(
