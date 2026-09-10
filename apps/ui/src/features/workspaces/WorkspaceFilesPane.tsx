@@ -372,12 +372,13 @@ function WorkspaceFilesPaneContent(props: {
         props.orgSlug,
         props.conversationId,
       )
-      return persistConversationFileMutation(
+      const data = await persistConversationFileMutation(
         props.orgSlug,
         props.conversationId,
         input,
         expectedWorktreeVersion,
       )
+      return { data, expectedWorktreeVersion }
     },
     onMutate: async (input) => {
       setJobError(null)
@@ -422,7 +423,7 @@ function WorkspaceFilesPaneContent(props: {
       queryClient.setQueryData(key, { ...previous, paths: nextPaths })
       return { previous, expectedWorktreeVersion }
     },
-    onSuccess: async (data, input, context) => {
+    onSuccess: async (result, input) => {
       setJobError(null)
       if (input.op === "save") {
         setDrafts((current) => {
@@ -456,13 +457,13 @@ function WorkspaceFilesPaneContent(props: {
           props.onCloseActiveFile()
         }
       }
-      if (props.conversationId && data) {
+      if (props.conversationId && result.data) {
         applyConversationFileWriteSnapshot(
           queryClient,
           props.orgSlug,
           props.conversationId,
-          data,
-          context?.expectedWorktreeVersion,
+          result.data,
+          result.expectedWorktreeVersion,
         )
         return
       }
@@ -504,8 +505,7 @@ function WorkspaceFilesPaneContent(props: {
           if (
             !(error instanceof ApiError) ||
             error.body.error !== "stale_worktree" ||
-            !props.conversationId ||
-            attempt >= 31
+            !props.conversationId
           ) {
             if (attempt > 0) {
               setJobError(
