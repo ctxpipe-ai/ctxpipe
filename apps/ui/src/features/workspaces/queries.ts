@@ -143,7 +143,6 @@ export class StartWorkspaceConversationError extends Error {
 export async function startWorkspaceConversation(
   orgSlug: string,
   input: {
-    conversationId?: string
     idempotencyKey?: string
     workspaceId: string
     text: string
@@ -153,30 +152,21 @@ export async function startWorkspaceConversation(
   const json = {
     messages: [
       {
-        id: input.conversationId
-          ? `user-${input.conversationId}`
-          : "user-pending",
+        id: "user-pending",
         role: "user",
         content: input.text,
       },
     ],
     tools: [],
     context: [],
-    ...(input.conversationId ? { threadId: input.conversationId } : {}),
     ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
     forwardedProps: { workspaceId: input.workspaceId, source: "ui" },
   }
-  const res = input.conversationId
-    ? await client[":orgSlug"].api.v1.conversations[":conversationId"].$post({
-        param: { orgSlug, conversationId: input.conversationId },
-        json,
-      })
-    : await client[":orgSlug"].api.v1.conversations.$post({
-        param: { orgSlug },
-        json,
-      })
-  const conversationId =
-    res.headers.get("x-conversation-id")?.trim() || input.conversationId
+  const res = await client[":orgSlug"].api.v1.conversations.$post({
+    param: { orgSlug },
+    json,
+  })
+  const conversationId = res.headers.get("x-conversation-id")?.trim()
   if (!res.ok) {
     throw new StartWorkspaceConversationError(
       "Failed to start conversation",
@@ -570,6 +560,9 @@ export function applyConversationFileWriteSnapshot(
       binary: snapshot.binary,
     },
   )
+  void client.invalidateQueries({
+    queryKey: workspaceKeys.conversationGitDiff(orgSlug, conversationId),
+  })
 }
 
 export async function persistConversationFileMutation(

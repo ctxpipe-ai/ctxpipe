@@ -430,6 +430,22 @@ describe("conversations API", () => {
     expect(workspaceChatStreamResponseMock).toHaveBeenCalledTimes(2)
   })
 
+  it("skips member POST streaming when the conversation already has turns", async () => {
+    conversationHasStoredTurnsMock.mockResolvedValue(true)
+    const res = await app().request("/conversations/conv_1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        message: { role: "user", content: "hello" },
+        source: "ui",
+        workspaceId: "ws_abc",
+      }),
+    })
+    expect(res.status).toBe(200)
+    expect(res.headers.get("x-conversation-id")).toBe("conv_1")
+    expect(workspaceChatStreamResponseMock).not.toHaveBeenCalled()
+  })
+
   it("refuses product chat without a Workspace id", async () => {
     parseConversationChatRequestMock.mockResolvedValue({
       prompt: "hello",

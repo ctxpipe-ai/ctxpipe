@@ -145,7 +145,6 @@ function WorkspaceComposeChat(props: {
     }
     try {
       const started = await startWorkspaceConversation(props.orgSlug, {
-        conversationId: pending?.conversationId,
         idempotencyKey,
         workspaceId: props.workspace.id,
         text,
@@ -310,7 +309,6 @@ function WorkspaceChatResume(props: {
       orgSlug={orgSlug}
       workspace={workspace}
       conversationId={conversationId}
-      composing={false}
       title={detail.conversation.name || "New conversation"}
       conversation={detail.conversation}
       initialMessages={detail.messages}

@@ -110,7 +110,6 @@ export function HomeComposer(props: {
     setSending(true)
     try {
       const started = await startWorkspaceConversation(orgSlug, {
-        conversationId: pending?.conversationId,
         idempotencyKey,
         workspaceId: selected.id,
         text,
