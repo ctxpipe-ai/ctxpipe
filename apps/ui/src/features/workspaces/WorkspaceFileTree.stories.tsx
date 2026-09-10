@@ -200,27 +200,25 @@ export const PierreKeyboardFocus: Story = {
       selected.textContent ??
       ""
     expect(selectedPath).toMatch(/billing/i)
-    selected.focus()
-    await userEvent.click(selected)
-    await waitFor(() => {
-      const focused = canvasElement.ownerDocument.activeElement
-      const pierreFocused = findInShadows(
-        canvasElement,
-        "button[data-item-focused='true']",
-      )
-      const focusedOnSelected =
-        selected === focused ||
+    const focused = canvasElement.ownerDocument.activeElement
+    const pierreFocused = findInShadows(
+      canvasElement,
+      "button[data-item-focused='true']",
+    )
+    expect(pierreFocused).toBeTruthy()
+    expect(pierreFocused?.getAttribute("data-item-path") ?? "").toMatch(
+      /billing/i,
+    )
+    expect(
+      selected === focused ||
         selected.contains(focused) ||
         Boolean(
           selected.shadowRoot &&
             focused &&
             selected.shadowRoot.contains(focused),
         ) ||
-        Boolean(
-          pierreFocused?.getAttribute("data-item-path")?.match(/billing/i),
-        )
-      expect(focusedOnSelected).toBe(true)
-    })
+        pierreFocused === selected,
+    ).toBe(true)
     expect(args.onSelect).toHaveBeenCalled()
   },
 }
