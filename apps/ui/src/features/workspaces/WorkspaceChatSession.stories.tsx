@@ -354,9 +354,13 @@ export const ListInsertOnSend: Story = {
 const lateErrorSends = { count: 0 }
 
 export const LateErrorDoesNotClobberSuccess: Story = {
-  args: threadArgs(docsConversationDetail.messages),
+  args: {
+    conversationId: "conv_pending",
+    composing: true,
+    title: "New conversation",
+    initialMessages: [],
+  },
   parameters: {
-    storyRoute: threadRoute,
     msw: {
       handlers: {
         page: [
@@ -386,13 +390,13 @@ export const LateErrorDoesNotClobberSuccess: Story = {
     lateErrorSends.count = 0
     const canvas = within(canvasElement)
     await userEvent.type(
-      canvas.getByPlaceholderText(/continue the conversation/i),
+      canvas.getByPlaceholderText(/ask about this workspace/i),
       "First attempt",
     )
     await userEvent.click(canvas.getByRole("button", { name: /send/i }))
     await waitFor(() => canvas.getByRole("alert"), { timeout: SEND_WAIT_MS })
     await userEvent.type(
-      canvas.getByPlaceholderText(/continue the conversation/i),
+      canvas.getByPlaceholderText(/ask about this workspace/i),
       "Retry after late error",
     )
     await userEvent.click(canvas.getByRole("button", { name: /send/i }))

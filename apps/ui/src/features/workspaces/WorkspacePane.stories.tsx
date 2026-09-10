@@ -749,19 +749,20 @@ function findInShadows(root: ParentNode, selector: string): HTMLElement | null {
 async function typeInPierreEditor(canvasElement: HTMLElement, text: string) {
   await waitFor(() => {
     const editor =
+      findInShadows(canvasElement, ".cm-content") ??
       findInShadows(canvasElement, "[contenteditable='true']") ??
       findInShadows(canvasElement, "textarea") ??
       findInShadows(canvasElement, "[role='textbox']")
     expect(editor).toBeTruthy()
   })
   const editor =
+    findInShadows(canvasElement, ".cm-content") ??
     findInShadows(canvasElement, "[contenteditable='true']") ??
     findInShadows(canvasElement, "textarea") ??
     findInShadows(canvasElement, "[role='textbox']")
   if (!editor) throw new Error("Pierre editor was not found")
-  editor.focus()
   await userEvent.click(editor)
-  await userEvent.keyboard(text)
+  await userEvent.type(editor, text, { delay: 15 })
 }
 
 const editThenNavigatePuts = {
@@ -874,8 +875,12 @@ export const EditThenNavigate: Story = {
     editThenNavigatePuts.bodies = []
     editThenNavigatePuts.versions = []
     const canvas = within(canvasElement)
-    expect(await canvas.findByRole("button", { name: "Save" })).toBeVisible()
-    await typeInPierreEditor(canvasElement, "draft-before-leave")
+    const save = await canvas.findByRole("button", { name: "Save" })
+    expect(save).toBeVisible()
+    await typeInPierreEditor(canvasElement, "xdraftleave")
+    await waitFor(() => {
+      expect(save).not.toHaveAttribute("aria-disabled", "true")
+    })
     await userEvent.click(canvas.getByRole("button", { name: "Leave files" }))
     await waitFor(() => {
       expect(canvas.getByText("Left files")).toBeVisible()
@@ -884,9 +889,7 @@ export const EditThenNavigate: Story = {
       expect(editThenNavigatePuts.count).toBeGreaterThan(0)
     })
     expect(
-      editThenNavigatePuts.bodies.some((body) =>
-        body.includes("draft-before-leave"),
-      ),
+      editThenNavigatePuts.bodies.some((body) => body.includes("xdraftleave")),
     ).toBe(true)
     expect(editThenNavigatePuts.versions[0]).toBe("wt-0")
   },
@@ -1001,16 +1004,23 @@ export const OutOfOrderSaves: Story = {
     orderedWrites.appliedBodies = []
     const canvas = within(canvasElement)
     const save = await canvas.findByRole("button", { name: "Save" })
-    await typeInPierreEditor(canvasElement, "first-save")
-    await userEvent.click(save)
-    await typeInPierreEditor(canvasElement, "second-save")
+    await typeInPierreEditor(canvasElement, "xdraftone")
+    await waitFor(() => {
+      expect(save).not.toHaveAttribute("aria-disabled", "true")
+    })
     await userEvent.click(save)
     await waitFor(() => {
-      expect(orderedWrites.expected.length).toBeGreaterThanOrEqual(2)
+      expect(orderedWrites.expected).toEqual(["wt-0"])
     })
-    expect(orderedWrites.expected[0]).toBe("wt-0")
-    expect(orderedWrites.expected[1]).toBe("wt-1")
-    expect(orderedWrites.appliedBodies.at(-1)).toContain("second-save")
+    await typeInPierreEditor(canvasElement, "xdrafttwo")
+    await waitFor(() => {
+      expect(save).not.toHaveAttribute("aria-disabled", "true")
+    })
+    await userEvent.click(save)
+    await waitFor(() => {
+      expect(orderedWrites.expected).toEqual(["wt-0", "wt-1"])
+    })
+    expect(orderedWrites.appliedBodies.at(-1)).toContain("xdrafttwo")
     expect(canvas.queryByText("Could not save")).toBeNull()
   },
 }

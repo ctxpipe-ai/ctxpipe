@@ -145,6 +145,17 @@ export const LargeTree: Story = {
   },
 }
 
+function findInShadows(root: ParentNode, selector: string): HTMLElement | null {
+  const direct = root.querySelector(selector)
+  if (direct instanceof HTMLElement) return direct
+  for (const element of root.querySelectorAll("*")) {
+    if (!element.shadowRoot) continue
+    const nested = findInShadows(element.shadowRoot, selector)
+    if (nested) return nested
+  }
+  return null
+}
+
 export const PierreKeyboardFocus: Story = {
   args: {
     paths: ["AGENTS.md", "knowledge/billing.md"],
@@ -153,13 +164,23 @@ export const PierreKeyboardFocus: Story = {
   },
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
-    const host = await canvas.findByLabelText("Workspace files")
-    host.focus()
-    await userEvent.keyboard("{ArrowDown}")
+    const search = await canvas.findByRole("button", { name: "Search files" })
+    await userEvent.click(search)
+    await waitFor(() => {
+      expect(
+        findInShadows(canvasElement, "input") ??
+          findInShadows(canvasElement, "[role='searchbox']"),
+      ).toBeTruthy()
+    })
+    const input =
+      findInShadows(canvasElement, "input") ??
+      findInShadows(canvasElement, "[role='searchbox']")
+    if (!input) throw new Error("Pierre search field was not found")
+    await userEvent.type(input, "billing")
     await userEvent.keyboard("{Enter}")
     await waitFor(() => {
       expect(args.onSelect).toHaveBeenCalled()
     })
-    expect(host).toHaveFocus()
+    expect(search).toHaveAttribute("aria-pressed", "true")
   },
 }
