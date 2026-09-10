@@ -1050,15 +1050,16 @@ export const OutOfOrderSaves: Story = {
     const canvas = within(canvasElement)
     await canvas.findByRole("button", { name: "Save" })
     await createFileFromTree(canvas, canvasElement, "xdraftone.md")
+    await waitFor(() => {
+      expect(
+        canvasElement.ownerDocument.body.querySelector('[role="dialog"]'),
+      ).toBeNull()
+    })
     await createFileFromTree(canvas, canvasElement, "xdrafttwo.md")
     await waitFor(
       () => {
-        expect(
-          orderedWrites.paths.some((path) => path.endsWith("xdraftone.md")),
-        ).toBe(true)
-        expect(
-          orderedWrites.paths.some((path) => path.endsWith("xdrafttwo.md")),
-        ).toBe(true)
+        expect(orderedWrites.paths).toContain("knowledge/billing/xdraftone.md")
+        expect(orderedWrites.paths).toContain("knowledge/billing/xdrafttwo.md")
         expect(orderedWrites.accepted).toBeGreaterThanOrEqual(2)
         expect(orderedWrites.maxInFlight).toBeGreaterThanOrEqual(2)
       },
@@ -1066,16 +1067,8 @@ export const OutOfOrderSaves: Story = {
     )
     expect(orderedWrites.expected[0]).toBe("wt-0")
     expect(orderedWrites.server).toMatch(/^wt-\d+$/)
-    expect(
-      Object.keys(orderedWrites.bodies).some((path) =>
-        path.endsWith("xdraftone.md"),
-      ),
-    ).toBe(true)
-    expect(
-      Object.keys(orderedWrites.bodies).some((path) =>
-        path.endsWith("xdrafttwo.md"),
-      ),
-    ).toBe(true)
+    expect(orderedWrites.bodies["knowledge/billing/xdraftone.md"]).toBeDefined()
+    expect(orderedWrites.bodies["knowledge/billing/xdrafttwo.md"]).toBeDefined()
     expect(canvas.queryByText("Could not save")).toBeNull()
     expect(canvas.queryByText("File not found")).toBeNull()
   },

@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { useNavigate, useParams } from "@tanstack/react-router"
 import { HttpResponse, http } from "msw"
 import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
@@ -148,7 +149,11 @@ function SocketCleanupHarness() {
         </Button>
       </div>
       {mounted ? (
-        <WorkspaceChat orgSlug="acme" workspace={docsWorkspace} />
+        <WorkspaceChat
+          orgSlug="acme"
+          workspace={docsWorkspace}
+          conversationId="conv_1"
+        />
       ) : (
         <p>Left conversation</p>
       )}
@@ -169,7 +174,6 @@ export const SocketCleansUpOnLeave: Story = {
     const canvas = within(canvasElement)
     const Original = window.WebSocket
     const sockets: WebSocket[] = []
-    let closeCount = 0
     function TrackingWebSocket(
       url: string | URL,
       protocols?: string | string[],
@@ -178,14 +182,6 @@ export const SocketCleansUpOnLeave: Story = {
         ? new Original(url, protocols)
         : new Original(url)
       sockets.push(socket)
-      const nativeClose = socket.close.bind(socket)
-      Object.defineProperty(socket, "close", {
-        configurable: true,
-        value(code?: number, reason?: string) {
-          closeCount += 1
-          return nativeClose(code, reason)
-        },
-      })
       return socket
     }
     TrackingWebSocket.prototype = Original.prototype
@@ -196,41 +192,50 @@ export const SocketCleansUpOnLeave: Story = {
       CLOSED: Original.CLOSED,
     })
     window.WebSocket = TrackingWebSocket as unknown as typeof WebSocket
+    const conversationSockets = () =>
+      sockets.filter((socket) => String(socket.url).includes("/conversations/"))
+    const expectConversationSocketsClosed = async () => {
+      await waitFor(() => {
+        expect(conversationSockets().length).toBeGreaterThan(0)
+        expect(
+          conversationSockets().every(
+            (socket) =>
+              socket.readyState === Original.CLOSING ||
+              socket.readyState === Original.CLOSED,
+          ),
+        ).toBe(true)
+      })
+    }
     try {
       await userEvent.click(
         canvas.getByRole("button", { name: "Open conversation" }),
       )
       await waitFor(() => {
-        expect(
-          sockets.some((socket) =>
-            String(socket.url).includes("/conversations/"),
-          ),
-        ).toBe(true)
+        expect(conversationSockets().length).toBeGreaterThan(0)
       })
-      const closesBeforeLeave = closeCount
       await userEvent.click(
         canvas.getByRole("button", { name: "Leave conversation" }),
       )
       await waitFor(() => {
         expect(canvas.getByText("Left conversation")).toBeVisible()
       })
+      await expectConversationSocketsClosed()
+      const socketsAfterFirstLeave = conversationSockets().length
+      await userEvent.click(
+        canvas.getByRole("button", { name: "Open conversation" }),
+      )
       await waitFor(() => {
-        expect(closeCount).toBeGreaterThan(closesBeforeLeave)
-        expect(
-          sockets.filter((socket) =>
-            String(socket.url).includes("/conversations/"),
-          ).length,
-        ).toBeGreaterThan(0)
-        expect(
-          sockets
-            .filter((socket) => String(socket.url).includes("/conversations/"))
-            .every(
-              (socket) =>
-                socket.readyState === Original.CLOSING ||
-                socket.readyState === Original.CLOSED,
-            ),
-        ).toBe(true)
+        expect(conversationSockets().length).toBeGreaterThan(
+          socketsAfterFirstLeave,
+        )
       })
+      await userEvent.click(
+        canvas.getByRole("button", { name: "Leave conversation" }),
+      )
+      await waitFor(() => {
+        expect(canvas.getByText("Left conversation")).toBeVisible()
+      })
+      await expectConversationSocketsClosed()
     } finally {
       window.WebSocket = Original
     }
@@ -324,31 +329,50 @@ export const ReloadReconnects: Story = {
 }
 
 function RapidRouteHarness() {
-  const [conversationId, setConversationId] = useState<string | undefined>(
-    "conv_1",
-  )
+  const navigate = useNavigate()
+  const params = useParams({ strict: false })
+  const conversationId =
+    typeof params.conversationId === "string"
+      ? params.conversationId
+      : undefined
+  const openConversation = (id: string | undefined) => {
+    if (id) {
+      void navigate({
+        to: "/$orgSlug/ws/$workspaceSlug/$conversationId",
+        params: {
+          orgSlug: "acme",
+          workspaceSlug: "docs",
+          conversationId: id,
+        },
+        search: (prev) => prev,
+      })
+      return
+    }
+    void navigate({
+      to: "/$orgSlug/ws/$workspaceSlug",
+      params: { orgSlug: "acme", workspaceSlug: "docs" },
+      search: (prev) => prev,
+    })
+  }
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <div className="flex flex-wrap gap-2 p-2">
-        <Button variant="secondary" onPress={() => setConversationId("conv_1")}>
+        <Button variant="secondary" onPress={() => openConversation("conv_1")}>
           Open ready
         </Button>
         <Button
           variant="secondary"
-          onPress={() => setConversationId("conv_missing")}
+          onPress={() => openConversation("conv_missing")}
         >
           Open missing
         </Button>
         <Button
           variant="secondary"
-          onPress={() => setConversationId("conv_other")}
+          onPress={() => openConversation("conv_other")}
         >
           Open foreign
         </Button>
-        <Button
-          variant="secondary"
-          onPress={() => setConversationId(undefined)}
-        >
+        <Button variant="secondary" onPress={() => openConversation(undefined)}>
           Open compose
         </Button>
       </div>
@@ -364,6 +388,12 @@ function RapidRouteHarness() {
 export const RapidRouteChanges: Story = {
   render: () => <RapidRouteHarness />,
   parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      conversationId: "conv_1",
+    } satisfies StoryRouteParams,
     msw: {
       handlers: {
         page: [

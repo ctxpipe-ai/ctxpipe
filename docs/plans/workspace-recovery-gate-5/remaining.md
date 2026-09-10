@@ -12,16 +12,18 @@ returned **BLOCK**. The lines below are the correction slice, not acceptance.
 
 ## Remaining work, in order
 
-1. Correction landed, not accepted. Home first send is the awaited stock
-   conversation POST. Destination `useChat` hydrates. `3fe0928d` reviews still
-   BLOCK Gate 5.
+1. Correction landed, not accepted. Collection `POST /conversations` assigns
+   `conv_*` identity and returns `x-conversation-id`. Home and workspace compose
+   do not generate client ids; retries reuse the server id. Destination
+   `useChat` hydrates. `8ef8b985` reviews still BLOCK Gate 5.
 2. Correction landed, not accepted. `dispose()` closes every tracked socket.
 3. Correction landed, not accepted. Routed 404 is not-found (no cache
    fallback). `composeId` / `seenRouteId` are gone. Foreign 404 is not-found.
 4. Closed. Chat chrome and the files pane share `useConversationPublish`.
 5. Correction landed, not accepted. PUT requires `expectedWorktreeVersion`.
-   Per-path write queues, 409 retry from the conflict version, unmount flush
-   uses the same retry. Untracked fingerprint reads no longer hash empty.
+   Per-path write queues, stale CAS retries until success or a non-conflict
+   error, unmount flushes every dirty draft through the same map. Untracked
+   fingerprint reads no longer hash empty.
 6. Correction landed, not accepted. `StableRequestBudget` covers chat + Files
    + Diff + Publish and requires a chat or diff request.
 7. Closed. `WorkspacePane` is composition; files and diff have their own owners.
