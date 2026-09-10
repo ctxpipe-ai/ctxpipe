@@ -777,6 +777,7 @@ const editThenNavigatePuts = {
   count: 0,
   paths: [] as string[],
   versions: [] as Array<string | undefined>,
+  bodies: [] as string[],
 }
 
 function EditThenNavigateHarness(props: ComponentProps<typeof WorkspacePane>) {
@@ -826,6 +827,7 @@ export const EditThenNavigate: Story = {
               editThenNavigatePuts.count += 1
               editThenNavigatePuts.paths.push(body.path)
               editThenNavigatePuts.versions.push(body.expectedWorktreeVersion)
+              editThenNavigatePuts.bodies.push(body.body ?? "")
               const worktreeVersion = "wt-1"
               return HttpResponse.json({
                 path: body.path,
@@ -882,6 +884,7 @@ export const EditThenNavigate: Story = {
     editThenNavigatePuts.count = 0
     editThenNavigatePuts.paths = []
     editThenNavigatePuts.versions = []
+    editThenNavigatePuts.bodies = []
     const canvas = within(canvasElement)
     await canvas.findByRole("button", { name: "Save" })
     await typeInPierreEditor(canvasElement, "dirty-leave-draft")
@@ -897,6 +900,11 @@ export const EditThenNavigate: Story = {
       editThenNavigatePuts.paths.some((path) => path.includes(ledgerPath)),
     ).toBe(true)
     expect(editThenNavigatePuts.versions[0]).toBe("wt-0")
+    expect(
+      editThenNavigatePuts.bodies.some((body) =>
+        body.includes("dirty-leave-draft"),
+      ),
+    ).toBe(true)
   },
 }
 
@@ -964,7 +972,6 @@ export const OutOfOrderSaves: Story = {
               try {
                 orderedWrites.expected.push(body.expectedWorktreeVersion)
                 orderedWrites.paths.push(body.path)
-                orderedWrites.bodies[body.path] = body.body ?? ""
                 if (body.expectedWorktreeVersion !== orderedWrites.server) {
                   return HttpResponse.json(
                     {
@@ -977,6 +984,7 @@ export const OutOfOrderSaves: Story = {
                 const worktreeVersion = `wt-${orderedWrites.accepted + 1}`
                 orderedWrites.accepted += 1
                 orderedWrites.server = worktreeVersion
+                orderedWrites.bodies[body.path] = body.body ?? ""
                 if (orderedWrites.accepted === 1) {
                   await new Promise((resolve) => {
                     window.setTimeout(resolve, 2000)

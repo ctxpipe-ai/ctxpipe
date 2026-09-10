@@ -184,13 +184,25 @@ export const PierreKeyboardFocus: Story = {
     await userEvent.keyboard("{Escape}")
     const selected = findInShadows(canvasElement, "[aria-selected='true']")
     expect(selected).toBeTruthy()
+    const selectedPath =
+      selected?.getAttribute("data-item-path") ??
+      selected?.getAttribute("aria-label") ??
+      selected?.textContent ??
+      ""
+    expect(selectedPath).toMatch(/billing/i)
     const focused = canvasElement.ownerDocument.activeElement
     const treeHost = canvas.getByLabelText("Workspace files")
-    expect(
-      treeHost.contains(focused) ||
-        Boolean(treeHost.shadowRoot?.contains(focused)) ||
-        selected === focused ||
-        Boolean(selected?.contains(focused)),
-    ).toBe(true)
+    const focusedInSelected =
+      selected === focused ||
+      Boolean(selected?.contains(focused)) ||
+      Boolean(
+        selected?.shadowRoot &&
+          focused &&
+          selected.shadowRoot.contains(focused),
+      )
+    expect(treeHost.contains(selected) || focusedInSelected).toBe(true)
+    expect(focusedInSelected || treeHost.shadowRoot?.contains(focused)).toBe(
+      true,
+    )
   },
 }

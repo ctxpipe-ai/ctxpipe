@@ -13,9 +13,10 @@ returned **BLOCK**. The lines below are the correction slice, not acceptance.
 ## Remaining work, in order
 
 1. Correction landed, not accepted. Collection `POST /conversations` assigns
-   `conv_*` identity and returns `x-conversation-id`. Home and workspace compose
-   do not generate client ids; retries reuse the server id. Destination
-   `useChat` hydrates. `8ef8b985` reviews still BLOCK Gate 5.
+   `conv_*` identity and returns `x-conversation-id`. The same first-message
+   `idempotencyKey` maps to the same id. Home and workspace compose do not
+   generate client ids; retries reuse the server id or key. Destination
+   `useChat` hydrates. `832e77b8` reviews still BLOCK Gate 5.
 2. Correction landed, not accepted. `dispose()` closes every tracked socket.
 3. Correction landed, not accepted. Routed 404 is not-found (no cache
    fallback). `composeId` / `seenRouteId` are gone. Foreign 404 is not-found.

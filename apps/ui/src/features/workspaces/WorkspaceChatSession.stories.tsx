@@ -411,7 +411,23 @@ export const LateErrorDoesNotClobberSuccess: Story = {
     const Original = window.WebSocket
     let runSends = 0
     function ScriptedWebSocket(url: string | URL) {
-      const socket = {
+      const socket: {
+        url: string
+        readyState: number
+        bufferedAmount: number
+        extensions: string
+        protocol: string
+        binaryType: BinaryType
+        onopen: ((event: Event) => void) | null
+        onerror: ((event: Event) => void) | null
+        onclose: ((event: CloseEvent) => void) | null
+        onmessage: ((event: MessageEvent<string>) => void) | null
+        close: () => void
+        send: () => void
+        addEventListener: () => void
+        removeEventListener: () => void
+        dispatchEvent: () => boolean
+      } = {
         url: String(url),
         readyState: Original.CONNECTING,
         bufferedAmount: 0,
@@ -436,11 +452,13 @@ export const LateErrorDoesNotClobberSuccess: Story = {
                   text: "First answer should remain",
                 })
               : [{ type: "RUN_ERROR", message: "late failure" }]
-          for (const event of events) {
-            this.onmessage?.(
-              new MessageEvent("message", { data: JSON.stringify(event) }),
-            )
-          }
+          queueMicrotask(() => {
+            for (const event of events) {
+              this.onmessage?.(
+                new MessageEvent("message", { data: JSON.stringify(event) }),
+              )
+            }
+          })
         },
         addEventListener() {},
         removeEventListener() {},
