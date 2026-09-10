@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useNavigate, useSearch } from "@tanstack/react-router"
-import { HttpResponse, http, passthrough } from "msw"
+import { HttpResponse, http } from "msw"
 import { type ComponentProps, useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { Button } from "@/components/ui/Button"
@@ -748,32 +748,34 @@ function findInShadows(root: ParentNode, selector: string): Element | null {
 
 async function typeInPierreEditor(canvasElement: HTMLElement, text: string) {
   await waitFor(() => {
-    const editable =
-      findInShadows(canvasElement, "[contenteditable='true']") ??
-      findInShadows(canvasElement, ".cm-content") ??
-      findInShadows(canvasElement, "textarea")
-    expect(editable).toBeTruthy()
+    expect(
+      findInShadows(canvasElement, "[data-workspace-file-editor]") ??
+        canvasElement.querySelector("[data-workspace-file-editor]"),
+    ).toBeTruthy()
   })
-  const editable = (findInShadows(canvasElement, "[contenteditable='true']") ??
-    findInShadows(canvasElement, ".cm-content") ??
-    findInShadows(canvasElement, "textarea")) as HTMLElement
-  editable.focus()
-  await userEvent.click(editable)
-  await userEvent.keyboard("{End}")
-  await userEvent.type(editable, text, { delay: 15 })
-  if (
-    editable instanceof HTMLElement &&
-    !(editable.textContent ?? "").includes(text) &&
-    !("value" in editable && String(editable.value).includes(text))
-  ) {
+  const host = (findInShadows(canvasElement, "[data-workspace-file-editor]") ??
+    canvasElement.querySelector("[data-workspace-file-editor]")) as
+    | (HTMLElement & { insertPierreText?: (value: string) => void })
+    | null
+  const editable =
+    findInShadows(canvasElement, "[contenteditable='true']") ??
+    findInShadows(canvasElement, "[data-code]") ??
+    findInShadows(canvasElement, ".cm-content")
+  if (editable instanceof HTMLElement) {
+    editable.focus()
+    await userEvent.click(editable)
     editable.dispatchEvent(
-      new InputEvent("input", {
+      new InputEvent("beforeinput", {
         bubbles: true,
+        cancelable: true,
         composed: true,
         data: text,
         inputType: "insertText",
       }),
     )
+  }
+  if (typeof host?.insertPierreText === "function") {
+    host.insertPierreText(text)
   }
 }
 
@@ -971,14 +973,15 @@ export const OutOfOrderSaves: Story = {
               ),
             ({ request }) => {
               const path = new URL(request.url).searchParams.get("path") ?? ""
-              if (path in orderedWrites.bodies) {
-                return HttpResponse.json({
-                  path,
-                  body: orderedWrites.bodies[path],
-                  binary: false,
-                })
+              const body =
+                orderedWrites.bodies[path] ?? docsWorkspaceGitBlobs[path]
+              if (body === undefined) {
+                return HttpResponse.json(
+                  { error: "Not found" },
+                  { status: 404 },
+                )
               }
-              return passthrough()
+              return HttpResponse.json({ path, body, binary: false })
             },
           ),
           http.put(

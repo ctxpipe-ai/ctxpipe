@@ -218,6 +218,9 @@ function WorkspaceFileTreeClient(props: {
     () => (props.gitStatus ?? []).map(({ path, status }) => ({ path, status })),
     [props.gitStatus],
   )
+  const modelRef = useRef<{
+    getItem: (path: string) => { focus: () => void } | null
+  } | null>(null)
 
   const { model } = useFileTree({
     paths: props.paths,
@@ -261,11 +264,22 @@ function WorkspaceFileTreeClient(props: {
       const file = [...selectedPaths]
         .reverse()
         .find((path) => fileSetRef.current.has(path))
-      if (file) onSelectRef.current(file)
+      if (!file) return
+      onSelectRef.current(file)
+      modelRef.current?.getItem(file)?.focus()
     },
   })
+  modelRef.current = model
 
   const search = useFileTreeSearch(model)
+  const searchWasOpenRef = useRef(search.isOpen)
+  useEffect(() => {
+    if (searchWasOpenRef.current && !search.isOpen) {
+      const selected = props.selectedPath ?? model.getSelectedPaths()[0] ?? null
+      if (selected) model.getItem(selected)?.focus()
+    }
+    searchWasOpenRef.current = search.isOpen
+  }, [model, props.selectedPath, search.isOpen])
 
   useEffect(() => {
     model.resetPaths(props.paths)

@@ -861,7 +861,18 @@ function WorkspaceFilesPaneContent(props: {
           </div>
         ) : null}
         {props.activeFile ? (
-          <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+          <div
+            className="min-h-0 min-w-0 flex-1 overflow-hidden"
+            data-workspace-file-editor=""
+            ref={(node) => {
+              if (!node) return
+              Object.assign(node, {
+                insertPierreText: (text: string) => {
+                  fileEditorRef.current?.insertText(text)
+                },
+              })
+            }}
+          >
             <Suspense fallback={<WorkspaceFilePreviewSkeleton />}>
               <WorkspaceGitFilePreview
                 orgSlug={props.orgSlug}

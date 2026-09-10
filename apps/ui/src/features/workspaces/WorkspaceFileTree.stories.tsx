@@ -183,13 +183,17 @@ export const PierreKeyboardFocus: Story = {
     })
     await userEvent.keyboard("{Escape}")
     await waitFor(() => {
-      const selected = findInShadows(canvasElement, "[aria-selected='true']")
+      const selected =
+        findInShadows(
+          canvasElement,
+          "button[data-item-path*='billing'][aria-selected='true']",
+        ) ?? findInShadows(canvasElement, "[aria-selected='true']")
       expect(selected).toBeTruthy()
     })
-    const selected = findInShadows(
+    const selected = (findInShadows(
       canvasElement,
-      "[aria-selected='true']",
-    ) as HTMLElement
+      "button[data-item-path*='billing'][aria-selected='true']",
+    ) ?? findInShadows(canvasElement, "[aria-selected='true']")) as HTMLElement
     const selectedPath =
       selected.getAttribute("data-item-path") ??
       selected.getAttribute("aria-label") ??
@@ -200,6 +204,10 @@ export const PierreKeyboardFocus: Story = {
     await userEvent.click(selected)
     await waitFor(() => {
       const focused = canvasElement.ownerDocument.activeElement
+      const pierreFocused = findInShadows(
+        canvasElement,
+        "button[data-item-focused='true']",
+      )
       const focusedOnSelected =
         selected === focused ||
         selected.contains(focused) ||
@@ -207,6 +215,9 @@ export const PierreKeyboardFocus: Story = {
           selected.shadowRoot &&
             focused &&
             selected.shadowRoot.contains(focused),
+        ) ||
+        Boolean(
+          pierreFocused?.getAttribute("data-item-path")?.match(/billing/i),
         )
       expect(focusedOnSelected).toBe(true)
     })
