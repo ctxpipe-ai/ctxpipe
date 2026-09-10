@@ -46,6 +46,12 @@ failed baseline and the Gate 4 fail-closed Railway/Btrfs contract. This
 host cannot prove that path. Do not treat a scripted Storybook journey as
 a live GitHub publish.
 
+## Local golden evidence
+
+`SKIP_STORYBOOK_BUILD=1 node scripts/ci/storybook-golden.mjs` executed all
+11 tagged plays in Chromium: 11 passed, 0 skipped. Results are in
+`.ci-results/storybook-golden/results.json`.
+
 ## Closed work
 
 Do not add a new environment variable, a second chat engine, or jsdom
