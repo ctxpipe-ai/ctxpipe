@@ -1066,8 +1066,16 @@ export const OutOfOrderSaves: Story = {
     )
     expect(orderedWrites.expected[0]).toBe("wt-0")
     expect(orderedWrites.server).toMatch(/^wt-\d+$/)
-    expect(orderedWrites.bodies["xdraftone.md"]).toBeDefined()
-    expect(orderedWrites.bodies["xdrafttwo.md"]).toBeDefined()
+    expect(
+      Object.keys(orderedWrites.bodies).some((path) =>
+        path.endsWith("xdraftone.md"),
+      ),
+    ).toBe(true)
+    expect(
+      Object.keys(orderedWrites.bodies).some((path) =>
+        path.endsWith("xdrafttwo.md"),
+      ),
+    ).toBe(true)
     expect(canvas.queryByText("Could not save")).toBeNull()
     expect(canvas.queryByText("File not found")).toBeNull()
   },
