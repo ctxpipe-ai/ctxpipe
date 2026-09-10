@@ -82,7 +82,7 @@ describe("buildOrMergeCursorClaudeMcpJson", () => {
     expect(JSON.parse(out)).toEqual({
       mcpServers: {
         ctxpipe: {
-          type: "http",
+          type: "streamable-http",
           url: "https://app.example/mcp?orgSlug=acme",
         },
       },
@@ -102,7 +102,7 @@ describe("buildOrMergeCursorClaudeMcpJson", () => {
     expect(JSON.parse(out).mcpServers).toEqual({
       other: { command: "npx", args: ["x"] },
       ctxpipe: {
-        type: "http",
+        type: "streamable-http",
         url: "https://app.example/mcp?orgSlug=acme",
       },
     })
