@@ -163,9 +163,11 @@ export const FirstMessageSendsOnce: Story = {
     )
     await userEvent.click(canvas.getByRole("button", { name: /send/i }))
     await waitFor(() => expect(firstMessagePosts.count).toBe(1))
-    expect(
-      canvas.getByRole("navigation", { name: "Main navigation" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.queryByPlaceholderText(/ask about this workspace/i),
+      ).toBeNull(),
+    )
   },
 }
 

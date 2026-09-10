@@ -175,16 +175,21 @@ export const SocketCleansUpOnLeave: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const Original = window.WebSocket
+    const originalClose = Original.prototype.close
     const sockets: WebSocket[] = []
     const closeCounts = new WeakMap<WebSocket, number>()
+    Original.prototype.close = function close(
+      this: WebSocket,
+      code?: number,
+      reason?: string,
+    ) {
+      closeCounts.set(this, (closeCounts.get(this) ?? 0) + 1)
+      return originalClose.call(this, code, reason)
+    }
     window.WebSocket = class TrackingSocket extends Original {
       constructor(url: string | URL, protocols?: string | string[]) {
         super(url, protocols)
         sockets.push(this)
-      }
-      close(code?: number, reason?: string) {
-        closeCounts.set(this, (closeCounts.get(this) ?? 0) + 1)
-        super.close(code, reason)
       }
     } as typeof WebSocket
     try {
@@ -208,11 +213,13 @@ export const SocketCleansUpOnLeave: Story = {
         expect(canvas.getByText("Left conversation")).toBeVisible()
       })
       await waitFor(() => {
+        expect(conversationSockets.length).toBeGreaterThan(0)
         for (const socket of conversationSockets) {
           expect(closeCounts.get(socket) ?? 0).toBeGreaterThan(0)
         }
       })
     } finally {
+      Original.prototype.close = originalClose
       window.WebSocket = Original
     }
   },

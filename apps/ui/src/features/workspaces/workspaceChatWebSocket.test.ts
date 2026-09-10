@@ -115,6 +115,24 @@ describe("workspace chat websocket dispose", () => {
     connection.dispose()
     expect(instances[0]?.close).toHaveBeenCalledTimes(1)
   })
+
+  it("closes a socket that already failed the handshake", () => {
+    const instances: Array<{ close: ReturnType<typeof vi.fn> }> = []
+    class FakeSocket {
+      readyState = 3
+      url: string
+      close = vi.fn()
+      constructor(url: string | URL) {
+        this.url = String(url)
+        instances.push(this)
+      }
+    }
+    vi.stubGlobal("WebSocket", FakeSocket)
+    const connection = workspaceChatWebSocket("acme", "conv_1")
+    connection.warm()
+    connection.dispose()
+    expect(instances[0]?.close).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe("workspace chat websocket reuse", () => {

@@ -87,9 +87,8 @@ export function workspaceChatWebSocket(
       warmed = new WebSocket(absoluteWebSocketUrl(path))
     },
     dispose() {
-      if (warmed && warmed.readyState <= 1) {
-        warmed.close()
-      }
+      if (!warmed) return
+      warmed.close()
       warmed = undefined
     },
   }
