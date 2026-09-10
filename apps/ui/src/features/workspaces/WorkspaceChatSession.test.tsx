@@ -16,7 +16,7 @@ const useChatState = vi.hoisted(() => ({
 
 const navigateMock = vi.hoisted(() => vi.fn())
 const workspaceChatWebSocketMock = vi.hoisted(() =>
-  vi.fn(() => ({ kind: "official-ws", warm: vi.fn() })),
+  vi.fn(() => ({ kind: "official-ws", warm: vi.fn(), dispose: vi.fn() })),
 )
 const useChatMock = vi.hoisted(() =>
   vi.fn((_options?: Record<string, unknown>) => ({
@@ -212,7 +212,11 @@ describe("WorkspaceChatSession compose failure", () => {
       expect.objectContaining({
         threadId: "conv_pending",
         persistence: true,
-        connection: { kind: "official-ws", warm: expect.any(Function) },
+        connection: {
+          kind: "official-ws",
+          warm: expect.any(Function),
+          dispose: expect.any(Function),
+        },
         forwardedProps: {
           workspaceId: readOnlyWorkspace.id,
           source: "ui",

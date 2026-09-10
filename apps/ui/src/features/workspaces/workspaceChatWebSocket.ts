@@ -9,6 +9,7 @@ export function workspaceChatSocketPath(
 
 type EagerSocket = {
   warm: () => void
+  dispose: () => void
 }
 
 type ChatHydrationResult = Awaited<
@@ -84,6 +85,12 @@ export function workspaceChatWebSocket(
       if (typeof WebSocket === "undefined") return
       if (warmed && warmed.readyState <= WebSocket.OPEN) return
       warmed = new WebSocket(absoluteWebSocketUrl(path))
+    },
+    dispose() {
+      if (warmed && warmed.readyState <= WebSocket.OPEN) {
+        warmed.close()
+      }
+      warmed = undefined
     },
   }
 }

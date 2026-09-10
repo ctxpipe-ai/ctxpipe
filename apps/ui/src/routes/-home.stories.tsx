@@ -156,8 +156,9 @@ export const FirstMessageSendsOnce: Story = {
     expect(
       canvas.getByRole("navigation", { name: "Main navigation" }),
     ).toBeVisible()
+    expect(await canvas.findByLabelText("Select workspace")).toBeVisible()
     await userEvent.type(
-      canvas.getByPlaceholderText(/ask about this workspace/i),
+      await canvas.findByPlaceholderText(/ask about this workspace/i),
       "What changed this week?",
     )
     await userEvent.click(canvas.getByRole("button", { name: /send/i }))

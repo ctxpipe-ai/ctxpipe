@@ -124,6 +124,9 @@ export function WorkspaceChatSession(props: {
 
   useEffect(() => {
     connection.warm()
+    return () => {
+      connection.dispose()
+    }
   }, [connection])
 
   const applyRename = (name: string) => {

@@ -88,6 +88,35 @@ describe("workspaceChatWebSocket hydrate", () => {
   })
 })
 
+describe("workspace chat websocket dispose", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("closes the warmed socket", () => {
+    const instances: Array<{ close: ReturnType<typeof vi.fn> }> = []
+    class FakeSocket {
+      readyState = 1
+      url: string
+      close = vi.fn(() => {
+        this.readyState = 3
+      })
+      constructor(url: string | URL) {
+        this.url = String(url)
+        instances.push(this)
+      }
+    }
+    vi.stubGlobal("WebSocket", FakeSocket)
+    const connection = workspaceChatWebSocket("acme", "conv_1")
+    connection.warm()
+    expect(instances).toHaveLength(1)
+    connection.dispose()
+    expect(instances[0]?.close).toHaveBeenCalledTimes(1)
+    connection.dispose()
+    expect(instances[0]?.close).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe("workspace chat websocket reuse", () => {
   it("does not reuse a warmed socket for a resume handshake", () => {
     const warmed =

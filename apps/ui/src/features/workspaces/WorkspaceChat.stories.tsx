@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, within } from "storybook/test"
+import { useState } from "react"
+import { expect, userEvent, waitFor, within } from "storybook/test"
+import { Button } from "@/components/ui/Button"
 import {
   conversationDetailHandler,
   conversationDetailLoadingHandler,
@@ -117,7 +119,9 @@ export const ConversationForeignWorkspace: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(await canvas.findByText("Conversation not found")).toBeVisible()
+    expect(
+      await canvas.findByRole("heading", { name: "Conversation not found" }),
+    ).toBeVisible()
   },
 }
 
@@ -135,5 +139,81 @@ export const ConversationReady: Story = {
         page: workspaceShellHandlers(),
       },
     },
+  },
+}
+
+function SocketCleanupHarness() {
+  const [mounted, setMounted] = useState(false)
+  return (
+    <div className="flex h-full min-h-0 flex-1 flex-col">
+      <div className="flex gap-2 p-2">
+        <Button variant="secondary" onPress={() => setMounted(true)}>
+          Open conversation
+        </Button>
+        <Button variant="secondary" onPress={() => setMounted(false)}>
+          Leave conversation
+        </Button>
+      </div>
+      {mounted ? (
+        <WorkspaceChat orgSlug="acme" workspace={docsWorkspace} />
+      ) : (
+        <p>Left conversation</p>
+      )}
+    </div>
+  )
+}
+
+export const SocketCleansUpOnLeave: Story = {
+  render: () => <SocketCleanupHarness />,
+  parameters: {
+    msw: {
+      handlers: {
+        page: workspaceShellHandlers(),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const Original = window.WebSocket
+    const sockets: WebSocket[] = []
+    const closeCounts = new WeakMap<WebSocket, number>()
+    window.WebSocket = class TrackingSocket extends Original {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        super(url, protocols)
+        sockets.push(this)
+      }
+      close(code?: number, reason?: string) {
+        closeCounts.set(this, (closeCounts.get(this) ?? 0) + 1)
+        super.close(code, reason)
+      }
+    } as typeof WebSocket
+    try {
+      await userEvent.click(
+        canvas.getByRole("button", { name: "Open conversation" }),
+      )
+      await waitFor(() => {
+        expect(
+          sockets.some((socket) =>
+            String(socket.url).includes("/conversations/"),
+          ),
+        ).toBe(true)
+      })
+      const conversationSockets = sockets.filter((socket) =>
+        String(socket.url).includes("/conversations/"),
+      )
+      await userEvent.click(
+        canvas.getByRole("button", { name: "Leave conversation" }),
+      )
+      await waitFor(() => {
+        expect(canvas.getByText("Left conversation")).toBeVisible()
+      })
+      await waitFor(() => {
+        for (const socket of conversationSockets) {
+          expect(closeCounts.get(socket) ?? 0).toBeGreaterThan(0)
+        }
+      })
+    } finally {
+      window.WebSocket = Original
+    }
   },
 }

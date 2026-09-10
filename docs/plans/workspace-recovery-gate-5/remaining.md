@@ -12,11 +12,13 @@ Gates 6 remains pending.
    navigates to that id. `pending-workspace-compose.ts` is deleted.
    `useChat` stays the client session owner. Storybook `FirstMessageSendsOnce`
    asserts a single POST.
-2. Keep `useChat` as the client session owner and add only the missing disposal
-   hook to `workspaceChatWebSocket`.
-3. Make route/server identity canonical. `WorkspaceChat` must not reconcile
+2. Closed in this slice. `workspaceChatWebSocket.dispose()` closes the warmed
+   socket. `WorkspaceChatSession` calls it on unmount. `useChat` stays the
+   client session owner. Storybook `SocketCleansUpOnLeave` asserts close.
+3. Closed with the first-message slice. `WorkspaceChat` does not reconcile
    `composeId` against a process-global draft. A routed id that does not exist
-   yet is compose; a persisted conversation is resume.
+   yet is compose; a persisted conversation is resume. Foreign workspace is
+   "not found". Storybook `FirstMessageSendsOnce` waits for the Home composer.
 4. Give working-tree and publish state one owner with versioned commands.
 5. Define editor save/navigation semantics and ordered per-file writes.
 6. Replace polling/invalidation waterfalls with authoritative updates.
