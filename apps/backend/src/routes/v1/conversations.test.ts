@@ -112,7 +112,9 @@ vi.mock("../../domain/workspaces/workspace-chat-turn-runtime.js", () => ({
 const warmTanstackWorkspaceChatMock = vi.hoisted(() =>
   vi.fn(async () => ({ ok: true as const })),
 )
-const conversationHasStoredTurnsMock = vi.hoisted(() => vi.fn(async () => true))
+const conversationHasStoredTurnsMock = vi.hoisted(() =>
+  vi.fn(async () => false),
+)
 const reconstructChatMock = vi.hoisted(() =>
   vi.fn(
     async (
@@ -183,6 +185,7 @@ function app() {
 describe("conversations API", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    conversationHasStoredTurnsMock.mockResolvedValue(false)
     loadConversationTurnsMock.mockResolvedValue([])
     loadConversationUiMessagesMock.mockResolvedValue([])
     parseConversationChatRequestMock.mockResolvedValue({
@@ -358,6 +361,9 @@ describe("conversations API", () => {
   })
 
   it("reuses conversation identity for the same first-message idempotency key", async () => {
+    conversationHasStoredTurnsMock
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
     const body = JSON.stringify({
       message: { role: "user", content: "hello" },
       source: "ui",
@@ -380,6 +386,48 @@ describe("conversations API", () => {
       second.headers.get("x-conversation-id"),
     )
     expect(first.headers.get("x-conversation-id")).toMatch(/^conv_[a-z0-9]+$/)
+    expect(workspaceChatStreamResponseMock).toHaveBeenCalledTimes(1)
+    expect(workspaceChatStreamResponseMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: first.headers.get("x-conversation-id"),
+        prompt: "hello",
+      }),
+      expect.any(Request),
+    )
+  })
+
+  it("scopes first-message identity to the caller and workspace", async () => {
+    conversationHasStoredTurnsMock.mockResolvedValue(false)
+    const bodyFor = (workspaceId: string) =>
+      JSON.stringify({
+        message: { role: "user", content: "hello" },
+        source: "ui",
+        workspaceId,
+        idempotencyKey: "start-1",
+      })
+    const first = await app().request("/conversations", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: bodyFor("ws_abc"),
+    })
+    parseConversationChatRequestMock.mockResolvedValue({
+      prompt: "hello",
+      workspaceId: "ws_other",
+      source: "ui",
+    })
+    const otherWorkspace = await app().request("/conversations", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: bodyFor("ws_other"),
+    })
+    expect(first.headers.get("x-conversation-id")).toMatch(/^conv_[a-z0-9]+$/)
+    expect(otherWorkspace.headers.get("x-conversation-id")).toMatch(
+      /^conv_[a-z0-9]+$/,
+    )
+    expect(first.headers.get("x-conversation-id")).not.toBe(
+      otherWorkspace.headers.get("x-conversation-id"),
+    )
+    expect(workspaceChatStreamResponseMock).toHaveBeenCalledTimes(2)
   })
 
   it("refuses product chat without a Workspace id", async () => {
@@ -424,6 +472,7 @@ describe("conversations API", () => {
     loadConversationTurnsMock.mockResolvedValue([
       { role: "user", content: "hello" },
     ])
+    conversationHasStoredTurnsMock.mockResolvedValue(true)
     await workspaceChatStreamResponseMock.mock.calls[0]?.[0].onError()
     expect(discardUnstartedConversationMock).not.toHaveBeenCalled()
   })
@@ -473,6 +522,7 @@ describe("conversations API", () => {
     loadConversationTurnsMock.mockResolvedValue([
       { role: "user", content: "hello" },
     ])
+    conversationHasStoredTurnsMock.mockResolvedValue(true)
 
     const res = await app().request("/conversations/conv_1", {
       method: "POST",

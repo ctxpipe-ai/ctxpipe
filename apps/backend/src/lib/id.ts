@@ -11,7 +11,15 @@ export function generateObjectId(prefix: string): string {
 }
 
 /** Stable conversation id for a first-message Idempotency-Key. */
-export function conversationIdFromIdempotencyKey(key: string): string {
-  const digest = createHash("sha256").update(key).digest().subarray(0, 16)
+export function conversationIdFromIdempotencyKey(
+  key: string,
+  scope = "",
+): string {
+  const digest = createHash("sha256")
+    .update(scope)
+    .update("\0")
+    .update(key)
+    .digest()
+    .subarray(0, 16)
   return `conv_${base32nopad.encode(digest).toLowerCase()}`
 }

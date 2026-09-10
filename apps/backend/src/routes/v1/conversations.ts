@@ -721,10 +721,20 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       typeof raw.idempotencyKey === "string"
         ? raw.idempotencyKey.trim()
         : "")
+    const conversationId = idempotencyKey
+      ? conversationIdFromIdempotencyKey(
+          idempotencyKey,
+          `${c.get("user")?.id ?? ""}:${parsed.workspaceId}`,
+        )
+      : generateObjectId("conv")
+    if (idempotencyKey && (await conversationHasStoredTurns(conversationId))) {
+      return withConversationIdHeader(
+        new Response("", { status: 200 }),
+        conversationId,
+      )
+    }
     return workspaceConversationStream(
-      idempotencyKey
-        ? conversationIdFromIdempotencyKey(idempotencyKey)
-        : generateObjectId("conv"),
+      conversationId,
       parsed,
       c.req.raw,
       c.get("orgSlug"),
