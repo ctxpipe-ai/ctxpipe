@@ -66,6 +66,25 @@ const gitFilesHandlers = [
   workspaceFileJobHandler(),
 ]
 
+function workspaceFilesHost(canvas: ReturnType<typeof within>) {
+  return canvas.getByLabelText("Workspace files")
+}
+
+function workspaceFilesText(canvas: ReturnType<typeof within>) {
+  const host = workspaceFilesHost(canvas)
+  return `${host.textContent ?? ""}${host.shadowRoot?.textContent ?? ""}`
+}
+
+async function expectWorkspaceFiles(
+  canvas: ReturnType<typeof within>,
+  pattern: RegExp,
+) {
+  await canvas.findByLabelText("Workspace files")
+  await waitFor(() => {
+    expect(workspaceFilesText(canvas)).toMatch(pattern)
+  })
+}
+
 const ledgerPath = "knowledge/billing/ledger.md"
 const agentsPath = "AGENTS.md"
 const longAgentsBody = [
@@ -502,10 +521,7 @@ export const ConversationSandboxFiles: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const files = await canvas.findByRole("list", { name: "Workspace files" })
-    await waitFor(() => {
-      expect(files).toHaveTextContent(/e2e-session-branch-note/)
-    })
+    await expectWorkspaceFiles(canvas, /e2e-session-branch-note/)
     expect(canvas.getByRole("button", { name: "Commit+Push" })).toBeVisible()
     expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
     expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
@@ -704,11 +720,8 @@ export const StableFilesRequestBudget: Story = {
   play: async ({ canvasElement }) => {
     filesTreeGets.count = 0
     const canvas = within(canvasElement)
-    const files = await canvas.findByRole("list", { name: "Workspace files" })
-    await waitFor(() => {
-      expect(files).toHaveTextContent(/e2e\.md/)
-    })
-    expect(files).not.toHaveTextContent("repositories")
+    await expectWorkspaceFiles(canvas, /e2e\.md/)
+    expect(workspaceFilesText(canvas)).not.toMatch(/repositories/)
     const afterPaint = filesTreeGets.count
     expect(afterPaint).toBeGreaterThan(0)
     await new Promise((resolve) => {
