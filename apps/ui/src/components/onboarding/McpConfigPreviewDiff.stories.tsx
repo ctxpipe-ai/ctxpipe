@@ -32,7 +32,7 @@ export const AdditionsAndRemovals: Story = {
     after: `{
   "mcpServers": {
     "ctxpipe": {
-      "type": "http",
+      "type": "streamable-http",
       "url": "https://app.ctxpipe.ai/mcp?orgSlug=acme"
     }
   }

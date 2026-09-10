@@ -11,7 +11,7 @@ export function mcpStreamUrlForOrg(
 
 function ctxpipeMcpServerEntry(mcpUrl: string): Record<string, unknown> {
   return {
-    type: "http",
+    type: "streamable-http",
     url: mcpUrl,
   }
 }

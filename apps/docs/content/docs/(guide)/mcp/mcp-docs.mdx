@@ -156,7 +156,7 @@ Project `.mcp.json` (or the same `${CTXPIPE_API_KEY}` form in a user header):
 {
   "mcpServers": {
     "ctxpipe": {
-      "type": "http",
+      "type": "streamable-http",
       "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org",
       "headers": {
         "x-api-key": "${CTXPIPE_API_KEY}"
@@ -293,7 +293,7 @@ Config file: `.cursor/mcp.json` at the root of your project, or `~/.cursor/mcp.j
 {
   "mcpServers": {
     "ctxpipe": {
-      "type": "http",
+      "type": "streamable-http",
       "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org"
     }
   }
@@ -308,7 +308,7 @@ Project config file: `.mcp.json`.
 {
   "mcpServers": {
     "ctxpipe": {
-      "type": "http",
+      "type": "streamable-http",
       "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org"
     }
   }
@@ -369,7 +369,7 @@ If your client's docs only mention `http` or SSE, check the current client docum
 - **CLI sign-in worked, but the MCP client still asks for authorization** - expected. CLI setup auth and MCP client OAuth are separate flows.
 - **Connection fails after pasting URL only** - add the client-specific `type` field. Most clients do not infer the transport reliably.
 - **OpenCode shows the server but it never connects** - use the top-level `mcp.ctxpipe` shape with `type: "remote"` and `enabled: true`.
-- **Cursor or Claude rejects the server type** - use `"type": "http"`. The protocol is still Streamable HTTP; `http` is the client config key.
+- **`streamable-http` is not recognized** - upgrade the client, or check whether that client expects `http` for its config key while still using a Streamable HTTP remote server.
 - **Team PR flow is unavailable** - confirm GitHub is connected, the repositories are visible to the GitHub App installation, and your ctx| account is an organization admin or owner.
 - **Your client cannot complete OAuth** - use [API-key auth](#api-key-auth). `--auth api-key` writes interpolation, not the secret. Set `CTXPIPE_API_KEY` in the MCP client environment; see [Set CTXPIPE_API_KEY](#set-ctxpipe_api_key).
 

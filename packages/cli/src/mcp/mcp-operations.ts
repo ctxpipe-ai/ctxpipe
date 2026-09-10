@@ -497,7 +497,7 @@ export function writeMcpServersOperation({
         ...(isObject(existing.mcpServers) ? existing.mcpServers : {}),
       }
       servers.ctxpipe = {
-        type: "http",
+        type: "streamable-http",
         url,
         ...optionalApiKeyHeaders(apiKeyHeaderValue),
       }
