@@ -10,23 +10,14 @@ import { createServer } from "node:http"
 import { createRequire } from "node:module"
 import { extname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import {
+  requiredStories,
+  selectGoldenStories,
+} from "./storybook-golden-select.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 const ui = join(root, "apps/ui")
 const staticDir = join(ui, "storybook-static")
-const requiredStories = [
-  "FirstMessageSendsOnceInStrictMode",
-  "LateErrorDoesNotClobberSuccess",
-  "SocketCleansUpOnLeave",
-  "ReloadReconnects",
-  "RapidRouteChanges",
-  "EditThenNavigate",
-  "OutOfOrderSaves",
-  "PierreKeyboardFocus",
-  "SharedPublishPending",
-  "StableRequestBudget",
-  "StableFilesRequestBudget",
-]
 const mime = {
   ".html": "text/html",
   ".js": "text/javascript",
@@ -98,16 +89,11 @@ const waitFor = async (url) => {
 }
 
 const goldenStories = (index) => {
-  const entries = Object.values(index.entries ?? {})
-  return requiredStories.map((name) => {
-    const story = entries.find(
-      (entry) =>
-        entry.exportName === name &&
-        (entry.tags ?? []).includes("workspace-golden"),
-    )
-    if (!story) fail(`Missing tagged golden story ${name}`)
-    return story
-  })
+  try {
+    return selectGoldenStories(index)
+  } catch (error) {
+    fail(error.message)
+  }
 }
 
 const playInitScript = () => {
@@ -132,8 +118,7 @@ const playInitScript = () => {
     })
     channel.on("storyRenderPhaseChanged", (info) => {
       const phase = info?.newPhase ?? info?.phase
-      if (phase === "completed" || phase === "played")
-        record({ ok: true, phase })
+      if (phase === "played") record({ ok: true, phase })
     })
   }
   hook()

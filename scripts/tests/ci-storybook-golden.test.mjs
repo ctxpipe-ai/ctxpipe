@@ -2,6 +2,11 @@ import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
+import {
+  isGoldenPlaySuccess,
+  requiredStories,
+  selectGoldenStories,
+} from "../ci/storybook-golden-select.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 
@@ -52,7 +57,7 @@ const required = [
   ],
 ]
 
-test("required golden stories carry the workspace-golden tag", () => {
+test("required golden stories carry the workspace-golden tag and a play", () => {
   for (const [file, name] of required) {
     const source = readFileSync(
       new URL(`../../${file}`, import.meta.url),
@@ -61,8 +66,49 @@ test("required golden stories carry the workspace-golden tag", () => {
     const tagged = new RegExp(
       `export const ${name}: Story = \\{[\\s\\S]*?tags: \\["workspace-golden"\\]`,
     )
+    const play = new RegExp(
+      `export const ${name}: Story = \\{[\\s\\S]*?\\bplay:`,
+    )
     assert.match(source, tagged, `${file} ${name} must tag workspace-golden`)
+    assert.match(source, play, `${file} ${name} must declare a play function`)
   }
+})
+
+test("inventory rejects a tagged required story without play-fn", () => {
+  assert.throws(
+    () =>
+      selectGoldenStories({
+        entries: {
+          remap: {
+            exportName: "FirstMessageSendsOnceInStrictMode",
+            tags: ["workspace-golden"],
+          },
+        },
+      }),
+    /no play function/,
+  )
+})
+
+test("inventory accepts only tagged required stories that list play-fn", () => {
+  const index = {
+    entries: Object.fromEntries(
+      requiredStories.map((name) => [
+        name,
+        { exportName: name, tags: ["workspace-golden", "play-fn"] },
+      ]),
+    ),
+  }
+  assert.deepEqual(
+    selectGoldenStories(index).map((story) => story.exportName),
+    requiredStories,
+  )
+})
+
+test("only the played phase counts as golden success", () => {
+  assert.equal(isGoldenPlaySuccess("played"), true)
+  assert.equal(isGoldenPlaySuccess("completed"), false)
+  assert.equal(isGoldenPlaySuccess("rendering"), false)
+  assert.equal(isGoldenPlaySuccess(undefined), false)
 })
 
 test("CI requires the Storybook Playwright golden job without retries", () => {
@@ -77,8 +123,15 @@ test("CI requires the Storybook Playwright golden job without retries", () => {
     new URL("../../scripts/ci/storybook-golden.mjs", import.meta.url),
     "utf8",
   )
-  assert.match(runner, /workspace-golden/)
+  const select = readFileSync(
+    new URL("../../scripts/ci/storybook-golden-select.mjs", import.meta.url),
+    "utf8",
+  )
+  assert.match(select, /workspace-golden/)
+  assert.match(select, /play-fn/)
   assert.match(runner, /playwright/)
+  assert.match(runner, /phase === "played"/)
+  assert.doesNotMatch(runner, /phase === "completed"/)
   assert.doesNotMatch(runner, /--retry(?:ies)?(?:=|\s+)/)
   void root
 })

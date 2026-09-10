@@ -43,9 +43,11 @@ truthful before Gates 2–6 change product behavior.
   pnpm installation under Bun, while the Node 22 CI installation completed.
 - Run the tagged Storybook `workspace-golden` plays in Chromium. The
   `storybook-golden` job builds Storybook and opens each tagged story
-  iframe until the play function completes. A skip, missing required
-  play, or unexpected failure fails CI. Direct Playwright against a live
-  backend remains optional and is not a substitute for these plays.
+  iframe until the play function emits `played`. The Storybook index
+  must list `play-fn`; a generic `completed` render is not success. A
+  skip, missing required play, or unexpected failure fails CI. Direct
+  Playwright against a live backend remains optional and is not a
+  substitute for these plays.
 
 ## Consequences
 

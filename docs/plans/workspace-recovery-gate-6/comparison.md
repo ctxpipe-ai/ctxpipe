@@ -12,9 +12,9 @@ Fixed points:
 
 | Measure | Gate 0 PR head | Recovery HEAD | Delta |
 | --- | ---: | ---: | ---: |
-| Files changed vs 280 | — | 513 | +167,438 / −32,285 |
-| Product files deleted | — | 79 | competing owners + obsolete tests |
-| Product files added | — | 173 | native contracts, revision identity, stories |
+| Files changed vs 280 | — | 513 | +167,544 / −32,649 |
+| Product files deleted | — | 81 | competing owners + obsolete tests |
+| Product files added | — | 174 | native contracts, revision identity, stories |
 
 Most of the full-branch file count is Gate 0–5 evidence under
 `docs/plans/workspace-recovery-gate-*`. That is audit trail, not product

@@ -8,8 +8,12 @@ return PASS with empty blockers, then `CLOSE_GATE_6`.
 
 1. Mandatory Playwright proof of the deterministic UI golden journey.
    That journey is the tagged Storybook `workspace-golden` plays running
-   in Chromium via `@storybook/test-runner`. CI job `storybook-golden`
-   fails the push if any required play fails or is skipped.
+   in Chromium. `scripts/ci/storybook-golden.mjs` launches Playwright,
+   opens each story iframe, and accepts only a `played` phase after
+   `selectGoldenStories` requires the index `play-fn` tag. A tagged
+   required story without `play` fails inventory selection. CI job
+   `storybook-golden` fails the push if any required play is missing,
+   fails, or is skipped.
 2. Surfaces already gated when this PR’s product diff confirmed they
    changed: codesearch, docs image, migration upgrade, CDK, Terraform.
    Storybook interaction proof was the missing gate; it is now required.
@@ -45,6 +49,12 @@ Live signup → GitHub App publish → Btrfs quota restart is still the Gate 0
 failed baseline and the Gate 4 fail-closed Railway/Btrfs contract. This
 host cannot prove that path. Do not treat a scripted Storybook journey as
 a live GitHub publish.
+
+## Review history
+
+`f18f147a` reviews both BLOCKED on a missing-play false positive, stale
+comparison totals, and leftover `@storybook/test-runner` wording. Those
+are fixed in this HEAD. Do not treat the `f18f147a` reviews as closure.
 
 ## Local golden evidence
 
