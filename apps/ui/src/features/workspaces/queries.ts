@@ -130,36 +130,57 @@ export async function prepareWorkspaceChat(
   }
 }
 
+export class StartWorkspaceConversationError extends Error {
+  conversationId?: string
+  constructor(message: string, conversationId?: string) {
+    super(message)
+    this.name = "StartWorkspaceConversationError"
+    this.conversationId = conversationId
+  }
+}
+
 /** First-message command: stock conversation POST. Awaits the accepted turn. */
 export async function startWorkspaceConversation(
   orgSlug: string,
-  input: { conversationId: string; workspaceId: string; text: string },
+  input: { conversationId?: string; workspaceId: string; text: string },
 ): Promise<{ conversationId: string }> {
   const client = await getApiClient()
-  const res = await client[":orgSlug"].api.v1.conversations[
-    ":conversationId"
-  ].$post({
-    param: { orgSlug, conversationId: input.conversationId },
-    json: {
-      messages: [
-        {
-          id: `user-${input.conversationId}`,
-          role: "user",
-          content: input.text,
-        },
-      ],
-      tools: [],
-      context: [],
-      threadId: input.conversationId,
-      forwardedProps: { workspaceId: input.workspaceId, source: "ui" },
-    },
-  })
-  if (!res.ok) {
-    throw new Error("Failed to start conversation")
+  const json = {
+    messages: [
+      {
+        id: input.conversationId
+          ? `user-${input.conversationId}`
+          : "user-pending",
+        role: "user",
+        content: input.text,
+      },
+    ],
+    tools: [],
+    context: [],
+    ...(input.conversationId ? { threadId: input.conversationId } : {}),
+    forwardedProps: { workspaceId: input.workspaceId, source: "ui" },
   }
-  await res.text()
+  const res = input.conversationId
+    ? await client[":orgSlug"].api.v1.conversations[":conversationId"].$post({
+        param: { orgSlug, conversationId: input.conversationId },
+        json,
+      })
+    : await client[":orgSlug"].api.v1.conversations.$post({
+        param: { orgSlug },
+        json,
+      })
   const conversationId =
     res.headers.get("x-conversation-id")?.trim() || input.conversationId
+  if (!res.ok) {
+    throw new StartWorkspaceConversationError(
+      "Failed to start conversation",
+      conversationId,
+    )
+  }
+  if (!conversationId) {
+    throw new StartWorkspaceConversationError("Failed to start conversation")
+  }
+  await res.text()
   return { conversationId }
 }
 

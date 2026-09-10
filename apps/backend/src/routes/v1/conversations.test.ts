@@ -318,14 +318,40 @@ describe("conversations API", () => {
     })
 
     expect(res.status).toBe(200)
+    expect(res.headers.get("x-conversation-id")).toBe("conv_1")
     expect(appendConversationTurnMock).not.toHaveBeenCalled()
     expect(ensureConversationMock).not.toHaveBeenCalled()
     expect(getWorkspaceByIdMock).not.toHaveBeenCalled()
     expect(workspaceChatStreamResponseMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        conversationId: "conv_1",
         prompt: "hello",
         onUserPersist: expect.any(Function),
         resolveRuntime: expect.any(Function),
+      }),
+      expect.any(Request),
+    )
+  })
+
+  it("assigns conversation identity on collection POST", async () => {
+    const res = await app().request("/conversations", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        message: { role: "user", content: "hello" },
+        source: "ui",
+        workspaceId: "ws_abc",
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const conversationId = res.headers.get("x-conversation-id")
+    expect(conversationId).toMatch(/^conv_[a-z0-9]+$/)
+    expect(workspaceChatStreamResponseMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId,
+        threadId: conversationId,
+        prompt: "hello",
       }),
       expect.any(Request),
     )

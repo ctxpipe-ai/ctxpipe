@@ -37,6 +37,7 @@ import {
   withDestroyedConversationSandboxes,
 } from "../../domain/workspaces/workspace-sandbox-cleanup.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
+import { generateObjectId } from "../../lib/id.js"
 import { PageInfoSchema } from "../../lib/pagination.js"
 import {
   type ConversationRecord,
@@ -276,6 +277,42 @@ const deleteConversationRoute = createRoute({
   },
 })
 
+const postConversationsRoute = createRoute({
+  method: "post",
+  path: "/",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: CreateConversationMessageRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Streaming response",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Bad request",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "Workspace required or conversation is already running a turn",
+    },
+    500: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Failed to start the conversation stream",
+    },
+  },
+})
+
 const postConversationMessageRoute = createRoute({
   method: "post",
   path: "/{conversationId}",
@@ -465,6 +502,54 @@ const postConversationPullRequestRoute = createRoute({
   },
 })
 
+function withConversationIdHeader(response: Response, conversationId: string) {
+  const headers = new Headers(response.headers)
+  headers.set("x-conversation-id", conversationId)
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
+}
+
+function workspaceConversationStream(
+  conversationId: string,
+  parsed: ConversationChatRequest,
+  request: Request,
+  orgSlug: string | null | undefined,
+) {
+  return withConversationIdHeader(
+    workspaceChatStreamResponse(
+      {
+        conversationId,
+        checkpointNamespace: "",
+        prompt: parsed.prompt,
+        messages: parsed.messages,
+        threadId: parsed.threadId ?? conversationId,
+        runId: parsed.runId,
+        source: parsed.source ?? null,
+        workspaceId: parsed.workspaceId,
+        orgId: "",
+        orgSlug,
+        resolveRuntime: () =>
+          resolveWorkspaceChatSendRuntime({
+            conversationId,
+            workspaceId: parsed.workspaceId,
+            source: parsed.source,
+          }),
+        onUserPersist: () => persistWorkspaceChatUserTurnListed(conversationId),
+        onError: async () => {
+          if (!(await conversationHasStoredTurns(conversationId))) {
+            await discardUnstartedConversation(conversationId)
+          }
+        },
+      },
+      request,
+    ),
+    conversationId,
+  )
+}
+
 export const conversationRoutes = new OpenAPIHono<AppEnv>()
   .route("/", conversationFileRoutes)
   .openapi(listConversationsRoute, async (c) => {
@@ -606,6 +691,31 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
 
     return c.body(null, 204)
   })
+  .openapi(postConversationsRoute, async (c) => {
+    const user = c.get("user")
+    const session = c.get("session")
+    if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
+
+    let parsed: ConversationChatRequest
+    try {
+      parsed = await parseConversationChatRequest(await c.req.json())
+    } catch {
+      return c.json({ error: "Message text is required" }, 400)
+    }
+    if (parsed.prompt.length === 0) {
+      return c.json({ error: "Message text is required" }, 400)
+    }
+    if (!parsed.workspaceId.trim()) {
+      return c.json({ error: "workspace_required" }, 400)
+    }
+
+    return workspaceConversationStream(
+      generateObjectId("conv"),
+      parsed,
+      c.req.raw,
+      c.get("orgSlug"),
+    )
+  })
   .openapi(postConversationMessageRoute, async (c) => {
     const user = c.get("user")
     const session = c.get("session")
@@ -625,32 +735,11 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "workspace_required" }, 400)
     }
 
-    return workspaceChatStreamResponse(
-      {
-        conversationId,
-        checkpointNamespace: "",
-        prompt: parsed.prompt,
-        messages: parsed.messages,
-        threadId: parsed.threadId ?? conversationId,
-        runId: parsed.runId,
-        source: parsed.source ?? null,
-        workspaceId: parsed.workspaceId,
-        orgId: "",
-        orgSlug: c.get("orgSlug"),
-        resolveRuntime: () =>
-          resolveWorkspaceChatSendRuntime({
-            conversationId,
-            workspaceId: parsed.workspaceId,
-            source: parsed.source,
-          }),
-        onUserPersist: () => persistWorkspaceChatUserTurnListed(conversationId),
-        onError: async () => {
-          if (!(await conversationHasStoredTurns(conversationId))) {
-            await discardUnstartedConversation(conversationId)
-          }
-        },
-      },
+    return workspaceConversationStream(
+      conversationId,
+      parsed,
       c.req.raw,
+      c.get("orgSlug"),
     )
   })
   .openapi(postConversationPrepareRoute, async (c) => {

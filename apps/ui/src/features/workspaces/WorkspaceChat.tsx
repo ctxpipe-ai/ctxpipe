@@ -4,12 +4,23 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { type ReactNode, Suspense, useState } from "react"
+import { type ReactNode, Suspense, useRef, useState } from "react"
 import { Button } from "@/components/ui/Button"
+import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Skeleton } from "@/components/ui/Skeleton"
 import { ConversationThreadSkeleton } from "@/features/chat/components/ConversationThreadSkeleton"
-import { createObjectId } from "@/lib/id"
-import { workspaceConversationOptions, workspaceKeys } from "./queries"
+import { insertConversationListItem } from "@/features/chat/insertConversationListItem"
+import { MessageInputBox } from "@/features/chat/MessageInputBox"
+import type {
+  ConversationDetail,
+  ConversationListInfiniteData,
+} from "@/features/chat/types"
+import {
+  StartWorkspaceConversationError,
+  startWorkspaceConversation,
+  workspaceConversationOptions,
+  workspaceKeys,
+} from "./queries"
 import type { Workspace } from "./types"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 import { WorkspaceChatSession } from "./WorkspaceChatSession"
@@ -59,16 +70,122 @@ function WorkspaceComposeChat(props: {
   workspace: Workspace
   headerExtra?: ReactNode
 }) {
-  const [conversationId] = useState(() => createObjectId("conv"))
+  const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  const [sendError, setSendError] = useState<string | null>(null)
+  const [sending, setSending] = useState(false)
+  const pendingConversationRef = useRef<string | null>(null)
+
+  const commitStartedConversation = (conversationId: string, text: string) => {
+    const now = new Date().toISOString()
+    const detail: ConversationDetail = {
+      conversation: {
+        id: conversationId,
+        name: "New conversation",
+        source: "ui",
+        lastMessageAt: now,
+        orgId: "",
+        workspaceId: props.workspace.id,
+        createdAt: now,
+        updatedAt: now,
+      },
+      messages: [
+        {
+          id: `user-${conversationId}`,
+          role: "user",
+          parts: [{ type: "text", content: text }],
+        },
+      ],
+    }
+    queryClient.setQueryData(
+      workspaceKeys.conversation(
+        props.orgSlug,
+        conversationId,
+        props.workspace.id,
+      ),
+      detail,
+    )
+    queryClient.setQueriesData<ConversationListInfiniteData>(
+      {
+        queryKey: workspaceKeys.conversations(
+          props.orgSlug,
+          props.workspace.id,
+        ),
+      },
+      (old) =>
+        insertConversationListItem(old, {
+          id: conversationId,
+          name: "New conversation",
+          source: "ui",
+          lastMessageAt: now,
+        }),
+    )
+    void navigate({
+      to: "/$orgSlug/ws/$workspaceSlug/$conversationId",
+      params: {
+        orgSlug: props.orgSlug,
+        workspaceSlug: props.workspace.slug,
+        conversationId,
+      },
+      search: (prev) => prev,
+    })
+  }
+
+  const startConversation = async (text: string) => {
+    setSendError(null)
+    setSending(true)
+    try {
+      const started = await startWorkspaceConversation(props.orgSlug, {
+        conversationId: pendingConversationRef.current ?? undefined,
+        workspaceId: props.workspace.id,
+        text,
+      })
+      pendingConversationRef.current = null
+      commitStartedConversation(started.conversationId, text)
+    } catch (error) {
+      const assigned =
+        error instanceof StartWorkspaceConversationError
+          ? error.conversationId
+          : (pendingConversationRef.current ?? undefined)
+      if (assigned) pendingConversationRef.current = assigned
+      setSending(false)
+      setSendError(
+        error instanceof Error ? error.message : "Failed to start conversation",
+      )
+    }
+  }
+
   return (
-    <WorkspaceChatSession
-      orgSlug={props.orgSlug}
+    <WorkspaceChatChrome
       workspace={props.workspace}
-      conversationId={conversationId}
-      composing
       title="New conversation"
       headerExtra={props.headerExtra}
-    />
+    >
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 py-10">
+        <div className="w-full max-w-2xl space-y-5">
+          <div>
+            <h1 className="text-lg font-medium tracking-tight">
+              {props.workspace.displayName}
+            </h1>
+            <p className="mt-1.5 text-sm text-muted-foreground">
+              Ask about this Workspace. The first message creates the
+              conversation.
+            </p>
+          </div>
+          <MessageInputBox
+            layout="empty"
+            sendMessage={({ text }) => void startConversation(text)}
+            isDisabled={sending}
+            placeholder="Ask about this Workspace…"
+          />
+          {sendError ? (
+            <InlineAlert variant="error" title="Could not send">
+              {sendError} Send again to retry.
+            </InlineAlert>
+          ) : null}
+        </div>
+      </div>
+    </WorkspaceChatChrome>
   )
 }
 

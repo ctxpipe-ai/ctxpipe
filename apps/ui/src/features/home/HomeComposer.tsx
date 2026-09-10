@@ -12,13 +12,13 @@ import type {
   ConversationListInfiniteData,
 } from "@/features/chat/types"
 import {
+  StartWorkspaceConversationError,
   startWorkspaceConversation,
   workspaceDetailOptions,
   workspaceKeys,
 } from "@/features/workspaces/queries"
 import type { Workspace } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
-import { createObjectId } from "@/lib/id"
 import { cn } from "@/lib/utils"
 import { navigateWithComposerTransition } from "./navigate-with-composer-transition"
 
@@ -95,25 +95,31 @@ export function HomeComposer(props: {
 
   const startConversation = async (text: string) => {
     if (!selected) return
-    const conversationId =
+    const pendingId =
       pendingConversationRef.current?.workspaceId === selected.id
         ? pendingConversationRef.current.conversationId
-        : createObjectId("conv")
-    pendingConversationRef.current = {
-      workspaceId: selected.id,
-      conversationId,
-    }
+        : undefined
     setSendError(null)
     setSending(true)
     try {
       const started = await startWorkspaceConversation(orgSlug, {
-        conversationId,
+        conversationId: pendingId,
         workspaceId: selected.id,
         text,
       })
       pendingConversationRef.current = null
       commitStartedConversation(started.conversationId, text)
     } catch (error) {
+      const assigned =
+        error instanceof StartWorkspaceConversationError
+          ? error.conversationId
+          : pendingId
+      if (assigned) {
+        pendingConversationRef.current = {
+          workspaceId: selected.id,
+          conversationId: assigned,
+        }
+      }
       setSending(false)
       setSendError(
         error instanceof Error ? error.message : "Failed to start conversation",
