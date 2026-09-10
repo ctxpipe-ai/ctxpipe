@@ -119,6 +119,7 @@ export function WorkspacePierreFile(props: {
                   newText: text,
                 },
               ])
+              onChangeRef.current?.(editor.getText() ?? `${current}${text}`)
               reportHistory()
             },
             getText: () => editor.getText() ?? "",

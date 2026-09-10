@@ -867,8 +867,13 @@ function WorkspaceFilesPaneContent(props: {
             ref={(node) => {
               if (!node) return
               Object.assign(node, {
+                hasPierreEditor: () => fileEditorRef.current != null,
+                getPierreText: () => fileEditorRef.current?.getText() ?? "",
                 insertPierreText: (text: string) => {
-                  fileEditorRef.current?.insertText(text)
+                  if (!fileEditorRef.current) {
+                    throw new Error("Pierre editor is not attached")
+                  }
+                  fileEditorRef.current.insertText(text)
                 },
               })
             }}

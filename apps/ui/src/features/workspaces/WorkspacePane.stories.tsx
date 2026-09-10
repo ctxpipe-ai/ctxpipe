@@ -746,37 +746,33 @@ function findInShadows(root: ParentNode, selector: string): Element | null {
   return null
 }
 
+type PierreEditorHost = HTMLElement & {
+  hasPierreEditor?: () => boolean
+  getPierreText?: () => string
+  insertPierreText?: (value: string) => void
+}
+
+function pierreEditorHost(canvasElement: HTMLElement): PierreEditorHost | null {
+  return (findInShadows(canvasElement, "[data-workspace-file-editor]") ??
+    canvasElement.querySelector(
+      "[data-workspace-file-editor]",
+    )) as PierreEditorHost | null
+}
+
 async function typeInPierreEditor(canvasElement: HTMLElement, text: string) {
   await waitFor(() => {
-    expect(
-      findInShadows(canvasElement, "[data-workspace-file-editor]") ??
-        canvasElement.querySelector("[data-workspace-file-editor]"),
-    ).toBeTruthy()
+    const host = pierreEditorHost(canvasElement)
+    expect(host).toBeTruthy()
+    expect(host?.hasPierreEditor?.()).toBe(true)
   })
-  const host = (findInShadows(canvasElement, "[data-workspace-file-editor]") ??
-    canvasElement.querySelector("[data-workspace-file-editor]")) as
-    | (HTMLElement & { insertPierreText?: (value: string) => void })
-    | null
-  const editable =
-    findInShadows(canvasElement, "[contenteditable='true']") ??
-    findInShadows(canvasElement, "[data-code]") ??
-    findInShadows(canvasElement, ".cm-content")
-  if (editable instanceof HTMLElement) {
-    editable.focus()
-    await userEvent.click(editable)
-    editable.dispatchEvent(
-      new InputEvent("beforeinput", {
-        bubbles: true,
-        cancelable: true,
-        composed: true,
-        data: text,
-        inputType: "insertText",
-      }),
-    )
+  const host = pierreEditorHost(canvasElement)
+  if (!host?.insertPierreText) {
+    throw new Error("Pierre editor host was not found")
   }
-  if (typeof host?.insertPierreText === "function") {
-    host.insertPierreText(text)
-  }
+  host.insertPierreText(text)
+  await waitFor(() => {
+    expect(host.getPierreText?.() ?? "").toContain(text)
+  })
 }
 
 async function saveDirtyEditor(canvas: ReturnType<typeof within>) {
