@@ -1047,7 +1047,7 @@ export const OutOfOrderSaves: Story = {
       ).toBe(true)
     })
     expect(orderedWrites.expected[0]).toBe("wt-0")
-    expect(orderedWrites.expected.slice(1)).toContain("wt-0")
+    expect(orderedWrites.expected.at(-1)).toBe(orderedWrites.server)
     expect(orderedWrites.server).toMatch(/^wt-\d+$/)
     expect(canvas.queryByText("Could not save")).toBeNull()
     expect(canvas.queryByText("File not found")).toBeNull()

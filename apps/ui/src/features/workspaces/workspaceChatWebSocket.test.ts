@@ -130,7 +130,10 @@ describe("workspace chat websocket dispose", () => {
   })
 
   it("closes every socket it created, not only the last warm", () => {
-    const instances: Array<{ close: ReturnType<typeof vi.fn> }> = []
+    const instances: Array<{
+      close: ReturnType<typeof vi.fn>
+      readyState: number
+    }> = []
     class FakeSocket {
       readyState = 1
       url: string
