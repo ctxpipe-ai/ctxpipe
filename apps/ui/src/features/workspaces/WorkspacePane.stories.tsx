@@ -906,6 +906,8 @@ const orderedWrites = {
   server: "wt-0",
   accepted: 0,
   bodies: {} as Record<string, string>,
+  inFlight: 0,
+  maxInFlight: 0,
 }
 
 export const OutOfOrderSaves: Story = {
@@ -954,53 +956,62 @@ export const OutOfOrderSaves: Story = {
                 body?: string
                 expectedWorktreeVersion?: string
               }
-              orderedWrites.expected.push(body.expectedWorktreeVersion)
-              orderedWrites.paths.push(body.path)
-              orderedWrites.bodies[body.path] = body.body ?? ""
-              if (body.expectedWorktreeVersion !== orderedWrites.server) {
-                return HttpResponse.json(
-                  {
-                    error: "stale_worktree",
-                    worktreeVersion: orderedWrites.server,
+              orderedWrites.inFlight += 1
+              orderedWrites.maxInFlight = Math.max(
+                orderedWrites.maxInFlight,
+                orderedWrites.inFlight,
+              )
+              try {
+                orderedWrites.expected.push(body.expectedWorktreeVersion)
+                orderedWrites.paths.push(body.path)
+                orderedWrites.bodies[body.path] = body.body ?? ""
+                if (body.expectedWorktreeVersion !== orderedWrites.server) {
+                  return HttpResponse.json(
+                    {
+                      error: "stale_worktree",
+                      worktreeVersion: orderedWrites.server,
+                    },
+                    { status: 409 },
+                  )
+                }
+                const worktreeVersion = `wt-${orderedWrites.accepted + 1}`
+                orderedWrites.accepted += 1
+                orderedWrites.server = worktreeVersion
+                if (orderedWrites.accepted === 1) {
+                  await new Promise((resolve) => {
+                    window.setTimeout(resolve, 250)
+                  })
+                }
+                return HttpResponse.json({
+                  path: body.path,
+                  body: body.body ?? null,
+                  binary: false,
+                  worktreeVersion,
+                  tree: {
+                    sha: "sandboxsha",
+                    paths: [...orderedWrites.paths],
+                    branch: "ctxpipe/chat/conv_1/1",
+                    worktreeVersion,
                   },
-                  { status: 409 },
-                )
-              }
-              const worktreeVersion = `wt-${orderedWrites.accepted + 1}`
-              orderedWrites.accepted += 1
-              orderedWrites.server = worktreeVersion
-              if (orderedWrites.accepted === 1) {
-                await new Promise((resolve) => {
-                  window.setTimeout(resolve, 250)
+                  status: {
+                    source: "sandbox",
+                    branch: "ctxpipe/chat/conv_1/1",
+                    dirty: true,
+                    differsFromDefault: true,
+                    unpushed: true,
+                    published: false,
+                    ahead: 0,
+                    behind: 0,
+                    items: orderedWrites.paths.map((path) => ({
+                      path,
+                      status: "added",
+                    })),
+                    worktreeVersion,
+                  },
                 })
+              } finally {
+                orderedWrites.inFlight -= 1
               }
-              return HttpResponse.json({
-                path: body.path,
-                body: body.body ?? null,
-                binary: false,
-                worktreeVersion,
-                tree: {
-                  sha: "sandboxsha",
-                  paths: [...orderedWrites.paths],
-                  branch: "ctxpipe/chat/conv_1/1",
-                  worktreeVersion,
-                },
-                status: {
-                  source: "sandbox",
-                  branch: "ctxpipe/chat/conv_1/1",
-                  dirty: true,
-                  differsFromDefault: true,
-                  unpushed: true,
-                  published: false,
-                  ahead: 0,
-                  behind: 0,
-                  items: orderedWrites.paths.map((path) => ({
-                    path,
-                    status: "added",
-                  })),
-                  worktreeVersion,
-                },
-              })
             },
           ),
           conversationGitTreeHandler({
@@ -1034,6 +1045,8 @@ export const OutOfOrderSaves: Story = {
     orderedWrites.server = "wt-0"
     orderedWrites.accepted = 0
     orderedWrites.bodies = {}
+    orderedWrites.inFlight = 0
+    orderedWrites.maxInFlight = 0
     const canvas = within(canvasElement)
     await canvas.findByRole("button", { name: "Save" })
     await createFileFromTree(canvas, canvasElement, "xdraftone.md")
@@ -1045,10 +1058,13 @@ export const OutOfOrderSaves: Story = {
       expect(
         orderedWrites.paths.some((path) => path.endsWith("xdrafttwo.md")),
       ).toBe(true)
+      expect(orderedWrites.accepted).toBeGreaterThanOrEqual(2)
+      expect(orderedWrites.maxInFlight).toBeGreaterThanOrEqual(2)
     })
     expect(orderedWrites.expected[0]).toBe("wt-0")
-    expect(orderedWrites.accepted).toBeGreaterThanOrEqual(2)
     expect(orderedWrites.server).toMatch(/^wt-\d+$/)
+    expect(orderedWrites.bodies["xdraftone.md"]).toBeDefined()
+    expect(orderedWrites.bodies["xdrafttwo.md"]).toBeDefined()
     expect(canvas.queryByText("Could not save")).toBeNull()
     expect(canvas.queryByText("File not found")).toBeNull()
   },
