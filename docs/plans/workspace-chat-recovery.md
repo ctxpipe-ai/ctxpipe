@@ -17,10 +17,11 @@ not change the inventory.
 
 The plan considers the entire repository tree, all 19 Git-backed
 Workspaces design tickets, accepted PRDs and ADRs, and runtime, test, CI,
-migration, and deployment paths. Complete-history access is restored and
-Gates 0–5 are complete. Gate 5 closed in the
-[acceptance ledger](workspace-recovery-gate-5/remaining.md). Gate 6 is
-in [workspace-recovery-gate-6/remaining.md](workspace-recovery-gate-6/remaining.md).
+migration, and deployment paths. Complete-history access is restored and Gates 0–6 are complete. Gate 5
+closed in the
+[acceptance ledger](workspace-recovery-gate-5/remaining.md). Gate 6
+closed in
+[workspace-recovery-gate-6/remaining.md](workspace-recovery-gate-6/remaining.md).
 
 ## Executive diagnosis
 
@@ -730,7 +731,7 @@ migration paths, deployment builds, resource-leak checks, latency budgets, and t
 deletion ledger. Confirm docs and ADRs describe the implementation that actually
 ships and that no superseded path remains reachable.
 
-Gate 6 implementation lives in
+Gate 6 closed in
 [workspace-recovery-gate-6/remaining.md](workspace-recovery-gate-6/remaining.md).
 The mandatory Chromium journey is the tagged `workspace-golden` Storybook
 plays. Live GitHub App / Btrfs restart remains the Gate 0 failed baseline.

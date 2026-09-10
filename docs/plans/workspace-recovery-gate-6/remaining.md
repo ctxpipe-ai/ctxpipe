@@ -1,8 +1,14 @@
 # Gate 6 acceptance
 
-Gates 0–5 are closed. This file is the Gate 6 ledger. It stays open until
-two independent Sol reviews of this HEAD from fixed point `cffcbc82`
-return PASS with empty blockers, then `CLOSE_GATE_6`.
+Gates 0–5 are closed. Both independent Sol reviews of `aef49848` from
+fixed point `cffcbc82` returned **PASS** with empty blockers:
+[checkpoint-aef49848-reviewer-a.md](./checkpoint-aef49848-reviewer-a.md)
+and
+[checkpoint-aef49848-reviewer-b.md](./checkpoint-aef49848-reviewer-b.md).
+
+CLOSE_GATE_6
+
+This file is the closed Gate 6 ledger.
 
 ## Required work
 

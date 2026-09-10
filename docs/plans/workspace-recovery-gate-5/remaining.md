@@ -3,7 +3,8 @@
 Gate 4 closed at `9dd7b108` after green CI
 [34421467470](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34421467470)
 on `79670977` and both `f8e4fae9` reviews. This file is the closed ledger.
-Gate 6 remains pending.
+Gate 6 closed in
+[workspace-recovery-gate-6/remaining.md](../workspace-recovery-gate-6/remaining.md).
 
 Both independent Sol reviews of `ccd7839f` from fixed point `cffcbc82`
 returned **PASS** with empty blockers:
