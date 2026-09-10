@@ -64,7 +64,6 @@ const meta = {
     orgSlug: "acme",
     workspace: docsWorkspace,
     conversationId: "conv_pending",
-    composing: true,
     title: "New conversation",
     initialMessages: [],
   },
@@ -80,7 +79,6 @@ function threadArgs(
 ) {
   return {
     conversationId: "conv_1",
-    composing: false,
     title,
     initialMessages: messages,
   }
@@ -248,42 +246,6 @@ export const Streaming: Story = {
   },
 }
 
-export const ComposeSendError: Story = {
-  args: {
-    conversationId: "conv_pending",
-    composing: true,
-    title: "New conversation",
-    initialMessages: [],
-  },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.post(conversationPostPath, () =>
-            HttpResponse.json(
-              {
-                error:
-                  "opencode serve exited before becoming ready: sh: opencode: not found",
-              },
-              { status: 500 },
-            ),
-          ),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await userEvent.type(
-      canvas.getByPlaceholderText(/ask about this workspace/i),
-      "What is in this Workspace?",
-    )
-    await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-    await waitFor(() => canvas.getByRole("alert"), { timeout: SEND_WAIT_MS })
-  },
-}
-
 export const SendError: Story = {
   args: threadArgs(docsConversationDetail.messages),
   parameters: {
@@ -310,43 +272,5 @@ export const SendError: Story = {
     )
     await userEvent.click(canvas.getByRole("button", { name: /send/i }))
     await waitFor(() => canvas.getByRole("alert"), { timeout: SEND_WAIT_MS })
-  },
-}
-
-export const ListInsertOnSend: Story = {
-  args: {
-    conversationId: "conv_compose",
-    composing: true,
-    title: "New conversation",
-    initialMessages: [],
-  },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.post(conversationPostPath, () =>
-            conversationAguiSseResponse(
-              conversationAguiTextEvents({
-                threadId: "conv_compose",
-                messageId: "msg_nav",
-                text: "Nav row should already exist",
-              }),
-            ),
-          ),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await userEvent.type(
-      canvas.getByPlaceholderText(/ask about this workspace/i),
-      "Create this conversation",
-    )
-    await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-    await waitFor(() => canvas.getByText(/Nav row should already exist/), {
-      timeout: SEND_WAIT_MS,
-    })
   },
 }

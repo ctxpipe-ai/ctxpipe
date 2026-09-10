@@ -66,7 +66,6 @@ import {
 
 function renderSession(input: {
   workspace?: typeof docsWorkspace
-  composing?: boolean
   initialMessages?: ChatMessage[]
 }) {
   const queryClient = new QueryClient({
@@ -78,7 +77,6 @@ function renderSession(input: {
         orgSlug="acme"
         workspace={input.workspace ?? readOnlyWorkspace}
         conversationId="conv_pending"
-        composing={input.composing ?? true}
         title="New conversation"
         initialMessages={input.initialMessages}
       />
@@ -87,7 +85,7 @@ function renderSession(input: {
 }
 
 function renderCompose(initialMessages: ChatMessage[] = []) {
-  return renderSession({ composing: true, initialMessages })
+  return renderSession({ initialMessages })
 }
 
 describe("workspace chat wait copy", () => {
@@ -237,7 +235,6 @@ describe("WorkspaceChatSession compose failure", () => {
           orgSlug="acme"
           workspace={readOnlyWorkspace}
           conversationId="conv_1"
-          composing={false}
           title="Ledger"
         />
       </QueryClientProvider>,
@@ -289,7 +286,6 @@ describe("WorkspaceChatSession publish chrome", () => {
   it("shows Commit+Push and Create PR when writable without prepare", () => {
     const markup = renderSession({
       workspace: docsWorkspace,
-      composing: false,
     })
     expect(markup).toContain("Commit+Push")
     expect(markup).toContain("Create PR")
@@ -298,7 +294,6 @@ describe("WorkspaceChatSession publish chrome", () => {
   it("hides publish actions on a read-only workspace", () => {
     const markup = renderSession({
       workspace: readOnlyWorkspace,
-      composing: false,
     })
     expect(markup).not.toContain("Commit+Push")
     expect(markup).not.toContain("Create PR")

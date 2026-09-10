@@ -76,33 +76,18 @@ export function WorkspaceChatSession(props: {
   orgSlug: string
   workspace: Workspace
   conversationId: string
-  composing: boolean
   title: string
   initialMessages?: ConversationDetail["messages"]
   conversation?: ConversationListItem
   headerExtra?: ReactNode
 }) {
-  const {
-    orgSlug,
-    workspace,
-    conversationId,
-    composing,
-    title,
-    initialMessages,
-  } = props
+  const { orgSlug, workspace, conversationId, title, initialMessages } = props
   const queryClient = useQueryClient()
   const [headerTitle, setHeaderTitle] = useState(title)
-  const [seenTitle, setSeenTitle] = useState(title)
   const [sandboxPhase, setSandboxPhase] = useState<SandboxPhase>("idle")
-  const [phaseConversationId, setPhaseConversationId] = useState(conversationId)
-  if (title !== seenTitle) {
-    setSeenTitle(title)
+  useEffect(() => {
     setHeaderTitle(title)
-  }
-  if (conversationId !== phaseConversationId) {
-    setPhaseConversationId(conversationId)
-    setSandboxPhase("idle")
-  }
+  }, [title])
 
   const connection = useMemo(
     () => workspaceChatWebSocket(orgSlug, conversationId),
@@ -148,9 +133,8 @@ export function WorkspaceChatSession(props: {
     conversationId,
     workspaceId: workspace.id,
     title: headerTitle,
-    statusEnabled: !composing && prepareQuery.isSuccess,
-    pullEnabled:
-      !composing && (props.conversation?.lastChatPrNumber ?? null) != null,
+    statusEnabled: prepareQuery.isSuccess,
+    pullEnabled: (props.conversation?.lastChatPrNumber ?? null) != null,
     fallbackPrState: props.conversation?.prState,
     fallbackPullUrl: props.conversation?.lastChatPrUrl,
   })
@@ -207,7 +191,7 @@ export function WorkspaceChatSession(props: {
       title={headerTitle}
       headerExtra={props.headerExtra}
       branch={
-        !composing && prepareQuery.isSuccess && gitStatus?.branch
+        prepareQuery.isSuccess && gitStatus?.branch
           ? {
               shortName: conversationBranchShortName(gitStatus.branch),
               fullRef: gitStatus.branch,
@@ -221,7 +205,6 @@ export function WorkspaceChatSession(props: {
           : null
       }
       publish={
-        !composing &&
         conversationAllowsEdits(
           workspace.writeStatus,
           workspace.conversationWritable,
@@ -237,50 +220,19 @@ export function WorkspaceChatSession(props: {
           the conflict before publishing.
         </InlineAlert>
       ) : null}
-      {composing && messages.length === 0 ? (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 py-10">
-          <div className="w-full max-w-2xl space-y-5">
-            <div>
-              <h1 className="text-lg font-medium tracking-tight">
-                {workspace.displayName}
-              </h1>
-              <p className="mt-1.5 text-sm text-muted-foreground">
-                Ask about this Workspace. The first message creates the
-                conversation.
-              </p>
-            </div>
-            <MessageInputBox
-              layout="empty"
-              sendMessage={handleSendMessage}
-              status={status}
-              onStop={stop}
-              isDisabled={isLoading}
-              placeholder="Ask about this Workspace…"
-            />
-            {error ? (
-              <InlineAlert variant="error" title="Could not send">
-                {error.message || "Chat request failed."} Send again to retry.
-              </InlineAlert>
-            ) : null}
-          </div>
-        </div>
-      ) : (
-        <>
-          <ConversationThread
-            messages={messages as ChatMessage[]}
-            error={error ?? null}
-            status={status}
-            waitLabel={workspaceChatWaitLabel(sandboxPhase)}
-          />
-          <MessageInputBox
-            layout="thread"
-            sendMessage={handleSendMessage}
-            status={status}
-            onStop={stop}
-            isDisabled={isLoading}
-          />
-        </>
-      )}
+      <ConversationThread
+        messages={messages as ChatMessage[]}
+        error={error ?? null}
+        status={status}
+        waitLabel={workspaceChatWaitLabel(sandboxPhase)}
+      />
+      <MessageInputBox
+        layout="thread"
+        sendMessage={handleSendMessage}
+        status={status}
+        onStop={stop}
+        isDisabled={isLoading}
+      />
     </WorkspaceChatChrome>
   )
 }

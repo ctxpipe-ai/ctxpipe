@@ -41,6 +41,9 @@ function snapshot(
 describe("conversation file write snapshots", () => {
   it("applies the authoritative tree, status, and blob", () => {
     const client = new QueryClient()
+    client.setQueryData(workspaceKeys.conversationGitDiff("acme", "conv_1"), {
+      items: [],
+    })
     applyConversationFileWriteSnapshot(
       client,
       "acme",
@@ -55,6 +58,10 @@ describe("conversation file write snapshots", () => {
         workspaceKeys.conversationGitBlob("acme", "conv_1", "notes.md"),
       ),
     ).toMatchObject({ body: "hello" })
+    expect(
+      client.getQueryState(workspaceKeys.conversationGitDiff("acme", "conv_1"))
+        ?.isInvalidated,
+    ).toBe(true)
   })
 
   it("ignores a late snapshot whose base version was already replaced", () => {
