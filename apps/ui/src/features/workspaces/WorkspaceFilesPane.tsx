@@ -567,6 +567,9 @@ function WorkspaceFilesPaneContent(props: {
     [jobMutation, props.conversationId, props.orgSlug, queryClient],
   )
   const writeQueuesRef = useRef(new Map<string, Promise<void>>())
+  const enqueueWriteRef = useRef(
+    (_input: WorkspaceFileJobRequest): Promise<void> => Promise.resolve(),
+  )
   const enqueueWrite = useCallback(
     (input: WorkspaceFileJobRequest) => {
       const key =
@@ -584,6 +587,7 @@ function WorkspaceFilesPaneContent(props: {
     },
     [persistWithStaleRetry],
   )
+  enqueueWriteRef.current = enqueueWrite
 
   const flushSave = useCallback(
     (path: string | null) => {
@@ -640,11 +644,11 @@ function WorkspaceFilesPaneContent(props: {
       }
       for (const [path, content] of Object.entries(drafts)) {
         if (content === undefined) continue
-        void enqueueWrite({ op: "save", path, content })
+        void enqueueWriteRef.current({ op: "save", path, content })
       }
       void Promise.all([...writeQueuesRef.current.values()])
     }
-  }, [enqueueWrite, props.conversationId])
+  }, [props.conversationId])
 
   useEffect(() => {
     if (!writable) return
