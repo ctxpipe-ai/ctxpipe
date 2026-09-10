@@ -74,7 +74,10 @@ function WorkspaceComposeChat(props: {
   const navigate = useNavigate()
   const [sendError, setSendError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
-  const pendingConversationRef = useRef<string | null>(null)
+  const pendingConversationRef = useRef<{
+    conversationId?: string
+    idempotencyKey: string
+  } | null>(null)
 
   const commitStartedConversation = (conversationId: string, text: string) => {
     const now = new Date().toISOString()
@@ -134,9 +137,16 @@ function WorkspaceComposeChat(props: {
   const startConversation = async (text: string) => {
     setSendError(null)
     setSending(true)
+    const pending = pendingConversationRef.current
+    const idempotencyKey = pending?.idempotencyKey ?? crypto.randomUUID()
+    pendingConversationRef.current = {
+      conversationId: pending?.conversationId,
+      idempotencyKey,
+    }
     try {
       const started = await startWorkspaceConversation(props.orgSlug, {
-        conversationId: pendingConversationRef.current ?? undefined,
+        conversationId: pending?.conversationId,
+        idempotencyKey,
         workspaceId: props.workspace.id,
         text,
       })
@@ -146,8 +156,11 @@ function WorkspaceComposeChat(props: {
       const assigned =
         error instanceof StartWorkspaceConversationError
           ? error.conversationId
-          : (pendingConversationRef.current ?? undefined)
-      if (assigned) pendingConversationRef.current = assigned
+          : pending?.conversationId
+      pendingConversationRef.current = {
+        conversationId: assigned,
+        idempotencyKey,
+      }
       setSending(false)
       setSendError(
         error instanceof Error ? error.message : "Failed to start conversation",

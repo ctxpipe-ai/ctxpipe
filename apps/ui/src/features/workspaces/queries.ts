@@ -142,7 +142,12 @@ export class StartWorkspaceConversationError extends Error {
 /** First-message command: stock conversation POST. Awaits the accepted turn. */
 export async function startWorkspaceConversation(
   orgSlug: string,
-  input: { conversationId?: string; workspaceId: string; text: string },
+  input: {
+    conversationId?: string
+    idempotencyKey?: string
+    workspaceId: string
+    text: string
+  },
 ): Promise<{ conversationId: string }> {
   const client = await getApiClient()
   const json = {
@@ -158,6 +163,7 @@ export async function startWorkspaceConversation(
     tools: [],
     context: [],
     ...(input.conversationId ? { threadId: input.conversationId } : {}),
+    ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
     forwardedProps: { workspaceId: input.workspaceId, source: "ui" },
   }
   const res = input.conversationId
@@ -180,7 +186,14 @@ export async function startWorkspaceConversation(
   if (!conversationId) {
     throw new StartWorkspaceConversationError("Failed to start conversation")
   }
-  await res.text()
+  try {
+    await res.text()
+  } catch (error) {
+    throw new StartWorkspaceConversationError(
+      error instanceof Error ? error.message : "Failed to start conversation",
+      conversationId,
+    )
+  }
   return { conversationId }
 }
 
@@ -707,24 +720,10 @@ export function conversationGitStatusOptions(
     ReturnType<typeof workspaceKeys.conversationGitStatus>
   >({
     queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
-    queryFn: async ({ client }): Promise<ConversationGitStatusResponse> => {
+    queryFn: async (): Promise<ConversationGitStatusResponse> => {
       const status = await fetchConversationGitStatus(orgSlug, conversationId)
       if (!status) {
-        const cached = client.getQueryData<ConversationGitStatusResponse>(
-          workspaceKeys.conversationGitStatus(orgSlug, conversationId),
-        )
-        if (cached) return { ...cached, branch: null }
-        return {
-          source: "sandbox",
-          branch: null,
-          dirty: false,
-          differsFromDefault: false,
-          unpushed: false,
-          published: false,
-          ahead: 0,
-          behind: 0,
-          items: [],
-        }
+        throw new Error("Conversation sandbox is not ready")
       }
       return status
     },

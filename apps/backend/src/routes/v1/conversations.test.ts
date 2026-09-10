@@ -357,6 +357,31 @@ describe("conversations API", () => {
     )
   })
 
+  it("reuses conversation identity for the same first-message idempotency key", async () => {
+    const body = JSON.stringify({
+      message: { role: "user", content: "hello" },
+      source: "ui",
+      workspaceId: "ws_abc",
+      idempotencyKey: "start-1",
+    })
+    const first = await app().request("/conversations", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    })
+    const second = await app().request("/conversations", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    })
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(first.headers.get("x-conversation-id")).toBe(
+      second.headers.get("x-conversation-id"),
+    )
+    expect(first.headers.get("x-conversation-id")).toMatch(/^conv_[a-z0-9]+$/)
+  })
+
   it("refuses product chat without a Workspace id", async () => {
     parseConversationChatRequestMock.mockResolvedValue({
       prompt: "hello",

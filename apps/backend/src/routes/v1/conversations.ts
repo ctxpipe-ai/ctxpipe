@@ -37,7 +37,10 @@ import {
   withDestroyedConversationSandboxes,
 } from "../../domain/workspaces/workspace-sandbox-cleanup.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
-import { generateObjectId } from "../../lib/id.js"
+import {
+  conversationIdFromIdempotencyKey,
+  generateObjectId,
+} from "../../lib/id.js"
 import { PageInfoSchema } from "../../lib/pagination.js"
 import {
   type ConversationRecord,
@@ -696,9 +699,10 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     const session = c.get("session")
     if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
 
+    const raw = await c.req.json()
     let parsed: ConversationChatRequest
     try {
-      parsed = await parseConversationChatRequest(await c.req.json())
+      parsed = await parseConversationChatRequest(raw)
     } catch {
       return c.json({ error: "Message text is required" }, 400)
     }
@@ -709,8 +713,18 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "workspace_required" }, 400)
     }
 
+    const idempotencyKey =
+      c.req.header("Idempotency-Key")?.trim() ||
+      (raw &&
+      typeof raw === "object" &&
+      "idempotencyKey" in raw &&
+      typeof raw.idempotencyKey === "string"
+        ? raw.idempotencyKey.trim()
+        : "")
     return workspaceConversationStream(
-      generateObjectId("conv"),
+      idempotencyKey
+        ? conversationIdFromIdempotencyKey(idempotencyKey)
+        : generateObjectId("conv"),
       parsed,
       c.req.raw,
       c.get("orgSlug"),

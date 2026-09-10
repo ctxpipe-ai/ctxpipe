@@ -35,7 +35,8 @@ export function HomeComposer(props: {
   const [sending, setSending] = useState(false)
   const pendingConversationRef = useRef<{
     workspaceId: string
-    conversationId: string
+    conversationId?: string
+    idempotencyKey: string
   } | null>(null)
 
   const prefetchWorkspace = (workspace: Workspace) => {
@@ -95,15 +96,22 @@ export function HomeComposer(props: {
 
   const startConversation = async (text: string) => {
     if (!selected) return
-    const pendingId =
+    const pending =
       pendingConversationRef.current?.workspaceId === selected.id
-        ? pendingConversationRef.current.conversationId
-        : undefined
+        ? pendingConversationRef.current
+        : null
+    const idempotencyKey = pending?.idempotencyKey ?? crypto.randomUUID()
+    pendingConversationRef.current = {
+      workspaceId: selected.id,
+      conversationId: pending?.conversationId,
+      idempotencyKey,
+    }
     setSendError(null)
     setSending(true)
     try {
       const started = await startWorkspaceConversation(orgSlug, {
-        conversationId: pendingId,
+        conversationId: pending?.conversationId,
+        idempotencyKey,
         workspaceId: selected.id,
         text,
       })
@@ -113,12 +121,11 @@ export function HomeComposer(props: {
       const assigned =
         error instanceof StartWorkspaceConversationError
           ? error.conversationId
-          : pendingId
-      if (assigned) {
-        pendingConversationRef.current = {
-          workspaceId: selected.id,
-          conversationId: assigned,
-        }
+          : pending?.conversationId
+      pendingConversationRef.current = {
+        workspaceId: selected.id,
+        conversationId: assigned,
+        idempotencyKey,
       }
       setSending(false)
       setSendError(
