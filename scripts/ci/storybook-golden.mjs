@@ -106,7 +106,7 @@ try {
     process.execPath,
     [
       join(root, "scripts/ci/check-allowlist-history.mjs"),
-      join(root, "scripts/ci/failures/storybook-golden.json"),
+      "scripts/ci/failures/storybook-golden.json",
     ],
     root,
   )
