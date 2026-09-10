@@ -41,7 +41,7 @@ export function workspaceChatWebSocket(
     const target = String(url)
     if (
       warmed &&
-      warmed.readyState <= WebSocket.OPEN &&
+      warmed.readyState <= 1 &&
       shouldReuseWarmedWorkspaceChatSocket(warmed.url, target)
     ) {
       return warmed
@@ -83,11 +83,11 @@ export function workspaceChatWebSocket(
     },
     warm() {
       if (typeof WebSocket === "undefined") return
-      if (warmed && warmed.readyState <= WebSocket.OPEN) return
+      if (warmed && warmed.readyState <= 1) return
       warmed = new WebSocket(absoluteWebSocketUrl(path))
     },
     dispose() {
-      if (warmed && warmed.readyState <= WebSocket.OPEN) {
+      if (warmed && warmed.readyState <= 1) {
         warmed.close()
       }
       warmed = undefined
