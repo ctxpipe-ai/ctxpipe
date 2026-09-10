@@ -493,7 +493,6 @@ function WorkspaceFilesPaneContent(props: {
     },
   })
 
-  const writeQueueRef = useRef(Promise.resolve())
   const persistWithStaleRetry = useCallback(
     async (input: WorkspaceFileJobRequest) => {
       try {
@@ -579,7 +578,6 @@ function WorkspaceFilesPaneContent(props: {
         .catch(() => undefined)
         .then(() => persistWithStaleRetry(input))
       writeQueuesRef.current.set(key, pending)
-      writeQueueRef.current = pending
       return pending
     },
     [persistWithStaleRetry],
@@ -640,11 +638,9 @@ function WorkspaceFilesPaneContent(props: {
           ? latestDraftRef.current.body
           : draftsRef.current[path]
       if (content === undefined) return
-      writeQueueRef.current = writeQueueRef.current
-        .catch(() => undefined)
-        .then(() => persistWithStaleRetry({ op: "save", path, content }))
+      void enqueueWrite({ op: "save", path, content })
     }
-  }, [persistWithStaleRetry, props.conversationId])
+  }, [enqueueWrite, props.conversationId])
 
   useEffect(() => {
     if (!writable) return

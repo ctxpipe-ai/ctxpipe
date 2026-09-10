@@ -134,7 +134,7 @@ export async function prepareWorkspaceChat(
 export async function startWorkspaceConversation(
   orgSlug: string,
   input: { conversationId: string; workspaceId: string; text: string },
-): Promise<void> {
+): Promise<{ conversationId: string }> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.conversations[
     ":conversationId"
@@ -158,6 +158,9 @@ export async function startWorkspaceConversation(
     throw new Error("Failed to start conversation")
   }
   await res.text()
+  const conversationId =
+    res.headers.get("x-conversation-id")?.trim() || input.conversationId
+  return { conversationId }
 }
 
 export async function fetchWorkspaceFiles(

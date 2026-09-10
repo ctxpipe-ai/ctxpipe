@@ -1,7 +1,7 @@
 import { IconChevronDown } from "@tabler/icons-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { Button as RACButton } from "react-aria-components"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
@@ -33,6 +33,10 @@ export function HomeComposer(props: {
   const navigate = useNavigate()
   const [sendError, setSendError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  const pendingConversationRef = useRef<{
+    workspaceId: string
+    conversationId: string
+  } | null>(null)
 
   const prefetchWorkspace = (workspace: Workspace) => {
     void queryClient.prefetchQuery(
@@ -40,24 +44,8 @@ export function HomeComposer(props: {
     )
   }
 
-  const startConversation = async (text: string) => {
+  const commitStartedConversation = (conversationId: string, text: string) => {
     if (!selected) return
-    const conversationId = createObjectId("conv")
-    setSendError(null)
-    setSending(true)
-    try {
-      await startWorkspaceConversation(orgSlug, {
-        conversationId,
-        workspaceId: selected.id,
-        text,
-      })
-    } catch (error) {
-      setSending(false)
-      setSendError(
-        error instanceof Error ? error.message : "Failed to start conversation",
-      )
-      return
-    }
     const now = new Date().toISOString()
     const detail: ConversationDetail = {
       conversation: {
@@ -103,6 +91,34 @@ export function HomeComposer(props: {
         },
       })
     })
+  }
+
+  const startConversation = async (text: string) => {
+    if (!selected) return
+    const conversationId =
+      pendingConversationRef.current?.workspaceId === selected.id
+        ? pendingConversationRef.current.conversationId
+        : createObjectId("conv")
+    pendingConversationRef.current = {
+      workspaceId: selected.id,
+      conversationId,
+    }
+    setSendError(null)
+    setSending(true)
+    try {
+      const started = await startWorkspaceConversation(orgSlug, {
+        conversationId,
+        workspaceId: selected.id,
+        text,
+      })
+      pendingConversationRef.current = null
+      commitStartedConversation(started.conversationId, text)
+    } catch (error) {
+      setSending(false)
+      setSendError(
+        error instanceof Error ? error.message : "Failed to start conversation",
+      )
+    }
   }
 
   return (
