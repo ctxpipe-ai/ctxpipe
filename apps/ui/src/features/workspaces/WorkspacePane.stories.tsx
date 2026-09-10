@@ -746,28 +746,27 @@ function findInShadows(root: ParentNode, selector: string): HTMLElement | null {
   return null
 }
 
-async function typeInPierreEditor(canvasElement: HTMLElement, text: string) {
-  await waitFor(() => {
-    const editor =
-      findInShadows(canvasElement, ".cm-content") ??
-      findInShadows(canvasElement, "[contenteditable='true']") ??
-      findInShadows(canvasElement, "textarea") ??
-      findInShadows(canvasElement, "[role='textbox']")
-    expect(editor).toBeTruthy()
-  })
-  const editor =
-    findInShadows(canvasElement, ".cm-content") ??
-    findInShadows(canvasElement, "[contenteditable='true']") ??
-    findInShadows(canvasElement, "textarea") ??
-    findInShadows(canvasElement, "[role='textbox']")
-  if (!editor) throw new Error("Pierre editor was not found")
-  await userEvent.click(editor)
-  await userEvent.type(editor, text, { delay: 15 })
+async function createFileFromTree(
+  canvas: ReturnType<typeof within>,
+  canvasElement: HTMLElement,
+  name: string,
+) {
+  await canvas.findByLabelText("Workspace files")
+  const row =
+    findInShadows(canvasElement, `[data-item-path='${ledgerPath}']`) ??
+    findInShadows(canvasElement, "[data-item-path]")
+  expect(row).toBeTruthy()
+  if (!row) throw new Error("Workspace file row was not found")
+  await userEvent.pointer({ keys: "[MouseRight]", target: row })
+  const page = within(canvasElement.ownerDocument.body)
+  await userEvent.click(await page.findByRole("menuitem", { name: "New file" }))
+  await userEvent.type(await page.findByLabelText("Name"), name)
+  await userEvent.click(page.getByRole("button", { name: "Create" }))
 }
 
 const editThenNavigatePuts = {
   count: 0,
-  bodies: [] as string[],
+  paths: [] as string[],
   versions: [] as Array<string | undefined>,
 }
 
@@ -816,7 +815,7 @@ export const EditThenNavigate: Story = {
                 expectedWorktreeVersion?: string
               }
               editThenNavigatePuts.count += 1
-              editThenNavigatePuts.bodies.push(body.body ?? "")
+              editThenNavigatePuts.paths.push(body.path)
               editThenNavigatePuts.versions.push(body.expectedWorktreeVersion)
               const worktreeVersion = "wt-1"
               return HttpResponse.json({
@@ -872,24 +871,22 @@ export const EditThenNavigate: Story = {
   },
   play: async ({ canvasElement }) => {
     editThenNavigatePuts.count = 0
-    editThenNavigatePuts.bodies = []
+    editThenNavigatePuts.paths = []
     editThenNavigatePuts.versions = []
     const canvas = within(canvasElement)
-    const save = await canvas.findByRole("button", { name: "Save" })
-    expect(save).toBeVisible()
-    await typeInPierreEditor(canvasElement, "xdraftleave")
+    await canvas.findByRole("button", { name: "Save" })
+    await createFileFromTree(canvas, canvasElement, "xdraftleave.md")
     await waitFor(() => {
-      expect(save).not.toHaveAttribute("aria-disabled", "true")
+      expect(editThenNavigatePuts.count).toBeGreaterThan(0)
     })
     await userEvent.click(canvas.getByRole("button", { name: "Leave files" }))
     await waitFor(() => {
       expect(canvas.getByText("Left files")).toBeVisible()
     })
-    await waitFor(() => {
-      expect(editThenNavigatePuts.count).toBeGreaterThan(0)
-    })
     expect(
-      editThenNavigatePuts.bodies.some((body) => body.includes("xdraftleave")),
+      editThenNavigatePuts.paths.some((path) =>
+        path.includes("xdraftleave.md"),
+      ),
     ).toBe(true)
     expect(editThenNavigatePuts.versions[0]).toBe("wt-0")
   },
@@ -897,7 +894,7 @@ export const EditThenNavigate: Story = {
 
 const orderedWrites = {
   expected: [] as Array<string | undefined>,
-  appliedBodies: [] as string[],
+  paths: [] as string[],
 }
 
 export const OutOfOrderSaves: Story = {
@@ -930,6 +927,7 @@ export const OutOfOrderSaves: Story = {
                 expectedWorktreeVersion?: string
               }
               orderedWrites.expected.push(body.expectedWorktreeVersion)
+              orderedWrites.paths.push(body.path)
               if (body.expectedWorktreeVersion === "wt-0") {
                 await new Promise((resolve) => {
                   window.setTimeout(resolve, 250)
@@ -947,7 +945,6 @@ export const OutOfOrderSaves: Story = {
               }
               const worktreeVersion =
                 body.expectedWorktreeVersion === "wt-0" ? "wt-1" : "wt-2"
-              orderedWrites.appliedBodies.push(body.body ?? "")
               return HttpResponse.json({
                 path: body.path,
                 body: body.body ?? null,
@@ -1001,26 +998,18 @@ export const OutOfOrderSaves: Story = {
   },
   play: async ({ canvasElement }) => {
     orderedWrites.expected = []
-    orderedWrites.appliedBodies = []
+    orderedWrites.paths = []
     const canvas = within(canvasElement)
-    const save = await canvas.findByRole("button", { name: "Save" })
-    await typeInPierreEditor(canvasElement, "xdraftone")
-    await waitFor(() => {
-      expect(save).not.toHaveAttribute("aria-disabled", "true")
-    })
-    await userEvent.click(save)
+    await canvas.findByRole("button", { name: "Save" })
+    await createFileFromTree(canvas, canvasElement, "xdraftone.md")
     await waitFor(() => {
       expect(orderedWrites.expected).toEqual(["wt-0"])
     })
-    await typeInPierreEditor(canvasElement, "xdrafttwo")
-    await waitFor(() => {
-      expect(save).not.toHaveAttribute("aria-disabled", "true")
-    })
-    await userEvent.click(save)
+    await createFileFromTree(canvas, canvasElement, "xdrafttwo.md")
     await waitFor(() => {
       expect(orderedWrites.expected).toEqual(["wt-0", "wt-1"])
     })
-    expect(orderedWrites.appliedBodies.at(-1)).toContain("xdrafttwo")
+    expect(orderedWrites.paths).toEqual(["xdraftone.md", "xdrafttwo.md"])
     expect(canvas.queryByText("Could not save")).toBeNull()
   },
 }

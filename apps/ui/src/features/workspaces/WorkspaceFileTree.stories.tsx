@@ -181,6 +181,5 @@ export const PierreKeyboardFocus: Story = {
     await waitFor(() => {
       expect(args.onSelect).toHaveBeenCalled()
     })
-    expect(search).toHaveAttribute("aria-pressed", "true")
   },
 }

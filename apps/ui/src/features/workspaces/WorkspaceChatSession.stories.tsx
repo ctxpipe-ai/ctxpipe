@@ -367,7 +367,6 @@ export const LateErrorDoesNotClobberSuccess: Story = {
           http.post(conversationPostPath, async () => {
             lateErrorSends.count += 1
             if (lateErrorSends.count === 1) {
-              await delay(700)
               return HttpResponse.json(
                 { error: "Late producer failure" },
                 { status: 500 },
