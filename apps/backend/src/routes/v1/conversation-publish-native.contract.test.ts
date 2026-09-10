@@ -253,6 +253,19 @@ fi
               ).status,
             ).toBe(404)
           if (scenario === "warm_files") {
+            // Tree GET is existing-only. Warm via blob read, then CAS from tree.
+            const warmed = await app.request(
+              `/conversations/${conversationId}/files/blob?path=notes.md`,
+            )
+            expect([200, 404]).toContain(warmed.status)
+            const tree = await app.request(
+              `/conversations/${conversationId}/files/tree`,
+            )
+            const worktreeVersion = (
+              (await tree.json()) as { worktreeVersion?: string }
+            ).worktreeVersion
+            expect(tree.status).toBe(200)
+            expect(worktreeVersion).toEqual(expect.any(String))
             const saved = await app.request(
               `/conversations/${conversationId}/files/blob`,
               {
@@ -261,13 +274,7 @@ fi
                 body: JSON.stringify({
                   path: "notes.md",
                   body: "# Saved conversation\n",
-                  expectedWorktreeVersion: (
-                    (await (
-                      await app.request(
-                        `/conversations/${conversationId}/files/tree`,
-                      )
-                    ).json()) as { worktreeVersion?: string }
-                  ).worktreeVersion,
+                  expectedWorktreeVersion: worktreeVersion,
                 }),
               },
             )
