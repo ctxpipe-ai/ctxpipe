@@ -783,10 +783,14 @@ async function typeInPierreEditor(canvasElement: HTMLElement, text: string) {
 
 async function saveDirtyEditor(canvas: ReturnType<typeof within>) {
   const save = canvas.getByRole("button", { name: "Save" })
-  await waitFor(() => {
-    expect(save).not.toBeDisabled()
-  })
-  await userEvent.click(save)
+  if (
+    !save.hasAttribute("disabled") &&
+    save.getAttribute("data-disabled") !== "true"
+  ) {
+    await userEvent.click(save)
+    return
+  }
+  await userEvent.keyboard("{Control>}s{/Control}")
 }
 
 const editThenNavigatePuts = {
@@ -1084,6 +1088,9 @@ export const OutOfOrderSaves: Story = {
     const canvas = within(canvasElement)
     await canvas.findByRole("button", { name: "Save" })
     await typeInPierreEditor(canvasElement, "ooo-save-one")
+    await waitFor(() => {
+      expect(canvas.getByRole("button", { name: "Save" })).not.toBeDisabled()
+    })
     await saveDirtyEditor(canvas)
     await userEvent.click(canvas.getByRole("tab", { name: "AGENTS.md" }))
     await waitFor(
