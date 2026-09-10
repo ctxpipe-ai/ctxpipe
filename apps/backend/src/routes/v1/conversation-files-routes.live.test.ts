@@ -197,7 +197,14 @@ it(
       const saved = await app().request(`${base}/blob`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ path, body: currentBody }),
+        body: JSON.stringify({
+          path,
+          body: currentBody,
+          expectedWorktreeVersion: await conversationWorktreeVersion(
+            (requestPath, init) => app().request(requestPath, init),
+            `/conversations/${f.conversationId}`,
+          ),
+        }),
       })
       expect(saved.status).toBe(200)
       const diff = await app().request(`${base}/diff`)
@@ -257,7 +264,14 @@ it(
       const saved = await app().request(`${base}/blob`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ path: "notes.md", body: "native saved work" }),
+        body: JSON.stringify({
+          path: "notes.md",
+          body: "native saved work",
+          expectedWorktreeVersion: await conversationWorktreeVersion(
+            (requestPath, init) => app().request(requestPath, init),
+            `/conversations/${f.conversationId}`,
+          ),
+        }),
       })
       expect(saved.status).toBe(200)
       const savedBody = (await saved.json()) as {

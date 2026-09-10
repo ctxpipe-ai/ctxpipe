@@ -130,6 +130,36 @@ export async function prepareWorkspaceChat(
   }
 }
 
+/** First-message command: stock conversation POST. Awaits the accepted turn. */
+export async function startWorkspaceConversation(
+  orgSlug: string,
+  input: { conversationId: string; workspaceId: string; text: string },
+): Promise<void> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.conversations[
+    ":conversationId"
+  ].$post({
+    param: { orgSlug, conversationId: input.conversationId },
+    json: {
+      messages: [
+        {
+          id: `user-${input.conversationId}`,
+          role: "user",
+          content: input.text,
+        },
+      ],
+      tools: [],
+      context: [],
+      threadId: input.conversationId,
+      forwardedProps: { workspaceId: input.workspaceId, source: "ui" },
+    },
+  })
+  if (!res.ok) {
+    throw new Error("Failed to start conversation")
+  }
+  await res.text()
+}
+
 export async function fetchWorkspaceFiles(
   orgSlug: string,
   workspaceSlug: string,

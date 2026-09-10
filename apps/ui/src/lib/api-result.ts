@@ -3,6 +3,7 @@ export type ApiErrorBody = {
   message?: string
   code?: string
   why?: string
+  worktreeVersion?: string
 }
 
 export class ApiError extends Error {

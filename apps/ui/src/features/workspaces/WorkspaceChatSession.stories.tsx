@@ -369,40 +369,22 @@ function LateErrorHarness(props: ComponentProps<typeof WorkspaceChatSession>) {
 
 export const LateErrorDoesNotClobberSuccess: Story = {
   args: {
-    conversationId: "conv_compose",
-    composing: true,
-    title: "New conversation",
-    initialMessages: [],
+    ...threadArgs(docsConversationDetail.messages),
+    conversationId: "conv_1",
+    composing: false,
   },
   render: (args) => <LateErrorHarness {...args} />,
   parameters: {
+    storyRoute: threadRoute,
     msw: {
       handlers: {
-        page: [
-          http.post(conversationPostPath, () =>
-            conversationAguiSseResponse(
-              conversationAguiTextEvents({
-                threadId: "conv_compose",
-                messageId: "msg_first",
-                text: "First turn landed.",
-              }),
-            ),
-          ),
-          ...workspaceShellHandlers(),
-        ],
+        page: workspaceShellHandlers(),
       },
     },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const Original = window.WebSocket
-    await userEvent.click(canvas.getByRole("button", { name: "Start session" }))
-    await userEvent.type(
-      await canvas.findByPlaceholderText(/ask about this workspace/i),
-      "Create this conversation",
-    )
-    await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-    expect(await canvas.findByText("First turn landed.")).toBeVisible()
     function FailingWebSocket(
       url: string | URL,
       protocols?: string | string[],
@@ -427,13 +409,19 @@ export const LateErrorDoesNotClobberSuccess: Story = {
     })
     window.WebSocket = FailingWebSocket as unknown as typeof WebSocket
     try {
+      await userEvent.click(
+        canvas.getByRole("button", { name: "Start session" }),
+      )
+      expect(
+        await canvas.findByText(/How is billing structured/i),
+      ).toBeVisible()
       await userEvent.type(
         canvas.getByPlaceholderText(/continue the conversation/i),
         "This send should fail",
       )
       await userEvent.click(canvas.getByRole("button", { name: /send/i }))
       await waitFor(() => canvas.getByRole("alert"), { timeout: SEND_WAIT_MS })
-      expect(canvas.getByText("First turn landed.")).toBeVisible()
+      expect(canvas.getByText(/How is billing structured/i)).toBeVisible()
     } finally {
       window.WebSocket = Original
     }

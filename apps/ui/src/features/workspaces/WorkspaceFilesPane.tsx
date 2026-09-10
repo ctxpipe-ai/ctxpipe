@@ -471,23 +471,9 @@ function WorkspaceFilesPaneContent(props: {
     onError: (error, _input, context) => {
       if (
         error instanceof ApiError &&
-        error.body.error === "stale_worktree" &&
-        props.conversationId
+        error.body.error === "stale_worktree"
       ) {
-        void Promise.all([
-          queryClient.invalidateQueries({
-            queryKey: workspaceKeys.conversationGitTree(
-              props.orgSlug,
-              props.conversationId,
-            ),
-          }),
-          queryClient.invalidateQueries({
-            queryKey: workspaceKeys.conversationGitStatus(
-              props.orgSlug,
-              props.conversationId,
-            ),
-          }),
-        ])
+        return
       }
       setJobError(
         error instanceof Error ? error.message : "Failed to save file changes",
@@ -521,21 +507,60 @@ function WorkspaceFilesPaneContent(props: {
           error.body.error === "stale_worktree" &&
           props.conversationId
         ) {
-          await Promise.all([
-            queryClient.invalidateQueries({
-              queryKey: workspaceKeys.conversationGitTree(
-                props.orgSlug,
-                props.conversationId,
-              ),
-            }),
-            queryClient.invalidateQueries({
-              queryKey: workspaceKeys.conversationGitStatus(
-                props.orgSlug,
-                props.conversationId,
-              ),
-            }),
-          ])
-          await jobMutation.mutateAsync(input)
+          const version = error.body.worktreeVersion
+          if (version) {
+            const treeKey = workspaceKeys.conversationGitTree(
+              props.orgSlug,
+              props.conversationId,
+            )
+            const statusKey = workspaceKeys.conversationGitStatus(
+              props.orgSlug,
+              props.conversationId,
+            )
+            const tree = queryClient.getQueryData(treeKey) as
+              | { worktreeVersion?: string }
+              | undefined
+            if (tree) {
+              queryClient.setQueryData(treeKey, {
+                ...tree,
+                worktreeVersion: version,
+              })
+            }
+            const status = queryClient.getQueryData(statusKey) as
+              | { worktreeVersion?: string }
+              | undefined
+            if (status) {
+              queryClient.setQueryData(statusKey, {
+                ...status,
+                worktreeVersion: version,
+              })
+            }
+          } else {
+            await Promise.all([
+              queryClient.invalidateQueries({
+                queryKey: workspaceKeys.conversationGitTree(
+                  props.orgSlug,
+                  props.conversationId,
+                ),
+              }),
+              queryClient.invalidateQueries({
+                queryKey: workspaceKeys.conversationGitStatus(
+                  props.orgSlug,
+                  props.conversationId,
+                ),
+              }),
+            ])
+          }
+          try {
+            await jobMutation.mutateAsync(input)
+          } catch (retryError) {
+            setJobError(
+              retryError instanceof Error
+                ? retryError.message
+                : "Failed to save file changes",
+            )
+            throw retryError
+          }
           return
         }
         throw error

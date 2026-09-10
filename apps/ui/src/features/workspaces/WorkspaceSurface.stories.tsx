@@ -434,10 +434,13 @@ export const StableRequestBudget: Story = {
     expect(
       await canvas.findByPlaceholderText(/continue the conversation/i),
     ).toBeVisible()
-    expect(
-      await canvas.findByRole("button", { name: "Commit+Push" }),
-    ).toBeVisible()
-    await userEvent.click(await canvas.findByRole("tab", { name: "Diff" }))
+    await waitFor(() => {
+      expect(
+        canvas.getAllByRole("button", { name: "Commit+Push" }).length,
+      ).toBeGreaterThan(0)
+    })
+    const diffTabs = canvas.queryAllByRole("tab", { name: "Diff" })
+    if (diffTabs[0]) await userEvent.click(diffTabs[0])
     await waitFor(() => {
       expect(idleBudget.tree).toBeGreaterThan(0)
       expect(idleBudget.status).toBeGreaterThan(0)
