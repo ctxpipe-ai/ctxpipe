@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
+import { type ComponentProps, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+import { Button } from "@/components/ui/Button"
 import {
   conversationAguiSseResponse,
   conversationAguiTextEvents,
@@ -353,6 +355,20 @@ export const ListInsertOnSend: Story = {
 
 const lateErrorPosts = { count: 0 }
 
+function LateErrorHarness(props: ComponentProps<typeof WorkspaceChatSession>) {
+  const [mounted, setMounted] = useState(false)
+  return (
+    <div className="flex h-full min-h-0 flex-1 flex-col">
+      <div className="p-2">
+        <Button variant="secondary" onPress={() => setMounted(true)}>
+          Start session
+        </Button>
+      </div>
+      {mounted ? <WorkspaceChatSession {...props} /> : null}
+    </div>
+  )
+}
+
 export const LateErrorDoesNotClobberSuccess: Story = {
   args: {
     conversationId: "conv_late",
@@ -360,6 +376,7 @@ export const LateErrorDoesNotClobberSuccess: Story = {
     title: "New conversation",
     initialMessages: [],
   },
+  render: (args) => <LateErrorHarness {...args} />,
   parameters: {
     storyRoute: {
       pattern: "orgWorkspace",
@@ -392,41 +409,63 @@ export const LateErrorDoesNotClobberSuccess: Story = {
     lateErrorPosts.count = 0
     const canvas = within(canvasElement)
     const Original = window.WebSocket
-    function FailingWebSocket(url: string | URL) {
-      const target = new EventTarget()
-      const socket = Object.assign(target, {
+    let runSends = 0
+    function ScriptedWebSocket(url: string | URL) {
+      const socket = {
         url: String(url),
         readyState: Original.CONNECTING,
         bufferedAmount: 0,
         extensions: "",
         protocol: "",
         binaryType: "blob" as BinaryType,
+        onopen: null as ((event: Event) => void) | null,
+        onerror: null as ((event: Event) => void) | null,
+        onclose: null as ((event: CloseEvent) => void) | null,
+        onmessage: null as ((event: MessageEvent<string>) => void) | null,
         close() {
           this.readyState = Original.CLOSED
-          this.dispatchEvent(new CloseEvent("close"))
+          this.onclose?.(new CloseEvent("close"))
         },
-        send() {},
-        onopen: null,
-        onerror: null,
-        onclose: null,
-        onmessage: null,
-      })
+        send() {
+          runSends += 1
+          const events =
+            runSends === 1
+              ? conversationAguiTextEvents({
+                  threadId: "conv_late",
+                  messageId: "msg_first",
+                  text: "First answer should remain",
+                })
+              : [{ type: "RUN_ERROR", message: "late failure" }]
+          for (const event of events) {
+            this.onmessage?.(
+              new MessageEvent("message", { data: JSON.stringify(event) }),
+            )
+          }
+        },
+        addEventListener() {},
+        removeEventListener() {},
+        dispatchEvent() {
+          return true
+        },
+      }
       queueMicrotask(() => {
-        socket.readyState = Original.CLOSED
-        socket.dispatchEvent(new Event("error"))
-        socket.dispatchEvent(new CloseEvent("close"))
+        socket.readyState = Original.OPEN
+        socket.onopen?.(new Event("open"))
       })
       return socket
     }
-    FailingWebSocket.prototype = Original.prototype
-    Object.assign(FailingWebSocket, {
+    ScriptedWebSocket.prototype = Original.prototype
+    Object.assign(ScriptedWebSocket, {
       CONNECTING: Original.CONNECTING,
       OPEN: Original.OPEN,
       CLOSING: Original.CLOSING,
       CLOSED: Original.CLOSED,
     })
-    window.WebSocket = FailingWebSocket as unknown as typeof WebSocket
+    window.WebSocket = ScriptedWebSocket as unknown as typeof WebSocket
     try {
+      await userEvent.click(
+        canvas.getByRole("button", { name: "Start session" }),
+      )
       await userEvent.type(
         canvas.getByPlaceholderText(/ask about this workspace/i),
         "What is in this Workspace?",
