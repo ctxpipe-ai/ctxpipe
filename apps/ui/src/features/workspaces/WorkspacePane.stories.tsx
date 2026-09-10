@@ -979,7 +979,7 @@ export const OutOfOrderSaves: Story = {
                 orderedWrites.server = worktreeVersion
                 if (orderedWrites.accepted === 1) {
                   await new Promise((resolve) => {
-                    window.setTimeout(resolve, 250)
+                    window.setTimeout(resolve, 2000)
                   })
                 }
                 return HttpResponse.json({
