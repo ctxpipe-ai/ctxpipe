@@ -1,6 +1,6 @@
 import type { StreamChunk, UIMessage } from "@tanstack/ai"
 import { useChat } from "@tanstack/ai-react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { InlineAlert } from "@/components/ui/InlineAlert"
@@ -16,19 +16,11 @@ import type {
 import {
   conversationAllowsEdits,
   conversationBranchShortName,
-  conversationCommitPushEnabled,
   conversationGithubTreeHref,
-  conversationPullRequestAction,
 } from "./conversationPublish"
-import {
-  conversationGitStatusOptions,
-  conversationPullRequestOptions,
-  createConversationPullRequest,
-  pushConversationBranch,
-  workspaceChatPrepareOptions,
-  workspaceKeys,
-} from "./queries"
+import { workspaceChatPrepareOptions, workspaceKeys } from "./queries"
 import type { Workspace } from "./types"
+import { useConversationPublish } from "./useConversationPublish"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 import { workspaceChatWebSocket } from "./workspaceChatWebSocket"
 
@@ -156,68 +148,18 @@ export function WorkspaceChatSession(props: {
   const prepareQuery = useQuery(
     workspaceChatPrepareOptions(orgSlug, conversationId, workspace.id),
   )
-  const pullQuery = useQuery(
-    conversationPullRequestOptions(
-      orgSlug,
-      conversationId,
+  const publish = useConversationPublish({
+    orgSlug,
+    conversationId,
+    workspaceId: workspace.id,
+    title: headerTitle,
+    statusEnabled: !composing && prepareQuery.isSuccess,
+    pullEnabled:
       !composing && (props.conversation?.lastChatPrNumber ?? null) != null,
-    ),
-  )
-  const pushMutation = useMutation({
-    mutationFn: () => pushConversationBranch(orgSlug, conversationId),
-    onSuccess: (result) => {
-      queryClient.setQueryData<ConversationDetail>(
-        workspaceKeys.conversation(orgSlug, conversationId, workspace.id),
-        (old) =>
-          old
-            ? {
-                ...old,
-                conversation: {
-                  ...old.conversation,
-                  lastBranch: result.branch,
-                  branchTreeUrl: result.treeUrl,
-                },
-              }
-            : old,
-      )
-      void queryClient.invalidateQueries({
-        queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
-      })
-    },
+    fallbackPrState: props.conversation?.prState,
+    fallbackPullUrl: props.conversation?.lastChatPrUrl,
   })
-  const createPrMutation = useMutation({
-    mutationFn: () =>
-      createConversationPullRequest(orgSlug, conversationId, {
-        title: headerTitle,
-      }),
-    onSuccess: (result) => {
-      queryClient.setQueryData<ConversationDetail>(
-        workspaceKeys.conversation(orgSlug, conversationId, workspace.id),
-        (old) =>
-          old
-            ? {
-                ...old,
-                conversation: {
-                  ...old.conversation,
-                  lastBranch: result.branch,
-                  lastChatPrNumber: result.prNumber,
-                  lastChatPrUrl: result.pullUrl,
-                  prState: result.prState,
-                },
-              }
-            : old,
-      )
-      void queryClient.invalidateQueries({
-        queryKey: workspaceKeys.conversationPullRequest(
-          orgSlug,
-          conversationId,
-        ),
-      })
-      void queryClient.invalidateQueries({
-        queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
-      })
-    },
-  })
+  const gitStatus = publish.status
 
   const { messages, sendMessage, status, error, isLoading, stop } = useChat({
     threadId: conversationId,
@@ -242,24 +184,20 @@ export function WorkspaceChatSession(props: {
         setSandboxPhase("idle")
         if (chunk.type === "RUN_FINISHED") {
           void queryClient.invalidateQueries({
-            queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
+            queryKey: workspaceKeys.conversationGitTree(
+              orgSlug,
+              conversationId,
+            ),
           })
           void queryClient.invalidateQueries({
-            queryKey: workspaceKeys.list(orgSlug),
+            queryKey: workspaceKeys.conversationGitStatus(
+              orgSlug,
+              conversationId,
+            ),
           })
         }
       }
     },
-    onFinish: () => {
-      void queryClient.invalidateQueries({
-        queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
-      })
-    },
-  })
-
-  const statusQuery = useQuery({
-    ...conversationGitStatusOptions(orgSlug, conversationId),
-    enabled: !composing && prepareQuery.isSuccess,
   })
 
   const insertComposeRow = () => {
@@ -312,14 +250,14 @@ export function WorkspaceChatSession(props: {
       title={headerTitle}
       headerExtra={props.headerExtra}
       branch={
-        !composing && prepareQuery.isSuccess && statusQuery.data?.branch
+        !composing && prepareQuery.isSuccess && gitStatus?.branch
           ? {
-              shortName: conversationBranchShortName(statusQuery.data.branch),
-              fullRef: statusQuery.data.branch,
-              href: statusQuery.data.published
+              shortName: conversationBranchShortName(gitStatus.branch),
+              fullRef: gitStatus.branch,
+              href: gitStatus.published
                 ? conversationGithubTreeHref(
                     workspace.workspaceRepositoryUrl,
-                    statusQuery.data.branch,
+                    gitStatus.branch,
                   )
                 : null,
             }
@@ -331,34 +269,15 @@ export function WorkspaceChatSession(props: {
           workspace.writeStatus,
           workspace.conversationWritable,
         )
-          ? {
-              commitPush: {
-                enabled: conversationCommitPushEnabled(
-                  statusQuery.data ?? null,
-                ),
-                pending: pushMutation.isPending,
-                onPress: () => pushMutation.mutate(),
-              },
-              pullRequest: {
-                action: conversationPullRequestAction(
-                  pullQuery.data?.prState ?? props.conversation?.prState,
-                ),
-                pending: createPrMutation.isPending,
-                href:
-                  pullQuery.data?.pullUrl ??
-                  props.conversation?.lastChatPrUrl ??
-                  null,
-                onPress: () => createPrMutation.mutate(),
-              },
-            }
+          ? publish.chrome
           : null
       }
     >
-      {statusQuery.data?.stale ? (
+      {gitStatus?.stale ? (
         <InlineAlert variant="warning" title="Branch needs a rebase">
-          This conversation is on {statusQuery.data.sha?.slice(0, 7)}; the
-          workspace is now {statusQuery.data.desiredSha?.slice(0, 7)}. Continue
-          chatting to resolve the conflict before publishing.
+          This conversation is on {gitStatus.sha?.slice(0, 7)}; the workspace is
+          now {gitStatus.desiredSha?.slice(0, 7)}. Continue chatting to resolve
+          the conflict before publishing.
         </InlineAlert>
       ) : null}
       {composing && messages.length === 0 ? (

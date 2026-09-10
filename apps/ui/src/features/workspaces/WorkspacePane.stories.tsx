@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useNavigate, useSearch } from "@tanstack/react-router"
+import { HttpResponse, http } from "msw"
 import { type ComponentProps, useState } from "react"
 import { expect, fn, waitFor, within } from "storybook/test"
 import {
@@ -9,7 +10,6 @@ import {
   conversationGitStatusHandler,
   conversationGitTreeEventuallyHandler,
   conversationGitTreeHandler,
-  conversationGitTreeLivePollHandler,
   conversationGitTreeMissingHandler,
   conversationPrepareHandler,
   workspaceFileJobHandler,
@@ -658,19 +658,14 @@ export const CachedSandboxWhile409: Story = {
   },
 }
 
-export const ConversationSandboxLivePoll: Story = {
+const filesTreeGets = { count: 0 }
+
+export const StableFilesRequestBudget: Story = {
   args: {
     conversationId: "conv_1",
     pane: { kind: "files" },
   },
   render: (args) => <WorkspacePanePlayground {...args} />,
-  beforeEach: () => {
-    writeConversationGitTreeSnapshot("conv_1", {
-      sha: "cachedsha",
-      paths: ["AGENTS.md"],
-      branch: "ctxpipe/chat/conv_1/1",
-    })
-  },
   parameters: {
     storyRoute: {
       pattern: "orgWorkspace",
@@ -682,18 +677,20 @@ export const ConversationSandboxLivePoll: Story = {
     msw: {
       handlers: {
         page: [
-          conversationGitTreeLivePollHandler({
-            first: {
-              sha: "cachedsha",
-              paths: ["AGENTS.md"],
-              branch: "ctxpipe/chat/conv_1/1",
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/files\/tree$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => {
+              filesTreeGets.count += 1
+              return HttpResponse.json({
+                sha: "livesha",
+                paths: ["AGENTS.md", "e2e.md"],
+                branch: "ctxpipe/chat/conv_1/1",
+              })
             },
-            next: {
-              sha: "livesha",
-              paths: ["AGENTS.md", "e2e.md"],
-              branch: "ctxpipe/chat/conv_1/1",
-            },
-          }),
+          ),
           conversationGitStatusHandler(),
           workspaceGitTreeHandler({
             sha: "workspace-only",
@@ -704,17 +701,17 @@ export const ConversationSandboxLivePoll: Story = {
     },
   },
   play: async ({ canvasElement }) => {
+    filesTreeGets.count = 0
     const canvas = within(canvasElement)
     await waitFor(() => {
-      expect(canvas.getByText("AGENTS.md")).toBeVisible()
+      expect(canvas.getByText("e2e.md")).toBeVisible()
     })
     expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
-    await waitFor(
-      () => {
-        expect(canvas.getByText("e2e.md")).toBeVisible()
-      },
-      { timeout: 3000 },
-    )
-    expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
+    const afterPaint = filesTreeGets.count
+    expect(afterPaint).toBeGreaterThan(0)
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, 800)
+    })
+    expect(filesTreeGets.count).toBe(afterPaint)
   },
 }

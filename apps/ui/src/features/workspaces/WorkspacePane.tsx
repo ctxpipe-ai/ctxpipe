@@ -51,15 +51,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/Tooltip"
-import { pollWhileOk } from "@/lib/api-result"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
-import {
-  conversationAllowsEdits,
-  conversationCommitPushEnabled,
-  conversationPullRequestAction,
-} from "./conversationPublish"
+import { conversationAllowsEdits } from "./conversationPublish"
 import { joinFileName, optimisticPathsAfterJob } from "./fileTreeMutations"
 import { filePaneId, type ParsedPane, parsePane, serializePane } from "./pane"
 import {
@@ -67,10 +62,7 @@ import {
   conversationGitDiffOptions,
   conversationGitStatusOptions,
   conversationGitTreeOptions,
-  conversationPullRequestOptions,
-  createConversationPullRequest,
   persistConversationFileMutation,
-  pushConversationBranch,
   workspaceChatPrepareOptions,
   workspaceGitBlobOptions,
   workspaceGitStatusOptions,
@@ -85,6 +77,7 @@ import type {
   WorkspaceGitStatusItem,
   WorkspaceGitTreeResponse,
 } from "./types"
+import { useConversationPublish } from "./useConversationPublish"
 import { ConversationPublishActions } from "./WorkspaceChatChrome"
 import {
   WorkspaceFileTree,
@@ -347,6 +340,7 @@ export function WorkspacePane(props: {
               ) ? (
                 <ConversationPanePublish
                   orgSlug={props.orgSlug}
+                  workspaceId={props.workspace.id}
                   conversationId={props.conversationId}
                   title={props.conversationTitle}
                 />
@@ -535,14 +529,12 @@ function ConversationSandboxFilesPane(props: {
   onToggleTree: () => void
   onCloseActiveFile: () => void
 }) {
-  const sandboxTreeQuery = useQuery({
-    ...conversationGitTreeOptions(props.orgSlug, props.conversationId),
-    refetchInterval: pollWhileOk(400),
-  })
+  const sandboxTreeQuery = useQuery(
+    conversationGitTreeOptions(props.orgSlug, props.conversationId),
+  )
   const sandboxStatusQuery = useQuery({
     ...conversationGitStatusOptions(props.orgSlug, props.conversationId),
     enabled: sandboxTreeQuery.isSuccess,
-    refetchInterval: pollWhileOk(400),
   })
   const tree = sandboxTreeQuery.data
   const awaitingFirstList =
@@ -718,55 +710,59 @@ function WorkspaceFilesPaneContent(props: {
 
   const invalidateFiles = async () => {
     if (props.conversationId) {
-      await queryClient.invalidateQueries({
-        queryKey: workspaceKeys.conversationGitTree(
-          props.orgSlug,
-          props.conversationId,
-        ),
-      })
-      await queryClient.invalidateQueries({
-        queryKey: workspaceKeys.conversationGitStatus(
-          props.orgSlug,
-          props.conversationId,
-        ),
-      })
-      await queryClient.invalidateQueries({
-        queryKey: workspaceKeys.conversationGitDiff(
-          props.orgSlug,
-          props.conversationId,
-        ),
-      })
-      await queryClient.invalidateQueries({
-        queryKey: [
-          "conversation-git-blob",
-          props.orgSlug,
-          props.conversationId,
-        ],
-      })
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: workspaceKeys.conversationGitTree(
+            props.orgSlug,
+            props.conversationId,
+          ),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: workspaceKeys.conversationGitStatus(
+            props.orgSlug,
+            props.conversationId,
+          ),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: workspaceKeys.conversationGitDiff(
+            props.orgSlug,
+            props.conversationId,
+          ),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: [
+            "conversation-git-blob",
+            props.orgSlug,
+            props.conversationId,
+          ],
+        }),
+      ])
       return
     }
-    await queryClient.invalidateQueries({
-      queryKey: workspaceKeys.gitTree(
-        props.orgSlug,
-        props.workspaceSlug,
-        props.sha,
-      ),
-    })
-    await queryClient.invalidateQueries({
-      queryKey: workspaceKeys.gitStatus(
-        props.orgSlug,
-        props.workspaceSlug,
-        props.sha,
-      ),
-    })
-    await queryClient.invalidateQueries({
-      queryKey: [
-        "workspace-git-blob",
-        props.orgSlug,
-        props.workspaceSlug,
-        props.sha,
-      ],
-    })
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: workspaceKeys.gitTree(
+          props.orgSlug,
+          props.workspaceSlug,
+          props.sha,
+        ),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: workspaceKeys.gitStatus(
+          props.orgSlug,
+          props.workspaceSlug,
+          props.sha,
+        ),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: [
+          "workspace-git-blob",
+          props.orgSlug,
+          props.workspaceSlug,
+          props.sha,
+        ],
+      }),
+    ])
   }
 
   const jobMutation = useMutation({
@@ -872,6 +868,18 @@ function WorkspaceFilesPaneContent(props: {
     },
   })
 
+  const writeQueueRef = useRef(Promise.resolve())
+  const enqueueWrite = useCallback(
+    (input: WorkspaceFileJobRequest) => {
+      writeQueueRef.current = writeQueueRef.current
+        .catch(() => undefined)
+        .then(() => jobMutation.mutateAsync(input))
+        .then(() => undefined)
+      return writeQueueRef.current
+    },
+    [jobMutation],
+  )
+
   const flushSave = useCallback(
     (path: string | null) => {
       if (!writableRef.current || !path) return
@@ -879,9 +887,9 @@ function WorkspaceFilesPaneContent(props: {
       const content =
         latest?.path === path ? latest.body : draftsRef.current[path]
       if (content === undefined) return
-      jobMutation.mutate({ op: "save", path, content })
+      void enqueueWrite({ op: "save", path, content })
     },
-    [jobMutation],
+    [enqueueWrite],
   )
 
   const clearAutosaveTimer = useCallback(() => {
@@ -920,8 +928,20 @@ function WorkspaceFilesPaneContent(props: {
   useEffect(() => {
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+      const path = pendingSavePathRef.current ?? latestDraftRef.current?.path
+      if (!writableRef.current || !path || !props.conversationId) return
+      const content =
+        latestDraftRef.current?.path === path
+          ? latestDraftRef.current.body
+          : draftsRef.current[path]
+      if (content === undefined) return
+      void persistConversationFileMutation(
+        props.orgSlug,
+        props.conversationId,
+        { op: "save", path, content },
+      )
     }
-  }, [])
+  }, [props.conversationId, props.orgSlug])
 
   useEffect(() => {
     if (!writable) return
@@ -946,7 +966,7 @@ function WorkspaceFilesPaneContent(props: {
     if (!createDialog) return
     const path = joinFileName(createDialog.parentPath, createName)
     if (!path) return
-    jobMutation.mutate({
+    void enqueueWrite({
       op: "create",
       path,
       kind: createDialog.kind,
@@ -986,10 +1006,10 @@ function WorkspaceFilesPaneContent(props: {
             }}
             onRequestDelete={setDeleteItem}
             onRename={(from, to) =>
-              jobMutation.mutate({ op: "rename", from, to })
+              void enqueueWrite({ op: "rename", from, to })
             }
             onMove={(from, toDirectory) =>
-              jobMutation.mutate({ op: "move", from, toDirectory })
+              void enqueueWrite({ op: "move", from, toDirectory })
             }
           />
           <button
@@ -1266,7 +1286,7 @@ function WorkspaceFilesPaneContent(props: {
                   variant="outline"
                   onPress={() => {
                     if (deleteItem) {
-                      jobMutation.mutate({
+                      void enqueueWrite({
                         op: "delete",
                         path: deleteItem.path,
                       })
@@ -1476,66 +1496,19 @@ function prefetchWorkspacePane(
 
 function ConversationPanePublish(props: {
   orgSlug: string
+  workspaceId: string
   conversationId: string
   title: string
 }) {
-  const queryClient = useQueryClient()
-  const statusQuery = useQuery({
-    ...conversationGitStatusOptions(props.orgSlug, props.conversationId),
-    refetchInterval: pollWhileOk(400),
+  const publish = useConversationPublish({
+    orgSlug: props.orgSlug,
+    conversationId: props.conversationId,
+    workspaceId: props.workspaceId,
+    title: props.title,
+    statusEnabled: true,
+    pullEnabled: true,
   })
-  const pullQuery = useQuery(
-    conversationPullRequestOptions(props.orgSlug, props.conversationId, true),
-  )
-  const pushMutation = useMutation({
-    mutationFn: () =>
-      pushConversationBranch(props.orgSlug, props.conversationId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: workspaceKeys.conversationGitStatus(
-          props.orgSlug,
-          props.conversationId,
-        ),
-      })
-    },
-  })
-  const createPrMutation = useMutation({
-    mutationFn: () =>
-      createConversationPullRequest(props.orgSlug, props.conversationId, {
-        title: props.title,
-      }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: workspaceKeys.conversationPullRequest(
-          props.orgSlug,
-          props.conversationId,
-        ),
-      })
-      void queryClient.invalidateQueries({
-        queryKey: workspaceKeys.conversationGitStatus(
-          props.orgSlug,
-          props.conversationId,
-        ),
-      })
-    },
-  })
-  return (
-    <ConversationPublishActions
-      publish={{
-        commitPush: {
-          enabled: conversationCommitPushEnabled(statusQuery.data ?? null),
-          pending: pushMutation.isPending,
-          onPress: () => pushMutation.mutate(),
-        },
-        pullRequest: {
-          action: conversationPullRequestAction(pullQuery.data?.prState),
-          pending: createPrMutation.isPending,
-          href: pullQuery.data?.pullUrl ?? null,
-          onPress: () => createPrMutation.mutate(),
-        },
-      }}
-    />
-  )
+  return <ConversationPublishActions publish={publish.chrome} />
 }
 
 function ConversationDiffTab(props: {

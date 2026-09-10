@@ -19,9 +19,17 @@ Gates 6 remains pending.
    `composeId` against a process-global draft. A routed id that does not exist
    yet is compose; a persisted conversation is resume. Foreign workspace is
    "not found". Storybook `FirstMessageSendsOnce` waits for the Home composer.
-4. Give working-tree and publish state one owner with versioned commands.
-5. Define editor save/navigation semantics and ordered per-file writes.
-6. Replace polling/invalidation waterfalls with authoritative updates.
+4. In progress. Chat chrome and the files pane share `useConversationPublish`
+   (same mutation keys + `useIsMutating`). Push/PR success writes the status
+   and PR cache instead of invalidating. Storybook `SharedPublishPending`
+   asserts every Commit+Push button shows Pushing… from one click.
+5. In progress. Leaving the files pane flushes the pending draft. File writes
+   enqueue on one promise chain so overlapping responses cannot apply out of
+   order.
+6. In progress. 400 ms tree/status pollers are gone. `StableFilesRequestBudget`
+   asserts the files tree is not refetched while idle. Chat `RUN_FINISHED`
+   invalidates tree+status once; the duplicate `onFinish` list invalidation
+   is deleted.
 7. Split `WorkspacePane` only after ownership has moved.
 
 Required Storybook Playwright `play` proof: Strict Mode single send, late error

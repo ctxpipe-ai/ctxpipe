@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http } from "msw"
+import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   conversationDetailLoadingHandler,
@@ -267,6 +267,49 @@ export const ConversationMissing: Story = {
         page: workspaceShellHandlers({ conversation: null }),
       },
     },
+  },
+}
+
+export const SharedPublishPending: Story = {
+  args: { conversationId: "conv_1", paneParam: "files" },
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
+    msw: {
+      handlers: {
+        page: [
+          http.post(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/push$/.test(
+                new URL(request.url).pathname,
+              ),
+            async () => {
+              await delay("infinite")
+              return HttpResponse.json({
+                branch: "ctxpipe/chat/conv_1/1",
+                treeUrl:
+                  "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
+              })
+            },
+          ),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const buttons = await canvas.findAllByRole("button", {
+      name: "Commit+Push",
+    })
+    expect(buttons.length).toBeGreaterThan(1)
+    const first = buttons[0]
+    if (!first) throw new Error("Commit+Push is missing")
+    await userEvent.click(first)
+    await waitFor(() => {
+      expect(canvas.getAllByRole("button", { name: "Pushing…" }).length).toBe(
+        buttons.length,
+      )
+    })
   },
 }
 
