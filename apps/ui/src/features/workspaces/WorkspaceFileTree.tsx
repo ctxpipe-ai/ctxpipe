@@ -1,5 +1,9 @@
 import { FileTree, useFileTree, useFileTreeSearch } from "@pierre/trees/react"
-import { IconLayoutSidebarLeftCollapse, IconSearch } from "@tabler/icons-react"
+import {
+  IconLayoutSidebarLeftCollapse,
+  IconPlus,
+  IconSearch,
+} from "@tabler/icons-react"
 import { ClientOnly } from "@tanstack/react-router"
 import { type CSSProperties, useEffect, useMemo, useRef } from "react"
 import { Button } from "@/components/ui/Button"
@@ -284,6 +288,23 @@ function WorkspaceFileTreeClient(props: {
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       <div className={TREE_HEADER_CLASS}>
         <TreeHeaderBusy label={props.busyLabel} />
+        {props.writable && props.onRequestCreate ? (
+          <Button
+            variant="quiet"
+            size="icon-sm"
+            aria-label="New file"
+            preventFocusOnPress
+            onPress={() => {
+              const parentPath = props.selectedPath
+                ? parentDirectory(props.selectedPath)
+                : null
+              props.onRequestCreate?.("file", parentPath)
+            }}
+            className={TREE_HEADER_ICON_CLASS}
+          >
+            <IconPlus className="size-4" stroke={1.6} aria-hidden />
+          </Button>
+        ) : null}
         <Button
           variant="quiet"
           size="icon-sm"

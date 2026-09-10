@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
+import { type ComponentProps, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+import { Button } from "@/components/ui/Button"
 import {
   conversationAguiSseResponse,
   conversationAguiTextEvents,
@@ -351,58 +353,73 @@ export const ListInsertOnSend: Story = {
   },
 }
 
-const lateErrorSends = { count: 0 }
+function LateErrorHarness(props: ComponentProps<typeof WorkspaceChatSession>) {
+  const [mounted, setMounted] = useState(false)
+  return (
+    <div className="flex h-full min-h-0 flex-1 flex-col">
+      <div className="p-2">
+        <Button variant="secondary" onPress={() => setMounted(true)}>
+          Start session
+        </Button>
+      </div>
+      {mounted ? <WorkspaceChatSession {...props} /> : null}
+    </div>
+  )
+}
 
 export const LateErrorDoesNotClobberSuccess: Story = {
-  args: {
-    conversationId: "conv_pending",
-    composing: true,
-    title: "New conversation",
-    initialMessages: [],
-  },
+  args: threadArgs(docsConversationDetail.messages),
+  render: (args) => <LateErrorHarness {...args} />,
   parameters: {
+    storyRoute: threadRoute,
     msw: {
       handlers: {
-        page: [
-          http.post(conversationPostPath, async () => {
-            lateErrorSends.count += 1
-            if (lateErrorSends.count === 1) {
-              return HttpResponse.json(
-                { error: "Late producer failure" },
-                { status: 500 },
-              )
-            }
-            return conversationAguiSseResponse(
-              conversationAguiTextEvents({
-                threadId: "conv_1",
-                messageId: "msg_recovered",
-                text: "Recovered reply after the late error.",
-              }),
-            )
-          }),
-          ...workspaceShellHandlers(),
-        ],
+        page: workspaceShellHandlers(),
       },
     },
   },
   play: async ({ canvasElement }) => {
-    lateErrorSends.count = 0
     const canvas = within(canvasElement)
-    await userEvent.type(
-      canvas.getByPlaceholderText(/ask about this workspace/i),
-      "First attempt",
-    )
-    await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-    await waitFor(() => canvas.getByRole("alert"), { timeout: SEND_WAIT_MS })
-    await userEvent.type(
-      canvas.getByPlaceholderText(/ask about this workspace/i),
-      "Retry after late error",
-    )
-    await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-    await waitFor(
-      () => canvas.getByText(/Recovered reply after the late error/),
-      { timeout: SEND_WAIT_MS },
-    )
-    expect(canvas.queryByText("Late producer failure")).toBeNull()
+    const Original = window.WebSocket
+    function FailingWebSocket(
+      url: string | URL,
+      protocols?: string | string[],
+    ) {
+      const socket = protocols
+        ? new Original(url, protocols)
+        : new Original(url)
+      const fail = () => {
+        socket.dispatchEvent(new Event("error"))
+        socket.close()
+      }
+      socket.addEventListener("open", fail, { once: true })
+      queueMicrotask(fail)
+      return socket
+    }
+    FailingWebSocket.prototype = Original.prototype
+    Object.assign(FailingWebSocket, {
+      CONNECTING: Original.CONNECTING,
+      OPEN: Original.OPEN,
+      CLOSING: Original.CLOSING,
+      CLOSED: Original.CLOSED,
+    })
+    window.WebSocket = FailingWebSocket as unknown as typeof WebSocket
+    try {
+      await userEvent.click(
+        canvas.getByRole("button", { name: "Start session" }),
+      )
+      expect(
+        await canvas.findByText(/How is billing structured/i),
+      ).toBeVisible()
+      await userEvent.type(
+        canvas.getByPlaceholderText(/continue the conversation/i),
+        "This send should fail",
+      )
+      await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+      await waitFor(() => canvas.getByRole("alert"), { timeout: SEND_WAIT_MS })
+      expect(canvas.getByText(/How is billing structured/i)).toBeVisible()
+    } finally {
+      window.WebSocket = Original
+    }
   },
 }

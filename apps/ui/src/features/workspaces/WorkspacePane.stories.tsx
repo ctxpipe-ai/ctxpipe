@@ -735,31 +735,13 @@ export const StableFilesRequestBudget: Story = {
   },
 }
 
-function findInShadows(root: ParentNode, selector: string): HTMLElement | null {
-  const direct = root.querySelector(selector)
-  if (direct instanceof HTMLElement) return direct
-  for (const element of root.querySelectorAll("*")) {
-    if (!element.shadowRoot) continue
-    const nested = findInShadows(element.shadowRoot, selector)
-    if (nested) return nested
-  }
-  return null
-}
-
 async function createFileFromTree(
   canvas: ReturnType<typeof within>,
   canvasElement: HTMLElement,
   name: string,
 ) {
-  await canvas.findByLabelText("Workspace files")
-  const row =
-    findInShadows(canvasElement, `[data-item-path='${ledgerPath}']`) ??
-    findInShadows(canvasElement, "[data-item-path]")
-  expect(row).toBeTruthy()
-  if (!row) throw new Error("Workspace file row was not found")
-  await userEvent.pointer({ keys: "[MouseRight]", target: row })
+  await userEvent.click(await canvas.findByRole("button", { name: "New file" }))
   const page = within(canvasElement.ownerDocument.body)
-  await userEvent.click(await page.findByRole("menuitem", { name: "New file" }))
   await userEvent.type(await page.findByLabelText("Name"), name)
   await userEvent.click(page.getByRole("button", { name: "Create" }))
 }
@@ -1009,7 +991,8 @@ export const OutOfOrderSaves: Story = {
     await waitFor(() => {
       expect(orderedWrites.expected).toEqual(["wt-0", "wt-1"])
     })
-    expect(orderedWrites.paths).toEqual(["xdraftone.md", "xdrafttwo.md"])
+    expect(orderedWrites.paths[0]).toMatch(/xdraftone\.md$/)
+    expect(orderedWrites.paths[1]).toMatch(/xdrafttwo\.md$/)
     expect(canvas.queryByText("Could not save")).toBeNull()
   },
 }
