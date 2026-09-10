@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { fn, userEvent, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceFileTree } from "./WorkspaceFileTree"
@@ -142,5 +142,24 @@ export const LargeTree: Story = {
   args: {
     paths: largeTree(),
     selectedPath: "pkg-0/file-0.ts",
+  },
+}
+
+export const PierreKeyboardFocus: Story = {
+  args: {
+    paths: ["AGENTS.md", "knowledge/billing.md"],
+    selectedPath: "AGENTS.md",
+    onSelect: fn(),
+  },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    const host = await canvas.findByLabelText("Workspace files")
+    host.focus()
+    await userEvent.keyboard("{ArrowDown}")
+    await userEvent.keyboard("{Enter}")
+    await waitFor(() => {
+      expect(args.onSelect).toHaveBeenCalled()
+    })
+    expect(host).toHaveFocus()
   },
 }

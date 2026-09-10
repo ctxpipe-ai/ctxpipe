@@ -3,7 +3,7 @@
 Gate 4 closed at `9dd7b108` after green CI
 [34421467470](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34421467470)
 on `79670977` and both `f8e4fae9` reviews. This file is the current ledger.
-Gates 6 remains pending.
+Gate 6 remains pending.
 
 ## Remaining work, in order
 
@@ -19,18 +19,21 @@ Gates 6 remains pending.
    `composeId` against a process-global draft. A routed id that does not exist
    yet is compose; a persisted conversation is resume. Foreign workspace is
    "not found". Storybook `FirstMessageSendsOnce` waits for the Home composer.
-4. In progress. Chat chrome and the files pane share `useConversationPublish`
+4. Closed. Chat chrome and the files pane share `useConversationPublish`
    (same mutation keys + `useIsMutating`). Push/PR success writes the status
    and PR cache instead of invalidating. Storybook `SharedPublishPending`
    asserts every Commit+Push button shows Pushing… from one click.
-5. In progress. Leaving the files pane flushes the pending draft. File writes
-   enqueue on one promise chain so overlapping responses cannot apply out of
-   order.
-6. In progress. 400 ms tree/status pollers are gone. `StableFilesRequestBudget`
-   asserts the files tree is not refetched while idle. Chat `RUN_FINISHED`
-   invalidates tree+status once; the duplicate `onFinish` list invalidation
-   is deleted.
-7. Split `WorkspacePane` only after ownership has moved.
+5. Closed. Leaving the files pane flushes the pending draft onto the same
+   write queue. PUT sends `expectedWorktreeVersion`; mismatch is `409`
+   `stale_worktree`. Success returns tree+status+blob snapshots. The client
+   applies those instead of refetching, and ignores a late snapshot whose
+   base version was already replaced.
+6. Closed. 400 ms tree/status pollers are gone. File writes apply the PUT
+   snapshot. `StableFilesRequestBudget` asserts the files tree is not
+   refetched while idle. Chat `RUN_FINISHED` invalidates tree+status once.
+7. Closed. `WorkspacePane` is composition (tabs, publish, graph, settings).
+   Files ownership lives in `WorkspaceFilesPane`. Diff ownership lives in
+   `WorkspaceConversationDiff`.
 
 Required Storybook Playwright `play` proof: Strict Mode single send, late error
 ordering, socket cleanup, reload/reconnect, rapid route changes, edit then

@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { http } from "msw"
+import { StrictMode } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   docsWorkspace,
@@ -92,4 +93,16 @@ export const FirstMessageSendsOnce: Story = {
       ).toBeNull(),
     )
   },
+}
+
+export const FirstMessageSendsOnceInStrictMode: Story = {
+  decorators: [
+    (Story) => (
+      <StrictMode>
+        <Story />
+      </StrictMode>
+    ),
+  ],
+  parameters: FirstMessageSendsOnce.parameters,
+  play: FirstMessageSendsOnce.play,
 }

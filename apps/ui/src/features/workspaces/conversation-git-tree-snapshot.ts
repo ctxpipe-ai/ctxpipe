@@ -33,7 +33,13 @@ export function readConversationGitTreeSnapshot(
     return {
       sha: parsed.sha,
       branch: parsed.branch,
-      paths: parsed.paths.filter((path): path is string => typeof path === "string"),
+      paths: parsed.paths.filter(
+        (path): path is string => typeof path === "string",
+      ),
+      worktreeVersion:
+        typeof parsed.worktreeVersion === "string"
+          ? parsed.worktreeVersion
+          : undefined,
     }
   } catch {
     return undefined
@@ -53,6 +59,7 @@ export function writeConversationGitTreeSnapshot(
         sha: tree.sha,
         paths: tree.paths,
         branch: tree.branch,
+        worktreeVersion: tree.worktreeVersion,
       }),
     )
   } catch {

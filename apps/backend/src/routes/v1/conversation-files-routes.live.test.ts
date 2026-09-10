@@ -241,16 +241,32 @@ it(
         body: JSON.stringify({ path: "notes.md", body: "native saved work" }),
       })
       expect(saved.status).toBe(200)
+      const savedBody = (await saved.json()) as {
+        worktreeVersion?: string
+        tree?: { paths?: string[]; worktreeVersion?: string }
+        status?: { dirty?: boolean; worktreeVersion?: string }
+      }
+      expect(savedBody.worktreeVersion).toEqual(expect.any(String))
+      expect(savedBody.tree).toMatchObject({
+        paths: ["README.md", "notes.md"],
+        worktreeVersion: savedBody.worktreeVersion,
+      })
+      expect(savedBody.status).toMatchObject({
+        dirty: true,
+        worktreeVersion: savedBody.worktreeVersion,
+      })
       const tree = await app().request(`${base}/tree`)
       expect(tree.status).toBe(200)
       expect(await tree.json()).toMatchObject({
         paths: ["README.md", "notes.md"],
+        worktreeVersion: savedBody.worktreeVersion,
       })
       const status = await app().request(`${base}/status`)
       expect(status.status).toBe(200)
       expect(await status.json()).toMatchObject({
         dirty: true,
         items: [expect.objectContaining({ path: "notes.md" })],
+        worktreeVersion: savedBody.worktreeVersion,
       })
       const blob = await app().request(`${base}/blob?path=notes.md`)
       expect(await blob.json()).toMatchObject({ body: "native saved work" })
@@ -275,6 +291,96 @@ it(
       expect(await destroySandboxesForConversation(f.conversationId)).toBe(1)
       expect((await app().request(`${base}/tree`)).status).toBe(409)
       expect((await app().request(`${base}/status`)).status).toBe(409)
+    })
+  },
+)
+
+it(
+  "rejects a stale conversation file write and accepts the current worktree version",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      await withOrgDbContext(f.orgId, (db) =>
+        db
+          .update(workspaces)
+          .set({ writeStatus: "writable" })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      const app = () => {
+        const hono = new OpenAPIHono<AppEnv>()
+        hono.use(contextStorage())
+        hono.use(withTestRequestLogger)
+        hono.use("*", async (c, next) => {
+          c.set("user", {
+            id: `user_${f.orgId}`,
+          } as AppEnv["Variables"]["user"])
+          c.set("session", {
+            id: `session_${f.orgId}`,
+          } as AppEnv["Variables"]["session"])
+          await next()
+        })
+        hono.route("/conversations", conversationFileRoutes)
+        hono.route("/conversations", conversationRoutes)
+        return hono
+      }
+      const conversation = `/conversations/${f.conversationId}`
+      const base = `${conversation}/files`
+      expect(
+        (
+          await app().request(`${conversation}/prepare`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ workspaceId: f.workspaceId }),
+          })
+        ).status,
+      ).toBe(204)
+      const tree = await app().request(`${base}/tree`)
+      expect(tree.status).toBe(200)
+      const initial = (await tree.json()) as { worktreeVersion: string }
+      const first = await app().request(`${base}/blob`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          path: "notes.md",
+          body: "first write",
+          expectedWorktreeVersion: initial.worktreeVersion,
+        }),
+      })
+      expect(first.status).toBe(200)
+      const firstBody = (await first.json()) as { worktreeVersion: string }
+      expect(firstBody.worktreeVersion).not.toBe(initial.worktreeVersion)
+      const stale = await app().request(`${base}/blob`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          path: "notes.md",
+          body: "stale write",
+          expectedWorktreeVersion: initial.worktreeVersion,
+        }),
+      })
+      expect(stale.status).toBe(409)
+      expect(await stale.json()).toMatchObject({
+        error: "stale_worktree",
+        worktreeVersion: firstBody.worktreeVersion,
+      })
+      const second = await app().request(`${base}/blob`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          path: "notes.md",
+          body: "second write",
+          expectedWorktreeVersion: firstBody.worktreeVersion,
+        }),
+      })
+      expect(second.status).toBe(200)
+      expect(await second.json()).toMatchObject({
+        body: "second write",
+        tree: { paths: expect.arrayContaining(["notes.md"]) },
+        status: { dirty: true },
+      })
+      expect(
+        await (await app().request(`${base}/blob?path=notes.md`)).json(),
+      ).toMatchObject({ body: "second write" })
     })
   },
 )

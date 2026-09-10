@@ -84,6 +84,7 @@ export type WorkspaceGitTreeResponse = {
 export type ConversationGitTreeResponse = WorkspaceGitTreeResponse & {
   branch: string
   ready?: boolean
+  worktreeVersion?: string
 }
 
 export type WorkspaceGitBlobResponse = {
@@ -127,6 +128,7 @@ export type ConversationGitStatusResponse = {
   ahead: number
   behind: number
   items: WorkspaceGitStatusItem[]
+  worktreeVersion?: string
 }
 
 export type ConversationGitDiffItem = {
@@ -144,6 +146,13 @@ export type ConversationFileMutation = {
   body?: string
   deletePath?: boolean
   from?: string
+  expectedWorktreeVersion?: string
+}
+
+export type ConversationFileWriteResponse = WorkspaceGitBlobResponse & {
+  worktreeVersion: string
+  tree: ConversationGitTreeResponse
+  status: ConversationGitStatusResponse
 }
 
 export type ConversationPushResponse = {

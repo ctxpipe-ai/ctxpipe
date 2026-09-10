@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import { userEvent, waitFor, within } from "storybook/test"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   conversationAguiSseResponse,
   conversationAguiTextEvents,
@@ -348,5 +348,58 @@ export const ListInsertOnSend: Story = {
     await waitFor(() => canvas.getByText(/Nav row should already exist/), {
       timeout: SEND_WAIT_MS,
     })
+  },
+}
+
+const lateErrorSends = { count: 0 }
+
+export const LateErrorDoesNotClobberSuccess: Story = {
+  args: threadArgs(docsConversationDetail.messages),
+  parameters: {
+    storyRoute: threadRoute,
+    msw: {
+      handlers: {
+        page: [
+          http.post(conversationPostPath, async () => {
+            lateErrorSends.count += 1
+            if (lateErrorSends.count === 1) {
+              await delay(700)
+              return HttpResponse.json(
+                { error: "Late producer failure" },
+                { status: 500 },
+              )
+            }
+            return conversationAguiSseResponse(
+              conversationAguiTextEvents({
+                threadId: "conv_1",
+                messageId: "msg_recovered",
+                text: "Recovered reply after the late error.",
+              }),
+            )
+          }),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    lateErrorSends.count = 0
+    const canvas = within(canvasElement)
+    await userEvent.type(
+      canvas.getByPlaceholderText(/continue the conversation/i),
+      "First attempt",
+    )
+    await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+    await waitFor(() => canvas.getByRole("alert"), { timeout: SEND_WAIT_MS })
+    await userEvent.type(
+      canvas.getByPlaceholderText(/continue the conversation/i),
+      "Retry after late error",
+    )
+    await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+    await waitFor(
+      () => canvas.getByText(/Recovered reply after the late error/),
+      { timeout: SEND_WAIT_MS },
+    )
+    expect(canvas.queryByText("Late producer failure")).toBeNull()
   },
 }

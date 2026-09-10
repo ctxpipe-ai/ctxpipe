@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { listSandboxInstances } from "../../models/workspaces.js"
 import {
   conversationSessionBranch,
@@ -162,6 +163,52 @@ function isMissingFileError(error: unknown): boolean {
     "code" in error &&
     error.code === "ENOENT"
   )
+}
+
+export function fingerprintConversationWorktree(input: {
+  headSha: string
+  trackedDiff: string
+  untracked: Array<{ path: string; digest: string }>
+}): string {
+  const hash = createHash("sha256")
+  hash.update(`${input.headSha.trim()}\n`)
+  hash.update(input.trackedDiff)
+  hash.update("\n")
+  for (const file of [...input.untracked].sort((a, b) =>
+    a.path.localeCompare(b.path),
+  )) {
+    hash.update(file.path)
+    hash.update("\0")
+    hash.update(file.digest)
+    hash.update("\n")
+  }
+  return hash.digest("hex")
+}
+
+export async function conversationWorktreeVersion(
+  handle: JobSandboxHandle,
+): Promise<string> {
+  const [head, trackedDiff, untrackedRaw] = await Promise.all([
+    execGitOk(handle.exec, "git rev-parse HEAD"),
+    execGitOk(handle.exec, "git diff HEAD"),
+    execGitOk(handle.exec, "git ls-files --others --exclude-standard -z"),
+  ])
+  const untracked: Array<{ path: string; digest: string }> = []
+  for (const path of splitGitNulPaths(untrackedRaw)) {
+    if (!isConversationSandboxListedPath(path)) continue
+    const digest = createHash("sha256")
+    try {
+      digest.update(await handle.fs.read(path))
+    } catch {
+      digest.update("")
+    }
+    untracked.push({ path, digest: digest.digest("hex") })
+  }
+  return fingerprintConversationWorktree({
+    headSha: head,
+    trackedDiff,
+    untracked,
+  })
 }
 
 export async function writeConversationSandboxFile(input: {

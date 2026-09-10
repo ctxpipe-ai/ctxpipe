@@ -1,4 +1,4 @@
-import { queryOptions } from "@tanstack/react-query"
+import { type QueryClient, queryOptions } from "@tanstack/react-query"
 import type { ConversationDetail } from "@/features/chat/types"
 import { getApiClient } from "@/lib/api"
 import { pollWhileOk, readApiJson } from "@/lib/api-result"
@@ -10,6 +10,7 @@ import { conversationSessionBranch } from "./conversationPublish"
 import { destinationAfterMove } from "./fileTreeMutations"
 import type {
   ConversationFileMutation,
+  ConversationFileWriteResponse,
   ConversationGitDiffResponse,
   ConversationGitStatusResponse,
   ConversationGitTreeResponse,
@@ -454,7 +455,7 @@ export async function putConversationFile(
   orgSlug: string,
   conversationId: string,
   input: ConversationFileMutation,
-): Promise<WorkspaceGitBlobResponse> {
+): Promise<ConversationFileWriteResponse> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.conversations[
     ":conversationId"
@@ -465,45 +466,105 @@ export async function putConversationFile(
   return readApiJson(res, { message: "Failed to save conversation file" })
 }
 
+export function conversationWorktreeVersionFromCache(
+  client: QueryClient,
+  orgSlug: string,
+  conversationId: string,
+): string | undefined {
+  const tree = client.getQueryData<ConversationGitTreeResponse>(
+    workspaceKeys.conversationGitTree(orgSlug, conversationId),
+  )
+  if (tree?.worktreeVersion) return tree.worktreeVersion
+  return client.getQueryData<ConversationGitStatusResponse>(
+    workspaceKeys.conversationGitStatus(orgSlug, conversationId),
+  )?.worktreeVersion
+}
+
+export function applyConversationFileWriteSnapshot(
+  client: QueryClient,
+  orgSlug: string,
+  conversationId: string,
+  snapshot: ConversationFileWriteResponse,
+  expectedWorktreeVersion?: string,
+) {
+  const current = conversationWorktreeVersionFromCache(
+    client,
+    orgSlug,
+    conversationId,
+  )
+  if (
+    current &&
+    expectedWorktreeVersion &&
+    current !== expectedWorktreeVersion &&
+    current !== snapshot.worktreeVersion
+  ) {
+    return
+  }
+  client.setQueryData(
+    workspaceKeys.conversationGitTree(orgSlug, conversationId),
+    { ...snapshot.tree, ready: true },
+  )
+  writeConversationGitTreeSnapshot(conversationId, {
+    ...snapshot.tree,
+    ready: true,
+  })
+  client.setQueryData(
+    workspaceKeys.conversationGitStatus(orgSlug, conversationId),
+    snapshot.status,
+  )
+  client.setQueryData(
+    workspaceKeys.conversationGitBlob(orgSlug, conversationId, snapshot.path),
+    {
+      path: snapshot.path,
+      body: snapshot.body,
+      binary: snapshot.binary,
+    },
+  )
+}
+
 export async function persistConversationFileMutation(
   orgSlug: string,
   conversationId: string,
   input: WorkspaceFileJobRequest,
-): Promise<void> {
+  expectedWorktreeVersion?: string,
+): Promise<ConversationFileWriteResponse> {
+  const expected =
+    expectedWorktreeVersion == null ? {} : { expectedWorktreeVersion }
   if (input.op === "save") {
-    await putConversationFile(orgSlug, conversationId, {
+    return putConversationFile(orgSlug, conversationId, {
       path: input.path,
       body: input.content,
+      ...expected,
     })
-    return
   }
   if (input.op === "create") {
     const path = input.kind === "folder" ? `${input.path}/.gitkeep` : input.path
-    await putConversationFile(orgSlug, conversationId, {
+    return putConversationFile(orgSlug, conversationId, {
       path,
       body: input.content ?? "",
+      ...expected,
     })
-    return
   }
   if (input.op === "delete") {
-    await putConversationFile(orgSlug, conversationId, {
+    return putConversationFile(orgSlug, conversationId, {
       path: input.path,
       deletePath: true,
+      ...expected,
     })
-    return
   }
   if (input.op === "rename") {
-    await putConversationFile(orgSlug, conversationId, {
+    return putConversationFile(orgSlug, conversationId, {
       path: input.to,
       from: input.from,
+      ...expected,
     })
-    return
   }
   const to = destinationAfterMove(input.from, input.toDirectory)
   if (!to) throw new Error("Invalid move destination")
-  await putConversationFile(orgSlug, conversationId, {
+  return putConversationFile(orgSlug, conversationId, {
     path: to,
     from: input.from,
+    ...expected,
   })
 }
 

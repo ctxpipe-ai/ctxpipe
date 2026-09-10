@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { HttpResponse, http } from "msw"
 import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { Button } from "@/components/ui/Button"
@@ -196,6 +197,12 @@ export const SocketCleansUpOnLeave: Story = {
       return socket
     }
     TrackingWebSocket.prototype = Original.prototype
+    Object.assign(TrackingWebSocket, {
+      CONNECTING: Original.CONNECTING,
+      OPEN: Original.OPEN,
+      CLOSING: Original.CLOSING,
+      CLOSED: Original.CLOSED,
+    })
     window.WebSocket = TrackingWebSocket as unknown as typeof WebSocket
     try {
       await userEvent.click(
@@ -221,5 +228,186 @@ export const SocketCleansUpOnLeave: Story = {
     } finally {
       window.WebSocket = Original
     }
+  },
+}
+
+function ReloadReconnectHarness() {
+  const [generation, setGeneration] = useState(0)
+  return (
+    <div className="flex h-full min-h-0 flex-1 flex-col">
+      <div className="flex gap-2 p-2">
+        <Button
+          variant="secondary"
+          onPress={() => setGeneration((current) => current + 1)}
+        >
+          Reload conversation
+        </Button>
+      </div>
+      <WorkspaceChat
+        key={generation}
+        orgSlug="acme"
+        workspace={docsWorkspace}
+        conversationId="conv_1"
+      />
+    </div>
+  )
+}
+
+export const ReloadReconnects: Story = {
+  render: () => <ReloadReconnectHarness />,
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      conversationId: "conv_1",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: workspaceShellHandlers(),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const Original = window.WebSocket
+    let openCount = 0
+    function TrackingWebSocket(
+      url: string | URL,
+      protocols?: string | string[],
+    ) {
+      const socket = protocols
+        ? new Original(url, protocols)
+        : new Original(url)
+      if (String(socket.url).includes("/conversations/")) openCount += 1
+      return socket
+    }
+    TrackingWebSocket.prototype = Original.prototype
+    Object.assign(TrackingWebSocket, {
+      CONNECTING: Original.CONNECTING,
+      OPEN: Original.OPEN,
+      CLOSING: Original.CLOSING,
+      CLOSED: Original.CLOSED,
+    })
+    window.WebSocket = TrackingWebSocket as unknown as typeof WebSocket
+    try {
+      expect(
+        await canvas.findByPlaceholderText(/continue the conversation/i),
+      ).toBeVisible()
+      await waitFor(() => {
+        expect(openCount).toBeGreaterThan(0)
+      })
+      const openedBeforeReload = openCount
+      await userEvent.click(
+        canvas.getByRole("button", { name: "Reload conversation" }),
+      )
+      expect(
+        await canvas.findByPlaceholderText(/continue the conversation/i),
+      ).toBeVisible()
+      await waitFor(() => {
+        expect(openCount).toBeGreaterThan(openedBeforeReload)
+      })
+    } finally {
+      window.WebSocket = Original
+    }
+  },
+}
+
+function RapidRouteHarness() {
+  const [conversationId, setConversationId] = useState<string | undefined>(
+    "conv_1",
+  )
+  return (
+    <div className="flex h-full min-h-0 flex-1 flex-col">
+      <div className="flex flex-wrap gap-2 p-2">
+        <Button variant="secondary" onPress={() => setConversationId("conv_1")}>
+          Open ready
+        </Button>
+        <Button
+          variant="secondary"
+          onPress={() => setConversationId("conv_missing")}
+        >
+          Open missing
+        </Button>
+        <Button
+          variant="secondary"
+          onPress={() => setConversationId("conv_other")}
+        >
+          Open foreign
+        </Button>
+        <Button
+          variant="secondary"
+          onPress={() => setConversationId(undefined)}
+        >
+          Open compose
+        </Button>
+      </div>
+      <WorkspaceChat
+        orgSlug="acme"
+        workspace={docsWorkspace}
+        conversationId={conversationId}
+      />
+    </div>
+  )
+}
+
+export const RapidRouteChanges: Story = {
+  render: () => <RapidRouteHarness />,
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+$/.test(
+                new URL(request.url).pathname,
+              ),
+            ({ request }) => {
+              const id = new URL(request.url).pathname.split("/").pop()
+              if (id === "conv_missing") {
+                return HttpResponse.json(
+                  { error: "not found" },
+                  { status: 404 },
+                )
+              }
+              if (id === "conv_other") {
+                return HttpResponse.json({
+                  ...docsConversationDetail,
+                  conversation: {
+                    ...docsConversationDetail.conversation,
+                    id: "conv_other",
+                    workspaceId: "ws_other",
+                  },
+                })
+              }
+              return HttpResponse.json(docsConversationDetail)
+            },
+          ),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getByRole("button", { name: "Open missing" }))
+    await userEvent.click(canvas.getByRole("button", { name: "Open foreign" }))
+    expect(
+      await canvas.findByRole("heading", { name: "Conversation not found" }),
+    ).toBeVisible()
+    await userEvent.click(canvas.getByRole("button", { name: "Open missing" }))
+    expect(
+      await canvas.findByPlaceholderText(/ask about this workspace/i),
+    ).toBeVisible()
+    expect(
+      canvas.queryByRole("heading", { name: "Conversation not found" }),
+    ).toBeNull()
+    await userEvent.click(canvas.getByRole("button", { name: "Open ready" }))
+    expect(
+      await canvas.findByPlaceholderText(/continue the conversation/i),
+    ).toBeVisible()
+    expect(
+      canvas.queryByRole("heading", { name: "Conversation not found" }),
+    ).toBeNull()
   },
 }

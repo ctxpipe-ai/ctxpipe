@@ -7,6 +7,7 @@ import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-s
 import {
   conversationSandboxDiff,
   conversationSandboxStatus,
+  conversationWorktreeVersion,
   getConversationSandboxBinding,
   listConversationSandboxPaths,
   readConversationSandboxFile,
@@ -21,6 +22,7 @@ import {
   pushConversationSessionBranch,
 } from "../../domain/workspaces/conversation-publish.js"
 import { adaptTanstackHandle } from "../../domain/workspaces/job-sandbox.js"
+import type { JobSandboxHandle } from "../../domain/workspaces/job-worktree.js"
 import { postgresSandboxLocks } from "../../domain/workspaces/sandbox-lock-store.js"
 import { warmTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
 import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
@@ -49,6 +51,7 @@ const ConversationGitTreeResponseSchema = z
     sha: z.string(),
     paths: z.array(z.string()),
     branch: z.string(),
+    worktreeVersion: z.string(),
   })
   .openapi("ConversationGitTreeResponse")
 
@@ -87,6 +90,7 @@ const ConversationGitStatusResponseSchema = z
         deletions: z.number().int().optional(),
       }),
     ),
+    worktreeVersion: z.string(),
   })
   .openapi("ConversationGitStatusResponse")
 
@@ -108,8 +112,27 @@ const PutConversationFileBodySchema = z
     body: z.string().optional(),
     deletePath: z.boolean().optional(),
     from: z.string().min(1).optional(),
+    expectedWorktreeVersion: z.string().min(1).optional(),
   })
   .openapi("PutConversationFileBody")
+
+const ConversationFileWriteResponseSchema = z
+  .object({
+    path: z.string(),
+    body: z.string().nullable(),
+    binary: z.boolean(),
+    worktreeVersion: z.string(),
+    tree: ConversationGitTreeResponseSchema,
+    status: ConversationGitStatusResponseSchema,
+  })
+  .openapi("ConversationFileWriteResponse")
+
+const ConversationFileConflictSchema = z
+  .object({
+    error: z.string(),
+    worktreeVersion: z.string().optional(),
+  })
+  .openapi("ConversationFileConflictResponse")
 
 const ConversationPushResponseSchema = z
   .object({
@@ -279,7 +302,7 @@ const putFileRoute = createRoute({
     },
     200: {
       content: {
-        "application/json": { schema: ConversationGitBlobResponseSchema },
+        "application/json": { schema: ConversationFileWriteResponseSchema },
       },
       description: "Wrote sandbox file",
     },
@@ -300,8 +323,10 @@ const putFileRoute = createRoute({
       description: "Sandbox provider unavailable",
     },
     409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Chat sandbox missing",
+      content: {
+        "application/json": { schema: ConversationFileConflictSchema },
+      },
+      description: "Chat sandbox missing or stale worktree",
     },
   },
 })
@@ -422,6 +447,50 @@ export async function readySandboxHandle(
   }
 }
 
+async function conversationFileSnapshot(input: {
+  handle: JobSandboxHandle
+  conversationId: string
+  workspace: { id: string; desiredDefaultBranch?: string | null }
+}) {
+  const defaultBranch = input.workspace.desiredDefaultBranch?.trim() || "main"
+  const [paths, branchResult, status, worktreeVersion, revision] =
+    await Promise.all([
+      listConversationSandboxPaths(input.handle),
+      input.handle.exec("git branch --show-current"),
+      conversationSandboxStatus({
+        handle: input.handle,
+        defaultBranch,
+        sessionBranch: sessionBranchName(input.conversationId),
+      }),
+      conversationWorktreeVersion(input.handle),
+      getDesiredWorkspaceRevision(input.workspace.id),
+    ])
+  if (branchResult.exitCode !== 0) {
+    throw new Error("Conversation branch is unavailable")
+  }
+  const branch = branchResult.stdout.trim()
+  const binding = revision
+    ? await getConversationSandboxBinding(input.conversationId, revision)
+    : null
+  return {
+    worktreeVersion,
+    tree: {
+      sha: binding?.desiredSha ?? "HEAD",
+      paths,
+      branch,
+      worktreeVersion,
+    },
+    status: {
+      source: "sandbox" as const,
+      ...status,
+      sha: binding?.desiredSha ?? null,
+      desiredSha: revision?.sha ?? null,
+      stale: binding?.desiredSha !== revision?.sha,
+      worktreeVersion,
+    },
+  }
+}
+
 type ConversationFileEnv = AppEnv & {
   Variables: { sandboxAbortSignal: AbortSignal }
 }
@@ -463,16 +532,27 @@ export const conversationFileRoutes = fileRoutes
     const ready = await readySandboxHandle({ ...loaded, existingOnly: true })
     if (!ready.ok) return c.json({ error: ready.error }, ready.status)
     const { handle } = ready
-    const paths = await listConversationSandboxPaths(handle)
-    const branchResult = await handle.exec("git branch --show-current")
+    const [paths, branchResult, worktreeVersion, revision] = await Promise.all([
+      listConversationSandboxPaths(handle),
+      handle.exec("git branch --show-current"),
+      conversationWorktreeVersion(handle),
+      getDesiredWorkspaceRevision(loaded.workspace.id),
+    ])
     if (branchResult.exitCode !== 0)
       throw new Error("Conversation branch is unavailable")
     const branch = branchResult.stdout.trim()
-    const revision = await getDesiredWorkspaceRevision(loaded.workspace.id)
     const binding = revision
       ? await getConversationSandboxBinding(conversationId, revision)
       : null
-    return c.json({ sha: binding?.desiredSha ?? "HEAD", paths, branch }, 200)
+    return c.json(
+      {
+        sha: binding?.desiredSha ?? "HEAD",
+        paths,
+        branch,
+        worktreeVersion,
+      },
+      200,
+    )
   })
   .openapi(getBlobRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
@@ -503,12 +583,15 @@ export const conversationFileRoutes = fileRoutes
     const { handle } = ready
     const defaultBranch =
       loaded.workspace.desiredDefaultBranch?.trim() || "main"
-    const status = await conversationSandboxStatus({
-      handle,
-      defaultBranch,
-      sessionBranch: sessionBranchName(conversationId),
-    })
-    const revision = await getDesiredWorkspaceRevision(loaded.workspace.id)
+    const [status, worktreeVersion, revision] = await Promise.all([
+      conversationSandboxStatus({
+        handle,
+        defaultBranch,
+        sessionBranch: sessionBranchName(conversationId),
+      }),
+      conversationWorktreeVersion(handle),
+      getDesiredWorkspaceRevision(loaded.workspace.id),
+    ])
     const binding = revision
       ? await getConversationSandboxBinding(conversationId, revision)
       : null
@@ -519,6 +602,7 @@ export const conversationFileRoutes = fileRoutes
         sha: binding?.desiredSha ?? null,
         desiredSha: revision?.sha ?? null,
         stale: binding?.desiredSha !== revision?.sha,
+        worktreeVersion,
       },
       200,
     )
@@ -559,29 +643,47 @@ export const conversationFileRoutes = fileRoutes
     if (!ready.ok) return c.json({ error: ready.error }, ready.status)
     const { handle } = ready
     const body = PutConversationFileBodySchema.parse(await c.req.json())
+    const currentVersion = await conversationWorktreeVersion(handle)
+    if (
+      body.expectedWorktreeVersion != null &&
+      body.expectedWorktreeVersion !== currentVersion
+    ) {
+      return c.json(
+        { error: "stale_worktree", worktreeVersion: currentVersion },
+        409,
+      )
+    }
     if (body.deletePath) {
       await removeConversationSandboxPath({ handle, path: body.path })
-      return c.json({ path: body.path, body: null, binary: false }, 200)
+    } else {
+      if (body.from && body.from !== body.path) {
+        await renameConversationSandboxPath({
+          handle,
+          from: body.from,
+          to: body.path,
+        })
+      }
+      if (body.body != null) {
+        await writeConversationSandboxFile({
+          handle,
+          path: body.path,
+          body: body.body,
+        })
+      }
     }
-    if (body.from && body.from !== body.path) {
-      await renameConversationSandboxPath({
-        handle,
-        from: body.from,
-        to: body.path,
-      })
-    }
-    if (body.body != null) {
-      await writeConversationSandboxFile({
-        handle,
-        path: body.path,
-        body: body.body,
-      })
-    }
+    const snapshot = await conversationFileSnapshot({
+      handle,
+      conversationId,
+      workspace: loaded.workspace,
+    })
     return c.json(
       {
         path: body.path,
-        body: body.body ?? null,
+        body: body.deletePath ? null : (body.body ?? null),
         binary: false,
+        worktreeVersion: snapshot.worktreeVersion,
+        tree: snapshot.tree,
+        status: snapshot.status,
       },
       200,
     )
