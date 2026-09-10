@@ -495,14 +495,28 @@ function WorkspaceFilesPaneContent(props: {
 
   const persistWithStaleRetry = useCallback(
     async (input: WorkspaceFileJobRequest) => {
-      try {
-        await jobMutation.mutateAsync(input)
-      } catch (error) {
-        if (
-          error instanceof ApiError &&
-          error.body.error === "stale_worktree" &&
-          props.conversationId
-        ) {
+      let attempt = 0
+      while (true) {
+        try {
+          await jobMutation.mutateAsync(input)
+          return
+        } catch (error) {
+          if (
+            !(error instanceof ApiError) ||
+            error.body.error !== "stale_worktree" ||
+            !props.conversationId ||
+            attempt >= 7
+          ) {
+            if (attempt > 0) {
+              setJobError(
+                error instanceof Error
+                  ? error.message
+                  : "Failed to save file changes",
+              )
+            }
+            throw error
+          }
+          attempt += 1
           const version = error.body.worktreeVersion
           if (version) {
             const treeKey = workspaceKeys.conversationGitTree(
@@ -547,19 +561,7 @@ function WorkspaceFilesPaneContent(props: {
               }),
             ])
           }
-          try {
-            await jobMutation.mutateAsync(input)
-          } catch (retryError) {
-            setJobError(
-              retryError instanceof Error
-                ? retryError.message
-                : "Failed to save file changes",
-            )
-            throw retryError
-          }
-          return
         }
-        throw error
       }
     },
     [jobMutation, props.conversationId, props.orgSlug, queryClient],
@@ -631,14 +633,16 @@ function WorkspaceFilesPaneContent(props: {
   useEffect(() => {
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-      const path = pendingSavePathRef.current ?? latestDraftRef.current?.path
-      if (!writableRef.current || !path || !props.conversationId) return
-      const content =
-        latestDraftRef.current?.path === path
-          ? latestDraftRef.current.body
-          : draftsRef.current[path]
-      if (content === undefined) return
-      void enqueueWrite({ op: "save", path, content })
+      if (!writableRef.current || !props.conversationId) return
+      const drafts = { ...draftsRef.current }
+      if (latestDraftRef.current) {
+        drafts[latestDraftRef.current.path] = latestDraftRef.current.body
+      }
+      for (const [path, content] of Object.entries(drafts)) {
+        if (content === undefined) continue
+        void enqueueWrite({ op: "save", path, content })
+      }
+      void Promise.all([...writeQueuesRef.current.values()])
     }
   }, [enqueueWrite, props.conversationId])
 
