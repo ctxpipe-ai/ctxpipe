@@ -73,7 +73,7 @@ describe("MCP operation builders", () => {
       mcpServers: {
         other: { url: "x" },
         ctxpipe: {
-          type: "streamable-http",
+          type: "http",
           url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
         },
       },
@@ -231,7 +231,7 @@ describe("MCP operation builders", () => {
     expect(writeJson(userOp).content({})).toEqual({
       mcpServers: {
         ctxpipe: {
-          type: "streamable-http",
+          type: "http",
           url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
           headers: header,
         },
@@ -240,7 +240,7 @@ describe("MCP operation builders", () => {
     expect(writeJson(repoOp).content({})).toEqual({
       mcpServers: {
         ctxpipe: {
-          type: "streamable-http",
+          type: "http",
           url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
           headers: header,
         },
@@ -397,7 +397,7 @@ describe("MCP operation builders", () => {
     expect(writeJson(operations[0]).content({})).toEqual({
       mcpServers: {
         ctxpipe: {
-          type: "streamable-http",
+          type: "http",
           url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
           headers: { "x-api-key": `\${env:CTXPIPE_API_KEY}` },
         },
@@ -442,7 +442,7 @@ describe("MCP operation builders", () => {
     expect(writeJson(operation).content({})).toEqual({
       mcpServers: {
         ctxpipe: {
-          type: "streamable-http",
+          type: "http",
           url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
           headers: { "x-api-key": `\${CTXPIPE_API_KEY}` },
         },
