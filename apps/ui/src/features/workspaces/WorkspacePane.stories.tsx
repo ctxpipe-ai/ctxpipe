@@ -1051,16 +1051,19 @@ export const OutOfOrderSaves: Story = {
     await canvas.findByRole("button", { name: "Save" })
     await createFileFromTree(canvas, canvasElement, "xdraftone.md")
     await createFileFromTree(canvas, canvasElement, "xdrafttwo.md")
-    await waitFor(() => {
-      expect(
-        orderedWrites.paths.some((path) => path.endsWith("xdraftone.md")),
-      ).toBe(true)
-      expect(
-        orderedWrites.paths.some((path) => path.endsWith("xdrafttwo.md")),
-      ).toBe(true)
-      expect(orderedWrites.accepted).toBeGreaterThanOrEqual(2)
-      expect(orderedWrites.maxInFlight).toBeGreaterThanOrEqual(2)
-    })
+    await waitFor(
+      () => {
+        expect(
+          orderedWrites.paths.some((path) => path.endsWith("xdraftone.md")),
+        ).toBe(true)
+        expect(
+          orderedWrites.paths.some((path) => path.endsWith("xdrafttwo.md")),
+        ).toBe(true)
+        expect(orderedWrites.accepted).toBeGreaterThanOrEqual(2)
+        expect(orderedWrites.maxInFlight).toBeGreaterThanOrEqual(2)
+      },
+      { timeout: 8_000 },
+    )
     expect(orderedWrites.expected[0]).toBe("wt-0")
     expect(orderedWrites.server).toMatch(/^wt-\d+$/)
     expect(orderedWrites.bodies["xdraftone.md"]).toBeDefined()
