@@ -948,7 +948,7 @@ export const OutOfOrderSaves: Story = {
   args: {
     conversationId: "conv_1",
     pane: { kind: "file", path: ledgerPath },
-    fileTabs: [ledgerPath],
+    fileTabs: [ledgerPath, agentsPath],
     previewPath: ledgerPath,
   },
   parameters: {
@@ -1092,7 +1092,10 @@ export const OutOfOrderSaves: Story = {
     await canvas.findByRole("button", { name: "Save" })
     await typeInPierreEditor(canvasElement, "ooo-save-one")
     await saveDirtyEditor(canvas)
-    await selectTreePath(canvasElement, agentsPath)
+    await userEvent.click(canvas.getByRole("tab", { name: "AGENTS.md" }))
+    await waitFor(() => {
+      expect(pierreEditorHost(canvasElement)?.hasPierreEditor?.()).toBe(true)
+    })
     await typeInPierreEditor(canvasElement, "ooo-save-two")
     await saveDirtyEditor(canvas)
     await waitFor(
