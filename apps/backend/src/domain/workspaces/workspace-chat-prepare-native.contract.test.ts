@@ -149,6 +149,49 @@ it.each(["railway", "docker"] as const)(
 )
 
 it(
+  "retries Docker image inspection after a missing image",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      workspaceChatDockerOwnership.reset()
+      process.env.SANDBOX_PROVIDER = "docker"
+      process.env.SANDBOX_CHAT_IMAGE = `ctxpipe-missing-${f.orgId}:unavailable`
+      const input = {
+        conversationId: f.conversationId,
+        orgId: f.orgId,
+        orgSlug: f.orgSlug,
+        workspaceId: f.workspaceId,
+        desiredUrl: "https://github.com/ctxpipe-ai/ctxpipe.git",
+        desiredSha: f.sha,
+        defaultBranch: "main",
+        writeStatus: "read_only" as const,
+        prompt: "prepare",
+      }
+      const first = await warmTanstackWorkspaceChat(input)
+      expect(first).toMatchObject({ ok: false, status: 503 })
+      expect(workspaceChatDockerOwnership.imageInspects).toBe(1)
+      const second = await warmTanstackWorkspaceChat(input)
+      expect(second).toMatchObject({ ok: false, status: 503 })
+      expect(workspaceChatDockerOwnership.imageInspects).toBe(2)
+    })
+  },
+)
+
+it("refuses nested OpenCode forwards that collide with the quota Docker API", async () => {
+  const previous = process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT
+  process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT = "32768"
+  try {
+    await expect(
+      startNestedPortForward({ runnerId: "unused", port: 32768 }),
+    ).rejects.toThrow(/quota Docker API/)
+  } finally {
+    if (previous === undefined)
+      delete process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT
+    else process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT = previous
+  }
+})
+
+it(
   "prepare preserves the native worktree while refreshing its credentials",
   { timeout: 60_000 },
   async () => {
@@ -397,6 +440,7 @@ it(
                   writeStatus: "read_only",
                   prompt: "prepare",
                 }
+                workspaceChatDockerOwnership.reset()
                 const first = await warmTanstackWorkspaceChat(input)
                 if (!first.ok) throw new Error(first.error)
                 expect(
@@ -623,6 +667,7 @@ it(
                       prompt: "prepare",
                     })
                     if (!first.ok) throw new Error(first.error)
+                    expect(workspaceChatDockerOwnership.imageInspects).toBe(1)
                     const container = await docker
                       .getContainer(first.handle.id)
                       .inspect()
@@ -1697,6 +1742,12 @@ async function startNestedPortForward(input: {
   runnerId: string
   port: number
 }): Promise<{ stop: () => Promise<void> }> {
+  const quotaPort = Number(process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT)
+  if (quotaPort === input.port) {
+    throw new Error(
+      `Nested OpenCode host port ${input.port} collides with the quota Docker API`,
+    )
+  }
   const children = new Set<ChildProcess>()
   const sockets = new Set<Socket>()
   const server = createServer((socket) => {

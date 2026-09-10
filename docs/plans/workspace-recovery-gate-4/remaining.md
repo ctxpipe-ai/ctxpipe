@@ -14,7 +14,7 @@ git history.
 | G4-C | Warm reuse, captured revision, credentials, native shared bases/forks and provider selection | Warm GitHub budget, base reuse, revision conflicts/repair, process loss, Docker replacement and image collection pass. Quota-Docker chat on CI `34410598235` streams two production-broker turns under 1 CPU / 1 GiB / 128 PID / 4G, binds the HTTPS workspace remote, and recovers a new handle after provider destroy. Credential renewal stays in the focused Git helper contract |
 | G4-D | Files/publish/delete/idle use native handles; remove duplicate ownership/repair layers | Registry, memo and manual terminal repair removed; Files/publication/cancellation, persisted-first MCP targets and branch/run ownership pass; collision guards pass; final audit remains open |
 | G4-E | Railway SDK conformance, live Bun chat and honest provider/deployment behavior | Native Docker capabilities have focused proof; sbx fails closed because disk/PID limits are unavailable; Railway is a 503 selector only — no provider, SDK dependency, or live proof. The prepare contract asserts that exact 503 without allocating a sandbox. SDK 3.11.0 also lacks CPU/memory/PID/disk/user/egress controls. Access is necessary but not sufficient |
-| G4-F | Full entry-point audit, focused native evidence, full CI and two cumulative zero-blocker reviews | Full CI `34410598235` on `6f5c753b` is green (29/29; contracts 332/332). Two independent cumulative Sol reviews remain |
+| G4-F | Full entry-point audit, focused native evidence, full CI and two cumulative zero-blocker reviews | Reviews of `f8e4fae9` closed the code axes. Exact-HEAD CI `34418188719` failed two quota-Docker contracts; last fully green journey remains `34410598235` on `6f5c753b` (29/29; contracts 332/332) |
 
 Key evidence:
 
@@ -64,13 +64,15 @@ Key evidence:
    necessary but not sufficient. The prepare contract asserts the exact
    railway 503 without allocating a sandbox. Do not implement an SDK
    provider.
-5. Independent reviews of `032c5b23` and `058a4a3b` both returned
-   `BLOCKED`. Shared remaining items after `058a4a3b`: conversation-keyed
-   OTEL attribution and a composed warm Send proof. This SHA binds proxy
-   telemetry to the minted `runId` and retains a warm Send (zero extra
-   provider creates, at most one ensure, useful answer). Do not write
-   `Gate 4:` until both reviews are re-run at zero blockers and full CI is
-   green. Reports:
+5. Independent reviews of `f8e4fae9` both returned `CLOSE_GATE_4` on the
+   code axes (run-keyed proxy telemetry and composed warm Send). Exact-HEAD
+   CI [34418188719](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34418188719)
+   then failed two quota-Docker contracts: a rejected image inspect from
+   the missing-image fail-closed test was reused, and nested OpenCode
+   HostPort `32768` collided with the quota Docker API. This SHA drops
+   failed inspects, keys successful inspects by daemon and image, and
+   publishes the quota API on `127.0.0.1:23755-23799`. Do not write
+   `Gate 4:` until this SHA's full CI is green. Earlier reports:
    [032c5b23 A](checkpoint-032c5b23-reviewer-a.md),
    [032c5b23 B](checkpoint-032c5b23-reviewer-b.md),
    [058a4a3b A](checkpoint-058a4a3b-reviewer-a.md),
@@ -79,9 +81,9 @@ Key evidence:
 ## Current CI and cost controls
 
 CI [34410598235](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34410598235)
-on `6f5c753b` is green: backend 1201, contracts 332, UI 292, CLI 93,
-CDK 32. Do not dispatch a duplicate of an unchanged SHA. The next SHA
-is the Gate 4 ledger/review close, not a CI retry.
+on `6f5c753b` is the last fully green journey SHA (backend 1201, contracts
+332, UI 292, CLI 93, CDK 32). Do not dispatch a duplicate of an unchanged
+SHA. The next required green is this inspect-cache and quota-port fix.
 
 Backend/UI diagnostic allowances are 124/223, with no additions. Gate 6 must
 resolve them. The current complete backend check passes with 124 diagnostics; the unchanged

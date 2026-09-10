@@ -170,10 +170,13 @@ type DockerChatSandbox = {
 }
 
 const dockerChatSandboxes = new Map<string, DockerChatSandbox>()
-let dockerImageInspect: Promise<{
-  agentImageId: string
-  proxyImageId: string
-}> | null = null
+const dockerImageInspects = new Map<
+  string,
+  Promise<{
+    agentImageId: string
+    proxyImageId: string
+  }>
+>()
 
 /** Test-visible ownership counters. Image inspect and provider create happen once per process/policy. */
 export const workspaceChatDockerOwnership = {
@@ -184,7 +187,7 @@ export const workspaceChatDockerOwnership = {
     this.imageInspects = 0
     this.providerCreates = 0
     this.ensures = 0
-    dockerImageInspect = null
+    dockerImageInspects.clear()
     dockerChatSandboxes.clear()
   },
 }
@@ -213,8 +216,19 @@ const LOCAL_CHAT_SANDBOX_DEFINITION = trackSandboxDefinition(
   ),
 )
 
+function dockerImageInspectKey() {
+  return [
+    process.env.DOCKER_HOST?.trim() ?? "",
+    workspaceChatDockerImage(),
+    WORKSPACE_CHAT_DOCKER_SANDBOX.image,
+  ].join("\0")
+}
+
 function inspectWorkspaceChatDockerImages() {
-  dockerImageInspect ??= (async () => {
+  const key = dockerImageInspectKey()
+  const cached = dockerImageInspects.get(key)
+  if (cached) return cached
+  const pending = (async () => {
     workspaceChatDockerOwnership.imageInspects += 1
     const docker = new Docker({ timeout: 30_000 })
     const [agentImage, proxyImage] = await Promise.all([
@@ -223,7 +237,12 @@ function inspectWorkspaceChatDockerImages() {
     ])
     return { agentImageId: agentImage.Id, proxyImageId: proxyImage.Id }
   })()
-  return dockerImageInspect
+  dockerImageInspects.set(key, pending)
+  pending.catch(() => {
+    if (dockerImageInspects.get(key) === pending)
+      dockerImageInspects.delete(key)
+  })
+  return pending
 }
 
 async function workspaceChatDockerSandbox(input: {

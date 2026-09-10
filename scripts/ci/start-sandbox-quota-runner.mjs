@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process"
 import { appendFile } from "node:fs/promises"
 import { createRequire } from "node:module"
+import { createServer } from "node:net"
 import { setTimeout } from "node:timers/promises"
 import { promisify } from "node:util"
 
@@ -10,6 +11,23 @@ const requireBackend = createRequire(
 const Docker = requireBackend("dockerode")
 const docker = new Docker({ timeout: 15_000, version: "v1.44" })
 const exec = promisify(execFile)
+
+/** Keep the nested Docker API off the host ephemeral range (32768+) used for published OpenCode ports. */
+async function reservedQuotaApiPort() {
+  for (let port = 23755; port <= 23799; port++) {
+    const free = await new Promise((resolve) => {
+      const server = createServer()
+      server.once("error", () => resolve(false))
+      server.listen(port, "127.0.0.1", () => {
+        server.close(() => resolve(true))
+      })
+    })
+    if (free) return String(port)
+  }
+  throw new Error(
+    "No reserved loopback port available for the quota Docker API",
+  )
+}
 const chatImage = "ctxpipe-chat-sandbox:opencode-1.18.18"
 const proxyImage =
   "node@sha256:8a34c4ab3ea2c5cd194f07e317b2a8f09461d3c8b05c4e34c8ccd56d56024c4d"
@@ -28,7 +46,7 @@ const { stdout } = await exec(
     "--env",
     "CTXPIPE_SANDBOX_STORAGE_GIB=12",
     "--publish",
-    "127.0.0.1::2375",
+    `127.0.0.1:${await reservedQuotaApiPort()}:2375`,
     process.env.CTXPIPE_QUOTA_RUNNER_IMAGE ?? "ctxpipe-sandbox-runner:ci",
   ],
   { timeout: 15_000 },
