@@ -96,16 +96,26 @@ it(
               )
             })
           const save = () =>
-            withOrgIdContext(f.org, async () =>
-              app.request(`/conversations/${conversationId}/files/blob`, {
-                method: "PUT",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({
-                  path: "notes.md",
-                  body: "# Conversation edit\n",
-                }),
-              }),
-            )
+            withOrgIdContext(f.org, async () => {
+              const tree = await app.request(
+                `/conversations/${conversationId}/files/tree`,
+              )
+              const { worktreeVersion } = (await tree.json()) as {
+                worktreeVersion?: string
+              }
+              return app.request(
+                `/conversations/${conversationId}/files/blob`,
+                {
+                  method: "PUT",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({
+                    path: "notes.md",
+                    body: "# Conversation edit\n",
+                    expectedWorktreeVersion: worktreeVersion,
+                  }),
+                },
+              )
+            })
           await setReason(WRITE_STATUS_REASONS.protectedBranch)
           expect(await capabilities()).toMatchObject({
             writeStatus: "read_only",

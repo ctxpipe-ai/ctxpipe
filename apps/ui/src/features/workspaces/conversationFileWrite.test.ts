@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   applyConversationFileWriteSnapshot,
   conversationWorktreeVersionFromCache,
+  resolveConversationWorktreeVersion,
   workspaceKeys,
 } from "./queries"
 import type { ConversationFileWriteResponse } from "./types"
@@ -79,5 +80,17 @@ describe("conversation file write snapshots", () => {
         workspaceKeys.conversationGitBlob("acme", "conv_1", "notes.md"),
       ),
     ).toMatchObject({ body: "second" })
+  })
+
+  it("resolves a cached worktree version without fetching", async () => {
+    const client = new QueryClient()
+    client.setQueryData(workspaceKeys.conversationGitTree("acme", "conv_1"), {
+      sha: "HEAD",
+      paths: ["notes.md"],
+      worktreeVersion: "v9",
+    })
+    await expect(
+      resolveConversationWorktreeVersion(client, "acme", "conv_1"),
+    ).resolves.toBe("v9")
   })
 })

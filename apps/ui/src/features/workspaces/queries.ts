@@ -130,36 +130,6 @@ export async function prepareWorkspaceChat(
   }
 }
 
-/** First-message command: ensure + start the stock conversation POST. */
-export async function startWorkspaceConversation(
-  orgSlug: string,
-  input: { conversationId: string; workspaceId: string; text: string },
-): Promise<void> {
-  const client = await getApiClient()
-  const res = await client[":orgSlug"].api.v1.conversations[
-    ":conversationId"
-  ].$post({
-    param: { orgSlug, conversationId: input.conversationId },
-    json: {
-      messages: [
-        {
-          id: `user-${input.conversationId}`,
-          role: "user",
-          content: input.text,
-        },
-      ],
-      tools: [],
-      context: [],
-      threadId: input.conversationId,
-      forwardedProps: { workspaceId: input.workspaceId, source: "ui" },
-    },
-  })
-  if (!res.ok) {
-    throw new Error("Failed to start conversation")
-  }
-  void res.text()
-}
-
 export async function fetchWorkspaceFiles(
   orgSlug: string,
   workspaceSlug: string,
@@ -480,6 +450,31 @@ export function conversationWorktreeVersionFromCache(
   )?.worktreeVersion
 }
 
+export async function resolveConversationWorktreeVersion(
+  client: QueryClient,
+  orgSlug: string,
+  conversationId: string,
+): Promise<string> {
+  const cached = conversationWorktreeVersionFromCache(
+    client,
+    orgSlug,
+    conversationId,
+  )
+  if (cached) return cached
+  const tree = await fetchConversationGitTree(orgSlug, conversationId)
+  if (!tree?.worktreeVersion) {
+    throw new Error("Conversation worktree version is missing")
+  }
+  client.setQueryData(
+    workspaceKeys.conversationGitTree(orgSlug, conversationId),
+    {
+      ...tree,
+      ready: true,
+    },
+  )
+  return tree.worktreeVersion
+}
+
 export function applyConversationFileWriteSnapshot(
   client: QueryClient,
   orgSlug: string,
@@ -526,10 +521,9 @@ export async function persistConversationFileMutation(
   orgSlug: string,
   conversationId: string,
   input: WorkspaceFileJobRequest,
-  expectedWorktreeVersion?: string,
+  expectedWorktreeVersion: string,
 ): Promise<ConversationFileWriteResponse> {
-  const expected =
-    expectedWorktreeVersion == null ? {} : { expectedWorktreeVersion }
+  const expected = { expectedWorktreeVersion }
   if (input.op === "save") {
     return putConversationFile(orgSlug, conversationId, {
       path: input.path,

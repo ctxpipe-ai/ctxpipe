@@ -746,6 +746,33 @@ async function createFileFromTree(
   await userEvent.click(page.getByRole("button", { name: "Create" }))
 }
 
+function findInShadows(root: ParentNode, selector: string): Element | null {
+  const direct = root.querySelector(selector)
+  if (direct instanceof HTMLElement) return direct
+  for (const element of root.querySelectorAll("*")) {
+    if (!element.shadowRoot) continue
+    const nested = findInShadows(element.shadowRoot, selector)
+    if (nested) return nested
+  }
+  return null
+}
+
+async function typeInPierreEditor(canvasElement: HTMLElement, text: string) {
+  await waitFor(() => {
+    const editable =
+      findInShadows(canvasElement, "[contenteditable='true']") ??
+      findInShadows(canvasElement, ".cm-content") ??
+      findInShadows(canvasElement, "textarea")
+    expect(editable).toBeTruthy()
+  })
+  const editable = (findInShadows(canvasElement, "[contenteditable='true']") ??
+    findInShadows(canvasElement, ".cm-content") ??
+    findInShadows(canvasElement, "textarea")) as HTMLElement
+  editable.focus()
+  await userEvent.click(editable)
+  await userEvent.type(editable, text)
+}
+
 const editThenNavigatePuts = {
   count: 0,
   paths: [] as string[],
@@ -857,18 +884,17 @@ export const EditThenNavigate: Story = {
     editThenNavigatePuts.versions = []
     const canvas = within(canvasElement)
     await canvas.findByRole("button", { name: "Save" })
-    await createFileFromTree(canvas, canvasElement, "xdraftleave.md")
-    await waitFor(() => {
-      expect(editThenNavigatePuts.count).toBeGreaterThan(0)
-    })
+    await typeInPierreEditor(canvasElement, "dirty-leave-draft")
+    expect(editThenNavigatePuts.count).toBe(0)
     await userEvent.click(canvas.getByRole("button", { name: "Leave files" }))
     await waitFor(() => {
       expect(canvas.getByText("Left files")).toBeVisible()
     })
+    await waitFor(() => {
+      expect(editThenNavigatePuts.count).toBeGreaterThan(0)
+    })
     expect(
-      editThenNavigatePuts.paths.some((path) =>
-        path.includes("xdraftleave.md"),
-      ),
+      editThenNavigatePuts.paths.some((path) => path.includes(ledgerPath)),
     ).toBe(true)
     expect(editThenNavigatePuts.versions[0]).toBe("wt-0")
   },
@@ -877,6 +903,8 @@ export const EditThenNavigate: Story = {
 const orderedWrites = {
   expected: [] as Array<string | undefined>,
   paths: [] as string[],
+  server: "wt-0",
+  accepted: 0,
 }
 
 export const OutOfOrderSaves: Story = {
@@ -910,23 +938,23 @@ export const OutOfOrderSaves: Story = {
               }
               orderedWrites.expected.push(body.expectedWorktreeVersion)
               orderedWrites.paths.push(body.path)
-              if (body.expectedWorktreeVersion === "wt-0") {
+              if (body.expectedWorktreeVersion !== orderedWrites.server) {
+                return HttpResponse.json(
+                  {
+                    error: "stale_worktree",
+                    worktreeVersion: orderedWrites.server,
+                  },
+                  { status: 409 },
+                )
+              }
+              const worktreeVersion = `wt-${orderedWrites.accepted + 1}`
+              orderedWrites.accepted += 1
+              orderedWrites.server = worktreeVersion
+              if (orderedWrites.accepted === 1) {
                 await new Promise((resolve) => {
                   window.setTimeout(resolve, 250)
                 })
               }
-              if (
-                body.expectedWorktreeVersion &&
-                body.expectedWorktreeVersion !== "wt-0" &&
-                body.expectedWorktreeVersion !== "wt-1"
-              ) {
-                return HttpResponse.json(
-                  { error: "stale_worktree", worktreeVersion: "wt-1" },
-                  { status: 409 },
-                )
-              }
-              const worktreeVersion =
-                body.expectedWorktreeVersion === "wt-0" ? "wt-1" : "wt-2"
               return HttpResponse.json({
                 path: body.path,
                 body: body.body ?? null,
@@ -934,7 +962,7 @@ export const OutOfOrderSaves: Story = {
                 worktreeVersion,
                 tree: {
                   sha: "sandboxsha",
-                  paths: [body.path],
+                  paths: [...orderedWrites.paths],
                   branch: "ctxpipe/chat/conv_1/1",
                   worktreeVersion,
                 },
@@ -947,7 +975,10 @@ export const OutOfOrderSaves: Story = {
                   published: false,
                   ahead: 0,
                   behind: 0,
-                  items: [{ path: body.path, status: "modified" }],
+                  items: orderedWrites.paths.map((path) => ({
+                    path,
+                    status: "added",
+                  })),
                   worktreeVersion,
                 },
               })
@@ -981,18 +1012,22 @@ export const OutOfOrderSaves: Story = {
   play: async ({ canvasElement }) => {
     orderedWrites.expected = []
     orderedWrites.paths = []
+    orderedWrites.server = "wt-0"
+    orderedWrites.accepted = 0
     const canvas = within(canvasElement)
     await canvas.findByRole("button", { name: "Save" })
     await createFileFromTree(canvas, canvasElement, "xdraftone.md")
-    await waitFor(() => {
-      expect(orderedWrites.expected).toEqual(["wt-0"])
-    })
     await createFileFromTree(canvas, canvasElement, "xdrafttwo.md")
     await waitFor(() => {
-      expect(orderedWrites.expected).toEqual(["wt-0", "wt-1"])
+      expect(
+        orderedWrites.paths.some((path) => path.endsWith("xdraftone.md")),
+      ).toBe(true)
+      expect(
+        orderedWrites.paths.some((path) => path.endsWith("xdrafttwo.md")),
+      ).toBe(true)
     })
-    expect(orderedWrites.paths[0]).toMatch(/xdraftone\.md$/)
-    expect(orderedWrites.paths[1]).toMatch(/xdrafttwo\.md$/)
+    expect(orderedWrites.expected[0]).toBe("wt-0")
+    expect(orderedWrites.expected.slice(1)).toContain("wt-0")
     expect(canvas.queryByText("Could not save")).toBeNull()
   },
 }

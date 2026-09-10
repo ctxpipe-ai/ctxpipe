@@ -41,10 +41,23 @@ describe("workspaceChatWebSocket hydrate", () => {
 
   it.each([
     401, 403, 500,
-  ])("records that a %i hydration response currently becomes an empty thread", async (status) => {
+  ])("throws when hydration returns %i", async (status) => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response(null, { status })),
+    )
+
+    const connection = workspaceChatWebSocket("acme", "conv_1")
+
+    await expect(connection.hydrate("conv_1")).rejects.toMatchObject({
+      status,
+    })
+  })
+
+  it("treats a missing thread as an empty hydration", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 404 })),
     )
 
     const connection = workspaceChatWebSocket("acme", "conv_1")
@@ -114,6 +127,31 @@ describe("workspace chat websocket dispose", () => {
     expect(instances[0]?.close).toHaveBeenCalledTimes(1)
     connection.dispose()
     expect(instances[0]?.close).toHaveBeenCalledTimes(1)
+  })
+
+  it("closes every socket it created, not only the last warm", () => {
+    const instances: Array<{ close: ReturnType<typeof vi.fn> }> = []
+    class FakeSocket {
+      readyState = 1
+      url: string
+      close = vi.fn(() => {
+        this.readyState = 3
+      })
+      constructor(url: string | URL) {
+        this.url = String(url)
+        instances.push(this)
+      }
+    }
+    vi.stubGlobal("WebSocket", FakeSocket)
+    const connection = workspaceChatWebSocket("acme", "conv_1")
+    connection.warm()
+    const first = instances[0]
+    if (first) first.readyState = 3
+    connection.warm()
+    expect(instances).toHaveLength(2)
+    connection.dispose()
+    expect(instances[0]?.close).toHaveBeenCalledTimes(1)
+    expect(instances[1]?.close).toHaveBeenCalledTimes(1)
   })
 
   it("closes a socket that already failed the handshake", () => {

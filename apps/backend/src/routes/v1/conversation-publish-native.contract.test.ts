@@ -261,6 +261,13 @@ fi
                 body: JSON.stringify({
                   path: "notes.md",
                   body: "# Saved conversation\n",
+                  expectedWorktreeVersion: (
+                    (await (
+                      await app.request(
+                        `/conversations/${conversationId}/files/tree`,
+                      )
+                    ).json()) as { worktreeVersion?: string }
+                  ).worktreeVersion,
                 }),
               },
             )
@@ -299,6 +306,7 @@ fi
                   body: JSON.stringify({
                     path: "notes.md",
                     body: "must not be saved",
+                    expectedWorktreeVersion: "wt-ignored",
                   }),
                 },
               )

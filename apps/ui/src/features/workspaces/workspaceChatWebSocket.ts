@@ -1,4 +1,5 @@
 import { type SubscribeConnectionAdapter, webSocket } from "@tanstack/ai-react"
+import { apiFetch, readApiJson } from "@/lib/api-result"
 
 export function workspaceChatSocketPath(
   orgSlug: string,
@@ -32,7 +33,13 @@ export function workspaceChatWebSocket(
     hydrate: NonNullable<SubscribeConnectionAdapter["hydrate"]>
   } {
   const path = workspaceChatSocketPath(orgSlug, conversationId)
+  const sockets = new Set<WebSocket>()
   let warmed: WebSocket | undefined
+
+  function track(socket: WebSocket): WebSocket {
+    sockets.add(socket)
+    return socket
+  }
 
   function reuseOrCreate(
     url: string | URL,
@@ -46,8 +53,11 @@ export function workspaceChatWebSocket(
     ) {
       return warmed
     }
-    warmed = protocols ? new WebSocket(url, protocols) : new WebSocket(url)
-    return warmed
+    const socket = track(
+      protocols ? new WebSocket(url, protocols) : new WebSocket(url),
+    )
+    warmed = socket
+    return socket
   }
 
   const connection = webSocket(path, {
@@ -62,16 +72,17 @@ export function workspaceChatWebSocket(
   return {
     ...connection,
     async hydrate(threadId: string) {
-      if (typeof fetch === "undefined") return emptyChatHydration()
-      const res = await fetch(
+      const res = await apiFetch(
         `${path}/chat?threadId=${encodeURIComponent(threadId)}`,
         {
           headers: { Accept: "application/json" },
           credentials: "include",
         },
       )
-      if (!res.ok) return emptyChatHydration()
-      const data = (await res.json()) as Partial<ChatHydrationResult>
+      if (res.status === 404) return emptyChatHydration()
+      const data = await readApiJson<Partial<ChatHydrationResult>>(res, {
+        message: "Failed to load conversation",
+      })
       return {
         messages: Array.isArray(data.messages) ? data.messages : [],
         activeRun:
@@ -84,11 +95,13 @@ export function workspaceChatWebSocket(
     warm() {
       if (typeof WebSocket === "undefined") return
       if (warmed && warmed.readyState <= 1) return
-      warmed = new WebSocket(absoluteWebSocketUrl(path))
+      warmed = track(new WebSocket(absoluteWebSocketUrl(path)))
     },
     dispose() {
-      if (!warmed) return
-      warmed.close()
+      for (const socket of sockets) {
+        socket.close()
+      }
+      sockets.clear()
       warmed = undefined
     },
   }
@@ -97,9 +110,7 @@ export function workspaceChatWebSocket(
 export function workspaceChatSocketIsResume(url: string): boolean {
   try {
     const parsed = new URL(url, "http://localhost")
-    return (
-      parsed.searchParams.has("offset") || parsed.searchParams.has("runId")
-    )
+    return parsed.searchParams.has("offset") || parsed.searchParams.has("runId")
   } catch {
     return false
   }

@@ -112,7 +112,7 @@ const PutConversationFileBodySchema = z
     body: z.string().optional(),
     deletePath: z.boolean().optional(),
     from: z.string().min(1).optional(),
-    expectedWorktreeVersion: z.string().min(1).optional(),
+    expectedWorktreeVersion: z.string().min(1),
   })
   .openapi("PutConversationFileBody")
 
@@ -644,10 +644,7 @@ export const conversationFileRoutes = fileRoutes
     const { handle } = ready
     const body = PutConversationFileBodySchema.parse(await c.req.json())
     const currentVersion = await conversationWorktreeVersion(handle)
-    if (
-      body.expectedWorktreeVersion != null &&
-      body.expectedWorktreeVersion !== currentVersion
-    ) {
+    if (body.expectedWorktreeVersion !== currentVersion) {
       return c.json(
         { error: "stale_worktree", worktreeVersion: currentVersion },
         409,

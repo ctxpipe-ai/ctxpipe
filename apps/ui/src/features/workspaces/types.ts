@@ -146,7 +146,7 @@ export type ConversationFileMutation = {
   body?: string
   deletePath?: boolean
   from?: string
-  expectedWorktreeVersion?: string
+  expectedWorktreeVersion: string
 }
 
 export type ConversationFileWriteResponse = WorkspaceGitBlobResponse & {

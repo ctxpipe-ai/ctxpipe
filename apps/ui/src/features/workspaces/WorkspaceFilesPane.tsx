@@ -35,8 +35,8 @@ import {
   conversationGitBlobOptions,
   conversationGitStatusOptions,
   conversationGitTreeOptions,
-  conversationWorktreeVersionFromCache,
   persistConversationFileMutation,
+  resolveConversationWorktreeVersion,
   workspaceGitBlobOptions,
   workspaceGitStatusOptions,
   workspaceGitTreeOptions,
@@ -363,25 +363,26 @@ function WorkspaceFilesPaneContent(props: {
   }
 
   const jobMutation = useMutation({
-    mutationFn: (input: WorkspaceFileJobRequest) => {
+    mutationFn: async (input: WorkspaceFileJobRequest) => {
       if (!props.conversationId) {
         throw new Error("Conversation sandbox is not ready")
       }
+      const expectedWorktreeVersion = await resolveConversationWorktreeVersion(
+        queryClient,
+        props.orgSlug,
+        props.conversationId,
+      )
       return persistConversationFileMutation(
         props.orgSlug,
         props.conversationId,
         input,
-        conversationWorktreeVersionFromCache(
-          queryClient,
-          props.orgSlug,
-          props.conversationId,
-        ),
+        expectedWorktreeVersion,
       )
     },
     onMutate: async (input) => {
       setJobError(null)
       const expectedWorktreeVersion = props.conversationId
-        ? conversationWorktreeVersionFromCache(
+        ? await resolveConversationWorktreeVersion(
             queryClient,
             props.orgSlug,
             props.conversationId,
@@ -510,15 +511,47 @@ function WorkspaceFilesPaneContent(props: {
   })
 
   const writeQueueRef = useRef(Promise.resolve())
+  const persistWithStaleRetry = useCallback(
+    async (input: WorkspaceFileJobRequest) => {
+      try {
+        await jobMutation.mutateAsync(input)
+      } catch (error) {
+        if (
+          error instanceof ApiError &&
+          error.body.error === "stale_worktree" &&
+          props.conversationId
+        ) {
+          await Promise.all([
+            queryClient.invalidateQueries({
+              queryKey: workspaceKeys.conversationGitTree(
+                props.orgSlug,
+                props.conversationId,
+              ),
+            }),
+            queryClient.invalidateQueries({
+              queryKey: workspaceKeys.conversationGitStatus(
+                props.orgSlug,
+                props.conversationId,
+              ),
+            }),
+          ])
+          await jobMutation.mutateAsync(input)
+          return
+        }
+        throw error
+      }
+    },
+    [jobMutation, props.conversationId, props.orgSlug, queryClient],
+  )
   const enqueueWrite = useCallback(
     (input: WorkspaceFileJobRequest) => {
+      const pending = persistWithStaleRetry(input).then(() => undefined)
       writeQueueRef.current = writeQueueRef.current
         .catch(() => undefined)
-        .then(() => jobMutation.mutateAsync(input))
-        .then(() => undefined)
-      return writeQueueRef.current
+        .then(() => pending)
+      return pending
     },
-    [jobMutation],
+    [persistWithStaleRetry],
   )
 
   const flushSave = useCallback(
@@ -580,25 +613,27 @@ function WorkspaceFilesPaneContent(props: {
       const orgSlug = props.orgSlug
       writeQueueRef.current = writeQueueRef.current
         .catch(() => undefined)
-        .then(() =>
-          persistConversationFileMutation(
+        .then(async () => {
+          const expectedWorktreeVersion =
+            await resolveConversationWorktreeVersion(
+              queryClient,
+              orgSlug,
+              conversationId,
+            )
+          const snapshot = await persistConversationFileMutation(
             orgSlug,
             conversationId,
             { op: "save", path, content },
-            conversationWorktreeVersionFromCache(
-              queryClient,
-              orgSlug,
-              conversationId,
-            ),
-          ).then((snapshot) => {
-            applyConversationFileWriteSnapshot(
-              queryClient,
-              orgSlug,
-              conversationId,
-              snapshot,
-            )
-          }),
-        )
+            expectedWorktreeVersion,
+          )
+          applyConversationFileWriteSnapshot(
+            queryClient,
+            orgSlug,
+            conversationId,
+            snapshot,
+            expectedWorktreeVersion,
+          )
+        })
         .then(() => undefined)
     }
   }, [props.conversationId, props.orgSlug, queryClient])

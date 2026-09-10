@@ -20,6 +20,18 @@ import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
 import { conversationFileRoutes } from "./conversation-files-routes.js"
 import { conversationRoutes } from "./conversations.js"
 
+async function conversationWorktreeVersion(
+  request: (path: string, init?: RequestInit) => Promise<Response>,
+  conversation: string,
+) {
+  const tree = await request(`${conversation}/files/tree`)
+  const body = (await tree.json()) as { worktreeVersion?: string }
+  if (!body.worktreeVersion) {
+    throw new Error("Conversation worktree version is missing")
+  }
+  return body.worktreeVersion
+}
+
 it(
   "renames binary content through the native Files HTTP seam without data loss",
   { timeout: 30_000 },
@@ -78,7 +90,14 @@ it(
       const renamed = await app().request(`${conversation}/files/blob`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ path: destinationPath, from: sourcePath }),
+        body: JSON.stringify({
+          path: destinationPath,
+          from: sourcePath,
+          expectedWorktreeVersion: await conversationWorktreeVersion(
+            (path, init) => app().request(path, init),
+            conversation,
+          ),
+        }),
       })
       expect(renamed.status).toBe(200)
       const source = await app().request(
@@ -347,6 +366,15 @@ it(
         }),
       })
       expect(first.status).toBe(200)
+      const missingVersion = await app().request(`${base}/blob`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          path: "notes.md",
+          body: "rejected without a version",
+        }),
+      })
+      expect(missingVersion.status).toBe(400)
       const firstBody = (await first.json()) as { worktreeVersion: string }
       expect(firstBody.worktreeVersion).not.toBe(initial.worktreeVersion)
       const stale = await app().request(`${base}/blob`, {
@@ -405,6 +433,10 @@ it(
           })
         ).status,
       ).toBe(204)
+      const expectedWorktreeVersion = await conversationWorktreeVersion(
+        (path, init) => f.request(path, init),
+        `/conversations/${f.conversationId}`,
+      )
       let body!: ReadableStreamDefaultController<Uint8Array>
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
@@ -455,6 +487,7 @@ it(
             JSON.stringify({
               path: "after-lease-loss.md",
               body: "must not be written",
+              expectedWorktreeVersion,
             }),
           ),
         )

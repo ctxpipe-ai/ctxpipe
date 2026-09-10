@@ -3,6 +3,7 @@ import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   conversationDetailLoadingHandler,
+  conversationGitDiffHandler,
   githubInstallationReposHandler,
   workspaceDetailErrorHandler,
   workspaceDetailLoadingHandler,
@@ -12,7 +13,9 @@ import { orgPageDecorators } from "../../../.storybook/decorators/entry-page-dec
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceSurface } from "./WorkspaceSurface"
 import {
+  docsConversationDetail,
   docsWorkspace,
+  docsWorkspaceGitTree,
   failedHydrateWorkspace,
   failedHydrateWorkspaceDetail,
   hydratingWorkspaceDetail,
@@ -320,6 +323,131 @@ export const SharedPublishPending: Story = {
         )
       expect(pending.length).toBeGreaterThan(1)
     })
+  },
+}
+
+const idleBudget = { conversation: 0, tree: 0, status: 0, chat: 0, diff: 0 }
+
+export const StableRequestBudget: Story = {
+  args: { conversationId: "conv_1", paneParam: "files" },
+  decorators: [
+    (Story) => (
+      <div className="min-h-svh w-[1280px] max-w-none">
+        <Story />
+      </div>
+    ),
+  ],
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => {
+              idleBudget.conversation += 1
+              return HttpResponse.json(docsConversationDetail)
+            },
+          ),
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/files\/tree$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => {
+              idleBudget.tree += 1
+              return HttpResponse.json({
+                ...docsWorkspaceGitTree,
+                branch: "ctxpipe/chat/conv_1/1",
+                worktreeVersion: "wt-0",
+              })
+            },
+          ),
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/files\/status$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => {
+              idleBudget.status += 1
+              return HttpResponse.json({
+                source: "sandbox",
+                branch: "ctxpipe/chat/conv_1/1",
+                dirty: true,
+                differsFromDefault: true,
+                unpushed: true,
+                published: false,
+                ahead: 1,
+                behind: 0,
+                items: [],
+                worktreeVersion: "wt-0",
+              })
+            },
+          ),
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/chat$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => {
+              idleBudget.chat += 1
+              return HttpResponse.json({
+                messages: docsConversationDetail.messages,
+                activeRun: null,
+              })
+            },
+          ),
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/files\/diff$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => {
+              idleBudget.diff += 1
+              return HttpResponse.json({
+                items: [
+                  {
+                    path: "knowledge/billing/ledger.md",
+                    oldBody: "old",
+                    body: "new",
+                  },
+                ],
+              })
+            },
+          ),
+          conversationGitDiffHandler(),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    idleBudget.conversation = 0
+    idleBudget.tree = 0
+    idleBudget.status = 0
+    idleBudget.chat = 0
+    idleBudget.diff = 0
+    const canvas = within(canvasElement)
+    expect(
+      await canvas.findByPlaceholderText(/continue the conversation/i),
+    ).toBeVisible()
+    expect(
+      await canvas.findByRole("button", { name: "Commit+Push" }),
+    ).toBeVisible()
+    await userEvent.click(await canvas.findByRole("tab", { name: "Diff" }))
+    await waitFor(() => {
+      expect(idleBudget.tree).toBeGreaterThan(0)
+      expect(idleBudget.status).toBeGreaterThan(0)
+      expect(idleBudget.conversation).toBeGreaterThan(0)
+    })
+    const afterPaint = { ...idleBudget }
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, 800)
+    })
+    expect(idleBudget).toEqual(afterPaint)
   },
 }
 

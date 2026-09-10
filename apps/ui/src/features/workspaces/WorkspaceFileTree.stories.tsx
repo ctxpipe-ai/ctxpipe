@@ -181,5 +181,14 @@ export const PierreKeyboardFocus: Story = {
     await waitFor(() => {
       expect(args.onSelect).toHaveBeenCalled()
     })
+    const focused = canvasElement.ownerDocument.activeElement
+    expect(focused).toBeTruthy()
+    expect(focused).not.toBe(canvasElement.ownerDocument.body)
+    const treeHost = canvas.getByLabelText("Workspace files")
+    const focusedInTree =
+      treeHost.contains(focused) ||
+      Boolean(treeHost.shadowRoot?.contains(focused)) ||
+      Boolean(findInShadows(canvasElement, "[aria-selected='true']"))
+    expect(focusedInTree || focused === input).toBe(true)
   },
 }

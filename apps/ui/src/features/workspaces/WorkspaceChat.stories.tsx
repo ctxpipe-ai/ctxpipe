@@ -87,9 +87,11 @@ export const ConversationMissing: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     expect(
-      await canvas.findByPlaceholderText(/ask about this workspace/i),
+      await canvas.findByRole("heading", { name: "Conversation not found" }),
     ).toBeVisible()
-    expect(canvas.queryByText("Conversation not found")).toBeNull()
+    expect(
+      canvas.queryByPlaceholderText(/ask about this workspace/i),
+    ).toBeNull()
   },
 }
 
@@ -104,17 +106,7 @@ export const ConversationForeignWorkspace: Story = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
-        page: [
-          conversationDetailHandler({
-            ...docsConversationDetail,
-            conversation: {
-              ...docsConversationDetail.conversation,
-              id: "conv_other",
-              workspaceId: "ws_other",
-            },
-          }),
-          ...workspaceShellHandlers(),
-        ],
+        page: [conversationDetailHandler(null), ...workspaceShellHandlers()],
       },
     },
   },
@@ -224,6 +216,20 @@ export const SocketCleansUpOnLeave: Story = {
       })
       await waitFor(() => {
         expect(closeCount).toBeGreaterThan(closesBeforeLeave)
+        expect(
+          sockets.filter((socket) =>
+            String(socket.url).includes("/conversations/"),
+          ).length,
+        ).toBeGreaterThan(0)
+        expect(
+          sockets
+            .filter((socket) => String(socket.url).includes("/conversations/"))
+            .every(
+              (socket) =>
+                socket.readyState === Original.CLOSING ||
+                socket.readyState === Original.CLOSED,
+            ),
+        ).toBe(true)
       })
     } finally {
       window.WebSocket = Original
@@ -304,9 +310,13 @@ export const ReloadReconnects: Story = {
       expect(
         await canvas.findByPlaceholderText(/continue the conversation/i),
       ).toBeVisible()
+      expect(
+        await canvas.findByText(/How is billing structured/i),
+      ).toBeVisible()
       await waitFor(() => {
         expect(openCount).toBeGreaterThan(openedBeforeReload)
       })
+      expect(canvas.getByText(/How is billing structured/i)).toBeVisible()
     } finally {
       window.WebSocket = Original
     }
@@ -397,10 +407,10 @@ export const RapidRouteChanges: Story = {
     ).toBeVisible()
     await userEvent.click(canvas.getByRole("button", { name: "Open missing" }))
     expect(
-      await canvas.findByPlaceholderText(/ask about this workspace/i),
+      await canvas.findByRole("heading", { name: "Conversation not found" }),
     ).toBeVisible()
     expect(
-      canvas.queryByRole("heading", { name: "Conversation not found" }),
+      canvas.queryByPlaceholderText(/ask about this workspace/i),
     ).toBeNull()
     await userEvent.click(canvas.getByRole("button", { name: "Open ready" }))
     expect(
