@@ -21,7 +21,10 @@ import { conversationFileRoutes } from "./conversation-files-routes.js"
 import { conversationRoutes } from "./conversations.js"
 
 async function conversationWorktreeVersion(
-  request: (path: string, init?: RequestInit) => Promise<Response>,
+  request: (
+    path: string,
+    init?: RequestInit,
+  ) => Response | Promise<Response>,
   conversation: string,
 ) {
   const tree = await request(`${conversation}/files/tree`)
