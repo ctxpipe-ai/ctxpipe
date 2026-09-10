@@ -17,6 +17,26 @@ describe("createBetterAuth", () => {
     vi.unstubAllEnvs()
   })
 
+  it("raises API-key rate limits to 1000 requests per hour", () => {
+    vi.stubEnv("DATABASE_URL", "postgresql://user:pass@localhost:5432/ctxpipe")
+    vi.stubEnv(
+      "AUTH_SECRET",
+      "test-only-auth-secret-with-at-least-32-characters",
+    )
+    vi.stubEnv("AUTH_BASE_URL", "http://localhost:3000")
+
+    const auth = createBetterAuth()
+    const apiKeyPlugin = auth.options.plugins?.find(
+      (plugin) => plugin.id === "api-key",
+    )
+
+    expect(apiKeyPlugin?.schema?.apikey?.fields).toMatchObject({
+      rateLimitEnabled: { defaultValue: true },
+      rateLimitTimeWindow: { defaultValue: 60 * 60 * 1000 },
+      rateLimitMax: { defaultValue: 1000 },
+    })
+  })
+
   it("allows emailed invitations with opaque custom IDs to be accepted", () => {
     vi.stubEnv("DATABASE_URL", "postgresql://user:pass@localhost:5432/ctxpipe")
     vi.stubEnv(

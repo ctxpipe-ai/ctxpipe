@@ -87,7 +87,7 @@ function isLegacyLocalMemoryServer(key: string, value: unknown): boolean {
     ? value.args.filter((a): a is string => typeof a === "string").join(" ")
     : ""
   const joined = `${cmd} ${args}`
-  // Keep remote streamable-http `ctxpipe` entries (url-based, no memory mcp/hook).
+  // Keep remote URL-based `ctxpipe` entries (no memory mcp/hook).
   if (typeof value.url === "string" && value.url.includes("/mcp")) return false
   return (
     /memory mcp|agentmemory/i.test(joined) ||

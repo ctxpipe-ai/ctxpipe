@@ -173,6 +173,11 @@ export function createBetterAuth() {
           // `expiresIn: null` on api-key create/update endpoints.
           disableCustomExpiresTime: false,
         },
+        rateLimit: {
+          enabled: true,
+          timeWindow: 60 * 60 * 1000,
+          maxRequests: 1000,
+        },
       }),
       bearer(),
       jwt(),

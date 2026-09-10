@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process"
+import { mkdtempSync, readFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
@@ -109,5 +111,167 @@ describe("CLI help and argv", () => {
     const out = help(["init", "--help"])
     expect(out).toContain("--non-interactive")
     expect(out).toContain("-y")
+  })
+
+  it("init and mcp add --help document OAuth vs API-key auth", () => {
+    const initHelp = help(["init", "--help"])
+    const addHelp = help(["mcp", "add", "--help"])
+    for (const out of [initHelp, addHelp]) {
+      expect(out).toContain("--auth")
+      expect(out).not.toContain("--api-key")
+      expect(out).not.toContain("--api-key-env-variable")
+      expect(out).toContain("oauth")
+      expect(out).toContain("api-key")
+      expect(out).toContain("CTXPIPE_API_KEY")
+    }
+  })
+
+  it("mcp add --auth api-key with empty CTXPIPE_API_KEY writes interpolation", () => {
+    const home = mkdtempSync(join(tmpdir(), "ctxpipe-mcp-empty-home-"))
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mcp-empty-cwd-"))
+    const out = execFileSync(
+      process.execPath,
+      [
+        bin,
+        "mcp",
+        "add",
+        "--org",
+        "acme",
+        "--client",
+        "cursor",
+        "--scope",
+        "user",
+        "--auth",
+        "api-key",
+        "--non-interactive",
+        "--dry-run",
+        "--json",
+      ],
+      {
+        encoding: "utf8",
+        cwd,
+        env: { ...process.env, HOME: home, CTXPIPE_API_KEY: "" },
+      },
+    )
+    const data = JSON.parse(out) as { status: string; operations: string[] }
+    expect(data.status).toBe("dry-run")
+    expect(data.operations).toEqual([
+      expect.stringContaining("configure Cursor MCP"),
+    ])
+  })
+
+  it("mcp add without --auth defaults to OAuth and ignores CTXPIPE_API_KEY", () => {
+    const home = mkdtempSync(join(tmpdir(), "ctxpipe-mcp-oauth-home-"))
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mcp-oauth-cwd-"))
+    execFileSync(
+      process.execPath,
+      [
+        bin,
+        "mcp",
+        "add",
+        "--org",
+        "acme",
+        "--client",
+        "cursor",
+        "--scope",
+        "repo",
+        "--non-interactive",
+      ],
+      {
+        encoding: "utf8",
+        cwd,
+        env: {
+          ...process.env,
+          HOME: home,
+          CTXPIPE_API_KEY: "ctxp_must_not_be_written",
+        },
+      },
+    )
+    const repoConfig = JSON.parse(
+      readFileSync(join(cwd, ".cursor", "mcp.json"), "utf8"),
+    ) as {
+      mcpServers: {
+        ctxpipe?: { headers?: { "x-api-key"?: string }; url?: string }
+      }
+    }
+    expect(repoConfig.mcpServers.ctxpipe?.url).toBe(
+      "https://app.ctxpipe.ai/mcp?orgSlug=acme",
+    )
+    expect(repoConfig.mcpServers.ctxpipe?.headers).toBeUndefined()
+    expect(JSON.stringify(repoConfig)).not.toContain("ctxp_must_not_be_written")
+  })
+
+  it("mcp add --auth bearer is rejected", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mcp-bad-auth-"))
+    expect(() =>
+      execFileSync(
+        process.execPath,
+        [
+          bin,
+          "mcp",
+          "add",
+          "--org",
+          "acme",
+          "--client",
+          "cursor",
+          "--scope",
+          "repo",
+          "--auth",
+          "bearer",
+          "--non-interactive",
+        ],
+        {
+          encoding: "utf8",
+          cwd,
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      ),
+    ).toThrow(/auth/)
+  })
+
+  it("mcp add --auth api-key --scope both writes interpolation, never the env value", () => {
+    const home = mkdtempSync(join(tmpdir(), "ctxpipe-mcp-env-home-"))
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mcp-env-cwd-"))
+    execFileSync(
+      process.execPath,
+      [
+        bin,
+        "mcp",
+        "add",
+        "--org",
+        "acme",
+        "--client",
+        "cursor",
+        "--scope",
+        "both",
+        "--auth",
+        "api-key",
+        "--non-interactive",
+      ],
+      {
+        encoding: "utf8",
+        cwd,
+        env: {
+          ...process.env,
+          HOME: home,
+          CTXPIPE_API_KEY: "ctxp_must_not_be_written",
+        },
+      },
+    )
+    const header = { "x-api-key": `\${env:CTXPIPE_API_KEY}` }
+    const repoConfig = JSON.parse(
+      readFileSync(join(cwd, ".cursor", "mcp.json"), "utf8"),
+    ) as {
+      mcpServers: { ctxpipe?: { headers?: { "x-api-key"?: string } } }
+    }
+    const userConfig = JSON.parse(
+      readFileSync(join(home, ".cursor", "mcp.json"), "utf8"),
+    ) as {
+      mcpServers: { ctxpipe?: { headers?: { "x-api-key"?: string } } }
+    }
+    expect(repoConfig.mcpServers.ctxpipe?.headers).toEqual(header)
+    expect(userConfig.mcpServers.ctxpipe?.headers).toEqual(header)
+    expect(JSON.stringify(repoConfig)).not.toContain("ctxp_must_not_be_written")
+    expect(JSON.stringify(userConfig)).not.toContain("ctxp_must_not_be_written")
   })
 })

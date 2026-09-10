@@ -92,7 +92,7 @@ Cursor and Claude Code use `mcpServers`:
 {
   "mcpServers": {
     "ctxpipe": {
-      "type": "streamable-http",
+      "type": "http",
       "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org"
     }
   }
@@ -113,8 +113,12 @@ OpenCode uses `mcp`:
 }
 ```
 
-Do not add API keys to repository config. The PR workflow is designed for MCP
-clients that can complete OAuth authorization after the config is merged.
+Do not add raw API keys to repository config. The PR workflow is designed for MCP
+clients that can complete OAuth authorization after the config is merged. For a
+machine that cannot complete OAuth, write interpolation with `--auth api-key` and
+set `CTXPIPE_API_KEY` in the MCP client environment. See
+[API-key auth](/docs/mcp/mcp-docs#api-key-auth) and
+[Set CTXPIPE_API_KEY](/docs/mcp/mcp-docs#set-ctxpipe_api_key).
 
 ## Merge Behavior
 
