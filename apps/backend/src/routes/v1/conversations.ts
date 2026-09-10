@@ -758,12 +758,6 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!parsed.workspaceId.trim()) {
       return c.json({ error: "workspace_required" }, 400)
     }
-    if (await conversationHasStoredTurns(conversationId)) {
-      return withConversationIdHeader(
-        new Response("", { status: 200 }),
-        conversationId,
-      )
-    }
 
     return workspaceConversationStream(
       conversationId,

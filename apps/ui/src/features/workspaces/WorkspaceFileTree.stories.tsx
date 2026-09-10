@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { type ComponentProps, useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
@@ -156,12 +157,29 @@ function findInShadows(root: ParentNode, selector: string): HTMLElement | null {
   return null
 }
 
+function PierreKeyboardFocusHarness(
+  props: ComponentProps<typeof WorkspaceFileTree>,
+) {
+  const [selectedPath, setSelectedPath] = useState(props.selectedPath)
+  return (
+    <WorkspaceFileTree
+      {...props}
+      selectedPath={selectedPath}
+      onSelect={(path) => {
+        setSelectedPath(path)
+        props.onSelect?.(path)
+      }}
+    />
+  )
+}
+
 export const PierreKeyboardFocus: Story = {
   args: {
     paths: ["AGENTS.md", "knowledge/billing.md"],
     selectedPath: "AGENTS.md",
     onSelect: fn(),
   },
+  render: (args) => <PierreKeyboardFocusHarness {...args} />,
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
     const search = await canvas.findByRole("button", { name: "Search files" })
