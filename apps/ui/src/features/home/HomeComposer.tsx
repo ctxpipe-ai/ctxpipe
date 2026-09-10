@@ -3,17 +3,22 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { Button as RACButton } from "react-aria-components"
 import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
+import { insertConversationListItem } from "@/features/chat/insertConversationListItem"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
+import type {
+  ConversationDetail,
+  ConversationListInfiniteData,
+} from "@/features/chat/types"
 import {
-  prepareWorkspaceChat,
+  startWorkspaceConversation,
   workspaceDetailOptions,
+  workspaceKeys,
 } from "@/features/workspaces/queries"
 import type { Workspace } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { createObjectId } from "@/lib/id"
 import { cn } from "@/lib/utils"
 import { navigateWithComposerTransition } from "./navigate-with-composer-transition"
-import { setPendingWorkspaceCompose } from "./pending-workspace-compose"
 
 export function HomeComposer(props: {
   orgSlug: string
@@ -34,15 +39,46 @@ export function HomeComposer(props: {
   const startConversation = (text: string) => {
     if (!selected) return
     const conversationId = createObjectId("conv")
-    setPendingWorkspaceCompose({
+    const now = new Date().toISOString()
+    const detail: ConversationDetail = {
+      conversation: {
+        id: conversationId,
+        name: "New conversation",
+        source: "ui",
+        lastMessageAt: now,
+        orgId: "",
+        workspaceId: selected.id,
+        createdAt: now,
+        updatedAt: now,
+      },
+      messages: [
+        {
+          id: `user-${conversationId}`,
+          role: "user",
+          parts: [{ type: "text", content: text }],
+        },
+      ],
+    }
+    queryClient.setQueryData(
+      workspaceKeys.conversation(orgSlug, conversationId, selected.id),
+      detail,
+    )
+    queryClient.setQueriesData<ConversationListInfiniteData>(
+      { queryKey: workspaceKeys.conversations(orgSlug, selected.id) },
+      (old) =>
+        insertConversationListItem(old, {
+          id: conversationId,
+          name: "New conversation",
+          source: "ui",
+          lastMessageAt: now,
+        }),
+    )
+    prefetchWorkspace(selected)
+    void startWorkspaceConversation(orgSlug, {
       conversationId,
       workspaceId: selected.id,
-      workspaceSlug: selected.slug,
-      orgSlug,
       text,
     })
-    void prepareWorkspaceChat(orgSlug, conversationId, selected.id)
-    prefetchWorkspace(selected)
     navigateWithComposerTransition(() => {
       void navigate({
         to: "/$orgSlug/ws/$workspaceSlug/$conversationId",

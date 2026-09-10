@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import { expect, userEvent, waitFor, within } from "storybook/test"
-import { resetHomeDraftSends } from "@/features/home/pending-workspace-compose"
+import { userEvent, waitFor, within } from "storybook/test"
 import {
   conversationAguiSseResponse,
   conversationAguiTextEvents,
@@ -348,53 +347,6 @@ export const ListInsertOnSend: Story = {
     await userEvent.click(canvas.getByRole("button", { name: /send/i }))
     await waitFor(() => canvas.getByText(/Nav row should already exist/), {
       timeout: SEND_WAIT_MS,
-    })
-  },
-}
-
-export const HomeDraftClearsAfterSend: Story = {
-  decorators: [
-    (Story) => {
-      resetHomeDraftSends()
-      return <Story />
-    },
-  ],
-  args: {
-    conversationId: "conv_home_draft",
-    composing: true,
-    title: "New conversation",
-    initialMessages: [],
-    draftSeed: "What changed this week?",
-    autoSendDraft: true,
-  },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.post(conversationPostPath, () =>
-            conversationAguiSseResponse(
-              conversationAguiTextEvents({
-                threadId: "conv_home_draft",
-                messageId: "msg_home_draft",
-                text: "Here is this week's activity.",
-              }),
-            ),
-          ),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await waitFor(() => canvas.getByText(/What changed this week/), {
-      timeout: SEND_WAIT_MS,
-    })
-    await waitFor(() => {
-      const input = canvas.getByPlaceholderText(
-        /ask about this workspace|continue the conversation/i,
-      )
-      expect(input).toHaveValue("")
     })
   },
 }

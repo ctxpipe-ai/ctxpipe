@@ -7,10 +7,11 @@ Gates 6 remains pending.
 
 ## Remaining work, in order
 
-1. Replace the Home draft module global
-   (`apps/ui/src/features/home/pending-workspace-compose.ts`) with one
-   idempotent first-message server command. `useChat` stays the client session
-   owner. Do not add another compose/route/pending ID store.
+1. Closed in this slice. Home submit calls `startWorkspaceConversation`
+   (the existing conversation POST), seeds the conversation cache, and
+   navigates to that id. `pending-workspace-compose.ts` is deleted.
+   `useChat` stays the client session owner. Storybook `FirstMessageSendsOnce`
+   asserts a single POST.
 2. Keep `useChat` as the client session owner and add only the missing disposal
    hook to `workspaceChatWebSocket`.
 3. Make route/server identity canonical. `WorkspaceChat` must not reconcile

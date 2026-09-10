@@ -8,7 +8,6 @@ import { type ReactNode, Suspense, useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { Skeleton } from "@/components/ui/Skeleton"
 import { ConversationThreadSkeleton } from "@/features/chat/components/ConversationThreadSkeleton"
-import { usePendingWorkspaceCompose } from "@/features/home/pending-workspace-compose"
 import { createObjectId } from "@/lib/id"
 import { workspaceConversationOptions, workspaceKeys } from "./queries"
 import type { Workspace } from "./types"
@@ -34,34 +33,15 @@ export function WorkspaceChat(props: {
     }
   }
 
-  const pendingCompose = usePendingWorkspaceCompose()
-  if (
-    pendingCompose &&
-    routeConversationId === pendingCompose.conversationId &&
-    workspace.id === pendingCompose.workspaceId &&
-    composeId !== routeConversationId
-  ) {
-    setComposeId(pendingCompose.conversationId)
-  }
-
-  const isOwnCompose = !routeConversationId || routeConversationId === composeId
-  const homeDraft =
-    pendingCompose?.conversationId === composeId &&
-    pendingCompose.workspaceId === workspace.id
-      ? pendingCompose.text
-      : null
-
-  if (isOwnCompose) {
+  if (!routeConversationId) {
     return (
       <WorkspaceChatSession
         key={composeId}
         orgSlug={orgSlug}
         workspace={workspace}
         conversationId={composeId}
-        composing={!routeConversationId}
+        composing
         title="New conversation"
-        draftSeed={homeDraft}
-        autoSendDraft={homeDraft != null}
         headerExtra={props.headerExtra}
       />
     )
@@ -122,8 +102,22 @@ function WorkspaceChatResume(props: {
     workspaceConversationOptions(orgSlug, conversationId, workspace.id),
   )
 
-  const belongsHere = detail?.conversation.workspaceId === workspace.id
-  if (!detail || !belongsHere) {
+  if (!detail) {
+    return (
+      <WorkspaceChatSession
+        key={conversationId}
+        orgSlug={orgSlug}
+        workspace={workspace}
+        conversationId={conversationId}
+        composing
+        title="New conversation"
+        headerExtra={props.headerExtra}
+      />
+    )
+  }
+
+  const belongsHere = detail.conversation.workspaceId === workspace.id
+  if (!belongsHere) {
     return (
       <WorkspaceChatChrome
         workspace={workspace}
@@ -162,15 +156,16 @@ function WorkspaceChatResume(props: {
   }
 
   return (
-      <WorkspaceChatSession
-        key={conversationId}
-        orgSlug={orgSlug}
-        workspace={workspace}
-        conversationId={conversationId}
-        composing={false}
-        title={detail.conversation.name || "New conversation"}
-        conversation={detail.conversation}
-        headerExtra={props.headerExtra}
-      />
+    <WorkspaceChatSession
+      key={conversationId}
+      orgSlug={orgSlug}
+      workspace={workspace}
+      conversationId={conversationId}
+      composing={false}
+      title={detail.conversation.name || "New conversation"}
+      conversation={detail.conversation}
+      initialMessages={detail.messages}
+      headerExtra={props.headerExtra}
+    />
   )
 }

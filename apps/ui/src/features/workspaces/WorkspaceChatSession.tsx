@@ -14,10 +14,6 @@ import type {
   ConversationListItem,
 } from "@/features/chat/types"
 import {
-  setPendingWorkspaceCompose,
-  takeHomeDraftSend,
-} from "@/features/home/pending-workspace-compose"
-import {
   conversationAllowsEdits,
   conversationBranchShortName,
   conversationCommitPushEnabled,
@@ -93,8 +89,6 @@ export function WorkspaceChatSession(props: {
   composing: boolean
   title: string
   initialMessages?: ConversationDetail["messages"]
-  draftSeed?: string | null
-  autoSendDraft?: boolean
   conversation?: ConversationListItem
   headerExtra?: ReactNode
 }) {
@@ -105,8 +99,6 @@ export function WorkspaceChatSession(props: {
     composing,
     title,
     initialMessages,
-    draftSeed,
-    autoSendDraft,
   } = props
   const queryClient = useQueryClient()
   const navigate = useNavigate()
@@ -116,8 +108,6 @@ export function WorkspaceChatSession(props: {
   const [seenTitle, setSeenTitle] = useState(title)
   const [sandboxPhase, setSandboxPhase] = useState<SandboxPhase>("idle")
   const [phaseConversationId, setPhaseConversationId] = useState(conversationId)
-  const [draftConsumed, setDraftConsumed] = useState(false)
-  const activeDraft = draftConsumed ? null : (draftSeed ?? null)
   if (title !== seenTitle) {
     setSeenTitle(title)
     setHeaderTitle(title)
@@ -125,7 +115,6 @@ export function WorkspaceChatSession(props: {
   if (conversationId !== phaseConversationId) {
     setPhaseConversationId(conversationId)
     setSandboxPhase("idle")
-    setDraftConsumed(false)
   }
 
   const connection = useMemo(
@@ -297,12 +286,7 @@ export function WorkspaceChatSession(props: {
     })
   }
 
-  const sendMessageRef = useRef<(params: { text: string }) => Promise<void>>(
-    async () => undefined,
-  )
-
   const handleSendMessage = async (params: { text: string }) => {
-    setDraftConsumed(true)
     sendFailedRef.current = false
     setSandboxPhase("idle")
     try {
@@ -315,21 +299,9 @@ export function WorkspaceChatSession(props: {
       setSandboxPhase("idle")
       return
     }
-    setPendingWorkspaceCompose(null)
     insertComposeRow()
     commitComposeRoute()
   }
-  sendMessageRef.current = handleSendMessage
-
-  useEffect(() => {
-    if (!autoSendDraft || !draftSeed?.trim()) return
-    if (!takeHomeDraftSend(conversationId)) {
-      setDraftConsumed(true)
-      return
-    }
-    setDraftConsumed(true)
-    void sendMessageRef.current({ text: draftSeed })
-  }, [autoSendDraft, conversationId, draftSeed])
 
   return (
     <WorkspaceChatChrome
@@ -405,7 +377,6 @@ export function WorkspaceChatSession(props: {
               onStop={stop}
               isDisabled={isLoading}
               placeholder="Ask about this Workspace…"
-              draftSeed={activeDraft}
             />
             {error ? (
               <InlineAlert variant="error" title="Could not send">
@@ -428,7 +399,6 @@ export function WorkspaceChatSession(props: {
             status={status}
             onStop={stop}
             isDisabled={isLoading}
-            draftSeed={activeDraft}
           />
         </>
       )}

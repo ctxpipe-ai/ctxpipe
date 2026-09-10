@@ -129,6 +129,36 @@ export async function prepareWorkspaceChat(
   }
 }
 
+/** First-message command: ensure + start the stock conversation POST. */
+export async function startWorkspaceConversation(
+  orgSlug: string,
+  input: { conversationId: string; workspaceId: string; text: string },
+): Promise<void> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.conversations[
+    ":conversationId"
+  ].$post({
+    param: { orgSlug, conversationId: input.conversationId },
+    json: {
+      messages: [
+        {
+          id: `user-${input.conversationId}`,
+          role: "user",
+          content: input.text,
+        },
+      ],
+      tools: [],
+      context: [],
+      threadId: input.conversationId,
+      forwardedProps: { workspaceId: input.workspaceId, source: "ui" },
+    },
+  })
+  if (!res.ok) {
+    throw new Error("Failed to start conversation")
+  }
+  void res.text()
+}
+
 export async function fetchWorkspaceFiles(
   orgSlug: string,
   workspaceSlug: string,
@@ -263,7 +293,19 @@ export function workspaceConversationOptions(
 ) {
   return queryOptions({
     queryKey: workspaceKeys.conversation(orgSlug, conversationId, workspaceId),
-    queryFn: () => fetchConversation(orgSlug, conversationId, workspaceId),
+    queryFn: async ({ client }) => {
+      const remote = await fetchConversation(
+        orgSlug,
+        conversationId,
+        workspaceId,
+      )
+      if (remote) return remote
+      return (
+        client.getQueryData<ConversationDetail>(
+          workspaceKeys.conversation(orgSlug, conversationId, workspaceId),
+        ) ?? null
+      )
+    },
   })
 }
 

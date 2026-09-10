@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { expect, within } from "storybook/test"
 import {
   conversationDetailHandler,
   conversationDetailLoadingHandler,
@@ -7,7 +8,7 @@ import {
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceChat } from "./WorkspaceChat"
-import { docsWorkspace } from "./workspace-fixtures"
+import { docsConversationDetail, docsWorkspace } from "./workspace-fixtures"
 
 const meta = {
   title: "Components/Workspaces/Chat",
@@ -79,6 +80,44 @@ export const ConversationMissing: Story = {
         page: [conversationDetailHandler(null), ...workspaceShellHandlers()],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      await canvas.findByPlaceholderText(/ask about this workspace/i),
+    ).toBeVisible()
+    expect(canvas.queryByText("Conversation not found")).toBeNull()
+  },
+}
+
+export const ConversationForeignWorkspace: Story = {
+  args: { conversationId: "conv_other" },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      conversationId: "conv_other",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          conversationDetailHandler({
+            ...docsConversationDetail,
+            conversation: {
+              ...docsConversationDetail.conversation,
+              id: "conv_other",
+              workspaceId: "ws_other",
+            },
+          }),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(await canvas.findByText("Conversation not found")).toBeVisible()
   },
 }
 
