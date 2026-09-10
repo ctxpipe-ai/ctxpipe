@@ -12,9 +12,9 @@ returned **BLOCK**. The lines below are the correction slice, not acceptance.
 
 ## Remaining work, in order
 
-1. Open. Home first send must go through `useChat`. Delete
-   `startWorkspaceConversation`. Await send, then navigate. Destination hydrates;
-   do not auto-send.
+1. Open. Home first send is the stock conversation POST
+   (`startWorkspaceConversation`), awaited before navigate. Destination
+   `useChat` hydrates and owns later turns. Do not auto-send.
 2. Open. Dispose every conversation socket, not only the last warmed pointer.
 3. Open. A routed id that 404s is "not found", not compose. Remove
    `composeId` / `seenRouteId` render-time reconciliation. Foreign workspace
