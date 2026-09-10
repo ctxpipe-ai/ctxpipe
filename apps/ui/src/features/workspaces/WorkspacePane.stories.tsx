@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useNavigate, useSearch } from "@tanstack/react-router"
-import { HttpResponse, http } from "msw"
+import { HttpResponse, http, passthrough } from "msw"
 import { type ComponentProps, useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { Button } from "@/components/ui/Button"
@@ -905,6 +905,7 @@ const orderedWrites = {
   paths: [] as string[],
   server: "wt-0",
   accepted: 0,
+  bodies: {} as Record<string, string>,
 }
 
 export const OutOfOrderSaves: Story = {
@@ -925,6 +926,23 @@ export const OutOfOrderSaves: Story = {
     msw: {
       handlers: {
         page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
+                new URL(request.url).pathname,
+              ),
+            ({ request }) => {
+              const path = new URL(request.url).searchParams.get("path") ?? ""
+              if (path in orderedWrites.bodies) {
+                return HttpResponse.json({
+                  path,
+                  body: orderedWrites.bodies[path],
+                  binary: false,
+                })
+              }
+              return passthrough()
+            },
+          ),
           http.put(
             ({ request }) =>
               /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
@@ -938,6 +956,7 @@ export const OutOfOrderSaves: Story = {
               }
               orderedWrites.expected.push(body.expectedWorktreeVersion)
               orderedWrites.paths.push(body.path)
+              orderedWrites.bodies[body.path] = body.body ?? ""
               if (body.expectedWorktreeVersion !== orderedWrites.server) {
                 return HttpResponse.json(
                   {
@@ -1014,6 +1033,7 @@ export const OutOfOrderSaves: Story = {
     orderedWrites.paths = []
     orderedWrites.server = "wt-0"
     orderedWrites.accepted = 0
+    orderedWrites.bodies = {}
     const canvas = within(canvasElement)
     await canvas.findByRole("button", { name: "Save" })
     await createFileFromTree(canvas, canvasElement, "xdraftone.md")
@@ -1028,6 +1048,8 @@ export const OutOfOrderSaves: Story = {
     })
     expect(orderedWrites.expected[0]).toBe("wt-0")
     expect(orderedWrites.expected.slice(1)).toContain("wt-0")
+    expect(orderedWrites.server).toMatch(/^wt-\d+$/)
     expect(canvas.queryByText("Could not save")).toBeNull()
+    expect(canvas.queryByText("File not found")).toBeNull()
   },
 }

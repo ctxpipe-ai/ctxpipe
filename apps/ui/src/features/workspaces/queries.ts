@@ -294,19 +294,7 @@ export function workspaceConversationOptions(
 ) {
   return queryOptions({
     queryKey: workspaceKeys.conversation(orgSlug, conversationId, workspaceId),
-    queryFn: async ({ client }) => {
-      const remote = await fetchConversation(
-        orgSlug,
-        conversationId,
-        workspaceId,
-      )
-      if (remote) return remote
-      return (
-        client.getQueryData<ConversationDetail>(
-          workspaceKeys.conversation(orgSlug, conversationId, workspaceId),
-        ) ?? null
-      )
-    },
+    queryFn: () => fetchConversation(orgSlug, conversationId, workspaceId),
   })
 }
 

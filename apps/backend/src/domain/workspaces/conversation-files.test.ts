@@ -166,4 +166,23 @@ describe("conversation sandbox files", () => {
       false,
     )
   })
+
+  it("does not treat an unreadable untracked file as empty content", async () => {
+    const handle = fakeHandle(
+      [],
+      {
+        "git rev-parse HEAD": "abc123\n",
+        "git diff HEAD": "",
+        "git ls-files --others": "new.md\0",
+      },
+      undefined,
+      {},
+    )
+    handle.fs.read = async () => {
+      throw new Error("ENOENT")
+    }
+    await expect(conversationWorktreeVersion(handle)).rejects.toThrow(
+      /untracked worktree file/,
+    )
+  })
 })

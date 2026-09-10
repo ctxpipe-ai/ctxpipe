@@ -196,13 +196,13 @@ export async function conversationWorktreeVersion(
   const untracked: Array<{ path: string; digest: string }> = []
   for (const path of splitGitNulPaths(untrackedRaw)) {
     if (!isConversationSandboxListedPath(path)) continue
-    const digest = createHash("sha256")
     try {
+      const digest = createHash("sha256")
       digest.update(await handle.fs.read(path))
+      untracked.push({ path, digest: digest.digest("hex") })
     } catch {
-      digest.update("")
+      throw new Error(`Failed to read untracked worktree file: ${path}`)
     }
-    untracked.push({ path, digest: digest.digest("hex") })
   }
   return fingerprintConversationWorktree({
     headSha: head,

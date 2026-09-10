@@ -445,6 +445,7 @@ export const StableRequestBudget: Story = {
       expect(idleBudget.tree).toBeGreaterThan(0)
       expect(idleBudget.status).toBeGreaterThan(0)
       expect(idleBudget.conversation).toBeGreaterThan(0)
+      expect(idleBudget.chat + idleBudget.diff).toBeGreaterThan(0)
     })
     const afterPaint = { ...idleBudget }
     await new Promise((resolve) => {

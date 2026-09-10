@@ -469,10 +469,7 @@ function WorkspaceFilesPaneContent(props: {
       await invalidateFiles()
     },
     onError: (error, _input, context) => {
-      if (
-        error instanceof ApiError &&
-        error.body.error === "stale_worktree"
-      ) {
+      if (error instanceof ApiError && error.body.error === "stale_worktree") {
         return
       }
       setJobError(
@@ -568,12 +565,21 @@ function WorkspaceFilesPaneContent(props: {
     },
     [jobMutation, props.conversationId, props.orgSlug, queryClient],
   )
+  const writeQueuesRef = useRef(new Map<string, Promise<void>>())
   const enqueueWrite = useCallback(
     (input: WorkspaceFileJobRequest) => {
-      const pending = persistWithStaleRetry(input).then(() => undefined)
-      writeQueueRef.current = writeQueueRef.current
+      const key =
+        input.op === "rename"
+          ? input.to
+          : input.op === "move"
+            ? `${input.toDirectory ?? ""}/${input.from}`
+            : input.path
+      const previous = writeQueuesRef.current.get(key) ?? Promise.resolve()
+      const pending = previous
         .catch(() => undefined)
-        .then(() => pending)
+        .then(() => persistWithStaleRetry(input))
+      writeQueuesRef.current.set(key, pending)
+      writeQueueRef.current = pending
       return pending
     },
     [persistWithStaleRetry],
@@ -634,34 +640,11 @@ function WorkspaceFilesPaneContent(props: {
           ? latestDraftRef.current.body
           : draftsRef.current[path]
       if (content === undefined) return
-      const conversationId = props.conversationId
-      const orgSlug = props.orgSlug
       writeQueueRef.current = writeQueueRef.current
         .catch(() => undefined)
-        .then(async () => {
-          const expectedWorktreeVersion =
-            await resolveConversationWorktreeVersion(
-              queryClient,
-              orgSlug,
-              conversationId,
-            )
-          const snapshot = await persistConversationFileMutation(
-            orgSlug,
-            conversationId,
-            { op: "save", path, content },
-            expectedWorktreeVersion,
-          )
-          applyConversationFileWriteSnapshot(
-            queryClient,
-            orgSlug,
-            conversationId,
-            snapshot,
-            expectedWorktreeVersion,
-          )
-        })
-        .then(() => undefined)
+        .then(() => persistWithStaleRetry({ op: "save", path, content }))
     }
-  }, [props.conversationId, props.orgSlug, queryClient])
+  }, [persistWithStaleRetry, props.conversationId])
 
   useEffect(() => {
     if (!writable) return
