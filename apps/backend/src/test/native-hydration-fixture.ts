@@ -60,6 +60,15 @@ export type NativeHydrationOptions = {
   onGithubRequest?: (method: string, url: string) => void
   onGithubGitRequest?: (method: string, path: string, body: unknown) => void
   onGithubContentsWrite?: (path: string, body: unknown) => void
+  githubListCommits?:
+    | "fail"
+    | Array<{
+        sha: string
+        message: string
+        authorName: string
+        date: string
+        htmlUrl?: string
+      }>
   slackCaptureIntent?: boolean
   slackResponses?: Record<string, unknown>
   onSlackRequest?: (method: string, body: unknown) => void
@@ -265,6 +274,31 @@ async function createNativeHydrationFixture(
             contents: "read",
           },
         })
+      },
+    ),
+    http.get(
+      "https://api.github.com/repos/fixture/hydration-contract/commits",
+      () => {
+        if (options.githubListCommits === "fail") {
+          return HttpResponse.json(
+            { message: "GitHub commit list unavailable" },
+            { status: 500 },
+          )
+        }
+        return HttpResponse.json(
+          (options.githubListCommits ?? []).map((commit) => ({
+            sha: commit.sha,
+            html_url:
+              commit.htmlUrl ??
+              `https://github.com/fixture/hydration-contract/commit/${commit.sha}`,
+            commit: {
+              message: commit.message,
+              author: { name: commit.authorName, date: commit.date },
+              committer: { date: commit.date },
+            },
+            author: { login: commit.authorName },
+          })),
+        )
       },
     ),
     http.get(
