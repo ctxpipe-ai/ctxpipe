@@ -660,7 +660,7 @@ it(
           `${f.userId}:${f.workspaceId}_other`,
         ),
       ).not.toBe(firstId)
-      await first.text()
+      await Promise.all([first.text(), second.text()])
     })
   },
 )

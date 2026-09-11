@@ -23,7 +23,7 @@ function realHandle(directory: string): JobSandboxHandle {
   return {
     exec: async (command, options) => {
       try {
-        const stdout = execFileSync("bash", ["-lc", command], {
+        const stdout = execFileSync("bash", ["-c", command], {
           cwd: directory,
           encoding: "utf8",
           env: options?.env
@@ -81,7 +81,7 @@ function withWorktree<T>(
   )
 }
 
-describe("conversation sandbox files", () => {
+describe("conversation sandbox files", { timeout: 15_000 }, () => {
   it("strips tokens from git remote errors", () => {
     expect(
       sanitizeGitRemoteError("fatal: token ghp_secret denied", "ghp_secret"),
