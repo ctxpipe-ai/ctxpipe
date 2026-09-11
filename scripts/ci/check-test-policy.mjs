@@ -4,16 +4,31 @@ import { fileURLToPath } from "node:url"
 import ts from "typescript"
 import { readTestConfiguration } from "./test-configuration.mjs"
 
+const GATE0 = "7dfa6b93a5baedc3eb2c86dd1056662e89cace00"
+
+function readGate0File(root, path) {
+  const spec = `${GATE0}:${path}`
+  const show = () =>
+    execFileSync("git", ["show", spec], { cwd: root, encoding: "utf8" })
+  try {
+    return show()
+  } catch {
+    // This SHA is not on every feature-branch history. Fetch it when missing
+    // so CI checkouts of a single branch can still read Gate 0 artifacts.
+    execFileSync("git", ["fetch", "origin", GATE0, "--no-tags"], {
+      cwd: root,
+      encoding: "utf8",
+    })
+    return show()
+  }
+}
+
 try {
   const root = fileURLToPath(new URL("../../", import.meta.url))
   const classification = new Map(
-    execFileSync(
-      "git",
-      [
-        "show",
-        "7dfa6b93a5baedc3eb2c86dd1056662e89cace00:docs/plans/workspace-recovery-gate-0/test-classification.tsv",
-      ],
-      { cwd: root, encoding: "utf8" },
+    readGate0File(
+      root,
+      "docs/plans/workspace-recovery-gate-0/test-classification.tsv",
     )
       .trim()
       .split("\n")
@@ -452,14 +467,7 @@ try {
             // These two exact call-through/temp-path fixtures were reviewed at
             // Gate 0. A changed implementation requires real proof, not an exception.
             if (!acceptedFixtures.has(path))
-              acceptedFixtures.set(
-                path,
-                execFileSync(
-                  "git",
-                  ["show", `7dfa6b93a5baedc3eb2c86dd1056662e89cace00:${path}`],
-                  { cwd: root, encoding: "utf8" },
-                ),
-              )
+              acceptedFixtures.set(path, readGate0File(root, path))
             fixtureOnly = acceptedFixtures
               .get(path)
               .includes(node.parent.getText(source))

@@ -46,6 +46,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
+      - name: Fetch Gate 0 classification pin
+        run: git fetch origin 7dfa6b93a5baedc3eb2c86dd1056662e89cace00 --no-tags
       - name: Reject skipped proof and owned mocks
         run: node scripts/ci/check-test-policy.mjs
       - name: CI command regression tests
