@@ -14,8 +14,10 @@ import { reconstructChat } from "@tanstack/ai-persistence"
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
 import { withOrgDbContext } from "../../db/client.js"
+import { conversations } from "../../db/schema/conversations.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { registerMcpTools } from "../../mcp/tools.js"
+import { conversationIdFromIdempotencyKey } from "../../lib/id.js"
 import {
   listSandboxInstances,
   persistOrgFirstWorkspace,
@@ -584,6 +586,81 @@ it(
       )
       expect(await runs.get(runId)).toEqual(original)
       expect(f.modelRequests).toHaveLength(0)
+    })
+  },
+)
+
+it(
+  "lists and scopes conversations and reuses first-message identity",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      const missingWorkspace = await f.request("/conversations")
+      expect(missingWorkspace.status).toBe(400)
+
+      const scoped = await f.request(
+        `/conversations/${f.conversationId}?workspaceId=${f.workspaceId}`,
+      )
+      expect(scoped.status).toBe(200)
+      expect((await scoped.json()).conversation.workspaceId).toBe(f.workspaceId)
+
+      const foreign = await f.request(
+        `/conversations/${f.conversationId}?workspaceId=ws_other`,
+      )
+      expect(foreign.status).toBe(404)
+
+      await withOrgDbContext(f.orgId, (db) =>
+        db
+          .update(conversations)
+          .set({ lastMessageAt: new Date(), source: "ui" })
+          .where(eq(conversations.id, f.conversationId)),
+      )
+      const listed = await f.request(
+        `/conversations?workspaceId=${f.workspaceId}`,
+      )
+      expect(listed.status).toBe(200)
+      expect((await listed.json()).items.map((item: { id: string }) => item.id)).toEqual(
+        [f.conversationId],
+      )
+
+      const body = JSON.stringify({
+        threadId: "conv_start_1",
+        runId: "run_start_1",
+        messages: [{ id: "m1", role: "user", content: "hello" }],
+        tools: [],
+        context: [],
+        state: {},
+        forwardedProps: { workspaceId: f.workspaceId, source: "ui" },
+        idempotencyKey: "start-1",
+      })
+      const first = await f.request("/conversations", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      })
+      const second = await f.request("/conversations", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      })
+      expect(first.status).toBe(200)
+      expect(second.status).toBe(200)
+      const firstId = first.headers.get("x-conversation-id")
+      expect(firstId).toBe(
+        conversationIdFromIdempotencyKey(
+          "start-1",
+          `${f.userId}:${f.workspaceId}`,
+        ),
+      )
+      expect(second.headers.get("x-conversation-id")).toBe(firstId)
+      expect(firstId).not.toBe(f.conversationId)
+      expect(
+        conversationIdFromIdempotencyKey(
+          "start-1",
+          `${f.userId}:${f.workspaceId}_other`,
+        ),
+      ).not.toBe(firstId)
+      await first.text()
     })
   },
 )
