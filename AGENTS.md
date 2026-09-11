@@ -61,6 +61,10 @@ Default role labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for
 
 Single-context via `.ai/memory/` (product context, glossary, ADRs). See [`.ai/agents/domain.md`](.ai/agents/domain.md).
 
+### Public docs
+
+Customer-facing documentation lives in [`apps/docs/content/docs/`](apps/docs/content/docs/). Write plans, tickets, ledgers, reviews, and logs to [`.ai/scratchpad/`](.ai/scratchpad/) or [`.ai/memory/`](.ai/memory/) — never under root `docs/`.
+
 ## Architecture decisions & ADRs
 
 - **Where ADRs live**: All ADRs are in `.ai/memory/decisions/`. Files are named `ADR-NNN-title-slug.md` (e.g. `ADR-001-frontend-ui-app-stack.md`). Start from [`decisions/index.md`](.ai/memory/decisions/index.md).
