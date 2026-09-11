@@ -1,1 +1,0 @@
-ALTER TABLE "workspace_sandbox_instances" ADD COLUMN "transition_key" text;

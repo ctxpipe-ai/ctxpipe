@@ -1,1 +1,0 @@
-DROP INDEX "workspace_sandbox_instances_live_chat_conversation_uidx";
