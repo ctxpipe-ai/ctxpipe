@@ -1,6 +1,0 @@
-Command: ['volta', 'run', '--node', '22.16.0', 'pnpm', '--filter', '@ctxpipe/ui', 'exec', 'vite', 'dev', '--host', '127.0.0.1', '--port', '3012', '--strictPort']
-Failed to resolve dependency: shiki, present in client 'optimizeDeps.include'
-
-  VITE v7.3.1  ready in 1435 ms
-
-  ➜  Local:   http://127.0.0.1:3012/

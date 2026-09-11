@@ -59,7 +59,6 @@ to later gates are fixed.
 
 ## References
 
-- [Workspace recovery plan](../../../docs/plans/workspace-chat-recovery.md)
-- [Gate 0 baseline](../../../docs/plans/workspace-recovery-gate-0/baseline.md)
+- [Stock TanStack workspace chat](ADR-030-workspace-chat-stock-tanstack.md)
 - [Application role and RLS](ADR-028-postgres-rls-app-role.md)
 - [Bun service runtime](ADR-002-backend-service-stack-and-runtime.md)

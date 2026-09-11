@@ -1,9 +1,0 @@
-Command: ["python3", "../migrate-upgrade.py"]
-CREATE DATABASE
-Migrating folder: /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/gate0-previous-809coe4l/apps/backend/migrations
-Reading config file '/Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/apps/backend/gate0-upgrade.config.ts'
-Using 'pg' driver for database querying
-[⣷] applying migrations...[2K[1G[⣯] applying migrations...[2K[1G[⣟] applying migrations...[2K[1G[✓] migrations applied successfully!Migrating folder: /Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/apps/backend/migrations
-Reading config file '/Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/apps/backend/gate0-upgrade.config.ts'
-Using 'pg' driver for database querying
-[⣷] applying migrations...[2K[1G[⣯] applying migrations...[2K[1G[✓] migrations applied successfully!

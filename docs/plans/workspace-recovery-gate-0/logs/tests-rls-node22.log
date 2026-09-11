@@ -1,4 +1,0 @@
-Command: ["volta", "run", "--node", "22.16.0", "pnpm", "--filter", "@ctxpipe/backend", "exec", "vitest", "run", "src/db/rls-isolation.test.ts"]
-
- RUN  v4.0.18 /Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/apps/backend
-

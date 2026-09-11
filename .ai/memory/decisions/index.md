@@ -19,7 +19,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-005](ADR-005-langgraph-integration.md) | LangGraph + LangChain integration | Superseded |
 | [ADR-006](ADR-006-langsmith-studio-dev-routes.md) | LangSmith Studio dev routes | Accepted |
 | [ADR-007](ADR-007-remove-cloudflare-workers-runtime.md) | Remove Cloudflare Workers runtime | Accepted |
-| [ADR-008](ADR-008-codesearch-zoekt-orchestration.md) | Codesearch service and Zoekt orchestration | Accepted |
+| [ADR-008](ADR-008-codesearch-zoekt-orchestration.md) | Codesearch Zoekt, SCIP, and ast-grep | Accepted |
 | [ADR-009](ADR-009-ui-src-folder-structure.md) | UI src folder structure | Accepted |
 | [ADR-010](ADR-010-opencypher-graph-db-falkordb-default.md) | OpenCypher Graph DB and FalkorDB as Default | Accepted |
 | [ADR-011](ADR-011-backend-observability-otel.md) | Backend Observability via OpenTelemetry and evlog | Accepted |

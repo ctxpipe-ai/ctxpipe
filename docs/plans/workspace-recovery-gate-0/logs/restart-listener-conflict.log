@@ -1,6 +1,0 @@
-Command: ['volta', 'run', '--node', '22.16.0', 'pnpm', '--filter', '@ctxpipe/backend', 'exec', 'bun', 'run', 'src/server.ts']
-error:   ▪ Error: Failed to start server. Is port 3010 in use?
-    at serve (unknown)
-    at bun:main:15:28
-    at asyncModuleEvaluation (native:2)
-    at processTicksAndRejections (native:7:39)

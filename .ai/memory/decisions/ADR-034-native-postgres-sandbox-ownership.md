@@ -149,7 +149,6 @@ use a stronger workspace-scoped ownership digest while existing database keys
 remain unchanged.
 
 The first real-Docker access/revocation and deterministic restore proofs pass.
-See the [native egress checkpoint](../../../docs/plans/workspace-recovery-gate-4/validation-native-egress.md).
 Partial-creation crash recovery, retry after proxy/network deletion failures,
 and independent worktree restart/fork now pass retained real-Docker contracts.
 Teardown retains the agent container as a durable retry reference until its

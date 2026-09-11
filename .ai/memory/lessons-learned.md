@@ -778,3 +778,21 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-28
 - **Source:** user correction (sandbox tree listed a fresh clone after a write)
 
+### Agent writing stays out of root `docs/`
+- **Rule:** In-progress plans, tickets, ledgers, reviews, and logs go in [`.ai/scratchpad/`](../scratchpad/). Durable decisions, lessons, and PRDs go in [`.ai/memory/`](./). Customer-facing documentation lives in [`apps/docs/content/docs/`](../../apps/docs/content/docs/). Do not write those artifacts under root `docs/` or `docs/plans` — that tree is not the public docs app and is not an internal dump.
+- **Category:** convention
+- **Date:** 2026-09-11
+- **Source:** user correction (docs/plans used as a recovery dump)
+
+### Workspace proof owners
+- **Rule:** Native git owns repository, revision, branch, diff, and worktree. OpenWorkflow owns durable job orchestration. Stock TanStack AI owns chat, persistence, stream lifecycle, and OpenCode sandbox integration. Pierre owns file-tree and diff/editor chrome. ctxpipe code owns organisation authorization, Workspace identity, projection activation, credential brokering, and publish rules. Do not add a second chat or write engine beside those owners.
+- **Category:** convention
+- **Date:** 2026-09-11
+- **Source:** accepted Workspace recovery foundations (ADR-030, ADR-033, ADR-034)
+
+### workspace-golden is not live GitHub or Btrfs proof
+- **Rule:** Tagged Storybook `workspace-golden` plays are the required deterministic UI journey ([ADR-031](decisions/ADR-031-required-recovery-ci.md)). They are not live GitHub App publish proof and not Railway/Btrfs quota proof ([ADR-034](decisions/ADR-034-native-postgres-sandbox-ownership.md)).
+- **Category:** convention
+- **Date:** 2026-09-11
+- **Source:** Gate 6 leftover after deleting docs/plans recovery ledgers
+
