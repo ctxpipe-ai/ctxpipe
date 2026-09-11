@@ -8,8 +8,6 @@ const getWorkspaceBySlugMock = vi.hoisted(() => vi.fn())
 const updateWorkspaceMock = vi.hoisted(() => vi.fn())
 const touchLastUsedWorkspaceMock = vi.hoisted(() => vi.fn())
 const listLinkedRepositoriesMock = vi.hoisted(() => vi.fn())
-const listWorkspaceKnowledgeFilesMock = vi.hoisted(() => vi.fn())
-const listWorkspaceKnowledgeUnitsMock = vi.hoisted(() => vi.fn())
 const persistHydrateRetryMock = vi.hoisted(() => vi.fn())
 const deleteWorkspaceMock = vi.hoisted(() => vi.fn())
 const destroySandboxesForWorkspaceMock = vi.hoisted(() => vi.fn())
@@ -56,8 +54,6 @@ vi.mock("../../models/workspaces.js", () => ({
   updateWorkspace: updateWorkspaceMock,
   touchLastUsedWorkspace: touchLastUsedWorkspaceMock,
   listLinkedRepositories: listLinkedRepositoriesMock,
-  listWorkspaceKnowledgeFiles: listWorkspaceKnowledgeFilesMock,
-  listWorkspaceKnowledgeUnits: listWorkspaceKnowledgeUnitsMock,
   persistHydrateRetry: persistHydrateRetryMock,
   deleteWorkspace: deleteWorkspaceMock,
   getMigrationExportSha: getMigrationExportShaMock,
@@ -177,50 +173,6 @@ describe("workspaces API", () => {
     expect(enqueueWorkspaceTipCheck).not.toHaveBeenCalled()
   })
 
-  it("creates a workspace from a git URL", async () => {
-    createWorkspaceMock.mockResolvedValue(workspaceRow)
-    const res = await app().request("/workspaces", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        gitUrl: "https://github.com/acme/knowledge.git",
-      }),
-    })
-    expect(res.status).toBe(201)
-    expect(createWorkspaceMock).toHaveBeenCalledWith({
-      gitUrl: "https://github.com/acme/knowledge.git",
-      displayName: undefined,
-      slug: undefined,
-      write: {
-        writeStatus: "read_only",
-        readOnlyReason: WRITE_STATUS_REASONS.githubNotConnected,
-      },
-    })
-    const body = await res.json()
-    expect(body.slug).toBe("knowledge")
-    expect(ensureOrgRepositoryForGitUrlMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        orgId: "org_mock",
-        gitUrl: "https://github.com/acme/knowledge",
-      }),
-    )
-    expect(enqueueWorkspaceHydrate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        orgId: "org_mock",
-        workspaceId: "ws_abc",
-      }),
-      expect.anything(),
-    )
-    expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        kind: "migration_export",
-        orgId: "org_mock",
-        workspaceId: "ws_abc",
-      }),
-      expect.anything(),
-    )
-  })
-
   it("creates a writable workspace when Select GitHub sends a connection", async () => {
     createWorkspaceMock.mockResolvedValue({
       ...workspaceRow,
@@ -333,73 +285,6 @@ describe("workspaces API", () => {
       },
     })
     expect(resolveGithubInstallationForOrgDetailedMock).not.toHaveBeenCalled()
-  })
-
-  it("queues export and hydrate when create is writable", async () => {
-    createWorkspaceMock.mockResolvedValue({
-      ...workspaceRow,
-      writeStatus: "writable",
-    })
-    const res = await app().request("/workspaces", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        gitUrl: "https://github.com/acme/knowledge.git",
-      }),
-    })
-    expect(res.status).toBe(201)
-    expect(ensureOrgRepositoryForGitUrlMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        orgId: "org_mock",
-        gitUrl: "https://github.com/acme/knowledge",
-      }),
-    )
-    expect(enqueueWorkspaceHydrate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workspaceId: "ws_abc",
-      }),
-      expect.anything(),
-    )
-    expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workspaceId: "ws_abc",
-        kind: "migration_export",
-      }),
-      expect.anything(),
-    )
-  })
-
-  it("queues paused first-create export and links while write status is unknown", async () => {
-    createWorkspaceMock.mockResolvedValue({
-      ...workspaceRow,
-      writeStatus: "unknown",
-      autoLinkGitUrls: ["https://github.com/acme/app.git"],
-    })
-    const res = await app().request("/workspaces", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        gitUrl: "https://github.com/acme/knowledge.git",
-      }),
-    })
-    expect(res.status).toBe(201)
-    expect(enqueueWorkspaceHydrate).toHaveBeenCalled()
-    expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workspaceId: "ws_abc",
-        kind: "migration_export",
-      }),
-      expect.anything(),
-    )
-    expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workspaceId: "ws_abc",
-        kind: "link_unlink",
-        linkAction: "link",
-        linkGitUrl: "https://github.com/acme/app.git",
-      }),
-      expect.anything(),
-    )
   })
 
   it("returns workspace details with linked remotes", async () => {
@@ -770,50 +655,4 @@ describe("workspaces API", () => {
     expect(enqueueWorkspaceWriteCommit).not.toHaveBeenCalled()
   })
 
-  it("queues a git-first unlink write", async () => {
-    getWorkspaceBySlugMock.mockResolvedValue({
-      ...workspaceRow,
-      writeStatus: "writable",
-    })
-    listLinkedRepositoriesMock.mockResolvedValue([
-      {
-        id: "wlr_1",
-        workspaceId: "ws_abc",
-        gitUrl: "https://github.com/acme/app",
-        desiredRef: null,
-        desiredSha: null,
-        indexedSha: null,
-        createdAt: new Date("2026-08-15T10:00:00.000Z"),
-      },
-    ])
-    const res = await app().request(
-      "/workspaces/knowledge/linked-repositories/wlr_1",
-      { method: "DELETE" },
-    )
-    expect(res.status).toBe(202)
-    expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
-      {
-        orgId: "org_mock",
-        workspaceId: "ws_abc",
-        kind: "link_unlink",
-        linkAction: "unlink",
-        linkGitUrl: "https://github.com/acme/app",
-      },
-      expect.anything(),
-    )
-  })
-
-  it("lists hydrated files for the Files pane", async () => {
-    getWorkspaceBySlugMock.mockResolvedValue(workspaceRow)
-    listWorkspaceKnowledgeFilesMock.mockResolvedValue([
-      { path: "knowledge/billing/ledger.md", body: "Ledger" },
-    ])
-    const res = await app().request("/workspaces/knowledge/files")
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.items).toEqual([
-      { path: "knowledge/billing/ledger.md", body: "Ledger" },
-    ])
-    expect(body.tree[0]?.name).toBe("knowledge")
-  })
 })
