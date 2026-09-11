@@ -243,9 +243,7 @@ async function createNativeHydrationFixture(
         )
       },
     ),
-    http.get(
-      "https://api.github.com/repos/fixture/hydration-contract",
-      async () => {
+    http.get("https://api.github.com/repos/fixture/:repo", async () => {
         await beforeWriteProbe?.()
         return githubWriteView === "writable"
           ? HttpResponse.json({

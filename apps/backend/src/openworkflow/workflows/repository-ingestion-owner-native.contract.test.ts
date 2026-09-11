@@ -6,6 +6,7 @@ import { repositoryIngestionRequests } from "../../db/schema/repositories.js"
 import { ensureOrgRepositoryForGitUrl } from "../../domain/workspaces/ensure-org-repository.js"
 import {
   getRepositoryForOrg,
+  getRepositoryReadBinding,
   listRepositoriesForGithubConnection,
   listRepositoriesForOrg,
   markRepositoryIndexingReady,
@@ -492,5 +493,44 @@ it.each(["version", "namespace", "name"] as const)(
         await getRepositoryForOrg(f.org.id, repository.id),
       ).not.toMatchObject({ indexingError: "Repository ingestion canceled" })
     })
+  },
+)
+
+it(
+  "backfills github_connection_id on an existing org repository",
+  { timeout: 20_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { namespaceId: "default", github: true },
+      async (f) => {
+        const created = await withOrgIdContext(f.org, () =>
+          ensureOrgRepositoryForGitUrl({
+            orgId: f.org.id,
+            gitUrl: f.workspaceUrl,
+          }),
+        )
+        if (!created) throw new Error("Fixture repository missing")
+        expect(
+          await getRepositoryReadBinding(f.org.id, created.id),
+        ).toMatchObject({
+          id: created.id,
+          githubConnectionId: null,
+        })
+        const reused = await withOrgIdContext(f.org, () =>
+          ensureOrgRepositoryForGitUrl({
+            orgId: f.org.id,
+            gitUrl: f.workspaceUrl,
+            githubConnectionId: f.connectionId,
+          }),
+        )
+        expect(reused).toEqual({ id: created.id, created: false })
+        expect(
+          await getRepositoryReadBinding(f.org.id, created.id),
+        ).toMatchObject({
+          id: created.id,
+          githubConnectionId: f.connectionId,
+        })
+      },
+    )
   },
 )
