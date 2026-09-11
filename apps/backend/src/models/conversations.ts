@@ -1,10 +1,21 @@
-import { and, desc, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm"
+import {
+  and,
+  desc,
+  eq,
+  getTableColumns,
+  isNotNull,
+  isNull,
+  lt,
+  or,
+  sql,
+} from "drizzle-orm"
 import { createError } from "evlog"
 import { requireCurrentOrgId, requireCurrentUserId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import { withAmbientOrgDb } from "../db/org-sql.js"
 import { conversations } from "../db/schema/conversations.js"
 import { workspaces } from "../db/schema/workspaces.js"
+import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
 import {
   buildPageInfo,
   decodeCursor,
@@ -14,6 +25,22 @@ import {
 
 function orgSql<T>(fn: () => Promise<T>): Promise<T> {
   return withAmbientOrgDb(fn)
+}
+
+function conversationFieldsWithCurrentPr() {
+  return {
+    ...getTableColumns(conversations),
+    lastChatPrNumber: sql<number | null>`case when exists (
+      select 1 from ${workspaces}
+      where ${workspaces.id} = ${conversations.workspaceId}
+        and ${workspaces.orgId} = ${conversations.orgId}
+        and ${workspaces.id} = ${conversations.lastChatPrRevision}->>'workspaceId'
+        and ${workspaces.desiredGeneration}::text = ${conversations.lastChatPrRevision}->>'generation'
+        and ${workspaces.workspaceRepositoryUrl} = ${conversations.lastChatPrRevision}->'remote'->>'url'
+        and ${workspaces.githubConnectionId} is not distinct from ${conversations.lastChatPrRevision}->'remote'->>'connectionId'
+        and ${workspaces.desiredDefaultBranch} = ${conversations.lastChatPrRevision}->>'defaultBranch'
+    ) then ${conversations.lastChatPrNumber} else null end`,
+  }
 }
 
 export type ConversationRecord = typeof conversations.$inferSelect
@@ -61,7 +88,7 @@ export async function ensureConversation(input: {
     }
 
     const [existing] = await db
-      .select()
+      .select(conversationFieldsWithCurrentPr())
       .from(conversations)
       .where(
         and(
@@ -113,25 +140,41 @@ export async function ensureConversation(input: {
         source: input.source ?? null,
         name: "New conversation",
       })
-      .returning()
+      .returning(conversationFieldsWithCurrentPr())
 
     if (!created) throw new Error("Failed to create conversation")
     return created
   })
 }
 
-export async function persistConversationLastChatPrNumber(input: {
+export async function persistConversationPublication(input: {
   conversationId: string
-  lastChatPrNumber: number
+  lastChatPrNumber?: number
   lastBranch: string
-}): Promise<void> {
+  revision: WorkspaceRevision
+}): Promise<boolean> {
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
     const userId = requireCurrentUserId()
-    await getOrgDb()
+    const db = getOrgDb()
+    const [binding] = await db
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(sql`${workspaces.id} = ${input.revision.workspaceId}
+              and ${workspaces.orgId} = ${orgId}
+              and ${workspaces.desiredGeneration} = ${input.revision.generation}
+              and ${workspaces.workspaceRepositoryUrl} = ${input.revision.remote.url}
+              and ${workspaces.githubConnectionId} is not distinct from ${input.revision.remote.connectionId}
+              and ${workspaces.desiredDefaultBranch} = ${input.revision.defaultBranch}
+              and ${workspaces.desiredSha} = ${input.revision.sha}`)
+      .for("update")
+    if (!binding) return false
+    const [row] = await db
       .update(conversations)
       .set({
         lastChatPrNumber: input.lastChatPrNumber,
+        lastChatPrRevision:
+          input.lastChatPrNumber === undefined ? undefined : input.revision,
         lastBranch: input.lastBranch,
         updatedAt: new Date(),
       })
@@ -140,35 +183,11 @@ export async function persistConversationLastChatPrNumber(input: {
           eq(conversations.id, input.conversationId),
           eq(conversations.orgId, orgId),
           eq(conversations.userId, userId),
+          eq(conversations.workspaceId, input.revision.workspaceId),
         ),
       )
-  })
-}
-
-export async function reserveConversationChatPrNumber(
-  conversationId: string,
-): Promise<number> {
-  return orgSql(async () => {
-    const orgId = requireCurrentOrgId()
-    const userId = requireCurrentUserId()
-    const [row] = await getOrgDb()
-      .update(conversations)
-      .set({
-        lastChatPrNumber: sql`COALESCE(${conversations.lastChatPrNumber}, 0) + 1`,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(conversations.id, conversationId),
-          eq(conversations.orgId, orgId),
-          eq(conversations.userId, userId),
-        ),
-      )
-      .returning({ lastChatPrNumber: conversations.lastChatPrNumber })
-    if (row?.lastChatPrNumber == null) {
-      throw new Error("Failed to reserve a chat pull-request number")
-    }
-    return row.lastChatPrNumber
+      .returning({ id: conversations.id })
+    return row != null
   })
 }
 
@@ -279,7 +298,7 @@ export async function listConversations(input?: {
     ].filter(Boolean) as ReturnType<typeof eq>[]
 
     return db
-      .select()
+      .select(conversationFieldsWithCurrentPr())
       .from(conversations)
       .where(and(...conditions))
       .orderBy(
@@ -344,7 +363,7 @@ export async function listConversationsPaginated(input: {
         : and(...baseConditions)
 
     const rows = await db
-      .select()
+      .select(conversationFieldsWithCurrentPr())
       .from(conversations)
       .where(whereClause)
       .orderBy(
@@ -370,14 +389,17 @@ export async function getConversation(
     const orgId = requireCurrentOrgId()
     const userId = requireCurrentUserId()
     const db = getOrgDb()
-    const row =
-      (await db.query.conversations.findFirst({
-        where: {
-          id: { eq: conversationId },
-          orgId: { eq: orgId },
-          userId: { eq: userId },
-        },
-      })) ?? null
+    const [row] = await db
+      .select(conversationFieldsWithCurrentPr())
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.id, conversationId),
+          eq(conversations.orgId, orgId),
+          eq(conversations.userId, userId),
+        ),
+      )
+      .limit(1)
     if (!row) return null
     if (input?.workspaceId && row.workspaceId !== input.workspaceId) {
       return null
@@ -395,7 +417,7 @@ export async function findConversationInWorkspace(
     const orgId = requireCurrentOrgId()
     const db = getOrgDb()
     const [row] = await db
-      .select()
+      .select(conversationFieldsWithCurrentPr())
       .from(conversations)
       .where(
         and(
@@ -427,7 +449,7 @@ export async function updateConversation(
           eq(conversations.userId, userId),
         ),
       )
-      .returning()
+      .returning(conversationFieldsWithCurrentPr())
     return updated ?? null
   })
 }

@@ -1,4 +1,5 @@
 import { resolve } from "node:path"
+import type { ModelMessage } from "@tanstack/ai"
 import { config } from "dotenv"
 import { eq } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -13,11 +14,7 @@ import { organizations } from "../../db/schema/auth.js"
 import { chatRuns, chatThreads } from "../../db/schema/chat-persistence.js"
 import { conversations } from "../../db/schema/conversations.js"
 import { workspaces } from "../../db/schema/workspaces.js"
-import type { ModelMessage } from "@tanstack/ai"
-import {
-  completePersistedWorkspaceChatRun,
-  workspaceChatPersistence,
-} from "./workspace-chat-persistence.js"
+import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
 
 config({
   path: resolve(import.meta.dirname, "../../../.env.local"),
@@ -67,11 +64,15 @@ afterAll(async () => {
   try {
     await withOrgDbContext(org.id, async (db) => {
       await db.delete(chatRuns).where(eq(chatRuns.threadId, conversationId))
-      await db.delete(chatThreads).where(eq(chatThreads.threadId, conversationId))
+      await db
+        .delete(chatThreads)
+        .where(eq(chatThreads.threadId, conversationId))
       await db.delete(conversations).where(eq(conversations.id, conversationId))
       await db.delete(workspaces).where(eq(workspaces.id, workspaceId))
     })
-    await getSystemDb().delete(organizations).where(eq(organizations.id, org.id))
+    await getSystemDb()
+      .delete(organizations)
+      .where(eq(organizations.id, org.id))
   } finally {
     await closeDb()
   }
@@ -89,30 +90,71 @@ describe("workspaceChatPersistence", () => {
     ]
     await withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
       await persistence.stores.messages.saveThread(conversationId, messages)
-      const loaded = await persistence.stores.messages.loadThread(conversationId)
+      const loaded =
+        await persistence.stores.messages.loadThread(conversationId)
       expect(loaded).toEqual(messages)
     })
   })
+})
 
-  it("marks the active run completed after the client saw RUN_FINISHED", async () => {
-    const persistence = workspaceChatPersistence()
-    const runId = `${conversationId}_run`
-    await withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
-      await persistence.stores.runs.createOrResume({
+it("does not fabricate a persisted run when another organization owns its id", async () => {
+  const otherOrg = {
+    id: `${runId}_other`,
+    slug: `${runId}-other`,
+    name: "Other org",
+  }
+  const persistence = workspaceChatPersistence()
+  await getSystemDb()
+    .insert(organizations)
+    .values({ ...otherOrg, createdAt: new Date() })
+  try {
+    await withOrgIdContext(org, () =>
+      persistence.stores.runs.createOrResume({
         runId,
         threadId: conversationId,
         startedAt: Date.now(),
-        status: "running",
-      })
-      expect(await persistence.stores.runs.findActiveRun(conversationId)).toMatchObject(
-        { runId, status: "running" },
-      )
-      await completePersistedWorkspaceChatRun(conversationId)
-      expect(await persistence.stores.runs.findActiveRun(conversationId)).toBeNull()
-      await expect(persistence.stores.runs.get(runId)).resolves.toMatchObject({
-        runId,
-        status: "completed",
-      })
+      }),
+    )
+    await expect(
+      withOrgIdContext(otherOrg, () =>
+        persistence.stores.runs.createOrResume({
+          runId,
+          threadId: "other-thread",
+          startedAt: Date.now(),
+        }),
+      ),
+    ).rejects.toThrow()
+    expect(
+      await withOrgIdContext(otherOrg, () =>
+        persistence.stores.runs.get(runId),
+      ),
+    ).toBeNull()
+  } finally {
+    await withOrgDbContext(otherOrg.id, (db) =>
+      db.delete(chatRuns).where(eq(chatRuns.orgId, otherOrg.id)),
+    )
+    await getSystemDb()
+      .delete(organizations)
+      .where(eq(organizations.id, otherOrg.id))
+  }
+})
+
+it("rejects a run id owned by another thread in the same organization", async () => {
+  const runs = workspaceChatPersistence().stores.runs
+  await withOrgIdContext(org, async () => {
+    const id = `${runId}-same-org`
+    const first = await runs.createOrResume({
+      runId: id,
+      threadId: conversationId,
+      startedAt: Date.now(),
     })
+    await expect(
+      runs.createOrResume({
+        runId: id,
+        threadId: `${conversationId}-other`,
+        startedAt: Date.now(),
+      }),
+    ).rejects.toThrow("another conversation")
+    expect(await runs.get(id)).toEqual(first)
   })
 })

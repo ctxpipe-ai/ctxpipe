@@ -4,13 +4,13 @@ import { listInstallationsByGithubInstallationId } from "../../../models/github-
 import {
   getLinearConnectionByConnectionId,
   listLinearBindingsWithRepoByRepositoryId,
-  claimLinearBindingInitialSync,
   resetLinearConnectorAfterMissingConfig,
-  transitionLinearBindingState,
 } from "../../../models/linear-connector.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
-import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
-import { linearSyncContent } from "../../../openworkflow/workflows/linear-sync-content.js"
+import {
+  connectorConfigKey,
+  enqueueConnectorContentSync,
+} from "../../../openworkflow/enqueue-connector-content-sync.js"
 import {
   githubCommitsMissingPathEntirely,
   githubPushTouchesPath,
@@ -140,35 +140,20 @@ export async function maybeActivateLinearSyncOnConfigPush(input: {
         continue
       }
 
-      if (
-        !(await claimLinearBindingInitialSync({
-          connectionId: target.connectionId,
-          repositoryId: target.repositoryId,
-          branch: target.branch,
-        }))
-      ) {
-        continue
-      }
       try {
-        await runWorkflowWithWorkerWake(linearSyncContent.spec, {
+        await enqueueConnectorContentSync({
           orgId: target.orgId,
           connectionId: target.connectionId,
-        })
-      } catch (error) {
-        // Avoid leaving a stuck initial_sync that blocks later CAS claims.
-        await transitionLinearBindingState({
-          connectionId: target.connectionId,
-          expectedSetupPhase: "initial_sync",
-          expectedPendingConfigPrCreating: false,
+          provider: "linear",
           repositoryId: target.repositoryId,
           branch: target.branch,
-          pendingConfigPullUrl: null,
-          pendingConfigPrCreating: false,
-          setupPhase: "awaiting_merge",
+          configKey: connectorConfigKey(config),
         })
+      } catch (error) {
         input.log.error(
           error instanceof Error ? error : new Error(String(error)),
         )
+        throw error
       }
     }
   }

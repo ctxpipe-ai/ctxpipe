@@ -1,6 +1,6 @@
 import type { PermissionHandler } from "@tanstack/ai-opencode"
-
 import { firstConnectorTarget } from "./dest-workspace-first.js"
+import { WRITE_STATUS_REASONS } from "./write-status.js"
 
 export const CHAT_PERMISSION_MODE = "acceptEdits" as const
 
@@ -20,8 +20,11 @@ export const CHAT_HARD_DENY_REASONS = [
 
 export type ChatHardDenyReason = (typeof CHAT_HARD_DENY_REASONS)[number]
 
-export function chatSandboxAllowsRemotePush(writeStatus: string): boolean {
-  return writeStatus === "writable"
+export function chatSandboxAllowsRemotePush(
+  writeStatus: string,
+  readOnlyReason?: string | null,
+): boolean {
+  return workspaceAllowsConversationEdits(writeStatus, readOnlyReason)
 }
 
 export function isChatHardDeny(reason: string): reason is ChatHardDenyReason {
@@ -59,15 +62,20 @@ export function isMcpOriginConversation(
   return origin === "mcp"
 }
 
-export function workspaceAllowsConversationEdits(writeStatus: string): boolean {
-  return writeStatus === "writable"
+export function workspaceAllowsConversationEdits(
+  writeStatus: string,
+  readOnlyReason?: string | null,
+): boolean {
+  return (
+    writeStatus === "writable" ||
+    (writeStatus === "read_only" &&
+      readOnlyReason === WRITE_STATUS_REASONS.protectedBranch)
+  )
 }
 
 function excerptLooksLikePush(name: string, excerpt: string): boolean {
   return (
-    name.includes("git_push") ||
-    name === "push" ||
-    excerpt.includes("git push")
+    name.includes("git_push") || name === "push" || excerpt.includes("git push")
   )
 }
 
@@ -215,6 +223,7 @@ function isReadOnlySandboxTool(name: string, excerpt: string): boolean {
 export function createWorkspaceChatPermissionHandler(input: {
   writeStatus: string
   currentBranch?: string | null
+  getCurrentBranch?: () => Promise<string>
   defaultBranch?: string | null
   judge?: (
     toolName: string,
@@ -230,7 +239,14 @@ export function createWorkspaceChatPermissionHandler(input: {
       toolName,
       argsExcerpt,
       writeStatus: input.writeStatus,
-      currentBranch: input.currentBranch,
+      currentBranch:
+        input.getCurrentBranch &&
+        excerptLooksLikeCommit(
+          toolName.toLowerCase(),
+          argsExcerpt.toLowerCase(),
+        )
+          ? await input.getCurrentBranch()
+          : input.currentBranch,
       defaultBranch: input.defaultBranch,
     })
     if (classified.hardDeny) return "reject"

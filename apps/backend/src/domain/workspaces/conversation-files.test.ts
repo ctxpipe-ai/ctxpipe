@@ -1,175 +1,235 @@
-import { describe, expect, it } from "vitest"
+import { createHash } from "node:crypto"
+import { execFileSync } from "node:child_process"
 import {
-  conversationSandboxStatus,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { describe, expect, it } from "vitest"
+import type { JobSandboxHandle } from "./job-worktree.js"
+import {
+  conversationWorktreeVersion,
   ensureConversationSessionBranch,
+  fingerprintConversationWorktree,
   listConversationSandboxPaths,
-  renameConversationSandboxPath,
   sanitizeGitRemoteError,
-  writeConversationSandboxFile,
 } from "./conversation-files.js"
 
-function fakeHandle(
-  commands: string[],
-  answers: Record<string, string>,
-  optionsLog?: Array<{ env?: Record<string, string> }>,
-) {
+function realHandle(directory: string): JobSandboxHandle {
   return {
-    exec: async (
-      command: string,
-      options?: { env?: Record<string, string> },
-    ) => {
-      commands.push(command)
-      optionsLog?.push(options ?? {})
-      for (const [needle, stdout] of Object.entries(answers)) {
-        if (command.includes(needle)) {
-          return { stdout, stderr: "", exitCode: 0 }
+    exec: async (command, options) => {
+      try {
+        const stdout = execFileSync("bash", ["-c", command], {
+          cwd: directory,
+          encoding: "utf8",
+          env: options?.env
+            ? { ...process.env, ...options.env }
+            : process.env,
+        })
+        return { stdout, stderr: "", exitCode: 0 }
+      } catch (error) {
+        const failed = error as {
+          stdout?: string
+          stderr?: string
+          status?: number
+        }
+        return {
+          stdout: failed.stdout ?? "",
+          stderr: failed.stderr ?? String(error),
+          exitCode: failed.status ?? 1,
         }
       }
-      return { stdout: "", stderr: "", exitCode: 0 }
     },
     fs: {
-      write: async () => undefined,
-      read: async () => "",
-      remove: async () => undefined,
-      mkdir: async () => undefined,
+      write: async (path, data) => {
+        writeFileSync(join(directory, path), data)
+      },
+      read: async (path) => readFileSync(join(directory, path), "utf8"),
+      remove: async (path) => {
+        rmSync(join(directory, path), { force: true })
+      },
+      mkdir: async (path) => {
+        mkdirSync(join(directory, path), { recursive: true })
+      },
     },
   }
 }
 
-describe("conversation sandbox files", () => {
-  it("checks out the one session branch", async () => {
-    const commands: string[] = []
-    const branch = await ensureConversationSessionBranch({
-      conversationId: "conv_1",
-      defaultBranch: "main",
-      handle: fakeHandle(commands, {}),
-    })
-    expect(branch).toBe("ctxpipe/chat/conv_1/1")
-    expect(commands).toEqual([
-      "git branch --show-current",
-      "git checkout -B ctxpipe/chat/conv_1/1",
-    ])
-  })
+function withWorktree<T>(
+  seed: (directory: string) => void,
+  run: (input: {
+    directory: string
+    handle: JobSandboxHandle
+    git: (...args: string[]) => string
+  }) => Promise<T>,
+): Promise<T> {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-conversation-files-"))
+  const git = (...args: string[]) =>
+    execFileSync("git", args, { cwd: directory, encoding: "utf8" }).trim()
+  git("init", "-b", "main")
+  git("config", "user.name", "Fixture")
+  git("config", "user.email", "fixture@example.test")
+  seed(directory)
+  git("add", ".")
+  git("commit", "-m", "Initial")
+  return run({ directory, handle: realHandle(directory), git }).finally(() =>
+    rmSync(directory, { recursive: true, force: true }),
+  )
+}
 
-  it("skips checkout when HEAD is already the session branch", async () => {
-    const commands: string[] = []
-    const branch = await ensureConversationSessionBranch({
-      conversationId: "conv_1",
-      defaultBranch: "main",
-      handle: fakeHandle(commands, {
-        "git branch --show-current": "ctxpipe/chat/conv_1/1\n",
-      }),
-    })
-    expect(branch).toBe("ctxpipe/chat/conv_1/1")
-    expect(commands).toEqual(["git branch --show-current"])
-  })
-
-  it("does not wipe sandbox PATH with an empty exec env", async () => {
-    const commands: string[] = []
-    const optionsLog: Array<{ env?: Record<string, string> }> = []
-    await ensureConversationSessionBranch({
-      conversationId: "conv_1",
-      defaultBranch: "main",
-      handle: fakeHandle(commands, {}, optionsLog),
-    })
-    expect(optionsLog[0]?.env).toBeUndefined()
-  })
-
-  it("lists tracked and untracked paths", async () => {
-    const paths = await listConversationSandboxPaths(
-      fakeHandle([], {
-        "git ls-files -z": "AGENTS.md\0knowledge/a.md\0",
-        "git ls-files --others": "new.md\0",
-      }),
-    )
-    expect(paths).toEqual(["AGENTS.md", "knowledge/a.md", "new.md"])
-  })
-
-  it("omits OpenCode and TanStack harness paths from the listing", async () => {
-    const paths = await listConversationSandboxPaths(
-      fakeHandle([], {
-        "git ls-files -z":
-          "AGENTS.md\0opencode.json\0tm/tanstack-ai-sa/x/.tanstack-projected-foo\0",
-        "git ls-files --others":
-          "e2e.md\0.tanstack-projected-bar\0tmp/tanstack-ai-sandboxes/x\0",
-      }),
-    )
-    expect(paths).toEqual(["AGENTS.md", "e2e.md"])
-  })
-
-  it("marks dirty or ahead-of-default as differing", async () => {
-    const status = await conversationSandboxStatus({
-      defaultBranch: "main",
-      sessionBranch: "ctxpipe/chat/conv_1/1",
-      handle: fakeHandle([], {
-        "git status --porcelain": " M knowledge/a.md\n",
-        "git diff --numstat": "1\t0\tknowledge/a.md\n",
-        "git rev-list --left-right": "0\t1",
-        "origin/ctxpipe/chat/conv_1/1..HEAD": "1",
-      }),
-    })
-    expect(status.dirty).toBe(true)
-    expect(status.differsFromDefault).toBe(true)
-    expect(status.unpushed).toBe(true)
-    expect(status.published).toBe(true)
-    expect(status.items[0]?.path).toBe("knowledge/a.md")
-  })
-
-  it("omits harness paths from sandbox status", async () => {
-    const status = await conversationSandboxStatus({
-      defaultBranch: "main",
-      sessionBranch: "ctxpipe/chat/conv_1/1",
-      handle: fakeHandle([], {
-        "git status --porcelain": "?? opencode.json\n M AGENTS.md\n?? tm/foo\n",
-        "git diff --numstat": "1\t0\tAGENTS.md\n",
-        "git rev-list --left-right": "0\t0",
-        "origin/ctxpipe/chat/conv_1/1..HEAD": "0",
-      }),
-    })
-    expect(status.items.map((item) => item.path)).toEqual(["AGENTS.md"])
-  })
-
-  it("writes and renames sandbox files", async () => {
-    const writes: Array<{ path: string; body: string }> = []
-    const removed: string[] = []
-    const handle = {
-      exec: async (command: string) => {
-        if (command.includes("git ls-files")) {
-          return { stdout: "knowledge/a.md\0", stderr: "", exitCode: 0 }
-        }
-        return { stdout: "", stderr: "", exitCode: 0 }
-      },
-      fs: {
-        write: async (path: string, body: string) => {
-          writes.push({ path, body })
-        },
-        read: async () => "hello",
-        remove: async (path: string) => {
-          removed.push(path)
-        },
-        mkdir: async () => undefined,
-      },
-    }
-    await writeConversationSandboxFile({
-      handle,
-      path: "knowledge/b.md",
-      body: "next",
-    })
-    await renameConversationSandboxPath({
-      handle,
-      from: "knowledge/a.md",
-      to: "knowledge/c.md",
-    })
-    expect(writes).toEqual([
-      { path: "knowledge/b.md", body: "next" },
-      { path: "knowledge/c.md", body: "hello" },
-    ])
-    expect(removed).toEqual(["knowledge/a.md"])
-  })
-
+describe("conversation sandbox files", { timeout: 15_000 }, () => {
   it("strips tokens from git remote errors", () => {
     expect(
       sanitizeGitRemoteError("fatal: token ghp_secret denied", "ghp_secret"),
     ).toBe("fatal: token *** denied")
+  })
+
+  it("fingerprints HEAD, the tracked diff, and untracked file digests", () => {
+    const first = fingerprintConversationWorktree({
+      headSha: "abc123\n",
+      trackedDiff: "diff --git a/notes.md\n+hello\n",
+      untracked: [{ path: "new.md", digest: "deadbeef" }],
+    })
+    const second = fingerprintConversationWorktree({
+      headSha: "abc123",
+      trackedDiff: "diff --git a/notes.md\n+hello\n",
+      untracked: [{ path: "new.md", digest: "deadbeef" }],
+    })
+    const afterEdit = fingerprintConversationWorktree({
+      headSha: "abc123",
+      trackedDiff: "diff --git a/notes.md\n+hello world\n",
+      untracked: [{ path: "new.md", digest: "deadbeef" }],
+    })
+    expect(first).toBe(second)
+    expect(first).toBe(
+      createHash("sha256")
+        .update("abc123\n")
+        .update("diff --git a/notes.md\n+hello\n")
+        .update("\n")
+        .update("new.md")
+        .update("\0")
+        .update("deadbeef")
+        .update("\n")
+        .digest("hex"),
+    )
+    expect(afterEdit).not.toBe(first)
+  })
+
+  it("checks out the session branch and skips when HEAD already matches", async () => {
+    await withWorktree(
+      (directory) => {
+        writeFileSync(join(directory, "AGENTS.md"), "# Agents\n")
+      },
+      async ({ handle, git }) => {
+        const branch = await ensureConversationSessionBranch({
+          conversationId: "conv_1",
+          defaultBranch: "main",
+          handle,
+        })
+        expect(branch).toBe("ctxpipe/chat/conv_1/1")
+        expect(git("branch", "--show-current")).toBe("ctxpipe/chat/conv_1/1")
+        const again = await ensureConversationSessionBranch({
+          conversationId: "conv_1",
+          defaultBranch: "main",
+          handle,
+        })
+        expect(again).toBe("ctxpipe/chat/conv_1/1")
+        expect(git("branch", "--show-current")).toBe("ctxpipe/chat/conv_1/1")
+      },
+    )
+  })
+
+  it("does not wipe sandbox PATH with an empty exec env", async () => {
+    await withWorktree(
+      (directory) => {
+        writeFileSync(join(directory, "AGENTS.md"), "# Agents\n")
+      },
+      async ({ handle }) => {
+        const envs: Array<Record<string, string> | undefined> = []
+        const wrapped: JobSandboxHandle = {
+          ...handle,
+          exec: async (command, options) => {
+            envs.push(options?.env)
+            return handle.exec(command, options)
+          },
+        }
+        expect(await listConversationSandboxPaths(wrapped)).toEqual([
+          "AGENTS.md",
+        ])
+        expect(envs.length).toBeGreaterThan(0)
+        expect(envs.every((env) => env === undefined)).toBe(true)
+      },
+    )
+  })
+
+  it("lists tracked and untracked paths and omits harness files", async () => {
+    await withWorktree(
+      (directory) => {
+        mkdirSync(join(directory, "knowledge"), { recursive: true })
+        writeFileSync(join(directory, "AGENTS.md"), "# Agents\n")
+        writeFileSync(join(directory, "knowledge/a.md"), "A\n")
+        writeFileSync(join(directory, "opencode.json"), "{}\n")
+      },
+      async ({ directory, handle }) => {
+        writeFileSync(join(directory, "new.md"), "fresh\n")
+        writeFileSync(join(directory, ".tanstack-projected-bar"), "x\n")
+        mkdirSync(join(directory, "tmp/tanstack-ai-sandboxes"), {
+          recursive: true,
+        })
+        writeFileSync(join(directory, "tmp/tanstack-ai-sandboxes/x"), "x\n")
+        expect(await listConversationSandboxPaths(handle)).toEqual([
+          "AGENTS.md",
+          "knowledge/a.md",
+          "new.md",
+        ])
+      },
+    )
+  })
+
+  it("reads a worktree version from native git without staging", async () => {
+    await withWorktree(
+      (directory) => {
+        writeFileSync(join(directory, "notes.md"), "hello\n")
+      },
+      async ({ directory, handle, git }) => {
+        const clean = await conversationWorktreeVersion(handle)
+        expect(clean).toMatch(/^[0-9a-f]{64}$/)
+        writeFileSync(join(directory, "notes.md"), "hello world\n")
+        writeFileSync(join(directory, "new.md"), "fresh")
+        const dirty = await conversationWorktreeVersion(handle)
+        expect(dirty).toMatch(/^[0-9a-f]{64}$/)
+        expect(dirty).not.toBe(clean)
+        expect(dirty).not.toBe(
+          fingerprintConversationWorktree({
+            headSha: git("rev-parse", "HEAD"),
+            trackedDiff: "",
+            untracked: [],
+          }),
+        )
+        expect(await conversationWorktreeVersion(handle)).toBe(dirty)
+        expect(git("diff", "--cached", "--name-only")).toBe("")
+      },
+    )
+  })
+
+  it("does not treat an unreadable untracked file as empty content", async () => {
+    await withWorktree(
+      (directory) => {
+        writeFileSync(join(directory, "AGENTS.md"), "# Agents\n")
+      },
+      async ({ directory, handle }) => {
+        writeFileSync(join(directory, "new.md"), "fresh")
+        handle.fs.read = async () => {
+          throw new Error("ENOENT")
+        }
+        await expect(conversationWorktreeVersion(handle)).rejects.toThrow(
+          /untracked worktree file/,
+        )
+      },
+    )
   })
 })

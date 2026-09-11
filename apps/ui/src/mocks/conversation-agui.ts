@@ -1,7 +1,9 @@
 import { HttpResponse } from "msw"
 
 export function conversationPostPath({ request }: { request: Request }) {
-  return /\/api\/v1\/conversations\/[^/]+$/.test(new URL(request.url).pathname)
+  return /\/api\/v1\/conversations(?:\/[^/]+)?$/.test(
+    new URL(request.url).pathname,
+  )
 }
 
 export function conversationAguiSse(events: object[]) {
@@ -33,8 +35,20 @@ export function conversationAguiTextEvents(input: {
 }
 
 export function conversationAguiSseResponse(events: object[]) {
+  const threadId = events.find((event): event is { threadId: string } =>
+    Boolean(
+      event &&
+        typeof event === "object" &&
+        "threadId" in event &&
+        typeof event.threadId === "string" &&
+        event.threadId,
+    ),
+  )?.threadId
   return new HttpResponse(conversationAguiSse(events), {
     status: 200,
-    headers: { "Content-Type": "text/event-stream" },
+    headers: {
+      "Content-Type": "text/event-stream",
+      ...(threadId ? { "x-conversation-id": threadId } : {}),
+    },
   })
 }

@@ -1,26 +1,26 @@
-import { and, asc, desc, eq, isNotNull, lte } from "drizzle-orm"
 import type { ModelMessage } from "@tanstack/ai"
 import {
+  type ChatPersistence,
   composePersistence,
   defineAIPersistence,
-  memoryPersistence,
-  type ChatPersistence,
   type InterruptRecord,
   type InterruptStore,
   type MessageStore,
   type MetadataStore,
+  memoryPersistence,
   type RunRecord,
   type RunStore,
 } from "@tanstack/ai-persistence"
+import { and, asc, desc, eq, isNotNull, lte } from "drizzle-orm"
 import { requireCurrentOrgId } from "../../auth/context.js"
 import { getOrgDb } from "../../db/client.js"
+import { withAmbientOrgDb } from "../../db/org-sql.js"
 import {
   chatInterrupts,
   chatMetadata,
   chatRuns,
   chatThreads,
 } from "../../db/schema/chat-persistence.js"
-import { withAmbientOrgDb } from "../../db/org-sql.js"
 
 function orgSql<T>(fn: () => Promise<T>): Promise<T> {
   return withAmbientOrgDb(fn)
@@ -53,7 +53,9 @@ function mapRun(row: typeof chatRuns.$inferSelect): RunRecord {
   }
 }
 
-function mapInterrupt(row: typeof chatInterrupts.$inferSelect): InterruptRecord {
+function mapInterrupt(
+  row: typeof chatInterrupts.$inferSelect,
+): InterruptRecord {
   return {
     interruptId: row.interruptId,
     runId: row.runId,
@@ -75,7 +77,16 @@ function createMessageStore(): MessageStore {
           .from(chatThreads)
           .where(eq(chatThreads.threadId, threadId))
           .limit(1)
-        return (rows[0]?.messagesJson ?? []) as ModelMessage[]
+        // JSONB stores dates as strings; native chat/wire converters require Date.
+        return ((rows[0]?.messagesJson ?? []) as ModelMessage[]).map(
+          (message) =>
+            message.createdAt == null
+              ? message
+              : {
+                  ...message,
+                  createdAt: new Date(message.createdAt),
+                },
+        )
       })
     },
     async saveThread(threadId, messages) {
@@ -115,7 +126,11 @@ function createRunStore(): RunStore {
     get,
     async createOrResume({ runId, threadId, startedAt, status }) {
       const existing = await get(runId)
-      if (existing) return existing
+      if (existing) {
+        if (existing.threadId !== threadId)
+          throw new Error("Chat run belongs to another conversation")
+        return existing
+      }
       await orgSql(async () => {
         const orgId = requireCurrentOrgId()
         await getOrgDb()
@@ -130,9 +145,10 @@ function createRunStore(): RunStore {
           .onConflictDoNothing({ target: chatRuns.runId })
       })
       const stored = await get(runId)
-      return (
-        stored ?? { runId, threadId, status: status ?? "running", startedAt }
-      )
+      if (!stored) throw new Error("Chat run could not be persisted")
+      if (stored.threadId !== threadId)
+        throw new Error("Chat run belongs to another conversation")
+      return stored
     },
     async update(runId, patch) {
       const set: Partial<typeof chatRuns.$inferInsert> = {}
@@ -155,7 +171,10 @@ function createRunStore(): RunStore {
       if ("driverEpoch" in patch) set.driverEpoch = patch.driverEpoch ?? null
       if (Object.keys(set).length === 0) return
       await orgSql(async () => {
-        await getOrgDb().update(chatRuns).set(set).where(eq(chatRuns.runId, runId))
+        await getOrgDb()
+          .update(chatRuns)
+          .set(set)
+          .where(eq(chatRuns.runId, runId))
       })
     },
     async findActiveRun(threadId) {
@@ -164,7 +183,10 @@ function createRunStore(): RunStore {
           .select()
           .from(chatRuns)
           .where(
-            and(eq(chatRuns.threadId, threadId), eq(chatRuns.status, "running")),
+            and(
+              eq(chatRuns.threadId, threadId),
+              eq(chatRuns.status, "running"),
+            ),
           )
           .orderBy(desc(chatRuns.startedAt))
           .limit(1)
@@ -369,22 +391,5 @@ export function workspaceChatPersistence() {
       interrupts: chatStores.stores.interrupts,
       metadata: chatStores.stores.metadata,
     },
-  })
-}
-
-/** Mark a detachable run completed after the client already saw RUN_FINISHED. */
-export async function completePersistedWorkspaceChatRun(
-  threadId: string,
-  persistence: {
-    stores: {
-      runs: Pick<RunStore, "findActiveRun" | "update">
-    }
-  } = workspaceChatPersistence(),
-) {
-  const active = await persistence.stores.runs.findActiveRun(threadId)
-  if (!active) return
-  await persistence.stores.runs.update(active.runId, {
-    status: "completed",
-    finishedAt: Date.now(),
   })
 }

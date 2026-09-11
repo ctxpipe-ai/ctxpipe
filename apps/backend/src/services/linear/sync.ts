@@ -1,17 +1,14 @@
 import type { Env } from "../../config/env.js"
-import {
-  type LinearConnection,
-  type LinearScope,
-  type LinearBindingWithRepo,
-  withLinearBindingSnapshot,
+import type {
+  LinearBindingWithRepo,
+  LinearConnection,
+  LinearScope,
 } from "../../models/linear-connector.js"
 import {
   closePullRequest,
-  commitFiles,
   createPullRequestWithFiles,
   getFileContent,
   getPullRequestHeadBranch,
-  listFilesInTree,
   parseGithubPullNumberFromUrl,
 } from "../github/installation-write-client.js"
 import type { LinearTokenRefreshHandler } from "./client.js"
@@ -112,150 +109,49 @@ export async function syncLinearConfigYaml(input: {
   }
 }
 
-export async function syncLinearContentToGit(input: {
-  orgId: string
+/** Fetch provider content; the calling workflow owns the native Git child. */
+export async function captureLinearContent(input: {
   env: Env
   connection: LinearConnection
-  target: LinearBindingWithRepo
   config: ParsedLinearRepoConfig
+  existingPaths: string[]
   onTokenRefresh?: LinearTokenRefreshHandler
-}): Promise<{
-  status: "completed" | "partial_failed" | "failed"
-  written: number
-  deleted: number
-  failures: Array<{ type: string; id: string; message: string }>
-}> {
-  const githubConnectionId = input.target.githubConnectionId
-  if (!githubConnectionId) {
-    throw new Error("Linear sync repository has no GitHub connection")
-  }
-  if (input.config.workspaceId !== input.connection.workspaceId) {
+}) {
+  if (input.config.workspaceId !== input.connection.workspaceId)
     throw new Error(
       "linear/config.yaml workspace does not match the Linear connection",
     )
-  }
-  const mirror = await buildLinearMirror({
-    env: input.env,
-    connection: input.connection,
-    config: input.config,
-    onTokenRefresh: input.onTokenRefresh,
-  })
-  if (mirror.files.length === 0 && mirror.failures.length > 0) {
-    return {
-      status: "failed",
-      written: 0,
-      deleted: 0,
-      failures: mirror.failures,
-    }
-  }
-
-  const existing = await listFilesInTree({
-    orgId: input.orgId,
-    env: input.env,
-    repositoryName: input.target.repositoryName,
-    githubConnectionId,
-    branch: input.target.branch,
-  })
+  const mirror = await buildLinearMirror(input)
+  const failed = mirror.files.length === 0 && mirror.failures.length > 0
   const nextPaths = new Set(mirror.files.map((file) => file.path))
   const deletePaths =
     mirror.failures.length === 0
-      ? existing
-          .map((file) => file.path)
-          .filter(
-            (path) =>
-              path.startsWith("linear/") &&
-              path !== LINEAR_CONFIG_PATH &&
-              !nextPaths.has(path),
-          )
+      ? input.existingPaths.filter(
+          (path) =>
+            path.startsWith("linear/") &&
+            path !== LINEAR_CONFIG_PATH &&
+            !nextPaths.has(path),
+        )
       : []
-
-  await withLinearBindingSnapshot(
-    {
-      connectionId: input.connection.id,
-      repositoryId: input.target.repositoryId,
-      branch: input.target.branch,
-      setupPhase: "initial_sync",
-    },
-    async () => {
-      if (mirror.files.length > 0 || deletePaths.length > 0) {
-        await commitFiles({
-          orgId: input.orgId,
-          env: input.env,
-          repositoryName: input.target.repositoryName,
-          githubConnectionId,
-          branch: input.target.branch,
-          message: "chore(linear): sync workspace content",
-          files: mirror.files,
-          deletePaths,
-        })
-      }
-    },
-  )
   return {
-    status: mirror.failures.length > 0 ? "partial_failed" : "completed",
-    written: mirror.files.length,
-    deleted: deletePaths.length,
+    status: failed
+      ? ("failed" as const)
+      : mirror.failures.length
+        ? ("partial_failed" as const)
+        : ("completed" as const),
+    files: mirror.files,
+    deletePaths,
     failures: mirror.failures,
   }
 }
 
-export async function syncLinearIncrementalContent(input: {
-  orgId: string
+export async function captureLinearIncrementalContent(input: {
   env: Env
   connection: LinearConnection
-  target: LinearBindingWithRepo
   config: ParsedLinearRepoConfig
+  existingPaths: string[]
   entity: LinearEntityChange
   onTokenRefresh?: LinearTokenRefreshHandler
-}): Promise<{
-  written: number
-  deleted: number
-  failures: Array<{ type: string; id: string; message: string }>
-}> {
-  const githubConnectionId = input.target.githubConnectionId
-  if (!githubConnectionId) {
-    throw new Error("Linear sync repository has no GitHub connection")
-  }
-  const existing = await listFilesInTree({
-    orgId: input.orgId,
-    env: input.env,
-    repositoryName: input.target.repositoryName,
-    githubConnectionId,
-    branch: input.target.branch,
-  })
-  const changes = await buildLinearIncrementalChanges({
-    env: input.env,
-    connection: input.connection,
-    config: input.config,
-    entities: [input.entity],
-    existingPaths: existing.map((file) => file.path),
-    onTokenRefresh: input.onTokenRefresh,
-  })
-  await withLinearBindingSnapshot(
-    {
-      connectionId: input.connection.id,
-      repositoryId: input.target.repositoryId,
-      branch: input.target.branch,
-      setupPhase: "live",
-    },
-    async () => {
-      if (changes.files.length > 0 || changes.deletePaths.length > 0) {
-        await commitFiles({
-          orgId: input.orgId,
-          env: input.env,
-          repositoryName: input.target.repositoryName,
-          githubConnectionId,
-          branch: input.target.branch,
-          message: "chore(linear): apply incremental updates",
-          files: changes.files,
-          deletePaths: changes.deletePaths,
-        })
-      }
-    },
-  )
-  return {
-    written: changes.files.length,
-    deleted: changes.deletePaths.length,
-    failures: changes.failures,
-  }
+}) {
+  return buildLinearIncrementalChanges({ ...input, entities: [input.entity] })
 }

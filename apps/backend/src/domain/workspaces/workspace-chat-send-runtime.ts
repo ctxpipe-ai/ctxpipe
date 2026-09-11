@@ -31,6 +31,8 @@ export async function resolveWorkspaceChatSendRuntime(input: {
           githubConnectionId: workspace.githubConnectionId ?? null,
           writeStatus: workspace.writeStatus,
           desiredSha: workspace.desiredSha,
+          desiredDefaultBranch: workspace.desiredDefaultBranch,
+          readOnlyReason: workspace.readOnlyReason,
           desiredGeneration: workspace.desiredGeneration,
         }
       : null,
@@ -47,6 +49,7 @@ export async function resolveWorkspaceChatSendRuntime(input: {
     lastBranch: runtime.lastBranch,
     ref: runtime.cloneRef || runtime.desiredSha || "HEAD",
     cloneToken: runtime.cloneToken ?? null,
+    githubConnectionId: runtime.githubConnectionId,
   }
 }
 

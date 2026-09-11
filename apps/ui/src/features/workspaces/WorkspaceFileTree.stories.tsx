@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { fn, userEvent, within } from "storybook/test"
+import { type ComponentProps, useState } from "react"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceFileTree } from "./WorkspaceFileTree"
@@ -142,5 +143,101 @@ export const LargeTree: Story = {
   args: {
     paths: largeTree(),
     selectedPath: "pkg-0/file-0.ts",
+  },
+}
+
+function findInShadows(root: ParentNode, selector: string): HTMLElement | null {
+  const direct = root.querySelector(selector)
+  if (direct instanceof HTMLElement) return direct
+  for (const element of root.querySelectorAll("*")) {
+    if (!element.shadowRoot) continue
+    const nested = findInShadows(element.shadowRoot, selector)
+    if (nested) return nested
+  }
+  return null
+}
+
+function PierreKeyboardFocusHarness(
+  props: ComponentProps<typeof WorkspaceFileTree>,
+) {
+  const [selectedPath, setSelectedPath] = useState(props.selectedPath)
+  return (
+    <WorkspaceFileTree
+      {...props}
+      selectedPath={selectedPath}
+      onSelect={(path) => {
+        setSelectedPath(path)
+        props.onSelect?.(path)
+      }}
+    />
+  )
+}
+
+export const PierreKeyboardFocus: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    paths: ["AGENTS.md", "knowledge/billing.md"],
+    selectedPath: "AGENTS.md",
+    onSelect: fn(),
+  },
+  render: (args) => <PierreKeyboardFocusHarness {...args} />,
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    const search = await canvas.findByRole("button", { name: "Search files" })
+    await userEvent.click(search)
+    await waitFor(() => {
+      expect(
+        findInShadows(canvasElement, "input") ??
+          findInShadows(canvasElement, "[role='searchbox']"),
+      ).toBeTruthy()
+    })
+    const input =
+      findInShadows(canvasElement, "input") ??
+      findInShadows(canvasElement, "[role='searchbox']")
+    if (!input) throw new Error("Pierre search field was not found")
+    await userEvent.type(input, "billing")
+    await userEvent.keyboard("{Enter}")
+    await waitFor(() => {
+      expect(args.onSelect).toHaveBeenCalled()
+    })
+    await userEvent.keyboard("{Escape}")
+    await waitFor(() => {
+      const selected =
+        findInShadows(
+          canvasElement,
+          "button[data-item-path*='billing'][aria-selected='true']",
+        ) ?? findInShadows(canvasElement, "[aria-selected='true']")
+      expect(selected).toBeTruthy()
+    })
+    const selected = (findInShadows(
+      canvasElement,
+      "button[data-item-path*='billing'][aria-selected='true']",
+    ) ?? findInShadows(canvasElement, "[aria-selected='true']")) as HTMLElement
+    const selectedPath =
+      selected.getAttribute("data-item-path") ??
+      selected.getAttribute("aria-label") ??
+      selected.textContent ??
+      ""
+    expect(selectedPath).toMatch(/billing/i)
+    const focused = canvasElement.ownerDocument.activeElement
+    const pierreFocused = findInShadows(
+      canvasElement,
+      "button[data-item-focused='true']",
+    )
+    expect(pierreFocused).toBeTruthy()
+    expect(pierreFocused?.getAttribute("data-item-path") ?? "").toMatch(
+      /billing/i,
+    )
+    expect(
+      selected === focused ||
+        selected.contains(focused) ||
+        Boolean(
+          selected.shadowRoot &&
+            focused &&
+            selected.shadowRoot.contains(focused),
+        ) ||
+        pierreFocused === selected,
+    ).toBe(true)
+    expect(args.onSelect).toHaveBeenCalled()
   },
 }

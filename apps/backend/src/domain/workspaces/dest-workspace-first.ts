@@ -158,11 +158,13 @@ function keepExistingUnlessIncoming<T>(
 export function mergeImportedClaims(
   existing: readonly ImportedClaim[],
   incoming: readonly ImportedClaim[],
+  identity: (claim: ImportedClaim) => string = (claim) =>
+    JSON.stringify([claim.to, claim.predicate]),
 ): ImportedClaim[] {
   const merged = existing.map((claim) => ({ ...claim }))
   for (const next of incoming) {
     const index = merged.findIndex(
-      (claim) => claim.to === next.to && claim.predicate === next.predicate,
+      (claim) => identity(claim) === identity(next),
     )
     if (index < 0) {
       merged.push({ ...next })

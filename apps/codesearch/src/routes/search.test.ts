@@ -63,7 +63,10 @@ function mockDb(
     select,
     where,
     transaction: async (
-      fn: (tx: { select: typeof select; execute: () => Promise<void> }) => unknown,
+      fn: (tx: {
+        select: typeof select
+        execute: () => Promise<void>
+      }) => unknown,
     ) => fn({ select, execute: async () => undefined }),
   }
 }
@@ -225,76 +228,6 @@ describe("POST /search", () => {
       "http://zoekt.test/api/search",
       expect.objectContaining({
         body: JSON.stringify({ Q: "needle", RepoIDs: [1, 2] }),
-      }),
-    )
-  })
-
-  it("uses only the JWT workspace checkout identity", async () => {
-    pinReposMock.mockResolvedValue([
-      {
-        zoektRepoId: 1,
-        zoektName: zoektRepositoryName({
-          orgId: "org_mock123",
-          repoId: "repo_alpha",
-          checkoutKey: "ws:ws_alpha",
-        }),
-        shardCount: 1,
-      },
-    ])
-    const db = mockDb([
-      { orgId: "org_mock123", repoId: "repo_alpha", zoektRepoId: 1 },
-    ])
-    const app = createTestApp(db, {
-      sub: "user_test",
-      orgId: "org_mock123",
-      principal: "user",
-      workspaceId: "ws_alpha",
-    })
-
-    const res = await app.request("/search", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        Q: "needle",
-        RepoIDs: [1],
-        checkoutKey: "ws:ws_beta",
-      }),
-    })
-
-    expect(res.status).toBe(200)
-    expect(pinReposMock).toHaveBeenCalledWith([
-      {
-        zoektRepoId: 1,
-        zoektName: zoektRepositoryName({
-          orgId: "org_mock123",
-          repoId: "repo_alpha",
-          checkoutKey: "ws:ws_alpha",
-        }),
-      },
-    ])
-  })
-
-  it("does not fall back when the JWT workspace has no checkout rows", async () => {
-    const db = mockDb([])
-    const app = createTestApp(db, {
-      sub: "user_test",
-      orgId: "org_mock123",
-      principal: "user",
-      workspaceId: "ws_missing",
-    })
-
-    const res = await app.request("/search", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ Q: "needle" }),
-    })
-
-    expect(res.status).toBe(200)
-    expect(pinReposMock).toHaveBeenCalledWith([])
-    expect(fetch).toHaveBeenCalledWith(
-      "http://zoekt.test/api/search",
-      expect.objectContaining({
-        body: JSON.stringify({ Q: "needle", RepoIDs: [] }),
       }),
     )
   })

@@ -1,12 +1,14 @@
 import { parseEnv } from "../config/env.js"
-import {
-  getOrganizationSlugByOrgId,
-  markConfluenceSyncTargetInitialSync,
-} from "../models/confluence-sync-target.js"
+import { getOrganizationSlugByOrgId } from "../models/confluence-sync-target.js"
 import { loadConfluenceScopeFromRepo } from "../services/confluence/config-from-repo.js"
-import type { ParsedConfluenceRepoConfig } from "../services/confluence/config-yaml.js"
-import { ow } from "./client.js"
-import { confluenceSyncContent } from "./workflows/confluence-sync-content.js"
+import {
+  confluenceSpaceSelection,
+  type ParsedConfluenceRepoConfig,
+} from "../services/confluence/config-yaml.js"
+import {
+  connectorConfigKey,
+  enqueueConnectorContentSync,
+} from "./enqueue-connector-content-sync.js"
 
 export async function enqueueConfluenceFullSyncAfterConfigPush(input: {
   orgId: string
@@ -25,25 +27,16 @@ export async function enqueueConfluenceFullSyncAfterConfigPush(input: {
     return
   }
 
-  await markConfluenceSyncTargetInitialSync({
+  await enqueueConnectorContentSync({
+    orgId: input.orgId,
+    orgSlug,
     connectionId: input.connectionId,
+    provider: "confluence",
+    branch: input.branch,
+    configKey: connectorConfigKey({
+      spaces: confluenceSpaceSelection(input.scopeFromRepo.spaces),
+    }),
   })
-
-  void ow
-    .runWorkflow(confluenceSyncContent.spec, {
-      orgId: input.orgId,
-      orgSlug,
-      connectionId: input.connectionId,
-      scopeFromRepo: {
-        spaces: input.scopeFromRepo.spaces.map((s) => ({
-          spaceKey: s.spaceKey,
-          selectedPageIds: s.selectedPageIds,
-        })),
-      },
-    })
-    .catch((err: unknown) => {
-      input.log.error(err instanceof Error ? err : new Error(String(err)))
-    })
 }
 
 export async function loadScopeForGithubPush(input: {

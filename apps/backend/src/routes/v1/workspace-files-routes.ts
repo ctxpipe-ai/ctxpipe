@@ -1,30 +1,25 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import type { AppEnv } from "../../app/env.js"
-import type { Env } from "../../config/env.js"
+import { CodesearchCheckoutError } from "../../domain/codeIngestion/codesearchClient.js"
 import {
   listWorkspaceCheckoutPaths,
   readWorkspaceCheckoutFile,
-  WorkspaceCheckoutReadError,
 } from "../../domain/workspaces/checkout-read.js"
 import { fileTreeFromPaths } from "../../domain/workspaces/file-tree.js"
 import {
-  explorerBlobFromContent,
   explorerBlobFromGitFile,
   explorerBlobPath,
-  explorerGitNumstatFromStdout,
-  explorerGitStatusFromPorcelain,
-  withExplorerGitLineCounts,
-  workspaceGitExplorerTarget,
 } from "../../domain/workspaces/git-explorer.js"
 import {
   parseWorkspaceFileJobRequest,
   planWorkspaceFileJob,
 } from "../../domain/workspaces/git-file-jobs.js"
-import { getJobSandbox } from "../../domain/workspaces/sandbox-registry.js"
-import { writeJobQueueHttpDecision } from "../../domain/workspaces/write-jobs.js"
+import { publishedProjection } from "../../domain/workspaces/revision.js"
+import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
   getWorkspaceBySlug,
+  getWorkspaceSearchProjection,
   listWorkspaceKnowledgeFiles,
 } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
@@ -279,52 +274,6 @@ const enqueueWorkspaceFileJobRoute = createRoute({
   },
 })
 
-function resolveWorkspaceGitReadInput(
-  workspace: {
-    id: string
-    workspaceRepositoryUrl: string
-    activeProjectionUrl: string | null
-    githubConnectionId: string | null
-    activeProjectionSha: string | null
-    desiredSha: string | null
-  },
-  orgId: string | null,
-  env: Env | undefined,
-) {
-  if (!orgId || !env) {
-    return { ok: false as const, status: 401 as const, error: "Unauthorized" }
-  }
-  const resolved = workspaceGitExplorerTarget(workspace)
-  if (!resolved.ok) return resolved
-  return {
-    ok: true as const,
-    input: {
-      workspaceId: workspace.id,
-      url: resolved.target.url,
-      sha: resolved.target.sha,
-    },
-  }
-}
-
-async function readExplorerTree(input: { workspaceId: string; url: string }) {
-  return listWorkspaceCheckoutPaths({
-    workspaceId: input.workspaceId,
-    gitUrl: input.url,
-  })
-}
-
-async function readExplorerBlob(input: {
-  workspaceId: string
-  url: string
-  path: string
-}) {
-  return readWorkspaceCheckoutFile({
-    workspaceId: input.workspaceId,
-    gitUrl: input.url,
-    path: input.path,
-  })
-}
-
 async function loadWorkspaceGitExplorer(c: Context<AppEnv>) {
   if (!c.get("user") || !c.get("session")) {
     return { ok: false as const, status: 401 as const, error: "Unauthorized" }
@@ -334,13 +283,34 @@ async function loadWorkspaceGitExplorer(c: Context<AppEnv>) {
   if (!workspace) {
     return { ok: false as const, status: 404 as const, error: "Not found" }
   }
-  const read = resolveWorkspaceGitReadInput(
+  const snapshot = await getWorkspaceSearchProjection(workspace.id)
+  const projection = publishedProjection(snapshot.projection)
+  const published =
+    projection?.kind === "active" ? projection.stores.index.published : null
+  const repository = published
+    ? snapshot.repositories.find(
+        (repo) =>
+          repo.sha === published.sha &&
+          normalizeWorkspaceRepositoryUrl(repo.gitUrl) ===
+            normalizeWorkspaceRepositoryUrl(published.remote.url),
+      )
+    : null
+  if (!published || !repository)
+    return {
+      ok: false as const,
+      status: 409 as const,
+      error:
+        "This Workspace must finish indexing before its published files can be browsed.",
+    }
+  return {
+    ok: true as const,
     workspace,
-    c.get("orgId"),
-    c.get("env"),
-  )
-  if (!read.ok) return read
-  return { ok: true as const, workspace, input: read.input }
+    input: {
+      workspaceId: workspace.id,
+      repositoryId: repository.id,
+      sha: published.sha,
+    },
+  }
 }
 
 function gitExplorerUpstreamError(error: unknown, step: string) {
@@ -350,8 +320,13 @@ function gitExplorerUpstreamError(error: unknown, step: string) {
 }
 
 function gitExplorerReadFailure(error: unknown, step: string) {
-  if (error instanceof WorkspaceCheckoutReadError) {
-    return { error: error.message, status: error.status }
+  if (error instanceof CodesearchCheckoutError) {
+    return {
+      error: error.message,
+      status: (error.status === 404 || error.status === 409
+        ? error.status
+        : 502) as 404 | 409 | 502,
+    }
   }
   gitExplorerUpstreamError(error, step)
   return {
@@ -365,7 +340,7 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
     const loaded = await loadWorkspaceGitExplorer(c)
     if (!loaded.ok) return c.json({ error: loaded.error }, loaded.status)
     try {
-      const paths = await readExplorerTree(loaded.input)
+      const paths = await listWorkspaceCheckoutPaths(loaded.input)
       return c.json(
         {
           sha: loaded.input.sha,
@@ -387,7 +362,7 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
     const loaded = await loadWorkspaceGitExplorer(c)
     if (!loaded.ok) return c.json({ error: loaded.error }, loaded.status)
     try {
-      const file = await readExplorerBlob({
+      const file = await readWorkspaceCheckoutFile({
         ...loaded.input,
         path,
       })
@@ -405,61 +380,10 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
   .openapi(listWorkspaceGitStatusRoute, async (c) => {
     const loaded = await loadWorkspaceGitExplorer(c)
     if (!loaded.ok) return c.json({ error: loaded.error }, loaded.status)
-    const sandbox = getJobSandbox(loaded.workspace.id)
-    if (!sandbox) {
-      return c.json(
-        { sha: loaded.input.sha, source: "clean" as const, items: [] },
-        200,
-      )
-    }
-    try {
-      const status = await sandbox.exec("git status --porcelain", { env: {} })
-      if (status.exitCode !== 0) {
-        getLogger().error(new Error(status.stderr || "git status failed"), {
-          step: "workspace.git_explorer.status",
-        })
-        return c.json(
-          { sha: loaded.input.sha, source: "sandbox" as const, items: [] },
-          200,
-        )
-      }
-      const numstat = await sandbox.exec("git diff --numstat HEAD", { env: {} })
-      const lineCounts =
-        numstat.exitCode === 0
-          ? explorerGitNumstatFromStdout(numstat.stdout)
-          : new Map()
-      const entries = explorerGitStatusFromPorcelain(status.stdout)
-      const items = await Promise.all(
-        entries.map(async (entry) => {
-          if (entry.status === "deleted" || entry.status === "ignored") {
-            return withExplorerGitLineCounts(entry, lineCounts)
-          }
-          try {
-            const content = await sandbox.fs.read(entry.path)
-            const blob = explorerBlobFromContent(content)
-            if (!blob || blob.binary) {
-              return withExplorerGitLineCounts(entry, lineCounts)
-            }
-            return {
-              ...withExplorerGitLineCounts(entry, lineCounts, blob.body),
-              body: blob.body,
-            }
-          } catch {
-            return withExplorerGitLineCounts(entry, lineCounts)
-          }
-        }),
-      )
-      return c.json(
-        { sha: loaded.input.sha, source: "sandbox" as const, items },
-        200,
-      )
-    } catch (error) {
-      gitExplorerUpstreamError(error, "workspace.git_explorer.status")
-      return c.json(
-        { sha: loaded.input.sha, source: "sandbox" as const, items: [] },
-        200,
-      )
-    }
+    return c.json(
+      { sha: loaded.input.sha, source: "clean" as const, items: [] },
+      200,
+    )
   })
   .openapi(enqueueWorkspaceFileJobRoute, async (c) => {
     const loaded = await loadWorkspaceGitExplorer(c)
@@ -467,15 +391,13 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
     const raw = WorkspaceFileJobRequestSchema.parse(await c.req.json())
     const request = parseWorkspaceFileJobRequest(raw)
     if (!request) return c.json({ error: "A valid file job is required" }, 400)
-    const gate = writeJobQueueHttpDecision(loaded.workspace.writeStatus)
-    if (!gate.enqueue) return c.json({ error: gate.error }, gate.status)
     try {
-      const treePaths = await readExplorerTree(loaded.input)
+      const treePaths = await listWorkspaceCheckoutPaths(loaded.input)
       const planned = await planWorkspaceFileJob({
         request,
         treePaths,
         readBlob: async (path) => {
-          const file = await readExplorerBlob({
+          const file = await readWorkspaceCheckoutFile({
             ...loaded.input,
             path,
           })
@@ -489,7 +411,7 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
       ) {
         return c.json({ error: "Nothing to write." }, 400)
       }
-      void enqueueWorkspaceWriteCommit(
+      const admitted = await enqueueWorkspaceWriteCommit(
         {
           orgId: loaded.workspace.orgId,
           workspaceId: loaded.workspace.id,
@@ -499,6 +421,14 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
         },
         c.get("log"),
       )
+      if (!admitted.started)
+        return c.json(
+          {
+            error:
+              "The write could not be queued. Refresh the Workspace and try again.",
+          },
+          409,
+        )
       return c.json({ queued: true as const }, 202)
     } catch (error) {
       const failure = gitExplorerReadFailure(

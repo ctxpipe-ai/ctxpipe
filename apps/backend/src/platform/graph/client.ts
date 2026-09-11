@@ -1,3 +1,4 @@
+import { log } from "../../observability/logger.js"
 import { AsyncLocalStorage } from "node:async_hooks"
 import neo4j, { type Driver } from "neo4j-driver"
 import { FalkorDB } from "falkordb"
@@ -142,20 +143,34 @@ function scopedBoltDriver(
 }
 
 let databasePerTenantBoltClient: Driver | null = null
-let databasePerTenantFalkorDb: FalkorDBInstance | null = null
+let databasePerTenantFalkorDb: Promise<FalkorDBInstance> | null = null
 const instancePerTenantBoltClients = new Map<string, Driver>()
 
 async function resolveFalkorDbClient(orgId: string): Promise<GraphClient> {
   const cfg = getConfig()
   const uri = cfg.uri
   if (!databasePerTenantFalkorDb) {
-    databasePerTenantFalkorDb = await FalkorDB.connect({
+    const socket = { connectTimeout: 5_000, reconnectStrategy: false as const }
+    const pending = FalkorDB.connect({
       url: uri,
       username: cfg.user || undefined,
       password: cfg.password || undefined,
+      socket,
+    }).then((db) => {
+      db.on("error", (error: Error) => {
+        if (databasePerTenantFalkorDb === pending)
+          databasePerTenantFalkorDb = null
+        log.error({ action: "graph.connection.error", error: error.message })
+      })
+      return db
+    })
+    databasePerTenantFalkorDb = pending
+    void pending.catch(() => {
+      if (databasePerTenantFalkorDb === pending)
+        databasePerTenantFalkorDb = null
     })
   }
-  return createFalkorDbGraphClient(databasePerTenantFalkorDb, orgId)
+  return createFalkorDbGraphClient(await databasePerTenantFalkorDb, orgId)
 }
 
 async function resolveBoltClient(
@@ -210,7 +225,14 @@ export async function closeGraphDb(): Promise<void> {
     databasePerTenantBoltClient = null
   }
   if (databasePerTenantFalkorDb) {
-    closePromises.push(databasePerTenantFalkorDb.close())
+    closePromises.push(
+      databasePerTenantFalkorDb.then(
+        async (db) => {
+          if ((await db.connection).isOpen) await db.close()
+        },
+        () => undefined,
+      ),
+    )
     databasePerTenantFalkorDb = null
   }
   for (const driver of instancePerTenantBoltClients.values()) {

@@ -1,4 +1,5 @@
-import { and, count, eq, isNull, lt, lte, notInArray, or } from "drizzle-orm"
+import { and, count, eq, isNull, lte, or, sql } from "drizzle-orm"
+import { repositoryRevisionCheckoutKey } from "../../../../shared/workspace-checkout.js"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { type Db, getOrgDb, withOrgDbContext } from "../db/client.js"
 import { withAmbientOrgDb } from "../db/org-sql.js"
@@ -22,6 +23,9 @@ import { generateObjectId } from "../lib/id.js"
 import { userFacingIndexingError } from "../lib/memoryFitError.js"
 import { log } from "../observability/logger.js"
 import { withGraphClient } from "../platform/graph/client.js"
+import { projectRepositoryIngestionOwners } from "./repository-ingestion-owners.js"
+import { repositoryIngestionWriteCondition } from "./repository-ingestion-requests.js"
+import { invalidateLinkedReadBindings } from "./workspaces.js"
 
 export const DEFAULT_CHECKOUT_KEY = "default"
 
@@ -42,11 +46,38 @@ export async function ensureWorkspaceCheckout(input: {
         orgId: requireCurrentOrgId(),
         repositoryId: input.repositoryId,
         ref: input.ref,
-        checkoutKey: workspaceCheckoutKey(input.workspaceId),
+        checkoutKey: workspaceCheckoutKey(input.workspaceId, input.ref),
       })
       .onConflictDoNothing()
   })
 }
+/** Select only the successfully published immutable source, falling back to pre-upgrade artifacts. */
+export function publishedRepositoryCheckoutKey() {
+  return sql<string>`coalesce((select published.checkout_key from repository_checkouts published
+    where published.repository_id = repositories.id and published.org_id = repositories.org_id
+      and published.checkout_key = 'rev:' || repositories.last_ingested_hash
+      and published.commit_sha = repositories.last_ingested_hash), 'default')`
+}
+
+export async function ensureRepositoryRevisionCheckout(input: {
+  orgId: string
+  repositoryId: string
+  sha: string
+}) {
+  await withOrgDbContext(input.orgId, (db) =>
+    db
+      .insert(repositoryCheckouts)
+      .values({
+        id: generateObjectId("co"),
+        orgId: input.orgId,
+        repositoryId: input.repositoryId,
+        ref: input.sha,
+        checkoutKey: repositoryRevisionCheckoutKey(input.sha),
+      })
+      .onConflictDoNothing(),
+  )
+}
+
 const MAX_INDEXING_ERROR_CHARS = 500
 
 export type RepositoryIndexingStatus = NonNullable<
@@ -63,6 +94,7 @@ const repositoryWithZoektSelect = {
   orgId: repositories.orgId,
   name: repositories.name,
   gitUrl: repositories.gitUrl,
+  repositoryKey: repositories.repositoryKey,
   indexReady: repositories.indexReady,
   indexingStatus: repositories.indexingStatus,
   indexingError: repositories.indexingError,
@@ -90,7 +122,7 @@ function sanitizeIndexingError(input: unknown): string {
   return userFacingIndexingError(input).slice(0, MAX_INDEXING_ERROR_CHARS)
 }
 
-function repositoryWithZoektJoin(db: Db) {
+function repositoryWithZoektJoin(db: Pick<Db, "select">) {
   return db
     .select(repositoryWithZoektSelect)
     .from(repositories)
@@ -98,7 +130,7 @@ function repositoryWithZoektJoin(db: Db) {
       repositoryCheckouts,
       and(
         eq(repositoryCheckouts.repositoryId, repositories.id),
-        eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
+        eq(repositoryCheckouts.checkoutKey, publishedRepositoryCheckoutKey()),
       ),
     )
 }
@@ -108,7 +140,7 @@ async function selectRepositoriesWithZoekt(
   orgId: string,
   githubConnectionId?: string,
 ) {
-  return repositoryWithZoektJoin(db).where(
+  const rows = await repositoryWithZoektJoin(db).where(
     githubConnectionId
       ? and(
           eq(repositories.orgId, orgId),
@@ -116,6 +148,7 @@ async function selectRepositoriesWithZoekt(
         )
       : eq(repositories.orgId, orgId),
   )
+  return projectRepositoryIngestionOwners(db, orgId, rows)
 }
 
 async function selectRepositoryWithZoekt(
@@ -128,7 +161,9 @@ async function selectRepositoryWithZoekt(
       and(eq(repositories.id, repositoryId), eq(repositories.orgId, orgId)),
     )
     .limit(1)
-  return row ?? null
+  return row
+    ? ((await projectRepositoryIngestionOwners(db, orgId, [row]))[0] ?? null)
+    : null
 }
 
 export const listRepositories = async (): Promise<RepositoryWithSearch[]> => {
@@ -258,15 +293,27 @@ export async function setRepositoryGithubConnectionId(input: {
   githubConnectionId: string
 }): Promise<void> {
   return orgSql(async () => {
-    await getOrgDb()
-      .update(repositories)
-      .set({ githubConnectionId: input.githubConnectionId })
+    const db = getOrgDb()
+    const [repository] = await db
+      .select()
+      .from(repositories)
       .where(
         and(
           eq(repositories.id, input.repositoryId),
           eq(repositories.orgId, requireCurrentOrgId()),
         ),
       )
+      .for("update")
+    if (
+      !repository ||
+      repository.githubConnectionId === input.githubConnectionId
+    )
+      return
+    await db
+      .update(repositories)
+      .set({ githubConnectionId: input.githubConnectionId })
+      .where(eq(repositories.id, repository.id))
+    await invalidateLinkedReadBindings([repository.gitUrl])
   })
 }
 
@@ -277,6 +324,27 @@ export const listRepositoriesForOrg = async (
   return withOrgDbContext(orgId, () =>
     selectRepositoriesWithZoekt(getOrgDb(), orgId),
   )
+}
+
+/** Read identity is available before any derived checkout or index exists. */
+export async function getRepositoryReadBinding(
+  orgId: string,
+  repositoryId: string,
+) {
+  return withOrgDbContext(orgId, async (db) => {
+    const [row] = await db
+      .select({
+        id: repositories.id,
+        gitUrl: repositories.gitUrl,
+        githubConnectionId: repositories.githubConnectionId,
+      })
+      .from(repositories)
+      .where(
+        and(eq(repositories.orgId, orgId), eq(repositories.id, repositoryId)),
+      )
+      .limit(1)
+    return row ?? null
+  })
 }
 
 /** Single repository for org via org DB (explicit orgId + repositoryId filter). */
@@ -320,98 +388,6 @@ export async function getGithubConnectionIdForRepository(input: {
   })
 }
 
-/**
- * Marks a repository as mid-ingestion for UI (`indexReady` false + optional reason).
- * Idempotent when already not ready with the same reason.
- *
- * Assumes caller has established org DB context. Isolation is application
- * filters plus `SET LOCAL app.organization_id` (not Postgres RLS).
- */
-export async function markRepositoryIndexingPending(input: {
-  repositoryId: string
-  reason: string | null
-}) {
-  return orgSql(async () => {
-    const db = getOrgDb()
-    await db
-      .update(repositories)
-      .set({
-        indexReady: false,
-        indexingStatus: "queued",
-        indexingError: null,
-        indexingFailedAt: null,
-        indexingReason: input.reason,
-        updatedAt: new Date(),
-      })
-      .where(eq(repositories.id, input.repositoryId))
-  })
-}
-
-/** Reclaim a stuck `queued` claim if status has not changed for this long. */
-export const INDEXING_QUEUED_STALE_MS = 30 * 60 * 1000
-
-/**
- * Reclaim a stuck `running` ingest if status has not changed for this long.
- * Long enough that large-repo codesearch + LLM ingest can finish; short enough
- * to recover from a dead worker that never called mark-failed.
- */
-export const INDEXING_RUNNING_STALE_MS = 6 * 60 * 60 * 1000
-
-/**
- * Marks a repository queued for a new ingestion orchestrator only when it is
- * not already `queued` or `running` (single-flight per repo), unless that
- * status is stale (`queued` > 30min or `running` > 6h based on `updatedAt`).
- *
- * @returns true when the caller should start a new orchestrator workflow.
- */
-export async function tryClaimRepositoryIndexingEnqueue(input: {
-  repositoryId: string
-  reason: string | null
-  /** Injected for tests; defaults to Date.now(). */
-  nowMs?: number
-}): Promise<boolean> {
-  return orgSql(async () => {
-    const db = getOrgDb()
-    const nowMs = input.nowMs ?? Date.now()
-    const queuedStep = resolveIndexingStep("queued")
-    if (!queuedStep) throw new Error("Failed to resolve queued indexing step")
-    const queuedStaleBefore = new Date(nowMs - INDEXING_QUEUED_STALE_MS)
-    const runningStaleBefore = new Date(nowMs - INDEXING_RUNNING_STALE_MS)
-    const updated = await db
-      .update(repositories)
-      .set({
-        indexReady: false,
-        indexingStatus: "queued",
-        indexingError: null,
-        indexingFailedAt: null,
-        indexingReason: input.reason,
-        indexingStep: queuedStep.step,
-        indexingStepTotal: queuedStep.total,
-        indexingStepKey: queuedStep.key,
-        updatedAt: new Date(nowMs),
-      })
-      .where(
-        and(
-          eq(repositories.id, input.repositoryId),
-          or(
-            isNull(repositories.indexingStatus),
-            notInArray(repositories.indexingStatus, ["queued", "running"]),
-            and(
-              eq(repositories.indexingStatus, "queued"),
-              lt(repositories.updatedAt, queuedStaleBefore),
-            ),
-            and(
-              eq(repositories.indexingStatus, "running"),
-              lt(repositories.updatedAt, runningStaleBefore),
-            ),
-          ),
-        ),
-      )
-      .returning({ id: repositories.id })
-    return updated.length > 0
-  })
-}
-
 /** Marks a repository as mid-unindex for UI before background cleanup runs. */
 export async function markRepositoryUnindexing(input: {
   repositoryId: string
@@ -439,47 +415,31 @@ export async function markRepositoryUnindexing(input: {
 /** Marks repository ingestion as actively running inside the workflow worker. */
 export async function markRepositoryIndexingRunning(input: {
   repositoryId: string
+  requestId?: string | null
 }) {
   return orgSql(async () => {
     const db = getOrgDb()
     await db
       .update(repositories)
       .set({
-        indexReady: false,
+        indexReady: sql`${repositories.lastIngestedHash} is not null`,
         indexingStatus: "running",
         indexingError: null,
         indexingFailedAt: null,
         updatedAt: new Date(),
       })
-      .where(eq(repositories.id, input.repositoryId))
-  })
-}
-
-/** Marks repository ingestion as terminally failed after retries are exhausted. */
-export async function markRepositoryIndexingFailed(input: {
-  repositoryId: string
-  error: unknown
-}) {
-  return orgSql(async () => {
-    const db = getOrgDb()
-    await db
-      .update(repositories)
-      .set({
-        indexReady: false,
-        indexingStatus: "failed",
-        indexingError: sanitizeIndexingError(input.error),
-        indexingFailedAt: new Date(),
-        indexingStep: null,
-        indexingStepTotal: null,
-        indexingStepKey: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(repositories.id, input.repositoryId))
+      .where(
+        and(
+          eq(repositories.id, input.repositoryId),
+          repositoryIngestionWriteCondition(input.requestId),
+        ),
+      )
   })
 }
 
 export async function markRepositoryIndexingReady(input: {
   repositoryId: string
+  requestId?: string | null
   targetHash: string
 }) {
   return orgSql(async () => {
@@ -499,13 +459,18 @@ export async function markRepositoryIndexingReady(input: {
         lastIngestedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(eq(repositories.id, input.repositoryId))
+      .where(
+        and(
+          eq(repositories.id, input.repositoryId),
+          repositoryIngestionWriteCondition(input.requestId),
+        ),
+      )
   })
 }
 
-export async function markRepositoryIndexingReadyWithIssues(input: {
+export async function markRepositoryIndexingIssues(input: {
   repositoryId: string
-  targetHash: string
+  requestId?: string | null
   error: unknown
 }) {
   return orgSql(async () => {
@@ -513,7 +478,7 @@ export async function markRepositoryIndexingReadyWithIssues(input: {
     await db
       .update(repositories)
       .set({
-        indexReady: true,
+        indexReady: sql`${repositories.lastIngestedHash} is not null`,
         indexingStatus: "complete_with_issues",
         indexingError: sanitizeIndexingError(input.error),
         indexingFailedAt: null,
@@ -521,11 +486,14 @@ export async function markRepositoryIndexingReadyWithIssues(input: {
         indexingStep: null,
         indexingStepTotal: null,
         indexingStepKey: null,
-        lastIngestedHash: input.targetHash,
-        lastIngestedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(eq(repositories.id, input.repositoryId))
+      .where(
+        and(
+          eq(repositories.id, input.repositoryId),
+          repositoryIngestionWriteCondition(input.requestId),
+        ),
+      )
   })
 }
 
@@ -540,6 +508,7 @@ export async function markRepositoryIndexingReadyWithIssues(input: {
  */
 export async function setRepositoryIndexingStep(input: {
   repositoryId: string
+  requestId?: string | null
   key: IndexingStepKey
   scipLanguages?: string[]
   /** Only advance the step counter — skip the update when DB step > new step. */
@@ -549,7 +518,10 @@ export async function setRepositoryIndexingStep(input: {
     const resolution = resolveIndexingStep(input.key, input.scipLanguages)
     if (!resolution) return
     const db = getOrgDb()
-    const idCondition = eq(repositories.id, input.repositoryId)
+    const idCondition = and(
+      eq(repositories.id, input.repositoryId),
+      repositoryIngestionWriteCondition(input.requestId),
+    )
     const where = input.monotonic
       ? and(
           idCondition,
@@ -574,7 +546,7 @@ export async function setRepositoryIndexingStep(input: {
 /**
  * Clears the three indexing-step columns (sets to null).
  * Prefer calling this explicitly from paths that do not go through
- * markRepositoryIndexingReady / markRepositoryIndexingFailed / markRepositoryUnindexing.
+ * markRepositoryIndexingReady / markRepositoryUnindexing.
  *
  * For worker/ingestion paths: requires org DB context (`withOrgDbContext`).
  */
@@ -638,8 +610,15 @@ export const createRepository = async (input: {
           gitUrl: input.gitUrl,
           repositoryKey: repositoryKeyFromGitUrl(input.gitUrl),
         })
+        .onConflictDoNothing()
         .returning()
-      if (!repository) return []
+      if (!repository)
+        return repositoryWithZoektJoin(tx).where(
+          and(
+            eq(repositories.orgId, orgId),
+            eq(repositories.gitUrl, input.gitUrl),
+          ),
+        )
       const [checkout] = await tx
         .insert(repositoryCheckouts)
         .values({

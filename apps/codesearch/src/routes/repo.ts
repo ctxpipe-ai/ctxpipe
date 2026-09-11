@@ -3,7 +3,7 @@ import { join } from "node:path"
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
-import { checkoutKeyFromAuth } from "../auth/jwt.js"
+import { checkoutKeyFromAuth, indexCheckoutFromAuth } from "../auth/jwt.js"
 import { withRepositoryPurgeOperation } from "../domain/indexing/indexConcurrency.js"
 import { cloneAndIndexRepository } from "../domain/indexing/service.js"
 import {
@@ -411,7 +411,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
-    const checkoutKey = checkoutKeyFromAuth(auth)
+    const checkoutKey = indexCheckoutFromAuth(auth, repoId, body.targetHash)
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
@@ -519,7 +519,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const basePath = repoCheckoutPath(
       repo.orgId,
       repo.id,
-      checkoutKeyFromAuth(auth),
+      checkoutKeyFromAuth(auth, repoId, repo.publishedCheckoutKey),
     )
     let dirPath: string
     let names: string[]
@@ -548,10 +548,19 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const auth = c.get("auth")
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
+    let publishedCheckoutKey: string | undefined
+    if (!auth.workspaceId && !auth.repositoryRevisions) {
+      const db = c.get("db")
+      if (!db) return c.json({ error: "Database not configured" }, 503)
+      const repository = await getAccessibleRepository(db, repoId, auth.orgId)
+      if (!repository)
+        return c.json({ error: "Repository not found or access denied" }, 404)
+      publishedCheckoutKey = repository.publishedCheckoutKey
+    }
     const checkoutRoot = repoCheckoutPath(
       auth.orgId,
       repoId,
-      checkoutKeyFromAuth(auth),
+      checkoutKeyFromAuth(auth, repoId, publishedCheckoutKey),
     )
     try {
       const paths = await listCheckoutFilePaths(checkoutRoot)
@@ -580,7 +589,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const checkoutRoot = repoCheckoutPath(
       repo.orgId,
       repo.id,
-      checkoutKeyFromAuth(auth),
+      checkoutKeyFromAuth(auth, repoId, repo.publishedCheckoutKey),
     )
     try {
       const result = await globFilesInCheckout({
@@ -641,7 +650,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const basePath = repoCheckoutPath(
       repo.orgId,
       repo.id,
-      checkoutKeyFromAuth(auth),
+      checkoutKeyFromAuth(auth, repoId, repo.publishedCheckoutKey),
     )
     let fullPath: string
     try {
@@ -678,7 +687,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const basePath = repoCheckoutPath(
       repo.orgId,
       repo.id,
-      checkoutKeyFromAuth(auth),
+      checkoutKeyFromAuth(auth, repoId, repo.publishedCheckoutKey),
     )
     const result: Record<string, string> = {}
     for (const p of paths) {

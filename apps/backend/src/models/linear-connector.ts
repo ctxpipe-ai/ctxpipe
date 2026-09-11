@@ -31,6 +31,11 @@ import {
   linearConnectionToShape,
   linearShapeToConfig,
 } from "./connection-rows.js"
+import { reconcileConnectorContentSync } from "./connector-content-sync.js"
+import {
+  type CapturedConnectorBinding,
+  lockConnectorFinalizationBinding,
+} from "./connector-finalization.js"
 import { listGithubConnectionsForOrg } from "./github-installation.js"
 import { DEFAULT_CHECKOUT_KEY } from "./repositories.js"
 
@@ -110,13 +115,6 @@ function mergeLinearStoredConfig(
     ...stored,
     ...patch,
   })
-}
-
-export class LinearConfigPrCreationInProgressError extends Error {
-  constructor() {
-    super("A Linear configuration pull request is already being created")
-    this.name = "LinearConfigPrCreationInProgressError"
-  }
 }
 
 export class LinearSyncBindingBusyError extends Error {
@@ -340,7 +338,11 @@ export async function upsertLinearConnectionFromOAuth(input: {
 
       const [row] = await tx
         .update(connections)
-        .set({ config, updatedAt: new Date() })
+        .set({
+          config,
+          updatedAt: new Date(),
+          contentSyncGeneration: sql`case when ${connections.config}->>'workspaceId' is distinct from ${config.workspaceId}::text then ${connections.contentSyncGeneration} + 1 else ${connections.contentSyncGeneration} end`,
+        })
         .where(eq(connections.id, existing.id))
         .returning()
       if (!row) throw new Error("Failed to update Linear connection")
@@ -559,12 +561,14 @@ export async function deleteLinearConnectionById(
 export async function getLinearBindingWithRepoByConnectionId(
   orgId: string,
   connectionId: string,
-): Promise<LinearBindingWithRepo | undefined> {
+): Promise<(LinearBindingWithRepo & { repositoryGitUrl: string }) | undefined> {
+  await reconcileConnectorContentSync({ orgId, connectionId })
   return withOrgDbContext(orgId, async () => {
     const [row] = await getOrgDb()
       .select({
         connection: connections,
         repositoryName: repositories.name,
+        repositoryGitUrl: repositories.gitUrl,
         githubConnectionId: repositories.githubConnectionId,
       })
       .from(connections)
@@ -590,6 +594,7 @@ export async function getLinearBindingWithRepoByConnectionId(
     return {
       ...target,
       repositoryName: row.repositoryName,
+      repositoryGitUrl: row.repositoryGitUrl,
       githubConnectionId: row.githubConnectionId,
     }
   })
@@ -813,67 +818,15 @@ async function resolveRepositoryIdForLinearSync(
   return { repositoryId, didCreate: true }
 }
 
-export async function claimLinearConfigPrCreation(
-  tx: Db,
-  connectionId: string,
-): Promise<{
-  pendingConfigPullUrl: string | null
-  setupPhase: LinearSetupPhase
-}> {
-  const [row] = await tx
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.id, connectionId),
-        eq(connections.type, CONNECTION_TYPE_LINEAR),
-      ),
-    )
-    .limit(1)
-  const target = row ? bindingFromConnectionRow(row) : undefined
-  if (!target) throw new Error("Linear sync target not found")
-
-  const claimed = await tx
-    .update(connections)
-    .set({
-      config: mergeLinearStoredConfig(row!, {
-        setupPhase: "awaiting_merge",
-        pendingConfigPrCreating: true,
-      }),
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(connections.id, connectionId),
-        eq(connections.type, CONNECTION_TYPE_LINEAR),
-        sql`coalesce((${connections.config}->>'pendingConfigPrCreating')::boolean, false) = false`,
-      ),
-    )
-    .returning({ id: connections.id })
-  if (claimed.length === 0) {
-    throw new LinearConfigPrCreationInProgressError()
-  }
-  return {
-    pendingConfigPullUrl: target.pendingConfigPullUrl,
-    setupPhase: target.setupPhase,
-  }
-}
-
 export async function patchLinearConnectorConfig(input: {
   orgId: string
   connectionId: string
   /** Scopes for config-PR workflow input only — not stored in Postgres. */
   scopes?: LinearScope[]
   binding?: LinearBindingPatchInput
-  claimConfigPrCreation?: boolean
 }): Promise<{
   /** Scopes submitted for workflow enqueue only (not persisted as draft). */
   scopes: LinearScope[]
-  configPrClaimed: boolean
-  previousConfigPrState?: {
-    pendingConfigPullUrl: string | null
-    setupPhase: LinearSetupPhase
-  }
   /** Stale config PR on the previous repo/branch; caller should close best-effort. */
   supersededConfigPullUrl?: string | null
   supersededConfigRepositoryId?: string | null
@@ -886,8 +839,7 @@ export async function patchLinearConnectorConfig(input: {
   const defaultGithubConnectionId = (
     await listGithubConnectionsForOrg(input.orgId)
   )[0]?.id
-  const db = getOrgDb()
-  return db.transaction(async (tx) => {
+  return withOrgDbContext(input.orgId, async (tx) => {
     const [connection] = await tx
       .select({ id: connections.id })
       .from(connections)
@@ -952,6 +904,11 @@ export async function patchLinearConnectorConfig(input: {
       await tx
         .update(connections)
         .set({
+          ...(plan.resetLifecycle
+            ? {
+                contentSyncGeneration: sql`${connections.contentSyncGeneration} + 1`,
+              }
+            : {}),
           config: mergeLinearStoredConfig(connectionRow, {
             repositoryId,
             branch: input.binding.branch,
@@ -969,23 +926,8 @@ export async function patchLinearConnectorConfig(input: {
         .where(eq(connections.id, input.connectionId))
     }
 
-    let previousConfigPrState:
-      | {
-          pendingConfigPullUrl: string | null
-          setupPhase: LinearSetupPhase
-        }
-      | undefined
-    if (input.claimConfigPrCreation && input.scopes !== undefined) {
-      previousConfigPrState = await claimLinearConfigPrCreation(
-        tx,
-        input.connectionId,
-      )
-    }
-
     return {
       scopes: input.scopes ?? [],
-      configPrClaimed: Boolean(previousConfigPrState),
-      previousConfigPrState,
       supersededConfigPullUrl,
       supersededConfigRepositoryId,
       repositoryIngestion,
@@ -1039,6 +981,7 @@ export async function updateLinearBindingPrState(input: {
 
 export async function transitionLinearBindingState(input: {
   connectionId: string
+  expectedContentSyncGeneration?: number
   expectedSetupPhase: LinearSetupPhase
   expectedPendingConfigPrCreating: boolean
   repositoryId: string
@@ -1065,9 +1008,12 @@ export async function transitionLinearBindingState(input: {
         ),
       )
       .limit(1)
+      .for("update")
     const target = row ? bindingFromConnectionRow(row) : undefined
     if (
       !row ||
+      (input.expectedContentSyncGeneration != null &&
+        row.contentSyncGeneration !== input.expectedContentSyncGeneration) ||
       !target ||
       target.repositoryId !== input.repositoryId ||
       target.branch !== input.branch ||
@@ -1096,66 +1042,12 @@ export async function transitionLinearBindingState(input: {
   return true
 }
 
-export async function releaseLinearConfigPrCreationClaim(input: {
+export async function finalizeLinearBindingAfterContentWorkflow(input: {
   connectionId: string
-  previousState: {
-    pendingConfigPullUrl: string | null
-    setupPhase: LinearSetupPhase
-  }
-}): Promise<void> {
-  const directoryRow = await getConnectionDirectoryByConnectionId(
-    input.connectionId,
-  )
-  if (!directoryRow) return
-  const updated = await withOrgDbContext(directoryRow.orgId, async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
-    )
-    const [row] = await tx
-      .select()
-      .from(connections)
-      .where(
-        and(
-          eq(connections.id, input.connectionId),
-          eq(connections.type, CONNECTION_TYPE_LINEAR),
-        ),
-      )
-      .limit(1)
-    const target = row ? bindingFromConnectionRow(row) : undefined
-    // Only restore if we still own the in-progress claim; skip if rebound.
-    if (
-      !row ||
-      !target ||
-      target.setupPhase !== "awaiting_merge" ||
-      !target.pendingConfigPrCreating
-    ) {
-      return
-    }
-    const [result] = await tx
-      .update(connections)
-      .set({
-        config: mergeLinearStoredConfig(row, {
-          pendingConfigPullUrl: input.previousState.pendingConfigPullUrl,
-          pendingConfigPrCreating: false,
-          setupPhase: input.previousState.setupPhase,
-        }),
-        updatedAt: new Date(),
-      })
-      .where(eq(connections.id, input.connectionId))
-      .returning()
-    if (!result)
-      throw new Error("Linear connection was removed during claim release")
-    return result
-  })
-  if (updated) await upsertConnectionDirectory(updated)
-}
-
-/** CAS into initial_sync only when binding still matches the activating push. */
-export async function claimLinearBindingInitialSync(input: {
-  connectionId: string
-  repositoryId: string
-  branch: string
+  binding: CapturedConnectorBinding
+  workflowStatus: "completed" | "partial_failed" | "failed"
 }): Promise<boolean> {
+  assertNotInOrgDbContext()
   const directoryRow = await getConnectionDirectoryByConnectionId(
     input.connectionId,
   )
@@ -1174,104 +1066,25 @@ export async function claimLinearBindingInitialSync(input: {
         ),
       )
       .limit(1)
+      .for("update")
     const target = row ? bindingFromConnectionRow(row) : undefined
     if (
       !row ||
       !target ||
       !target.enabled ||
-      target.repositoryId !== input.repositoryId ||
-      target.branch !== input.branch ||
-      !(
-        target.setupPhase === "awaiting_merge" ||
-        target.setupPhase === "sync_failed" ||
-        target.setupPhase === "live"
-      )
-    ) {
+      target.setupPhase !== "initial_sync" ||
+      target.repositoryId !== input.binding.repositoryId ||
+      target.branch !== input.binding.revision.defaultBranch
+    )
       return
-    }
-    const [result] = await tx
-      .update(connections)
-      .set({
-        config: mergeLinearStoredConfig(row, {
-          pendingConfigPullUrl: null,
-          pendingConfigPrCreating: false,
-          setupPhase: "initial_sync",
-        }),
-        updatedAt: new Date(),
-      })
-      .where(eq(connections.id, input.connectionId))
-      .returning()
-    return result
-  })
-  if (!updated) return false
-  await upsertConnectionDirectory(updated)
-  return true
-}
-
-export async function claimLinearContentSyncRetry(
-  connectionId: string,
-): Promise<boolean> {
-  const directoryRow = await getConnectionDirectoryByConnectionId(connectionId)
-  if (!directoryRow) return false
-  const updated = await withOrgDbContext(directoryRow.orgId, async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${connectionId}, 0))`,
+    if (
+      !(await lockConnectorFinalizationBinding(
+        tx,
+        input.binding,
+        input.connectionId,
+      ))
     )
-    const [row] = await tx
-      .select()
-      .from(connections)
-      .where(
-        and(
-          eq(connections.id, connectionId),
-          eq(connections.type, CONNECTION_TYPE_LINEAR),
-        ),
-      )
-      .limit(1)
-    const target = row ? bindingFromConnectionRow(row) : undefined
-    if (!row || !target || target.setupPhase !== "sync_failed") return
-    const [result] = await tx
-      .update(connections)
-      .set({
-        config: mergeLinearStoredConfig(row, {
-          setupPhase: "initial_sync",
-          pendingConfigPullUrl: null,
-          pendingConfigPrCreating: false,
-        }),
-        updatedAt: new Date(),
-      })
-      .where(eq(connections.id, connectionId))
-      .returning()
-    return result
-  })
-  if (!updated) return false
-  await upsertConnectionDirectory(updated)
-  return true
-}
-
-export async function finalizeLinearBindingAfterContentWorkflow(input: {
-  connectionId: string
-  workflowStatus: "completed" | "partial_failed" | "failed"
-}): Promise<boolean> {
-  const directoryRow = await getConnectionDirectoryByConnectionId(
-    input.connectionId,
-  )
-  if (!directoryRow) return false
-  const updated = await withOrgDbContext(directoryRow.orgId, async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
-    )
-    const [row] = await tx
-      .select()
-      .from(connections)
-      .where(
-        and(
-          eq(connections.id, input.connectionId),
-          eq(connections.type, CONNECTION_TYPE_LINEAR),
-        ),
-      )
-      .limit(1)
-    const target = row ? bindingFromConnectionRow(row) : undefined
-    if (!row || !target || target.setupPhase !== "initial_sync") return
+      return
     const [result] = await tx
       .update(connections)
       .set({
@@ -1287,9 +1100,7 @@ export async function finalizeLinearBindingAfterContentWorkflow(input: {
       .returning()
     return result
   })
-  if (!updated) return false
-  await upsertConnectionDirectory(updated)
-  return true
+  return Boolean(updated)
 }
 
 /** Clear Linear sync bindings that pointed at a repository about to be deleted. */

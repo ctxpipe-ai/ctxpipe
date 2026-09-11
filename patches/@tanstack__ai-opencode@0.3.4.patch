@@ -1,0 +1,1621 @@
+diff --git a/dist/esm/adapters/text.js b/dist/esm/adapters/text.js
+index d11df14ae2159d0558a0f928b72c3d24867b164a..0aed66aed50813c4f0ff3f911a0801a9ebec467c 100644
+--- a/dist/esm/adapters/text.js
++++ b/dist/esm/adapters/text.js
+@@ -85,6 +85,7 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
+ 			const bridgedToolNames = new Set((options.tools ?? []).map((tool) => tool.name));
+ 			if (options.tools && options.tools.length > 0) bridge = await ((options.capabilities ? getToolBridgeProvisioner(options.capabilities, { optional: true }) : void 0) ?? nodeHttpBridgeProvisioner).provision(options.tools, {
+ 				provider: sandbox.provider,
++				sandbox,
+ 				context: options.context,
+ 				emitCustomEvent: channel.emitCustomEvent,
+ 				...externalSignal ? { signal: externalSignal } : {}
+@@ -123,9 +124,11 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
+ 			handle = await startOpencodeSession({
+ 				baseUrl: server.baseUrl,
+ 				...server.headers !== void 0 && { headers: server.headers },
++				...server.diagnostics !== void 0 && { serverDiagnostics: server.diagnostics },
+ 				providerID,
+ 				modelID,
+ 				...sessionId !== void 0 && { resumeSessionId: sessionId },
++				...externalSignal !== void 0 && { signal: externalSignal },
+ 				onEvent: (event) => queue.push({
+ 					kind: "event",
+ 					event
+@@ -223,9 +226,12 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
+ 		} finally {
+ 			if (externalSignal !== void 0 && onAbort !== void 0) externalSignal.removeEventListener("abort", onAbort);
+ 			channel.close();
+-			await handle?.dispose();
+-			await server?.dispose();
+-			await bridge?.close();
++			const cleanupErrors = [];
++			try { await handle?.dispose(); } catch (error) { cleanupErrors.push(error); }
++			try { await server?.dispose(); } catch (error) { cleanupErrors.push(error); }
++			try { await bridge?.close(); } catch (error) { cleanupErrors.push(error); }
++			if (cleanupErrors.length === 1) throw cleanupErrors[0];
++			if (cleanupErrors.length > 1) throw new AggregateError(cleanupErrors, 'OpenCode session, preview, or bridge cleanup failed');
+ 		}
+ 	}
+ 	structuredOutput(_options) {
+diff --git a/dist/esm/process/sandbox-server.d.ts b/dist/esm/process/sandbox-server.d.ts
+index 694e432f8c1881d15592c9d432824dd2319f487e..bf689e6f8f969bd011898ffeb5f426803cd59339 100644
+--- a/dist/esm/process/sandbox-server.d.ts
++++ b/dist/esm/process/sandbox-server.d.ts
+@@ -8,6 +8,8 @@ export interface SandboxOpencodeServer {
+      * opencode client must send these on every request or the preview proxy 404s.
+      */
+     headers?: Record<string, string>;
++    /** Bounded process diagnostics for failures after the server is ready. */
++    diagnostics: () => string;
+     /** Stop the server process. */
+     dispose: () => Promise<void>;
+ }
+diff --git a/dist/esm/process/sandbox-server.js b/dist/esm/process/sandbox-server.js
+index 51278c92b6c5df3627d885c29e8f94b0b50adb1b..acf1a68f949ae8d8581e877481bcb4200fa71720 100644
+--- a/dist/esm/process/sandbox-server.js
++++ b/dist/esm/process/sandbox-server.js
+@@ -1,56 +1,221 @@
+-//#region src/process/sandbox-server.ts
++// ../ctxpipe-native-opencode-patch/src/process/sandbox-server.ts
+ var READY_MARKER = "opencode server listening";
++var DIAGNOSTIC_TAIL_LIMIT = 2000;
++var READY_SCAN_LIMIT = 16000;
++var STOP_TERM_TIMEOUT_MS = 1000;
++var STOP_KILL_TIMEOUT_MS = 5000;
+ async function startOpencodeServerInSandbox(sandbox, options) {
+-	const command = `opencode serve --hostname=${options.hostname ?? "0.0.0.0"} --port=${options.port}`;
+-	const proc = await sandbox.process.spawn(command, {
+-		cwd: options.cwd,
+-		...options.env ? { env: options.env } : {},
+-		...options.signal ? { signal: options.signal } : {}
+-	});
+-	await waitForReady(proc, options.timeoutMs ?? 3e4);
+-	const channel = await sandbox.ports.connect(options.port);
+-	const headers = channel.headers ?? (channel.token ? { Authorization: `Bearer ${channel.token}` } : void 0);
+-	return {
+-		baseUrl: channel.url,
+-		...headers ? { headers } : {},
+-		dispose: () => proc.kill()
+-	};
+-}
+-function waitForReady(proc, timeoutMs) {
+-	return new Promise((resolve, reject) => {
+-		let stdout = "";
+-		let stderr = "";
+-		const state = { settled: false };
+-		const settle = (fn) => {
+-			if (state.settled) return;
+-			state.settled = true;
+-			clearTimeout(timer);
+-			fn();
+-		};
+-		const diagnostics = () => [stdout, stderr].map((s) => s.trim()).filter(Boolean).join("\n").slice(-500);
+-		const timer = setTimeout(() => settle(() => reject(/* @__PURE__ */ new Error(`opencode serve did not become ready within ${timeoutMs}ms${diagnostics() ? `: ${diagnostics()}` : ""}`))), timeoutMs);
+-		(async () => {
+-			try {
+-				for await (const chunk of proc.stderr) stderr += chunk;
+-			} catch {}
+-		})();
+-		(async () => {
+-			try {
+-				for await (const chunk of proc.stdout) {
+-					stdout += chunk;
+-					if (stdout.includes(READY_MARKER)) {
+-						settle(resolve);
+-						return;
+-					}
+-				}
+-				settle(() => reject(/* @__PURE__ */ new Error(`opencode serve exited before becoming ready${diagnostics() ? `: ${diagnostics()}` : " (no output)"}`)));
+-			} catch (error) {
+-				settle(() => reject(error));
+-			}
+-		})();
+-	});
+-}
+-//#endregion
+-export { startOpencodeServerInSandbox };
++  const hostname = options.hostname ?? "0.0.0.0";
++  const command = `opencode serve --hostname=${hostname} --port=${options.port}`;
++  const proc = await sandbox.process.spawn(command, {
++    cwd: options.cwd,
++    ...options.env ? { env: options.env } : {},
++    ...options.signal ? { signal: options.signal } : {}
++  });
++  const processExit = proc.wait().then((exitCode) => ({ ok: true, exitCode }), (error) => ({ ok: false, error }));
++  let port;
++  let readiness;
++  try {
++    readiness = await waitForReady(proc, processExit, options.timeoutMs ?? 30000);
++    port = readiness.port;
++  } catch (error) {
++    throw await preserveFailure(error, proc, processExit);
++  }
++  let channel;
++  try {
++    channel = await sandbox.ports.connect(port);
++  } catch (error) {
++    throw await preserveFailure(error, proc, processExit);
++  }
++  const headers = channel.headers ?? (channel.token ? { Authorization: `Bearer ${channel.token}` } : undefined);
++  let disposeTask;
++  const dispose = () => disposeTask ??= (async () => {
++    const failures = [];
++    try {
++      await channel.close?.();
++    } catch (error) {
++      failures.push(error);
++    }
++    try {
++      await stopProcess(proc, processExit);
++    } catch (error) {
++      failures.push(error);
++    }
++    if (failures.length === 1)
++      throw failures[0];
++    if (failures.length > 1)
++      throw new AggregateError(failures, "OpenCode preview and process cleanup failed");
++  })();
++  try {
++    options.signal?.throwIfAborted();
++  } catch (error) {
++    try {
++      await dispose();
++    } catch (cleanup) {
++      throw new AggregateError([error, cleanup], "OpenCode startup aborted and cleanup failed");
++    }
++    throw error;
++  }
++  return {
++    baseUrl: channel.url,
++    ...headers ? { headers } : {},
++    diagnostics: readiness.diagnostics,
++    dispose
++  };
++}
++async function stopProcess(proc, processExit) {
++  const terminateFailures = [];
++  const waitForExit = async (phase, timeoutMs) => {
++    const result = await waitForProcess(processExit, phase, timeoutMs);
++    if (!result.ok)
++      throw result.error;
++  };
++  try {
++    await waitForProcess(proc.kill(), "terminate signal", STOP_TERM_TIMEOUT_MS);
++  } catch (error) {
++    terminateFailures.push(error);
++  }
++  try {
++    await waitForExit("exit after terminate", STOP_TERM_TIMEOUT_MS);
++    return;
++  } catch (graceError) {
++    const escalationFailures = [
++      ...terminateFailures,
++      graceError
++    ];
++    try {
++      await waitForProcess(proc.kill("SIGKILL"), "SIGKILL signal", STOP_KILL_TIMEOUT_MS);
++    } catch (killError) {
++      escalationFailures.push(killError);
++    }
++    try {
++      await waitForExit("exit after SIGKILL", STOP_KILL_TIMEOUT_MS);
++    } catch (waitError) {
++      escalationFailures.push(waitError);
++      throw new AggregateError(escalationFailures, "OpenCode process cleanup failed");
++    }
++  }
++}
++async function waitForProcess(operation, phase, timeoutMs) {
++  let timer;
++  try {
++    return await Promise.race([
++      operation,
++      new Promise((_, reject) => {
++        timer = setTimeout(() => reject(new Error(`OpenCode process did not ${phase} within ${timeoutMs}ms`)), timeoutMs);
++      })
++    ]);
++  } finally {
++    if (timer !== undefined)
++      clearTimeout(timer);
++  }
++}
++async function preserveFailure(original, proc, processExit) {
++  try {
++    await stopProcess(proc, processExit);
++  } catch (cleanup) {
++    throw new AggregateError([original, cleanup], "OpenCode startup failed and process cleanup failed");
++  }
++  throw original;
++}
++function waitForReady(proc, processExit, timeoutMs) {
++  return new Promise((resolve, reject) => {
++    let stdout = "";
++    let stderr = "";
++    let readyScan = "";
++    let reportedUrl;
++    let exitResult;
++    let stdoutError;
++    let stderrError;
++    const state = { settled: false };
++    const settle = (fn) => {
++      if (state.settled)
++        return;
++      state.settled = true;
++      clearTimeout(timer);
++      fn();
++    };
++    const tail = (value, chunk) => `${value}${chunk}`.slice(-DIAGNOSTIC_TAIL_LIMIT);
++    const diagnostics = () => {
++      const details = [
++        reportedUrl ? `reportedURL=${safeDiagnosticUrl(reportedUrl)}` : "",
++        exitResult ? exitResult.ok ? `exitCode=${exitResult.exitCode}` : `exitError=${safeDiagnosticText(errorMessage(exitResult.error))}` : "",
++        stdout.trim() ? `stdout=${safeDiagnosticText(stdout.trim())}` : "",
++        stderr.trim() ? `stderr=${safeDiagnosticText(stderr.trim())}` : "",
++        stdoutError ? `stdoutError=${safeDiagnosticText(errorMessage(stdoutError))}` : "",
++        stderrError ? `stderrError=${safeDiagnosticText(errorMessage(stderrError))}` : ""
++      ].filter(Boolean);
++      return details.join(" | ");
++    };
++    processExit.then((result) => {
++      exitResult = result;
++    });
++    const timer = setTimeout(() => settle(() => reject(new Error(`opencode serve did not become ready within ${timeoutMs}ms${diagnostics() ? `: ${diagnostics()}` : ""}`))), timeoutMs);
++    (async () => {
++      try {
++        for await (const chunk of proc.stderr)
++          stderr = tail(stderr, chunk);
++      } catch (error) {
++        stderrError = error;
++      }
++    })();
++    (async () => {
++      try {
++        for await (const chunk of proc.stdout) {
++          stdout = tail(stdout, chunk);
++          readyScan = `${readyScan}${chunk}`.slice(-READY_SCAN_LIMIT);
++          if (readyScan.includes(READY_MARKER)) {
++            const match = readyScan.match(/opencode server listening on (https?:\/\/[^\s]+)\r?\n/);
++            if (!match)
++              continue;
++            reportedUrl = match[1];
++            let readyUrl;
++            try {
++              readyUrl = new URL(match[1]);
++            } catch {
++              settle(() => reject(new Error(`opencode serve reported an invalid readiness URL: ${match[1]}`)));
++              return;
++            }
++            const port = Number(readyUrl.port);
++            if (!Number.isInteger(port) || port <= 0 || port > 65535) {
++              settle(() => reject(new Error(`opencode serve reported an invalid readiness port: ${readyUrl.port || "(missing)"}`)));
++              return;
++            }
++            settle(() => resolve({ port, diagnostics }));
++          }
++        }
++        if (!state.settled) {
++          const result = await processExit;
++          exitResult = result;
++          settle(() => reject(new Error(`opencode serve exited before becoming ready${diagnostics() ? `: ${diagnostics()}` : " (no output)"}`)));
++        }
++      } catch (error) {
++        stdoutError = error;
++        settle(() => reject(error));
++      }
++    })();
++  });
++}
++function errorMessage(error) {
++  return error instanceof Error ? error.message : String(error);
++}
++function safeDiagnosticText(value) {
++  return value.replace(/Bearer\s+\S+/gi, "Bearer [redacted]").replace(/(authorization|api[-_ ]?key|token|password|secret)\s*[:=]\s*\S+/gi, "$1=[redacted]").slice(-DIAGNOSTIC_TAIL_LIMIT);
++}
++function safeDiagnosticUrl(value) {
++  try {
++    const url = new URL(value);
++    url.username = "";
++    url.password = "";
++    url.search = "";
++    url.hash = "";
++    return url.toString();
++  } catch {
++    return "[invalid URL]";
++  }
++}
++export {
++  startOpencodeServerInSandbox
++};
+ 
+-//# sourceMappingURL=sandbox-server.js.map
+\ No newline at end of file
++//# debugId=1F74ABFC281D932F64756E2164756E21
+diff --git a/dist/esm/process/sandbox-server.js.map b/dist/esm/process/sandbox-server.js.map
+index b939d4493bae38438ad40625217c50f66cdb4375..d786ff0b500ec915ab1ad465aeb69c839b617c32 100644
+--- a/dist/esm/process/sandbox-server.js.map
++++ b/dist/esm/process/sandbox-server.js.map
+@@ -1 +1,10 @@
+-{"version":3,"file":"sandbox-server.js","names":[],"sources":["../../../src/process/sandbox-server.ts"],"sourcesContent":["/**\n * Boot an `opencode serve` HTTP server INSIDE a sandbox and expose its port so\n * the host `@opencode-ai/sdk` client can connect over `baseUrl`. Mirrors the\n * SDK's own server launch (`opencode serve --hostname=H --port=P`, ready when\n * stdout logs `opencode server listening`).\n */\nimport type { SandboxHandle, SpawnHandle } from '@tanstack/ai-sandbox'\n\nconst READY_MARKER = 'opencode server listening'\n\nexport interface SandboxOpencodeServer {\n  /** URL the host uses to reach the in-sandbox server. */\n  baseUrl: string\n  /**\n   * Headers that authenticate requests to {@link baseUrl}, when the provider's\n   * channel is token-gated (e.g. Daytona's `x-daytona-preview-token`). The host\n   * opencode client must send these on every request or the preview proxy 404s.\n   */\n  headers?: Record<string, string>\n  /** Stop the server process. */\n  dispose: () => Promise<void>\n}\n\nexport interface StartServerOptions {\n  port: number\n  hostname?: string\n  cwd: string\n  /** Extra env for the server process (e.g. `OPENCODE_CONFIG_CONTENT`). */\n  env?: Record<string, string>\n  timeoutMs?: number\n  signal?: AbortSignal\n}\n\nexport async function startOpencodeServerInSandbox(\n  sandbox: SandboxHandle,\n  options: StartServerOptions,\n): Promise<SandboxOpencodeServer> {\n  const hostname = options.hostname ?? '0.0.0.0'\n  const command = `opencode serve --hostname=${hostname} --port=${options.port}`\n  const proc: SpawnHandle = await sandbox.process.spawn(command, {\n    cwd: options.cwd,\n    ...(options.env ? { env: options.env } : {}),\n    ...(options.signal ? { signal: options.signal } : {}),\n  })\n\n  await waitForReady(proc, options.timeoutMs ?? 30_000)\n\n  const channel = await sandbox.ports.connect(options.port)\n  // Carry the channel's auth so the host client can reach a token-gated preview.\n  // Prefer ready-made `headers`; fall back to a bearer token if that's all the\n  // provider issued.\n  const headers =\n    channel.headers ??\n    (channel.token ? { Authorization: `Bearer ${channel.token}` } : undefined)\n  return {\n    baseUrl: channel.url,\n    ...(headers ? { headers } : {}),\n    dispose: () => proc.kill(),\n  }\n}\n\nfunction waitForReady(proc: SpawnHandle, timeoutMs: number): Promise<void> {\n  return new Promise<void>((resolve, reject) => {\n    let stdout = ''\n    // Capture stderr too: opencode logs startup failures (e.g. \"address already\n    // in use\" when a previous run's server still holds the port) to stderr, not\n    // stdout. Without this the error message is empty and the real cause is lost.\n    let stderr = ''\n    // Holder object so reads stay typed as `boolean` across async closures\n    // (a plain `let` gets flow-narrowed to a literal and trips lint).\n    const state = { settled: false }\n    const settle = (fn: () => void): void => {\n      if (state.settled) return\n      state.settled = true\n      clearTimeout(timer)\n      fn()\n    }\n    const diagnostics = (): string =>\n      [stdout, stderr]\n        .map((s) => s.trim())\n        .filter(Boolean)\n        .join('\\n')\n        .slice(-500)\n    const timer = setTimeout(\n      () =>\n        settle(() =>\n          reject(\n            new Error(\n              `opencode serve did not become ready within ${timeoutMs}ms${\n                diagnostics() ? `: ${diagnostics()}` : ''\n              }`,\n            ),\n          ),\n        ),\n      timeoutMs,\n    )\n\n    // Drain stderr in the background so its text is available for diagnostics.\n    void (async () => {\n      try {\n        for await (const chunk of proc.stderr) stderr += chunk\n      } catch {\n        // Ignore: stderr drain errors are non-fatal; stdout drives readiness.\n      }\n    })()\n\n    void (async () => {\n      try {\n        for await (const chunk of proc.stdout) {\n          stdout += chunk\n          if (stdout.includes(READY_MARKER)) {\n            settle(resolve)\n            return\n          }\n        }\n        settle(() =>\n          reject(\n            new Error(\n              `opencode serve exited before becoming ready${\n                diagnostics() ? `: ${diagnostics()}` : ' (no output)'\n              }`,\n            ),\n          ),\n        )\n      } catch (error) {\n        settle(() => reject(error))\n      }\n    })()\n  })\n}\n"],"mappings":";AAQA,IAAM,eAAe;AAyBrB,eAAsB,6BACpB,SACA,SACgC;CAEhC,MAAM,UAAU,6BADC,QAAQ,YAAY,UACiB,UAAU,QAAQ;CACxE,MAAM,OAAoB,MAAM,QAAQ,QAAQ,MAAM,SAAS;EAC7D,KAAK,QAAQ;EACb,GAAI,QAAQ,MAAM,EAAE,KAAK,QAAQ,IAAI,IAAI,CAAC;EAC1C,GAAI,QAAQ,SAAS,EAAE,QAAQ,QAAQ,OAAO,IAAI,CAAC;CACrD,CAAC;CAED,MAAM,aAAa,MAAM,QAAQ,aAAa,GAAM;CAEpD,MAAM,UAAU,MAAM,QAAQ,MAAM,QAAQ,QAAQ,IAAI;CAIxD,MAAM,UACJ,QAAQ,YACP,QAAQ,QAAQ,EAAE,eAAe,UAAU,QAAQ,QAAQ,IAAI,KAAA;CAClE,OAAO;EACL,SAAS,QAAQ;EACjB,GAAI,UAAU,EAAE,QAAQ,IAAI,CAAC;EAC7B,eAAe,KAAK,KAAK;CAC3B;AACF;AAEA,SAAS,aAAa,MAAmB,WAAkC;CACzE,OAAO,IAAI,SAAe,SAAS,WAAW;EAC5C,IAAI,SAAS;EAIb,IAAI,SAAS;EAGb,MAAM,QAAQ,EAAE,SAAS,MAAM;EAC/B,MAAM,UAAU,OAAyB;GACvC,IAAI,MAAM,SAAS;GACnB,MAAM,UAAU;GAChB,aAAa,KAAK;GAClB,GAAG;EACL;EACA,MAAM,oBACJ,CAAC,QAAQ,MAAM,CAAC,CACb,KAAK,MAAM,EAAE,KAAK,CAAC,CAAC,CACpB,OAAO,OAAO,CAAC,CACf,KAAK,IAAI,CAAC,CACV,MAAM,IAAI;EACf,MAAM,QAAQ,iBAEV,aACE,uBACE,IAAI,MACF,8CAA8C,UAAU,IACtD,YAAY,IAAI,KAAK,YAAY,MAAM,IAE3C,CACF,CACF,GACF,SACF;EAGA,CAAM,YAAY;GAChB,IAAI;IACF,WAAW,MAAM,SAAS,KAAK,QAAQ,UAAU;GACnD,QAAQ,CAER;EACF,EAAA,CAAG;EAEH,CAAM,YAAY;GAChB,IAAI;IACF,WAAW,MAAM,SAAS,KAAK,QAAQ;KACrC,UAAU;KACV,IAAI,OAAO,SAAS,YAAY,GAAG;MACjC,OAAO,OAAO;MACd;KACF;IACF;IACA,aACE,uBACE,IAAI,MACF,8CACE,YAAY,IAAI,KAAK,YAAY,MAAM,gBAE3C,CACF,CACF;GACF,SAAS,OAAO;IACd,aAAa,OAAO,KAAK,CAAC;GAC5B;EACF,EAAA,CAAG;CACL,CAAC;AACH"}
+\ No newline at end of file
++{
++  "version": 3,
++  "sources": ["../../ctxpipe-native-opencode-patch/src/process/sandbox-server.ts"],
++  "sourcesContent": [
++    "/**\n * Boot an `opencode serve` HTTP server INSIDE a sandbox and expose its port so\n * the host `@opencode-ai/sdk` client can connect over `baseUrl`. Mirrors the\n * SDK's own server launch (`opencode serve --hostname=H --port=P`, ready when\n * stdout logs `opencode server listening`).\n */\nimport type { SandboxHandle, SpawnHandle } from '@tanstack/ai-sandbox'\n\nconst READY_MARKER = 'opencode server listening'\nconst DIAGNOSTIC_TAIL_LIMIT = 2_000\nconst READY_SCAN_LIMIT = 16_000\nconst STOP_TERM_TIMEOUT_MS = 1_000\nconst STOP_KILL_TIMEOUT_MS = 5_000\n\ntype ProcessExit =\n  | { ok: true; exitCode: number }\n  | { ok: false; error: unknown }\n\nexport interface SandboxOpencodeServer {\n  /** URL the host uses to reach the in-sandbox server. */\n  baseUrl: string\n  /**\n   * Headers that authenticate requests to {@link baseUrl}, when the provider's\n   * channel is token-gated (e.g. Daytona's `x-daytona-preview-token`). The host\n   * opencode client must send these on every request or the preview proxy 404s.\n   */\n  headers?: Record<string, string>\n  /** Bounded process diagnostics for failures after the server is ready. */\n  diagnostics: () => string\n  /** Stop the server process. */\n  dispose: () => Promise<void>\n}\n\nexport interface StartServerOptions {\n  port: number\n  hostname?: string\n  cwd: string\n  /** Extra env for the server process (e.g. `OPENCODE_CONFIG_CONTENT`). */\n  env?: Record<string, string>\n  timeoutMs?: number\n  signal?: AbortSignal\n}\n\nexport async function startOpencodeServerInSandbox(\n  sandbox: SandboxHandle,\n  options: StartServerOptions,\n): Promise<SandboxOpencodeServer> {\n  const hostname = options.hostname ?? '0.0.0.0'\n  const command = `opencode serve --hostname=${hostname} --port=${options.port}`\n  const proc: SpawnHandle = await sandbox.process.spawn(command, {\n    cwd: options.cwd,\n    ...(options.env ? { env: options.env } : {}),\n    ...(options.signal ? { signal: options.signal } : {}),\n  })\n\n  // Observe wait exactly once. Besides preventing an unhandled rejection, this\n  // keeps the exit code available after readiness for later SDK failures.\n  const processExit = proc.wait().then<ProcessExit>(\n    (exitCode) => ({ ok: true, exitCode }),\n    (error) => ({ ok: false, error }),\n  )\n\n  let port: number\n  let readiness: Awaited<ReturnType<typeof waitForReady>>\n  try {\n    readiness = await waitForReady(\n      proc,\n      processExit,\n      options.timeoutMs ?? 30_000,\n    )\n    port = readiness.port\n  } catch (error) {\n    throw await preserveFailure(error, proc, processExit)\n  }\n\n  let channel: Awaited<ReturnType<SandboxHandle['ports']['connect']>>\n  try {\n    channel = await sandbox.ports.connect(port)\n  } catch (error) {\n    throw await preserveFailure(error, proc, processExit)\n  }\n  // Carry the channel's auth so the host client can reach a token-gated preview.\n  // Prefer ready-made `headers`; fall back to a bearer token if that's all the\n  // provider issued.\n  const headers =\n    channel.headers ??\n    (channel.token ? { Authorization: `Bearer ${channel.token}` } : undefined)\n  let disposeTask: Promise<void> | undefined\n  const dispose = (): Promise<void> => disposeTask ??= (async () => {\n    const failures: Array<unknown> = []\n    try { await channel.close?.() } catch (error) { failures.push(error) }\n    try { await stopProcess(proc, processExit) } catch (error) { failures.push(error) }\n    if (failures.length === 1) throw failures[0]\n    if (failures.length > 1) throw new AggregateError(failures, 'OpenCode preview and process cleanup failed')\n  })()\n  try { options.signal?.throwIfAborted() } catch (error) {\n    try { await dispose() } catch (cleanup) {\n      throw new AggregateError([error, cleanup], 'OpenCode startup aborted and cleanup failed')\n    }\n    throw error\n  }\n  return {\n    baseUrl: channel.url,\n    ...(headers ? { headers } : {}),\n    diagnostics: readiness.diagnostics,\n    dispose,\n  }\n}\n\nasync function stopProcess(\n  proc: SpawnHandle,\n  processExit: Promise<ProcessExit>,\n): Promise<void> {\n  const terminateFailures: Array<unknown> = []\n  const waitForExit = async (phase: string, timeoutMs: number): Promise<void> => {\n    const result = await waitForProcess(processExit, phase, timeoutMs)\n    if (!result.ok) throw result.error\n  }\n  try {\n    await waitForProcess(\n      proc.kill(),\n      'terminate signal',\n      STOP_TERM_TIMEOUT_MS,\n    )\n  } catch (error) {\n    terminateFailures.push(error)\n  }\n\n  try {\n    await waitForExit('exit after terminate', STOP_TERM_TIMEOUT_MS)\n    return\n  } catch (graceError) {\n    const escalationFailures: Array<unknown> = [\n      ...terminateFailures,\n      graceError,\n    ]\n    try {\n      await waitForProcess(\n        proc.kill('SIGKILL'),\n        'SIGKILL signal',\n        STOP_KILL_TIMEOUT_MS,\n      )\n    } catch (killError) {\n      escalationFailures.push(killError)\n    }\n    try {\n      await waitForExit('exit after SIGKILL', STOP_KILL_TIMEOUT_MS)\n    } catch (waitError) {\n      escalationFailures.push(waitError)\n      throw new AggregateError(\n        escalationFailures,\n        'OpenCode process cleanup failed',\n      )\n    }\n  }\n}\n\nasync function waitForProcess<T>(\n  operation: Promise<T>,\n  phase: string,\n  timeoutMs: number,\n): Promise<T> {\n  let timer: ReturnType<typeof setTimeout> | undefined\n  try {\n    return await Promise.race([\n      operation,\n      new Promise<never>((_, reject) => {\n        timer = setTimeout(\n          () =>\n            reject(\n              new Error(\n                `OpenCode process did not ${phase} within ${timeoutMs}ms`,\n              ),\n            ),\n          timeoutMs,\n        )\n      }),\n    ])\n  } finally {\n    if (timer !== undefined) clearTimeout(timer)\n  }\n}\n\nasync function preserveFailure(\n  original: unknown,\n  proc: SpawnHandle,\n  processExit: Promise<ProcessExit>,\n): Promise<never> {\n  try {\n    await stopProcess(proc, processExit)\n  } catch (cleanup) {\n    throw new AggregateError(\n      [original, cleanup],\n      'OpenCode startup failed and process cleanup failed',\n    )\n  }\n  throw original\n}\n\nfunction waitForReady(\n  proc: SpawnHandle,\n  processExit: Promise<ProcessExit>,\n  timeoutMs: number,\n): Promise<{ port: number; diagnostics: () => string }> {\n  return new Promise<{ port: number; diagnostics: () => string }>((resolve, reject) => {\n    let stdout = ''\n    let stderr = ''\n    let readyScan = ''\n    let reportedUrl: string | undefined\n    let exitResult: ProcessExit | undefined\n    let stdoutError: unknown\n    let stderrError: unknown\n    // Holder object so reads stay typed as `boolean` across async closures\n    // (a plain `let` gets flow-narrowed to a literal and trips lint).\n    const state = { settled: false }\n    const settle = (fn: () => void): void => {\n      if (state.settled) return\n      state.settled = true\n      clearTimeout(timer)\n      fn()\n    }\n    const tail = (value: string, chunk: string): string =>\n      `${value}${chunk}`.slice(-DIAGNOSTIC_TAIL_LIMIT)\n    const diagnostics = (): string => {\n      const details = [\n        reportedUrl ? `reportedURL=${safeDiagnosticUrl(reportedUrl)}` : '',\n        exitResult\n          ? exitResult.ok\n            ? `exitCode=${exitResult.exitCode}`\n            : `exitError=${safeDiagnosticText(errorMessage(exitResult.error))}`\n          : '',\n        stdout.trim() ? `stdout=${safeDiagnosticText(stdout.trim())}` : '',\n        stderr.trim() ? `stderr=${safeDiagnosticText(stderr.trim())}` : '',\n        stdoutError ? `stdoutError=${safeDiagnosticText(errorMessage(stdoutError))}` : '',\n        stderrError ? `stderrError=${safeDiagnosticText(errorMessage(stderrError))}` : '',\n      ].filter(Boolean)\n      return details.join(' | ')\n    }\n    void processExit.then((result) => {\n      exitResult = result\n    })\n    const timer = setTimeout(\n      () =>\n        settle(() =>\n          reject(\n            new Error(\n              `opencode serve did not become ready within ${timeoutMs}ms${\n                diagnostics() ? `: ${diagnostics()}` : ''\n              }`,\n            ),\n          ),\n        ),\n      timeoutMs,\n    )\n\n    // Drain both streams for the whole process lifetime. Readiness is one\n    // event, but session creation can fail later and still needs the tail.\n    void (async () => {\n      try {\n        for await (const chunk of proc.stderr) stderr = tail(stderr, chunk)\n      } catch (error) {\n        stderrError = error\n      }\n    })()\n\n    void (async () => {\n      try {\n        for await (const chunk of proc.stdout) {\n          stdout = tail(stdout, chunk)\n          readyScan = `${readyScan}${chunk}`.slice(-READY_SCAN_LIMIT)\n          if (readyScan.includes(READY_MARKER)) {\n            const match = readyScan.match(\n              /opencode server listening on (https?:\\/\\/[^\\s]+)\\r?\\n/,\n            )\n            if (!match) continue\n            reportedUrl = match[1]\n            let readyUrl: URL\n            try {\n              readyUrl = new URL(match[1])\n            } catch {\n              settle(() =>\n                reject(\n                  new Error(\n                    `opencode serve reported an invalid readiness URL: ${match[1]}`,\n                  ),\n                ),\n              )\n              return\n            }\n            const port = Number(readyUrl.port)\n            if (!Number.isInteger(port) || port <= 0 || port > 65_535) {\n              settle(() =>\n                reject(\n                  new Error(\n                    `opencode serve reported an invalid readiness port: ${readyUrl.port || '(missing)'}`,\n                  ),\n                ),\n              )\n              return\n            }\n            settle(() => resolve({ port, diagnostics }))\n          }\n        }\n        if (!state.settled) {\n          const result = await processExit\n          exitResult = result\n          settle(() =>\n            reject(\n              new Error(\n                `opencode serve exited before becoming ready${\n                  diagnostics() ? `: ${diagnostics()}` : ' (no output)'\n                }`,\n              ),\n            ),\n          )\n        }\n      } catch (error) {\n        stdoutError = error\n        settle(() => reject(error))\n      }\n    })()\n  })\n}\n\nfunction errorMessage(error: unknown): string {\n  return error instanceof Error ? error.message : String(error)\n}\n\nfunction safeDiagnosticText(value: string): string {\n  return value\n    .replace(/Bearer\\s+\\S+/gi, 'Bearer [redacted]')\n    .replace(\n      /(authorization|api[-_ ]?key|token|password|secret)\\s*[:=]\\s*\\S+/gi,\n      '$1=[redacted]',\n    )\n    .slice(-DIAGNOSTIC_TAIL_LIMIT)\n}\n\nfunction safeDiagnosticUrl(value: string): string {\n  try {\n    const url = new URL(value)\n    url.username = ''\n    url.password = ''\n    url.search = ''\n    url.hash = ''\n    return url.toString()\n  } catch {\n    return '[invalid URL]'\n  }\n}\n"
++  ],
++  "mappings": "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",
++  "debugId": "1F74ABFC281D932F64756E2164756E21",
++  "names": []
++}
+\ No newline at end of file
+diff --git a/dist/esm/process/server.d.ts b/dist/esm/process/server.d.ts
+index 1fe0fef723a6e5b5910fb014626798653e4641bd..ebf6ad58424165365bb4e0d04090bb7969d13009 100644
+--- a/dist/esm/process/server.d.ts
++++ b/dist/esm/process/server.d.ts
+@@ -57,6 +57,10 @@ export interface StartOpencodeSessionOptions {
+     }>;
+     /** Session id to resume; falls back to a fresh session when not found. */
+     resumeSessionId?: string;
++    /** Abort startup while waiting for the event stream to become ready. */
++    signal?: AbortSignal;
++    /** Bounded diagnostics from a sandbox-owned server, for setup failures. */
++    serverDiagnostics?: () => string;
+     onEvent: (event: OpencodeEvent) => void;
+     onPermissionRequest: (request: OpencodePermissionRequest) => Promise<OpencodePermissionResponse> | OpencodePermissionResponse;
+     /** Called when the event subscription fails mid-turn. */
+diff --git a/dist/esm/process/server.js b/dist/esm/process/server.js
+index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..825c6137304c34f15172dcb5ac9f3116a731aa02 100644
+--- a/dist/esm/process/server.js
++++ b/dist/esm/process/server.js
+@@ -1,168 +1,263 @@
++// ../ctxpipe-native-opencode-patch/src/process/server.ts
+ import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk";
+-//#region src/process/server.ts
+-/** Locate the session id an OpenCode event belongs to, when it carries one. */
++var EVENT_SUBSCRIPTION_READY_TIMEOUT_MS = 1e4;
++function waitForStreamEvent(ready, signal, eventName) {
++  return new Promise((resolve, reject) => {
++    let settled = false;
++    let timer;
++    const onAbort = () => {
++      settle(() => reject(signal?.reason ?? new Error(`OpenCode ${eventName} aborted`)));
++    };
++    const settle = (finish) => {
++      if (settled)
++        return;
++      settled = true;
++      if (timer !== undefined)
++        clearTimeout(timer);
++      signal?.removeEventListener("abort", onAbort);
++      finish();
++    };
++    ready.then(() => settle(resolve), (error) => settle(() => reject(error)));
++    if (signal?.aborted) {
++      onAbort();
++      return;
++    }
++    signal?.addEventListener("abort", onAbort, { once: true });
++    timer = setTimeout(() => settle(() => reject(new Error(`OpenCode ${eventName} was not observed within ${EVENT_SUBSCRIPTION_READY_TIMEOUT_MS}ms`))), EVENT_SUBSCRIPTION_READY_TIMEOUT_MS);
++  });
++}
+ function sessionIdOf(event) {
+-	const props = event.properties;
+-	if (props?.sessionID !== void 0) return props.sessionID;
+-	if (event.type === "message.part.updated") return event.properties.part.sessionID;
+-	if (event.type === "message.updated") return event.properties.info.sessionID;
+-	if (event.type === "permission.updated") return event.properties.sessionID;
++  const props = event.properties;
++  if (props?.sessionID !== undefined)
++    return props.sessionID;
++  if (event.type === "message.part.updated") {
++    return event.properties.part.sessionID;
++  }
++  if (event.type === "message.updated") {
++    return event.properties.info.sessionID;
++  }
++  if (event.type === "permission.updated") {
++    return event.properties.sessionID;
++  }
++  return;
+ }
+ function buildConfig(options) {
+-	const mcp = { ...options.config?.mcp };
+-	for (const server of options.mcpServers ?? []) mcp[server.name] = {
+-		type: "remote",
+-		url: server.url,
+-		enabled: true
+-	};
+-	return {
+-		...options.config,
+-		...Object.keys(mcp).length > 0 && { mcp },
+-		...options.permission !== void 0 && { permission: options.permission }
+-	};
++  const mcp = { ...options.config?.mcp };
++  for (const server of options.mcpServers ?? []) {
++    mcp[server.name] = { type: "remote", url: server.url, enabled: true };
++  }
++  return {
++    ...options.config,
++    ...Object.keys(mcp).length > 0 && { mcp },
++    ...options.permission !== undefined && { permission: options.permission }
++  };
+ }
+-/**
+-* Boot (or attach to) an OpenCode HTTP server, resolve a session, and wire its
+-* event subscription + permission replies.
+-*
+-* This module is the only place that touches `@opencode-ai/sdk`; the rest of
+-* the package works with the structural types in `sdk-types.ts`.
+-*
+-* Resume semantics: when `resumeSessionId` is set and the server still knows
+-* the session (same machine, same data dir), it is reused. Otherwise a fresh
+-* session is created and `resumed: false` tells the adapter to send the
+-* flattened transcript.
+-*/
+ async function startOpencodeSession(options) {
+-	const { directory } = options;
+-	const dirQuery = directory !== void 0 ? { directory } : {};
+-	let client;
+-	let ownedServer;
+-	if (options.baseUrl !== void 0) client = createOpencodeClient({
+-		baseUrl: options.baseUrl,
+-		...options.headers !== void 0 && { headers: options.headers },
+-		...directory !== void 0 && { directory }
+-	});
+-	else {
+-		const config = buildConfig(options);
+-		const result = await createOpencode({
+-			...options.hostname !== void 0 && { hostname: options.hostname },
+-			...options.port !== void 0 && { port: options.port },
+-			...Object.keys(config).length > 0 && { config }
+-		});
+-		client = result.client;
+-		ownedServer = result.server;
+-	}
+-	const lifecycle = { disposed: false };
+-	const teardown = async () => {
+-		if (lifecycle.disposed) return;
+-		lifecycle.disposed = true;
+-		ownedServer?.close();
+-		await Promise.resolve();
+-	};
+-	try {
+-		let sessionId;
+-		let resumed = false;
+-		if (options.resumeSessionId !== void 0) {
+-			if ((await client.session.get({
+-				path: { id: options.resumeSessionId },
+-				query: dirQuery
+-			})).data) {
+-				sessionId = options.resumeSessionId;
+-				resumed = true;
+-			}
+-		}
+-		if (sessionId === void 0) sessionId = (await client.session.create({
+-			query: dirQuery,
+-			body: {},
+-			throwOnError: true
+-		})).data.id;
+-		const resolvedSessionId = sessionId;
+-		const handlePermission = async (permission) => {
+-			try {
+-				const response = await options.onPermissionRequest({
+-					id: permission.id,
+-					sessionID: permission.sessionID,
+-					type: permission.type,
+-					title: permission.title,
+-					...permission.callID !== void 0 && { callID: permission.callID }
+-				});
+-				await client.postSessionIdPermissionsPermissionId({
+-					path: {
+-						id: permission.sessionID,
+-						permissionID: permission.id
+-					},
+-					query: dirQuery,
+-					body: { response },
+-					throwOnError: true
+-				});
+-			} catch (error) {
+-				if (!lifecycle.disposed) options.onError?.(error);
+-			}
+-		};
+-		const stream = (await client.event.subscribe()).stream;
+-		(async () => {
+-			try {
+-				for await (const event of stream) {
+-					if (lifecycle.disposed) break;
+-					const sid = sessionIdOf(event);
+-					if (sid !== void 0 && sid !== resolvedSessionId) continue;
+-					if (event.type === "permission.updated") {
+-						handlePermission(event.properties);
+-						continue;
+-					}
+-					options.onEvent(event);
+-				}
+-			} catch (error) {
+-				if (!lifecycle.disposed) options.onError?.(error);
+-			}
+-		})();
+-		return {
+-			sessionId: resolvedSessionId,
+-			resumed,
+-			prompt: async (text) => {
+-				const data = (await client.session.prompt({
+-					path: { id: resolvedSessionId },
+-					query: dirQuery,
+-					body: {
+-						model: {
+-							providerID: options.providerID,
+-							modelID: options.modelID
+-						},
+-						parts: [{
+-							type: "text",
+-							text
+-						}]
+-					},
+-					throwOnError: true
+-				})).data;
+-				return {
+-					message: data.info,
+-					text: data.parts.filter((part) => part.type === "text").map((part) => part.text).join("")
+-				};
+-			},
+-			abort: async () => {
+-				try {
+-					await client.session.abort({
+-						path: { id: resolvedSessionId },
+-						query: dirQuery
+-					});
+-				} catch {}
+-			},
+-			dispose: async () => {
+-				lifecycle.disposed = true;
+-				try {
+-					await stream.return(void 0);
+-				} catch {}
+-				ownedServer?.close();
+-			}
+-		};
+-	} catch (error) {
+-		await teardown();
+-		throw error;
+-	}
++  const { directory } = options;
++  const dirQuery = directory !== undefined ? { directory } : {};
++  let client;
++  let ownedServer;
++  if (options.baseUrl !== undefined) {
++    client = createOpencodeClient({
++      baseUrl: options.baseUrl,
++      ...options.headers !== undefined && { headers: options.headers },
++      ...directory !== undefined && { directory }
++    });
++  } else {
++    const config = buildConfig(options);
++    const result = await createOpencode({
++      ...options.hostname !== undefined && { hostname: options.hostname },
++      ...options.port !== undefined && { port: options.port },
++      ...Object.keys(config).length > 0 && { config }
++    });
++    client = result.client;
++    ownedServer = result.server;
++  }
++  const subscriptionAbort = new AbortController;
++  const lifecycle = { disposed: false };
++  const terminalMessages = new Set;
++  const terminalWaiters = new Map;
++  let subscriptionFailure;
++  const rejectTerminalWaiters = (error) => {
++    for (const waiter of terminalWaiters.values())
++      waiter.reject(error);
++    terminalWaiters.clear();
++    terminalMessages.clear();
++  };
++  const teardown = async () => {
++    if (lifecycle.disposed)
++      return;
++    lifecycle.disposed = true;
++    rejectTerminalWaiters(new Error("OpenCode session disposed"));
++    subscriptionAbort.abort();
++    ownedServer?.close();
++    await Promise.resolve();
++  };
++  try {
++    let sessionId;
++    let resumed = false;
++    if (options.resumeSessionId !== undefined) {
++      const existing = await client.session.get({
++        path: { id: options.resumeSessionId },
++        query: dirQuery
++      });
++      if (existing.data) {
++        sessionId = options.resumeSessionId;
++        resumed = true;
++      }
++    }
++    if (sessionId === undefined) {
++      try {
++        const created = await client.session.create({
++          query: dirQuery,
++          body: {},
++          throwOnError: true
++        });
++        sessionId = created.data.id;
++      } catch (error) {
++        throw sessionSetupFailure(error, "create session", options.serverDiagnostics);
++      }
++    }
++    const resolvedSessionId = sessionId;
++    const handlePermission = async (permission) => {
++      try {
++        const response = await options.onPermissionRequest({
++          id: permission.id,
++          sessionID: permission.sessionID,
++          type: permission.type,
++          title: permission.title,
++          ...permission.callID !== undefined && { callID: permission.callID }
++        });
++        await client.postSessionIdPermissionsPermissionId({
++          path: { id: permission.sessionID, permissionID: permission.id },
++          query: dirQuery,
++          body: { response },
++          throwOnError: true
++        });
++      } catch (error) {
++        if (!lifecycle.disposed)
++          options.onError?.(error);
++      }
++    };
++    const subscription = await client.event.subscribe({ signal: subscriptionAbort.signal });
++    const stream = subscription.stream;
++    let resolveReady;
++    let rejectReady;
++    const ready = new Promise((resolve, reject) => {
++      resolveReady = resolve;
++      rejectReady = reject;
++    });
++    let sawFirstEvent = false;
++    (async () => {
++      try {
++        for await (const event of stream) {
++          if (lifecycle.disposed)
++            break;
++          if (!sawFirstEvent) {
++            sawFirstEvent = true;
++            if (event.type !== "server.connected") {
++              throw new Error(`OpenCode event subscription started with ${event.type}, expected server.connected`);
++            }
++            resolveReady();
++          }
++          const sid = sessionIdOf(event);
++          if (sid !== undefined && sid !== resolvedSessionId)
++            continue;
++          if (event.type === "permission.updated") {
++            handlePermission(event.properties);
++            continue;
++          }
++          options.onEvent(event);
++          if (event.type === "message.updated" && event.properties.info.role === "assistant" && (event.properties.info.time.completed !== undefined || event.properties.info.error !== undefined)) {
++            const id = event.properties.info.id;
++            terminalMessages.add(id);
++            terminalWaiters.get(id)?.resolve();
++          }
++        }
++        if (!lifecycle.disposed)
++          throw new Error("OpenCode event subscription ended unexpectedly");
++      } catch (error) {
++        subscriptionFailure = error instanceof Error ? error : new Error(String(error));
++        rejectReady(subscriptionFailure);
++        rejectTerminalWaiters(subscriptionFailure);
++        if (!lifecycle.disposed)
++          options.onError?.(subscriptionFailure);
++      }
++    })();
++    await waitForStreamEvent(ready, options.signal, "event subscription");
++    return {
++      sessionId: resolvedSessionId,
++      resumed,
++      prompt: async (text) => {
++        options.signal?.throwIfAborted();
++        if (lifecycle.disposed)
++          throw new Error("OpenCode session disposed");
++        if (subscriptionFailure)
++          throw subscriptionFailure;
++        terminalMessages.clear();
++        const result = await client.session.prompt({
++          signal: subscriptionAbort.signal,
++          path: { id: resolvedSessionId },
++          query: dirQuery,
++          body: {
++            model: { providerID: options.providerID, modelID: options.modelID },
++            parts: [{ type: "text", text }]
++          },
++          throwOnError: true
++        });
++        const data = result.data;
++        const message = data.info;
++        if (lifecycle.disposed)
++          throw new Error("OpenCode session disposed");
++        if (subscriptionFailure)
++          throw subscriptionFailure;
++        if (!terminalMessages.has(message.id)) {
++          const terminal = new Promise((resolve, reject) => {
++            terminalWaiters.set(message.id, { resolve, reject });
++          });
++          try {
++            await waitForStreamEvent(terminal, options.signal, "assistant completion");
++          } finally {
++            terminalWaiters.delete(message.id);
++          }
++        }
++        terminalMessages.delete(message.id);
++        const responseText = data.parts.filter((part) => part.type === "text").map((part) => part.text).join("");
++        return { message, text: responseText };
++      },
++      abort: async () => {
++        try {
++          await client.session.abort({
++            path: { id: resolvedSessionId },
++            query: dirQuery
++          });
++        } catch {}
++      },
++      dispose: async () => {
++        await teardown();
++        try {
++          await stream.return(undefined);
++        } catch {}
++      }
++    };
++  } catch (error) {
++    await teardown();
++    throw error;
++  }
++}
++function sessionSetupFailure(error, operation, diagnostics) {
++  const message = safeSessionErrorText(error instanceof Error ? error.message : String(error));
++  const detail = diagnostics?.();
++  const suffix = detail ? `; server diagnostics: ${detail}` : "";
++  return new Error(`OpenCode ${operation} failed: ${message}${suffix}`, {
++    cause: error
++  });
++}
++function safeSessionErrorText(value) {
++  return value.replace(/Bearer\s+\S+/gi, "Bearer [redacted]").replace(/(authorization|api[-_ ]?key|token|password|secret)\s*[:=]\s*\S+/gi, "$1=[redacted]");
+ }
+-//#endregion
+-export { startOpencodeSession };
++export {
++  startOpencodeSession
++};
+ 
+-//# sourceMappingURL=server.js.map
+\ No newline at end of file
++//# debugId=0E51A82A23B0AC5164756E2164756E21
+diff --git a/dist/esm/process/server.js.map b/dist/esm/process/server.js.map
+index f783a8ebad5632e984a4b27f8b447b42b70853d4..c1e955f8931a1e6be99e434e63392b6bfe5aae26 100644
+--- a/dist/esm/process/server.js.map
++++ b/dist/esm/process/server.js.map
+@@ -1 +1 @@
+-{"version":3,"file":"server.js","names":[],"sources":["../../../src/process/server.ts"],"sourcesContent":["import { createOpencode, createOpencodeClient } from '@opencode-ai/sdk'\nimport type { Config, Event, OpencodeClient, Part } from '@opencode-ai/sdk'\nimport type {\n  OpencodeAssistantMessage,\n  OpencodeEvent,\n} from '../stream/sdk-types'\nimport type {\n  OpencodePermissionRequest,\n  OpencodePermissionResponse,\n} from './permissions'\n\n/** A live OpenCode session backed by an `opencode serve` HTTP server. */\nexport interface OpencodeSessionHandle {\n  sessionId: string\n  /** Whether an existing session was actually resumed. */\n  resumed: boolean\n  /**\n   * Run one prompt turn. Resolves with the final assistant message (finish\n   * reason, token usage, error) and its concatenated text once the harness\n   * goes idle. Streaming deltas arrive via `onEvent` while this is pending.\n   */\n  prompt: (\n    text: string,\n  ) => Promise<{ message: OpencodeAssistantMessage; text: string }>\n  /** Ask the harness to abort the in-flight prompt turn. */\n  abort: () => Promise<void>\n  /** Tear down the event subscription and (if owned) the server. */\n  dispose: () => Promise<void>\n}\n\nexport interface StartOpencodeSessionOptions {\n  /** Connect to an already-running server instead of spawning one. */\n  baseUrl?: string\n  /**\n   * Headers attached to every request to the opencode server — used to\n   * authenticate a token-gated preview channel (e.g. Daytona). Without them a\n   * gated preview proxy rejects the requests (404 \"Not found.\").\n   */\n  headers?: Record<string, string>\n  /** Hostname for the spawned server. Defaults to the SDK default. */\n  hostname?: string\n  /** Port for the spawned server. Defaults to the SDK default. */\n  port?: number\n  /**\n   * Directory the opencode HTTP API scopes the session to. Omit to use the\n   * server's own launch cwd (the common case): the server is spawned with the\n   * correct working dir per-provider, so passing a directory here is only needed\n   * to override it. Passing a VIRTUAL sandbox path (e.g. `/workspace`) is wrong\n   * for host-running providers (local-process), where that path doesn't exist —\n   * the API then stalls on it. Leave undefined and rely on the server cwd.\n   */\n  directory?: string\n  /** Provider id (the part before `/` in the model id). */\n  providerID: string\n  /** Model id (the part after `/` in the model id). */\n  modelID: string\n  /** Extra OpenCode config merged with the adapter's mcp/permission config. */\n  config?: Config\n  /** Baseline permission policy applied to the spawned server. */\n  permission?: Config['permission']\n  /** MCP servers (e.g. the TanStack tool bridge) for the session. */\n  mcpServers?: Array<{ name: string; url: string }>\n  /** Session id to resume; falls back to a fresh session when not found. */\n  resumeSessionId?: string\n  onEvent: (event: OpencodeEvent) => void\n  onPermissionRequest: (\n    request: OpencodePermissionRequest,\n  ) => Promise<OpencodePermissionResponse> | OpencodePermissionResponse\n  /** Called when the event subscription fails mid-turn. */\n  onError?: (error: unknown) => void\n}\n\n/** Locate the session id an OpenCode event belongs to, when it carries one. */\nfunction sessionIdOf(event: Event): string | undefined {\n  const props = event.properties as { sessionID?: string } | undefined\n  if (props?.sessionID !== undefined) return props.sessionID\n  if (event.type === 'message.part.updated') {\n    return event.properties.part.sessionID\n  }\n  if (event.type === 'message.updated') {\n    return event.properties.info.sessionID\n  }\n  if (event.type === 'permission.updated') {\n    return event.properties.sessionID\n  }\n  return undefined\n}\n\nfunction buildConfig(options: StartOpencodeSessionOptions): Config {\n  const mcp: NonNullable<Config['mcp']> = { ...options.config?.mcp }\n  for (const server of options.mcpServers ?? []) {\n    mcp[server.name] = { type: 'remote', url: server.url, enabled: true }\n  }\n  return {\n    ...options.config,\n    ...(Object.keys(mcp).length > 0 && { mcp }),\n    ...(options.permission !== undefined && { permission: options.permission }),\n  }\n}\n\n/**\n * Boot (or attach to) an OpenCode HTTP server, resolve a session, and wire its\n * event subscription + permission replies.\n *\n * This module is the only place that touches `@opencode-ai/sdk`; the rest of\n * the package works with the structural types in `sdk-types.ts`.\n *\n * Resume semantics: when `resumeSessionId` is set and the server still knows\n * the session (same machine, same data dir), it is reused. Otherwise a fresh\n * session is created and `resumed: false` tells the adapter to send the\n * flattened transcript.\n */\nexport async function startOpencodeSession(\n  options: StartOpencodeSessionOptions,\n): Promise<OpencodeSessionHandle> {\n  const { directory } = options\n  // Spread into a `query` object only when set; omitting lets opencode use the\n  // server's launch cwd (correct for every provider — see `directory` docs).\n  const dirQuery = directory !== undefined ? { directory } : {}\n\n  let client: OpencodeClient\n  let ownedServer: { close: () => void } | undefined\n\n  if (options.baseUrl !== undefined) {\n    client = createOpencodeClient({\n      baseUrl: options.baseUrl,\n      ...(options.headers !== undefined && { headers: options.headers }),\n      ...(directory !== undefined && { directory }),\n    })\n  } else {\n    const config = buildConfig(options)\n    const result = await createOpencode({\n      ...(options.hostname !== undefined && { hostname: options.hostname }),\n      ...(options.port !== undefined && { port: options.port }),\n      ...(Object.keys(config).length > 0 && { config }),\n    })\n    client = result.client\n    ownedServer = result.server\n  }\n\n  // Mutated from several closures (the subscription loop, dispose, teardown);\n  // a holder object keeps reads typed as `boolean` rather than being\n  // flow-narrowed to a literal across those boundaries.\n  const lifecycle = { disposed: false }\n\n  const teardown = async (): Promise<void> => {\n    if (lifecycle.disposed) return\n    lifecycle.disposed = true\n    ownedServer?.close()\n    await Promise.resolve()\n  }\n\n  try {\n    // Resolve the session before subscribing so the event filter has an id.\n    let sessionId: string | undefined\n    let resumed = false\n    if (options.resumeSessionId !== undefined) {\n      const existing = await client.session.get({\n        path: { id: options.resumeSessionId },\n        query: dirQuery,\n      })\n      if (existing.data) {\n        sessionId = options.resumeSessionId\n        resumed = true\n      }\n    }\n    if (sessionId === undefined) {\n      const created = await client.session.create({\n        query: dirQuery,\n        body: {},\n        throwOnError: true,\n      })\n      sessionId = created.data.id\n    }\n    const resolvedSessionId = sessionId\n\n    const handlePermission = async (\n      permission: Extract<Event, { type: 'permission.updated' }>['properties'],\n    ): Promise<void> => {\n      try {\n        const response = await options.onPermissionRequest({\n          id: permission.id,\n          sessionID: permission.sessionID,\n          type: permission.type,\n          title: permission.title,\n          ...(permission.callID !== undefined && { callID: permission.callID }),\n        })\n        await client.postSessionIdPermissionsPermissionId({\n          path: { id: permission.sessionID, permissionID: permission.id },\n          query: dirQuery,\n          body: { response },\n          throwOnError: true,\n        })\n      } catch (error) {\n        if (!lifecycle.disposed) options.onError?.(error)\n      }\n    }\n\n    const subscription = await client.event.subscribe()\n    const stream = subscription.stream\n\n    void (async () => {\n      try {\n        for await (const event of stream) {\n          if (lifecycle.disposed) break\n          const sid = sessionIdOf(event)\n          if (sid !== undefined && sid !== resolvedSessionId) continue\n          if (event.type === 'permission.updated') {\n            void handlePermission(event.properties)\n            continue\n          }\n          // The SDK event union is a structural superset of the subset the\n          // translator consumes; unknown event types match no translator\n          // branch and are ignored.\n          options.onEvent(event as OpencodeEvent)\n        }\n      } catch (error) {\n        if (!lifecycle.disposed) options.onError?.(error)\n      }\n    })()\n\n    return {\n      sessionId: resolvedSessionId,\n      resumed,\n      prompt: async (text: string) => {\n        const result = await client.session.prompt({\n          path: { id: resolvedSessionId },\n          query: dirQuery,\n          body: {\n            model: { providerID: options.providerID, modelID: options.modelID },\n            parts: [{ type: 'text', text }],\n          },\n          throwOnError: true,\n        })\n        const data = result.data\n        const message = data.info as OpencodeAssistantMessage\n        const responseText = data.parts\n          .filter(\n            (part): part is Extract<Part, { type: 'text' }> =>\n              part.type === 'text',\n          )\n          .map((part) => part.text)\n          .join('')\n        return { message, text: responseText }\n      },\n      abort: async () => {\n        try {\n          await client.session.abort({\n            path: { id: resolvedSessionId },\n            query: dirQuery,\n          })\n        } catch {\n          // Best-effort: the turn may already be finishing.\n        }\n      },\n      dispose: async () => {\n        lifecycle.disposed = true\n        try {\n          await stream.return(undefined)\n        } catch {\n          // Ignore: stream may already be closed.\n        }\n        ownedServer?.close()\n      },\n    }\n  } catch (error) {\n    await teardown()\n    throw error\n  }\n}\n"],"mappings":"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"}
+\ No newline at end of file
++{"version":3,"sources":["../../ctxpipe-native-opencode-patch/src/process/server.ts"],"sourcesContent":["import { createOpencode, createOpencodeClient } from '@opencode-ai/sdk'\nimport type { Config, Event, OpencodeClient, Part } from '@opencode-ai/sdk'\nimport type {\n  OpencodeAssistantMessage,\n  OpencodeEvent,\n} from '../stream/sdk-types'\nimport type {\n  OpencodePermissionRequest,\n  OpencodePermissionResponse,\n} from './permissions'\n\n/** A live OpenCode session backed by an `opencode serve` HTTP server. */\nexport interface OpencodeSessionHandle {\n  sessionId: string\n  /** Whether an existing session was actually resumed. */\n  resumed: boolean\n  /**\n   * Run one prompt turn. Resolves with the final assistant message (finish\n   * reason, token usage, error) and its concatenated text once the harness\n   * goes idle. Streaming deltas arrive via `onEvent` while this is pending.\n   */\n  prompt: (\n    text: string,\n  ) => Promise<{ message: OpencodeAssistantMessage; text: string }>\n  /** Ask the harness to abort the in-flight prompt turn. */\n  abort: () => Promise<void>\n  /** Tear down the event subscription and (if owned) the server. */\n  dispose: () => Promise<void>\n}\n\nexport interface StartOpencodeSessionOptions {\n  /** Connect to an already-running server instead of spawning one. */\n  baseUrl?: string\n  /**\n   * Headers attached to every request to the opencode server \u2014 used to\n   * authenticate a token-gated preview channel (e.g. Daytona). Without them a\n   * gated preview proxy rejects the requests (404 \"Not found.\").\n   */\n  headers?: Record<string, string>\n  /** Hostname for the spawned server. Defaults to the SDK default. */\n  hostname?: string\n  /** Port for the spawned server. Defaults to the SDK default. */\n  port?: number\n  /**\n   * Directory the opencode HTTP API scopes the session to. Omit to use the\n   * server's own launch cwd (the common case): the server is spawned with the\n   * correct working dir per-provider, so passing a directory here is only needed\n   * to override it. Passing a VIRTUAL sandbox path (e.g. `/workspace`) is wrong\n   * for host-running providers (local-process), where that path doesn't exist \u2014\n   * the API then stalls on it. Leave undefined and rely on the server cwd.\n   */\n  directory?: string\n  /** Provider id (the part before `/` in the model id). */\n  providerID: string\n  /** Model id (the part after `/` in the model id). */\n  modelID: string\n  /** Extra OpenCode config merged with the adapter's mcp/permission config. */\n  config?: Config\n  /** Baseline permission policy applied to the spawned server. */\n  permission?: Config['permission']\n  /** MCP servers (e.g. the TanStack tool bridge) for the session. */\n  mcpServers?: Array<{ name: string; url: string }>\n  /** Session id to resume; falls back to a fresh session when not found. */\n  resumeSessionId?: string\n  /** Abort startup while waiting for the event stream to become ready. */\n  signal?: AbortSignal\n  /** Bounded diagnostics from a sandbox-owned server, for setup failures. */\n  serverDiagnostics?: () => string\n  onEvent: (event: OpencodeEvent) => void\n  onPermissionRequest: (\n    request: OpencodePermissionRequest,\n  ) => Promise<OpencodePermissionResponse> | OpencodePermissionResponse\n  /** Called when the event subscription fails mid-turn. */\n  onError?: (error: unknown) => void\n}\n\nconst EVENT_SUBSCRIPTION_READY_TIMEOUT_MS = 10_000\n\nfunction waitForStreamEvent(\n  ready: Promise<void>,\n  signal: AbortSignal | undefined,\n  eventName: string,\n): Promise<void> {\n  return new Promise((resolve, reject) => {\n    let settled = false\n    let timer: ReturnType<typeof setTimeout> | undefined\n    const onAbort = (): void => {\n      settle(() =>\n        reject(\n          signal?.reason ?? new Error(`OpenCode ${eventName} aborted`),\n        ),\n      )\n    }\n    const settle = (finish: () => void): void => {\n      if (settled) return\n      settled = true\n      if (timer !== undefined) clearTimeout(timer)\n      signal?.removeEventListener('abort', onAbort)\n      finish()\n    }\n\n    void ready.then(\n      () => settle(resolve),\n      (error: unknown) => settle(() => reject(error)),\n    )\n    if (signal?.aborted) {\n      onAbort()\n      return\n    }\n    signal?.addEventListener('abort', onAbort, { once: true })\n    timer = setTimeout(\n      () =>\n        settle(() =>\n          reject(\n            new Error(\n              `OpenCode ${eventName} was not observed within ${EVENT_SUBSCRIPTION_READY_TIMEOUT_MS}ms`,\n            ),\n          ),\n        ),\n      EVENT_SUBSCRIPTION_READY_TIMEOUT_MS,\n    )\n  })\n}\n\n/** Locate the session id an OpenCode event belongs to, when it carries one. */\nfunction sessionIdOf(event: Event): string | undefined {\n  const props = event.properties as { sessionID?: string } | undefined\n  if (props?.sessionID !== undefined) return props.sessionID\n  if (event.type === 'message.part.updated') {\n    return event.properties.part.sessionID\n  }\n  if (event.type === 'message.updated') {\n    return event.properties.info.sessionID\n  }\n  if (event.type === 'permission.updated') {\n    return event.properties.sessionID\n  }\n  return undefined\n}\n\nfunction buildConfig(options: StartOpencodeSessionOptions): Config {\n  const mcp: NonNullable<Config['mcp']> = { ...options.config?.mcp }\n  for (const server of options.mcpServers ?? []) {\n    mcp[server.name] = { type: 'remote', url: server.url, enabled: true }\n  }\n  return {\n    ...options.config,\n    ...(Object.keys(mcp).length > 0 && { mcp }),\n    ...(options.permission !== undefined && { permission: options.permission }),\n  }\n}\n\n/**\n * Boot (or attach to) an OpenCode HTTP server, resolve a session, and wire its\n * event subscription + permission replies.\n *\n * This module is the only place that touches `@opencode-ai/sdk`; the rest of\n * the package works with the structural types in `sdk-types.ts`.\n *\n * Resume semantics: when `resumeSessionId` is set and the server still knows\n * the session (same machine, same data dir), it is reused. Otherwise a fresh\n * session is created and `resumed: false` tells the adapter to send the\n * flattened transcript.\n */\nexport async function startOpencodeSession(\n  options: StartOpencodeSessionOptions,\n): Promise<OpencodeSessionHandle> {\n  const { directory } = options\n  // Spread into a `query` object only when set; omitting lets opencode use the\n  // server's launch cwd (correct for every provider \u2014 see `directory` docs).\n  const dirQuery = directory !== undefined ? { directory } : {}\n\n  let client: OpencodeClient\n  let ownedServer: { close: () => void } | undefined\n\n  if (options.baseUrl !== undefined) {\n    client = createOpencodeClient({\n      baseUrl: options.baseUrl,\n      ...(options.headers !== undefined && { headers: options.headers }),\n      ...(directory !== undefined && { directory }),\n    })\n  } else {\n    const config = buildConfig(options)\n    const result = await createOpencode({\n      ...(options.hostname !== undefined && { hostname: options.hostname }),\n      ...(options.port !== undefined && { port: options.port }),\n      ...(Object.keys(config).length > 0 && { config }),\n    })\n    client = result.client\n    ownedServer = result.server\n  }\n\n  // Mutated from several closures (the subscription loop, dispose, teardown);\n  // a holder object keeps reads typed as `boolean` rather than being\n  // flow-narrowed to a literal across those boundaries.\n  const subscriptionAbort = new AbortController()\n  const lifecycle = { disposed: false }\n  // Native transport state only: HTTP completion may arrive before its SSE\n  // events, or after the terminal event has already been delivered.\n  const terminalMessages = new Set<string>()\n  const terminalWaiters = new Map<string, {\n    resolve: () => void\n    reject: (error: unknown) => void\n  }>()\n  let subscriptionFailure: Error | undefined\n  const rejectTerminalWaiters = (error: unknown): void => {\n    for (const waiter of terminalWaiters.values()) waiter.reject(error)\n    terminalWaiters.clear()\n    terminalMessages.clear()\n  }\n\n  const teardown = async (): Promise<void> => {\n    if (lifecycle.disposed) return\n    lifecycle.disposed = true\n    rejectTerminalWaiters(new Error('OpenCode session disposed'))\n    subscriptionAbort.abort()\n    ownedServer?.close()\n    await Promise.resolve()\n  }\n\n  try {\n    // Resolve the session before subscribing so the event filter has an id.\n    let sessionId: string | undefined\n    let resumed = false\n    if (options.resumeSessionId !== undefined) {\n      const existing = await client.session.get({\n        path: { id: options.resumeSessionId },\n        query: dirQuery,\n      })\n      if (existing.data) {\n        sessionId = options.resumeSessionId\n        resumed = true\n      }\n    }\n    if (sessionId === undefined) {\n      try {\n        const created = await client.session.create({\n          query: dirQuery,\n          body: {},\n          throwOnError: true,\n        })\n        sessionId = created.data.id\n      } catch (error) {\n        throw sessionSetupFailure(error, 'create session', options.serverDiagnostics)\n      }\n    }\n    const resolvedSessionId = sessionId\n\n    const handlePermission = async (\n      permission: Extract<Event, { type: 'permission.updated' }>['properties'],\n    ): Promise<void> => {\n      try {\n        const response = await options.onPermissionRequest({\n          id: permission.id,\n          sessionID: permission.sessionID,\n          type: permission.type,\n          title: permission.title,\n          ...(permission.callID !== undefined && { callID: permission.callID }),\n        })\n        await client.postSessionIdPermissionsPermissionId({\n          path: { id: permission.sessionID, permissionID: permission.id },\n          query: dirQuery,\n          body: { response },\n          throwOnError: true,\n        })\n      } catch (error) {\n        if (!lifecycle.disposed) options.onError?.(error)\n      }\n    }\n\n    const subscription = await client.event.subscribe({ signal: subscriptionAbort.signal })\n    const stream = subscription.stream\n    let resolveReady!: () => void\n    let rejectReady!: (error: unknown) => void\n    const ready = new Promise<void>((resolve, reject) => {\n      resolveReady = resolve\n      rejectReady = reject\n    })\n    let sawFirstEvent = false\n\n    void (async () => {\n      try {\n        for await (const event of stream) {\n          if (lifecycle.disposed) break\n          if (!sawFirstEvent) {\n            sawFirstEvent = true\n            if (event.type !== 'server.connected') {\n              throw new Error(\n                `OpenCode event subscription started with ${event.type}, expected server.connected`,\n              )\n            }\n            resolveReady()\n          }\n          const sid = sessionIdOf(event)\n          if (sid !== undefined && sid !== resolvedSessionId) continue\n          if (event.type === 'permission.updated') {\n            void handlePermission(event.properties)\n            continue\n          }\n          // The SDK event union is a structural superset of the subset the\n          // translator consumes; unknown event types match no translator\n          // branch and are ignored.\n          options.onEvent(event as OpencodeEvent)\n          if (\n            event.type === 'message.updated' &&\n            event.properties.info.role === 'assistant' &&\n            (event.properties.info.time.completed !== undefined ||\n              event.properties.info.error !== undefined)\n          ) {\n            const id = event.properties.info.id\n            terminalMessages.add(id)\n            terminalWaiters.get(id)?.resolve()\n          }\n        }\n        if (!lifecycle.disposed)\n          throw new Error('OpenCode event subscription ended unexpectedly')\n      } catch (error) {\n        subscriptionFailure = error instanceof Error ? error : new Error(String(error))\n        rejectReady(subscriptionFailure)\n        rejectTerminalWaiters(subscriptionFailure)\n        if (!lifecycle.disposed) options.onError?.(subscriptionFailure)\n      }\n    })()\n\n    // The generated SDK's subscribe() call is lazy: the HTTP request does not\n    // start until the async iterator is consumed. Await its first real event\n    // so a prompt cannot race the SSE handshake on a fast server.\n    await waitForStreamEvent(ready, options.signal, 'event subscription')\n\n    return {\n      sessionId: resolvedSessionId,\n      resumed,\n      prompt: async (text: string) => {\n        options.signal?.throwIfAborted()\n        if (lifecycle.disposed) throw new Error('OpenCode session disposed')\n        if (subscriptionFailure) throw subscriptionFailure\n        terminalMessages.clear()\n        const result = await client.session.prompt({\n          signal: subscriptionAbort.signal,\n          path: { id: resolvedSessionId },\n          query: dirQuery,\n          body: {\n            model: { providerID: options.providerID, modelID: options.modelID },\n            parts: [{ type: 'text', text }],\n          },\n          throwOnError: true,\n        })\n        const data = result.data\n        const message = data.info as OpencodeAssistantMessage\n        if (lifecycle.disposed) throw new Error('OpenCode session disposed')\n        if (subscriptionFailure) throw subscriptionFailure\n        // The adapter ends its event queue when this call resolves. Wait for\n        // this exact assistant's terminal SSE update, after onEvent enqueues\n        // it, so delayed text/tool events cannot be discarded by HTTP racing.\n        if (!terminalMessages.has(message.id)) {\n          const terminal = new Promise<void>((resolve, reject) => {\n            terminalWaiters.set(message.id, { resolve, reject })\n          })\n          try {\n            await waitForStreamEvent(terminal, options.signal, 'assistant completion')\n          } finally {\n            terminalWaiters.delete(message.id)\n          }\n        }\n        terminalMessages.delete(message.id)\n        const responseText = data.parts\n          .filter(\n            (part): part is Extract<Part, { type: 'text' }> =>\n              part.type === 'text',\n          )\n          .map((part) => part.text)\n          .join('')\n        return { message, text: responseText }\n      },\n      abort: async () => {\n        try {\n          await client.session.abort({\n            path: { id: resolvedSessionId },\n            query: dirQuery,\n          })\n        } catch {\n          // Best-effort: the turn may already be finishing.\n        }\n      },\n      dispose: async () => {\n        await teardown()\n        try {\n          await stream.return(undefined)\n        } catch {\n          // Ignore: stream may already be closed.\n        }\n      },\n    }\n  } catch (error) {\n    await teardown()\n    throw error\n  }\n}\n\nfunction sessionSetupFailure(\n  error: unknown,\n  operation: string,\n  diagnostics: (() => string) | undefined,\n): Error {\n  const message = safeSessionErrorText(error instanceof Error ? error.message : String(error))\n  const detail = diagnostics?.()\n  const suffix = detail ? `; server diagnostics: ${detail}` : ''\n  return new Error(`OpenCode ${operation} failed: ${message}${suffix}`, {\n    cause: error,\n  })\n}\n\nfunction safeSessionErrorText(value: string): string {\n  return value\n    .replace(/Bearer\\s+\\S+/gi, 'Bearer [redacted]')\n    .replace(\n      /(authorization|api[-_ ]?key|token|password|secret)\\s*[:=]\\s*\\S+/gi,\n      '$1=[redacted]',\n    )\n}\n"],"mappings":"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","debugId":"0E51A82A23B0AC5164756E2164756E21","names":[]}
+diff --git a/dist/esm/stream/sdk-types.d.ts b/dist/esm/stream/sdk-types.d.ts
+index ced4f2b07b9d85f940844bc08ecc1f201cae1723..7cbf1dddd996ce036b6ba56dc2a6572fb7c4fc96 100644
+--- a/dist/esm/stream/sdk-types.d.ts
++++ b/dist/esm/stream/sdk-types.d.ts
+@@ -61,16 +61,19 @@ export type OpencodeToolState = {
+ export type OpencodePart = {
+     id: string;
+     sessionID?: string;
++    messageID?: string;
+     type: 'text';
+     text: string;
+ } | {
+     id: string;
+     sessionID?: string;
++    messageID?: string;
+     type: 'reasoning';
+     text: string;
+ } | {
+     id: string;
+     sessionID?: string;
++    messageID?: string;
+     type: 'tool';
+     callID: string;
+     tool: string;
+@@ -78,6 +81,7 @@ export type OpencodePart = {
+ } | {
+     id: string;
+     sessionID?: string;
++    messageID?: string;
+     type: string;
+ };
+ /**
+@@ -96,6 +100,8 @@ export type OpencodeEvent = {
+     type: 'message.updated';
+     properties: {
+         info: {
++            id: string;
++            role: string;
+             sessionID?: string;
+         };
+     };
+diff --git a/dist/esm/stream/translate.js b/dist/esm/stream/translate.js
+index a63df2314be1bf53f30f08bf21b6d56a6408122f..e874a57268631e962e675a5ac2dbb8a2f240fa51 100644
+--- a/dist/esm/stream/translate.js
++++ b/dist/esm/stream/translate.js
+@@ -62,6 +62,8 @@ function messageError(message) {
+ async function* translateOpencodeStream(events, ctx) {
+ 	const { model, runId, threadId, genId } = ctx;
+ 	const now = () => Date.now();
++	const messageRoles = new Map();
++	const pendingParts = new Map();
+ 	let runStarted = false;
+ 	/** Tool calls started but with no result yet, keyed by callID. */
+ 	const unresolvedToolCalls = /* @__PURE__ */ new Set();
+@@ -249,8 +251,23 @@ async function* translateOpencodeStream(events, ctx) {
+ 		};
+ 	}
+ 	function* handleEvent(event) {
+-		if (event.type === "message.part.updated") {
+-			const { part, delta } = event.properties;
++		if (event.type === "message.updated") {
++            const { id, role } = event.properties.info;
++            messageRoles.set(id, role);
++            const pending = pendingParts.get(id) ?? [];
++            pendingParts.delete(id);
++            for (const partEvent of pending) yield* handleEvent(partEvent);
++        } else if (event.type === "message.part.updated") {
++            const { part, delta } = event.properties;
++            if (!part.messageID) return;
++            const role = messageRoles.get(part.messageID);
++            if (role === undefined) {
++                const pending = pendingParts.get(part.messageID) ?? [];
++                pending.push(event);
++                pendingParts.set(part.messageID, pending);
++                return;
++            }
++            if (role !== "assistant") return;
+ 			if (isTextPart(part)) yield* handleTextPart(part, delta);
+ 			else if (isReasoningPart(part)) yield* handleReasoningPart(part, delta);
+ 			else if (isToolPart(part)) yield* handleToolPart(part);
+diff --git a/src/adapters/text.ts b/src/adapters/text.ts
+index ee6ee29530377f5ba53b0f6eb1f35f7153dca886..5ef9f1743fa0a50e149160bef306f8bd51f026f4 100644
+--- a/src/adapters/text.ts
++++ b/src/adapters/text.ts
+@@ -238,6 +238,7 @@ export class OpencodeTextAdapter<
+             : undefined) ?? nodeHttpBridgeProvisioner
+         bridge = await provisioner.provision(options.tools, {
+           provider: sandbox.provider,
++          sandbox,
+           context: options.context,
+           emitCustomEvent: channel.emitCustomEvent,
+           ...(externalSignal ? { signal: externalSignal } : {}),
+@@ -311,6 +312,9 @@ export class OpencodeTextAdapter<
+         // Forward the channel's auth headers (e.g. Daytona's preview token) so
+         // the host client can reach a token-gated preview proxy.
+         ...(server.headers !== undefined && { headers: server.headers }),
++        ...(server.diagnostics !== undefined && {
++          serverDiagnostics: server.diagnostics,
++        }),
+         // NOTE: do NOT pass `directory` here. `directory` is the VIRTUAL sandbox
+         // path (e.g. `/workspace`); the server is already spawned with that as its
+         // cwd (the provider handle maps it to the real workdir — `/workspace`
+@@ -321,6 +325,7 @@ export class OpencodeTextAdapter<
+         providerID,
+         modelID,
+         ...(sessionId !== undefined && { resumeSessionId: sessionId }),
++        ...(externalSignal !== undefined && { signal: externalSignal }),
+         onEvent: (event) => queue.push({ kind: 'event', event }),
+         onPermissionRequest: permissionHandler,
+         onError: (error) => queue.fail(error),
+@@ -452,9 +457,12 @@ export class OpencodeTextAdapter<
+         externalSignal.removeEventListener('abort', onAbort)
+       }
+       channel.close()
+-      await handle?.dispose()
+-      await server?.dispose()
+-      await bridge?.close()
++      const cleanupErrors: Array<unknown> = []
++      try { await handle?.dispose() } catch (error) { cleanupErrors.push(error) }
++      try { await server?.dispose() } catch (error) { cleanupErrors.push(error) }
++      try { await bridge?.close() } catch (error) { cleanupErrors.push(error) }
++      if (cleanupErrors.length === 1) throw cleanupErrors[0]
++      if (cleanupErrors.length > 1) throw new AggregateError(cleanupErrors, 'OpenCode session, preview, or bridge cleanup failed')
+     }
+   }
+ 
+diff --git a/src/process/sandbox-server.ts b/src/process/sandbox-server.ts
+index 4ee8d45f78988096a8ed2d86f108a8d4de9396bb..3f5b32be1ea6879e9871089f63a83dfe8c19809b 100644
+--- a/src/process/sandbox-server.ts
++++ b/src/process/sandbox-server.ts
+@@ -7,6 +7,14 @@
+ import type { SandboxHandle, SpawnHandle } from '@tanstack/ai-sandbox'
+ 
+ const READY_MARKER = 'opencode server listening'
++const DIAGNOSTIC_TAIL_LIMIT = 2_000
++const READY_SCAN_LIMIT = 16_000
++const STOP_TERM_TIMEOUT_MS = 1_000
++const STOP_KILL_TIMEOUT_MS = 5_000
++
++type ProcessExit =
++  | { ok: true; exitCode: number }
++  | { ok: false; error: unknown }
+ 
+ export interface SandboxOpencodeServer {
+   /** URL the host uses to reach the in-sandbox server. */
+@@ -17,6 +25,8 @@ export interface SandboxOpencodeServer {
+    * opencode client must send these on every request or the preview proxy 404s.
+    */
+   headers?: Record<string, string>
++  /** Bounded process diagnostics for failures after the server is ready. */
++  diagnostics: () => string
+   /** Stop the server process. */
+   dispose: () => Promise<void>
+ }
+@@ -43,29 +53,163 @@ export async function startOpencodeServerInSandbox(
+     ...(options.signal ? { signal: options.signal } : {}),
+   })
+ 
+-  await waitForReady(proc, options.timeoutMs ?? 30_000)
++  // Observe wait exactly once. Besides preventing an unhandled rejection, this
++  // keeps the exit code available after readiness for later SDK failures.
++  const processExit = proc.wait().then<ProcessExit, ProcessExit>(
++    (exitCode) => ({ ok: true, exitCode }),
++    (error) => ({ ok: false, error }),
++  )
++
++  let port: number
++  let readiness: Awaited<ReturnType<typeof waitForReady>>
++  try {
++    readiness = await waitForReady(
++      proc,
++      processExit,
++      options.timeoutMs ?? 30_000,
++    )
++    port = readiness.port
++  } catch (error) {
++    throw await preserveFailure(error, proc, processExit)
++  }
+ 
+-  const channel = await sandbox.ports.connect(options.port)
++  let channel: Awaited<ReturnType<SandboxHandle['ports']['connect']>>
++  try {
++    channel = await sandbox.ports.connect(port)
++  } catch (error) {
++    throw await preserveFailure(error, proc, processExit)
++  }
+   // Carry the channel's auth so the host client can reach a token-gated preview.
+   // Prefer ready-made `headers`; fall back to a bearer token if that's all the
+   // provider issued.
+   const headers =
+     channel.headers ??
+     (channel.token ? { Authorization: `Bearer ${channel.token}` } : undefined)
++  let disposeTask: Promise<void> | undefined
++  const dispose = (): Promise<void> => disposeTask ??= (async () => {
++    const failures: Array<unknown> = []
++    try { await channel.close?.() } catch (error) { failures.push(error) }
++    try { await stopProcess(proc, processExit) } catch (error) { failures.push(error) }
++    if (failures.length === 1) throw failures[0]
++    if (failures.length > 1) throw new AggregateError(failures, 'OpenCode preview and process cleanup failed')
++  })()
++  try { options.signal?.throwIfAborted() } catch (error) {
++    try { await dispose() } catch (cleanup) {
++      throw new AggregateError([error, cleanup], 'OpenCode startup aborted and cleanup failed')
++    }
++    throw error
++  }
+   return {
+     baseUrl: channel.url,
+     ...(headers ? { headers } : {}),
+-    dispose: () => proc.kill(),
++    diagnostics: readiness.diagnostics,
++    dispose,
++  }
++}
++
++async function stopProcess(
++  proc: SpawnHandle,
++  processExit: Promise<ProcessExit>,
++): Promise<void> {
++  const terminateFailures: Array<unknown> = []
++  const waitForExit = async (phase: string, timeoutMs: number): Promise<void> => {
++    const result = await waitForProcess(processExit, phase, timeoutMs)
++    if (!result.ok) throw result.error
++  }
++  try {
++    await waitForProcess(
++      proc.kill(),
++      'terminate signal',
++      STOP_TERM_TIMEOUT_MS,
++    )
++  } catch (error) {
++    terminateFailures.push(error)
++  }
++
++  try {
++    await waitForExit('exit after terminate', STOP_TERM_TIMEOUT_MS)
++    return
++  } catch (graceError) {
++    const escalationFailures: Array<unknown> = [
++      ...terminateFailures,
++      graceError,
++    ]
++    try {
++      await waitForProcess(
++        proc.kill('SIGKILL'),
++        'SIGKILL signal',
++        STOP_KILL_TIMEOUT_MS,
++      )
++    } catch (killError) {
++      escalationFailures.push(killError)
++    }
++    try {
++      await waitForExit('exit after SIGKILL', STOP_KILL_TIMEOUT_MS)
++    } catch (waitError) {
++      escalationFailures.push(waitError)
++      throw new AggregateError(
++        escalationFailures,
++        'OpenCode process cleanup failed',
++      )
++    }
++  }
++}
++
++async function waitForProcess<T>(
++  operation: Promise<T>,
++  phase: string,
++  timeoutMs: number,
++): Promise<T> {
++  let timer: ReturnType<typeof setTimeout> | undefined
++  try {
++    return await Promise.race([
++      operation,
++      new Promise<never>((_, reject) => {
++        timer = setTimeout(
++          () =>
++            reject(
++              new Error(
++                `OpenCode process did not ${phase} within ${timeoutMs}ms`,
++              ),
++            ),
++          timeoutMs,
++        )
++      }),
++    ])
++  } finally {
++    if (timer !== undefined) clearTimeout(timer)
+   }
+ }
+ 
+-function waitForReady(proc: SpawnHandle, timeoutMs: number): Promise<void> {
+-  return new Promise<void>((resolve, reject) => {
++async function preserveFailure(
++  original: unknown,
++  proc: SpawnHandle,
++  processExit: Promise<ProcessExit>,
++): Promise<never> {
++  try {
++    await stopProcess(proc, processExit)
++  } catch (cleanup) {
++    throw new AggregateError(
++      [original, cleanup],
++      'OpenCode startup failed and process cleanup failed',
++    )
++  }
++  throw original
++}
++
++function waitForReady(
++  proc: SpawnHandle,
++  processExit: Promise<ProcessExit>,
++  timeoutMs: number,
++): Promise<{ port: number; diagnostics: () => string }> {
++  return new Promise<{ port: number; diagnostics: () => string }>((resolve, reject) => {
+     let stdout = ''
+-    // Capture stderr too: opencode logs startup failures (e.g. "address already
+-    // in use" when a previous run's server still holds the port) to stderr, not
+-    // stdout. Without this the error message is empty and the real cause is lost.
+     let stderr = ''
++    let readyScan = ''
++    let reportedUrl: string | undefined
++    let exitResult: ProcessExit | undefined
++    let stdoutError: unknown
++    let stderrError: unknown
+     // Holder object so reads stay typed as `boolean` across async closures
+     // (a plain `let` gets flow-narrowed to a literal and trips lint).
+     const state = { settled: false }
+@@ -75,12 +219,26 @@ function waitForReady(proc: SpawnHandle, timeoutMs: number): Promise<void> {
+       clearTimeout(timer)
+       fn()
+     }
+-    const diagnostics = (): string =>
+-      [stdout, stderr]
+-        .map((s) => s.trim())
+-        .filter(Boolean)
+-        .join('\n')
+-        .slice(-500)
++    const tail = (value: string, chunk: string): string =>
++      `${value}${chunk}`.slice(-DIAGNOSTIC_TAIL_LIMIT)
++    const diagnostics = (): string => {
++      const details = [
++        reportedUrl ? `reportedURL=${safeDiagnosticUrl(reportedUrl)}` : '',
++        exitResult
++          ? exitResult.ok
++            ? `exitCode=${exitResult.exitCode}`
++            : `exitError=${safeDiagnosticText(errorMessage(exitResult.error))}`
++          : '',
++        stdout.trim() ? `stdout=${safeDiagnosticText(stdout.trim())}` : '',
++        stderr.trim() ? `stderr=${safeDiagnosticText(stderr.trim())}` : '',
++        stdoutError ? `stdoutError=${safeDiagnosticText(errorMessage(stdoutError))}` : '',
++        stderrError ? `stderrError=${safeDiagnosticText(errorMessage(stderrError))}` : '',
++      ].filter(Boolean)
++      return details.join(' | ')
++    }
++    void processExit.then((result) => {
++      exitResult = result
++    })
+     const timer = setTimeout(
+       () =>
+         settle(() =>
+@@ -95,36 +253,98 @@ function waitForReady(proc: SpawnHandle, timeoutMs: number): Promise<void> {
+       timeoutMs,
+     )
+ 
+-    // Drain stderr in the background so its text is available for diagnostics.
++    // Drain both streams for the whole process lifetime. Readiness is one
++    // event, but session creation can fail later and still needs the tail.
+     void (async () => {
+       try {
+-        for await (const chunk of proc.stderr) stderr += chunk
+-      } catch {
+-        // Ignore: stderr drain errors are non-fatal; stdout drives readiness.
++        for await (const chunk of proc.stderr) stderr = tail(stderr, chunk)
++      } catch (error) {
++        stderrError = error
+       }
+     })()
+ 
+     void (async () => {
+       try {
+         for await (const chunk of proc.stdout) {
+-          stdout += chunk
+-          if (stdout.includes(READY_MARKER)) {
+-            settle(resolve)
+-            return
++          stdout = tail(stdout, chunk)
++          readyScan = `${readyScan}${chunk}`.slice(-READY_SCAN_LIMIT)
++          if (readyScan.includes(READY_MARKER)) {
++            const match = readyScan.match(
++              /opencode server listening on (https?:\/\/[^\s]+)\r?\n/,
++            )
++            if (!match) continue
++            reportedUrl = match[1]
++            let readyUrl: URL
++            try {
++              readyUrl = new URL(match[1])
++            } catch {
++              settle(() =>
++                reject(
++                  new Error(
++                    `opencode serve reported an invalid readiness URL: ${match[1]}`,
++                  ),
++                ),
++              )
++              return
++            }
++            const port = Number(readyUrl.port)
++            if (!Number.isInteger(port) || port <= 0 || port > 65_535) {
++              settle(() =>
++                reject(
++                  new Error(
++                    `opencode serve reported an invalid readiness port: ${readyUrl.port || '(missing)'}`,
++                  ),
++                ),
++              )
++              return
++            }
++            settle(() => resolve({ port, diagnostics }))
+           }
+         }
+-        settle(() =>
+-          reject(
+-            new Error(
+-              `opencode serve exited before becoming ready${
+-                diagnostics() ? `: ${diagnostics()}` : ' (no output)'
+-              }`,
++        if (!state.settled) {
++          const result = await processExit
++          exitResult = result
++          settle(() =>
++            reject(
++              new Error(
++                `opencode serve exited before becoming ready${
++                  diagnostics() ? `: ${diagnostics()}` : ' (no output)'
++                }`,
++              ),
+             ),
+-          ),
+-        )
++          )
++        }
+       } catch (error) {
++        stdoutError = error
+         settle(() => reject(error))
+       }
+     })()
+   })
+ }
++
++function errorMessage(error: unknown): string {
++  return error instanceof Error ? error.message : String(error)
++}
++
++function safeDiagnosticText(value: string): string {
++  return value
++    .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
++    .replace(
++      /(authorization|api[-_ ]?key|token|password|secret)\s*[:=]\s*\S+/gi,
++      '$1=[redacted]',
++    )
++    .slice(-DIAGNOSTIC_TAIL_LIMIT)
++}
++
++function safeDiagnosticUrl(value: string): string {
++  try {
++    const url = new URL(value)
++    url.username = ''
++    url.password = ''
++    url.search = ''
++    url.hash = ''
++    return url.toString()
++  } catch {
++    return '[invalid URL]'
++  }
++}
+diff --git a/src/process/server.ts b/src/process/server.ts
+index d6aaae76712a012d4b7a8c8848e715a83ab5a890..c6d84c971660baae04aa5296f82f1926b4fdfffb 100644
+--- a/src/process/server.ts
++++ b/src/process/server.ts
+@@ -62,6 +62,10 @@ export interface StartOpencodeSessionOptions {
+   mcpServers?: Array<{ name: string; url: string }>
+   /** Session id to resume; falls back to a fresh session when not found. */
+   resumeSessionId?: string
++  /** Abort startup while waiting for the event stream to become ready. */
++  signal?: AbortSignal
++  /** Bounded diagnostics from a sandbox-owned server, for setup failures. */
++  serverDiagnostics?: () => string
+   onEvent: (event: OpencodeEvent) => void
+   onPermissionRequest: (
+     request: OpencodePermissionRequest,
+@@ -70,6 +74,54 @@ export interface StartOpencodeSessionOptions {
+   onError?: (error: unknown) => void
+ }
+ 
++const EVENT_SUBSCRIPTION_READY_TIMEOUT_MS = 10_000
++
++function waitForStreamEvent(
++  ready: Promise<void>,
++  signal: AbortSignal | undefined,
++  eventName: string,
++): Promise<void> {
++  return new Promise((resolve, reject) => {
++    let settled = false
++    let timer: ReturnType<typeof setTimeout> | undefined
++    const onAbort = (): void => {
++      settle(() =>
++        reject(
++          signal?.reason ?? new Error(`OpenCode ${eventName} aborted`),
++        ),
++      )
++    }
++    const settle = (finish: () => void): void => {
++      if (settled) return
++      settled = true
++      if (timer !== undefined) clearTimeout(timer)
++      signal?.removeEventListener('abort', onAbort)
++      finish()
++    }
++
++    void ready.then(
++      () => settle(resolve),
++      (error: unknown) => settle(() => reject(error)),
++    )
++    if (signal?.aborted) {
++      onAbort()
++      return
++    }
++    signal?.addEventListener('abort', onAbort, { once: true })
++    timer = setTimeout(
++      () =>
++        settle(() =>
++          reject(
++            new Error(
++              `OpenCode ${eventName} was not observed within ${EVENT_SUBSCRIPTION_READY_TIMEOUT_MS}ms`,
++            ),
++          ),
++        ),
++      EVENT_SUBSCRIPTION_READY_TIMEOUT_MS,
++    )
++  })
++}
++
+ /** Locate the session id an OpenCode event belongs to, when it carries one. */
+ function sessionIdOf(event: Event): string | undefined {
+   const props = event.properties as { sessionID?: string } | undefined
+@@ -141,11 +193,27 @@ export async function startOpencodeSession(
+   // Mutated from several closures (the subscription loop, dispose, teardown);
+   // a holder object keeps reads typed as `boolean` rather than being
+   // flow-narrowed to a literal across those boundaries.
++  const subscriptionAbort = new AbortController()
+   const lifecycle = { disposed: false }
++  // Native transport state only: HTTP completion may arrive before its SSE
++  // events, or after the terminal event has already been delivered.
++  const terminalMessages = new Set<string>()
++  const terminalWaiters = new Map<string, {
++    resolve: () => void
++    reject: (error: unknown) => void
++  }>()
++  let subscriptionFailure: Error | undefined
++  const rejectTerminalWaiters = (error: unknown): void => {
++    for (const waiter of terminalWaiters.values()) waiter.reject(error)
++    terminalWaiters.clear()
++    terminalMessages.clear()
++  }
+ 
+   const teardown = async (): Promise<void> => {
+     if (lifecycle.disposed) return
+     lifecycle.disposed = true
++    rejectTerminalWaiters(new Error('OpenCode session disposed'))
++    subscriptionAbort.abort()
+     ownedServer?.close()
+     await Promise.resolve()
+   }
+@@ -165,12 +233,16 @@ export async function startOpencodeSession(
+       }
+     }
+     if (sessionId === undefined) {
+-      const created = await client.session.create({
+-        query: dirQuery,
+-        body: {},
+-        throwOnError: true,
+-      })
+-      sessionId = created.data.id
++      try {
++        const created = await client.session.create({
++          query: dirQuery,
++          body: {},
++          throwOnError: true,
++        })
++        sessionId = created.data.id
++      } catch (error) {
++        throw sessionSetupFailure(error, 'create session', options.serverDiagnostics)
++      }
+     }
+     const resolvedSessionId = sessionId
+ 
+@@ -196,13 +268,29 @@ export async function startOpencodeSession(
+       }
+     }
+ 
+-    const subscription = await client.event.subscribe()
++    const subscription = await client.event.subscribe({ signal: subscriptionAbort.signal })
+     const stream = subscription.stream
++    let resolveReady!: () => void
++    let rejectReady!: (error: unknown) => void
++    const ready = new Promise<void>((resolve, reject) => {
++      resolveReady = resolve
++      rejectReady = reject
++    })
++    let sawFirstEvent = false
+ 
+     void (async () => {
+       try {
+         for await (const event of stream) {
+           if (lifecycle.disposed) break
++          if (!sawFirstEvent) {
++            sawFirstEvent = true
++            if (event.type !== 'server.connected') {
++              throw new Error(
++                `OpenCode event subscription started with ${event.type}, expected server.connected`,
++              )
++            }
++            resolveReady()
++          }
+           const sid = sessionIdOf(event)
+           if (sid !== undefined && sid !== resolvedSessionId) continue
+           if (event.type === 'permission.updated') {
+@@ -213,17 +301,42 @@ export async function startOpencodeSession(
+           // translator consumes; unknown event types match no translator
+           // branch and are ignored.
+           options.onEvent(event as OpencodeEvent)
++          if (
++            event.type === 'message.updated' &&
++            event.properties.info.role === 'assistant' &&
++            (event.properties.info.time.completed !== undefined ||
++              event.properties.info.error !== undefined)
++          ) {
++            const id = event.properties.info.id
++            terminalMessages.add(id)
++            terminalWaiters.get(id)?.resolve()
++          }
+         }
++        if (!lifecycle.disposed)
++          throw new Error('OpenCode event subscription ended unexpectedly')
+       } catch (error) {
+-        if (!lifecycle.disposed) options.onError?.(error)
++        subscriptionFailure = error instanceof Error ? error : new Error(String(error))
++        rejectReady(subscriptionFailure)
++        rejectTerminalWaiters(subscriptionFailure)
++        if (!lifecycle.disposed) options.onError?.(subscriptionFailure)
+       }
+     })()
+ 
++    // The generated SDK's subscribe() call is lazy: the HTTP request does not
++    // start until the async iterator is consumed. Await its first real event
++    // so a prompt cannot race the SSE handshake on a fast server.
++    await waitForStreamEvent(ready, options.signal, 'event subscription')
++
+     return {
+       sessionId: resolvedSessionId,
+       resumed,
+       prompt: async (text: string) => {
++        options.signal?.throwIfAborted()
++        if (lifecycle.disposed) throw new Error('OpenCode session disposed')
++        if (subscriptionFailure) throw subscriptionFailure
++        terminalMessages.clear()
+         const result = await client.session.prompt({
++          signal: subscriptionAbort.signal,
+           path: { id: resolvedSessionId },
+           query: dirQuery,
+           body: {
+@@ -234,6 +347,22 @@ export async function startOpencodeSession(
+         })
+         const data = result.data
+         const message = data.info as OpencodeAssistantMessage
++        if (lifecycle.disposed) throw new Error('OpenCode session disposed')
++        if (subscriptionFailure) throw subscriptionFailure
++        // The adapter ends its event queue when this call resolves. Wait for
++        // this exact assistant's terminal SSE update, after onEvent enqueues
++        // it, so delayed text/tool events cannot be discarded by HTTP racing.
++        if (!terminalMessages.has(message.id)) {
++          const terminal = new Promise<void>((resolve, reject) => {
++            terminalWaiters.set(message.id, { resolve, reject })
++          })
++          try {
++            await waitForStreamEvent(terminal, options.signal, 'assistant completion')
++          } finally {
++            terminalWaiters.delete(message.id)
++          }
++        }
++        terminalMessages.delete(message.id)
+         const responseText = data.parts
+           .filter(
+             (part): part is Extract<Part, { type: 'text' }> =>
+@@ -254,13 +383,12 @@ export async function startOpencodeSession(
+         }
+       },
+       dispose: async () => {
+-        lifecycle.disposed = true
++        await teardown()
+         try {
+           await stream.return(undefined)
+         } catch {
+           // Ignore: stream may already be closed.
+         }
+-        ownedServer?.close()
+       },
+     }
+   } catch (error) {
+@@ -268,3 +396,25 @@ export async function startOpencodeSession(
+     throw error
+   }
+ }
++
++function sessionSetupFailure(
++  error: unknown,
++  operation: string,
++  diagnostics: (() => string) | undefined,
++): Error {
++  const message = safeSessionErrorText(error instanceof Error ? error.message : String(error))
++  const detail = diagnostics?.()
++  const suffix = detail ? `; server diagnostics: ${detail}` : ''
++  return new Error(`OpenCode ${operation} failed: ${message}${suffix}`, {
++    cause: error,
++  })
++}
++
++function safeSessionErrorText(value: string): string {
++  return value
++    .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
++    .replace(
++      /(authorization|api[-_ ]?key|token|password|secret)\s*[:=]\s*\S+/gi,
++      '$1=[redacted]',
++    )
++}
+diff --git a/src/stream/sdk-types.ts b/src/stream/sdk-types.ts
+index 8deb3ce87a3f77b048513fd5796607cad2009310..b4937a948c147738caa5c782f0423496345885d3 100644
+--- a/src/stream/sdk-types.ts
++++ b/src/stream/sdk-types.ts
+@@ -56,17 +56,18 @@ export type OpencodeToolState =
+  * the `is*Part` type guards, so those kinds simply match no guard.
+  */
+ export type OpencodePart =
+-  | { id: string; sessionID?: string; type: 'text'; text: string }
+-  | { id: string; sessionID?: string; type: 'reasoning'; text: string }
++  | { id: string; sessionID?: string; messageID?: string; type: 'text'; text: string }
++  | { id: string; sessionID?: string; messageID?: string; type: 'reasoning'; text: string }
+   | {
+       id: string
+       sessionID?: string
++      messageID?: string
+       type: 'tool'
+       callID: string
+       tool: string
+       state: OpencodeToolState
+     }
+-  | { id: string; sessionID?: string; type: string }
++  | { id: string; sessionID?: string; messageID?: string; type: string }
+ 
+ /**
+  * The OpenCode events the translator understands. This is a closed
+@@ -81,7 +82,7 @@ export type OpencodeEvent =
+     }
+   | {
+       type: 'message.updated'
+-      properties: { info: { sessionID?: string } }
++      properties: { info: { sessionID?: string; id: string; role: string } }
+     }
+   | { type: 'session.idle'; properties: { sessionID: string } }
+   | {
+diff --git a/src/stream/translate.ts b/src/stream/translate.ts
+index a20c901f532cf94cd817038cb78298367c481ff7..5f2ddf5f7744837576e5d4b7f92087e29ce418fe 100644
+--- a/src/stream/translate.ts
++++ b/src/stream/translate.ts
+@@ -116,6 +116,10 @@ export async function* translateOpencodeStream(
+   const { model, runId, threadId, genId } = ctx
+   const now = () => Date.now()
+ 
++  // OpenCode broadcasts user and assistant parts on the same session stream.
++  // Classify by message identity, never by prompt text (an answer may quote it).
++  const messageRoles = new Map<string, string>()
++  const pendingParts = new Map<string, Array<OpencodeEvent>>()
+   let runStarted = false
+   /** Tool calls started but with no result yet, keyed by callID. */
+   const unresolvedToolCalls = new Set<string>()
+@@ -331,8 +335,23 @@ export async function* translateOpencodeStream(
+   }
+ 
+   function* handleEvent(event: OpencodeEvent): Generator<AdapterYieldChunk> {
+-    if (event.type === 'message.part.updated') {
++    if (event.type === 'message.updated') {
++      const { id, role } = event.properties.info
++      messageRoles.set(id, role)
++      const pending = pendingParts.get(id) ?? []
++      pendingParts.delete(id)
++      for (const partEvent of pending) yield* handleEvent(partEvent)
++    } else if (event.type === 'message.part.updated') {
+       const { part, delta } = event.properties
++      if (!part.messageID) return
++      const role = messageRoles.get(part.messageID)
++      if (role === undefined) {
++        const pending = pendingParts.get(part.messageID) ?? []
++        pending.push(event)
++        pendingParts.set(part.messageID, pending)
++        return
++      }
++      if (role !== 'assistant') return
+       if (isTextPart(part)) {
+         yield* handleTextPart(part, delta)
+       } else if (isReasoningPart(part)) {
+@@ -351,7 +370,7 @@ export async function* translateOpencodeStream(
+         value: { todos: event.properties.todos },
+       }
+     }
+-    // session.idle / session.status / message.updated are redundant with the
++    // session.idle / session.status are redundant with the
+     // terminal `done` event and are ignored.
+   }
+ 

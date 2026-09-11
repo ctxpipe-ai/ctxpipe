@@ -9,10 +9,12 @@ import {
 } from "./conversationPublish"
 
 describe("conversation publish helpers", () => {
-  it("treats only writable as editable", () => {
+  it("uses the server capability with a fallback for older responses", () => {
     expect(conversationAllowsEdits("writable")).toBe(true)
     expect(conversationAllowsEdits("read_only")).toBe(false)
     expect(conversationAllowsEdits("unknown")).toBe(false)
+    expect(conversationAllowsEdits("read_only", true)).toBe(true)
+    expect(conversationAllowsEdits("writable", false)).toBe(false)
   })
 
   it("uses one session branch and a short chrome name", () => {
@@ -41,6 +43,17 @@ describe("conversation publish helpers", () => {
         unpushed: true,
       }),
     ).toBe(true)
+  })
+
+  it("blocks publishing a stale conversation branch", () => {
+    expect(
+      conversationCommitPushEnabled({
+        dirty: true,
+        differsFromDefault: true,
+        unpushed: true,
+        stale: true,
+      }),
+    ).toBe(false)
   })
 
   it("builds a GitHub tree href after the first push", () => {

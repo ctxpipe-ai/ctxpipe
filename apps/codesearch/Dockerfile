@@ -9,9 +9,9 @@
 # ── Stage 1: Go toolchain and Zoekt binaries ─────────────────────────────────
 FROM golang:1.24-bookworm AS go-tools
 RUN GOTOOLCHAIN=auto GOBIN=/zoekt-bin \
-    go install github.com/sourcegraph/zoekt/cmd/zoekt-index@latest && \
+    go install github.com/sourcegraph/zoekt/cmd/zoekt-index@596c362fcf1388fe0082acfcfc80c4d172efb7c1 && \
     GOTOOLCHAIN=auto GOBIN=/zoekt-bin \
-    go install github.com/sourcegraph/zoekt/cmd/zoekt-webserver@latest
+    go install github.com/sourcegraph/zoekt/cmd/zoekt-webserver@596c362fcf1388fe0082acfcfc80c4d172efb7c1
 
 # ── Stage 2: Node toolchain and npm-distributed SCIP tools ───────────────────
 FROM node:22-bookworm-slim AS node-tools
@@ -103,17 +103,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && chmod +x /out/*
 
 # ── Stage 7: Install application dependencies ────────────────────────────────
-FROM oven/bun:1.2-slim AS deps
+FROM oven/bun:1.4.2-slim AS bun-runtime
+
+FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 ENV CI=true
-RUN bun install -g pnpm@10.12.1
+RUN npm install -g pnpm@10.12.1
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/codesearch/package.json apps/codesearch/package.json
 RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
 
 # ── Stage 8: Production runtime ──────────────────────────────────────────────
-FROM oven/bun:1.2-slim AS runtime
+# Keep the indexer OS contract on Bookworm. Bun's newer slim image uses
+# Trixie, which no longer supplies the JDK 17 package required by this matrix.
+FROM debian:bookworm-slim AS runtime
+COPY --from=bun-runtime /usr/local/bin/bun /usr/local/bin/bun
+ENV BUN_INSTALL=/usr/local
 
 # Runtime build tools let indexers resolve and compile real-world projects.
 # universal-ctags lets zoekt-index record symbol metadata for sym: queries.
@@ -194,6 +200,7 @@ ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/codesearch/node_modules ./apps/codesearch/node_modules
 COPY tsconfig.json ./
+COPY shared ./shared
 COPY apps/codesearch/src ./apps/codesearch/src
 COPY apps/codesearch/scripts ./apps/codesearch/scripts
 COPY apps/codesearch/package.json ./apps/codesearch/package.json
@@ -212,13 +219,14 @@ CMD ["/start.sh"]
 # Run:   docker run --rm ctxpipe-codesearch:test
 FROM runtime AS test
 ENV NODE_ENV=development
-RUN bun install -g pnpm@10.12.1
+RUN npm install -g pnpm@10.12.1
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/codesearch/package.json apps/codesearch/package.json
 RUN pnpm install --frozen-lockfile --config.confirmModulesPurge=false
 COPY apps/codesearch ./apps/codesearch
+COPY scripts/ci/check-test-report.mjs ./scripts/ci/check-test-report.mjs
 WORKDIR /app/apps/codesearch
 CMD ["pnpm", "run", "test:vitest"]
 

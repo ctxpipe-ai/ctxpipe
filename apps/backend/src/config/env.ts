@@ -79,6 +79,23 @@ const envSchema = z.object({
     ])
     .default("falkordb"),
 
+  /** Reachable local-interface hostname/IP used for sandbox callbacks. */
+  SANDBOX_CALLBACK_HOST: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().min(1).optional(),
+  ),
+
+  /** Prebuilt image in the selected Docker daemon; resolved to an immutable ID. */
+  SANDBOX_CHAT_IMAGE: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().min(1).optional(),
+  ),
+  /** Stable Docker model relay; tool callbacks still use SANDBOX_CALLBACK_HOST. */
+  SANDBOX_MODEL_PROXY_HOST: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().min(1).optional(),
+  ),
+
   // LLM and embeddings (OpenRouter, OpenAI, Vertex, Bedrock, Ollama, etc.)
   MODEL_PROVIDER: z
     .enum(["openai-like", "openrouter", "azure", "bedrock"])

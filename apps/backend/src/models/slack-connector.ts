@@ -313,12 +313,13 @@ export async function revokeSlackConnectionByTeamId(
 export async function getSlackBindingWithRepoByConnectionId(
   orgId: string,
   connectionId: string,
-): Promise<SlackBindingWithRepo | undefined> {
+): Promise<(SlackBindingWithRepo & { repositoryGitUrl: string }) | undefined> {
   return withOrgDbContext(orgId, async () => {
     const [row] = await getOrgDb()
       .select({
         connection: connections,
         repositoryName: repositories.name,
+        repositoryGitUrl: repositories.gitUrl,
         githubConnectionId: repositories.githubConnectionId,
       })
       .from(connections)
@@ -344,6 +345,7 @@ export async function getSlackBindingWithRepoByConnectionId(
     return {
       ...target,
       repositoryName: row.repositoryName,
+      repositoryGitUrl: row.repositoryGitUrl,
       githubConnectionId: row.githubConnectionId,
     }
   })

@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { formatUnknownError } from "../../db/transientDbRetry.js"
 import {
   createRepository,
   deriveRepositoryIndexingStatus,
@@ -7,9 +8,9 @@ import {
   listRepositories,
   type RepositoryWithSearch,
 } from "../../models/repositories.js"
+import { getLogger } from "../../observability/logger.js"
 import { enqueueRepositoryDeletionWorkflow } from "../../openworkflow/enqueue-repository-deletion.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
-import { formatUnknownError } from "../../db/transientDbRetry.js"
 
 const CreateRepositoryRequestSchema = z
   .object({
@@ -320,15 +321,27 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
         name: body.name,
         gitUrl: body.gitUrl,
       })
-      void enqueueRepositoryIngestionWorkflow(
-        { repositoryId: repository.id, orgId: repository.orgId },
-        {
-          error: (err) =>
-            c.get("log").error(err, { step: "repositories.create.enqueue-ingestion" }),
-        },
-      )
+      try {
+        await enqueueRepositoryIngestionWorkflow(
+          { repositoryId: repository.id, orgId: repository.orgId },
+          {
+            error: (error) =>
+              getLogger().error(error, {
+                step: "repositories.create.enqueue-ingestion",
+              }),
+          },
+        )
+      } catch {
+        return c.json(
+          {
+            error:
+              "Repository ingestion admission unavailable; retry this request",
+          },
+          503,
+        )
+      }
       return c.json(
-        serializeRepository(repository),
+        serializeRepository((await getRepository(repository.id)) ?? repository),
         201,
       )
     } catch (e) {
@@ -358,9 +371,10 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
         },
         {
           error: (err) =>
-            c
-              .get("log")
-              .error(err, { step: "repositories.reindex.enqueue", repositoryId: id }),
+            c.get("log").error(err, {
+              step: "repositories.reindex.enqueue",
+              repositoryId: id,
+            }),
         },
       )
       return c.body(null, 202)

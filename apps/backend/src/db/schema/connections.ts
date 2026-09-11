@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm"
 import {
   index,
+  integer,
   jsonb,
   pgTable,
   text,
@@ -32,6 +33,10 @@ export const connections = pgTable.withRLS(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     type: text("type").$type<ConnectionType>().notNull(),
+    contentSyncGeneration: integer("content_sync_generation")
+      .notNull()
+      .default(0),
+    contentSyncWorkflowRunId: text("content_sync_workflow_run_id"),
     config: jsonb("config").notNull().$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()

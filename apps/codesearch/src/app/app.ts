@@ -24,7 +24,7 @@ export function createApp(env: Env) {
   app.use(contextStorage())
   app.use(
     evlog({
-      drain: createEvlogDrain(),
+      drain: createEvlogDrain(env),
       enrich: (ctx) => {
         const message = httpWideEventMessage({
           method: ctx.event.method ?? ctx.request?.method,
@@ -52,7 +52,7 @@ export function createApp(env: Env) {
       return c.json({ error: "Unauthorized" }, 401)
     }
     c.set("auth", verified)
-    await next()
+    return next()
   })
   registerSearchRoutes(api)
   registerRepoRoutes(api)

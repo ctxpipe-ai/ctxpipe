@@ -1,5 +1,5 @@
+export { workspaceCheckoutKey } from "../../../../../shared/workspace-checkout.js"
 import type { HydrateUnit } from "./hydrate.js"
-import { hydrateUnitsToProjectionClaims } from "./hydrate.js"
 
 /** Embeddings are retryable. Failure must not roll back Postgres hydrate. */
 export async function embedHydrateUnits(input: {
@@ -18,60 +18,4 @@ export async function embedHydrateUnits(input: {
     if (embedding) out.push({ servingId: unit.servingId, embedding })
   }
   return out
-}
-
-export function graphClaimsFromHydratedUnits(units: readonly HydrateUnit[]) {
-  return hydrateUnitsToProjectionClaims(units)
-}
-
-export function workspaceGraphProjectionScope(input: {
-  workspaceId: string
-  projectionSha: string
-}): { workspaceId: string; projectionSha: string } | null {
-  const workspaceId = input.workspaceId.trim()
-  const projectionSha = input.projectionSha.trim()
-  if (!workspaceId || !projectionSha) return null
-  return { workspaceId, projectionSha }
-}
-
-/** Replace this Workspace’s graph for one SHA. Edges leave with DETACH DELETE. */
-export function replaceWorkspaceGraphCypher(): string {
-  return `MATCH (n { orgId: $orgId, workspaceId: $workspaceId })
-DETACH DELETE n`
-}
-
-export function staleWorkspaceGraphDeleteCypher(): string {
-  return replaceWorkspaceGraphCypher()
-}
-
-export function workspaceCheckoutKey(workspaceId: string): string {
-  return `ws:${workspaceId}`
-}
-
-export function codesearchSelectsWorkspaceCheckout(input: {
-  checkoutKey: string
-  workspaceId: string
-}): boolean {
-  return input.checkoutKey === workspaceCheckoutKey(input.workspaceId)
-}
-
-/** Search the active projection’s workspace remote plus that SHA’s linked set. Relinked B stays out until activate. */
-export function codesearchMembershipGitUrls(input: {
-  activeProjectionUrl: string | null
-  linked: ReadonlyArray<{ gitUrl: string }>
-  normalizeUrl: (url: string) => string
-}): string[] {
-  const active = input.activeProjectionUrl
-    ? input.normalizeUrl(input.activeProjectionUrl)
-    : ""
-  if (!active) return []
-  const urls = [active]
-  const seen = new Set([active])
-  for (const row of input.linked) {
-    const url = input.normalizeUrl(row.gitUrl)
-    if (!url || seen.has(url)) continue
-    seen.add(url)
-    urls.push(url)
-  }
-  return urls
 }

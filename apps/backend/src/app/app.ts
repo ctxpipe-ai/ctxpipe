@@ -117,7 +117,10 @@ export function createApp() {
     if (requestLog) {
       requestLog.error(error)
     } else {
-      log.error(error instanceof Error ? error : new Error(String(error)))
+      log.error({
+        message: error instanceof Error ? error.message : String(error),
+        error: error instanceof Error ? error.stack : String(error),
+      })
     }
     const parsed = parseError(error)
 

@@ -1,4 +1,4 @@
-import { queryOptions } from "@tanstack/react-query"
+import { type QueryClient, queryOptions } from "@tanstack/react-query"
 import type { ConversationDetail } from "@/features/chat/types"
 import { getApiClient } from "@/lib/api"
 import { pollWhileOk, readApiJson } from "@/lib/api-result"
@@ -10,6 +10,7 @@ import { conversationSessionBranch } from "./conversationPublish"
 import { destinationAfterMove } from "./fileTreeMutations"
 import type {
   ConversationFileMutation,
+  ConversationFileWriteResponse,
   ConversationGitDiffResponse,
   ConversationGitStatusResponse,
   ConversationGitTreeResponse,
@@ -124,9 +125,66 @@ export async function prepareWorkspaceChat(
     param: { orgSlug, conversationId },
     json: { workspaceId },
   })
-  if (!res.ok && res.status !== 204) {
+  if (!res.ok) {
     throw new Error("Failed to prepare workspace chat")
   }
+}
+
+export class StartWorkspaceConversationError extends Error {
+  conversationId?: string
+  constructor(message: string, conversationId?: string) {
+    super(message)
+    this.name = "StartWorkspaceConversationError"
+    this.conversationId = conversationId
+  }
+}
+
+/** First-message command: stock conversation POST. Awaits the accepted turn. */
+export async function startWorkspaceConversation(
+  orgSlug: string,
+  input: {
+    idempotencyKey?: string
+    workspaceId: string
+    text: string
+  },
+): Promise<{ conversationId: string }> {
+  const client = await getApiClient()
+  const json = {
+    messages: [
+      {
+        id: "user-pending",
+        role: "user",
+        content: input.text,
+      },
+    ],
+    tools: [],
+    context: [],
+    ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
+    forwardedProps: { workspaceId: input.workspaceId, source: "ui" },
+  }
+  const res = await client[":orgSlug"].api.v1.conversations.$post({
+    param: { orgSlug },
+    json,
+  })
+  const conversationId = res.headers.get("x-conversation-id")?.trim()
+  if (!res.ok) {
+    throw new StartWorkspaceConversationError(
+      "Failed to start conversation",
+      conversationId,
+    )
+  }
+  if (!conversationId) {
+    throw new StartWorkspaceConversationError("Failed to start conversation")
+  }
+  try {
+    await res.text()
+  } catch (error) {
+    throw new StartWorkspaceConversationError(
+      error instanceof Error ? error.message : "Failed to start conversation",
+      conversationId,
+    )
+  }
+  return { conversationId }
 }
 
 export async function fetchWorkspaceFiles(
@@ -412,7 +470,7 @@ export async function putConversationFile(
   orgSlug: string,
   conversationId: string,
   input: ConversationFileMutation,
-): Promise<WorkspaceGitBlobResponse> {
+): Promise<ConversationFileWriteResponse> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.conversations[
     ":conversationId"
@@ -423,45 +481,132 @@ export async function putConversationFile(
   return readApiJson(res, { message: "Failed to save conversation file" })
 }
 
+export function conversationWorktreeVersionFromCache(
+  client: QueryClient,
+  orgSlug: string,
+  conversationId: string,
+): string | undefined {
+  const tree = client.getQueryData<ConversationGitTreeResponse>(
+    workspaceKeys.conversationGitTree(orgSlug, conversationId),
+  )
+  if (tree?.worktreeVersion) return tree.worktreeVersion
+  return client.getQueryData<ConversationGitStatusResponse>(
+    workspaceKeys.conversationGitStatus(orgSlug, conversationId),
+  )?.worktreeVersion
+}
+
+export async function resolveConversationWorktreeVersion(
+  client: QueryClient,
+  orgSlug: string,
+  conversationId: string,
+): Promise<string> {
+  const cached = conversationWorktreeVersionFromCache(
+    client,
+    orgSlug,
+    conversationId,
+  )
+  if (cached) return cached
+  const tree = await fetchConversationGitTree(orgSlug, conversationId)
+  if (!tree?.worktreeVersion) {
+    throw new Error("Conversation worktree version is missing")
+  }
+  client.setQueryData(
+    workspaceKeys.conversationGitTree(orgSlug, conversationId),
+    {
+      ...tree,
+      ready: true,
+    },
+  )
+  return tree.worktreeVersion
+}
+
+export function applyConversationFileWriteSnapshot(
+  client: QueryClient,
+  orgSlug: string,
+  conversationId: string,
+  snapshot: ConversationFileWriteResponse,
+  expectedWorktreeVersion?: string,
+) {
+  const current = conversationWorktreeVersionFromCache(
+    client,
+    orgSlug,
+    conversationId,
+  )
+  if (
+    current &&
+    expectedWorktreeVersion &&
+    current !== expectedWorktreeVersion &&
+    current !== snapshot.worktreeVersion
+  ) {
+    return
+  }
+  client.setQueryData(
+    workspaceKeys.conversationGitTree(orgSlug, conversationId),
+    { ...snapshot.tree, ready: true },
+  )
+  writeConversationGitTreeSnapshot(conversationId, {
+    ...snapshot.tree,
+    ready: true,
+  })
+  client.setQueryData(
+    workspaceKeys.conversationGitStatus(orgSlug, conversationId),
+    snapshot.status,
+  )
+  client.setQueryData(
+    workspaceKeys.conversationGitBlob(orgSlug, conversationId, snapshot.path),
+    {
+      path: snapshot.path,
+      body: snapshot.body,
+      binary: snapshot.binary,
+    },
+  )
+  void client.invalidateQueries({
+    queryKey: workspaceKeys.conversationGitDiff(orgSlug, conversationId),
+  })
+}
+
 export async function persistConversationFileMutation(
   orgSlug: string,
   conversationId: string,
   input: WorkspaceFileJobRequest,
-): Promise<void> {
+  expectedWorktreeVersion: string,
+): Promise<ConversationFileWriteResponse> {
+  const expected = { expectedWorktreeVersion }
   if (input.op === "save") {
-    await putConversationFile(orgSlug, conversationId, {
+    return putConversationFile(orgSlug, conversationId, {
       path: input.path,
       body: input.content,
+      ...expected,
     })
-    return
   }
   if (input.op === "create") {
     const path = input.kind === "folder" ? `${input.path}/.gitkeep` : input.path
-    await putConversationFile(orgSlug, conversationId, {
+    return putConversationFile(orgSlug, conversationId, {
       path,
       body: input.content ?? "",
+      ...expected,
     })
-    return
   }
   if (input.op === "delete") {
-    await putConversationFile(orgSlug, conversationId, {
+    return putConversationFile(orgSlug, conversationId, {
       path: input.path,
       deletePath: true,
+      ...expected,
     })
-    return
   }
   if (input.op === "rename") {
-    await putConversationFile(orgSlug, conversationId, {
+    return putConversationFile(orgSlug, conversationId, {
       path: input.to,
       from: input.from,
+      ...expected,
     })
-    return
   }
   const to = destinationAfterMove(input.from, input.toDirectory)
   if (!to) throw new Error("Invalid move destination")
-  await putConversationFile(orgSlug, conversationId, {
+  return putConversationFile(orgSlug, conversationId, {
     path: to,
     from: input.from,
+    ...expected,
   })
 }
 
@@ -568,23 +713,10 @@ export function conversationGitStatusOptions(
     ReturnType<typeof workspaceKeys.conversationGitStatus>
   >({
     queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
-    queryFn: async ({ client }): Promise<ConversationGitStatusResponse> => {
+    queryFn: async (): Promise<ConversationGitStatusResponse> => {
       const status = await fetchConversationGitStatus(orgSlug, conversationId)
       if (!status) {
-        const cached = client.getQueryData<ConversationGitStatusResponse>(
-          workspaceKeys.conversationGitStatus(orgSlug, conversationId),
-        )
-        if (cached) return cached
-        return {
-          source: "sandbox",
-          dirty: false,
-          differsFromDefault: false,
-          unpushed: false,
-          published: false,
-          ahead: 0,
-          behind: 0,
-          items: [],
-        }
+        throw new Error("Conversation sandbox is not ready")
       }
       return status
     },

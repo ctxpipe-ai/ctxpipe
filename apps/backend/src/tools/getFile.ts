@@ -31,115 +31,15 @@ export const getFileTool = tool(
     if (!repository) {
       throw new Error(`repository not found: ${repositoryId}`)
     }
-    const bytes = await fetchCheckoutFileBytes({
-      repositoryId: repository.id,
+    return readCheckoutFile({
+      repositoryId,
       orgId: repository.orgId,
       workspaceId,
       path,
-    })
-    if (!bytes) {
-      throw new Error(`file not found: ${path}`)
-    }
-    const content = Buffer.from(bytes).toString("utf-8")
-    const totalLines = content.length === 0 ? 1 : content.split(/\r?\n/).length
-    const totalChars = content.length
-
-    const effectiveMax = Math.min(
-      maxChars ?? MAX_GET_FILE_CHARS,
-      MAX_GET_FILE_CHARS,
-    )
-
-    let body: string
-    let truncated = false
-    let lineMeta:
-      | {
-          startLine: number
-          endLine: number
-          totalLines: number
-        }
-      | undefined
-    let readMode: "preview" | "full" | "range" = "full"
-
-    if (startLine != null || endLine != null) {
-      readMode = "range"
-      const lines = content.split(/\r?\n/)
-      const tl = lines.length === 0 ? 1 : lines.length
-      const start = startLine != null ? Math.max(1, Math.floor(startLine)) : 1
-      const end = endLine != null ? Math.min(tl, Math.floor(endLine)) : tl
-      let sliceText: string
-      if (start > tl) {
-        sliceText = ""
-        lineMeta = { startLine: start, endLine: end, totalLines: tl }
-      } else {
-        const slice = lines.slice(start - 1, end)
-        sliceText = slice.join("\n")
-        lineMeta = {
-          startLine: start,
-          endLine: Math.min(end, start - 1 + slice.length),
-          totalLines: tl,
-        }
-      }
-      if (sliceText.length <= effectiveMax) {
-        body = sliceText
-        truncated = false
-      } else {
-        body = sliceText.slice(0, effectiveMax)
-        truncated = true
-      }
-    } else if (mode === "preview") {
-      readMode = "preview"
-      const lines = content.split(/\r?\n/)
-      const slice = lines.slice(0, PREVIEW_MAX_LINES)
-      let previewText = slice.join("\n")
-      if (previewText.length > PREVIEW_MAX_CHARS) {
-        previewText = previewText.slice(0, PREVIEW_MAX_CHARS)
-        truncated = true
-      } else if (
-        lines.length > PREVIEW_MAX_LINES ||
-        totalChars > previewText.length
-      ) {
-        truncated = true
-      }
-      body = previewText
-      lineMeta = {
-        startLine: 1,
-        endLine: Math.min(PREVIEW_MAX_LINES, lines.length),
-        totalLines,
-      }
-    } else {
-      const cap = maxChars ?? DEFAULT_FULL_READ_CHARS
-      const max = Math.min(cap, MAX_GET_FILE_CHARS)
-      if (content.length <= max) {
-        body = content
-        truncated = false
-      } else {
-        body = content.slice(0, max)
-        truncated = true
-      }
-    }
-
-    const maxCharsApplied =
-      readMode === "range"
-        ? effectiveMax
-        : readMode === "preview"
-          ? PREVIEW_MAX_CHARS
-          : Math.min(maxChars ?? DEFAULT_FULL_READ_CHARS, MAX_GET_FILE_CHARS)
-
-    return toToon({
-      repositoryId,
-      path,
-      mode: readMode,
-      content: body,
-      truncated,
-      totalChars,
-      maxCharsApplied,
-      ...(lineMeta && { lines: lineMeta }),
-      hint:
-        readMode === "preview"
-          ? "Preview only. Pass startLine/endLine for a range, mode full for a larger slice (capped), or maxChars up to 96000."
-          : truncated
-            ? "Content was truncated. Pass startLine/endLine (1-based) for a specific range, or pass maxChars for a larger slice (still capped)."
-            : undefined,
+      startLine,
+      endLine,
+      maxChars,
+      mode,
     })
   },
   {
@@ -161,3 +61,144 @@ export const getFileTool = tool(
     }),
   },
 )
+
+export type CheckoutFileRequest = {
+  path: string
+  startLine?: number
+  endLine?: number
+  maxChars?: number
+  mode?: "preview" | "full"
+}
+
+/** Read and format an already authorized, optionally revision-bound checkout. */
+export async function readCheckoutFile({
+  repositoryId,
+  orgId,
+  workspaceId,
+  sha,
+  legacy,
+  path,
+  startLine,
+  endLine,
+  maxChars,
+  mode = "preview",
+}: CheckoutFileRequest & {
+  repositoryId: string
+  orgId: string
+  workspaceId?: string
+  sha?: string
+  legacy?: true
+}) {
+  const bytes = await fetchCheckoutFileBytes({
+    repositoryId,
+    orgId,
+    workspaceId,
+    sha,
+    legacy,
+    path,
+  })
+  if (!bytes) {
+    throw new Error(`file not found: ${path}`)
+  }
+  const content = Buffer.from(bytes).toString("utf-8")
+  const totalLines = content.length === 0 ? 1 : content.split(/\r?\n/).length
+  const totalChars = content.length
+
+  const effectiveMax = Math.min(
+    maxChars ?? MAX_GET_FILE_CHARS,
+    MAX_GET_FILE_CHARS,
+  )
+
+  let body: string
+  let truncated = false
+  let lineMeta:
+    | {
+        startLine: number
+        endLine: number
+        totalLines: number
+      }
+    | undefined
+  let readMode: "preview" | "full" | "range" = "full"
+
+  if (startLine != null || endLine != null) {
+    readMode = "range"
+    const lines = content.split(/\r?\n/)
+    const tl = lines.length === 0 ? 1 : lines.length
+    const start = startLine != null ? Math.max(1, Math.floor(startLine)) : 1
+    const end = endLine != null ? Math.min(tl, Math.floor(endLine)) : tl
+    let sliceText: string
+    if (start > tl) {
+      sliceText = ""
+      lineMeta = { startLine: start, endLine: end, totalLines: tl }
+    } else {
+      const slice = lines.slice(start - 1, end)
+      sliceText = slice.join("\n")
+      lineMeta = {
+        startLine: start,
+        endLine: Math.min(end, start - 1 + slice.length),
+        totalLines: tl,
+      }
+    }
+    if (sliceText.length <= effectiveMax) {
+      body = sliceText
+      truncated = false
+    } else {
+      body = sliceText.slice(0, effectiveMax)
+      truncated = true
+    }
+  } else if (mode === "preview") {
+    readMode = "preview"
+    const lines = content.split(/\r?\n/)
+    const slice = lines.slice(0, PREVIEW_MAX_LINES)
+    let previewText = slice.join("\n")
+    if (previewText.length > PREVIEW_MAX_CHARS) {
+      previewText = previewText.slice(0, PREVIEW_MAX_CHARS)
+      truncated = true
+    } else if (
+      lines.length > PREVIEW_MAX_LINES ||
+      totalChars > previewText.length
+    ) {
+      truncated = true
+    }
+    body = previewText
+    lineMeta = {
+      startLine: 1,
+      endLine: Math.min(PREVIEW_MAX_LINES, lines.length),
+      totalLines,
+    }
+  } else {
+    const cap = maxChars ?? DEFAULT_FULL_READ_CHARS
+    const max = Math.min(cap, MAX_GET_FILE_CHARS)
+    if (content.length <= max) {
+      body = content
+      truncated = false
+    } else {
+      body = content.slice(0, max)
+      truncated = true
+    }
+  }
+
+  const maxCharsApplied =
+    readMode === "range"
+      ? effectiveMax
+      : readMode === "preview"
+        ? PREVIEW_MAX_CHARS
+        : Math.min(maxChars ?? DEFAULT_FULL_READ_CHARS, MAX_GET_FILE_CHARS)
+
+  return toToon({
+    repositoryId,
+    path,
+    mode: readMode,
+    content: body,
+    truncated,
+    totalChars,
+    maxCharsApplied,
+    ...(lineMeta && { lines: lineMeta }),
+    hint:
+      readMode === "preview"
+        ? "Preview only. Pass startLine/endLine for a range, mode full for a larger slice (capped), or maxChars up to 96000."
+        : truncated
+          ? "Content was truncated. Pass startLine/endLine (1-based) for a specific range, or pass maxChars for a larger slice (still capped)."
+          : undefined,
+  })
+}

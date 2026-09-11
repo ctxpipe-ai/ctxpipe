@@ -1,5 +1,4 @@
 import { fallbackCommitSubject } from "./write-jobs.js"
-import { runnerCommitMessage } from "./write-runner.js"
 
 /** Small model, chosen in code — not an operator env. */
 export const COMMIT_SUBJECT_MODEL = "anthropic/claude-haiku-4-5"
@@ -26,20 +25,40 @@ export async function invokeCommitSubjectModel(
   prompt: string,
 ): Promise<string> {
   const { getModel } = await import("../../retrieval/services/modelProvider.js")
-  const model = getModel("fast")
-  const result = await model.invoke(prompt)
-  const content = result.content
-  if (typeof content === "string") return content
-  if (Array.isArray(content)) {
-    return content
-      .map((part) =>
-        typeof part === "object" && part && "text" in part
-          ? String(part.text)
-          : "",
-      )
-      .join("")
+  const model = getModel("fast", {
+    model: COMMIT_SUBJECT_MODEL,
+    streaming: false,
+  })
+  const cancellation = new AbortController()
+  const deadline = setTimeout(
+    () =>
+      cancellation.abort(
+        new DOMException(
+          "The operation was aborted due to timeout",
+          "TimeoutError",
+        ),
+      ),
+    5_000,
+  )
+  try {
+    const result = await model.invoke(prompt, {
+      signal: cancellation.signal,
+    })
+    const content = result.content
+    if (typeof content === "string") return content
+    if (Array.isArray(content)) {
+      return content
+        .map((part) =>
+          typeof part === "object" && part && "text" in part
+            ? String(part.text)
+            : "",
+        )
+        .join("")
+    }
+    return String(content ?? "")
+  } finally {
+    clearTimeout(deadline)
   }
-  return String(content ?? "")
 }
 
 export async function generateCommitSubject(input: {
@@ -55,11 +74,13 @@ export async function generateCommitSubject(input: {
   const generate = input.generate ?? invokeCommitSubjectModel
   try {
     const raw = await generate(commitSubjectPrompt(input))
-    return runnerCommitMessage({
-      repoName: input.repoName,
-      trigger: input.trigger,
-      llmSubject: raw,
-    })
+    const subject = raw.trim()
+    return subject &&
+      subject !== "New conversation" &&
+      subject.length < 200 &&
+      !/[\r\n]/.test(subject)
+      ? subject
+      : fallback
   } catch {
     return fallback
   }

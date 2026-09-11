@@ -94,46 +94,6 @@ export function shouldFailEmptyChatTurn(input: {
   return input.error != null
 }
 
-/** Fold TanStack/OpenCode console fatals into one captured error. */
-export async function withTanstackConsoleCapture<T>(
-  run: () => Promise<T>,
-): Promise<{ result: T; fatal: Error | null }> {
-  const captured: Error[] = []
-  const original = {
-    error: console.error,
-    info: console.info,
-    log: console.log,
-    warn: console.warn,
-  }
-  const intercept = (...args: unknown[]) => {
-    const text = args.map((arg) => opencodeChatStreamExcerpt(arg)).join(" ")
-    if (
-      text.includes("tanstack-ai:errors") ||
-      text.includes("opencode.chatStream") ||
-      text.includes("Unexpected server error")
-    ) {
-      captured.push(new Error(stripAnsi(text)))
-    }
-  }
-  console.error = intercept
-  console.info = intercept
-  console.log = intercept
-  console.warn = intercept
-  try {
-    const result = await run()
-    return { result, fatal: captured[0] ?? null }
-  } catch (error) {
-    if (error instanceof Error) captured.unshift(error)
-    else captured.unshift(new Error(String(error)))
-    throw captured[0]
-  } finally {
-    console.error = original.error
-    console.info = original.info
-    console.log = original.log
-    console.warn = original.warn
-  }
-}
-
 export function httpWideEventMessage(input: {
   method?: unknown
   path?: unknown

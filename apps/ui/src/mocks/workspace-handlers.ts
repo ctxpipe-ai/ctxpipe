@@ -265,9 +265,13 @@ export function conversationPrepareHandler() {
 }
 
 export function conversationGitTreeHandler(
-  tree: WorkspaceGitTreeResponse & { branch?: string } = {
+  tree: WorkspaceGitTreeResponse & {
+    branch?: string
+    worktreeVersion?: string
+  } = {
     ...docsWorkspaceGitTree,
     branch: "ctxpipe/chat/conv_1/1",
+    worktreeVersion: "wt-0",
   },
 ) {
   return http.get(
@@ -339,6 +343,7 @@ export function conversationGitBlobHandler(
 export function conversationGitStatusHandler(
   status: ConversationGitStatusResponse = {
     source: "sandbox",
+    branch: "main",
     dirty: true,
     differsFromDefault: true,
     unpushed: true,
@@ -346,6 +351,7 @@ export function conversationGitStatusHandler(
     ahead: 1,
     behind: 0,
     items: docsWorkspaceGitStatus.items,
+    worktreeVersion: "wt-0",
   },
 ) {
   return http.get(
@@ -381,11 +387,37 @@ export function conversationFilePutHandler() {
       const body = (await request.json()) as {
         path: string
         body?: string | null
+        expectedWorktreeVersion?: string
+        deletePath?: boolean
+        from?: string
       }
+      const worktreeVersion = body.expectedWorktreeVersion
+        ? `${body.expectedWorktreeVersion}:saved`
+        : "wt-1"
+      const path = body.path
       return HttpResponse.json({
-        path: body.path,
-        body: body.body ?? null,
+        path,
+        body: body.deletePath ? null : (body.body ?? null),
         binary: false,
+        worktreeVersion,
+        tree: {
+          sha: "sandboxsha",
+          paths: [path],
+          branch: "ctxpipe/chat/conv_1/1",
+          worktreeVersion,
+        },
+        status: {
+          source: "sandbox",
+          branch: "ctxpipe/chat/conv_1/1",
+          dirty: true,
+          differsFromDefault: true,
+          unpushed: true,
+          published: false,
+          ahead: 0,
+          behind: 0,
+          items: [{ path, status: "modified" }],
+          worktreeVersion,
+        },
       })
     },
   )

@@ -8,6 +8,9 @@ Parent: [`.ai/memory/README.md`](../README.md).
 
 | ADR | Title | Status |
 |-----|-------|--------|
+| [ADR-031](ADR-031-required-recovery-ci.md) | Required recovery CI | Accepted |
+| [ADR-033](ADR-033-native-durable-write-workflows.md) | Typed durable write ownership, immutable source indexes, preserved claim metadata and fenced connector results | Accepted |
+| [ADR-032](ADR-032-workspace-revision-projection-identity.md) | Workspace revision and projection identity | Accepted |
 
 | [ADR-001](ADR-001-frontend-ui-app-stack.md) | Frontend UI app stack | Accepted |
 | [ADR-002](ADR-002-backend-service-stack-and-runtime.md) | Backend service stack and runtime | Accepted |
@@ -16,7 +19,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-005](ADR-005-langgraph-integration.md) | LangGraph + LangChain integration | Superseded |
 | [ADR-006](ADR-006-langsmith-studio-dev-routes.md) | LangSmith Studio dev routes | Accepted |
 | [ADR-007](ADR-007-remove-cloudflare-workers-runtime.md) | Remove Cloudflare Workers runtime | Accepted |
-| [ADR-008](ADR-008-codesearch-zoekt-orchestration.md) | Codesearch service and Zoekt orchestration | Accepted |
+| [ADR-008](ADR-008-codesearch-zoekt-orchestration.md) | Codesearch Zoekt, SCIP, and ast-grep | Accepted |
 | [ADR-009](ADR-009-ui-src-folder-structure.md) | UI src folder structure | Accepted |
 | [ADR-010](ADR-010-opencypher-graph-db-falkordb-default.md) | OpenCypher Graph DB and FalkorDB as Default | Accepted |
 | [ADR-011](ADR-011-backend-observability-otel.md) | Backend Observability via OpenTelemetry and evlog | Accepted |
@@ -39,3 +42,4 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-028](ADR-028-postgres-rls-app-role.md) | Postgres RLS with a non-owner app role | Accepted |
 | [ADR-029](ADR-029-workspace-chat-keep-alive-serve.md) | In-sandbox keep-alive OpenCode serve | Superseded by [ADR-030](ADR-030-workspace-chat-stock-tanstack.md) |
 | [ADR-030](ADR-030-workspace-chat-stock-tanstack.md) | Stock TanStack workspace chat | Accepted |
+| [ADR-034](ADR-034-native-postgres-sandbox-ownership.md) | Native Postgres sandbox ownership, shared bases, live revisions, native stream/process/resource enforcement, provider eligibility, remote TLS runner, per-workspace native egress, PG collision guards and native-run credential brokering | Accepted |

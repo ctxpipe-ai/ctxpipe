@@ -4,28 +4,35 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { embedHydrateUnits } from "../../domain/workspaces/derived-stores.js"
+import { projectWorkspaceGraph } from "../../domain/workspaces/graph-projection.js"
 import {
   applyEffectiveValidFromToUnits,
   displayNameFromAgentsMarkdown,
   hydrateKnowledgeTree,
-  hydrateReadPlan,
-  hydrateReadsStoredDesiredSha,
 } from "../../domain/workspaces/hydrate.js"
+import { importKeyCleanupRemainder } from "../../domain/workspaces/hydrate-write-jobs.js"
+import { planHydrateWrites } from "../../domain/workspaces/hydrate-write-planner.js"
+import { nativeRenameRewriteFiles } from "../../domain/workspaces/native-rename-rewrite.js"
 import {
-  type HydratePhaseRecord,
-  hydrateHasPendingWork,
-  initialHydratePhases,
-  markHydratePhase,
-  pendingHydratePhases,
-} from "../../domain/workspaces/hydrate-phases.js"
-import { workspaceIndexJobs } from "../../domain/workspaces/revision.js"
-import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
+  resolveRepositoryReadCredential,
+  resolveWorkspaceReadRevision,
+} from "../../domain/workspaces/resolve-revision.js"
+import {
+  linkedRevisionSchema,
+  publishedProjection,
+  sameWorkspaceRevision,
+  type WorkspaceRevision,
+  workspaceRevisionSchema,
+} from "../../domain/workspaces/revision.js"
+import { getMigrationExportSha } from "../../models/workspace-write-jobs.js"
+import { reserveHydrateWrites } from "../../models/workspace-write-planning.js"
 import {
   commitHydrateProjection,
-  getWorkspaceById,
+  getLinkedReadBinding,
+  getWorkspaceProjectionSnapshot,
   listLinkedRepositories,
+  persistEmbeddingFailure,
   persistHydrateFailure,
-  persistHydratePhases,
   persistUnitEmbeddings,
 } from "../../models/workspaces.js"
 import {
@@ -35,56 +42,57 @@ import {
 } from "../../observability/logger.js"
 import { generateEmbeddings } from "../../retrieval/services/modelProvider.js"
 import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
-import {
-  getFileContent,
-  listFilesAtSha,
-} from "../../services/github/installation-write-client.js"
+import { readGitPackFromRemote } from "../../services/git/pack.js"
 import { enqueueWorkspaceIndex } from "../enqueue-workspace-index.js"
 
-const workspaceHydrateInputSchema = z.object({
-  orgId: z.string().min(1),
-  workspaceId: z.string().min(1),
-  generation: z.number().int().optional(),
-  url: z.string().min(1).optional(),
-  sha: z.string().min(1).optional(),
-  defaultBranch: z.string().min(1).optional(),
-})
+const workspaceHydrateInputSchema = z
+  .object({
+    orgId: z.string().min(1),
+    workspaceId: z.string().min(1),
+    revision: workspaceRevisionSchema,
+  })
+  .strict()
+  .refine(
+    (input) => input.revision.workspaceId === input.workspaceId,
+    "A bound hydrate input must contain its matching revision",
+  )
 
 async function enqueueLaggingIndex(input: {
   orgId: string
-  workspaceId: string
-  workspaceRepositoryUrl: string
-  desiredGeneration: number
-  desiredSha: string | null
-  indexedSha: string | null
+  revision: WorkspaceRevision
 }): Promise<void> {
   const linked = await withOrgDbContext(input.orgId, () =>
-    listLinkedRepositories(input.workspaceId),
+    listLinkedRepositories(input.revision.workspaceId),
   )
   const log = getLogger()
-  for (const job of workspaceIndexJobs({
-    workspaceId: input.workspaceId,
-    workspaceRepositoryUrl: input.workspaceRepositoryUrl,
-    desiredGeneration: input.desiredGeneration,
-    desiredSha: input.desiredSha,
-    indexedSha: input.indexedSha,
-    linked,
-  })) {
-    try {
-      await enqueueWorkspaceIndex(
-        { orgId: input.orgId, ...job },
-        { error: (err) => log.error(err) },
-      )
-    } catch (error) {
-      log.error(error instanceof Error ? error : new Error(String(error)))
-    }
+  await enqueueWorkspaceIndex(
+    { orgId: input.orgId, revision: input.revision },
+    { error: (err) => log.error(err) },
+  )
+  for (const row of linked) {
+    if (!row.desiredSha || row.desiredSha === row.indexedSha) continue
+    const binding = await withOrgDbContext(input.orgId, () =>
+      getLinkedReadBinding(row.id),
+    )
+    if (!binding?.sha || !sameWorkspaceRevision(binding.owner, input.revision))
+      continue
+    await enqueueWorkspaceIndex(
+      {
+        orgId: input.orgId,
+        revision: input.revision,
+        linked: linkedRevisionSchema.parse(binding),
+      },
+      { error: (err) => log.error(err) },
+    )
   }
 }
 
 export const workspaceHydrate = defineWorkflow(
   { name: "workspace-hydrate", schema: workspaceHydrateInputSchema },
-  async ({ input }) =>
-    withLogger(
+  async ({ input: queuedInput, step }) => {
+    // OpenWorkflow validates enqueue, but persisted pre-upgrade runs reach the worker directly.
+    const input = workspaceHydrateInputSchema.parse(queuedInput)
+    return withLogger(
       createLogger({
         workflow: "workspace-hydrate",
         orgId: input.orgId,
@@ -100,92 +108,172 @@ export const workspaceHydrate = defineWorkflow(
         return withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
           const orgSql = <T>(fn: () => Promise<T>) =>
             withOrgDbContext(input.orgId, fn)
+          let failingRevision: WorkspaceRevision | undefined = input.revision
           try {
-            const loaded = await orgSql(() =>
-              getWorkspaceById(input.workspaceId),
-            )
-            if (!loaded) throw new Error("Workspace not found")
-            const workspace = loaded
-            void input.defaultBranch
-            const desiredSha = input.sha ?? workspace.desiredSha
-            if (!desiredSha) {
-              throw new Error(
-                "Could not resolve the git tip for this workspace repository.",
-              )
-            }
-            const pending = pendingHydratePhases({
-              desiredUrl: workspace.workspaceRepositoryUrl,
-              desiredSha,
-              activeProjectionUrl: workspace.activeProjectionUrl,
-              activeProjectionSha: workspace.activeProjectionSha,
-              indexedSha: workspace.indexedSha,
-              phases: workspace.hydratePhases,
+            const resolved = await resolveWorkspaceReadRevision({
+              orgId: input.orgId,
+              workspaceId: input.workspaceId,
+              env,
+              expected: input.revision,
             })
-            if (!hydrateHasPendingWork(pending)) {
+            if (!resolved)
+              return { hydrated: false, reason: "cas_discarded" as const }
+            const { revision, token, workspace } = resolved
+            failingRevision = revision
+            const desiredSha = revision.sha
+            const snapshot = await getWorkspaceProjectionSnapshot(workspace.id)
+            const projection = publishedProjection(snapshot.projection)
+            const active =
+              projection?.kind === "active" &&
+              sameWorkspaceRevision(projection.revision, revision)
+                ? projection
+                : null
+            const pending = {
+              postgres: !active,
+              embeddings: !active || active.stores.embeddings.kind !== "ready",
+              index: !active || active.stores.index.kind !== "ready",
+              graph: !active || active.stores.graph.kind !== "ready",
+            }
+            const planning = await step.run(
+              { name: "capture-planning-target" },
+              async () => ({
+                // A completed export may share the already-active SHA. Its cleanup
+                // still belongs after this successful hydrate, including replay.
+                needed:
+                  pending.postgres ||
+                  Boolean(await getMigrationExportSha(workspace.id, revision)),
+                previousSha:
+                  projection?.kind === "active" &&
+                  sameWorkspaceRevision(
+                    { ...projection.revision, sha: revision.sha },
+                    revision,
+                  )
+                    ? projection.revision.sha
+                    : null,
+              }),
+            )
+            const files = planning.needed
+              ? await step.run({ name: "read-planning-revision" }, async () =>
+                  listMarkdownFilesAtGitSha({
+                    includeIntroducingCommits: true,
+                    url: revision.remote.url,
+                    sha: revision.sha,
+                    token:
+                      token ??
+                      (await resolveRepositoryReadCredential({
+                        orgId: input.orgId,
+                        env,
+                        remote: revision.remote,
+                      })),
+                  }),
+                )
+              : []
+            const enqueueRemainingWrites = async () => {
+              if (!planning.needed) return
+              const plan = await step.run(
+                { name: "plan-remaining-writes" },
+                async () => {
+                  const remaining = planHydrateWrites({
+                    revision,
+                    displayName: workspace.displayName,
+                    files,
+                  })
+                  if (await getMigrationExportSha(workspace.id, revision)) {
+                    remaining.push({
+                      kind: "import_key_cleanup",
+                      remainder: importKeyCleanupRemainder(files),
+                    })
+                  }
+                  if (
+                    planning.previousSha &&
+                    planning.previousSha !== revision.sha
+                  ) {
+                    const pack = await readGitPackFromRemote({
+                      url: revision.remote.url,
+                      sha: revision.sha,
+                      additionalShas: [planning.previousSha],
+                      token:
+                        token ??
+                        (await resolveRepositoryReadCredential({
+                          orgId: input.orgId,
+                          env,
+                          remote: revision.remote,
+                        })),
+                    })
+                    const changes = await nativeRenameRewriteFiles(
+                      pack,
+                      planning.previousSha,
+                    )
+                    if (changes.length)
+                      remaining.push({
+                        kind: "rename_rewrite",
+                        previousSha: planning.previousSha,
+                        remainder: changes.length,
+                      })
+                  }
+                  return remaining
+                },
+              )
+              // Import at the admission boundary: typed writers themselves enqueue hydrate.
+              const { enqueueWriteJob } = await import(
+                "../enqueue-workspace-write-commit.js"
+              )
+              const reserved = await step.run(
+                { name: "reserve-remaining-writes" },
+                () => reserveHydrateWrites({ revision, remaining: plan }),
+              )
+              for (const command of reserved) {
+                await step.run({ name: `admit-${command.kind}` }, async () => {
+                  await enqueueWriteJob(
+                    {
+                      orgId: input.orgId,
+                      workspaceId: revision.workspaceId,
+                      jobId: command.jobId,
+                      kind: command.kind,
+                      previousSha: command.previousSha,
+                      jobGeneration: revision.generation,
+                      jobWorkspaceUrl: revision.remote.url,
+                      jobDesiredSha: revision.sha,
+                      defaultBranch: revision.defaultBranch,
+                    },
+                    {
+                      error: (error) => {
+                        throw error
+                      },
+                    },
+                  )
+                })
+              }
+            }
+            if (
+              !pending.postgres &&
+              !pending.embeddings &&
+              !pending.index &&
+              !pending.graph
+            ) {
+              await enqueueRemainingWrites()
               return { hydrated: false, reason: "noop" as const }
             }
-            if (pending.index && !pending.postgres && !pending.embeddings) {
+            if (
+              pending.index &&
+              !pending.postgres &&
+              !pending.embeddings &&
+              !pending.graph
+            ) {
               await enqueueLaggingIndex({
                 orgId: input.orgId,
-                workspaceId: workspace.id,
-                workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
-                desiredGeneration: workspace.desiredGeneration,
-                desiredSha,
-                indexedSha: workspace.indexedSha,
+                revision,
               })
+              await enqueueRemainingWrites()
               return { hydrated: false, reason: "index_lag" as const }
             }
 
-            const repoName = githubRepoFullNameFromWorkspaceUrl(
-              workspace.workspaceRepositoryUrl,
-            )
-            const treeSha = hydrateReadsStoredDesiredSha(desiredSha)
-            if (!treeSha) {
-              throw new Error(
-                "Could not resolve the git tip for this workspace repository.",
-              )
-            }
-            const files: Array<{ path: string; content: string }> = []
-            if (
-              hydrateReadPlan(
-                workspace.workspaceRepositoryUrl,
-                workspace.githubConnectionId,
-              ).via === "github" &&
-              repoName
-            ) {
-              const tree = await listFilesAtSha({
-                orgId: input.orgId,
-                repositoryName: repoName,
-                env,
-                githubConnectionId: workspace.githubConnectionId ?? undefined,
-                sha: treeSha,
-              })
-              for (const entry of tree) {
-                if (!entry.path.endsWith(".md")) continue
-                const content = await getFileContent({
-                  orgId: input.orgId,
-                  repositoryName: repoName,
-                  env,
-                  githubConnectionId: workspace.githubConnectionId ?? undefined,
-                  branch: treeSha,
-                  path: entry.path,
+            const parsed = pending.postgres
+              ? hydrateKnowledgeTree({
+                  workspaceId: workspace.id,
+                  files,
                 })
-                if (content == null) continue
-                files.push({ path: entry.path, content })
-              }
-            } else {
-              files.push(
-                ...(await listMarkdownFilesAtGitSha({
-                  url: workspace.workspaceRepositoryUrl,
-                  sha: treeSha,
-                })),
-              )
-            }
-
-            const parsed = hydrateKnowledgeTree({
-              workspaceId: workspace.id,
-              files,
-            })
+              : { units: snapshot.units, linked: [], skipped: [] }
             const agents = files.find((file) => file.path === "AGENTS.md")
             const displayName = agents
               ? displayNameFromAgentsMarkdown(agents.content)
@@ -197,26 +285,28 @@ export const workspaceHydrate = defineWorkflow(
             })
 
             let activated = !pending.postgres
-            let phases: HydratePhaseRecord =
-              workspace.hydratePhases?.url ===
-                workspace.workspaceRepositoryUrl &&
-              workspace.hydratePhases.sha === desiredSha
-                ? workspace.hydratePhases
-                : initialHydratePhases({
-                    url: workspace.workspaceRepositoryUrl,
-                    sha: desiredSha,
-                  })
             if (pending.postgres) {
               activated = await orgSql(() =>
                 commitHydrateProjection({
                   orgId: input.orgId,
-                  workspaceId: workspace.id,
-                  jobGeneration: workspace.desiredGeneration,
-                  jobWorkspaceUrl: workspace.workspaceRepositoryUrl,
-                  hydratedSha: desiredSha,
+                  revision,
                   displayName,
                   remotes: parsed.linked,
-                  units: applyEffectiveValidFromToUnits(parsed.units, null),
+                  units: applyEffectiveValidFromToUnits(
+                    parsed.units,
+                    new Map(
+                      files.flatMap((file) =>
+                        file.introducingCommitTimestamp
+                          ? [
+                              [
+                                file.path,
+                                file.introducingCommitTimestamp,
+                              ] as const,
+                            ]
+                          : [],
+                      ),
+                    ),
+                  ),
                 }),
               )
               if (!activated) {
@@ -227,10 +317,16 @@ export const workspaceHydrate = defineWorkflow(
                   skipped: parsed.skipped.length,
                 }
               }
-              phases = initialHydratePhases({
-                url: workspace.workspaceRepositoryUrl,
-                sha: desiredSha,
-              })
+            }
+
+            if (activated && pending.graph) {
+              try {
+                await projectWorkspaceGraph(revision)
+              } catch (error) {
+                log.error(
+                  error instanceof Error ? error : new Error(String(error)),
+                )
+              }
             }
 
             if (activated && pending.embeddings) {
@@ -239,40 +335,29 @@ export const workspaceHydrate = defineWorkflow(
                   units: parsed.units,
                   embed: generateEmbeddings,
                 })
-                phases = markHydratePhase(phases, "embeddings")
-                await orgSql(async () => {
-                  await persistUnitEmbeddings({
-                    workspaceId: workspace.id,
-                    projectionSha: desiredSha,
-                    embeddings,
-                  })
-                  await persistHydratePhases({
-                    workspaceId: workspace.id,
-                    expectedUrl: workspace.workspaceRepositoryUrl,
-                    expectedSha: desiredSha,
-                    phases,
-                  })
-                })
+                await persistUnitEmbeddings({ revision, embeddings })
               } catch (error) {
                 log.error(
                   error instanceof Error
                     ? error
                     : new Error("hydrate embeddings failed"),
                 )
+                await persistEmbeddingFailure({
+                  revision,
+                  message:
+                    error instanceof Error ? error.message : String(error),
+                })
               }
             }
 
             if (pending.index) {
               await enqueueLaggingIndex({
                 orgId: input.orgId,
-                workspaceId: workspace.id,
-                workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
-                desiredGeneration: workspace.desiredGeneration,
-                desiredSha,
-                indexedSha: workspace.indexedSha,
+                revision,
               })
             }
 
+            await enqueueRemainingWrites()
             return {
               hydrated: activated,
               units: parsed.units.length,
@@ -281,13 +366,14 @@ export const workspaceHydrate = defineWorkflow(
             }
           } catch (error) {
             try {
-              await orgSql(() =>
-                persistHydrateFailure({
-                  workspaceId: input.workspaceId,
-                  message:
-                    error instanceof Error ? error.message : String(error),
-                }),
-              )
+              if (failingRevision)
+                await orgSql(() =>
+                  persistHydrateFailure({
+                    revision: failingRevision as WorkspaceRevision,
+                    message:
+                      error instanceof Error ? error.message : String(error),
+                  }),
+                )
             } catch {
               // Persist is best-effort; OpenWorkflow still records the failed run.
             }
@@ -295,5 +381,6 @@ export const workspaceHydrate = defineWorkflow(
           }
         })
       },
-    ),
+    )
+  },
 )

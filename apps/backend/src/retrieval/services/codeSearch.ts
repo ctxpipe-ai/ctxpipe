@@ -1,21 +1,14 @@
 import { and, eq, inArray } from "drizzle-orm"
 import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
-import { withOrgDbContext, assertNotInOrgDbContext } from "../../db/client.js"
+import { assertNotInOrgDbContext, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
-import {
-  codesearchMembershipGitUrls,
-  workspaceCheckoutKey,
-} from "../../domain/workspaces/derived-stores.js"
-import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
+import { publishedProjection } from "../../domain/workspaces/revision.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
-import { DEFAULT_CHECKOUT_KEY } from "../../models/repositories.js"
-import {
-  getWorkspaceById,
-  listLinkedRepositories,
-} from "../../models/workspaces.js"
+import { publishedRepositoryCheckoutKey } from "../../models/repositories.js"
+import { getWorkspaceSearchProjection } from "../../models/workspaces.js"
 
 export type CodeSearchResult = {
   repositoryId: string
@@ -135,47 +128,47 @@ export async function codeSearch(
     query: string
     repositoryIds?: string[]
     workspaceId?: string
+    workspaceSnapshot?: Awaited<ReturnType<typeof getWorkspaceSearchProjection>>
   },
 ): Promise<CodeSearchResult[]> {
-  const checkoutKey = params.workspaceId
-    ? workspaceCheckoutKey(params.workspaceId)
-    : DEFAULT_CHECKOUT_KEY
-  const membershipUrls = params.workspaceId
-    ? await withOrgDbContext(orgId, () =>
-        workspaceCodesearchMembershipUrls(params.workspaceId as string),
-      )
+  const workspace = params.workspaceId
+    ? (params.workspaceSnapshot ??
+      (await withOrgDbContext(orgId, () =>
+        getWorkspaceSearchProjection(params.workspaceId as string),
+      )))
     : null
-  if (membershipUrls && membershipUrls.length === 0) return []
   const baseWhere = eq(repositories.orgId, orgId)
   const where = params.repositoryIds?.length
     ? and(baseWhere, inArray(repositories.id, params.repositoryIds))
     : baseWhere
 
-  let repos = await withOrgDbContext(orgId, async (db) =>
-    db
-      .select({
-        id: repositories.id,
-        name: repositories.name,
-        gitUrl: repositories.gitUrl,
-        zoektRepoId: repositoryCheckouts.zoektRepoId,
-      })
-      .from(repositories)
-      .innerJoin(
-        repositoryCheckouts,
-        and(
-          eq(repositoryCheckouts.repositoryId, repositories.id),
-          eq(repositoryCheckouts.checkoutKey, checkoutKey),
-        ),
+  const repos = workspace
+    ? workspace.repositories.filter(
+        (repo) =>
+          !params.repositoryIds?.length ||
+          params.repositoryIds.includes(repo.id),
       )
-      .where(where),
-  )
-
-  if (membershipUrls) {
-    const allowed = new Set(membershipUrls)
-    repos = repos.filter((repo) =>
-      allowed.has(normalizeWorkspaceRepositoryUrl(repo.gitUrl)),
-    )
-  }
+    : await withOrgDbContext(orgId, async (db) =>
+        db
+          .select({
+            id: repositories.id,
+            name: repositories.name,
+            gitUrl: repositories.gitUrl,
+            zoektRepoId: repositoryCheckouts.zoektRepoId,
+          })
+          .from(repositories)
+          .innerJoin(
+            repositoryCheckouts,
+            and(
+              eq(repositoryCheckouts.repositoryId, repositories.id),
+              eq(
+                repositoryCheckouts.checkoutKey,
+                publishedRepositoryCheckoutKey(),
+              ),
+            ),
+          )
+          .where(where),
+      )
 
   if (repos.length === 0) return []
 
@@ -189,6 +182,22 @@ export async function codeSearch(
       orgId,
       principal: "service",
       ...(params.workspaceId ? { workspaceId: params.workspaceId } : {}),
+      ...(workspace &&
+      publishedProjection(workspace.projection)?.kind === "legacy"
+        ? { legacyWorkspace: true as const }
+        : {}),
+      ...(workspace &&
+      publishedProjection(workspace.projection)?.kind === "active"
+        ? {
+            workspaceRevisions: workspace.repositories
+              .filter((repo) =>
+                repos.some(
+                  (selected) => selected.zoektRepoId === repo.zoektRepoId,
+                ),
+              )
+              .map((repo) => ({ repositoryId: repo.id, sha: repo.sha })),
+          }
+        : {}),
     },
   })
 
@@ -212,26 +221,36 @@ export async function codeSearch(
     throw new Error(`codesearch failed with status ${res.status}`)
   }
 
-  const searchResponse = (await res.json()) as Record<string, unknown>
-
-  return repos.map((r) => ({
+  const rawResponse = (await res.json()) as Record<string, unknown>
+  const result =
+    rawResponse.Result && typeof rawResponse.Result === "object"
+      ? (rawResponse.Result as Record<string, unknown>)
+      : rawResponse
+  let searchResponse = result
+  let matchingRepos = repos
+  if (workspace) {
+    const expected = new Map(
+      workspace.repositories
+        .filter((repo) => repos.some((selected) => selected.id === repo.id))
+        .map((repo) => [repo.zoektRepoId, repo.sha]),
+    )
+    const files = (Array.isArray(result.Files) ? result.Files : []).filter(
+      (file) =>
+        file &&
+        typeof file === "object" &&
+        typeof file.Version === "string" &&
+        expected.get(file.RepositoryID) === file.Version,
+    )
+    if (files.length === 0) return []
+    const matchingIds = new Set(files.map((file) => file.RepositoryID))
+    matchingRepos = repos.filter((repo) => matchingIds.has(repo.zoektRepoId))
+    searchResponse = { Files: files }
+  }
+  return matchingRepos.map((r) => ({
     repositoryId: r.id,
     repositoryName: r.name,
     zoektRepoId: r.zoektRepoId,
     query: params.query,
     response: searchResponse,
   }))
-}
-
-async function workspaceCodesearchMembershipUrls(
-  workspaceId: string,
-): Promise<string[]> {
-  const workspace = await getWorkspaceById(workspaceId)
-  if (!workspace) return []
-  const linked = await listLinkedRepositories(workspaceId)
-  return codesearchMembershipGitUrls({
-    activeProjectionUrl: workspace.activeProjectionUrl,
-    linked,
-    normalizeUrl: normalizeWorkspaceRepositoryUrl,
-  })
 }

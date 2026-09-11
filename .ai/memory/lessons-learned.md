@@ -610,11 +610,11 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-18
 - **Source:** workspace pane tabs accessibility
 
-### Workspace write jobs vs OpenWorkflow
-- **Rule:** Do **not** query OpenWorkflow tables for Workspace write state. Persist write intents in org-scoped `workspace_write_jobs` (kind, generation, SHA, pause payload, commit SHA for crash-after-push). Enqueue OpenWorkflow `workspace-write-commit` to **run** a queued attempt. Pause/resume, per-kind retry caps, and relink CAS are product facts; an OW run completing as paused does not resume itself. Connector syncs (Linear/Notion) still enqueue OW without a dirty-entity table — that exception does not apply to git write jobs.
+### Workspace write jobs and native OpenWorkflow ownership
+- **Rule:** Each typed write is a native OpenWorkflow workflow with explicit steps. OpenWorkflow owns retries, waits and resume; a paused command keeps its native owner. `workspace_write_jobs` stores bound command/result metadata, per-concern planning limits and path assignments. Public projections may reconcile the matching native owner's terminal state in short tenant-scoped SQL; do not create a second runner or scheduler. Brokered native Git is the default-branch write authority. See [ADR-033](decisions/ADR-033-native-durable-write-workflows.md).
 - **Category:** convention
-- **Date:** 2026-08-20
-- **Source:** git-backed-projects write protocol (issue 10); confirmed 2026-08-20
+- **Date:** 2026-09-08
+- **Source:** accepted workspace recovery Gate 3 and ADR-033; supersedes the 2026-08-20 generic-runner instruction from issue 10.
 
 ### Workspace Files pane — Pierre trees and diffs, not a homemade explorer
 - **Rule:** Do not keep growing a custom RAC file tree / `<pre>` preview for the Files pane. Use `@pierre/trees` (explorer) and `@pierre/diffs` (`File` / `FileDiff`). Pierre is chrome only — persist via workspace **write jobs**. The pane is a **workspace-repository** explorer (full git tree), not hydrate `.md` units only. Theme via host `--trees-theme-*`; use `unsafeCSS` only when variables cannot express a rule. See [ADR-026](decisions/ADR-026-pierre-files-pane-chrome.md).
@@ -777,4 +777,22 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** convention
 - **Date:** 2026-08-28
 - **Source:** user correction (sandbox tree listed a fresh clone after a write)
+
+### Agent writing stays out of root `docs/`
+- **Rule:** In-progress plans, tickets, ledgers, reviews, and logs go in [`.ai/scratchpad/`](../scratchpad/). Durable decisions, lessons, and PRDs go in [`.ai/memory/`](./). Customer-facing documentation lives in [`apps/docs/content/docs/`](../../apps/docs/content/docs/). Do not write those artifacts under root `docs/` or `docs/plans` — that tree is not the public docs app and is not an internal dump.
+- **Category:** convention
+- **Date:** 2026-09-11
+- **Source:** user correction (docs/plans used as a recovery dump)
+
+### Workspace proof owners
+- **Rule:** Native git owns repository, revision, branch, diff, and worktree. OpenWorkflow owns durable job orchestration. Stock TanStack AI owns chat, persistence, stream lifecycle, and OpenCode sandbox integration. Pierre owns file-tree and diff/editor chrome. ctxpipe code owns organisation authorization, Workspace identity, projection activation, credential brokering, and publish rules. Do not add a second chat or write engine beside those owners.
+- **Category:** convention
+- **Date:** 2026-09-11
+- **Source:** accepted Workspace recovery foundations (ADR-030, ADR-033, ADR-034)
+
+### workspace-golden is not live GitHub or Btrfs proof
+- **Rule:** Tagged Storybook `workspace-golden` plays are the required deterministic UI journey ([ADR-031](decisions/ADR-031-required-recovery-ci.md)). They are not live GitHub App publish proof and not Railway/Btrfs quota proof ([ADR-034](decisions/ADR-034-native-postgres-sandbox-ownership.md)).
+- **Category:** convention
+- **Date:** 2026-09-11
+- **Source:** Gate 6 leftover after deleting docs/plans recovery ledgers
 

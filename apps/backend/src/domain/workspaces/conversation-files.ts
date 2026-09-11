@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto"
+import { listSandboxInstances } from "../../models/workspaces.js"
 import {
   conversationSessionBranch,
   mayForcePushBranch,
@@ -14,10 +16,8 @@ import {
   explorerGitStatusFromPorcelain,
   withExplorerGitLineCounts,
 } from "./git-explorer.js"
-import { adaptTanstackHandle } from "./job-sandbox.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
-import { getRegisteredChatSandbox } from "./sandbox-registry.js"
-import { memoizedConversationSandboxHandle } from "./workspace-chat-sandbox-memo.js"
+import { sameWorkspaceBinding, type WorkspaceRevision } from "./revision.js"
 
 export { conversationSessionBranch }
 
@@ -44,13 +44,39 @@ function isConversationSandboxListedPath(path: string): boolean {
   )
 }
 
-export function resolveConversationSandboxHandle(
+export async function getConversationSandboxBinding(
   conversationId: string,
-): JobSandboxHandle | null {
-  const registered = getRegisteredChatSandbox(conversationId)?.handle
-  if (registered) return registered
-  const raw = memoizedConversationSandboxHandle(conversationId)
-  return raw ? adaptTanstackHandle(raw) : null
+  expected: WorkspaceRevision,
+) {
+  const rows = await listSandboxInstances({
+    conversationId,
+    kind: "chat",
+    state: "live",
+  })
+  const available = rows.filter((row) => row.providerSandboxId && row.revision)
+  const matching = available.find(
+    (row) =>
+      row.revision &&
+      sameWorkspaceBinding(row.revision, expected) &&
+      row.revision.sha === expected.sha,
+  )
+  // A nonmatching row is used only to report the precise stale-binding reason.
+  // A valid current revision always wins, regardless of another run's heartbeat.
+  const revision = (
+    matching ??
+    available.sort(
+      (a, b) => b.lastHeartbeatAt.getTime() - a.lastHeartbeatAt.getTime(),
+    )[0]
+  )?.revision
+  return revision
+    ? {
+        githubConnectionId: revision.remote.connectionId,
+        defaultBranch: revision.defaultBranch,
+        desiredGeneration: revision.generation,
+        desiredUrl: revision.remote.url,
+        desiredSha: revision.sha,
+      }
+    : null
 }
 
 async function execGit(
@@ -120,9 +146,69 @@ export async function readConversationSandboxFile(
     const blob = explorerBlobFromContent(content)
     if (!blob) return null
     return { path, ...blob }
-  } catch {
-    return null
+  } catch (error) {
+    if (isMissingFileError(error)) return null
+    const exists = await handle.exec('test -e "$CTXPIPE_FILE_PATH"', {
+      env: { CTXPIPE_FILE_PATH: path },
+    })
+    if (exists.exitCode === 1) return null
+    throw error
   }
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return (
+    error !== null &&
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "ENOENT"
+  )
+}
+
+export function fingerprintConversationWorktree(input: {
+  headSha: string
+  trackedDiff: string
+  untracked: Array<{ path: string; digest: string }>
+}): string {
+  const hash = createHash("sha256")
+  hash.update(`${input.headSha.trim()}\n`)
+  hash.update(input.trackedDiff)
+  hash.update("\n")
+  for (const file of [...input.untracked].sort((a, b) =>
+    a.path.localeCompare(b.path),
+  )) {
+    hash.update(file.path)
+    hash.update("\0")
+    hash.update(file.digest)
+    hash.update("\n")
+  }
+  return hash.digest("hex")
+}
+
+export async function conversationWorktreeVersion(
+  handle: JobSandboxHandle,
+): Promise<string> {
+  const [head, trackedDiff, untrackedRaw] = await Promise.all([
+    execGitOk(handle.exec, "git rev-parse HEAD"),
+    execGitOk(handle.exec, "git diff HEAD"),
+    execGitOk(handle.exec, "git ls-files --others --exclude-standard -z"),
+  ])
+  const untracked: Array<{ path: string; digest: string }> = []
+  for (const path of splitGitNulPaths(untrackedRaw)) {
+    if (!isConversationSandboxListedPath(path)) continue
+    try {
+      const digest = createHash("sha256")
+      digest.update(await handle.fs.read(path))
+      untracked.push({ path, digest: digest.digest("hex") })
+    } catch {
+      throw new Error(`Failed to read untracked worktree file: ${path}`)
+    }
+  }
+  return fingerprintConversationWorktree({
+    headSha: head,
+    trackedDiff,
+    untracked,
+  })
 }
 
 export async function writeConversationSandboxFile(input: {
@@ -170,22 +256,21 @@ export async function renameConversationSandboxPath(input: {
       oldPath === input.from
         ? input.to
         : `${input.to}/${oldPath.slice(input.from.length + 1)}`
-    const current = await readConversationSandboxFile(input.handle, oldPath)
-    if (current?.body != null) {
-      await writeConversationSandboxFile({
-        handle: input.handle,
-        path: next,
-        body: current.body,
-      })
-    }
-    await removeConversationSandboxPath({
-      handle: input.handle,
-      path: oldPath,
-    })
+    const parent = next.split("/").slice(0, -1).join("/")
+    if (parent) await input.handle.fs.mkdir(parent)
+    await execGitOk(
+      input.handle.exec,
+      'if [ -d "$CTXPIPE_RENAME_TO" ]; then printf \'destination is a directory\\n\' >&2; exit 1; fi; mv -f -- "$CTXPIPE_RENAME_FROM" "$CTXPIPE_RENAME_TO"',
+      {
+        CTXPIPE_RENAME_FROM: oldPath,
+        CTXPIPE_RENAME_TO: next,
+      },
+    )
   }
 }
 
 export type ConversationSandboxStatus = {
+  branch: string
   dirty: boolean
   differsFromDefault: boolean
   unpushed: boolean
@@ -200,18 +285,24 @@ export async function conversationSandboxStatus(input: {
   defaultBranch: string
   sessionBranch: string
 }): Promise<ConversationSandboxStatus> {
-  const [porcelain, numstat, revList, remoteAhead] = await Promise.all([
-    execGitOk(input.handle.exec, "git status --porcelain"),
-    execGitOk(input.handle.exec, "git diff --numstat HEAD"),
-    execGit(
-      input.handle.exec,
-      `git rev-list --left-right --count ${input.defaultBranch}...HEAD`,
-    ),
-    execGit(
-      input.handle.exec,
-      `git rev-list --count origin/${input.sessionBranch}..HEAD`,
-    ),
-  ])
+  const [porcelain, numstat, revList, remoteAhead, currentBranch] =
+    await Promise.all([
+      execGitOk(input.handle.exec, "git status --porcelain"),
+      execGitOk(input.handle.exec, "git diff --numstat HEAD"),
+      execGit(
+        input.handle.exec,
+        'git rev-list --left-right --count "refs/heads/$CTXPIPE_DEFAULT_BRANCH"...HEAD',
+        { CTXPIPE_DEFAULT_BRANCH: input.defaultBranch },
+      ),
+      execGit(
+        input.handle.exec,
+        'git rev-list --count "refs/remotes/origin/$CTXPIPE_SESSION_BRANCH"..HEAD',
+        { CTXPIPE_SESSION_BRANCH: input.sessionBranch },
+      ),
+      execGitOk(input.handle.exec, "git branch --show-current"),
+    ])
+  const branch = currentBranch.trim()
+  if (!branch) throw new Error("Conversation worktree has no current branch")
   const counts = explorerGitNumstatFromStdout(numstat)
   const items = explorerGitStatusFromPorcelain(porcelain)
     .filter((item) => isConversationSandboxListedPath(item.path))
@@ -220,11 +311,12 @@ export async function conversationSandboxStatus(input: {
   const [behindRaw, aheadRaw] = (revList.stdout.trim() || "0\t0").split(/\s+/)
   const ahead = Number.parseInt(aheadRaw || "0", 10) || 0
   const behind = Number.parseInt(behindRaw || "0", 10) || 0
-  const published = remoteAhead.exitCode === 0
+  const published = branch === input.sessionBranch && remoteAhead.exitCode === 0
   const remoteUnpushed = published
     ? (Number.parseInt(remoteAhead.stdout.trim() || "0", 10) || 0) > 0
     : ahead > 0
   return {
+    branch,
     dirty,
     differsFromDefault: dirty || ahead > 0,
     unpushed: dirty || remoteUnpushed,
@@ -248,7 +340,8 @@ export async function conversationSandboxDiff(input: {
   const [committed, unstaged, untracked] = await Promise.all([
     execGitOk(
       input.handle.exec,
-      `git diff --name-only -z ${input.defaultBranch}...HEAD`,
+      'git diff --name-only -z "refs/heads/$CTXPIPE_DEFAULT_BRANCH"...HEAD',
+      { CTXPIPE_DEFAULT_BRANCH: input.defaultBranch },
     ),
     execGitOk(input.handle.exec, "git diff --name-only -z HEAD"),
     execGitOk(input.handle.exec, "git ls-files --others --exclude-standard -z"),
@@ -265,7 +358,11 @@ export async function conversationSandboxDiff(input: {
   for (const path of [...paths].sort()) {
     const oldResult = await execGit(
       input.handle.exec,
-      `git show ${input.defaultBranch}:${path}`,
+      'git show "refs/heads/$CTXPIPE_DEFAULT_BRANCH:$CTXPIPE_FILE_PATH"',
+      {
+        CTXPIPE_DEFAULT_BRANCH: input.defaultBranch,
+        CTXPIPE_FILE_PATH: path,
+      },
     )
     const oldBody = oldResult.exitCode === 0 ? oldResult.stdout : null
     const current = await readConversationSandboxFile(input.handle, path)

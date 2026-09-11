@@ -38,7 +38,9 @@ export const slackConnectorKeys = {
 }
 
 function connectionQuery(connectionId?: string) {
-  return connectionId ? ({ query: { connectionId } } as const) : ({} as const)
+  return connectionId
+    ? ({ query: { connectionId } } as const)
+    : ({ query: {} } as const)
 }
 
 export async function fetchSlackConnectorStatus(

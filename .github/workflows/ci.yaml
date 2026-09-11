@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   pull_request:
     branches:
       - main
@@ -30,11 +31,14 @@ jobs:
   lint:
     name: Biome
     if: |
-      (github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
@@ -42,31 +46,37 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
+      - name: Reject skipped proof and owned mocks
+        run: node scripts/ci/check-test-policy.mjs
+      - name: CI command regression tests
+        run: node --test scripts/tests/ci-*.test.mjs
 
   typecheck:
     name: Typecheck
     if: |
-      (github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Backend Workspace typecheck
-        run: bash scripts/typecheck-workspaces.sh
-      - name: UI Workspace typecheck
-        run: bash scripts/typecheck-ui-workspaces.sh
+      - name: Full projects with shrinking diagnostic allowances
+        run: pnpm typecheck
 
   test:
     name: Tests
     if: |
-      (github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -84,14 +94,50 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      falkordb:
+        image: falkordb/falkordb@sha256:52b6583afe7b5ba6bbf5b5f0290bdaa765bd97477b310a590771dc33ebc7b5f5
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Required chat engine binary
+        run: npm install --global opencode-ai@1.18.18
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.25.12
+          cache: false
+      - name: Required native revision index tools
+        run: |
+          npm install --global @ast-grep/cli@0.45.0
+          mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
+          # proxy.golang.org occasionally resets the zoekt zip mid-download.
+          for tool in zoekt-index zoekt-webserver; do
+            n=0
+            until GOBIN="$RUNNER_TEMP/ctxpipe-zoekt" go install \
+              "github.com/sourcegraph/zoekt/cmd/${tool}@596c362fcf1388fe0082acfcfc80c4d172efb7c1"
+            do
+              n=$((n + 1))
+              [ "$n" -lt 4 ] || exit 1
+              sleep $((n * 4))
+            done
+          done
+          echo "$RUNNER_TEMP/ctxpipe-zoekt" >> "$GITHUB_PATH"
       - name: Migrate backend schema
         env:
           DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5432/ctxpipe
@@ -99,20 +145,167 @@ jobs:
         working-directory: apps/backend
         run: |
           pnpm exec drizzle-kit migrate
+          pnpm exec tsx src/db/migrate-openworkflow.ts
+          pnpm exec tsx src/db/migrate-checkpoints.ts
           pnpm exec tsx src/db/provision-app-role-cli.ts
       - name: Backend tests
         env:
+          GRAPH_DB_URI: redis://127.0.0.1:6379
           AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
           DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
         run: pnpm --filter @ctxpipe/backend test
+      - name: Required native sandbox quota runner
+        run: |
+          docker build -t ctxpipe-sandbox-runner:ci scripts/sandbox-runner
+          node scripts/ci/start-sandbox-quota-runner.mjs
+      - name: Required deterministic contracts
+        env:
+          GRAPH_DB_URI: redis://127.0.0.1:6379
+          AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
+          DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
+        run: pnpm test:contracts
+      - name: Remove native sandbox quota runner
+        if: always() && env.CTXPIPE_TEST_QUOTA_RUNNER_ID != ''
+        run: docker rm -fv "$CTXPIPE_TEST_QUOTA_RUNNER_ID"
       - name: UI tests
         run: pnpm --filter @ctxpipe/ui test
+      - name: CLI tests
+        run: node scripts/ci/test-suite.mjs cli
+      - name: CDK tests
+        run: node scripts/ci/test-suite.mjs aws-cdk
+      - name: Preserve executed test inventories and results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: required-test-results
+          path: .ci-results/
+          include-hidden-files: true
+          if-no-files-found: error
+
+  production-builds:
+    timeout-minutes: 30
+    name: Production build (${{ matrix.name }})
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: backend
+            dockerfile: apps/backend/Dockerfile
+          - name: worker
+            dockerfile: apps/backend/Dockerfile.worker
+          - name: ui
+            dockerfile: apps/ui/Dockerfile
+          - name: codesearch
+            dockerfile: apps/codesearch/Dockerfile
+          - name: docs
+            dockerfile: apps/docs/Dockerfile
+          - name: otel-collector
+            dockerfile: apps/otel-collector/Dockerfile
+    steps:
+      - uses: actions/checkout@v6
+      - run: docker build --progress=plain -f '${{ matrix.dockerfile }}' .
+
+  packages:
+    name: Runnable packages and examples
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @ctxpipe/backend build
+      - run: pnpm --filter @ctxpipe/codesearch build
+      - run: pnpm --filter @ctxpipe/aws-cdk build
+      - run: pnpm --filter ctxpipe build
+      - run: pnpm --filter @ctxpipe/aws-cdk-self-host typecheck
+
+  storybook-golden:
+    timeout-minutes: 30
+    name: Storybook Playwright golden journey
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Chromium for Storybook Playwright
+        working-directory: apps/ui
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Required Storybook golden plays
+        run: node scripts/ci/storybook-golden.mjs
+      - name: Preserve golden play results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: storybook-golden-results
+          path: .ci-results/storybook-golden/
+          include-hidden-files: true
+          if-no-files-found: error
+
+  codesearch:
+    timeout-minutes: 30
+    name: Codesearch real toolchain contracts
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: pnpm --filter @ctxpipe/codesearch test
+
+  terraform-validate:
+    name: Terraform configuration
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.7
+      - name: Validate without remote state or account credentials
+        working-directory: infra
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate -no-color
 
   migrate:
     name: Migrations (fresh and previous schema)
     if: |
-      (github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: ubuntu-latest
     services:
       postgres:

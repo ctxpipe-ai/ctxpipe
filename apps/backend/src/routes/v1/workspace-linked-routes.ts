@@ -1,7 +1,8 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
-import { attachOrgRepository } from "../../domain/workspaces/workspace-lifecycle.js"
+import { linkedRepositoryUrlSchema } from "../../domain/workspaces/linked-repository-url.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
+import { attachOrgRepository } from "../../domain/workspaces/workspace-lifecycle.js"
 import {
   getWorkspaceBySlug,
   listLinkedRepositories,
@@ -34,7 +35,7 @@ const LinkedRepositoryParamsSchema = z
 
 const CreateLinkedRepositoryRequestSchema = z
   .object({
-    gitUrl: z.string().min(1),
+    gitUrl: linkedRepositoryUrlSchema,
   })
   .openapi("CreateWorkspaceLinkedRepositoryRequest")
 
@@ -170,14 +171,21 @@ export const workspaceLinkedRoutes = new OpenAPIHono<AppEnv>()
     const body = CreateLinkedRepositoryRequestSchema.parse(await c.req.json())
     const gitUrl = normalizeWorkspaceRepositoryUrl(body.gitUrl)
     if (!gitUrl) return c.json({ error: "A git URL is required" }, 400)
-    if (gitUrl === workspace.workspaceRepositoryUrl) {
+    if (
+      gitUrl ===
+      normalizeWorkspaceRepositoryUrl(workspace.workspaceRepositoryUrl)
+    ) {
       return c.json(
         { error: "The workspace repository is already included for search" },
         409,
       )
     }
     const existing = await listLinkedRepositories(workspace.id)
-    if (existing.some((row) => row.gitUrl === gitUrl)) {
+    if (
+      existing.some(
+        (row) => normalizeWorkspaceRepositoryUrl(row.gitUrl) === gitUrl,
+      )
+    ) {
       return c.json(
         { error: "That git URL is already linked to this Workspace" },
         409,
@@ -195,7 +203,7 @@ export const workspaceLinkedRoutes = new OpenAPIHono<AppEnv>()
         workspaceId: workspace.id,
         kind: "link_unlink",
         linkAction: "link",
-        linkGitUrl: body.gitUrl,
+        linkGitUrl: gitUrl,
       },
       c.get("log"),
     )

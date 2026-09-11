@@ -9,7 +9,6 @@ import {
   JOB_SANDBOX_IDLE_MS,
   lastBranchExistsOnRemote,
   mayForcePushBranch,
-  nextChatPrNumber,
   planChatPullRequest,
   promptRequestsChatPullRequest,
   quietUpdateChatBranch,
@@ -20,12 +19,12 @@ import {
   shouldHeartbeatChatSandbox,
   treeDirtyFromPorcelain,
 } from "./chat-lifecycle.js"
+import { WRITE_STATUS_REASONS } from "./write-status.js"
 
 describe("chat lifecycle", () => {
   it("names session branches and never force-pushes default", () => {
     expect(chatSessionBranchName("conv_1", 2)).toBe("ctxpipe/chat/conv_1/2")
     expect(conversationSessionBranch("conv_1")).toBe("ctxpipe/chat/conv_1/1")
-    expect(nextChatPrNumber(null)).toBe(1)
     expect(mayForcePushBranch("ctxpipe/chat/conv_1/1", "main")).toBe(true)
     expect(mayForcePushBranch("main", "main")).toBe(false)
   })
@@ -48,6 +47,22 @@ describe("chat lifecycle", () => {
     expect(
       chatMayPublishPullRequest({
         writeStatus: "read_only",
+        explicitRequest: true,
+        host: "github",
+      }),
+    ).toBe(false)
+    expect(
+      chatMayPublishPullRequest({
+        writeStatus: "read_only",
+        readOnlyReason: WRITE_STATUS_REASONS.protectedBranch,
+        explicitRequest: true,
+        host: "github",
+      }),
+    ).toBe(true)
+    expect(
+      chatMayPublishPullRequest({
+        writeStatus: "read_only",
+        readOnlyReason: WRITE_STATUS_REASONS.contentsWriteDenied,
         explicitRequest: true,
         host: "github",
       }),

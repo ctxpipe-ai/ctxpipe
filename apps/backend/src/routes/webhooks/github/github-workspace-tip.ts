@@ -1,27 +1,15 @@
 import type { Env } from "../../../config/env.js"
-import {
-  assertNotInOrgDbContext,
-  withOrgDbContext,
-} from "../../../db/client.js"
-import {
-  applyResolvedTipsForMatchingLinked,
-  applyResolvedTipsForMatchingWorkspaces,
-} from "../../../domain/workspaces/tip-resolve.js"
+import { assertNotInOrgDbContext } from "../../../db/client.js"
+import { resolveRepositoryReadTip } from "../../../domain/workspaces/resolve-revision.js"
 import {
   type GithubRepoPermissionBits,
   type GithubRepoWriteView,
   githubInstallationCanPush,
-  githubRepoFullNameFromWorkspaceUrl,
 } from "../../../domain/workspaces/write-status.js"
-import { getInstallationOctokitForOrg } from "../../../models/github-installation.js"
 import {
-  listOrgLinkedRepositories,
-  listOrgWorkspaces,
-  persistLinkedDesiredSha,
-  persistResolvedDesiredSha,
-} from "../../../models/workspaces.js"
-import { enqueueWorkspaceCommitProjection } from "../../../openworkflow/enqueue-workspace-commit-projection.js"
-
+  getGithubAppInstallationPermissions,
+  getRepoReadOctokit,
+} from "../../../models/github-installation.js"
 export async function resolveGithubBranchTip(input: {
   orgId: string
   githubConnectionId?: string | null
@@ -31,20 +19,19 @@ export async function resolveGithubBranchTip(input: {
 }): Promise<string | null> {
   assertNotInOrgDbContext()
   try {
-    const ctx = await getInstallationOctokitForOrg(
-      input.orgId,
-      input.env,
-      input.githubConnectionId ?? undefined,
+    return (
+      (
+        await resolveRepositoryReadTip({
+          orgId: input.orgId,
+          env: input.env,
+          remote: {
+            url: `https://github.com/${input.repoFullName}`,
+            connectionId: input.githubConnectionId ?? null,
+          },
+          branch: input.branch,
+        })
+      )?.sha ?? null
     )
-    if (!ctx) return null
-    const [owner, repo] = input.repoFullName.split("/")
-    if (!owner || !repo) return null
-    const { data } = await ctx.octokit.rest.git.getRef({
-      owner,
-      repo,
-      ref: `heads/${input.branch}`,
-    })
-    return typeof data.object.sha === "string" ? data.object.sha : null
   } catch {
     return null
   }
@@ -58,16 +45,18 @@ export async function resolveGithubDefaultBranch(input: {
 }): Promise<string | null> {
   assertNotInOrgDbContext()
   try {
-    const ctx = await getInstallationOctokitForOrg(
-      input.orgId,
-      input.env,
-      input.githubConnectionId ?? undefined,
+    return (
+      (
+        await resolveRepositoryReadTip({
+          orgId: input.orgId,
+          env: input.env,
+          remote: {
+            url: `https://github.com/${input.repoFullName}`,
+            connectionId: input.githubConnectionId ?? null,
+          },
+        })
+      )?.branch ?? null
     )
-    if (!ctx) return null
-    const [owner, repo] = input.repoFullName.split("/")
-    if (!owner || !repo) return null
-    const { data } = await ctx.octokit.rest.repos.get({ owner, repo })
-    return data.default_branch || null
   } catch {
     return null
   }
@@ -80,12 +69,11 @@ export async function getGithubRepoWriteView(input: {
   env: Env
 }): Promise<GithubRepoWriteView> {
   assertNotInOrgDbContext()
-  const ctx = await getInstallationOctokitForOrg(
-    input.orgId,
-    input.env,
-    input.githubConnectionId ?? undefined,
-  )
-  if (!ctx) {
+  const octokit = await getRepoReadOctokit(input.orgId, input.env, {
+    githubConnectionId: input.githubConnectionId ?? undefined,
+    repoFullName: input.repoFullName,
+  })
+  if (!octokit) {
     throw new Error("GitHub installation not found")
   }
   const [owner, repo] = input.repoFullName.split("/")
@@ -96,7 +84,7 @@ export async function getGithubRepoWriteView(input: {
     error.status = 404
     throw error
   }
-  const { data } = await ctx.octokit.rest.repos.get({ owner, repo })
+  const { data } = await octokit.rest.repos.get({ owner, repo })
   const permissions = data.permissions
   const repoCanPush = permissions
     ? githubInstallationCanPush(permissions as GithubRepoPermissionBits)
@@ -108,26 +96,21 @@ export async function getGithubRepoWriteView(input: {
     }
   }
 
-  const installationId = ctx.installation?.installationId
-  if (typeof installationId === "number") {
-    try {
-      const { data: installation } =
-        await ctx.octokit.rest.apps.getInstallation({
-          installation_id: installationId,
-        })
-      if (
-        githubInstallationCanPush(
-          installation.permissions as GithubRepoPermissionBits,
-        )
-      ) {
-        return {
-          defaultBranch: data.default_branch || "",
-          canPush: true,
-        }
-      }
-    } catch {
-      /* keep the repos.get deny */
-    }
+  try {
+    const installationPermissions = await getGithubAppInstallationPermissions(
+      input.orgId,
+      input.env,
+      input.githubConnectionId ?? undefined,
+    )
+    if (
+      installationPermissions &&
+      githubInstallationCanPush(
+        installationPermissions as GithubRepoPermissionBits,
+      )
+    )
+      return { defaultBranch: data.default_branch || "", canPush: true }
+  } catch {
+    // Keep the repository's deny when the app cannot inspect its installation.
   }
 
   return {
@@ -143,98 +126,17 @@ export async function resolveWorkspaceRepositoryTip(input: {
   branch?: string | null
   env: Env
 }): Promise<string | null> {
-  const fullName = githubRepoFullNameFromWorkspaceUrl(
-    input.workspaceRepositoryUrl,
-  )
-  if (!fullName) return null
-  try {
-    const requested = input.branch?.trim()
-    if (requested) {
-      return resolveGithubBranchTip({
+  return (
+    (
+      await resolveRepositoryReadTip({
         orgId: input.orgId,
-        githubConnectionId: input.githubConnectionId,
-        repoFullName: fullName,
-        branch: requested,
         env: input.env,
+        remote: {
+          url: input.workspaceRepositoryUrl,
+          connectionId: input.githubConnectionId ?? null,
+        },
+        branch: input.branch,
       })
-    }
-    const ctx = await getInstallationOctokitForOrg(
-      input.orgId,
-      input.env,
-      input.githubConnectionId ?? undefined,
-    )
-    if (!ctx) return null
-    const [owner, repo] = fullName.split("/")
-    if (!owner || !repo) return null
-    const { data: repoMeta } = await ctx.octokit.rest.repos.get({
-      owner,
-      repo,
-    })
-    const branch = repoMeta.default_branch
-    if (!branch) return null
-    return resolveGithubBranchTip({
-      orgId: input.orgId,
-      githubConnectionId: input.githubConnectionId,
-      repoFullName: fullName,
-      branch,
-      env: input.env,
-    })
-  } catch {
-    return null
-  }
-}
-
-/** Webhook `after` is a trigger only — never persist it as desired SHA. */
-export async function persistWorkspaceTipsOnDefaultBranchPush(input: {
-  orgId: string
-  repoFullName: string
-  defaultBranch: string
-  payloadAfter?: string
-  resolveTip: (fullName: string, ref: string) => Promise<string | null>
-}): Promise<number> {
-  void input.payloadAfter
-  const workspaces = await withOrgDbContext(input.orgId, () =>
-    listOrgWorkspaces(input.orgId),
+    )?.sha ?? null
   )
-  assertNotInOrgDbContext()
-  return applyResolvedTipsForMatchingWorkspaces({
-    repoFullName: input.repoFullName,
-    defaultBranch: input.defaultBranch,
-    workspaces,
-    resolveTip: input.resolveTip,
-    persist: async (row) => {
-      const ok = await withOrgDbContext(input.orgId, () =>
-        persistResolvedDesiredSha(row),
-      )
-      if (ok) {
-        void enqueueWorkspaceCommitProjection(
-          { orgId: input.orgId, workspaceId: row.workspaceId },
-          { error: () => undefined },
-        )
-      }
-      return ok
-    },
-  })
-}
-
-export async function persistLinkedTipsOnRefPush(input: {
-  orgId: string
-  repoFullName: string
-  webhookRef: string
-  defaultBranch: string
-  resolveTip: (fullName: string, ref: string) => Promise<string | null>
-}): Promise<Array<{ linkedId: string; resolvedTip: string }>> {
-  const linked = await withOrgDbContext(input.orgId, () =>
-    listOrgLinkedRepositories(input.orgId),
-  )
-  assertNotInOrgDbContext()
-  return applyResolvedTipsForMatchingLinked({
-    repoFullName: input.repoFullName,
-    webhookRef: input.webhookRef,
-    defaultBranch: input.defaultBranch,
-    linked,
-    resolveTip: input.resolveTip,
-    persist: (row) =>
-      withOrgDbContext(input.orgId, () => persistLinkedDesiredSha(row)),
-  })
 }

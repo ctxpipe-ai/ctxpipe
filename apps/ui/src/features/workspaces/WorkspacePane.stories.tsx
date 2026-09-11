@@ -1,7 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useNavigate, useSearch } from "@tanstack/react-router"
+import { HttpResponse, http } from "msw"
 import { type ComponentProps, useState } from "react"
-import { expect, fn, waitFor, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+import { Button } from "@/components/ui/Button"
 import {
   conversationFilePutHandler,
   conversationGitBlobHandler,
@@ -9,7 +11,6 @@ import {
   conversationGitStatusHandler,
   conversationGitTreeEventuallyHandler,
   conversationGitTreeHandler,
-  conversationGitTreeLivePollHandler,
   conversationGitTreeMissingHandler,
   conversationPrepareHandler,
   workspaceFileJobHandler,
@@ -65,6 +66,25 @@ const gitFilesHandlers = [
   workspaceGitStatusHandler(),
   workspaceFileJobHandler(),
 ]
+
+function workspaceFilesHost(canvas: ReturnType<typeof within>) {
+  return canvas.getByLabelText("Workspace files")
+}
+
+function workspaceFilesText(canvas: ReturnType<typeof within>) {
+  const host = workspaceFilesHost(canvas)
+  return `${host.textContent ?? ""}${host.shadowRoot?.textContent ?? ""}`
+}
+
+async function expectWorkspaceFiles(
+  canvas: ReturnType<typeof within>,
+  pattern: RegExp,
+) {
+  await canvas.findByLabelText("Workspace files")
+  await waitFor(() => {
+    expect(workspaceFilesText(canvas)).toMatch(pattern)
+  })
+}
 
 const ledgerPath = "knowledge/billing/ledger.md"
 const agentsPath = "AGENTS.md"
@@ -502,9 +522,7 @@ export const ConversationSandboxFiles: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() => {
-      expect(canvas.getByText("e2e-session-branch-note.md")).toBeVisible()
-    })
+    await expectWorkspaceFiles(canvas, /e2e-session-branch-note/)
     expect(canvas.getByRole("button", { name: "Commit+Push" })).toBeVisible()
     expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
     expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
@@ -658,19 +676,15 @@ export const CachedSandboxWhile409: Story = {
   },
 }
 
-export const ConversationSandboxLivePoll: Story = {
+const filesTreeGets = { count: 0 }
+
+export const StableFilesRequestBudget: Story = {
+  tags: ["workspace-golden"],
   args: {
     conversationId: "conv_1",
     pane: { kind: "files" },
   },
   render: (args) => <WorkspacePanePlayground {...args} />,
-  beforeEach: () => {
-    writeConversationGitTreeSnapshot("conv_1", {
-      sha: "cachedsha",
-      paths: ["AGENTS.md"],
-      branch: "ctxpipe/chat/conv_1/1",
-    })
-  },
   parameters: {
     storyRoute: {
       pattern: "orgWorkspace",
@@ -682,18 +696,20 @@ export const ConversationSandboxLivePoll: Story = {
     msw: {
       handlers: {
         page: [
-          conversationGitTreeLivePollHandler({
-            first: {
-              sha: "cachedsha",
-              paths: ["AGENTS.md"],
-              branch: "ctxpipe/chat/conv_1/1",
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/files\/tree$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => {
+              filesTreeGets.count += 1
+              return HttpResponse.json({
+                sha: "livesha",
+                paths: ["AGENTS.md", "e2e.md"],
+                branch: "ctxpipe/chat/conv_1/1",
+              })
             },
-            next: {
-              sha: "livesha",
-              paths: ["AGENTS.md", "e2e.md"],
-              branch: "ctxpipe/chat/conv_1/1",
-            },
-          }),
+          ),
           conversationGitStatusHandler(),
           workspaceGitTreeHandler({
             sha: "workspace-only",
@@ -705,16 +721,409 @@ export const ConversationSandboxLivePoll: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    expect(
+      await canvas.findByRole("button", { name: "Commit+Push" }),
+    ).toBeVisible()
     await waitFor(() => {
-      expect(canvas.getByText("AGENTS.md")).toBeVisible()
+      expect(filesTreeGets.count).toBeGreaterThan(0)
     })
+    const afterPaint = filesTreeGets.count
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, 800)
+    })
+    expect(filesTreeGets.count).toBe(afterPaint)
     expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
+  },
+}
+
+function findInShadows(root: ParentNode, selector: string): Element | null {
+  const direct = root.querySelector(selector)
+  if (direct instanceof HTMLElement) return direct
+  for (const element of root.querySelectorAll("*")) {
+    if (!element.shadowRoot) continue
+    const nested = findInShadows(element.shadowRoot, selector)
+    if (nested) return nested
+  }
+  return null
+}
+
+type PierreEditorHost = HTMLElement & {
+  hasPierreEditor?: () => boolean
+  getPierreText?: () => string
+  insertPierreText?: (value: string) => void
+}
+
+function pierreEditorHost(canvasElement: HTMLElement): PierreEditorHost | null {
+  return (findInShadows(canvasElement, "[data-workspace-file-editor]") ??
+    canvasElement.querySelector(
+      "[data-workspace-file-editor]",
+    )) as PierreEditorHost | null
+}
+
+async function typeInPierreEditor(canvasElement: HTMLElement, text: string) {
+  await waitFor(
+    () => {
+      const host = pierreEditorHost(canvasElement)
+      expect(host).toBeTruthy()
+      expect(host?.hasPierreEditor?.()).toBe(true)
+    },
+    { timeout: 5_000 },
+  )
+  const host = pierreEditorHost(canvasElement)
+  if (!host?.insertPierreText) {
+    throw new Error("Pierre editor host was not found")
+  }
+  host.insertPierreText(text)
+  await waitFor(
+    () => {
+      expect(host.getPierreText?.() ?? "").toContain(text)
+    },
+    { timeout: 5_000 },
+  )
+}
+
+async function saveDirtyEditor(canvas: ReturnType<typeof within>) {
+  const save = canvas.getByRole("button", { name: "Save" })
+  if (
+    !save.hasAttribute("disabled") &&
+    save.getAttribute("data-disabled") !== "true"
+  ) {
+    await userEvent.click(save)
+    return
+  }
+  await userEvent.keyboard("{Control>}s{/Control}")
+}
+
+const editThenNavigatePuts = {
+  count: 0,
+  paths: [] as string[],
+  versions: [] as Array<string | undefined>,
+  bodies: [] as string[],
+}
+
+function EditThenNavigateHarness(props: ComponentProps<typeof WorkspacePane>) {
+  const [mounted, setMounted] = useState(true)
+  return (
+    <div className="flex h-full min-h-0 flex-1 flex-col">
+      <div className="flex gap-2 p-2">
+        <Button variant="secondary" onPress={() => setMounted(false)}>
+          Leave files
+        </Button>
+      </div>
+      {mounted ? <WorkspacePanePlayground {...props} /> : <p>Left files</p>}
+    </div>
+  )
+}
+
+export const EditThenNavigate: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    conversationId: "conv_1",
+    pane: { kind: "file", path: ledgerPath },
+    fileTabs: [ledgerPath],
+    previewPath: ledgerPath,
+  },
+  render: (args) => <EditThenNavigateHarness {...args} />,
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      conversationId: "conv_1",
+      pane: serializePane({ kind: "file", path: ledgerPath }),
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          http.put(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
+                new URL(request.url).pathname,
+              ),
+            async ({ request }) => {
+              const body = (await request.json()) as {
+                path: string
+                body?: string
+                expectedWorktreeVersion?: string
+              }
+              editThenNavigatePuts.count += 1
+              editThenNavigatePuts.paths.push(body.path)
+              editThenNavigatePuts.versions.push(body.expectedWorktreeVersion)
+              editThenNavigatePuts.bodies.push(body.body ?? "")
+              const worktreeVersion = "wt-1"
+              return HttpResponse.json({
+                path: body.path,
+                body: body.body ?? null,
+                binary: false,
+                worktreeVersion,
+                tree: {
+                  sha: "sandboxsha",
+                  paths: [body.path],
+                  branch: "ctxpipe/chat/conv_1/1",
+                  worktreeVersion,
+                },
+                status: {
+                  source: "sandbox",
+                  branch: "ctxpipe/chat/conv_1/1",
+                  dirty: true,
+                  differsFromDefault: true,
+                  unpushed: true,
+                  published: false,
+                  ahead: 0,
+                  behind: 0,
+                  items: [{ path: body.path, status: "modified" }],
+                  worktreeVersion,
+                },
+              })
+            },
+          ),
+          conversationGitTreeHandler({
+            sha: "sandboxsha",
+            paths: [ledgerPath, "AGENTS.md"],
+            branch: "ctxpipe/chat/conv_1/1",
+            worktreeVersion: "wt-0",
+          }),
+          conversationGitBlobHandler(),
+          conversationGitStatusHandler({
+            source: "sandbox",
+            branch: "ctxpipe/chat/conv_1/1",
+            dirty: false,
+            differsFromDefault: false,
+            unpushed: false,
+            published: false,
+            ahead: 0,
+            behind: 0,
+            items: [],
+            worktreeVersion: "wt-0",
+          }),
+          conversationGitDiffHandler(),
+          ...gitFilesHandlers,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    editThenNavigatePuts.count = 0
+    editThenNavigatePuts.paths = []
+    editThenNavigatePuts.versions = []
+    editThenNavigatePuts.bodies = []
+    const canvas = within(canvasElement)
+    await canvas.findByRole("button", { name: "Save" })
+    await typeInPierreEditor(canvasElement, "dirty-leave-draft")
+    expect(editThenNavigatePuts.count).toBe(0)
+    await waitFor(() => {
+      expect(canvas.getByRole("button", { name: "Save" })).not.toBeDisabled()
+    })
+    await userEvent.click(canvas.getByRole("button", { name: "Leave files" }))
+    await waitFor(() => {
+      expect(canvas.getByText("Left files")).toBeVisible()
+    })
+    await waitFor(() => {
+      expect(editThenNavigatePuts.count).toBeGreaterThan(0)
+    })
+    expect(
+      editThenNavigatePuts.paths.some((path) => path.includes(ledgerPath)),
+    ).toBe(true)
+    expect(editThenNavigatePuts.versions[0]).toBe("wt-0")
+    expect(
+      editThenNavigatePuts.bodies.some(
+        (body) => body.includes("dirty-leave-draft") && body.length > 0,
+      ),
+    ).toBe(true)
+  },
+}
+
+const orderedWrites = {
+  expected: [] as Array<string | undefined>,
+  paths: [] as string[],
+  server: "wt-0",
+  accepted: 0,
+  bodies: {} as Record<string, string>,
+  inFlight: 0,
+  maxInFlight: 0,
+}
+
+export const OutOfOrderSaves: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    conversationId: "conv_1",
+    pane: { kind: "file", path: ledgerPath },
+    fileTabs: [ledgerPath, agentsPath],
+    previewPath: ledgerPath,
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      conversationId: "conv_1",
+      pane: serializePane({ kind: "file", path: ledgerPath }),
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
+                new URL(request.url).pathname,
+              ),
+            ({ request }) => {
+              const path = new URL(request.url).searchParams.get("path") ?? ""
+              const body =
+                orderedWrites.bodies[path] ?? docsWorkspaceGitBlobs[path]
+              if (body === undefined) {
+                return HttpResponse.json(
+                  { error: "Not found" },
+                  { status: 404 },
+                )
+              }
+              return HttpResponse.json({ path, body, binary: false })
+            },
+          ),
+          http.put(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
+                new URL(request.url).pathname,
+              ),
+            async ({ request }) => {
+              const body = (await request.json()) as {
+                path: string
+                body?: string
+                expectedWorktreeVersion?: string
+              }
+              orderedWrites.inFlight += 1
+              orderedWrites.maxInFlight = Math.max(
+                orderedWrites.maxInFlight,
+                orderedWrites.inFlight,
+              )
+              try {
+                orderedWrites.expected.push(body.expectedWorktreeVersion)
+                orderedWrites.paths.push(body.path)
+                if (body.expectedWorktreeVersion !== orderedWrites.server) {
+                  return HttpResponse.json(
+                    {
+                      error: "stale_worktree",
+                      worktreeVersion: orderedWrites.server,
+                    },
+                    { status: 409 },
+                  )
+                }
+                const worktreeVersion = `wt-${orderedWrites.accepted + 1}`
+                orderedWrites.accepted += 1
+                orderedWrites.server = worktreeVersion
+                orderedWrites.bodies[body.path] = body.body ?? ""
+                if (orderedWrites.accepted === 1) {
+                  await new Promise((resolve) => {
+                    window.setTimeout(resolve, 2000)
+                  })
+                }
+                return HttpResponse.json({
+                  path: body.path,
+                  body: body.body ?? null,
+                  binary: false,
+                  worktreeVersion,
+                  tree: {
+                    sha: "sandboxsha",
+                    paths: [
+                      ...new Set([
+                        ledgerPath,
+                        agentsPath,
+                        ...orderedWrites.paths,
+                      ]),
+                    ],
+                    branch: "ctxpipe/chat/conv_1/1",
+                    worktreeVersion,
+                  },
+                  status: {
+                    source: "sandbox",
+                    branch: "ctxpipe/chat/conv_1/1",
+                    dirty: true,
+                    differsFromDefault: true,
+                    unpushed: true,
+                    published: false,
+                    ahead: 0,
+                    behind: 0,
+                    items: orderedWrites.paths.map((path) => ({
+                      path,
+                      status: "added",
+                    })),
+                    worktreeVersion,
+                  },
+                })
+              } finally {
+                orderedWrites.inFlight -= 1
+              }
+            },
+          ),
+          conversationGitTreeHandler({
+            sha: "sandboxsha",
+            paths: [ledgerPath, "AGENTS.md"],
+            branch: "ctxpipe/chat/conv_1/1",
+            worktreeVersion: "wt-0",
+          }),
+          conversationGitBlobHandler(),
+          conversationGitStatusHandler({
+            source: "sandbox",
+            branch: "ctxpipe/chat/conv_1/1",
+            dirty: false,
+            differsFromDefault: false,
+            unpushed: false,
+            published: false,
+            ahead: 0,
+            behind: 0,
+            items: [],
+            worktreeVersion: "wt-0",
+          }),
+          conversationGitDiffHandler(),
+          ...gitFilesHandlers,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    orderedWrites.expected = []
+    orderedWrites.paths = []
+    orderedWrites.server = "wt-0"
+    orderedWrites.accepted = 0
+    orderedWrites.bodies = {}
+    orderedWrites.inFlight = 0
+    orderedWrites.maxInFlight = 0
+    const canvas = within(canvasElement)
+    await canvas.findByRole("button", { name: "Save" })
+    await typeInPierreEditor(canvasElement, "ooo-save-one")
+    await waitFor(() => {
+      expect(canvas.getByRole("button", { name: "Save" })).not.toBeDisabled()
+    })
+    await saveDirtyEditor(canvas)
+    await userEvent.click(canvas.getByRole("tab", { name: "AGENTS.md" }))
     await waitFor(
       () => {
-        expect(canvas.getByText("e2e.md")).toBeVisible()
+        expect(
+          pierreEditorHost(canvasElement)?.getPierreText?.() ?? "",
+        ).toContain("Docs workspace")
       },
-      { timeout: 3000 },
+      { timeout: 5_000 },
     )
-    expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
+    await typeInPierreEditor(canvasElement, "ooo-save-two")
+    await saveDirtyEditor(canvas)
+    await waitFor(
+      () => {
+        expect(orderedWrites.paths).toContain(ledgerPath)
+        expect(orderedWrites.paths).toContain(agentsPath)
+        expect(orderedWrites.accepted).toBeGreaterThanOrEqual(2)
+        expect(orderedWrites.maxInFlight).toBeGreaterThanOrEqual(2)
+      },
+      { timeout: 8_000 },
+    )
+    expect(orderedWrites.expected[0]).toBe("wt-0")
+    expect(orderedWrites.server).toMatch(/^wt-\d+$/)
+    expect(orderedWrites.bodies[ledgerPath]).toContain("ooo-save-one")
+    expect(orderedWrites.bodies[agentsPath]).toContain("ooo-save-two")
+    expect(orderedWrites.bodies[ledgerPath]).not.toBe(
+      orderedWrites.bodies[agentsPath],
+    )
+    expect(canvas.queryByText("Could not save")).toBeNull()
+    expect(canvas.queryByText("File not found")).toBeNull()
+    expect(canvas.queryByText("Duplicate path")).toBeNull()
   },
 }

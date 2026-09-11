@@ -1,11 +1,12 @@
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
-import { and, eq } from "drizzle-orm"
+import { and, eq, inArray } from "drizzle-orm"
 import type { AppEnv } from "../app/env.js"
-import { checkoutKeyFromAuth } from "../auth/jwt.js"
+import { checkoutKeysFromAuth } from "../auth/jwt.js"
 import { ZOEKT_WEBSERVER_URL } from "../config/paths.js"
 import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
 import { repositories, repositoryCheckouts } from "../db/schema.js"
+import { publishedRepositoryCheckoutKey } from "../domain/repositories/service.js"
 import { pinRepos } from "../domain/zoekt/pinManager.js"
 import { zoektRepositoryName } from "../domain/zoekt/shardPrefix.js"
 import {
@@ -64,13 +65,16 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
     const auth = c.get("auth")
     if (!auth) throw new Error("Missing auth context")
     const body = c.req.valid("json")
-    const checkoutKey = checkoutKeyFromAuth(auth)
+    const scoped = Boolean(auth.workspaceId || auth.repositoryRevisions)
+    const checkoutKeys = scoped ? checkoutKeysFromAuth(auth) : []
     const rows = await withOrgDbContext(db, auth.orgId, async (tx) =>
       tx
         .select({
           orgId: repositories.orgId,
           repoId: repositories.id,
           zoektRepoId: repositoryCheckouts.zoektRepoId,
+          checkoutKey: repositoryCheckouts.checkoutKey,
+          sha: repositoryCheckouts.commitSha,
         })
         .from(repositories)
         .innerJoin(
@@ -78,21 +82,35 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
           and(
             eq(repositoryCheckouts.repositoryId, repositories.id),
             eq(repositoryCheckouts.orgId, auth.orgId),
-            eq(repositoryCheckouts.checkoutKey, checkoutKey),
+            scoped
+              ? inArray(repositoryCheckouts.checkoutKey, checkoutKeys)
+              : eq(
+                  repositoryCheckouts.checkoutKey,
+                  publishedRepositoryCheckoutKey(),
+                ),
           ),
         )
         .where(eq(repositories.orgId, auth.orgId)),
     )
     assertNotInOrgDbContext()
     const zoektNameById = new Map(
-      rows.map((r) => [
-        r.zoektRepoId,
-        zoektRepositoryName({
-          orgId: r.orgId,
-          repoId: r.repoId,
-          checkoutKey,
-        }),
-      ]),
+      rows
+        .filter(
+          (r) =>
+            !(auth.repositoryRevisions ?? auth.workspaceRevisions) ||
+            (auth.repositoryRevisions ?? auth.workspaceRevisions)?.some(
+              (revision) =>
+                revision.repositoryId === r.repoId && revision.sha === r.sha,
+            ),
+        )
+        .map((r) => [
+          r.zoektRepoId,
+          zoektRepositoryName({
+            orgId: r.orgId,
+            repoId: r.repoId,
+            checkoutKey: r.checkoutKey,
+          }),
+        ]),
     )
     const orgRepoIds = rows.map((r) => r.zoektRepoId)
     const requestedIds =
@@ -101,6 +119,7 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
         : orgRepoIds
     // Never forward another org's zoekt ids — intersect with org-owned rows.
     const repoIds = requestedIds.filter((id) => zoektNameById.has(id))
+    if (repoIds.length === 0) return c.json({ Files: [] }, 200)
     const toPin = repoIds.flatMap((zoektRepoId) => {
       const zoektName = zoektNameById.get(zoektRepoId)
       return zoektName ? [{ zoektRepoId, zoektName }] : []

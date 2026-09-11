@@ -7,7 +7,9 @@ import {
   CONNECTION_TYPE_GITHUB,
   connections,
 } from "../db/schema/connections.js"
+import { repositories } from "../db/schema/repositories.js"
 import { repoReadCloneTokenRequest } from "../domain/workspaces/clone-credentials.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "../domain/workspaces/write-status.js"
 import {
   decodeGithubAppCredentials,
   encodeGithubAppSecretsForDb,
@@ -17,6 +19,12 @@ import {
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 import {
+  deleteConnectionDirectory,
+  listConnectionDirectoryByGithubInstallationId,
+  loadConnectionViaDirectory,
+  upsertConnectionDirectory,
+} from "./connection-directory.js"
+import {
   type ConnectionRow,
   type GitHubInstallationShape,
   githubConnectionToShape,
@@ -24,11 +32,9 @@ import {
   mergeGithubConnectionConfig,
 } from "./connection-rows.js"
 import {
-  deleteConnectionDirectory,
-  listConnectionDirectoryByGithubInstallationId,
-  loadConnectionViaDirectory,
-  upsertConnectionDirectory,
-} from "./connection-directory.js"
+  detachWorkspaceConnection,
+  invalidateLinkedReadBindings,
+} from "./workspaces.js"
 
 /** @deprecated Alias for callers importing `GitHubInstallation`. */
 export type GitHubInstallation = GitHubInstallationShape
@@ -419,7 +425,28 @@ export async function deleteGithubConnectionById(
   connectionId: string,
 ): Promise<boolean> {
   const row = await withOrgDbContext(orgId, async () => {
-    const [removed] = await getOrgDb()
+    const db = getOrgDb()
+    const [connection] = await db
+      .select({ id: connections.id })
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, connectionId),
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_GITHUB),
+        ),
+      )
+      .for("update")
+    if (!connection) return undefined
+    const linkedRepositories = await db
+      .select({ gitUrl: repositories.gitUrl })
+      .from(repositories)
+      .where(eq(repositories.githubConnectionId, connectionId))
+    await detachWorkspaceConnection(connectionId)
+    await invalidateLinkedReadBindings(
+      linkedRepositories.map((row) => row.gitUrl),
+    )
+    const [removed] = await db
       .delete(connections)
       .where(
         and(
@@ -502,10 +529,7 @@ export async function listInstallationsByGithubInstallationId(
     ),
   )
   return rows
-    .filter(
-      (row): row is ConnectionRow =>
-        row?.type === CONNECTION_TYPE_GITHUB,
-    )
+    .filter((row): row is ConnectionRow => row?.type === CONNECTION_TYPE_GITHUB)
     .map(githubConnectionToShape)
 }
 
@@ -521,15 +545,9 @@ export async function getOrganizationSlugForInstallationByUser(
   const [row] = await db
     .select({ orgSlug: organizations.slug })
     .from(members)
-    .innerJoin(
-      organizations,
-      eq(organizations.id, members.organizationId),
-    )
+    .innerJoin(organizations, eq(organizations.id, members.organizationId))
     .where(
-      and(
-        eq(members.userId, userId),
-        inArray(members.organizationId, orgIds),
-      ),
+      and(eq(members.userId, userId), inArray(members.organizationId, orgIds)),
     )
     .limit(1)
   return row?.orgSlug
@@ -684,16 +702,27 @@ export async function refreshGithubConnectionAccountSlug(
       .returning()
     return result
   })
-  if (!updated) throw new Error("GitHub connection was removed during account refresh")
+  if (!updated)
+    throw new Error("GitHub connection was removed during account refresh")
   await upsertConnectionDirectory(updated)
   invalidateGithubAppCacheForConnection(connectionId)
   return githubConnectionToShape(updated)
 }
 
+type RepositoryInstallationScope = {
+  repoFullName: string
+  permissions: {
+    metadata: "read"
+    contents?: "read" | "write"
+    pull_requests?: "read" | "write"
+  }
+}
+
 export async function getInstallationOctokitForOrg(
   orgId: string,
   env: Env,
-  githubConnectionId?: string,
+  githubConnectionId: string | undefined,
+  scope: RepositoryInstallationScope,
 ) {
   const installation = githubConnectionId
     ? await getGithubInstallationByConnectionId(orgId, githubConnectionId)
@@ -704,10 +733,13 @@ export async function getInstallationOctokitForOrg(
   if (!row) return undefined
   const app = buildAppForConnection(row, env)
   const octokit = await app.getInstallationOctokit(installation.installationId)
-  return {
-    installation,
-    octokit,
-  }
+  const { token } = (await octokit.auth({
+    type: "installation",
+    repositoryNames: repoReadCloneTokenRequest(scope.repoFullName)
+      .repositoryNames,
+    permissions: scope.permissions,
+  })) as { token: string }
+  return { installation, octokit: new Octokit({ auth: token }) }
 }
 
 export async function userCanAccessInstallation(
@@ -746,7 +778,8 @@ export function isGithubInstallationTokenError(error: unknown): boolean {
 export async function getInstallationToken(
   orgId: string,
   env: Env,
-  githubConnectionId?: string,
+  githubConnectionId: string | undefined,
+  scope: RepositoryInstallationScope,
 ): Promise<string | undefined> {
   const installation = githubConnectionId
     ? await getGithubInstallationByConnectionId(orgId, githubConnectionId)
@@ -757,8 +790,15 @@ export async function getInstallationToken(
   if (!row) return undefined
   try {
     const app = buildAppForConnection(row, env)
-    const octokit = await app.getInstallationOctokit(installation.installationId)
-    const { token } = (await octokit.auth({ type: "installation" })) as {
+    const octokit = await app.getInstallationOctokit(
+      installation.installationId,
+    )
+    const { token } = (await octokit.auth({
+      type: "installation",
+      repositoryNames: repoReadCloneTokenRequest(scope.repoFullName)
+        .repositoryNames,
+      permissions: scope.permissions,
+    })) as {
       token: string
     }
     return token
@@ -776,6 +816,38 @@ export async function getInstallationToken(
     }
     throw error
   }
+}
+
+/** Read metadata with the same repository-scoped credential used for native Git. */
+export async function getRepoReadOctokit(
+  orgId: string,
+  env: Env,
+  input: { githubConnectionId?: string; repoFullName: string },
+) {
+  const token = await getRepoReadCloneToken(orgId, env, input)
+  return token ? new Octokit({ auth: token }) : undefined
+}
+
+/** App-authenticated permission inspection issues no installation write credential. */
+export async function getGithubAppInstallationPermissions(
+  orgId: string,
+  env: Env,
+  githubConnectionId?: string,
+) {
+  const installation = githubConnectionId
+    ? await getGithubInstallationByConnectionId(orgId, githubConnectionId)
+    : await resolveGithubInstallationForOrg(orgId, null)
+  if (!installation?.installationId) return null
+  const row = await loadGithubConnectionRow(orgId, installation.id)
+  if (!row) return null
+  const app = buildAppForConnection(row, env)
+  const { data } = await app.octokit.request(
+    "GET /app/installations/{installation_id}",
+    {
+      installation_id: installation.installationId,
+    },
+  )
+  return data.permissions
 }
 
 export async function getRepoReadCloneToken(
@@ -797,6 +869,116 @@ export async function getRepoReadCloneToken(
     type: "installation",
     repositoryNames: request.repositoryNames,
     permissions: request.permissions,
+  })) as { token: string }
+  return token
+}
+
+/** Broker-only workspace read scope; never reuse the App's default permissions. */
+export async function getWorkspaceGithubReadToken(
+  orgId: string,
+  env: Env,
+  input: { githubConnectionId: string; repoFullNames: string[] },
+): Promise<string | undefined> {
+  const installation = await getGithubInstallationByConnectionId(
+    orgId,
+    input.githubConnectionId,
+  )
+  if (!installation?.installationId || !installation.accountSlug)
+    return undefined
+  const owner = installation.accountSlug.toLowerCase()
+  const names = [
+    ...new Set(
+      input.repoFullNames.flatMap((fullName) => {
+        const parts = fullName.split("/")
+        const name = parts[1]
+        return parts.length === 2 &&
+          parts[0]?.toLowerCase() === owner &&
+          name &&
+          /^[A-Za-z0-9_.-]+$/.test(name) &&
+          name !== "." &&
+          name !== ".."
+          ? [name]
+          : []
+      }),
+    ),
+  ].sort()
+  if (names.length === 0) return undefined
+  if (names.length > 500)
+    throw new Error("Workspace GitHub read scope exceeds 500 repositories")
+  const row = await loadGithubConnectionRow(orgId, input.githubConnectionId)
+  if (!row) return undefined
+  const app = buildAppForConnection(row, env)
+  const octokit = await app.getInstallationOctokit(installation.installationId)
+  const request = {
+    type: "installation" as const,
+    repositoryNames: names,
+    permissions: {
+      contents: "read" as const,
+      issues: "read" as const,
+      pull_requests: "read" as const,
+      metadata: "read" as const,
+    },
+  }
+  type ReadCredential = { token: string; expiresAt: string }
+  let credential = (await octokit.auth(request)) as ReadCredential
+  const fresh = (value: ReadCredential) =>
+    !!value.token && Date.parse(value.expiresAt) > Date.now() + 60_000
+  // Octokit's cache has its own TTL; honor the issuer's actual expiry too.
+  if (!fresh(credential))
+    credential = (await octokit.auth({
+      ...request,
+      refresh: true,
+    })) as ReadCredential
+  if (!fresh(credential))
+    throw new Error("GitHub read credential expires too soon")
+  return credential.token
+}
+
+/** Legacy repository ingestion still resolves by repository ID, never by installation alone. */
+export async function getRepositoryReadCloneToken(
+  orgId: string,
+  env: Env,
+  input: { repositoryId: string; githubConnectionId?: string | null },
+): Promise<string | undefined> {
+  const repository = await withOrgDbContext(orgId, () =>
+    getOrgDb().query.repositories.findFirst({
+      where: { id: { eq: input.repositoryId }, orgId: { eq: orgId } },
+    }),
+  )
+  if (!repository) throw new Error("Repository not found for read credential")
+  if (
+    input.githubConnectionId !== undefined &&
+    input.githubConnectionId !== repository.githubConnectionId
+  )
+    throw new Error("Repository connection changed before credential issuance")
+  const repoFullName = githubRepoFullNameFromWorkspaceUrl(repository.gitUrl)
+  if (!repoFullName || !repository.githubConnectionId) return undefined
+  return getRepoReadCloneToken(orgId, env, {
+    githubConnectionId: repository.githubConnectionId,
+    repoFullName,
+  })
+}
+
+/** Called by the admitted Git write broker, never by a sandbox or read path. */
+export async function getRepoWriteCloneToken(
+  orgId: string,
+  env: Env,
+  input: { githubConnectionId: string; repoFullName: string },
+): Promise<string | undefined> {
+  const installation = await getGithubInstallationByConnectionId(
+    orgId,
+    input.githubConnectionId,
+  )
+  if (!installation || installation.installationId == null) return undefined
+  const row = await loadGithubConnectionRow(orgId, input.githubConnectionId)
+  if (!row) return undefined
+  const app = buildAppForConnection(row, env)
+  const octokit = await app.getInstallationOctokit(installation.installationId)
+  const request = repoReadCloneTokenRequest(input.repoFullName)
+  const { token } = (await octokit.auth({
+    type: "installation",
+    repositoryNames: request.repositoryNames,
+    permissions: { contents: "write", metadata: "read" },
   })) as { token: string }
   return token
 }

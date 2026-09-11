@@ -1,0 +1,13 @@
+.git
+**/node_modules
+**/.env
+**/.env.local
+**/.env.*.local
+**/.next
+**/.output
+**/dist
+**/storybook-static
+**/tsconfig.tsbuildinfo
+.ci-results
+.turbo
+.pnpm-store

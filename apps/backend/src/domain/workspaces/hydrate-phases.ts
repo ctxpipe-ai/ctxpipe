@@ -1,18 +1,19 @@
+import type { DerivedStoreResult, WorkspaceRevision } from "./revision.js"
+
 export type HydratePhaseRecord = {
   url: string
   sha: string
   embeddings: boolean
-}
-
-export type PendingHydratePhases = {
-  postgres: boolean
-  embeddings: boolean
-  index: boolean
+  embeddingError?: string
+  revision?: WorkspaceRevision
+  publishedIndex?: WorkspaceRevision | null
+  graph?: { revision: WorkspaceRevision; result: DerivedStoreResult }
+  index?: { revision: WorkspaceRevision; result: DerivedStoreResult }
 }
 
 /** Git SHAs are hex; ISO timestamps and calendar dates are not. */
 export function looksLikeGitSha(value: string): boolean {
-  return /^[0-9a-f]{6,40}$/i.test(value.trim())
+  return /^[0-9a-f]{6,64}$/i.test(value.trim())
 }
 
 export function effectiveValidFrom(input: {
@@ -24,55 +25,15 @@ export function effectiveValidFrom(input: {
   return input.introducingCommitTimestamp
 }
 
-export function hydratePostgresIsComplete(input: {
-  activeProjectionUrl: string | null
-  activeProjectionSha: string | null
-  desiredUrl: string
-  desiredSha: string
-}): boolean {
-  return (
-    input.activeProjectionUrl === input.desiredUrl &&
-    input.activeProjectionSha === input.desiredSha
-  )
-}
-
-export function pendingHydratePhases(input: {
-  desiredUrl: string
-  desiredSha: string
-  activeProjectionUrl: string | null
-  activeProjectionSha: string | null
-  indexedSha: string | null
-  phases: HydratePhaseRecord | null
-}): PendingHydratePhases {
-  const postgres = !hydratePostgresIsComplete(input)
-  const phaseMatches =
-    input.phases?.url === input.desiredUrl &&
-    input.phases?.sha === input.desiredSha
-  return {
-    postgres,
-    embeddings: postgres || !phaseMatches || !input.phases?.embeddings,
-    index: input.indexedSha !== input.desiredSha,
-  }
-}
-
-export function hydrateHasPendingWork(pending: PendingHydratePhases): boolean {
-  return pending.postgres || pending.embeddings || pending.index
-}
-
 export function initialHydratePhases(input: {
   url: string
   sha: string
+  revision?: WorkspaceRevision
 }): HydratePhaseRecord {
   return {
     url: input.url,
     sha: input.sha,
     embeddings: false,
+    ...(input.revision ? { revision: input.revision } : {}),
   }
-}
-
-export function markHydratePhase(
-  phases: HydratePhaseRecord,
-  phase: "embeddings",
-): HydratePhaseRecord {
-  return { ...phases, [phase]: true }
 }

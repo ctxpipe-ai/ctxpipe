@@ -276,9 +276,13 @@ function optionalApplicabilityFieldCompatible(
   return a.toLowerCase() === b.toLowerCase()
 }
 
+type ComparableEnvelope = Partial<Omit<ApplicabilityEnvelope, "tags">> & {
+  readonly tags: readonly string[]
+}
+
 export function envelopesCompatible(
-  a: ApplicabilityEnvelope,
-  b: ApplicabilityEnvelope,
+  a: ComparableEnvelope,
+  b: ComparableEnvelope,
 ): boolean {
   const ta = new Set(a.tags.map((t) => t.toLowerCase()))
   const tb = new Set(b.tags.map((t) => t.toLowerCase()))
@@ -421,7 +425,9 @@ async function extractUnitsFromFileContent(input: {
     temperature: 0.1,
     reasoning: false,
   })
-  const structured = model.withStructuredOutput(LlmUnitsResponseSchema, {
+  const structured = model.withStructuredOutput<
+    z.infer<typeof LlmUnitsResponseSchema>
+  >(LlmUnitsResponseSchema, {
     name: "instruction_units",
   })
 

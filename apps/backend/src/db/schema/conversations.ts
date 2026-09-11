@@ -1,11 +1,13 @@
 import {
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
   unique,
 } from "drizzle-orm/pg-core"
+import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
 import { orgIsolationPolicy } from "./org-rls.js"
 
 export const conversations = pgTable.withRLS(
@@ -20,6 +22,9 @@ export const conversations = pgTable.withRLS(
     source: text("source"),
     lastBranch: text("last_branch"),
     lastChatPrNumber: integer("last_chat_pr_number"),
+    lastChatPrRevision: jsonb(
+      "last_chat_pr_revision",
+    ).$type<WorkspaceRevision>(),
     lastMessageAt: timestamp("last_message_at", {
       withTimezone: true,
       mode: "date",

@@ -57,6 +57,8 @@ export type FileEditorHistory = {
 export type FileEditorHandle = {
   undo: () => void
   redo: () => void
+  insertText: (text: string) => void
+  getText: () => string
 }
 
 export function WorkspacePierreFile(props: {
@@ -103,6 +105,24 @@ export function WorkspacePierreFile(props: {
               editor.redo()
               reportHistory()
             },
+            insertText: (text: string) => {
+              const current = editor.getText() ?? ""
+              const lines = current.split("\n")
+              const line = Math.max(0, lines.length - 1)
+              const character = lines[line]?.length ?? 0
+              editor.applyEdits([
+                {
+                  range: {
+                    start: { line, character },
+                    end: { line, character },
+                  },
+                  newText: text,
+                },
+              ])
+              onChangeRef.current?.(editor.getText() ?? `${current}${text}`)
+              reportHistory()
+            },
+            getText: () => editor.getText() ?? "",
           }
         }
         reportHistory()

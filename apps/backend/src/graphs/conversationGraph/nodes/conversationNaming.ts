@@ -64,7 +64,13 @@ export async function conversationNaming(
   const firstUserMessage = state.messages.find(
     (m) => (m as { getType?: () => string }).getType?.() === "human",
   ) as BaseMessageLike | undefined
-  const promptText = textFromMessageContent(firstUserMessage?.content)
+  const promptText = textFromMessageContent(
+    typeof firstUserMessage === "object" &&
+      firstUserMessage !== null &&
+      "content" in firstUserMessage
+      ? firstUserMessage.content
+      : undefined,
+  )
   const context = promptText.slice(0, 200).trim() || "Conversation"
 
   let raw = ""

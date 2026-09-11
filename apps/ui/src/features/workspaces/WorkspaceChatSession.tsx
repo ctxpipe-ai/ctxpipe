@@ -1,11 +1,9 @@
 import type { StreamChunk, UIMessage } from "@tanstack/ai"
 import { useChat } from "@tanstack/ai-react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useNavigate } from "@tanstack/react-router"
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { type ReactNode, useEffect, useMemo, useState } from "react"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { ConversationThread } from "@/features/chat/ConversationThread"
-import { insertConversationListItem } from "@/features/chat/insertConversationListItem"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
 import type {
   ChatMessage,
@@ -14,25 +12,13 @@ import type {
   ConversationListItem,
 } from "@/features/chat/types"
 import {
-  setPendingWorkspaceCompose,
-  takeHomeDraftSend,
-} from "@/features/home/pending-workspace-compose"
-import {
+  conversationAllowsEdits,
   conversationBranchShortName,
-  conversationCommitPushEnabled,
   conversationGithubTreeHref,
-  conversationPullRequestAction,
-  conversationSessionBranch,
 } from "./conversationPublish"
-import {
-  conversationGitStatusOptions,
-  conversationPullRequestOptions,
-  createConversationPullRequest,
-  pushConversationBranch,
-  workspaceChatPrepareOptions,
-  workspaceKeys,
-} from "./queries"
+import { workspaceChatPrepareOptions, workspaceKeys } from "./queries"
 import type { Workspace } from "./types"
+import { useConversationPublish } from "./useConversationPublish"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 import { workspaceChatWebSocket } from "./workspaceChatWebSocket"
 
@@ -90,43 +76,18 @@ export function WorkspaceChatSession(props: {
   orgSlug: string
   workspace: Workspace
   conversationId: string
-  composing: boolean
   title: string
   initialMessages?: ConversationDetail["messages"]
-  draftSeed?: string | null
-  autoSendDraft?: boolean
   conversation?: ConversationListItem
   headerExtra?: ReactNode
 }) {
-  const {
-    orgSlug,
-    workspace,
-    conversationId,
-    composing,
-    title,
-    initialMessages,
-    draftSeed,
-    autoSendDraft,
-  } = props
+  const { orgSlug, workspace, conversationId, title, initialMessages } = props
   const queryClient = useQueryClient()
-  const navigate = useNavigate()
-  const sendFailedRef = useRef(false)
-  const committedRef = useRef(false)
   const [headerTitle, setHeaderTitle] = useState(title)
-  const [seenTitle, setSeenTitle] = useState(title)
   const [sandboxPhase, setSandboxPhase] = useState<SandboxPhase>("idle")
-  const [phaseConversationId, setPhaseConversationId] = useState(conversationId)
-  const [draftConsumed, setDraftConsumed] = useState(false)
-  const activeDraft = draftConsumed ? null : (draftSeed ?? null)
-  if (title !== seenTitle) {
-    setSeenTitle(title)
+  useEffect(() => {
     setHeaderTitle(title)
-  }
-  if (conversationId !== phaseConversationId) {
-    setPhaseConversationId(conversationId)
-    setSandboxPhase("idle")
-    setDraftConsumed(false)
-  }
+  }, [title])
 
   const connection = useMemo(
     () => workspaceChatWebSocket(orgSlug, conversationId),
@@ -135,6 +96,9 @@ export function WorkspaceChatSession(props: {
 
   useEffect(() => {
     connection.warm()
+    return () => {
+      connection.dispose()
+    }
   }, [connection])
 
   const applyRename = (name: string) => {
@@ -164,68 +128,17 @@ export function WorkspaceChatSession(props: {
   const prepareQuery = useQuery(
     workspaceChatPrepareOptions(orgSlug, conversationId, workspace.id),
   )
-  const pullQuery = useQuery(
-    conversationPullRequestOptions(
-      orgSlug,
-      conversationId,
-      !composing && (props.conversation?.lastChatPrNumber ?? null) != null,
-    ),
-  )
-  const pushMutation = useMutation({
-    mutationFn: () => pushConversationBranch(orgSlug, conversationId),
-    onSuccess: (result) => {
-      queryClient.setQueryData<ConversationDetail>(
-        workspaceKeys.conversation(orgSlug, conversationId, workspace.id),
-        (old) =>
-          old
-            ? {
-                ...old,
-                conversation: {
-                  ...old.conversation,
-                  lastBranch: result.branch,
-                  branchTreeUrl: result.treeUrl,
-                },
-              }
-            : old,
-      )
-      void queryClient.invalidateQueries({
-        queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
-      })
-    },
+  const publish = useConversationPublish({
+    orgSlug,
+    conversationId,
+    workspaceId: workspace.id,
+    title: headerTitle,
+    statusEnabled: prepareQuery.isSuccess,
+    pullEnabled: (props.conversation?.lastChatPrNumber ?? null) != null,
+    fallbackPrState: props.conversation?.prState,
+    fallbackPullUrl: props.conversation?.lastChatPrUrl,
   })
-  const createPrMutation = useMutation({
-    mutationFn: () =>
-      createConversationPullRequest(orgSlug, conversationId, {
-        title: headerTitle,
-      }),
-    onSuccess: (result) => {
-      queryClient.setQueryData<ConversationDetail>(
-        workspaceKeys.conversation(orgSlug, conversationId, workspace.id),
-        (old) =>
-          old
-            ? {
-                ...old,
-                conversation: {
-                  ...old.conversation,
-                  lastBranch: result.branch,
-                  lastChatPrNumber: result.prNumber,
-                  lastChatPrUrl: result.pullUrl,
-                  prState: result.prState,
-                },
-              }
-            : old,
-      )
-      void queryClient.invalidateQueries({
-        queryKey: workspaceKeys.conversationPullRequest(
-          orgSlug,
-          conversationId,
-        ),
-      })
-      void queryClient.invalidateQueries({
-        queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
-      })
-    },
-  })
+  const gitStatus = publish.status
 
   const { messages, sendMessage, status, error, isLoading, stop } = useChat({
     threadId: conversationId,
@@ -238,9 +151,6 @@ export function WorkspaceChatSession(props: {
       workspaceId: workspace.id,
       source: "ui",
     },
-    onError: () => {
-      sendFailedRef.current = true
-    },
     onChunk: (chunk) => {
       const name = renameFromChunk(chunk)
       if (name) applyRename(name)
@@ -250,86 +160,30 @@ export function WorkspaceChatSession(props: {
         setSandboxPhase("idle")
         if (chunk.type === "RUN_FINISHED") {
           void queryClient.invalidateQueries({
-            queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
+            queryKey: workspaceKeys.conversationGitTree(
+              orgSlug,
+              conversationId,
+            ),
           })
           void queryClient.invalidateQueries({
-            queryKey: workspaceKeys.list(orgSlug),
+            queryKey: workspaceKeys.conversationGitStatus(
+              orgSlug,
+              conversationId,
+            ),
           })
         }
       }
     },
-    onFinish: () => {
-      void queryClient.invalidateQueries({
-        queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
-      })
-    },
   })
-
-  const statusQuery = useQuery({
-    ...conversationGitStatusOptions(orgSlug, conversationId),
-    enabled: !composing && prepareQuery.isSuccess,
-  })
-
-  const insertComposeRow = () => {
-    queryClient.setQueriesData<ConversationListInfiniteData>(
-      { queryKey: workspaceKeys.conversations(orgSlug, workspace.id) },
-      (old) =>
-        insertConversationListItem(old, {
-          id: conversationId,
-          name: headerTitle || "New conversation",
-          source: "ui",
-          lastMessageAt: new Date().toISOString(),
-        }),
-    )
-  }
-
-  const commitComposeRoute = () => {
-    if (!composing || committedRef.current || sendFailedRef.current) return
-    committedRef.current = true
-    void navigate({
-      to: "/$orgSlug/ws/$workspaceSlug/$conversationId",
-      params: {
-        orgSlug,
-        workspaceSlug: workspace.slug,
-        conversationId,
-      },
-      search: (prev) => prev,
-    })
-  }
-
-  const sendMessageRef = useRef<(params: { text: string }) => Promise<void>>(
-    async () => undefined,
-  )
 
   const handleSendMessage = async (params: { text: string }) => {
-    setDraftConsumed(true)
-    sendFailedRef.current = false
     setSandboxPhase("idle")
     try {
       await sendMessage(params.text)
     } catch {
       setSandboxPhase("idle")
-      return
     }
-    if (sendFailedRef.current) {
-      setSandboxPhase("idle")
-      return
-    }
-    setPendingWorkspaceCompose(null)
-    insertComposeRow()
-    commitComposeRoute()
   }
-  sendMessageRef.current = handleSendMessage
-
-  useEffect(() => {
-    if (!autoSendDraft || !draftSeed?.trim()) return
-    if (!takeHomeDraftSend(conversationId)) {
-      setDraftConsumed(true)
-      return
-    }
-    setDraftConsumed(true)
-    void sendMessageRef.current({ text: draftSeed })
-  }, [autoSendDraft, conversationId, draftSeed])
 
   return (
     <WorkspaceChatChrome
@@ -337,98 +191,48 @@ export function WorkspaceChatSession(props: {
       title={headerTitle}
       headerExtra={props.headerExtra}
       branch={
-        !composing && prepareQuery.isSuccess
+        prepareQuery.isSuccess && gitStatus?.branch
           ? {
-              shortName: conversationBranchShortName(
-                props.conversation?.lastBranch ??
-                  conversationSessionBranch(conversationId),
-              ),
-              fullRef:
-                props.conversation?.lastBranch ??
-                conversationSessionBranch(conversationId),
-              href: statusQuery.data?.published
-                ? (props.conversation?.branchTreeUrl ??
-                  conversationGithubTreeHref(
+              shortName: conversationBranchShortName(gitStatus.branch),
+              fullRef: gitStatus.branch,
+              href: gitStatus.published
+                ? conversationGithubTreeHref(
                     workspace.workspaceRepositoryUrl,
-                    props.conversation?.lastBranch ??
-                      conversationSessionBranch(conversationId),
-                  ))
+                    gitStatus.branch,
+                  )
                 : null,
             }
           : null
       }
       publish={
-        !composing &&
-        workspace.writeStatus === "writable"
-          ? {
-              commitPush: {
-                enabled: conversationCommitPushEnabled(
-                  statusQuery.data ?? null,
-                ),
-                pending: pushMutation.isPending,
-                onPress: () => pushMutation.mutate(),
-              },
-              pullRequest: {
-                action: conversationPullRequestAction(
-                  pullQuery.data?.prState ?? props.conversation?.prState,
-                ),
-                pending: createPrMutation.isPending,
-                href:
-                  pullQuery.data?.pullUrl ??
-                  props.conversation?.lastChatPrUrl ??
-                  null,
-                onPress: () => createPrMutation.mutate(),
-              },
-            }
+        conversationAllowsEdits(
+          workspace.writeStatus,
+          workspace.conversationWritable,
+        )
+          ? publish.chrome
           : null
       }
     >
-      {composing && messages.length === 0 ? (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 py-10">
-          <div className="w-full max-w-2xl space-y-5">
-            <div>
-              <h1 className="text-lg font-medium tracking-tight">
-                {workspace.displayName}
-              </h1>
-              <p className="mt-1.5 text-sm text-muted-foreground">
-                Ask about this Workspace. The first message creates the
-                conversation.
-              </p>
-            </div>
-            <MessageInputBox
-              layout="empty"
-              sendMessage={handleSendMessage}
-              status={status}
-              onStop={stop}
-              isDisabled={isLoading}
-              placeholder="Ask about this Workspace…"
-              draftSeed={activeDraft}
-            />
-            {error ? (
-              <InlineAlert variant="error" title="Could not send">
-                {error.message || "Chat request failed."} Send again to retry.
-              </InlineAlert>
-            ) : null}
-          </div>
-        </div>
-      ) : (
-        <>
-          <ConversationThread
-            messages={messages as ChatMessage[]}
-            error={error ?? null}
-            status={status}
-            waitLabel={workspaceChatWaitLabel(sandboxPhase)}
-          />
-          <MessageInputBox
-            layout="thread"
-            sendMessage={handleSendMessage}
-            status={status}
-            onStop={stop}
-            isDisabled={isLoading}
-            draftSeed={activeDraft}
-          />
-        </>
-      )}
+      {gitStatus?.stale ? (
+        <InlineAlert variant="warning" title="Branch needs a rebase">
+          This conversation is on {gitStatus.sha?.slice(0, 7)}; the workspace is
+          now {gitStatus.desiredSha?.slice(0, 7)}. Continue chatting to resolve
+          the conflict before publishing.
+        </InlineAlert>
+      ) : null}
+      <ConversationThread
+        messages={messages as ChatMessage[]}
+        error={error ?? null}
+        status={status}
+        waitLabel={workspaceChatWaitLabel(sandboxPhase)}
+      />
+      <MessageInputBox
+        layout="thread"
+        sendMessage={handleSendMessage}
+        status={status}
+        onStop={stop}
+        isDisabled={isLoading}
+      />
     </WorkspaceChatChrome>
   )
 }

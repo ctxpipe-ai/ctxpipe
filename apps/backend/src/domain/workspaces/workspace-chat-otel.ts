@@ -18,6 +18,7 @@ export type WorkspaceChatToolRecord = {
 
 type WorkspaceChatTurnState = {
   conversationId: string
+  turnId: string
   startedAt: number
   firstShownTokenAt: number | null
   generations: WorkspaceChatGenerationRecord[]
@@ -32,11 +33,22 @@ type WorkspaceChatTurnState = {
 const turns = new Map<string, WorkspaceChatTurnState>()
 const tracer = () => trace.getTracer("ctxpipe-workspace-chat")
 
-export function beginWorkspaceChatTurn(conversationId: string): void {
-  const existing = turns.get(conversationId)
-  existing?.rootSpan.end()
-  turns.set(conversationId, {
+export function workspaceChatTurnId(input: {
+  conversationId: string
+  runId?: string
+}): string {
+  return input.runId ?? input.conversationId
+}
+
+export function beginWorkspaceChatTurn(
+  conversationId: string,
+  turnId = conversationId,
+): void {
+  const previous = turns.get(turnId)
+  previous?.rootSpan.end()
+  turns.set(turnId, {
     conversationId,
+    turnId,
     startedAt: Date.now(),
     firstShownTokenAt: null,
     generations: [],
@@ -48,21 +60,20 @@ export function beginWorkspaceChatTurn(conversationId: string): void {
     rootSpan: tracer().startSpan("workspace-chat.turn", {
       attributes: {
         "workspace_chat.conversation_id": conversationId,
+        "workspace_chat.turn_id": turnId,
       },
     }),
   })
 }
 
-export function markWorkspaceChatFirstShownToken(conversationId: string): void {
-  const state = turns.get(conversationId)
+export function markWorkspaceChatFirstShownToken(turnId: string): void {
+  const state = turns.get(turnId)
   if (!state || state.firstShownTokenAt != null) return
   state.firstShownTokenAt = Date.now()
 }
 
-export function beginWorkspaceChatProxyGeneration(
-  conversationId: string,
-): void {
-  const state = turns.get(conversationId)
+export function beginWorkspaceChatProxyGeneration(turnId: string): void {
+  const state = turns.get(turnId)
   if (!state) return
   if (state.pendingToolsStartedAt && state.pendingTools.length > 0) {
     const durationMs = Math.max(0, Date.now() - state.pendingToolsStartedAt)
@@ -88,7 +99,7 @@ export function beginWorkspaceChatProxyGeneration(
     {
       attributes: {
         "gen_ai.operation.name": "chat",
-        "workspace_chat.conversation_id": conversationId,
+        "workspace_chat.turn_id": turnId,
         "workspace_chat.generation.index": state.generations.length,
       },
     },
@@ -96,7 +107,7 @@ export function beginWorkspaceChatProxyGeneration(
 }
 
 export function recordWorkspaceChatProxyGeneration(
-  conversationId: string,
+  turnId: string,
   input: {
     ttfbMs: number
     durationMs: number
@@ -105,7 +116,7 @@ export function recordWorkspaceChatProxyGeneration(
     text?: string
   },
 ): void {
-  const state = turns.get(conversationId)
+  const state = turns.get(turnId)
   const generation: WorkspaceChatGenerationRecord = {
     index: state?.generations.length ?? 0,
     ttfbMs: input.ttfbMs,
@@ -133,27 +144,15 @@ export function recordWorkspaceChatProxyGeneration(
         attributes: {
           "gen_ai.tool.name": name,
           "gen_ai.tool.type": "function",
-          "workspace_chat.conversation_id": conversationId,
+          "workspace_chat.turn_id": turnId,
         },
       }),
     )
   }
 }
 
-export function lastWorkspaceChatStopText(conversationId: string): string {
-  const state = turns.get(conversationId)
-  if (!state) return ""
-  for (let i = state.generations.length - 1; i >= 0; i -= 1) {
-    const generation = state.generations[i]
-    const finish = generation?.finishReason
-    const text = generation?.text?.trim() ?? ""
-    if ((finish === "stop" || finish === "length") && text) return text
-  }
-  return ""
-}
-
 export function finishWorkspaceChatTurn(
-  conversationId: string,
+  turnId: string,
   input?: { error?: string },
 ): {
   loops: number
@@ -161,9 +160,9 @@ export function finishWorkspaceChatTurn(
   generations: WorkspaceChatGenerationRecord[]
   tools: WorkspaceChatToolRecord[]
 } | null {
-  const state = turns.get(conversationId)
+  const state = turns.get(turnId)
   if (!state) return null
-  turns.delete(conversationId)
+  turns.delete(turnId)
   const ttftMs =
     state.firstShownTokenAt == null
       ? null
@@ -187,7 +186,8 @@ export function finishWorkspaceChatTurn(
     .join(";")
   log.info({
     step: "workspace-chat-turn",
-    conversationId,
+    conversationId: state.conversationId,
+    turnId,
     loops: state.generations.length,
     ttftMs,
     generations: state.generations.map(

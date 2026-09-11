@@ -7,10 +7,14 @@ import {
 } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { confluenceSyncTargets } from "../db/schema/confluenceSyncTargets.js"
-import { CONNECTION_TYPE_FORGE, connections } from "../db/schema/connections.js"
+import { connections } from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
-import { generateObjectId } from "../lib/id.js"
 import { getConnectionDirectoryByConnectionId } from "./connection-directory.js"
+import { reconcileConnectorContentSync } from "./connector-content-sync.js"
+import {
+  type CapturedConnectorBinding,
+  lockConnectorFinalizationBinding,
+} from "./connector-finalization.js"
 
 export type ConfluenceSyncTarget = typeof confluenceSyncTargets.$inferSelect
 
@@ -58,43 +62,19 @@ export async function getConfluenceSyncTargetByOrgId(
 export async function getConfluenceSyncTargetWithRepoByOrgId(
   orgId: string,
 ): Promise<ConfluenceSyncTargetWithRepo | undefined> {
-  return withOrgDbContext(orgId, async () => {
-    const [row] = await getOrgDb()
-      .select({
-        id: confluenceSyncTargets.id,
-        orgId: confluenceSyncTargets.orgId,
-        connectionId: confluenceSyncTargets.connectionId,
-        repositoryId: confluenceSyncTargets.repositoryId,
-        branch: confluenceSyncTargets.branch,
-        enabled: confluenceSyncTargets.enabled,
-        setupPhase: confluenceSyncTargets.setupPhase,
-        pendingConfigPullUrl: confluenceSyncTargets.pendingConfigPullUrl,
-        pendingConfigPrCreating: confluenceSyncTargets.pendingConfigPrCreating,
-        createdAt: confluenceSyncTargets.createdAt,
-        updatedAt: confluenceSyncTargets.updatedAt,
-        repositoryName: repositories.name,
-        githubConnectionId: repositories.githubConnectionId,
-      })
-      .from(confluenceSyncTargets)
-      .innerJoin(
-        repositories,
-        eq(confluenceSyncTargets.repositoryId, repositories.id),
-      )
-      .where(
-        and(
-          eq(confluenceSyncTargets.orgId, orgId),
-          eq(repositories.orgId, orgId),
-        ),
-      )
-      .limit(1)
-    return row
-  })
+  const target = await getConfluenceSyncTargetByOrgId(orgId)
+  return target
+    ? getConfluenceSyncTargetWithRepoByConnectionId(orgId, target.connectionId)
+    : undefined
 }
 
 export async function getConfluenceSyncTargetWithRepoByConnectionId(
   orgId: string,
   connectionId: string,
-): Promise<ConfluenceSyncTargetWithRepo | undefined> {
+): Promise<
+  (ConfluenceSyncTargetWithRepo & { repositoryGitUrl: string }) | undefined
+> {
+  await reconcileConnectorContentSync({ orgId, connectionId })
   return withOrgDbContext(orgId, async () => {
     const [row] = await getOrgDb()
       .select({
@@ -110,6 +90,7 @@ export async function getConfluenceSyncTargetWithRepoByConnectionId(
         createdAt: confluenceSyncTargets.createdAt,
         updatedAt: confluenceSyncTargets.updatedAt,
         repositoryName: repositories.name,
+        repositoryGitUrl: repositories.gitUrl,
         githubConnectionId: repositories.githubConnectionId,
       })
       .from(confluenceSyncTargets)
@@ -214,12 +195,34 @@ export async function setPendingConfigPrCreating(input: {
 }
 
 export async function updateConfluenceSyncTargetPrState(input: {
+  expectedBinding?: {
+    repositoryId: string
+    branch: string
+    contentSyncGeneration?: number
+  }
   connectionId: string
   pendingConfigPullUrl: string | null
   pendingConfigPrCreating: boolean
   setupPhase: string
-}): Promise<void> {
-  await requireConfluenceSyncTargetWrite(input.connectionId, async (db) => {
+}): Promise<boolean> {
+  const directory = await getConnectionDirectoryByConnectionId(
+    input.connectionId,
+  )
+  if (!directory)
+    throw new Error(`connection_directory missing for ${input.connectionId}`)
+  return withOrgDbContext(directory.orgId, async (db) => {
+    const [connection] = await db
+      .select()
+      .from(connections)
+      .where(eq(connections.id, input.connectionId))
+      .for("update")
+    if (
+      !connection ||
+      (input.expectedBinding?.contentSyncGeneration != null &&
+        connection.contentSyncGeneration !==
+          input.expectedBinding.contentSyncGeneration)
+    )
+      return false
     const [row] = await db
       .update(confluenceSyncTargets)
       .set({
@@ -228,85 +231,48 @@ export async function updateConfluenceSyncTargetPrState(input: {
         setupPhase: input.setupPhase,
         updatedAt: new Date(),
       })
-      .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
+      .where(
+        and(
+          eq(confluenceSyncTargets.connectionId, input.connectionId),
+          input.expectedBinding
+            ? and(
+                eq(
+                  confluenceSyncTargets.repositoryId,
+                  input.expectedBinding.repositoryId,
+                ),
+                eq(confluenceSyncTargets.branch, input.expectedBinding.branch),
+                eq(confluenceSyncTargets.setupPhase, "awaiting_merge"),
+                eq(confluenceSyncTargets.pendingConfigPrCreating, true),
+              )
+            : undefined,
+        ),
+      )
       .returning({ id: confluenceSyncTargets.id })
-    return row
+    return Boolean(row)
   })
 }
 
-/** Before enqueueing config PR workflow — shows loading / awaiting-merge in UI */
-export async function markAwaitingConfigMergeSetup(input: {
-  connectionId: string
-}): Promise<void> {
-  await requireConfluenceSyncTargetWrite(input.connectionId, async (db) => {
-    const [row] = await db
-      .update(confluenceSyncTargets)
-      .set({
-        setupPhase: "awaiting_merge",
-        pendingConfigPrCreating: true,
-        updatedAt: new Date(),
-      })
-      .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
-      .returning({ id: confluenceSyncTargets.id })
-    return row
-  })
-}
-
-/** After config push webhook: first full reconcile from Git before flipping to `live`. */
-export async function markConfluenceSyncTargetInitialSync(input: {
-  connectionId: string
-}): Promise<void> {
-  await requireConfluenceSyncTargetWrite(input.connectionId, async (db) => {
-    const [row] = await db
-      .update(confluenceSyncTargets)
-      .set({
-        setupPhase: "initial_sync",
-        pendingConfigPullUrl: null,
-        pendingConfigPrCreating: false,
-        enabled: true,
-        updatedAt: new Date(),
-      })
-      .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
-      .returning({ id: confluenceSyncTargets.id })
-    return row
-  })
-}
-
-export async function markConfluenceSyncTargetLive(input: {
-  connectionId: string
-}): Promise<void> {
-  await requireConfluenceSyncTargetWrite(input.connectionId, async (db) => {
-    const [row] = await db
-      .update(confluenceSyncTargets)
-      .set({
-        setupPhase: "live",
-        pendingConfigPullUrl: null,
-        pendingConfigPrCreating: false,
-        enabled: true,
-        updatedAt: new Date(),
-      })
-      .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
-      .returning({ id: confluenceSyncTargets.id })
-    return row
-  })
-}
-
-/**
- * When `confluence-sync-content` finishes: move from `initial_sync` to `live` if the run
- * did not fully fail (allows `partial_failed` so the connector is not stuck).
- */
 export async function finalizeConfluenceSyncTargetAfterContentWorkflow(input: {
   connectionId: string
+  binding: CapturedConnectorBinding
   workflowStatus: "completed" | "partial_failed" | "failed"
 }): Promise<void> {
-  if (input.workflowStatus === "failed") return
   const updated = await withOrgDbForConnection(
     input.connectionId,
     async (db) => {
+      if (
+        !(await lockConnectorFinalizationBinding(
+          db,
+          input.binding,
+          input.connectionId,
+        ))
+      )
+        return
       const [row] = await db
         .update(confluenceSyncTargets)
         .set({
-          setupPhase: "live",
+          setupPhase:
+            input.workflowStatus === "completed" ? "live" : "sync_failed",
           pendingConfigPullUrl: null,
           pendingConfigPrCreating: false,
           updatedAt: new Date(),
@@ -315,6 +281,12 @@ export async function finalizeConfluenceSyncTargetAfterContentWorkflow(input: {
           and(
             eq(confluenceSyncTargets.connectionId, input.connectionId),
             eq(confluenceSyncTargets.setupPhase, "initial_sync"),
+            eq(confluenceSyncTargets.repositoryId, input.binding.repositoryId),
+            eq(
+              confluenceSyncTargets.branch,
+              input.binding.revision.defaultBranch,
+            ),
+            eq(confluenceSyncTargets.enabled, true),
           ),
         )
         .returning({ id: confluenceSyncTargets.id })
@@ -322,59 +294,4 @@ export async function finalizeConfluenceSyncTargetAfterContentWorkflow(input: {
     },
   )
   if (!updated) return
-}
-
-export async function upsertConfluenceSyncTargetForOrg(input: {
-  orgId: string
-  connectionId: string
-  repositoryId: string
-  branch: string
-  enabled: boolean
-}): Promise<ConfluenceSyncTarget> {
-  return withOrgDbContext(input.orgId, async (tx) => {
-    const [conn] = await tx
-      .select({ id: connections.id })
-      .from(connections)
-      .where(
-        and(
-          eq(connections.id, input.connectionId),
-          eq(connections.orgId, input.orgId),
-          eq(connections.type, CONNECTION_TYPE_FORGE),
-        ),
-      )
-      .limit(1)
-
-    if (!conn) {
-      throw new Error("Forge connection does not belong to organization")
-    }
-
-    const [row] = await tx
-      .insert(confluenceSyncTargets)
-      .values({
-        id: generateObjectId("cst"),
-        orgId: input.orgId,
-        connectionId: input.connectionId,
-        repositoryId: input.repositoryId,
-        branch: input.branch,
-        enabled: input.enabled,
-        setupPhase: "draft",
-        pendingConfigPullUrl: null,
-        pendingConfigPrCreating: false,
-      })
-      .onConflictDoUpdate({
-        target: confluenceSyncTargets.connectionId,
-        set: {
-          repositoryId: input.repositoryId,
-          branch: input.branch,
-          enabled: input.enabled,
-          updatedAt: new Date(),
-        },
-      })
-      .returning()
-
-    if (!row) {
-      throw new Error("Failed to upsert Confluence sync target")
-    }
-    return row
-  })
 }

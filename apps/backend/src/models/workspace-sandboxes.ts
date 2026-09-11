@@ -1,7 +1,8 @@
-import { and, asc, eq, or, sql } from "drizzle-orm"
+import { and, eq, isNull } from "drizzle-orm"
 import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { workspaceSandboxInstances } from "../db/schema/workspaces.js"
-import { isUniqueViolation, orgSql } from "./workspace-sql.js"
+import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
+import { orgSql } from "./workspace-sql.js"
 
 export type SandboxInstanceRecord = {
   id: string
@@ -14,15 +15,30 @@ export type SandboxInstanceRecord = {
   desiredSha?: string | null
   provider?: string | null
   providerSandboxId?: string | null
+  image?: string | null
+  transitionKey?: string | null
+  revision?: WorkspaceRevision | null
   latestSnapshotId?: string | null
   latestRunId?: string | null
   state: "live" | "destroy_failed"
   lastHeartbeatAt: Date
 }
 
-export type ClaimedSandboxInstance = {
-  record: SandboxInstanceRecord
-  inserted: boolean
+export type SandboxInstanceOwnership = Pick<
+  SandboxInstanceRecord,
+  "kind" | "workspaceId" | "conversationId" | "provider" | "image" | "revision"
+>
+
+export type SandboxInstanceDeleteOwnership = SandboxInstanceOwnership &
+  Pick<SandboxInstanceRecord, "providerSandboxId">
+
+export class SandboxInstanceOwnershipConflict extends Error {
+  constructor(readonly sandboxKey: string) {
+    super(
+      `Sandbox instance ${sandboxKey} is already owned by another workspace identity`,
+    )
+    this.name = "SandboxInstanceOwnershipConflict"
+  }
 }
 
 function toSandboxInstanceRecord(
@@ -41,6 +57,9 @@ function toSandboxInstanceRecord(
     desiredSha: row.desiredSha,
     provider: row.provider,
     providerSandboxId: row.providerSandboxId,
+    image: row.image,
+    transitionKey: row.transitionKey,
+    revision: row.revision,
     latestSnapshotId: row.latestSnapshotId,
     latestRunId: row.latestRunId,
     state: row.state,
@@ -62,223 +81,80 @@ async function withSandboxInstanceDb<T>(
 
 export async function persistSandboxInstance(
   input: SandboxInstanceRecord,
+  expected?: SandboxInstanceOwnership,
 ): Promise<void> {
   const orgId = requireSandboxOrgId(input.orgId)
   const now = new Date()
   await withSandboxInstanceDb(orgId, async () => {
     const db = getOrgDb()
-    await db.transaction(async (tx) => {
-      if (input.kind === "chat" && input.conversationId) {
-        const [existing] = await tx
-          .select()
-          .from(workspaceSandboxInstances)
-          .where(
-            and(
+    const persisted = await db
+      .insert(workspaceSandboxInstances)
+      .values({
+        id: input.id,
+        kind: input.kind,
+        orgId,
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId ?? null,
+        desiredUrl: input.desiredUrl ?? null,
+        desiredGeneration: input.desiredGeneration ?? null,
+        desiredSha: input.desiredSha ?? null,
+        provider: input.provider ?? null,
+        providerSandboxId: input.providerSandboxId ?? null,
+        image: input.image ?? null,
+        transitionKey: input.transitionKey ?? null,
+        revision: input.revision ?? null,
+        latestSnapshotId: input.latestSnapshotId ?? null,
+        latestRunId: input.latestRunId ?? null,
+        state: input.state,
+        lastHeartbeatAt: input.lastHeartbeatAt,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: workspaceSandboxInstances.id,
+        setWhere: expected
+          ? and(
               eq(workspaceSandboxInstances.orgId, orgId),
-              eq(workspaceSandboxInstances.kind, "chat"),
-              eq(
-                workspaceSandboxInstances.conversationId,
-                input.conversationId,
-              ),
-              or(
-                eq(workspaceSandboxInstances.state, "live"),
-                eq(workspaceSandboxInstances.state, "destroy_failed"),
-              ),
-            ),
-          )
-          .orderBy(
-            sql`(${workspaceSandboxInstances.providerSandboxId} is not null) desc`,
-            asc(workspaceSandboxInstances.createdAt),
-            asc(workspaceSandboxInstances.id),
-          )
-          .limit(1)
-        if (existing && existing.id !== input.id) {
-          await tx
-            .update(workspaceSandboxInstances)
-            .set({
-              kind: input.kind,
-              conversationId: input.conversationId ?? null,
-              desiredUrl: input.desiredUrl ?? null,
-              desiredGeneration: input.desiredGeneration ?? null,
-              desiredSha: input.desiredSha ?? null,
-              provider: input.provider ?? null,
-              providerSandboxId: input.providerSandboxId ?? null,
-              latestSnapshotId: input.latestSnapshotId ?? null,
-              latestRunId: input.latestRunId ?? null,
-              state: input.state,
-              lastHeartbeatAt: input.lastHeartbeatAt,
-              updatedAt: now,
-            })
-            .where(eq(workspaceSandboxInstances.id, existing.id))
-          return
-        }
-      }
-      await tx
-        .insert(workspaceSandboxInstances)
-        .values({
-          id: input.id,
+              eq(workspaceSandboxInstances.workspaceId, expected.workspaceId),
+              eq(workspaceSandboxInstances.kind, expected.kind),
+              expected.conversationId == null
+                ? isNull(workspaceSandboxInstances.conversationId)
+                : eq(
+                    workspaceSandboxInstances.conversationId,
+                    expected.conversationId,
+                  ),
+              expected.provider == null
+                ? isNull(workspaceSandboxInstances.provider)
+                : eq(workspaceSandboxInstances.provider, expected.provider),
+              expected.image == null
+                ? isNull(workspaceSandboxInstances.image)
+                : eq(workspaceSandboxInstances.image, expected.image),
+              expected.revision == null
+                ? isNull(workspaceSandboxInstances.revision)
+                : eq(workspaceSandboxInstances.revision, expected.revision),
+            )
+          : undefined,
+        set: {
           kind: input.kind,
-          orgId,
-          workspaceId: input.workspaceId,
           conversationId: input.conversationId ?? null,
           desiredUrl: input.desiredUrl ?? null,
           desiredGeneration: input.desiredGeneration ?? null,
           desiredSha: input.desiredSha ?? null,
           provider: input.provider ?? null,
           providerSandboxId: input.providerSandboxId ?? null,
+          image: input.image ?? null,
+          transitionKey: input.transitionKey ?? null,
+          revision: input.revision ?? null,
           latestSnapshotId: input.latestSnapshotId ?? null,
           latestRunId: input.latestRunId ?? null,
           state: input.state,
           lastHeartbeatAt: input.lastHeartbeatAt,
-          createdAt: now,
           updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: workspaceSandboxInstances.id,
-          set: {
-            kind: input.kind,
-            conversationId: input.conversationId ?? null,
-            desiredUrl: input.desiredUrl ?? null,
-            desiredGeneration: input.desiredGeneration ?? null,
-            desiredSha: input.desiredSha ?? null,
-            provider: input.provider ?? null,
-            providerSandboxId: input.providerSandboxId ?? null,
-            latestSnapshotId: input.latestSnapshotId ?? null,
-            latestRunId: input.latestRunId ?? null,
-            state: input.state,
-            lastHeartbeatAt: input.lastHeartbeatAt,
-            updatedAt: now,
-          },
-        })
-    })
-  })
-}
-
-export async function claimSandboxInstance(
-  input: SandboxInstanceRecord,
-): Promise<ClaimedSandboxInstance> {
-  const orgId = requireSandboxOrgId(input.orgId)
-  return withSandboxInstanceDb(orgId, async () => {
-    const db = getOrgDb()
-    return db.transaction(async (tx) => {
-      const identityFilter =
-        input.kind === "chat" && input.conversationId
-          ? eq(workspaceSandboxInstances.conversationId, input.conversationId)
-          : eq(workspaceSandboxInstances.workspaceId, input.workspaceId)
-      const [existing] = await tx
-        .select()
-        .from(workspaceSandboxInstances)
-        .where(
-          and(
-            eq(workspaceSandboxInstances.kind, input.kind),
-            or(
-              eq(workspaceSandboxInstances.state, "live"),
-              eq(workspaceSandboxInstances.state, "destroy_failed"),
-            ),
-            identityFilter,
-          ),
-        )
-        .orderBy(
-          sql`(${workspaceSandboxInstances.providerSandboxId} is not null) desc`,
-          asc(workspaceSandboxInstances.createdAt),
-          asc(workspaceSandboxInstances.id),
-        )
-        .limit(1)
-      const now = new Date()
-      const live = existing ? toSandboxInstanceRecord(existing) : null
-      if (live && existing) {
-        if (existing.state === "destroy_failed") {
-          await tx
-            .update(workspaceSandboxInstances)
-            .set({
-              state: "live",
-              lastHeartbeatAt: input.lastHeartbeatAt,
-              updatedAt: now,
-            })
-            .where(eq(workspaceSandboxInstances.id, existing.id))
-          return {
-            record: {
-              ...live,
-              state: "live",
-              lastHeartbeatAt: input.lastHeartbeatAt,
-            },
-            inserted: false,
-          }
-        }
-        return { record: live, inserted: false }
-      }
-
-      try {
-        await tx
-          .insert(workspaceSandboxInstances)
-          .values({
-            id: input.id,
-            kind: input.kind,
-            orgId,
-            workspaceId: input.workspaceId,
-            conversationId: input.conversationId ?? null,
-            desiredUrl: input.desiredUrl ?? null,
-            desiredGeneration: input.desiredGeneration ?? null,
-            desiredSha: input.desiredSha ?? null,
-            state: "live",
-            lastHeartbeatAt: input.lastHeartbeatAt,
-            createdAt: now,
-            updatedAt: now,
-          })
-          .onConflictDoUpdate({
-            target: workspaceSandboxInstances.id,
-            set: {
-              kind: input.kind,
-              conversationId: input.conversationId ?? null,
-              desiredUrl: input.desiredUrl ?? null,
-              desiredGeneration: input.desiredGeneration ?? null,
-              desiredSha: input.desiredSha ?? null,
-              state: "live",
-              lastHeartbeatAt: input.lastHeartbeatAt,
-              updatedAt: now,
-            },
-          })
-      } catch (error) {
-        const identityConstraint =
-          input.kind === "chat"
-            ? "workspace_sandbox_instances_live_chat_conversation_uidx"
-            : "workspace_sandbox_instances_live_job_workspace_uidx"
-        if (!isUniqueViolation(error, identityConstraint)) throw error
-        const [conflict] = await tx
-          .select()
-          .from(workspaceSandboxInstances)
-          .where(
-            and(
-              eq(workspaceSandboxInstances.kind, input.kind),
-              or(
-                eq(workspaceSandboxInstances.state, "live"),
-                eq(workspaceSandboxInstances.state, "destroy_failed"),
-              ),
-              identityFilter,
-            ),
-          )
-          .orderBy(
-            sql`(${workspaceSandboxInstances.providerSandboxId} is not null) desc`,
-            asc(workspaceSandboxInstances.createdAt),
-            asc(workspaceSandboxInstances.id),
-          )
-          .limit(1)
-        if (!conflict) throw error
-        const record = toSandboxInstanceRecord(conflict)
-        if (!record) throw error
-        return { record, inserted: false }
-      }
-      const [row] = await tx
-        .select()
-        .from(workspaceSandboxInstances)
-        .where(eq(workspaceSandboxInstances.id, input.id))
-        .limit(1)
-      const record = row ? toSandboxInstanceRecord(row) : null
-      return {
-        record: record ?? { ...input, state: "live" },
-        inserted: true,
-      }
-    })
+        },
+      })
+      .returning({ id: workspaceSandboxInstances.id })
+    if (expected && persisted.length !== 1)
+      throw new SandboxInstanceOwnershipConflict(input.id)
   })
 }
 
@@ -355,16 +231,68 @@ export async function getSandboxInstance(
 export async function deleteSandboxInstance(
   id: string,
   orgId?: string | null,
+  expected?: SandboxInstanceDeleteOwnership,
 ): Promise<void> {
   const scopedOrgId = requireSandboxOrgId(orgId)
   await withSandboxInstanceDb(scopedOrgId, async () => {
-    await getOrgDb()
+    const db = getOrgDb()
+    const deleted = await db
       .delete(workspaceSandboxInstances)
+      .where(
+        and(
+          eq(workspaceSandboxInstances.id, id),
+          eq(workspaceSandboxInstances.orgId, scopedOrgId),
+          expected
+            ? eq(workspaceSandboxInstances.workspaceId, expected.workspaceId)
+            : undefined,
+          expected
+            ? eq(workspaceSandboxInstances.kind, expected.kind)
+            : undefined,
+          expected
+            ? expected.conversationId == null
+              ? isNull(workspaceSandboxInstances.conversationId)
+              : eq(
+                  workspaceSandboxInstances.conversationId,
+                  expected.conversationId,
+                )
+            : undefined,
+          expected
+            ? expected.provider == null
+              ? isNull(workspaceSandboxInstances.provider)
+              : eq(workspaceSandboxInstances.provider, expected.provider)
+            : undefined,
+          expected
+            ? expected.providerSandboxId == null
+              ? isNull(workspaceSandboxInstances.providerSandboxId)
+              : eq(
+                  workspaceSandboxInstances.providerSandboxId,
+                  expected.providerSandboxId,
+                )
+            : undefined,
+          expected
+            ? expected.image == null
+              ? isNull(workspaceSandboxInstances.image)
+              : eq(workspaceSandboxInstances.image, expected.image)
+            : undefined,
+          expected
+            ? expected.revision == null
+              ? isNull(workspaceSandboxInstances.revision)
+              : eq(workspaceSandboxInstances.revision, expected.revision)
+            : undefined,
+        ),
+      )
+      .returning({ id: workspaceSandboxInstances.id })
+    if (!expected || deleted.length === 1) return
+    const [collision] = await db
+      .select({ id: workspaceSandboxInstances.id })
+      .from(workspaceSandboxInstances)
       .where(
         and(
           eq(workspaceSandboxInstances.id, id),
           eq(workspaceSandboxInstances.orgId, scopedOrgId),
         ),
       )
+      .limit(1)
+    if (collision) throw new SandboxInstanceOwnershipConflict(id)
   })
 }

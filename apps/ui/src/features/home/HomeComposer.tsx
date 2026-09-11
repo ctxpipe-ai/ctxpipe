@@ -1,19 +1,26 @@
 import { IconChevronDown } from "@tabler/icons-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
+import { useRef, useState } from "react"
 import { Button as RACButton } from "react-aria-components"
+import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
+import { insertConversationListItem } from "@/features/chat/insertConversationListItem"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
+import type {
+  ConversationDetail,
+  ConversationListInfiniteData,
+} from "@/features/chat/types"
 import {
-  prepareWorkspaceChat,
+  StartWorkspaceConversationError,
+  startWorkspaceConversation,
   workspaceDetailOptions,
+  workspaceKeys,
 } from "@/features/workspaces/queries"
 import type { Workspace } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
-import { createObjectId } from "@/lib/id"
 import { cn } from "@/lib/utils"
 import { navigateWithComposerTransition } from "./navigate-with-composer-transition"
-import { setPendingWorkspaceCompose } from "./pending-workspace-compose"
 
 export function HomeComposer(props: {
   orgSlug: string
@@ -24,6 +31,13 @@ export function HomeComposer(props: {
   const { orgSlug, workspaces, selected, onSelectWorkspace } = props
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const [sendError, setSendError] = useState<string | null>(null)
+  const [sending, setSending] = useState(false)
+  const pendingConversationRef = useRef<{
+    workspaceId: string
+    conversationId?: string
+    idempotencyKey: string
+  } | null>(null)
 
   const prefetchWorkspace = (workspace: Workspace) => {
     void queryClient.prefetchQuery(
@@ -31,17 +45,42 @@ export function HomeComposer(props: {
     )
   }
 
-  const startConversation = (text: string) => {
+  const commitStartedConversation = (conversationId: string, text: string) => {
     if (!selected) return
-    const conversationId = createObjectId("conv")
-    setPendingWorkspaceCompose({
-      conversationId,
-      workspaceId: selected.id,
-      workspaceSlug: selected.slug,
-      orgSlug,
-      text,
-    })
-    void prepareWorkspaceChat(orgSlug, conversationId, selected.id)
+    const now = new Date().toISOString()
+    const detail: ConversationDetail = {
+      conversation: {
+        id: conversationId,
+        name: "New conversation",
+        source: "ui",
+        lastMessageAt: now,
+        orgId: "",
+        workspaceId: selected.id,
+        createdAt: now,
+        updatedAt: now,
+      },
+      messages: [
+        {
+          id: `user-${conversationId}`,
+          role: "user",
+          parts: [{ type: "text", content: text }],
+        },
+      ],
+    }
+    queryClient.setQueryData(
+      workspaceKeys.conversation(orgSlug, conversationId, selected.id),
+      detail,
+    )
+    queryClient.setQueriesData<ConversationListInfiniteData>(
+      { queryKey: workspaceKeys.conversations(orgSlug, selected.id) },
+      (old) =>
+        insertConversationListItem(old, {
+          id: conversationId,
+          name: "New conversation",
+          source: "ui",
+          lastMessageAt: now,
+        }),
+    )
     prefetchWorkspace(selected)
     navigateWithComposerTransition(() => {
       void navigate({
@@ -53,6 +92,45 @@ export function HomeComposer(props: {
         },
       })
     })
+  }
+
+  const startConversation = async (text: string) => {
+    if (!selected) return
+    const pending =
+      pendingConversationRef.current?.workspaceId === selected.id
+        ? pendingConversationRef.current
+        : null
+    const idempotencyKey = pending?.idempotencyKey ?? crypto.randomUUID()
+    pendingConversationRef.current = {
+      workspaceId: selected.id,
+      conversationId: pending?.conversationId,
+      idempotencyKey,
+    }
+    setSendError(null)
+    setSending(true)
+    try {
+      const started = await startWorkspaceConversation(orgSlug, {
+        idempotencyKey,
+        workspaceId: selected.id,
+        text,
+      })
+      pendingConversationRef.current = null
+      commitStartedConversation(started.conversationId, text)
+    } catch (error) {
+      const assigned =
+        error instanceof StartWorkspaceConversationError
+          ? error.conversationId
+          : pending?.conversationId
+      pendingConversationRef.current = {
+        workspaceId: selected.id,
+        conversationId: assigned,
+        idempotencyKey,
+      }
+      setSending(false)
+      setSendError(
+        error instanceof Error ? error.message : "Failed to start conversation",
+      )
+    }
   }
 
   return (
@@ -90,10 +168,17 @@ export function HomeComposer(props: {
       <div className="mt-3">
         <MessageInputBox
           layout="empty"
-          sendMessage={({ text }) => startConversation(text)}
-          isDisabled={!selected}
+          sendMessage={({ text }) => void startConversation(text)}
+          isDisabled={!selected || sending}
           placeholder="Ask about this Workspace…"
         />
+        {sendError ? (
+          <div className="mt-3">
+            <InlineAlert variant="error" title="Could not send">
+              {sendError} Send again to retry.
+            </InlineAlert>
+          </div>
+        ) : null}
       </div>
     </section>
   )

@@ -1,10 +1,13 @@
 import { log } from "../../observability/logger.js"
+import { sandboxCallbackHost } from "./workspace-chat-callback.js"
 import { recordWorkspaceChatProxyGeneration } from "./workspace-chat-otel.js"
 
-/** Docker sandboxes reach the host via host.docker.internal; unsandboxed OpenCode is local. */
+/** Use an explicit sandbox callback route, otherwise retain provider-local defaults. */
 export function workspaceChatModelProxyAdvertisedHost(
   isolation: "docker" | "unsandboxed" | "railway" | string,
+  callbackHost = sandboxCallbackHost(),
 ): string {
+  if (callbackHost) return callbackHost
   return isolation === "docker" ? "host.docker.internal" : "127.0.0.1"
 }
 
@@ -12,8 +15,12 @@ export function workspaceChatCompletionsBaseUrl(input: {
   isolation: string
   orgSlug: string
   port: number
+  callbackHost?: string
 }): string {
-  const host = workspaceChatModelProxyAdvertisedHost(input.isolation)
+  const host = workspaceChatModelProxyAdvertisedHost(
+    input.isolation,
+    input.callbackHost,
+  )
   return `http://${host}:${input.port}/${input.orgSlug}/api/v1/workspace-chat/openai/v1`
 }
 
@@ -82,7 +89,7 @@ export function observeWorkspaceChatCompletionStream(): {
 }
 
 export function recordWorkspaceChatProxyCompletion(
-  conversationId: string | undefined,
+  turnId: string | undefined,
   input: {
     ttfbMs: number
     durationMs: number
@@ -104,8 +111,8 @@ export function recordWorkspaceChatProxyCompletion(
     model: input.model,
     message: `workspace chat generation ttfbMs=${input.ttfbMs} durationMs=${input.durationMs} finishReason=${input.finishReason ?? "-"} tools=${input.tools.join(",") || "-"}`,
   })
-  if (!conversationId) return
-  recordWorkspaceChatProxyGeneration(conversationId, {
+  if (!turnId) return
+  recordWorkspaceChatProxyGeneration(turnId, {
     ttfbMs: input.ttfbMs,
     durationMs: input.durationMs,
     finishReason: input.finishReason,

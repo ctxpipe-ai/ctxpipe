@@ -1,6 +1,8 @@
-import { chatParamsFromRequestBody, modelMessagesToUIMessages } from "@tanstack/ai"
+import {
+  chatParamsFromRequestBody,
+  modelMessagesToUIMessages,
+} from "@tanstack/ai"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
-import { workspaceChatPersistence } from "../workspaces/workspace-chat-persistence.js"
 import {
   runTanstackWorkspaceChat,
   streamTanstackWorkspaceChat,
@@ -8,10 +10,10 @@ import {
 } from "../workspaces/tanstack-workspace-chat.js"
 import {
   type WorkspaceChatWireFormat,
-  withWorkspaceChatHeartbeats,
   workspaceChatHttpResponse,
   workspaceChatWireFormat,
 } from "../workspaces/workspace-chat-agui.js"
+import { workspaceChatPersistence } from "../workspaces/workspace-chat-persistence.js"
 
 export type ConversationChatRequest = {
   prompt: string
@@ -41,7 +43,6 @@ export type StreamInput = {
   defaultBranch?: string
   cloneToken?: string | null
   resolveRuntime?: TanstackWorkspaceChatInput["resolveRuntime"]
-  onHeartbeat?: () => Promise<void> | void
   onFinish?: () => Promise<void> | void
   onError?: () => Promise<void> | void
   onUserPersist?: () => Promise<void> | void
@@ -110,7 +111,6 @@ function toChatInput(input: StreamInput): TanstackWorkspaceChatInput | null {
     cloneToken: input.cloneToken,
     abortSignal: input.abortSignal,
     resolveRuntime: input.resolveRuntime,
-    onHeartbeat: input.onHeartbeat,
     onFinish: input.onFinish,
     onError: input.onError,
     onUserPersist: input.onUserPersist,
@@ -139,7 +139,7 @@ export function workspaceChatStreamResponse(
   const format =
     input.wireFormat ?? (request ? workspaceChatWireFormat(request) : "sse")
   return workspaceChatHttpResponse(
-    withWorkspaceChatHeartbeats(streamTanstackWorkspaceChat(chatInput)),
+    streamTanstackWorkspaceChat(chatInput),
     format,
     request,
   )
@@ -152,9 +152,9 @@ export async function loadConversationUiMessages(input: {
 }): Promise<ConversationChatMessage[]> {
   void input.checkpointNamespace
   if (!input.workspaceId?.trim()) return []
-  const stored = await workspaceChatPersistence()
-    .stores.messages.loadThread(input.conversationId)
-    .catch(() => [])
+  const stored = await workspaceChatPersistence().stores.messages.loadThread(
+    input.conversationId,
+  )
   if (stored.length > 0) {
     return modelMessagesToUIMessages(stored) as ConversationChatMessage[]
   }

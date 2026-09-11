@@ -6,18 +6,15 @@ import {
   requireCurrentOrgSlug,
   requireCurrentUserId,
 } from "../auth/context.js"
-import { parseEnv } from "../config/env.js"
 import { advisorWorkspaceId } from "../domain/workspaces/chat-sandbox-policy.js"
 import { collectTanstackWorkspaceChatText } from "../domain/workspaces/tanstack-workspace-chat.js"
-import { githubRepoFullNameFromWorkspaceUrl } from "../domain/workspaces/write-status.js"
-import { generateObjectId } from "../lib/id.js"
 import {
-  discardUnstartedConversation,
-  ensureConversation,
-  touchConversationLastMessage,
-} from "../models/conversations.js"
-import { getRepoReadCloneToken } from "../models/github-installation.js"
-import { getWorkspaceById, listWorkspaces } from "../models/workspaces.js"
+  persistWorkspaceChatUserTurnListed,
+  resolveWorkspaceChatSendRuntime,
+} from "../domain/workspaces/workspace-chat-send-runtime.js"
+import { generateObjectId } from "../lib/id.js"
+import { discardUnstartedConversation } from "../models/conversations.js"
+import { getOrgFirstWorkspace, listWorkspaces } from "../models/workspaces.js"
 import { trackMcpToolInvocation } from "../observability/amplitude.js"
 import { runWithLangfuseContext } from "../observability/langfuse.js"
 
@@ -98,8 +95,11 @@ export function registerMcpTools(server: McpServer): void {
         orgSlug: requireCurrentOrgSlug(),
         toolName: "ctx_advisor",
       })
-      const { items } = await listWorkspaces()
-      const workspaceId = advisorWorkspaceId(null, items)
+      const [{ items }, first] = await Promise.all([
+        listWorkspaces(),
+        getOrgFirstWorkspace(requireCurrentOrgId()),
+      ])
+      const workspaceId = advisorWorkspaceId(first?.workspaceId ?? null, items)
       if (!workspaceId) {
         throw createError({
           message: "Create a Workspace before using ctx_advisor",
@@ -109,25 +109,6 @@ export function registerMcpTools(server: McpServer): void {
       }
       void conversationId
       const threadId = generateObjectId("conv")
-      await ensureConversation({
-        id: threadId,
-        source: "mcp",
-        workspaceId,
-      })
-      const workspace = await getWorkspaceById(workspaceId)
-      const desiredSha = workspace?.desiredSha
-      if (!workspace || !desiredSha) {
-        await discardUnstartedConversation(threadId)
-        throw createError({
-          message: "First Workspace is not hydrated yet",
-          status: 409,
-          why: "ctx_advisor needs a stored desired SHA on the first Workspace",
-        })
-      }
-      const env = parseEnv(process.env as Record<string, string | undefined>)
-      const repoFullName = githubRepoFullNameFromWorkspaceUrl(
-        workspace.workspaceRepositoryUrl,
-      )
       const promptWithProject = currentProjectName
         ? `Project: ${currentProjectName}\n\n${prompt}`
         : prompt
@@ -142,18 +123,14 @@ export function registerMcpTools(server: McpServer): void {
               prompt: promptWithProject,
               orgId: requireCurrentOrgId(),
               workspaceId,
-              desiredUrl: workspace.workspaceRepositoryUrl,
-              desiredSha,
-              desiredGeneration: workspace.desiredGeneration,
-              ref: desiredSha,
-              writeStatus: workspace.writeStatus,
-              cloneToken: repoFullName
-                ? ((await getRepoReadCloneToken(requireCurrentOrgId(), env, {
-                    githubConnectionId:
-                      workspace.githubConnectionId ?? undefined,
-                    repoFullName,
-                  })) ?? null)
-                : null,
+              writeStatus: "read_only",
+              resolveRuntime: () =>
+                resolveWorkspaceChatSendRuntime({
+                  conversationId: threadId,
+                  workspaceId,
+                  source: "mcp",
+                }),
+              onUserPersist: () => persistWorkspaceChatUserTurnListed(threadId),
               onDelta: progressToken
                 ? async (delta) => {
                     progress += 1
@@ -168,7 +145,6 @@ export function registerMcpTools(server: McpServer): void {
                   }
                 : undefined,
             })
-            void touchConversationLastMessage(threadId)
             if (!collected.ok) {
               throw createError({
                 message: collected.error,

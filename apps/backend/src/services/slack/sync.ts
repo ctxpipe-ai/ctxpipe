@@ -1,12 +1,5 @@
-import { and, eq } from "drizzle-orm"
 import type { Env } from "../../config/env.js"
-import { getOrgDb, withOrgDbContext } from "../../db/client.js"
-import { repositories } from "../../db/schema/repositories.js"
-import type {
-  SlackConnection,
-  SlackSyncTarget,
-} from "../../models/slack-connector.js"
-import { commitFiles } from "../github/installation-write-client.js"
+import type { SlackConnection } from "../../models/slack-connector.js"
 import {
   getSlackPermalink,
   listSlackConversationReplies,
@@ -25,40 +18,6 @@ import {
   toSlackThreadMarkdownFile,
 } from "./converter.js"
 
-async function resolveRepoContextForSyncTarget(
-  orgId: string,
-  target: SlackSyncTarget,
-): Promise<{ repositoryName: string; githubConnectionId: string }> {
-  return withOrgDbContext(orgId, async () => {
-    const db = getOrgDb()
-    const [row] = await db
-      .select({
-        name: repositories.name,
-        githubConnectionId: repositories.githubConnectionId,
-      })
-      .from(repositories)
-      .where(
-        and(
-          eq(repositories.id, target.repositoryId),
-          eq(repositories.orgId, orgId),
-        ),
-      )
-      .limit(1)
-    if (!row?.name) {
-      throw new Error("Sync target repository not found for organization")
-    }
-    if (!row.githubConnectionId) {
-      throw new Error(
-        "Sync target repository has no GitHub connection; link the repository to a GitHub installation first",
-      )
-    }
-    return {
-      repositoryName: row.name,
-      githubConnectionId: row.githubConnectionId,
-    }
-  })
-}
-
 /** Prefer durable Slack UI links; never persist auth-gated private download URLs. */
 function slackFileStubLink(file: {
   id: string
@@ -73,7 +32,7 @@ function slackFileStubLink(file: {
   return `#file-${file.id}`
 }
 
-function githubBlobUrl(input: {
+export function githubBlobUrl(input: {
   repositoryName: string
   ref: string
   path: string
@@ -216,20 +175,18 @@ export function classifySlackCaptureError(
  * Recapture always writes `slack/channels/.../threads/<yyyy>/<mm>/<threadTs>/index.md`
  * keyed on the thread root `ts`, not the mention `ts`.
  */
-export async function captureSlackThread(input: {
-  orgId: string
+export async function captureSlackThreadFiles(input: {
   env: Env
   connection: SlackConnection
-  target: SlackSyncTarget
+  capturedAt: string
   channelId: string
   threadTs: string
   excludeMessageTs?: string
   capturedByUserId?: string
-}): Promise<SlackCaptureResult> {
+}): Promise<
+  SlackCaptureResult & { files: Array<{ path: string; content: string }> }
+> {
   try {
-    const { repositoryName, githubConnectionId } =
-      await resolveRepoContextForSyncTarget(input.orgId, input.target)
-
     const channelInfo = await resolveSlackChannelInfo({
       env: input.env,
       connection: input.connection,
@@ -253,6 +210,7 @@ export async function captureSlackThread(input: {
       const classified = classifySlackCaptureError(error)
       return {
         status: "failed",
+        files: [],
         messageCount: 0,
         channelName,
         ...classified,
@@ -266,6 +224,7 @@ export async function captureSlackThread(input: {
     if (messages.length === 0) {
       return {
         status: "failed",
+        files: [],
         messageCount: 0,
         channelName,
         errorCode: "capture_failed",
@@ -289,7 +248,7 @@ export async function captureSlackThread(input: {
       channelId: input.channelId,
       messageTs: input.threadTs,
     })
-    const capturedAt = new Date().toISOString()
+    const capturedAt = input.capturedAt
 
     const channelIndex = toSlackChannelIndexFile({
       channelId: input.channelId,
@@ -318,33 +277,18 @@ export async function captureSlackThread(input: {
       threadTs: input.threadTs,
     })
 
-    const commit = await commitFiles({
-      orgId: input.orgId,
-      env: input.env,
-      repositoryName,
-      branch: input.target.branch,
-      githubConnectionId,
-      message: `chore(slack): capture thread ${input.threadTs} from #${channelName}`,
-      files: [channelIndex, ...threadFiles],
-      deletePaths: [],
-    })
-
     return {
       status: "completed",
       messageCount: messages.length,
-      commitSha: commit.commitSha,
+      files: [channelIndex, ...threadFiles],
       threadPath,
-      githubUrl: githubBlobUrl({
-        repositoryName,
-        ref: commit.commitSha || input.target.branch,
-        path: threadPath,
-      }),
       channelName,
       truncated,
     }
   } catch (error) {
     return {
       status: "failed",
+      files: [],
       messageCount: 0,
       ...classifySlackCaptureError(error),
     }

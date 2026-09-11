@@ -1,9 +1,9 @@
-import type { WorkspaceWriteKind } from "./write-commit-files.js"
 import {
   enqueueInputFromPausedJob,
   shouldResumePausedWriteJob,
   type WorkspaceWriteJobPayload,
 } from "./write-job-intent.js"
+import type { WorkspaceWriteKind } from "./write-jobs.js"
 
 export type PausedWriteJobRow = {
   id: string

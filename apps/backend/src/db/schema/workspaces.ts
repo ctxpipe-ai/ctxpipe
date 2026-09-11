@@ -10,6 +10,16 @@ import {
   unique,
   uniqueIndex,
 } from "drizzle-orm/pg-core"
+import type { UnbornBootstrapBinding } from "../../domain/workspaces/bootstrap-input.js"
+import type { ConnectorMirrorSource } from "../../domain/workspaces/connector-mirror.js"
+import type { WorkspaceExtraction } from "../../domain/workspaces/extraction.js"
+import type { HydratePhaseRecord } from "../../domain/workspaces/hydrate-phases.js"
+import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
+import type {
+  WorkspaceSemanticHandoff,
+  WorkspaceWritePlanning,
+} from "../../domain/workspaces/write-job-intent.js"
+import type { GitFileChange } from "../../services/git/file-change.js"
 import { connections } from "./connections.js"
 import { orgIsolationPolicy } from "./org-rls.js"
 
@@ -30,6 +40,8 @@ export const workspaces = pgTable.withRLS(
     ),
     desiredGeneration: integer("desired_generation").notNull().default(1),
     desiredSha: text("desired_sha"),
+    desiredDefaultBranch: text("desired_default_branch"),
+    activeRevision: jsonb("active_revision").$type<WorkspaceRevision>(),
     activeProjectionUrl: text("active_projection_url"),
     activeProjectionSha: text("active_projection_sha"),
     indexedSha: text("indexed_sha"),
@@ -40,11 +52,7 @@ export const workspaces = pgTable.withRLS(
       withTimezone: true,
       mode: "date",
     }),
-    hydratePhases: jsonb("hydrate_phases").$type<{
-      url: string
-      sha: string
-      embeddings: boolean
-    } | null>(),
+    hydratePhases: jsonb("hydrate_phases").$type<HydratePhaseRecord | null>(),
     readOnlyReason: text("read_only_reason"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
@@ -172,13 +180,24 @@ export const workspaceWriteJobs = pgTable.withRLS(
     generation: integer("generation").notNull(),
     status: text("status").notNull().default("queued"),
     payload: jsonb("payload").$type<{
+      bootstrapBinding?: UnbornBootstrapBinding
+      revision?: WorkspaceRevision
+      planning?: WorkspaceWritePlanning
+      workflowRunId?: string
+      semanticHandoff?: WorkspaceSemanticHandoff
+      exportTipSha?: string
+      knowledgePaths?: Record<string, string>
+      previousSha?: string
+      extraction?: WorkspaceExtraction
+      mirror?: ConnectorMirrorSource
       linkAction?: "link" | "unlink"
       linkGitUrl?: string
+      displayName?: string
       defaultBranch?: string
       jobWorkspaceUrl?: string
       conflictParentSha?: string | null
       remoteTipSha?: string | null
-      mergeFiles?: Array<{ path: string; content: string }>
+      mergeFiles?: GitFileChange[]
       mergeDeletePaths?: string[]
     } | null>(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
@@ -199,6 +218,20 @@ export const workspaceWriteJobs = pgTable.withRLS(
   ],
 )
 
+/** Compact projection of completed write results; kept off the hot workspace row. */
+export const workspaceKnowledgePathState = pgTable.withRLS(
+  "workspace_knowledge_path_state",
+  {
+    workspaceId: text("workspace_id")
+      .primaryKey()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    orgId: text("org_id").notNull(),
+    revision: jsonb("revision").$type<WorkspaceRevision>().notNull(),
+    paths: jsonb("paths").$type<Record<string, string>>().notNull(),
+  },
+  (t) => [orgIsolationPolicy(t.orgId)],
+)
+
 export const workspaceSandboxInstances = pgTable.withRLS(
   "workspace_sandbox_instances",
   {
@@ -214,6 +247,9 @@ export const workspaceSandboxInstances = pgTable.withRLS(
     desiredSha: text("desired_sha"),
     provider: text("provider"),
     providerSandboxId: text("provider_sandbox_id"),
+    image: text("image"),
+    transitionKey: text("transition_key"),
+    revision: jsonb("revision").$type<WorkspaceRevision>(),
     latestSnapshotId: text("latest_snapshot_id"),
     latestRunId: text("latest_run_id"),
     state: text("state").notNull().default("live"),
@@ -238,11 +274,6 @@ export const workspaceSandboxInstances = pgTable.withRLS(
       .on(t.workspaceId)
       .where(
         sql`${t.kind} = 'job' and ${t.state} in ('live', 'destroy_failed')`,
-      ),
-    uniqueIndex("workspace_sandbox_instances_live_chat_conversation_uidx")
-      .on(t.conversationId)
-      .where(
-        sql`${t.kind} = 'chat' and ${t.conversationId} is not null and ${t.state} in ('live', 'destroy_failed')`,
       ),
     orgIsolationPolicy(t.orgId),
   ],

@@ -7,7 +7,6 @@ import {
   parseSimpleFrontMatter,
 } from "./layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
-import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 export function servingIdForKnowledgePath(
   workspaceId: string,
@@ -98,110 +97,15 @@ export function hydrateKnowledgeTree(input: {
   return { units, skipped, linked }
 }
 
-/** Hydrate reads this SHA. Never the moving default-branch tip. */
-export function hydrateReadsStoredDesiredSha(
-  desiredSha: string | null,
-): string | null {
-  const sha = desiredSha?.trim() ?? ""
-  return sha || null
-}
-
-/** GitHub + a connection uses the installation API; paste/other hosts clone. */
-export function hydrateReadPlan(
-  workspaceRepositoryUrl: string,
-  githubConnectionId?: string | null,
-): { via: "github" } | { via: "git_clone" } {
-  return githubRepoFullNameFromWorkspaceUrl(workspaceRepositoryUrl) &&
-    githubConnectionId
-    ? { via: "github" }
-    : { via: "git_clone" }
-}
-
-export function hydrateIsNoop(input: {
-  activeProjectionUrl: string | null
-  activeProjectionSha: string | null
-  desiredUrl: string
-  desiredSha: string
-}): boolean {
-  return (
-    input.activeProjectionUrl === input.desiredUrl &&
-    input.activeProjectionSha === input.desiredSha
-  )
-}
-
-export function shouldReplaceKnowledgeProjection(input: {
-  activeProjectionUrl: string | null
-  activeProjectionSha: string | null
-  desiredUrl: string
-  desiredSha: string
-}): boolean {
-  return !hydrateIsNoop(input)
-}
-
-/** Serving stores go live at the first successful hydrate SHA and stay on that projection during relink. */
-export function workspaceProjectionReady(input: {
-  hydrateStatus: string
-  activeProjectionSha: string | null
-  migrationExportSha?: string | null
-  writeStatus?: string | null
-}): boolean {
-  void input.hydrateStatus
-  void input.migrationExportSha
-  void input.writeStatus
-  return Boolean(input.activeProjectionSha)
-}
-
 export function shouldHydrateBeforeMigrationExport(
   migrationExportSha: string | null | undefined,
 ): boolean {
   return !migrationExportSha
 }
 
-export const HYDRATE_INDEX_UNAVAILABLE_MESSAGE =
-  "We could not open this repository for indexing."
-
-export type WorkspaceHydrateView =
-  | "waiting_for_tip"
-  | "hydrating"
-  | "failed"
-  | "ready"
-
-export function workspaceHydrateView(input: {
-  hydrateStatus: string
-  desiredSha?: string | null
-  hydrateError?: string | null
-  activeProjectionSha?: string | null
-}): WorkspaceHydrateView {
-  if (input.hydrateStatus === "failed") return "failed"
-  if (input.hydrateStatus !== "ready" && input.hydrateError) return "failed"
-  if (input.hydrateStatus === "ready") {
-    if (
-      input.desiredSha &&
-      input.activeProjectionSha &&
-      input.desiredSha !== input.activeProjectionSha
-    ) {
-      return "hydrating"
-    }
-    return "ready"
-  }
-  if (!input.desiredSha) return "waiting_for_tip"
-  return "hydrating"
-}
-
-/** Relink hydrates B in the background; keep polling until desired matches the active SHA. */
-export function workspaceHydrateInFlight(input: {
-  hydrateStatus: string
-  desiredSha?: string | null
-  hydrateError?: string | null
-  activeProjectionSha?: string | null
-}): boolean {
-  const view = workspaceHydrateView(input)
-  return view === "waiting_for_tip" || view === "hydrating"
-}
-
 export function applyEffectiveValidFromToUnits(
   units: readonly HydrateUnit[],
-  introducingCommitTimestamp: string | null,
+  introducingCommits: ReadonlyMap<string, string>,
 ): HydrateUnit[] {
   return units.map((unit) => ({
     ...unit,
@@ -209,7 +113,7 @@ export function applyEffectiveValidFromToUnits(
       ...claim,
       validFrom: effectiveValidFrom({
         recorded: claim.validFrom,
-        introducingCommitTimestamp,
+        introducingCommitTimestamp: introducingCommits.get(unit.path) ?? null,
       }),
     })),
   }))
@@ -251,9 +155,13 @@ export function hydrateUnitsToProjectionClaims(
   }> = []
   for (const unit of units) {
     const dir = unit.path.split("/").slice(0, -1).join("/")
+    const bodyTargets = new Set(
+      unit.links.map((href) => resolveHydrateLink(dir, href)),
+    )
     for (const [index, claim] of unit.claims.entries()) {
-      if (!claim.predicate) continue
       const target = resolveHydrateLink(dir, claim.to)
+      // A predicate-less claim adds no second layer over the permanent body link.
+      if (!claim.predicate && bodyTargets.has(target)) continue
       const object = byPath.get(target)
       if (!object) continue
       const validFrom = effectiveValidFrom({
@@ -266,7 +174,7 @@ export function hydrateUnitsToProjectionClaims(
         objectId: object.servingId,
         subjectKind: "KnowledgeUnit",
         objectKind: "KnowledgeUnit",
-        predicate: claim.predicate,
+        predicate: claim.predicate || "LINKS_TO",
         status: "active",
         aggregatedConfidence: claim.confidence ?? unit.confidence ?? 0.5,
         sourceCount: 1,
@@ -276,17 +184,13 @@ export function hydrateUnitsToProjectionClaims(
         source: claim.source,
       })
     }
+    const emittedBodyTargets = new Set<string>()
     for (const [index, href] of unit.links.entries()) {
       const target = resolveHydrateLink(dir, href)
       const object = byPath.get(target)
       if (!object) continue
-      if (
-        unit.claims.some(
-          (claim) => resolveHydrateLink(dir, claim.to) === target,
-        )
-      ) {
-        continue
-      }
+      if (emittedBodyTargets.has(target)) continue
+      emittedBodyTargets.add(target)
       claims.push({
         id: `${unit.servingId}:link:${index}`,
         subjectId: unit.servingId,
@@ -307,7 +211,7 @@ export function hydrateUnitsToProjectionClaims(
   return claims
 }
 
-function resolveHydrateLink(fromDir: string, href: string): string {
+export function resolveHydrateLink(fromDir: string, href: string): string {
   const cleaned = href.split("#")[0] ?? href
   if (!cleaned || cleaned.startsWith("http:") || cleaned.startsWith("https:")) {
     return ""

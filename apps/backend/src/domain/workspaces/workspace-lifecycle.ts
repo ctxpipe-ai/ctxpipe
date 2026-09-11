@@ -1,14 +1,5 @@
-import {
-  resolveWorkspaceGithubConnectionId,
-  type WorkspaceAddSource,
-} from "./bind-github-connection.js"
-import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
-import { destroySandboxesForWorkspace } from "./sandbox-registry.js"
-import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
-import {
-  githubConnectionIdForWriteProbe,
-  writeStatusFromClassification,
-} from "./write-status.js"
+import { generateObjectId } from "../../lib/id.js"
+import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import {
   createWorkspace,
   updateWorkspace,
@@ -17,6 +8,17 @@ import {
 import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
+import {
+  resolveWorkspaceGithubConnectionId,
+  type WorkspaceAddSource,
+} from "./bind-github-connection.js"
+import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
+import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
+import { destroySandboxesForWorkspace } from "./workspace-sandbox-cleanup.js"
+import {
+  githubConnectionIdForWriteProbe,
+  writeStatusFromClassification,
+} from "./write-status.js"
 
 type WorkspaceLog = { error: (err: Error) => void }
 
@@ -76,6 +78,10 @@ export async function createWorkspaceLifecycle(input: {
     },
     input.log,
   )
+  void enqueueWorkspaceWriteCommit(
+    { orgId: created.orgId, workspaceId: created.id, kind: "bootstrap" },
+    input.log,
+  )
   for (const gitUrl of created.autoLinkGitUrls) {
     void enqueueWorkspaceWriteCommit(
       {
@@ -95,16 +101,25 @@ export async function createWorkspaceLifecycle(input: {
 export async function renameWorkspaceLifecycle(input: {
   orgId: string
   workspaceId: string
+  displayName: string
   log: WorkspaceLog
 }): Promise<void> {
-  void enqueueWorkspaceWriteCommit(
+  const jobId = generateObjectId("wjob")
+  const result = await enqueueWorkspaceWriteCommit(
     {
       orgId: input.orgId,
       workspaceId: input.workspaceId,
+      jobId,
       kind: "ops_folder_map",
+      displayName: input.displayName,
     },
     input.log,
   )
+  if (
+    !result.started &&
+    (await reconcileWorkspaceWriteJob(jobId))?.status !== "paused"
+  )
+    throw new Error("Unable to schedule the workspace rename")
 }
 
 export async function relinkWorkspaceLifecycle(input: {
@@ -133,7 +148,9 @@ export async function relinkWorkspaceLifecycle(input: {
     ? normalizeWorkspaceRepositoryUrl(input.workspaceRepositoryUrl)
     : input.current.workspaceRepositoryUrl
   const changed =
-    Boolean(nextUrl) && nextUrl !== input.current.workspaceRepositoryUrl
+    (Boolean(nextUrl) && nextUrl !== input.current.workspaceRepositoryUrl) ||
+    (input.persistConnection &&
+      githubConnectionId !== input.current.githubConnectionId)
   const write = input.bindingSubmitted
     ? writeStatusFromClassification({
         workspaceRepositoryUrl: nextUrl || input.current.workspaceRepositoryUrl,

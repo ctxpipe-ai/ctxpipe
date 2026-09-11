@@ -1,4 +1,5 @@
 import { parse as parseYaml } from "yaml"
+import { linkedRepositoryUrlSchema } from "./linked-repository-url.js"
 
 export const KNOWLEDGE_SKILL_PATH = ".agents/skills/ctxpipe-knowledge/SKILL.md"
 export const REPOSITORIES_DIR = "repositories"
@@ -36,7 +37,8 @@ export function isConnectorMirrorPath(path: string): boolean {
   return (
     path.startsWith("linear/") ||
     path.startsWith("notion/") ||
-    path.startsWith("confluence/")
+    path.startsWith("confluence/") ||
+    path.startsWith("slack/")
   )
 }
 
@@ -55,7 +57,7 @@ export function parseSimpleFrontMatter(raw: string): {
 } {
   const trimmed = raw.replace(/^\uFEFF/, "")
   if (!trimmed.startsWith("---")) {
-    return { attributes: {}, body: trimmed, malformed: false }
+    return { attributes: {}, body: raw, malformed: false }
   }
   const end = trimmed.indexOf("\n---", 3)
   if (end < 0) return { attributes: {}, body: trimmed, malformed: true }
@@ -90,7 +92,8 @@ export function parseLinkedRepositoryMarkdown(raw: string): {
     typeof parsed.attributes.git === "string"
       ? parsed.attributes.git.trim()
       : ""
-  if (!git) return { git: "", branch: null, malformed: true }
+  if (!linkedRepositoryUrlSchema.safeParse(git).success)
+    return { git: "", branch: null, malformed: true }
   const branch =
     typeof parsed.attributes.branch === "string"
       ? parsed.attributes.branch.trim() || null
@@ -106,4 +109,3 @@ function slugSegment(raw: string): string {
     .replace(/^-+|-+$/g, "")
   return slug || "item"
 }
-

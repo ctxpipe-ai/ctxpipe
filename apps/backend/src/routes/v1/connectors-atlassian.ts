@@ -6,6 +6,7 @@ import {
   userMessageForProvisionError,
 } from "../../lib/forge-provision-error-map.js"
 import {
+  ConfluenceConfigProposalInProgressError,
   deleteForgeConnectionById,
   deleteForgeInstallationByOrgId,
   type ForgeInstallation,
@@ -20,11 +21,11 @@ import {
 import {
   getConfluenceSyncTargetWithRepoByConnectionId,
   getConfluenceSyncTargetWithRepoByOrgId,
-  markAwaitingConfigMergeSetup,
 } from "../../models/confluence-sync-target.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
+import { enqueueConnectorConfigSync } from "../../openworkflow/enqueue-connector-config-sync.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import { confluenceSyncConfig } from "../../openworkflow/workflows/confluence-sync-config.js"
 import { forgeProvision } from "../../openworkflow/workflows/forge-provision.js"
@@ -380,6 +381,10 @@ const patchConfigRoute = createRoute({
     },
   },
   responses: {
+    503: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Native workflow admission unavailable",
+    },
     200: {
       content: {
         "application/json": {
@@ -940,6 +945,8 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     }
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const orgSlug = c.get("orgSlug") ?? c.req.param("orgSlug")
+    if (!orgSlug) return c.json({ error: "Missing org slug" }, 400)
     const connectionId = ConnectionIdQuerySchema.parse({
       connectionId: c.req.query("connectionId") ?? undefined,
     }).connectionId
@@ -960,54 +967,88 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     const body = AtlassianPatchConfigRequestSchema.parse(await c.req.json())
     const { spaces: spacesPatch, syncTarget } = body
 
-    const saved = await patchAtlassianConnectorConfig({
-      orgId,
-      connectionId: installation.id,
-      ...(spacesPatch !== undefined
-        ? {
-            spaces: spacesPatch.map((space) => ({
-              spaceKey: space.spaceKey,
-              spaceName: space.spaceName,
-              selectedPageIds: space.selectedPageIds ?? null,
-            })),
-          }
-        : {}),
-      ...(syncTarget !== undefined ? { syncTarget } : {}),
-    })
+    let saved: Awaited<ReturnType<typeof patchAtlassianConnectorConfig>>
+    try {
+      saved = await patchAtlassianConnectorConfig({
+        orgId,
+        connectionId: installation.id,
+        ...(spacesPatch !== undefined
+          ? {
+              spaces: spacesPatch.map((space) => ({
+                spaceKey: space.spaceKey,
+                spaceName: space.spaceName,
+                selectedPageIds: space.selectedPageIds ?? null,
+              })),
+            }
+          : {}),
+        ...(syncTarget !== undefined ? { syncTarget } : {}),
+      })
+    } catch (error) {
+      if (error instanceof ConfluenceConfigProposalInProgressError)
+        return c.json({ error: error.message }, 409)
+      throw error
+    }
 
     if (saved.repositoryIngestion) {
-      void enqueueRepositoryIngestionWorkflow(
-        {
-          repositoryId: saved.repositoryIngestion.repositoryId,
-          orgId: saved.repositoryIngestion.orgId,
-        },
-        { error: (err) => getLogger().error(err) },
-      )
+      try {
+        await enqueueRepositoryIngestionWorkflow(saved.repositoryIngestion, {
+          error: (error) => getLogger().error(error),
+        })
+      } catch {
+        return c.json(
+          {
+            error:
+              "Repository ingestion admission unavailable; retry this request",
+          },
+          503,
+        )
+      }
     }
 
     const shouldOpenConfigPr =
-      spacesPatch !== undefined ||
-      (syncTarget !== undefined && saved.spaces.length > 0)
+      saved.configProposalEnabled &&
+      (spacesPatch !== undefined ||
+        (syncTarget !== undefined && saved.spaces.length > 0))
+    let configPrEnqueued = false
     if (shouldOpenConfigPr) {
-      await markAwaitingConfigMergeSetup({ connectionId: installation.id })
-      void runWorkflowWithWorkerWake(confluenceSyncConfig.spec, {
-        orgId,
-        orgSlug: c.req.param("orgSlug"),
-        connectionId: installation.id,
-      }).catch((err: unknown) => {
+      try {
+        const admission = await enqueueConnectorConfigSync({
+          provider: "confluence",
+          orgId,
+          orgSlug,
+          connectionId: installation.id,
+          spaces: saved.spaces.map((space) => ({
+            spaceKey: space.spaceKey,
+            selectedPageIds: space.selectedPageIds as string[] | null,
+          })),
+        })
+        if (!admission.accepted)
+          return c.json(
+            {
+              error:
+                "Confluence configuration changed or a proposal is already in progress",
+            },
+            409,
+          )
+        configPrEnqueued = admission.started
+      } catch (err) {
         getLogger().error(err instanceof Error ? err : new Error(String(err)), {
           step: "confluenceSyncConfig.enqueue",
           connectionId: installation.id,
         })
-      })
+        return c.json(
+          { error: "Failed to enqueue Confluence configuration pull request" },
+          503,
+        )
+      }
     }
 
     return c.json(
       {
         accepted: true as const,
         savedCount: saved.spaces.length,
-        configPrEnqueued: shouldOpenConfigPr,
-        ...(shouldOpenConfigPr
+        configPrEnqueued,
+        ...(configPrEnqueued
           ? { workflowName: confluenceSyncConfig.spec.name }
           : {}),
       },
@@ -1041,7 +1082,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       provisionStderr: null,
     })
     const orgSlug = c.req.param("orgSlug")
-    getLogger().info({
+    getLogger().info("Forge provision workflow queued", {
       step: "connectors.atlassian.provision-enqueued",
       message:
         "Forge provision workflow queued (worker runs register → deploy → install)",

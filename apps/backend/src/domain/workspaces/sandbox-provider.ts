@@ -1,6 +1,11 @@
 import { assertNotInOrgDbContext } from "../../db/client.js"
 
-export const SANDBOX_PROVIDERS = ["docker", "railway", "unsandboxed"] as const
+export const SANDBOX_PROVIDERS = [
+  "sbx",
+  "docker",
+  "railway",
+  "unsandboxed",
+] as const
 
 export type SandboxProvider = (typeof SANDBOX_PROVIDERS)[number]
 
@@ -16,7 +21,7 @@ export function detectSandboxProvider(input: {
     }
     throw new Error(`Unknown SANDBOX_PROVIDER "${locked}"`)
   }
-  if (input.hasSbx) return "docker"
+  if (input.hasSbx) return "sbx"
   if (input.hasDocker) return "docker"
   return "unsandboxed"
 }
@@ -34,9 +39,30 @@ export function detectSandboxProviderFromEnv(input?: {
   })
 }
 
+/** Discover an eligible provider using the native Docker client/environment. */
+export async function discoverSandboxProvider(): Promise<SandboxProvider> {
+  if (process.env.SANDBOX_PROVIDER?.trim())
+    return detectSandboxProviderFromEnv()
+  // The pinned sbx adapter cannot enforce the required disk/PID limits, so
+  // it is ineligible for automatic selection even if its CLI is installed.
+  // Explicit locks still reach the caller's fail-closed provider check.
+  const { default: Docker } = await import("dockerode")
+  // docker-modem accepts a connection deadline beyond Dockerode's declarations.
+  const options = {
+    timeout: 2_000,
+    connectionTimeout: 2_000,
+  }
+  const hasDocker = await new Docker(options).ping().then(
+    () => true,
+    () => false,
+  )
+  return detectSandboxProviderFromEnv({ hasDocker })
+}
+
 export async function destroyDetachedProviderSandbox(input: {
   provider?: string | null
   providerSandboxId: string
+  snapshotId?: string
 }): Promise<void> {
   if (input.provider === "docker") {
     const docker = await import("@tanstack/ai-sandbox-docker").catch(() => null)
@@ -45,6 +71,7 @@ export async function destroyDetachedProviderSandbox(input: {
       factory: docker?.dockerSandbox?.({ image: "node:22" }),
       provider: "docker",
       providerSandboxId: input.providerSandboxId,
+      snapshotId: input.snapshotId,
     })
     return
   }
@@ -54,6 +81,7 @@ export async function destroyDetachedProviderSandbox(input: {
       factory: docker?.sbxSandbox?.(),
       provider: "sbx",
       providerSandboxId: input.providerSandboxId,
+      snapshotId: input.snapshotId,
     })
     return
   }
@@ -68,6 +96,7 @@ export async function destroyDetachedProviderSandbox(input: {
       factory: local?.localProcessSandbox?.(),
       provider: "local-process",
       providerSandboxId: input.providerSandboxId,
+      snapshotId: input.snapshotId,
     })
     return
   }
@@ -89,15 +118,22 @@ async function destroyWithProviderFactory(input: {
   factory?: {
     destroy: (args: { id: string }) => Promise<void>
     resume?: (args: { id: string }) => Promise<unknown>
+    deleteSnapshot?: (args: { snapshotId: string }) => Promise<void>
   }
   provider: string
   providerSandboxId: string
+  snapshotId?: string
 }): Promise<void> {
   assertNotInOrgDbContext()
   if (!input.factory) {
     throw new Error(`Cannot destroy detached ${input.provider} sandbox`)
   }
   await input.factory.destroy({ id: input.providerSandboxId })
+  if (input.snapshotId) {
+    if (!input.factory.deleteSnapshot)
+      throw new Error(`Provider ${input.provider} cannot delete snapshots`)
+    await input.factory.deleteSnapshot({ snapshotId: input.snapshotId })
+  }
   const remaining = await input.factory.resume?.({
     id: input.providerSandboxId,
   })

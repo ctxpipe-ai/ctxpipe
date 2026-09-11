@@ -1,8 +1,4 @@
-import type {
-  CodeIngestionState,
-  ExtractedClaim,
-  ExtractedObject,
-} from "./schemas.js"
+import { extractionCaptureBudgetSchema } from "../../domain/workspaces/extraction.js"
 import { extractInstructionUnits } from "./nodes/extractInstructionUnits.js"
 import { extractKind } from "./nodes/extractKind.js"
 import { identifyAPIClients } from "./nodes/identifyAPIClients.js"
@@ -13,6 +9,11 @@ import { identifyLibraries } from "./nodes/identifyLibraries.js"
 import { identifyPatterns } from "./nodes/identifyPatterns.js"
 import { identifyServiceDependencies } from "./nodes/identifyServiceDependencies.js"
 import { identifyStreams } from "./nodes/identifyStreams.js"
+import type {
+  CodeIngestionState,
+  ExtractedClaim,
+  ExtractedObject,
+} from "./schemas.js"
 
 /** Stable OpenWorkflow step-name fragment for a package root path. */
 export function stableRootStepId(root: string): string {
@@ -24,9 +25,7 @@ export function stableRootStepId(root: string): string {
     .slice(0, 120)
 }
 
-function concatExtracted(
-  parts: Array<Partial<CodeIngestionState>>,
-): {
+function concatExtracted(parts: Array<Partial<CodeIngestionState>>): {
   extractedObjects: ExtractedObject[]
   extractedClaims: ExtractedClaim[]
 } {
@@ -40,11 +39,15 @@ function concatExtracted(
       extractedClaims.push(...part.extractedClaims)
     }
   }
+  extractionCaptureBudgetSchema.parse({
+    objects: extractedObjects,
+    claims: extractedClaims,
+  })
   return { extractedObjects, extractedClaims }
 }
 
 /**
- * Per-root extract DAG (same shape as extractionSubgraph):
+ * Per-root extraction sequence:
  * extractKind, then parallel identify_* + extractInstructionUnits.
  *
  * Used by OpenWorkflow `repository-ingestion` so each phase is a durable step
@@ -54,7 +57,12 @@ export async function runExtractKindForRoot(
   state: CodeIngestionState,
   root: string,
 ): Promise<Partial<CodeIngestionState>> {
-  return extractKind({ ...state, roots: [root] })
+  const result = await extractKind({ ...state, roots: [root] })
+  extractionCaptureBudgetSchema.parse({
+    objects: result.extractedObjects ?? [],
+    claims: result.extractedClaims ?? [],
+  })
+  return result
 }
 
 export async function runIdentifyPhaseForRoot(
@@ -86,20 +94,4 @@ export async function runIdentifyPhaseForRoot(
   ])
 
   return concatExtracted([kindPartial, ...parts])
-}
-
-/**
- * Full per-root extract (kind → parallel identify). Prefer splitting across OW
- * steps via {@link runExtractKindForRoot} + {@link runIdentifyPhaseForRoot}
- * when durability at the kind boundary is needed.
- */
-export async function runExtractForRoot(
-  state: CodeIngestionState,
-  root: string,
-): Promise<{
-  extractedObjects: ExtractedObject[]
-  extractedClaims: ExtractedClaim[]
-}> {
-  const kindPartial = await runExtractKindForRoot(state, root)
-  return runIdentifyPhaseForRoot(state, root, kindPartial)
 }

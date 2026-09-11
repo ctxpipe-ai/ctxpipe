@@ -4,8 +4,11 @@ export function conversationSessionBranch(conversationId: string): string {
   return `ctxpipe/chat/${conversationId}/1`
 }
 
-export function conversationAllowsEdits(writeStatus: string): boolean {
-  return writeStatus === "writable"
+export function conversationAllowsEdits(
+  writeStatus: string,
+  conversationWritable?: boolean,
+): boolean {
+  return conversationWritable ?? writeStatus === "writable"
 }
 
 export function conversationBranchShortName(branch: string): string {
@@ -36,11 +39,14 @@ export function conversationGithubTreeHref(
   }
 }
 
-export function conversationCommitPushEnabled(status: {
-  dirty: boolean
-  differsFromDefault: boolean
-  unpushed: boolean
-} | null): boolean {
-  if (!status) return false
+export function conversationCommitPushEnabled(
+  status: {
+    dirty: boolean
+    differsFromDefault: boolean
+    unpushed: boolean
+    stale?: boolean
+  } | null,
+): boolean {
+  if (!status || status.stale) return false
   return status.dirty || status.differsFromDefault || status.unpushed
 }

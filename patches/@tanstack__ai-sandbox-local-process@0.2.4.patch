@@ -1,0 +1,189 @@
+diff --git a/dist/esm/handle.js b/dist/esm/handle.js
+index f849f8708b22a6bd6204f3c78261229543f53b52..72cd98a713aec6d10634dc1d0e10c47c85db2a69 100644
+--- a/dist/esm/handle.js
++++ b/dist/esm/handle.js
+@@ -81,6 +81,9 @@ function prependShellPath(env) {
+ 	}
+ 	return env;
+ }
++function shellSingleQuote(value) {
++	return `'${value.replaceAll("'", `'\\''`)}'`;
++}
+ var LOCAL_PROCESS_CAPS = {
+ 	fs: true,
+ 	exec: true,
+@@ -454,12 +457,17 @@ var LocalProcessHandle = class {
+ 		this.id = options.root;
+ 		this.options = options;
+ 		this.fs = {
+-			read: async (p) => fsp.readFile(this.resolve(p), "utf8"),
++			read: async (p, options) => fsp.readFile(this.resolve(p), {
++				encoding: "utf8",
++				signal: options?.signal
++			}),
+ 			readBytes: async (p) => new Uint8Array(await fsp.readFile(this.resolve(p))),
+-			write: async (p, data) => {
++			write: async (p, data, options) => {
+ 				const target = this.resolve(p);
++				options?.signal?.throwIfAborted();
+ 				await fsp.mkdir(path.dirname(target), { recursive: true });
+-				await fsp.writeFile(target, typeof data === "string" ? data : Buffer.from(data));
++				options?.signal?.throwIfAborted();
++				await fsp.writeFile(target, typeof data === "string" ? data : Buffer.from(data), { signal: options?.signal });
+ 			},
+ 			list: async (p) => {
+ 				return (await fsp.readdir(this.resolve(p), { withFileTypes: true })).map((e) => ({
+@@ -486,14 +494,32 @@ var LocalProcessHandle = class {
+ 					mode: stat.mode
+ 				};
+ 			},
+-			mkdir: async (p) => {
+-				await fsp.mkdir(this.resolve(p), { recursive: true });
++			mkdir: async (p, options) => {
++				const target = this.resolve(p);
++				const signal = options?.signal;
++				if (!signal) {
++					await fsp.mkdir(target, { recursive: true });
++					return;
++				}
++				signal.throwIfAborted();
++				const result = await this.exec(`mkdir -p -- ${shellSingleQuote(target)}`, { signal });
++				signal.throwIfAborted();
++				if (result.exitCode !== 0) throw new Error(result.stderr.trim() || `Failed to create ${target}`);
+ 			},
+-			remove: async (p) => {
+-				await fsp.rm(this.resolve(p), {
+-					recursive: true,
+-					force: true
+-				});
++			remove: async (p, options) => {
++				const target = this.resolve(p);
++				const signal = options?.signal;
++				if (!signal) {
++					await fsp.rm(target, {
++						recursive: true,
++						force: true
++					});
++					return;
++				}
++				signal.throwIfAborted();
++				const result = await this.exec(`rm -rf -- ${shellSingleQuote(target)}`, { signal });
++				signal.throwIfAborted();
++				if (result.exitCode !== 0) throw new Error(result.stderr.trim() || `Failed to remove ${target}`);
+ 			},
+ 			rename: async (from, to) => {
+ 				await fsp.rename(this.resolve(from), this.resolve(to));
+@@ -601,6 +627,7 @@ var LocalProcessHandle = class {
+ 	}
+ 	exec(command, opts) {
+ 		return new Promise((resolve, reject) => {
++			opts?.signal?.throwIfAborted();
+ 			const child = spawn(posixShell(), ["-c", command], {
+ 				cwd: this.resolveCwd(opts?.cwd),
+ 				env: this.mergedEnv(opts?.env),
+@@ -615,6 +642,7 @@ var LocalProcessHandle = class {
+ 				killTree(child, void 0, this.options.logger);
+ 			};
+ 			opts?.signal?.addEventListener("abort", onAbort, { once: true });
++			if (opts?.signal?.aborted) onAbort();
+ 			child.on("error", reject);
+ 			child.on("close", (code) => {
+ 				opts?.signal?.removeEventListener("abort", onAbort);
+diff --git a/src/handle.ts b/src/handle.ts
+index 7c0106d209082ecd508a69768c9b6219a019c984..bd33313c08bb483dd8ca8d9376e67c81d645335d 100644
+--- a/src/handle.ts
++++ b/src/handle.ts
+@@ -111,6 +111,10 @@ function prependShellPath(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+   return env
+ }
+ 
++function shellSingleQuote(value: string): string {
++  return `'${value.replaceAll("'", `'\\''`)}'`
++}
++
+ export const LOCAL_PROCESS_CAPS: SandboxCapabilities = {
+   fs: true,
+   exec: true,
+@@ -618,15 +622,22 @@ export class LocalProcessHandle implements SandboxHandle {
+     this.options = options
+ 
+     this.fs = {
+-      read: async (p) => fsp.readFile(this.resolve(p), 'utf8'),
++      read: async (p, options) =>
++        fsp.readFile(this.resolve(p), {
++          encoding: 'utf8',
++          signal: options?.signal,
++        }),
+       readBytes: async (p) =>
+         new Uint8Array(await fsp.readFile(this.resolve(p))),
+-      write: async (p, data) => {
++      write: async (p, data, options) => {
+         const target = this.resolve(p)
++        options?.signal?.throwIfAborted()
+         await fsp.mkdir(path.dirname(target), { recursive: true })
++        options?.signal?.throwIfAborted()
+         await fsp.writeFile(
+           target,
+           typeof data === 'string' ? data : Buffer.from(data),
++          { signal: options?.signal },
+         )
+       },
+       list: async (p) => {
+@@ -664,11 +675,37 @@ export class LocalProcessHandle implements SandboxHandle {
+           ? { type, mode: stat.mode, size: stat.size }
+           : { type, mode: stat.mode }
+       },
+-      mkdir: async (p) => {
+-        await fsp.mkdir(this.resolve(p), { recursive: true })
++      mkdir: async (p, options) => {
++        const target = this.resolve(p)
++        const signal = options?.signal
++        if (!signal) {
++          await fsp.mkdir(target, { recursive: true })
++          return
++        }
++        signal.throwIfAborted()
++        const result = await this.exec(
++          `mkdir -p -- ${shellSingleQuote(target)}`,
++          { signal },
++        )
++        signal.throwIfAborted()
++        if (result.exitCode !== 0)
++          throw new Error(result.stderr.trim() || `Failed to create ${target}`)
+       },
+-      remove: async (p) => {
+-        await fsp.rm(this.resolve(p), { recursive: true, force: true })
++      remove: async (p, options) => {
++        const target = this.resolve(p)
++        const signal = options?.signal
++        if (!signal) {
++          await fsp.rm(target, { recursive: true, force: true })
++          return
++        }
++        signal.throwIfAborted()
++        const result = await this.exec(
++          `rm -rf -- ${shellSingleQuote(target)}`,
++          { signal },
++        )
++        signal.throwIfAborted()
++        if (result.exitCode !== 0)
++          throw new Error(result.stderr.trim() || `Failed to remove ${target}`)
+       },
+       rename: async (from, to) => {
+         await fsp.rename(this.resolve(from), this.resolve(to))
+@@ -855,6 +892,7 @@ export class LocalProcessHandle implements SandboxHandle {
+ 
+   private exec(command: string, opts?: ProcessOptions): Promise<ExecResult> {
+     return new Promise<ExecResult>((resolve, reject) => {
++      opts?.signal?.throwIfAborted()
+       // Run via a POSIX `sh` on every platform (see posixShell) so the adapter's
+       // single-quote-quoted commands work identically — including native Windows,
+       // where `shell: true` would be cmd.exe and mangle the quoting.
+@@ -872,6 +910,7 @@ export class LocalProcessHandle implements SandboxHandle {
+         killTree(child, undefined, this.options.logger)
+       }
+       opts?.signal?.addEventListener('abort', onAbort, { once: true })
++      if (opts?.signal?.aborted) onAbort()
+       child.on('error', reject)
+       child.on('close', (code) => {
+         opts?.signal?.removeEventListener('abort', onAbort)

@@ -5,11 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "ZOEKT_WEBSERVER_URL=${ZOEKT_WEBSERVER_URL:-http://127.0.0.1:6070} portless codesearch.ctxpipe bun run --hot src/server.ts",
-    "build": "tsc",
+    "build": "bun build ./src/server.ts --target=bun --packages=external --outdir=dist",
     "start": "bun run dist/server.js",
     "test": "bash scripts/run-vitest-docker.sh",
     "test:manual:kubernetes-memory": "bash scripts/manual-kubernetes-ingest-memory.sh",
-    "test:vitest": "vitest run --exclude src/domain/repositories/globFiles.test.ts && bun --bun vitest run src/domain/repositories/globFiles.test.ts",
+    "test:vitest": "node scripts/run-vitest-contracts.mjs",
     "lint": "biome lint .",
     "format": "biome format --write ."
   },

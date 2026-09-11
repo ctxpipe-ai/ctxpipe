@@ -1,37 +1,76 @@
-# ADR-008: Codesearch service and Zoekt orchestration
+# ADR-008: Codesearch Zoekt, SCIP, and ast-grep
 
-**Status:** Accepted | **Date:** 2026-02-15 | **Tags:** codesearch, zoekt, indexing
+**Status:** Accepted | **Date:** 2026-02-15 (amended 2026-09-11) | **Tags:** codesearch, zoekt, scip, ast-grep, indexing
 
 ## Context
 
-We need a code search and indexing experience powered by [Zoekt](https://github.com/sourcegraph/zoekt). The solution should live in the monorepo as a separate app, use the same Postgres as the backend, and expose search, indexing, and file-serving APIs. Repository metadata is owned by the backend; indexing is on-demand only (no discovery).
+We need lexical search, symbol navigation, and structural matching across large
+customer repositories. The service stays in the monorepo, uses the same Postgres
+as the backend, and indexes on demand (no discovery). Splitting SCIP or
+structural search into another service was rejected.
 
 ## Decision
 
-1. **New app `apps/codesearch`**: Bun service (Hono, OpenAPI + Zod) that orchestrates Zoekt and serves search/file APIs. Structure mirrors `apps/backend` (server, app, routes, config, db).
+1. **One app, one checkout.** [`apps/codesearch`](../../../apps/codesearch) (Bun,
+   Hono, OpenAPI + Zod) clones or checks out a repository once. Zoekt indexing
+   and language-specific SCIP indexers run in parallel. The checkout is marked
+   indexed only after both required phases succeed. Indexing fails closed if
+   either phase fails. An empty SCIP index is published when no supported
+   language is present. Partial ingests reuse untouched language shards.
 
-2. **Repositories in backend**: The `repositories` table and all Drizzle migrations live in **backend** (`apps/backend/src/db/schema/index.ts`). Codesearch mirrors this table schema and may write only the indexing lifecycle field `index_ready` after successful indexing. All other writes (get-or-create repo, metadata changes, etc.) are done by the backend. IDs use **TEXT** and format **`<prefix>_<base32 encoded uuid>`**; repositories use prefix **`repo_`**. `zoekt_repo_id` is an autoincrement integer.
+2. **Query split.** Zoekt owns text, regex, and rough symbol discovery. SCIP owns
+   definitions, references, implementations, callers, and callees (caller/callee
+   results are reference-based). ast-grep owns syntax-aware structural patterns.
+   Checkout plus Zoekt backs file reads and listings.
 
-3. **Clone path convention**: No `clone_path` column. Clone location is **`<org_id>/<repo_id>`** under a repo cache base path (`REPO_CACHE_DIR`; default `/data/repo-cache` in containers).
+3. **Stable agent tools.**
 
-4. **Index and repo cache**: Defaults are **`/data/zoekt-index`** and **`/data/repo-cache`** (Docker). **`ZOEKT_INDEX_DIR`** and **`REPO_CACHE_DIR`** may be set in the environment; local dev bind-mounts **`apps/codesearch/.data/`** via [`scripts/codesearch-docker-dev.sh`](../../../scripts/codesearch-docker-dev.sh). GitHub tokens are passed per-request by the backend (minted from the GitHub App installation).
+   | Tool | Implementation |
+   |------|----------------|
+   | `search` / `find_symbol_definitions` | Zoekt lexical and symbol discovery |
+   | `find_symbol_references` | Heuristic Zoekt reference search |
+   | `graph_find_symbol` | SCIP definitions and implementations |
+   | `graph_get_callers` | SCIP references into callable definitions |
+   | `graph_get_callees` | SCIP references originating in a callable definition |
+   | `structural_search` | ast-grep patterns scoped to a repository checkout |
+   | `list_files` / `get_file` | Checkout and Zoekt-backed file access |
 
-5. **Indexserver / indexing**: No discovery. Indexing is only for repositories explicitly requested (e.g. POST `/:repoId/index`). Clone and run `zoekt-git-index` (or invoke indexserver for a single repo); no mirror config or org/user sync.
+4. **Repositories in backend.** The `repositories` table and Drizzle migrations
+   live in backend. Codesearch mirrors the schema and may write only the
+   indexing lifecycle field after a successful index. IDs are
+   `<prefix>_<base32 uuid>`; repositories use `repo_`.
 
-6. **Session/tenant (temporary)**: Mock org is a constant in code (`MOCK_ORG_ID`); no env or headers until auth is integrated.
+5. **Clone and cache paths.** No `clone_path` column. Checkout is
+   `<org_id>/<repo_id>` under `REPO_CACHE_DIR` (default `/data/repo-cache`).
+   Zoekt index default is `/data/zoekt-index`. Host dev bind-mounts
+   `apps/codesearch/.data/` via [`scripts/codesearch-docker-dev.sh`](../../../scripts/codesearch-docker-dev.sh).
+   GitHub tokens are per-request from the backend.
+
+6. **No discovery.** Index only repositories explicitly requested. Fresh and
+   updated repositories use the normal indexing path; existing repositories
+   migrate through the ingestion workflow.
+
+Implementation: [`apps/codesearch/src/domain/indexing/service.ts`](../../../apps/codesearch/src/domain/indexing/service.ts),
+[`scipIndexers.ts`](../../../apps/codesearch/src/domain/indexing/scipIndexers.ts),
+[`executeGraphPrimitive.ts`](../../../apps/codesearch/src/domain/graph/executeGraphPrimitive.ts),
+[`structuralSearch.ts`](../../../apps/codesearch/src/domain/search/structuralSearch.ts),
+[`apps/backend/src/tools/repoExplorerTools.ts`](../../../apps/backend/src/tools/repoExplorerTools.ts),
+[`apps/codesearch/Dockerfile`](../../../apps/codesearch/Dockerfile).
 
 ## Consequences
 
-- Single place for migrations (backend); codesearch keeps a schema mirror in sync and performs a narrow lifecycle update (`index_ready`) after indexing succeeds.
-- Consistent ID and path conventions across services.
-- On-demand indexing keeps control and avoids unnecessary sync.
+- Backend remains the single migration owner; codesearch updates a narrow
+  lifecycle field after index success.
+- Zoekt and SCIP run in the same codesearch image/process boundary (see
+  [ADR-015](ADR-015-docker-compose-profiles-and-small-scale-deploy.md)); there is
+  no separate Zoekt-only search service.
+- Structural search stays argv-only, streamed, path-contained, and bounded.
+- Immutable published checkouts and SHA-bound claims are owned by
+  [ADR-032](ADR-032-workspace-revision-projection-identity.md) and
+  [ADR-033](ADR-033-native-durable-write-workflows.md).
 
 ## Alternatives Considered
 
-- **Repositories table in codesearch**: Rejected so all migrations stay in backend.
-- **Configurable index/cache dirs**: Defaults stay `/data/...` in production; optional env overrides for host dev and operators.
-
-## Notes
-
-- Zoekt webserver runs separately (e.g. same Docker stack, not in the same image as Bun). Bun app proxies POST /search to Zoekt.
-- Full clone + zoekt-git-index in POST /:repoId/index can be implemented next; stub returns ok for now.
+- **Repositories table in codesearch:** rejected so all migrations stay in backend.
+- **A second indexing service for SCIP or ast-grep:** rejected; one checkout
+  keeps lexical, graph, and structural artifacts aligned.

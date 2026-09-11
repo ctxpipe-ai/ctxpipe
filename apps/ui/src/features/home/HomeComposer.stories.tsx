@@ -1,12 +1,22 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, userEvent, within } from "storybook/test"
+import { http } from "msw"
+import { StrictMode } from "react"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   docsWorkspace,
   readOnlyWorkspace,
 } from "@/features/workspaces/workspace-fixtures"
+import {
+  conversationAguiSseResponse,
+  conversationAguiTextEvents,
+  conversationPostPath,
+} from "@/mocks/conversation-agui"
+import { workspaceShellHandlers } from "@/mocks/workspace-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { HomeComposer } from "./HomeComposer"
+
+const firstMessagePosts = { count: 0 }
 
 const meta = {
   title: "Components/Home/Composer",
@@ -46,4 +56,54 @@ export const NoWorkspaces: Story = {
     workspaces: [],
     selected: null,
   },
+}
+
+export const FirstMessageSendsOnce: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.post(conversationPostPath, () => {
+            firstMessagePosts.count += 1
+            return conversationAguiSseResponse(
+              conversationAguiTextEvents({
+                threadId: "conv_home",
+                messageId: "msg_home",
+                text: "Native reply completed.",
+              }),
+            )
+          }),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    firstMessagePosts.count = 0
+    const canvas = within(canvasElement)
+    await userEvent.type(
+      canvas.getByPlaceholderText(/ask about this workspace/i),
+      "What changed this week?",
+    )
+    await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+    await waitFor(() => expect(firstMessagePosts.count).toBe(1))
+    await waitFor(() =>
+      expect(
+        canvas.queryByPlaceholderText(/ask about this workspace/i),
+      ).toBeNull(),
+    )
+  },
+}
+
+export const FirstMessageSendsOnceInStrictMode: Story = {
+  tags: ["workspace-golden"],
+  decorators: [
+    (Story) => (
+      <StrictMode>
+        <Story />
+      </StrictMode>
+    ),
+  ],
+  parameters: FirstMessageSendsOnce.parameters,
+  play: FirstMessageSendsOnce.play,
 }

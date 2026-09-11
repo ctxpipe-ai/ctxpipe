@@ -170,10 +170,11 @@ export async function agentNode(
   // Do not add callbacks here — Langfuse handler is attached once at the graph boundary.
   const stream = await agent.stream(
     { messages: inputMessages },
-    mergeConfigs(config, {
+    {
+      ...mergeConfigs(config),
       streamMode: ["messages", "values"],
       recursionLimit: AGENT_RECURSION_LIMIT,
-    }),
+    },
   )
 
   let finalMessages: BaseMessageLike[] | undefined

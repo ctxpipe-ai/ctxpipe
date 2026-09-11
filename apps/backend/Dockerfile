@@ -2,17 +2,17 @@
 FROM node:22-alpine AS opencode
 RUN npm install -g opencode-ai@1.18.18
 
-FROM oven/bun:1.2-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /app
 ENV CI=true
-RUN bun install -g pnpm@10.12.1
+RUN npm install -g pnpm@10.12.1
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/backend/package.json apps/backend/package.json
 RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
 
 # Production stage — Bun runs TypeScript natively, no tsc compilation needed
-FROM oven/bun:1.2-alpine
+FROM oven/bun:1.4.2-alpine
 WORKDIR /app
 ENV CI=true
 ENV NODE_ENV=production
@@ -26,6 +26,7 @@ COPY --from=opencode /usr/local/lib/node_modules/ /usr/local/lib/node_modules/
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/backend/node_modules ./apps/backend/node_modules
 COPY tsconfig.json ./
+COPY shared ./shared
 COPY apps/backend/src ./apps/backend/src
 COPY apps/backend/public ./apps/backend/public
 COPY apps/backend/migrations ./apps/backend/migrations

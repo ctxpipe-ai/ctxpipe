@@ -45,7 +45,6 @@ export function WorkspaceConversationList(props: {
       const res = await client[":orgSlug"].api.v1.conversations.$get({
         param: { orgSlug },
         query: {
-          source: "ui",
           workspaceId: workspace.id,
           first: 5,
           ...(pageParam != null &&

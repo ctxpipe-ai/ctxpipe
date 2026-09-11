@@ -35,7 +35,7 @@ Single-context (this repo):
 └── apps/ …
 ```
 
-Do **not** create a top-level `docs/` tree for agent domain docs — `apps/docs` is the public documentation site.
+Customer-facing documentation lives in [`apps/docs/content/docs/`](../../apps/docs/content/docs/). Write plans, tickets, ledgers, reviews, and logs to [`.ai/scratchpad/`](../scratchpad/) or [`.ai/memory/`](../memory/) — never under root `docs/`.
 
 ## Use the glossary's vocabulary
 

@@ -8,6 +8,8 @@ import { Pool } from "pg"
 import { parseEnv } from "../config/env.js"
 import { initEvlog, log } from "../observability/logger.js"
 import { backfillGithubAppSecretsFromEnv } from "../scripts/backfillGithubConnectionSecrets.js"
+import { backfillKnowledgePathState } from "./backfill-knowledge-path-state.js"
+import { backfillRepositoryIngestionRequests } from "./backfill-repository-ingestion-requests.js"
 import { closeDb, initDb } from "./client.js"
 import { migrateLanggraphCheckpoints } from "./migrate-checkpoints.js"
 import { migrateOpenWorkflow } from "./migrate-openworkflow.js"
@@ -33,6 +35,8 @@ if (appRolePassword) {
 log.info({ step: "migrate", message: "[migrate] running migrations…" })
 await migrate(db, { migrationsFolder: "./apps/backend/migrations" })
 await migrateOpenWorkflow(connectionString)
+await backfillKnowledgePathState(pool)
+await backfillRepositoryIngestionRequests(pool)
 await migrateLanggraphCheckpoints(connectionString)
 
 let env: ReturnType<typeof parseEnv> | undefined

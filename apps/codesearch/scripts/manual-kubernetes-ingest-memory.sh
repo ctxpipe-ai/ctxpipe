@@ -7,7 +7,10 @@ set -euo pipefail
 # index artifact handling.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-IMAGE="ctxpipe-codesearch:kubernetes-memory-gate"
+IMAGE="${KUBERNETES_MEMORY_IMAGE:-ctxpipe-codesearch:kubernetes-memory-gate}"
+: "${DATABASE_URL:?A migrated disposable Postgres DATABASE_URL is required}"
+: "${AUTH_SECRET:?AUTH_SECRET is required}"
+GATE_ORG_ID="org_manual_$$"
 KUBERNETES_REPOSITORY="https://github.com/kubernetes/kubernetes.git"
 KUBERNETES_SHA="0f29094e5b73085e3802ecc1298ecae13866bfe6" # v1.36.3
 
@@ -32,7 +35,9 @@ fi
 
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ctxpipe-kubernetes-memory.XXXXXX")"
 CONTAINER_NAME="ctxpipe-kubernetes-memory-$$"
-CHECKOUT_DIR="${WORK_DIR}/data/repo-cache/org_manual/repo_kubernetes/checkouts/default"
+GO_CACHE_DIR="${KUBERNETES_MEMORY_GO_CACHE:-${WORK_DIR}}"
+mkdir -p "${GO_CACHE_DIR}/go-cache" "${GO_CACHE_DIR}/go-mod"
+CHECKOUT_DIR="${WORK_DIR}/data/repo-cache/${GATE_ORG_ID}/${GATE_ORG_ID}_repo/checkouts/rev:${KUBERNETES_SHA}"
 SCIP_DIR="$(dirname "${CHECKOUT_DIR}")"
 # Cold durable shards (zoekt-index writes here). Hot is a sibling directory of
 # symlinks only — same derivation as apps/codesearch/src/config/paths.ts.
@@ -41,11 +46,19 @@ ZOEKT_HOT_DIR="${WORK_DIR}/data/zoekt-hot"
 
 cleanup() {
   docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
-  rm -rf "${WORK_DIR}"
+  # Docker Desktop preserves host ownership; repair those files on the host.
+  if chmod -R u+rwX "${WORK_DIR}" 2>/dev/null && rm -rf "${WORK_DIR}" 2>/dev/null; then
+    return
+  fi
+  # On Linux the root container can own read-only cache directories instead.
+  docker run --rm --network none --user root --entrypoint sh \
+    -v "${WORK_DIR}:/cleanup" "${IMAGE}" \
+    -c 'chmod -R u+rwX /cleanup && find /cleanup -mindepth 1 -delete'
+  rmdir "${WORK_DIR}"
 }
 trap cleanup EXIT INT TERM
 
-mkdir -p "${SCIP_DIR}" "${ZOEKT_DIR}" "${ZOEKT_HOT_DIR}"
+mkdir -p "${SCIP_DIR}" "${ZOEKT_DIR}" "${ZOEKT_HOT_DIR}" "${WORK_DIR}/go-build" "${WORK_DIR}/go-cache" "${WORK_DIR}/go-mod" "${WORK_DIR}/tmp"
 
 # Seed an unrelated cold shard so the gate proves ingest does not copy/load it
 # into hot (zoekt-webserver is not started here; Bun must not write real files
@@ -79,14 +92,31 @@ import {
   type IndexPhaseRepoContext,
 } from "/app/apps/codesearch/src/domain/indexing/phases.ts"
 import { zoektRepositoryName } from "/app/apps/codesearch/src/domain/zoekt/shardPrefix.ts"
+import { repositoryRevisionCheckoutKey } from "/app/shared/workspace-checkout.ts"
+import { repoCheckoutPath, scipIndexPath } from "/app/apps/codesearch/src/domain/repositories/paths.ts"
+const checkoutKey = repositoryRevisionCheckoutKey("${KUBERNETES_SHA}")
 
-const noOpDb = {
-  update: () => ({
-    set: () => ({
-      where: async () => undefined,
-    }),
-  }),
-}
+import { createDb, withOrgDbContext } from "/app/apps/codesearch/src/db/client.ts"
+import { parseEnv } from "/app/apps/codesearch/src/config/env.ts"
+import { repositories, repositoryCheckouts } from "/app/apps/codesearch/src/db/schema.ts"
+import { eq } from "/app/apps/codesearch/node_modules/drizzle-orm/index.js"
+const db = createDb(parseEnv(process.env))
+const orgId = "${GATE_ORG_ID}"
+await db.\$client.query(
+  "insert into organizations (id, name, slug, created_at) values (\$1, \$1, \$1, now())",
+  [orgId],
+)
+try {
+const indexedCheckout = await withOrgDbContext(db, orgId, async (tx) => {
+  await tx.insert(repositories).values({
+    id: orgId + "_repo", orgId, name: "Kubernetes memory gate", gitUrl: "${KUBERNETES_REPOSITORY}",
+  })
+  const [checkout] = await tx.insert(repositoryCheckouts).values({
+    id: orgId + "_checkout", orgId, repositoryId: orgId + "_repo", checkoutKey, ref: "${KUBERNETES_SHA}",
+  }).returning()
+  if (!checkout) throw new Error("Missing memory gate checkout")
+  return checkout
+})
 
 if (INDEXER_PROCESS_CONCURRENCY !== 2) {
   throw new Error(
@@ -106,16 +136,18 @@ if (goEnv.GOMAXPROCS !== "2" || goEnv.GOGC !== "50") {
 }
 
 const ctx: IndexPhaseRepoContext = {
-  db: noOpDb as never,
-  orgId: "org_manual",
-  repoId: "repo_kubernetes",
+  db,
+  checkoutKey,
+  orgId: "${GATE_ORG_ID}",
+  repoId: orgId + "_repo",
   repoGitUrl: "${KUBERNETES_REPOSITORY}",
-  clonePath: "/gate/data/repo-cache/org_manual/repo_kubernetes/checkouts/default",
-  scipIndexPath: "/gate/data/repo-cache/org_manual/repo_kubernetes/checkouts/default.scip",
-  zoektRepoId: 1,
+  clonePath: repoCheckoutPath(orgId, orgId + "_repo", checkoutKey),
+  scipIndexPath: scipIndexPath(orgId, orgId + "_repo", checkoutKey),
+  zoektRepoId: indexedCheckout.zoektRepoId,
   zoektName: zoektRepositoryName({
-    orgId: "org_manual",
-    repoId: "repo_kubernetes",
+    checkoutKey,
+    orgId: "${GATE_ORG_ID}",
+    repoId: orgId + "_repo",
   }),
   repoName: "kubernetes/kubernetes",
   repoUrl: "${KUBERNETES_REPOSITORY}",
@@ -155,6 +187,18 @@ console.log(
     languagesToIndex: languages.languagesToIndex,
   }),
 )
+const completed = await withOrgDbContext(db, orgId, (tx) =>
+  tx.select().from(repositoryCheckouts).where(eq(repositoryCheckouts.id, indexedCheckout.id)),
+)
+if (completed[0]?.commitSha !== "${KUBERNETES_SHA}") throw new Error("Checkout publication did not persist")
+} finally {
+  await withOrgDbContext(db, orgId, async (tx) => {
+    await tx.delete(repositoryCheckouts).where(eq(repositoryCheckouts.orgId, orgId))
+    await tx.delete(repositories).where(eq(repositories.orgId, orgId))
+  })
+  await db.\$client.query("delete from organizations where id = \$1", [orgId])
+  await db.\$client.end()
+}
 EOF
 
 cat >"${WORK_DIR}/run-with-memory-sampler.sh" <<'EOF'
@@ -202,11 +246,11 @@ exit "${status}"
 EOF
 chmod +x "${WORK_DIR}/run-with-memory-sampler.sh"
 
-echo "manual-kubernetes-memory: building ${IMAGE}"
-docker build \
-  -f "${ROOT}/apps/codesearch/Dockerfile" \
-  -t "${IMAGE}" \
-  "${ROOT}"
+if [[ -z "${KUBERNETES_MEMORY_IMAGE:-}" ]]; then
+  echo "manual-kubernetes-memory: building ${IMAGE}"
+  docker build -f "${ROOT}/apps/codesearch/Dockerfile" -t "${IMAGE}" "${ROOT}"
+fi
+echo "manual-kubernetes-memory: image $(docker image inspect --format '{{.Id}}' "${IMAGE}")"
 
 echo "manual-kubernetes-memory: indexing ${KUBERNETES_SHA} with ${MEMORY_MAX} limit (cold=${ZOEKT_DIR}, hot=${ZOEKT_HOT_DIR})"
 set +e
@@ -215,6 +259,14 @@ docker run \
   --memory "${MEMORY_MAX}" \
   --memory-swap "${MEMORY_MAX}" \
   --mount "type=bind,src=${WORK_DIR},dst=/gate" \
+  --mount "type=bind,src=${GO_CACHE_DIR}/go-cache,dst=/gate/go-cache" \
+  --mount "type=bind,src=${GO_CACHE_DIR}/go-mod,dst=/gate/go-mod" \
+  -e TMPDIR=/gate/tmp \
+  -e GOTMPDIR=/gate/go-build \
+  -e GOCACHE=/gate/go-cache \
+  -e GOMODCACHE=/gate/go-mod \
+  -e DATABASE_URL \
+  -e AUTH_SECRET \
   -e ZOEKT_INDEX_DIR=/gate/data/zoekt-index \
   -e REPO_CACHE_DIR=/gate/data/repo-cache \
   --entrypoint /gate/run-with-memory-sampler.sh \
@@ -235,19 +287,19 @@ if [[ "${status}" -ne 0 ]]; then
   exit "${status}"
 fi
 
-merged_scip="${SCIP_DIR}/default.scip"
+merged_scip="${CHECKOUT_DIR}.scip"
 if [[ ! -s "${merged_scip}" ]]; then
   echo "manual-kubernetes-memory: FAIL: missing non-empty ${merged_scip}" >&2
   exit 1
 fi
 
 shopt -s nullglob
-scip_shards=("${SCIP_DIR}"/default.*.scip)
+scip_shards=("${CHECKOUT_DIR}".*.scip)
 if (( ${#scip_shards[@]} == 0 )); then
   echo "manual-kubernetes-memory: FAIL: no language SCIP shards under ${SCIP_DIR}" >&2
   exit 1
 fi
-go_shard="${SCIP_DIR}/default.go.scip"
+go_shard="${CHECKOUT_DIR}.go.scip"
 if [[ ! -s "${go_shard}" ]]; then
   echo "manual-kubernetes-memory: FAIL: expected non-empty Go shard ${go_shard}" >&2
   exit 1
@@ -259,7 +311,7 @@ for shard in "${scip_shards[@]}"; do
   fi
 done
 
-if ! compgen -G "${ZOEKT_DIR}/ctxpipe%3Av1%3Aorg%3Aorg_manual%3Arepo%3Arepo_kubernetes_*.zoekt" >/dev/null; then
+if ! compgen -G "${ZOEKT_DIR}/ctxpipe%3Av1%3Aorg%3A${GATE_ORG_ID}%3Arepo%3A${GATE_ORG_ID}_repo%3Acheckout%3Arev%3A${KUBERNETES_SHA}_*.zoekt" >/dev/null; then
   echo "manual-kubernetes-memory: FAIL: no kubernetes Zoekt shards under ${ZOEKT_DIR}" >&2
   exit 1
 fi

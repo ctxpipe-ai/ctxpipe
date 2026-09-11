@@ -1,6 +1,7 @@
 import { SignJWT } from "jose"
 import { describe, expect, it } from "vitest"
 import type { Env } from "../config/env.js"
+import { createApp } from "../app/app.js"
 import {
   checkoutKeyFromAuth,
   type VerifiedToken,
@@ -15,11 +16,15 @@ const env: Env = {
   AUTH_TOKEN_AUDIENCE_CODESEARCH: "codesearch",
 }
 
-async function signToken(workspaceId?: string): Promise<string> {
+async function signToken(
+  workspaceId?: string,
+  legacyWorkspace?: true,
+): Promise<string> {
   return new SignJWT({
     orgId: "org_test",
     principal: "service",
     ...(workspaceId ? { workspaceId } : {}),
+    ...(legacyWorkspace ? { legacyWorkspace } : {}),
   })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject("repo:repo_test")
@@ -30,6 +35,18 @@ async function signToken(workspaceId?: string): Promise<string> {
 }
 
 describe("checkoutKeyFromAuth", () => {
+  it("rejects an unbound workspace token at the native HTTP boundary", async () => {
+    const response = await createApp(env).request("/search", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${await signToken("ws_alpha")}`,
+      },
+      body: JSON.stringify({ Q: "anything" }),
+    })
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({ error: "Unauthorized" })
+  })
   it("uses the default checkout for a verified legacy JWT without workspaceId", async () => {
     const auth = await verifyCodesearchJwt({
       env,
@@ -59,10 +76,10 @@ describe("checkoutKeyFromAuth", () => {
     ).resolves.toBeNull()
   })
 
-  it("derives the workspace checkout from a verified JWT workspaceId", async () => {
+  it("derives the legacy checkout only from an explicit legacy workspace token", async () => {
     const auth = await verifyCodesearchJwt({
       env,
-      authorizationHeader: `Bearer ${await signToken("ws_alpha")}`,
+      authorizationHeader: `Bearer ${await signToken("ws_alpha", true)}`,
     })
 
     expect(auth).not.toBeNull()

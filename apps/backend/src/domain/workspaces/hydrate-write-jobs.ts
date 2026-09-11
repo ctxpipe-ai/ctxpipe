@@ -1,6 +1,13 @@
-import { bootstrapAgentsMarkdown, FOLDER_MAP_START } from "./bootstrap.js"
-import type { HydrateClaim, HydrateUnit } from "./hydrate.js"
+import { isAlias, isMap, isSeq } from "yaml"
+import { folderMapMarkerState, maintainFolderMap } from "./folder-map.js"
+import { type HydrateUnit, resolveHydrateLink } from "./hydrate.js"
 import { looksLikeGitSha } from "./hydrate-phases.js"
+import {
+  editableMetadataNode,
+  materializeMetadataAlias,
+  removeMetadataKey,
+  updateKnowledgeMetadata,
+} from "./knowledge-metadata.js"
 import { parseSimpleFrontMatter } from "./layout.js"
 import { renameRewriteRemainder } from "./rename-rewrite.js"
 import {
@@ -9,10 +16,21 @@ import {
   type WorkspaceWriteJobKind,
 } from "./write-jobs.js"
 
+function missingClaimLinks(unit: HydrateUnit): string[] {
+  const directory = unit.path.split("/").slice(0, -1).join("/")
+  const targets = new Set(
+    unit.claims.map((claim) => resolveHydrateLink(directory, claim.to)),
+  )
+  return unit.links.filter((link) => {
+    const target = resolveHydrateLink(directory, link)
+    if (!target || targets.has(target)) return false
+    targets.add(target)
+    return true
+  })
+}
+
 export function claimsUpgradeRemainder(units: readonly HydrateUnit[]): number {
-  return units.filter((unit) =>
-    unit.links.some((link) => !unit.claims.some((claim) => claim.to === link)),
-  ).length
+  return units.filter((unit) => missingClaimLinks(unit).length > 0).length
 }
 
 export function validFromPersistRemainder(
@@ -27,7 +45,7 @@ export function validFromPersistRemainder(
 
 export function opsFolderMapRemainder(agentsMd: string | null): number {
   if (!agentsMd?.trim()) return 1
-  return agentsMd.includes(FOLDER_MAP_START) ? 0 : 1
+  return folderMapMarkerState(agentsMd) === "valid" ? 0 : 1
 }
 
 export function hydrateWriteJobsToEnqueue(input: {
@@ -94,45 +112,6 @@ export function kindsToRetryAfterHydrate(input: {
   )
 }
 
-function serializeKnowledgeFile(input: {
-  attributes: Record<string, unknown>
-  body: string
-}): string {
-  const lines = ["---"]
-  for (const [key, value] of Object.entries(input.attributes)) {
-    if (key === "claims" && Array.isArray(value)) {
-      lines.push("claims:")
-      for (const item of value) {
-        if (!item || typeof item !== "object") continue
-        const row = item as Record<string, unknown>
-        const entries = Object.entries(row).filter(([, field]) => field != null)
-        const first = entries[0]
-        if (!first) continue
-        lines.push(`  - ${first[0]}: ${String(first[1])}`)
-        for (const [field, fieldValue] of entries.slice(1)) {
-          lines.push(`    ${field}: ${String(fieldValue)}`)
-        }
-      }
-      continue
-    }
-    if (value == null) continue
-    lines.push(`${key}: ${String(value)}`)
-  }
-  lines.push("---")
-  return `${lines.join("\n")}\n\n${input.body.trim()}\n`
-}
-
-function claimRecord(claim: HydrateClaim): Record<string, unknown> {
-  return {
-    to: claim.to,
-    ...(claim.predicate ? { predicate: claim.predicate } : {}),
-    ...(claim.confidence != null ? { confidence: claim.confidence } : {}),
-    ...(claim.validFrom ? { valid_from: claim.validFrom } : {}),
-    ...(claim.validTo ? { valid_to: claim.validTo } : {}),
-    ...(claim.source ? { source: claim.source } : {}),
-  }
-}
-
 export function claimsUpgradeFiles(input: {
   files: ReadonlyArray<{ path: string; content: string }>
   units: readonly HydrateUnit[]
@@ -142,21 +121,24 @@ export function claimsUpgradeFiles(input: {
   for (const file of input.files) {
     const unit = byPath.get(file.path)
     if (!unit) continue
-    const missing = unit.links.filter(
-      (link) => !unit.claims.some((claim) => claim.to === link),
-    )
+    const missing = missingClaimLinks(unit)
     if (missing.length === 0) continue
     const parsed = parseSimpleFrontMatter(file.content)
     if (parsed.malformed) continue
-    const claims = [
-      ...unit.claims.map(claimRecord),
-      ...missing.map((to) => ({ to })),
-    ]
     out.push({
       path: file.path,
-      content: serializeKnowledgeFile({
-        attributes: { ...parsed.attributes, claims },
-        body: parsed.body,
+      content: updateKnowledgeMetadata(file.content, (document) => {
+        const claims = editableMetadataNode(document, "claims")
+        if (claims == null)
+          document.set(
+            "claims",
+            missing.map((to) => ({ to })),
+          )
+        else {
+          if (!isSeq(claims))
+            throw new Error("Knowledge claims must be a sequence")
+          for (const to of missing) claims.add(document.createNode({ to }))
+        }
       }),
     })
   }
@@ -182,20 +164,31 @@ export function validFromPersistFiles(input: {
     }
     const parsed = parseSimpleFrontMatter(file.content)
     if (parsed.malformed) continue
-    const claims = unit.claims.map((claim) =>
-      claimRecord({
-        ...claim,
-        validFrom:
-          claim.validFrom && !looksLikeGitSha(claim.validFrom)
-            ? claim.validFrom
-            : input.introducingCommitTimestamp,
-      }),
-    )
     out.push({
       path: file.path,
-      content: serializeKnowledgeFile({
-        attributes: { ...parsed.attributes, claims },
-        body: parsed.body,
+      content: updateKnowledgeMetadata(file.content, (document) => {
+        const claims = editableMetadataNode(document, "claims")
+        if (!isSeq(claims))
+          throw new Error("Knowledge claims must be a sequence")
+        for (let index = 0; index < claims.items.length; index++) {
+          let claim = claims.items[index]
+          if (isAlias(claim)) {
+            const detached = materializeMetadataAlias(document, claim)
+            claims.items[index] = detached
+            claim = detached
+          }
+          if (!isMap(claim)) continue
+          const to = claim.get("to")
+          if (typeof to !== "string" || !to.trim()) continue
+          const validFrom = claim.get("valid_from")
+          if (
+            typeof validFrom === "string" &&
+            validFrom &&
+            !looksLikeGitSha(validFrom)
+          )
+            continue
+          claim.set("valid_from", input.introducingCommitTimestamp)
+        }
       }),
     })
   }
@@ -204,24 +197,11 @@ export function validFromPersistFiles(input: {
 
 export function stripImportKeyFromMarkdown(markdown: string): string | null {
   const parsed = parseSimpleFrontMatter(markdown)
-  if (parsed.malformed || parsed.attributes.import_key == null) return null
-  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---(\r?\n)?/)
-  if (!match) return null
-  const fm = match[1]
-  if (fm == null) return null
-  if (!/^import_key\s*:/m.test(fm)) return null
-  const nextFm = fm
-    .replace(/^import_key\s*:[^\n]*\r?\n?/m, "")
-    .replace(/^\r?\n/, "")
-    .replace(/\r?\n$/, "")
-  const closingNl = match[2] ?? "\n"
-  const header =
-    nextFm.length > 0 ? `---\n${nextFm}\n---${closingNl}` : `---\n---${closingNl}`
-  return (
-    markdown.slice(0, match.index) +
-    header +
-    markdown.slice((match.index ?? 0) + match[0].length)
-  )
+  if (parsed.malformed || !Object.hasOwn(parsed.attributes, "import_key"))
+    return null
+  return updateKnowledgeMetadata(markdown, (document) => {
+    removeMetadataKey(document, "import_key")
+  })
 }
 
 export function importKeyCleanupFiles(
@@ -267,10 +247,14 @@ export function extractIngestRemainder(input: {
 export function opsFolderMapFiles(input: {
   displayName: string
   existingAgentsMd: string | null
+  requestedDisplayName?: string
+  paths: readonly string[]
 }): Array<{ path: string; content: string }> {
-  const content = bootstrapAgentsMarkdown({
+  const content = maintainFolderMap({
     displayName: input.displayName,
     existing: input.existingAgentsMd,
+    requestedDisplayName: input.requestedDisplayName,
+    paths: input.paths,
   })
   if (input.existingAgentsMd === content) return []
   return [{ path: "AGENTS.md", content }]

@@ -1,5 +1,15 @@
 import { z } from "zod"
-import type { WorkspaceWriteKind } from "./write-commit-files.js"
+import type { GitFileChange } from "../../services/git/file-change.js"
+import { gitFileChangeSchema } from "../../services/git/file-change.js"
+import type { UnbornBootstrapBinding } from "./bootstrap-input.js"
+import type { ConnectorMirrorSource } from "./connector-mirror-input.js"
+import { connectorMirrorSourceSchema } from "./connector-mirror-input.js"
+import {
+  type WorkspaceExtraction,
+  workspaceExtractionSchema,
+} from "./extraction.js"
+import type { WorkspaceRevision } from "./revision.js"
+import type { WorkspaceWriteKind } from "./write-jobs.js"
 import { shouldEnqueueWorkspaceWriteJob } from "./write-jobs.js"
 
 export const WRITE_JOB_STATUSES = {
@@ -13,21 +23,41 @@ export const WRITE_JOB_STATUSES = {
 export type WriteJobStatus =
   (typeof WRITE_JOB_STATUSES)[keyof typeof WRITE_JOB_STATUSES]
 
+export type WorkspaceSemanticHandoff = {
+  ownerRunId: string
+  candidateSha: string
+  revision: WorkspaceRevision
+  files: GitFileChange[]
+  deletePaths: string[]
+}
+
+export type WorkspaceWritePlanning = {
+  rootSha: string
+  attempt: number
+  remainder: number
+}
+
 export type WorkspaceWriteJobPayload = {
+  bootstrapBinding?: UnbornBootstrapBinding
+  extraction?: WorkspaceExtraction
+  revision?: WorkspaceRevision
+  planning?: WorkspaceWritePlanning
+  workflowRunId?: string
+  semanticHandoff?: WorkspaceSemanticHandoff
+  exportTipSha?: string
+  knowledgePaths?: Record<string, string>
+  previousSha?: string
+  mirror?: ConnectorMirrorSource
+  displayName?: string
   linkAction?: "link" | "unlink"
   linkGitUrl?: string
   defaultBranch?: string
   jobWorkspaceUrl?: string
   conflictParentSha?: string | null
   remoteTipSha?: string | null
-  mergeFiles?: Array<{ path: string; content: string }>
+  mergeFiles?: GitFileChange[]
   mergeDeletePaths?: string[]
 }
-
-const writeJobFileSchema = z.object({
-  path: z.string().min(1),
-  content: z.string(),
-})
 
 const writeJobBaseSchema = z.object({
   orgId: z.string().min(1),
@@ -57,11 +87,18 @@ const writeJobKindSchema = z.enum([
 /** Shared enqueue + workflow input. Kind-specific fields stay on the payload. */
 export const workspaceWriteJobInputSchema = writeJobBaseSchema.extend({
   kind: writeJobKindSchema,
+  extraction: workspaceExtractionSchema.optional(),
+  mirror: connectorMirrorSourceSchema.optional(),
+  previousSha: z
+    .string()
+    .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/)
+    .optional(),
+  displayName: z.string().trim().min(1).optional(),
   linkAction: z.enum(["link", "unlink"]).optional(),
   linkGitUrl: z.string().min(1).optional(),
   conflictParentSha: z.string().nullable().optional(),
   remoteTipSha: z.string().nullable().optional(),
-  mergeFiles: z.array(writeJobFileSchema).optional(),
+  mergeFiles: z.array(gitFileChangeSchema).optional(),
   mergeDeletePaths: z.array(z.string().min(1)).optional(),
 })
 
@@ -69,7 +106,11 @@ export type EnqueueWriteJobInput = z.infer<typeof workspaceWriteJobInputSchema>
 
 export type WriteJobEnqueueFields = Pick<
   EnqueueWriteJobInput,
+  | "extraction"
   | "kind"
+  | "previousSha"
+  | "mirror"
+  | "displayName"
   | "defaultBranch"
   | "linkAction"
   | "linkGitUrl"
@@ -84,6 +125,10 @@ export function writeJobIntentPayload(
   input: WriteJobEnqueueFields,
 ): WorkspaceWriteJobPayload {
   const payload: WorkspaceWriteJobPayload = {}
+  if (input.extraction) payload.extraction = input.extraction
+  if (input.mirror) payload.mirror = input.mirror
+  if (input.previousSha) payload.previousSha = input.previousSha
+  if (input.displayName !== undefined) payload.displayName = input.displayName
   if (input.linkAction) payload.linkAction = input.linkAction
   if (input.linkGitUrl) payload.linkGitUrl = input.linkGitUrl
   if (input.defaultBranch) payload.defaultBranch = input.defaultBranch
@@ -157,6 +202,12 @@ export function enqueueInputFromPausedJob(input: {
       ? { jobWorkspaceUrl: payload.jobWorkspaceUrl }
       : {}),
     ...(payload.defaultBranch ? { defaultBranch: payload.defaultBranch } : {}),
+    ...(payload.displayName !== undefined
+      ? { displayName: payload.displayName }
+      : {}),
+    ...(payload.extraction ? { extraction: payload.extraction } : {}),
+    ...(payload.mirror ? { mirror: payload.mirror } : {}),
+    ...(payload.previousSha ? { previousSha: payload.previousSha } : {}),
     ...(payload.linkAction ? { linkAction: payload.linkAction } : {}),
     ...(payload.linkGitUrl ? { linkGitUrl: payload.linkGitUrl } : {}),
     ...(payload.conflictParentSha !== undefined

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 import type { AppEnv } from "../../app/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { repositories, repositoryCheckouts } from "../../db/schema.js"
@@ -9,6 +9,7 @@ export type AccessibleRepository = {
   orgId: string
   name: string
   gitUrl: string
+  publishedCheckoutKey?: string
 }
 
 export type IndexableRepository = AccessibleRepository & {
@@ -22,14 +23,20 @@ export async function getAccessibleRepository(
 ): Promise<AccessibleRepository | null> {
   return withOrgDbContext(db, orgId, async (tx) => {
     const [row] = await tx
-      .select()
+      .select({
+        id: repositories.id,
+        orgId: repositories.orgId,
+        name: repositories.name,
+        gitUrl: repositories.gitUrl,
+        publishedCheckoutKey: publishedRepositoryCheckoutKey(),
+      })
       .from(repositories)
       .where(and(eq(repositories.id, repoId), eq(repositories.orgId, orgId)))
       .limit(1)
     if (!row || row.orgId !== orgId) {
       return null
     }
-    return { id: row.id, orgId: row.orgId, name: row.name, gitUrl: row.gitUrl }
+    return row
   })
 }
 
@@ -64,4 +71,12 @@ export async function getIndexableRepository(
     }
     return row
   })
+}
+
+/** Same published source selection as the backend; workspace snapshots stay explicit. */
+export function publishedRepositoryCheckoutKey() {
+  return sql<string>`coalesce((select published.checkout_key from repository_checkouts published
+    where published.repository_id = repositories.id and published.org_id = repositories.org_id
+      and published.checkout_key = 'rev:' || repositories.last_ingested_hash
+      and published.commit_sha = repositories.last_ingested_hash), 'default')`
 }

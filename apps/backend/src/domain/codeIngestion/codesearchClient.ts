@@ -3,6 +3,7 @@ import { parseEnv } from "../../config/env.js"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
+import { capturedSourceRevision } from "./source-revision-context.js"
 
 export type FileEntry = { name: string; path: string; type: "file" | "dir" }
 
@@ -31,7 +32,9 @@ export class CodesearchCheckoutError extends Error {
   }
 }
 
-type CodesearchAuthExtras = {
+export type CodesearchAuthExtras = {
+  sha?: string
+  legacy?: true
   workspaceId?: string
   retries?: number
 }
@@ -44,6 +47,15 @@ async function fetchWithAuth(
   extras?: CodesearchAuthExtras,
 ): Promise<Response> {
   assertNotInOrgDbContext()
+  const source = capturedSourceRevision(orgId, repositoryId)
+  if (
+    source &&
+    (extras?.workspaceId || (extras?.sha && extras.sha !== source.sha))
+  )
+    throw new Error("Extraction read differs from its captured source revision")
+  const sourceSha = extras?.workspaceId
+    ? undefined
+    : (extras?.sha ?? source?.sha)
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const token = await signUpstreamJwt({
     env,
@@ -52,7 +64,14 @@ async function fetchWithAuth(
       sub: `repo:${repositoryId}`,
       orgId,
       principal: "service",
+      ...(sourceSha
+        ? { repositoryRevisions: [{ repositoryId, sha: sourceSha }] }
+        : {}),
       ...(extras?.workspaceId ? { workspaceId: extras.workspaceId } : {}),
+      ...(extras?.sha && extras.workspaceId
+        ? { workspaceRevisions: [{ repositoryId, sha: extras.sha }] }
+        : {}),
+      ...(extras?.legacy ? { legacyWorkspace: true as const } : {}),
     },
   })
   const retries = extras?.retries ?? 10
@@ -92,19 +111,7 @@ export async function listFiles(
     extras,
   )
   if (!res.ok) {
-    const bodyText = await res.text()
-    let detail = bodyText.trim()
-    try {
-      const parsed = JSON.parse(bodyText) as { error?: unknown }
-      if (typeof parsed.error === "string" && parsed.error.length > 0) {
-        detail = parsed.error
-      }
-    } catch {
-      // non-JSON body; use raw text
-    }
-    throw new Error(
-      `listFiles failed: ${res.status}${detail ? `: ${detail}` : ""}`,
-    )
+    throw new Error(await responseFailureMessage("listFiles", res))
   }
   const data = (await res.json()) as { entries: FileEntry[] }
   return data.entries
@@ -138,18 +145,8 @@ export async function globFiles(
     extras,
   )
   if (!res.ok) {
-    const bodyText = await res.text()
-    let detail = bodyText.trim()
-    try {
-      const parsed = JSON.parse(bodyText) as { error?: unknown }
-      if (typeof parsed.error === "string" && parsed.error.length > 0) {
-        detail = parsed.error
-      }
-    } catch {
-      // non-JSON body; use raw text
-    }
     throw new CodesearchCheckoutError(
-      `globFiles failed: ${res.status}${detail ? `: ${detail}` : ""}`,
+      await responseFailureMessage("globFiles", res),
       res.status,
     )
   }
@@ -161,13 +158,20 @@ export async function globCheckoutFiles(input: {
   repositoryId: string
   orgId: string
   workspaceId?: string
+  sha?: string
+  legacy?: true
   request?: GlobFilesRequest
 }): Promise<GlobFilesResponse> {
   return globFiles(
     input.repositoryId,
     input.orgId,
     input.request ?? { pattern: "**/*", onlyFiles: true, dot: true },
-    { workspaceId: input.workspaceId, retries: 0 },
+    {
+      workspaceId: input.workspaceId,
+      sha: input.sha,
+      legacy: input.legacy,
+      retries: 0,
+    },
   )
 }
 
@@ -176,27 +180,24 @@ export async function listCheckoutTree(input: {
   repositoryId: string
   orgId: string
   workspaceId?: string
+  sha?: string
+  legacy?: true
 }): Promise<string[]> {
   const res = await fetchWithAuth(
     `${codesearchBaseUrl()}/${input.repositoryId}/tree`,
     { method: "GET" },
     input.repositoryId,
     input.orgId,
-    { workspaceId: input.workspaceId, retries: 0 },
+    {
+      workspaceId: input.workspaceId,
+      sha: input.sha,
+      legacy: input.legacy,
+      retries: 0,
+    },
   )
   if (!res.ok) {
-    const bodyText = await res.text()
-    let detail = bodyText.trim()
-    try {
-      const parsed = JSON.parse(bodyText) as { error?: unknown }
-      if (typeof parsed.error === "string" && parsed.error.length > 0) {
-        detail = parsed.error
-      }
-    } catch {
-      // non-JSON body; use raw text
-    }
     throw new CodesearchCheckoutError(
-      `listCheckoutTree failed: ${res.status}${detail ? `: ${detail}` : ""}`,
+      await responseFailureMessage("listCheckoutTree", res),
       res.status,
     )
   }
@@ -244,6 +245,8 @@ export async function fetchCheckoutFileBytes(input: {
   repositoryId: string
   orgId: string
   workspaceId?: string
+  sha?: string
+  legacy?: true
   path: string
 }): Promise<Uint8Array | null> {
   const res = await fetchWithAuth(
@@ -255,7 +258,12 @@ export async function fetchCheckoutFileBytes(input: {
     },
     input.repositoryId,
     input.orgId,
-    { workspaceId: input.workspaceId, retries: 0 },
+    {
+      workspaceId: input.workspaceId,
+      sha: input.sha,
+      legacy: input.legacy,
+      retries: 0,
+    },
   )
   if (!res.ok) {
     throw new CodesearchCheckoutError(
@@ -265,6 +273,22 @@ export async function fetchCheckoutFileBytes(input: {
   }
   const encoded = (await res.json()) as Record<string, string>
   const b64 = encoded[input.path]
-  if (!b64) return null
+  if (b64 === undefined) return null
   return Buffer.from(b64, "base64")
+}
+
+async function responseFailureMessage(
+  operation: string,
+  response: Response,
+): Promise<string> {
+  const bodyText = await response.text()
+  let detail = bodyText.trim()
+  try {
+    const parsed = JSON.parse(bodyText) as { error?: unknown }
+    if (typeof parsed.error === "string" && parsed.error.length > 0)
+      detail = parsed.error
+  } catch {
+    // Non-JSON responses retain their original diagnostic text.
+  }
+  return `${operation} failed: ${response.status}${detail ? `: ${detail}` : ""}`
 }

@@ -1,9 +1,15 @@
+import { requireCurrentOrgSlug } from "../../auth/context.js"
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
-import { workspaceGraphFromUnits } from "../../domain/workspaces/workspace-graph.js"
+import {
+  readWorkspaceGraph,
+  WorkspaceGraphUnavailableError,
+} from "../../domain/workspaces/graph-projection.js"
+import { publishedProjection } from "../../domain/workspaces/revision.js"
+import { getLogger } from "../../observability/logger.js"
 import {
   getWorkspaceBySlug,
-  listWorkspaceKnowledgeUnits,
+  getWorkspaceProjection,
 } from "../../models/workspaces.js"
 import {
   ErrorResponseSchema,
@@ -52,6 +58,10 @@ const listWorkspaceGraphRoute = createRoute({
       },
       description: "This Workspace’s hydrate projection for the Graph pane",
     },
+    503: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Derived graph unavailable",
+    },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
@@ -72,9 +82,28 @@ export const workspaceGraphRoutes = new OpenAPIHono<AppEnv>().openapi(
     const { workspaceSlug } = workspaceSlugParams(c)
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
-    const { units, lastUpdatedAt } = await listWorkspaceKnowledgeUnits(
-      workspace.id,
-    )
-    return c.json(workspaceGraphFromUnits({ units, lastUpdatedAt }), 200)
+    try {
+      const projection = publishedProjection(
+        await getWorkspaceProjection(workspace.id),
+      )
+      return c.json(
+        await readWorkspaceGraph({
+          orgId: workspace.orgId,
+          orgSlug: requireCurrentOrgSlug(),
+          projection,
+        }),
+        200,
+      )
+    } catch (error) {
+      if (!(error instanceof WorkspaceGraphUnavailableError))
+        getLogger().error(
+          error instanceof Error ? error : new Error(String(error)),
+          { step: "workspace.graph.read" },
+        )
+      return c.json(
+        { error: "Workspace graph projection is unavailable." },
+        503,
+      )
+    }
   },
 )

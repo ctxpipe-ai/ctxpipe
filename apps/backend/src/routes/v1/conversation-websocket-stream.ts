@@ -39,14 +39,9 @@ export function conversationWebSocketHasResumeOffset(url: string): boolean {
   }
 }
 
-type ConversationChatSocketRun = (ctx: {
-  messages: unknown
-  threadId: string
-  runId: string
-  forwardedProps?: Record<string, unknown>
-  signal: AbortSignal
-  request: Request
-}) => AsyncIterable<unknown>
+type ConversationChatSocketRun = Parameters<
+  typeof toWebSocketStream
+>[2]["onRun"]
 
 export function startConversationChatSocket(
   socket: WebSocketLike,

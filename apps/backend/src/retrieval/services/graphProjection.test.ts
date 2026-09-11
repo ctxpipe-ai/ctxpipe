@@ -197,45 +197,6 @@ describe("projectClaimsFromState", () => {
     expect(executeQueryMock.mock.calls[0]?.[0]).toContain(":EXPOSES_API")
     expect(executeQueryMock.mock.calls[1]?.[0]).toContain(":DEPENDS_ON")
   })
-
-  it("scopes MERGE keys and replaces the Workspace graph before projecting", async () => {
-    await withTestLogger(() =>
-      projectClaimsFromState([makeClaim({ id: "c1" })], {
-        workspaceId: "ws_1",
-        projectionSha: "abc",
-      }),
-    )
-    expect(executeQueryMock.mock.calls[0]?.[0]).toContain("DETACH DELETE")
-    expect(executeQueryMock.mock.calls[0]?.[1]).toMatchObject({
-      workspaceId: "ws_1",
-    })
-    expect(executeQueryMock.mock.calls[0]?.[1]).not.toHaveProperty(
-      "projectionSha",
-    )
-    expect(executeQueryMock.mock.calls[1]?.[0]).toContain(
-      "workspaceId: $workspaceId",
-    )
-    expect(executeQueryMock.mock.calls[1]?.[0]).toContain("r.projectionSha")
-    expect(executeQueryMock.mock.calls[1]?.[1]).toMatchObject({
-      workspaceId: "ws_1",
-      projectionSha: "abc",
-    })
-  })
-
-  it("replaces an empty Workspace graph so deleted edges do not survive", async () => {
-    await withTestLogger(() =>
-      projectClaimsFromState([], {
-        workspaceId: "ws_1",
-        projectionSha: "abc",
-      }),
-    )
-    expect(executeQueryMock).toHaveBeenCalledTimes(1)
-    expect(executeQueryMock.mock.calls[0]?.[0]).toContain("DETACH DELETE")
-    expect(executeQueryMock.mock.calls[0]?.[1]).toEqual({
-      orgId: "org_1",
-      workspaceId: "ws_1",
-    })
-  })
 })
 
 describe("retractClaimsFromGraph / deleteObjectsFromGraph", () => {

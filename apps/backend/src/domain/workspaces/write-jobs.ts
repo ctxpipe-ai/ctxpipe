@@ -14,6 +14,7 @@ export const WORKSPACE_WRITE_JOB_KINDS = [
 ] as const
 
 export type WorkspaceWriteJobKind = (typeof WORKSPACE_WRITE_JOB_KINDS)[number]
+export type WorkspaceWriteKind = WorkspaceWriteJobKind | "migration_export"
 
 /** Cap retries of one kind against one SHA. Other kinds are unaffected. */
 export const WRITE_JOB_RETRY_CAP_PER_SHA = 3

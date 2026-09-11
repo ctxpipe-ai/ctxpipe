@@ -7,6 +7,11 @@ describe("repositoryCardPresentation", () => {
   it("surfaces the stored Zoekt issue, retry, and queryable icon for complete_with_issues", () => {
     expect(
       repositoryCardPresentation({
+        indexReady: true,
+        indexingReason: null,
+        indexingStep: null,
+        indexingStepTotal: null,
+        indexingStepKey: null,
         indexingStatus: "complete_with_issues",
         indexingError: memoryError,
         lastIngestedHash: "abc1234",
@@ -24,6 +29,11 @@ describe("repositoryCardPresentation", () => {
   it("labels first-run task OOM as failed with the memory-fit error and retry", () => {
     expect(
       repositoryCardPresentation({
+        indexReady: false,
+        indexingReason: null,
+        indexingStep: null,
+        indexingStepTotal: null,
+        indexingStepKey: null,
         indexingStatus: "failed",
         indexingError: memoryError,
         lastIngestedHash: null,
@@ -41,6 +51,11 @@ describe("repositoryCardPresentation", () => {
   it("labels task OOM after a prior success as out of date with the memory-fit error", () => {
     expect(
       repositoryCardPresentation({
+        indexReady: false,
+        indexingReason: null,
+        indexingStep: null,
+        indexingStepTotal: null,
+        indexingStepKey: null,
         indexingStatus: "failed",
         indexingError: memoryError,
         lastIngestedHash: "abc123def456",
@@ -62,6 +77,11 @@ describe("repositoryCardPresentation", () => {
   it("does not offer retry while indexing is ready", () => {
     expect(
       repositoryCardPresentation({
+        indexReady: true,
+        indexingReason: null,
+        indexingStep: null,
+        indexingStepTotal: null,
+        indexingStepKey: null,
         indexingStatus: "ready",
         indexingError: null,
         lastIngestedHash: "abc1234",

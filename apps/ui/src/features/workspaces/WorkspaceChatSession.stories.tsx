@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import { expect, userEvent, waitFor, within } from "storybook/test"
-import { resetHomeDraftSends } from "@/features/home/pending-workspace-compose"
+import { userEvent, waitFor, within } from "storybook/test"
 import {
   conversationAguiSseResponse,
   conversationAguiTextEvents,
@@ -65,7 +64,6 @@ const meta = {
     orgSlug: "acme",
     workspace: docsWorkspace,
     conversationId: "conv_pending",
-    composing: true,
     title: "New conversation",
     initialMessages: [],
   },
@@ -81,13 +79,10 @@ function threadArgs(
 ) {
   return {
     conversationId: "conv_1",
-    composing: false,
     title,
     initialMessages: messages,
   }
 }
-
-export const ComposeEmpty: Story = {}
 
 export const ThreadShort: Story = {
   args: threadArgs(docsConversationDetail.messages),
@@ -249,42 +244,6 @@ export const Streaming: Story = {
   },
 }
 
-export const ComposeSendError: Story = {
-  args: {
-    conversationId: "conv_pending",
-    composing: true,
-    title: "New conversation",
-    initialMessages: [],
-  },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.post(conversationPostPath, () =>
-            HttpResponse.json(
-              {
-                error:
-                  "opencode serve exited before becoming ready: sh: opencode: not found",
-              },
-              { status: 500 },
-            ),
-          ),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await userEvent.type(
-      canvas.getByPlaceholderText(/ask about this workspace/i),
-      "What is in this Workspace?",
-    )
-    await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-    await waitFor(() => canvas.getByRole("alert"), { timeout: SEND_WAIT_MS })
-  },
-}
-
 export const SendError: Story = {
   args: threadArgs(docsConversationDetail.messages),
   parameters: {
@@ -311,90 +270,5 @@ export const SendError: Story = {
     )
     await userEvent.click(canvas.getByRole("button", { name: /send/i }))
     await waitFor(() => canvas.getByRole("alert"), { timeout: SEND_WAIT_MS })
-  },
-}
-
-export const ListInsertOnSend: Story = {
-  args: {
-    conversationId: "conv_compose",
-    composing: true,
-    title: "New conversation",
-    initialMessages: [],
-  },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.post(conversationPostPath, () =>
-            conversationAguiSseResponse(
-              conversationAguiTextEvents({
-                threadId: "conv_compose",
-                messageId: "msg_nav",
-                text: "Nav row should already exist",
-              }),
-            ),
-          ),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await userEvent.type(
-      canvas.getByPlaceholderText(/ask about this workspace/i),
-      "Create this conversation",
-    )
-    await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-    await waitFor(() => canvas.getByText(/Nav row should already exist/), {
-      timeout: SEND_WAIT_MS,
-    })
-  },
-}
-
-export const HomeDraftClearsAfterSend: Story = {
-  decorators: [
-    (Story) => {
-      resetHomeDraftSends()
-      return <Story />
-    },
-  ],
-  args: {
-    conversationId: "conv_home_draft",
-    composing: true,
-    title: "New conversation",
-    initialMessages: [],
-    draftSeed: "What changed this week?",
-    autoSendDraft: true,
-  },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.post(conversationPostPath, () =>
-            conversationAguiSseResponse(
-              conversationAguiTextEvents({
-                threadId: "conv_home_draft",
-                messageId: "msg_home_draft",
-                text: "Here is this week's activity.",
-              }),
-            ),
-          ),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await waitFor(() => canvas.getByText(/What changed this week/), {
-      timeout: SEND_WAIT_MS,
-    })
-    await waitFor(() => {
-      const input = canvas.getByPlaceholderText(
-        /ask about this workspace|continue the conversation/i,
-      )
-      expect(input).toHaveValue("")
-    })
   },
 }

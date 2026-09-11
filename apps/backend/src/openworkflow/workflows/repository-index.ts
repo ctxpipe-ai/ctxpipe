@@ -1,6 +1,7 @@
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
+import { withOrgDbContext } from "../../db/client.js"
 import {
   codesearchIndexCloneCheckout,
   codesearchIndexDetectLanguages,
@@ -8,30 +9,91 @@ import {
   codesearchIndexScipLang,
   codesearchIndexZoekt,
 } from "../../domain/codeIngestion/codesearchIndexPhases.js"
+import type { IndexingStepKey } from "../../domain/indexingSteps.js"
+import { resolveRepositoryReadCredential } from "../../domain/workspaces/resolve-revision.js"
+import {
+  linkedRevisionSchema,
+  sameLinkedReadBinding,
+  workspaceRevisionSchema,
+} from "../../domain/workspaces/revision.js"
+import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
   isMemoryFitFailure,
   userFacingIndexingError,
 } from "../../lib/memoryFitError.js"
-import { getInstallationToken } from "../../models/github-installation.js"
+import {
+  ensureRepositoryRevisionCheckout,
+  getRepositoryReadBinding,
+  setRepositoryIndexingStep,
+} from "../../models/repositories.js"
+import {
+  assertRepositoryIngestionRequest,
+  captureRepositoryIngestionRequest,
+} from "../../models/repository-ingestion-requests.js"
+import {
+  getLinkedReadBinding,
+  persistWorkspaceIndexResult,
+} from "../../models/workspaces.js"
 import {
   createLogger,
   flushWorkflowLog,
   getLogger,
   withLogger,
 } from "../../observability/logger.js"
-import { publishWorkspaceIndexAfterCodesearch } from "../publish-workspace-index.js"
 import { withLoggedStepAttempt } from "../withLoggedStepAttempt.js"
 
-const repositoryIndexInputSchema = z.object({
-  repositoryId: z.string().min(1),
-  orgId: z.string().min(1),
-  targetHash: z.string().min(1),
-  fromHash: z.string().optional(),
-  githubConnectionId: z.string().optional(),
-  workspaceId: z.string().min(1).optional(),
-  jobGeneration: z.number().int().optional(),
-  jobWorkspaceUrl: z.string().min(1).optional(),
-})
+const repositoryIndexInputSchema = z
+  .object({
+    repositoryId: z.string().min(1),
+    orgId: z.string().min(1),
+    targetHash: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/),
+    requestId: z.string().min(1).optional(),
+    fromHash: z.string().optional(),
+    githubConnectionId: z.string().optional(),
+    workspaceId: z.string().min(1).optional(),
+    jobGeneration: z.number().int().optional(),
+    jobWorkspaceUrl: z.string().min(1).optional(),
+    revision: workspaceRevisionSchema.optional(),
+    linkedRevision: linkedRevisionSchema.optional(),
+  })
+  .refine(
+    (input) =>
+      !input.revision ||
+      (input.revision.access === "read" &&
+        input.revision.workspaceId === input.workspaceId &&
+        input.revision.sha === input.targetHash &&
+        (input.jobGeneration === undefined ||
+          input.revision.generation === input.jobGeneration) &&
+        (input.jobWorkspaceUrl === undefined ||
+          input.revision.remote.url === input.jobWorkspaceUrl) &&
+        (input.githubConnectionId === undefined ||
+          input.githubConnectionId === input.revision.remote.connectionId)),
+    "Repository index input must describe one workspace revision",
+  )
+  .refine(
+    (input) =>
+      !input.workspaceId ||
+      /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(input.targetHash),
+    "Workspace indexing requires an immutable commit SHA",
+  )
+  .refine(
+    (input) =>
+      !input.workspaceId ||
+      Boolean(input.revision) !== Boolean(input.linkedRevision),
+    "Workspace indexing requires exactly one captured revision",
+  )
+  .refine(
+    (input) =>
+      !input.linkedRevision ||
+      (input.linkedRevision.owner.access === "read" &&
+        input.linkedRevision.owner.workspaceId === input.workspaceId &&
+        input.linkedRevision.repositoryId === input.repositoryId &&
+        input.linkedRevision.sha === input.targetHash &&
+        (input.githubConnectionId === undefined ||
+          input.githubConnectionId ===
+            input.linkedRevision.remote.connectionId)),
+    "Linked indexing must use its captured revision",
+  )
 
 const indexRetryPolicy = {
   maximumAttempts: 2,
@@ -84,7 +146,7 @@ function logMilestone(step: string, fields: Record<string, unknown>): void {
  */
 export const repositoryIndex = defineWorkflow(
   { name: "repository-index", schema: repositoryIndexInputSchema },
-  async ({ input, step }) =>
+  async ({ input, step, run }) =>
     withLogger(
       createLogger({
         workflow: "repository-index",
@@ -92,10 +154,56 @@ export const repositoryIndex = defineWorkflow(
         orgId: input.orgId,
       }),
       async () => {
+        const repository = await getRepositoryReadBinding(
+          input.orgId,
+          input.repositoryId,
+        )
+        const requestId = input.workspaceId
+          ? undefined
+          : ((await captureRepositoryIngestionRequest(input, run.id)) ??
+            undefined)
+        const targetRevision = input.linkedRevision ?? input.revision
+        const linkedRevision = input.linkedRevision
+        if (
+          linkedRevision &&
+          !(await withOrgDbContext(input.orgId, async () =>
+            sameLinkedReadBinding(
+              await getLinkedReadBinding(linkedRevision.linkId),
+              linkedRevision,
+            ),
+          ))
+        )
+          throw new Error("Linked revision changed before index admission")
+        if (
+          !repository ||
+          (targetRevision &&
+            normalizeWorkspaceRepositoryUrl(repository.gitUrl) !==
+              normalizeWorkspaceRepositoryUrl(targetRevision.remote.url))
+        )
+          throw new Error(
+            "Index repository does not match the captured revision",
+          )
+        if (!input.workspaceId)
+          await ensureRepositoryRevisionCheckout({
+            orgId: input.orgId,
+            repositoryId: input.repositoryId,
+            sha: input.targetHash,
+          })
         const auth = {
           repositoryId: input.repositoryId,
           orgId: input.orgId,
-          ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          ...(input.workspaceId
+            ? {
+                workspaceId: input.workspaceId,
+                workspaceRevisions: [
+                  { repositoryId: input.repositoryId, sha: input.targetHash },
+                ],
+              }
+            : {
+                repositoryRevisions: [
+                  { repositoryId: input.repositoryId, sha: input.targetHash },
+                ],
+              }),
         }
         const wls = <T>(name: string, fn: () => Promise<T>): Promise<T> =>
           withLoggedStepAttempt(
@@ -105,7 +213,57 @@ export const repositoryIndex = defineWorkflow(
               repositoryId: input.repositoryId,
               orgId: input.orgId,
             },
-            fn,
+            async () => {
+              if (requestId) {
+                await assertRepositoryIngestionRequest({
+                  orgId: input.orgId,
+                  repositoryId: input.repositoryId,
+                  requestId,
+                  repositoryUrl: repository.gitUrl,
+                  githubConnectionId: repository.githubConnectionId,
+                })
+                const key: IndexingStepKey | undefined =
+                  name === "clone-checkout"
+                    ? "cloning"
+                    : name === "zoekt"
+                      ? "indexing_search"
+                      : name === "detect-languages"
+                        ? "detecting_languages"
+                        : name === "merge-scip"
+                          ? "merging_intelligence"
+                          : name.startsWith("scip:")
+                            ? (name as `scip:${string}`)
+                            : undefined
+                if (key)
+                  await withOrgDbContext(input.orgId, () =>
+                    setRepositoryIndexingStep({
+                      requestId,
+                      repositoryId: input.repositoryId,
+                      key,
+                      monotonic: true,
+                    }),
+                  )
+              }
+              try {
+                return await fn()
+              } catch (error) {
+                const revision = input.revision
+                if (revision)
+                  await withOrgDbContext(input.orgId, () =>
+                    persistWorkspaceIndexResult({
+                      revision,
+                      result: {
+                        kind: "failed",
+                        message:
+                          error instanceof Error
+                            ? error.message
+                            : String(error),
+                      },
+                    }),
+                  )
+                throw error
+              }
+            },
           )
 
         logMilestone("repository-index.start", {
@@ -114,12 +272,16 @@ export const repositoryIndex = defineWorkflow(
         })
 
         const env = parseEnv(process.env as Record<string, string | undefined>)
-        const githubToken = await step.run(
-          { name: "resolve-github-token" },
-          () =>
-            wls("resolve-github-token", () =>
-              getInstallationToken(input.orgId, env, input.githubConnectionId),
-            ),
+        const githubToken = await wls("resolve-github-token", () =>
+          resolveRepositoryReadCredential({
+            orgId: input.orgId,
+            env,
+            remote: targetRevision?.remote ?? {
+              url: repository.gitUrl,
+              connectionId:
+                input.githubConnectionId ?? repository.githubConnectionId,
+            },
+          }),
         )
 
         const checkout = await step.run(
@@ -221,18 +383,6 @@ export const repositoryIndex = defineWorkflow(
         logMilestone("repository-index.merge-scip.done", {
           repositoryId: input.repositoryId,
         })
-
-        await step.run({ name: "publish-workspace-index" }, () =>
-          wls("publish-workspace-index", () =>
-            publishWorkspaceIndexAfterCodesearch({
-              orgId: input.orgId,
-              repositoryId: input.repositoryId,
-              indexedSha: checkout.targetHash,
-              jobGeneration: input.jobGeneration,
-              jobWorkspaceUrl: input.jobWorkspaceUrl,
-            }),
-          ),
-        )
 
         return {
           indexedAt: new Date().toISOString(),

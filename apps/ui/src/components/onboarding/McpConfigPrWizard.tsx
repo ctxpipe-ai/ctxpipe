@@ -88,11 +88,9 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
     queryKey: ["github-installation-setup", orgSlug],
     queryFn: async () => {
       if (!orgSlug) return null
-      const res = await (
-        client[":orgSlug"].api.v1.github.installation.setup.$get as (arg: {
-          param: { orgSlug: string }
-        }) => Promise<Response>
-      )({ param: { orgSlug } })
+      const res = await client[
+        ":orgSlug"
+      ].api.v1.github.installation.setup.$get({ param: { orgSlug }, query: {} })
       return readApiJson<{
         ingestAllRepositories: boolean
         includeFutureRepos: boolean

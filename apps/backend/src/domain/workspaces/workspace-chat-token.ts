@@ -6,6 +6,7 @@ const WorkspaceChatTokenSchema = z.object({
   exp: z.number().int().positive(),
   orgId: z.string().min(1),
   conversationId: z.string().min(1),
+  runId: z.string().min(1).optional(),
   purpose: z.literal("workspace-chat-completions"),
 })
 
@@ -19,6 +20,7 @@ export function mintWorkspaceChatToken(input: {
   authSecret: string
   orgId: string
   conversationId: string
+  runId?: string
   now?: number
   ttlMs?: number
 }): string {
@@ -27,6 +29,7 @@ export function mintWorkspaceChatToken(input: {
     exp: now + (input.ttlMs ?? CHAT_SANDBOX_IDLE_MS),
     orgId: input.orgId,
     conversationId: input.conversationId,
+    ...(input.runId ? { runId: input.runId } : {}),
     purpose: "workspace-chat-completions",
   }
   const encodedPayload = Buffer.from(JSON.stringify(payload)).toString(

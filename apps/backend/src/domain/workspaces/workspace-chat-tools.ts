@@ -1,25 +1,43 @@
-import { withOrgIdContext } from "../../auth/withAuth.js"
+import type { ToolExecutionContext } from "@tanstack/ai"
+import { z } from "zod"
 import { withOrgDbContext } from "../../db/client.js"
 import { toToon } from "../../lib/agentToolRuntime.js"
-import { findRepositoriesByNormalizedGitUrls } from "../../models/repositories.js"
+import { assertStructuralGraphAnchor } from "../../lib/repoExplorerPlanner.js"
 import {
-  getWorkspaceById,
-  listLinkedRepositories,
+  getWorkspaceProjectionSnapshot,
+  type WorkspaceProjectionSnapshot,
 } from "../../models/workspaces.js"
-import { log } from "../../observability/logger.js"
-import { getGraphClient, withGraphClient } from "../../platform/graph/client.js"
+import { hybridSearch } from "../../retrieval/index.js"
+import { codeSearch } from "../../retrieval/services/codeSearch.js"
+import { generateEmbedding } from "../../retrieval/services/modelProvider.js"
+import {
+  codesearchGraphQuery,
+  type GraphPrimitive,
+} from "../../tools/codesearchGraph.js"
+import {
+  type CheckoutFileRequest,
+  readCheckoutFile,
+} from "../../tools/getFile.js"
+import {
+  type CheckoutGlobRequest,
+  globCheckoutPaths,
+} from "../../tools/globFiles.js"
 import { listRepositoriesTool } from "../../tools/listRepositories.js"
 import { standardRepoExplorerTools } from "../../tools/repoExplorerTools.js"
+import { codesearchStructuralSearch } from "../../tools/structuralSearch.js"
+import { compactSearchResponse } from "../../tools/zoektCompact.js"
 import {
-  codesearchMembershipGitUrls,
-  workspaceCheckoutKey,
-} from "./derived-stores.js"
-import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
+  buildSymbolDefinitionQuery,
+  buildSymbolReferencesQuery,
+} from "../../tools/zoektSymbolQuery.js"
+import { readWorkspaceGraph } from "./graph-projection.js"
+import { type PublishedProjection, publishedProjection } from "./revision.js"
 import {
   formatWorkspaceChatHits,
   type WorkspaceChatUnit,
   workspaceChatHybridHits,
 } from "./workspace-chat-retrieval.js"
+import type { WorkspaceGraphPayload } from "./workspace-graph.js"
 
 export type WorkspaceChatTanstackTool = {
   name: string
@@ -28,13 +46,15 @@ export type WorkspaceChatTanstackTool = {
     type: "object"
     properties?: Record<string, unknown>
   } & Record<string, unknown>
-  execute: (args: unknown) => Promise<unknown>
+  execute: (
+    args: unknown,
+    context?: Pick<ToolExecutionContext, "context" | "abortSignal">,
+  ) => Promise<unknown>
 }
 
 type ExplorerTool = {
   name: string
   description: string
-  invoke: (input: unknown) => Promise<unknown>
 }
 
 export const SCIP_GRAPH_TOOL_NAMES = new Set([
@@ -43,7 +63,7 @@ export const SCIP_GRAPH_TOOL_NAMES = new Set([
   "graph_get_callees",
 ])
 
-const REPOSITORY_ID_SCHEMA = {
+const REPOSITORY_ID_SCHEMA: z.core.JSONSchema.JSONSchema = {
   type: "string",
   pattern: "^repo_",
   description: "Repository id with prefix repo_",
@@ -52,7 +72,7 @@ const REPOSITORY_ID_SCHEMA = {
 /** Plain JSON Schema for TanStack. Do not pass LangChain Zod v3 `.schema`. */
 export const EXPLORER_INPUT_SCHEMAS: Record<
   string,
-  WorkspaceChatTanstackTool["inputSchema"]
+  z.core.JSONSchema.JSONSchema & { type: "object" }
 > = {
   list_repositories: { type: "object", properties: {} },
   glob_files: {
@@ -179,78 +199,53 @@ export function workspaceChatToolAllowed(input: {
   return input.allowedRepositoryIds.has(repositoryId)
 }
 
-export function forcedWorkspaceCheckoutArgs(
-  args: unknown,
-  checkoutKey: string,
-): Record<string, unknown> {
-  const record =
-    args && typeof args === "object" && !Array.isArray(args)
-      ? { ...(args as Record<string, unknown>) }
-      : {}
-  delete record.checkoutKey
-  record.checkoutKey = checkoutKey
-  return record
-}
-
-export function workspaceGraphLookupCypher(): string {
-  return `MATCH (n)
-WHERE n.id = $nodeId AND n.orgId = $orgId AND n.workspaceId = $workspaceId
-RETURN n
-LIMIT 1`
-}
-
-export function workspaceGraphNeighborsCypher(): string {
-  return `MATCH (start)-[r]-(n)
-WHERE start.id = $nodeId
-  AND start.orgId = $orgId AND start.workspaceId = $workspaceId
-  AND n.orgId = $orgId AND n.workspaceId = $workspaceId
-  AND r.projectionSha = $projectionSha
-RETURN n, type(r) AS predicate, r.claim_id AS claimId
-LIMIT $limit`
-}
-
 export async function workspaceChatTools(input: {
   orgId: string
+  orgSlug: string
   workspaceId: string
-  writeStatus: string
-  loadUnits: () => Promise<WorkspaceChatUnit[]>
-  activeProjectionSha: string | null
+  snapshot: WorkspaceProjectionSnapshot
   embedQuery?: (query: string) => Promise<number[]>
   searchObjects?: (
     query: string,
     embedding: number[],
   ) => Promise<Array<{ objectId: string }>>
 }): Promise<WorkspaceChatTanstackTool[]> {
-  void input.writeStatus
-  if (!input.activeProjectionSha?.trim()) return []
-  const allowed = await loadAllowedRepositoryIds(input)
-  const checkoutKey = workspaceCheckoutKey(input.workspaceId)
+  const projection = publishedProjection(input.snapshot.projection)
+  if (!projection) return []
+  const sha =
+    projection.kind === "active" ? projection.revision.sha : projection.sha
+  const boundRepositories = input.snapshot.repositories
+  const allowed = new Set(boundRepositories.map((repo) => repo.id))
+  const loadGraph = () =>
+    readWorkspaceGraph({
+      orgId: input.orgId,
+      orgSlug: input.orgSlug,
+      projection,
+    })
   const explorer = [
     listRepositoriesTool as unknown as ExplorerTool,
     ...(standardRepoExplorerTools as unknown as ExplorerTool[]),
   ]
-  const tools: WorkspaceChatTanstackTool[] = explorer
-    .filter((tool) => !DISK_READ_TOOL_NAMES.has(tool.name))
-    .map((tool) =>
-      wrapExplorerTool({
-        tool,
-        orgId: input.orgId,
-        allowedRepositoryIds: allowed,
-        checkoutKey,
-        workspaceId: input.workspaceId,
-      }),
-    )
-  tools.unshift(hybridSearchTool(input))
+  const tools: WorkspaceChatTanstackTool[] = explorer.map((tool) =>
+    wrapExplorerTool({
+      tool,
+      orgId: input.orgId,
+      allowedRepositoryIds: allowed,
+      boundRepositories,
+      workspaceId: input.workspaceId,
+      projection,
+    }),
+  )
+  tools.unshift(
+    hybridSearchTool({
+      ...input,
+      activeProjectionSha: sha,
+      loadUnits: async () => input.snapshot.units,
+    }),
+  )
   tools.push(
-    graphLookupTool({
-      orgId: input.orgId,
-      workspaceId: input.workspaceId,
-    }),
-    graphNeighborsTool({
-      orgId: input.orgId,
-      workspaceId: input.workspaceId,
-      projectionSha: input.activeProjectionSha,
-    }),
+    graphLookupTool({ loadGraph, sha }),
+    graphNeighborsTool({ loadGraph, sha }),
   )
   return tools
 }
@@ -266,14 +261,7 @@ function hybridSearchTool(input: {
   ) => Promise<Array<{ objectId: string }>>
 }): WorkspaceChatTanstackTool {
   return {
-    name: "hybrid_search",
-    description:
-      "Search this Workspace's active projection (Postgres knowledge and claims). Input: { query }.",
-    inputSchema: {
-      type: "object",
-      properties: { query: { type: "string", minLength: 1 } },
-      required: ["query"],
-    },
+    ...HYBRID_SEARCH_DEFINITION,
     execute: async (args) => {
       const query =
         args &&
@@ -314,25 +302,18 @@ function hybridSearchTool(input: {
   }
 }
 
-const DISK_READ_TOOL_NAMES = new Set(["get_file", "glob_files"])
-
 function wrapExplorerTool(input: {
   tool: ExplorerTool
   orgId: string
   allowedRepositoryIds: ReadonlySet<string>
-  checkoutKey: string
+  boundRepositories: WorkspaceProjectionSnapshot["repositories"]
   workspaceId: string
+  projection: PublishedProjection
 }): WorkspaceChatTanstackTool {
-  const schema = EXPLORER_INPUT_SCHEMAS[input.tool.name] ?? {
-    type: "object" as const,
-    properties: {},
-  }
+  const definition = explorerToolDefinition(input.tool)
+  const schema = definition.inputSchema
   return {
-    name: input.tool.name,
-    description: SCIP_GRAPH_TOOL_NAMES.has(input.tool.name)
-      ? `${input.tool.description.replace(/Requires checkoutKey[^.]*\./gi, "").trim()} Uses this Workspace's codesearch checkout.`
-      : input.tool.description,
-    inputSchema: schema,
+    ...definition,
     execute: async (args) => {
       if (
         !workspaceChatToolAllowed({
@@ -351,83 +332,195 @@ function wrapExplorerTool(input: {
           repositories: [...input.allowedRepositoryIds].map((id) => ({ id })),
         })
       }
-      const invokeArgs = SCIP_GRAPH_TOOL_NAMES.has(input.tool.name)
-        ? forcedWorkspaceCheckoutArgs(args, input.checkoutKey)
-        : DISK_READ_TOOL_NAMES.has(input.tool.name)
-          ? {
-              ...(args && typeof args === "object" && !Array.isArray(args)
-                ? (args as Record<string, unknown>)
+      if (
+        [
+          "search",
+          "find_symbol_definitions",
+          "find_symbol_references",
+        ].includes(input.tool.name)
+      ) {
+        const query =
+          input.tool.name === "search"
+            ? stringArg(args, "query")
+            : input.tool.name === "find_symbol_definitions"
+              ? buildSymbolDefinitionQuery(
+                  stringArg(args, "symbol"),
+                  stringArg(args, "language"),
+                )
+              : buildSymbolReferencesQuery(
+                  stringArg(args, "symbol"),
+                  stringArg(args, "language"),
+                )
+        const repositoryId = repositoryIdFromToolArgs(args)
+        if (!query || !repositoryId)
+          return toToon({ error: "search_input_required" })
+        const matches = await codeSearch(input.orgId, {
+          workspaceId: input.workspaceId,
+          repositoryIds: [repositoryId],
+          query,
+          workspaceSnapshot: {
+            projection: input.projection,
+            repositories: input.boundRepositories,
+          },
+        })
+        const response = matches[0]?.response ?? { Files: [] }
+        return toToon({
+          repositoryId,
+          query,
+          ...(stringArg(args, "detail") === "full"
+            ? { response }
+            : compactSearchResponse(response)),
+        })
+      }
+      if (input.tool.name === "glob_files") {
+        const parsed = z
+          .fromJSONSchema(schema)
+          .parse(args) as CheckoutGlobRequest & { repositoryId: string }
+        const repository = input.boundRepositories.find(
+          (repo) => repo.id === parsed.repositoryId,
+        )
+        if (!repository)
+          return toToon({
+            error: "repository_not_in_workspace",
+            repositoryId: parsed.repositoryId,
+          })
+        return globCheckoutPaths({
+          pattern: parsed.pattern,
+          path: parsed.path,
+          onlyFiles: parsed.onlyFiles,
+          dot: parsed.dot,
+          limit: parsed.limit,
+          offset: parsed.offset,
+          repositoryId: repository.id,
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+          ...(input.projection.kind === "active"
+            ? { sha: repository.sha }
+            : { legacy: true as const }),
+        })
+      }
+      if (input.tool.name === "get_file") {
+        const parsed = z
+          .fromJSONSchema(schema)
+          .parse(args) as CheckoutFileRequest & { repositoryId: string }
+        const repository = input.boundRepositories.find(
+          (repo) => repo.id === parsed.repositoryId,
+        )
+        if (!repository)
+          return toToon({
+            error: "repository_not_in_workspace",
+            repositoryId: parsed.repositoryId,
+          })
+        return readCheckoutFile({
+          path: parsed.path,
+          startLine: parsed.startLine,
+          endLine: parsed.endLine,
+          maxChars: parsed.maxChars,
+          mode: parsed.mode,
+          repositoryId: repository.id,
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+          ...(input.projection.kind === "active"
+            ? { sha: repository.sha }
+            : { legacy: true as const }),
+        })
+      }
+      if (input.tool.name === "structural_search") {
+        const parsed = z.fromJSONSchema(schema).parse(args) as {
+          repositoryId: string
+          pattern: string
+          lang?: string
+          paths?: string[]
+          globs?: string[]
+          limit?: number
+        }
+        const repository = input.boundRepositories.find(
+          (repo) => repo.id === parsed.repositoryId,
+        )
+        if (!repository)
+          return toToon({
+            error: "repository_not_in_workspace",
+            repositoryId: parsed.repositoryId,
+          })
+        return codesearchStructuralSearch(
+          { id: repository.id, orgId: input.orgId },
+          parsed,
+          {
+            workspaceId: input.workspaceId,
+            ...(input.projection.kind === "active"
+              ? { sha: repository.sha }
+              : { legacy: true as const }),
+          },
+        )
+      }
+      if (SCIP_GRAPH_TOOL_NAMES.has(input.tool.name)) {
+        const parsed = z.fromJSONSchema(schema).parse(args) as Record<
+          string,
+          unknown
+        >
+        const repositoryId = repositoryIdFromToolArgs(parsed)
+        const repository = input.boundRepositories.find(
+          (repo) => repo.id === repositoryId,
+        )
+        if (!repository)
+          return toToon({ error: "repository_not_in_workspace", repositoryId })
+        const anchor = {
+          symbol: stringArg(parsed, "symbol") || undefined,
+          filePath: stringArg(parsed, "filePath") || undefined,
+          module: stringArg(parsed, "module") || undefined,
+        }
+        assertStructuralGraphAnchor(anchor)
+        return toToon(
+          await codesearchGraphQuery(
+            { id: repository.id, orgId: input.orgId },
+            {
+              primitive: input.tool.name.slice(
+                "graph_".length,
+              ) as GraphPrimitive,
+              ...anchor,
+              ...(typeof parsed.limit === "number"
+                ? { limit: parsed.limit }
                 : {}),
+            },
+            {
               workspaceId: input.workspaceId,
-            }
-          : (args ?? {})
-      return withOrgIdContext({ id: input.orgId, slug: input.orgId }, () =>
-        input.tool.invoke(invokeArgs),
-      )
+              ...(input.projection.kind === "active"
+                ? { sha: repository.sha }
+                : { legacy: true as const }),
+            },
+          ),
+        )
+      }
+      throw new Error(`Unsupported Workspace explorer tool: ${input.tool.name}`)
     },
   }
 }
 
 function graphLookupTool(input: {
-  orgId: string
-  workspaceId: string
+  loadGraph: () => Promise<WorkspaceGraphPayload>
+  sha: string
 }): WorkspaceChatTanstackTool {
   return {
-    name: "graph_lookup",
-    description:
-      "Look up one FalkorDB knowledge-graph node in this Workspace. Input: { nodeId }.",
-    inputSchema: {
-      type: "object",
-      properties: { nodeId: { type: "string", minLength: 1 } },
-      required: ["nodeId"],
-    },
+    ...GRAPH_LOOKUP_DEFINITION,
     execute: async (args) => {
       const nodeId = stringArg(args, "nodeId")
       if (!nodeId) return toToon({ error: "nodeId_required" })
-      try {
-        return await withGraphClient(
-          { orgId: input.orgId, orgSlug: input.orgId },
-          async () => {
-            const { records } = await getGraphClient().executeQuery(
-              workspaceGraphLookupCypher(),
-              {
-                nodeId,
-                orgId: input.orgId,
-                workspaceId: input.workspaceId,
-              },
-            )
-            const node = records[0]?.get("n")
-            return toToon({ node: nodeProperties(node, nodeId, input.orgId) })
-          },
-        )
-      } catch (err) {
-        log.error({
-          step: "workspaceChat.graph_lookup",
-          error: err instanceof Error ? err.message : String(err),
-        })
-        return toToon({ error: "graph_unavailable" })
-      }
+      return toToon({
+        projectionSha: input.sha,
+        node:
+          (await input.loadGraph()).nodes.find((node) => node.id === nodeId) ??
+          null,
+      })
     },
   }
 }
 
 function graphNeighborsTool(input: {
-  orgId: string
-  workspaceId: string
-  projectionSha: string
+  loadGraph: () => Promise<WorkspaceGraphPayload>
+  sha: string
 }): WorkspaceChatTanstackTool {
   return {
-    name: "graph_neighbors",
-    description:
-      "Traverse FalkorDB neighbors of a Workspace knowledge-graph node. Edges must match the active projection SHA. Input: { nodeId, limit? }.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        nodeId: { type: "string", minLength: 1 },
-        limit: { type: "integer", minimum: 1, maximum: 50 },
-      },
-      required: ["nodeId"],
-    },
+    ...GRAPH_NEIGHBORS_DEFINITION,
     execute: async (args) => {
       const nodeId = stringArg(args, "nodeId")
       if (!nodeId) return toToon({ error: "nodeId_required" })
@@ -439,58 +532,22 @@ function graphNeighborsTool(input: {
         typeof limitRaw === "number" && Number.isFinite(limitRaw)
           ? Math.min(50, Math.max(1, Math.floor(limitRaw)))
           : 20
-      try {
-        return await withGraphClient(
-          { orgId: input.orgId, orgSlug: input.orgId },
-          async () => {
-            const { records } = await getGraphClient().executeQuery(
-              workspaceGraphNeighborsCypher(),
-              {
-                nodeId,
-                orgId: input.orgId,
-                workspaceId: input.workspaceId,
-                projectionSha: input.projectionSha,
-                limit,
-              },
-            )
-            return toToon({
-              neighbors: records.map((record) => ({
-                node: nodeProperties(record.get("n"), "", input.orgId),
-                predicate: record.get("predicate"),
-                claimId: record.get("claimId"),
-              })),
-            })
-          },
-        )
-      } catch (err) {
-        log.error({
-          step: "workspaceChat.graph_neighbors",
-          error: err instanceof Error ? err.message : String(err),
-        })
-        return toToon({ error: "graph_unavailable" })
-      }
+      const graph = await input.loadGraph()
+      const neighbors = graph.edges
+        .filter((edge) => edge.sourceId === nodeId || edge.targetId === nodeId)
+        .slice(0, limit)
+        .map((edge) => ({
+          node: graph.nodes.find(
+            (node) =>
+              node.id ===
+              (edge.sourceId === nodeId ? edge.targetId : edge.sourceId),
+          ),
+          predicate: edge.predicate,
+          confidence: edge.confidence,
+        }))
+      return toToon({ projectionSha: input.sha, neighbors })
     },
   }
-}
-
-async function loadAllowedRepositoryIds(input: {
-  orgId: string
-  workspaceId: string
-}): Promise<Set<string>> {
-  return withOrgDbContext(input.orgId, async () => {
-    const workspace = await getWorkspaceById(input.workspaceId)
-    const linked = await listLinkedRepositories(input.workspaceId)
-    const urls = codesearchMembershipGitUrls({
-      activeProjectionUrl: workspace?.activeProjectionUrl ?? null,
-      linked,
-      normalizeUrl: normalizeWorkspaceRepositoryUrl,
-    })
-    const rows = await withOrgIdContext(
-      { id: input.orgId, slug: input.orgId },
-      () => findRepositoriesByNormalizedGitUrls(urls),
-    )
-    return new Set(rows.map((row) => row.id))
-  })
 }
 
 function stringArg(args: unknown, key: string): string {
@@ -499,24 +556,94 @@ function stringArg(args: unknown, key: string): string {
   return typeof value === "string" ? value.trim() : ""
 }
 
-function nodeProperties(
-  node: unknown,
-  fallbackId: string,
-  orgId: string,
-): Record<string, unknown> | null {
-  if (!node) return null
-  const props =
-    (node as { properties?: Record<string, unknown> }).properties ??
-    (typeof node === "object" ? (node as Record<string, unknown>) : {})
-  const toPlain = (value: unknown): unknown =>
-    value != null && typeof value === "object" && "toNumber" in value
-      ? (value as { toNumber: () => number }).toNumber()
-      : value
+function explorerToolDefinition(tool: ExplorerTool) {
+  const schema = EXPLORER_INPUT_SCHEMAS[tool.name] ?? {
+    type: "object" as const,
+    properties: {},
+  }
   return {
-    id: String(props.id ?? fallbackId),
-    orgId: String(props.orgId ?? orgId),
-    ...Object.fromEntries(
-      Object.entries(props).map(([key, value]) => [key, toPlain(value)]),
-    ),
+    name: tool.name,
+    description: SCIP_GRAPH_TOOL_NAMES.has(tool.name)
+      ? `${tool.description.replace(/Requires checkoutKey[^.]*\./gi, "").trim()} Uses this Workspace's codesearch checkout.`
+      : tool.description,
+    inputSchema: schema,
   }
 }
+
+const HYBRID_SEARCH_DEFINITION: Omit<WorkspaceChatTanstackTool, "execute"> = {
+  name: "hybrid_search",
+  description:
+    "Search this Workspace's active projection (Postgres knowledge and claims). Input: { query }.",
+  inputSchema: {
+    type: "object",
+    properties: { query: { type: "string", minLength: 1 } },
+    required: ["query"],
+  },
+}
+
+const GRAPH_LOOKUP_DEFINITION: Omit<WorkspaceChatTanstackTool, "execute"> = {
+  name: "graph_lookup",
+  description:
+    "Look up a node in this Workspace's published knowledge graph. Input: { nodeId }.",
+  inputSchema: {
+    type: "object",
+    properties: { nodeId: { type: "string", minLength: 1 } },
+    required: ["nodeId"],
+  },
+}
+
+const GRAPH_NEIGHBORS_DEFINITION: Omit<WorkspaceChatTanstackTool, "execute"> = {
+  name: "graph_neighbors",
+  description:
+    "Traverse neighbors in this Workspace's published knowledge graph. Input: { nodeId, limit? }.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      nodeId: { type: "string", minLength: 1 },
+      limit: { type: "integer", minimum: 1, maximum: 50 },
+    },
+    required: ["nodeId"],
+  },
+}
+
+const chatToolScope = z.object({
+  orgId: z.string().min(1),
+  orgSlug: z.string().min(1),
+  workspaceId: z.string().min(1),
+})
+
+/** Static catalogue. Tenant-bound data is read only on an actual tool invocation. */
+export const WORKSPACE_CHAT_TOOLS: WorkspaceChatTanstackTool[] = [
+  HYBRID_SEARCH_DEFINITION,
+  ...(
+    [
+      listRepositoriesTool,
+      ...standardRepoExplorerTools,
+    ] as unknown as ExplorerTool[]
+  ).map(explorerToolDefinition),
+  GRAPH_LOOKUP_DEFINITION,
+  GRAPH_NEIGHBORS_DEFINITION,
+].map((definition) => ({
+  ...definition,
+  execute: async (args, execution) => {
+    execution?.abortSignal?.throwIfAborted()
+    const scope = chatToolScope.parse(execution?.context)
+    const snapshot = await withOrgDbContext(scope.orgId, () =>
+      getWorkspaceProjectionSnapshot(scope.workspaceId),
+    )
+    if (!publishedProjection(snapshot.projection))
+      throw new Error("Workspace projection is unavailable")
+    const tools = await workspaceChatTools({
+      ...scope,
+      snapshot,
+      embedQuery: generateEmbedding,
+      searchObjects: (query, embedding) =>
+        hybridSearch(scope.orgId, { embedding, query }, { limit: 20 }),
+    })
+    const tool = tools.find((tool) => tool.name === definition.name)
+    if (!tool)
+      throw new Error(`Workspace tool ${definition.name} is unavailable`)
+    execution?.abortSignal?.throwIfAborted()
+    return tool.execute(args, execution)
+  },
+}))

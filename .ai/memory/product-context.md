@@ -10,9 +10,11 @@ Monorepo is managed with **pnpm workspaces** and **Turbo**. Apps live in `apps/`
 
 ## Architecture
 
+Workspace chat is stock TanStack (`useChat` + persistence + sandbox) against git-backed Workspaces ([ADR-030](decisions/ADR-030-workspace-chat-stock-tanstack.md)). Codesearch is one service: Zoekt lexical search, SCIP graph, ast-grep structural match, and checkout file reads ([ADR-008](decisions/ADR-008-codesearch-zoekt-orchestration.md)).
+
 - **Monorepo**: pnpm workspaces + Turborepo, Biome for linting/formatting.
-- **apps/backend**: Hono on Bun. REST (OpenAPI 3.1 via @hono/zod-openapi) + MCP (@hono/mcp). Drizzle ORM (beta/v1) on PostgreSQL. Better Auth. Neo4j for graph. LangGraph JS for orchestration. See `.ai/memory/decisions/ADR-002-backend-service-stack-and-runtime.md`, `.ai/memory/decisions/ADR-005-langgraph-integration.md`.
-- **apps/codesearch**: Hono on Bun. Orchestrates Zoekt (search proxy, on-demand indexing, file serving). Read-only Postgres `repositories`; structure mirrors backend. OpenAPI + Zod for all routes. See `.ai/memory/decisions/ADR-008-codesearch-zoekt-orchestration.md`.
+- **apps/backend**: Hono on Bun. REST (OpenAPI 3.1 via @hono/zod-openapi) + MCP (@hono/mcp). Drizzle ORM (beta/v1) on PostgreSQL. Better Auth. FalkorDB for graph. Workspace chat via stock TanStack. See `.ai/memory/decisions/ADR-002-backend-service-stack-and-runtime.md`, `.ai/memory/decisions/ADR-030-workspace-chat-stock-tanstack.md`.
+- **apps/codesearch**: Hono on Bun. One checkout per index: Zoekt, language SCIP, and ast-grep. Read-only Postgres `repositories`; structure mirrors backend. OpenAPI + Zod for all routes. See `.ai/memory/decisions/ADR-008-codesearch-zoekt-orchestration.md`.
 - **apps/ui**: TanStack Start (React + Vite). Tailwind CSS v4, React Aria (via shadcn registry), Geist typography. Storybook + Vitest.
 - **Local dev**: Docker Compose — Postgres, Neo4j, backend :3000, UI :3002, codesearch :3001, Zoekt internal.
 

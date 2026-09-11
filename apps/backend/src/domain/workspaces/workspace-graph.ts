@@ -42,18 +42,37 @@ function unitSummary(body: string): string | null {
   return line.length > 160 ? `${line.slice(0, 157)}...` : line
 }
 
-export function workspaceGraphFromUnits(input: {
-  units: readonly HydrateUnit[]
-  lastUpdatedAt?: string | null
-  now?: Date
-}): WorkspaceGraphPayload {
-  const claims = hydrateUnitsToProjectionClaims(input.units)
-  const nodes = input.units.map((unit) => ({
+export function workspaceGraphNodes(
+  units: readonly HydrateUnit[],
+): WorkspaceGraphPayload["nodes"] {
+  return units.map((unit) => ({
     id: unit.servingId,
     kind: "KnowledgeUnit",
     name: unitName(unit.path),
     summary: unitSummary(unit.body),
   }))
+}
+
+export type WorkspaceGraphSignal = Pick<
+  ReturnType<typeof hydrateUnitsToProjectionClaims>[number],
+  | "subjectId"
+  | "objectId"
+  | "predicate"
+  | "aggregatedConfidence"
+  | "validFrom"
+  | "validTo"
+  | "source"
+  | "lastObservedAt"
+>
+
+/** Confidence is calculated at read time from raw derived signals. */
+export function workspaceGraphFromSignals(input: {
+  nodes: WorkspaceGraphPayload["nodes"]
+  claims: WorkspaceGraphSignal[]
+  lastUpdatedAt?: string | null
+  now?: Date
+}): WorkspaceGraphPayload {
+  const { nodes, claims } = input
   const grouped = new Map<string, number[]>()
   const meta = new Map<
     string,

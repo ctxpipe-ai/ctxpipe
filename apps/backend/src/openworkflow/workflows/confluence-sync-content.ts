@@ -2,102 +2,201 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
-import { getForgeInstallationByConnectionId } from "../../models/atlassian-connector.js"
+import { captureConnectorMirrorTarget } from "../../domain/workspaces/capture-connector-mirror.js"
+import {
+  getForgeInstallationByConnectionId,
+  updateConfluenceSpaceSyncState,
+} from "../../models/atlassian-connector.js"
 import {
   finalizeConfluenceSyncTargetAfterContentWorkflow,
-  getConfluenceSyncTargetByConnectionId,
+  getConfluenceSyncTargetWithRepoByConnectionId,
 } from "../../models/confluence-sync-target.js"
-import { syncConfluenceContent } from "../../services/confluence/sync.js"
+import {
+  activateConnectorSync,
+  assertConnectorContentSyncBinding,
+  connectorContentBindingSchema,
+} from "../../models/connector-content-sync.js"
+import {
+  type CapturedConnectorBinding,
+  lockConnectorFinalizationBinding,
+} from "../../models/connector-finalization.js"
+import { parseConfluenceConfigYamlContent } from "../../services/confluence/config-yaml.js"
+import { captureConfluenceContent } from "../../services/confluence/sync.js"
 import { parsedRepoScopeSchema } from "../confluence-scope-repo-schema.js"
+import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
-const confluenceSyncContentInputSchema = z.object({
+const inputSchema = z.object({
+  contentSyncBinding: connectorContentBindingSchema.optional(),
+  configKey: z.string().optional(),
   orgId: z.string().min(1),
-  orgSlug: z.string().min(1),
   connectionId: z.string().min(1),
-  /** GitHub push path — avoids second Git fetch inside workflow */
+  contentSyncGeneration: z.number().int().nonnegative().default(0),
+  orgSlug: z.string().min(1),
   scopeFromRepo: parsedRepoScopeSchema.optional(),
 })
 
 export const confluenceSyncContent = defineWorkflow(
-  {
-    name: "confluence-sync-content",
-    schema: confluenceSyncContentInputSchema,
-  },
-  async ({ input, step }) => {
-    const resolveSyncContextResult = await step.run(
-      { name: "load-confluence-sync-context" },
+  { name: "confluence-sync-content", schema: inputSchema },
+  async ({ input, step, run }) => {
+    if (
+      !(await step.run({ name: "activate-content-sync" }, () =>
+        activateConnectorSync({
+          purpose: "content",
+          orgId: input.orgId,
+          connectionId: input.connectionId,
+          workflowRunId: run.id,
+        }),
+      ))
+    )
+      return {
+        status: "superseded" as const,
+        written: 0,
+        deleted: 0,
+        failures: [],
+      }
+    const env = parseEnv(process.env)
+    const context = await step.run(
+      { name: "capture-confluence-target" },
       async () => {
-        return withOrgDbContext(input.orgId, async (db) => {
-          const installationRow = await getForgeInstallationByConnectionId(
-            input.orgId,
-            input.connectionId,
-            db,
-          )
-          const targetRow = await getConfluenceSyncTargetByConnectionId(
-            input.connectionId,
-          )
-          return {
-            installation: installationRow,
-            target: targetRow,
-          }
+        const target = await getConfluenceSyncTargetWithRepoByConnectionId(
+          input.orgId,
+          input.connectionId,
+        )
+        const installation = await getForgeInstallationByConnectionId(
+          input.orgId,
+          input.connectionId,
+        )
+        if (
+          !installation?.cloudId ||
+          !installation.appSystemToken ||
+          ["revoked", "uninstalled"].includes(installation.status)
+        )
+          throw new Error("Forge installation is not ready for Confluence sync")
+        if (
+          !target?.enabled ||
+          !["initial_sync", "live"].includes(target.setupPhase)
+        )
+          throw new Error("Confluence sync target is not live")
+        if (
+          input.contentSyncBinding &&
+          (target.repositoryId !== input.contentSyncBinding.repositoryId ||
+            target.branch !== input.contentSyncBinding.branch ||
+            installation.cloudId !== input.contentSyncBinding.cloudId ||
+            installation.atlassianApiBaseUrl !==
+              input.contentSyncBinding.atlassianApiBaseUrl)
+        )
+          throw new Error("Connector content target was superseded")
+        await assertConnectorContentSyncBinding(input)
+        const captured = await captureConnectorMirrorTarget({
+          contentSyncGeneration: input.contentSyncGeneration ?? 0,
+          orgId: input.orgId,
+          env,
+          repositoryGitUrl: target.repositoryGitUrl,
+          mirror: {
+            provider: "confluence",
+            connectionId: input.connectionId,
+            repositoryId: target.repositoryId,
+          },
+        })
+        const config = parseConfluenceConfigYamlContent(captured.config)
+        if (!config) throw new Error("confluence/config.yaml was not found")
+        return {
+          target,
+          captured,
+          config,
+          cloudId: installation.cloudId,
+          atlassianApiBaseUrl: installation.atlassianApiBaseUrl,
+        }
+      },
+    )
+    const binding: CapturedConnectorBinding = {
+      contentSyncGeneration:
+        context.captured.contentSyncGeneration ??
+        input.contentSyncGeneration ??
+        0,
+      repositoryId: context.target.repositoryId,
+      revision: context.captured.revision,
+      provider: {
+        kind: "confluence",
+        cloudId: context.cloudId,
+        atlassianApiBaseUrl: context.atlassianApiBaseUrl,
+      },
+    }
+    const captured = await step.run(
+      { name: "capture-confluence-content" },
+      async () => {
+        const installation = await getForgeInstallationByConnectionId(
+          input.orgId,
+          input.connectionId,
+        )
+        if (
+          !installation?.appSystemToken ||
+          installation.cloudId !== context.cloudId ||
+          installation.atlassianApiBaseUrl !== context.atlassianApiBaseUrl ||
+          ["revoked", "uninstalled"].includes(installation.status)
+        )
+          throw new Error("Confluence authorization changed")
+        return captureConfluenceContent({
+          forgeInstallation: {
+            id: installation.id,
+            cloudId: context.cloudId,
+            appSystemToken: installation.appSystemToken,
+            atlassianApiBaseUrl: context.atlassianApiBaseUrl,
+          },
+          config: context.config,
+          existingPaths: context.captured.paths,
         })
       },
     )
-    const { installation: forgeInstallation, target } = resolveSyncContextResult
-    if (!forgeInstallation) {
-      throw new Error("Forge installation is not ready for Confluence sync")
-    }
-    const cloudId = forgeInstallation.cloudId
-    const appSystemToken = forgeInstallation.appSystemToken
-    if (!cloudId || !appSystemToken) {
-      throw new Error("Forge installation is not ready for Confluence sync")
-    }
-    if (!target) {
-      throw new Error("Confluence sync target is not configured")
-    }
-
-    const scopeFromRepo = input.scopeFromRepo
-      ? {
-          spaces: input.scopeFromRepo.spaces.map((s) => ({
-            spaceKey: s.spaceKey,
-            selectedPageIds: s.selectedPageIds,
-          })),
-        }
-      : undefined
-
-    const contentResult = await step.run({ name: "sync-content" }, () =>
-      syncConfluenceContent({
-        orgId: input.orgId,
-        env: parseEnv(process.env as Record<string, string | undefined>),
-        forgeInstallation: {
-          id: forgeInstallation.id,
-          cloudId,
-          atlassianApiBaseUrl: forgeInstallation.atlassianApiBaseUrl,
-          appSystemToken,
-        },
-        target,
-        scopeFromRepo,
+    const result =
+      captured.status !== "failed" &&
+      (captured.files.length || captured.deletePaths.length)
+        ? await step.runWorkflow(
+            workspaceConnectorMirror.spec,
+            {
+              orgId: input.orgId,
+              workspaceId: context.captured.workspaceId,
+              revision: context.captured.revision,
+              mirror: context.captured.mirror,
+              jobId: `wjob_${run.id}_mirror`,
+              files: captured.files,
+              deletePaths: captured.deletePaths,
+            },
+            { name: "commit-confluence-mirror" },
+          )
+        : null
+    await step.run({ name: "record-synced-spaces" }, () =>
+      withOrgDbContext(input.orgId, async (db) => {
+        if (
+          !(await lockConnectorFinalizationBinding(
+            db,
+            binding,
+            input.connectionId,
+          ))
+        )
+          return
+        for (const space of captured.syncedSpaces)
+          await updateConfluenceSpaceSyncState({
+            connectionId: input.connectionId,
+            ...space,
+            lastSyncedAt: run.createdAt,
+          })
       }),
     )
-
-    const status = contentResult.status
-
-    await step.run({ name: "finalize-setup-phase" }, async () =>
-      withOrgDbContext(input.orgId, () =>
-        finalizeConfluenceSyncTargetAfterContentWorkflow({
-          connectionId: input.connectionId,
-          workflowStatus: status,
-        }),
-      ),
+    await step.run({ name: "finalize-setup-phase" }, () =>
+      finalizeConfluenceSyncTargetAfterContentWorkflow({
+        connectionId: input.connectionId,
+        workflowStatus: captured.status,
+        binding,
+      }),
     )
-
     return {
-      status,
-      spacesProcessed: contentResult.spacesProcessed,
-      pagesProcessed: contentResult.pagesProcessed,
-      pagesFailed: contentResult.pagesFailed,
-      commitShas: contentResult.commitSha ? [contentResult.commitSha] : [],
-      errors: contentResult.errors,
+      status: captured.status,
+      spacesProcessed: captured.spacesProcessed,
+      pagesProcessed: captured.pagesProcessed,
+      pagesFailed: captured.pagesFailed,
+      commitShas: result?.committed ? [result.commitSha] : [],
+      errors: captured.errors,
     }
   },
 )
