@@ -66,12 +66,12 @@ import {
 function createMockDb(input: {
   orgRows?: Array<{ id: string }>
   tokenSessionRows?: Array<{
-    session: { id: string; userId: string }
+    session: { id: string; userId: string; expiresAt?: Date }
     user: { id: string; name?: string | null; email?: string | null }
   }>
   /** When bearer JWT has no `sid`, `withBearerAuth` loads latest session by user id (`sub`). */
   bearerSubFallbackRows?: Array<{
-    session: { id: string; userId: string }
+    session: { id: string; userId: string; expiresAt?: Date }
     user: { id: string; name?: string | null; email?: string | null }
   }>
   /** For opaque (non-JWT) bearer tokens, `withBearerAuth` looks up `oauth_access_tokens.token`. */
@@ -373,6 +373,73 @@ describe("auth middleware composition", () => {
     const response = await app.request("/mcp", {
       method: "POST",
       headers: { authorization: "Bearer does-not-exist" },
+    })
+
+    expect(response.status).toBe(401)
+    expect(jwtVerifyMock).not.toHaveBeenCalled()
+  })
+
+  it("withBearerAuth accepts a Better Auth session token as Bearer", async () => {
+    testState.db = createMockDb({
+      opaqueTokenRows: [],
+      tokenSessionRows: [
+        {
+          session: {
+            id: "sess_session",
+            userId: "user_session",
+            expiresAt: new Date(Date.now() + 60_000),
+          },
+          user: { id: "user_session", email: "session@example.com" },
+        },
+      ],
+    })
+
+    const app = createBaseApp()
+    app.use("/mcp", withBearerAuth)
+    app.post("/mcp", (c) =>
+      c.json({ user: c.get("user"), session: c.get("session") }),
+    )
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer session-token-not-a-jwt" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: { id: "user_session", email: "session@example.com" },
+      session: {
+        id: "sess_session",
+        userId: "user_session",
+        expiresAt: expect.any(String),
+      },
+    })
+    expect(jwtVerifyMock).not.toHaveBeenCalled()
+    expect(authHandlerMock).not.toHaveBeenCalled()
+  })
+
+  it("withBearerAuth returns 401 for an expired Better Auth session token", async () => {
+    testState.db = createMockDb({
+      opaqueTokenRows: [],
+      tokenSessionRows: [
+        {
+          session: {
+            id: "sess_expired",
+            userId: "user_session",
+            expiresAt: new Date(Date.now() - 1_000),
+          },
+          user: { id: "user_session", email: "session@example.com" },
+        },
+      ],
+    })
+
+    const app = createBaseApp()
+    app.use("/mcp", withBearerAuth)
+    app.post("/mcp", (c) => c.text("ok"))
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer expired-session-token" },
     })
 
     expect(response.status).toBe(401)

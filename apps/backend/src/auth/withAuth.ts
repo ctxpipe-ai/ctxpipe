@@ -219,6 +219,24 @@ async function resolveOpaqueAccessToken(
   return rows[0] ?? null
 }
 
+async function resolveSessionToken(
+  token: string,
+): Promise<{ session: AuthSession; user: AuthUser } | null> {
+  const db = getSystemDb()
+  const rows = await db
+    .select({ session: sessions, user: users })
+    .from(sessions)
+    .innerJoin(users, eq(sessions.userId, users.id))
+    .where(eq(sessions.token, token))
+    .limit(1)
+  const row = rows[0]
+  if (!row) return null
+  if (row.session.expiresAt && row.session.expiresAt.getTime() <= Date.now()) {
+    return null
+  }
+  return row
+}
+
 export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const auth = getAuth()
   const authSession = await auth.api.getSession({
@@ -250,9 +268,11 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   // sends the RFC 8707 `resource` parameter (`index.mjs:411`). MCP clients like
   // CodeRabbit omit it, so we get an opaque random string instead. JWTs have
   // three `.`-separated base64url segments; anything else we treat as opaque
-  // and validate via the `oauth_access_tokens` table.
+  // and validate via `oauth_access_tokens`, then as a Better Auth session token.
   if (accessToken.split(".").length !== 3) {
-    const resolved = await resolveOpaqueAccessToken(accessToken)
+    const resolved =
+      (await resolveOpaqueAccessToken(accessToken)) ??
+      (await resolveSessionToken(accessToken))
     if (resolved) {
       c.set("session", resolved.session)
       c.set("user", resolved.user)
