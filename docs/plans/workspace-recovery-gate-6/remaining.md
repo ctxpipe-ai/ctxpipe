@@ -25,8 +25,9 @@ This file is the closed Gate 6 ledger.
    Storybook interaction proof was the missing gate; it is now required.
    Full axe CI on every story is not green and is not claimed.
 3. Characterization deleted once a deeper owner already holds the
-   invariant (jsdom compose/chrome session tests). Remaining mocked
-   backend characterization stays until a native contract replaces it.
+   invariant (jsdom compose/chrome session tests). Workspace owned-seam
+   `vi.mock` choreography is gone; remaining backend units are pure
+   helpers plus third-party sandbox-provider routing.
 4. Session `ComposeEmpty` removed. Session is the hydrated thread only.
 5. Compatibility columns (`desired_sha`, `active_projection_*`, legacy
    `ws:<workspaceId>` checkout keys) stay until upgrade proof shows no
