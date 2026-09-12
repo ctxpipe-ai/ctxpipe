@@ -156,7 +156,9 @@ describe("withConversationLoadDeadline", () => {
       () => new Promise(() => {}),
       20,
     )
-    await expect(hung).rejects.toBeInstanceOf(ConversationUiMessagesTimeoutError)
+    await expect(hung).rejects.toBeInstanceOf(
+      ConversationUiMessagesTimeoutError,
+    )
     await expect(hung).rejects.toMatchObject({
       conversationId: "conv_timeout",
       name: "ConversationUiMessagesTimeoutError",
