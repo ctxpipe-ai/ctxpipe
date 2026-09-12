@@ -43,7 +43,7 @@ export async function proxyUiRequest(
     ) {
       return new Response("Gateway Timeout", { status: 504 })
     }
-    throw error
+    return new Response("Bad Gateway", { status: 502 })
   }
 }
 

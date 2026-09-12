@@ -87,4 +87,42 @@ describe("UI HTTP proxy budget", () => {
       })
     }
   })
+
+  it("returns 502 when the upstream connection is refused", async () => {
+    const response = await proxyUiRequest(
+      new Request("http://localhost/ws/context"),
+      "http://127.0.0.1:1",
+      200,
+    )
+    expect(response.status).toBe(502)
+    expect(await response.text()).toBe("Bad Gateway")
+  })
+
+  it("returns 502 when the upstream resets the connection", async () => {
+    const server = createServer((req) => {
+      req.socket.destroy()
+    })
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve)
+    })
+    const address = server.address()
+    if (!address || typeof address === "string") {
+      server.close()
+      throw new Error("expected a TCP listen address")
+    }
+
+    try {
+      const response = await proxyUiRequest(
+        new Request("http://localhost/ws/context"),
+        `http://127.0.0.1:${address.port}`,
+        200,
+      )
+      expect(response.status).toBe(502)
+      expect(await response.text()).toBe("Bad Gateway")
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
+      })
+    }
+  })
 })
