@@ -1,3 +1,4 @@
+import { chatParamsFromRequestBody } from "@tanstack/ai"
 import { describe, expect, it } from "vitest"
 import {
   createDataStreamConversationTransport,
@@ -80,15 +81,44 @@ describe("createDataStreamConversationTransport", () => {
     expect(parsed.prompt).toBe("next turn")
   })
 
-  it("rejects an official WS reconstruction that drops tools and context", async () => {
-    await expect(
-      parseConversationChatRequest({
-        threadId: "conv_1",
-        runId: "run_client",
-        messages: [{ id: "m1", role: "user" as const, content: "hello" }],
-        forwardedProps: { workspaceId: "ws_1" },
-      }),
-    ).rejects.toThrow()
+  it("reads the UI first-message body when official AG-UI params reject", async () => {
+    const firstMessageBody = {
+      messages: [
+        {
+          id: "user-pending",
+          role: "user",
+          content:
+            "How does this workspace decide when a hydrate is ready versus failed?",
+        },
+      ],
+      tools: [],
+      context: [],
+      forwardedProps: { workspaceId: "ws_1", source: "ui" },
+    }
+    await expect(chatParamsFromRequestBody(firstMessageBody)).rejects.toThrow(
+      /threadId must be a string/,
+    )
+    const parsed = await parseConversationChatRequest(firstMessageBody)
+    expect(parsed.prompt).toBe(
+      "How does this workspace decide when a hydrate is ready versus failed?",
+    )
+    expect(parsed.workspaceId).toBe("ws_1")
+    expect(parsed.source).toBe("ui")
+    expect(parsed.threadId).toBeUndefined()
+    expect(parsed.runId).toBeUndefined()
+  })
+
+  it("still reads the last user text when tools and context are omitted", async () => {
+    const parsed = await parseConversationChatRequest({
+      threadId: "conv_1",
+      runId: "run_client",
+      messages: [{ id: "m1", role: "user" as const, content: "hello" }],
+      forwardedProps: { workspaceId: "ws_1" },
+    })
+    expect(parsed.prompt).toBe("hello")
+    expect(parsed.workspaceId).toBe("ws_1")
+    expect(parsed.threadId).toBe("conv_1")
+    expect(parsed.runId).toBe("run_client")
   })
 
   it("accepts the official WS reconstruction with empty tools, context, and state", async () => {

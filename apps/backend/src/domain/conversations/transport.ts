@@ -2,6 +2,7 @@ import {
   chatParamsFromRequestBody,
   modelMessagesToUIMessages,
 } from "@tanstack/ai"
+import { log } from "../../observability/logger.js"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
 import {
   runTanstackWorkspaceChat,
@@ -208,48 +209,102 @@ export function toPromptFromIncomingMessage(message: {
   return ""
 }
 
+function incomingMessageFields(value: unknown): {
+  content?: unknown
+  parts?: unknown[]
+} {
+  if (!value || typeof value !== "object") return {}
+  return value as { content?: unknown; parts?: unknown[] }
+}
+
+function lastUserPrompt(messages: unknown[]): string {
+  const last = [...messages].reverse().find((message) => {
+    return (
+      !!message &&
+      typeof message === "object" &&
+      "role" in message &&
+      message.role === "user"
+    )
+  })
+  return last ? toPromptFromIncomingMessage(incomingMessageFields(last)) : ""
+}
+
+function forwardedChatFields(record: Record<string, unknown>): {
+  workspaceId: string
+  source: string | undefined
+} {
+  const forwarded =
+    record.forwardedProps && typeof record.forwardedProps === "object"
+      ? (record.forwardedProps as Record<string, unknown>)
+      : {}
+  const workspaceId =
+    (typeof forwarded.workspaceId === "string" && forwarded.workspaceId) ||
+    (typeof forwarded.workspace_id === "string" && forwarded.workspace_id) ||
+    (typeof record.workspaceId === "string" && record.workspaceId) ||
+    ""
+  const source =
+    typeof forwarded.source === "string"
+      ? forwarded.source
+      : typeof record.source === "string"
+        ? record.source
+        : undefined
+  return { workspaceId, source }
+}
+
 export async function parseConversationChatRequest(
   body: unknown,
 ): Promise<ConversationChatRequest> {
-  if (body && typeof body === "object" && "messages" in body) {
-    const params = await chatParamsFromRequestBody(body)
-    const last = [...params.messages].reverse().find((message) => {
-      return "role" in message && message.role === "user"
-    })
-    const prompt = last
-      ? toPromptFromIncomingMessage(
-          last as { content?: unknown; parts?: unknown[] },
-        )
-      : ""
-    const forwarded = params.forwardedProps
-    const workspaceId =
-      (typeof forwarded.workspaceId === "string" && forwarded.workspaceId) ||
-      (typeof forwarded.workspace_id === "string" && forwarded.workspace_id) ||
-      ""
-    const source =
-      typeof forwarded.source === "string" ? forwarded.source : undefined
-    return {
-      prompt,
-      workspaceId,
-      source,
-      messages: params.messages,
-      threadId: params.threadId,
-      runId: params.runId,
+  const record =
+    body && typeof body === "object" ? (body as Record<string, unknown>) : {}
+  const raw = forwardedChatFields(record)
+  const rawMessages = Array.isArray(record.messages) ? record.messages : []
+  const rawPrompt =
+    lastUserPrompt(rawMessages) ||
+    toPromptFromIncomingMessage(incomingMessageFields(record.message))
+  const rawResult: ConversationChatRequest = {
+    prompt: rawPrompt,
+    workspaceId: raw.workspaceId,
+    source: raw.source,
+    messages:
+      rawMessages.length > 0
+        ? (rawMessages as ConversationChatRequest["messages"])
+        : undefined,
+    threadId: typeof record.threadId === "string" ? record.threadId : undefined,
+    runId: typeof record.runId === "string" ? record.runId : undefined,
+  }
+
+  // Official AG-UI RunAgentInput requires threadId + runId. The first HTTP
+  // POST creates the conversation, so those ids are not on the body yet.
+  const canUseOfficial =
+    typeof record.threadId === "string" && typeof record.runId === "string"
+
+  if (canUseOfficial && rawMessages.length > 0) {
+    try {
+      const params = await chatParamsFromRequestBody(body)
+      const prompt = lastUserPrompt(params.messages) || rawPrompt
+      const forwarded = params.forwardedProps
+      const workspaceId =
+        (typeof forwarded.workspaceId === "string" && forwarded.workspaceId) ||
+        (typeof forwarded.workspace_id === "string" && forwarded.workspace_id) ||
+        raw.workspaceId
+      const source =
+        typeof forwarded.source === "string" ? forwarded.source : raw.source
+      return {
+        prompt,
+        workspaceId,
+        source,
+        messages: params.messages,
+        threadId: params.threadId,
+        runId: params.runId,
+      }
+    } catch (error) {
+      log.info({
+        step: "parse-conversation-chat-fallback",
+        message: error instanceof Error ? error.message : String(error),
+      })
+      return rawResult
     }
   }
 
-  const record =
-    body && typeof body === "object" ? (body as Record<string, unknown>) : {}
-  const message =
-    record.message && typeof record.message === "object"
-      ? (record.message as { content?: unknown; parts?: unknown[] })
-      : {}
-  const workspaceId =
-    typeof record.workspaceId === "string" ? record.workspaceId : ""
-  const source = typeof record.source === "string" ? record.source : undefined
-  return {
-    prompt: toPromptFromIncomingMessage(message),
-    workspaceId,
-    source,
-  }
+  return rawResult
 }

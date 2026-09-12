@@ -149,6 +149,10 @@ const CreateConversationMessageRequestSchema = z
   .object({
     message: IncomingMessageSchema.optional(),
     messages: z.array(z.unknown()).optional(),
+    tools: z.array(z.unknown()).optional(),
+    context: z.array(z.unknown()).optional(),
+    state: z.record(z.string(), z.unknown()).optional(),
+    idempotencyKey: z.string().optional(),
     source: z.string().optional(),
     workspaceId: z.string().optional(),
     threadId: z.string().optional(),

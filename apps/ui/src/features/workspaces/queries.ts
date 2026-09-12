@@ -150,6 +150,10 @@ export async function startWorkspaceConversation(
 ): Promise<{ conversationId: string }> {
   const client = await getApiClient()
   const json = {
+    message: {
+      role: "user",
+      content: input.text,
+    },
     messages: [
       {
         id: "user-pending",
