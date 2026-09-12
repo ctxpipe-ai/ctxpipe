@@ -1,7 +1,7 @@
 import { type QueryClient, queryOptions } from "@tanstack/react-query"
 import type { ConversationDetail } from "@/features/chat/types"
 import { getApiClient } from "@/lib/api"
-import { pollWhileOk, readApiJson } from "@/lib/api-result"
+import { apiFetch, pollWhileOk, readApiJson } from "@/lib/api-result"
 import {
   readConversationGitTreeSnapshot,
   writeConversationGitTreeSnapshot,
@@ -148,7 +148,6 @@ export async function startWorkspaceConversation(
     text: string
   },
 ): Promise<{ conversationId: string }> {
-  const client = await getApiClient()
   const json = {
     message: {
       role: "user",
@@ -166,9 +165,17 @@ export async function startWorkspaceConversation(
     ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
     forwardedProps: { workspaceId: input.workspaceId, source: "ui" },
   }
-  const res = await client[":orgSlug"].api.v1.conversations.$post({
-    param: { orgSlug },
-    json,
+  const res = await apiFetch(`/${orgSlug}/api/v1/conversations`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "content-type": "application/json",
+      ...(input.idempotencyKey
+        ? { "Idempotency-Key": input.idempotencyKey }
+        : {}),
+    },
+    body: JSON.stringify(json),
+    timeoutMs: null,
   })
   const conversationId = res.headers.get("x-conversation-id")?.trim()
   if (!res.ok) {

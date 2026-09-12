@@ -25,6 +25,11 @@ export class ApiError extends Error {
 export const API_FETCH_TIMEOUT_SSR_MS = 10_000
 export const API_FETCH_TIMEOUT_BROWSER_MS = 30_000
 
+export type ApiFetchInit = RequestInit & {
+  /** `null` skips the default timeout (long-lived SSE). */
+  timeoutMs?: number | null
+}
+
 function defaultTimeoutMs(): number {
   return import.meta.env.SSR
     ? API_FETCH_TIMEOUT_SSR_MS
@@ -46,11 +51,15 @@ function mergeSignals(
 /** Product fetch: committed timeout, network/abort → ApiError status 0. */
 export async function apiFetch(
   input: RequestInfo | URL,
-  init?: RequestInit,
+  init?: ApiFetchInit,
 ): Promise<Response> {
-  const signal = mergeSignals(init?.signal, defaultTimeoutMs())
+  const { timeoutMs, ...fetchInit } = init ?? {}
+  const signal =
+    timeoutMs === null
+      ? fetchInit.signal
+      : mergeSignals(fetchInit.signal, timeoutMs ?? defaultTimeoutMs())
   try {
-    return await fetch(input, { ...init, signal })
+    return await fetch(input, { ...fetchInit, signal })
   } catch (error) {
     throw new ApiError(
       error instanceof Error ? error.message : "Network request failed",

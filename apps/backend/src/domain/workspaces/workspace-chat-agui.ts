@@ -30,6 +30,29 @@ export function conversationRenameChunk(name: string): StreamChunk {
   } as StreamChunk
 }
 
+export function workspaceChatRunStartedChunk(input: {
+  threadId: string
+  runId: string
+}): StreamChunk {
+  return {
+    type: "RUN_STARTED",
+    threadId: input.threadId,
+    runId: input.runId,
+    timestamp: Date.now(),
+  } as StreamChunk
+}
+
+export function workspaceChatSandboxSetupChunk(
+  phase: "starting" | "ready",
+): StreamChunk {
+  return {
+    type: "CUSTOM",
+    name: "sandbox-setup",
+    value: { phase },
+    timestamp: Date.now(),
+  } as StreamChunk
+}
+
 export function workspaceChatRunError(message: string): StreamChunk {
   return {
     type: "RUN_ERROR",

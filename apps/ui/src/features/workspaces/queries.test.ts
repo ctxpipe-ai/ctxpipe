@@ -6,16 +6,17 @@ import {
   clearAllConversationGitTreeSnapshots,
   readConversationGitTreeSnapshot,
 } from "./conversation-git-tree-snapshot"
-import { installMemorySessionStorage } from "./session-storage-test"
 import {
   conversationGitTreeOptions,
   deleteWorkspace,
   fetchWorkspaceGitTree,
   landingWorkspace,
   retryPrepareWorkspace,
+  startWorkspaceConversation,
   workspaceGitTreeOptions,
   workspaceKeys,
 } from "./queries"
+import { installMemorySessionStorage } from "./session-storage-test"
 import type { Workspace, WorkspaceListResponse } from "./types"
 import { failedHydrateWorkspace } from "./workspace-fixtures"
 
@@ -252,8 +253,7 @@ describe("workspace query HTTP helpers", () => {
     server.use(
       http.get(
         "http://localhost:3000/:orgSlug/api/v1/conversations/:conversationId/files/tree",
-        () =>
-          HttpResponse.json({ error: "missing_sandbox" }, { status: 409 }),
+        () => HttpResponse.json({ error: "missing_sandbox" }, { status: 409 }),
       ),
     )
     const queryClient = new QueryClient({
@@ -270,5 +270,35 @@ describe("workspace query HTTP helpers", () => {
     })
     expect(readConversationGitTreeSnapshot("conv_1")).toBeUndefined()
     clearAllConversationGitTreeSnapshots()
+  })
+
+  it("starts a conversation from the SSE header without a fetch timeout", async () => {
+    let usedSignal: AbortSignal | null = null
+    server.use(
+      http.post(
+        "http://localhost/:orgSlug/api/v1/conversations",
+        ({ request }) => {
+          usedSignal = request.signal
+          return new HttpResponse(
+            'data: {"type":"RUN_STARTED"}\n\ndata: {"type":"RUN_FINISHED"}\n\n',
+            {
+              status: 200,
+              headers: {
+                "content-type": "text/event-stream",
+                "x-conversation-id": "conv_started",
+              },
+            },
+          )
+        },
+      ),
+    )
+    await expect(
+      startWorkspaceConversation("acme", {
+        workspaceId: "ws_1",
+        text: "How does hydrate become ready?",
+        idempotencyKey: "idem_1",
+      }),
+    ).resolves.toEqual({ conversationId: "conv_started" })
+    expect(usedSignal?.aborted).toBe(false)
   })
 })

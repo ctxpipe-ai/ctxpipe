@@ -90,6 +90,15 @@ describe("apiFetch", () => {
       status: 0,
     })
   })
+
+  it("skips the default timeout when timeoutMs is null", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response("ok")))
+    vi.stubGlobal("fetch", fetchMock)
+    await apiFetch("http://localhost/api", { timeoutMs: null })
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      signal: undefined,
+    })
+  })
 })
 
 describe("pollWhileOk", () => {

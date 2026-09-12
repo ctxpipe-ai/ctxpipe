@@ -70,6 +70,8 @@ import {
   conversationRenameChunk,
   type WorkspaceChatWireFormat,
   workspaceChatHttpResponse,
+  workspaceChatRunStartedChunk,
+  workspaceChatSandboxSetupChunk,
   workspaceChatWireFormat,
 } from "./workspace-chat-agui.js"
 import {
@@ -347,13 +349,20 @@ async function* streamTanstackWorkspaceChatBody(
   input: TanstackWorkspaceChatInput,
   turnId: string,
 ): AsyncGenerator<StreamChunk> {
+  yield workspaceChatRunStartedChunk({
+    threadId: input.conversationId,
+    runId: turnId,
+  })
+  yield workspaceChatSandboxSetupChunk("starting")
   const resolved = input.resolveRuntime ? await input.resolveRuntime() : {}
   const turn: TanstackWorkspaceChatInput = { ...input, ...resolved }
   await turn.onUserPersist?.()
   const prepared = await startWorkspaceChat(turn)
   if (!prepared.ok) throw new Error(prepared.error)
+  yield workspaceChatSandboxSetupChunk("ready")
   for await (const chunk of prepared.stream) {
     const typed = chunk as StreamChunk
+    if (typed.type === "RUN_STARTED") continue
     if (typed.type === "RUN_ERROR") await turn.onError?.()
     if (typed.type === "RUN_FINISHED") {
       const name = await nameConversationIfUnnamed({
