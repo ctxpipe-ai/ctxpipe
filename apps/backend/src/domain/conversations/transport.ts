@@ -146,6 +146,37 @@ export function workspaceChatStreamResponse(
   )
 }
 
+export const CONVERSATION_UI_MESSAGES_TIMEOUT_MS = 5_000
+
+export class ConversationUiMessagesTimeoutError extends Error {
+  readonly conversationId: string
+  constructor(conversationId: string) {
+    super("Conversation messages timed out")
+    this.name = "ConversationUiMessagesTimeoutError"
+    this.conversationId = conversationId
+  }
+}
+
+export async function withConversationLoadDeadline<T>(
+  conversationId: string,
+  load: () => Promise<T>,
+  timeoutMs = CONVERSATION_UI_MESSAGES_TIMEOUT_MS,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      load(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new ConversationUiMessagesTimeoutError(conversationId))
+        }, timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 export async function loadConversationUiMessages(input: {
   conversationId: string
   checkpointNamespace: string
@@ -165,6 +196,19 @@ export async function loadConversationUiMessages(input: {
     role: turn.role,
     parts: [{ type: "text" as const, content: turn.content }],
   }))
+}
+
+export async function loadConversationUiMessagesBounded(input: {
+  conversationId: string
+  checkpointNamespace: string
+  workspaceId?: string | null
+  timeoutMs?: number
+}): Promise<ConversationChatMessage[]> {
+  return withConversationLoadDeadline(
+    input.conversationId,
+    () => loadConversationUiMessages(input),
+    input.timeoutMs ?? CONVERSATION_UI_MESSAGES_TIMEOUT_MS,
+  )
 }
 
 export function textFromMessagePart(part: unknown): string {

@@ -1,8 +1,10 @@
 import { chatParamsFromRequestBody } from "@tanstack/ai"
 import { describe, expect, it } from "vitest"
 import {
+  ConversationUiMessagesTimeoutError,
   createDataStreamConversationTransport,
   parseConversationChatRequest,
+  withConversationLoadDeadline,
   workspaceChatStreamReady,
 } from "./transport.js"
 
@@ -137,6 +139,27 @@ describe("createDataStreamConversationTransport", () => {
       source: "ui",
       threadId: "conv_1",
       runId: "run_client",
+    })
+  })
+})
+
+describe("withConversationLoadDeadline", () => {
+  it("returns the load result when it finishes before the deadline", async () => {
+    await expect(
+      withConversationLoadDeadline("conv_1", async () => ["ok"], 50),
+    ).resolves.toEqual(["ok"])
+  })
+
+  it("rejects with conversationId when persistence hangs past the deadline", async () => {
+    const hung = withConversationLoadDeadline(
+      "conv_timeout",
+      () => new Promise(() => {}),
+      20,
+    )
+    await expect(hung).rejects.toBeInstanceOf(ConversationUiMessagesTimeoutError)
+    await expect(hung).rejects.toMatchObject({
+      conversationId: "conv_timeout",
+      name: "ConversationUiMessagesTimeoutError",
     })
   })
 })

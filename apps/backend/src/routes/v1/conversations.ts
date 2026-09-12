@@ -3,8 +3,10 @@ import { reconstructChat } from "@tanstack/ai-persistence"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import {
+  type ConversationChatMessage,
   type ConversationChatRequest,
-  loadConversationUiMessages,
+  ConversationUiMessagesTimeoutError,
+  loadConversationUiMessagesBounded,
   parseConversationChatRequest,
   workspaceChatStreamResponse,
 } from "../../domain/conversations/transport.js"
@@ -224,6 +226,10 @@ const getConversationRoute = createRoute({
     404: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
+    },
+    503: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Conversation messages timed out",
     },
   },
 })
@@ -597,11 +603,23 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     })
     if (!conversation) return c.json({ error: "Not found" }, 404)
 
-    const messages = await loadConversationUiMessages({
-      conversationId,
-      checkpointNamespace: "",
-      workspaceId: conversation.workspaceId,
-    })
+    let messages: ConversationChatMessage[]
+    try {
+      messages = await loadConversationUiMessagesBounded({
+        conversationId,
+        checkpointNamespace: "",
+        workspaceId: conversation.workspaceId,
+      })
+    } catch (error) {
+      if (error instanceof ConversationUiMessagesTimeoutError) {
+        getLogger().error(error, {
+          step: "conversation.get.messages",
+          conversationId,
+        })
+        return c.json({ error: "Conversation messages unavailable" }, 503)
+      }
+      throw error
+    }
     const detailWorkspace = conversation.workspaceId
       ? await getWorkspaceById(conversation.workspaceId)
       : null
