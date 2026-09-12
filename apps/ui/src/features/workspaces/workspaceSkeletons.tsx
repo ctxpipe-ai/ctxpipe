@@ -9,6 +9,24 @@ import {
   workspaceChromeTabStripClassName,
 } from "./workspaceChrome"
 
+export function WorkspaceGraphPaneSkeleton() {
+  return (
+    <div className="relative h-full min-h-0 min-w-0 flex-1" aria-busy>
+      <span className="sr-only">Loading graph</span>
+      <div className="flex h-full items-center justify-center">
+        <div className="grid grid-cols-3 gap-8 p-8">
+          <Skeleton className="size-8 rounded-full" />
+          <Skeleton className="size-6 justify-self-center rounded-full" />
+          <Skeleton className="size-10 rounded-full" />
+          <Skeleton className="size-7 rounded-full" />
+          <Skeleton className="size-8 justify-self-end rounded-full" />
+          <Skeleton className="size-6 rounded-full" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function WorkspaceFilesPaneSkeleton() {
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col" aria-busy>

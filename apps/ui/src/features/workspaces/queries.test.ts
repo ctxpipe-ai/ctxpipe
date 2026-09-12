@@ -14,6 +14,7 @@ import {
   retryPrepareWorkspace,
   startWorkspaceConversation,
   workspaceGitTreeOptions,
+  workspaceGraphOptions,
   workspaceKeys,
 } from "./queries"
 import { installMemorySessionStorage } from "./session-storage-test"
@@ -166,6 +167,10 @@ describe("workspace query HTTP helpers", () => {
     expect(
       workspaceGitTreeOptions("acme", "knowledge", "").retry,
     ).toBeUndefined()
+  })
+
+  it("uses the shared query retry policy for graph", () => {
+    expect(workspaceGraphOptions("acme", "knowledge").retry).toBeUndefined()
   })
 
   it("persists a successful conversation sandbox tree snapshot", async () => {

@@ -15,8 +15,9 @@ import {
   useQueryClient,
   useSuspenseQuery,
 } from "@tanstack/react-query"
+import { ClientOnly } from "@tanstack/react-router"
 import type { CSSProperties, ReactNode } from "react"
-import { Suspense, useEffect, useRef } from "react"
+import { lazy, Suspense, useEffect, useRef } from "react"
 import { type Key, Tab, TabList, TabPanel, Tabs } from "react-aria-components"
 import { OverlayNavMenuButton } from "@/components/OverlayNavButton"
 import { Button } from "@/components/ui/Button"
@@ -46,7 +47,6 @@ import { useConversationPublish } from "./useConversationPublish"
 import { ConversationPublishActions } from "./WorkspaceChatChrome"
 import { WorkspaceConversationDiffPane } from "./WorkspaceConversationDiff"
 import { WorkspaceFilesPaneBody } from "./WorkspaceFilesPane"
-import { WorkspaceGraphPane } from "./WorkspaceGraphPane"
 import { WorkspaceSettingsPane } from "./WorkspaceSettingsPane"
 import {
   workspaceChromeCardPaneClassName,
@@ -57,7 +57,16 @@ import {
   workspaceChromeTabIdleClassName,
   workspaceChromeTabStripClassName,
 } from "./workspaceChrome"
-import { WorkspaceFilesPaneSkeleton } from "./workspaceSkeletons"
+import {
+  WorkspaceFilesPaneSkeleton,
+  WorkspaceGraphPaneSkeleton,
+} from "./workspaceSkeletons"
+
+const WorkspaceGraphPane = lazy(() =>
+  import("./WorkspaceGraphPane").then((mod) => ({
+    default: mod.WorkspaceGraphPane,
+  })),
+)
 
 export function WorkspacePane(props: {
   orgSlug: string
@@ -375,29 +384,18 @@ export function WorkspacePane(props: {
               </Suspense>
             ) : null}
             {pane.kind === "graph" ? (
-              <Suspense
-                fallback={
-                  <WorkspaceGraphPane
+              <ClientOnly fallback={<WorkspaceGraphPaneSkeleton />}>
+                <Suspense fallback={<WorkspaceGraphPaneSkeleton />}>
+                  <WorkspaceGraphPaneBody
                     orgSlug={props.orgSlug}
                     workspaceSlug={props.workspace.slug}
-                    graph={undefined}
-                    pending
                     onOpenSource={(path) => {
                       setPane({ kind: "file", path })
                       props.onPinFile(path)
                     }}
                   />
-                }
-              >
-                <WorkspaceGraphPaneBody
-                  orgSlug={props.orgSlug}
-                  workspaceSlug={props.workspace.slug}
-                  onOpenSource={(path) => {
-                    setPane({ kind: "file", path })
-                    props.onPinFile(path)
-                  }}
-                />
-              </Suspense>
+                </Suspense>
+              </ClientOnly>
             ) : null}
             {pane.kind === "settings" ? (
               <WorkspaceSettingsPane
