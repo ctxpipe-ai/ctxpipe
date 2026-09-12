@@ -46,13 +46,6 @@ const config = defineConfig({
       },
     },
   },
-  ssr: {
-    resolve: {
-      alias: {
-        "@/cosmograph/style.module.css": cosmographStyleAlias,
-      },
-    },
-  },
   plugins: [
     devtools(),
     tsconfigPaths({ projects: ["./tsconfig.json"] }),

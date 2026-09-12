@@ -103,14 +103,14 @@ describe("workspace document SSR module graph", () => {
     expect(source).toMatch(/ClientOnly/)
   })
 
-  it("aliases Cosmograph CSS for Vite, esbuild optimizeDeps, SSR, and Nitro", () => {
+  it("aliases Cosmograph CSS for Vite, esbuild optimizeDeps, and Nitro", () => {
     const source = readFileSync(join(uiRoot, "../vite.config.ts"), "utf8")
     expect(source).toContain('preset: "bun"')
     expect(source).toMatch(
-      /optimizeDeps:[\s\S]*alias:[\s\S]*@\/cosmograph\/style\.module\.css/,
+      /resolve:[\s\S]*alias:[\s\S]*@\/cosmograph\/style\.module\.css/,
     )
     expect(source).toMatch(
-      /ssr:[\s\S]*alias:[\s\S]*@\/cosmograph\/style\.module\.css/,
+      /optimizeDeps:[\s\S]*alias:[\s\S]*@\/cosmograph\/style\.module\.css/,
     )
     expect(source).toMatch(
       /nitroV2Plugin\(\{[\s\S]*alias:[\s\S]*@\/cosmograph\/style\.module\.css/,
