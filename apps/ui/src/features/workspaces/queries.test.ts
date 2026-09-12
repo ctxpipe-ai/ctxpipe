@@ -273,12 +273,12 @@ describe("workspace query HTTP helpers", () => {
   })
 
   it("starts a conversation from the SSE header without a fetch timeout", async () => {
-    let usedSignal: AbortSignal | null = null
+    let requestAborted = true
     server.use(
       http.post(
         "http://localhost/:orgSlug/api/v1/conversations",
         ({ request }) => {
-          usedSignal = request.signal
+          requestAborted = request.signal.aborted
           return new HttpResponse(
             'data: {"type":"RUN_STARTED"}\n\ndata: {"type":"RUN_FINISHED"}\n\n',
             {
@@ -299,6 +299,6 @@ describe("workspace query HTTP helpers", () => {
         idempotencyKey: "idem_1",
       }),
     ).resolves.toEqual({ conversationId: "conv_started" })
-    expect(usedSignal?.aborted).toBe(false)
+    expect(requestAborted).toBe(false)
   })
 })
