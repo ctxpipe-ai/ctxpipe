@@ -1,12 +1,13 @@
-import { readFileSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { existsSync, readFileSync } from "node:fs"
+import { dirname, extname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const uiRoot = join(here, "../..")
+const srcRoot = uiRoot
 
-const workspaceDocumentModules = [
+const workspaceDocumentEntries = [
   join(here, "WorkspacePane.tsx"),
   join(here, "WorkspaceSurface.tsx"),
   join(here, "ensure-route-data.ts"),
@@ -41,17 +42,58 @@ function pullsCosmographOnSsr(specifier: string): boolean {
   )
 }
 
+function resolveLocalSpecifier(
+  fromFile: string,
+  specifier: string,
+): string | null {
+  if (specifier.startsWith("@/")) {
+    return resolveExistingSource(join(srcRoot, specifier.slice(2)))
+  }
+  if (specifier.startsWith("./") || specifier.startsWith("../")) {
+    return resolveExistingSource(join(dirname(fromFile), specifier))
+  }
+  return null
+}
+
+function resolveExistingSource(base: string): string | null {
+  const candidates = extname(base)
+    ? [base]
+    : [
+        base,
+        `${base}.ts`,
+        `${base}.tsx`,
+        join(base, "index.ts"),
+        join(base, "index.tsx"),
+      ]
+  return candidates.find((path) => existsSync(path)) ?? null
+}
+
+function walkStaticLocalImports(entry: string): string[] {
+  const hits: string[] = []
+  const queue = [entry]
+  const seen = new Set<string>()
+  while (queue.length > 0) {
+    const file = queue.pop()
+    if (!file || seen.has(file)) continue
+    seen.add(file)
+    const source = readFileSync(file, "utf8")
+    for (const specifier of staticValueImportSpecifiers(source)) {
+      if (pullsCosmographOnSsr(specifier)) {
+        hits.push(`${file} -> ${specifier}`)
+        continue
+      }
+      const next = resolveLocalSpecifier(file, specifier)
+      if (next && !seen.has(next)) queue.push(next)
+    }
+  }
+  return hits
+}
+
 describe("workspace document SSR module graph", () => {
   it("does not statically import Cosmograph or the graph pane", () => {
-    const hits: string[] = []
-    for (const file of workspaceDocumentModules) {
-      const source = readFileSync(file, "utf8")
-      for (const specifier of staticValueImportSpecifiers(source)) {
-        if (pullsCosmographOnSsr(specifier)) {
-          hits.push(`${file} -> ${specifier}`)
-        }
-      }
-    }
+    const hits = workspaceDocumentEntries.flatMap((file) =>
+      walkStaticLocalImports(file),
+    )
     expect(hits).toEqual([])
   })
 
