@@ -6,7 +6,9 @@ import {
   newUiConversationId,
   openWorkspaceConversation,
   seedWorkspaceConversation,
+  seedWorkspaceDetailFromList,
 } from "./start-workspace-conversation-ui"
+import { docsWorkspace } from "./workspace-fixtures"
 
 describe("newUiConversationId", () => {
   it("returns a conv_ hex id the server will accept", () => {
@@ -37,6 +39,45 @@ describe("seedWorkspaceConversation", () => {
         ),
       ),
     ).toEqual(detail)
+  })
+})
+
+describe("seedWorkspaceDetailFromList", () => {
+  it("copies the list workspace so the surface can render without waiting on detail", () => {
+    const queryClient = new QueryClient()
+    queryClient.setQueryData(workspaceKeys.list("acme"), {
+      lastUsedWorkspaceId: docsWorkspace.id,
+      items: [docsWorkspace],
+    })
+    const seeded = seedWorkspaceDetailFromList({
+      queryClient,
+      orgSlug: "acme",
+      workspace: { id: docsWorkspace.id, slug: docsWorkspace.slug },
+    })
+    expect(seeded).toMatchObject({
+      slug: "docs",
+      linkedRepositories: [],
+    })
+    expect(
+      queryClient.getQueryData(workspaceKeys.detail("acme", "docs")),
+    ).toEqual(seeded)
+  })
+
+  it("does not replace a workspace detail that is already cached", () => {
+    const queryClient = new QueryClient()
+    const cached = { ...docsWorkspace, linkedRepositories: [] }
+    queryClient.setQueryData(workspaceKeys.detail("acme", "docs"), cached)
+    queryClient.setQueryData(workspaceKeys.list("acme"), {
+      lastUsedWorkspaceId: docsWorkspace.id,
+      items: [{ ...docsWorkspace, displayName: "Other" }],
+    })
+    expect(
+      seedWorkspaceDetailFromList({
+        queryClient,
+        orgSlug: "acme",
+        workspace: { id: docsWorkspace.id, slug: docsWorkspace.slug },
+      }),
+    ).toEqual(cached)
   })
 })
 

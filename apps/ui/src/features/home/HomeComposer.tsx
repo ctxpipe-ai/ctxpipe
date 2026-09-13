@@ -42,6 +42,7 @@ export function HomeComposer(props: {
       workspaceDetailOptions(orgSlug, workspace.slug),
     )
   }
+  if (selected) prefetchWorkspace(selected)
 
   const startConversation = async (text: string) => {
     if (!selected) return
