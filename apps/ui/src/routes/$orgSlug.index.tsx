@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button"
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { HomeComposer } from "@/features/home/HomeComposer"
 import { WorkspaceActivity } from "@/features/home/WorkspaceActivity"
+import { OrgOutletError } from "@/features/org/OrgOutletError"
 import {
   landingWorkspace,
   workspaceListOptions,
@@ -14,6 +15,9 @@ import { useUserPreferences } from "@/lib/user-preferences"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 
 export const Route = createFileRoute("/$orgSlug/")({
+  errorComponent: ({ error, reset }) => (
+    <OrgOutletError title="Could not load home" error={error} reset={reset} />
+  ),
   component: OrgHomePage,
 })
 

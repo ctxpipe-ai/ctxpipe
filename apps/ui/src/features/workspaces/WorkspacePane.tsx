@@ -13,7 +13,6 @@ import {
   type QueryClient,
   useQuery,
   useQueryClient,
-  useSuspenseQuery,
 } from "@tanstack/react-query"
 import { ClientOnly } from "@tanstack/react-router"
 import type { CSSProperties, ReactNode } from "react"
@@ -385,16 +384,14 @@ export function WorkspacePane(props: {
             ) : null}
             {pane.kind === "graph" ? (
               <ClientOnly fallback={<WorkspaceGraphPaneSkeleton />}>
-                <Suspense fallback={<WorkspaceGraphPaneSkeleton />}>
-                  <WorkspaceGraphPaneBody
-                    orgSlug={props.orgSlug}
-                    workspaceSlug={props.workspace.slug}
-                    onOpenSource={(path) => {
-                      setPane({ kind: "file", path })
-                      props.onPinFile(path)
-                    }}
-                  />
-                </Suspense>
+                <WorkspaceGraphPaneBody
+                  orgSlug={props.orgSlug}
+                  workspaceSlug={props.workspace.slug}
+                  onOpenSource={(path) => {
+                    setPane({ kind: "file", path })
+                    props.onPinFile(path)
+                  }}
+                />
               </ClientOnly>
             ) : null}
             {pane.kind === "settings" ? (
@@ -422,15 +419,17 @@ function WorkspaceGraphPaneBody(props: {
   workspaceSlug: string
   onOpenSource?: (path: string) => void
 }) {
-  const { data } = useSuspenseQuery(
+  const query = useQuery(
     workspaceGraphOptions(props.orgSlug, props.workspaceSlug),
   )
+  if (query.isPending) return <WorkspaceGraphPaneSkeleton />
   return (
     <WorkspaceGraphPane
       orgSlug={props.orgSlug}
       workspaceSlug={props.workspaceSlug}
-      graph={data}
+      graph={query.data}
       pending={false}
+      error={query.error instanceof Error ? query.error : null}
       onOpenSource={props.onOpenSource}
     />
   )
@@ -549,12 +548,19 @@ function PaneIconTab(props: {
 export function WorkspacePaneTriggers(props: {
   orgSlug: string
   workspace: WorkspaceDetail
+  conversationId?: string
   onOpen: (pane: ParsedPane) => void
   onExpand?: () => void
 }) {
   const queryClient = useQueryClient()
   const prefetch = (pane: ParsedPane) => {
-    prefetchWorkspacePane(queryClient, props.orgSlug, props.workspace, pane)
+    prefetchWorkspacePane(
+      queryClient,
+      props.orgSlug,
+      props.workspace,
+      pane,
+      props.conversationId,
+    )
   }
   return (
     <TooltipProvider delay={200}>

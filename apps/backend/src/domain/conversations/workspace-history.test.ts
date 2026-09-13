@@ -2,8 +2,10 @@ import { chatParamsFromRequestBody } from "@tanstack/ai"
 import { describe, expect, it } from "vitest"
 import {
   ConversationUiMessagesTimeoutError,
+  clientConversationId,
   createDataStreamConversationTransport,
   parseConversationChatRequest,
+  resolveCreatedConversationId,
   withConversationLoadDeadline,
   workspaceChatStreamReady,
 } from "./transport.js"
@@ -108,6 +110,46 @@ describe("createDataStreamConversationTransport", () => {
     expect(parsed.source).toBe("ui")
     expect(parsed.threadId).toBeUndefined()
     expect(parsed.runId).toBeUndefined()
+  })
+
+  it("reads a client conversation id from forwarded props", async () => {
+    const parsed = await parseConversationChatRequest({
+      messages: [{ id: "user-pending", role: "user", content: "hello" }],
+      tools: [],
+      context: [],
+      forwardedProps: {
+        workspaceId: "ws_1",
+        source: "ui",
+        conversationId: "conv_0123456789abcdef",
+      },
+    })
+    expect(parsed.conversationId).toBe("conv_0123456789abcdef")
+    expect(clientConversationId("conv_0123456789abcdef")).toBe(
+      "conv_0123456789abcdef",
+    )
+    expect(clientConversationId("not-a-conv")).toBeUndefined()
+  })
+
+  it("prefers a client conversation id over the idempotency hash", () => {
+    expect(
+      resolveCreatedConversationId({
+        conversationId: "conv_0123456789abcdef",
+        idempotencyKey: "start-1",
+        userId: "user_a",
+        workspaceId: "ws_1",
+        generateId: () => "conv_generated",
+        idFromIdempotencyKey: () => "conv_from_key",
+      }),
+    ).toBe("conv_0123456789abcdef")
+    expect(
+      resolveCreatedConversationId({
+        idempotencyKey: "start-1",
+        userId: "user_a",
+        workspaceId: "ws_1",
+        generateId: () => "conv_generated",
+        idFromIdempotencyKey: () => "conv_from_key",
+      }),
+    ).toBe("conv_from_key")
   })
 
   it("still reads the last user text when tools and context are omitted", async () => {

@@ -302,6 +302,7 @@ describe("workspace query HTTP helpers", () => {
         workspaceId: "ws_1",
         text: "How does hydrate become ready?",
         idempotencyKey: "idem_1",
+        conversationId: "conv_started",
       }),
     ).resolves.toEqual({ conversationId: "conv_started" })
     expect(requestAborted).toBe(false)

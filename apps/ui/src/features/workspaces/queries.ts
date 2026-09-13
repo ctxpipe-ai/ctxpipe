@@ -40,6 +40,8 @@ export const workspaceKeys = {
     conversationId: string,
     workspaceId: string,
   ) => ["conversation", orgSlug, conversationId, workspaceId] as const,
+  conversationStart: (orgSlug: string, conversationId: string) =>
+    ["conversation-start", orgSlug, conversationId] as const,
   files: (orgSlug: string, slug: string) =>
     ["workspace-files", orgSlug, slug] as const,
   gitTree: (orgSlug: string, slug: string, sha: string) =>
@@ -143,6 +145,7 @@ export class StartWorkspaceConversationError extends Error {
 export async function startWorkspaceConversation(
   orgSlug: string,
   input: {
+    conversationId?: string
     idempotencyKey?: string
     workspaceId: string
     text: string
@@ -163,7 +166,11 @@ export async function startWorkspaceConversation(
     tools: [],
     context: [],
     ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
-    forwardedProps: { workspaceId: input.workspaceId, source: "ui" },
+    forwardedProps: {
+      workspaceId: input.workspaceId,
+      source: "ui",
+      ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+    },
   }
   const res = await apiFetch(`/${orgSlug}/api/v1/conversations`, {
     method: "POST",
@@ -332,7 +339,19 @@ export function workspaceConversationOptions(
 ) {
   return queryOptions({
     queryKey: workspaceKeys.conversation(orgSlug, conversationId, workspaceId),
-    queryFn: () => fetchConversation(orgSlug, conversationId, workspaceId),
+    queryFn: async ({ client }) => {
+      const fetched = await fetchConversation(
+        orgSlug,
+        conversationId,
+        workspaceId,
+      )
+      if (fetched) return fetched
+      return (
+        client.getQueryData<ConversationDetail>(
+          workspaceKeys.conversation(orgSlug, conversationId, workspaceId),
+        ) ?? null
+      )
+    },
   })
 }
 

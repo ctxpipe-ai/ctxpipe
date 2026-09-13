@@ -20,6 +20,7 @@ export type ConversationChatRequest = {
   prompt: string
   workspaceId: string
   source?: string
+  conversationId?: string
   messages?: TanstackWorkspaceChatInput["messages"]
   threadId?: string
   runId?: string
@@ -273,9 +274,37 @@ function lastUserPrompt(messages: unknown[]): string {
   return last ? toPromptFromIncomingMessage(incomingMessageFields(last)) : ""
 }
 
+const CLIENT_CONVERSATION_ID = /^conv_[a-z0-9]{8,64}$/
+
+export function clientConversationId(value: unknown): string | undefined {
+  return typeof value === "string" && CLIENT_CONVERSATION_ID.test(value)
+    ? value
+    : undefined
+}
+
+export function resolveCreatedConversationId(input: {
+  conversationId?: string
+  idempotencyKey: string
+  userId: string
+  workspaceId: string
+  generateId: () => string
+  idFromIdempotencyKey: (key: string, scope: string) => string
+}): string {
+  return (
+    clientConversationId(input.conversationId) ??
+    (input.idempotencyKey
+      ? input.idFromIdempotencyKey(
+          input.idempotencyKey,
+          `${input.userId}:${input.workspaceId}`,
+        )
+      : input.generateId())
+  )
+}
+
 function forwardedChatFields(record: Record<string, unknown>): {
   workspaceId: string
   source: string | undefined
+  conversationId?: string
 } {
   const forwarded =
     record.forwardedProps && typeof record.forwardedProps === "object"
@@ -292,7 +321,10 @@ function forwardedChatFields(record: Record<string, unknown>): {
       : typeof record.source === "string"
         ? record.source
         : undefined
-  return { workspaceId, source }
+  const conversationId =
+    clientConversationId(forwarded.conversationId) ??
+    clientConversationId(record.conversationId)
+  return { workspaceId, source, conversationId }
 }
 
 export async function parseConversationChatRequest(
@@ -309,6 +341,7 @@ export async function parseConversationChatRequest(
     prompt: rawPrompt,
     workspaceId: raw.workspaceId,
     source: raw.source,
+    conversationId: raw.conversationId,
     messages:
       rawMessages.length > 0
         ? (rawMessages as ConversationChatRequest["messages"])
@@ -337,6 +370,8 @@ export async function parseConversationChatRequest(
         prompt,
         workspaceId,
         source,
+        conversationId:
+          clientConversationId(forwarded.conversationId) ?? raw.conversationId,
         messages: params.messages,
         threadId: params.threadId,
         runId: params.runId,

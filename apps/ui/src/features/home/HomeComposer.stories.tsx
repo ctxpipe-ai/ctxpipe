@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { http } from "msw"
+import { delay, http } from "msw"
 import { StrictMode } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
@@ -63,8 +63,9 @@ export const FirstMessageSendsOnce: Story = {
     msw: {
       handlers: {
         page: [
-          http.post(conversationPostPath, () => {
+          http.post(conversationPostPath, async () => {
             firstMessagePosts.count += 1
+            await delay(2_000)
             return conversationAguiSseResponse(
               conversationAguiTextEvents({
                 threadId: "conv_home",

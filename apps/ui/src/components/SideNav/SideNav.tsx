@@ -22,7 +22,6 @@ import {
   SIDE_NAV_MIN_WIDTH,
   useUserPreferences,
 } from "@/lib/user-preferences"
-import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
 import { prefetchOrgConnectors, prefetchOrgHome } from "./prefetch-org-pages"
 import { SideNavItem } from "./SideNavItem"
@@ -30,11 +29,6 @@ import { SideNavLogo } from "./SideNavLogo"
 import { SideNavOrganizationButton } from "./SideNavOrganizationButton"
 import { SideNavTooltip } from "./SideNavTooltip"
 import { SideNavUserButton } from "./SideNavUserButton"
-import {
-  parseSideNavLocation,
-  type SideNavLocation,
-  sideNavLocationKey,
-} from "./sideNavLocation"
 import {
   sideNavIconGutterClassName,
   sideNavLabelClassName,
@@ -46,26 +40,16 @@ import {
 export function SideNav() {
   const router = useRouter()
   const queryClient = useQueryClient()
-  const { navOpen, setNavOpen } = useShellLayout()
-  const [
-    { isSideNavExpanded: expanded, selectedOrganizationSlug, sideNavWidth },
-    updatePreferences,
-  ] = useUserPreferences()
+  const { navOpen, setNavOpen, nav, selectNav } = useShellLayout()
+  const [{ isSideNavExpanded: expanded, sideNavWidth }, updatePreferences] =
+    useUserPreferences()
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [isResizing, setIsResizing] = useState(false)
   const navRef = useRef<HTMLElement>(null)
   const pathname = router.state?.location.pathname ?? ""
-  const committedNav = parseSideNavLocation(pathname, selectedOrganizationSlug)
-  const [nav, setNav] = useUrgentValue(
-    committedNav,
-    sideNavLocationKey(committedNav),
-  )
   const orgSlug = nav.orgSlug
   const currentWorkspaceSlug = nav.workspaceSlug
   const currentConversationId = nav.conversationId
-  const selectNav = (next: SideNavLocation) => {
-    setNav(next)
-  }
 
   useEffect(() => {
     if (pathname) setNavOpen(false)
@@ -273,6 +257,7 @@ export function SideNav() {
             orgSlug={orgSlug}
             isOpen={paletteOpen}
             onOpenChange={(open) => setPaletteOpen(Boolean(open))}
+            onSelectNav={selectNav}
           />
         ) : null}
 

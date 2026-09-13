@@ -1,4 +1,4 @@
-import { createFileRoute, useMatch } from "@tanstack/react-router"
+import { createFileRoute } from "@tanstack/react-router"
 import {
   ensureWorkspaceRouteData,
   prefetchWorkspaceRouteData,
@@ -36,15 +36,10 @@ export const Route = createFileRoute("/$orgSlug/ws/$workspaceSlug")({
 function WorkspaceSlugLayout() {
   const { orgSlug, workspaceSlug } = Route.useParams()
   const { pane } = Route.useSearch()
-  const conversationMatch = useMatch({
-    from: "/$orgSlug/ws/$workspaceSlug/$conversationId",
-    shouldThrow: false,
-  })
   return (
     <WorkspaceSurface
       orgSlug={orgSlug}
       workspaceSlug={workspaceSlug}
-      conversationId={conversationMatch?.params.conversationId}
       paneParam={pane}
     />
   )

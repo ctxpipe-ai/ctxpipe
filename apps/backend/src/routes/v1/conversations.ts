@@ -7,8 +7,9 @@ import {
   type ConversationChatRequest,
   ConversationUiMessagesTimeoutError,
   loadConversationUiMessagesBounded,
-  parseConversationChatRequest,
-  workspaceChatStreamResponse,
+    parseConversationChatRequest,
+    resolveCreatedConversationId,
+    workspaceChatStreamResponse,
 } from "../../domain/conversations/transport.js"
 import {
   conversationSessionBranch,
@@ -743,12 +744,14 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       typeof raw.idempotencyKey === "string"
         ? raw.idempotencyKey.trim()
         : "")
-    const conversationId = idempotencyKey
-      ? conversationIdFromIdempotencyKey(
-          idempotencyKey,
-          `${c.get("user")?.id ?? ""}:${parsed.workspaceId}`,
-        )
-      : generateObjectId("conv")
+    const conversationId = resolveCreatedConversationId({
+      conversationId: parsed.conversationId,
+      idempotencyKey,
+      userId: c.get("user")?.id ?? "",
+      workspaceId: parsed.workspaceId,
+      generateId: () => generateObjectId("conv"),
+      idFromIdempotencyKey: conversationIdFromIdempotencyKey,
+    })
     if (idempotencyKey && (await conversationHasStoredTurns(conversationId))) {
       return withConversationIdHeader(
         new Response("", { status: 200 }),

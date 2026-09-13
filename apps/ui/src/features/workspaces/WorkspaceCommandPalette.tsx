@@ -1,18 +1,30 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { useEffect, useMemo, useState } from "react"
 import { Dialog } from "react-aria-components"
+import { useSelectNav } from "@/components/ShellLayoutContext"
+import {
+  prefetchOrgConnectors,
+  prefetchOrgHome,
+} from "@/components/SideNav/prefetch-org-pages"
+import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { Modal } from "@/components/ui/Modal"
 import { SearchField } from "@/components/ui/SearchField"
+import { SkeletonRow } from "@/components/ui/Skeleton"
+import { prefetchWorkspaceRouteData } from "./ensure-route-data"
 import { fetchWorkspaces, workspaceKeys } from "./queries"
 
 export function WorkspaceCommandPalette(props: {
   orgSlug: string
   isOpen: boolean
   onOpenChange: (open?: boolean) => void
+  onSelectNav?: (next: SideNavLocation) => void
 }) {
   const { orgSlug, isOpen, onOpenChange } = props
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const contextSelectNav = useSelectNav()
+  const selectNav = props.onSelectNav ?? contextSelectNav
   const [query, setQuery] = useState("")
   const workspacesQuery = useQuery({
     queryKey: workspaceKeys.list(orgSlug),
@@ -53,22 +65,44 @@ export function WorkspaceCommandPalette(props: {
 
   const go = (id: string) => {
     if (id === "home") {
-      void navigate({ to: "/$orgSlug", params: { orgSlug } })
+      prefetchOrgHome(queryClient, orgSlug)
+      selectNav({ orgSlug, primary: "home" })
+      void navigate({
+        to: "/$orgSlug",
+        params: { orgSlug },
+        search: (prev) => prev,
+      })
     } else if (id === "connectors") {
+      prefetchOrgConnectors(queryClient, orgSlug)
+      selectNav({ orgSlug, primary: "connectors" })
       void navigate({
         to: "/$orgSlug/connectors",
         params: { orgSlug },
-        search: {
+        search: (prev) => ({
+          ...prev,
           error: undefined,
           error_description: undefined,
           pendingAccountClaim: undefined,
           notionConnectionId: undefined,
-        },
+        }),
       })
     } else if (id.startsWith("ws:")) {
+      const workspaceSlug = id.slice(3)
+      prefetchWorkspaceRouteData({
+        queryClient,
+        orgSlug,
+        workspaceSlug,
+        warmLandingPane: true,
+      })
+      selectNav({
+        orgSlug,
+        primary: "workspace",
+        workspaceSlug,
+      })
       void navigate({
         to: "/$orgSlug/ws/$workspaceSlug",
-        params: { orgSlug, workspaceSlug: id.slice(3) },
+        params: { orgSlug, workspaceSlug },
+        search: (prev) => prev,
       })
     }
     onOpenChange(false)
@@ -86,7 +120,14 @@ export function WorkspaceCommandPalette(props: {
           onChange={setQuery}
         />
         <ul className="mt-2 max-h-80 overflow-auto">
-          {items.length === 0 ? (
+          {isOpen && workspacesQuery.isPending && !workspacesQuery.data ? (
+            <li aria-busy>
+              <span className="sr-only">Loading workspaces</span>
+              <SkeletonRow />
+              <SkeletonRow />
+              <SkeletonRow />
+            </li>
+          ) : items.length === 0 ? (
             <li className="px-2 py-2 text-sm text-muted-foreground">
               No results found.
             </li>

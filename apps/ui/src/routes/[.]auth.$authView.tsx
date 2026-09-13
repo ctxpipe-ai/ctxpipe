@@ -7,7 +7,10 @@ import { Button } from "@/components/ui/Button"
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { acceptInvitationThenRedirect } from "@/features/auth/accept-invitation"
-import { betterAuthAuthViewClassNames } from "@/features/auth/betterAuthShellClassNames"
+import {
+  betterAuthAuthViewClassNames,
+  betterAuthEmailPlaceholder,
+} from "@/features/auth/betterAuthShellClassNames"
 import { apiFetch, readApiJson } from "@/lib/api-result"
 import { authClient, useSession } from "@/lib/auth-client"
 import { getAuthContinuationProps } from "@/lib/auth-continuation"
@@ -449,6 +452,7 @@ function AuthViewRoute() {
               redirectTo={continuation?.redirectTo ?? "/onboarding"}
               className={showBranding ? "pt-24" : undefined}
               classNames={betterAuthAuthViewClassNames}
+              localization={{ EMAIL_PLACEHOLDER: betterAuthEmailPlaceholder }}
             />
           )}
         </div>

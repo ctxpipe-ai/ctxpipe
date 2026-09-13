@@ -1,4 +1,7 @@
-import type { AccountViewProps, AuthViewProps } from "@daveyplate/better-auth-ui"
+import type {
+  AccountViewProps,
+  AuthViewProps,
+} from "@daveyplate/better-auth-ui"
 
 /**
  * Shared @daveyplate/better-auth-ui shell styling for AccountView and OrganizationView:
@@ -39,6 +42,8 @@ export const betterAuthShellClassNames: NonNullable<
  * Shared @daveyplate/better-auth-ui auth page styling for Sign In / Sign Up:
  * square corners for cards, fields and buttons.
  */
+export const betterAuthEmailPlaceholder = "you@company.com"
+
 export const betterAuthAuthViewClassNames: NonNullable<
   AuthViewProps["classNames"]
 > = {

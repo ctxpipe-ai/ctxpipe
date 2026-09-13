@@ -1,6 +1,9 @@
 import { AuthView } from "@daveyplate/better-auth-ui"
 import { createFileRoute } from "@tanstack/react-router"
-import { betterAuthAuthViewClassNames } from "@/features/auth/betterAuthShellClassNames"
+import {
+  betterAuthAuthViewClassNames,
+  betterAuthEmailPlaceholder,
+} from "@/features/auth/betterAuthShellClassNames"
 import { getAuthContinuationProps } from "@/lib/auth-continuation"
 import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
 
@@ -38,6 +41,7 @@ export function SignInRoutePage() {
               redirectTo={continuation?.redirectTo ?? "/onboarding"}
               className="pt-24"
               classNames={betterAuthAuthViewClassNames}
+              localization={{ EMAIL_PLACEHOLDER: betterAuthEmailPlaceholder }}
             />
           )}
         </div>

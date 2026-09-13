@@ -3,24 +3,21 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { useRef, useState } from "react"
 import { Button as RACButton } from "react-aria-components"
+import { useSelectNav } from "@/components/ShellLayoutContext"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
-import { insertConversationListItem } from "@/features/chat/insertConversationListItem"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
-import type {
-  ConversationDetail,
-  ConversationListInfiniteData,
-} from "@/features/chat/types"
 import {
   StartWorkspaceConversationError,
-  startWorkspaceConversation,
   workspaceDetailOptions,
-  workspaceKeys,
 } from "@/features/workspaces/queries"
+import {
+  newUiConversationId,
+  openWorkspaceConversation,
+} from "@/features/workspaces/start-workspace-conversation-ui"
 import type { Workspace } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
-import { navigateWithComposerTransition } from "./navigate-with-composer-transition"
 
 export function HomeComposer(props: {
   orgSlug: string
@@ -31,11 +28,12 @@ export function HomeComposer(props: {
   const { orgSlug, workspaces, selected, onSelectWorkspace } = props
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const selectNav = useSelectNav()
   const [sendError, setSendError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const pendingConversationRef = useRef<{
     workspaceId: string
-    conversationId?: string
+    conversationId: string
     idempotencyKey: string
   } | null>(null)
 
@@ -45,82 +43,38 @@ export function HomeComposer(props: {
     )
   }
 
-  const commitStartedConversation = (conversationId: string, text: string) => {
-    if (!selected) return
-    const now = new Date().toISOString()
-    const detail: ConversationDetail = {
-      conversation: {
-        id: conversationId,
-        name: "New conversation",
-        source: "ui",
-        lastMessageAt: now,
-        orgId: "",
-        workspaceId: selected.id,
-        createdAt: now,
-        updatedAt: now,
-      },
-      messages: [
-        {
-          id: `user-${conversationId}`,
-          role: "user",
-          parts: [{ type: "text", content: text }],
-        },
-      ],
-    }
-    queryClient.setQueryData(
-      workspaceKeys.conversation(orgSlug, conversationId, selected.id),
-      detail,
-    )
-    queryClient.setQueriesData<ConversationListInfiniteData>(
-      { queryKey: workspaceKeys.conversations(orgSlug, selected.id) },
-      (old) =>
-        insertConversationListItem(old, {
-          id: conversationId,
-          name: "New conversation",
-          source: "ui",
-          lastMessageAt: now,
-        }),
-    )
-    prefetchWorkspace(selected)
-    navigateWithComposerTransition(() => {
-      void navigate({
-        to: "/$orgSlug/ws/$workspaceSlug/$conversationId",
-        params: {
-          orgSlug,
-          workspaceSlug: selected.slug,
-          conversationId,
-        },
-      })
-    })
-  }
-
   const startConversation = async (text: string) => {
     if (!selected) return
     const pending =
       pendingConversationRef.current?.workspaceId === selected.id
         ? pendingConversationRef.current
         : null
-    const idempotencyKey = pending?.idempotencyKey ?? crypto.randomUUID()
+    const conversationId = pending?.conversationId ?? newUiConversationId()
+    const idempotencyKey = pending?.idempotencyKey ?? conversationId
     pendingConversationRef.current = {
       workspaceId: selected.id,
-      conversationId: pending?.conversationId,
+      conversationId,
       idempotencyKey,
     }
     setSendError(null)
     setSending(true)
     try {
-      const started = await startWorkspaceConversation(orgSlug, {
-        idempotencyKey,
-        workspaceId: selected.id,
+      await openWorkspaceConversation({
+        queryClient,
+        navigate,
+        selectNav,
+        orgSlug,
+        workspace: selected,
         text,
+        conversationId,
+        idempotencyKey,
       })
       pendingConversationRef.current = null
-      commitStartedConversation(started.conversationId, text)
     } catch (error) {
       const assigned =
         error instanceof StartWorkspaceConversationError
-          ? error.conversationId
-          : pending?.conversationId
+          ? (error.conversationId ?? conversationId)
+          : conversationId
       pendingConversationRef.current = {
         workspaceId: selected.id,
         conversationId: assigned,

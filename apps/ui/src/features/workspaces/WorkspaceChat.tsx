@@ -1,26 +1,26 @@
 import {
   type QueryClient,
+  useQuery,
   useQueryClient,
   useSuspenseQuery,
 } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { type ReactNode, Suspense, useRef, useState } from "react"
+import { useSelectNav } from "@/components/ShellLayoutContext"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Skeleton } from "@/components/ui/Skeleton"
 import { ConversationThreadSkeleton } from "@/features/chat/components/ConversationThreadSkeleton"
-import { insertConversationListItem } from "@/features/chat/insertConversationListItem"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
-import type {
-  ConversationDetail,
-  ConversationListInfiniteData,
-} from "@/features/chat/types"
 import {
   StartWorkspaceConversationError,
-  startWorkspaceConversation,
   workspaceConversationOptions,
   workspaceKeys,
 } from "./queries"
+import {
+  newUiConversationId,
+  openWorkspaceConversation,
+} from "./start-workspace-conversation-ui"
 import type { Workspace } from "./types"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 import { WorkspaceChatSession } from "./WorkspaceChatSession"
@@ -72,90 +72,41 @@ function WorkspaceComposeChat(props: {
 }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const selectNav = useSelectNav()
   const [sendError, setSendError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const pendingConversationRef = useRef<{
-    conversationId?: string
+    conversationId: string
     idempotencyKey: string
   } | null>(null)
-
-  const commitStartedConversation = (conversationId: string, text: string) => {
-    const now = new Date().toISOString()
-    const detail: ConversationDetail = {
-      conversation: {
-        id: conversationId,
-        name: "New conversation",
-        source: "ui",
-        lastMessageAt: now,
-        orgId: "",
-        workspaceId: props.workspace.id,
-        createdAt: now,
-        updatedAt: now,
-      },
-      messages: [
-        {
-          id: `user-${conversationId}`,
-          role: "user",
-          parts: [{ type: "text", content: text }],
-        },
-      ],
-    }
-    queryClient.setQueryData(
-      workspaceKeys.conversation(
-        props.orgSlug,
-        conversationId,
-        props.workspace.id,
-      ),
-      detail,
-    )
-    queryClient.setQueriesData<ConversationListInfiniteData>(
-      {
-        queryKey: workspaceKeys.conversations(
-          props.orgSlug,
-          props.workspace.id,
-        ),
-      },
-      (old) =>
-        insertConversationListItem(old, {
-          id: conversationId,
-          name: "New conversation",
-          source: "ui",
-          lastMessageAt: now,
-        }),
-    )
-    void navigate({
-      to: "/$orgSlug/ws/$workspaceSlug/$conversationId",
-      params: {
-        orgSlug: props.orgSlug,
-        workspaceSlug: props.workspace.slug,
-        conversationId,
-      },
-      search: (prev) => prev,
-    })
-  }
 
   const startConversation = async (text: string) => {
     setSendError(null)
     setSending(true)
     const pending = pendingConversationRef.current
-    const idempotencyKey = pending?.idempotencyKey ?? crypto.randomUUID()
+    const conversationId = pending?.conversationId ?? newUiConversationId()
+    const idempotencyKey = pending?.idempotencyKey ?? conversationId
     pendingConversationRef.current = {
-      conversationId: pending?.conversationId,
+      conversationId,
       idempotencyKey,
     }
     try {
-      const started = await startWorkspaceConversation(props.orgSlug, {
-        idempotencyKey,
-        workspaceId: props.workspace.id,
+      await openWorkspaceConversation({
+        queryClient,
+        navigate,
+        selectNav,
+        orgSlug: props.orgSlug,
+        workspace: props.workspace,
         text,
+        conversationId,
+        idempotencyKey,
       })
       pendingConversationRef.current = null
-      commitStartedConversation(started.conversationId, text)
     } catch (error) {
       const assigned =
         error instanceof StartWorkspaceConversationError
-          ? error.conversationId
-          : pending?.conversationId
+          ? (error.conversationId ?? conversationId)
+          : conversationId
       pendingConversationRef.current = {
         conversationId: assigned,
         idempotencyKey,
@@ -292,6 +243,18 @@ function WorkspaceChatResume(props: {
   const { data: detail } = useSuspenseQuery(
     workspaceConversationOptions(orgSlug, conversationId, workspace.id),
   )
+  const { data: startState } = useQuery({
+    queryKey: workspaceKeys.conversationStart(orgSlug, conversationId),
+    queryFn: async () => null,
+    enabled: false,
+  })
+  const sessionPhase =
+    startState &&
+    typeof startState === "object" &&
+    "status" in startState &&
+    (startState.status === "starting" || startState.status === "error")
+      ? "start"
+      : "live"
 
   if (!detail || detail.conversation.workspaceId !== workspace.id) {
     return (
@@ -305,7 +268,7 @@ function WorkspaceChatResume(props: {
 
   return (
     <WorkspaceChatSession
-      key={conversationId}
+      key={`${conversationId}:${sessionPhase}`}
       orgSlug={orgSlug}
       workspace={workspace}
       conversationId={conversationId}

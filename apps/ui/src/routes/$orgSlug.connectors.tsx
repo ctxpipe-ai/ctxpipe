@@ -34,12 +34,20 @@ import {
   orgConnectionsOptions,
   sortOrgConnectionsForDisplay,
 } from "@/features/connectors/queries/org-connections"
+import { OrgOutletError } from "@/features/org/OrgOutletError"
 import { apiFetch, readApiJson } from "@/lib/api-result"
 import { oauthErrorMessage } from "@/lib/atlassian-oauth-messages"
 import { useSession } from "@/lib/auth-client"
 import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
 
 export const Route = createFileRoute("/$orgSlug/connectors")({
+  errorComponent: ({ error, reset }) => (
+    <OrgOutletError
+      title="Could not load connectors"
+      error={error}
+      reset={reset}
+    />
+  ),
   validateSearch: (search: Record<string, unknown>) => ({
     error: typeof search.error === "string" ? search.error : undefined,
     error_description:

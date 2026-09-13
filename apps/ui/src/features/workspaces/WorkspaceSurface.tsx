@@ -5,7 +5,10 @@ import {
 } from "@tanstack/react-query"
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router"
 import { Component, type ReactNode, Suspense, useEffect, useState } from "react"
+import { useSideNavLocation } from "@/components/ShellLayoutContext"
 import { parseSideNavLocation } from "@/components/SideNav/sideNavLocation"
+import { Button } from "@/components/ui/Button"
+import { InlineAlert } from "@/components/ui/InlineAlert"
 import { pollWhileOk } from "@/lib/api-result"
 import { cn } from "@/lib/utils"
 import {
@@ -52,9 +55,16 @@ export function WorkspaceSurface(props: {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   })
-  const conversationId =
+  const urlConversationId =
     parseSideNavLocation(pathname, props.orgSlug).conversationId ??
     props.conversationId
+  const nav = useSideNavLocation()
+  const conversationId =
+    nav.primary === "workspace" &&
+    nav.orgSlug === props.orgSlug &&
+    nav.workspaceSlug === props.workspaceSlug
+      ? nav.conversationId
+      : urlConversationId
   return (
     <WorkspaceQueryErrorBoundary>
       <Suspense fallback={<WorkspaceSurfaceSkeleton />}>
@@ -70,7 +80,10 @@ export function WorkspaceSurface(props: {
 }
 
 class WorkspaceQueryErrorBoundary extends Component<
-  { children: ReactNode },
+  {
+    children: ReactNode
+    fallback?: (error: unknown, reset: () => void) => ReactNode
+  },
   { error: unknown }
 > {
   state: { error: unknown } = { error: null }
@@ -81,6 +94,11 @@ class WorkspaceQueryErrorBoundary extends Component<
 
   render() {
     if (this.state.error) {
+      if (this.props.fallback) {
+        return this.props.fallback(this.state.error, () =>
+          this.setState({ error: null }),
+        )
+      }
       return (
         <WorkspaceRouteError
           error={this.state.error}
@@ -90,6 +108,34 @@ class WorkspaceQueryErrorBoundary extends Component<
     }
     return this.props.children
   }
+}
+
+function WorkspaceColumnError(props: {
+  title: string
+  error: unknown
+  reset: () => void
+}) {
+  const message =
+    props.error instanceof Error && props.error.message.trim().length > 0
+      ? props.error.message
+      : "Try again in a moment."
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
+      <div className="w-full max-w-sm">
+        <InlineAlert
+          variant="error"
+          title={props.title}
+          actions={
+            <Button variant="secondary" onPress={props.reset}>
+              Try again
+            </Button>
+          }
+        >
+          {message}
+        </InlineAlert>
+      </div>
+    </div>
+  )
 }
 
 function WorkspacePrepareFailedLayout(props: {
@@ -231,7 +277,7 @@ function WorkspaceSurfaceReady(props: {
 
   return (
     <WorkspaceSurfaceSession
-      key={`${orgSlug}/${workspaceSlug}/${conversationId ?? "compose"}`}
+      key={`${orgSlug}/${workspaceSlug}`}
       orgSlug={orgSlug}
       workspaceSlug={workspaceSlug}
       workspace={workspace}
@@ -432,72 +478,96 @@ function WorkspaceSurfaceColumns(props: {
           maximized ? "hidden" : paneOpen ? "max-lg:hidden" : null,
         )}
       >
-        <WorkspaceChat
-          orgSlug={orgSlug}
-          workspace={workspace}
-          conversationId={conversationId}
-          headerExtra={
-            paneOpen ? null : (
-              <WorkspacePaneTriggers
-                orgSlug={orgSlug}
-                workspace={workspace}
-                onOpen={(next) => setPane(next)}
-                onExpand={
-                  fileTabs.length > 0
-                    ? () => {
-                        setPane(shownPane ?? { kind: "files" }, fileTabSession)
-                      }
-                    : undefined
-                }
-              />
-            )
-          }
-        />
+        <WorkspaceQueryErrorBoundary
+          fallback={(error, reset) => (
+            <WorkspaceColumnError
+              title="Could not load conversation"
+              error={error}
+              reset={reset}
+            />
+          )}
+        >
+          <WorkspaceChat
+            orgSlug={orgSlug}
+            workspace={workspace}
+            conversationId={conversationId}
+            headerExtra={
+              paneOpen ? null : (
+                <WorkspacePaneTriggers
+                  orgSlug={orgSlug}
+                  workspace={workspace}
+                  conversationId={conversationId}
+                  onOpen={(next) => setPane(next)}
+                  onExpand={
+                    fileTabs.length > 0
+                      ? () => {
+                          setPane(
+                            shownPane ?? { kind: "files" },
+                            fileTabSession,
+                          )
+                        }
+                      : undefined
+                  }
+                />
+              )
+            }
+          />
+        </WorkspaceQueryErrorBoundary>
       </div>
       {paneOpen && shownPane ? (
-        <WorkspacePane
-          orgSlug={orgSlug}
-          workspace={workspace}
-          conversationId={conversationId}
-          pane={shownPane}
-          fileTabs={fileTabs}
-          previewPath={previewPath}
-          treeCollapsed={treeCollapsed}
-          maximized={maximized}
-          width={paneWidth}
-          conversationTitle={conversationTitle}
-          onPane={(next) => setPane(next)}
-          onClose={collapsePane}
-          onToggleMaximize={() => setMaximized((value) => !value)}
-          onRestoreConversation={() => {
-            setMaximized(false)
-            // Below lg the tools pane owns the viewport — restore means hide it.
-            if (
-              typeof window !== "undefined" &&
-              window.matchMedia("(max-width: 1023px)").matches
-            ) {
-              collapsePane()
-            }
-          }}
-          onResize={setPaneWidth}
-          onPreviewFile={(path) => openFile(path, false)}
-          onPinFile={(path) => openFile(path, true)}
-          onCloseFileTab={(path) => {
-            const nextTabs = closeFileTab(fileTabSession, path)
-            setFileTabs(nextTabs)
-            if (shownPane.kind === "file" && shownPane.path === path) {
-              setPane({ kind: "files" }, nextTabs)
-            }
-          }}
-          onCloseActiveFile={() => {
-            if (shownPane.kind === "file") {
-              const nextTabs = closeFileTab(fileTabSession, shownPane.path)
+        <WorkspaceQueryErrorBoundary
+          fallback={(error, reset) => (
+            <WorkspaceColumnError
+              title="Could not load pane"
+              error={error}
+              reset={reset}
+            />
+          )}
+        >
+          <WorkspacePane
+            orgSlug={orgSlug}
+            workspace={workspace}
+            conversationId={conversationId}
+            pane={shownPane}
+            fileTabs={fileTabs}
+            previewPath={previewPath}
+            treeCollapsed={treeCollapsed}
+            maximized={maximized}
+            width={paneWidth}
+            conversationTitle={conversationTitle}
+            onPane={(next) => setPane(next)}
+            onClose={collapsePane}
+            onToggleMaximize={() => setMaximized((value) => !value)}
+            onRestoreConversation={() => {
+              setMaximized(false)
+              // Below lg the tools pane owns the viewport — restore means hide it.
+              if (
+                typeof window !== "undefined" &&
+                window.matchMedia("(max-width: 1023px)").matches
+              ) {
+                collapsePane()
+              }
+            }}
+            onResize={setPaneWidth}
+            onPreviewFile={(path) => openFile(path, false)}
+            onPinFile={(path) => openFile(path, true)}
+            onCloseFileTab={(path) => {
+              const nextTabs = closeFileTab(fileTabSession, path)
               setFileTabs(nextTabs)
-              setPane({ kind: "files" }, nextTabs)
-            }
-          }}
-          onToggleTree={() => setTreeCollapsed((value) => !value)}
-        />
+              if (shownPane.kind === "file" && shownPane.path === path) {
+                setPane({ kind: "files" }, nextTabs)
+              }
+            }}
+            onCloseActiveFile={() => {
+              if (shownPane.kind === "file") {
+                const nextTabs = closeFileTab(fileTabSession, shownPane.path)
+                setFileTabs(nextTabs)
+                setPane({ kind: "files" }, nextTabs)
+              }
+            }}
+            onToggleTree={() => setTreeCollapsed((value) => !value)}
+          />
+        </WorkspaceQueryErrorBoundary>
       ) : null}
     </div>
   )

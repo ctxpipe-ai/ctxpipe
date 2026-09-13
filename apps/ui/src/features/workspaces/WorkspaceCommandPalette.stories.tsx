@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { delay, HttpResponse, http } from "msw"
 import { fn, userEvent, within } from "storybook/test"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
@@ -34,6 +35,21 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Open: Story = {}
+
+export const Loading: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get("*/api/v1/workspaces", async () => {
+            await delay("infinite")
+            return HttpResponse.json({ items: [] })
+          }),
+        ],
+      },
+    },
+  },
+}
 
 export const NoResults: Story = {
   play: async ({ canvasElement }) => {
