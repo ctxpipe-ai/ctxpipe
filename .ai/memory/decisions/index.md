@@ -43,3 +43,4 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-029](ADR-029-workspace-chat-keep-alive-serve.md) | In-sandbox keep-alive OpenCode serve | Superseded by [ADR-030](ADR-030-workspace-chat-stock-tanstack.md) |
 | [ADR-030](ADR-030-workspace-chat-stock-tanstack.md) | Stock TanStack workspace chat | Accepted |
 | [ADR-034](ADR-034-native-postgres-sandbox-ownership.md) | Native Postgres sandbox ownership, shared bases, live revisions, native stream/process/resource enforcement, provider eligibility, remote TLS runner, per-workspace native egress, PG collision guards and native-run credential brokering | Accepted |
+| [ADR-035](ADR-035-railway-us-east-next-to-neon.md) | Railway compute in US East next to Neon | Accepted |
