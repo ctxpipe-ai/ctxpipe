@@ -102,6 +102,7 @@ export function WorkspaceChatSession(props: {
   })
   const [headerTitle, setHeaderTitle] = useState(title)
   const [sandboxPhase, setSandboxPhase] = useState<SandboxPhase>("idle")
+  const [sendError, setSendError] = useState<Error | null>(null)
   useEffect(() => {
     setHeaderTitle(title)
   }, [title])
@@ -175,6 +176,15 @@ export function WorkspaceChatSession(props: {
       if (phase) setSandboxPhase(phase)
       if (chunk.type === "RUN_FINISHED" || chunk.type === "RUN_ERROR") {
         setSandboxPhase("idle")
+        if (chunk.type === "RUN_ERROR") {
+          const message =
+            "error" in chunk && typeof chunk.error === "string"
+              ? chunk.error
+              : "message" in chunk && typeof chunk.message === "string"
+                ? chunk.message
+                : "Chat request failed."
+          setSendError(new Error(message))
+        }
         if (chunk.type === "RUN_FINISHED") {
           void queryClient.invalidateQueries({
             queryKey: workspaceKeys.conversationGitTree(
@@ -195,10 +205,14 @@ export function WorkspaceChatSession(props: {
 
   const handleSendMessage = async (params: { text: string }) => {
     setSandboxPhase("idle")
+    setSendError(null)
     try {
       await sendMessage(params.text)
-    } catch {
+    } catch (error) {
       setSandboxPhase("idle")
+      setSendError(
+        error instanceof Error ? error : new Error("Failed to send message"),
+      )
     }
   }
 
@@ -269,7 +283,7 @@ export function WorkspaceChatSession(props: {
       ) : null}
       <ConversationThread
         messages={messages as ChatMessage[]}
-        error={error ?? null}
+        error={error ?? sendError}
         status={startState?.status === "starting" ? "submitted" : status}
         waitLabel={workspaceChatWaitLabel(
           startState?.status === "starting" ? "starting" : sandboxPhase,

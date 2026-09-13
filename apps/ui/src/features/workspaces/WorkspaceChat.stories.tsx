@@ -565,125 +565,30 @@ export const LateErrorDoesNotClobberSuccess: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const Original = window.WebSocket
-    let failNextRun = false
-    function ScriptedWebSocket(url: string | URL) {
-      const listeners = new Map<string, Set<(event: Event) => void>>()
-      const emit = (type: string, event: Event) => {
-        const handler = socket[`on${type}` as keyof typeof socket]
-        if (typeof handler === "function") {
-          ;(handler as (event: Event) => void)(event)
-        }
-        for (const listener of listeners.get(type) ?? []) {
-          listener(event)
-        }
-      }
-      const socket: {
-        url: string
-        readyState: number
-        bufferedAmount: number
-        extensions: string
-        protocol: string
-        binaryType: BinaryType
-        onopen: ((event: Event) => void) | null
-        onerror: ((event: Event) => void) | null
-        onclose: ((event: CloseEvent) => void) | null
-        onmessage: ((event: MessageEvent<string>) => void) | null
-        close: () => void
-        send: () => void
-        addEventListener: (
-          type: string,
-          listener: (event: Event) => void,
-        ) => void
-        removeEventListener: (
-          type: string,
-          listener: (event: Event) => void,
-        ) => void
-        dispatchEvent: () => boolean
-      } = {
-        url: String(url),
-        readyState: Original.CONNECTING,
-        bufferedAmount: 0,
-        extensions: "",
-        protocol: "",
-        binaryType: "blob" as BinaryType,
-        onopen: null,
-        onerror: null,
-        onclose: null,
-        onmessage: null,
-        close() {
-          this.readyState = Original.CLOSED
-          emit("close", new CloseEvent("close"))
-        },
-        send() {
-          if (!failNextRun) return
-          queueMicrotask(() => {
-            emit(
-              "message",
-              new MessageEvent("message", {
-                data: JSON.stringify({
-                  type: "RUN_ERROR",
-                  message: "late failure",
-                }),
-              }),
-            )
-          })
-        },
-        addEventListener(type, listener) {
-          const set = listeners.get(type) ?? new Set()
-          set.add(listener)
-          listeners.set(type, set)
-        },
-        removeEventListener(type, listener) {
-          listeners.get(type)?.delete(listener)
-        },
-        dispatchEvent() {
-          return true
-        },
-      }
-      queueMicrotask(() => {
-        socket.readyState = Original.OPEN
-        emit("open", new Event("open"))
-      })
-      return socket
-    }
-    ScriptedWebSocket.prototype = Original.prototype
-    Object.assign(ScriptedWebSocket, {
-      CONNECTING: Original.CONNECTING,
-      OPEN: Original.OPEN,
-      CLOSING: Original.CLOSING,
-      CLOSED: Original.CLOSED,
-    })
-    window.WebSocket = ScriptedWebSocket as unknown as typeof WebSocket
-    try {
-      await userEvent.type(
-        canvas.getByPlaceholderText(/ask about this workspace/i),
-        "What is in this Workspace?",
-      )
-      await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-      expect(
-        await canvas.findByText(lateErrorFirstAnswer, undefined, {
-          timeout: SEND_WAIT_MS,
-        }),
-      ).toBeVisible()
-      await waitFor(
-        () => {
-          expect(canvas.queryByText(/setting up sandbox/i)).toBeNull()
-        },
-        { timeout: SEND_WAIT_MS },
-      )
-      const followUp = await canvas.findByPlaceholderText(
-        /continue the conversation/i,
-        undefined,
-        { timeout: SEND_WAIT_MS },
-      )
-      failNextRun = true
-      await userEvent.type(followUp, "This send should fail")
-      await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-      await waitFor(() => canvas.getByRole("alert"), { timeout: SEND_WAIT_MS })
-      expect(canvas.getByText(lateErrorFirstAnswer)).toBeVisible()
-    } finally {
-      window.WebSocket = Original
-    }
+    await userEvent.type(
+      canvas.getByPlaceholderText(/ask about this workspace/i),
+      "What is in this Workspace?",
+    )
+    await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+    expect(
+      await canvas.findByText(lateErrorFirstAnswer, undefined, {
+        timeout: SEND_WAIT_MS,
+      }),
+    ).toBeVisible()
+    await waitFor(
+      () => {
+        expect(canvas.queryByText(/setting up sandbox/i)).toBeNull()
+      },
+      { timeout: SEND_WAIT_MS },
+    )
+    const followUp = await canvas.findByPlaceholderText(
+      /continue the conversation/i,
+      undefined,
+      { timeout: SEND_WAIT_MS },
+    )
+    await userEvent.type(followUp, "This send should fail")
+    await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+    await waitFor(() => canvas.getByRole("alert"), { timeout: SEND_WAIT_MS })
+    expect(canvas.getByText(lateErrorFirstAnswer)).toBeVisible()
   },
 }
