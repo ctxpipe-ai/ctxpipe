@@ -4,6 +4,7 @@ import { defineLock, type LockStore } from "@tanstack/ai/locks"
 import { and, eq, sql } from "drizzle-orm"
 import { assertNotInOrgDbContext, withOrgDbContext } from "../../db/client.js"
 import { sandboxLocks } from "../../db/schema/sandbox-locks.js"
+import { markSandboxLifecycle } from "./sandbox-lifecycle-timing.js"
 
 const LEASE_MS = 30_000
 const expiresAt = sql`clock_timestamp() + interval '30 seconds'`
@@ -42,6 +43,7 @@ export function postgresSandboxLocks(
         eq(sandboxLocks.owner, owner),
       )
       let deadline = 0
+      const waitStarted = Date.now()
       for (;;) {
         signal.throwIfAborted()
         const startedAt = Date.now()
@@ -58,10 +60,16 @@ export function postgresSandboxLocks(
         )
         if (acquired.length) {
           deadline = startedAt + LEASE_MS
+          markSandboxLifecycle("lock-wait", {
+            key,
+            ms: Date.now() - waitStarted,
+          })
+          markSandboxLifecycle("lock-acquired", { key })
           break
         }
         await delay(250, undefined, { signal })
       }
+      const holdStarted = Date.now()
       const stopped = new AbortController()
       let deadlineTimer: ReturnType<typeof setTimeout> | undefined
       const lose = (reason: unknown) => {
@@ -123,6 +131,10 @@ export function postgresSandboxLocks(
         await withOrgDbContext(orgId, (db) =>
           db.delete(sandboxLocks).where(owned),
         )
+        markSandboxLifecycle("lock-released", {
+          key,
+          holdMs: Date.now() - holdStarted,
+        })
       }
     },
   })
