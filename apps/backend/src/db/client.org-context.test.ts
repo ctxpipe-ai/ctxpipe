@@ -118,6 +118,16 @@ describe("withOrgDbContext identity-aware reuse", () => {
     expect(sqlText).not.toMatch(/SET SESSION/i)
   })
 
+  it("sets org and idle-timeout GUCs in one execute", async () => {
+    await withOrgDbContext("org_1", async () => undefined, {
+      idleInTransactionSessionTimeout: "20min",
+    })
+    expect(executeMock).toHaveBeenCalledTimes(1)
+    const sqlText = JSON.stringify(executeMock.mock.calls[0]?.[0])
+    expect(sqlText).toContain("app.organization_id")
+    expect(sqlText).toContain("idle_in_transaction_session_timeout")
+  })
+
   it("does not export a lock pool or session advisory lock helper", async () => {
     const client = await import("./client.js")
     expect("withLockClient" in client).toBe(false)

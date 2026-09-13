@@ -129,9 +129,9 @@ export function postgresSandboxInstanceStore(input: {
         throw new Error(
           "Sandbox transition lookup requires conversation, provider, and image ownership",
         )
-      return timeSandboxLifecycle("store-find-transition", async () => {
-        const [row] = await withOrgDbContext(input.orgId, (db) =>
-          db
+      return timeSandboxLifecycle("store-find-transition", () =>
+        withOrgDbContext(input.orgId, async (db) => {
+          const [row] = await db
             .select()
             .from(workspaceSandboxInstances)
             .where(
@@ -148,20 +148,18 @@ export function postgresSandboxInstanceStore(input: {
               ),
             )
             .orderBy(desc(workspaceSandboxInstances.lastHeartbeatAt))
-            .limit(1),
-        )
-        if (row) {
-          const record = {
-            ...row,
-            kind: "chat" as const,
-            state: "live" as const,
+            .limit(1)
+          if (row) {
+            const record = {
+              ...row,
+              kind: "chat" as const,
+              state: "live" as const,
+            }
+            assertOwnedRecord(record.id, record, { allowPreviousRevision: true })
+            return toTanstackRecord(record)
           }
-          assertOwnedRecord(record.id, record, { allowPreviousRevision: true })
-          return toTanstackRecord(record)
-        }
-        if (input.conversationId) {
-          const [legacy] = await withOrgDbContext(input.orgId, (db) =>
-            db
+          if (input.conversationId) {
+            const [legacy] = await db
               .select({
                 id: workspaceSandboxInstances.id,
                 providerSandboxId: workspaceSandboxInstances.providerSandboxId,
@@ -180,16 +178,16 @@ export function postgresSandboxInstanceStore(input: {
                   isNull(workspaceSandboxInstances.transitionKey),
                 ),
               )
-              .limit(1),
-          )
-          if (legacy)
-            throw new LegacyWorkspaceSandboxConflict(
-              legacy.id,
-              legacy.providerSandboxId,
-            )
-        }
-        return null
-      })
+              .limit(1)
+            if (legacy)
+              throw new LegacyWorkspaceSandboxConflict(
+                legacy.id,
+                legacy.providerSandboxId,
+              )
+          }
+          return null
+        }),
+      )
     },
     async move(fromKey, record) {
       const { provider, image } = input
@@ -271,11 +269,11 @@ export function postgresSandboxInstanceStore(input: {
         throw new Error("Sandbox transition lost its previous owner")
     },
     async get(key) {
-      if (input.conversationId) {
-        const rows = await timeSandboxLifecycle(
-          "store-get-conversation",
-          () =>
-            withOrgDbContext(input.orgId, (db) =>
+      return withOrgDbContext(input.orgId, async (db) => {
+        if (input.conversationId) {
+          const rows = await timeSandboxLifecycle(
+            "store-get-conversation",
+            () =>
               db
                 .select({ id: conversations.id })
                 .from(conversations)
@@ -295,22 +293,22 @@ export function postgresSandboxInstanceStore(input: {
                   ),
                 )
                 .limit(1),
-            ),
+            { key },
+          )
+          if (!rows.length)
+            throw new Error("Conversation workspace is no longer available")
+        }
+        const row = await timeSandboxLifecycle(
+          "store-get-instance",
+          () => getSandboxInstance(key, input.orgId),
           { key },
         )
-        if (!rows.length)
-          throw new Error("Conversation workspace is no longer available")
-      }
-      const row = await timeSandboxLifecycle(
-        "store-get-instance",
-        () => getSandboxInstance(key, input.orgId),
-        { key },
-      )
-      markSandboxLifecycle("store-get-result", { key, hit: row != null })
-      if (!row) return null
-      assertOwnedRecord(key, row)
-      workspaceChatInstanceAccess.hits += 1
-      return toTanstackRecord(row)
+        markSandboxLifecycle("store-get-result", { key, hit: row != null })
+        if (!row) return null
+        assertOwnedRecord(key, row)
+        workspaceChatInstanceAccess.hits += 1
+        return toTanstackRecord(row)
+      })
     },
     async upsert(record) {
       const conversationId = record.threadId.trim() || null
@@ -340,17 +338,19 @@ export function postgresSandboxInstanceStore(input: {
         state: "live",
         lastHeartbeatAt: new Date(record.updatedAt),
       }
-      const existing = await timeSandboxLifecycle(
-        "store-upsert-lookup",
-        () => getSandboxInstance(persisted.id, input.orgId),
-        { key: persisted.id },
-      )
-      if (!existing) workspaceChatInstanceAccess.creates += 1
-      await timeSandboxLifecycle(
-        "store-upsert-persist",
-        () => persistSandboxInstance(persisted, ownershipOf(persisted)),
-        { key: persisted.id },
-      )
+      await withOrgDbContext(input.orgId, async () => {
+        const existing = await timeSandboxLifecycle(
+          "store-upsert-lookup",
+          () => getSandboxInstance(persisted.id, input.orgId),
+          { key: persisted.id },
+        )
+        if (!existing) workspaceChatInstanceAccess.creates += 1
+        await timeSandboxLifecycle(
+          "store-upsert-persist",
+          () => persistSandboxInstance(persisted, ownershipOf(persisted)),
+          { key: persisted.id },
+        )
+      })
     },
     async delete(key) {
       const row = await getSandboxInstance(key, input.orgId)

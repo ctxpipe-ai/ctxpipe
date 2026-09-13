@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks"
+import { setDefaultResultOrder } from "node:dns"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool } from "pg"
@@ -8,6 +9,10 @@ import {
   formatUnknownError,
   wrapPoolQueryWithTransientRetry,
 } from "./transientDbRetry.js"
+
+// Prefer A records. Happy Eyeballs waiting on a dead AAAA to Neon is ~1s
+// per new TCP connect — the same shape as a transpacific org-SQL hop.
+setDefaultResultOrder("ipv4first")
 
 function isRailwayPrPreview(): boolean {
   return Boolean(process.env.RAILWAY_ENVIRONMENT_NAME?.trim().startsWith("pr-"))
@@ -39,6 +44,23 @@ function createDrizzleDb(connectionString: string) {
           : undefined,
     })
   })
+  const originalConnect = client.connect.bind(client)
+  client.connect = ((callback?: (err: Error | undefined, client?: unknown) => void) => {
+    const started = Date.now()
+    if (callback) return originalConnect(callback)
+    return originalConnect().then((poolClient) => {
+      const ms = Date.now() - started
+      if (ms >= 50) {
+        log.info({
+          step: "db.pool.connect",
+          message: `pg pool connect ${ms}ms`,
+          ms,
+          replicaRegion: process.env.RAILWAY_REPLICA_REGION,
+        })
+      }
+      return poolClient
+    })
+  }) as typeof client.connect
   wrapPoolQueryWithTransientRetry(client)
   return drizzle({ client, schema, relations })
 }
@@ -134,16 +156,21 @@ export async function withOrgDbContext<T>(
     return handler(existing.db)
   }
   const db = getSystemDb()
-  return db.transaction(
+  const started = Date.now()
+  let setMs = 0
+  let handlerMs = 0
+  const result = await db.transaction(
     async (tx) => {
+      const idleTimeout = options?.idleInTransactionSessionTimeout
+      const setStarted = Date.now()
+      // One round-trip for both GUCs. Nested same-org calls reuse this tx.
       await tx.execute(
-        sql`select set_config('app.organization_id', ${orgId}, true)`,
+        idleTimeout
+          ? sql`select set_config('app.organization_id', ${orgId}, true), set_config('idle_in_transaction_session_timeout', ${idleTimeout}, true)`
+          : sql`select set_config('app.organization_id', ${orgId}, true)`,
       )
-      if (options?.idleInTransactionSessionTimeout) {
-        await tx.execute(
-          sql`select set_config('idle_in_transaction_session_timeout', ${options.idleInTransactionSessionTimeout}, true)`,
-        )
-      }
+      setMs = Date.now() - setStarted
+      const handlerStarted = Date.now()
       try {
         // Explicit `async` wrapper: some runtimes (e.g. Bun inside OpenWorkflow steps)
         // drop AsyncLocalStorage across `() => handler(tx)` when `handler` is async.
@@ -159,12 +186,28 @@ export async function withOrgDbContext<T>(
           cause: err instanceof Error ? err.cause : undefined,
         })
         throw err
+      } finally {
+        handlerMs = Date.now() - handlerStarted
       }
     },
     options?.isolationLevel
       ? { isolationLevel: options.isolationLevel }
       : undefined,
   )
+  const totalMs = Date.now() - started
+  if (totalMs >= 50) {
+    log.info({
+      step: "db.org_tx",
+      message: `org SQL tx ${totalMs}ms`,
+      orgId,
+      totalMs,
+      setMs,
+      handlerMs,
+      beginCommitMs: totalMs - setMs - handlerMs,
+      replicaRegion: process.env.RAILWAY_REPLICA_REGION,
+    })
+  }
+  return result
 }
 
 export async function closeDb(): Promise<void> {
