@@ -1,6 +1,5 @@
 import {
   type QueryClient,
-  useQuery,
   useQueryClient,
   useSuspenseQuery,
 } from "@tanstack/react-query"
@@ -18,7 +17,6 @@ import {
   workspaceKeys,
 } from "./queries"
 import {
-  type ConversationStartState,
   newUiConversationId,
   openWorkspaceConversation,
 } from "./start-workspace-conversation-ui"
@@ -244,18 +242,6 @@ function WorkspaceChatResume(props: {
   const { data: detail } = useSuspenseQuery(
     workspaceConversationOptions(orgSlug, conversationId, workspace.id),
   )
-  const { data: startState } = useQuery<ConversationStartState | null>({
-    queryKey: workspaceKeys.conversationStart(orgSlug, conversationId),
-    queryFn: async () => null,
-    enabled: false,
-  })
-  const sessionPhase =
-    startState &&
-    typeof startState === "object" &&
-    "status" in startState &&
-    (startState.status === "starting" || startState.status === "error")
-      ? "start"
-      : "live"
 
   if (!detail || detail.conversation.workspaceId !== workspace.id) {
     return (
@@ -269,7 +255,7 @@ function WorkspaceChatResume(props: {
 
   return (
     <WorkspaceChatSession
-      key={`${conversationId}:${sessionPhase}`}
+      key={conversationId}
       orgSlug={orgSlug}
       workspace={workspace}
       conversationId={conversationId}
