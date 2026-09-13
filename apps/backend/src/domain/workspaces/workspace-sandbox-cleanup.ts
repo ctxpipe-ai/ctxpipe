@@ -15,6 +15,7 @@ import {
   shouldDestroyJobSandbox,
 } from "./chat-lifecycle.js"
 import { workspaceChatDockerImage } from "./chat-runtime.js"
+import { releaseConversationOpencodeLease } from "./conversation-opencode-lease.js"
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import { destroyDetachedProviderSandbox } from "./sandbox-provider.js"
@@ -147,6 +148,8 @@ async function destroyWorkspaceSandboxUnderFence(
                 row.id !== stored.id &&
                 row.latestSnapshotId === stored.latestSnapshotId,
             )
+          if (stored.kind === "chat" && stored.conversationId)
+            await releaseConversationOpencodeLease(stored.conversationId)
           if (stored.providerSandboxId)
             await destroyDetachedProviderSandbox({
               provider: stored.provider,

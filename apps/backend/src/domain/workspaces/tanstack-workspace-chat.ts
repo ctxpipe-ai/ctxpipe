@@ -1,4 +1,3 @@
-import { createServer } from "node:net"
 import { trace } from "@opentelemetry/api"
 import {
   chat,
@@ -54,6 +53,7 @@ import {
   workspaceChatSandboxSpec,
 } from "./chat-runtime.js"
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
+import { claimUnsandboxedOpencodePort } from "./conversation-opencode-lease.js"
 import {
   sameWorkspaceBinding,
   type WorkspaceRevision,
@@ -588,20 +588,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   if (built.spec.isolation === "unsandboxed") {
     opencodeListen = {
       hostname: "127.0.0.1",
-      port: await new Promise<number>((resolve, reject) => {
-        const server = createServer()
-        server.once("error", reject)
-        server.listen(0, "127.0.0.1", () => {
-          const address = server.address()
-          if (!address || typeof address === "string") {
-            server.close()
-            reject(new Error("Unsandboxed OpenCode listen port missing"))
-            return
-          }
-          const allocated = address.port
-          server.close((error) => (error ? reject(error) : resolve(allocated)))
-        })
-      }),
+      port: await claimUnsandboxedOpencodePort(input.conversationId),
     }
   }
   const instances = built.instances
@@ -742,24 +729,18 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
               conversationId: input.conversationId,
               revision: built.revision,
             }
-            const [gitCapability, modelCapability] = await Promise.all([
-              mintWorkspaceChatRunCapability({
-                ...authority,
-                runId: input.runId,
-                purpose: "workspace-chat-git",
-              }),
-              mintWorkspaceChatRunCapability({
-                ...authority,
-                runId: input.runId,
-                purpose: "workspace-chat-model",
-              }),
-            ])
+            const gitCapability = await mintWorkspaceChatRunCapability({
+              ...authority,
+              runId: input.runId,
+              purpose: "workspace-chat-git",
+            })
             abortController.signal.throwIfAborted()
-            // Native persistence already owns the renewable transcript lock, and
-            // OpenCode has not started. Its subprocesses inherit these values.
+            // Git helpers are per-turn. The model proxy key is the conversation
+            // session token so a reused `opencode serve` keeps a valid bearer
+            // after the transcript lock owner rotates.
             await activeSandbox.env.set({
               CTXPIPE_GIT_RUN_CAPABILITY: gitCapability,
-              CTXPIPE_OPENCODE_RUN_TOKEN: modelCapability,
+              CTXPIPE_OPENCODE_RUN_TOKEN: session.runToken,
             })
             abortController.signal.throwIfAborted()
           })
