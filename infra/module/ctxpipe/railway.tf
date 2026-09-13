@@ -14,9 +14,9 @@ locals {
   database_url  = neon_project.this.connection_uri_pooler
   falkordb_port = 6379
   regions = [
-    {
-      num_replicas : 1,
-      region : "asia-southeast1-eqsg3a"
+    for r in var.railway_regions : {
+      num_replicas = r.num_replicas
+      region       = r.region
     }
   ]
   amplitude_shared_env = length(var.amplitude_api_key) > 0 ? [

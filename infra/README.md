@@ -8,9 +8,11 @@ Mirrors [ops/infra/index.ts](../ops/infra/index.ts):
 
 - **Railway**
   - Project + `production` environment
+  - Region: **`us-east4-eqdc4a`** (Virginia), from `railway_regions` in [`main.tf`](main.tf) — same metro as Neon. Do not hardcode Singapore in the module.
   - Services: UI, backend, codesearch (+ volume), OpenWorkflow worker, FalkorDB (+ volume)
   - Service variables: `FALKORDB_PORT`, `GRAPH_DB_URI`
   - App services pull public GHCR images (`ghcr.io/ctxpipe-ai/{backend,worker,ui,codesearch,otel-collector}`) tagged by Git commit SHA from GitHub Actions (no Railway registry credentials)
+  - **Volume cutover:** Railway migrates attached volumes when a service region changes ([docs](https://docs.railway.com/deployments/regions#volumes)). Codesearch and FalkorDB each have a 50GB volume. Applying this region flip in production (`deploy.yaml` `terraform apply` on merge) migrates those volumes and takes those services down for the copy. Stateless services (backend, worker, UI, otel-collector) flip without volume migration. PR previews pin only the stateless services so an experiment does not start a 50GB copy.
 - **Neon**
   - Project `ctxpipe` in org `org-steep-pine-64462726`, region `aws-us-east-1`, pg 17
   - Default branch `production` with db `neondb` and role `neondb_owner`
