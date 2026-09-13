@@ -1,4 +1,3 @@
-import { createServer } from "node:net"
 import { trace } from "@opentelemetry/api"
 import {
   chat,
@@ -54,6 +53,7 @@ import {
   workspaceChatSandboxSpec,
 } from "./chat-runtime.js"
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
+import { claimUnsandboxedOpencodePort } from "./conversation-opencode-lease.js"
 import {
   sameWorkspaceBinding,
   type WorkspaceRevision,
@@ -588,20 +588,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   if (built.spec.isolation === "unsandboxed") {
     opencodeListen = {
       hostname: "127.0.0.1",
-      port: await new Promise<number>((resolve, reject) => {
-        const server = createServer()
-        server.once("error", reject)
-        server.listen(0, "127.0.0.1", () => {
-          const address = server.address()
-          if (!address || typeof address === "string") {
-            server.close()
-            reject(new Error("Unsandboxed OpenCode listen port missing"))
-            return
-          }
-          const allocated = address.port
-          server.close((error) => (error ? reject(error) : resolve(allocated)))
-        })
-      }),
+      port: await claimUnsandboxedOpencodePort(input.conversationId),
     }
   }
   const instances = built.instances

@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import type { SandboxHandle, SandboxProvider } from "@tanstack/ai-sandbox"
 import { log } from "../../observability/logger.js"
+import { reuseOpencodeServeHandle } from "./conversation-opencode-lease.js"
 
 export const SANDBOX_LIFECYCLE_MARK_PATH =
   "/tmp/ctxpipe-sandbox-lifecycle.jsonl"
@@ -31,6 +32,10 @@ export function withSandboxLifecycleContext<T>(
     { conversationId, originMs: Date.now(), scope: "ensure" },
     fn,
   )
+}
+
+export function currentSandboxLifecycleConversationId(): string | undefined {
+  return lifecycleContext.getStore()?.conversationId
 }
 
 export function setSandboxLifecycleScope(scope: SandboxLifecycleScope): void {
@@ -184,28 +189,32 @@ export function timedSandboxProvider(
 }
 
 export function timedSandboxHandle(handle: SandboxHandle): SandboxHandle {
+  const leased = reuseOpencodeServeHandle(
+    handle,
+    currentSandboxLifecycleConversationId,
+  )
   return {
-    ...handle,
+    ...leased,
     env: {
-      ...handle.env,
+      ...leased.env,
       set: (values) =>
-        timeSandboxLifecycle("env-set", () => handle.env.set(values), {
+        timeSandboxLifecycle("env-set", () => leased.env.set(values), {
           count: Object.keys(values).length,
         }),
     },
     git: {
-      ...handle.git,
+      ...leased.git,
       clone: (options) =>
-        timeSandboxLifecycle("git-clone", () => handle.git.clone(options), {
+        timeSandboxLifecycle("git-clone", () => leased.git.clone(options), {
           ref: options.ref,
           depth: options.depth,
         }),
     },
     fs: {
-      ...handle.fs,
+      ...leased.fs,
       exists: async (path) => {
         const started = Date.now()
-        const exists = await handle.fs.exists(path)
+        const exists = await leased.fs.exists(path)
         if (path.endsWith("/.git") || /(?:^|\/)[^/]*lock[^/]*$/.test(path)) {
           markSandboxLifecycle(
             path.endsWith("/.git") ? "git-exists" : "fs-exists",
@@ -216,15 +225,15 @@ export function timedSandboxHandle(handle: SandboxHandle): SandboxHandle {
       },
     },
     process: {
-      ...handle.process,
+      ...leased.process,
       exec: (command, options) => {
         const phase = classifySandboxCommand(command)
         const scope = lifecycleContext.getStore()?.scope ?? "chat"
         if (scope === "chat" && phase === "exec")
-          return handle.process.exec(command, options)
+          return leased.process.exec(command, options)
         return timeSandboxLifecycle(
           phase,
-          () => handle.process.exec(command, options),
+          () => leased.process.exec(command, options),
           {
             command: command.slice(0, 96),
           },
@@ -236,15 +245,37 @@ export function timedSandboxHandle(handle: SandboxHandle): SandboxHandle {
         markSandboxLifecycle(`${phase}:start`, {
           command: command.slice(0, 96),
         })
-        const proc = await handle.process.spawn(command, options)
+        const proc = await leased.process.spawn(command, options)
+        if (phase !== "opencode-serve") {
+          return {
+            ...proc,
+            kill: async (signal) => {
+              markSandboxLifecycle(phase, { ms: Date.now() - started })
+              return proc.kill(signal)
+            },
+          }
+        }
         return {
           ...proc,
-          kill: async () => {
-            markSandboxLifecycle(phase, { ms: Date.now() - started })
-            return proc.kill()
-          },
+          stdout: markReadyStdout(proc.stdout, started),
         }
       },
     },
+  }
+}
+
+async function* markReadyStdout(
+  stdout: AsyncIterable<string>,
+  started: number,
+): AsyncIterable<string> {
+  let marked = false
+  let scan = ""
+  for await (const chunk of stdout) {
+    scan = `${scan}${chunk}`.slice(-16_000)
+    if (!marked && scan.includes("opencode server listening")) {
+      marked = true
+      markSandboxLifecycle("opencode-serve", { ms: Date.now() - started })
+    }
+    yield chunk
   }
 }

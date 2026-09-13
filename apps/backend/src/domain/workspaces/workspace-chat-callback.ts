@@ -3,12 +3,15 @@ import { isIP } from "node:net"
 import { networkInterfaces } from "node:os"
 import { defineChatMiddleware } from "@tanstack/ai"
 import {
+  hostForSandbox,
   nodeHttpBridgeProvisioner,
   provideToolBridgeProvisioner,
   startHostToolBridge,
   type ToolBridgeProvisioner,
   ToolBridgeProvisionerCapability,
 } from "@tanstack/ai-sandbox"
+import { conversationScopedToolBridgeProvisioner } from "./conversation-opencode-lease.js"
+import { currentSandboxLifecycleConversationId } from "./sandbox-lifecycle-timing.js"
 
 /**
  * Hostname or IP that a remotely hosted sandbox uses to call this backend.
@@ -98,14 +101,30 @@ async function localCallbackBindAddress(callbackHost: string): Promise<string> {
 
 /** Provide explicit remote routing, while retaining TanStack's local default. */
 export function workspaceChatCallbackMiddleware(callbackHost?: string) {
-  const provisioner = callbackHost
-    ? workspaceChatToolBridgeProvisioner(callbackHost)
-    : nodeHttpBridgeProvisioner
   return defineChatMiddleware({
     name: "workspace-chat-callback",
     provides: [ToolBridgeProvisionerCapability],
     setup(ctx) {
-      provideToolBridgeProvisioner(ctx, provisioner)
+      const conversationId = currentSandboxLifecycleConversationId()
+      const fallback = callbackHost
+        ? workspaceChatToolBridgeProvisioner(callbackHost)
+        : nodeHttpBridgeProvisioner
+      provideToolBridgeProvisioner(
+        ctx,
+        conversationId
+          ? conversationScopedToolBridgeProvisioner(
+              conversationId,
+              async (options) => {
+                if (!callbackHost)
+                  return { hostForSandbox: hostForSandbox(options.provider) }
+                return {
+                  hostForSandbox: callbackHost,
+                  bindAddress: await localCallbackBindAddress(callbackHost),
+                }
+              },
+            )
+          : fallback,
+      )
     },
   })
 }
