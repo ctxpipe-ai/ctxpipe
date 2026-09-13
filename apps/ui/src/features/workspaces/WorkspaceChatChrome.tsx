@@ -53,8 +53,7 @@ export function WorkspaceChatChrome(props: {
       (props.publish.commitPush.visible || props.publish.pullRequest.visible),
   )
   const showWriteBadge =
-    !props.publish &&
-    (write.tone === "read_only" || write.tone === "pending")
+    !props.publish && (write.tone === "read_only" || write.tone === "pending")
   return (
     <div
       className={cn(
@@ -74,7 +73,12 @@ export function WorkspaceChatChrome(props: {
           <div className="mb-px flex shrink-0 self-end pb-0.5 md:hidden">
             <OverlayNavMenuButton />
           </div>
-          <div className={cn(workspaceChromeTabClassName, "max-w-[min(100%,24rem)]")}>
+          <div
+            className={cn(
+              workspaceChromeTabClassName,
+              "max-w-[min(100%,24rem)]",
+            )}
+          >
             {typeof props.title === "string" ? (
               <p className="min-w-0 truncate">{props.title}</p>
             ) : (
