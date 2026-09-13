@@ -729,24 +729,18 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
               conversationId: input.conversationId,
               revision: built.revision,
             }
-            const [gitCapability, modelCapability] = await Promise.all([
-              mintWorkspaceChatRunCapability({
-                ...authority,
-                runId: input.runId,
-                purpose: "workspace-chat-git",
-              }),
-              mintWorkspaceChatRunCapability({
-                ...authority,
-                runId: input.runId,
-                purpose: "workspace-chat-model",
-              }),
-            ])
+            const gitCapability = await mintWorkspaceChatRunCapability({
+              ...authority,
+              runId: input.runId,
+              purpose: "workspace-chat-git",
+            })
             abortController.signal.throwIfAborted()
-            // Native persistence already owns the renewable transcript lock, and
-            // OpenCode has not started. Its subprocesses inherit these values.
+            // Git helpers are per-turn. The model proxy key is the conversation
+            // session token so a reused `opencode serve` keeps a valid bearer
+            // after the transcript lock owner rotates.
             await activeSandbox.env.set({
               CTXPIPE_GIT_RUN_CAPABILITY: gitCapability,
-              CTXPIPE_OPENCODE_RUN_TOKEN: modelCapability,
+              CTXPIPE_OPENCODE_RUN_TOKEN: session.runToken,
             })
             abortController.signal.throwIfAborted()
           })
