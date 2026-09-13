@@ -686,21 +686,53 @@ jobs:
                 "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service, input:{sleepApplication:true}}')"
             }
 
+            # Preview compute next to Neon (aws-us-east-1). Duplicate-from-production
+            # copies asia-southeast1; that ~200ms RTT makes every org SQL hop ~1s.
+            # Stateless services only — codesearch/FalkorDB volumes stay in Singapore
+            # so this preview does not trigger Railway volume migration.
+            PREVIEW_COMPUTE_REGION="us-east4-eqdc4a"
+            LEGACY_COMPUTE_REGION="asia-southeast1-eqsg3a"
+
+            pin_stateless_preview_region() {
+              local label="$1"
+              local service_id="$2"
+              if railway_graphql \
+                'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --arg east "$PREVIEW_COMPUTE_REGION" --arg sg "$LEGACY_COMPUTE_REGION" '{
+                  environmentId: $env,
+                  serviceId: $service,
+                  input: {
+                    multiRegionConfig: {
+                      ($sg): {"numReplicas": 0},
+                      ($east): {"numReplicas": 1}
+                    }
+                  }
+                }')" >/dev/null; then
+                echo "Pinned $label ($service_id) to $PREVIEW_COMPUTE_REGION (Singapore replicas 0)"
+              else
+                echo "Warning: failed to pin $label ($service_id) to $PREVIEW_COMPUTE_REGION" >&2
+              fi
+            }
+
             # Scale a service to zero replicas in this environment (config only).
             # Use multiRegionConfig only — top-level numReplicas is deprecated, and
             # serviceInstance has no `regions` field (that query returned HTTP 400).
-            # Region matches Terraform default in infra/module/ctxpipe/railway.tf.
+            # Zero both the inherited Singapore region and US East so scale-to-zero
+            # still works after pin_stateless_preview_region.
             # Non-fatal: deploymentStop below is what actually stops running containers.
             scale_service_to_zero() {
               local service_id="$1"
               if railway_graphql \
                 'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
-                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --arg east "$PREVIEW_COMPUTE_REGION" --arg sg "$LEGACY_COMPUTE_REGION" '{
                   environmentId: $env,
                   serviceId: $service,
                   input: {
                     sleepApplication: true,
-                    multiRegionConfig: {"asia-southeast1-eqsg3a": {"numReplicas": 0}}
+                    multiRegionConfig: {
+                      ($sg): {"numReplicas": 0},
+                      ($east): {"numReplicas": 0}
+                    }
                   }
                 }')" >/dev/null; then
                 echo "Scaled service $service_id to 0 replicas (config)"
@@ -867,6 +899,7 @@ jobs:
             UI_PUBLIC_DOMAIN="$(preview_ui_public_domain)"
             echo "Preview UI public domain: $UI_PUBLIC_DOMAIN"
             upsert_backend_ui_proxy_url "https://${UI_PUBLIC_DOMAIN}" >/dev/null
+            pin_stateless_preview_region "backend" "$BACKEND_SERVICE_ID"
             update_source_image "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE" >/dev/null
             deploy_service "$BACKEND_SERVICE_ID" >/dev/null
             wait_for_image_deploy "backend" "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
@@ -874,12 +907,14 @@ jobs:
             upsert_database_url_without_deploy "$WORKER_SERVICE_ID" >/dev/null
             upsert_preview_service_variables "$WORKER_SERVICE_ID" >/dev/null
             upsert_preview_worker_idle_exit "$WORKER_SERVICE_ID" >/dev/null
+            pin_stateless_preview_region "worker" "$WORKER_SERVICE_ID"
             update_preview_worker_service_instance "$WORKER_SERVICE_ID" "$WORKER_IMAGE" >/dev/null
             deploy_service "$WORKER_SERVICE_ID" >/dev/null
             wait_for_image_deploy "worker" "$WORKER_SERVICE_ID" "$WORKER_IMAGE"
 
             upsert_preview_service_variables "$UI_SERVICE_ID" >/dev/null
             upsert_preview_ui_bind_variables "$UI_SERVICE_ID" >/dev/null
+            pin_stateless_preview_region "ui" "$UI_SERVICE_ID"
             update_ui_source_image "$UI_SERVICE_ID" "$UI_IMAGE" >/dev/null
             deploy_service "$UI_SERVICE_ID" >/dev/null
             wait_for_image_deploy "ui" "$UI_SERVICE_ID" "$UI_IMAGE"
