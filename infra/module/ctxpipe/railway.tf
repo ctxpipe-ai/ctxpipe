@@ -13,10 +13,12 @@ resource "railway_project" "this" {
 locals {
   database_url  = local.app_database_url
   falkordb_port = 6379
+  # Honors infra/main.tf (us-east4-eqdc4a next to Neon aws-us-east-1).
+  # Do not hardcode Singapore — that leftover default left compute 200ms from Postgres.
   regions = [
-    {
-      num_replicas : 1,
-      region : "asia-southeast1-eqsg3a"
+    for r in var.railway_regions : {
+      num_replicas = r.num_replicas
+      region       = r.region
     }
   ]
   amplitude_shared_env = length(var.amplitude_api_key) > 0 ? [
