@@ -13,7 +13,7 @@ The Node/Bun DNS default prefers IPv6. A dead AAAA to Neon costs ~1s per new TCP
 ## Decision
 
 - Hosted Railway services run in **`us-east4-eqdc4a`** (Virginia), next to Neon **`aws-us-east-1`**.
-- Terraform `local.regions` is `var.railway_regions`. Do not hardcode a Railway region in the module.
+- Hosted region is **`us-east4-eqdc4a`**, matching `railway_regions` in [`infra/main.tf`](../../../infra/main.tf). The Railway provider 0.6.1 cannot convert `var.railway_regions` (or a `for` over it) into `ServiceResourceRegionModel` (plan: “unknown value”); `local.regions` stays a literal in lockstep with `main.tf`. Do not revert the literal to Singapore.
 - PR previews pin **stateless** services (backend, worker, UI) to US East after `duplicate production`. Codesearch and FalkorDB stay on the inherited region in previews so Railway does not migrate their volumes for an experiment.
 - Production cutover is `terraform apply` on merge ([`.github/workflows/deploy.yaml`](../../../.github/workflows/deploy.yaml)). That migrates the two 50GB volumes (codesearch, FalkorDB) with downtime. Do not merge until a US-East preview has shown org SQL hops in tens of milliseconds.
 - Do not move Neon to `aws-us-west-2` unless Railway also moves to `us-west2`. Do not `SET SESSION` or hold a `PoolClient` across GitHub I/O.

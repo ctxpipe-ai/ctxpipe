@@ -13,9 +13,15 @@ resource "railway_project" "this" {
 locals {
   database_url  = neon_project.this.connection_uri_pooler
   falkordb_port = 6379
-  # Assign the variable directly. A `for` expression here is treated as
-  # unknown by the Railway provider (`ServiceResourceRegionModel` conversion).
-  regions = var.railway_regions
+  # Literal only. railway 0.6.1 cannot convert var.railway_regions (or a
+  # `for` over it) into ServiceResourceRegionModel — plan fails with
+  # "unknown value". Keep this in lockstep with infra/main.tf.
+  regions = [
+    {
+      num_replicas : 1,
+      region : "us-east4-eqdc4a"
+    }
+  ]
   amplitude_shared_env = length(var.amplitude_api_key) > 0 ? [
     {
       name  = "AMPLITUDE_API_KEY"
