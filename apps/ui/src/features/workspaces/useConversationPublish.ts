@@ -8,6 +8,7 @@ import type { ConversationDetail } from "@/features/chat/types"
 import {
   conversationCommitPushEnabled,
   conversationPullRequestAction,
+  conversationPullRequestVisible,
 } from "./conversationPublish"
 import {
   conversationGitStatusOptions,
@@ -123,19 +124,24 @@ export function useConversationPublish(input: {
   const pushPending = useIsMutating({ mutationKey: pushKey }) > 0
   const createPrPending = useIsMutating({ mutationKey: createPrKey }) > 0
   const status = statusQuery.data ?? null
+  const pullAction = conversationPullRequestAction(
+    pullQuery.data?.prState ?? input.fallbackPrState,
+  )
+  const commitEnabled = conversationCommitPushEnabled(status)
 
   const chrome: ConversationPublishChrome = {
     commitPush: {
-      enabled: conversationCommitPushEnabled(status),
+      visible: commitEnabled || pushPending,
+      enabled: commitEnabled,
       pending: pushPending,
       onPress: () => {
         pushMutation.mutate()
       },
     },
     pullRequest: {
-      action: conversationPullRequestAction(
-        pullQuery.data?.prState ?? input.fallbackPrState,
-      ),
+      visible:
+        conversationPullRequestVisible(status, pullAction) || createPrPending,
+      action: pullAction,
       pending: createPrPending,
       href: pullQuery.data?.pullUrl ?? input.fallbackPullUrl ?? null,
       onPress: () => {

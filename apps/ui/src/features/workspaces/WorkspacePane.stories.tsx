@@ -529,6 +529,113 @@ export const ConversationSandboxFiles: Story = {
   },
 }
 
+export const ConversationCleanNoPublish: Story = {
+  args: {
+    conversationId: "conv_1",
+    pane: { kind: "files" },
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      conversationId: "conv_1",
+      pane: "files",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          conversationGitTreeHandler({
+            sha: "sandboxsha",
+            paths: ["AGENTS.md"],
+            branch: "ctxpipe/chat/conv_1/1",
+          }),
+          conversationGitStatusHandler({
+            source: "sandbox",
+            branch: "ctxpipe/chat/conv_1/1",
+            dirty: false,
+            differsFromDefault: false,
+            unpushed: false,
+            published: true,
+            ahead: 0,
+            behind: 0,
+            items: [],
+            worktreeVersion: "wt-0",
+          }),
+          workspaceGitTreeHandler({
+            sha: "workspace-only",
+            paths: ["repositories/README.md"],
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => {
+      expect(canvas.getByText("AGENTS.md")).toBeVisible()
+    })
+    expect(
+      canvas.queryByRole("button", { name: "Commit+Push" }),
+    ).not.toBeInTheDocument()
+    expect(
+      canvas.queryByRole("button", { name: "Create PR" }),
+    ).not.toBeInTheDocument()
+  },
+}
+
+export const ConversationCommittedCreatePr: Story = {
+  args: {
+    conversationId: "conv_1",
+    pane: { kind: "files" },
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      conversationId: "conv_1",
+      pane: "files",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          conversationGitTreeHandler({
+            sha: "sandboxsha",
+            paths: ["AGENTS.md"],
+            branch: "ctxpipe/chat/conv_1/1",
+          }),
+          conversationGitStatusHandler({
+            source: "sandbox",
+            branch: "ctxpipe/chat/conv_1/1",
+            dirty: false,
+            differsFromDefault: true,
+            unpushed: true,
+            published: false,
+            ahead: 1,
+            behind: 0,
+            items: [],
+            worktreeVersion: "wt-0",
+          }),
+          workspaceGitTreeHandler({
+            sha: "workspace-only",
+            paths: ["repositories/README.md"],
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => {
+      expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
+    })
+    expect(
+      canvas.queryByRole("button", { name: "Commit+Push" }),
+    ).not.toBeInTheDocument()
+  },
+}
+
 export const ConversationReadOnly: Story = {
   args: {
     workspace: readOnlyWorkspaceDetail,

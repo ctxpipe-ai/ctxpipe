@@ -1,4 +1,5 @@
 import { type SubscribeConnectionAdapter, webSocket } from "@tanstack/ai-react"
+import { reviveChatMessages } from "@/features/chat/reviveChatMessageCreatedAt"
 import { apiFetch, readApiJson } from "@/lib/api-result"
 
 export function workspaceChatSocketPath(
@@ -84,7 +85,11 @@ export function workspaceChatWebSocket(
         message: "Failed to load conversation",
       })
       return {
-        messages: Array.isArray(data.messages) ? data.messages : [],
+        messages: reviveChatMessages(
+          (Array.isArray(data.messages) ? data.messages : []) as Array<{
+            createdAt?: unknown
+          }>,
+        ) as ChatHydrationResult["messages"],
         activeRun:
           data.activeRun && typeof data.activeRun.runId === "string"
             ? { runId: data.activeRun.runId }

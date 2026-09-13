@@ -15,11 +15,13 @@ import { writeStatusLabel } from "./writeStatusLabel"
 
 export type ConversationPublishChrome = {
   commitPush: {
+    visible: boolean
     enabled: boolean
     pending: boolean
     onPress: () => void
   }
   pullRequest: {
+    visible: boolean
     action: "create" | "show"
     pending: boolean
     href?: string | null
@@ -46,9 +48,12 @@ export function WorkspaceChatChrome(props: {
   children: ReactNode
 }) {
   const write = writeStatusLabel(props.workspace.writeStatus)
+  const publishHasActions = Boolean(
+    props.publish &&
+      (props.publish.commitPush.visible || props.publish.pullRequest.visible),
+  )
   const showWriteBadge =
-    !props.publish &&
-    (write.tone === "read_only" || write.tone === "pending")
+    !props.publish && (write.tone === "read_only" || write.tone === "pending")
   return (
     <div
       className={cn(
@@ -68,7 +73,12 @@ export function WorkspaceChatChrome(props: {
           <div className="mb-px flex shrink-0 self-end pb-0.5 md:hidden">
             <OverlayNavMenuButton />
           </div>
-          <div className={cn(workspaceChromeTabClassName, "max-w-[min(100%,24rem)]")}>
+          <div
+            className={cn(
+              workspaceChromeTabClassName,
+              "max-w-[min(100%,24rem)]",
+            )}
+          >
             {typeof props.title === "string" ? (
               <p className="min-w-0 truncate">{props.title}</p>
             ) : (
@@ -95,7 +105,7 @@ export function WorkspaceChatChrome(props: {
               )
             ) : null}
           </div>
-          {props.headerExtra || showWriteBadge || props.publish ? (
+          {props.headerExtra || showWriteBadge || publishHasActions ? (
             <div className="ml-auto flex min-w-0 items-end gap-0.5">
               {showWriteBadge ? (
                 <span className="inline-flex h-[37px] shrink-0 items-center">
@@ -111,7 +121,7 @@ export function WorkspaceChatChrome(props: {
                   </span>
                 </span>
               ) : null}
-              {props.publish ? (
+              {publishHasActions && props.publish ? (
                 <ConversationPublishActions publish={props.publish} />
               ) : null}
               {props.headerExtra}
@@ -129,28 +139,34 @@ export function ConversationPublishActions(props: {
   publish: ConversationPublishChrome
 }) {
   const { commitPush, pullRequest } = props.publish
+  const showCommit = commitPush.visible
+  const showPrLink = pullRequest.action === "show" && Boolean(pullRequest.href)
+  const showCreatePr = pullRequest.visible && pullRequest.action === "create"
+  if (!showCommit && !showPrLink && !showCreatePr) return null
   return (
     <div className="mb-px flex h-[37px] shrink-0 items-center gap-1">
-      <Button
-        variant="ghost"
-        size="default"
-        isDisabled={!commitPush.enabled || commitPush.pending}
-        isPending={commitPush.pending}
-        onPress={commitPush.onPress}
-        className="h-8 px-2 text-xs"
-      >
-        {commitPush.pending ? "Pushing…" : "Commit+Push"}
-      </Button>
-      {pullRequest.action === "show" && pullRequest.href ? (
+      {showCommit ? (
+        <Button
+          variant="ghost"
+          size="default"
+          isDisabled={!commitPush.enabled || commitPush.pending}
+          isPending={commitPush.pending}
+          onPress={commitPush.onPress}
+          className="h-8 px-2 text-xs"
+        >
+          {commitPush.pending ? "Pushing…" : "Commit+Push"}
+        </Button>
+      ) : null}
+      {showPrLink ? (
         <AriaLink
-          href={pullRequest.href}
+          href={pullRequest.href ?? undefined}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex h-8 items-center rounded-md px-2 text-xs text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
         >
           Show PR
         </AriaLink>
-      ) : (
+      ) : showCreatePr ? (
         <Button
           variant="ghost"
           size="default"
@@ -161,7 +177,7 @@ export function ConversationPublishActions(props: {
         >
           {pullRequest.pending ? "Creating PR…" : "Create PR"}
         </Button>
-      )}
+      ) : null}
     </div>
   )
 }

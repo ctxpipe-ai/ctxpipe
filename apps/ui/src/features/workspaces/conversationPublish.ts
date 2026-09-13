@@ -39,14 +39,30 @@ export function conversationGithubTreeHref(
   }
 }
 
+export type ConversationPublishStatus = {
+  dirty: boolean
+  differsFromDefault: boolean
+  unpushed: boolean
+  stale?: boolean
+} | null
+
 export function conversationCommitPushEnabled(
-  status: {
-    dirty: boolean
-    differsFromDefault: boolean
-    unpushed: boolean
-    stale?: boolean
-  } | null,
+  status: ConversationPublishStatus,
+): boolean {
+  if (!status || status.stale) return false
+  return status.dirty
+}
+
+export function conversationCreatePrEnabled(
+  status: ConversationPublishStatus,
 ): boolean {
   if (!status || status.stale) return false
   return status.dirty || status.differsFromDefault || status.unpushed
+}
+
+export function conversationPullRequestVisible(
+  status: ConversationPublishStatus,
+  action: "create" | "show",
+): boolean {
+  return action === "show" || conversationCreatePrEnabled(status)
 }

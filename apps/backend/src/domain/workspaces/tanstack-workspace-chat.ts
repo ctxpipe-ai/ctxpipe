@@ -118,6 +118,7 @@ export type TanstackWorkspaceChatMessage = {
   role: string
   content?: unknown
   parts?: unknown[]
+  createdAt?: Date
 }
 
 export type TanstackWorkspaceChatInput = {

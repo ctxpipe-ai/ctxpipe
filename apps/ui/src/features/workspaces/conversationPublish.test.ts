@@ -3,8 +3,10 @@ import {
   conversationAllowsEdits,
   conversationBranchShortName,
   conversationCommitPushEnabled,
+  conversationCreatePrEnabled,
   conversationGithubTreeHref,
   conversationPullRequestAction,
+  conversationPullRequestVisible,
   conversationSessionBranch,
 } from "./conversationPublish"
 
@@ -28,12 +30,19 @@ describe("conversation publish helpers", () => {
     expect(conversationPullRequestAction(null)).toBe("create")
   })
 
-  it("enables Commit+Push when dirty, ahead, or unpushed", () => {
+  it("shows Commit+Push only when the worktree is dirty", () => {
     expect(
       conversationCommitPushEnabled({
         dirty: false,
         differsFromDefault: false,
         unpushed: false,
+      }),
+    ).toBe(false)
+    expect(
+      conversationCommitPushEnabled({
+        dirty: false,
+        differsFromDefault: true,
+        unpushed: true,
       }),
     ).toBe(false)
     expect(
@@ -45,15 +54,51 @@ describe("conversation publish helpers", () => {
     ).toBe(true)
   })
 
-  it("blocks publishing a stale conversation branch", () => {
+  it("shows Create PR when anything has changed versus the default branch", () => {
     expect(
-      conversationCommitPushEnabled({
+      conversationCreatePrEnabled({
+        dirty: false,
+        differsFromDefault: false,
+        unpushed: false,
+      }),
+    ).toBe(false)
+    expect(
+      conversationCreatePrEnabled({
+        dirty: false,
+        differsFromDefault: true,
+        unpushed: true,
+      }),
+    ).toBe(true)
+    expect(
+      conversationCreatePrEnabled({
         dirty: true,
         differsFromDefault: true,
         unpushed: true,
-        stale: true,
       }),
+    ).toBe(true)
+    expect(conversationPullRequestVisible(null, "create")).toBe(false)
+    expect(conversationPullRequestVisible(null, "show")).toBe(true)
+    expect(
+      conversationPullRequestVisible(
+        {
+          dirty: false,
+          differsFromDefault: false,
+          unpushed: false,
+        },
+        "create",
+      ),
     ).toBe(false)
+  })
+
+  it("blocks publishing a stale conversation branch", () => {
+    const stale = {
+      dirty: true,
+      differsFromDefault: true,
+      unpushed: true,
+      stale: true,
+    } as const
+    expect(conversationCommitPushEnabled(stale)).toBe(false)
+    expect(conversationCreatePrEnabled(stale)).toBe(false)
   })
 
   it("builds a GitHub tree href after the first push", () => {
