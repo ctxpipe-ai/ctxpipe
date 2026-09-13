@@ -43,25 +43,6 @@ function createDrizzleDb(connectionString: string) {
           : undefined,
     })
   })
-  const originalConnect = client.connect.bind(client)
-  client.connect = ((
-    callback?: (err: Error | undefined, client?: unknown) => void,
-  ) => {
-    const started = Date.now()
-    if (callback) return originalConnect(callback)
-    return originalConnect().then((poolClient) => {
-      const ms = Date.now() - started
-      if (ms >= 50) {
-        log.info({
-          step: "db.pool.connect",
-          message: `pg pool connect ${ms}ms`,
-          ms,
-          replicaRegion: process.env.RAILWAY_REPLICA_REGION,
-        })
-      }
-      return poolClient
-    })
-  }) as typeof client.connect
   wrapPoolQueryWithTransientRetry(client)
   return drizzle({ client, schema, relations })
 }
@@ -116,19 +97,13 @@ export async function withOrgDbContext<T>(
   options?: OrgDbContextOptions,
 ): Promise<T> {
   const db = getSystemDb()
-  const started = Date.now()
-  let setMs = 0
-  let handlerMs = 0
-  const result = await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     const idleTimeout = options?.idleInTransactionSessionTimeout
-    const setStarted = Date.now()
     await tx.execute(
       idleTimeout
         ? sql`select set_config('app.organization_id', ${orgId}, true), set_config('idle_in_transaction_session_timeout', ${idleTimeout}, true)`
         : sql`select set_config('app.organization_id', ${orgId}, true)`,
     )
-    setMs = Date.now() - setStarted
-    const handlerStarted = Date.now()
     try {
       // Explicit `async` wrapper: some runtimes (e.g. Bun inside OpenWorkflow steps)
       // drop AsyncLocalStorage across `() => handler(tx)` when `handler` is async.
@@ -142,24 +117,8 @@ export async function withOrgDbContext<T>(
         cause: err instanceof Error ? err.cause : undefined,
       })
       throw err
-    } finally {
-      handlerMs = Date.now() - handlerStarted
     }
   })
-  const totalMs = Date.now() - started
-  if (totalMs >= 50) {
-    log.info({
-      step: "db.org_tx",
-      message: `org SQL tx ${totalMs}ms`,
-      orgId,
-      totalMs,
-      setMs,
-      handlerMs,
-      beginCommitMs: totalMs - setMs - handlerMs,
-      replicaRegion: process.env.RAILWAY_REPLICA_REGION,
-    })
-  }
-  return result
 }
 
 export async function closeDb(): Promise<void> {

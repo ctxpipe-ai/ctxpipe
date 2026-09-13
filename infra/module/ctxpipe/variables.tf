@@ -23,7 +23,16 @@ variable "railway_regions" {
     region       = string
     num_replicas = number
   }))
-  description = "Railway service regions."
+  description = "Railway service regions. Default is US East (Virginia), next to Neon aws-us-east-1."
+  default = [{
+    region       = "us-east4-eqdc4a"
+    num_replicas = 1
+  }]
+
+  validation {
+    condition     = length(var.railway_regions) == 1
+    error_message = "railway_regions must be a single region. Railway provider 0.6.1 cannot convert a variable-length regions list into ServiceResourceRegionModel."
+  }
 }
 
 variable "backend_source_image" {
