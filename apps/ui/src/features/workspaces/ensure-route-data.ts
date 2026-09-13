@@ -2,6 +2,7 @@ import type { QueryClient } from "@tanstack/react-query"
 import { landingPane } from "./pane"
 import { workspaceProjectionReady } from "./projection"
 import {
+  conversationGitTreeOptions,
   workspaceConversationOptions,
   workspaceDetailOptions,
   workspaceGitBlobOptions,
@@ -101,5 +102,8 @@ export function prefetchWorkspaceConversation(
   }
   void queryClient.prefetchQuery(
     workspaceConversationOptions(orgSlug, conversationId, workspace.id),
+  )
+  void queryClient.prefetchQuery(
+    conversationGitTreeOptions(orgSlug, conversationId),
   )
 }

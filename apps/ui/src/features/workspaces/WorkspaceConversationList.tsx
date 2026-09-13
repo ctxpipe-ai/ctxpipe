@@ -14,7 +14,11 @@ import { client } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
 import { conversationShortLabel } from "./conversationLabel"
 import { workspaceSearch } from "./pane"
-import { workspaceConversationOptions, workspaceKeys } from "./queries"
+import {
+  conversationGitTreeOptions,
+  workspaceConversationOptions,
+  workspaceKeys,
+} from "./queries"
 import type { Workspace } from "./types"
 
 export function WorkspaceConversationList(props: {
@@ -37,6 +41,9 @@ export function WorkspaceConversationList(props: {
   const prefetchConversation = (conversationId: string) => {
     void queryClient.prefetchQuery(
       workspaceConversationOptions(orgSlug, conversationId, workspace.id),
+    )
+    void queryClient.prefetchQuery(
+      conversationGitTreeOptions(orgSlug, conversationId),
     )
   }
   const query = useInfiniteQuery({

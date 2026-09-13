@@ -714,8 +714,8 @@ export function conversationGitTreeOptions(
       writeConversationGitTreeSnapshot(conversationId, listed)
       return listed
     },
-    placeholderData: (): ConversationGitTreeResponse | undefined =>
-      readConversationGitTreeSnapshot(conversationId),
+    placeholderData: (previousData): ConversationGitTreeResponse | undefined =>
+      readConversationGitTreeSnapshot(conversationId) ?? previousData,
     initialData: (): ConversationGitTreeResponse | undefined =>
       readConversationGitTreeSnapshot(conversationId),
   })

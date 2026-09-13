@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import {
   clearAllConversationGitTreeSnapshots,
   readConversationGitTreeSnapshot,
+  writeConversationGitTreeSnapshot,
 } from "./conversation-git-tree-snapshot"
 import {
   conversationGitTreeOptions,
@@ -274,6 +275,36 @@ describe("workspace query HTTP helpers", () => {
       ready: false,
     })
     expect(readConversationGitTreeSnapshot("conv_1")).toBeUndefined()
+    clearAllConversationGitTreeSnapshots()
+  })
+
+  it("keeps the previous conversation tree until the next snapshot is ready", () => {
+    clearAllConversationGitTreeSnapshots()
+    const previous = {
+      sha: "prevsha",
+      paths: ["AGENTS.md"],
+      branch: "ctxpipe/chat/conv_1/1",
+      ready: true as const,
+    }
+    const nextSnapshot = {
+      sha: "nextsha",
+      paths: ["README.md"],
+      branch: "ctxpipe/chat/conv_2/1",
+      ready: true as const,
+    }
+    const placeholder = conversationGitTreeOptions(
+      "acme",
+      "conv_2",
+    ).placeholderData
+    expect(typeof placeholder).toBe("function")
+    if (typeof placeholder !== "function") return
+    expect(placeholder(previous, undefined)).toEqual(previous)
+    writeConversationGitTreeSnapshot("conv_2", nextSnapshot)
+    expect(placeholder(previous, undefined)).toEqual({
+      sha: "nextsha",
+      paths: ["README.md"],
+      branch: "ctxpipe/chat/conv_2/1",
+    })
     clearAllConversationGitTreeSnapshots()
   })
 

@@ -17,9 +17,12 @@ import {
 } from "@/components/SideNav/sideNavStyles"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { prefetchWorkspaceRouteData } from "./ensure-route-data"
-import { workspaceSearch } from "./pane"
 import { workspaceTitleAction } from "./nav"
-import { workspaceConversationOptions } from "./queries"
+import { workspaceSearch } from "./pane"
+import {
+  conversationGitTreeOptions,
+  workspaceConversationOptions,
+} from "./queries"
 import type { Workspace } from "./types"
 import { WorkspaceConversationList } from "./WorkspaceConversationList"
 
@@ -88,6 +91,9 @@ export function WorkspaceNavRow(props: {
     if (conversationId) {
       void queryClient.prefetchQuery(
         workspaceConversationOptions(orgSlug, conversationId, workspace.id),
+      )
+      void queryClient.prefetchQuery(
+        conversationGitTreeOptions(orgSlug, conversationId),
       )
     }
   }

@@ -10,13 +10,9 @@ import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
+import { Spinner } from "@/components/ui/spinner"
 import { workspaceListOptions } from "@/features/workspaces/queries"
 import type { Workspace } from "@/features/workspaces/types"
-import {
-  ConnectorWorkspaceDestinationPicker,
-  destinationFromWorkspace,
-  workspaceMatchingGitUrl,
-} from "./ConnectorWorkspaceDestinationPicker"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import {
   fetchSlackConnectorStatus,
@@ -32,6 +28,11 @@ import {
   getSlackSetupView,
 } from "../slack-setup-model"
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
+import {
+  ConnectorWorkspaceDestinationPicker,
+  destinationFromWorkspace,
+  workspaceMatchingGitUrl,
+} from "./ConnectorWorkspaceDestinationPicker"
 import { GitHubPrerequisiteStep } from "./GitHubPrerequisiteStep"
 
 export const SLACK_SETUP_RESULT_KEY = "slack-setup-result"
@@ -109,7 +110,11 @@ export function SlackSetupDialog({
   })
 
   useEffect(() => {
-    if (targetInitialized || statusQuery.isPending || workspacesQuery.isPending) {
+    if (
+      targetInitialized ||
+      statusQuery.isPending ||
+      workspacesQuery.isPending
+    ) {
       return
     }
     const st = statusQuery.data?.syncTarget
