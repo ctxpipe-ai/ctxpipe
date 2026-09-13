@@ -63,6 +63,15 @@ import {
   LegacyWorkspaceSandboxConflict,
   postgresSandboxInstanceStore,
 } from "./sandbox-instance-store.js"
+import {
+  enterSandboxLifecycleContext,
+  flushSandboxSetupMarks,
+  markSandboxLifecycle,
+  setSandboxLifecycleScope,
+  timedSandboxProvider,
+  timeSandboxLifecycle,
+  wrapSandboxSetupCommand,
+} from "./sandbox-lifecycle-timing.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import { discoverSandboxProvider } from "./sandbox-provider.js"
 import {
@@ -144,7 +153,7 @@ export { conversationRenameChunk } from "./workspace-chat-agui.js"
 function conversationSandboxDefinition(provider: SandboxProvider) {
   return defineSandbox({
     id: "workspace-chat",
-    provider,
+    provider: timedSandboxProvider(provider),
     lifecycle: {
       reuse: "thread",
       snapshot: "after-setup",
@@ -155,6 +164,9 @@ function conversationSandboxDefinition(provider: SandboxProvider) {
     hooks: {
       onWorkspaceTransition: transitionWorkspaceChatRevision,
       onReady: async (ready: SandboxHandle, ctx: SandboxEnsureContext) => {
+        await flushSandboxSetupMarks(ready)
+        setSandboxLifecycleScope("chat")
+        markSandboxLifecycle("sandbox-ready", { sandboxId: ready.id })
         log.info({
           step: "workspace-chat-sandbox-ready",
           message: `workspace chat sandbox ready ${ready.id}`,
@@ -202,11 +214,15 @@ function trackSandboxDefinition(
   const ensureExisting = definition.ensureExisting.bind(definition)
   definition.ensure = ((ctx) => {
     workspaceChatDockerOwnership.ensures += 1
-    return ensure(ctx)
+    return timeSandboxLifecycle("ensure", () => ensure(ctx), {
+      conversationId: ctx.threadId,
+    })
   }) as typeof definition.ensure
   definition.ensureExisting = ((ctx) => {
     workspaceChatDockerOwnership.ensures += 1
-    return ensureExisting(ctx)
+    return timeSandboxLifecycle("ensure-existing", () => ensureExisting(ctx), {
+      conversationId: ctx.threadId,
+    })
   }) as typeof definition.ensureExisting
   return definition
 }
@@ -334,6 +350,7 @@ export async function* streamTanstackWorkspaceChat(
 ): AsyncGenerator<StreamChunk> {
   const turnId = input.runId ?? input.conversationId
   beginWorkspaceChatTurn(input.conversationId, turnId)
+  enterSandboxLifecycleContext(input.conversationId)
   try {
     yield* streamTanstackWorkspaceChatBody(input, turnId)
   } catch (error) {
@@ -454,6 +471,7 @@ export async function warmTanstackWorkspaceChat(
       warmTanstackWorkspaceChat(input, { ...options, transcriptLocked: true }),
     )
   }
+  enterSandboxLifecycleContext(input.conversationId)
   const prepareStarted = Date.now()
   const built = await buildWorkspaceChatSandbox(input)
   if (!built.ok) return built
@@ -637,56 +655,58 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       defineChatMiddleware({
         name: "workspace-chat-revision",
         async setup() {
-          if (!(await previousChatRevision(input))) return
-          const prepared = await warmTanstackWorkspaceChat(input, {
-            transcriptLocked: true,
-          })
-          if (!prepared.ok) throw new Error(prepared.error)
-          if (!prepared.effectiveRevision) return
-          const currentTarget = await withOrgDbContext(input.orgId, () =>
-            getDesiredWorkspaceRevision(input.workspaceId),
-          )
-          if (!currentTarget)
-            throw new Error("Workspace revision is no longer available")
-          revisionRecoveryNotice =
-            currentTarget.sha === prepared.effectiveRevision.sha
-              ? undefined
-              : JSON.stringify({
-                  type: "workspace_revision_conflict",
-                  effectiveSha: prepared.effectiveRevision.sha,
-                  desiredSha: currentTarget.sha,
-                  instructions:
-                    "Keep the current branch. Publishing is blocked until it is rebased onto desiredSha. Inspect Git status and saved stashes before repairing. An interrupted transition is recorded at .git/ctxpipe-revision-transition; after recovering its saved edits and resolving the rebase, remove that marker so the next turn can validate the new revision. Never discard saved edits without the user's request.",
-                })
-          const retainedInput = {
-            ...input,
-            desiredSha: prepared.effectiveRevision.sha,
-          }
-          const retained = await buildWorkspaceChatSandbox(retainedInput)
-          if (!retained.ok) throw new Error(retained.error)
-          if (
-            retained.spec.isolation !== built.spec.isolation ||
-            retained.image !== built.image ||
-            retained.policyIdentity !== built.policyIdentity
-          )
-            throw new Error(
-              "Sandbox provider policy changed during revision recovery",
+          return timeSandboxLifecycle("revision-setup", async () => {
+            if (!(await previousChatRevision(input))) return
+            const prepared = await warmTanstackWorkspaceChat(input, {
+              transcriptLocked: true,
+            })
+            if (!prepared.ok) throw new Error(prepared.error)
+            if (!prepared.effectiveRevision) return
+            const currentTarget = await withOrgDbContext(input.orgId, () =>
+              getDesiredWorkspaceRevision(input.workspaceId),
             )
-          // These objects belong only to this run. Resolve them before native
-          // middleware captures its exact key, projection and checkpoint state.
-          Object.assign(
-            workspace,
-            conversationSandboxWorkspace({
-              spec: retained.spec,
-              input: retainedInput,
-              runToken: session.runToken,
-              proxyUrl: session.proxyUrl,
-              modelBase: built.contract.modelBase,
-              image: built.image,
-              policyIdentity: built.policyIdentity,
-            }),
-          )
-          Object.assign(instances, retained.instances)
+            if (!currentTarget)
+              throw new Error("Workspace revision is no longer available")
+            revisionRecoveryNotice =
+              currentTarget.sha === prepared.effectiveRevision.sha
+                ? undefined
+                : JSON.stringify({
+                    type: "workspace_revision_conflict",
+                    effectiveSha: prepared.effectiveRevision.sha,
+                    desiredSha: currentTarget.sha,
+                    instructions:
+                      "Keep the current branch. Publishing is blocked until it is rebased onto desiredSha. Inspect Git status and saved stashes before repairing. An interrupted transition is recorded at .git/ctxpipe-revision-transition; after recovering its saved edits and resolving the rebase, remove that marker so the next turn can validate the new revision. Never discard saved edits without the user's request.",
+                  })
+            const retainedInput = {
+              ...input,
+              desiredSha: prepared.effectiveRevision.sha,
+            }
+            const retained = await buildWorkspaceChatSandbox(retainedInput)
+            if (!retained.ok) throw new Error(retained.error)
+            if (
+              retained.spec.isolation !== built.spec.isolation ||
+              retained.image !== built.image ||
+              retained.policyIdentity !== built.policyIdentity
+            )
+              throw new Error(
+                "Sandbox provider policy changed during revision recovery",
+              )
+            // These objects belong only to this run. Resolve them before native
+            // middleware captures its exact key, projection and checkpoint state.
+            Object.assign(
+              workspace,
+              conversationSandboxWorkspace({
+                spec: retained.spec,
+                input: retainedInput,
+                runToken: session.runToken,
+                proxyUrl: session.proxyUrl,
+                modelBase: built.contract.modelBase,
+                image: built.image,
+                policyIdentity: built.policyIdentity,
+              }),
+            )
+            Object.assign(instances, retained.instances)
+          })
         },
         onConfig(_ctx, config) {
           if (!revisionRecoveryNotice) return
@@ -710,37 +730,39 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         name: "workspace-chat-permissions",
         requires: [SandboxCapability],
         async setup(ctx) {
-          activeSandbox = getSandbox(ctx)
-          abortController.signal.throwIfAborted()
-          if (!transcriptOwner)
-            throw new Error("Native transcript ownership is unavailable")
-          const authority = {
-            expectedOwner: transcriptOwner,
-            authSecret: process.env.AUTH_SECRET?.trim() ?? "",
-            orgId: input.orgId,
-            conversationId: input.conversationId,
-            revision: built.revision,
-          }
-          const [gitCapability, modelCapability] = await Promise.all([
-            mintWorkspaceChatRunCapability({
-              ...authority,
-              runId: input.runId,
-              purpose: "workspace-chat-git",
-            }),
-            mintWorkspaceChatRunCapability({
-              ...authority,
-              runId: input.runId,
-              purpose: "workspace-chat-model",
-            }),
-          ])
-          abortController.signal.throwIfAborted()
-          // Native persistence already owns the renewable transcript lock, and
-          // OpenCode has not started. Its subprocesses inherit these values.
-          await activeSandbox.env.set({
-            CTXPIPE_GIT_RUN_CAPABILITY: gitCapability,
-            CTXPIPE_OPENCODE_RUN_TOKEN: modelCapability,
+          return timeSandboxLifecycle("permissions-setup", async () => {
+            activeSandbox = getSandbox(ctx)
+            abortController.signal.throwIfAborted()
+            if (!transcriptOwner)
+              throw new Error("Native transcript ownership is unavailable")
+            const authority = {
+              expectedOwner: transcriptOwner,
+              authSecret: process.env.AUTH_SECRET?.trim() ?? "",
+              orgId: input.orgId,
+              conversationId: input.conversationId,
+              revision: built.revision,
+            }
+            const [gitCapability, modelCapability] = await Promise.all([
+              mintWorkspaceChatRunCapability({
+                ...authority,
+                runId: input.runId,
+                purpose: "workspace-chat-git",
+              }),
+              mintWorkspaceChatRunCapability({
+                ...authority,
+                runId: input.runId,
+                purpose: "workspace-chat-model",
+              }),
+            ])
+            abortController.signal.throwIfAborted()
+            // Native persistence already owns the renewable transcript lock, and
+            // OpenCode has not started. Its subprocesses inherit these values.
+            await activeSandbox.env.set({
+              CTXPIPE_GIT_RUN_CAPABILITY: gitCapability,
+              CTXPIPE_OPENCODE_RUN_TOKEN: modelCapability,
+            })
+            abortController.signal.throwIfAborted()
           })
-          abortController.signal.throwIfAborted()
         },
       }),
       openCodeTrailingUserMiddleware(input.prompt),
@@ -974,12 +996,21 @@ function conversationSandboxWorkspace(input: {
       commit: chatInput.desiredSha ?? undefined,
       auth: { token: secrets[WORKSPACE_CHAT_CLONE_TOKEN_SECRET] },
     }),
-    setup: [
-      ...(spec.isolation === "docker"
-        ? WORKSPACE_CHAT_DOCKER_SETUP
-        : WORKSPACE_CHAT_SANDBOX_SETUP),
-    ],
-    threadSetup: [...WORKSPACE_CHAT_THREAD_SETUP],
+    setup: (spec.isolation === "docker"
+      ? WORKSPACE_CHAT_DOCKER_SETUP
+      : WORKSPACE_CHAT_SANDBOX_SETUP
+    ).map((command, index) =>
+      wrapSandboxSetupCommand(
+        index === 0 ? "setup-opencode" : "setup-git-exclude",
+        command,
+      ),
+    ),
+    threadSetup: WORKSPACE_CHAT_THREAD_SETUP.map((command, index) =>
+      wrapSandboxSetupCommand(
+        index === 0 ? "thread-setup-checkout" : "thread-setup-opencode-json",
+        command,
+      ),
+    ),
     secrets,
   })
 }
