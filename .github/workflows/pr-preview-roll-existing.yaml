@@ -84,6 +84,26 @@ jobs:
             printf '%s' "$body"
           }
 
+          # Railway rejects numReplicas < 1. Omitting a region removes it.
+          PREVIEW_COMPUTE_REGION="us-east4-eqdc4a"
+
+          pin_stateless_preview_region() {
+            local label="$1"
+            local service_id="$2"
+            railway_graphql \
+              'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+              "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --arg east "$PREVIEW_COMPUTE_REGION" '{
+                environmentId: $env,
+                serviceId: $service,
+                input: {
+                  multiRegionConfig: {
+                    ($east): {"numReplicas": 1}
+                  }
+                }
+              }')" >/dev/null
+            echo "Pinned $label ($service_id) to $PREVIEW_COMPUTE_REGION"
+          }
+
           update_ui() {
             railway_graphql \
               'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
@@ -146,14 +166,17 @@ jobs:
             "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" \
               '{input:{projectId:$project,environmentId:$env,serviceId:$service,skipDeploys:true,variables:{HOST:"0.0.0.0",NITRO_HOST:"0.0.0.0"}}}')" >/dev/null
 
+          pin_stateless_preview_region "backend" "$BACKEND_SERVICE_ID"
           update_img "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
           deploy "$BACKEND_SERVICE_ID"
           wait_ok backend "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
 
+          pin_stateless_preview_region "worker" "$WORKER_SERVICE_ID"
           update_img "$WORKER_SERVICE_ID" "$WORKER_IMAGE"
           deploy "$WORKER_SERVICE_ID"
           wait_ok worker "$WORKER_SERVICE_ID" "$WORKER_IMAGE"
 
+          pin_stateless_preview_region "ui" "$UI_SERVICE_ID"
           update_ui
           deploy "$UI_SERVICE_ID"
           wait_ok ui "$UI_SERVICE_ID" "$UI_IMAGE"
