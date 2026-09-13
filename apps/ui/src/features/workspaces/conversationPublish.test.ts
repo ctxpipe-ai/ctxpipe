@@ -3,8 +3,10 @@ import {
   conversationAllowsEdits,
   conversationBranchShortName,
   conversationCommitPushEnabled,
+  conversationCreatePrEnabled,
   conversationGithubTreeHref,
   conversationPullRequestAction,
+  conversationPullRequestVisible,
   conversationSessionBranch,
 } from "./conversationPublish"
 
@@ -28,7 +30,7 @@ describe("conversation publish helpers", () => {
     expect(conversationPullRequestAction(null)).toBe("create")
   })
 
-  it("enables Commit+Push when dirty, ahead, or unpushed", () => {
+  it("shows Commit+Push only when the worktree is dirty", () => {
     expect(
       conversationCommitPushEnabled({
         dirty: false,
@@ -38,11 +40,54 @@ describe("conversation publish helpers", () => {
     ).toBe(false)
     expect(
       conversationCommitPushEnabled({
+        dirty: false,
+        differsFromDefault: true,
+        unpushed: true,
+      }),
+    ).toBe(false)
+    expect(
+      conversationCommitPushEnabled({
         dirty: true,
         differsFromDefault: true,
         unpushed: true,
       }),
     ).toBe(true)
+  })
+
+  it("shows Create PR when anything has changed versus the default branch", () => {
+    expect(
+      conversationCreatePrEnabled({
+        dirty: false,
+        differsFromDefault: false,
+        unpushed: false,
+      }),
+    ).toBe(false)
+    expect(
+      conversationCreatePrEnabled({
+        dirty: false,
+        differsFromDefault: true,
+        unpushed: true,
+      }),
+    ).toBe(true)
+    expect(
+      conversationCreatePrEnabled({
+        dirty: true,
+        differsFromDefault: true,
+        unpushed: true,
+      }),
+    ).toBe(true)
+    expect(conversationPullRequestVisible(null, "create")).toBe(false)
+    expect(conversationPullRequestVisible(null, "show")).toBe(true)
+    expect(
+      conversationPullRequestVisible(
+        {
+          dirty: false,
+          differsFromDefault: false,
+          unpushed: false,
+        },
+        "create",
+      ),
+    ).toBe(false)
   })
 
   it("blocks publishing a stale conversation branch", () => {

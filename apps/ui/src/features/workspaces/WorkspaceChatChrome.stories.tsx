@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { expect, within } from "storybook/test"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
@@ -69,16 +70,87 @@ export const DirtyCommitPush: Story = {
     },
     publish: {
       commitPush: {
+        visible: true,
         enabled: true,
         pending: false,
         onPress: () => {},
       },
       pullRequest: {
+        visible: true,
         action: "create",
         pending: false,
         onPress: () => {},
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(canvas.getByRole("button", { name: "Commit+Push" })).toBeVisible()
+    expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
+  },
+}
+
+export const CommittedCreatePrOnly: Story = {
+  args: {
+    title: "Repo layout",
+    branch: {
+      shortName: "chat/1",
+      fullRef: "ctxpipe/chat/conv_1/1",
+    },
+    publish: {
+      commitPush: {
+        visible: false,
+        enabled: false,
+        pending: false,
+        onPress: () => {},
+      },
+      pullRequest: {
+        visible: true,
+        action: "create",
+        pending: false,
+        onPress: () => {},
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      canvas.queryByRole("button", { name: "Commit+Push" }),
+    ).not.toBeInTheDocument()
+    expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
+  },
+}
+
+export const CleanNoPublishActions: Story = {
+  args: {
+    title: "Repo layout",
+    branch: {
+      shortName: "chat/1",
+      fullRef: "ctxpipe/chat/conv_1/1",
+    },
+    publish: {
+      commitPush: {
+        visible: false,
+        enabled: false,
+        pending: false,
+        onPress: () => {},
+      },
+      pullRequest: {
+        visible: false,
+        action: "create",
+        pending: false,
+        onPress: () => {},
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      canvas.queryByRole("button", { name: "Commit+Push" }),
+    ).not.toBeInTheDocument()
+    expect(
+      canvas.queryByRole("button", { name: "Create PR" }),
+    ).not.toBeInTheDocument()
   },
 }
 
@@ -87,11 +159,13 @@ export const Pushing: Story = {
     ...DirtyCommitPush.args,
     publish: {
       commitPush: {
+        visible: true,
         enabled: true,
         pending: true,
         onPress: () => {},
       },
       pullRequest: {
+        visible: true,
         action: "create",
         pending: false,
         onPress: () => {},
@@ -105,11 +179,13 @@ export const CreatingPr: Story = {
     ...DirtyCommitPush.args,
     publish: {
       commitPush: {
+        visible: true,
         enabled: true,
         pending: false,
         onPress: () => {},
       },
       pullRequest: {
+        visible: true,
         action: "create",
         pending: true,
         onPress: () => {},
@@ -128,17 +204,29 @@ export const ShowPr: Story = {
     },
     publish: {
       commitPush: {
-        enabled: true,
+        visible: false,
+        enabled: false,
         pending: false,
         onPress: () => {},
       },
       pullRequest: {
+        visible: true,
         action: "show",
         pending: false,
         href: "https://github.com/acme/docs/pull/41",
         onPress: () => {},
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      canvas.queryByRole("button", { name: "Commit+Push" }),
+    ).not.toBeInTheDocument()
+    expect(
+      canvas.queryByRole("button", { name: "Create PR" }),
+    ).not.toBeInTheDocument()
+    expect(canvas.getByRole("link", { name: "Show PR" })).toBeVisible()
   },
 }
 
