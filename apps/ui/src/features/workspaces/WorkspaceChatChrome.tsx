@@ -159,7 +159,7 @@ export function ConversationPublishActions(props: {
       ) : null}
       {showPrLink ? (
         <AriaLink
-          href={pullRequest.href}
+          href={pullRequest.href ?? undefined}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex h-8 items-center rounded-md px-2 text-xs text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"

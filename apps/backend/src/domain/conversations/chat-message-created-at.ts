@@ -12,14 +12,13 @@ export function reviveChatMessageCreatedAt(value: unknown): Date | undefined {
 
 export function reviveChatMessages<T extends { createdAt?: unknown }>(
   messages: readonly T[],
-): T[] {
+): Array<Omit<T, "createdAt"> & { createdAt?: Date }> {
   return messages.map((message) => {
-    if (message.createdAt == null) return message
     const createdAt = reviveChatMessageCreatedAt(message.createdAt)
-    if (createdAt === message.createdAt) return message
-    if (createdAt) return { ...message, createdAt }
-    const rest = { ...message }
-    delete rest.createdAt
-    return rest
+    if (!createdAt) {
+      const { createdAt: _drop, ...rest } = message
+      return rest
+    }
+    return { ...message, createdAt }
   })
 }
