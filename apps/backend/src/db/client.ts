@@ -136,14 +136,13 @@ export async function withOrgDbContext<T>(
   const db = getSystemDb()
   return db.transaction(
     async (tx) => {
+      const idleTimeout = options?.idleInTransactionSessionTimeout
+      // One round-trip for both GUCs. Nested same-org calls reuse this tx.
       await tx.execute(
-        sql`select set_config('app.organization_id', ${orgId}, true)`,
+        idleTimeout
+          ? sql`select set_config('app.organization_id', ${orgId}, true), set_config('idle_in_transaction_session_timeout', ${idleTimeout}, true)`
+          : sql`select set_config('app.organization_id', ${orgId}, true)`,
       )
-      if (options?.idleInTransactionSessionTimeout) {
-        await tx.execute(
-          sql`select set_config('idle_in_transaction_session_timeout', ${options.idleInTransactionSessionTimeout}, true)`,
-        )
-      }
       try {
         // Explicit `async` wrapper: some runtimes (e.g. Bun inside OpenWorkflow steps)
         // drop AsyncLocalStorage across `() => handler(tx)` when `handler` is async.
