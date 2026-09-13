@@ -1,4 +1,4 @@
-import { chatParamsFromRequestBody } from "@tanstack/ai"
+import { chatParamsFromRequestBody, uiMessagesToWire } from "@tanstack/ai"
 import { describe, expect, it } from "vitest"
 import {
   ConversationUiMessagesTimeoutError,
@@ -63,6 +63,33 @@ describe("createDataStreamConversationTransport", () => {
       role: "user",
       content: "hello",
     })
+  })
+
+  it("revives ISO-string createdAt so follow-up AG-UI wire conversion can run", async () => {
+    const createdAt = "2026-09-13T09:00:00.000Z"
+    const parsed = await parseConversationChatRequest({
+      threadId: "conv_1",
+      runId: "run_client",
+      messages: [
+        {
+          id: "m1",
+          role: "user" as const,
+          content: "please consolidate the imported knowledge about docker",
+          createdAt,
+        },
+      ],
+      tools: [],
+      context: [],
+      forwardedProps: { workspaceId: "ws_1", source: "ui" },
+    })
+    const created = parsed.messages?.[0]?.createdAt
+    expect(created).toBeInstanceOf(Date)
+    expect(created?.toISOString()).toBe(createdAt)
+    expect(() =>
+      uiMessagesToWire(
+        (parsed.messages ?? []) as Parameters<typeof uiMessagesToWire>[0],
+      ),
+    ).not.toThrow()
   })
 
   it("reads the prompt from AG-UI user content parts that use text", async () => {

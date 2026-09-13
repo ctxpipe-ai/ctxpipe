@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { ConversationThread } from "@/features/chat/ConversationThread"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
+import { reviveChatMessages } from "@/features/chat/reviveChatMessageCreatedAt"
 import type {
   ChatMessage,
   ConversationDetail,
@@ -111,6 +112,13 @@ export function WorkspaceChatSession(props: {
     () => workspaceChatWebSocket(orgSlug, conversationId),
     [orgSlug, conversationId],
   )
+  const revivedInitialMessages = useMemo(
+    () =>
+      initialMessages && initialMessages.length > 0
+        ? (reviveChatMessages(initialMessages) as UIMessage[])
+        : undefined,
+    [initialMessages],
+  )
 
   useEffect(() => {
     connection.warm()
@@ -162,8 +170,8 @@ export function WorkspaceChatSession(props: {
     threadId: conversationId,
     connection,
     persistence: true,
-    ...(initialMessages && initialMessages.length > 0
-      ? { initialMessages: initialMessages as UIMessage[] }
+    ...(revivedInitialMessages
+      ? { initialMessages: revivedInitialMessages }
       : {}),
     forwardedProps: {
       workspaceId: workspace.id,

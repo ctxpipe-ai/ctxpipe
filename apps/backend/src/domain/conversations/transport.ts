@@ -2,8 +2,8 @@ import {
   chatParamsFromRequestBody,
   modelMessagesToUIMessages,
 } from "@tanstack/ai"
-import { log } from "../../observability/logger.js"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
+import { log } from "../../observability/logger.js"
 import {
   runTanstackWorkspaceChat,
   streamTanstackWorkspaceChat,
@@ -15,6 +15,7 @@ import {
   workspaceChatWireFormat,
 } from "../workspaces/workspace-chat-agui.js"
 import { workspaceChatPersistence } from "../workspaces/workspace-chat-persistence.js"
+import { reviveChatMessages } from "./chat-message-created-at.js"
 
 export type ConversationChatRequest = {
   prompt: string
@@ -333,10 +334,18 @@ export async function parseConversationChatRequest(
   const record =
     body && typeof body === "object" ? (body as Record<string, unknown>) : {}
   const raw = forwardedChatFields(record)
-  const rawMessages = Array.isArray(record.messages) ? record.messages : []
+  const rawMessages = reviveChatMessages(
+    (Array.isArray(record.messages) ? record.messages : []) as Array<{
+      createdAt?: unknown
+    }>,
+  )
   const rawPrompt =
     lastUserPrompt(rawMessages) ||
     toPromptFromIncomingMessage(incomingMessageFields(record.message))
+  const revivedBody =
+    body && typeof body === "object"
+      ? { ...(body as Record<string, unknown>), messages: rawMessages }
+      : body
   const rawResult: ConversationChatRequest = {
     prompt: rawPrompt,
     workspaceId: raw.workspaceId,
@@ -357,12 +366,13 @@ export async function parseConversationChatRequest(
 
   if (canUseOfficial && rawMessages.length > 0) {
     try {
-      const params = await chatParamsFromRequestBody(body)
+      const params = await chatParamsFromRequestBody(revivedBody)
       const prompt = lastUserPrompt(params.messages) || rawPrompt
       const forwarded = params.forwardedProps
       const workspaceId =
         (typeof forwarded.workspaceId === "string" && forwarded.workspaceId) ||
-        (typeof forwarded.workspace_id === "string" && forwarded.workspace_id) ||
+        (typeof forwarded.workspace_id === "string" &&
+          forwarded.workspace_id) ||
         raw.workspaceId
       const source =
         typeof forwarded.source === "string" ? forwarded.source : raw.source

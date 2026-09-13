@@ -21,6 +21,7 @@ import {
   chatRuns,
   chatThreads,
 } from "../../db/schema/chat-persistence.js"
+import { reviveChatMessages } from "../conversations/chat-message-created-at.js"
 
 function orgSql<T>(fn: () => Promise<T>): Promise<T> {
   return withAmbientOrgDb(fn)
@@ -78,14 +79,10 @@ function createMessageStore(): MessageStore {
           .where(eq(chatThreads.threadId, threadId))
           .limit(1)
         // JSONB stores dates as strings; native chat/wire converters require Date.
-        return ((rows[0]?.messagesJson ?? []) as ModelMessage[]).map(
-          (message) =>
-            message.createdAt == null
-              ? message
-              : {
-                  ...message,
-                  createdAt: new Date(message.createdAt),
-                },
+        return reviveChatMessages(
+          (rows[0]?.messagesJson ?? []) as Array<
+            ModelMessage & { createdAt?: unknown }
+          >,
         )
       })
     },

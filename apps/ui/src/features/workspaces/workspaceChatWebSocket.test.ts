@@ -39,6 +39,23 @@ describe("workspaceChatWebSocket hydrate", () => {
     )
   })
 
+  it("revives ISO-string createdAt on hydrated messages", async () => {
+    const createdAt = "2026-09-13T09:00:00.000Z"
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          messages: [{ id: "m1", role: "user", createdAt }],
+          activeRun: null,
+        }),
+      ),
+    )
+    const connection = workspaceChatWebSocket("acme", "conv_1")
+    const hydrated = await connection.hydrate("conv_1")
+    expect(hydrated.messages[0]?.createdAt).toEqual(new Date(createdAt))
+    expect(hydrated.messages[0]?.createdAt).toBeInstanceOf(Date)
+  })
+
   it.each([
     401, 403, 500,
   ])("throws when hydration returns %i", async (status) => {
