@@ -1,7 +1,17 @@
 import { QueryClient } from "@tanstack/react-query"
-import { describe, expect, it, vi } from "vitest"
-import * as queries from "./queries"
+import { HttpResponse, http } from "msw"
+import { setupServer } from "msw/node"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 import { workspaceKeys } from "./queries"
+import { installMemorySessionStorage } from "./session-storage-test"
 import {
   newUiConversationId,
   openWorkspaceConversation,
@@ -9,6 +19,37 @@ import {
   seedWorkspaceDetailFromList,
 } from "./start-workspace-conversation-ui"
 import { docsWorkspace } from "./workspace-fixtures"
+
+const server = setupServer()
+const conversationId = "conv_0123456789abcdef0123456789abcdef"
+
+function listenForConversationHttp(
+  onCreate: (request: Request) => Promise<Response> | Response,
+) {
+  server.use(
+    http.post(
+      ({ request }) =>
+        /\/api\/v1\/conversations\/?$/.test(
+          new URL(request.url, "http://localhost").pathname,
+        ),
+      ({ request }) => onCreate(request),
+    ),
+    http.get(
+      ({ request }) =>
+        /\/api\/v1\/conversations\/[^/]+$/.test(
+          new URL(request.url, "http://localhost").pathname,
+        ),
+      () => HttpResponse.json({ error: "not found" }, { status: 404 }),
+    ),
+    http.get(
+      ({ request }) =>
+        /\/api\/v1\/workspaces\/[^/]+$/.test(
+          new URL(request.url, "http://localhost").pathname,
+        ),
+      () => HttpResponse.json(docsWorkspace),
+    ),
+  )
+}
 
 describe("newUiConversationId", () => {
   it("returns a conv_ hex id the server will accept", () => {
@@ -23,7 +64,7 @@ describe("seedWorkspaceConversation", () => {
       queryClient,
       orgSlug: "acme",
       workspaceId: "ws_1",
-      conversationId: "conv_0123456789abcdef0123456789abcdef",
+      conversationId,
       text: "What is hydrate status?",
     })
     expect(detail.messages[0]?.parts[0]).toMatchObject({
@@ -32,11 +73,7 @@ describe("seedWorkspaceConversation", () => {
     })
     expect(
       queryClient.getQueryData(
-        workspaceKeys.conversation(
-          "acme",
-          "conv_0123456789abcdef0123456789abcdef",
-          "ws_1",
-        ),
+        workspaceKeys.conversation("acme", conversationId, "ws_1"),
       ),
     ).toEqual(detail)
   })
@@ -82,16 +119,46 @@ describe("seedWorkspaceDetailFromList", () => {
 })
 
 describe("openWorkspaceConversation", () => {
+  beforeAll(() => {
+    installMemorySessionStorage()
+    server.listen({ onUnhandledRequest: "error" })
+    const intercepted = globalThis.fetch
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const next =
+        typeof input === "string" && input.startsWith("/")
+          ? `http://localhost${input}`
+          : input
+      return intercepted(next as RequestInfo, init)
+    }) as typeof fetch
+  })
+  afterEach(() => server.resetHandlers())
+  afterAll(() => {
+    server.close()
+  })
+
   it("selects nav and navigates before the POST settles", async () => {
     const queryClient = new QueryClient()
     const selectNav = vi.fn()
     const navigate = vi.fn().mockResolvedValue(undefined)
-    let releasePost!: (value: { conversationId: string }) => void
-    const post = new Promise<{ conversationId: string }>((resolve) => {
+    let releasePost!: () => void
+    const postHeld = new Promise<void>((resolve) => {
       releasePost = resolve
     })
-    vi.spyOn(queries, "startWorkspaceConversation").mockReturnValue(post)
-    vi.spyOn(queries, "fetchConversation").mockResolvedValue(null)
+    let createSettled = false
+    listenForConversationHttp(async () => {
+      await postHeld
+      createSettled = true
+      return new HttpResponse(
+        'data: {"type":"RUN_STARTED"}\n\ndata: {"type":"RUN_FINISHED"}\n\n',
+        {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+            "x-conversation-id": conversationId,
+          },
+        },
+      )
+    })
     const opened = openWorkspaceConversation({
       queryClient,
       navigate: navigate as never,
@@ -99,19 +166,19 @@ describe("openWorkspaceConversation", () => {
       orgSlug: "acme",
       workspace: { id: "ws_1", slug: "docs" },
       text: "What is hydrate status?",
-      conversationId: "conv_0123456789abcdef0123456789abcdef",
-      idempotencyKey: "conv_0123456789abcdef0123456789abcdef",
+      conversationId,
+      idempotencyKey: conversationId,
     })
     expect(selectNav).toHaveBeenCalledWith({
       orgSlug: "acme",
       primary: "workspace",
       workspaceSlug: "docs",
-      conversationId: "conv_0123456789abcdef0123456789abcdef",
+      conversationId,
     })
     expect(navigate).toHaveBeenCalled()
-    releasePost({ conversationId: "conv_0123456789abcdef0123456789abcdef" })
-    await expect(opened).resolves.toEqual({
-      conversationId: "conv_0123456789abcdef0123456789abcdef",
-    })
+    expect(createSettled).toBe(false)
+    releasePost()
+    await expect(opened).resolves.toEqual({ conversationId })
+    expect(createSettled).toBe(true)
   })
 })

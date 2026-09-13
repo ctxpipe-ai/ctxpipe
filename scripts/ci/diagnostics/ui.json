@@ -854,12 +854,6 @@
       "count": 1
     },
     {
-      "file": "src/features/connectors/components/SlackSetupDialog.tsx",
-      "code": 2304,
-      "message": "Cannot find name 'Spinner'.",
-      "count": 1
-    },
-    {
       "file": "src/features/connectors/confluence-setup-model.ts",
       "code": 2322,
       "message": "Type 'ConfluenceWizardStepDef' is not assignable to type 'never'.",

@@ -512,12 +512,17 @@ export const LateErrorDoesNotClobberSuccess: Story = {
     msw: {
       handlers: {
         page: [
-          http.post(conversationPostPath, ({ request }) => {
+          http.post(conversationPostPath, async ({ request }) => {
             const path = new URL(request.url).pathname
             if (/\/api\/v1\/conversations\/?$/.test(path)) {
+              const body = (await request.json()) as {
+                forwardedProps?: { conversationId?: string }
+              }
+              const conversationId =
+                body.forwardedProps?.conversationId ?? lateErrorConversationId
               return conversationAguiSseResponse(
                 conversationAguiTextEvents({
-                  threadId: lateErrorConversationId,
+                  threadId: conversationId,
                   messageId: "msg_first",
                   text: lateErrorFirstAnswer,
                 }),
@@ -544,13 +549,13 @@ export const LateErrorDoesNotClobberSuccess: Story = {
               ),
             ({ request }) => {
               const id = new URL(request.url).pathname.split("/").pop()
-              if (id !== lateErrorConversationId) {
-                return HttpResponse.json(
-                  { error: "not found" },
-                  { status: 404 },
-                )
-              }
-              return HttpResponse.json(lateErrorDetail)
+              return HttpResponse.json({
+                ...lateErrorDetail,
+                conversation: {
+                  ...lateErrorDetail.conversation,
+                  id,
+                },
+              })
             },
           ),
           ...workspaceShellHandlers(),
@@ -563,6 +568,16 @@ export const LateErrorDoesNotClobberSuccess: Story = {
     const Original = window.WebSocket
     let failNextRun = false
     function ScriptedWebSocket(url: string | URL) {
+      const listeners = new Map<string, Set<(event: Event) => void>>()
+      const emit = (type: string, event: Event) => {
+        const handler = socket[`on${type}` as keyof typeof socket]
+        if (typeof handler === "function") {
+          ;(handler as (event: Event) => void)(event)
+        }
+        for (const listener of listeners.get(type) ?? []) {
+          listener(event)
+        }
+      }
       const socket: {
         url: string
         readyState: number
@@ -576,8 +591,14 @@ export const LateErrorDoesNotClobberSuccess: Story = {
         onmessage: ((event: MessageEvent<string>) => void) | null
         close: () => void
         send: () => void
-        addEventListener: () => void
-        removeEventListener: () => void
+        addEventListener: (
+          type: string,
+          listener: (event: Event) => void,
+        ) => void
+        removeEventListener: (
+          type: string,
+          listener: (event: Event) => void,
+        ) => void
         dispatchEvent: () => boolean
       } = {
         url: String(url),
@@ -592,12 +613,13 @@ export const LateErrorDoesNotClobberSuccess: Story = {
         onmessage: null,
         close() {
           this.readyState = Original.CLOSED
-          this.onclose?.(new CloseEvent("close"))
+          emit("close", new CloseEvent("close"))
         },
         send() {
           if (!failNextRun) return
           queueMicrotask(() => {
-            this.onmessage?.(
+            emit(
+              "message",
               new MessageEvent("message", {
                 data: JSON.stringify({
                   type: "RUN_ERROR",
@@ -607,15 +629,21 @@ export const LateErrorDoesNotClobberSuccess: Story = {
             )
           })
         },
-        addEventListener() {},
-        removeEventListener() {},
+        addEventListener(type, listener) {
+          const set = listeners.get(type) ?? new Set()
+          set.add(listener)
+          listeners.set(type, set)
+        },
+        removeEventListener(type, listener) {
+          listeners.get(type)?.delete(listener)
+        },
         dispatchEvent() {
           return true
         },
       }
       queueMicrotask(() => {
         socket.readyState = Original.OPEN
-        socket.onopen?.(new Event("open"))
+        emit("open", new Event("open"))
       })
       return socket
     }
@@ -638,6 +666,12 @@ export const LateErrorDoesNotClobberSuccess: Story = {
           timeout: SEND_WAIT_MS,
         }),
       ).toBeVisible()
+      await waitFor(
+        () => {
+          expect(canvas.queryByText(/setting up sandbox/i)).toBeNull()
+        },
+        { timeout: SEND_WAIT_MS },
+      )
       const followUp = await canvas.findByPlaceholderText(
         /continue the conversation/i,
         undefined,

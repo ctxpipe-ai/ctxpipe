@@ -18,6 +18,7 @@ import {
   workspaceKeys,
 } from "./queries"
 import {
+  type ConversationStartState,
   newUiConversationId,
   openWorkspaceConversation,
 } from "./start-workspace-conversation-ui"
@@ -243,7 +244,7 @@ function WorkspaceChatResume(props: {
   const { data: detail } = useSuspenseQuery(
     workspaceConversationOptions(orgSlug, conversationId, workspace.id),
   )
-  const { data: startState } = useQuery({
+  const { data: startState } = useQuery<ConversationStartState | null>({
     queryKey: workspaceKeys.conversationStart(orgSlug, conversationId),
     queryFn: async () => null,
     enabled: false,
