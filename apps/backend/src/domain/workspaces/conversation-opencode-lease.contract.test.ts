@@ -1,10 +1,14 @@
+import { mkdtemp, rm } from "node:fs/promises"
 import { createServer } from "node:net"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { startOpencodeServerInSandbox } from "@tanstack/ai-opencode"
 import type {
   ProcessOptions,
   SandboxHandle,
   SpawnHandle,
 } from "@tanstack/ai-sandbox"
+import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   claimUnsandboxedOpencodePort,
@@ -165,6 +169,100 @@ describe("conversation-lifetime opencode serve", () => {
     expect(second).toBe(first)
     expect(first).toBeGreaterThan(0)
   })
+
+  it(
+    "keeps one live OpenCode PID across two stock server starts",
+    { timeout: 60_000 },
+    async () => {
+      const directory = await mkdtemp(join(tmpdir(), "ctxpipe-opencode-reuse-"))
+      const created = await localProcessSandbox({
+        dir: directory,
+        removeOnDestroy: true,
+      }).create({
+        id: directory,
+        workspace: { source: { type: "none" } },
+      })
+      let realSpawns = 0
+      let spawnedPid = 0
+      const sandbox = reuseOpencodeServeHandle(
+        {
+          ...created,
+          process: {
+            ...created.process,
+            spawn: async (command, options) => {
+              realSpawns += 1
+              const proc = await created.process.spawn(command, options)
+              spawnedPid = proc.pid
+              return proc
+            },
+          },
+        },
+        () => CONVERSATION_ID,
+      )
+      const port = await claimUnsandboxedOpencodePort(CONVERSATION_ID)
+      await sandbox.env.set({
+        PATH: `/tmp/opencode-cli/node_modules/.bin:${process.env.PATH ?? ""}`,
+        XDG_DATA_HOME: join(directory, "data"),
+        OPENCODE_CONFIG_CONTENT: JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          enabled_providers: ["synthetic"],
+          provider: {
+            synthetic: {
+              npm: "@ai-sdk/openai-compatible",
+              name: "synthetic",
+              options: {
+                baseURL: "http://127.0.0.1:9",
+                apiKey: "synthetic-test-key",
+              },
+              models: { probe: { name: "probe" } },
+            },
+          },
+        }),
+      })
+      const env = {
+        OPENCODE_CONFIG_CONTENT: JSON.stringify({
+          mcp: { tanstack: { type: "remote", url: "http://127.0.0.1:9/mcp" } },
+        }),
+      }
+      const first = await startOpencodeServerInSandbox(sandbox, {
+        port,
+        hostname: "127.0.0.1",
+        cwd: ".",
+        env,
+      })
+      const firstHealth = await fetch(
+        `${new URL(first.baseUrl).origin}/global/health`,
+      )
+      expect(firstHealth.status).toBe(200)
+      expect(spawnedPid).toBeGreaterThan(0)
+      process.kill(spawnedPid, 0)
+      const attachStarted = Date.now()
+      const second = await startOpencodeServerInSandbox(sandbox, {
+        port,
+        hostname: "127.0.0.1",
+        cwd: ".",
+        env,
+      })
+      const attachMs = Date.now() - attachStarted
+      await first.dispose()
+      const stillHealthy = await fetch(
+        `${new URL(second.baseUrl).origin}/global/health`,
+      )
+      expect(stillHealthy.status).toBe(200)
+      expect(realSpawns).toBe(1)
+      expect(attachMs).toBeLessThan(500)
+      process.kill(spawnedPid, 0)
+      await second.dispose()
+      process.kill(spawnedPid, 0)
+      await releaseConversationOpencodeLease(CONVERSATION_ID)
+      await expect(
+        fetch(`${new URL(second.baseUrl).origin}/global/health`),
+      ).rejects.toThrow()
+      expect(() => process.kill(spawnedPid, 0)).toThrow()
+      await created.destroy()
+      await rm(directory, { recursive: true, force: true })
+    },
+  )
 })
 
 function fakeListeningServe(pid: number, port: number): SpawnHandle {
