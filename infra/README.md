@@ -8,11 +8,11 @@ Mirrors [ops/infra/index.ts](../ops/infra/index.ts):
 
 - **Railway**
   - Project + `production` environment
-  - Region: **`us-east4-eqdc4a`** (Virginia), from module variable `railway_regions` (default in [`module/ctxpipe/variables.tf`](module/ctxpipe/variables.tf); [`main.tf`](main.tf) passes the same value) — same metro as Neon.
+  - Region: **`us-east4-eqdc4a`** (Virginia), from module variable `railway_regions` (default in [`module/ctxpipe/variables.tf`](module/ctxpipe/variables.tf); [`main.tf`](main.tf) passes the same value) — same metro as Neon. Terraform documents and creates with this value; **updates** go through [`scripts/railway-set-regions.sh`](../scripts/railway-set-regions.sh) (Railway provider 0.6.x never sends `multiRegionConfig` on Update).
   - Services: UI, backend, codesearch (+ volume), OpenWorkflow worker, FalkorDB (+ volume)
   - Service variables: `FALKORDB_PORT`, `GRAPH_DB_URI`
   - App services pull public GHCR images (`ghcr.io/ctxpipe-ai/{backend,worker,ui,codesearch,otel-collector}`) tagged by Git commit SHA from GitHub Actions (no Railway registry credentials)
-  - **Volume cutover:** Railway migrates attached volumes when a service region changes ([docs](https://docs.railway.com/deployments/regions#volumes)). Codesearch and FalkorDB each have a 50GB volume. Applying this region flip in production (`deploy.yaml` `terraform apply` on merge) migrates those volumes and takes those services down for the copy. Stateless services (backend, worker, UI, otel-collector) flip without volume migration. PR preview environments are a copy of production, so they inherit this region after the production apply.
+  - **Volume cutover:** Railway migrates attached volumes when a service region changes ([docs](https://docs.railway.com/deployments/regions#volumes)). Codesearch and FalkorDB each have a 50GB volume. The production region write is `deploy.yaml` → `scripts/railway-set-regions.sh` (GraphQL pin + redeploy), not `terraform apply`. That step copies those volumes and takes those services down for the copy. Stateless services (backend, worker, UI, otel-collector) flip without volume migration. `railway_service` resources `ignore_changes` on `regions` so Terraform does not hit the provider Update bug. PR preview environments are a copy of production, so they inherit this region after production actually moves.
 - **Neon**
   - Project `ctxpipe` in org `org-steep-pine-64462726`, region `aws-us-east-1`, pg 17
   - Default branch `production` with db `neondb` and role `neondb_owner`
