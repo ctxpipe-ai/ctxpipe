@@ -18,6 +18,7 @@ import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-git
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
 import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
+import { maybeActivatePagerdutySyncOnConfigPush } from "./github-pagerduty-push.js"
 
 const pushPayloadSchema = z.object({
   ref: z.string(),
@@ -193,6 +194,16 @@ async function processPushEvent(
     log: ctx.log,
   })
   await maybeActivateLinearSyncOnConfigPush({
+    installationId: installation.id,
+    githubConnectionId,
+    repoFullName: repo.full_name,
+    ref,
+    commits,
+    before,
+    after,
+    log: ctx.log,
+  })
+  await maybeActivatePagerdutySyncOnConfigPush({
     installationId: installation.id,
     githubConnectionId,
     repoFullName: repo.full_name,

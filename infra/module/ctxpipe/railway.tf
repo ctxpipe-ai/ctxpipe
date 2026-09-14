@@ -66,6 +66,20 @@ locals {
       value = var.linear_webhook_secret
     }] : [],
   )
+  pagerduty_shared_env = concat(
+    length(var.pagerduty_client_id) > 0 ? [{
+      name  = "PAGERDUTY_CLIENT_ID"
+      value = var.pagerduty_client_id
+    }] : [],
+    length(var.pagerduty_client_secret) > 0 ? [{
+      name  = "PAGERDUTY_CLIENT_SECRET"
+      value = var.pagerduty_client_secret
+    }] : [],
+    length(var.pagerduty_redirect_uri) > 0 ? [{
+      name  = "PAGERDUTY_REDIRECT_URI"
+      value = var.pagerduty_redirect_uri
+    }] : [],
+  )
   shared_backend_env_variables = concat([
     {
       name  = "AUTH_SECRET"
@@ -167,7 +181,7 @@ locals {
       name  = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
       value = "http://$${{otelcollector.RAILWAY_PRIVATE_DOMAIN}}:4318/v1/metrics"
     }
-  ], local.amplitude_shared_env, local.slack_shared_env, local.linear_shared_env)
+  ], local.amplitude_shared_env, local.slack_shared_env, local.linear_shared_env, local.pagerduty_shared_env)
 }
 
 resource "railway_service" "ui" {
