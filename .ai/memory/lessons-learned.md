@@ -317,7 +317,7 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### Repository indexing admission
-- **Rule:** keep durability in OpenWorkflow step boundaries and memory admission at process boundaries; do not add cross-step HTTP/Postgres/Redis leases for codesearch indexing. Codesearch phase APIs run without a begin/end protocol; same-process repo index work may overlap, while purge takes a same-repo in-process exclusive operation so disk/shard removal does not race active phase work.
+- **Rule:** keep durability in OpenWorkflow step boundaries and memory admission at process boundaries; do not add cross-step HTTP/Postgres/Redis leases for codesearch indexing. Codesearch phase APIs run without a begin/end protocol. The in-process pipeline map stays sticky across phases and is dropped locally on `merge-scip` or a fatal clone/detect response (idle TTL reclaims abandoned holds). Overflow sleeps 30s until a slot opens — do not escalate backoff or thread Retry-After; this is a queue, not a failing API. Do not bump `repositories.updatedAt` as an indexing heartbeat; that column is the row’s last write. After OpenWorkflow retries a crashed step, mark the run `failed` instead of reclaiming `queued`/`running` by age. Same-process repo index work may overlap, while purge takes a same-repo in-process exclusive operation so disk/shard removal does not race active phase work.
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md

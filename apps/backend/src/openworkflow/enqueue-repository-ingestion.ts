@@ -214,8 +214,7 @@ export async function startClaimedRepositoryIngestionWorkflow(
 
 /**
  * Marks the repo as mid-ingestion for the UI, then enqueues repository-ingestion-orchestrator.
- * Skips starting another orchestrator when indexing is already `queued` or `running`,
- * unless that status is stale (`queued` > 30min or `running` > 6h).
+ * Skips starting another orchestrator when indexing is already `queued` or `running`.
  * Awaits the DB claim and durable workflow creation before returning.
  * Does not await workflow completion; terminal failures are handled inside the workflow.
  *

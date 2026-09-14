@@ -86,7 +86,6 @@ describe("codesearchIndexZoekt", () => {
           JSON.stringify({ error: "Index pipeline capacity exceeded" }),
           {
             status: 429,
-            headers: { "Retry-After": "30" },
           },
         ),
       ),
