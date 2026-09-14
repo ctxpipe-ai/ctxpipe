@@ -315,9 +315,12 @@ jobs:
           UI_IMAGE: ghcr.io/ctxpipe-ai/ui:${{ env.IMAGE_TAG }}
           CODESEARCH_IMAGE: ghcr.io/ctxpipe-ai/codesearch:${{ env.IMAGE_TAG }}
         # Railway API/CLI calls can be flaky; retry once before failing.
+        # Extra time: a new PR env from `environment new --duplicate` applies as
+        # a staged commit; serviceInstanceDeployV2 fails with "Service Instance
+        # not found" until those instances exist.
         uses: nick-fields/retry@v4
         with:
-          timeout_minutes: 10
+          timeout_minutes: 18
           max_attempts: 2
           command: |
             set -euo pipefail
@@ -379,6 +382,39 @@ jobs:
                 return 22
               fi
               printf '%s' "$body"
+            }
+
+            # Poll until Railway has a live instance in this environment.
+            # Duplicate-from-production creates the env immediately; instances
+            # appear only after the apply-commit finishes (often minutes).
+            wait_for_service_instance() {
+              local label="$1"
+              local service_id="$2"
+              local deadline=$(( $(date +%s) + 600 ))
+              echo "Waiting for live $label instance ($service_id) in $ENV_ID"
+              while true; do
+                local raw http_code body instance_id
+                raw="$(curl -sS -w '\n%{http_code}' \
+                  -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
+                  -H "Content-Type: application/json" \
+                  -d "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" \
+                    '{query:"query($environmentId:String!,$serviceId:String!){serviceInstance(environmentId:$environmentId,serviceId:$serviceId){id}}",variables:{environmentId:$env,serviceId:$service}}')" \
+                  https://backboard.railway.com/graphql/v2)" || true
+                http_code="$(printf '%s' "$raw" | tail -n1)"
+                body="$(printf '%s' "$raw" | sed '$d')"
+                instance_id="$(echo "$body" | jq -r '.data.serviceInstance.id // empty')"
+                if [[ -n "$instance_id" ]]; then
+                  echo "$label instance is live"
+                  return 0
+                fi
+                if (( $(date +%s) >= deadline )); then
+                  echo "Timeout waiting for $label service instance (HTTP ${http_code:-none})" >&2
+                  echo "$body" >&2
+                  return 1
+                fi
+                echo "$label not live yet (HTTP ${http_code:-none}); retrying in 10s"
+                sleep 10
+              done
             }
 
             # Cache of name -> id from a single project services query (Terraform names).
@@ -633,6 +669,11 @@ jobs:
                 'mutation serviceInstanceDeployV2($serviceId: String!, $environmentId: String!) { serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId) }' \
                 "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')"
             }
+
+            wait_for_service_instance "backend" "$BACKEND_SERVICE_ID"
+            wait_for_service_instance "worker" "$WORKER_SERVICE_ID"
+            wait_for_service_instance "ui" "$UI_SERVICE_ID"
+            wait_for_service_instance "codesearch" "$CODESEARCH_SERVICE_ID"
 
             upsert_database_url_without_deploy "$BACKEND_SERVICE_ID" >/dev/null
             upsert_preview_service_variables "$BACKEND_SERVICE_ID" >/dev/null
