@@ -1,4 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+
+const { apiKeySpy } = vi.hoisted(() => ({
+  apiKeySpy: vi.fn(),
+}))
+
+vi.mock("@better-auth/api-key", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@better-auth/api-key")>()
+  apiKeySpy.mockImplementation((...args: Parameters<typeof actual.apiKey>) =>
+    actual.apiKey(...args),
+  )
+  return { ...actual, apiKey: apiKeySpy }
+})
+
 import { createBetterAuth } from "./config.js"
 
 type OAuthProviderOptions = {
@@ -12,63 +25,139 @@ type OAuthProviderOptions = {
   }) => Promise<Record<string, unknown>> | Record<string, unknown>
 }
 
+type OrganizationRole = {
+  statements: Record<string, readonly string[] | undefined>
+  authorize: (request: Record<string, string[]>) => { success: boolean }
+}
+
+type OrganizationPluginOptions = {
+  requireEmailVerificationOnInvitation?: boolean
+  ac?: { statements: Record<string, readonly string[]> }
+  roles?: {
+    owner?: OrganizationRole
+    admin?: OrganizationRole
+    member?: OrganizationRole
+  }
+}
+
+const THIRTY_DAYS_MS = 1000 * 60 * 60 * 24 * 30
+const ONE_HOUR_MS = 60 * 60 * 1000
+const API_KEY_ACTIONS = ["create", "read", "update", "delete"]
+
+function stubAuthEnv() {
+  vi.stubEnv("DATABASE_URL", "postgresql://user:pass@localhost:5432/ctxpipe")
+  vi.stubEnv("AUTH_SECRET", "test-only-auth-secret-with-at-least-32-characters")
+  vi.stubEnv("AUTH_BASE_URL", "http://localhost:3000")
+}
+
+function createAuth() {
+  stubAuthEnv()
+  return createBetterAuth()
+}
+
+function getPlugin(auth: ReturnType<typeof createBetterAuth>, id: string) {
+  return auth.options.plugins?.find((plugin) => plugin.id === id)
+}
+
+function getPluginOptions<T>(plugin: unknown): T | undefined {
+  if (plugin && typeof plugin === "object" && "options" in plugin) {
+    return plugin.options as T
+  }
+  return undefined
+}
+
 describe("createBetterAuth", () => {
   afterEach(() => {
     vi.unstubAllEnvs()
   })
 
-  it("raises API-key rate limits to 1000 requests per hour", () => {
-    vi.stubEnv("DATABASE_URL", "postgresql://user:pass@localhost:5432/ctxpipe")
-    vi.stubEnv(
-      "AUTH_SECRET",
-      "test-only-auth-secret-with-at-least-32-characters",
-    )
-    vi.stubEnv("AUTH_BASE_URL", "http://localhost:3000")
+  it("registers user and organization API-key configs with the same 30-day / 1k-per-hour policy", () => {
+    const auth = createAuth()
+    const apiKeyPlugin = getPlugin(auth, "api-key")
 
-    const auth = createBetterAuth()
-    const apiKeyPlugin = auth.options.plugins?.find(
-      (plugin) => plugin.id === "api-key",
-    )
+    expect(apiKeyPlugin).toBeDefined()
+    expect(apiKeySpy.mock.calls.at(-1)?.[0]).toEqual([
+      expect.objectContaining({
+        configId: "default",
+        references: "user",
+        enableSessionForAPIKeys: true,
+        keyExpiration: {
+          defaultExpiresIn: THIRTY_DAYS_MS,
+          disableCustomExpiresTime: false,
+        },
+        rateLimit: {
+          enabled: true,
+          timeWindow: ONE_HOUR_MS,
+          maxRequests: 1000,
+        },
+      }),
+      expect.objectContaining({
+        configId: "organization",
+        references: "organization",
+        enableSessionForAPIKeys: false,
+        keyExpiration: {
+          defaultExpiresIn: THIRTY_DAYS_MS,
+          disableCustomExpiresTime: false,
+        },
+        rateLimit: {
+          enabled: true,
+          timeWindow: ONE_HOUR_MS,
+          maxRequests: 1000,
+        },
+      }),
+    ])
+  })
 
-    expect(apiKeyPlugin?.schema?.apikey?.fields).toMatchObject({
-      rateLimitEnabled: { defaultValue: true },
-      rateLimitTimeWindow: { defaultValue: 60 * 60 * 1000 },
-      rateLimitMax: { defaultValue: 1000 },
+  it("grants admin and owner API-key CRUD and leaves members without API-key actions", () => {
+    const auth = createAuth()
+    const organizationPlugin = getPlugin(auth, "organization")
+    const options =
+      getPluginOptions<OrganizationPluginOptions>(organizationPlugin)
+    const roles = options?.roles
+
+    expect(organizationPlugin).toBeDefined()
+    expect(options).toMatchObject({
+      requireEmailVerificationOnInvitation: false,
     })
+    expect(options?.ac?.statements.apiKey).toEqual(API_KEY_ACTIONS)
+
+    expect(roles?.owner?.statements.apiKey).toEqual(API_KEY_ACTIONS)
+    expect(roles?.admin?.statements.apiKey).toEqual(API_KEY_ACTIONS)
+    expect(roles?.member?.statements.apiKey).toBeUndefined()
+
+    expect(roles?.owner?.authorize({ apiKey: ["create"] }).success).toBe(true)
+    expect(roles?.admin?.authorize({ apiKey: ["delete"] }).success).toBe(true)
+    expect(roles?.member?.authorize({ apiKey: ["create"] }).success).toBe(false)
+    expect(roles?.member?.authorize({ apiKey: ["read"] }).success).toBe(false)
+
+    expect(roles?.admin?.authorize({ organization: ["update"] }).success).toBe(
+      true,
+    )
+    expect(roles?.admin?.authorize({ organization: ["delete"] }).success).toBe(
+      false,
+    )
+    expect(roles?.owner?.authorize({ organization: ["delete"] }).success).toBe(
+      true,
+    )
+    expect(roles?.member?.authorize({ member: ["create"] }).success).toBe(false)
   })
 
   it("allows emailed invitations with opaque custom IDs to be accepted", () => {
-    vi.stubEnv("DATABASE_URL", "postgresql://user:pass@localhost:5432/ctxpipe")
-    vi.stubEnv(
-      "AUTH_SECRET",
-      "test-only-auth-secret-with-at-least-32-characters",
-    )
-    vi.stubEnv("AUTH_BASE_URL", "http://localhost:3000")
-
-    const auth = createBetterAuth()
-    const organizationPlugin = auth.options.plugins?.find(
-      (plugin) => plugin.id === "organization",
-    )
+    const auth = createAuth()
+    const organizationPlugin = getPlugin(auth, "organization")
 
     expect(organizationPlugin).toBeDefined()
-    expect(organizationPlugin?.options).toMatchObject({
+    expect(
+      getPluginOptions<OrganizationPluginOptions>(organizationPlugin),
+    ).toMatchObject({
       requireEmailVerificationOnInvitation: false,
     })
   })
 
   it("binds OAuth access tokens to an organization selected before consent", async () => {
-    vi.stubEnv("DATABASE_URL", "postgresql://user:pass@localhost:5432/ctxpipe")
-    vi.stubEnv(
-      "AUTH_SECRET",
-      "test-only-auth-secret-with-at-least-32-characters",
-    )
-    vi.stubEnv("AUTH_BASE_URL", "http://localhost:3000")
-
-    const auth = createBetterAuth()
-    const oauthPlugin = auth.options.plugins?.find(
-      (plugin) => plugin.id === "oauth-provider",
-    )
-    const options = oauthPlugin?.options as OAuthProviderOptions | undefined
+    const auth = createAuth()
+    const oauthPlugin = getPlugin(auth, "oauth-provider")
+    const options = getPluginOptions<OAuthProviderOptions>(oauthPlugin)
 
     expect(options?.postLogin).toMatchObject({
       page: "/.auth/select-organization",
