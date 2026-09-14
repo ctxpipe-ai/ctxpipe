@@ -4,6 +4,7 @@ import type { AppEnv } from "../app/env.js"
 import { withRepositoryIndexOperation } from "../domain/indexing/indexConcurrency.js"
 import {
   releaseIndexPipeline,
+  releaseIndexPipelineReservation,
   tryAcquireIndexPipeline,
 } from "../domain/indexing/indexPipelineAdmission.js"
 import { userFacingIndexingError } from "../domain/indexing/memoryFitError.js"
@@ -214,6 +215,31 @@ const scipLangRoute = createRoute({
     429: { description: "Index pipeline capacity exceeded" },
     503: { description: "Database not available" },
     500: { description: "SCIP indexing failed" },
+  },
+})
+
+const releasePipelineRoute = createRoute({
+  method: "post",
+  path: "/{repoId}/index/release-pipeline",
+  request: {
+    params: z.object({ repoId: repoIdParam }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z
+            .object({})
+            .default({})
+            .openapi("IndexReleasePipelineRequest"),
+        },
+      },
+      required: false,
+    },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: okResponseSchema } },
+      description: "Index pipeline reservation released",
+    },
   },
 })
 
@@ -497,5 +523,13 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
         }
       }),
     )
+  })
+
+  app.openapi(releasePipelineRoute, async (c) => {
+    const auth = c.get("auth")
+    if (!auth) throw new Error("Missing auth context")
+    const { repoId } = c.req.valid("param")
+    releaseIndexPipelineReservation(repoId)
+    return c.json({ ok: true as const }, 200)
   })
 }

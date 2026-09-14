@@ -438,6 +438,17 @@ export async function markRepositoryUnindexing(input: {
   return { updatedAt }
 }
 
+/** Bumps `updatedAt` so a long admission wait is not treated as a stale claim. */
+export async function touchRepositoryIndexingUpdatedAt(input: {
+  repositoryId: string
+}) {
+  const db = getOrgDb()
+  await db
+    .update(repositories)
+    .set({ updatedAt: new Date() })
+    .where(eq(repositories.id, input.repositoryId))
+}
+
 /** Marks repository ingestion as actively running inside the workflow worker. */
 export async function markRepositoryIndexingRunning(input: {
   repositoryId: string

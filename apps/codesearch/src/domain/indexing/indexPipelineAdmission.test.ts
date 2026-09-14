@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
+  INDEX_PIPELINE_IDLE_TTL_MS,
   releaseIndexPipeline,
+  releaseIndexPipelineReservation,
   resetIndexPipelineAdmissionForTests,
+  setIndexPipelineNowMsForTests,
   tryAcquireIndexPipeline,
 } from "./indexPipelineAdmission.js"
 
@@ -11,7 +14,7 @@ describe("index pipeline admission", () => {
     resetIndexPipelineAdmissionForTests()
   })
 
-  it("allows overlapping phases on the same repo", () => {
+  it("allows overlapping phases on the same repo and keeps others out while sticky", () => {
     vi.stubEnv("CODESEARCH_INDEX_PIPELINE_CONCURRENCY", "1")
     expect(tryAcquireIndexPipeline("repo_a")).toEqual({ ok: true })
     expect(tryAcquireIndexPipeline("repo_a")).toEqual({ ok: true })
@@ -19,8 +22,12 @@ describe("index pipeline admission", () => {
     releaseIndexPipeline("repo_a")
     expect(tryAcquireIndexPipeline("repo_b").ok).toBe(false)
     releaseIndexPipeline("repo_a")
+    expect(tryAcquireIndexPipeline("repo_a")).toEqual({ ok: true })
+    expect(tryAcquireIndexPipeline("repo_b").ok).toBe(false)
+    releaseIndexPipeline("repo_a")
+    releaseIndexPipelineReservation("repo_a")
     expect(tryAcquireIndexPipeline("repo_b")).toEqual({ ok: true })
-    releaseIndexPipeline("repo_b")
+    releaseIndexPipelineReservation("repo_b")
   })
 
   it("caps distinct repos at CODESEARCH_INDEX_PIPELINE_CONCURRENCY", () => {
@@ -30,8 +37,31 @@ describe("index pipeline admission", () => {
     const denied = tryAcquireIndexPipeline("repo_c")
     expect(denied).toEqual({ ok: false, retryAfterSeconds: 30 })
     releaseIndexPipeline("repo_a")
+    expect(tryAcquireIndexPipeline("repo_c").ok).toBe(false)
+    releaseIndexPipelineReservation("repo_a")
     expect(tryAcquireIndexPipeline("repo_c").ok).toBe(true)
-    releaseIndexPipeline("repo_b")
-    releaseIndexPipeline("repo_c")
+    releaseIndexPipelineReservation("repo_b")
+    releaseIndexPipelineReservation("repo_c")
+  })
+
+  it("keeps the reservation after refs hit zero until explicit release", () => {
+    vi.stubEnv("CODESEARCH_INDEX_PIPELINE_CONCURRENCY", "1")
+    expect(tryAcquireIndexPipeline("repo_a").ok).toBe(true)
+    releaseIndexPipeline("repo_a")
+    expect(tryAcquireIndexPipeline("repo_b").ok).toBe(false)
+    releaseIndexPipelineReservation("repo_a")
+    expect(tryAcquireIndexPipeline("repo_b")).toEqual({ ok: true })
+    releaseIndexPipelineReservation("repo_b")
+  })
+
+  it("expires a sticky reservation after the idle TTL", () => {
+    vi.stubEnv("CODESEARCH_INDEX_PIPELINE_CONCURRENCY", "1")
+    setIndexPipelineNowMsForTests(1_000)
+    expect(tryAcquireIndexPipeline("repo_a").ok).toBe(true)
+    releaseIndexPipeline("repo_a")
+    expect(tryAcquireIndexPipeline("repo_b").ok).toBe(false)
+    setIndexPipelineNowMsForTests(1_000 + INDEX_PIPELINE_IDLE_TTL_MS)
+    expect(tryAcquireIndexPipeline("repo_b")).toEqual({ ok: true })
+    releaseIndexPipelineReservation("repo_b")
   })
 })

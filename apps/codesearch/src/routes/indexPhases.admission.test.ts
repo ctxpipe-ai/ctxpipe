@@ -117,4 +117,44 @@ describe("index phase pipeline admission", () => {
     hold.resolve()
     expect((await first).status).toBe(200)
   })
+
+  it("keeps the pipeline reserved after a phase returns until release-pipeline", async () => {
+    vi.stubEnv("CODESEARCH_INDEX_PIPELINE_CONCURRENCY", "1")
+    phaseCloneCheckoutMock.mockResolvedValue({
+      targetHash: "abc",
+      ingestMode: "full",
+      changedPaths: [],
+      deletedPaths: [],
+      renames: [],
+    })
+    const app = createTestApp()
+    const first = await app.request("/repo_aaaaaa/index/clone-checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    })
+    expect(first.status).toBe(200)
+
+    const blocked = await app.request("/repo_bbbbbb/index/clone-checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    })
+    expect(blocked.status).toBe(429)
+
+    const released = await app.request("/repo_aaaaaa/index/release-pipeline", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    })
+    expect(released.status).toBe(200)
+    await expect(released.json()).resolves.toEqual({ ok: true })
+
+    const second = await app.request("/repo_bbbbbb/index/clone-checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    })
+    expect(second.status).toBe(200)
+  })
 })

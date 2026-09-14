@@ -252,3 +252,13 @@ export async function codesearchIndexMergeScip(
     "codesearch index merge-scip",
   )
 }
+
+export async function codesearchIndexReleasePipeline(
+  auth: CodesearchIndexAuth,
+): Promise<void> {
+  const res = await codesearchPhaseFetch("/index/release-pipeline", auth, {
+    method: "POST",
+    body: JSON.stringify({}),
+  })
+  await parseOrThrow(res, okResponseSchema, "codesearch index release-pipeline")
+}

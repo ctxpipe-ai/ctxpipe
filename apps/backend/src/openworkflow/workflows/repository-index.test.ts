@@ -18,6 +18,12 @@ const detectMock = vi.hoisted(() =>
 )
 const scipMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 const mergeMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
+const releasePipelineMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(undefined),
+)
+const touchIndexingUpdatedAtMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(undefined),
+)
 const admissionBusy = vi.hoisted(() => {
   class CodesearchAdmissionBusyError extends Error {
     override readonly name = "CodesearchAdmissionBusyError"
@@ -40,8 +46,17 @@ vi.mock("../../domain/codeIngestion/codesearchIndexPhases.js", () => ({
   codesearchIndexDetectLanguages: detectMock,
   codesearchIndexScipLang: scipMock,
   codesearchIndexMergeScip: mergeMock,
+  codesearchIndexReleasePipeline: releasePipelineMock,
   CodesearchAdmissionBusyError: admissionBusy.CodesearchAdmissionBusyError,
   isCodesearchAdmissionBusyError: admissionBusy.isCodesearchAdmissionBusyError,
+}))
+
+vi.mock("../../db/client.js", () => ({
+  withOrgDbContext: vi.fn((_orgId: string, fn: () => unknown) => fn()),
+}))
+
+vi.mock("../../models/repositories.js", () => ({
+  touchRepositoryIndexingUpdatedAt: touchIndexingUpdatedAtMock,
 }))
 
 vi.mock("../../config/env.js", () => ({
@@ -127,6 +142,8 @@ describe("repositoryIndex workflow", () => {
     })
     scipMock.mockResolvedValue(undefined)
     mergeMock.mockResolvedValue({ shardCount: 2 })
+    releasePipelineMock.mockResolvedValue(undefined)
+    touchIndexingUpdatedAtMock.mockResolvedValue(undefined)
   })
 
   it("runs phases in order and parallelizes SCIP langs", async () => {
@@ -168,7 +185,9 @@ describe("repositoryIndex workflow", () => {
     expect(stepNames).toContain("zoekt")
     expect(stepNames).toContain("scip:go")
     expect(stepNames).toContain("scip:typescript")
-    expect(stepNames[stepNames.length - 1]).toBe("merge-scip")
+    expect(stepNames).toContain("merge-scip")
+    expect(stepNames[stepNames.length - 1]).toBe("release-pipeline")
+    expect(releasePipelineMock).toHaveBeenCalledOnce()
     expect(result).toMatchObject({
       targetHash: "abc",
       ingestMode: "full",
@@ -440,6 +459,7 @@ describe("repositoryIndex workflow", () => {
 
     expect(zoektMock).not.toHaveBeenCalled()
     expect(scipMock).not.toHaveBeenCalled()
+    expect(releasePipelineMock).toHaveBeenCalledOnce()
   })
 
   it("still runs SCIP after a non-memory Zoekt failure", async () => {
@@ -521,6 +541,101 @@ describe("repositoryIndex workflow", () => {
     expect(sleeps).toEqual([["clone-checkout:admit-wait-0", "30s"]])
     expect(stepNames).toContain("clone-checkout")
     expect(stepNames).toContain("clone-checkout:admit-1")
+    expect(touchIndexingUpdatedAtMock).toHaveBeenCalledWith({
+      repositoryId: "repo_1",
+    })
+    expect(releasePipelineMock).toHaveBeenCalledOnce()
+  })
+
+  it("keeps waiting after 21 clone 429s and never throws exceeded retries", async () => {
+    const busy = new admissionBusy.CodesearchAdmissionBusyError("busy", 30)
+    for (let i = 0; i < 21; i += 1) {
+      cloneMock.mockRejectedValueOnce(busy)
+    }
+    cloneMock.mockResolvedValueOnce({
+      targetHash: "abc",
+      ingestMode: "full",
+      changedPaths: [],
+      deletedPaths: [],
+      renames: [],
+    })
+    const sleeps: Array<[string, string]> = []
+    const step = passthroughStep({
+      sleep: async (name, duration) => {
+        sleeps.push([name, duration])
+      },
+    })
+    const wf = repositoryIndex as unknown as {
+      fn: (args: {
+        input: {
+          repositoryId: string
+          orgId: string
+          targetHash: string
+        }
+        step: typeof step
+      }) => Promise<unknown>
+    }
+
+    await expect(
+      wf.fn({
+        input: {
+          repositoryId: "repo_1",
+          orgId: "org_1",
+          targetHash: "abc",
+        },
+        step,
+      }),
+    ).resolves.toMatchObject({ targetHash: "abc", searchIndexOk: true })
+
+    expect(cloneMock).toHaveBeenCalledTimes(22)
+    expect(sleeps).toHaveLength(21)
+    expect(sleeps[0]).toEqual(["clone-checkout:admit-wait-0", "30s"])
+    expect(sleeps[1]).toEqual(["clone-checkout:admit-wait-1", "60s"])
+    expect(sleeps[2]).toEqual(["clone-checkout:admit-wait-2", "2m"])
+    expect(sleeps[20]).toEqual(["clone-checkout:admit-wait-20", "5m"])
+    expect(touchIndexingUpdatedAtMock).toHaveBeenCalledTimes(21)
+    expect(releasePipelineMock).toHaveBeenCalledOnce()
+  })
+
+  it("uses Retry-After when it is longer than the current backoff", async () => {
+    cloneMock
+      .mockRejectedValueOnce(
+        new admissionBusy.CodesearchAdmissionBusyError("busy", 180),
+      )
+      .mockResolvedValueOnce({
+        targetHash: "abc",
+        ingestMode: "full",
+        changedPaths: [],
+        deletedPaths: [],
+        renames: [],
+      })
+    const sleeps: Array<[string, string]> = []
+    const step = passthroughStep({
+      sleep: async (name, duration) => {
+        sleeps.push([name, duration])
+      },
+    })
+    const wf = repositoryIndex as unknown as {
+      fn: (args: {
+        input: {
+          repositoryId: string
+          orgId: string
+          targetHash: string
+        }
+        step: typeof step
+      }) => Promise<unknown>
+    }
+
+    await wf.fn({
+      input: {
+        repositoryId: "repo_1",
+        orgId: "org_1",
+        targetHash: "abc",
+      },
+      step,
+    })
+
+    expect(sleeps).toEqual([["clone-checkout:admit-wait-0", "2m"]])
   })
 
   it("does not record Zoekt 429 as searchIndexOk false", async () => {

@@ -55,6 +55,7 @@ import {
   markRepositoryIndexingReadyWithIssues,
   pruneGithubConnectionRepositoriesNotInGitUrls,
   setRepositoryIndexingStep,
+  touchRepositoryIndexingUpdatedAt,
   tryClaimRepositoryIndexingEnqueue,
 } from "./repositories.js"
 
@@ -389,6 +390,32 @@ describe("markRepositoryIndexingReadyWithIssues", () => {
         indexReady: true,
         indexingError: "Codebase didn't fit available memory",
         lastIngestedHash: "abc123",
+      }),
+    )
+  })
+})
+
+describe("touchRepositoryIndexingUpdatedAt", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("updates only updatedAt for the repository", async () => {
+    const where = vi.fn().mockResolvedValue(undefined)
+    const set = vi.fn().mockReturnValue({ where })
+    const update = vi.fn().mockReturnValue({ set })
+    getOrgDbMock.mockReturnValue({ update })
+
+    await touchRepositoryIndexingUpdatedAt({ repositoryId })
+
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        updatedAt: expect.any(Date),
+      }),
+    )
+    expect(set).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        indexingStatus: expect.anything(),
       }),
     )
   })
