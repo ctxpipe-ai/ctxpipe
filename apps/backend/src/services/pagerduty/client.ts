@@ -14,6 +14,7 @@ import type {
 export const PAGERDUTY_OAUTH_SCOPES = [
   "incidents.read",
   "services.read",
+  "users.read",
   "webhook_subscriptions.read",
   "webhook_subscriptions.write",
 ] as const
@@ -234,6 +235,28 @@ export function pagerdutyWebhookDeliveryUrl(env: Env): string {
   return `${env.AUTH_BASE_URL.replace(/\/$/, "")}/api/v1/webhook/pagerduty`
 }
 
+async function identityFromServiceList(
+  accessToken: string,
+  region: PagerdutyRegion,
+): Promise<PagerdutyAccountIdentity | null> {
+  const listed = await listPagerdutyServices({
+    accessToken,
+    region,
+    limit: 1,
+  })
+  const first = listed.services[0]
+  if (!first?.url) return null
+  const subdomain = pagerdutySubdomainFromHtmlUrl(first.url)
+  if (!subdomain) return null
+  return {
+    accountId: subdomain,
+    accountName: first.name || subdomain,
+    accountSubdomain: subdomain,
+    region: pagerdutyRegionFromHtmlUrl(first.url),
+    actorUserId: null,
+  }
+}
+
 export async function getPagerdutyAccountIdentity(input: {
   accessToken: string
   regionHint?: PagerdutyRegion
@@ -275,7 +298,28 @@ export async function getPagerdutyAccountIdentity(input: {
       actorUserId: typeof body.user?.id === "string" ? body.user.id : null,
     }
   }
-  throw lastError ?? new Error("PagerDuty identity lookup failed")
+  // Scoped App / account-level tokens cannot call /users/me. services.read can
+  // still name the account from a service permalink.
+  for (const region of order) {
+    try {
+      const fromService = await identityFromServiceList(
+        input.accessToken,
+        region,
+      )
+      if (fromService) return fromService
+    } catch (error) {
+      lastError =
+        error instanceof Error
+          ? error
+          : new Error("PagerDuty service list failed")
+    }
+  }
+  throw (
+    lastError ??
+    new Error(
+      "PagerDuty identity lookup failed. Add users.read on the Scoped OAuth app, or ensure the account has at least one service.",
+    )
+  )
 }
 
 export type PagerdutyServiceSummary = {

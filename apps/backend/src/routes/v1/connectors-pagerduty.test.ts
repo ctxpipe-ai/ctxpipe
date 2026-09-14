@@ -23,6 +23,9 @@ const mocks = vi.hoisted(() => ({
   loadConfig: vi.fn(),
 }))
 
+vi.mock("../../observability/logger.js", () => ({
+  getLogger: () => ({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
+}))
 vi.mock("../../auth/withAuth.js", () => ({
   hasOrgAdminOrOwnerRole: mocks.hasAdminRole,
 }))
@@ -151,7 +154,34 @@ describe("PagerDuty connector routes", () => {
     expect(authorizationUrl.searchParams.get("code_challenge_method")).toBe(
       "S256",
     )
+    expect(authorizationUrl.searchParams.get("scope")?.split(" ")).toContain(
+      "users.read",
+    )
     expect(authorizationUrl.searchParams.get("state")).toBeTruthy()
+  })
+
+  it("relays the PagerDuty identity error instead of a generic failure", async () => {
+    mocks.getIdentity.mockRejectedValueOnce(
+      new Error("PagerDuty identity lookup failed (401)"),
+    )
+    const app = appWithVariables().route(
+      "/api/v1/integrations/pagerduty",
+      pagerdutyOauthCallbackRoutes,
+    )
+    const state = createPagerdutyOAuthState({
+      authSecret: env.AUTH_SECRET,
+      orgId: "org_1",
+      orgSlug: "acme",
+      userId: "user_1",
+      codeVerifier: "verifier",
+    })
+    const response = await app.request(
+      `/api/v1/integrations/pagerduty/callback?code=oauth-code&state=${encodeURIComponent(state)}`,
+    )
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain(
+      "PagerDuty identity lookup failed (401)",
+    )
   })
 
   it("exchanges the callback and relays the connection id", async () => {

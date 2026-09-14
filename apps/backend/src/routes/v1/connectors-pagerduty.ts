@@ -989,8 +989,11 @@ export const pagerdutyOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
         error instanceof Error ? error : new Error(String(error)),
         { step: "pagerduty.oauth_callback" },
       )
+      const message = error instanceof Error ? error.message : ""
       return relayError(
-        "PagerDuty authorization could not be completed. Close this window and try again.",
+        message.startsWith("PagerDuty ")
+          ? message
+          : "PagerDuty authorization could not be completed. Close this window and try again.",
       )
     }
   },
