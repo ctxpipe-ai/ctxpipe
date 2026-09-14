@@ -237,7 +237,8 @@ describe("OrganizationApiKeysCard", () => {
     })
 
     expect(container.textContent).toContain("ci-mcp")
-    expect(container.textContent).toContain("org_abc")
+    expect(container.textContent).toContain("org_abc******")
+    expect(container.textContent).not.toContain("org_secret_once")
     expect(container.textContent).toContain("CTXPIPE_API_KEY")
     expect(listMock).toHaveBeenCalledWith({
       query: { configId: "organization", organizationId: "org_acme" },
@@ -276,6 +277,7 @@ describe("OrganizationApiKeysCard", () => {
     await act(async () => {
       submit?.click()
       await Promise.resolve()
+      await Promise.resolve()
     })
 
     expect(createMock).toHaveBeenCalledWith(
@@ -288,6 +290,19 @@ describe("OrganizationApiKeysCard", () => {
       }),
     )
     expect(updateMock).not.toHaveBeenCalled()
+    expect(container.textContent).toContain("org_secret_once")
+    expect(container.textContent).toContain("shown once")
+    expect(container.textContent).toContain("org_abc******")
+
+    const done = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Done",
+    )
+    act(() => {
+      done?.click()
+    })
+
+    expect(container.textContent).not.toContain("org_secret_once")
+    expect(container.textContent).toContain("org_abc******")
   })
 
   it("shows a never-expire warning and clears expiry after mint", async () => {
@@ -363,5 +378,30 @@ describe("OrganizationApiKeysCard", () => {
 
     expect(container.textContent).toContain("Admin or owner required")
     expect(container.textContent).not.toContain("ci-mcp")
+  })
+
+  it("revokes a listed organisation key with configId", async () => {
+    act(() => {
+      root.render(<OrganizationApiKeysCard organizationId="org_acme" />)
+    })
+
+    act(() => {
+      ;[...container.querySelectorAll("button")]
+        .find((button) => button.textContent?.includes("Revoke"))
+        ?.click()
+    })
+
+    await act(async () => {
+      ;[...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Revoke key")
+        ?.click()
+      await Promise.resolve()
+    })
+
+    expect(deleteMock).toHaveBeenCalledWith({
+      keyId: "key_1",
+      configId: "organization",
+      fetchOptions: { throw: true },
+    })
   })
 })

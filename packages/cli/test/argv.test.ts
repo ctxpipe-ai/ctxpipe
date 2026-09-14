@@ -238,7 +238,7 @@ describe("CLI help and argv", () => {
   it("mcp add --auth api-key --scope both writes interpolation, never the env value", () => {
     const home = mkdtempSync(join(tmpdir(), "ctxpipe-mcp-env-home-"))
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mcp-env-cwd-"))
-    execFileSync(
+    const out = execFileSync(
       process.execPath,
       [
         bin,
@@ -279,5 +279,6 @@ describe("CLI help and argv", () => {
     expect(userConfig.mcpServers.ctxpipe?.headers).toEqual(header)
     expect(JSON.stringify(repoConfig)).not.toContain("ctxp_must_not_be_written")
     expect(JSON.stringify(userConfig)).not.toContain("ctxp_must_not_be_written")
+    expect(out).not.toContain("ctxp_must_not_be_written")
   })
 })

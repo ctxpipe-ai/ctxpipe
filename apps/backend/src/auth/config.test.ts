@@ -1,7 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-const { apiKeySpy } = vi.hoisted(() => ({
+const {
+  apiKeySpy,
+  withOrgDbContextMock,
+  withGraphClientMock,
+  purgeOrgDataBeforeAuthDeleteMock,
+} = vi.hoisted(() => ({
   apiKeySpy: vi.fn(),
+  withOrgDbContextMock: vi.fn(
+    async (_orgId: string, handler: () => Promise<unknown>) => handler(),
+  ),
+  withGraphClientMock: vi.fn(
+    async (_ctx: unknown, handler: () => Promise<unknown>) => handler(),
+  ),
+  purgeOrgDataBeforeAuthDeleteMock: vi.fn(async () => undefined),
 }))
 
 vi.mock("@better-auth/api-key", async (importOriginal) => {
@@ -11,6 +23,19 @@ vi.mock("@better-auth/api-key", async (importOriginal) => {
   )
   return { ...actual, apiKey: apiKeySpy }
 })
+
+vi.mock("../db/client.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../db/client.js")>()
+  return { ...actual, withOrgDbContext: withOrgDbContextMock }
+})
+
+vi.mock("../platform/graph/client.js", () => ({
+  withGraphClient: withGraphClientMock,
+}))
+
+vi.mock("../domain/repositoryDeletion.js", () => ({
+  purgeOrgDataBeforeAuthDelete: purgeOrgDataBeforeAuthDeleteMock,
+}))
 
 import { createBetterAuth } from "./config.js"
 
@@ -37,6 +62,11 @@ type OrganizationPluginOptions = {
     owner?: OrganizationRole
     admin?: OrganizationRole
     member?: OrganizationRole
+  }
+  organizationHooks?: {
+    beforeDeleteOrganization?: (input: {
+      organization: { id: string; slug: string; name?: string }
+    }) => Promise<void>
   }
 }
 
@@ -69,6 +99,9 @@ function getPluginOptions<T>(plugin: unknown): T | undefined {
 describe("createBetterAuth", () => {
   afterEach(() => {
     vi.unstubAllEnvs()
+    withOrgDbContextMock.mockClear()
+    withGraphClientMock.mockClear()
+    purgeOrgDataBeforeAuthDeleteMock.mockClear()
   })
 
   it("registers user and organization API-key configs with the same 30-day / 1k-per-hour policy", () => {
@@ -129,6 +162,8 @@ describe("createBetterAuth", () => {
     expect(roles?.admin?.authorize({ apiKey: ["delete"] }).success).toBe(true)
     expect(roles?.member?.authorize({ apiKey: ["create"] }).success).toBe(false)
     expect(roles?.member?.authorize({ apiKey: ["read"] }).success).toBe(false)
+    expect(roles?.member?.authorize({ apiKey: ["update"] }).success).toBe(false)
+    expect(roles?.member?.authorize({ apiKey: ["delete"] }).success).toBe(false)
 
     expect(roles?.admin?.authorize({ organization: ["update"] }).success).toBe(
       true,
@@ -152,6 +187,29 @@ describe("createBetterAuth", () => {
     ).toMatchObject({
       requireEmailVerificationOnInvitation: false,
     })
+  })
+
+  it("still purges org product data in beforeDeleteOrganization", async () => {
+    const auth = createAuth()
+    const organizationPlugin = getPlugin(auth, "organization")
+    const options =
+      getPluginOptions<OrganizationPluginOptions>(organizationPlugin)
+    const beforeDelete = options?.organizationHooks?.beforeDeleteOrganization
+
+    expect(beforeDelete).toEqual(expect.any(Function))
+    await beforeDelete?.({
+      organization: { id: "org_acme", slug: "acme", name: "Acme" },
+    })
+
+    expect(withOrgDbContextMock).toHaveBeenCalledWith(
+      "org_acme",
+      expect.any(Function),
+    )
+    expect(withGraphClientMock).toHaveBeenCalledWith(
+      { orgId: "org_acme", orgSlug: "acme" },
+      expect.any(Function),
+    )
+    expect(purgeOrgDataBeforeAuthDeleteMock).toHaveBeenCalledWith("org_acme")
   })
 
   it("binds OAuth access tokens to an organization selected before consent", async () => {

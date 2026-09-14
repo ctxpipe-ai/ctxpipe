@@ -952,7 +952,14 @@ describe("org API-key principal", () => {
       withOrgApiKeyAuth,
       requireAuth,
     )
-    app.get("/:orgSlug/api/v1/conversations", (c) => c.json({ ok: true }))
+    app.get("/:orgSlug/api/v1/conversations", (c) =>
+      c.json({
+        ok: true,
+        user: c.get("user"),
+        session: c.get("session"),
+        orgApiKey: c.get("orgApiKey"),
+      }),
+    )
     return app
   }
 
@@ -1062,6 +1069,27 @@ describe("org API-key principal", () => {
     expect(response.status).toBe(401)
     expect(await response.json()).toEqual({ error: "Unauthorized" })
     expect(verifyApiKeyMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("user x-api-key still authenticates REST as that user", async () => {
+    getSessionMock.mockResolvedValueOnce({
+      user: { id: "user_api_key", email: "api-key@example.com" },
+      session: { id: "sess_api_key", userId: "user_api_key" },
+    })
+
+    const app = createRestPrincipalApp()
+    const response = await app.request("/acme/api/v1/conversations", {
+      headers: { "x-api-key": "ctxp_user_key" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      user: { id: "user_api_key", email: "api-key@example.com" },
+      session: { id: "sess_api_key", userId: "user_api_key" },
+      orgApiKey: null,
+    })
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
   })
 
   it("Bearer OAuth is unchanged and does not set orgApiKey", async () => {
@@ -1195,6 +1223,36 @@ describe("org API-key tenant binding", () => {
     })
   })
 
+  it("org x-api-key still works after the minter has no membership and does not impersonate them", async () => {
+    mockOrgKey()
+    testState.db = createMockDb({
+      orgRows: [{ id: "org_acme", slug: "acme" }],
+      membershipRows: [],
+      userRows: [{ id: "user_minter", email: "minter@example.com" }],
+    })
+
+    const app = createComposedTestApp()
+    const response = await app.request("/mcp?orgSlug=acme", {
+      method: "POST",
+      headers: { "x-api-key": "ctxp_org_key" },
+    })
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toEqual({
+      user: null,
+      session: null,
+      orgApiKey: {
+        id: "key_org",
+        orgId: "org_acme",
+        configId: "organization",
+      },
+      orgSlug: "acme",
+      orgId: "org_acme",
+    })
+    expect(JSON.stringify(body)).not.toContain("user_minter")
+  })
+
   it("org x-api-key accepts a matching orgSlug", async () => {
     mockOrgKey()
     testState.db = createMockDb({
@@ -1267,6 +1325,32 @@ describe("org API-key tenant binding", () => {
       error: {
         message: expect.stringContaining("not bound to an organization"),
       },
+    })
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
+  })
+
+  it("user x-api-key still authenticates MCP as that user when orgSlug matches membership", async () => {
+    getSessionMock.mockResolvedValueOnce({
+      user: { id: "user_api_key", email: "api-key@example.com" },
+      session: { id: "sess_api_key", userId: "user_api_key" },
+    })
+    testState.db = createMockDb({
+      orgRows: [{ id: "org_acme" }],
+    })
+
+    const app = createComposedTestApp()
+    const response = await app.request("/mcp?orgSlug=acme", {
+      method: "POST",
+      headers: { "x-api-key": "ctxp_user_key" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: { id: "user_api_key", email: "api-key@example.com" },
+      session: { id: "sess_api_key", userId: "user_api_key" },
+      orgApiKey: null,
+      orgSlug: "acme",
+      orgId: "org_acme",
     })
     expect(verifyApiKeyMock).not.toHaveBeenCalled()
   })
