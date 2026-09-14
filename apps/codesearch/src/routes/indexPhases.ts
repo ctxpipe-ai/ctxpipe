@@ -292,7 +292,7 @@ async function withIndexPipelineAdmission(
 ): Promise<Response> {
   const acquired = tryAcquireIndexPipeline(repoId)
   if (!acquired.ok) {
-    c.header("Retry-After", String(acquired.retryAfterSeconds))
+    c.header("Retry-After", "30")
     return c.json({ error: "Index pipeline capacity exceeded" }, 429)
   }
   try {

@@ -35,7 +35,7 @@ describe("index pipeline admission", () => {
     expect(tryAcquireIndexPipeline("repo_a").ok).toBe(true)
     expect(tryAcquireIndexPipeline("repo_b").ok).toBe(true)
     const denied = tryAcquireIndexPipeline("repo_c")
-    expect(denied).toEqual({ ok: false, retryAfterSeconds: 30 })
+    expect(denied).toEqual({ ok: false })
     releaseIndexPipeline("repo_a")
     expect(tryAcquireIndexPipeline("repo_c").ok).toBe(false)
     releaseIndexPipelineReservation("repo_a")

@@ -1,6 +1,5 @@
 import { getIndexPipelineConcurrency } from "./capacityEnv.js"
 
-export const INDEX_PIPELINE_RETRY_AFTER_SECONDS = 30
 export const INDEX_PIPELINE_IDLE_TTL_MS = 180_000
 
 type PipelineState = { refs: number; lastActivityMs: number }
@@ -20,7 +19,7 @@ function sweepExpiredReservations(now: number): void {
 
 export function tryAcquireIndexPipeline(
   repoId: string,
-): { ok: true } | { ok: false; retryAfterSeconds: number } {
+): { ok: true } | { ok: false } {
   const now = Date.now()
   sweepExpiredReservations(now)
   const existing = pipelines.get(repoId)
@@ -30,10 +29,7 @@ export function tryAcquireIndexPipeline(
     return { ok: true }
   }
   if (pipelines.size >= getIndexPipelineConcurrency()) {
-    return {
-      ok: false,
-      retryAfterSeconds: INDEX_PIPELINE_RETRY_AFTER_SECONDS,
-    }
+    return { ok: false }
   }
   pipelines.set(repoId, { refs: 1, lastActivityMs: now })
   return { ok: true }

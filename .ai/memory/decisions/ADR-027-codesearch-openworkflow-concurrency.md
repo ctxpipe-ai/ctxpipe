@@ -31,7 +31,7 @@ Railway has no Fargate-style committed memory in IaC (usage-billed). Capacity mu
 4. **Deploy-time env, not runtime probe:**
    - Worker: `OPENWORKFLOW_CONCURRENCY`, `CODESEARCH_INDEXER_CONCURRENCY` (SCIP HTTP batch size).
    - Codesearch: `CODESEARCH_INDEXER_CONCURRENCY` (spawn semaphore), `CODESEARCH_INDEX_PIPELINE_CONCURRENCY` (distinct repos with in-flight OW phase HTTP, clone included).
-   - Pipeline overflow returns **429 + Retry-After**. `repository-index` sleeps and retries with a new step name so OpenWorkflow memoization does not stick a failure. Durability stays in OW steps; memory admission stays in-process on codesearch (no cross-step Postgres lease table).
+   - Pipeline overflow returns **429**. `repository-index` sleeps 30s and retries with a new step name so OpenWorkflow memoization does not stick a failure. Durability stays in OW steps; memory admission stays in-process on codesearch (no cross-step Postgres lease table).
 
 5. **Hosted Railway:** production starts at the **medium** pair (indexer 2, pipelines 2, worker concurrency 10), chosen from observed ingest peak RSS — not a Terraform “plan size” (Railway services have no CPU/memory fields). PR preview uses the **small** pair. Changing these variables requires redeploying worker and codesearch.
 
@@ -40,7 +40,7 @@ Railway has no Fargate-style committed memory in IaC (usage-billed). Capacity mu
 ## Consequences
 
 - Operators pick CDK `size` or Railway Terraform defaults; they do not set concurrency by hand unless they later need an escape hatch.
-- `sync-github-repositories` can still enqueue every new repo at once. Pending runs sit in the `openworkflow` Postgres schema; the pipeline cap must absorb that stampede, not OW slot count alone. Overflow waits unbounded on codesearch `Retry-After` (no 10-minute fail, no escalating backoff). Codesearch keeps an in-process sticky reservation across phases and drops it locally when `merge-scip` finishes or clone/detect fails; idle TTL reclaims abandoned earlier phases. No cross-step HTTP release.
+- `sync-github-repositories` can still enqueue every new repo at once. Pending runs sit in the `openworkflow` Postgres schema; the pipeline cap must absorb that stampede, not OW slot count alone. Overflow waits unbounded, sleeping 30s between polls (no 10-minute fail, no Retry-After plumbing). Codesearch keeps an in-process sticky reservation across phases and drops it locally when `merge-scip` finishes or clone/detect fails; idle TTL reclaims abandoned earlier phases. No cross-step HTTP release.
 - Self-host docs must state that scaling workers does not scale ingest unless codesearch memory and injected env grow with them.
 - CDK, Railway, and Compose must stay aligned with the table above; `size-profiles.test.ts` asserts CDK injection.
 

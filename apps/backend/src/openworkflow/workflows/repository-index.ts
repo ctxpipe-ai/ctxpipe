@@ -8,7 +8,6 @@ import {
   codesearchIndexMergeScip,
   codesearchIndexScipLang,
   codesearchIndexZoekt,
-  INDEX_PIPELINE_RETRY_AFTER_SECONDS,
   isCodesearchAdmissionBusyError,
 } from "../../domain/codeIngestion/codesearchIndexPhases.js"
 import {
@@ -84,14 +83,6 @@ function joinIndexErrors(errors: string[]): string | undefined {
   return unique.length > 0 ? unique.join("; ") : undefined
 }
 
-function admissionSleepDuration(retryAfterSeconds?: number): string {
-  const retryAfter =
-    retryAfterSeconds != null && retryAfterSeconds > 0
-      ? Math.floor(retryAfterSeconds)
-      : INDEX_PIPELINE_RETRY_AFTER_SECONDS
-  return `${retryAfter}s`
-}
-
 type IndexStep = {
   run: (
     opts: { name: string; retryPolicy?: typeof indexRetryPolicy },
@@ -100,9 +91,7 @@ type IndexStep = {
   sleep: (name: string, duration: string) => Promise<void>
 }
 
-type AdmissionOutcome<T> =
-  | { admitted: true; value: T }
-  | { admitted: false; retryAfterSeconds?: number }
+type AdmissionOutcome<T> = { admitted: true; value: T } | { admitted: false }
 
 async function runIndexPhaseWithAdmissionRetry<T>(
   step: IndexStep,
@@ -141,20 +130,14 @@ async function runIndexPhaseWithAdmissionRetry<T>(
                   },
                 )
               }
-              return {
-                admitted: false,
-                retryAfterSeconds: error.retryAfterSeconds,
-              }
+              return { admitted: false }
             }
             throw error
           }
         }),
     )) as AdmissionOutcome<T>
     if (outcome.admitted) return outcome.value
-    await step.sleep(
-      `${baseName}:admit-wait-${attempt}`,
-      admissionSleepDuration(outcome.retryAfterSeconds),
-    )
+    await step.sleep(`${baseName}:admit-wait-${attempt}`, "30s")
   }
 }
 
@@ -190,11 +173,10 @@ function logMilestone(step: string, fields: Record<string, unknown>): void {
  *
  * Zoekt or SCIP failure is recorded on the result so extract can still
  * complete (lexical search and/or graph tools degrade). Clone failure
- * still fails the workflow. Index-pipeline 429s sleep for Retry-After
- * (default 30s) until a slot opens (no retry cap). SCIP langs are admitted
- * in batches of indexer concurrency. Codesearch holds the in-process
- * pipeline reservation across phases and drops it on merge-scip or a fatal
- * clone/detect error.
+ * still fails the workflow. Index-pipeline 429s sleep 30s until a slot
+ * opens (no retry cap). SCIP langs are admitted in batches of indexer
+ * concurrency. Codesearch holds the in-process pipeline reservation
+ * across phases and drops it on merge-scip or a fatal clone/detect error.
  */
 export const repositoryIndex = defineWorkflow(
   { name: "repository-index", schema: repositoryIndexInputSchema },
