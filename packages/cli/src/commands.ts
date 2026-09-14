@@ -316,9 +316,11 @@ export async function runMcpDoctor(opts: {
   timeoutMs: number
   json: boolean
 }): Promise<void> {
+  const apiKey = process.env.CTXPIPE_API_KEY?.trim()
   const result = await diagnoseMcpEndpoint({
     url: opts.url,
     timeoutMs: opts.timeoutMs,
+    ...(apiKey ? { apiKey } : {}),
   })
   if (opts.json) {
     console.log(JSON.stringify(result, null, 2))
