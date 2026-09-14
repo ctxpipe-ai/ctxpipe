@@ -39,10 +39,6 @@ const mergeScipResponseSchema = z.object({
 
 export class CodesearchAdmissionBusyError extends Error {
   override readonly name = "CodesearchAdmissionBusyError"
-
-  constructor(message: string) {
-    super(message)
-  }
 }
 
 export function isCodesearchAdmissionBusyError(

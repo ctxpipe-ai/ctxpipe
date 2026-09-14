@@ -24,9 +24,6 @@ const touchIndexingUpdatedAtMock = vi.hoisted(() =>
 const admissionBusy = vi.hoisted(() => {
   class CodesearchAdmissionBusyError extends Error {
     override readonly name = "CodesearchAdmissionBusyError"
-    constructor(message: string) {
-      super(message)
-    }
   }
   return {
     CodesearchAdmissionBusyError,
