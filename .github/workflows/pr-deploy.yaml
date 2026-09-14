@@ -373,6 +373,11 @@ jobs:
                 echo "$body" >&2
                 return 22
               fi
+              if echo "$body" | jq -e '.errors | type == "array" and length > 0' >/dev/null 2>&1; then
+                echo "Railway GraphQL errors for query: ${query:0:120}…" >&2
+                echo "$body" | jq -c '.errors' >&2
+                return 22
+              fi
               printf '%s' "$body"
             }
 
@@ -562,9 +567,7 @@ jobs:
             }
 
             # Scale a service to zero replicas in this environment (config only).
-            # Use multiRegionConfig only — top-level numReplicas is deprecated, and
-            # serviceInstance has no `regions` field (that query returned HTTP 400).
-            # Region matches Terraform default in infra/module/ctxpipe/railway.tf.
+            # Railway rejects numReplicas < 1, so do not send multiRegionConfig here.
             # Non-fatal: deploymentStop below is what actually stops running containers.
             scale_service_to_zero() {
               local service_id="$1"
@@ -574,13 +577,12 @@ jobs:
                   environmentId: $env,
                   serviceId: $service,
                   input: {
-                    sleepApplication: true,
-                    multiRegionConfig: {"asia-southeast1-eqsg3a": {"numReplicas": 0}}
+                    sleepApplication: true
                   }
                 }')" >/dev/null; then
-                echo "Scaled service $service_id to 0 replicas (config)"
+                echo "Enabled serverless sleep for service $service_id (config)"
               else
-                echo "Warning: failed to scale service $service_id to 0 replicas (continuing with deploymentStop)" >&2
+                echo "Warning: failed to enable serverless sleep for $service_id (continuing with deploymentStop)" >&2
               fi
             }
 

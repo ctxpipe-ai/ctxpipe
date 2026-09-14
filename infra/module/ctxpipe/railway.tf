@@ -13,10 +13,14 @@ resource "railway_project" "this" {
 locals {
   database_url  = neon_project.this.connection_uri_pooler
   falkordb_port = 6379
+  # Honor var.railway_regions (default us-east4-eqdc4a). A direct assign
+  # or `for` over the list fails plan in railway 0.6.1 (ServiceResourceRegionModel
+  # "unknown value"). Expanding the one element into an HCL object still
+  # reads the variable. See variable validation (exactly one region).
   regions = [
     {
-      num_replicas : 1,
-      region : "asia-southeast1-eqsg3a"
+      num_replicas = var.railway_regions[0].num_replicas
+      region       = var.railway_regions[0].region
     }
   ]
   amplitude_shared_env = length(var.amplitude_api_key) > 0 ? [
