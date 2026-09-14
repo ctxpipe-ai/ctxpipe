@@ -3,7 +3,7 @@ import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
 import { withRepositoryIndexOperation } from "../domain/indexing/indexConcurrency.js"
 import {
-  releaseIndexPipeline,
+  releaseIndexPipelineReference,
   releaseIndexPipelineReservation,
   tryAcquireIndexPipeline,
 } from "../domain/indexing/indexPipelineAdmission.js"
@@ -284,7 +284,6 @@ async function resolvePhaseContext(
 
 async function withIndexPipelineAdmission(
   c: {
-    header: (name: string, value: string) => unknown
     json: (body: { error: string }, status: 429) => Response
   },
   repoId: string,
@@ -292,25 +291,30 @@ async function withIndexPipelineAdmission(
 ): Promise<Response> {
   const acquired = tryAcquireIndexPipeline(repoId)
   if (!acquired.ok) {
-    c.header("Retry-After", "30")
     return c.json({ error: "Index pipeline capacity exceeded" }, 429)
   }
   try {
     return await fn()
   } finally {
-    releaseIndexPipeline(repoId)
+    releaseIndexPipelineReference(repoId)
   }
 }
 
-function finishIndexPipelineAdmission(
+async function finishIndexPipelineAdmission(
   repoId: string,
-  response: Response,
+  responsePromise: Promise<Response>,
   reservation: "end-on-error" | "end",
-): Response {
-  if (reservation === "end" || response.status !== 200) {
+): Promise<Response> {
+  try {
+    const response = await responsePromise
+    if (reservation === "end" || response.status !== 200) {
+      releaseIndexPipelineReservation(repoId)
+    }
+    return response
+  } catch (error) {
     releaseIndexPipelineReservation(repoId)
+    throw error
   }
-  return response
 }
 
 export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
@@ -323,7 +327,7 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     const body = c.req.valid("json")
     return finishIndexPipelineAdmission(
       repoId,
-      await withIndexPipelineAdmission(c, repoId, () =>
+      withIndexPipelineAdmission(c, repoId, () =>
         withRepositoryIndexOperation(repoId, async () => {
           const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
             githubToken: body.githubToken,
@@ -410,7 +414,7 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     const body = c.req.valid("json")
     return finishIndexPipelineAdmission(
       repoId,
-      await withIndexPipelineAdmission(c, repoId, () =>
+      withIndexPipelineAdmission(c, repoId, () =>
         withRepositoryIndexOperation(repoId, async () => {
           const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
           if (!resolved.ok) {
@@ -487,7 +491,7 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     const body = c.req.valid("json")
     return finishIndexPipelineAdmission(
       repoId,
-      await withIndexPipelineAdmission(c, repoId, () =>
+      withIndexPipelineAdmission(c, repoId, () =>
         withRepositoryIndexOperation(repoId, async () => {
           const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
           if (!resolved.ok) {

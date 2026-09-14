@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   INDEX_PIPELINE_IDLE_TTL_MS,
-  releaseIndexPipeline,
+  releaseIndexPipelineReference,
   releaseIndexPipelineReservation,
   resetIndexPipelineAdmissionForTests,
   tryAcquireIndexPipeline,
@@ -19,12 +19,12 @@ describe("index pipeline admission", () => {
     expect(tryAcquireIndexPipeline("repo_a")).toEqual({ ok: true })
     expect(tryAcquireIndexPipeline("repo_a")).toEqual({ ok: true })
     expect(tryAcquireIndexPipeline("repo_b").ok).toBe(false)
-    releaseIndexPipeline("repo_a")
+    releaseIndexPipelineReference("repo_a")
     expect(tryAcquireIndexPipeline("repo_b").ok).toBe(false)
-    releaseIndexPipeline("repo_a")
+    releaseIndexPipelineReference("repo_a")
     expect(tryAcquireIndexPipeline("repo_a")).toEqual({ ok: true })
     expect(tryAcquireIndexPipeline("repo_b").ok).toBe(false)
-    releaseIndexPipeline("repo_a")
+    releaseIndexPipelineReference("repo_a")
     releaseIndexPipelineReservation("repo_a")
     expect(tryAcquireIndexPipeline("repo_b")).toEqual({ ok: true })
     releaseIndexPipelineReservation("repo_b")
@@ -36,7 +36,7 @@ describe("index pipeline admission", () => {
     expect(tryAcquireIndexPipeline("repo_b").ok).toBe(true)
     const denied = tryAcquireIndexPipeline("repo_c")
     expect(denied).toEqual({ ok: false })
-    releaseIndexPipeline("repo_a")
+    releaseIndexPipelineReference("repo_a")
     expect(tryAcquireIndexPipeline("repo_c").ok).toBe(false)
     releaseIndexPipelineReservation("repo_a")
     expect(tryAcquireIndexPipeline("repo_c").ok).toBe(true)
@@ -47,7 +47,7 @@ describe("index pipeline admission", () => {
   it("keeps the reservation after refs hit zero until reservation release", () => {
     vi.stubEnv("CODESEARCH_INDEX_PIPELINE_CONCURRENCY", "1")
     expect(tryAcquireIndexPipeline("repo_a").ok).toBe(true)
-    releaseIndexPipeline("repo_a")
+    releaseIndexPipelineReference("repo_a")
     expect(tryAcquireIndexPipeline("repo_b").ok).toBe(false)
     releaseIndexPipelineReservation("repo_a")
     expect(tryAcquireIndexPipeline("repo_b")).toEqual({ ok: true })
@@ -59,7 +59,7 @@ describe("index pipeline admission", () => {
     vi.setSystemTime(1_000)
     vi.stubEnv("CODESEARCH_INDEX_PIPELINE_CONCURRENCY", "1")
     expect(tryAcquireIndexPipeline("repo_a").ok).toBe(true)
-    releaseIndexPipeline("repo_a")
+    releaseIndexPipelineReference("repo_a")
     expect(tryAcquireIndexPipeline("repo_b").ok).toBe(false)
     vi.setSystemTime(1_000 + INDEX_PIPELINE_IDLE_TTL_MS)
     expect(tryAcquireIndexPipeline("repo_b")).toEqual({ ok: true })

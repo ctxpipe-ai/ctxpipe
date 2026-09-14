@@ -35,7 +35,7 @@ export function tryAcquireIndexPipeline(
   return { ok: true }
 }
 
-export function releaseIndexPipeline(repoId: string): void {
+export function releaseIndexPipelineReference(repoId: string): void {
   const existing = pipelines.get(repoId)
   if (!existing) return
   existing.refs = Math.max(0, existing.refs - 1)

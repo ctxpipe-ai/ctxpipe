@@ -82,17 +82,6 @@ async function postClone(
   })
 }
 
-async function postZoekt(
-  app: ReturnType<typeof createTestApp>,
-  repoId: string,
-) {
-  return app.request(`/${repoId}/index/zoekt`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({}),
-  })
-}
-
 async function postMerge(
   app: ReturnType<typeof createTestApp>,
   repoId: string,
@@ -131,7 +120,7 @@ describe("index phase pipeline admission", () => {
     phaseMarkCheckoutIndexedMock.mockResolvedValue(undefined)
   })
 
-  it("returns 429 with Retry-After when another repo holds the pipeline cap", async () => {
+  it("returns 429 when another repo holds the pipeline cap", async () => {
     vi.stubEnv("CODESEARCH_INDEX_PIPELINE_CONCURRENCY", "1")
     const hold = deferred()
     phaseCloneCheckoutMock.mockImplementation(async () => {
@@ -150,7 +139,6 @@ describe("index phase pipeline admission", () => {
 
     const second = await postClone(app, "repo_bbbbbb")
     expect(second.status).toBe(429)
-    expect(second.headers.get("Retry-After")).toBe("30")
     await expect(second.json()).resolves.toEqual({
       error: "Index pipeline capacity exceeded",
     })
@@ -185,9 +173,28 @@ describe("index phase pipeline admission", () => {
     phaseZoektMock.mockRejectedValue(new Error("zoekt failed"))
     const app = createTestApp()
     expect((await postClone(app, "repo_aaaaaa")).status).toBe(200)
-    expect((await postZoekt(app, "repo_aaaaaa")).status).toBe(500)
+    expect(
+      (
+        await app.request("/repo_aaaaaa/index/zoekt", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        })
+      ).status,
+    ).toBe(500)
     expect((await postClone(app, "repo_bbbbbb")).status).toBe(429)
     expect((await postMerge(app, "repo_aaaaaa")).status).toBe(200)
+    expect((await postClone(app, "repo_bbbbbb")).status).toBe(200)
+  })
+
+  it("drops the reservation when merge-scip throws unexpectedly", async () => {
+    vi.stubEnv("CODESEARCH_INDEX_PIPELINE_CONCURRENCY", "1")
+    const app = createTestApp()
+    expect((await postClone(app, "repo_aaaaaa")).status).toBe(200)
+    getAccessibleRepositoryMock.mockRejectedValueOnce(new Error("db exploded"))
+    expect((await postMerge(app, "repo_aaaaaa")).status).toBeGreaterThanOrEqual(
+      500,
+    )
     expect((await postClone(app, "repo_bbbbbb")).status).toBe(200)
   })
 })
