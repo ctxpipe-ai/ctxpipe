@@ -127,6 +127,9 @@ function createMockDb(input: {
         from: vi.fn((table: unknown) => {
           if (table === organizations) {
             return {
+              where: vi.fn(() => ({
+                limit: vi.fn(async () => orgRows),
+              })),
               innerJoin: vi.fn(() =>
                 Object.assign(Promise.resolve(membershipRows), {
                   limit: vi.fn(async (limit: number) =>
@@ -1138,5 +1141,163 @@ describe("org API-key principal", () => {
     })
 
     expect(response.status).toBe(401)
+  })
+})
+
+describe("org API-key tenant binding", () => {
+  function mockOrgKey(input?: { referenceId?: string }) {
+    getSessionMock.mockResolvedValue(null)
+    verifyApiKeyMock.mockResolvedValueOnce({
+      valid: true,
+      error: null,
+      key: {
+        id: "key_org",
+        configId: "organization",
+        referenceId: input?.referenceId ?? "org_acme",
+      },
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetBearerJwksCacheForTests()
+    getSystemDbMock.mockImplementation(() => testState.db as never)
+    withOrgDbContextMock.mockImplementation(
+      async (_orgId: string, handler: (db: unknown) => Promise<unknown>) =>
+        handler(testState.db),
+    )
+  })
+
+  it("org x-api-key on /mcp binds the key's org without orgSlug or membership", async () => {
+    mockOrgKey()
+    testState.db = createMockDb({
+      orgRows: [{ id: "org_acme", slug: "acme" }],
+      membershipRows: [],
+    })
+
+    const app = createComposedTestApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { "x-api-key": "ctxp_org_key" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: null,
+      session: null,
+      orgApiKey: {
+        id: "key_org",
+        orgId: "org_acme",
+        configId: "organization",
+      },
+      orgSlug: "acme",
+      orgId: "org_acme",
+    })
+  })
+
+  it("org x-api-key accepts a matching orgSlug", async () => {
+    mockOrgKey()
+    testState.db = createMockDb({
+      orgRows: [{ id: "org_acme", slug: "acme" }],
+      membershipRows: [],
+    })
+
+    const app = createComposedTestApp()
+    const response = await app.request("/mcp?orgSlug=acme", {
+      method: "POST",
+      headers: { "x-api-key": "ctxp_org_key" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      orgSlug: "acme",
+      orgId: "org_acme",
+      orgApiKey: { orgId: "org_acme" },
+    })
+  })
+
+  it("org x-api-key rejects a mismatched orgSlug with 404", async () => {
+    mockOrgKey()
+    testState.db = createMockDb({
+      orgRows: [{ id: "org_acme", slug: "acme" }],
+    })
+
+    const app = createComposedTestApp()
+    const response = await app.request("/mcp?orgSlug=other", {
+      method: "POST",
+      headers: { "x-api-key": "ctxp_org_key" },
+    })
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: "Not found" })
+  })
+
+  it("org x-api-key returns 404 when the bound org is missing", async () => {
+    mockOrgKey()
+    testState.db = createMockDb({ orgRows: [] })
+
+    const app = createComposedTestApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { "x-api-key": "ctxp_org_key" },
+    })
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: "Not found" })
+  })
+
+  it("user x-api-key still requires orgSlug", async () => {
+    getSessionMock.mockResolvedValueOnce({
+      user: { id: "user_api_key", email: "api-key@example.com" },
+      session: { id: "sess_api_key", userId: "user_api_key" },
+    })
+    testState.db = createMockDb({
+      membershipRows: [{ id: "org_solo", slug: "solo" }],
+    })
+
+    const app = createComposedTestApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { "x-api-key": "ctxp_user_key" },
+    })
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({
+      jsonrpc: "2.0",
+      error: {
+        message: expect.stringContaining("not bound to an organization"),
+      },
+    })
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
+  })
+
+  it("unbound OAuth grant without orgSlug still returns 400", async () => {
+    getSessionMock.mockResolvedValueOnce(null)
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: { sub: "user_oauth", sid: "sess_oauth" },
+    })
+    testState.db = createMockDb({
+      tokenSessionRows: [
+        {
+          session: { id: "sess_oauth", userId: "user_oauth" },
+          user: { id: "user_oauth", email: "oauth@example.com" },
+        },
+      ],
+      membershipRows: [{ id: "org_solo", slug: "solo" }],
+    })
+
+    const app = createComposedTestApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer header.payload.signature" },
+    })
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({
+      jsonrpc: "2.0",
+      error: {
+        message: expect.stringContaining("not bound to an organization"),
+      },
+    })
   })
 })

@@ -595,16 +595,27 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
   c,
   next,
 ) => {
+  const orgApiKey = c.get("orgApiKey")
   const userId = c.get("user")?.id
-  if (!userId) return c.json({ error: "Not found" }, 404)
-
   const rawOrgSlug = c.req.param("orgSlug") ?? c.req.query("orgSlug")
   const orgSlug = rawOrgSlug?.trim() || undefined
   const oauthOrganizationId = c.get("oauthOrganizationId")
   const systemDb = getSystemDb()
   let resolved: { id: string; slug: string } | undefined
 
-  if (oauthOrganizationId) {
+  if (orgApiKey) {
+    const orgRows = await systemDb
+      .select({ id: organizations.id, slug: organizations.slug })
+      .from(organizations)
+      .where(eq(organizations.id, orgApiKey.orgId))
+      .limit(1)
+    resolved = orgRows[0]
+    if (!resolved || (orgSlug && resolved.slug !== orgSlug)) {
+      return c.json({ error: "Not found" }, 404)
+    }
+  } else if (!userId) {
+    return c.json({ error: "Not found" }, 404)
+  } else if (oauthOrganizationId) {
     const orgRows = await systemDb
       .select({ id: organizations.id, slug: organizations.slug })
       .from(organizations)
