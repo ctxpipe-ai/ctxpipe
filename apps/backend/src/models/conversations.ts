@@ -252,13 +252,19 @@ function conversationAccessMatch(
   )
 }
 
+/** Explicit admin flag, or inferred from an org API key MCP actor. */
+function isOrgServiceConversationAccess(explicit?: boolean): boolean {
+  if (explicit === true) return true
+  return currentMcpActor().type === "org-service"
+}
+
 export async function getConversation(
   conversationId: string,
   input?: { orgService?: boolean },
 ): Promise<ConversationRecord | null> {
   const orgId = requireCurrentOrgId()
   const db = getOrgDb()
-  if (input?.orgService) {
+  if (isOrgServiceConversationAccess(input?.orgService)) {
     const [row] = await db
       .select()
       .from(conversations)
@@ -288,7 +294,11 @@ export async function updateConversation(
     .update(conversations)
     .set({ name: input.name, updatedAt: new Date() })
     .where(
-      conversationAccessMatch(conversationId, orgId, input.orgService === true),
+      conversationAccessMatch(
+        conversationId,
+        orgId,
+        isOrgServiceConversationAccess(input.orgService),
+      ),
     )
     .returning()
   return updated ?? null
@@ -306,7 +316,7 @@ export async function deleteConversation(
       conversationAccessMatch(
         conversationId,
         orgId,
-        input?.orgService === true,
+        isOrgServiceConversationAccess(input?.orgService),
       ),
     )
     .returning({ id: conversations.id })

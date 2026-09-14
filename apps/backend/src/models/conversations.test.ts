@@ -19,8 +19,10 @@ vi.mock("../db/client.js", () => ({
 
 import {
   ensureConversation,
+  getConversation,
   listConversations,
   listConversationsPaginated,
+  updateConversation,
 } from "./conversations.js"
 
 const now = new Date("2026-09-14T00:00:00.000Z")
@@ -221,5 +223,83 @@ describe("listConversationsPaginated", () => {
       items: [userRow],
     })
     expect(requireCurrentUserIdMock).toHaveBeenCalled()
+  })
+})
+
+describe("getConversation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    requireCurrentOrgIdMock.mockReturnValue("org_1")
+    requireCurrentUserIdMock.mockReturnValue("user_1")
+    currentMcpActorMock.mockReturnValue({ type: "user", userId: "user_1" })
+  })
+
+  it("loads org-service threads for an org API key without requiring a user", async () => {
+    currentMcpActorMock.mockReturnValue({
+      type: "org-service",
+      orgId: "org_1",
+    })
+    const orgServiceRow = conversationRow({
+      id: "c_org",
+      userId: null,
+    })
+    const limit = vi.fn(async () => [orgServiceRow])
+    const where = vi.fn(() => ({ limit }))
+    const from = vi.fn(() => ({ where }))
+    const select = vi.fn(() => ({ from }))
+    getOrgDbMock.mockReturnValue({ select })
+
+    await expect(getConversation("c_org")).resolves.toEqual(orgServiceRow)
+    expect(requireCurrentUserIdMock).not.toHaveBeenCalled()
+  })
+
+  it("still scopes signed-in user lookups to that userId", async () => {
+    const userRow = conversationRow({ id: "c_user", userId: "user_1" })
+    const findFirst = vi.fn(async () => userRow)
+    getOrgDbMock.mockReturnValue({
+      query: { conversations: { findFirst } },
+    })
+
+    await expect(getConversation("c_user")).resolves.toEqual(userRow)
+    expect(requireCurrentUserIdMock).toHaveBeenCalled()
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: { eq: "c_user" },
+          orgId: { eq: "org_1" },
+          userId: { eq: "user_1" },
+        },
+      }),
+    )
+  })
+})
+
+describe("updateConversation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    requireCurrentOrgIdMock.mockReturnValue("org_1")
+    requireCurrentUserIdMock.mockReturnValue("user_1")
+    currentMcpActorMock.mockReturnValue({ type: "user", userId: "user_1" })
+  })
+
+  it("renames org-service threads for an org API key without requiring a user", async () => {
+    currentMcpActorMock.mockReturnValue({
+      type: "org-service",
+      orgId: "org_1",
+    })
+    const updated = {
+      ...conversationRow({ id: "c_org", userId: null }),
+      name: "Indexed Repos",
+    }
+    const returning = vi.fn(async () => [updated])
+    const where = vi.fn(() => ({ returning }))
+    const set = vi.fn(() => ({ where }))
+    const update = vi.fn(() => ({ set }))
+    getOrgDbMock.mockReturnValue({ update })
+
+    await expect(
+      updateConversation("c_org", { name: "Indexed Repos" }),
+    ).resolves.toEqual(updated)
+    expect(requireCurrentUserIdMock).not.toHaveBeenCalled()
   })
 })
