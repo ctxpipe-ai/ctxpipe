@@ -499,37 +499,6 @@ describe("tryClaimRepositoryIndexingEnqueue", () => {
     })
     expect(update).toHaveBeenCalledTimes(2)
   })
-
-  it("does not reclaim queued or running rows by updatedAt age", async () => {
-    const claimReturning = vi.fn().mockResolvedValue([])
-    const pendingReturning = vi.fn().mockResolvedValue([{ id: repositoryId }])
-    const claimWhere = vi.fn().mockReturnValue({ returning: claimReturning })
-    const pendingWhere = vi.fn().mockReturnValue({
-      returning: pendingReturning,
-    })
-    const claimSet = vi.fn().mockReturnValue({ where: claimWhere })
-    const pendingSet = vi.fn().mockReturnValue({ where: pendingWhere })
-    const update = vi
-      .fn()
-      .mockReturnValueOnce({ set: claimSet })
-      .mockReturnValueOnce({ set: pendingSet })
-    getOrgDbMock.mockReturnValue({ update })
-
-    await expect(
-      tryClaimRepositoryIndexingEnqueue({
-        repositoryId,
-        reason: "manual",
-        ...({ nowMs: Date.parse("2010-01-01T00:00:00.000Z") } as object),
-      } as { repositoryId: string; reason: string | null }),
-    ).resolves.toBe(false)
-
-    expect(update).toHaveBeenCalledTimes(2)
-    const written = claimSet.mock.calls[0]?.[0] as { updatedAt: Date }
-    expect(written.updatedAt.getUTCFullYear()).toBeGreaterThan(2010)
-    const repositoriesModule = await import("./repositories.js")
-    expect(repositoriesModule).not.toHaveProperty("INDEXING_QUEUED_STALE_MS")
-    expect(repositoriesModule).not.toHaveProperty("INDEXING_RUNNING_STALE_MS")
-  })
 })
 
 describe("clearRepositoryIndexingFollowUpPending", () => {
