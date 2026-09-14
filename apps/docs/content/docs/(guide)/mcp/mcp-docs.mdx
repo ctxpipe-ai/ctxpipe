@@ -120,15 +120,53 @@ Read the full guide: [Local memory](/docs/mcp/local-memory).
 
 ## API-key auth
 
-OAuth is the default. Use an API key only when a client cannot complete the browser OAuth flow. Keys authenticate MCP with the `x-api-key` header. The CLI never mints keys; create one in the product under **User account → API Keys**. New keys inherit a 30-day default expiry and a plugin limit of 1,000 requests per hour. Recreate a key after it expires; existing keys keep the limit stored when they were minted.
+OAuth remains the default for a developer on a laptop — the [Claude plugin](/docs/mcp/claude-plugin), the CLI without `--auth`, and [Install MCPs via PR](/docs/git-repositories/install-mcps-via-pr). Use an API key only when a client cannot complete the browser OAuth flow (CI, headless agents, a shared GUI environment, or a host that accepts a static custom header).
 
-`--auth api-key` writes a client-specific interpolation of `CTXPIPE_API_KEY`, never the secret. That placeholder is safe in repo or user config (`--scope repo`, `user`, or `both`). The CLI does **not** require `CTXPIPE_API_KEY` in the process that runs `init` or `mcp add`. Set the variable in the **MCP client** environment so the client can send `x-api-key`. GUI apps often do not inherit the shell that ran the CLI. See [Set CTXPIPE_API_KEY](#set-ctxpipe_api_key).
+Keys authenticate MCP with the **`x-api-key`** header. Do not send the key as `Authorization: Bearer`; Bearer stays OAuth.
+
+The CLI never mints keys. Create them in the product, then interpolate `CTXPIPE_API_KEY` in client config.
+
+### User keys and organization keys
+
+| | Personal keys | Organization keys |
+| --- | --- | --- |
+| Where to mint | **User account → API Keys** | **Organisation settings → API Keys** |
+| Who can mint | You, for yourself | Organization admin or owner |
+| Authenticates | You as a member | The organization — not the person who minted the key |
+| MCP URL | Requires `?orgSlug=` | Generic `/mcp` works. `?orgSlug=` is optional and must match the bound organization |
+| REST (`/:orgSlug/api/v1`) | Yes, as that user | No. Organization keys are MCP `/mcp` only |
+
+One organization key binds one organization. Omit `?orgSlug=` or send the bound slug; a mismatch returns **404**. The minter leaving the organization does not revoke the key. Members never see the plaintext after create; the secret is shown once.
+
+User keys and organization keys share the env name `CTXPIPE_API_KEY`. One process holds one active key.
+
+New keys inherit a **30-day** default expiry and a limit of **1,000 requests per hour**. Never-expiring keys are allowed; the UI warns that they are long-lived secrets. Recreate a key after it expires; existing keys keep the limit stored when they were minted. Name each key. Rotate by minting a new key, swapping `CTXPIPE_API_KEY`, then revoking the old one.
+
+`--auth api-key` writes a client-specific interpolation of `CTXPIPE_API_KEY`, never the secret. That placeholder is safe in repo or user config (`--scope repo`, `user`, or `both`). `init` and `mcp add` do **not** read `CTXPIPE_API_KEY`. Set the variable in the **MCP client** environment so the client can send `x-api-key`. GUI apps often do not inherit the shell that ran the CLI. See [Set CTXPIPE_API_KEY](#set-ctxpipe_api_key).
+
+The CLI still writes `?orgSlug=` (personal keys need it; organization keys accept a matching slug). Organization keys also work on the generic `/mcp` URL with no query:
+
+```json
+{
+  "mcpServers": {
+    "ctxpipe": {
+      "type": "streamable-http",
+      "url": "https://app.ctxpipe.ai/mcp",
+      "headers": {
+        "x-api-key": "${env:CTXPIPE_API_KEY}"
+      }
+    }
+  }
+}
+```
 
 ```bash
 npx ctxpipe mcp add --org acme --client cursor --scope both --auth api-key --non-interactive
 ```
 
 Setting `CTXPIPE_API_KEY` in the environment is **not enough** on its own. ctx| MCP is a remote Streamable HTTP server, so the client must send `x-api-key` on HTTP requests. Cursor and Claude do not invent that mapping from a well-known env name. The interpolation in MCP config (or `claude mcp add --header`) is what tells the client to send the header.
+
+The [Claude plugin](/docs/mcp/claude-plugin) stays OAuth. It does not add an API-key header. If a host lets you attach a custom request header, send **`x-api-key`** interpolating `CTXPIPE_API_KEY`. Do not use Bearer for the API key, and do not put the secret in plugin or repository files.
 
 ### Cursor
 
@@ -218,7 +256,15 @@ env_http_headers = { "x-api-key" = "CTXPIPE_API_KEY" }
 
 ## Set `CTXPIPE_API_KEY`
 
-The CLI does not consume `CTXPIPE_API_KEY`. The **MCP client process** must see it so it can interpolate the header. `export` in a terminal that only ran `npx ctxpipe` is not enough if the agent is a GUI app.
+`init` and `mcp add` do not consume `CTXPIPE_API_KEY`. `npx ctxpipe doctor mcp` does, when the variable is set in that process: it sends `x-api-key` and expects HTTP 2xx initialize (`ready-for-api-key`). If the variable is unset or blank, doctor keeps OAuth-discovery checks.
+
+For MCP clients, the **client process** must see `CTXPIPE_API_KEY` so it can interpolate the header. `export` in a terminal that only ran `npx ctxpipe init` is not enough if the agent is a GUI app.
+
+To probe API-key initialize from the CLI:
+
+```bash
+CTXPIPE_API_KEY=ctxp_... npx ctxpipe doctor mcp --url "https://app.ctxpipe.ai/mcp"
+```
 
 **CLI agents** (inherit the shell you start them from):
 
@@ -372,11 +418,15 @@ If your client's docs only mention `http` or SSE, check the current client docum
 - **Cursor or Claude rejects the server type** - use `"type": "http"`. The protocol is still Streamable HTTP; `http` is the client config key.
 - **Team PR flow is unavailable** - confirm GitHub is connected, the repositories are visible to the GitHub App installation, and your ctx| account is an organization admin or owner.
 - **Your client cannot complete OAuth** - use [API-key auth](#api-key-auth). `--auth api-key` writes interpolation, not the secret. Set `CTXPIPE_API_KEY` in the MCP client environment; see [Set CTXPIPE_API_KEY](#set-ctxpipe_api_key).
+- **Organization key on REST returns 401** - expected. Organization keys authenticate `/mcp` only. Use a personal key or a signed-in session for `/:orgSlug/api/v1`.
+- **Organization key with the wrong `orgSlug` returns 404** - omit the query, or use the bound organization's slug.
+- **Claude plugin has no API-key header** - expected. The plugin stays OAuth. On hosts that allow a custom header, send `x-api-key`, not Bearer.
 
 ## Notes
 
 - `orgSlug` is optional for OAuth grants that were bound to an organization
-  during authorization. Replace `your-org` with your organization slug when
+  during authorization, and for organization API keys. Personal user keys still
+  require `?orgSlug=`. Replace `your-org` with your organization slug when
   configuring a legacy or manual connection explicitly.
 - Do not commit secrets into repository MCP config. Environment-variable references are safe to commit; the secret stays in the client process environment.
 - For team-wide repo config, prefer [Install MCPs via PR](/docs/git-repositories/install-mcps-via-pr) over asking every developer to copy JSON by hand.
