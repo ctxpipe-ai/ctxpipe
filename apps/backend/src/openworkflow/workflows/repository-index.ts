@@ -1,7 +1,6 @@
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
-import { withOrgDbContext } from "../../db/client.js"
 import {
   codesearchIndexCloneCheckout,
   codesearchIndexDetectLanguages,
@@ -15,7 +14,6 @@ import {
   userFacingIndexingError,
 } from "../../lib/memoryFitError.js"
 import { getInstallationToken } from "../../models/github-installation.js"
-import { touchRepositoryIndexingUpdatedAt } from "../../models/repositories.js"
 import {
   createLogger,
   flushWorkflowLog,
@@ -98,7 +96,6 @@ async function runIndexPhaseWithAdmissionRetry<T>(
   wls: <U>(name: string, fn: () => Promise<U>) => Promise<U>,
   baseName: string,
   fn: () => Promise<T>,
-  auth: { orgId: string; repositoryId: string },
   retryPolicy?: typeof indexRetryPolicy,
 ): Promise<T> {
   for (let attempt = 0; ; attempt += 1) {
@@ -111,25 +108,6 @@ async function runIndexPhaseWithAdmissionRetry<T>(
             return { admitted: true, value: await fn() }
           } catch (error) {
             if (isCodesearchAdmissionBusyError(error)) {
-              try {
-                await withOrgDbContext(auth.orgId, () =>
-                  touchRepositoryIndexingUpdatedAt({
-                    repositoryId: auth.repositoryId,
-                  }),
-                )
-              } catch (touchError) {
-                getLogger().error(
-                  touchError instanceof Error
-                    ? touchError
-                    : new Error(String(touchError)),
-                  {
-                    step: "repository-index.admission.touch-failed",
-                    repositoryId: auth.repositoryId,
-                    orgId: auth.orgId,
-                    phase: baseName,
-                  },
-                )
-              }
               return { admitted: false }
             }
             throw error
@@ -228,7 +206,6 @@ export const repositoryIndex = defineWorkflow(
               targetHash: input.targetHash,
               fromHash: input.fromHash,
             }),
-          auth,
           indexRetryPolicy,
         )
 
@@ -259,7 +236,6 @@ export const repositoryIndex = defineWorkflow(
                 return { ok: false as const, error: errorText }
               }
             },
-            auth,
           ),
           "Search index unavailable",
         )
@@ -287,7 +263,6 @@ export const repositoryIndex = defineWorkflow(
               deletedPaths: checkout.deletedPaths,
               renames: checkout.renames,
             }),
-          auth,
           indexRetryPolicy,
         )
 
@@ -348,7 +323,6 @@ export const repositoryIndex = defineWorkflow(
                   return { ok: false as const, error: errorText }
                 }
               },
-              auth,
             ),
         )
 
@@ -395,7 +369,6 @@ export const repositoryIndex = defineWorkflow(
                 return { ok: false as const, error: errorText }
               }
             },
-            auth,
           ),
         )
         if (mergeResult.ok) {

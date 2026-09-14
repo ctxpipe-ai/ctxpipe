@@ -18,9 +18,6 @@ const detectMock = vi.hoisted(() =>
 )
 const scipMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 const mergeMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
-const touchIndexingUpdatedAtMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue(undefined),
-)
 const admissionBusy = vi.hoisted(() => {
   class CodesearchAdmissionBusyError extends Error {
     override readonly name = "CodesearchAdmissionBusyError"
@@ -40,14 +37,6 @@ vi.mock("../../domain/codeIngestion/codesearchIndexPhases.js", () => ({
   codesearchIndexMergeScip: mergeMock,
   CodesearchAdmissionBusyError: admissionBusy.CodesearchAdmissionBusyError,
   isCodesearchAdmissionBusyError: admissionBusy.isCodesearchAdmissionBusyError,
-}))
-
-vi.mock("../../db/client.js", () => ({
-  withOrgDbContext: vi.fn((_orgId: string, fn: () => unknown) => fn()),
-}))
-
-vi.mock("../../models/repositories.js", () => ({
-  touchRepositoryIndexingUpdatedAt: touchIndexingUpdatedAtMock,
 }))
 
 vi.mock("../../config/env.js", () => ({
@@ -133,7 +122,6 @@ describe("repositoryIndex workflow", () => {
     })
     scipMock.mockResolvedValue(undefined)
     mergeMock.mockResolvedValue({ shardCount: 2 })
-    touchIndexingUpdatedAtMock.mockResolvedValue(undefined)
   })
 
   it("runs phases in order and parallelizes SCIP langs", async () => {
@@ -529,9 +517,6 @@ describe("repositoryIndex workflow", () => {
     expect(sleeps).toEqual([["clone-checkout:admit-wait-0", "30s"]])
     expect(stepNames).toContain("clone-checkout")
     expect(stepNames).toContain("clone-checkout:admit-1")
-    expect(touchIndexingUpdatedAtMock).toHaveBeenCalledWith({
-      repositoryId: "repo_1",
-    })
   })
 
   it("keeps waiting after 21 clone 429s and never throws exceeded retries", async () => {
@@ -578,7 +563,6 @@ describe("repositoryIndex workflow", () => {
     expect(sleeps).toHaveLength(21)
     expect(sleeps[0]).toEqual(["clone-checkout:admit-wait-0", "30s"])
     expect(sleeps[20]).toEqual(["clone-checkout:admit-wait-20", "30s"])
-    expect(touchIndexingUpdatedAtMock).toHaveBeenCalledTimes(21)
   })
 
   it("does not record Zoekt 429 as searchIndexOk false", async () => {
