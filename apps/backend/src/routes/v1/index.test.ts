@@ -4,11 +4,13 @@ import type { AppEnv } from "../../app/env.js"
 
 const {
   withCookieAuthMock,
+  withOrgApiKeyAuthMock,
   withBearerAuthMock,
   requireAuthMock,
   withOrgContextMock,
 } = vi.hoisted(() => ({
   withCookieAuthMock: vi.fn(),
+  withOrgApiKeyAuthMock: vi.fn(),
   withBearerAuthMock: vi.fn(),
   requireAuthMock: vi.fn(),
   withOrgContextMock: vi.fn(),
@@ -19,6 +21,7 @@ vi.mock("../../auth/withAuth.js", async (importOriginal) => {
   return {
     ...actual,
     withCookieAuth: withCookieAuthMock,
+    withOrgApiKeyAuth: withOrgApiKeyAuthMock,
     withBearerAuth: withBearerAuthMock,
     requireAuth: requireAuthMock,
     withNetworkOrgContext: withOrgContextMock,
@@ -43,6 +46,7 @@ describe("registerV1Routes auth middleware chain", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     withCookieAuthMock.mockImplementation(async (_c, next) => next())
+    withOrgApiKeyAuthMock.mockImplementation(async (_c, next) => next())
     withBearerAuthMock.mockImplementation(async (_c, next) => next())
     requireAuthMock.mockImplementation(async (_c, next) => next())
     withOrgContextMock.mockImplementation(async (_c, next) => next())
@@ -56,6 +60,7 @@ describe("registerV1Routes auth middleware chain", () => {
 
     expect(response.status).toBe(404)
     expect(withCookieAuthMock).toHaveBeenCalledTimes(1)
+    expect(withOrgApiKeyAuthMock).toHaveBeenCalledTimes(1)
     expect(withBearerAuthMock).toHaveBeenCalledTimes(1)
     expect(requireAuthMock).toHaveBeenCalledTimes(1)
     expect(withOrgContextMock).toHaveBeenCalledTimes(1)

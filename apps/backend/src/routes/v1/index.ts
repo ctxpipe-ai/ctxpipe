@@ -6,6 +6,7 @@ import {
   withBearerAuth,
   withCookieAuth,
   withNetworkOrgContext,
+  withOrgApiKeyAuth,
 } from "../../auth/withAuth.js"
 import { atlassianOauthCallbackRoutes } from "./atlassian-oauth-callback.js"
 import { orgCapabilitiesRoutes } from "./capabilities.js"
@@ -65,6 +66,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
   const orgScopedV1 = new OpenAPIHono<AppEnv>()
     .basePath("/:orgSlug/api/v1")
     .use("*", withCookieAuth)
+    .use("*", withOrgApiKeyAuth)
     .use("*", withBearerAuth)
     .use("*", requireAuth)
     .use("*", withNetworkOrgContext)
@@ -88,6 +90,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
   const nonOrgScopedV1 = new OpenAPIHono<AppEnv>()
     .basePath("/api/v1")
     .use("*", withCookieAuth)
+    .use("*", withOrgApiKeyAuth)
     .use("*", withBearerAuth)
     .use("*", requireAuth)
     .route("/integrations/atlassian", atlassianOauthCallbackRoutes)

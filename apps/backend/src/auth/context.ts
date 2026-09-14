@@ -20,3 +20,7 @@ export function requireCurrentUserId(): string {
   if (!userId) throw new Error("Missing user context")
   return userId
 }
+
+export function currentOrgApiKey(): AppEnv["Variables"]["orgApiKey"] {
+  return getContext<AppEnv>().var.orgApiKey ?? null
+}

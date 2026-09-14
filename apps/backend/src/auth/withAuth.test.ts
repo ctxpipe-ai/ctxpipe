@@ -5,6 +5,7 @@ import { oauthAccessTokens, organizations, users } from "../db/schema/auth.js"
 
 const {
   getSessionMock,
+  verifyApiKeyMock,
   authHandlerMock,
   jwtVerifyMock,
   createLocalJWKSetMock,
@@ -13,6 +14,7 @@ const {
   testState,
 } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
+  verifyApiKeyMock: vi.fn(),
   authHandlerMock: vi.fn(),
   jwtVerifyMock: vi.fn(),
   createLocalJWKSetMock: vi.fn(),
@@ -36,6 +38,7 @@ vi.mock("./config.js", () => ({
   getAuth: () => ({
     api: {
       getSession: getSessionMock,
+      verifyApiKey: verifyApiKeyMock,
     },
     handler: authHandlerMock,
   }),
@@ -62,6 +65,7 @@ import {
   withBearerAuth,
   withCookieAuth,
   withNetworkOrgContext,
+  withOrgApiKeyAuth,
 } from "./withAuth.js"
 
 function createMockDb(input: {
@@ -164,6 +168,7 @@ function createBaseApp(): Hono<AppEnv> {
     c.set("user", null)
     c.set("session", null)
     c.set("oauthOrganizationId", null)
+    c.set("orgApiKey", null)
     c.set("orgSlug", null)
     c.set("orgId", null)
     await next()
@@ -176,6 +181,7 @@ function createComposedTestApp(): Hono<AppEnv> {
   app.use(
     "/mcp",
     withCookieAuth,
+    withOrgApiKeyAuth,
     withBearerAuth,
     requireAuth,
     withNetworkOrgContext,
@@ -184,6 +190,7 @@ function createComposedTestApp(): Hono<AppEnv> {
     c.json({
       user: c.get("user"),
       session: c.get("session"),
+      orgApiKey: c.get("orgApiKey"),
       orgSlug: c.get("orgSlug"),
       orgId: c.get("orgId"),
     }),
@@ -503,6 +510,7 @@ describe("auth middleware composition", () => {
     expect(await response.json()).toEqual({
       user: { id: "user_cookie", email: "cookie@example.com" },
       session: { id: "sess_cookie", userId: "user_cookie" },
+      orgApiKey: null,
       orgSlug: "acme",
       orgId: "org_cookie",
     })
@@ -641,6 +649,7 @@ describe("auth middleware composition", () => {
     expect(await response.json()).toEqual({
       user: { id: "user_token", email: "token@example.com" },
       session: { id: "sess_token", userId: "user_token" },
+      orgApiKey: null,
       orgSlug: "acme",
       orgId: "org_token",
     })
@@ -849,6 +858,7 @@ describe("auth middleware composition", () => {
     expect(await response.json()).toEqual({
       user: { id: "user_token", email: "token@example.com" },
       session: { id: "sess_token", userId: "user_token" },
+      orgApiKey: null,
       orgSlug: "acme",
       orgId: "org_token",
     })
@@ -908,5 +918,225 @@ describe("auth middleware composition", () => {
     expect(www).toContain(
       mcpOAuthProtectedResourceMetadataUrl("https://backend.example.com"),
     )
+  })
+})
+
+describe("org API-key principal", () => {
+  function createMcpPrincipalApp(): Hono<AppEnv> {
+    const app = createBaseApp()
+    app.use(
+      "/mcp",
+      withCookieAuth,
+      withOrgApiKeyAuth,
+      withBearerAuth,
+      requireAuth,
+    )
+    app.post("/mcp", (c) =>
+      c.json({
+        user: c.get("user"),
+        session: c.get("session"),
+        orgApiKey: c.get("orgApiKey"),
+      }),
+    )
+    return app
+  }
+
+  function createRestPrincipalApp(): Hono<AppEnv> {
+    const app = createBaseApp()
+    app.use(
+      "/:orgSlug/api/v1/conversations",
+      withCookieAuth,
+      withOrgApiKeyAuth,
+      requireAuth,
+    )
+    app.get("/:orgSlug/api/v1/conversations", (c) => c.json({ ok: true }))
+    return app
+  }
+
+  function mockOrgKey(input?: {
+    id?: string
+    referenceId?: string
+    configId?: string
+  }) {
+    verifyApiKeyMock.mockResolvedValueOnce({
+      valid: true,
+      error: null,
+      key: {
+        id: input?.id ?? "key_org",
+        configId: input?.configId ?? "organization",
+        referenceId: input?.referenceId ?? "org_acme",
+      },
+    })
+  }
+
+  function mockInvalidKey(code: string) {
+    verifyApiKeyMock.mockResolvedValueOnce({
+      valid: false,
+      error: { message: code, code },
+      key: null,
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetBearerJwksCacheForTests()
+    getSystemDbMock.mockImplementation(() => testState.db as never)
+    getSessionMock.mockResolvedValue(null)
+  })
+
+  it("user x-api-key still sets user and session", async () => {
+    getSessionMock.mockResolvedValueOnce({
+      user: { id: "user_api_key", email: "api-key@example.com" },
+      session: { id: "sess_api_key", userId: "user_api_key" },
+    })
+
+    const app = createMcpPrincipalApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { "x-api-key": "ctxp_user_key" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: { id: "user_api_key", email: "api-key@example.com" },
+      session: { id: "sess_api_key", userId: "user_api_key" },
+      orgApiKey: null,
+    })
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
+  })
+
+  it("org x-api-key sets orgApiKey, leaves user and session null, and requireAuth on /mcp passes", async () => {
+    mockOrgKey()
+
+    const app = createMcpPrincipalApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { "x-api-key": "ctxp_org_key" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: null,
+      session: null,
+      orgApiKey: {
+        id: "key_org",
+        orgId: "org_acme",
+        configId: "organization",
+      },
+    })
+    expect(verifyApiKeyMock).toHaveBeenCalledTimes(1)
+    expect(verifyApiKeyMock.mock.calls[0]?.[0]).toEqual({
+      body: { key: "ctxp_org_key" },
+    })
+  })
+
+  it("org x-api-key still authenticates /mcp when getSession throws", async () => {
+    getSessionMock.mockRejectedValueOnce(new Error("INVALID_API_KEY"))
+    mockOrgKey()
+
+    const app = createMcpPrincipalApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { "x-api-key": "ctxp_org_key" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      user: null,
+      session: null,
+      orgApiKey: { orgId: "org_acme", configId: "organization" },
+    })
+  })
+
+  it("org x-api-key on a REST path returns 401", async () => {
+    mockOrgKey()
+
+    const app = createRestPrincipalApp()
+    const response = await app.request("/acme/api/v1/conversations", {
+      headers: { "x-api-key": "ctxp_org_key" },
+    })
+
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({ error: "Unauthorized" })
+    expect(verifyApiKeyMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("Bearer OAuth is unchanged and does not set orgApiKey", async () => {
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: { sub: "token_sub", sid: "sess_token" },
+    })
+    testState.db = createMockDb({
+      tokenSessionRows: [
+        {
+          session: { id: "sess_token", userId: "user_token" },
+          user: { id: "user_token", email: "token@example.com" },
+        },
+      ],
+    })
+
+    const app = createMcpPrincipalApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer header.payload.signature" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: { id: "user_token", email: "token@example.com" },
+      session: { id: "sess_token", userId: "user_token" },
+      orgApiKey: null,
+    })
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
+  })
+
+  it("Bearer that looks like an API key still 401s with no org-key fallback", async () => {
+    testState.db = createMockDb({ opaqueTokenRows: [] })
+
+    const app = createMcpPrincipalApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer ctxp_looks_like_an_api_key" },
+    })
+
+    expect(response.status).toBe(401)
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
+    expect(jwtVerifyMock).not.toHaveBeenCalled()
+  })
+
+  it("invalid org key returns 401", async () => {
+    mockInvalidKey("KEY_NOT_FOUND")
+
+    const app = createMcpPrincipalApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { "x-api-key": "ctxp_bogus" },
+    })
+
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({ error: "Unauthorized" })
+  })
+
+  it("expired org key returns 401", async () => {
+    mockInvalidKey("KEY_EXPIRED")
+
+    const app = createMcpPrincipalApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { "x-api-key": "ctxp_expired" },
+    })
+
+    expect(response.status).toBe(401)
+  })
+
+  it("disabled org key returns 401", async () => {
+    mockInvalidKey("KEY_DISABLED")
+
+    const app = createMcpPrincipalApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { "x-api-key": "ctxp_disabled" },
+    })
+
+    expect(response.status).toBe(401)
   })
 })
