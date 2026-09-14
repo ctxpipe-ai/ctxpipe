@@ -170,7 +170,10 @@ export function ConversationList(props: {
                   </button>
                 }
               />
-              <DropdownMenuContent align="end" className="rounded-none">
+              <DropdownMenuContent
+                align="end"
+                className="w-max min-w-44 rounded-none"
+              >
                 <DropdownMenuRadioGroup
                   value={activeSourceFilter}
                   onValueChange={(value) => {
