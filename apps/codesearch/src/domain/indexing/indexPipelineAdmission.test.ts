@@ -4,12 +4,12 @@ import {
   releaseIndexPipeline,
   releaseIndexPipelineReservation,
   resetIndexPipelineAdmissionForTests,
-  setIndexPipelineNowMsForTests,
   tryAcquireIndexPipeline,
 } from "./indexPipelineAdmission.js"
 
 describe("index pipeline admission", () => {
   afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllEnvs()
     resetIndexPipelineAdmissionForTests()
   })
@@ -44,7 +44,7 @@ describe("index pipeline admission", () => {
     releaseIndexPipelineReservation("repo_c")
   })
 
-  it("keeps the reservation after refs hit zero until explicit release", () => {
+  it("keeps the reservation after refs hit zero until reservation release", () => {
     vi.stubEnv("CODESEARCH_INDEX_PIPELINE_CONCURRENCY", "1")
     expect(tryAcquireIndexPipeline("repo_a").ok).toBe(true)
     releaseIndexPipeline("repo_a")
@@ -55,12 +55,13 @@ describe("index pipeline admission", () => {
   })
 
   it("expires a sticky reservation after the idle TTL", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
     vi.stubEnv("CODESEARCH_INDEX_PIPELINE_CONCURRENCY", "1")
-    setIndexPipelineNowMsForTests(1_000)
     expect(tryAcquireIndexPipeline("repo_a").ok).toBe(true)
     releaseIndexPipeline("repo_a")
     expect(tryAcquireIndexPipeline("repo_b").ok).toBe(false)
-    setIndexPipelineNowMsForTests(1_000 + INDEX_PIPELINE_IDLE_TTL_MS)
+    vi.setSystemTime(1_000 + INDEX_PIPELINE_IDLE_TTL_MS)
     expect(tryAcquireIndexPipeline("repo_b")).toEqual({ ok: true })
     releaseIndexPipelineReservation("repo_b")
   })

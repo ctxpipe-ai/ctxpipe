@@ -4,6 +4,9 @@ import type { AppEnv } from "../app/env.js"
 import { resetIndexPipelineAdmissionForTests } from "../domain/indexing/indexPipelineAdmission.js"
 
 const phaseCloneCheckoutMock = vi.hoisted(() => vi.fn())
+const phaseZoektMock = vi.hoisted(() => vi.fn())
+const phaseMergeScipMock = vi.hoisted(() => vi.fn())
+const phaseMarkCheckoutIndexedMock = vi.hoisted(() => vi.fn())
 const getAccessibleRepositoryMock = vi.hoisted(() => vi.fn())
 const getIndexableRepositoryMock = vi.hoisted(() => vi.fn())
 
@@ -14,6 +17,9 @@ vi.mock("../domain/indexing/phases.js", async () => {
   return {
     ...actual,
     phaseCloneCheckout: phaseCloneCheckoutMock,
+    phaseZoekt: phaseZoektMock,
+    phaseMergeScip: phaseMergeScipMock,
+    phaseMarkCheckoutIndexed: phaseMarkCheckoutIndexedMock,
   }
 })
 
@@ -65,6 +71,39 @@ function createTestApp() {
   return app
 }
 
+async function postClone(
+  app: ReturnType<typeof createTestApp>,
+  repoId: string,
+) {
+  return app.request(`/${repoId}/index/clone-checkout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  })
+}
+
+async function postZoekt(
+  app: ReturnType<typeof createTestApp>,
+  repoId: string,
+) {
+  return app.request(`/${repoId}/index/zoekt`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  })
+}
+
+async function postMerge(
+  app: ReturnType<typeof createTestApp>,
+  repoId: string,
+) {
+  return app.request(`/${repoId}/index/merge-scip`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ detectedLanguages: ["go"] }),
+  })
+}
+
 describe("index phase pipeline admission", () => {
   afterEach(() => {
     vi.unstubAllEnvs()
@@ -80,6 +119,16 @@ describe("index phase pipeline admission", () => {
     getIndexableRepositoryMock.mockImplementation(async (_db, repoId: string) =>
       repo(repoId),
     )
+    phaseCloneCheckoutMock.mockResolvedValue({
+      targetHash: "abc",
+      ingestMode: "full",
+      changedPaths: [],
+      deletedPaths: [],
+      renames: [],
+    })
+    phaseZoektMock.mockResolvedValue(undefined)
+    phaseMergeScipMock.mockResolvedValue({ shardCount: 1 })
+    phaseMarkCheckoutIndexedMock.mockResolvedValue(undefined)
   })
 
   it("returns 429 with Retry-After when another repo holds the pipeline cap", async () => {
@@ -96,18 +145,10 @@ describe("index phase pipeline admission", () => {
       }
     })
     const app = createTestApp()
-    const first = app.request("/repo_aaaaaa/index/clone-checkout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    })
+    const first = postClone(app, "repo_aaaaaa")
     await vi.waitFor(() => expect(phaseCloneCheckoutMock).toHaveBeenCalled())
 
-    const second = await app.request("/repo_bbbbbb/index/clone-checkout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    })
+    const second = await postClone(app, "repo_bbbbbb")
     expect(second.status).toBe(429)
     expect(second.headers.get("Retry-After")).toBe("30")
     await expect(second.json()).resolves.toEqual({
@@ -118,43 +159,35 @@ describe("index phase pipeline admission", () => {
     expect((await first).status).toBe(200)
   })
 
-  it("keeps the pipeline reserved after a phase returns until release-pipeline", async () => {
+  it("keeps the pipeline reserved after a successful clone until merge-scip", async () => {
     vi.stubEnv("CODESEARCH_INDEX_PIPELINE_CONCURRENCY", "1")
-    phaseCloneCheckoutMock.mockResolvedValue({
-      targetHash: "abc",
-      ingestMode: "full",
-      changedPaths: [],
-      deletedPaths: [],
-      renames: [],
-    })
     const app = createTestApp()
-    const first = await app.request("/repo_aaaaaa/index/clone-checkout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    })
-    expect(first.status).toBe(200)
+    expect((await postClone(app, "repo_aaaaaa")).status).toBe(200)
 
-    const blocked = await app.request("/repo_bbbbbb/index/clone-checkout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    })
+    const blocked = await postClone(app, "repo_bbbbbb")
     expect(blocked.status).toBe(429)
 
-    const released = await app.request("/repo_aaaaaa/index/release-pipeline", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    })
-    expect(released.status).toBe(200)
-    await expect(released.json()).resolves.toEqual({ ok: true })
+    expect((await postMerge(app, "repo_aaaaaa")).status).toBe(200)
 
-    const second = await app.request("/repo_bbbbbb/index/clone-checkout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    })
-    expect(second.status).toBe(200)
+    expect((await postClone(app, "repo_bbbbbb")).status).toBe(200)
+  })
+
+  it("drops the reservation when clone-checkout fails so another repo can start", async () => {
+    vi.stubEnv("CODESEARCH_INDEX_PIPELINE_CONCURRENCY", "1")
+    phaseCloneCheckoutMock.mockRejectedValueOnce(new Error("clone failed"))
+    const app = createTestApp()
+    expect((await postClone(app, "repo_aaaaaa")).status).toBe(500)
+    expect((await postClone(app, "repo_bbbbbb")).status).toBe(200)
+  })
+
+  it("keeps the reservation after a non-fatal zoekt failure until merge-scip", async () => {
+    vi.stubEnv("CODESEARCH_INDEX_PIPELINE_CONCURRENCY", "1")
+    phaseZoektMock.mockRejectedValue(new Error("zoekt failed"))
+    const app = createTestApp()
+    expect((await postClone(app, "repo_aaaaaa")).status).toBe(200)
+    expect((await postZoekt(app, "repo_aaaaaa")).status).toBe(500)
+    expect((await postClone(app, "repo_bbbbbb")).status).toBe(429)
+    expect((await postMerge(app, "repo_aaaaaa")).status).toBe(200)
+    expect((await postClone(app, "repo_bbbbbb")).status).toBe(200)
   })
 })

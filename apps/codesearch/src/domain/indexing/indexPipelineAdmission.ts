@@ -7,12 +7,6 @@ type PipelineState = { refs: number; lastActivityMs: number }
 
 const pipelines = new Map<string, PipelineState>()
 
-let nowMsForTests: number | undefined
-
-function nowMs(): number {
-  return nowMsForTests ?? Date.now()
-}
-
 function sweepExpiredReservations(now: number): void {
   for (const [repoId, state] of pipelines) {
     if (
@@ -27,7 +21,7 @@ function sweepExpiredReservations(now: number): void {
 export function tryAcquireIndexPipeline(
   repoId: string,
 ): { ok: true } | { ok: false; retryAfterSeconds: number } {
-  const now = nowMs()
+  const now = Date.now()
   sweepExpiredReservations(now)
   const existing = pipelines.get(repoId)
   if (existing) {
@@ -49,7 +43,7 @@ export function releaseIndexPipeline(repoId: string): void {
   const existing = pipelines.get(repoId)
   if (!existing) return
   existing.refs = Math.max(0, existing.refs - 1)
-  existing.lastActivityMs = nowMs()
+  existing.lastActivityMs = Date.now()
 }
 
 export function releaseIndexPipelineReservation(repoId: string): void {
@@ -58,9 +52,4 @@ export function releaseIndexPipelineReservation(repoId: string): void {
 
 export function resetIndexPipelineAdmissionForTests(): void {
   pipelines.clear()
-  nowMsForTests = undefined
-}
-
-export function setIndexPipelineNowMsForTests(nowMsValue: number): void {
-  nowMsForTests = nowMsValue
 }

@@ -218,31 +218,6 @@ const scipLangRoute = createRoute({
   },
 })
 
-const releasePipelineRoute = createRoute({
-  method: "post",
-  path: "/{repoId}/index/release-pipeline",
-  request: {
-    params: z.object({ repoId: repoIdParam }),
-    body: {
-      content: {
-        "application/json": {
-          schema: z
-            .object({})
-            .default({})
-            .openapi("IndexReleasePipelineRequest"),
-        },
-      },
-      required: false,
-    },
-  },
-  responses: {
-    200: {
-      content: { "application/json": { schema: okResponseSchema } },
-      description: "Index pipeline reservation released",
-    },
-  },
-})
-
 const mergeScipRoute = createRoute({
   method: "post",
   path: "/{repoId}/index/merge-scip",
@@ -327,6 +302,17 @@ async function withIndexPipelineAdmission(
   }
 }
 
+function finishIndexPipelineAdmission(
+  repoId: string,
+  response: Response,
+  reservation: "end-on-error" | "end",
+): Response {
+  if (reservation === "end" || response.status !== 200) {
+    releaseIndexPipelineReservation(repoId)
+  }
+  return response
+}
+
 export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
   app.openapi(cloneCheckoutRoute, async (c) => {
     const db = c.get("db")
@@ -335,42 +321,46 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
-    return withIndexPipelineAdmission(c, repoId, () =>
-      withRepositoryIndexOperation(repoId, async () => {
-        const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
-          githubToken: body.githubToken,
-        })
-        if (!resolved.ok) {
-          return c.json({ error: resolved.error }, resolved.status)
-        }
-        try {
-          const result = await withLogger(
-            createLogger({
-              repositoryId: resolved.ctx.repoId,
-              phase: "clone-checkout",
-            }),
-            async () => {
-              getLogger().set({
-                step: "codesearch.index.phase.http",
+    return finishIndexPipelineAdmission(
+      repoId,
+      await withIndexPipelineAdmission(c, repoId, () =>
+        withRepositoryIndexOperation(repoId, async () => {
+          const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
+            githubToken: body.githubToken,
+          })
+          if (!resolved.ok) {
+            return c.json({ error: resolved.error }, resolved.status)
+          }
+          try {
+            const result = await withLogger(
+              createLogger({
+                repositoryId: resolved.ctx.repoId,
                 phase: "clone-checkout",
-              })
-              getLogger().info("codesearch index phase clone-checkout")
-              flushWorkflowLog()
-              return phaseCloneCheckout(resolved.ctx, {
-                targetHash: body.targetHash,
-                fromHash: body.fromHash,
-              })
-            },
-          )
-          return c.json({ ok: true as const, ...result }, 200)
-        } catch (error) {
-          const message = userFacingIndexingError(
-            error,
-            "Clone/checkout failed",
-          )
-          return c.json({ error: message }, 500)
-        }
-      }),
+              }),
+              async () => {
+                getLogger().set({
+                  step: "codesearch.index.phase.http",
+                  phase: "clone-checkout",
+                })
+                getLogger().info("codesearch index phase clone-checkout")
+                flushWorkflowLog()
+                return phaseCloneCheckout(resolved.ctx, {
+                  targetHash: body.targetHash,
+                  fromHash: body.fromHash,
+                })
+              },
+            )
+            return c.json({ ok: true as const, ...result }, 200)
+          } catch (error) {
+            const message = userFacingIndexingError(
+              error,
+              "Clone/checkout failed",
+            )
+            return c.json({ error: message }, 500)
+          }
+        }),
+      ),
+      "end-on-error",
     )
   })
 
@@ -418,35 +408,39 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
-    return withIndexPipelineAdmission(c, repoId, () =>
-      withRepositoryIndexOperation(repoId, async () => {
-        const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
-        if (!resolved.ok) {
-          return c.json({ error: resolved.error }, resolved.status)
-        }
-        try {
-          const result = await withLogger(
-            createLogger({
-              repositoryId: resolved.ctx.repoId,
-              phase: "detect-languages",
-            }),
-            () =>
-              phaseDetectLanguages(resolved.ctx, {
-                ingestMode: body.ingestMode,
-                changedPaths: body.changedPaths,
-                deletedPaths: body.deletedPaths,
-                renames: body.renames,
+    return finishIndexPipelineAdmission(
+      repoId,
+      await withIndexPipelineAdmission(c, repoId, () =>
+        withRepositoryIndexOperation(repoId, async () => {
+          const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
+          if (!resolved.ok) {
+            return c.json({ error: resolved.error }, resolved.status)
+          }
+          try {
+            const result = await withLogger(
+              createLogger({
+                repositoryId: resolved.ctx.repoId,
+                phase: "detect-languages",
               }),
-          )
-          return c.json({ ok: true as const, ...result }, 200)
-        } catch (error) {
-          const message = userFacingIndexingError(
-            error,
-            "Language detection failed",
-          )
-          return c.json({ error: message }, 500)
-        }
-      }),
+              () =>
+                phaseDetectLanguages(resolved.ctx, {
+                  ingestMode: body.ingestMode,
+                  changedPaths: body.changedPaths,
+                  deletedPaths: body.deletedPaths,
+                  renames: body.renames,
+                }),
+            )
+            return c.json({ ok: true as const, ...result }, 200)
+          } catch (error) {
+            const message = userFacingIndexingError(
+              error,
+              "Language detection failed",
+            )
+            return c.json({ error: message }, 500)
+          }
+        }),
+      ),
+      "end-on-error",
     )
   })
 
@@ -491,45 +485,41 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
-    return withIndexPipelineAdmission(c, repoId, () =>
-      withRepositoryIndexOperation(repoId, async () => {
-        const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
-        if (!resolved.ok) {
-          return c.json({ error: resolved.error }, resolved.status)
-        }
-        try {
-          let shardCount = 0
-          await withLogger(
-            createLogger({
-              repositoryId: resolved.ctx.repoId,
-              phase: "merge-scip",
-            }),
-            async () => {
-              try {
-                const published = await phaseMergeScip(resolved.ctx, {
-                  detectedLanguages: body.detectedLanguages,
-                  languagesToMerge: body.languagesToMerge,
-                })
-                shardCount = published.shardCount
-              } finally {
-                await phaseMarkCheckoutIndexed(resolved.ctx)
-              }
-            },
-          )
-          return c.json({ ok: true as const, shardCount }, 200)
-        } catch (error) {
-          const message = userFacingIndexingError(error, "SCIP merge failed")
-          return c.json({ error: message }, 500)
-        }
-      }),
+    return finishIndexPipelineAdmission(
+      repoId,
+      await withIndexPipelineAdmission(c, repoId, () =>
+        withRepositoryIndexOperation(repoId, async () => {
+          const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
+          if (!resolved.ok) {
+            return c.json({ error: resolved.error }, resolved.status)
+          }
+          try {
+            let shardCount = 0
+            await withLogger(
+              createLogger({
+                repositoryId: resolved.ctx.repoId,
+                phase: "merge-scip",
+              }),
+              async () => {
+                try {
+                  const published = await phaseMergeScip(resolved.ctx, {
+                    detectedLanguages: body.detectedLanguages,
+                    languagesToMerge: body.languagesToMerge,
+                  })
+                  shardCount = published.shardCount
+                } finally {
+                  await phaseMarkCheckoutIndexed(resolved.ctx)
+                }
+              },
+            )
+            return c.json({ ok: true as const, shardCount }, 200)
+          } catch (error) {
+            const message = userFacingIndexingError(error, "SCIP merge failed")
+            return c.json({ error: message }, 500)
+          }
+        }),
+      ),
+      "end",
     )
-  })
-
-  app.openapi(releasePipelineRoute, async (c) => {
-    const auth = c.get("auth")
-    if (!auth) throw new Error("Missing auth context")
-    const { repoId } = c.req.valid("param")
-    releaseIndexPipelineReservation(repoId)
-    return c.json({ ok: true as const }, 200)
   })
 }

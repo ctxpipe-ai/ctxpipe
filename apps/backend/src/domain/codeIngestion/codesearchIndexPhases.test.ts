@@ -24,7 +24,6 @@ import { CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY } from "../../lib/memoryFitError.js
 import {
   CodesearchAdmissionBusyError,
   codesearchIndexMergeScip,
-  codesearchIndexReleasePipeline,
   codesearchIndexScipLang,
   codesearchIndexZoekt,
 } from "./codesearchIndexPhases.js"
@@ -214,37 +213,6 @@ describe("codesearchIndexMergeScip", () => {
     expect(JSON.parse(String(init.body))).toEqual({
       detectedLanguages: ["go"],
     })
-    vi.unstubAllGlobals()
-  })
-})
-
-describe("codesearchIndexReleasePipeline", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    signUpstreamJwtMock.mockResolvedValue("token")
-    parseEnvMock.mockReturnValue({})
-    codesearchBaseUrlMock.mockReturnValue("http://codesearch:3001")
-  })
-
-  it("POSTs the release-pipeline phase", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(JSON.stringify({ ok: true }), { status: 200 }),
-      )
-    vi.stubGlobal("fetch", fetchMock)
-
-    await expect(
-      codesearchIndexReleasePipeline({
-        repositoryId: "repo_1",
-        orgId: "org_1",
-      }),
-    ).resolves.toBeUndefined()
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://codesearch:3001/repo_1/index/release-pipeline",
-      expect.objectContaining({ method: "POST" }),
-    )
     vi.unstubAllGlobals()
   })
 })

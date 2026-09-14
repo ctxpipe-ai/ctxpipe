@@ -18,9 +18,6 @@ const detectMock = vi.hoisted(() =>
 )
 const scipMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 const mergeMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
-const releasePipelineMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue(undefined),
-)
 const touchIndexingUpdatedAtMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 )
@@ -46,7 +43,6 @@ vi.mock("../../domain/codeIngestion/codesearchIndexPhases.js", () => ({
   codesearchIndexDetectLanguages: detectMock,
   codesearchIndexScipLang: scipMock,
   codesearchIndexMergeScip: mergeMock,
-  codesearchIndexReleasePipeline: releasePipelineMock,
   CodesearchAdmissionBusyError: admissionBusy.CodesearchAdmissionBusyError,
   isCodesearchAdmissionBusyError: admissionBusy.isCodesearchAdmissionBusyError,
 }))
@@ -142,7 +138,6 @@ describe("repositoryIndex workflow", () => {
     })
     scipMock.mockResolvedValue(undefined)
     mergeMock.mockResolvedValue({ shardCount: 2 })
-    releasePipelineMock.mockResolvedValue(undefined)
     touchIndexingUpdatedAtMock.mockResolvedValue(undefined)
   })
 
@@ -186,8 +181,7 @@ describe("repositoryIndex workflow", () => {
     expect(stepNames).toContain("scip:go")
     expect(stepNames).toContain("scip:typescript")
     expect(stepNames).toContain("merge-scip")
-    expect(stepNames[stepNames.length - 1]).toBe("release-pipeline")
-    expect(releasePipelineMock).toHaveBeenCalledOnce()
+    expect(stepNames[stepNames.length - 1]).toBe("merge-scip")
     expect(result).toMatchObject({
       targetHash: "abc",
       ingestMode: "full",
@@ -459,7 +453,6 @@ describe("repositoryIndex workflow", () => {
 
     expect(zoektMock).not.toHaveBeenCalled()
     expect(scipMock).not.toHaveBeenCalled()
-    expect(releasePipelineMock).toHaveBeenCalledOnce()
   })
 
   it("still runs SCIP after a non-memory Zoekt failure", async () => {
@@ -544,7 +537,6 @@ describe("repositoryIndex workflow", () => {
     expect(touchIndexingUpdatedAtMock).toHaveBeenCalledWith({
       repositoryId: "repo_1",
     })
-    expect(releasePipelineMock).toHaveBeenCalledOnce()
   })
 
   it("keeps waiting after 21 clone 429s and never throws exceeded retries", async () => {
@@ -591,10 +583,9 @@ describe("repositoryIndex workflow", () => {
     expect(sleeps).toHaveLength(21)
     expect(sleeps[0]).toEqual(["clone-checkout:admit-wait-0", "30s"])
     expect(sleeps[1]).toEqual(["clone-checkout:admit-wait-1", "60s"])
-    expect(sleeps[2]).toEqual(["clone-checkout:admit-wait-2", "2m"])
-    expect(sleeps[20]).toEqual(["clone-checkout:admit-wait-20", "5m"])
+    expect(sleeps[2]).toEqual(["clone-checkout:admit-wait-2", "120s"])
+    expect(sleeps[20]).toEqual(["clone-checkout:admit-wait-20", "300s"])
     expect(touchIndexingUpdatedAtMock).toHaveBeenCalledTimes(21)
-    expect(releasePipelineMock).toHaveBeenCalledOnce()
   })
 
   it("uses Retry-After when it is longer than the current backoff", async () => {
@@ -635,7 +626,48 @@ describe("repositoryIndex workflow", () => {
       step,
     })
 
-    expect(sleeps).toEqual([["clone-checkout:admit-wait-0", "2m"]])
+    expect(sleeps).toEqual([["clone-checkout:admit-wait-0", "180s"]])
+  })
+
+  it("sleeps the exact Retry-After seconds when it exceeds the 300s backoff cap", async () => {
+    cloneMock
+      .mockRejectedValueOnce(
+        new admissionBusy.CodesearchAdmissionBusyError("busy", 400),
+      )
+      .mockResolvedValueOnce({
+        targetHash: "abc",
+        ingestMode: "full",
+        changedPaths: [],
+        deletedPaths: [],
+        renames: [],
+      })
+    const sleeps: Array<[string, string]> = []
+    const step = passthroughStep({
+      sleep: async (name, duration) => {
+        sleeps.push([name, duration])
+      },
+    })
+    const wf = repositoryIndex as unknown as {
+      fn: (args: {
+        input: {
+          repositoryId: string
+          orgId: string
+          targetHash: string
+        }
+        step: typeof step
+      }) => Promise<unknown>
+    }
+
+    await wf.fn({
+      input: {
+        repositoryId: "repo_1",
+        orgId: "org_1",
+        targetHash: "abc",
+      },
+      step,
+    })
+
+    expect(sleeps).toEqual([["clone-checkout:admit-wait-0", "400s"]])
   })
 
   it("does not record Zoekt 429 as searchIndexOk false", async () => {
