@@ -8,6 +8,7 @@ import {
   codesearchIndexMergeScip,
   codesearchIndexScipLang,
   codesearchIndexZoekt,
+  INDEX_PIPELINE_RETRY_AFTER_SECONDS,
   isCodesearchAdmissionBusyError,
 } from "../../domain/codeIngestion/codesearchIndexPhases.js"
 import {
@@ -83,19 +84,12 @@ function joinIndexErrors(errors: string[]): string | undefined {
   return unique.length > 0 ? unique.join("; ") : undefined
 }
 
-const ADMISSION_BACKOFF_SECONDS = [30, 60, 120, 300] as const
-
-function admissionSleepDuration(
-  attempt: number,
-  retryAfterSeconds?: number,
-): string {
-  const backoffIndex = Math.min(attempt, ADMISSION_BACKOFF_SECONDS.length - 1)
-  const backoffSeconds = ADMISSION_BACKOFF_SECONDS[backoffIndex] ?? 300
+function admissionSleepDuration(retryAfterSeconds?: number): string {
   const retryAfter =
     retryAfterSeconds != null && retryAfterSeconds > 0
       ? Math.floor(retryAfterSeconds)
-      : 0
-  return `${Math.max(backoffSeconds, retryAfter)}s`
+      : INDEX_PIPELINE_RETRY_AFTER_SECONDS
+  return `${retryAfter}s`
 }
 
 type IndexStep = {
@@ -159,7 +153,7 @@ async function runIndexPhaseWithAdmissionRetry<T>(
     if (outcome.admitted) return outcome.value
     await step.sleep(
       `${baseName}:admit-wait-${attempt}`,
-      admissionSleepDuration(attempt, outcome.retryAfterSeconds),
+      admissionSleepDuration(outcome.retryAfterSeconds),
     )
   }
 }
@@ -196,10 +190,11 @@ function logMilestone(step: string, fields: Record<string, unknown>): void {
  *
  * Zoekt or SCIP failure is recorded on the result so extract can still
  * complete (lexical search and/or graph tools degrade). Clone failure
- * still fails the workflow. Index-pipeline 429s sleep with backoff until
- * a slot opens (no retry cap). SCIP langs are admitted in batches of
- * indexer concurrency. Codesearch holds the in-process pipeline reservation
- * across phases and drops it on merge-scip or a fatal clone/detect error.
+ * still fails the workflow. Index-pipeline 429s sleep for Retry-After
+ * (default 30s) until a slot opens (no retry cap). SCIP langs are admitted
+ * in batches of indexer concurrency. Codesearch holds the in-process
+ * pipeline reservation across phases and drops it on merge-scip or a fatal
+ * clone/detect error.
  */
 export const repositoryIndex = defineWorkflow(
   { name: "repository-index", schema: repositoryIndexInputSchema },

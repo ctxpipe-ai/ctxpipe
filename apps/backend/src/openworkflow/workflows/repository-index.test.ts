@@ -582,13 +582,11 @@ describe("repositoryIndex workflow", () => {
     expect(cloneMock).toHaveBeenCalledTimes(22)
     expect(sleeps).toHaveLength(21)
     expect(sleeps[0]).toEqual(["clone-checkout:admit-wait-0", "30s"])
-    expect(sleeps[1]).toEqual(["clone-checkout:admit-wait-1", "60s"])
-    expect(sleeps[2]).toEqual(["clone-checkout:admit-wait-2", "120s"])
-    expect(sleeps[20]).toEqual(["clone-checkout:admit-wait-20", "300s"])
+    expect(sleeps[20]).toEqual(["clone-checkout:admit-wait-20", "30s"])
     expect(touchIndexingUpdatedAtMock).toHaveBeenCalledTimes(21)
   })
 
-  it("uses Retry-After when it is longer than the current backoff", async () => {
+  it("sleeps the Retry-After from codesearch", async () => {
     cloneMock
       .mockRejectedValueOnce(
         new admissionBusy.CodesearchAdmissionBusyError("busy", 180),
@@ -627,47 +625,6 @@ describe("repositoryIndex workflow", () => {
     })
 
     expect(sleeps).toEqual([["clone-checkout:admit-wait-0", "180s"]])
-  })
-
-  it("sleeps the exact Retry-After seconds when it exceeds the 300s backoff cap", async () => {
-    cloneMock
-      .mockRejectedValueOnce(
-        new admissionBusy.CodesearchAdmissionBusyError("busy", 400),
-      )
-      .mockResolvedValueOnce({
-        targetHash: "abc",
-        ingestMode: "full",
-        changedPaths: [],
-        deletedPaths: [],
-        renames: [],
-      })
-    const sleeps: Array<[string, string]> = []
-    const step = passthroughStep({
-      sleep: async (name, duration) => {
-        sleeps.push([name, duration])
-      },
-    })
-    const wf = repositoryIndex as unknown as {
-      fn: (args: {
-        input: {
-          repositoryId: string
-          orgId: string
-          targetHash: string
-        }
-        step: typeof step
-      }) => Promise<unknown>
-    }
-
-    await wf.fn({
-      input: {
-        repositoryId: "repo_1",
-        orgId: "org_1",
-        targetHash: "abc",
-      },
-      step,
-    })
-
-    expect(sleeps).toEqual([["clone-checkout:admit-wait-0", "400s"]])
   })
 
   it("does not record Zoekt 429 as searchIndexOk false", async () => {

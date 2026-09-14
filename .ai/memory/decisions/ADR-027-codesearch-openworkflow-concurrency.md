@@ -40,7 +40,7 @@ Railway has no Fargate-style committed memory in IaC (usage-billed). Capacity mu
 ## Consequences
 
 - Operators pick CDK `size` or Railway Terraform defaults; they do not set concurrency by hand unless they later need an escape hatch.
-- `sync-github-repositories` can still enqueue every new repo at once. Pending runs sit in the `openworkflow` Postgres schema; the pipeline cap must absorb that stampede, not OW slot count alone. Overflow waits unbounded with backoff (no 10-minute fail). Codesearch keeps an in-process sticky reservation across phases and drops it locally when `merge-scip` finishes or clone/detect fails; idle TTL reclaims abandoned earlier phases. No cross-step HTTP release.
+- `sync-github-repositories` can still enqueue every new repo at once. Pending runs sit in the `openworkflow` Postgres schema; the pipeline cap must absorb that stampede, not OW slot count alone. Overflow waits unbounded on codesearch `Retry-After` (no 10-minute fail, no escalating backoff). Codesearch keeps an in-process sticky reservation across phases and drops it locally when `merge-scip` finishes or clone/detect fails; idle TTL reclaims abandoned earlier phases. No cross-step HTTP release.
 - Self-host docs must state that scaling workers does not scale ingest unless codesearch memory and injected env grow with them.
 - CDK, Railway, and Compose must stay aligned with the table above; `size-profiles.test.ts` asserts CDK injection.
 
