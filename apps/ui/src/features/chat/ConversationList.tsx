@@ -8,6 +8,7 @@ import {
 import {
   useInfiniteQuery,
   useMutation,
+  useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
 import { Link, useRouter } from "@tanstack/react-router"
@@ -26,9 +27,12 @@ import { GridList, GridListItem } from "@/components/ui/GridList"
 import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
 import { Modal } from "@/components/ui/Modal"
 import { client } from "@/lib/api"
+import { authClient } from "@/lib/auth-client"
 import { ConversationListSkeleton } from "./components/ConversationListSkeleton"
 import { RenameConversationModal } from "./components/RenameConversationModal"
 import type { ConversationListItem } from "./types"
+
+type ConversationSourceFilter = "ui" | "mcp" | "mcp-service"
 
 export function ConversationList(props: {
   orgSlug: string
@@ -37,19 +41,34 @@ export function ConversationList(props: {
   const { orgSlug, currentConversationId } = props
   const router = useRouter()
   const queryClient = useQueryClient()
-  const [sourceFilter, setSourceFilter] = useState<"ui" | "mcp">("ui")
+  const [sourceFilter, setSourceFilter] =
+    useState<ConversationSourceFilter>("ui")
   const [conversationToRename, setConversationToRename] =
     useState<ConversationListItem | null>(null)
   const [conversationToDelete, setConversationToDelete] =
     useState<ConversationListItem | null>(null)
 
+  const memberRoleQuery = useQuery({
+    queryKey: ["active-member-role", orgSlug],
+    queryFn: async () => {
+      const { data } = await authClient.organization.getActiveMemberRole({
+        query: { organizationSlug: orgSlug },
+      })
+      return data?.role ?? null
+    },
+  })
+  const canViewMcpService =
+    memberRoleQuery.data === "admin" || memberRoleQuery.data === "owner"
+  const activeSourceFilter =
+    sourceFilter === "mcp-service" && !canViewMcpService ? "ui" : sourceFilter
+
   const conversationsQuery = useInfiniteQuery({
-    queryKey: ["conversations", orgSlug, sourceFilter],
+    queryKey: ["conversations", orgSlug, activeSourceFilter],
     queryFn: async ({ pageParam }) => {
       const res = await client[":orgSlug"].api.v1.conversations.$get({
         param: { orgSlug },
         query: {
-          source: sourceFilter,
+          source: activeSourceFilter,
           first: 10,
           ...(pageParam != null &&
             pageParam !== "" && { after: pageParam as string }),
@@ -142,7 +161,7 @@ export function ConversationList(props: {
                   <button
                     type="button"
                     aria-label="Filter by source"
-                    className="inline-flex h-7 w-7 min-h-7 min-w-7 shrink-0 items-center justify-center text-zinc-300 transition-colors hover:bg-white/[0.05] hover:text-zinc-100"
+                    className="inline-flex h-7 w-7 min-h-7 min-w-7 shrink-0 items-center justify-center rounded-none text-zinc-300 transition-colors hover:bg-white/[0.05] hover:text-zinc-100"
                   >
                     <IconAdjustmentsHorizontal
                       className="size-[18px] stroke-[1.9px]"
@@ -153,20 +172,31 @@ export function ConversationList(props: {
               />
               <DropdownMenuContent align="end" className="rounded-none">
                 <DropdownMenuRadioGroup
-                  value={sourceFilter}
-                  onValueChange={(value) =>
-                    setSourceFilter(value as "ui" | "mcp")
-                  }
+                  value={activeSourceFilter}
+                  onValueChange={(value) => {
+                    if (
+                      value === "ui" ||
+                      value === "mcp" ||
+                      (value === "mcp-service" && canViewMcpService)
+                    ) {
+                      setSourceFilter(value)
+                    }
+                  }}
                 >
                   <DropdownMenuRadioItem value="ui">UI</DropdownMenuRadioItem>
                   <DropdownMenuRadioItem value="mcp">MCP</DropdownMenuRadioItem>
+                  {canViewMcpService ? (
+                    <DropdownMenuRadioItem value="mcp-service">
+                      MCP service
+                    </DropdownMenuRadioItem>
+                  ) : null}
                 </DropdownMenuRadioGroup>
               </DropdownMenuContent>
             </DropdownMenu>
             <Link
               to="/$orgSlug/chat"
               params={{ orgSlug }}
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.05] hover:text-foreground [&_svg]:size-4"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-none text-muted-foreground transition-colors hover:bg-white/[0.05] hover:text-foreground [&_svg]:size-4"
               aria-label="New conversation"
             >
               <IconPlus aria-hidden />

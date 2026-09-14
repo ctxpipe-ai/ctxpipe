@@ -17,7 +17,11 @@ vi.mock("../db/client.js", () => ({
   getOrgDb: getOrgDbMock,
 }))
 
-import { ensureConversation, listConversations } from "./conversations.js"
+import {
+  ensureConversation,
+  listConversations,
+  listConversationsPaginated,
+} from "./conversations.js"
 
 const now = new Date("2026-09-14T00:00:00.000Z")
 
@@ -169,6 +173,53 @@ describe("listConversations", () => {
         },
       }),
     )
+    expect(requireCurrentUserIdMock).toHaveBeenCalled()
+  })
+})
+
+function mockPaginatedDb(rows: unknown[]) {
+  const limit = vi.fn(async () => rows)
+  const orderBy = vi.fn(() => ({ limit }))
+  const where = vi.fn(() => ({ orderBy }))
+  const from = vi.fn(() => ({ where }))
+  const select = vi.fn(() => ({ from }))
+  getOrgDbMock.mockReturnValue({ select })
+  return { select, from, where }
+}
+
+describe("listConversationsPaginated", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    requireCurrentOrgIdMock.mockReturnValue("org_1")
+    requireCurrentUserIdMock.mockReturnValue("user_1")
+    currentMcpActorMock.mockReturnValue({ type: "user", userId: "user_1" })
+  })
+
+  it("does not use the signed-in userId when listing org-service MCP threads", async () => {
+    const orgServiceRow = conversationRow({
+      id: "c_org",
+      userId: null,
+    })
+    mockPaginatedDb([orgServiceRow])
+
+    await expect(
+      listConversationsPaginated({ orgService: true, first: 10 }),
+    ).resolves.toMatchObject({
+      items: [orgServiceRow],
+    })
+    expect(requireCurrentUserIdMock).not.toHaveBeenCalled()
+    expect(requireCurrentOrgIdMock).toHaveBeenCalled()
+  })
+
+  it("scopes the signed-in user's mcp list to that userId", async () => {
+    const userRow = conversationRow({ id: "c_user", userId: "user_1" })
+    mockPaginatedDb([userRow])
+
+    await expect(
+      listConversationsPaginated({ source: "mcp", first: 10 }),
+    ).resolves.toMatchObject({
+      items: [userRow],
+    })
     expect(requireCurrentUserIdMock).toHaveBeenCalled()
   })
 })

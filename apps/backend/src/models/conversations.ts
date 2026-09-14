@@ -145,19 +145,26 @@ export async function listConversations(input?: {
 
 export async function listConversationsPaginated(input: {
   source?: string
+  /** Admin/owner MCP service list: `source=mcp` and `userId` null. */
+  orgService?: boolean
   first: number
   after?: string
 }): Promise<{ items: ConversationRecord[]; pageInfo: PageInfo }> {
   const orgId = requireCurrentOrgId()
-  const userId = requireCurrentUserId()
+  const userId = input.orgService ? null : requireCurrentUserId()
   const db = getOrgDb()
   const { first, after } = input
 
+  const sourceCondition = input.orgService
+    ? eq(conversations.source, "mcp")
+    : input.source
+      ? eq(conversations.source, input.source)
+      : undefined
   const baseConditions = [
     eq(conversations.orgId, orgId),
-    eq(conversations.userId, userId),
-    input.source ? eq(conversations.source, input.source) : null,
-  ].filter(Boolean) as ReturnType<typeof eq>[]
+    conversationActorUserMatch(userId),
+    ...(sourceCondition ? [sourceCondition] : []),
+  ]
 
   let cursorCondition: ReturnType<typeof or> | null = null
   const cursor =
@@ -233,12 +240,33 @@ export async function listConversationsPaginated(input: {
   })
 }
 
+function conversationAccessMatch(
+  conversationId: string,
+  orgId: string,
+  orgService: boolean,
+) {
+  return and(
+    eq(conversations.id, conversationId),
+    eq(conversations.orgId, orgId),
+    conversationActorUserMatch(orgService ? null : requireCurrentUserId()),
+  )
+}
+
 export async function getConversation(
   conversationId: string,
+  input?: { orgService?: boolean },
 ): Promise<ConversationRecord | null> {
   const orgId = requireCurrentOrgId()
-  const userId = requireCurrentUserId()
   const db = getOrgDb()
+  if (input?.orgService) {
+    const [row] = await db
+      .select()
+      .from(conversations)
+      .where(conversationAccessMatch(conversationId, orgId, true))
+      .limit(1)
+    return row ?? null
+  }
+  const userId = requireCurrentUserId()
   return (
     (await db.query.conversations.findFirst({
       where: {
@@ -252,20 +280,15 @@ export async function getConversation(
 
 export async function updateConversation(
   conversationId: string,
-  input: { name: string },
+  input: { name: string; orgService?: boolean },
 ): Promise<ConversationRecord | null> {
   const orgId = requireCurrentOrgId()
-  const userId = requireCurrentUserId()
   const db = getOrgDb()
   const [updated] = await db
     .update(conversations)
     .set({ name: input.name, updatedAt: new Date() })
     .where(
-      and(
-        eq(conversations.id, conversationId),
-        eq(conversations.orgId, orgId),
-        eq(conversations.userId, userId),
-      ),
+      conversationAccessMatch(conversationId, orgId, input.orgService === true),
     )
     .returning()
   return updated ?? null
@@ -273,17 +296,17 @@ export async function updateConversation(
 
 export async function deleteConversation(
   conversationId: string,
+  input?: { orgService?: boolean },
 ): Promise<boolean> {
   const orgId = requireCurrentOrgId()
-  const userId = requireCurrentUserId()
   const db = getOrgDb()
   const [deleted] = await db
     .delete(conversations)
     .where(
-      and(
-        eq(conversations.id, conversationId),
-        eq(conversations.orgId, orgId),
-        eq(conversations.userId, userId),
+      conversationAccessMatch(
+        conversationId,
+        orgId,
+        input?.orgService === true,
       ),
     )
     .returning({ id: conversations.id })
