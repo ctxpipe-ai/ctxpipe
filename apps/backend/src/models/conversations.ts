@@ -1,8 +1,12 @@
-import { and, desc, eq, lt, or, sql } from "drizzle-orm"
+import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm"
 import { createError } from "evlog"
-import { requireCurrentOrgId, requireCurrentUserId } from "../auth/context.js"
-import { conversations } from "../db/schema/conversations.js"
+import {
+  currentMcpActor,
+  requireCurrentOrgId,
+  requireCurrentUserId,
+} from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
+import { conversations } from "../db/schema/conversations.js"
 import {
   buildPageInfo,
   decodeCursor,
@@ -11,6 +15,17 @@ import {
 } from "../lib/pagination.js"
 
 export type ConversationRecord = typeof conversations.$inferSelect
+
+function conversationActorUserId(): string | null {
+  const actor = currentMcpActor()
+  return actor.type === "user" ? actor.userId : null
+}
+
+function conversationActorUserMatch(userId: string | null) {
+  return userId === null
+    ? isNull(conversations.userId)
+    : eq(conversations.userId, userId)
+}
 
 type ConversationCursor = {
   lastMessageAt: string | null
@@ -31,7 +46,7 @@ export async function ensureConversation(input: {
   source?: string
 }): Promise<ConversationRecord> {
   const orgId = requireCurrentOrgId()
-  const userId = requireCurrentUserId()
+  const userId = conversationActorUserId()
   const db = getOrgDb()
 
   const [existing] = await db
@@ -41,7 +56,7 @@ export async function ensureConversation(input: {
       and(
         eq(conversations.id, input.id),
         eq(conversations.orgId, orgId),
-        eq(conversations.userId, userId),
+        conversationActorUserMatch(userId),
       ),
     )
     .limit(1)
@@ -51,9 +66,7 @@ export async function ensureConversation(input: {
   const [idTaken] = await db
     .select({ id: conversations.id })
     .from(conversations)
-    .where(
-      and(eq(conversations.id, input.id), eq(conversations.orgId, orgId)),
-    )
+    .where(and(eq(conversations.id, input.id), eq(conversations.orgId, orgId)))
     .limit(1)
 
   if (idTaken) {
@@ -83,7 +96,7 @@ export async function touchConversationLastMessage(
   conversationId: string,
 ): Promise<void> {
   const orgId = requireCurrentOrgId()
-  const userId = requireCurrentUserId()
+  const userId = conversationActorUserId()
   const db = getOrgDb()
   await db
     .update(conversations)
@@ -95,7 +108,7 @@ export async function touchConversationLastMessage(
       and(
         eq(conversations.id, conversationId),
         eq(conversations.orgId, orgId),
-        eq(conversations.userId, userId),
+        conversationActorUserMatch(userId),
       ),
     )
 }

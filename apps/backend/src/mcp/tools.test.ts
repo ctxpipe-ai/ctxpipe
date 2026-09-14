@@ -10,6 +10,10 @@ const {
   requireCurrentUserIdMock,
   requireCurrentOrgIdMock,
   requireCurrentOrgSlugMock,
+  currentMcpActorMock,
+  trackMcpToolInvocationMock,
+  runWithLangfuseContextMock,
+  getLangfuseHandlerMock,
   withOrgDbContextMock,
 } = vi.hoisted(() => ({
   generateObjectIdMock: vi.fn(() => "thr_test"),
@@ -20,6 +24,15 @@ const {
   requireCurrentUserIdMock: vi.fn(() => "user_test123"),
   requireCurrentOrgIdMock: vi.fn(() => "org_test"),
   requireCurrentOrgSlugMock: vi.fn(() => "test-org"),
+  currentMcpActorMock: vi.fn(() => ({
+    type: "user" as const,
+    userId: "user_test123",
+  })),
+  trackMcpToolInvocationMock: vi.fn(),
+  runWithLangfuseContextMock: vi.fn(
+    async (_attrs: unknown, fn: () => Promise<unknown>) => fn(),
+  ),
+  getLangfuseHandlerMock: vi.fn(() => ({})),
   withOrgDbContextMock: vi.fn(
     async (_orgId: string, handler: () => Promise<unknown>) => handler(),
   ),
@@ -45,6 +58,16 @@ vi.mock("../auth/context.js", () => ({
   requireCurrentUserId: requireCurrentUserIdMock,
   requireCurrentOrgId: requireCurrentOrgIdMock,
   requireCurrentOrgSlug: requireCurrentOrgSlugMock,
+  currentMcpActor: currentMcpActorMock,
+}))
+
+vi.mock("../observability/amplitude.js", () => ({
+  trackMcpToolInvocation: trackMcpToolInvocationMock,
+}))
+
+vi.mock("../observability/langfuse.js", () => ({
+  runWithLangfuseContext: runWithLangfuseContextMock,
+  getLangfuseHandler: getLangfuseHandlerMock,
 }))
 
 vi.mock("../db/client.js", () => ({
@@ -62,6 +85,18 @@ describe("registerMcpTools", () => {
     generateObjectIdMock.mockReset().mockReturnValue("thr_test")
     ensureConversationMock.mockReset().mockResolvedValue({})
     touchConversationLastMessageMock.mockReset().mockResolvedValue(undefined)
+    currentMcpActorMock.mockReset().mockReturnValue({
+      type: "user",
+      userId: "user_test123",
+    })
+    requireCurrentUserIdMock.mockReset().mockReturnValue("user_test123")
+    trackMcpToolInvocationMock.mockReset()
+    runWithLangfuseContextMock
+      .mockReset()
+      .mockImplementation(async (_attrs: unknown, fn: () => Promise<unknown>) =>
+        fn(),
+      )
+    getLangfuseHandlerMock.mockReset().mockReturnValue({})
     withOrgDbContextMock
       .mockReset()
       .mockImplementation(
@@ -271,7 +306,7 @@ describe("registerMcpTools", () => {
 
   it("uses composite threadId when conversationId is provided", async () => {
     generateObjectIdMock.mockClear()
-    requireCurrentUserIdMock.mockClear()
+    currentMcpActorMock.mockClear()
     const callCountBefore = streamMock.mock.calls.length
     streamMock.mockResolvedValueOnce(
       (async function* () {
@@ -308,7 +343,8 @@ describe("registerMcpTools", () => {
       { sendNotification: vi.fn(async () => {}) },
     )
 
-    expect(requireCurrentUserIdMock).toHaveBeenCalledTimes(1)
+    expect(currentMcpActorMock).toHaveBeenCalled()
+    expect(requireCurrentUserIdMock).not.toHaveBeenCalled()
     expect(generateObjectIdMock).not.toHaveBeenCalled()
 
     const lastStreamCall = streamMock.mock.calls[callCountBefore]
@@ -390,5 +426,71 @@ describe("registerMcpTools", () => {
       currentProjectName?: string | null
     }
     expect(callArg.currentProjectName).toBeNull()
+  })
+
+  it("org-service actor does not call requireCurrentUserId and uses _org_ thread id", async () => {
+    currentMcpActorMock.mockReturnValue({
+      type: "org-service",
+      orgId: "org_test",
+    })
+    streamMock.mockResolvedValueOnce(
+      (async function* () {
+        yield { messages: [{ content: "Response" }] }
+      })(),
+    )
+
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: {
+          prompt: string
+          currentProjectName?: string
+          conversationId?: string
+        },
+        extra: { sendNotification: (n: unknown) => Promise<void> },
+      ) => Promise<{ content: Array<{ text: string }> }>,
+    ]
+
+    await handler(
+      {
+        prompt: "Test",
+        currentProjectName: "my-backend",
+        conversationId: "conv-xyz",
+      },
+      { sendNotification: vi.fn(async () => {}) },
+    )
+
+    expect(requireCurrentUserIdMock).not.toHaveBeenCalled()
+    expect(generateObjectIdMock).not.toHaveBeenCalled()
+    expect(trackMcpToolInvocationMock).toHaveBeenCalledWith({
+      userId: "org:org_test",
+      orgId: "org_test",
+      orgSlug: "test-org",
+      toolName: "ctx_advisor",
+    })
+
+    const callConfig = streamMock.mock.calls[0]?.[1] as {
+      configurable?: { thread_id?: string }
+    }
+    expect(callConfig.configurable?.thread_id).toContain("_org_")
+    expect(callConfig.configurable?.thread_id).toBe(
+      "org_test_org_my-backend_conv-xyz",
+    )
+    expect(ensureConversationMock).toHaveBeenCalledWith({
+      id: "org_test_org_my-backend_conv-xyz",
+      source: "mcp",
+    })
+    expect(runWithLangfuseContextMock).toHaveBeenCalledWith(
+      {
+        sessionId: "org_test_org_my-backend_conv-xyz",
+        tags: ["mcp", "mcp-org-key"],
+      },
+      expect.any(Function),
+    )
   })
 })

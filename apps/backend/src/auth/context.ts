@@ -21,6 +21,21 @@ export function requireCurrentUserId(): string {
   return userId
 }
 
+export type McpActor =
+  | { type: "user"; userId: string }
+  | { type: "org-service"; orgId: string }
+
+/** MCP principal: session/user-key member, or org API key with no user. */
+export function currentMcpActor(): McpActor {
+  const orgApiKey = currentOrgApiKey()
+  if (orgApiKey) {
+    return { type: "org-service", orgId: orgApiKey.orgId }
+  }
+  const userId = getContext<AppEnv>().var.user?.id
+  if (!userId) throw new Error("Missing MCP actor context")
+  return { type: "user", userId }
+}
+
 export function currentOrgApiKey(): AppEnv["Variables"]["orgApiKey"] {
   return getContext<AppEnv>().var.orgApiKey ?? null
 }
