@@ -619,38 +619,6 @@ export async function createPagerdutyWebhookSubscription(input: {
   return { id, secret }
 }
 
-export async function listPagerdutyWebhookSubscriptions(input: {
-  accessToken: string
-  region: PagerdutyRegion
-}): Promise<Array<{ id: string; url?: string }>> {
-  const response = await pagerdutyFetch({
-    region: input.region,
-    accessToken: input.accessToken,
-    path: "/webhook_subscriptions",
-  })
-  if (!response.ok) {
-    throw new Error(
-      `PagerDuty webhook subscription list failed (${response.status})`,
-    )
-  }
-  const body = (await response.json()) as {
-    webhook_subscriptions?: Array<{
-      id?: string
-      delivery_method?: { url?: string }
-    }>
-  }
-  return (body.webhook_subscriptions ?? []).flatMap((subscription) =>
-    typeof subscription.id === "string"
-      ? [
-          {
-            id: subscription.id,
-            url: subscription.delivery_method?.url,
-          },
-        ]
-      : [],
-  )
-}
-
 export async function deletePagerdutyWebhookSubscription(input: {
   accessToken: string
   region: PagerdutyRegion
@@ -671,8 +639,8 @@ export async function deletePagerdutyWebhookSubscription(input: {
 
 /**
  * Keep the existing subscription when we still have its signing secret.
- * Otherwise create one and delete other subscriptions aimed at this Event URL
- * so re-OAuth does not stack deliveries.
+ * Otherwise replace only this connection's subscription. Never delete other
+ * subscriptions on the shared Event URL — another org may own them.
  */
 export async function ensurePagerdutyWebhookSubscription(input: {
   accessToken: string
@@ -684,14 +652,7 @@ export async function ensurePagerdutyWebhookSubscription(input: {
   if (input.existingSubscriptionId && input.hasStoredSecret) {
     return { id: input.existingSubscriptionId, reused: true }
   }
-  const existing = await listPagerdutyWebhookSubscriptions({
-    accessToken: input.accessToken,
-    region: input.region,
-  })
-  const ours = existing.filter(
-    (subscription) => subscription.url === input.deliveryUrl,
-  )
-  if (input.existingSubscriptionId && !input.hasStoredSecret) {
+  if (input.existingSubscriptionId) {
     try {
       await deletePagerdutyWebhookSubscription({
         accessToken: input.accessToken,
@@ -702,22 +663,9 @@ export async function ensurePagerdutyWebhookSubscription(input: {
       // Best-effort replace; create still proceeds.
     }
   }
-  const created = await createPagerdutyWebhookSubscription({
+  return createPagerdutyWebhookSubscription({
     accessToken: input.accessToken,
     region: input.region,
     deliveryUrl: input.deliveryUrl,
   })
-  for (const subscription of ours) {
-    if (subscription.id === created.id) continue
-    try {
-      await deletePagerdutyWebhookSubscription({
-        accessToken: input.accessToken,
-        region: input.region,
-        subscriptionId: subscription.id,
-      })
-    } catch {
-      // Ignore cleanup failures; the new subscription is the one we persist.
-    }
-  }
-  return created
 }

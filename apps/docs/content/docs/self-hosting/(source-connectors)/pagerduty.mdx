@@ -69,8 +69,9 @@ body and routes the event with `X-PagerDuty-Subscription`. Re-authorization
 replaces a lost secret instead of stacking another subscription on the same
 event URL.
 
-Account-level delivery can include every service. Out-of-scope services are
-acknowledged with `200` and never fetched.
+Account-level delivery can include every service. Events with no service, or
+a service missing from live YAML, are acknowledged with `200` and never
+fetched.
 
 ## 3. Supply secrets to the deployment
 
@@ -142,10 +143,12 @@ after OAuth. Do not add a region field to the wizard. The API host is
 
 ## Troubleshooting
 
-### Authorization URL is not offered
+### “PagerDuty OAuth is not configured”
 
-The catalog button reports that OAuth is not configured when client ID or
-secret is missing on the backend. Set both variables and restart.
+`PAGERDUTY_CLIENT_ID` or `PAGERDUTY_CLIENT_SECRET` is missing from the
+backend. The catalog still opens the setup wizard; Connect fails when the
+authorization URL cannot be created. Set both variables on backend and worker,
+then restart.
 
 ### Callback is rejected
 

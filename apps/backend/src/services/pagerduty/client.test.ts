@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
+  ensurePagerdutyWebhookSubscription,
   getPagerdutyAccountIdentity,
   PAGERDUTY_OAUTH_SCOPES,
   pagerdutyApiBaseUrl,
@@ -102,5 +103,84 @@ describe("PagerDuty account identity", () => {
       region: "us",
       actorUserId: null,
     })
+  })
+})
+
+const SHARED_DELIVERY_URL = "https://app.ctxpipe.ai/api/v1/webhook/pagerduty"
+
+function webhookSubscriptionFetch(options: {
+  listed: Array<{ id: string; url: string }>
+  createdId?: string
+}): { deletedIds: string[]; fetchMock: ReturnType<typeof vi.fn> } {
+  const deletedIds: string[] = []
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const href = String(input)
+    const method = (init?.method ?? "GET").toUpperCase()
+    if (method === "GET" && href.endsWith("/webhook_subscriptions")) {
+      return jsonResponse(200, {
+        webhook_subscriptions: options.listed.map((subscription) => ({
+          id: subscription.id,
+          delivery_method: { url: subscription.url },
+        })),
+      })
+    }
+    if (method === "POST" && href.endsWith("/webhook_subscriptions")) {
+      return jsonResponse(200, {
+        webhook_subscription: {
+          id: options.createdId ?? "PFNEW",
+          delivery_method: { secret: "new-secret" },
+        },
+      })
+    }
+    const deleteMatch = href.match(/\/webhook_subscriptions\/([^/?]+)$/)
+    if (method === "DELETE" && deleteMatch) {
+      deletedIds.push(decodeURIComponent(deleteMatch[1] ?? ""))
+      return new Response(null, { status: 204 })
+    }
+    throw new Error(`unexpected ${method} ${href}`)
+  })
+  return { deletedIds, fetchMock }
+}
+
+describe("ensurePagerdutyWebhookSubscription", () => {
+  it("does not delete another organization's subscription on the shared Event URL", async () => {
+    const { deletedIds, fetchMock } = webhookSubscriptionFetch({
+      listed: [{ id: "PFORG1", url: SHARED_DELIVERY_URL }],
+      createdId: "PFORG2",
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(
+      ensurePagerdutyWebhookSubscription({
+        accessToken: "tok",
+        region: "us",
+        deliveryUrl: SHARED_DELIVERY_URL,
+        existingSubscriptionId: null,
+        hasStoredSecret: false,
+      }),
+    ).resolves.toEqual({ id: "PFORG2", secret: "new-secret" })
+    expect(deletedIds).not.toContain("PFORG1")
+  })
+
+  it("replaces only this connection's subscription when the signing secret is missing", async () => {
+    const { deletedIds, fetchMock } = webhookSubscriptionFetch({
+      listed: [
+        { id: "PFTHIS", url: SHARED_DELIVERY_URL },
+        { id: "PFORG1", url: SHARED_DELIVERY_URL },
+      ],
+      createdId: "PFNEW",
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(
+      ensurePagerdutyWebhookSubscription({
+        accessToken: "tok",
+        region: "us",
+        deliveryUrl: SHARED_DELIVERY_URL,
+        existingSubscriptionId: "PFTHIS",
+        hasStoredSecret: false,
+      }),
+    ).resolves.toEqual({ id: "PFNEW", secret: "new-secret" })
+    expect(deletedIds).toEqual(["PFTHIS"])
   })
 })

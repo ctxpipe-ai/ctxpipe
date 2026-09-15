@@ -30,7 +30,9 @@ For each in-scope incident, ctx| writes one Markdown file that can include:
 - A short list of additional alerts on that incident, with an overflow count
   when more exist.
 - Incident notes.
-- In-scope image attachments copied beside the incident file.
+- In-scope image attachments copied beside the incident file. Unsafe, signed,
+  or failed downloads leave a PagerDuty permalink stub instead of a private
+  URL.
 
 PagerDuty v3 webhooks are incident events. Alert create or update arrives as
 `incident.triggered` or a later incident event. ctx| refetches the incident,
@@ -98,8 +100,10 @@ remains the source of truth for which services are approved.
     ### Select services
 
     Search and page through the account's services, then select at least one.
-    Only incidents from those services are mirrored after the configuration
-    pull request is merged.
+    If the list is empty, create a service in PagerDuty first and refresh.
+    ctx| only reads existing services; it does not add PagerDuty integrations.
+    Only incidents from the selected services are mirrored after the
+    configuration pull request is merged.
   </Step>
 
   <Step>
@@ -141,8 +145,8 @@ prunes files for services that are no longer selected.
 
 PagerDuty sends signed webhook events to ctx| when incidents are created or
 updated. While the connector is live, ctx| verifies the HMAC against the raw
-body, checks that the incident's service is in the live YAML, updates the
-affected file, and starts another repository ingestion.
+body, skips the event unless the payload names a service that is in the live
+YAML, updates the affected file, and starts another repository ingestion.
 
 Events that arrive before the connector is live, including during initial sync,
 are skipped rather than queued for later. Events for unscoped services are
@@ -204,13 +208,16 @@ subscription and that `POST /api/v1/webhook/pagerduty` is reachable.
 
 ### PagerDuty authorization was revoked
 
-Open **Add connection** and authorize PagerDuty again. Incremental updates stop
-while the account authorization is revoked. Re-authorization replaces the
-webhook subscription rather than stacking another one.
+Open the existing connector and complete **Connect PagerDuty** again, or add
+PagerDuty once more for the same account. Incremental updates stop while the
+account authorization is revoked. Re-authorization keeps the existing
+subscription when its signing secret is still stored, and otherwise replaces
+it rather than stacking another one.
 
 ### Removing the connector
 
-Removing the connector deletes its ctx| authorization and repository binding
-from the connection record. It does not delete `pagerduty/config.yaml`,
-generated files, or Git history from the destination repository; remove those
-in GitHub if they are no longer required.
+Removing the connector deletes the PagerDuty webhook subscription while the
+access token is still available, then deletes the ctx| authorization and
+repository binding. It does not delete `pagerduty/config.yaml`, generated
+files, or Git history from the destination repository; remove those in GitHub
+if they are no longer required.
