@@ -6,27 +6,33 @@ import {
   CONNECTION_TYPE_GITHUB,
   CONNECTION_TYPE_LINEAR,
   CONNECTION_TYPE_NOTION,
+  CONNECTION_TYPE_PAGERDUTY,
   CONNECTION_TYPE_SLACK,
 } from "../db/schema/connections.js"
 import {
   decodeGithubAppCredentials,
   decodeLinearTokens,
   decodeNotionTokens,
+  decodePagerdutyTokens,
   decodeSlackBotToken,
   encodeLinearTokensForDb,
   encodeNotionTokensForDb,
+  encodePagerdutyTokensForDb,
   type githubConnectionConfigStoredSchema,
   type LinearSetupPhase,
   type NotionSetupPhase,
+  type PagerdutySetupPhase,
   parseForgeConnectionConfig,
   parseGithubConnectionStored,
   parseLinearConnectionStored,
   parseNotionConnectionConfig,
+  parsePagerdutyConnectionStored,
   parseSlackConnectionStored,
   serialiseForgeConnectionConfigForDb,
   serialiseGithubConnectionConfigForDb,
   serialiseLinearConnectionConfigForDb,
   serialiseNotionConnectionConfigForDb,
+  serialisePagerdutyConnectionConfigForDb,
   serialiseSlackConnectionConfigForDb,
 } from "../lib/connection-config.js"
 
@@ -93,6 +99,31 @@ export type LinearConnectionShape = {
   setupPhase: LinearSetupPhase
   pendingConfigPullUrl: string | null
   pendingConfigPrCreating: boolean
+  createdAt: Date
+  updatedAt: Date
+}
+
+export type PagerdutyConnectionShape = {
+  id: string
+  orgId: string
+  accessToken: string
+  refreshToken: string | null
+  accessTokenExpiresAt: string | null
+  accountId: string
+  accountName: string
+  accountSubdomain: string
+  region: "us" | "eu"
+  actorUserId: string | null
+  ownerUserId: string
+  status: string
+  repositoryId: string | null
+  branch: string | null
+  enabled: boolean
+  setupPhase: PagerdutySetupPhase
+  pendingConfigPullUrl: string | null
+  pendingConfigPrCreating: boolean
+  webhookSubscriptionId: string | null
+  webhookSecretEnc: string | null
   createdAt: Date
   updatedAt: Date
 }
@@ -473,4 +504,78 @@ export function slackRowHasBotToken(row: ConnectionRow, env: Env): boolean {
     row.config as Record<string, unknown>,
   )
   return decodeSlackBotToken(stored, env) != null
+}
+
+export function pagerdutyConnectionToShape(
+  row: ConnectionRow,
+  env: Env,
+): PagerdutyConnectionShape {
+  if (row.type !== CONNECTION_TYPE_PAGERDUTY) {
+    throw new Error("Expected PagerDuty connection row")
+  }
+  const config = parsePagerdutyConnectionStored(
+    row.config as Record<string, unknown>,
+  )
+  const tokens = decodePagerdutyTokens(config, env)
+  if (!tokens) {
+    throw new Error("PagerDuty connection is missing OAuth credentials")
+  }
+  return {
+    id: row.id,
+    orgId: row.orgId,
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    accessTokenExpiresAt: config.accessTokenExpiresAt ?? null,
+    accountId: config.accountId,
+    accountName: config.accountName,
+    accountSubdomain: config.accountSubdomain,
+    region: config.region,
+    actorUserId: config.actorUserId ?? null,
+    ownerUserId: config.ownerUserId,
+    status: config.status,
+    repositoryId: config.repositoryId,
+    branch: config.branch,
+    enabled: config.enabled,
+    setupPhase: config.setupPhase,
+    pendingConfigPullUrl: config.pendingConfigPullUrl,
+    pendingConfigPrCreating: config.pendingConfigPrCreating,
+    webhookSubscriptionId: config.webhookSubscriptionId,
+    webhookSecretEnc: config.webhookSecretEnc ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
+}
+
+export function pagerdutyShapeToConfig(
+  input: Omit<
+    PagerdutyConnectionShape,
+    "id" | "orgId" | "createdAt" | "updatedAt"
+  >,
+  env: Env,
+): Record<string, unknown> {
+  return serialisePagerdutyConnectionConfigForDb({
+    ...encodePagerdutyTokensForDb(
+      {
+        accessToken: input.accessToken,
+        refreshToken: input.refreshToken,
+      },
+      env,
+    ),
+    accessTokenExpiresAt: input.accessTokenExpiresAt,
+    accountId: input.accountId,
+    accountName: input.accountName,
+    accountSubdomain: input.accountSubdomain,
+    region: input.region,
+    actorUserId: input.actorUserId,
+    ownerUserId: input.ownerUserId,
+    status: input.status,
+    repositoryId: input.repositoryId,
+    branch: input.branch,
+    enabled: input.enabled,
+    setupPhase: input.setupPhase,
+    pendingConfigPullUrl: input.pendingConfigPullUrl,
+    pendingConfigPrCreating: input.pendingConfigPrCreating,
+    webhookSubscriptionId: input.webhookSubscriptionId,
+    webhookSecretEnc: input.webhookSecretEnc ?? undefined,
+  })
 }

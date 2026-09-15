@@ -16,6 +16,7 @@ import {
 } from "../lib/withTransientHttpRetry.js"
 import { clearLinearSyncBindingsForRepository } from "../models/linear-connector.js"
 import { clearNotionSyncBindingsForRepository } from "../models/notion-connector.js"
+import { clearPagerdutySyncBindingsForRepository } from "../models/pagerduty-connector.js"
 import { clearSlackSyncBindingsForRepository } from "../models/slack-connector.js"
 import { DEFAULT_CHECKOUT_KEY } from "../models/repositories.js"
 import { log } from "../observability/logger.js"
@@ -269,6 +270,7 @@ export async function deleteRepositoryRowPostgres(params: {
   const linearCleared = await clearLinearSyncBindingsForRepository(params)
   const notionCleared = await clearNotionSyncBindingsForRepository(params)
   const slackCleared = await clearSlackSyncBindingsForRepository(params)
+  const pagerdutyCleared = await clearPagerdutySyncBindingsForRepository(params)
   const del = await db
     .delete(repositories)
     .where(
@@ -284,6 +286,7 @@ export async function deleteRepositoryRowPostgres(params: {
     linearCleared,
     notionCleared,
     slackCleared,
+    pagerdutyCleared,
   })
   return deleted
 }

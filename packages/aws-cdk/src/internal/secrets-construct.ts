@@ -262,6 +262,21 @@ export class SecretsConstruct extends Construct {
             ...(props.connectorSecrets.notionWebhookSecret
               ? { NOTION_WEBHOOK_SECRET: props.connectorSecrets.notionWebhookSecret }
               : {}),
+            ...(props.connectorSecrets.pagerdutyClientId
+              ? { PAGERDUTY_CLIENT_ID: props.connectorSecrets.pagerdutyClientId }
+              : {}),
+            ...(props.connectorSecrets.pagerdutyClientSecret
+              ? {
+                  PAGERDUTY_CLIENT_SECRET:
+                    props.connectorSecrets.pagerdutyClientSecret,
+                }
+              : {}),
+            ...(props.connectorSecrets.pagerdutyRedirectUri
+              ? {
+                  PAGERDUTY_REDIRECT_URI:
+                    props.connectorSecrets.pagerdutyRedirectUri,
+                }
+              : {}),
           },
         })
       : undefined;
@@ -368,6 +383,24 @@ export class SecretsConstruct extends Construct {
         connectorEnv.NOTION_WEBHOOK_SECRET = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "NOTION_WEBHOOK_SECRET",
+        );
+      }
+      if (props.connectorSecrets?.pagerdutyClientId) {
+        connectorEnv.PAGERDUTY_CLIENT_ID = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "PAGERDUTY_CLIENT_ID",
+        );
+      }
+      if (props.connectorSecrets?.pagerdutyClientSecret) {
+        connectorEnv.PAGERDUTY_CLIENT_SECRET = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "PAGERDUTY_CLIENT_SECRET",
+        );
+      }
+      if (props.connectorSecrets?.pagerdutyRedirectUri) {
+        connectorEnv.PAGERDUTY_REDIRECT_URI = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "PAGERDUTY_REDIRECT_URI",
         );
       }
     }

@@ -133,7 +133,7 @@ modelProvider: {
 
 ## Optional props
 
-- `connectorSecrets`: deployment-wide connector settings for GitHub, Atlassian, Slack, Linear, and Notion. Omit for first boot if connectors are not configured yet. Linear uses `linearClientId`, `linearClientSecret`, optional `linearRedirectUri`, and `linearWebhookSecret`; Notion uses `notionClientId`, `notionClientSecret`, and `notionWebhookSecret`; Slack uses `slackClientId`, `slackClientSecret`, and `slackSigningSecret`.
+- `connectorSecrets`: deployment-wide connector settings for GitHub, Atlassian, Slack, Linear, Notion, and PagerDuty. Omit for first boot if connectors are not configured yet. Linear uses `linearClientId`, `linearClientSecret`, optional `linearRedirectUri`, and `linearWebhookSecret`; Notion uses `notionClientId`, `notionClientSecret`, and `notionWebhookSecret`; Slack uses `slackClientId`, `slackClientSecret`, and `slackSigningSecret`; PagerDuty uses `pagerdutyClientId`, `pagerdutyClientSecret`, and optional `pagerdutyRedirectUri` (no shared webhook secret).
 - `size`: deployment capacity profile (`small`, `medium`, `large`). Defaults to `small` when omitted.
 
 
@@ -260,4 +260,6 @@ Because Neptune is single-graph per cluster, this construct does not support mul
 - `LINEAR_REDIRECT_URI` (optional; defaults to the public app callback)
 - `LINEAR_WEBHOOK_SECRET`
 - `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET`, `NOTION_WEBHOOK_SECRET`
+- `PAGERDUTY_CLIENT_ID`, `PAGERDUTY_CLIENT_SECRET`
+- `PAGERDUTY_REDIRECT_URI` (optional; defaults to the public app callback)
 

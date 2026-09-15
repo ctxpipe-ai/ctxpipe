@@ -8,6 +8,7 @@ import {
 } from "../../models/connection-rows.js"
 import { getGithubConnectionRow } from "../../models/github-installation.js"
 import { getLinearConnectionByConnectionId } from "../../models/linear-connector.js"
+import { getPagerdutyConnectionByConnectionId } from "../../models/pagerduty-connector.js"
 
 const CapabilitiesQuery = z.object({
   connectionId: z.string().min(1),
@@ -93,6 +94,25 @@ export const orgCapabilitiesRoutes = new OpenAPIHono<AppEnv>().openapi(
           ),
           linearWorkspaceName: linear.workspaceName,
           linearWebhookUrl: `${publicApiOrigin}/api/v1/webhook/linear`,
+        },
+        200,
+      )
+    }
+
+    const pagerduty = await getPagerdutyConnectionByConnectionId(
+      orgId,
+      connectionId,
+      c.var.env,
+    )
+    if (pagerduty) {
+      const publicApiOrigin = c.var.env.AUTH_BASE_URL.replace(/\/$/, "")
+      return c.json(
+        {
+          pagerdutyOauthConfigured: Boolean(
+            c.var.env.PAGERDUTY_CLIENT_ID && c.var.env.PAGERDUTY_CLIENT_SECRET,
+          ),
+          pagerdutyAccountName: pagerduty.accountName,
+          pagerdutyWebhookUrl: `${publicApiOrigin}/api/v1/webhook/pagerduty`,
         },
         200,
       )

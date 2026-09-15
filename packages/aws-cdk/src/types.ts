@@ -84,6 +84,9 @@ export interface CtxPipeConnectorSecretsProps {
   readonly notionClientId?: cdk.SecretValue;
   readonly notionClientSecret?: cdk.SecretValue;
   readonly notionWebhookSecret?: cdk.SecretValue;
+  readonly pagerdutyClientId?: cdk.SecretValue;
+  readonly pagerdutyClientSecret?: cdk.SecretValue;
+  readonly pagerdutyRedirectUri?: cdk.SecretValue;
 }
 
 export interface CtxPipeProps {

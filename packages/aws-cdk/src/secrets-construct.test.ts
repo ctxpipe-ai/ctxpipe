@@ -135,4 +135,35 @@ describe("SecretsConstruct connector secrets", () => {
       });
     }
   });
+
+  it("injects PagerDuty OAuth secrets into service tasks", () => {
+    const template = synthCtxPipe({
+      pagerdutyClientId: cdk.SecretValue.unsafePlainText("pagerduty-client-id"),
+      pagerdutyClientSecret: cdk.SecretValue.unsafePlainText(
+        "pagerduty-client-secret",
+      ),
+      pagerdutyRedirectUri: cdk.SecretValue.unsafePlainText(
+        "https://app.example.com/api/v1/integrations/pagerduty/callback",
+      ),
+    });
+
+    for (const name of [
+      "PAGERDUTY_CLIENT_ID",
+      "PAGERDUTY_CLIENT_SECRET",
+      "PAGERDUTY_REDIRECT_URI",
+    ]) {
+      template.hasResourceProperties("AWS::ECS::TaskDefinition", {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Secrets: Match.arrayWith([
+              Match.objectLike({
+                Name: name,
+                ValueFrom: Match.anyValue(),
+              }),
+            ]),
+          }),
+        ]),
+      });
+    }
+  });
 });
