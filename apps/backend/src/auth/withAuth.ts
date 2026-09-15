@@ -276,6 +276,8 @@ export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
 /**
  * Verify an org-owned `x-api-key` without fabricating a user session.
  * User keys still authenticate via {@link withCookieAuth} (`getSession`).
+ * Mount only on `/mcp` — REST already 401s with no user session, and verifying
+ * here would count against the org key's rate limit.
  */
 export const withOrgApiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (c.get("user") || c.get("session")) return next()

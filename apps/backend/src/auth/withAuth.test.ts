@@ -946,12 +946,7 @@ describe("org API-key principal", () => {
 
   function createRestPrincipalApp(): Hono<AppEnv> {
     const app = createBaseApp()
-    app.use(
-      "/:orgSlug/api/v1/conversations",
-      withCookieAuth,
-      withOrgApiKeyAuth,
-      requireAuth,
-    )
+    app.use("/:orgSlug/api/v1/conversations", withCookieAuth, requireAuth)
     app.get("/:orgSlug/api/v1/conversations", (c) =>
       c.json({
         ok: true,
@@ -1058,9 +1053,7 @@ describe("org API-key principal", () => {
     })
   })
 
-  it("org x-api-key on a REST path returns 401", async () => {
-    mockOrgKey()
-
+  it("org x-api-key on a REST path returns 401 without verifying the key", async () => {
     const app = createRestPrincipalApp()
     const response = await app.request("/acme/api/v1/conversations", {
       headers: { "x-api-key": "ctxp_org_key" },
@@ -1068,7 +1061,7 @@ describe("org API-key principal", () => {
 
     expect(response.status).toBe(401)
     expect(await response.json()).toEqual({ error: "Unauthorized" })
-    expect(verifyApiKeyMock).toHaveBeenCalledTimes(1)
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
   })
 
   it("user x-api-key still authenticates REST as that user", async () => {
