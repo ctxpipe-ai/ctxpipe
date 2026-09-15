@@ -656,12 +656,17 @@ export async function deletePagerdutyWebhookSubscription(input: {
   region: PagerdutyRegion
   subscriptionId: string
 }): Promise<void> {
-  await pagerdutyFetch({
+  const response = await pagerdutyFetch({
     region: input.region,
     accessToken: input.accessToken,
     path: `/webhook_subscriptions/${encodeURIComponent(input.subscriptionId)}`,
     method: "DELETE",
   })
+  if (!response.ok && response.status !== 404) {
+    throw new Error(
+      `PagerDuty webhook subscription delete failed (${response.status})`,
+    )
+  }
 }
 
 /**

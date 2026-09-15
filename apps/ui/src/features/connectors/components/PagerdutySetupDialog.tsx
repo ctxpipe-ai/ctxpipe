@@ -1,10 +1,6 @@
 "use client"
 
-import {
-  IconAlertTriangle,
-  IconExternalLink,
-  IconSearch,
-} from "@tabler/icons-react"
+import { IconExternalLink, IconSearch } from "@tabler/icons-react"
 import {
   useMutation,
   useQueries,
@@ -61,6 +57,7 @@ import {
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { GitHubPrerequisiteStep } from "./GitHubPrerequisiteStep"
 import { PagerdutyConnectStep } from "./PagerdutyConnectStep"
+import { PagerdutyMark } from "./PagerdutyMark"
 
 type GitHubRepoItem = {
   id: number
@@ -853,8 +850,8 @@ export function PagerdutySetupDialog({
               </>
             ) : (
               <>
-                Pick the services ctxpipe should mirror into GitHub. Your
-                selection is proposed in{" "}
+                Pick the services ctx| should mirror into GitHub. Your selection
+                is proposed in{" "}
                 <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
                   pagerduty/config.yaml
                 </code>{" "}
@@ -884,9 +881,40 @@ export function PagerdutySetupDialog({
               Failed to load PagerDuty services. Try again.
             </p>
           ) : page.length === 0 ? (
-            <p className="p-3 text-sm text-muted-foreground">
-              No PagerDuty services found.
-            </p>
+            <div className="space-y-3 p-3">
+              <p className="text-sm text-muted-foreground">
+                This PagerDuty account has no services yet. Create one in
+                PagerDuty, then refresh this list.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {status.accountSubdomain ? (
+                  <Button
+                    variant="secondary"
+                    className="rounded-none"
+                    onPress={() =>
+                      window.open(
+                        status.region === "eu"
+                          ? `https://${status.accountSubdomain}.eu.pagerduty.com/service-directory`
+                          : `https://${status.accountSubdomain}.pagerduty.com/service-directory`,
+                        "_blank",
+                        "noopener,noreferrer",
+                      )
+                    }
+                  >
+                    Open service directory
+                    <IconExternalLink className="size-4" aria-hidden />
+                  </Button>
+                ) : null}
+                <Button
+                  variant="secondary"
+                  className="rounded-none"
+                  isPending={servicesQuery.isFetching}
+                  onPress={() => void servicesQuery.refetch()}
+                >
+                  Refresh services
+                </Button>
+              </div>
+            </div>
           ) : (
             page.map((service) => (
               <label
@@ -990,10 +1018,7 @@ export function PagerdutySetupDialog({
         <div className="mb-5 flex items-start justify-between gap-3">
           <div className="flex min-w-0 gap-3">
             <span className="ctx-node h-9 w-9">
-              <IconAlertTriangle
-                className="size-5 text-foreground"
-                aria-hidden
-              />
+              <PagerdutyMark className="size-5 text-foreground" />
             </span>
             <div>
               <h2 className="text-lg font-medium tracking-tight text-foreground">

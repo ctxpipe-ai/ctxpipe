@@ -1,4 +1,4 @@
-import { IconAlertTriangle } from "@tabler/icons-react"
+import { PagerdutyMark } from "./PagerdutyMark"
 
 export type AddPagerdutyConnectorButtonProps = {
   onStart: () => void
@@ -14,7 +14,7 @@ export function AddPagerdutyConnectorButton({
       onClick={onStart}
     >
       <span className="ctx-node size-12 transition-colors group-hover:border-teal-400/60 group-hover:bg-teal-400/5">
-        <IconAlertTriangle className="size-6 text-foreground" aria-hidden />
+        <PagerdutyMark className="size-6 text-foreground" />
       </span>
       <span className="min-w-0">
         <span className="font-medium text-foreground">PagerDuty</span>

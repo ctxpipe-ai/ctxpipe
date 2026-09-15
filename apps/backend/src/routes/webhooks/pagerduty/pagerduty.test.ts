@@ -195,6 +195,31 @@ describe("POST /api/v1/webhook/pagerduty", () => {
     expect(mocks.runWorkflow).not.toHaveBeenCalled()
   })
 
+  it("acks incidents with no service id without enqueue", async () => {
+    const { body, signature } = signedBody({
+      event: {
+        id: "evt_1",
+        event_type: "incident.triggered",
+        occurred_at: new Date().toISOString(),
+        data: { id: "PINCIDENT" },
+      },
+    })
+    const response = await createTestApp().request(
+      "/api/v1/webhook/pagerduty",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-pagerduty-signature": signature,
+          "x-pagerduty-subscription": "PFSUB",
+        },
+        body,
+      },
+    )
+    expect(response.status).toBe(200)
+    expect(mocks.runWorkflow).not.toHaveBeenCalled()
+  })
+
   it("acks out-of-scope services without enqueue", async () => {
     const { body, signature } = signedBody({
       event: {

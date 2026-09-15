@@ -12,6 +12,7 @@ import {
   connectorCommitFileUnchanged,
   connectorPathMatchesPreservation,
   createConnectorAssetBudget,
+  createConnectorAssetBytePool,
 } from "../connectors/assets.js"
 import {
   type CommitFile,
@@ -37,11 +38,7 @@ import {
   hasPagerdutyConfigYamlChanged,
   renderPagerdutyConfigYaml,
 } from "./config-yaml.js"
-import {
-  PAGERDUTY_CONFIG_PATH,
-  PAGERDUTY_MANAGED_ROOT,
-  rewritePagerdutyIncidentImageSrcs,
-} from "./converter.js"
+import { PAGERDUTY_CONFIG_PATH, PAGERDUTY_MANAGED_ROOT } from "./converter.js"
 import {
   buildPagerdutyIncrementalChanges,
   type PagerdutyEntityChange,
@@ -267,6 +264,8 @@ export async function syncPagerdutyContent(input: {
     allRepoFiles.map((entry) => [entry.path, entry.sha]),
   )
   const filesToWrite: CommitFile[] = []
+  const preservePathPrefixes: string[] = []
+  const assetBytePool = createConnectorAssetBytePool()
   const errors: Array<{ externalId: string; message: string }> = []
   let resourcesProcessed = 0
   let resourcesFailed = 0
@@ -289,19 +288,10 @@ export async function syncPagerdutyContent(input: {
         const captured = await capturePagerdutyIncidentAssets({
           incident,
           budget: createConnectorAssetBudget(),
+          bytePool: assetBytePool,
         })
-        const markdown = captured.files.find((file) => file.path.endsWith(".md"))
-        if (
-          markdown &&
-          captured.replacements.length > 0 &&
-          markdown.encoding !== "base64"
-        ) {
-          markdown.content = rewritePagerdutyIncidentImageSrcs(
-            markdown.content,
-            captured.replacements,
-          )
-        }
         filesToWrite.push(...captured.files)
+        preservePathPrefixes.push(...captured.preservePathPrefixes)
         resourcesProcessed += 1
       }
     } catch (error) {
@@ -328,6 +318,7 @@ export async function syncPagerdutyContent(input: {
     managedRepoPaths: managedRepoFiles,
     desiredPaths,
     resourcesFailed,
+    preservePathPrefixes,
   })
 
   const filesToCommit = filesToWrite.filter(

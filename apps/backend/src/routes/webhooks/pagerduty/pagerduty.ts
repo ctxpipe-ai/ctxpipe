@@ -126,7 +126,7 @@ async function handlePagerdutyWebhook(c: Context<AppEnv>) {
         throw new Error("PagerDuty live yaml is missing")
       }
       if (
-        event.serviceId &&
+        !event.serviceId ||
         !config.services.some((service) => service.id === event.serviceId)
       ) {
         continue

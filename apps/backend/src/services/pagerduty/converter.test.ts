@@ -71,4 +71,28 @@ describe("renderPagerdutyIncidentMarkdown", () => {
     expect(markdown).not.toContain("alert-5")
     expect(markdown).toContain("1 further alerts not mirrored")
   })
+
+  it("stubs credential-bearing image sources instead of writing them", () => {
+    const markdown = renderPagerdutyIncidentMarkdown({
+      ...baseIncident,
+      alerts: [
+        {
+          id: "PALERT1",
+          summary: "Disk full",
+          contexts: [
+            {
+              type: "image",
+              text: "graph",
+              src: "https://media.pagerduty.com/graph.png?token=expiring-secret",
+            },
+          ],
+        },
+      ],
+    })
+    expect(markdown).toContain(
+      "[image: graph — view in PagerDuty](https://acme.pagerduty.com/incidents/PT4KHLK)",
+    )
+    expect(markdown).not.toContain("expiring-secret")
+    expect(markdown).not.toContain("](https://media.pagerduty.com/graph.png")
+  })
 })

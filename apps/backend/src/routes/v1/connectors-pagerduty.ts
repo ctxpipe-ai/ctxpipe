@@ -27,6 +27,7 @@ import { pagerdutySyncContent } from "../../openworkflow/workflows/pagerduty-syn
 import { getPullRequestHeadBranch } from "../../services/github/installation-write-client.js"
 import {
   createPagerdutyPkcePair,
+  deletePagerdutyWebhookSubscription,
   ensurePagerdutyWebhookSubscription,
   exchangePagerdutyOAuthCode,
   getPagerdutyAccountIdentity,
@@ -254,7 +255,9 @@ const patchConfigRoute = createRoute({
   request: {
     query: ConnectionIdQuerySchema,
     body: {
-      content: { "application/json": { schema: PagerdutyPatchConfigRequestSchema } },
+      content: {
+        "application/json": { schema: PagerdutyPatchConfigRequestSchema },
+      },
     },
   },
   responses: {
@@ -878,7 +881,30 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: MULTIPLE_PAGERDUTY_CONNECTIONS_MESSAGE }, 400)
     }
     if (resolved.status === "none") {
-      return c.json({ error: "No PagerDuty connection found for this org" }, 404)
+      return c.json(
+        { error: "No PagerDuty connection found for this org" },
+        404,
+      )
+    }
+    if (
+      resolved.connection.webhookSubscriptionId &&
+      resolved.connection.accessToken
+    ) {
+      try {
+        await deletePagerdutyWebhookSubscription({
+          accessToken: resolved.connection.accessToken,
+          region: resolved.connection.region,
+          subscriptionId: resolved.connection.webhookSubscriptionId,
+        })
+      } catch (error) {
+        getLogger().error(
+          error instanceof Error ? error : new Error(String(error)),
+          {
+            step: "pagerdutyWebhookSubscription.delete",
+            connectionId: resolved.connection.id,
+          },
+        )
+      }
     }
     const deleted = await deletePagerdutyConnectionById(
       orgId,

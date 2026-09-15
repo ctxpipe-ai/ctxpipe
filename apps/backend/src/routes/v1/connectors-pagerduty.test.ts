@@ -14,7 +14,9 @@ const mocks = vi.hoisted(() => ({
   hasAdminRole: vi.fn(),
   upsertConnection: vi.fn(),
   ensureWebhook: vi.fn(),
+  deleteWebhook: vi.fn(),
   saveWebhook: vi.fn(),
+  deleteConnection: vi.fn(),
   resolveConnection: vi.fn(),
   getTarget: vi.fn(),
   patchConfig: vi.fn(),
@@ -40,7 +42,7 @@ vi.mock("../../models/github-installation.js", () => ({
 vi.mock("../../models/pagerduty-connector.js", () => ({
   claimPagerdutyConfigPrCreation: mocks.claimConfig,
   claimPagerdutyContentSyncRetry: vi.fn(),
-  deletePagerdutyConnectionById: vi.fn(),
+  deletePagerdutyConnectionById: mocks.deleteConnection,
   getPagerdutyBindingWithRepoByConnectionId: mocks.getTarget,
   MULTIPLE_PAGERDUTY_CONNECTIONS_MESSAGE: "multiple",
   patchPagerdutyConnectorConfig: mocks.patchConfig,
@@ -74,6 +76,7 @@ vi.mock("../../services/pagerduty/client.js", async (importOriginal) => {
     exchangePagerdutyOAuthCode: mocks.exchangeCode,
     getPagerdutyAccountIdentity: mocks.getIdentity,
     ensurePagerdutyWebhookSubscription: mocks.ensureWebhook,
+    deletePagerdutyWebhookSubscription: mocks.deleteWebhook,
   }
 })
 
@@ -274,6 +277,40 @@ describe("PagerDuty connector routes", () => {
         connectionId: "con_pd",
         services: [{ id: "PSVC", name: "checkout" }],
       }),
+    )
+  })
+
+  it("removes the PagerDuty subscription before deleting the connection", async () => {
+    mocks.resolveConnection.mockResolvedValue({
+      status: "ok",
+      connection: {
+        id: "con_pd",
+        status: "installed",
+        accessToken: "pd-access",
+        region: "us",
+        webhookSubscriptionId: "PFSUB",
+      },
+    })
+    mocks.deleteWebhook.mockResolvedValue(undefined)
+    mocks.deleteConnection.mockResolvedValue(true)
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/pagerduty",
+      pagerdutyConnectorRoutes,
+    )
+    const response = await app.request(
+      "/acme/api/v1/connectors/pagerduty?connectionId=con_pd",
+      { method: "DELETE" },
+    )
+    expect(response.status).toBe(204)
+    expect(mocks.deleteWebhook).toHaveBeenCalledWith({
+      accessToken: "pd-access",
+      region: "us",
+      subscriptionId: "PFSUB",
+    })
+    expect(mocks.deleteConnection).toHaveBeenCalledWith("org_1", "con_pd")
+    expect(mocks.deleteWebhook.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.deleteConnection.mock.invocationCallOrder[0] ??
+        Number.POSITIVE_INFINITY,
     )
   })
 })

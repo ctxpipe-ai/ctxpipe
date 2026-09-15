@@ -1,15 +1,17 @@
 import type { Env } from "../../config/env.js"
 import type { PagerdutyConnection } from "../../models/pagerduty-connector.js"
-import type { ConnectorAssetBudget } from "../connectors/assets.js"
+import {
+  type ConnectorAssetBudget,
+  connectorPathMatchesPreservation,
+} from "../connectors/assets.js"
 import type { CommitFile } from "../github/installation-write-client.js"
 import { getPagerdutyIncident } from "./client.js"
 import type { ParsedPagerdutyRepoConfig } from "./config-yaml.js"
 import {
+  type PagerdutyIncidentForMirror,
   pagerdutyIncidentAssetDir,
   pagerdutyIncidentMirrorFiles,
   pagerdutyManagedPathsForIncidentId,
-  rewritePagerdutyIncidentImageSrcs,
-  type PagerdutyIncidentForMirror,
 } from "./converter.js"
 import { capturePagerdutyIncidentAssets } from "./sync-assets.js"
 
@@ -63,21 +65,20 @@ export async function buildPagerdutyIncrementalChanges(input: {
     return { files: [], deletePaths: priorPaths, failures: [] }
   }
 
-  const { files, replacements } = await capturePagerdutyIncidentAssets({
+  const captured = await capturePagerdutyIncidentAssets({
     incident,
     budget: input.budget,
   })
-  const markdown = files.find((file) => file.path.endsWith(".md"))
-  if (markdown && replacements.length > 0 && markdown.encoding !== "base64") {
-    markdown.content = rewritePagerdutyIncidentImageSrcs(
-      markdown.content,
-      replacements,
-    )
-  }
-  const desired = new Set(files.map((file) => file.path))
+  const desired = new Set(captured.files.map((file) => file.path))
   return {
-    files,
-    deletePaths: priorPaths.filter((path) => !desired.has(path)),
+    files: captured.files,
+    deletePaths: priorPaths.filter(
+      (path) =>
+        !desired.has(path) &&
+        !captured.preservePathPrefixes.some((prefix) =>
+          connectorPathMatchesPreservation(path, prefix),
+        ),
+    ),
     failures: [],
   }
 }

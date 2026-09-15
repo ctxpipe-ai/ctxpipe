@@ -1,6 +1,5 @@
 "use client"
 
-import { IconAlertTriangle } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { toast } from "sonner"
@@ -26,6 +25,7 @@ import {
   connectorDash,
   formatSyncRepositoryLine,
 } from "./ConnectorListItem"
+import { PagerdutyMark } from "./PagerdutyMark"
 
 type PagerdutyConnectionCardProps = {
   orgSlug: string
@@ -82,9 +82,7 @@ export function PagerdutyConnectionCard({
     <>
       <ConnectorListItem
         name="PagerDuty"
-        icon={
-          <IconAlertTriangle className="size-5 text-foreground" aria-hidden />
-        }
+        icon={<PagerdutyMark className="size-5 text-foreground" />}
         health={health}
         menu={
           <ConnectorRemoveMenu

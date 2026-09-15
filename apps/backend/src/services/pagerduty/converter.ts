@@ -66,6 +66,18 @@ export type PagerdutyAlertAssetCandidate = {
   sourceUrl: string
   sourceKey: string
   filename: string
+  label: string
+}
+
+function pagerdutyImageSourceIsUnsafe(src: string): boolean {
+  return isConnectorAssetCredentialUrl(src, { includeGenericCredentials: true })
+}
+
+export function pagerdutyIncidentImageStub(
+  label: string,
+  incidentUrl: string,
+): string {
+  return `[image: ${label} — view in PagerDuty](${incidentUrl})`
 }
 
 function stableSlug(title: string, id: string): string {
@@ -126,11 +138,12 @@ export function pagerdutyAlertAssetCandidates(
   for (const alert of incident.alerts) {
     for (const [index, context] of (alert.contexts ?? []).entries()) {
       if (context.type !== "image" || !context.src) continue
-      if (isConnectorAssetCredentialUrl(context.src)) continue
+      if (pagerdutyImageSourceIsUnsafe(context.src)) continue
       candidates.push({
         sourceUrl: context.src,
         sourceKey: `${alert.id}-image-${index}`,
         filename: `${alert.id}-image-${index}.png`,
+        label: context.text ?? "alert image",
       })
     }
   }
@@ -158,7 +171,9 @@ export function renderPagerdutyIncidentMarkdown(
       : []),
     `status: ${yamlScalar(incident.status)}`,
     ...(incident.urgency ? [`urgency: ${yamlScalar(incident.urgency)}`] : []),
-    ...(incident.priority ? [`priority: ${yamlScalar(incident.priority)}`] : []),
+    ...(incident.priority
+      ? [`priority: ${yamlScalar(incident.priority)}`]
+      : []),
     ...(incident.createdAt
       ? [`created_at: ${yamlScalar(incident.createdAt)}`]
       : []),
@@ -216,7 +231,10 @@ export function renderPagerdutyIncidentMarkdown(
     if (trigger.integrationName) {
       lines.push(`- **Integration:** ${trigger.integrationName}`)
     }
-    if (trigger.details && Object.keys(stripRoutingKeys(trigger.details)).length > 0) {
+    if (
+      trigger.details &&
+      Object.keys(stripRoutingKeys(trigger.details)).length > 0
+    ) {
       lines.push("", "#### Details", "")
       lines.push(...definitionList(trigger.details), "")
     }
@@ -236,14 +254,24 @@ export function renderPagerdutyIncidentMarkdown(
     if (images.length > 0) {
       lines.push("#### Images", "")
       for (const image of images) {
-        lines.push(`![${image.text ?? "alert image"}](${image.src})`)
+        const label = image.text ?? "alert image"
+        lines.push(
+          !image.src || pagerdutyImageSourceIsUnsafe(image.src)
+            ? pagerdutyIncidentImageStub(label, incident.htmlUrl)
+            : `![${label}](${image.src})`,
+        )
       }
       lines.push("")
     }
     if (extra.length > 0) {
       lines.push("### Other alerts", "")
       for (const alert of extra) {
-        const bits = [alert.createdAt, alert.severity, alert.summary, alert.status]
+        const bits = [
+          alert.createdAt,
+          alert.severity,
+          alert.summary,
+          alert.status,
+        ]
           .filter(Boolean)
           .join(" · ")
         lines.push(`- ${bits}`)
