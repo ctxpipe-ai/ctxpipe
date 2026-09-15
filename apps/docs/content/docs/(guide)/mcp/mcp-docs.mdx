@@ -9,10 +9,9 @@ ctx| exposes an organization-scoped remote MCP server at:
 https://app.ctxpipe.ai/mcp
 ```
 
-The Claude plugin uses this generic URL and binds one organization during
-OAuth. `?orgSlug=your-org` remains valid for legacy and manually configured
-clients. For self-hosted deployments, keep the same `/mcp` path and swap in
-your own base URL.
+OAuth binds one organization during authorization. `?orgSlug=your-org` remains
+valid for legacy and manually configured clients. For self-hosted deployments,
+keep the same `/mcp` path and swap in your own base URL.
 
 ## What the MCP gives an agent
 
@@ -36,9 +35,8 @@ with the coding agent's repository tools.
 
 ## Choose Your Install Path
 
-There are four practical ways to install ctx| MCP:
+There are three practical ways to install ctx| MCP:
 
-- **Claude plugin** - best for Claude Code, Cowork, and Claude Tag in Slack. See [Claude plugin](/docs/mcp/claude-plugin).
 - **Individual install with the CLI** - best for a developer setting up their own agent clients on one machine.
 - **Raise pull requests** - best for enabling a team by committing MCP config files into shared repositories.
 - **Manual config** - useful when you need to paste JSON yourself or use a client the CLI does not fully automate.
@@ -120,7 +118,7 @@ Read the full guide: [Local memory](/docs/mcp/local-memory).
 
 ## API-key auth
 
-OAuth remains the default for a developer on a laptop — the [Claude plugin](/docs/mcp/claude-plugin), the CLI without `--auth`, and [Install MCPs via PR](/docs/git-repositories/install-mcps-via-pr). Use an API key only when a client cannot complete the browser OAuth flow (CI, headless agents, a shared GUI environment, or a host that accepts a static custom header).
+OAuth remains the default for a developer on a laptop — the CLI without `--auth`, and [Install MCPs via PR](/docs/git-repositories/install-mcps-via-pr). Use an API key only when a client cannot complete the browser OAuth flow (CI, headless agents, a shared GUI environment, or a host that accepts a static custom header).
 
 Keys authenticate MCP with the **`x-api-key`** header. Do not send the key as `Authorization: Bearer`; Bearer stays OAuth.
 
@@ -166,7 +164,7 @@ npx ctxpipe mcp add --org acme --client cursor --scope both --auth api-key --non
 
 Setting `CTXPIPE_API_KEY` in the environment is **not enough** on its own. ctx| MCP is a remote Streamable HTTP server, so the client must send `x-api-key` on HTTP requests. Cursor and Claude do not invent that mapping from a well-known env name. The interpolation in MCP config (or `claude mcp add --header`) is what tells the client to send the header.
 
-The [Claude plugin](/docs/mcp/claude-plugin) stays OAuth. It does not add an API-key header. If a host lets you attach a custom request header, send **`x-api-key`** interpolating `CTXPIPE_API_KEY`. Do not use Bearer for the API key, and do not put the secret in plugin or repository files.
+If a host lets you attach a custom request header, send **`x-api-key`** interpolating `CTXPIPE_API_KEY`. Do not use Bearer for the API key, and do not put the secret in client or repository files.
 
 ### Cursor
 
@@ -420,7 +418,6 @@ If your client's docs only mention `http` or SSE, check the current client docum
 - **Your client cannot complete OAuth** - use [API-key auth](#api-key-auth). `--auth api-key` writes interpolation, not the secret. Set `CTXPIPE_API_KEY` in the MCP client environment; see [Set CTXPIPE_API_KEY](#set-ctxpipe_api_key).
 - **Organization key on REST returns 401** - expected. Organization keys authenticate `/mcp` only. Use a personal key or a signed-in session for `/:orgSlug/api/v1`.
 - **Organization key with the wrong `orgSlug` returns 404** - omit the query, or use the bound organization's slug.
-- **Claude plugin has no API-key header** - expected. The plugin stays OAuth. On hosts that allow a custom header, send `x-api-key`, not Bearer.
 
 ## Notes
 
@@ -433,7 +430,6 @@ If your client's docs only mention `http` or SSE, check the current client docum
 
 ## Related
 
-- [Claude plugin](/docs/mcp/claude-plugin) - Claude Code, Cowork, and Claude Tag in Slack
 - [Managing your organization](/docs/managing-organization) - org slug and membership
 - [Install MCPs via PR](/docs/git-repositories/install-mcps-via-pr) - team rollout through GitHub pull requests
 - [Local memory](/docs/mcp/local-memory) - repo-local Markdown memory with capture hooks
