@@ -3,9 +3,13 @@ type SetupStatus = {
   selectedServiceCount: number | null
   pendingConfigPullUrl?: string | null
   pendingConfigPrCreating?: boolean
+  isInstalled?: boolean
+  isGithubLinked?: boolean
+  syncTargetConfigured?: boolean
 }
 
 type SetupProgressStatus = SetupStatus & {
+  isInstalled: boolean
   isGithubLinked: boolean
   syncTargetConfigured: boolean
   pendingConfigPullUrl: string | null
@@ -13,6 +17,7 @@ type SetupProgressStatus = SetupStatus & {
 }
 
 export const PAGERDUTY_SETUP_STEPS = [
+  { id: "connect", label: "Connect PagerDuty account" },
   { id: "github", label: "Link GitHub account" },
   { id: "target", label: "Select sync repository" },
   { id: "scope", label: "Choose PagerDuty services" },
@@ -32,14 +37,15 @@ export function getPagerdutyFailureAction(
 export function getPagerdutySetupCurrentIndex(
   status: SetupProgressStatus,
 ): number {
-  if (!status.isGithubLinked) return 0
-  if (!status.syncTargetConfigured) return 1
+  if (!status.isInstalled) return 0
+  if (!status.isGithubLinked) return 1
+  if (!status.syncTargetConfigured) return 2
   if (
     status.setupPhase === "config_failed" &&
     !status.pendingConfigPullUrl &&
     !status.pendingConfigPrCreating
   ) {
-    return 2
+    return 3
   }
   if (
     status.pendingConfigPrCreating ||
@@ -49,15 +55,18 @@ export function getPagerdutySetupCurrentIndex(
     status.setupPhase === "initial_sync" ||
     status.setupPhase === "sync_failed"
   ) {
-    return 3
+    return 4
   }
   if (status.setupPhase === "live") return PAGERDUTY_SETUP_STEPS.length
-  return 2
+  return 3
 }
 
 export function getPagerdutyCardCtaLabel(status: SetupStatus): string {
   if (getPagerdutyFailureAction(status)) return "Review failure"
   if (status.setupPhase === "live") return "Manage scope"
+  if (status.isInstalled === false) return "Connect PagerDuty"
+  if (status.isGithubLinked === false) return "Link GitHub"
+  if (status.syncTargetConfigured === false) return "Select repository"
   if (
     status.pendingConfigPrCreating ||
     status.pendingConfigPullUrl ||
@@ -66,7 +75,7 @@ export function getPagerdutyCardCtaLabel(status: SetupStatus): string {
   ) {
     return "Continue setup"
   }
-  return "Set up"
+  return "Choose services"
 }
 
 function serviceKeys(services: Array<{ id: string }>): string[] {

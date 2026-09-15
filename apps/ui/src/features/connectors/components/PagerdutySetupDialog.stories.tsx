@@ -24,6 +24,36 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+export const ConnectAccount: Story = {
+  render: () => (
+    <PagerdutySetupDialog
+      orgSlug={orgSlug}
+      isOpen
+      onOpenChange={() => {}}
+      onConnectionIdChange={() => {}}
+    />
+  ),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith(
+                "/api/v1/connectors/pagerduty/oauth/start",
+              ),
+            () =>
+              HttpResponse.json({
+                authorizationUrl:
+                  "https://identity.pagerduty.com/oauth/authorize",
+              }),
+          ),
+        ],
+      },
+    },
+  },
+}
+
 const githubInstallationHandler = http.get(
   ({ request }) =>
     new URL(request.url).pathname === `/${orgSlug}/api/v1/github/installation`,
@@ -43,6 +73,7 @@ export const ServiceSelection: Story = {
       githubConnectionIds={["con_github"]}
       isOpen
       onOpenChange={() => {}}
+      onConnectionIdChange={() => {}}
     />
   ),
   parameters: {
@@ -130,6 +161,7 @@ export const TargetRepository: Story = {
       githubConnectionIds={["con_github"]}
       isOpen
       onOpenChange={() => {}}
+      onConnectionIdChange={() => {}}
     />
   ),
   parameters: {

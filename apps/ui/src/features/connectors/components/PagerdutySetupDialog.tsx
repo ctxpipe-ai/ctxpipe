@@ -20,6 +20,10 @@ import { Spinner } from "@/components/ui/spinner"
 import type { Repository } from "@/features/repositories"
 import { client } from "@/lib/api"
 import {
+  consumePagerdutySetupPopupResult,
+  PAGERDUTY_SETUP_RESULT_KEY,
+} from "@/lib/popup"
+import {
   getPagerdutyFailureAction,
   getPagerdutySetupCurrentIndex,
   hasPagerdutyScopeChanged,
@@ -38,6 +42,7 @@ import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
 } from "../queries/github-connector"
+import { orgConnectionsKeys } from "../queries/org-connections"
 import {
   fetchPagerdutyConnectorConfig,
   fetchPagerdutyConnectorStatus,
@@ -55,6 +60,7 @@ import {
 } from "./ConnectorContextRepositoryGuidance"
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { GitHubPrerequisiteStep } from "./GitHubPrerequisiteStep"
+import { PagerdutyConnectStep } from "./PagerdutyConnectStep"
 
 type GitHubRepoItem = {
   id: number
@@ -72,6 +78,7 @@ type PagerdutySetupDialogProps = {
   manageScope?: boolean
   isOpen: boolean
   onOpenChange: (open: boolean) => void
+  onConnectionIdChange: (connectionId: string) => void
 }
 
 export function PagerdutySetupDialog({
@@ -81,6 +88,7 @@ export function PagerdutySetupDialog({
   manageScope = false,
   isOpen,
   onOpenChange,
+  onConnectionIdChange,
 }: PagerdutySetupDialogProps) {
   const queryClient = useQueryClient()
   const [repoSearch, setRepoSearch] = useState("")
@@ -96,6 +104,66 @@ export function PagerdutySetupDialog({
     [],
   )
   const [initialized, setInitialized] = useState(false)
+
+  useEffect(() => {
+    if (!isOpen) return
+    const acceptResult = (value: unknown) => {
+      if (!value || typeof value !== "object") return
+      const data = value as Record<string, unknown>
+      if (
+        data.type === "pagerduty-oauth-error" &&
+        data.orgSlug === orgSlug &&
+        typeof data.error === "string"
+      ) {
+        toast.error(data.error)
+        return
+      }
+      if (
+        data.type !== "pagerduty-oauth-complete" ||
+        data.orgSlug !== orgSlug ||
+        typeof data.connectionId !== "string"
+      ) {
+        return
+      }
+      onConnectionIdChange(data.connectionId)
+      void queryClient.invalidateQueries({
+        queryKey: pagerdutyConnectorKeys.allStatusForOrg(orgSlug),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: orgConnectionsKeys.list(orgSlug),
+      })
+    }
+    const handleMessage = (event: MessageEvent<unknown>) => {
+      if (event.origin !== window.location.origin) return
+      acceptResult(event.data)
+    }
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== PAGERDUTY_SETUP_RESULT_KEY || !event.newValue) return
+      try {
+        acceptResult(JSON.parse(event.newValue) as unknown)
+      } catch {
+        // The signed OAuth callback is the only writer; ignore malformed values.
+      } finally {
+        consumePagerdutySetupPopupResult()
+      }
+    }
+    const storedResult = window.localStorage.getItem(PAGERDUTY_SETUP_RESULT_KEY)
+    if (storedResult) {
+      try {
+        acceptResult(JSON.parse(storedResult) as unknown)
+      } catch {
+        // The signed OAuth callback is the only writer; ignore malformed values.
+      } finally {
+        consumePagerdutySetupPopupResult()
+      }
+    }
+    window.addEventListener("message", handleMessage)
+    window.addEventListener("storage", handleStorage)
+    return () => {
+      window.removeEventListener("message", handleMessage)
+      window.removeEventListener("storage", handleStorage)
+    }
+  }, [isOpen, onConnectionIdChange, orgSlug, queryClient])
 
   useEffect(() => {
     const id = setTimeout(() => setDebouncedRepoSearch(repoSearch), 300)
@@ -379,7 +447,22 @@ export function PagerdutySetupDialog({
     onError: (error: Error) => toast.error(error.message),
   })
 
-  const status = statusQuery.data
+  const status = connectionId
+    ? statusQuery.data
+    : {
+        isInstalled: false,
+        installationStatus: null,
+        accountName: null,
+        accountSubdomain: null,
+        region: null,
+        isGithubLinked: false,
+        selectedServiceCount: null,
+        syncTargetConfigured: false,
+        setupPhase: "draft",
+        pendingConfigPullUrl: null,
+        pendingConfigPrCreating: false,
+        syncTarget: null,
+      }
   const config = configQuery.data
   const failureAction = status ? getPagerdutyFailureAction(status) : null
   const scopeChanged = hasPagerdutyScopeChanged(
@@ -390,14 +473,7 @@ export function PagerdutySetupDialog({
   const setupStepIndex = status ? getPagerdutySetupCurrentIndex(status) : 0
 
   const body = (() => {
-    if (!connectionId) {
-      return (
-        <p className="text-sm text-muted-foreground">
-          Connect PagerDuty from the Add connection menu first.
-        </p>
-      )
-    }
-    if (statusQuery.isPending || configQuery.isPending) {
+    if (connectionId && (statusQuery.isPending || configQuery.isPending)) {
       return (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
@@ -405,13 +481,24 @@ export function PagerdutySetupDialog({
         </div>
       )
     }
-    if (!status?.isInstalled) {
+    if (connectionId && statusQuery.isError) {
       return (
-        <p className="text-sm text-muted-foreground">
-          This PagerDuty connection is not installed. Reconnect PagerDuty from
-          the Add connection menu.
-        </p>
+        <div className="space-y-3 text-sm">
+          <p className="text-destructive">
+            Could not load PagerDuty connector status.
+          </p>
+          <Button
+            variant="secondary"
+            className="rounded-none"
+            onPress={() => void statusQuery.refetch()}
+          >
+            Retry
+          </Button>
+        </div>
       )
+    }
+    if (!status?.isInstalled) {
+      return <PagerdutyConnectStep orgSlug={orgSlug} />
     }
     if (!status.isGithubLinked) {
       return (
@@ -913,8 +1000,8 @@ export function PagerdutySetupDialog({
                 Set up PagerDuty connector
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                Mirror selected PagerDuty incidents into a GitHub repository
-                through a reviewable configuration pull request.
+                Authorise PagerDuty, choose Git scope, then approve the
+                generated configuration.
               </p>
             </div>
           </div>
@@ -926,7 +1013,7 @@ export function PagerdutySetupDialog({
             Close
           </Button>
         </div>
-        {status?.isInstalled ? (
+        {status && !(connectionId && statusQuery.isPending) ? (
           <div className="mb-6">
             <ConnectorSetupStepper
               steps={PAGERDUTY_SETUP_STEPS}

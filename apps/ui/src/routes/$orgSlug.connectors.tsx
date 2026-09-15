@@ -371,13 +371,11 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           </li>
           <li>
             <AddPagerdutyConnectorButton
-              orgSlug={orgSlug}
-              onFlowFinished={({ connectionId }) => {
-                setCatalogOpen(false)
-                if (!connectionId) return
-                setPagerdutyConnectionId(connectionId)
+              onStart={() => {
+                setPagerdutyConnectionId(null)
                 setPagerdutyManageScope(false)
                 setPagerdutySetupOpen(true)
+                setCatalogOpen(false)
               }}
             />
           </li>
@@ -553,7 +551,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
         />
 
         <PagerdutySetupDialog
-          key={pagerdutyConnectionId ?? "pagerduty-setup"}
           orgSlug={orgSlug}
           connectionId={pagerdutyConnectionId ?? undefined}
           githubConnectionIds={items
@@ -561,6 +558,12 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             .map((item) => item.id)}
           manageScope={pagerdutyManageScope}
           isOpen={pagerdutySetupOpen}
+          onConnectionIdChange={(nextConnectionId) => {
+            setPagerdutyConnectionId(nextConnectionId)
+            void queryClient.invalidateQueries({
+              queryKey: orgConnectionsKeys.list(orgSlug),
+            })
+          }}
           onOpenChange={(open) => {
             setPagerdutySetupOpen(open)
             if (!open) {
