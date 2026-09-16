@@ -9,6 +9,7 @@ import {
 } from "../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { enqueueFollowUpIfTipAhead } from "./enqueue-follow-up-if-tip-ahead.js"
+import { isSleepSignal } from "./isSleepSignal.js"
 import { repositoryIngestionOrchestrator } from "./workflows/repository-ingestion-orchestrator.js"
 
 export type RepositoryIngestionEnqueueInput = {
@@ -280,7 +281,7 @@ export async function claimAndRunRepositoryIngestionChild(
       name: `ingest-${input.repositoryId}`,
     })
   } catch (err: unknown) {
-    if (err instanceof Error && err.name === "SleepSignal") {
+    if (isSleepSignal(err)) {
       throw err
     }
     const normalized = err instanceof Error ? err : new Error(String(err))
