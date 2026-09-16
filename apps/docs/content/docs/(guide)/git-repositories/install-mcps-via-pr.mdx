@@ -113,11 +113,14 @@ OpenCode uses `mcp`:
 }
 ```
 
-Do not add raw API keys to repository config. The PR workflow is designed for MCP
-clients that can complete OAuth authorization after the config is merged. For a
-machine that cannot complete OAuth, write interpolation with `--auth api-key` and
-set `CTXPIPE_API_KEY` in the MCP client environment. See
-[API-key auth](/docs/mcp/mcp-docs#api-key-auth) and
+Do not add raw API keys to repository config. The PR workflow stays
+**OAuth-on-purpose**: it writes URL-only config so developers authorize in the
+client after merge. The wizard does not add `x-api-key` headers. For a machine
+that cannot complete OAuth, use the CLI (`--auth api-key`) so config interpolates
+`CTXPIPE_API_KEY`. Mint organization keys in **Organisation settings**; personal
+keys remain under **User account**. See
+[user vs organization keys](/docs/mcp/mcp-docs#user-keys-and-organization-keys),
+[API-key auth](/docs/mcp/mcp-docs#api-key-auth), and
 [Set CTXPIPE_API_KEY](/docs/mcp/mcp-docs#set-ctxpipe_api_key).
 
 ## Merge Behavior

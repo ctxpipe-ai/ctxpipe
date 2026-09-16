@@ -21,6 +21,7 @@ import {
   CLIENT_COMMANDS,
   CLIENT_LABELS,
   CLIENTS,
+  MCP_API_KEY_MINT_HINT,
   type Client,
   type McpAuthMode,
 } from "./constants.js"
@@ -427,7 +428,7 @@ async function promptMcpAuth(current: { auth: string | null }): Promise<{
           title: "API key",
           value: "api-key",
           description:
-            "Write an x-api-key header that interpolates CTXPIPE_API_KEY.",
+            "Write an x-api-key header that interpolates CTXPIPE_API_KEY. Mint organisation keys in Organisation settings; personal keys under User account.",
         },
       ],
     })
@@ -435,7 +436,7 @@ async function promptMcpAuth(current: { auth: string | null }): Promise<{
   if ((answers.auth ?? current.auth) === "api-key") {
     log.message(
       muted(
-        "Set CTXPIPE_API_KEY in the MCP client environment. The CLI writes a placeholder, not the secret.",
+        `${MCP_API_KEY_MINT_HINT} Set CTXPIPE_API_KEY in the MCP client environment. The CLI writes a placeholder, not the secret.`,
       ),
     )
   }

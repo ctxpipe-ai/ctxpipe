@@ -59,6 +59,9 @@ describe("CLI help and argv", () => {
     expect(out).toContain("--json")
     expect(out).toContain("Streamable HTTP")
     expect(out).toContain("does not run browser OAuth")
+    expect(out).toContain("CTXPIPE_API_KEY")
+    expect(out).toContain("x-api-key")
+    expect(out).not.toContain("CTXPIPE_ORG_API_KEY")
   })
 
   it("memory --help lists the memory subcommands", () => {
@@ -120,9 +123,12 @@ describe("CLI help and argv", () => {
       expect(out).toContain("--auth")
       expect(out).not.toContain("--api-key")
       expect(out).not.toContain("--api-key-env-variable")
+      expect(out).not.toContain("CTXPIPE_ORG_API_KEY")
       expect(out).toContain("oauth")
       expect(out).toContain("api-key")
       expect(out).toContain("CTXPIPE_API_KEY")
+      expect(out).toContain("Organisation settings")
+      expect(out).toContain("User account")
     }
   })
 
@@ -232,7 +238,7 @@ describe("CLI help and argv", () => {
   it("mcp add --auth api-key --scope both writes interpolation, never the env value", () => {
     const home = mkdtempSync(join(tmpdir(), "ctxpipe-mcp-env-home-"))
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mcp-env-cwd-"))
-    execFileSync(
+    const out = execFileSync(
       process.execPath,
       [
         bin,
@@ -273,5 +279,6 @@ describe("CLI help and argv", () => {
     expect(userConfig.mcpServers.ctxpipe?.headers).toEqual(header)
     expect(JSON.stringify(repoConfig)).not.toContain("ctxp_must_not_be_written")
     expect(JSON.stringify(userConfig)).not.toContain("ctxp_must_not_be_written")
+    expect(out).not.toContain("ctxp_must_not_be_written")
   })
 })

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { runMcpDoctor } from "../src/commands.js"
 import {
   diagnoseMcpEndpoint,
@@ -47,9 +47,66 @@ function healthyFetch(
   }) as typeof fetch
 }
 
+function requestHeaders(init?: RequestInit): Record<string, string> {
+  const headers = init?.headers
+  if (!headers) return {}
+  if (headers instanceof Headers) {
+    return Object.fromEntries(
+      [...headers.entries()].map(([key, value]) => [key.toLowerCase(), value]),
+    )
+  }
+  if (Array.isArray(headers)) {
+    return Object.fromEntries(
+      headers.map(([key, value]) => [key.toLowerCase(), String(value)]),
+    )
+  }
+  return Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [
+      key.toLowerCase(),
+      String(value),
+    ]),
+  )
+}
+
+function initializeOkResponse(): Response {
+  return Response.json({
+    jsonrpc: "2.0",
+    id: "ctxpipe-doctor",
+    result: {
+      protocolVersion: "2025-11-25",
+      capabilities: {},
+      serverInfo: { name: "ctxpipe", version: "1" },
+    },
+  })
+}
+
+function apiKeyFetch(
+  secret: string,
+  appOrigin = "https://app.example.com",
+) {
+  return vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    const url =
+      input instanceof Request
+        ? input.url
+        : input instanceof URL
+          ? input.href
+          : input
+    if (url === `${appOrigin}/.status`) {
+      return Response.json({ status: "ok" })
+    }
+    if (url === `${appOrigin}/mcp` || url.startsWith(`${appOrigin}/mcp?`)) {
+      const sent = requestHeaders(init)["x-api-key"]
+      if (sent === secret) return initializeOkResponse()
+      return new Response(null, { status: 401 })
+    }
+    throw new Error(`Unexpected URL: ${url}`)
+  })
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
   process.exitCode = undefined
 })
 
@@ -236,6 +293,71 @@ describe("diagnoseMcpEndpoint", () => {
     ).toBe(true)
   })
 
+  it("sends x-api-key and reports ready-for-api-key on 2xx initialize", async () => {
+    const secret = "ctxp_doctor_secret"
+    const fetchFn = apiKeyFetch(secret)
+    const result = await diagnoseMcpEndpoint({
+      url: remoteUrl,
+      fetch: fetchFn,
+      apiKey: secret,
+    })
+    const output = `${JSON.stringify(result)}\n${formatMcpDoctorResult(result)}`
+
+    expect(result.status).toBe("ready-for-api-key")
+    expect(result.checks.map((check) => check.id)).toEqual([
+      "target",
+      "backend-status",
+      "api-key-initialize",
+    ])
+    expect(
+      result.checks.find((check) => check.id === "api-key-initialize"),
+    ).toMatchObject({ status: "pass" })
+    expect(result.nextSteps.join(" ")).toContain("x-api-key")
+    expect(output).not.toContain(secret)
+    expect(fetchFn).toHaveBeenCalledTimes(2)
+    const initializeCall = fetchFn.mock.calls.find(([input]) =>
+      String(input).includes("/mcp"),
+    )
+    expect(requestHeaders(initializeCall?.[1])).toMatchObject({
+      "x-api-key": secret,
+    })
+  })
+
+  it("fails API-key initialize that is not HTTP 2xx and skips OAuth discovery", async () => {
+    const secret = "ctxp_wrong_key"
+    const fetchFn = apiKeyFetch("ctxp_expected_key")
+    const result = await diagnoseMcpEndpoint({
+      url: remoteUrl,
+      fetch: fetchFn,
+      apiKey: secret,
+    })
+    const output = `${JSON.stringify(result)}\n${formatMcpDoctorResult(result)}`
+
+    expect(result.status).toBe("failed")
+    expect(
+      result.checks.find((check) => check.id === "api-key-initialize"),
+    ).toMatchObject({ status: "fail" })
+    expect(result.checks.some((check) => check.id === "oauth-challenge")).toBe(
+      false,
+    )
+    expect(output).not.toContain(secret)
+    expect(fetchFn).toHaveBeenCalledTimes(2)
+  })
+
+  it("treats a blank apiKey as unset and keeps OAuth discovery", async () => {
+    const result = await diagnoseMcpEndpoint({
+      url: remoteUrl,
+      fetch: healthyFetch(),
+      apiKey: "   ",
+    })
+
+    expect(result.status).toBe("ready-for-oauth")
+    expect(result.checks).toHaveLength(5)
+    expect(
+      result.checks.some((check) => check.id === "api-key-initialize"),
+    ).toBe(false)
+  })
+
   it("redacts unrelated target query values from JSON and human output", async () => {
     const result = await diagnoseMcpEndpoint({
       url: `${remoteUrl}&access_token=secret-value`,
@@ -249,6 +371,10 @@ describe("diagnoseMcpEndpoint", () => {
 })
 
 describe("runMcpDoctor", () => {
+  beforeEach(() => {
+    vi.stubEnv("CTXPIPE_API_KEY", "")
+  })
+
   it("sets a failing exit code and emits valid JSON", async () => {
     vi.stubGlobal(
       "fetch",
@@ -284,5 +410,32 @@ describe("runMcpDoctor", () => {
     })
 
     expect(process.exitCode).toBeUndefined()
+  })
+
+  it("sends x-api-key from CTXPIPE_API_KEY in the doctor process", async () => {
+    const secret = "ctxp_must_not_be_printed"
+    vi.stubEnv("CTXPIPE_API_KEY", secret)
+    const fetchFn = apiKeyFetch(secret)
+    vi.stubGlobal("fetch", fetchFn)
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined)
+
+    await runMcpDoctor({
+      url: remoteUrl,
+      timeoutMs: 10,
+      json: true,
+    })
+
+    expect(process.exitCode).toBeUndefined()
+    const parsed = JSON.parse(String(log.mock.calls[0]?.[0])) as {
+      status: string
+    }
+    expect(parsed.status).toBe("ready-for-api-key")
+    expect(String(log.mock.calls[0]?.[0])).not.toContain(secret)
+    const initializeCall = fetchFn.mock.calls.find(([input]) =>
+      String(input).includes("/mcp"),
+    )
+    expect(requestHeaders(initializeCall?.[1])).toMatchObject({
+      "x-api-key": secret,
+    })
   })
 })

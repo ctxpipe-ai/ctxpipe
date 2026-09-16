@@ -1,7 +1,9 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
+import type { Context } from "hono"
 import type { AppEnv } from "../../app/env.js"
-import { createRenameStreamEnhancer } from "../../domain/conversations/renameStream.js"
+import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
 import { filterInternalNodeMessageChunks } from "../../domain/conversations/internalNodeMessageFilter.js"
+import { createRenameStreamEnhancer } from "../../domain/conversations/renameStream.js"
 import {
   createDataStreamConversationTransport,
   loadConversationUiMessages,
@@ -94,6 +96,10 @@ const listConversationsRoute = createRoute({
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
+    },
+    403: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Forbidden",
     },
   },
 })
@@ -206,6 +212,15 @@ const postConversationMessageRoute = createRoute({
   },
 })
 
+async function isOrgAdminOrOwner(c: Context<AppEnv>): Promise<boolean> {
+  const orgId = c.get("orgId")
+  if (!orgId) return false
+  return hasOrgAdminOrOwnerRole({
+    headers: c.req.raw.headers,
+    orgId,
+  })
+}
+
 export const conversationRoutes = new OpenAPIHono<AppEnv>()
   .openapi(listConversationsRoute, async (c) => {
     const user = c.get("user")
@@ -218,8 +233,18 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       after: c.req.query("after"),
     })
 
+    const orgService = query.source === "mcp-service"
+    if (orgService && !(await isOrgAdminOrOwner(c))) {
+      return c.json({ error: "Forbidden" }, 403)
+    }
+
     const { items: rows, pageInfo } = await listConversationsPaginated({
-      source: query.source === "all" ? undefined : query.source,
+      source: orgService
+        ? undefined
+        : query.source === "all"
+          ? undefined
+          : query.source,
+      orgService,
       first: query.first,
       after: query.after,
     })
@@ -239,7 +264,10 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
 
     const conversationId = c.req.param("conversationId")
-    const conversation = await getConversation(conversationId)
+    let conversation = await getConversation(conversationId)
+    if (!conversation && (await isOrgAdminOrOwner(c))) {
+      conversation = await getConversation(conversationId, { orgService: true })
+    }
     if (!conversation) return c.json({ error: "Not found" }, 404)
 
     const messages = await loadConversationUiMessages({
@@ -268,9 +296,15 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
 
     const conversationId = c.req.param("conversationId")
     const body = UpdateConversationRequestSchema.parse(await c.req.json())
-    const updated = await updateConversation(conversationId, {
+    let updated = await updateConversation(conversationId, {
       name: body.name,
     })
+    if (!updated && (await isOrgAdminOrOwner(c))) {
+      updated = await updateConversation(conversationId, {
+        name: body.name,
+        orgService: true,
+      })
+    }
     if (!updated) return c.json({ error: "Not found" }, 404)
 
     return c.json(
@@ -290,7 +324,10 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
 
     const conversationId = c.req.param("conversationId")
-    const deleted = await deleteConversation(conversationId)
+    let deleted = await deleteConversation(conversationId)
+    if (!deleted && (await isOrgAdminOrOwner(c))) {
+      deleted = await deleteConversation(conversationId, { orgService: true })
+    }
     if (!deleted) return c.json({ error: "Not found" }, 404)
 
     return c.body(null, 204)

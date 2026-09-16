@@ -8,7 +8,11 @@ import {
   runMcpAdd,
   runMcpDoctor,
 } from "./commands.js"
-import { DEFAULT_BASE_URL, MCP_AUTH_MODES } from "./constants.js"
+import {
+  DEFAULT_BASE_URL,
+  MCP_API_KEY_MINT_HINT,
+  MCP_AUTH_MODES,
+} from "./constants.js"
 import {
   runMemoryCaptureDismiss,
   runMemoryCaptureFinalize,
@@ -40,7 +44,7 @@ function addMcpAuthOptions(command: Command): Command {
   return command.addOption(
     new Option(
       "--auth <oauth|api-key>",
-      "MCP auth: oauth writes URL-only config (default). api-key writes a CTXPIPE_API_KEY interpolation in the requested scope; set CTXPIPE_API_KEY in the MCP client environment",
+      "MCP auth: oauth writes URL-only config (default). api-key writes a CTXPIPE_API_KEY interpolation in the requested scope; mint organisation keys in Organisation settings, personal keys under User account; set CTXPIPE_API_KEY in the MCP client environment",
     ).choices([...MCP_AUTH_MODES]),
   )
 }
@@ -143,7 +147,8 @@ Examples (non-interactive):
 MCP auth:
   Default is OAuth: URL-only config for repo, user, or both. The client completes browser OAuth.
   --auth api-key writes a client-specific interpolation of CTXPIPE_API_KEY (not the secret) in the requested scope.
-  Set CTXPIPE_API_KEY in the MCP client process; the CLI does not consume that variable.
+  ${MCP_API_KEY_MINT_HINT}
+  Set CTXPIPE_API_KEY in the MCP client process; init and mcp add do not consume that variable.
 `,
         ),
     ),
@@ -194,7 +199,7 @@ MCP auth:
   doctor
     .command("mcp")
     .description(
-      "Diagnose a ctx| Streamable HTTP endpoint and its OAuth discovery metadata.",
+      "Diagnose a ctx| Streamable HTTP endpoint, OAuth discovery, or API-key initialize.",
     )
     .requiredOption(
       "--url <url>",
@@ -206,9 +211,11 @@ MCP auth:
       "after",
       `
 This command diagnoses ctx| HTTP routing, TLS/reachability, the unauthenticated
-Bearer challenge, and OAuth discovery. It does not run browser OAuth, list
-authenticated tools, invoke ctx_advisor, or test STDIO servers. A successful
-result means the endpoint is ready for OAuth, not that authenticated tools work.
+Bearer challenge, and OAuth discovery. If CTXPIPE_API_KEY is set in this process,
+it sends x-api-key on initialize and expects HTTP 2xx instead of OAuth discovery.
+It does not run browser OAuth, list authenticated tools, invoke ctx_advisor, or
+test STDIO servers. Without CTXPIPE_API_KEY, a successful result means the
+endpoint is ready for OAuth, not that authenticated tools work.
 `,
     )
     .action(async (rawOpts: Record<string, unknown>) => {
@@ -278,7 +285,8 @@ result means the endpoint is ready for OAuth, not that authenticated tools work.
 MCP auth:
   Default is OAuth: URL-only config for repo, user, or both. The client completes browser OAuth.
   --auth api-key writes a client-specific interpolation of CTXPIPE_API_KEY (not the secret) in the requested scope.
-  Set CTXPIPE_API_KEY in the MCP client process; the CLI does not consume that variable.
+  ${MCP_API_KEY_MINT_HINT}
+  Set CTXPIPE_API_KEY in the MCP client process; init and mcp add do not consume that variable.
 `,
         ),
     ),

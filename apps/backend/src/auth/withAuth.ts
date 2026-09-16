@@ -246,9 +246,18 @@ async function resolveOpaqueAccessToken(token: string): Promise<{
 
 export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const auth = getAuth()
-  const authSession = await auth.api.getSession({
-    headers: c.req.raw.headers,
-  })
+  const apiKeyHeader = c.req.header("x-api-key")?.trim()
+  let authSession: Awaited<ReturnType<typeof auth.api.getSession>> = null
+  try {
+    authSession = await auth.api.getSession({
+      headers: c.req.raw.headers,
+    })
+  } catch (err) {
+    // Org keys cannot mock a user session. The user-config session hook may
+    // throw when `x-api-key` is an organization key; fall through to verify.
+    if (!apiKeyHeader) throw err
+    authSession = null
+  }
 
   if (!authSession) return next()
   if (!authSession.user || !authSession.session) {
@@ -261,6 +270,66 @@ export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
 
   c.set("user", authSession.user)
   c.set("session", authSession.session)
+  return next()
+}
+
+/**
+ * Verify an org-owned `x-api-key` without fabricating a user session.
+ * User keys still authenticate via {@link withCookieAuth} (`getSession`).
+ * Mount only on `/mcp` — REST already 401s with no user session, and verifying
+ * here would count against the org key's rate limit.
+ */
+export const withOrgApiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
+  if (c.get("user") || c.get("session")) return next()
+  const apiKey = c.req.header("x-api-key")?.trim()
+  if (!apiKey) return next()
+
+  const auth = getAuth()
+  const verified = await auth.api
+    .verifyApiKey({ body: { key: apiKey } })
+    .catch((err: unknown) => {
+      getLogger().error(
+        err instanceof Error ? err : new Error(String(err), { cause: err }),
+        { reason: "org_api_key_verify" },
+      )
+      return {
+        valid: false as const,
+        error: {
+          message: "The API key could not be validated",
+          code: "INVALID_API_KEY",
+        },
+        key: null,
+      }
+    })
+
+  if (!verified.valid || !verified.key) {
+    getLogger().warn("Unauthorized because of invalid API key")
+    return c.json(
+      { error: "Unauthorized" },
+      401,
+      wwwAuthenticateForMcpRoute(c, "The API key could not be validated"),
+    )
+  }
+
+  if (verified.key.configId !== "organization") {
+    return next()
+  }
+
+  const orgId = verified.key.referenceId
+  if (!orgId) {
+    getLogger().warn("Unauthorized because org API key has no organization")
+    return c.json(
+      { error: "Unauthorized" },
+      401,
+      wwwAuthenticateForMcpRoute(c, "The API key could not be validated"),
+    )
+  }
+
+  c.set("orgApiKey", {
+    id: verified.key.id,
+    orgId,
+    configId: verified.key.configId,
+  })
   return next()
 }
 
@@ -456,6 +525,19 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
 }
 
 export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const orgApiKey = c.get("orgApiKey")
+  if (orgApiKey) {
+    if (!isMcpRequestPath(c.req.path)) {
+      getLogger().warn("Unauthorized because org API key is MCP-only")
+      return c.json(
+        { error: "Unauthorized" },
+        401,
+        wwwAuthenticateForMcpRoute(c, "Authentication required"),
+      )
+    }
+    return next()
+  }
+
   const hasValidOfflineMcpBearer =
     Boolean(c.get("user")) &&
     isMcpRequestPath(c.req.path) &&
@@ -515,16 +597,27 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
   c,
   next,
 ) => {
+  const orgApiKey = c.get("orgApiKey")
   const userId = c.get("user")?.id
-  if (!userId) return c.json({ error: "Not found" }, 404)
-
   const rawOrgSlug = c.req.param("orgSlug") ?? c.req.query("orgSlug")
   const orgSlug = rawOrgSlug?.trim() || undefined
   const oauthOrganizationId = c.get("oauthOrganizationId")
   const systemDb = getSystemDb()
   let resolved: { id: string; slug: string } | undefined
 
-  if (oauthOrganizationId) {
+  if (orgApiKey) {
+    const orgRows = await systemDb
+      .select({ id: organizations.id, slug: organizations.slug })
+      .from(organizations)
+      .where(eq(organizations.id, orgApiKey.orgId))
+      .limit(1)
+    resolved = orgRows[0]
+    if (!resolved || (orgSlug && resolved.slug !== orgSlug)) {
+      return c.json({ error: "Not found" }, 404)
+    }
+  } else if (!userId) {
+    return c.json({ error: "Not found" }, 404)
+  } else if (oauthOrganizationId) {
     const orgRows = await systemDb
       .select({ id: organizations.id, slug: organizations.slug })
       .from(organizations)

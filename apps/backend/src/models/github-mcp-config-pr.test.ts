@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import {
   buildOrMergeCursorClaudeMcpJson,
@@ -124,5 +127,39 @@ describe("buildOrMergeOpenCodeMcpJson", () => {
         },
       },
     })
+  })
+})
+
+describe("MCP install distributions stay OAuth-only", () => {
+  it("does not put API-key headers or secrets in GitHub PR MCP JSON", () => {
+    const cursor = buildOrMergeCursorClaudeMcpJson(
+      null,
+      "https://app.example/mcp?orgSlug=acme",
+    )
+    const opencode = buildOrMergeOpenCodeMcpJson(
+      null,
+      "https://app.example/mcp?orgSlug=acme",
+    )
+    for (const json of [cursor, opencode]) {
+      expect(json).not.toContain("x-api-key")
+      expect(json).not.toContain("CTXPIPE_API_KEY")
+      expect(json).not.toMatch(/"headers"/)
+    }
+  })
+
+  it("keeps the Claude plugin MCP URL OAuth-only with no API-key header", () => {
+    const pluginPath = join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../../plugins/ctxpipe/.mcp.json",
+    )
+    const plugin = JSON.parse(readFileSync(pluginPath, "utf8")) as {
+      mcpServers: {
+        ctxpipe?: { url?: string; headers?: Record<string, string> }
+      }
+    }
+    expect(plugin.mcpServers.ctxpipe?.url).toBe("https://app.ctxpipe.ai/mcp")
+    expect(plugin.mcpServers.ctxpipe?.headers).toBeUndefined()
+    expect(JSON.stringify(plugin)).not.toContain("x-api-key")
+    expect(JSON.stringify(plugin)).not.toContain("CTXPIPE_API_KEY")
   })
 })
