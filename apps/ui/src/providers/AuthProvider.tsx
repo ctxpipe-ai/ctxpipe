@@ -113,8 +113,8 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
         account={{ basePath: "/.auth/account" }}
         organization={
           orgSlug
-            ? { slug: orgSlug, basePath: "/.auth/organization" }
-            : { basePath: "/.auth/organization" }
+            ? { slug: orgSlug, basePath: "/.auth/organization", apiKey: true }
+            : { basePath: "/.auth/organization", apiKey: true }
         }
         onSessionChange={() => {
           void router?.invalidate()

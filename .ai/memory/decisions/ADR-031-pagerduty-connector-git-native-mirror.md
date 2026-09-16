@@ -1,4 +1,4 @@
-# ADR-030: PagerDuty connector Git-native mirror
+# ADR-031: PagerDuty connector Git-native mirror
 
 **Status:** Accepted | **Date:** 2026-09-14 | **Tags:** connectors, pagerduty, oauth, webhooks, git, multi-tenant
 

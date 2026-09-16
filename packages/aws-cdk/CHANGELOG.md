@@ -1,5 +1,12 @@
 # @ctxpipe/aws-cdk
 
+## 3.1.9
+
+### Patch Changes
+
+- b5f0149: Wait for codesearch index capacity instead of failing the backlog after about ten minutes.
+- 762dc52: Colocate hosted Railway with Neon in US East (IPv4-first org SQL).
+
 ## 3.1.8
 
 ### Patch Changes

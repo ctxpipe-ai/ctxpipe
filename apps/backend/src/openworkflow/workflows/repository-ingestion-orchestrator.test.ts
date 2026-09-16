@@ -151,24 +151,27 @@ describe("repositoryIngestionOrchestrator workflow", () => {
     expect(flushWorkflowLogMock).toHaveBeenCalled()
   })
 
-  it("rethrows SleepSignal without marking failed", async () => {
-    const sleepSignal = new Error("sleep")
-    sleepSignal.name = "SleepSignal"
-    const step = {
-      runWorkflow: vi.fn().mockRejectedValue(sleepSignal),
-      run: vi.fn(),
-    }
+  it.each(["SleepSignal", "SleepSignalError"] as const)(
+    "rethrows %s without marking failed",
+    async (name) => {
+      const sleepSignal = new Error(name)
+      sleepSignal.name = name
+      const step = {
+        runWorkflow: vi.fn().mockRejectedValue(sleepSignal),
+        run: vi.fn(),
+      }
 
-    await expect(
-      repositoryIngestionOrchestrator.fn({
-        input: { repositoryId: "repo_1", orgId: "org_1" },
-        step,
-      } as never),
-    ).rejects.toMatchObject({ name: "SleepSignal" })
+      await expect(
+        repositoryIngestionOrchestrator.fn({
+          input: { repositoryId: "repo_1", orgId: "org_1" },
+          step,
+        } as never),
+      ).rejects.toMatchObject({ name })
 
-    expect(step.run).not.toHaveBeenCalled()
-    expect(markRepositoryIndexingFailedMock).not.toHaveBeenCalled()
-  })
+      expect(step.run).not.toHaveBeenCalled()
+      expect(markRepositoryIndexingFailedMock).not.toHaveBeenCalled()
+    },
+  )
 
   it("marks failed when child throws CancelSignal", async () => {
     const cancelSignal = new Error("canceled")

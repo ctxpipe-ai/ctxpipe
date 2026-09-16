@@ -5,6 +5,7 @@ import {
   withBearerAuth,
   withCookieAuth,
   withNetworkOrgContext,
+  withOrgApiKeyAuth,
 } from "../auth/withAuth.js"
 import { registerMcpTools } from "../mcp/tools.js"
 import {
@@ -17,6 +18,7 @@ export function registerMcpRoutes(app: Hono<AppEnv>) {
     "/mcp",
     (c, next) => rejectInvalidMcpOrigin(c) ?? next(),
     withCookieAuth,
+    withOrgApiKeyAuth,
     withBearerAuth,
     requireAuth,
     withNetworkOrgContext,

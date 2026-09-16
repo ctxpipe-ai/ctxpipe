@@ -1,5 +1,5 @@
-import { renderToStaticMarkup } from "react-dom/server"
 import type { ReactNode } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const useRouterMock = vi.fn()
@@ -72,6 +72,35 @@ describe("AuthProvider", () => {
         apiKey: true,
         basePath: "/.auth",
         account: { basePath: "/.auth/account" },
+        organization: {
+          basePath: "/.auth/organization",
+          apiKey: true,
+        },
+      }),
+    )
+  })
+
+  it("enables organisation API keys when an org slug is in the path", async () => {
+    useRouterMock.mockReturnValue({
+      state: { location: { pathname: "/acme/organization/members" } },
+      invalidate: vi.fn(),
+    })
+    const { AuthProvider } = await import("./AuthProvider")
+
+    renderToStaticMarkup(
+      <AuthProvider>
+        <div>content</div>
+      </AuthProvider>,
+    )
+
+    expect(authUiProviderTanstackMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiKey: true,
+        organization: {
+          slug: "acme",
+          basePath: "/.auth/organization",
+          apiKey: true,
+        },
       }),
     )
   })

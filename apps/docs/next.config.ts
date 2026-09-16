@@ -28,6 +28,11 @@ const config = withMDX({
         permanent: false,
       },
       {
+        source: "/docs/mcp/claude-plugin",
+        destination: "/docs/mcp/mcp-docs",
+        permanent: false,
+      },
+      {
         source: "/docs/knowledge-graph/monitoring",
         destination: "/docs/knowledge-graph/exploring#reading-graph-status",
         permanent: false,

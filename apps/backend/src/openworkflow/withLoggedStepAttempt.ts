@@ -1,11 +1,13 @@
 import { flushWorkflowLog, getLogger } from "../observability/logger.js"
+import { isSleepSignal } from "./isSleepSignal.js"
 
 /**
  * Wraps an async workflow step fn; on throw, logs the failure to evlog (with
  * structured fields) and flushes the workflow log before rethrowing.
  *
- * SleepSignal is never treated as an attempt failure — it is rethrown silently
- * because it is a workflow control signal, not a real error.
+ * SleepSignal / SleepSignalError is never treated as an attempt failure — it
+ * is rethrown silently because it is a workflow control signal, not a real
+ * error.
  */
 export async function withLoggedStepAttempt<T>(
   stepName: string,
@@ -15,7 +17,7 @@ export async function withLoggedStepAttempt<T>(
   try {
     return await fn()
   } catch (err: unknown) {
-    if (err instanceof Error && err.name === "SleepSignal") {
+    if (isSleepSignal(err)) {
       throw err
     }
     const normalized = err instanceof Error ? err : new Error(String(err))

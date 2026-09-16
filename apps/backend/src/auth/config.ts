@@ -12,6 +12,13 @@ import {
   organization,
   twoFactor,
 } from "better-auth/plugins"
+import { createAccessControl } from "better-auth/plugins/access"
+import {
+  adminAc,
+  defaultStatements,
+  memberAc,
+  ownerAc,
+} from "better-auth/plugins/organization/access"
 import { eq } from "drizzle-orm"
 import { parseEnv } from "../config/env.js"
 import { type Db, initDb } from "../db/client.js"
@@ -49,6 +56,56 @@ function toTypeSlug(model: string): string {
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "")
   return slug.length > 0 ? slug : "id"
+}
+
+const API_KEY_ACTIONS = ["create", "read", "update", "delete"] as const
+
+const apiKeyExpiration = {
+  defaultExpiresIn: 1000 * 60 * 60 * 24 * 30,
+  disableCustomExpiresTime: false,
+} as const
+
+const apiKeyRateLimit = {
+  enabled: true,
+  timeWindow: 60 * 60 * 1000,
+  maxRequests: 1000,
+} as const
+
+/** User (`default`) + org-owned configs passed to `apiKey()`. Keep `default` for existing rows. */
+const apiKeyPluginConfigurations = [
+  {
+    configId: "default",
+    references: "user" as const,
+    enableSessionForAPIKeys: true,
+    keyExpiration: apiKeyExpiration,
+    rateLimit: apiKeyRateLimit,
+  },
+  {
+    configId: "organization",
+    references: "organization" as const,
+    enableSessionForAPIKeys: false,
+    keyExpiration: apiKeyExpiration,
+    rateLimit: apiKeyRateLimit,
+  },
+]
+
+const organizationAccessControl = createAccessControl({
+  ...defaultStatements,
+  apiKey: API_KEY_ACTIONS,
+})
+
+const organizationRoles = {
+  owner: organizationAccessControl.newRole({
+    ...ownerAc.statements,
+    apiKey: API_KEY_ACTIONS,
+  }),
+  admin: organizationAccessControl.newRole({
+    ...adminAc.statements,
+    apiKey: API_KEY_ACTIONS,
+  }),
+  member: organizationAccessControl.newRole({
+    ...memberAc.statements,
+  }),
 }
 
 async function getOAuthOrganizationMembershipIds(db: Db, userId: string) {
@@ -163,21 +220,13 @@ export function createBetterAuth() {
           : undefined,
     },
     plugins: [
-      apiKey({
-        // Keep API key auth on the same getSession() path used by middleware
-        // so `x-api-key` is resolved without custom verification code.
-        enableSessionForAPIKeys: true,
-        keyExpiration: {
-          defaultExpiresIn: 1000 * 60 * 60 * 24 * 30,
-          // Allow callers to explicitly create non-expiring keys via
-          // `expiresIn: null` on api-key create/update endpoints.
-          disableCustomExpiresTime: false,
-        },
-      }),
+      apiKey(apiKeyPluginConfigurations),
       bearer(),
       jwt(),
       twoFactor(),
       organization({
+        ac: organizationAccessControl,
+        roles: organizationRoles,
         // Invitation IDs are opaque UUIDv7 values delivered by email; the
         // accepting session must still match the exact invited email address.
         requireEmailVerificationOnInvitation: false,

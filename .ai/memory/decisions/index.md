@@ -38,4 +38,5 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-027](ADR-027-codesearch-openworkflow-concurrency.md) | Size-based OpenWorkflow concurrency for single-instance codesearch | Accepted |
 | [ADR-028](ADR-028-git-native-connector-assets.md) | Git-native connector assets | Accepted |
 | [ADR-029](ADR-029-railway-us-east-next-to-neon.md) | Railway compute in US East next to Neon | Accepted |
-| [ADR-030](ADR-030-pagerduty-connector-git-native-mirror.md) | PagerDuty connector Git-native mirror | Accepted |
+| [ADR-030](ADR-030-organization-owned-mcp-api-keys.md) | Organization-owned MCP API keys | Accepted |
+| [ADR-031](ADR-031-pagerduty-connector-git-native-mirror.md) | PagerDuty connector Git-native mirror | Accepted |

@@ -5,6 +5,7 @@ import { registerMcpRoutes } from "./mcp.js"
 
 const {
   withCookieAuthMock,
+  withOrgApiKeyAuthMock,
   withBearerAuthMock,
   requireAuthMock,
   withNetworkOrgContextMock,
@@ -14,6 +15,7 @@ const {
   loggerErrorMock,
 } = vi.hoisted(() => ({
   withCookieAuthMock: vi.fn(),
+  withOrgApiKeyAuthMock: vi.fn(),
   withBearerAuthMock: vi.fn(),
   requireAuthMock: vi.fn(),
   withNetworkOrgContextMock: vi.fn(),
@@ -25,6 +27,7 @@ const {
 
 vi.mock("../auth/withAuth.js", () => ({
   withCookieAuth: withCookieAuthMock,
+  withOrgApiKeyAuth: withOrgApiKeyAuthMock,
   withBearerAuth: withBearerAuthMock,
   requireAuth: requireAuthMock,
   withNetworkOrgContext: withNetworkOrgContextMock,
@@ -52,6 +55,7 @@ function createTestApp(): Hono<AppEnv> {
     c.set("user", null)
     c.set("session", null)
     c.set("oauthOrganizationId", null)
+    c.set("orgApiKey", null)
     c.set("orgSlug", null)
     c.set("orgId", null)
     await next()
@@ -64,6 +68,7 @@ describe("MCP route auth and org validation", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     withCookieAuthMock.mockImplementation(async (_c, next) => next())
+    withOrgApiKeyAuthMock.mockImplementation(async (_c, next) => next())
     withBearerAuthMock.mockImplementation(async (_c, next) => next())
     requireAuthMock.mockImplementation(async (_c, next) => next())
     withNetworkOrgContextMock.mockImplementation(async (_c, next) => next())
@@ -130,6 +135,7 @@ describe("MCP route auth and org validation", () => {
 
     expect(response.status).toBe(403)
     expect(withCookieAuthMock).not.toHaveBeenCalled()
+    expect(withOrgApiKeyAuthMock).not.toHaveBeenCalled()
     expect(registerMcpToolsMock).not.toHaveBeenCalled()
   })
 
