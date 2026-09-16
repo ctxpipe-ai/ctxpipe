@@ -191,6 +191,26 @@ variable "notion_webhook_secret" {
   sensitive   = true
 }
 
+variable "pagerduty_client_id" {
+  type        = string
+  description = "value for PAGERDUTY_CLIENT_ID; leave empty to disable the PagerDuty connector"
+  default     = ""
+  sensitive   = true
+}
+
+variable "pagerduty_client_secret" {
+  type        = string
+  description = "value for PAGERDUTY_CLIENT_SECRET"
+  default     = ""
+  sensitive   = true
+}
+
+variable "pagerduty_redirect_uri" {
+  type        = string
+  description = "optional PAGERDUTY_REDIRECT_URI override"
+  default     = ""
+}
+
 variable "github_webhook_secret" {
   type        = string
   description = "value for GITHUB_WEBHOOK_SECRET"

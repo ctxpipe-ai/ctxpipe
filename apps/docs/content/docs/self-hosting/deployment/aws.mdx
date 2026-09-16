@@ -236,9 +236,12 @@ Replace `defaultModel: "gpt-4.1-mini"` with `models: { fast: "gpt-4.1-mini" }`.
 
 Pass deployment-wide connector credentials through `connectorSecrets`. For
 Slack, set `slackClientId`, `slackClientSecret`, and `slackSigningSecret`
-together. The construct stores them in Secrets Manager and injects them into
-the required ECS tasks. See [Self-host Slack](/docs/self-hosting/slack) for the
-Slack app callback, event, scope, and distribution settings.
+together. For PagerDuty, set `pagerdutyClientId` and `pagerdutyClientSecret`
+together; there is no shared webhook secret. The construct stores them in
+Secrets Manager and injects them into the required ECS tasks. See
+[Self-host Slack](/docs/self-hosting/slack) and
+[Self-host PagerDuty](/docs/self-hosting/pagerduty) for callback and webhook
+settings.
 
 ## High-level architecture
 
