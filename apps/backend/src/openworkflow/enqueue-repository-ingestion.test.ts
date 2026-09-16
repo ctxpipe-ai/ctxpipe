@@ -439,24 +439,27 @@ describe("claimAndRunRepositoryIngestionChild", () => {
     expect(log.error).not.toHaveBeenCalled()
   })
 
-  it("rethrows SleepSignal without logging", async () => {
-    const sleepSignal = new Error("sleep")
-    sleepSignal.name = "SleepSignal"
-    const step = mockChildStep({
-      runWorkflow: vi.fn().mockRejectedValue(sleepSignal),
-    })
-    const log = { error: vi.fn() }
+  it.each(["SleepSignal", "SleepSignalError"] as const)(
+    "rethrows %s without logging",
+    async (name) => {
+      const sleepSignal = new Error(name)
+      sleepSignal.name = name
+      const step = mockChildStep({
+        runWorkflow: vi.fn().mockRejectedValue(sleepSignal),
+      })
+      const log = { error: vi.fn() }
 
-    await expect(
-      claimAndRunRepositoryIngestionChild(
-        step,
-        { repositoryId: "repo_1", orgId: "org_1" },
-        log,
-      ),
-    ).rejects.toMatchObject({ name: "SleepSignal" })
-    expect(log.error).not.toHaveBeenCalled()
-    expect(markFailedMock).not.toHaveBeenCalled()
-  })
+      await expect(
+        claimAndRunRepositoryIngestionChild(
+          step,
+          { repositoryId: "repo_1", orgId: "org_1" },
+          log,
+        ),
+      ).rejects.toMatchObject({ name })
+      expect(log.error).not.toHaveBeenCalled()
+      expect(markFailedMock).not.toHaveBeenCalled()
+    },
+  )
 
   it("logs, releases the claim, and rethrows child failures", async () => {
     const step = mockChildStep({

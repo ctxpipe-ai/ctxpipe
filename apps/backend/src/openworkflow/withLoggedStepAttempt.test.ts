@@ -86,27 +86,30 @@ describe("withLoggedStepAttempt", () => {
     expect(firstArg.message).toBe("raw string error")
   })
 
-  it("rethrows SleepSignal without logging or flushing", async () => {
-    const sleepSignal = new Error("sleep")
-    sleepSignal.name = "SleepSignal"
+  it.each(["SleepSignal", "SleepSignalError"] as const)(
+    "rethrows %s without logging or flushing",
+    async (name) => {
+      const sleepSignal = new Error(name)
+      sleepSignal.name = name
 
-    await expect(
-      withLoggedStepAttempt(
-        "some-step",
-        {
-          workflow: "repository-deletion",
-          repositoryId: "repo_1",
-          orgId: "org_1",
-        },
-        async () => {
-          throw sleepSignal
-        },
-      ),
-    ).rejects.toMatchObject({ name: "SleepSignal" })
+      await expect(
+        withLoggedStepAttempt(
+          "some-step",
+          {
+            workflow: "repository-deletion",
+            repositoryId: "repo_1",
+            orgId: "org_1",
+          },
+          async () => {
+            throw sleepSignal
+          },
+        ),
+      ).rejects.toMatchObject({ name })
 
-    expect(getLoggerErrorMock).not.toHaveBeenCalled()
-    expect(flushWorkflowLogMock).not.toHaveBeenCalled()
-  })
+      expect(getLoggerErrorMock).not.toHaveBeenCalled()
+      expect(flushWorkflowLogMock).not.toHaveBeenCalled()
+    },
+  )
 
   it("includes truncated stack in the log fields", async () => {
     const err = new Error("oops")
