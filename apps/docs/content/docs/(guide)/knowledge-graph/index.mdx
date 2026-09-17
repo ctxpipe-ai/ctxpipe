@@ -18,14 +18,27 @@ that Chat and MCP can use for technical reasoning.
 The graph is built from extracted claims. A claim connects a subject to an
 object with a predicate, timestamp, and confidence.
 
-Typical node kinds include:
+Node kinds are grouped by what they describe:
 
-- `Service`, `App`, `Library`, `API`
-- `Database`, `Stream`, `Infrastructure`
-- `Pattern`, `InstructionUnit`, `Skill`
+- **Structure**: `Repository`, `Service`, `App`, `Library`, `API`,
+  `Operation`, `Database`, `Stream`, `Infrastructure`, and `File` (a location
+  for any extracted repo path, shared by source extraction and pull requests).
+- **Change**: `PullRequest`, with `ADDED` / `MODIFIED` / `REMOVED` / `RENAMED`
+  edges onto files, dated at merge.
+- **Work and discussion**: `Issue` (Linear), `Thread` (captured Slack
+  threads).
+- **Knowledge and norms**: `Decision` (ADR files), `InstructionUnit`, `Skill`,
+  `Pattern`.
+- **Ownership**: `Team` (CODEOWNERS, tracker teams).
 
-Edges represent relationships such as calls, depends on, owns, documents, uses,
-or implements. The exact predicate vocabulary evolves with extraction.
+Edges belong to relation families with fixed meanings: containment
+(`PART_OF`), provenance (`DECLARED_IN`), change (`TARGETS`, `ADDED`, …),
+reference (`REFERENCES`, `MENTIONS`, `SUPERSEDES`), ownership (`OWNS`), and
+cause (`INFLUENCES`), alongside the structural predicates such as
+`DEPENDS_ON`, `EXPOSES_API`, and `USES_LIBRARY`. Cross-tool edges are
+deterministic: an issue that links a pull request, a thread that links an
+issue, or a pull request whose title names an issue is joined by URL or
+identifier, never guessed.
 
 ## Where It Comes From
 
@@ -64,6 +77,19 @@ When a claim matters:
 Large organization graphs may be shown as a subset. Search and node-kind filters
 help narrow the view; the totals and **Subset shown** indicator make truncation
 explicit.
+
+## Graph health
+
+`GET /:orgSlug/api/v1/knowledge-graph/quality` reports **join density** (the
+share of nodes whose evidence comes from two or more extractors), the orphan
+rate, evidence rows per claim, and the count of legacy instruction units that
+were derived from connector Markdown. Organization admins can remove those
+legacy units with
+`POST /:orgSlug/api/v1/knowledge-graph/maintenance/retract-connector-instructions`,
+then re-index repositories. A manual re-index is a full rebuild: it re-reads the
+repository at its current commit and retracts what the repository no longer
+asserts, so node counts reflect the code as it is rather than every extraction
+ever run.
 
 ## Related
 

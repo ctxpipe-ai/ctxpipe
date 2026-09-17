@@ -23,6 +23,12 @@ export type RepositoryIngestionEnqueueInput = {
   idempotencyKey?: string
   /** Used only to resolve the correct repository tip after a duplicate run. */
   githubConnectionId?: string | null
+  /**
+   * Ignore the last ingested commit: codesearch runs in full mode and the
+   * workflow sweeps evidence the run did not re-observe. Manual re-index only;
+   * webhook-driven ingests stay incremental.
+   */
+  fullReingest?: boolean
 }
 
 export type ConnectorRepositoryIngestionInput = Omit<
@@ -87,6 +93,9 @@ function startRepositoryIngestionWorkflow(
       : {}),
     ...(input.githubConnectionId !== undefined
       ? { githubConnectionId: input.githubConnectionId }
+      : {}),
+    ...(input.fullReingest !== undefined
+      ? { fullReingest: input.fullReingest }
       : {}),
   }
   return input.idempotencyKey

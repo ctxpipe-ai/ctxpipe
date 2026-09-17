@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
+
 const createRepositoryMock = vi.hoisted(() => vi.fn())
 const getRepositoryMock = vi.hoisted(() => vi.fn())
 const enqueueIngestionMock = vi.hoisted(() =>
@@ -238,6 +239,7 @@ describe("POST /api/v1/repositories/:id/reindex", () => {
         repositoryId: "repo_ABC",
         orgId: "org_mock123",
         indexingReason: "manual",
+        fullReingest: true,
       },
       expect.any(Object),
     )

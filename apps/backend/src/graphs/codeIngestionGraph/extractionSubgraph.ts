@@ -1,6 +1,11 @@
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph"
+import { extractCodeowners } from "./nodes/extractCodeowners.js"
+import { extractDecisions } from "./nodes/extractDecisions.js"
+import { extractGithubPullRequests } from "./nodes/extractGithubPullRequests.js"
 import { extractInstructionUnits } from "./nodes/extractInstructionUnits.js"
 import { extractKind } from "./nodes/extractKind.js"
+import { extractLinear } from "./nodes/extractLinear.js"
+import { extractSlackThreads } from "./nodes/extractSlackThreads.js"
 import { identifyAPIClients } from "./nodes/identifyAPIClients.js"
 import { identifyAPIs } from "./nodes/identifyAPIs.js"
 import { identifyDatabases } from "./nodes/identifyDatabases.js"
@@ -9,6 +14,7 @@ import { identifyLibraries } from "./nodes/identifyLibraries.js"
 import { identifyPatterns } from "./nodes/identifyPatterns.js"
 import { identifyServiceDependencies } from "./nodes/identifyServiceDependencies.js"
 import { identifyStreams } from "./nodes/identifyStreams.js"
+import { linkLocatedPathsNode } from "./nodes/linkLocatedPaths.js"
 import type { ExtractedClaim, ExtractedObject } from "./schemas.js"
 
 const arrayReducer = <T>(left: T[], right: T | T[]): T[] =>
@@ -73,6 +79,12 @@ const extractionSubgraph = new StateGraph(ExtractionStateAnnotation, {
   .addNode("identifyLibraries", identifyLibraries) //  use repo explorer
   .addNode("identifyPatterns", identifyPatterns) //  use repo explorer
   .addNode("extractInstructionUnits", extractInstructionUnits)
+  .addNode("extractDecisions", extractDecisions)
+  .addNode("extractCodeowners", extractCodeowners)
+  .addNode("extractGithubPullRequests", extractGithubPullRequests)
+  .addNode("extractLinear", extractLinear)
+  .addNode("extractSlackThreads", extractSlackThreads)
+  .addNode("linkLocatedPaths", linkLocatedPathsNode)
   .addEdge(START, "extractKind")
   .addEdge("extractKind", "identifyAPIClients")
   .addEdge("extractKind", "identifyAPIs")
@@ -83,15 +95,26 @@ const extractionSubgraph = new StateGraph(ExtractionStateAnnotation, {
   .addEdge("extractKind", "identifyLibraries")
   .addEdge("extractKind", "identifyPatterns")
   .addEdge("extractKind", "extractInstructionUnits")
-  .addEdge("identifyAPIClients", END)
-  .addEdge("identifyAPIs", END)
-  .addEdge("identifyDatabases", END)
-  .addEdge("identifyInfrastructure", END)
-  .addEdge("identifyStreams", END)
-  .addEdge("identifyServiceDependencies", END)
-  .addEdge("identifyLibraries", END)
-  .addEdge("identifyPatterns", END)
-  .addEdge("extractInstructionUnits", END)
+  .addEdge("extractKind", "extractDecisions")
+  .addEdge("extractKind", "extractCodeowners")
+  .addEdge("extractKind", "extractGithubPullRequests")
+  .addEdge("extractKind", "extractLinear")
+  .addEdge("extractKind", "extractSlackThreads")
+  .addEdge("identifyAPIClients", "linkLocatedPaths")
+  .addEdge("identifyAPIs", "linkLocatedPaths")
+  .addEdge("identifyDatabases", "linkLocatedPaths")
+  .addEdge("identifyInfrastructure", "linkLocatedPaths")
+  .addEdge("identifyStreams", "linkLocatedPaths")
+  .addEdge("identifyServiceDependencies", "linkLocatedPaths")
+  .addEdge("identifyLibraries", "linkLocatedPaths")
+  .addEdge("identifyPatterns", "linkLocatedPaths")
+  .addEdge("extractInstructionUnits", "linkLocatedPaths")
+  .addEdge("extractDecisions", "linkLocatedPaths")
+  .addEdge("extractCodeowners", "linkLocatedPaths")
+  .addEdge("extractGithubPullRequests", "linkLocatedPaths")
+  .addEdge("extractLinear", "linkLocatedPaths")
+  .addEdge("extractSlackThreads", "linkLocatedPaths")
+  .addEdge("linkLocatedPaths", END)
   .compile()
 
 export { extractionSubgraph }

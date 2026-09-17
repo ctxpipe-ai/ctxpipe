@@ -27,7 +27,7 @@ Channels (steps[].type + params):
 - code_search — identifiers, paths, implementation, config/env across layers. params: { "query": "..." }
 - exact_lookup — query contains claim_|repo_|obj_|ev_ ids. params: { "nodeId": "<id>" }
 - graph_anchor + graph_traversal — dependencies, topology, callers/callees, structural code. params: { "anchorFrom": "hybrid"|"code" } (use "code" when query has repo_/file paths/symbols)
-- extension_traversal — ADRs, patterns, org-wide concepts. params: { "anchorFrom": "hybrid"|"code" }
+- extension_traversal — why / who / prior work: decisions (ADRs), issues, pull requests, discussion threads, ownership. params: { "anchorFrom": "hybrid"|"code" }
 - claim_aggregation — standards / "what should I use" / tech choices. params: { "predicates": ["WRITES_TO","READS_FROM","DEPENDS_ON","USES_LIBRARY"] } — include only predicates that fit the question
 
 Example: { "steps":[{"type":"code_search","params":{"query":"authentication library"}},{"type":"claim_aggregation","params":{"predicates":["DEPENDS_ON","USES_LIBRARY"]}}], "depthLimit": 3, "resultLimit": 20 }
@@ -89,7 +89,7 @@ ${CHANNEL_CHEAT_SHEET}
 Guidelines:
 - claim_aggregation: for "what should I use", "what's recommended", "what's common" — use when query asks about tech choices (database, library, framework, auth). Params: { "predicates": ["WRITES_TO","READS_FROM","DEPENDS_ON","USES_LIBRARY"] } — pick predicates that match the question
 - graph_anchor + graph_traversal: for dependency/impact/topology questions; anchorFrom "hybrid" when embedding exists, "code" when query suggests code/repo lookups. For structural code questions (callers, references, reachability, usage of a symbol), include graph_anchor + graph_traversal with anchorFrom "code" plus code_search.
-- extension_traversal: for concept/topic discovery, ADRs, patterns; use for recommendation/validation queries (should I use X, is X allowed)
+- extension_traversal: for "why is it like this", "who owns", "what was decided", "is there prior work" — walks Decision, Issue, PullRequest, Thread and Team edges (REFERENCES, MENTIONS, INFLUENCES, SUPERSEDES, OWNS); also for recommendation/validation queries (should I use X, is X allowed)
 - hybrid_search: for vague/conceptual questions, documentation, concept discovery
 - code_search: for identifiers, file paths, symbol names, implementation details. When the query may involve configuration or defaults spanning multiple files or deployment layers, include an extra code_search with varied sub-queries (e.g. query + "configuration deployment environment defaults") so different defining locations surface.
 - exact_lookup: when query contains claim_, repo_, obj_, ev_ IDs
