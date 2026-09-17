@@ -573,14 +573,20 @@ export const repositoryIngestion = defineWorkflow(
             }
 
             // Full ingests re-observe everything still true at the target commit;
-            // whatever this repository's extractors did not re-observe is stale.
-            // Skipped when an index degraded, so a partial run never retracts.
+            // whatever this repository's extractors did not touch since the index
+            // child finished (`indexedAt`: same worker clock, stamped before any
+            // extraction, cached for runs already in flight) is stale. Skipped
+            // when an index degraded, so a partial run never retracts.
             let graphEffects = retractionResult.retractionGraphEffects
+            const observedBefore = reindexState.indexedAt
+              ? new Date(reindexState.indexedAt)
+              : null
             const canSweepUnobserved =
               reindexState.ingestMode === "full" &&
               reindexState.searchIndexOk !== false &&
-              reindexState.scipIndexOk !== false
-            if (canSweepUnobserved) {
+              reindexState.scipIndexOk !== false &&
+              observedBefore !== null
+            if (canSweepUnobserved && observedBefore) {
               const sweep = await step.run(
                 { name: "retract-unobserved-evidence" },
                 () =>
@@ -589,7 +595,7 @@ export const repositoryIngestion = defineWorkflow(
                       retractUnobservedRepositoryEvidencePg(db, {
                         orgId: input.orgId,
                         repositoryId: input.repositoryId,
-                        targetHash: result.targetHash,
+                        observedBefore,
                       }),
                     ),
                   ),
@@ -599,6 +605,7 @@ export const repositoryIngestion = defineWorkflow(
                 {
                   repositoryId: input.repositoryId,
                   targetHash: result.targetHash,
+                  observedBefore: observedBefore.toISOString(),
                   ...sweep.stats,
                 },
               )
@@ -622,7 +629,7 @@ export const repositoryIngestion = defineWorkflow(
                 {
                   repositoryId: input.repositoryId,
                   targetHash: result.targetHash,
-                  reason: "index degraded",
+                  reason: observedBefore ? "index degraded" : "no indexedAt",
                 },
               )
             }

@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, or, sql } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, lt, or, sql } from "drizzle-orm"
 import type { z } from "zod/v3"
 import type { Db } from "../../db/client.js"
 import { claimEvidence } from "../../db/schema/claim_evidence.js"
@@ -774,29 +774,31 @@ function producedByRepositoryFilter(repositoryId: string) {
 }
 
 /**
- * After a successful full ingest at `targetHash`, retract evidence the run did not
- * re-observe: rows produced by this repository (second source-id segment) whose
- * source id does not end in `:${targetHash}`. Dedup moves re-observed rows to the
- * new hash, so they survive; evidence produced by other repositories that merely
- * mentions this one (PR mirror claims) is untouched. This is what keeps LLM naming
- * drift from accumulating across re-ingests (ADR-033).
+ * After a successful full ingest, retract evidence the run did not observe: rows
+ * produced by this repository (second source-id segment) whose `observedAt` is
+ * older than `observedBefore` (the index child's `indexedAt`, stamped before any
+ * extraction of the run). Dedup touches every
+ * re-observed row (`touchEvidenceBulk`) and new rows are stamped at write time,
+ * so everything the run asserted is newer; evidence produced by other
+ * repositories that merely mentions this one (PR mirror claims) is untouched.
+ * Hash tails cannot serve here: a re-index at an unchanged tip re-observes at the
+ * same commit as the stale rows. This is what keeps LLM naming drift from
+ * accumulating across re-ingests (ADR-033 §11).
  * Graph sync is deferred — use {@link applyIngestionRetractionGraphEffects}.
  */
 export async function retractUnobservedRepositoryEvidencePg(
   db: Db,
-  params: { orgId: string; repositoryId: string; targetHash: string },
+  params: { orgId: string; repositoryId: string; observedBefore: Date },
 ): Promise<{
   stats: RetractionStats
   graphEffects: IngestionRetractionGraphEffects
 }> {
-  const { orgId, repositoryId } = params
-  const targetHash = params.targetHash.trim()
-  if (targetHash.length === 0) {
+  const { orgId, repositoryId, observedBefore } = params
+  if (Number.isNaN(observedBefore.getTime())) {
     throw new Error(
-      "retractUnobservedRepositoryEvidencePg: targetHash is required",
+      "retractUnobservedRepositoryEvidencePg: observedBefore must be a valid date",
     )
   }
-  const tail = `:${targetHash}`
   const stats = emptyStats()
   const now = new Date()
   const deletedObjectIds = new Set<string>()
@@ -813,7 +815,7 @@ export async function retractUnobservedRepositoryEvidencePg(
         and(
           eq(claims.orgId, orgId),
           producedByRepositoryFilter(repositoryId),
-          sql`right(${claimEvidence.sourceId}::text, ${tail.length}) <> ${tail}`,
+          lt(claimEvidence.observedAt, observedBefore),
         ),
       )
     if (rows.length === 0) return
@@ -831,9 +833,9 @@ export async function retractUnobservedRepositoryEvidencePg(
     log.info({
       step: "repositoryIngestion.unobserved_evidence_sweep",
       message:
-        "repositoryIngestion: retracted evidence not re-observed at target",
+        "repositoryIngestion: retracted evidence not observed by the run",
       repositoryId,
-      targetHash,
+      observedBefore: observedBefore.toISOString(),
       deletedEvidenceRows: stats.deletedEvidenceRows,
       claimsDeleted: stats.claimsDeleted,
       claimsUpdated: stats.claimsUpdated,

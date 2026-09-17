@@ -75,19 +75,24 @@ cross-tool edges require shared identity.
    (`POST /knowledge-graph/maintenance/retract-connector-instructions`)
    removes those units and the nodes left orphaned.
 11. **A full ingest is authoritative for what its repository asserts.** Dedup
-   moves re-observed evidence to the current commit (`touchEvidenceBulk`) and,
-   when codesearch ran in full mode and no index degraded, the workflow sweeps
-   this repository's evidence whose source id does not end in the target hash
+   touches every re-observed evidence row (`touchEvidenceBulk`: `observedAt` to
+   now, source id to the current commit) and stamps new rows at write time.
+   When codesearch ran in full mode and no index degraded, the workflow sweeps
+   this repository's evidence observed before the index child's `indexedAt`
+   (stamped by the same worker after checkout and before any extraction, and
+   cached for runs already in flight when the worker is redeployed)
    (`retractUnobservedRepositoryEvidencePg`): claims left without proof go,
    nodes no claim references go with them, multi-source claims keep their other
    proofs. The producer is the second source-id segment, so another
-   repository's claims that merely mention this one survive. Manual re-index
-   (UI button, `reindex-repositories`) requests `fullReingest`, which ignores
-   the last ingested commit; webhook ingests stay incremental and keep using
-   path-based retraction. Before this, a re-index at an unchanged tip was a
-   partial ingest with an empty diff: extractors re-ran, nothing was retracted,
-   and LLM naming drift accumulated (TruRec production carried instruction-unit
-   evidence from 586 distinct ingestion hashes).
+   repository's claims that merely mention this one survive. The cutoff is
+   time, not the commit hash: a re-index at an unchanged tip re-observes at the
+   same hash as the stale rows. Manual re-index (UI button,
+   `reindex-repositories`) requests `fullReingest`, which ignores the last
+   ingested commit; webhook ingests stay incremental and keep using path-based
+   retraction. Before this, a re-index at an unchanged tip was a partial ingest
+   with an empty diff: extractors re-ran, nothing was retracted, and LLM naming
+   drift accumulated (TruRec production carried instruction-unit evidence from
+   586 distinct ingestion hashes).
 
 ## Rationale
 

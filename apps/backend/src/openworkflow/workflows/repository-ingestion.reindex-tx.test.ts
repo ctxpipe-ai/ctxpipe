@@ -263,7 +263,7 @@ describe("repository-ingestion index workflow boundary", () => {
     expect(retractUnobservedMock).toHaveBeenCalledWith(expect.anything(), {
       orgId: "org_1",
       repositoryId: "repo_1",
-      targetHash: "abc",
+      observedBefore: new Date("2026-01-01T00:00:00.000Z"),
     })
     expect(applyGraphEffectsMock).toHaveBeenCalledWith({
       deletedClaimIds: ["claim_stale"],

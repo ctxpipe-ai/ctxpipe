@@ -328,10 +328,10 @@ export type TouchEvidenceInput = {
 }
 
 /**
- * Re-observed evidence: move each row to the source id of the current commit and
- * bump `observedAt`, then refresh `lastObservedAt` on the owning claims. Keeps one
- * evidence row per logical source while recording that the latest commit still
- * asserts the fact — the full-ingest sweep relies on the source id's tail hash.
+ * Re-observed evidence: bump `observedAt` to this run and move each row to the
+ * source id of the current commit, then refresh `lastObservedAt` on the owning
+ * claims. Keeps one evidence row per logical source while recording that the
+ * fact was seen again — the full-ingest sweep retracts rows a run did not touch.
  */
 export async function touchEvidenceBulk(
   inputs: TouchEvidenceInput[],

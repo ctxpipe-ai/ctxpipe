@@ -463,9 +463,10 @@ export async function deduplicateAndStore(
       ? (evidenceByClaimId.get(existingClaimId) ?? [])
       : []
 
-    // Duplicate evidence: no new row. Move the matched row to this commit (batched
-    // below) so re-observed facts carry the latest hash, and still queue projection
-    // so the graph stays in sync (e.g. first projection failed, graph was wiped).
+    // Duplicate evidence: no new row. Touch the matched row (batched below) so its
+    // observedAt moves to this run and its source id to this commit — the
+    // full-ingest sweep removes what a run did not touch — and still queue
+    // projection so the graph stays in sync (e.g. first projection failed).
     const matchedEvidence = existingClaimId
       ? existingEvidence.find((ev) =>
           claimEvidenceMatchesLogicalKey(
@@ -478,7 +479,7 @@ export async function deduplicateAndStore(
       : undefined
     if (existingClaimId && matchedEvidence) {
       claimsDuplicateEvidenceSkipped++
-      if (matchedEvidence.id && matchedEvidence.sourceId !== c.sourceId) {
+      if (matchedEvidence.id) {
         evidenceTouchWrites.push({
           id: matchedEvidence.id,
           claimId: existingClaimId,

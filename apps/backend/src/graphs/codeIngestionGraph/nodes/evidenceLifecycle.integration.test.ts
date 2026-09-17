@@ -404,15 +404,17 @@ describe.skipIf(!connectionString)("evidence lifecycle (Postgres)", () => {
       observedAt: now,
     })
 
-    // The new commit no longer touches src/domain/user.ts: its ADDED and
-    // PART_OF claims are not re-observed.
-    await dedup("hash-six", mirroredReduced.content)
+    // A re-index at the unchanged tip (same hash!) whose extraction no longer
+    // yields src/domain/user.ts: its ADDED and PART_OF claims are not
+    // re-observed. Hash tails cannot tell these apart; observedAt can.
+    const runStartedAt = new Date()
+    await dedup("hash-five", mirroredReduced.content)
 
     const sweep = await withOrgDbContext(ORG_ID, (tx) =>
       retractUnobservedRepositoryEvidencePg(tx, {
         orgId: ORG_ID,
         repositoryId: CONTEXT_REPO,
-        targetHash: "hash-six",
+        observedBefore: runStartedAt,
       }),
     )
     expect(sweep.stats.deletedEvidenceRows).toBe(2)
@@ -432,15 +434,15 @@ describe.skipIf(!connectionString)("evidence lifecycle (Postgres)", () => {
     const sourceIds = await evidenceSourceIds()
     expect(sourceIds).toContain(foreignSourceId)
     for (const sourceId of sourceIds.filter((id) => id !== foreignSourceId)) {
-      expect(sourceId.endsWith(":hash-six")).toBe(true)
+      expect(sourceId.endsWith(":hash-five")).toBe(true)
     }
 
-    // Idempotent: nothing left to sweep at the same commit.
+    // Idempotent: everything left was touched by the run.
     const again = await withOrgDbContext(ORG_ID, (tx) =>
       retractUnobservedRepositoryEvidencePg(tx, {
         orgId: ORG_ID,
         repositoryId: CONTEXT_REPO,
-        targetHash: "hash-six",
+        observedBefore: runStartedAt,
       }),
     )
     expect(again.stats.deletedEvidenceRows).toBe(0)
