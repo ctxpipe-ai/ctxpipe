@@ -15,6 +15,7 @@ import {
   fetchFiles,
   globFiles,
 } from "../../../domain/codeIngestion/codesearchClient.js"
+import { isConnectorMirrorPath } from "../../../domain/codeIngestion/connectorMirrorPaths.js"
 import { isUnderDependencyVendorPath } from "../../../domain/codeIngestion/dependencyVendorPaths.js"
 import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
@@ -23,12 +24,12 @@ import type {
   ExtractedClaim,
   ExtractedObject,
 } from "../schemas.js"
-import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
 import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
+import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
 import {
   filterPathsByPartialScan,
   partialScanPathsForExtractors,
-  shouldSkipExtractorForPartialDeletesOnly,
+  shouldSkipCodeExtractorForPartialDiff,
 } from "./partialIngestionScope.js"
 
 const ModalitySchema = z.enum([
@@ -474,7 +475,7 @@ export async function extractInstructionUnits(
   requireCurrentOrgId()
   const { repositoryId, orgId, roots = ["./"], targetHash } = state
 
-  if (shouldSkipExtractorForPartialDeletesOnly(state)) {
+  if (shouldSkipCodeExtractorForPartialDiff(state)) {
     return {}
   }
 
@@ -490,6 +491,7 @@ export async function extractInstructionUnits(
     .filter((e) => e.type === "file")
     .map((e) => e.path)
     .filter((p) => !isUnderDependencyVendorPath(p))
+    .filter((p) => !isConnectorMirrorPath(p))
   const scopedPaths =
     state.ingestMode === "partial" && scanPaths.length > 0
       ? filterPathsByPartialScan(instructionPaths, scanPaths)

@@ -91,6 +91,13 @@ vi.mock("../../graphs/codeIngestionGraph/nodes/identifyRoots.js", () => ({
 }))
 
 vi.mock("../../graphs/codeIngestionGraph/runExtractRoot.js", () => ({
+  finalizeExtractedReferences: async (input: {
+    extractedObjects: unknown[]
+    extractedClaims: unknown[]
+  }) => ({
+    extractedObjects: input.extractedObjects,
+    extractedClaims: input.extractedClaims,
+  }),
   stableRootStepId: (root: string) => root,
   runExtractKindForRoot: vi.fn().mockResolvedValue({}),
   runIdentifyPhaseForRoot: vi.fn().mockResolvedValue({

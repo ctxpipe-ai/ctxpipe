@@ -5,15 +5,12 @@ import { claimEvidence } from "../../../db/schema/claim_evidence.js"
 import { claims } from "../../../db/schema/claims.js"
 import { objects } from "../../../db/schema/objects.js"
 import { generateObjectId } from "../../../lib/id.js"
+import { flushWorkflowLog, getLogger } from "../../../observability/logger.js"
 import {
-  flushWorkflowLog,
-  getLogger,
-} from "../../../observability/logger.js"
-import {
-  addEvidenceBulk,
-  createClaimsWithEvidenceBulk,
   type AddEvidenceInput,
+  addEvidenceBulk,
   type BulkCreateClaimWithEvidenceItem,
+  createClaimsWithEvidenceBulk,
 } from "../../../retrieval/services/claimWrite.js"
 import { aggregateConfidence } from "../../../retrieval/services/confidenceAggregation.js"
 import { evidenceSourceIdMayHaveWindowsDriveColon } from "../../../retrieval/services/ingestionPathMatching.js"
@@ -111,9 +108,7 @@ export async function prefetchDedupKeysIntoMap(
   db: Db,
 ): Promise<void> {
   const missing = [
-    ...new Set(
-      [...refs].filter((ref) => !isIdRef(ref) && !keyToId.has(ref)),
-    ),
+    ...new Set([...refs].filter((ref) => !isIdRef(ref) && !keyToId.has(ref))),
   ]
   for (const chunk of chunkArray(missing, DEDUP_CLAIM_PREFETCH_BATCH_SIZE)) {
     const rows = await db
@@ -466,12 +461,7 @@ export async function deduplicateAndStore(
     if (
       existingClaimId &&
       existingEvidence.some((ev) =>
-        claimEvidenceMatchesLogicalKey(
-          ev,
-          logicalKey,
-          c.sourceId,
-          targetHash,
-        ),
+        claimEvidenceMatchesLogicalKey(ev, logicalKey, c.sourceId, targetHash),
       )
     ) {
       claimsDuplicateEvidenceSkipped++
@@ -522,6 +512,8 @@ export async function deduplicateAndStore(
           objectId: c.objectId,
           subjectKind,
           objectKind,
+          validFrom: c.validFrom ? new Date(c.validFrom) : null,
+          validTo: c.validTo ? new Date(c.validTo) : null,
         },
         evidence: {
           sourceType: c.sourceType,
@@ -555,8 +547,8 @@ export async function deduplicateAndStore(
         aggregatedConfidence: agg,
         sourceCount: 1,
         lastObservedAt: nowIso,
-        validFrom: null,
-        validTo: null,
+        validFrom: c.validFrom ?? null,
+        validTo: c.validTo ?? null,
       })
     }
 
