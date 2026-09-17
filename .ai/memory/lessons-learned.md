@@ -658,3 +658,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** convention
 - **Date:** 2026-09-16
 - **Source:** `github-pr-mirror` branch review; PR extract and `linkLocatedPaths` ids embedded the hash mid-string and omitted repository ids (`logicalSourceKey.ts`, `ingestionRetraction.ts`)
+
+### PR preview deploy: Neon migration step can flake right after branch creation; the preview graph starts empty
+- **Rule:** `Deploy PR environment (Railway + Neon)` can fail in `Run Drizzle migrations on PR Neon branch` with `ENETUNREACH` (IPv6) / `ETIMEDOUT` (IPv4) on port 5432 seconds after `create-branch-action` returns, before any Railway work. Re-run only the failed job (`gh run rerun <run-id> --failed`); it reuses the `preview/pr-N` branch and succeeded on retry. Do not read it as a migration or code failure. In the PR environment the app is served through the backend host (`https://backend-pr-N.up.railway.app`; the UI service has no domain), FalkorDB and codesearch get fresh volumes while Neon is a production fork, so the preview graph is empty until repositories are re-indexed or `reproject-claims-to-graph -- --org-id <org> --all` rebuilds it from Postgres.
+- **Category:** reliability
+- **Date:** 2026-09-17
+- **Source:** PR #335 preview deploy (run 35193450491): first attempt failed at the Neon migration step, `--failed` rerun passed; `describe-environment` for `pr-335` showed per-environment volumes and no UI domain
