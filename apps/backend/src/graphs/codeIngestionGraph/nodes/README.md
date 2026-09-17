@@ -18,6 +18,12 @@ When `roots` includes both `./` and package paths (e.g. `apps/web`), post-proces
 | identifyLibraries | Library | USES_LIBRARY | lib:${repositoryId}:${root}:${libraryName} |
 | identifyPatterns | Pattern | IMPLEMENTS_PATTERN | pat:${repositoryId}:${root}:${patternName} |
 | extractInstructionUnits | InstructionUnit, Skill | HAS_INSTRUCTION, MEMBER_OF_PRIMARY | inu:${repositoryId}:${root}:${hash}, skl:${repositoryId}:${hash} |
+| extractDecisions | Decision | INFLUENCES, SUPERSEDES, MENTIONS | dec:${repositoryId}:${path} |
+| extractCodeowners | Team | OWNS (Team → Service/App/Library) | team:github:${org}/${slug} |
+| extractGithubPullRequests (connector) | PullRequest, File | TARGETS, ADDED, MODIFIED, REMOVED, RENAMED, PART_OF, REFERENCES (→ Issue) | prq:${sourceRepo}:${number}, fil:${sourceRepo}:${path} |
+| extractLinear (connector) | Issue, Team | OWNS (Team → Issue), REFERENCES (→ PullRequest) | iss:linear:${identifier}, team:linear:${key} |
+| extractSlackThreads (connector) | Thread | REFERENCES (→ PullRequest / Issue) | thr:slack:${channelId}:${threadTs} |
+| linkLocatedPaths | File | File PART_OF Repository/Service/App/Library, InstructionUnit/Decision DECLARED_IN File; drops unresolved reference-family claims after all roots concatenate | fil:${repositoryId}:${path} |
 
 ## identifyRoots
 
@@ -33,7 +39,11 @@ Root detection is deterministic-first:
 
 Extracts **InstructionUnit** objects from normative docs and agent rule files (`AGENTS.md`, `CLAUDE.md`, `.cursor/rules/**/*.md`, `CONTRIBUTING.md`, `README.md`), then derives **repo-local Skill** objects when ≥2 units share intent + compatible applicability envelope (payload). Uses structured LLM output per file (skipped when `MODEL_PROVIDER_API_KEY` is unset). Build manifests (e.g. `package.json` scripts) are **not** ingested as instruction units here—agents can read those files directly.
 
-- **Dependency/vendor paths:** Instruction candidates under known dependency directory segments are excluded (convention-aware: e.g. `vendor/` but not `internal/vendor/`, root-only `external/`); see [`dependencyVendorPaths.ts`](../../../domain/codeIngestion/dependencyVendorPaths.ts).
+- **Dependency/vendor paths:** Instruction candidates under known dependency directory segments are excluded (convention-aware: e.g. `vendor/` but not `internal/vendor/`, root-only `external/`); see [`dependencyVendorPaths.ts`](../../../domain/codeIngestion/dependencyVendorPaths.ts). Connector warehouse prefixes (`github/`, `linear/`, `notion/`, `slack/`, `confluence/`) are also skipped.
+
+- **Locating edges:** After extractors run, `linkLocatedPaths` emits `File` nodes for this-repo paths, `File PART_OF Repository|Service|App|Library`, and `InstructionUnit|Decision DECLARED_IN File` (ADR-032, ADR-033). Evidence ids follow `extractor:repositoryId:…:targetHash` (`domain/codeIngestion/evidenceSourceId.ts`).
+
+- **Connector extractors:** `connectorExtractors.ts` is the registry keyed by warehouse prefix (`github/pulls/`, `linear/`, `slack/`). Connector Markdown is parsed from frontmatter, never LLM-read. Cross-tool references resolve through `domain/codeIngestion/referenceResolver.ts`; unresolved reference-family claims are dropped once after all roots concatenate (`finalizeExtractedReferences`). Connector-only partial diffs skip every code extractor (`shouldSkipCodeExtractorForPartialDiff`).
 
 - **Evidence (MVP):** The product does not persist evidence rows without a promoted `InstructionUnit`—ingestion either promotes to a unit or skips; there is no separate persisted “evidence-only” store for this slice.
 
