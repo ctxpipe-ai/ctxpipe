@@ -310,6 +310,21 @@ export function GithubSelfHostedCredentialsStep({
                     </li>
                     <li>
                       <strong className="font-medium text-foreground">
+                        Pull request review
+                      </strong>
+                    </li>
+                    <li>
+                      <strong className="font-medium text-foreground">
+                        Pull request review comment
+                      </strong>
+                    </li>
+                    <li>
+                      <strong className="font-medium text-foreground">
+                        Issue comment
+                      </strong>
+                    </li>
+                    <li>
+                      <strong className="font-medium text-foreground">
                         Push
                       </strong>
                     </li>
