@@ -1,0 +1,12 @@
+# One JSON object per line. Replace <service>, <file>, <issue> with real TruRec names before running.
+# category: why | change | standards | ownership | prior-work | incidents | fleet | code-regression
+{"id":"why-1","category":"why","question":"Why is <service> structured the way it is? Cite the decisions and pull requests behind it.","expectedKinds":["Decision","PullRequest","Issue"]}
+{"id":"change-1","category":"change","question":"What changed in <service> in the last month, and who reviewed those changes?","expectedKinds":["PullRequest","File"]}
+{"id":"standards-1","category":"standards","question":"Which standards apply when I edit <file>?","expectedKinds":["File"]}
+{"id":"ownership-1","category":"ownership","question":"Who owns <service>?","expectedKinds":["Team"]}
+{"id":"prior-work-1","category":"prior-work","question":"Is there prior work or discussion on <topic>? Link the issues, pull requests and threads.","expectedKinds":["Issue","PullRequest","Thread"]}
+{"id":"incidents-1","category":"incidents","question":"What incidents have touched <service> and what fixed them?","expectedKinds":["PullRequest"]}
+{"id":"fleet-1","category":"fleet","question":"Which services still write to <database>?"}
+{"id":"code-regression-1","category":"code-regression","question":"How does <function or module> work? Point me at the implementation."}
+{"id":"code-regression-2","category":"code-regression","question":"Where is <config or env var> read, and what is its default?"}
+{"id":"no-fake-standard-1","category":"standards","question":"What are our team's rules for <topic covered only by a Linear ticket>?","expected":"No organizational standard exists; the answer should not present the ticket as a rule."}
