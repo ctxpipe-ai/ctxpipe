@@ -6,6 +6,8 @@ Read from skill step 1 before picking an anchor. Existing connectors below are *
 
 GitHub is an ingest source **and** today’s rich write adapter (config PRs, `commitFiles`). Installation + encrypted App credentials live on `connections.config`. Repositories are product rows (`repositories.github_connection_id`), not connector scope yaml. Per-connection webhook: `POST /api/v1/webhook/github/:connectionId`.
 
+An optional **pull-request scoped mirror** (ADR-031) binds a context repository on the same GitHub connection (`connections.config.prMirror`) and writes `github/config.yaml` plus `github/pulls/…` Markdown. That is a scoped-mirror job on the GitHub row, not a second connection type. Linear still treats GitHub PRs as references only. Connector warehouse prefixes are never instruction-extracted; each connector's Markdown is parsed by its own deterministic extractor in `graphs/codeIngestionGraph/nodes/connectorExtractors.ts`, and cross-tool references resolve through `domain/codeIngestion/referenceResolver.ts` (ADR-032, ADR-033).
+
 The doctrine is git. Other hosts are in scope later; do not stub a GitLab PR client in a new connector unless that is the task.
 
 ## Scoped mirror — Linear, Notion
