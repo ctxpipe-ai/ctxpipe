@@ -70,6 +70,8 @@ export async function runIdentifyPhaseForRoot(
 ): Promise<{
   extractedObjects: ExtractedObject[]
   extractedClaims: ExtractedClaim[]
+  /** Files an extractor skipped on LLM failure; gates the full-ingest sweep. */
+  extractionSkippedFiles: number
 }> {
   const rootState: CodeIngestionState = {
     ...state,
@@ -95,15 +97,22 @@ export async function runIdentifyPhaseForRoot(
   ])
 
   const extracted = concatExtracted([kindPartial, ...parts])
-  return concatExtracted([
-    extracted,
-    linkLocatedPaths({
-      repositoryId: state.repositoryId,
-      targetHash: state.targetHash,
-      objects: extracted.extractedObjects,
-      claims: extracted.extractedClaims,
-    }),
-  ])
+  const extractionSkippedFiles = parts.reduce(
+    (sum, part) => sum + (part.extractionSkippedFiles ?? 0),
+    0,
+  )
+  return {
+    ...concatExtracted([
+      extracted,
+      linkLocatedPaths({
+        repositoryId: state.repositoryId,
+        targetHash: state.targetHash,
+        objects: extracted.extractedObjects,
+        claims: extracted.extractedClaims,
+      }),
+    ]),
+    extractionSkippedFiles,
+  }
 }
 
 /**

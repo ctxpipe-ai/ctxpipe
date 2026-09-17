@@ -132,6 +132,11 @@ export const CodeIngestionStateSchema = z.object({
   deletedPaths: z.array(z.string()).optional(),
   renames: z.array(CodeIngestionRenameSchema).optional(),
   indexedAt: z.string().optional(),
+  /**
+   * Candidate files an extractor skipped because its LLM call failed. A full
+   * ingest only sweeps unobserved evidence when this is 0 (ADR-033 §11).
+   */
+  extractionSkippedFiles: z.number().int().nonnegative().optional(),
   roots: z.array(z.string()).optional(),
   extractedObjects: zodArrayConcat(ExtractedObjectSchema),
   extractedClaims: zodArrayConcat(ExtractedClaimSchema),

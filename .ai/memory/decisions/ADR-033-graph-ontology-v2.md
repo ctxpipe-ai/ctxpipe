@@ -83,7 +83,10 @@ cross-tool edges require shared identity.
    cached for runs already in flight when the worker is redeployed)
    (`retractUnobservedRepositoryEvidencePg`): claims left without proof go,
    nodes no claim references go with them, multi-source claims keep their other
-   proofs. The producer is the second source-id segment, so another
+   proofs. The sweep also requires that no extractor skipped a file on LLM
+   failure (`extractionSkippedFiles === 0`), since a skipped file's facts
+   would otherwise read as unobserved. The producer is the second source-id
+   segment, so another
    repository's claims that merely mention this one survive. The cutoff is
    time, not the commit hash: a re-index at an unchanged tip re-observes at the
    same hash as the stale rows. Manual re-index (UI button,

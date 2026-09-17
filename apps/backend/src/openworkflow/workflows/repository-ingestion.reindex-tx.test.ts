@@ -22,6 +22,7 @@ const withOrgDbContextMock = vi.hoisted(() =>
 
 const retractUnobservedMock = vi.hoisted(() => vi.fn())
 const applyGraphEffectsMock = vi.hoisted(() => vi.fn())
+const runIdentifyPhaseForRootMock = vi.hoisted(() => vi.fn())
 
 const repositoryIndexResult = {
   indexedAt: "2026-01-01T00:00:00.000Z",
@@ -105,10 +106,7 @@ vi.mock("../../graphs/codeIngestionGraph/runExtractRoot.js", () => ({
   }),
   stableRootStepId: (root: string) => root,
   runExtractKindForRoot: vi.fn().mockResolvedValue({}),
-  runIdentifyPhaseForRoot: vi.fn().mockResolvedValue({
-    extractedObjects: [],
-    extractedClaims: [],
-  }),
+  runIdentifyPhaseForRoot: runIdentifyPhaseForRootMock,
 }))
 
 vi.mock("../../graphs/codeIngestionGraph/nodes/deduplicateAndStore.js", () => ({
@@ -230,6 +228,11 @@ describe("repository-ingestion index workflow boundary", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     repositoryRow.lastIngestedHash = null
+    runIdentifyPhaseForRootMock.mockResolvedValue({
+      extractedObjects: [],
+      extractedClaims: [],
+      extractionSkippedFiles: 0,
+    })
     retractUnobservedMock.mockResolvedValue({
       stats: {
         renamedEvidenceRows: 0,
@@ -287,6 +290,20 @@ describe("repository-ingestion index workflow boundary", () => {
     )
     expect(retractUnobservedMock).not.toHaveBeenCalled()
     expect(applyGraphEffectsMock).not.toHaveBeenCalled()
+  })
+
+  it("skips the sweep when an extractor skipped files on LLM failure", async () => {
+    runIdentifyPhaseForRootMock.mockResolvedValue({
+      extractedObjects: [],
+      extractedClaims: [],
+      extractionSkippedFiles: 2,
+    })
+    await runWorkflow(
+      { repositoryId: "repo_1", orgId: "org_1" },
+      makeStep(repositoryIndexResult),
+    )
+    expect(retractUnobservedMock).not.toHaveBeenCalled()
+    expect(markRepositoryIndexingReady).toHaveBeenCalled()
   })
 
   it("skips the sweep when the search index failed, so nothing is retracted on a degraded run", async () => {

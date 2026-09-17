@@ -473,9 +473,11 @@ export const repositoryIngestion = defineWorkflow(
 
                 const concatenatedObjects: ExtractedObject[] = []
                 const concatenatedClaims: ExtractedClaim[] = []
+                let extractionSkippedFiles = 0
                 for (const part of rootExtractResults) {
                   concatenatedObjects.push(...part.extractedObjects)
                   concatenatedClaims.push(...part.extractedClaims)
+                  extractionSkippedFiles += part.extractionSkippedFiles ?? 0
                 }
                 const { extractedObjects, extractedClaims } =
                   await finalizeExtractedReferences({
@@ -542,6 +544,7 @@ export const repositoryIngestion = defineWorkflow(
                   roots,
                   extractedObjects,
                   extractedClaims,
+                  extractionSkippedFiles,
                   afterDedupState,
                 }
               },
@@ -551,6 +554,7 @@ export const repositoryIngestion = defineWorkflow(
               roots,
               extractedObjects,
               extractedClaims,
+              extractionSkippedFiles,
               afterDedupState,
             } = extractResult
 
@@ -581,11 +585,14 @@ export const repositoryIngestion = defineWorkflow(
             const observedBefore = reindexState.indexedAt
               ? new Date(reindexState.indexedAt)
               : null
+            // An extractor that skipped files on LLM failure did not observe
+            // everything; sweeping would retract those files' facts.
             const canSweepUnobserved =
               reindexState.ingestMode === "full" &&
               reindexState.searchIndexOk !== false &&
               reindexState.scipIndexOk !== false &&
-              observedBefore !== null
+              observedBefore !== null &&
+              extractionSkippedFiles === 0
             if (canSweepUnobserved && observedBefore) {
               const sweep = await step.run(
                 { name: "retract-unobserved-evidence" },
@@ -629,7 +636,13 @@ export const repositoryIngestion = defineWorkflow(
                 {
                   repositoryId: input.repositoryId,
                   targetHash: result.targetHash,
-                  reason: observedBefore ? "index degraded" : "no indexedAt",
+                  reason:
+                    extractionSkippedFiles > 0
+                      ? "extraction skipped files"
+                      : observedBefore
+                        ? "index degraded"
+                        : "no indexedAt",
+                  extractionSkippedFiles,
                 },
               )
             }

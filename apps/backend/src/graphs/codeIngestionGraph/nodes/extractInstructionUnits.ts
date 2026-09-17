@@ -696,6 +696,7 @@ export async function extractInstructionUnits(
   return {
     extractedObjects: [...extractedObjects, ...skillObjects],
     extractedClaims: [...extractedClaims, ...skillClaims],
+    extractionSkippedFiles: filesSkippedLlmError,
   }
 }
 
