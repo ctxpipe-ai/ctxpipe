@@ -676,3 +676,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** reliability
 - **Date:** 2026-09-17
 - **Source:** PR #335 preview re-index of TruRec (objects 2946 → 3085, `InstructionUnit` 1896 → 2009 at unchanged tips); `apps/codesearch/src/domain/indexing/phases.ts` mode decision; production evidence profile by extractor and tail hash
+
+### The PR worker supervisor must count runs in its own OpenWorkflow namespace
+- **Rule:** `worker-supervisor.ts` decides idle-exit from `workflow_runs` / `step_attempts` rows; PR previews claim runs from `preview-pr-N` (`openWorkflowNamespaceId`), so a query pinned to `default` sees an idle system while fifteen ingests are in flight and exits the worker `OPENWORKFLOW_IDLE_EXIT_SECONDS` after boot. Nothing re-wakes it: the Railway wake fires only on new enqueues, and sleeping or unclaimed runs wait forever. Resolve the namespace the same way the worker does, and when a preview looks "paused" check `available_at` in the past with `worker_id` null before suspecting codesearch or FalkorDB.
+- **Category:** reliability
+- **Date:** 2026-09-17
+- **Source:** PR #335 preview run 3: worker booted 13:17:52 UTC, last log 13:20:42, 14 `repository-ingestion` runs left with `worker_id = null`; supervisor query used `namespace_id = 'default'`
