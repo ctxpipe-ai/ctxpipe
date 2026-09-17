@@ -59,6 +59,14 @@ export function computeEmbeddingSearchContentForObject(
     .trim()
 }
 
+/** Consumer-inferred API stubs and reference-inferred PR / Issue stubs. */
+function isStubPayload(payload: Record<string, unknown>): boolean {
+  return (
+    payload.inferredFromConsumer === true ||
+    payload.inferredFromReference === true
+  )
+}
+
 /**
  * Shallow merge for incremental extraction: consumer-inferred stubs must not clobber
  * richer payloads; full extractions must replace prior stubs.
@@ -67,11 +75,16 @@ export function mergeRetrievalObjectPayloads(
   existing: Record<string, unknown>,
   incoming: Record<string, unknown>,
 ): Record<string, unknown> {
-  if (incoming.inferredFromConsumer === true) {
+  if (isStubPayload(incoming)) {
     return { ...incoming, ...existing }
   }
-  if (existing.inferredFromConsumer === true) {
-    return { ...existing, ...incoming }
+  if (isStubPayload(existing)) {
+    const {
+      inferredFromConsumer: _c,
+      inferredFromReference: _r,
+      ...rest
+    } = existing
+    return { ...rest, ...incoming }
   }
   return { ...existing, ...incoming }
 }

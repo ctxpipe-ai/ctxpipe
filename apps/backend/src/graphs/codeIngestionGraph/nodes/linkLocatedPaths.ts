@@ -3,6 +3,7 @@ import { getOrgDb } from "../../../db/client.js"
 import { objects } from "../../../db/schema/objects.js"
 import { isConnectorMirrorPath } from "../../../domain/codeIngestion/connectorMirrorPaths.js"
 import { buildEvidenceSourceId } from "../../../domain/codeIngestion/evidenceSourceId.js"
+import { parseGithubPullRequestUrl } from "../../../domain/codeIngestion/referenceResolver.js"
 import { getLogger, log } from "../../../observability/logger.js"
 import {
   type ExtractedClaim,
@@ -324,8 +325,54 @@ export function linkLocatedPaths(input: {
 
 export type ReferenceResolutionSummary = Record<
   string,
-  { kept: number; dropped: number }
+  { kept: number; dropped: number; stubbed: number }
 >
+
+const STUB_PULL_REQUEST_KEY = /^prq:(repo_[A-Za-z0-9]+):(\d+)$/
+const STUB_ISSUE_KEY = /^iss:linear:([A-Z][A-Z0-9]{0,9}-\d+)$/
+
+/**
+ * A reference to a pull request of a *connected* repository, or to a Linear
+ * issue of a known team, has an identity fully determined by its key. Create a
+ * stub node so the edge lands now; the mirror or the Linear sync enriches it
+ * later (`inferredFromReference` payloads never clobber real ones).
+ */
+function stubForReference(
+  ref: string,
+  provenance: Record<string, unknown> | undefined,
+): ExtractedObject | null {
+  const pull = STUB_PULL_REQUEST_KEY.exec(ref)
+  if (pull?.[2]) {
+    const url = typeof provenance?.url === "string" ? provenance.url : undefined
+    const repository = url
+      ? parseGithubPullRequestUrl(url)?.repository
+      : undefined
+    const number = Number(pull[2])
+    return {
+      kind: "PullRequest",
+      deduplicationKey: ref,
+      name: repository ? `${repository}#${number}` : `pull request #${number}`,
+      summary: "Referenced pull request (not mirrored yet)",
+      payload: {
+        number,
+        ...(repository ? { repository } : {}),
+        ...(url ? { url } : {}),
+        inferredFromReference: true,
+      },
+    }
+  }
+  const issue = STUB_ISSUE_KEY.exec(ref)
+  if (issue?.[1]) {
+    return {
+      kind: "Issue",
+      deduplicationKey: ref,
+      name: issue[1],
+      summary: "Referenced issue (not mirrored yet)",
+      payload: { identifier: issue[1], inferredFromReference: true },
+    }
+  }
+  return null
+}
 
 /**
  * Drop reference-family claims whose subject or object is neither an object of
@@ -340,13 +387,16 @@ export async function resolveReferenceClaims(input: {
 }): Promise<{
   claims: ExtractedClaim[]
   summary: ReferenceResolutionSummary
+  /** Stub nodes created for references whose identity is known but not yet mirrored. */
+  stubs: ExtractedObject[]
 }> {
   const known = new Set(input.objects.map((object) => object.deduplicationKey))
   const candidates = input.claims.filter((claim) =>
     CROSS_REFERENCE_PREDICATES.has(claim.predicate),
   )
   const summary: ReferenceResolutionSummary = {}
-  if (candidates.length === 0) return { claims: input.claims, summary }
+  const stubs: ExtractedObject[] = []
+  if (candidates.length === 0) return { claims: input.claims, summary, stubs }
 
   const unknownRefs = new Set<string>()
   for (const claim of candidates) {
@@ -383,16 +433,33 @@ export async function resolveReferenceClaims(input: {
   }
 
   const resolvable = (ref: string) => isIdRef(ref) || known.has(ref)
+  const stubOrNull = (ref: string, claim: ExtractedClaim): boolean => {
+    if (resolvable(ref)) return true
+    const stub = stubForReference(ref, claim.provenance)
+    if (!stub) return false
+    stubs.push(stub)
+    known.add(stub.deduplicationKey)
+    return true
+  }
   const kept: ExtractedClaim[] = []
   for (const claim of input.claims) {
     if (!CROSS_REFERENCE_PREDICATES.has(claim.predicate)) {
       kept.push(claim)
       continue
     }
-    const entry = summary[claim.predicate] ?? { kept: 0, dropped: 0 }
+    const entry = summary[claim.predicate] ?? {
+      kept: 0,
+      dropped: 0,
+      stubbed: 0,
+    }
     summary[claim.predicate] = entry
-    if (resolvable(claim.subjectRef) && resolvable(claim.objectRef)) {
+    const stubsBefore = stubs.length
+    if (
+      stubOrNull(claim.subjectRef, claim) &&
+      stubOrNull(claim.objectRef, claim)
+    ) {
       entry.kept += 1
+      entry.stubbed += stubs.length - stubsBefore
       kept.push(claim)
     } else {
       entry.dropped += 1
@@ -405,7 +472,7 @@ export async function resolveReferenceClaims(input: {
     referenceSummary: summary,
   })
 
-  return { claims: kept, summary }
+  return { claims: kept, summary, stubs }
 }
 
 /** LangGraph node: additions only (concat reducer). Reference filtering happens in the workflow. */

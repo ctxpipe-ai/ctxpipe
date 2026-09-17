@@ -266,11 +266,11 @@ describe("graph golden spec", () => {
     expect(tripleLines(claims)).toMatchSnapshot("triples")
     // every cross-tool reference in the fixture resolves to a node of this run
     expect(summary).toEqual({
-      REFERENCES: { kept: 4, dropped: 0 },
-      OWNS: { kept: 3, dropped: 0 },
-      INFLUENCES: { kept: 2, dropped: 0 },
-      SUPERSEDES: { kept: 1, dropped: 0 },
-      MENTIONS: { kept: 1, dropped: 0 },
+      REFERENCES: { kept: 4, dropped: 0, stubbed: 0 },
+      OWNS: { kept: 3, dropped: 0, stubbed: 0 },
+      INFLUENCES: { kept: 2, dropped: 0, stubbed: 0 },
+      SUPERSEDES: { kept: 1, dropped: 0, stubbed: 0 },
+      MENTIONS: { kept: 1, dropped: 0, stubbed: 0 },
     })
   })
 

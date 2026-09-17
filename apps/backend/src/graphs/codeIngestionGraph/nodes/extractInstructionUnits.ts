@@ -183,6 +183,44 @@ export function isInstructionCandidatePath(path: string): boolean {
   return false
 }
 
+const NORMATIVE_DOC_NAME =
+  /(standard|convention|guideline|style[-_ ]?guide|polic(y|ies)|rules?|workflow|process|checklist|playbook|handbook|contributing)/i
+const DECISION_RECORD_PATH = /(^|\/)(adrs?|decisions)(\/|$)/i
+
+function normalizeRootDir(root: string): string {
+  const trimmed = root.trim().replace(/\\/g, "/").replace(/^\.\//, "")
+  return trimmed === "." || trimmed === "./" ? "" : trimmed.replace(/\/$/, "")
+}
+
+/**
+ * Instruction sources are files whose purpose is to instruct (ADR-033 hygiene):
+ * agent files and rules, skills, CONTRIBUTING, the README at the repository
+ * root or at a package root, and docs whose filename names a norm. Every other
+ * Markdown file is documentation: indexed for search, never minted as an
+ * InstructionUnit. Decision records become `Decision` nodes, not instructions.
+ */
+export function isInstructionSourcePath(
+  path: string,
+  roots: string[],
+): boolean {
+  const p = path.toLowerCase().replace(/\\/g, "/").replace(/^\.\//, "")
+  if (DECISION_RECORD_PATH.test(p)) return false
+  if (p === "agents.md" || p.endsWith("/agents.md")) return true
+  if (p === "claude.md" || p.endsWith("/claude.md")) return true
+  if (isAgentRulesPath(p) || isSkillsFolderSkillFile(p)) return true
+  if (p === "contributing.md" || p.endsWith("/contributing.md")) return true
+  if (p === "readme.md") return true
+  if (p.endsWith("/readme.md")) {
+    const dir = p.slice(0, -"/readme.md".length)
+    return roots.some((root) => normalizeRootDir(root) === dir)
+  }
+  if (p.startsWith("docs/") || p.includes("/docs/")) {
+    const base = p.split("/").pop() ?? ""
+    return NORMATIVE_DOC_NAME.test(base.replace(/\.mdc?$/, ""))
+  }
+  return false
+}
+
 /** Prefer tier-1 sources before applying the per-run file cap. */
 export function sortInstructionCandidates(paths: string[]): string[] {
   return [...paths].sort((a, b) => {
@@ -481,8 +519,8 @@ export async function extractInstructionUnits(
 
   const scanPaths = partialScanPathsForExtractors(state)
 
-  // Discover broadly so docs that reference other md/mdc are not missed;
-  // tier sort still prioritizes AGENTS/CLAUDE/rules/skills/README.
+  // Glob broadly, then keep only files whose purpose is to instruct
+  // (isInstructionSourcePath); other Markdown is search-only documentation.
   const globbed = await globFiles(repositoryId, orgId, {
     pattern: "**/*.{md,mdc}",
     onlyFiles: true,
@@ -492,6 +530,7 @@ export async function extractInstructionUnits(
     .map((e) => e.path)
     .filter((p) => !isUnderDependencyVendorPath(p))
     .filter((p) => !isConnectorMirrorPath(p))
+    .filter((p) => isInstructionSourcePath(p, roots))
   const scopedPaths =
     state.ingestMode === "partial" && scanPaths.length > 0
       ? filterPathsByPartialScan(instructionPaths, scanPaths)

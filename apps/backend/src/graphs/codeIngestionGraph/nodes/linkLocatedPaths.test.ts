@@ -257,8 +257,50 @@ describe("resolveReferenceClaims", () => {
       claims: [referenceClaim(issue.deduplicationKey, pull.deduplicationKey)],
     })
     expect(claims).toHaveLength(1)
-    expect(summary).toEqual({ REFERENCES: { kept: 1, dropped: 0 } })
+    expect(summary).toEqual({ REFERENCES: { kept: 1, dropped: 0, stubbed: 0 } })
     expect(mocks.selectCalls).toBe(0)
+  })
+
+  it("stubs pull requests of connected repositories and issues of known teams, drops the rest", async () => {
+    const { claims, summary, stubs } = await resolveReferenceClaims({
+      orgId: "org_1",
+      objects: [issue],
+      claims: [
+        {
+          ...referenceClaim(issue.deduplicationKey, "prq:repo_api:7"),
+          provenance: { url: "https://github.com/acme/api/pull/7" },
+        },
+        referenceClaim(issue.deduplicationKey, "prq:github:acme/other:9"),
+        {
+          ...referenceClaim("prq:repo_api:7", "iss:linear:OPS-4"),
+          subjectKind: "PullRequest",
+          objectKind: "Issue",
+        },
+      ],
+    })
+    expect(claims.map((claim) => claim.objectRef)).toEqual([
+      "prq:repo_api:7",
+      "iss:linear:OPS-4",
+    ])
+    expect(summary).toEqual({ REFERENCES: { kept: 2, dropped: 1, stubbed: 2 } })
+    expect(stubs).toEqual([
+      expect.objectContaining({
+        kind: "PullRequest",
+        deduplicationKey: "prq:repo_api:7",
+        name: "acme/api#7",
+        payload: expect.objectContaining({
+          number: 7,
+          repository: "acme/api",
+          inferredFromReference: true,
+        }),
+      }),
+      expect.objectContaining({
+        kind: "Issue",
+        deduplicationKey: "iss:linear:OPS-4",
+        name: "OPS-4",
+        payload: { identifier: "OPS-4", inferredFromReference: true },
+      }),
+    ])
   })
 
   it("keeps references to existing graph objects and drops unresolved ones", async () => {
@@ -287,7 +329,7 @@ describe("resolveReferenceClaims", () => {
       "repo_api",
       "prq:repo_api:7",
     ])
-    expect(summary).toEqual({ REFERENCES: { kept: 1, dropped: 1 } })
+    expect(summary).toEqual({ REFERENCES: { kept: 1, dropped: 1, stubbed: 0 } })
     expect(mocks.selectCalls).toBe(1)
   })
 })

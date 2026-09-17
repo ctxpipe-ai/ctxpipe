@@ -69,9 +69,13 @@ export function parseLinearIssueMarkdown(
     : null
   const title = asString(data.title)
   if (!identifier || !title) return null
+  // Linear identifiers carry the team key as their prefix (ENG-123 → ENG), so a
+  // mirror file whose team lookup failed still yields the right team.
   const rawTeamKey = asString(data.teamKey)
   const teamKey =
-    rawTeamKey && TEAM_KEY.test(rawTeamKey) ? rawTeamKey.toUpperCase() : null
+    rawTeamKey && TEAM_KEY.test(rawTeamKey)
+      ? rawTeamKey.toUpperCase()
+      : (identifier.split("-")[0] ?? null)
   const githubPullRequests = Array.isArray(data.githubReferences)
     ? data.githubReferences.flatMap((entry) => {
         const row = asRecord(entry)

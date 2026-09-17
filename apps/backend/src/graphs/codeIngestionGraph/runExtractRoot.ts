@@ -120,13 +120,13 @@ export async function finalizeExtractedReferences(input: {
   extractedObjects: ExtractedObject[]
   extractedClaims: ExtractedClaim[]
 }> {
-  const { claims } = await resolveReferenceClaims({
+  const { claims, stubs } = await resolveReferenceClaims({
     orgId: input.orgId,
     objects: input.extractedObjects,
     claims: input.extractedClaims,
   })
   return {
-    extractedObjects: input.extractedObjects,
+    extractedObjects: [...input.extractedObjects, ...stubs],
     extractedClaims: claims,
   }
 }

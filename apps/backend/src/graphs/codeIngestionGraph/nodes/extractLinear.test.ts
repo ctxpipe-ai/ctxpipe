@@ -328,7 +328,7 @@ describe("extractLinear", () => {
     expect(mocks.globFiles).toHaveBeenCalledTimes(2)
   })
 
-  it("skips malformed issues and issues without a team", async () => {
+  it("skips malformed issues and derives the team from the identifier when the mirror lacks it", async () => {
     fixtures["linear/issues/bad--3.md"] =
       "---\nsource: linear\ntype: issue\ntitle: no identifier\n---\n# x"
     fixtures["linear/issues/ops-9--4.md"] =
@@ -345,7 +345,21 @@ describe("extractLinear", () => {
         extractedClaims.filter(
           (claim) => claim.objectRef === "iss:linear:OPS-9",
         ),
-      ).toHaveLength(0)
+      ).toEqual([
+        expect.objectContaining({
+          predicate: "OWNS",
+          subjectRef: "team:linear:OPS",
+        }),
+      ])
+      expect(
+        extractedObjects.find(
+          (object) => object.deduplicationKey === "team:linear:OPS",
+        ),
+      ).toMatchObject({
+        kind: "Team",
+        name: "OPS",
+        payload: { key: "OPS", source: "linear" },
+      })
     } finally {
       delete fixtures["linear/issues/bad--3.md"]
       delete fixtures["linear/issues/ops-9--4.md"]
