@@ -28,7 +28,11 @@ import {
   githubInstallationReadRoutes,
   githubInstallationRoutes,
 } from "./github-installation.js"
-import { knowledgeGraphRoutes } from "./knowledge-graph.js"
+import { githubPrMirrorRoutes } from "./github-pr-mirror.js"
+import {
+  knowledgeGraphMaintenanceRoutes,
+  knowledgeGraphRoutes,
+} from "./knowledge-graph.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 import { orgOnboardingRoutes, userOnboardingRoutes } from "./onboarding.js"
 import { openaiRoutes } from "./openai.js"
@@ -42,6 +46,10 @@ import { repositoryRoutes } from "./repositories.js"
 const githubInstallationAdminScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
   .route("/", githubInstallationRoutes)
+
+const githubPrMirrorAdminScoped = new OpenAPIHono<AppEnv>()
+  .use("*", requireOrgAdminOrOwner)
+  .route("/", githubPrMirrorRoutes)
 
 const atlassianConnectorScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
@@ -59,6 +67,10 @@ const notionConnectorScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
   .route("/", notionConnectorRoutes)
 
+const knowledgeGraphMaintenanceScoped = new OpenAPIHono<AppEnv>()
+  .use("*", requireOrgAdminOrOwner)
+  .route("/", knowledgeGraphMaintenanceRoutes)
+
 export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
   // For RPC client type inference to work, we need to chain the handlers
   // https://hono.dev/docs/guides/rpc#using-rpc-with-larger-applications
@@ -72,6 +84,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/conversations", conversationRoutes)
     .route("/github/installation", githubInstallationReadRoutes)
     .route("/github/installation", githubInstallationAdminScoped)
+    .route("/github/pull-request-mirror", githubPrMirrorAdminScoped)
     .route("/connectors/atlassian", atlassianConnectorScoped)
     .route("/connectors/linear", linearConnectorScoped)
     .route("/connectors/notion", notionConnectorScoped)
@@ -82,6 +95,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/capabilities", orgCapabilitiesRoutes)
     .route("/connectors", connectorsListRoutes)
     .route("/onboarding", orgOnboardingRoutes)
+    .route("/knowledge-graph/maintenance", knowledgeGraphMaintenanceScoped)
     .route("/knowledge-graph", knowledgeGraphRoutes)
     .route("/openai", openaiRoutes)
 

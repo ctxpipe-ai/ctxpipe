@@ -486,15 +486,17 @@ export async function purgeRepositoryEvidencePg(
     graphUpdatedClaimIds = []
 
     if (fullyOwnedClaimIds.length > 0) {
-      const claimRows = await chunkedInArraySelect(fullyOwnedClaimIds, (chunk) =>
-        tx
-          .select({
-            id: claims.id,
-            subjectId: claims.subjectId,
-            objectId: claims.objectId,
-          })
-          .from(claims)
-          .where(and(eq(claims.orgId, orgId), inArray(claims.id, chunk))),
+      const claimRows = await chunkedInArraySelect(
+        fullyOwnedClaimIds,
+        (chunk) =>
+          tx
+            .select({
+              id: claims.id,
+              subjectId: claims.subjectId,
+              objectId: claims.objectId,
+            })
+            .from(claims)
+            .where(and(eq(claims.orgId, orgId), inArray(claims.id, chunk))),
       )
 
       const candidateObjectIds = new Set<string>()
@@ -598,6 +600,143 @@ export async function purgeRepositoryEvidencePg(
     graphEffects: {
       deletedClaimIds: graphDeletedClaimIds,
       refreshedClaimIds: graphUpdatedClaimIds,
+      deletedObjectIds: [...deletedObjectIds],
+    },
+  }
+}
+
+/** Connector warehouse prefixes whose Markdown must never have become instruction units (ADR-032 §4). */
+const CONNECTOR_PREFIX_PATH_PATTERN =
+  "^(github|linear|notion|slack|confluence)/"
+
+/**
+ * One-off cleanup (ADR-033 migration step): remove `InstructionUnit` objects
+ * whose source path lives under a connector warehouse prefix, every claim that
+ * touches them (evidence cascades), and any node left without claims (stub
+ * root Services, derived Skills). Graph sync is deferred to
+ * {@link applyIngestionRetractionGraphEffects}.
+ */
+export async function retractConnectorPrefixInstructionUnitsPg(
+  db: Db,
+  params: { orgId: string },
+): Promise<{
+  unitsDeleted: number
+  stats: RetractionStats
+  graphEffects: IngestionRetractionGraphEffects
+}> {
+  const { orgId } = params
+  const stats = emptyStats()
+  const deletedObjectIds = new Set<string>()
+  let unitsDeleted = 0
+  let graphDeletedClaimIds: string[] = []
+
+  await db.transaction(async (tx) => {
+    const unitRows = await tx
+      .select({ id: objects.id })
+      .from(objects)
+      .where(
+        and(
+          eq(objects.orgId, orgId),
+          eq(objects.kind, "InstructionUnit"),
+          sql`${objects.payload}->>'path' ~ ${CONNECTOR_PREFIX_PATH_PATTERN}`,
+        ),
+      )
+    const unitIds = unitRows.map((r) => r.id)
+    if (unitIds.length === 0) return
+
+    const claimRows = await chunkedInArraySelect(unitIds, (chunk) =>
+      tx
+        .select({
+          id: claims.id,
+          subjectId: claims.subjectId,
+          objectId: claims.objectId,
+        })
+        .from(claims)
+        .where(
+          and(
+            eq(claims.orgId, orgId),
+            or(
+              inArray(claims.subjectId, chunk),
+              inArray(claims.objectId, chunk),
+            ),
+          ),
+        ),
+    )
+    const claimIds = [...new Set(claimRows.map((r) => r.id))]
+
+    const evidenceRows = await chunkedInArraySelect(claimIds, (chunk) =>
+      tx
+        .select({ id: claimEvidence.id })
+        .from(claimEvidence)
+        .where(inArray(claimEvidence.claimId, chunk)),
+    )
+    stats.deletedEvidenceRows = evidenceRows.length
+
+    await chunkedInArrayDelete(claimIds, (chunk) =>
+      tx
+        .delete(claims)
+        .where(and(eq(claims.orgId, orgId), inArray(claims.id, chunk))),
+    )
+    stats.claimsDeleted = claimIds.length
+    graphDeletedClaimIds = claimIds
+
+    await chunkedInArrayDelete(unitIds, (chunk) =>
+      tx
+        .delete(objects)
+        .where(and(eq(objects.orgId, orgId), inArray(objects.id, chunk))),
+    )
+    unitsDeleted = unitIds.length
+    for (const id of unitIds) deletedObjectIds.add(id)
+
+    const otherEnds = new Set<string>()
+    for (const row of claimRows) {
+      for (const oid of [row.subjectId, row.objectId]) {
+        if (!deletedObjectIds.has(oid)) otherEnds.add(oid)
+      }
+    }
+    const orphanRows = await chunkedInArraySelect([...otherEnds], (chunk) =>
+      tx
+        .select({ id: objects.id })
+        .from(objects)
+        .where(
+          and(
+            eq(objects.orgId, orgId),
+            inArray(objects.id, chunk),
+            sql`NOT EXISTS (
+              SELECT 1 FROM ${claims}
+              WHERE ${claims.orgId} = ${orgId}
+                AND (
+                  ${claims.subjectId} = ${objects.id}
+                  OR ${claims.objectId} = ${objects.id}
+                )
+            )`,
+          ),
+        ),
+    )
+    const orphanIds = orphanRows.map((r) => r.id)
+    await chunkedInArrayDelete(orphanIds, (chunk) =>
+      tx
+        .delete(objects)
+        .where(and(eq(objects.orgId, orgId), inArray(objects.id, chunk))),
+    )
+    stats.orphanObjectsDeleted = orphanIds.length
+    for (const id of orphanIds) deletedObjectIds.add(id)
+  })
+
+  log.info({
+    message: "retractConnectorPrefixInstructionUnits",
+    orgId,
+    unitsDeleted,
+    claimsDeleted: stats.claimsDeleted,
+    orphanObjectsDeleted: stats.orphanObjectsDeleted,
+  })
+
+  return {
+    unitsDeleted,
+    stats,
+    graphEffects: {
+      deletedClaimIds: graphDeletedClaimIds,
+      refreshedClaimIds: [],
       deletedObjectIds: [...deletedObjectIds],
     },
   }
