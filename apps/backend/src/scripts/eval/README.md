@@ -28,6 +28,8 @@ action is the baseline.
 # on the preview (or against a fork), before anything runs
 bun run src/scripts/graphQualityReport.ts --org-id <org> --out before.json
 
+# re-index everything (or pass --repository-id <id>) with the environment's variables:
+#   railway run --environment <env> --service backend -- bun run src/scripts/reindexRepositories.ts --org-id <org> --all
 # run the cleanup as an org admin from the app's browser session (the maintenance route
 # requires an admin session, not an API key):
 #   fetch("/<org-slug>/api/v1/knowledge-graph/maintenance/retract-connector-instructions", { method: "POST" })

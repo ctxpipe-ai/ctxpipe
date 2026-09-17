@@ -23,7 +23,7 @@ When `roots` includes both `./` and package paths (e.g. `apps/web`), post-proces
 | extractGithubPullRequests (connector) | PullRequest, File | TARGETS, ADDED, MODIFIED, REMOVED, RENAMED, PART_OF, REFERENCES (→ Issue) | prq:${sourceRepo}:${number}, fil:${sourceRepo}:${path} |
 | extractLinear (connector) | Issue, Team | OWNS (Team → Issue), REFERENCES (→ PullRequest) | iss:linear:${identifier}, team:linear:${key} |
 | extractSlackThreads (connector) | Thread | REFERENCES (→ PullRequest / Issue) | thr:slack:${channelId}:${threadTs} |
-| linkLocatedPaths | File | File PART_OF Repository/Service/App/Library, InstructionUnit/Decision DECLARED_IN File; drops unresolved reference-family claims after all roots concatenate | fil:${repositoryId}:${path} |
+| linkLocatedPaths | File, stub PullRequest / Issue | File PART_OF Repository/Service/App/Library, InstructionUnit/Decision DECLARED_IN File; after all roots concatenate, reference-family claims to a connected repository's PR or a known team's issue get a stub node (`inferredFromReference`), other unresolved references are dropped | fil:${repositoryId}:${path}, prq:${repoId}:${n}, iss:linear:${IDENT} |
 
 ## identifyRoots
 
@@ -37,7 +37,7 @@ Root detection is deterministic-first:
 
 ## extractInstructionUnits
 
-Extracts **InstructionUnit** objects from normative docs and agent rule files (`AGENTS.md`, `CLAUDE.md`, `.cursor/rules/**/*.md`, `CONTRIBUTING.md`, `README.md`), then derives **repo-local Skill** objects when ≥2 units share intent + compatible applicability envelope (payload). Uses structured LLM output per file (skipped when `MODEL_PROVIDER_API_KEY` is unset). Build manifests (e.g. `package.json` scripts) are **not** ingested as instruction units here—agents can read those files directly.
+Extracts **InstructionUnit** objects from files whose purpose is to instruct (`isInstructionSourcePath`: `AGENTS.md`, `CLAUDE.md`, `.cursor/rules/**`, `.agents/rules/**`, skills `SKILL.md`, `CONTRIBUTING.md`, the README at the repository root or a package root, and `docs/` files whose filename names a norm such as standards, guidelines, conventions, policies, workflow). Other Markdown is search-only; decision records (`adr/`, `decisions/`) are `Decision` nodes, never instructions. Units are then derived **repo-local Skill** objects when ≥2 units share intent + compatible applicability envelope (payload). Uses structured LLM output per file (skipped when `MODEL_PROVIDER_API_KEY` is unset). Build manifests (e.g. `package.json` scripts) are **not** ingested as instruction units here—agents can read those files directly.
 
 - **Dependency/vendor paths:** Instruction candidates under known dependency directory segments are excluded (convention-aware: e.g. `vendor/` but not `internal/vendor/`, root-only `external/`); see [`dependencyVendorPaths.ts`](../../../domain/codeIngestion/dependencyVendorPaths.ts). Connector warehouse prefixes (`github/`, `linear/`, `notion/`, `slack/`, `confluence/`) are also skipped.
 

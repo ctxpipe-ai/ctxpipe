@@ -54,7 +54,21 @@ cross-tool edges require shared identity.
    both repository ids and the warehouse path as segments.
 7. **Connector-only partial diffs skip the code extractors**
    (`shouldSkipCodeExtractorForPartialDiff`).
-8. **Graph health is measured by join density** (`GET /knowledge-graph/quality`):
+8. **Instruction sources are files whose purpose is to instruct.** Agent files
+   and rules, skills, `CONTRIBUTING`, the README at the repository root or a
+   package root, and docs whose filename names a norm
+   (`isInstructionSourcePath`). Every other Markdown file is search-only
+   documentation; decision records become `Decision` nodes. On TruRec's
+   preview, README-derived units were 64% of all nodes before this rule.
+9. **References with a fully determined identity create stub nodes.** A
+   pull request of a connected repository (`prq:${repoId}:${n}`) or a Linear
+   issue of a known team (`iss:linear:${IDENT}`) referenced before it is
+   mirrored becomes a stub (`inferredFromReference`) so the edge lands now; a
+   later real extraction replaces the stub. References to unconnected
+   repositories are still dropped. Linear issues whose mirror file lacks a
+   team key derive the team from the identifier prefix, so no issue is
+   orphaned by a failed relation fetch.
+10. **Graph health is measured by join density** (`GET /knowledge-graph/quality`):
    share of objects with evidence from two or more extractors, plus orphan
    rate, evidence rows per claim, and the count of legacy connector-derived
    instruction units. A one-off admin action
@@ -96,5 +110,6 @@ cross-tool edges require shared identity.
   provider kinds; retained as the plan for pages without a join key.
 - **LLM entity extraction over connector bodies** — rejected as the primary
   path; it recreates the star at higher cost. Kept as a later linking fallback.
-- **Stub nodes for unresolved references** — deferred until the measured
-  Issue-to-PR link rate shows a need.
+- **Dropping every unresolved reference** — the first preview run measured a
+  zero Issue-to-PR link rate without the mirror, so stubs were adopted for
+  identities that are fully determined by their key (decision 9).
