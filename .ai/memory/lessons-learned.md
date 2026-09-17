@@ -664,3 +664,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** reliability
 - **Date:** 2026-09-17
 - **Source:** PR #335 preview deploy (run 35193450491): first attempt failed at the Neon migration step, `--failed` rerun passed; `describe-environment` for `pr-335` showed per-environment volumes and no UI domain
+
+### FalkorDB serverless sleep in PR previews crashes the worker and hangs graph reads
+- **Rule:** The PR deploy workflow enables Railway serverless sleep on `falkordb`. When it sleeps mid-ingestion the FalkorDB client re-emits the socket close as an `error` event; before `fcd3c2b7` nothing listened, so the OpenWorkflow worker exited with code 1 (supervisor restart, durable steps re-run) and the backend kept a dead connection, so `GET /api/v1/knowledge-graph` hung until the browser gave up (HTTP 499 after ~12–26 s). While testing a preview, switch sleep off on `falkordb` in that environment (`update-service sleepApplication:false` + redeploy; it reloads the graph from its volume) and expect the next PR deploy to switch it back on. The client now logs the error, drops the shared connection and reconnects on the next call (`platform/graph/client.ts`); keep that listener when touching the graph client.
+- **Category:** reliability
+- **Date:** 2026-09-17
+- **Source:** `pr-335` preview during the TruRec re-index: worker deploy log `SocketClosedUnexpectedlyError … Emitted 'error' event on FalkorDB instance` at 10:30:17 UTC as FalkorDB went `SLEEPING`; backend http log 499s on the knowledge-graph endpoint; fixed by commit `fcd3c2b7` and by disabling sleep on the preview `falkordb`
