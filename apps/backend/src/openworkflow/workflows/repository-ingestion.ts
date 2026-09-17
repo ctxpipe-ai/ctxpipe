@@ -36,7 +36,10 @@ import {
   getLogger,
   withLogger,
 } from "../../observability/logger.js"
-import { applyIngestionRetractionGraphEffects } from "../../retrieval/services/ingestionRetraction.js"
+import {
+  applyIngestionRetractionGraphEffects,
+  retractUnobservedRepositoryEvidencePg,
+} from "../../retrieval/services/ingestionRetraction.js"
 import { enqueueFollowUpIfTipAhead } from "../enqueue-follow-up-if-tip-ahead.js"
 import { withLoggedStepAttempt } from "../withLoggedStepAttempt.js"
 import { repositoryIndex } from "./repository-index.js"
@@ -49,6 +52,8 @@ const repositoryIngestionInputSchema = z.object({
   indexingReason: z.string().nullable().optional(),
   /** Checkpointed with connector writes so replay cannot switch installations. */
   githubConnectionId: z.string().nullable().optional(),
+  /** Ignore the last ingested commit: full codesearch mode plus the unobserved-evidence sweep. */
+  fullReingest: z.boolean().optional(),
 })
 
 const extractRetryPolicy = {
@@ -166,9 +171,15 @@ export const repositoryIngestion = defineWorkflow(
 
             const githubConnectionId =
               input.githubConnectionId ?? repository.githubConnectionId
+            // A requested full re-ingest ignores the last ingested commit, so
+            // codesearch runs in full mode and the unobserved-evidence sweep applies.
+            const fromHash = input.fullReingest
+              ? undefined
+              : (repository.lastIngestedHash ?? undefined)
             logWorkflowMilestone("repository-ingestion.repository-loaded", {
               repositoryId: input.repositoryId,
               lastIngestedHash: repository.lastIngestedHash,
+              fullReingest: input.fullReingest ?? false,
               githubConnectionId,
             })
 
@@ -225,9 +236,7 @@ export const repositoryIngestion = defineWorkflow(
                 repositoryId: input.repositoryId,
                 orgId: input.orgId,
                 targetHash: resolved.hash,
-                ...(repository.lastIngestedHash
-                  ? { fromHash: repository.lastIngestedHash }
-                  : {}),
+                ...(fromHash ? { fromHash } : {}),
                 ...(githubConnectionId ? { githubConnectionId } : {}),
               },
               { name: "repository-index" },
@@ -294,7 +303,7 @@ export const repositoryIngestion = defineWorkflow(
               repositoryId: input.repositoryId,
               orgId: input.orgId,
               githubConnectionId: githubConnectionId ?? undefined,
-              fromHash: repository.lastIngestedHash ?? undefined,
+              fromHash,
               targetHash: reindexState.targetHash ?? resolved.hash,
               indexedAt: reindexState.indexedAt,
               ingestMode: reindexState.ingestMode,
@@ -563,7 +572,62 @@ export const repositoryIngestion = defineWorkflow(
               sourceBranch: resolved.branch,
             }
 
-            const effects = retractionResult.retractionGraphEffects
+            // Full ingests re-observe everything still true at the target commit;
+            // whatever this repository's extractors did not re-observe is stale.
+            // Skipped when an index degraded, so a partial run never retracts.
+            let graphEffects = retractionResult.retractionGraphEffects
+            const canSweepUnobserved =
+              reindexState.ingestMode === "full" &&
+              reindexState.searchIndexOk !== false &&
+              reindexState.scipIndexOk !== false
+            if (canSweepUnobserved) {
+              const sweep = await step.run(
+                { name: "retract-unobserved-evidence" },
+                () =>
+                  wls("retract-unobserved-evidence", () =>
+                    withOrgDbContext(input.orgId, (db) =>
+                      retractUnobservedRepositoryEvidencePg(db, {
+                        orgId: input.orgId,
+                        repositoryId: input.repositoryId,
+                        targetHash: result.targetHash,
+                      }),
+                    ),
+                  ),
+              )
+              logWorkflowMilestone(
+                "repository-ingestion.step.unobserved-sweep.done",
+                {
+                  repositoryId: input.repositoryId,
+                  targetHash: result.targetHash,
+                  ...sweep.stats,
+                },
+              )
+              graphEffects = {
+                deletedClaimIds: [
+                  ...graphEffects.deletedClaimIds,
+                  ...sweep.graphEffects.deletedClaimIds,
+                ],
+                refreshedClaimIds: [
+                  ...graphEffects.refreshedClaimIds,
+                  ...sweep.graphEffects.refreshedClaimIds,
+                ],
+                deletedObjectIds: [
+                  ...graphEffects.deletedObjectIds,
+                  ...sweep.graphEffects.deletedObjectIds,
+                ],
+              }
+            } else if (reindexState.ingestMode === "full") {
+              logWorkflowMilestone(
+                "repository-ingestion.step.unobserved-sweep.skipped",
+                {
+                  repositoryId: input.repositoryId,
+                  targetHash: result.targetHash,
+                  reason: "index degraded",
+                },
+              )
+            }
+
+            const effects = graphEffects
             if (
               effects.deletedClaimIds.length > 0 ||
               effects.refreshedClaimIds.length > 0 ||

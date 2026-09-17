@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { formatUnknownError } from "../../db/transientDbRetry.js"
 import {
   createRepository,
   deriveRepositoryIndexingStatus,
@@ -9,7 +10,6 @@ import {
 } from "../../models/repositories.js"
 import { enqueueRepositoryDeletionWorkflow } from "../../openworkflow/enqueue-repository-deletion.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
-import { formatUnknownError } from "../../db/transientDbRetry.js"
 
 const CreateRepositoryRequestSchema = z
   .object({
@@ -324,13 +324,12 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
         { repositoryId: repository.id, orgId: repository.orgId },
         {
           error: (err) =>
-            c.get("log").error(err, { step: "repositories.create.enqueue-ingestion" }),
+            c
+              .get("log")
+              .error(err, { step: "repositories.create.enqueue-ingestion" }),
         },
       )
-      return c.json(
-        serializeRepository(repository),
-        201,
-      )
+      return c.json(serializeRepository(repository), 201)
     } catch (e) {
       c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
         step: "repositories.create",
@@ -355,12 +354,14 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
           repositoryId: repository.id,
           orgId: repository.orgId,
           indexingReason: "manual",
+          fullReingest: true,
         },
         {
           error: (err) =>
-            c
-              .get("log")
-              .error(err, { step: "repositories.reindex.enqueue", repositoryId: id }),
+            c.get("log").error(err, {
+              step: "repositories.reindex.enqueue",
+              repositoryId: id,
+            }),
         },
       )
       return c.body(null, 202)

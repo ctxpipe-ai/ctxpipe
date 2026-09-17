@@ -11,6 +11,8 @@ import {
   addEvidenceBulk,
   type BulkCreateClaimWithEvidenceItem,
   createClaimsWithEvidenceBulk,
+  type TouchEvidenceInput,
+  touchEvidenceBulk,
 } from "../../../retrieval/services/claimWrite.js"
 import { aggregateConfidence } from "../../../retrieval/services/confidenceAggregation.js"
 import { evidenceSourceIdMayHaveWindowsDriveColon } from "../../../retrieval/services/ingestionPathMatching.js"
@@ -137,6 +139,8 @@ function resolveRefFromMap(
 }
 
 type PrefetchedEvidence = {
+  /** Row id for evidence already in Postgres; null for rows written by this run. */
+  id: string | null
   sourceId: string
   logicalSourceKey: string | null
 }
@@ -185,6 +189,7 @@ async function prefetchEvidenceByClaimIds(
   for (const chunk of chunkArray(claimIds, DEDUP_CLAIM_PREFETCH_BATCH_SIZE)) {
     const rows = await db
       .select({
+        id: claimEvidence.id,
         claimId: claimEvidence.claimId,
         sourceId: claimEvidence.sourceId,
         logicalSourceKey: claimEvidence.logicalSourceKey,
@@ -194,6 +199,7 @@ async function prefetchEvidenceByClaimIds(
     for (const row of rows) {
       const list = byClaim.get(row.claimId) ?? []
       list.push({
+        id: row.id,
         sourceId: row.sourceId,
         logicalSourceKey: row.logicalSourceKey,
       })
@@ -428,6 +434,7 @@ export async function deduplicateAndStore(
 
   const newClaimWrites: BulkCreateClaimWithEvidenceItem[] = []
   const addEvidenceWrites: AddEvidenceInput[] = []
+  const evidenceTouchWrites: TouchEvidenceInput[] = []
 
   let claimsProcessed = 0
   for (const c of resolvedClaims) {
@@ -456,15 +463,31 @@ export async function deduplicateAndStore(
       ? (evidenceByClaimId.get(existingClaimId) ?? [])
       : []
 
-    // Duplicate evidence: skip DB writes, but still queue projection so the graph
-    // stays in sync (e.g. first projection failed, graph was wiped, or dev DB restored).
-    if (
-      existingClaimId &&
-      existingEvidence.some((ev) =>
-        claimEvidenceMatchesLogicalKey(ev, logicalKey, c.sourceId, targetHash),
-      )
-    ) {
+    // Duplicate evidence: no new row. Move the matched row to this commit (batched
+    // below) so re-observed facts carry the latest hash, and still queue projection
+    // so the graph stays in sync (e.g. first projection failed, graph was wiped).
+    const matchedEvidence = existingClaimId
+      ? existingEvidence.find((ev) =>
+          claimEvidenceMatchesLogicalKey(
+            ev,
+            logicalKey,
+            c.sourceId,
+            targetHash,
+          ),
+        )
+      : undefined
+    if (existingClaimId && matchedEvidence) {
       claimsDuplicateEvidenceSkipped++
+      if (matchedEvidence.id && matchedEvidence.sourceId !== c.sourceId) {
+        evidenceTouchWrites.push({
+          id: matchedEvidence.id,
+          claimId: existingClaimId,
+          sourceId: c.sourceId,
+          logicalSourceKey: logicalKey,
+        })
+        matchedEvidence.sourceId = c.sourceId
+        matchedEvidence.logicalSourceKey = logicalKey
+      }
       claimIdsToFetch.push(existingClaimId)
       claimIdToKinds.set(existingClaimId, { subjectKind, objectKind })
       claimsProcessed++
@@ -494,7 +517,11 @@ export async function deduplicateAndStore(
         provenance: c.provenance ?? null,
       })
       const list = evidenceByClaimId.get(existingClaimId) ?? []
-      list.push({ sourceId: c.sourceId, logicalSourceKey: logicalKey })
+      list.push({
+        id: null,
+        sourceId: c.sourceId,
+        logicalSourceKey: logicalKey,
+      })
       evidenceByClaimId.set(existingClaimId, list)
       claimIdsToFetch.push(existingClaimId)
       claimIdToKinds.set(existingClaimId, {
@@ -526,7 +553,7 @@ export async function deduplicateAndStore(
       })
       claimByTriple.set(triple, claimId)
       evidenceByClaimId.set(claimId, [
-        { sourceId: c.sourceId, logicalSourceKey: logicalKey },
+        { id: null, sourceId: c.sourceId, logicalSourceKey: logicalKey },
       ])
       const agg = aggregateConfidence([
         {
@@ -569,6 +596,7 @@ export async function deduplicateAndStore(
   await withOrgDbContext(orgId, async (db) => {
     await createClaimsWithEvidenceBulk(newClaimWrites)
     await addEvidenceBulk(addEvidenceWrites)
+    await touchEvidenceBulk(evidenceTouchWrites, now)
 
     if (claimIdsToFetch.length > 0) {
       const fetchedClaims = await db
@@ -636,6 +664,7 @@ export async function deduplicateAndStore(
     claimsNewCreated,
     claimsEvidenceAddedToExisting,
     claimsDuplicateEvidenceSkipped,
+    claimsEvidenceTouched: evidenceTouchWrites.length,
     claimsSkippedUnresolvedRef,
     claimsForProjectionCount: claimsForProjection.length,
   })

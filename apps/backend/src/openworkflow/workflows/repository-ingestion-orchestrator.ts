@@ -18,6 +18,7 @@ const repositoryIngestionOrchestratorInputSchema = z.object({
   targetBranch: z.string().nullable().optional(),
   indexingReason: z.string().nullable().optional(),
   githubConnectionId: z.string().nullable().optional(),
+  fullReingest: z.boolean().optional(),
 })
 
 export const repositoryIngestionOrchestrator = defineWorkflow(
@@ -47,6 +48,9 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
                 : {}),
               ...(input.githubConnectionId !== undefined
                 ? { githubConnectionId: input.githubConnectionId }
+                : {}),
+              ...(input.fullReingest !== undefined
+                ? { fullReingest: input.fullReingest }
                 : {}),
             },
             { name: "repository-ingestion-child" },

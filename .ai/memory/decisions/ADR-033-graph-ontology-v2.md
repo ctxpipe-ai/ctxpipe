@@ -74,6 +74,20 @@ cross-tool edges require shared identity.
    instruction units. A one-off admin action
    (`POST /knowledge-graph/maintenance/retract-connector-instructions`)
    removes those units and the nodes left orphaned.
+11. **A full ingest is authoritative for what its repository asserts.** Dedup
+   moves re-observed evidence to the current commit (`touchEvidenceBulk`) and,
+   when codesearch ran in full mode and no index degraded, the workflow sweeps
+   this repository's evidence whose source id does not end in the target hash
+   (`retractUnobservedRepositoryEvidencePg`): claims left without proof go,
+   nodes no claim references go with them, multi-source claims keep their other
+   proofs. The producer is the second source-id segment, so another
+   repository's claims that merely mention this one survive. Manual re-index
+   (UI button, `reindex-repositories`) requests `fullReingest`, which ignores
+   the last ingested commit; webhook ingests stay incremental and keep using
+   path-based retraction. Before this, a re-index at an unchanged tip was a
+   partial ingest with an empty diff: extractors re-ran, nothing was retracted,
+   and LLM naming drift accumulated (TruRec production carried instruction-unit
+   evidence from 586 distinct ingestion hashes).
 
 ## Rationale
 
@@ -92,7 +106,12 @@ cross-tool edges require shared identity.
 
 - Full re-ingest of connected repositories is required for `File PART_OF`,
   `Decision`, `Team` and connector nodes to appear; run the maintenance action
-  first so legacy units do not survive alongside them.
+  first so legacy units do not survive alongside them. The re-ingest itself
+  removes everything the new extractors no longer assert (decision 11), so the
+  graph after rollout reflects the current code only.
+- A full ingest that degrades (search or SCIP index unavailable) completes
+  with issues and skips the sweep; stale evidence then waits for the next
+  healthy full ingest rather than being removed on partial information.
 - The hosted GitHub App must subscribe to review, review-comment and
   issue-comment events and hold Issues: Read (ADR-031).
 - `Issue` identity is org-scoped by identifier; two Linear workspaces with

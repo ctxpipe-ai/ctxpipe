@@ -3,6 +3,7 @@
  *   1. dedup twice at different commits → still one evidence row per claim
  *   2. delete the mirrored file, partial ingest → the PR's claims are retracted
  *   3. re-ingest, delete the source repository → purge removes them too
+ *   4. a full ingest sweeps evidence that the new commit did not re-observe
  *
  * Requires DATABASE_URL (apps/backend/.env.local). Skipped otherwise.
  */
@@ -30,6 +31,7 @@ import {
   purgeRepositoryEvidencePg,
   retractConnectorPrefixInstructionUnitsPg,
   retractIngestionForDiffPg,
+  retractUnobservedRepositoryEvidencePg,
 } from "../../../retrieval/services/ingestionRetraction.js"
 import {
   parseGithubPullRequestMarkdown,
@@ -48,7 +50,7 @@ const ORG_ID = `org_test_evidence_${Date.now()}`
 const CONTEXT_REPO = generateObjectId("repo")
 const SOURCE_REPO = generateObjectId("repo")
 
-const mirrored = renderGithubPullRequest({
+const snapshot = {
   id: 1042,
   number: 42,
   repository: "acme/api",
@@ -74,10 +76,20 @@ const mirrored = renderGithubPullRequest({
   reviews: [],
   comments: [],
   requiredChecks: [],
+} satisfies Parameters<typeof renderGithubPullRequest>[0]
+
+const mirrored = renderGithubPullRequest(snapshot)
+/** Same pull request, but `src/domain/user.ts` is no longer part of it. */
+const mirroredReduced = renderGithubPullRequest({
+  ...snapshot,
+  files: snapshot.files.slice(0, 1),
 })
 
-function stateAt(targetHash: string): CodeIngestionState {
-  const parsed = parseGithubPullRequestMarkdown(mirrored.content)
+function stateAt(
+  targetHash: string,
+  content: string = mirrored.content,
+): CodeIngestionState {
+  const parsed = parseGithubPullRequestMarkdown(content)
   if (!parsed) throw new Error("fixture did not parse")
   const graph = buildGithubPullRequestGraph({
     parsed,
@@ -99,12 +111,23 @@ function stateAt(targetHash: string): CodeIngestionState {
   }
 }
 
-async function dedup(targetHash: string) {
+async function dedup(targetHash: string, content?: string) {
   return withLogger(createLogger({ test: "evidence-lifecycle" }), () =>
     withOrgIdContext({ id: ORG_ID, slug: "evidence-lifecycle" }, () =>
-      withOrgDbContext(ORG_ID, () => deduplicateAndStore(stateAt(targetHash))),
+      withOrgDbContext(ORG_ID, () =>
+        deduplicateAndStore(stateAt(targetHash, content)),
+      ),
     ),
   )
+}
+
+async function evidenceSourceIds(): Promise<string[]> {
+  const rows = await getSystemDb()
+    .select({ sourceId: claimEvidence.sourceId })
+    .from(claimEvidence)
+    .innerJoin(claims, eq(claimEvidence.claimId, claims.id))
+    .where(eq(claims.orgId, ORG_ID))
+  return rows.map((row) => row.sourceId).sort()
 }
 
 async function counts() {
@@ -194,12 +217,22 @@ describe.skipIf(!connectionString)("evidence lifecycle (Postgres)", () => {
     const after = await counts()
     expect(after.claims).toBe(first.claims)
     expect(after.evidence).toBe(first.claims)
+    // Re-observed evidence moves to the latest commit instead of staying pinned
+    // to the first one; a later full-ingest sweep relies on this.
+    for (const sourceId of await evidenceSourceIds()) {
+      expect(sourceId.endsWith(":hash-two")).toBe(true)
+    }
 
+    // Change edges and TARGETS are dated at merge; containment is timeless.
     const validity = await getSystemDb()
       .select({ predicate: claims.predicate, validFrom: claims.validFrom })
       .from(claims)
       .where(eq(claims.orgId, ORG_ID))
     for (const row of validity) {
+      if (row.predicate === "PART_OF") {
+        expect(row.validFrom).toBeNull()
+        continue
+      }
       expect(row.validFrom?.toISOString().slice(0, 10)).toBe("2026-03-02")
     }
   })
@@ -318,5 +351,98 @@ describe.skipIf(!connectionString)("evidence lifecycle (Postgres)", () => {
       ADDED: 1,
     })
     expect(quality.kinds).toMatchObject({ PullRequest: 1, File: 2 })
+  })
+
+  it("sweeps evidence a full ingest did not re-observe, keeping other repositories' proofs", async () => {
+    await dedup("hash-five")
+    const before = await counts()
+    expect(before.kinds).toEqual(["File", "File", "PullRequest"])
+
+    // Evidence produced by another repository's ingestion that merely mentions
+    // this repository (PR mirror style: `extractor:<producer>:<mentioned>:…`).
+    const db = getSystemDb()
+    const foreignSubject = generateObjectId("obj")
+    const foreignObject = generateObjectId("obj")
+    const foreignClaim = generateObjectId("clm")
+    const now = new Date()
+    await db.insert(objects).values([
+      {
+        id: foreignSubject,
+        orgId: ORG_ID,
+        kind: "Service",
+        deduplicationKey: `svc:${SOURCE_REPO}:./`,
+        payload: { name: "api" },
+      },
+      {
+        id: foreignObject,
+        orgId: ORG_ID,
+        kind: "Repository",
+        deduplicationKey: `repo-key:${SOURCE_REPO}`,
+        payload: { name: "acme/api" },
+      },
+    ])
+    await db.insert(claims).values({
+      id: foreignClaim,
+      orgId: ORG_ID,
+      subjectId: foreignSubject,
+      objectId: foreignObject,
+      predicate: "IMPLEMENTED_IN",
+      status: "active",
+      aggregatedConfidence: 0.9,
+      firstObservedAt: now,
+      lastObservedAt: now,
+    })
+    const foreignSourceId = `extractKind:${SOURCE_REPO}:${CONTEXT_REPO}:./:hash-old`
+    await db.insert(claimEvidence).values({
+      id: generateObjectId("cev"),
+      claimId: foreignClaim,
+      sourceType: "git",
+      sourceId: foreignSourceId,
+      logicalSourceKey: `extractKind:${SOURCE_REPO}:${CONTEXT_REPO}:./`,
+      extractionMethod: "deterministic",
+      confidence: 0.9,
+      observedAt: now,
+    })
+
+    // The new commit no longer touches src/domain/user.ts: its ADDED and
+    // PART_OF claims are not re-observed.
+    await dedup("hash-six", mirroredReduced.content)
+
+    const sweep = await withOrgDbContext(ORG_ID, (tx) =>
+      retractUnobservedRepositoryEvidencePg(tx, {
+        orgId: ORG_ID,
+        repositoryId: CONTEXT_REPO,
+        targetHash: "hash-six",
+      }),
+    )
+    expect(sweep.stats.deletedEvidenceRows).toBe(2)
+    expect(sweep.stats.claimsDeleted).toBe(2)
+    expect(sweep.stats.orphanObjectsDeleted).toBe(1)
+    expect(sweep.graphEffects.deletedClaimIds).toHaveLength(2)
+    expect(sweep.graphEffects.deletedObjectIds).toHaveLength(1)
+
+    const after = await counts()
+    expect(after.claims).toBe(before.claims - 2 + 1)
+    expect(after.kinds).toEqual([
+      "File",
+      "PullRequest",
+      "Repository",
+      "Service",
+    ])
+    const sourceIds = await evidenceSourceIds()
+    expect(sourceIds).toContain(foreignSourceId)
+    for (const sourceId of sourceIds.filter((id) => id !== foreignSourceId)) {
+      expect(sourceId.endsWith(":hash-six")).toBe(true)
+    }
+
+    // Idempotent: nothing left to sweep at the same commit.
+    const again = await withOrgDbContext(ORG_ID, (tx) =>
+      retractUnobservedRepositoryEvidencePg(tx, {
+        orgId: ORG_ID,
+        repositoryId: CONTEXT_REPO,
+        targetHash: "hash-six",
+      }),
+    )
+    expect(again.stats.deletedEvidenceRows).toBe(0)
   })
 })

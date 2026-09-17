@@ -3,6 +3,10 @@
  * ADR-033): after deploying a graph change, run the connector-unit cleanup, then
  * this, then read `graph-quality-report`.
  *
+ * Full means `fullReingest: true`: the workflow ignores the last ingested commit
+ * (codesearch full mode) and, once extraction succeeds, sweeps evidence the run
+ * did not re-observe — the same path as the "Reindex" button in the UI.
+ *
  * Usage (apps/backend; DATABASE_URL and the OpenWorkflow / Railway wake variables
  * come from the environment, e.g. `railway run --environment <env> --service backend -- …`):
  *   bun run src/scripts/reindexRepositories.ts --org-id <org> --all [--reason "graph ontology v2"]
@@ -10,6 +14,7 @@
  *   add --dry-run to list what would be enqueued.
  */
 import { resolve } from "node:path"
+import { setTimeout } from "node:timers/promises"
 import { fileURLToPath } from "node:url"
 import { config } from "dotenv"
 
@@ -79,7 +84,12 @@ async function main(argv: string[]): Promise<void> {
         continue
       }
       await enqueueRepositoryIngestionWorkflow(
-        { repositoryId: repository.id, orgId, indexingReason: reason },
+        {
+          repositoryId: repository.id,
+          orgId,
+          indexingReason: reason,
+          fullReingest: true,
+        },
         log,
       )
       process.stdout.write(`enqueued ${repository.id} ${repository.name}\n`)
@@ -93,9 +103,16 @@ async function main(argv: string[]): Promise<void> {
   }
 }
 
-main(process.argv.slice(2)).catch((error) => {
-  process.stderr.write(
-    `${error instanceof Error ? error.message : String(error)}\n`,
-  )
-  process.exit(1)
-})
+main(process.argv.slice(2))
+  .then(async () => {
+    // The worker wake after the last enqueue is fire-and-forget; give it a
+    // moment, then exit — the workflow client otherwise keeps the process alive.
+    await setTimeout(2_000)
+    process.exit(process.exitCode ?? 0)
+  })
+  .catch((error) => {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : String(error)}\n`,
+    )
+    process.exit(1)
+  })

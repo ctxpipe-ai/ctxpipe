@@ -86,7 +86,10 @@ rate, evidence rows per claim, and the count of legacy instruction units that
 were derived from connector Markdown. Organization admins can remove those
 legacy units with
 `POST /:orgSlug/api/v1/knowledge-graph/maintenance/retract-connector-instructions`,
-then re-index repositories.
+then re-index repositories. A manual re-index is a full rebuild: it re-reads the
+repository at its current commit and retracts what the repository no longer
+asserts, so node counts reflect the code as it is rather than every extraction
+ever run.
 
 ## Related
 

@@ -1,22 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+const repositoryRow = vi.hoisted(() => ({
+  id: "repo_1",
+  orgId: "org_1",
+  lastIngestedHash: null as string | null,
+  githubConnectionId: "con_1",
+}))
+
 const withOrgDbContextMock = vi.hoisted(() =>
   vi.fn(async (_orgId: string, fn: (db: unknown) => unknown) => {
     const db = {
       query: {
         repositories: {
-          findFirst: vi.fn().mockResolvedValue({
-            id: "repo_1",
-            orgId: "org_1",
-            lastIngestedHash: null,
-            githubConnectionId: "con_1",
-          }),
+          findFirst: vi.fn().mockResolvedValue({ ...repositoryRow }),
         },
       },
     }
     return fn(db)
   }),
 )
+
+const retractUnobservedMock = vi.hoisted(() => vi.fn())
+const applyGraphEffectsMock = vi.hoisted(() => vi.fn())
 
 const repositoryIndexResult = {
   indexedAt: "2026-01-01T00:00:00.000Z",
@@ -136,7 +141,8 @@ vi.mock("../../models/repositories.js", () => ({
 }))
 
 vi.mock("../../retrieval/services/ingestionRetraction.js", () => ({
-  applyIngestionRetractionGraphEffects: vi.fn(),
+  applyIngestionRetractionGraphEffects: applyGraphEffectsMock,
+  retractUnobservedRepositoryEvidencePg: retractUnobservedMock,
 }))
 
 const enqueueFollowUpIfTipAheadMock = vi.hoisted(() =>
@@ -183,9 +189,135 @@ import {
 } from "../../models/repositories.js"
 import { repositoryIngestion } from "./repository-ingestion.js"
 
+type StepOpts = { name: string; retryPolicy?: { maximumAttempts?: number } }
+
+/** Minimal step API: runs steps inline, returns `indexResult` from the index child. */
+function makeStep(indexResult: unknown, capture?: { input?: unknown }) {
+  return {
+    run: async (_opts: StepOpts, fn: () => unknown) => fn(),
+    runWorkflow: async (
+      _spec: unknown,
+      input: unknown,
+      _opts?: { name?: string },
+    ) => {
+      if (capture) capture.input = input
+      return indexResult
+    },
+  }
+}
+
+type WorkflowInput = {
+  repositoryId: string
+  orgId: string
+  fullReingest?: boolean
+}
+
+async function runWorkflow(
+  input: WorkflowInput,
+  step: ReturnType<typeof makeStep>,
+) {
+  const wf = repositoryIngestion as unknown as {
+    run: (args: {
+      input: WorkflowInput
+      step: typeof step
+      run?: { id: string }
+    }) => Promise<unknown>
+  }
+  return wf.run({ input, step, run: { id: "wr_1" } })
+}
+
 describe("repository-ingestion index workflow boundary", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    repositoryRow.lastIngestedHash = null
+    retractUnobservedMock.mockResolvedValue({
+      stats: {
+        renamedEvidenceRows: 0,
+        deletedEvidenceRows: 3,
+        claimsUpdated: 0,
+        claimsDeleted: 1,
+        orphanObjectsDeleted: 1,
+        graphEdgesDeleted: 0,
+        graphClaimsRefreshed: 0,
+        graphOrphanObjectsDeleted: 0,
+      },
+      graphEffects: {
+        deletedClaimIds: ["claim_stale"],
+        refreshedClaimIds: [],
+        deletedObjectIds: ["obj_stale"],
+      },
+    })
+    applyGraphEffectsMock.mockResolvedValue({
+      graphEdgesDeleted: 1,
+      graphClaimsRefreshed: 0,
+      graphOrphanObjectsDeleted: 1,
+    })
+  })
+
+  it("sweeps evidence a full ingest did not re-observe and syncs the graph", async () => {
+    await runWorkflow(
+      { repositoryId: "repo_1", orgId: "org_1" },
+      makeStep(repositoryIndexResult),
+    )
+
+    expect(retractUnobservedMock).toHaveBeenCalledWith(expect.anything(), {
+      orgId: "org_1",
+      repositoryId: "repo_1",
+      targetHash: "abc",
+    })
+    expect(applyGraphEffectsMock).toHaveBeenCalledWith({
+      deletedClaimIds: ["claim_stale"],
+      refreshedClaimIds: [],
+      deletedObjectIds: ["obj_stale"],
+    })
+    expect(markRepositoryIndexingReady).toHaveBeenCalledWith({
+      repositoryId: "repo_1",
+      targetHash: "abc",
+    })
+  })
+
+  it("does not sweep after a partial ingest", async () => {
+    await runWorkflow(
+      { repositoryId: "repo_1", orgId: "org_1" },
+      makeStep({
+        ...repositoryIndexResult,
+        ingestMode: "partial",
+        changedPaths: ["src/a.ts"],
+      }),
+    )
+    expect(retractUnobservedMock).not.toHaveBeenCalled()
+    expect(applyGraphEffectsMock).not.toHaveBeenCalled()
+  })
+
+  it("skips the sweep when the search index failed, so nothing is retracted on a degraded run", async () => {
+    await runWorkflow(
+      { repositoryId: "repo_1", orgId: "org_1" },
+      makeStep({
+        ...repositoryIndexResult,
+        searchIndexOk: false,
+        searchIndexError: "Zoekt unavailable",
+      }),
+    )
+    expect(retractUnobservedMock).not.toHaveBeenCalled()
+    expect(markRepositoryIndexingReadyWithIssues).toHaveBeenCalled()
+  })
+
+  it("drops fromHash for the index child when a full re-ingest is requested", async () => {
+    repositoryRow.lastIngestedHash = "old"
+
+    const incremental: { input?: unknown } = {}
+    await runWorkflow(
+      { repositoryId: "repo_1", orgId: "org_1" },
+      makeStep(repositoryIndexResult, incremental),
+    )
+    expect(incremental.input).toMatchObject({ fromHash: "old" })
+
+    const full: { input?: unknown } = {}
+    await runWorkflow(
+      { repositoryId: "repo_1", orgId: "org_1", fullReingest: true },
+      makeStep(repositoryIndexResult, full),
+    )
+    expect(full.input).not.toHaveProperty("fromHash")
   })
 
   it("runs repository-index via runWorkflow outside withOrgDbContext", async () => {
