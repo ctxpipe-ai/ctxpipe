@@ -219,6 +219,12 @@ describe("auth middleware composition", () => {
         }),
       ),
     )
+    getSessionMock.mockResolvedValue(null)
+    verifyApiKeyMock.mockResolvedValue({
+      valid: false,
+      error: { message: "KEY_NOT_FOUND", code: "KEY_NOT_FOUND" },
+      key: null,
+    })
   })
 
   it("withCookieAuth sets user and session from cookie session", async () => {
@@ -908,6 +914,12 @@ describe("auth middleware composition", () => {
 
   it("withBearerAuth 401 on /mcp includes resource_metadata", async () => {
     testState.db = createMockDb({ opaqueTokenRows: [] })
+    getSessionMock.mockResolvedValue(null)
+    verifyApiKeyMock.mockResolvedValue({
+      valid: false,
+      error: { message: "KEY_NOT_FOUND", code: "KEY_NOT_FOUND" },
+      key: null,
+    })
     const app = createBaseApp()
     app.use("/mcp", withBearerAuth)
     app.post("/mcp", (c) => c.text("ok"))
@@ -1113,8 +1125,73 @@ describe("org API-key principal", () => {
     expect(verifyApiKeyMock).not.toHaveBeenCalled()
   })
 
-  it("Bearer that looks like an API key still 401s with no org-key fallback", async () => {
+  it("Bearer personal API key sets user and session", async () => {
     testState.db = createMockDb({ opaqueTokenRows: [] })
+    getSessionMock.mockImplementation(
+      async ({ headers }: { headers: Headers }) => {
+        if (headers.get("x-api-key") !== "ctxp_user_key") return null
+        return {
+          user: { id: "user_api_key", email: "api-key@example.com" },
+          session: { id: "sess_api_key", userId: "user_api_key" },
+        }
+      },
+    )
+
+    const app = createMcpPrincipalApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer ctxp_user_key" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: { id: "user_api_key", email: "api-key@example.com" },
+      session: { id: "sess_api_key", userId: "user_api_key" },
+      orgApiKey: null,
+    })
+    expect(getSessionMock).toHaveBeenCalled()
+    const apiKeySessionCall = getSessionMock.mock.calls.find(
+      (call) =>
+        (call[0]?.headers as Headers | undefined)?.get("x-api-key") ===
+        "ctxp_user_key",
+    )
+    expect(apiKeySessionCall).toBeDefined()
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
+    expect(jwtVerifyMock).not.toHaveBeenCalled()
+  })
+
+  it("Bearer org API key sets orgApiKey without a user session", async () => {
+    testState.db = createMockDb({ opaqueTokenRows: [] })
+    getSessionMock.mockResolvedValue(null)
+    mockOrgKey()
+
+    const app = createMcpPrincipalApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer ctxp_org_key" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: null,
+      session: null,
+      orgApiKey: {
+        id: "key_org",
+        orgId: "org_acme",
+        configId: "organization",
+      },
+    })
+    expect(verifyApiKeyMock).toHaveBeenCalledTimes(1)
+    expect(verifyApiKeyMock.mock.calls[0]?.[0]).toEqual({
+      body: { key: "ctxp_org_key" },
+    })
+    expect(jwtVerifyMock).not.toHaveBeenCalled()
+  })
+
+  it("Bearer that is neither OAuth nor API key returns 401", async () => {
+    testState.db = createMockDb({ opaqueTokenRows: [] })
+    getSessionMock.mockResolvedValue(null)
+    mockInvalidKey("KEY_NOT_FOUND")
 
     const app = createMcpPrincipalApp()
     const response = await app.request("/mcp", {
@@ -1123,7 +1200,7 @@ describe("org API-key principal", () => {
     })
 
     expect(response.status).toBe(401)
-    expect(verifyApiKeyMock).not.toHaveBeenCalled()
+    expect(verifyApiKeyMock).toHaveBeenCalledTimes(1)
     expect(jwtVerifyMock).not.toHaveBeenCalled()
   })
 
