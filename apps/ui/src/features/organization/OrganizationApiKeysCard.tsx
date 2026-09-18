@@ -1,3 +1,17 @@
+/**
+ * Org API keys UI.
+ *
+ * Bypasses better-auth-ui's <ApiKeysCard> intentionally. The library card's
+ * `CreateApiKeyDialog` gates an organisation/personal selector on
+ * `contextOrganization.apiKey` (no per-call-site opt-out). That selector would
+ * let admins mint personal keys from org settings — the inverse of the user-
+ * settings confusion. Calling `authClient.apiKey.{list,create,delete}` directly
+ * with `configId: "organization"` keeps this card scoped to org keys only.
+ *
+ * The "Admin or owner required" branch is enforced by the backend
+ * `organizationRoles` config (apps/backend/src/auth/config.ts) which only
+ * grants `apiKey` actions to owner/admin — this card surfaces that 403.
+ */
 import { IconCopy, IconKey, IconTrash } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"

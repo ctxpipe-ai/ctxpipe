@@ -111,10 +111,15 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
         credentials={{ forgotPassword: true }}
         twoFactor={["totp"]}
         account={{ basePath: "/.auth/account" }}
+        // organization.apiKey must stay false: better-auth-ui's CreateApiKeyDialog
+        // gates its organisation/personal selector on this flag (no per-call-site
+        // opt-out). Leaving it true lets the user-account ApiKeysCard mint org keys,
+        // which would be confusing — user settings are for personal keys only.
+        // Org key minting lives in features/organization/OrganizationApiKeysCard.
         organization={
           orgSlug
-            ? { slug: orgSlug, basePath: "/.auth/organization", apiKey: true }
-            : { basePath: "/.auth/organization", apiKey: true }
+            ? { slug: orgSlug, basePath: "/.auth/organization", apiKey: false }
+            : { basePath: "/.auth/organization", apiKey: false }
         }
         onSessionChange={() => {
           void router?.invalidate()

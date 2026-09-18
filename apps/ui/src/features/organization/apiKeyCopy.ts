@@ -3,7 +3,7 @@
 export const personalApiKeyLocalization = {
   API_KEYS: "API Keys",
   API_KEYS_DESCRIPTION:
-    "Personal keys authenticate you as a member. Organisation keys live under Organisation settings.",
+    "Personal keys authenticate you as a member. For an organisation key (CI, headless agents), go to Organisation settings → API Keys. Only admins and owners can mint organisation keys.",
   API_KEYS_INSTRUCTIONS:
     "Create a named key for MCP with the x-api-key header. Point client config at CTXPIPE_API_KEY — do not put the key value in repository files. Keys last 30 days by default. No expiration is allowed; treat a never-expiring key as a long-lived secret. The secret is shown once.",
   CREATE_API_KEY_DESCRIPTION:
