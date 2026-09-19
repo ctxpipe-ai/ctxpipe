@@ -1,3 +1,17 @@
+/**
+ * Org API keys UI.
+ *
+ * Bypasses better-auth-ui's <ApiKeysCard> intentionally. The library card's
+ * `CreateApiKeyDialog` gates an organisation/personal selector on
+ * `contextOrganization.apiKey` (no per-call-site opt-out). That selector would
+ * let admins mint personal keys from org settings — the inverse of the user-
+ * settings confusion. Calling `authClient.apiKey.{list,create,delete}` directly
+ * with `configId: "organization"` keeps this card scoped to org keys only.
+ *
+ * The "Admin or owner required" branch is enforced by the backend
+ * `organizationRoles` config (apps/backend/src/auth/config.ts) which only
+ * grants `apiKey` actions to owner/admin — this card surfaces that 403.
+ */
 import { IconCopy, IconKey, IconTrash } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
@@ -24,7 +38,11 @@ import { Modal } from "@/components/ui/Modal"
 import { Select, SelectItem } from "@/components/ui/Select"
 import { ShimmerPlaceholder } from "@/components/ui/ShimmerPlaceholder"
 import { TextField } from "@/components/ui/TextField"
+import { betterAuthShellClassNames } from "@/features/auth/betterAuthShellClassNames"
 import { authClient } from "@/lib/auth-client"
+import { cn } from "@/lib/utils"
+
+const orgSettingsCardClassNames = betterAuthShellClassNames.card
 
 const ORG_API_KEY_CONFIG_ID = "organization"
 
@@ -188,7 +206,13 @@ export function OrganizationApiKeysCard(props: { organizationId: string }) {
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-4">
-      <Card className="rounded-none">
+      <Card
+        className={cn(
+          orgSettingsCardClassNames?.base,
+          // Match Better Auth settings cards: hairline border, no ring/crosses.
+          "ring-0 [&>span[aria-hidden]]:hidden",
+        )}
+      >
         <CardHeader>
           <CardTitle>API keys</CardTitle>
           <CardDescription>
@@ -231,14 +255,17 @@ export function OrganizationApiKeysCard(props: { organizationId: string }) {
           ) : (
             <GridList
               aria-label="Organisation API keys"
-              className="rounded-none border-white/10 bg-transparent dark:bg-transparent"
+              className={cn(
+                orgSettingsCardClassNames?.cell,
+                "bg-transparent dark:bg-transparent",
+              )}
             >
               {keys.map((apiKey) => (
                 <GridListItem
                   key={apiKey.id}
                   id={apiKey.id}
                   textValue={apiKey.name ?? apiKey.start ?? apiKey.id}
-                  className="rounded-none"
+                  className="rounded-none border-border"
                 >
                   <IconKey
                     className="size-4 shrink-0 text-muted-foreground"
@@ -267,7 +294,12 @@ export function OrganizationApiKeysCard(props: { organizationId: string }) {
             </GridList>
           )}
         </CardContent>
-        <CardFooter>
+        <CardFooter
+          className={cn(
+            orgSettingsCardClassNames?.footer,
+            "justify-end border-t py-4",
+          )}
+        >
           <Button
             variant="primary"
             className="rounded-none"

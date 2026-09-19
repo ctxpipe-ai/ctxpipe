@@ -56,7 +56,11 @@ describe("AuthProvider", () => {
     useGetAuthConfigMock.mockReturnValue({ data: { providers: [] } })
   })
 
-  it("enables built-in API key UI in provider config", async () => {
+  it("enables personal API key UI but disables organisation API keys in provider config", async () => {
+    // User settings = personal keys only. better-auth-ui's CreateApiKeyDialog
+    // gates its organisation/personal selector on contextOrganization.apiKey;
+    // leaving it true would let users mint org keys from /.auth/account/api-keys.
+    // Org key minting lives in features/organization/OrganizationApiKeysCard.
     const { AuthProvider } = await import("./AuthProvider")
 
     renderToStaticMarkup(
@@ -74,13 +78,16 @@ describe("AuthProvider", () => {
         account: { basePath: "/.auth/account" },
         organization: {
           basePath: "/.auth/organization",
-          apiKey: true,
+          apiKey: false,
         },
       }),
     )
   })
 
-  it("enables organisation API keys when an org slug is in the path", async () => {
+  it("keeps organisation API keys disabled even when an org slug is in the path", async () => {
+    // The custom OrganizationApiKeysCard handles org keys directly via the
+    // authClient with configId: "organization", so we don't need the library's
+    // org-side UI and we keep the dropdown suppressed.
     useRouterMock.mockReturnValue({
       state: { location: { pathname: "/acme/organization/members" } },
       invalidate: vi.fn(),
@@ -99,9 +106,38 @@ describe("AuthProvider", () => {
         organization: {
           slug: "acme",
           basePath: "/.auth/organization",
-          apiKey: true,
+          apiKey: false,
         },
       }),
     )
+  })
+
+  it("never enables the organisation API-key flag under any pathname", async () => {
+    // Regression: better-auth-ui's CreateApiKeyDialog gates its
+    // organisation/personal selector on contextOrganization.apiKey. If this
+    // ever flips back to true, users can mint org keys from /.auth/account.
+    const { AuthProvider } = await import("./AuthProvider")
+    const pathnames = [
+      "/.auth/account/security",
+      "/.auth/account/api-keys",
+      "/.auth/organization/settings",
+      "/acme/organization/members",
+      "/acme/organization/api-keys",
+    ]
+    for (const pathname of pathnames) {
+      useRouterMock.mockReturnValue({
+        state: { location: { pathname } },
+        invalidate: vi.fn(),
+      })
+      renderToStaticMarkup(
+        <AuthProvider>
+          <div>content</div>
+        </AuthProvider>,
+      )
+    }
+    for (const call of authUiProviderTanstackMock.mock.calls) {
+      const props = call[0] as { organization?: { apiKey?: unknown } }
+      expect(props.organization?.apiKey).toBe(false)
+    }
   })
 })

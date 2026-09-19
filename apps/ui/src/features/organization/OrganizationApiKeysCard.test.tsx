@@ -404,4 +404,61 @@ describe("OrganizationApiKeysCard", () => {
       fetchOptions: { throw: true },
     })
   })
+
+  it("never uses the personal configId (\"default\") for any operation", async () => {
+    // Regression: the org card must not mint/list/revoke personal keys
+    // even if the surrounding provider config regresses. See the header comment
+    // on OrganizationApiKeysCard for why we bypass better-auth-ui's ApiKeysCard.
+    act(() => {
+      root.render(<OrganizationApiKeysCard organizationId="org_acme" />)
+    })
+    expect(listMock).toHaveBeenCalled()
+    for (const call of listMock.mock.calls) {
+      expect(call[0]).not.toMatchObject({ query: { configId: "default" } })
+    }
+
+    act(() => {
+      ;[...container.querySelectorAll("button")]
+        .find((button) => button.textContent?.includes("Create API key"))
+        ?.click()
+    })
+    const nameInput = container.querySelector(
+      'input[aria-label="Name"]',
+    ) as HTMLInputElement
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set
+      setter?.call(nameInput, "leak-test")
+      nameInput.dispatchEvent(new Event("input", { bubbles: true }))
+      nameInput.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    const submit = [...container.querySelectorAll("button")].find(
+      (button) => button.getAttribute("type") === "submit",
+    )
+    await act(async () => {
+      submit?.click()
+      await Promise.resolve()
+    })
+
+    for (const call of createMock.mock.calls) {
+      expect(call[0]).not.toMatchObject({ configId: "default" })
+    }
+
+    act(() => {
+      ;[...container.querySelectorAll("button")]
+        .find((button) => button.textContent?.includes("Revoke"))
+        ?.click()
+    })
+    await act(async () => {
+      ;[...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Revoke key")
+        ?.click()
+      await Promise.resolve()
+    })
+    for (const call of deleteMock.mock.calls) {
+      expect(call[0]).not.toMatchObject({ configId: "default" })
+    }
+  })
 })

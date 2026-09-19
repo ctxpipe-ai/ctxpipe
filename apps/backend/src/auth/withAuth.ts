@@ -279,6 +279,84 @@ export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
  * Mount only on `/mcp` — REST already 401s with no user session, and verifying
  * here would count against the org key's rate limit.
  */
+type BearerApiKeyAuthResult =
+  | { kind: "user"; user: AuthUser; session: AuthSession }
+  | {
+      kind: "org"
+      orgApiKey: NonNullable<AppEnv["Variables"]["orgApiKey"]>
+    }
+  | { kind: "invalid" }
+
+/**
+ * Personal or org API key presented as `Authorization: Bearer <key>` (MCP
+ * hosts that cannot set `x-api-key`, e.g. CodeRabbit). Tries user session first
+ * (`enableSessionForAPIKeys`), then org-owned verify.
+ */
+async function resolveBearerApiKeyAuth(
+  apiKey: string,
+): Promise<BearerApiKeyAuthResult> {
+  const auth = getAuth()
+  const apiKeyHeaders = new Headers({ "x-api-key": apiKey })
+
+  try {
+    const authSession = await auth.api.getSession({ headers: apiKeyHeaders })
+    if (authSession?.user && authSession?.session) {
+      return {
+        kind: "user",
+        user: authSession.user,
+        session: authSession.session,
+      }
+    }
+  } catch {
+    // Org keys cannot mock a user session; fall through to verifyApiKey.
+  }
+
+  const verified = await auth.api
+    .verifyApiKey({ body: { key: apiKey } })
+    .catch((err: unknown) => {
+      getLogger().error(
+        err instanceof Error ? err : new Error(String(err), { cause: err }),
+        { reason: "org_api_key_verify" },
+      )
+      return {
+        valid: false as const,
+        error: {
+          message: "The API key could not be validated",
+          code: "INVALID_API_KEY",
+        },
+        key: null,
+      }
+    })
+
+  if (!verified?.valid || !verified.key) {
+    return { kind: "invalid" }
+  }
+
+  if (verified.key.configId !== "organization") {
+    return { kind: "invalid" }
+  }
+
+  const orgId = verified.key.referenceId
+  if (!orgId) {
+    return { kind: "invalid" }
+  }
+
+  return {
+    kind: "org",
+    orgApiKey: {
+      id: verified.key.id,
+      orgId,
+      configId: verified.key.configId,
+    },
+  }
+}
+
+/**
+ * Verify an org-owned `x-api-key` without fabricating a user session.
+ * User keys still authenticate via {@link withCookieAuth} (`getSession`).
+ * Mount only on `/mcp` — REST already 401s with no user session, and verifying
+ * here would count against the org key's rate limit.
+ */
 export const withOrgApiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (c.get("user") || c.get("session")) return next()
   const apiKey = c.req.header("x-api-key")?.trim()
@@ -344,7 +422,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   // sends the RFC 8707 `resource` parameter (`index.mjs:411`). MCP clients like
   // CodeRabbit omit it, so we get an opaque random string instead. JWTs have
   // three `.`-separated base64url segments; anything else we treat as opaque
-  // and validate via the `oauth_access_tokens` table.
+  // OAuth first, then as a personal/org API key (Bearer-only hosts).
   if (accessToken.split(".").length !== 3) {
     const resolved = await resolveOpaqueAccessToken(accessToken)
     if (resolved) {
@@ -353,6 +431,24 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       c.set("oauthOrganizationId", resolved.oauthOrganizationId)
       return next()
     }
+
+    // Already authenticated via cookie / x-api-key — do not 401 on a
+    // non-OAuth Bearer that is not a valid API key either.
+    if (c.get("user") || c.get("session") || c.get("orgApiKey")) {
+      return next()
+    }
+
+    const apiKeyAuth = await resolveBearerApiKeyAuth(accessToken)
+    if (apiKeyAuth.kind === "user") {
+      c.set("user", apiKeyAuth.user)
+      c.set("session", apiKeyAuth.session)
+      return next()
+    }
+    if (apiKeyAuth.kind === "org") {
+      c.set("orgApiKey", apiKeyAuth.orgApiKey)
+      return next()
+    }
+
     logBearerAuthFailure(new Error("Opaque access token not recognized"))
     return c.json(
       { error: "Unauthorized" },
