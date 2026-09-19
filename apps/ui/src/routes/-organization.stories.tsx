@@ -32,6 +32,19 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+export const Settings: Story = {
+  args: {
+    organizationView: "settings",
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [organizationListWithOrgHandler, organizationFullWithOrgHandler],
+      },
+    },
+  },
+}
+
 export const ApiKeysEmpty: Story = {
   parameters: {
     msw: {
