@@ -5,11 +5,11 @@ import type { AppEnv } from "../../../app/env.js"
 import type { Env } from "../../../config/env.js"
 import {
   getLinearBindingByConnectionId,
-  listLinearConnectionsByWorkspaceId,
+  listLinearWebhookConnectionsByWorkspaceId,
   recordLinearOAuthRevocation,
-  type LinearConnection,
+  type LinearWebhookConnection,
 } from "../../../models/linear-connector.js"
-import { getLinearWebhookSecret } from "../../../models/linear-oauth-app.js"
+import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { linearSyncEntity } from "../../../openworkflow/workflows/linear-sync-entity.js"
 
@@ -171,27 +171,26 @@ function verifyLinearWebhookSignature(
 }
 
 function bindLinearWebhookConnections(input: {
-  connections: LinearConnection[]
+  connections: LinearWebhookConnection[]
   env: Env
   rawBody: Buffer
   signature: string
   signedTimestamp: string | number
 }):
-  | { status: "verified"; payload: Record<string, unknown>; connections: LinearConnection[] }
+  | {
+      status: "verified"
+      payload: Record<string, unknown>
+      connections: LinearWebhookConnection[]
+    }
   | { status: "unauthorized" } {
   const envSecret = input.env.LINEAR_WEBHOOK_SECRET
-  const matched: LinearConnection[] = []
+  const matched: LinearWebhookConnection[] = []
   let payload: Record<string, unknown> | undefined
 
   for (const connection of input.connections) {
-    if (!connection.webhookSecretEnc) continue
-    const rowSecret = getLinearWebhookSecret(connection, {
-      ...input.env,
-      LINEAR_WEBHOOK_SECRET: undefined,
-    })
-    if (!rowSecret) continue
+    if (!connection.webhookSecret) continue
     const verified = verifyLinearWebhookSignature(
-      rowSecret,
+      connection.webhookSecret,
       input.rawBody,
       input.signature,
       input.signedTimestamp,
@@ -227,7 +226,7 @@ function bindLinearWebhookConnections(input: {
 async function processVerifiedLinearWebhook(input: {
   env: Env
   payload: Record<string, unknown>
-  connections: LinearConnection[]
+  connections: LinearWebhookConnection[]
 }): Promise<void> {
   if (
     stringField(input.payload, "type") === "OAuthApp" &&
@@ -294,15 +293,15 @@ export function registerLinearWebhookRoute(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Missing Linear workspace identifier" }, 400)
     }
 
-    const connections = await listLinearConnectionsByWorkspaceId(
+    const connections = await listLinearWebhookConnectionsByWorkspaceId(
       workspaceId,
       env,
     )
     const hasRowSecret = connections.some((connection) =>
-      Boolean(connection.webhookSecretEnc),
+      Boolean(connection.webhookSecret),
     )
     if (!env.LINEAR_WEBHOOK_SECRET && !hasRowSecret) {
-      c.get("log").error(new Error("LINEAR_WEBHOOK_SECRET is not configured"))
+      getLogger().error(new Error("LINEAR_WEBHOOK_SECRET is not configured"))
       return c.json({ error: "Linear webhook is not configured" }, 503)
     }
 
@@ -314,7 +313,7 @@ export function registerLinearWebhookRoute(app: OpenAPIHono<AppEnv>) {
       signedTimestamp,
     })
     if (bound.status === "unauthorized") {
-      c.get("log").warn("linear_webhook_verification_failed")
+      getLogger().warn("linear_webhook_verification_failed")
       return c.json({ error: "Invalid Linear webhook" }, 401)
     }
 

@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { linearOauthAppSavedInConfig } from "../../lib/connection-config.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import { getRepositoryForOrg } from "../../models/repositories.js"
 import {
@@ -101,21 +102,6 @@ const LinearPatchConfigRequestSchema = z
     { message: "Provide scopes or syncTarget" },
   )
 
-const LINEAR_CREATE_APP_URL =
-  "https://linear.app/settings/api/applications/new"
-
-function linearPublicApiOrigin(env: { AUTH_BASE_URL: string }): string {
-  return env.AUTH_BASE_URL.replace(/\/$/, "")
-}
-
-function linearOauthCallbackUrl(env: { AUTH_BASE_URL: string }): string {
-  return `${linearPublicApiOrigin(env)}/api/v1/integrations/linear/callback`
-}
-
-function linearWebhookUrl(env: { AUTH_BASE_URL: string }): string {
-  return `${linearPublicApiOrigin(env)}/api/v1/webhook/linear`
-}
-
 const LinearOauthAppGetResponseSchema = z
   .object({
     linearOauthConfigured: z.boolean(),
@@ -151,6 +137,10 @@ const postDraftRoute = createRoute({
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Ambiguous Linear draft connection",
     },
   },
 })
@@ -651,7 +641,10 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
       env: c.var.env,
       ownerUserId: user.id,
     })
-    return c.json({ connectionId: draft.id }, 200)
+    if (draft.status === "ambiguous") {
+      return c.json({ error: MULTIPLE_LINEAR_CONNECTIONS_MESSAGE }, 400)
+    }
+    return c.json({ connectionId: draft.connection.id }, 200)
   })
   .openapi(getOauthAppRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
@@ -679,17 +672,22 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
       }
       connection = resolved.connection
     }
-    const rowCreds = getLinearOauthAppCreds(connection, env)
-    const oauthAppSaved = Boolean(
-      connection?.oauthClientId && connection.oauthClientSecretEnc,
-    )
+    const resolvedCreds = getLinearOauthAppCreds(connection, env)
+    const oauthAppSaved = connection
+      ? linearOauthAppSavedInConfig({
+          oauthClientId: connection.oauthClientId ?? undefined,
+          oauthClientSecretEnc: connection.oauthClientSecretEnc ?? undefined,
+          webhookSecretEnc: connection.webhookSecretEnc ?? undefined,
+        })
+      : false
+    const publicOrigin = env.AUTH_BASE_URL.replace(/\/$/, "")
     return c.json(
       {
-        linearOauthConfigured: Boolean(rowCreds),
+        linearOauthConfigured: Boolean(resolvedCreds),
         globalLinearOauthConfigured: globalConfigured,
-        oauthCallbackUrl: linearOauthCallbackUrl(env),
-        linearWebhookUrl: linearWebhookUrl(env),
-        linearCreateUrl: LINEAR_CREATE_APP_URL,
+        oauthCallbackUrl: `${publicOrigin}/api/v1/integrations/linear/callback`,
+        linearWebhookUrl: `${publicOrigin}/api/v1/webhook/linear`,
+        linearCreateUrl: "https://linear.app/settings/api/applications/new",
         oauthAppSaved,
         oauthClientId: connection?.oauthClientId ?? null,
       },

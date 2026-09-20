@@ -9,11 +9,13 @@ import {
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import {
+  encodeLinearOauthAppSecretsForDb,
   type LinearSetupPhase,
+  linearOauthAppSavedInConfig,
   parseLinearConnectionStored,
   serialiseLinearConnectionConfigForDb,
+  decodeLinearWebhookSecret,
 } from "../lib/connection-config.js"
-import { encryptConnectionSecret } from "../lib/connection-secrets.js"
 import { generateObjectId } from "../lib/id.js"
 import {
   type ConnectionRow,
@@ -234,35 +236,15 @@ export async function resolveLinearConnectionForOrgDetailed(
   return { status: "ambiguous" }
 }
 
-function emptyLinearDraftShape(ownerUserId: string) {
-  return {
-    accessToken: null,
-    refreshToken: null,
-    accessTokenExpiresAt: null,
-    workspaceId: null,
-    workspaceName: null,
-    workspaceUrlKey: null,
-    actorUserId: null,
-    ownerUserId,
-    oauthClientId: null,
-    oauthClientSecretEnc: null,
-    webhookSecretEnc: null,
-    status: "pending",
-    lastEventPayload: null,
-    repositoryId: null,
-    branch: null,
-    enabled: true,
-    setupPhase: "draft" as const,
-    pendingConfigPullUrl: null,
-    pendingConfigPrCreating: false,
-  }
-}
+export type UpsertLinearDraftResult =
+  | { status: "ok"; connection: LinearConnection }
+  | { status: "ambiguous" }
 
 export async function upsertLinearDraftConnection(input: {
   orgId: string
   env: Env
   ownerUserId: string
-}): Promise<LinearConnection> {
+}): Promise<UpsertLinearDraftResult> {
   const db = getOrgDb()
   return db.transaction(async (tx) => {
     const rows = await tx
@@ -275,13 +257,20 @@ export async function upsertLinearDraftConnection(input: {
         ),
       )
       .orderBy(desc(connections.updatedAt))
-    const draft = rows.find((row) => {
+    const drafts = rows.filter((row) => {
       const stored = parseLinearConnectionStored(
         row.config as Record<string, unknown>,
       )
       return !stored.workspaceId
     })
-    if (draft) return linearConnectionToShape(draft, input.env)
+    if (drafts.length > 1) return { status: "ambiguous" }
+    const draft = drafts[0]
+    if (draft) {
+      return {
+        status: "ok",
+        connection: linearConnectionToShape(draft, input.env),
+      }
+    }
 
     const [row] = await tx
       .insert(connections)
@@ -290,13 +279,36 @@ export async function upsertLinearDraftConnection(input: {
         orgId: input.orgId,
         type: CONNECTION_TYPE_LINEAR,
         config: linearShapeToConfig(
-          emptyLinearDraftShape(input.ownerUserId),
+          {
+            accessToken: null,
+            refreshToken: null,
+            accessTokenExpiresAt: null,
+            workspaceId: null,
+            workspaceName: null,
+            workspaceUrlKey: null,
+            actorUserId: null,
+            ownerUserId: input.ownerUserId,
+            oauthClientId: null,
+            oauthClientSecretEnc: null,
+            webhookSecretEnc: null,
+            status: "pending",
+            lastEventPayload: null,
+            repositoryId: null,
+            branch: null,
+            enabled: true,
+            setupPhase: "draft",
+            pendingConfigPullUrl: null,
+            pendingConfigPrCreating: false,
+          },
           input.env,
         ),
       })
       .returning()
     if (!row) throw new Error("Failed to create Linear draft connection")
-    return linearConnectionToShape(row, input.env)
+    return {
+      status: "ok",
+      connection: linearConnectionToShape(row, input.env),
+    }
   })
 }
 
@@ -328,23 +340,31 @@ export async function saveLinearOauthAppOnConnection(input: {
     const current = linearConnectionToShape(row, input.env)
     const newSecret = input.clientSecret?.trim() ?? ""
     const newWebhook = input.webhookSecret?.trim() ?? ""
-    const hasSaved = Boolean(
-      current.oauthClientId && current.oauthClientSecretEnc,
-    )
+    const hasSaved = linearOauthAppSavedInConfig({
+      oauthClientId: current.oauthClientId ?? undefined,
+      oauthClientSecretEnc: current.oauthClientSecretEnc ?? undefined,
+      webhookSecretEnc: current.webhookSecretEnc ?? undefined,
+    })
     if (!hasSaved && (!newSecret || !newWebhook)) return "secret_required"
+    const encoded = encodeLinearOauthAppSecretsForDb(
+      {
+        oauthClientId: input.clientId,
+        ...(newSecret ? { oauthClientSecret: newSecret } : {}),
+        ...(newWebhook ? { webhookSecret: newWebhook } : {}),
+      },
+      input.env,
+    )
     const [updated] = await tx
       .update(connections)
       .set({
         config: linearShapeToConfig(
           {
             ...current,
-            oauthClientId: input.clientId.trim(),
-            oauthClientSecretEnc: newSecret
-              ? encryptConnectionSecret(newSecret, input.env)
-              : current.oauthClientSecretEnc,
-            webhookSecretEnc: newWebhook
-              ? encryptConnectionSecret(newWebhook, input.env)
-              : current.webhookSecretEnc,
+            oauthClientId: encoded.oauthClientId,
+            oauthClientSecretEnc:
+              encoded.oauthClientSecretEnc ?? current.oauthClientSecretEnc,
+            webhookSecretEnc:
+              encoded.webhookSecretEnc ?? current.webhookSecretEnc,
           },
           input.env,
         ),
@@ -571,10 +591,18 @@ export async function refreshLinearConnectionTokensWithLock(input: {
   })
 }
 
-export async function listLinearConnectionsByWorkspaceId(
+/** Webhook bind row: no user-token decrypt. */
+export type LinearWebhookConnection = {
+  id: string
+  orgId: string
+  status: string
+  webhookSecret: string | undefined
+}
+
+export async function listLinearWebhookConnectionsByWorkspaceId(
   workspaceId: string,
   env: Env,
-): Promise<LinearConnection[]> {
+): Promise<LinearWebhookConnection[]> {
   const db = getSystemDb()
   const rows = await db
     .select()
@@ -585,7 +613,23 @@ export async function listLinearConnectionsByWorkspaceId(
         eq(sql<string>`${connections.config}->>'workspaceId'`, workspaceId),
       ),
     )
-  return rows.map((row) => linearConnectionToShape(row, env))
+  return rows.map((row) => {
+    const config = parseLinearConnectionStored(
+      row.config as Record<string, unknown>,
+    )
+    let webhookSecret: string | undefined
+    try {
+      webhookSecret = decodeLinearWebhookSecret(config, env)
+    } catch {
+      webhookSecret = undefined
+    }
+    return {
+      id: row.id,
+      orgId: row.orgId,
+      status: config.status,
+      webhookSecret,
+    }
+  })
 }
 
 export async function recordLinearOAuthRevocation(input: {

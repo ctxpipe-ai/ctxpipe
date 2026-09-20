@@ -197,7 +197,7 @@ export function encodeLinearTokensForDb(
 
 export type LinearOauthAppSecretsWrite = {
   oauthClientId: string
-  oauthClientSecret: string
+  oauthClientSecret?: string
   webhookSecret?: string
 }
 
@@ -210,10 +210,14 @@ export function encodeLinearOauthAppSecretsForDb(
 > {
   return {
     oauthClientId: input.oauthClientId.trim(),
-    oauthClientSecretEnc: encryptConnectionSecret(
-      input.oauthClientSecret.trim(),
-      env,
-    ),
+    ...(input.oauthClientSecret
+      ? {
+          oauthClientSecretEnc: encryptConnectionSecret(
+            input.oauthClientSecret.trim(),
+            env,
+          ),
+        }
+      : {}),
     ...(input.webhookSecret
       ? {
           webhookSecretEnc: encryptConnectionSecret(
@@ -242,9 +246,16 @@ export function decodeLinearWebhookSecret(
 }
 
 export function linearOauthAppSavedInConfig(
-  stored: LinearConnectionConfigStored,
+  stored: Pick<
+    LinearConnectionConfigStored,
+    "oauthClientId" | "oauthClientSecretEnc" | "webhookSecretEnc"
+  >,
 ): boolean {
-  return Boolean(stored.oauthClientId && stored.oauthClientSecretEnc)
+  return Boolean(
+    stored.oauthClientId &&
+      stored.oauthClientSecretEnc &&
+      stored.webhookSecretEnc,
+  )
 }
 
 export function decodeLinearTokens(

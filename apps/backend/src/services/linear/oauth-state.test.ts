@@ -46,6 +46,18 @@ describe("Linear OAuth state", () => {
     })
   })
 
+  it("rejects state signed for a different organisation", () => {
+    const state = createLinearOAuthState(input)
+    expect(
+      verifyLinearOAuthState({
+        authSecret: input.authSecret,
+        state,
+        now: input.now + 1,
+        orgId: "org_other",
+      }),
+    ).toBeUndefined()
+  })
+
   it("rejects tampered and expired state", () => {
     const state = createLinearOAuthState(input)
     const [payload, signature] = state.split(".")

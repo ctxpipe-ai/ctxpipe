@@ -134,7 +134,10 @@ beforeEach(() => {
     actorUserId: "linear-user_1",
   })
   mocks.upsertConnection.mockResolvedValue({ id: "con_linear" })
-  extraMocks.upsertDraft.mockResolvedValue({ id: "con_linear_draft" })
+  extraMocks.upsertDraft.mockResolvedValue({
+    status: "ok",
+    connection: { id: "con_linear_draft" },
+  })
   extraMocks.saveOauthApp.mockResolvedValue("ok")
   mocks.resolveConnection.mockResolvedValue({
     status: "ok",
@@ -177,6 +180,19 @@ describe("Linear connector routes", () => {
     const authorizationUrl = new URL(body.authorizationUrl)
     expect(authorizationUrl.searchParams.get("scope")).toBe("read")
     expect(authorizationUrl.searchParams.get("state")).toBeTruthy()
+  })
+
+  it("rejects draft creation when two empty-workspace drafts exist", async () => {
+    extraMocks.upsertDraft.mockResolvedValueOnce({ status: "ambiguous" })
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/linear",
+      linearConnectorRoutes,
+    )
+    const response = await app.request("/acme/api/v1/connectors/linear/draft", {
+      method: "POST",
+    })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: "multiple" })
   })
 
   it("creates a Linear draft connection", async () => {
@@ -227,6 +243,27 @@ describe("Linear connector routes", () => {
     expect(body).not.toHaveProperty("oauthClientSecretEnc")
     expect(body).not.toHaveProperty("webhookSecret")
     expect(body).not.toHaveProperty("webhookSecretEnc")
+  })
+
+  it("does not treat a row without a webhook secret as a saved app", async () => {
+    mocks.resolveConnection.mockResolvedValueOnce({
+      status: "ok",
+      connection: {
+        id: "con_linear",
+        status: "pending",
+        oauthClientId: "lin_client",
+        oauthClientSecretEnc: "ctxv1:cipher",
+      },
+    })
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/linear",
+      linearConnectorRoutes,
+    )
+    const response = await app.request(
+      "/acme/api/v1/connectors/linear/oauth-app?connectionId=con_linear",
+    )
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ oauthAppSaved: false })
   })
 
   it("keeps the existing oauth-app secrets when PUT omits them", async () => {

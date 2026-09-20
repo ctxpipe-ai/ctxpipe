@@ -87,6 +87,7 @@ export function linearConnectionIsInstalled(
     "status" | "accessToken" | "workspaceId"
   >,
 ): boolean {
+  // Revoked rows keep workspace + token; status keeps them out of installed.
   return (
     connection.status === "installed" &&
     Boolean(connection.accessToken) &&

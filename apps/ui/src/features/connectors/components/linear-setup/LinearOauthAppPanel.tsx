@@ -4,6 +4,7 @@ import { IconCheck, IconCopy } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { Button } from "@/components/ui/Button"
+import { InlineAlert } from "@/components/ui/InlineAlert"
 import { TextField } from "@/components/ui/TextField"
 import { displayOAuthCallbackUrl } from "../../lib/display-oauth-callback-url"
 import {
@@ -198,7 +199,9 @@ export function LinearOauthAppPanel({
         {saved ? "Update OAuth app" : "Save OAuth app"}
       </Button>
       {save.error ? (
-        <p className="text-sm text-destructive">{save.error.message}</p>
+        <InlineAlert variant="error" title="Could not save OAuth app">
+          {save.error.message} Try again, or check the client ID and secrets.
+        </InlineAlert>
       ) : null}
     </div>
   )

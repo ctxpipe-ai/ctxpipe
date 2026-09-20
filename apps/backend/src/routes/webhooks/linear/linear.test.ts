@@ -3,7 +3,6 @@ import { OpenAPIHono } from "@hono/zod-openapi"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
-import { encryptConnectionSecret } from "../../../lib/connection-secrets.js"
 import {
   linearEntityTargetForPayload,
   registerLinearWebhookRoute,
@@ -18,8 +17,15 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../../models/linear-connector.js", () => ({
   getLinearBindingByConnectionId: mocks.getSyncTarget,
-  listLinearConnectionsByWorkspaceId: mocks.listConnections,
+  listLinearWebhookConnectionsByWorkspaceId: mocks.listConnections,
   recordLinearOAuthRevocation: mocks.recordRevocation,
+}))
+vi.mock("../../../observability/logger.js", () => ({
+  getLogger: () => ({
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+  }),
 }))
 vi.mock("../../../openworkflow/client.js", () => ({
   runWorkflowWithWorkerWake: mocks.runWorkflow,
@@ -305,13 +311,13 @@ describe("POST /api/v1/webhook/linear", () => {
         id: "con_a",
         orgId: "org_1",
         status: "installed",
-        webhookSecretEnc: encryptConnectionSecret(rowSecretA, env),
+        webhookSecret: rowSecretA,
       },
       {
         id: "con_b",
         orgId: "org_2",
         status: "installed",
-        webhookSecretEnc: encryptConnectionSecret(rowSecretB, env),
+        webhookSecret: rowSecretB,
       },
     ])
     const webhookTimestamp = Date.now()

@@ -5,6 +5,7 @@ import {
   getLinearStatusRefetchInterval,
   getLinearWizardBodyId,
   LINEAR_SETUP_STEPS,
+  SELF_HOSTED_LINEAR_SETUP_STEPS,
 } from "./linear-setup-model"
 import type { LinearConnectorStatus } from "./queries/linear-connector"
 
@@ -187,11 +188,15 @@ describe("Linear setup model", () => {
       oauthAppSaved: false,
     }
     expect(getLinearWizardBodyId(draft, selfHostUnsaved)).toBe("register")
+    expect(getLinearSetupCurrentIndex(draft, selfHostUnsaved)).toBe(0)
     expect(getLinearCardPrimaryCta(draft, selfHostUnsaved)).toEqual({
       kind: "open_wizard",
       label: "Register OAuth app",
     })
     expect(getLinearWizardBodyId(draft, selfHostSaved)).toBe("connect")
+    expect(getLinearSetupCurrentIndex(draft, selfHostSaved)).toBe(
+      SELF_HOSTED_LINEAR_SETUP_STEPS.findIndex((step) => step.id === "connect"),
+    )
     expect(getLinearWizardBodyId(draft, hosted)).toBe("connect")
     expect(getLinearWizardBodyId(draft)).toBe("connect")
   })
