@@ -12,7 +12,7 @@ export function notionOauthAppHandler(input: {
   const oauthAppSaved = input.oauthAppSaved ?? false
   const globalNotionOAuthConfigured = input.globalNotionOAuthConfigured ?? false
   const webhookConfigured =
-    input.webhookConfigured ?? oauthAppSaved || globalNotionOAuthConfigured
+    input.webhookConfigured ?? (oauthAppSaved || globalNotionOAuthConfigured)
   return http.get(
     ({ request }) => {
       const u = new URL(request.url)
