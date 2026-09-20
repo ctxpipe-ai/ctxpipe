@@ -122,12 +122,55 @@ export const RegisterNotionOauth: Story = {
       handlers: {
         page: [
           notionStatus(draftStatus),
-          notionOauthAppHandler({
-            oauthAppSaved: false,
-            globalNotionOAuthConfigured: false,
-          }),
-          notionOauthAppPut,
-        ],
+          (() => {
+            let saved = false
+            let clientId: string | null = null
+            return [
+              http.get(
+                ({ request }) => {
+                  const u = new URL(request.url)
+                  return (
+                    u.pathname ===
+                      `/${orgSlug}/api/v1/connectors/notion/oauth-app` &&
+                    u.searchParams.get("connectionId") === connectionId
+                  )
+                },
+                ({ request }) => {
+                  const origin = new URL(request.url).origin
+                  return HttpResponse.json({
+                    oauthConfigured: saved,
+                    oauthAppSaved: saved,
+                    oauthClientId: clientId,
+                    webhookConfigured: saved,
+                    globalNotionOAuthConfigured: false,
+                    callbackUrl: `${origin}/api/v1/connectors/notion/oauth/callback`,
+                    webhookUrl: saved
+                      ? `${origin}/api/v1/webhook/notion?connectionId=${connectionId}&provisioningToken=story`
+                      : `${origin}/api/v1/webhook/notion`,
+                  })
+                },
+              ),
+              http.put(
+                ({ request }) => {
+                  const u = new URL(request.url)
+                  return (
+                    u.pathname ===
+                      `/${orgSlug}/api/v1/connectors/notion/oauth-app` &&
+                    u.searchParams.get("connectionId") === connectionId
+                  )
+                },
+                async ({ request }) => {
+                  const body = (await request.json()) as {
+                    clientId?: string
+                  }
+                  saved = true
+                  clientId = body.clientId ?? "notion-client-id"
+                  return new HttpResponse(null, { status: 204 })
+                },
+              ),
+            ]
+          })(),
+        ].flat(),
       },
     },
   },
