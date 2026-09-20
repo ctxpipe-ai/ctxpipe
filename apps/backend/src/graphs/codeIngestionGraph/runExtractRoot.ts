@@ -1,3 +1,4 @@
+import { isUnresolvedProviderIdentity } from "../../domain/codeIngestion/referenceResolver.js"
 import { CONNECTOR_EXTRACTORS } from "./nodes/connectorExtractors.js"
 import { extractCodeowners } from "./nodes/extractCodeowners.js"
 import { extractDecisions } from "./nodes/extractDecisions.js"
@@ -129,13 +130,21 @@ export async function finalizeExtractedReferences(input: {
   extractedObjects: ExtractedObject[]
   extractedClaims: ExtractedClaim[]
 }> {
+  const extractedObjects = input.extractedObjects.filter(
+    (object) => !isUnresolvedProviderIdentity(object.deduplicationKey),
+  )
+  const extractedClaims = input.extractedClaims.filter(
+    (claim) =>
+      !isUnresolvedProviderIdentity(claim.subjectRef) &&
+      !isUnresolvedProviderIdentity(claim.objectRef),
+  )
   const { claims, stubs } = await resolveReferenceClaims({
     orgId: input.orgId,
-    objects: input.extractedObjects,
-    claims: input.extractedClaims,
+    objects: extractedObjects,
+    claims: extractedClaims,
   })
   return {
-    extractedObjects: [...input.extractedObjects, ...stubs],
+    extractedObjects: [...extractedObjects, ...stubs],
     extractedClaims: claims,
   }
 }

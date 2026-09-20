@@ -4,7 +4,10 @@ import { parseEnv } from "../../config/env.js"
 import { getGithubPrMirrorBinding } from "../../models/github-pr-mirror.js"
 import { getLogger } from "../../observability/logger.js"
 import { loadGithubPrMirrorConfigFromRepo } from "../../services/github/pull-request-mirror/config-from-repo.js"
-import { shouldMirrorGithubPullRequest } from "../../services/github/pull-request-mirror/policy.js"
+import {
+  isGithubPullRequestRepositoryInScope,
+  shouldMirrorGithubPullRequest,
+} from "../../services/github/pull-request-mirror/policy.js"
 import { syncGithubPullRequestToGit } from "../../services/github/pull-request-mirror/sync.js"
 import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 
@@ -60,6 +63,15 @@ export const githubSyncPullRequest = defineWorkflow(
       },
     )
     if (!context) return { written: false }
+
+    if (
+      !isGithubPullRequestRepositoryInScope({
+        config: context.config,
+        repository: input.sourceRepository,
+      })
+    ) {
+      return { written: false, skipped: "policy" as const }
+    }
 
     if (
       input.candidate &&

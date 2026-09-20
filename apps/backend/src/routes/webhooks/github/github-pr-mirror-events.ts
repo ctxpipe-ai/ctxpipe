@@ -1,8 +1,7 @@
 import { z } from "zod"
-import { withOrgDbContext } from "../../../db/client.js"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
 import { getGithubPrMirrorBinding } from "../../../models/github-pr-mirror.js"
-import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
+import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import {
   type GithubSyncPullRequestCandidate,
@@ -45,8 +44,6 @@ const issueCommentPayloadSchema = z.object({
   installation: z.object({ id: z.number() }),
 })
 
-type GithubWebhookLog = { error: (error: Error) => void }
-
 /** Facts the webhook payload already carries; lets the workflow apply scope policy before any API call. */
 export function candidateFromPullRequestPayload(
   pull: z.infer<typeof pullRequestPayloadSchema>["pull_request"],
@@ -73,7 +70,6 @@ async function enqueueMirror(input: {
   number: number
   candidate?: GithubSyncPullRequestCandidate
   version: string | undefined
-  log: GithubWebhookLog
 }): Promise<void> {
   const installations = (
     await listInstallationsByGithubInstallationId(input.installationId)
@@ -82,14 +78,6 @@ async function enqueueMirror(input: {
       !input.githubConnectionId || installation.id === input.githubConnectionId,
   )
   for (const installation of installations) {
-    const sourceRepo = await withOrgDbContext(installation.orgId, () =>
-      findRepositoryByGithubInstallation(
-        installation.orgId,
-        input.sourceRepository,
-        installation.id,
-      ),
-    )
-    if (!sourceRepo) continue
     const binding = await getGithubPrMirrorBinding(
       installation.orgId,
       installation.id,
@@ -121,7 +109,10 @@ async function enqueueMirror(input: {
         },
       )
     } catch (error) {
-      input.log.error(error instanceof Error ? error : new Error(String(error)))
+      getLogger().error(
+        error instanceof Error ? error : new Error(String(error)),
+        { step: "github.pr-mirror.enqueue" },
+      )
     }
   }
 }
@@ -130,7 +121,6 @@ export async function maybeEnqueueGithubPrMirror(input: {
   eventName: string
   payload: unknown
   githubConnectionId?: string
-  log: GithubWebhookLog
 }): Promise<void> {
   if (
     input.eventName === "pull_request" ||
@@ -148,7 +138,6 @@ export async function maybeEnqueueGithubPrMirror(input: {
       number,
       candidate: candidateFromPullRequestPayload(parsed.data.pull_request),
       version: parsed.data.pull_request?.updated_at,
-      log: input.log,
     })
     return
   }
@@ -163,7 +152,6 @@ export async function maybeEnqueueGithubPrMirror(input: {
       number: parsed.data.issue.number,
       version:
         parsed.data.comment?.updated_at ?? parsed.data.comment?.created_at,
-      log: input.log,
     })
   }
 }

@@ -132,14 +132,11 @@ describe("syncGithubPullRequestsForConfig", () => {
         return Array.from({ length: count }, (_, i) => i + 1)
       },
     )
-    const log = { error: vi.fn() }
-
     const result = await syncGithubPullRequestsForConfig({
       orgId: "org_1",
       env: {} as never,
       binding,
       config,
-      log,
     })
 
     expect(result).toEqual({
@@ -152,7 +149,6 @@ describe("syncGithubPullRequestsForConfig", () => {
     )
     expect(mocks.commitFiles.mock.calls[1]?.[0].files).toHaveLength(5)
     expect(mocks.commitFiles.mock.calls[0]?.[0].message).toContain("acme/api")
-    expect(log.error).toHaveBeenCalledTimes(1)
   })
 
   it("skips pull requests the scope policy excludes without committing", async () => {
@@ -169,7 +165,6 @@ describe("syncGithubPullRequestsForConfig", () => {
       env: {} as never,
       binding,
       config: { ...config, repositories: ["acme/api"] },
-      log: { error: vi.fn() },
     })
     expect(result.written).toBe(1)
     expect(mocks.commitFiles).toHaveBeenCalledTimes(1)
@@ -183,7 +178,6 @@ describe("syncGithubPullRequestsForConfig", () => {
         env: {} as never,
         binding,
         config,
-        log: { error: vi.fn() },
       }),
     ).rejects.toThrow(/every repository/)
   })

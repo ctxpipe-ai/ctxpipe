@@ -1,3 +1,5 @@
+import { isConnectorMirrorPath } from "./connectorMirrorPaths.js"
+
 /**
  * Reference resolver (ADR-033): the one place that turns provider URLs,
  * identifiers and repo paths into graph deduplication keys. Every extractor
@@ -45,6 +47,30 @@ export function pullRequestDedupKey(input: {
 }): string {
   const scope = input.sourceRepositoryId ?? `github:${input.repository}`
   return `prq:${scope}:${input.number}`
+}
+
+/** Unconnected GitHub identities — dropped in `finalizeExtractedReferences`. */
+export function isUnresolvedProviderIdentity(key: string): boolean {
+  return key.startsWith("prq:github:") || key.startsWith("fil:github:")
+}
+
+export function fileDedupKey(scope: string, path: string): string {
+  return `fil:${scope}:${path}`
+}
+
+/**
+ * Repo-relative path used as File identity. Rejects HTTP routes, `..`,
+ * and connector warehouse prefixes so PR extract and source extract join.
+ */
+export function asLocatedPath(value: unknown): string | null {
+  if (typeof value !== "string") return null
+  let path = value.replace(/\\/g, "/").trim()
+  while (path.startsWith("./")) path = path.slice(2)
+  if (path.length === 0 || path === ".") return null
+  if (path.startsWith("/") || path.startsWith("../")) return null
+  if (path.split("/").includes("..")) return null
+  if (isConnectorMirrorPath(path)) return null
+  return path
 }
 
 const LINEAR_IDENTIFIER = /^([A-Z][A-Z0-9]{0,9})-(\d+)$/

@@ -1,9 +1,12 @@
 import { and, eq, inArray, or, sql } from "drizzle-orm"
 import { getOrgDb } from "../../../db/client.js"
 import { objects } from "../../../db/schema/objects.js"
-import { isConnectorMirrorPath } from "../../../domain/codeIngestion/connectorMirrorPaths.js"
 import { buildEvidenceSourceId } from "../../../domain/codeIngestion/evidenceSourceId.js"
-import { parseGithubPullRequestUrl } from "../../../domain/codeIngestion/referenceResolver.js"
+import {
+  asLocatedPath,
+  fileDedupKey,
+  parseGithubPullRequestUrl,
+} from "../../../domain/codeIngestion/referenceResolver.js"
 import { getLogger, log } from "../../../observability/logger.js"
 import {
   type ExtractedClaim,
@@ -42,24 +45,7 @@ export const CROSS_REFERENCE_PREDICATES = new Set<string>([
 const LINEAR_TEAM_KEY_PREFIX = "team:linear:"
 const DEDUP_LOOKUP_CHUNK = 500
 
-export function fileDedupKey(scope: string, path: string): string {
-  return `fil:${scope}:${path}`
-}
-
-/**
- * Repo-relative path used as File identity. Rejects HTTP routes, `..`,
- * and connector warehouse prefixes so PR extract and source extract join.
- */
-export function asLocatedPath(value: unknown): string | null {
-  if (typeof value !== "string") return null
-  let path = value.replace(/\\/g, "/").trim()
-  while (path.startsWith("./")) path = path.slice(2)
-  if (path.length === 0 || path === ".") return null
-  if (path.startsWith("/") || path.startsWith("../")) return null
-  if (path.split("/").includes("..")) return null
-  if (isConnectorMirrorPath(path)) return null
-  return path
-}
+export { asLocatedPath, fileDedupKey }
 
 export function parsePackageDedupKey(key: string): PackageRoot | null {
   const match = /^(svc|app|lib):([^:]+):([^:]+)$/.exec(key)
@@ -340,6 +326,7 @@ const STUB_ISSUE_KEY = /^iss:linear:([A-Z][A-Z0-9]{0,9}-\d+)$/
 function stubForReference(
   ref: string,
   provenance: Record<string, unknown> | undefined,
+  known: ReadonlySet<string>,
 ): ExtractedObject | null {
   const pull = STUB_PULL_REQUEST_KEY.exec(ref)
   if (pull?.[2]) {
@@ -363,6 +350,8 @@ function stubForReference(
   }
   const issue = STUB_ISSUE_KEY.exec(ref)
   if (issue?.[1]) {
+    const team = issue[1].split("-")[0]
+    if (!team || !known.has(`team:linear:${team}`)) return null
     return {
       kind: "Issue",
       deduplicationKey: ref,
@@ -404,6 +393,11 @@ export async function resolveReferenceClaims(input: {
       if (!isIdRef(ref) && !known.has(ref)) unknownRefs.add(ref)
     }
   }
+  for (const ref of [...unknownRefs]) {
+    const issue = STUB_ISSUE_KEY.exec(ref)
+    const team = issue?.[1]?.split("-")[0]
+    if (team) unknownRefs.add(`team:linear:${team}`)
+  }
 
   if (unknownRefs.size > 0) {
     try {
@@ -435,7 +429,7 @@ export async function resolveReferenceClaims(input: {
   const resolvable = (ref: string) => isIdRef(ref) || known.has(ref)
   const stubOrNull = (ref: string, claim: ExtractedClaim): boolean => {
     if (resolvable(ref)) return true
-    const stub = stubForReference(ref, claim.provenance)
+    const stub = stubForReference(ref, claim.provenance, known)
     if (!stub) return false
     stubs.push(stub)
     known.add(stub.deduplicationKey)

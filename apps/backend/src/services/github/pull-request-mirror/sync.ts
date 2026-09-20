@@ -168,7 +168,6 @@ export async function syncGithubPullRequestsForConfig(input: {
   env: Env
   binding: GithubPrMirrorBinding
   config: GithubPrMirrorRepoConfig
-  log?: { error: (error: Error) => void }
 }): Promise<{ written: number; failedRepositories: string[] }> {
   const installation = await getInstallationOctokitForOrg(
     input.orgId,
@@ -216,16 +215,12 @@ export async function syncGithubPullRequestsForConfig(input: {
       failedRepositories.push(repository)
       const normalized =
         error instanceof Error ? error : new Error(String(error))
-      if (input.log) {
-        input.log.error(normalized)
-      } else {
-        log.error({
-          message: "github pr mirror: repository backfill failed",
-          orgId: input.orgId,
-          repository,
-          error: normalized.message,
-        })
-      }
+      log.error({
+        message: "github pr mirror: repository backfill failed",
+        orgId: input.orgId,
+        repository,
+        error: normalized.message,
+      })
     }
   }
   if (

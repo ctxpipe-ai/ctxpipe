@@ -7,11 +7,23 @@ export type GithubPrMirrorCandidate = {
   updatedAt: string
 }
 
+export function isGithubPullRequestRepositoryInScope(input: {
+  config: GithubPrMirrorRepoConfig
+  repository: string
+}): boolean {
+  return input.config.repositories.includes(input.repository)
+}
+
 export function shouldMirrorGithubPullRequest(input: {
   config: GithubPrMirrorRepoConfig
   candidate: GithubPrMirrorCandidate
 }): boolean {
-  if (!input.config.repositories.includes(input.candidate.repository)) {
+  if (
+    !isGithubPullRequestRepositoryInScope({
+      config: input.config,
+      repository: input.candidate.repository,
+    })
+  ) {
     return false
   }
   if (input.candidate.draft && !input.config.includeDrafts) {
