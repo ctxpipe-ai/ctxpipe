@@ -58,53 +58,41 @@ export function NotionOAuthSetupModal({
 
           <div>
             <h3 className="font-medium text-foreground">Self-hosted ctxpipe</h3>
-            <ol className="mt-2 list-decimal space-y-2 pl-5">
-              <li>
-                Create a public integration in the{" "}
-                <a
-                  href="https://www.notion.so/profile/integrations"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-primary underline-offset-2 hover:underline"
-                >
-                  Notion integrations settings
-                  <IconExternalLink
-                    className="ml-1 inline size-3.5"
-                    aria-hidden
-                  />
-                </a>
-                , with public OAuth enabled.
-              </li>
-              <li>
-                Register this callback URL in the integration:
-                {callbackUrl ? (
-                  <code className="mt-1 block break-all rounded-none bg-muted px-2 py-1 text-xs text-foreground">
-                    {callbackUrl}
-                  </code>
-                ) : null}
-              </li>
-              <li>
-                Set <code>NOTION_CLIENT_ID</code> and{" "}
-                <code>NOTION_CLIENT_SECRET</code> in the backend environment,
-                then restart the backend.
-              </li>
-              <li>
-                Follow the{" "}
-                <a
-                  href="https://docs.ctxpipe.ai/docs/self-hosting/notion"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-primary underline-offset-2 hover:underline"
-                >
-                  self-hosted Notion guide
-                  <IconExternalLink
-                    className="ml-1 inline size-3.5"
-                    aria-hidden
-                  />
-                </a>{" "}
-                to register the deployment webhook once.
-              </li>
-            </ol>
+            <p className="mt-2">
+              Register a public Notion integration in the connector setup
+              wizard. Choose <strong className="font-medium text-foreground">Add connection</strong>{" "}
+              → <strong className="font-medium text-foreground">Notion</strong>,
+              then save the client ID and secret on the{" "}
+              <strong className="font-medium text-foreground">
+                Register Notion integration
+              </strong>{" "}
+              step. The wizard shows the callback URL and Event URL. You do not
+              need to set environment variables or restart.
+            </p>
+            {callbackUrl ? (
+              <p className="mt-2">
+                Callback URL for the public integration:
+                <code className="mt-1 block break-all rounded-none bg-muted px-2 py-1 text-xs text-foreground">
+                  {callbackUrl}
+                </code>
+              </p>
+            ) : null}
+            <p className="mt-2">
+              See the{" "}
+              <a
+                href="https://docs.ctxpipe.ai/docs/self-hosting/notion"
+                target="_blank"
+                rel="noreferrer"
+                className="text-primary underline-offset-2 hover:underline"
+              >
+                self-hosted Notion guide
+                <IconExternalLink
+                  className="ml-1 inline size-3.5"
+                  aria-hidden
+                />
+              </a>{" "}
+              for operator details.
+            </p>
           </div>
         </div>
       </div>

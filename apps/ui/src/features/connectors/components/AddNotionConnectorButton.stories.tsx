@@ -23,6 +23,48 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+const draftId = "con_story_notion_draft"
+
+const draftPost = http.post(
+  ({ request }) =>
+    new URL(request.url).pathname ===
+    `/${orgSlug}/api/v1/connectors/notion/draft`,
+  () => HttpResponse.json({ id: draftId, orgId: "org_story" }),
+)
+
+function oauthAppHandler(globalNotionOAuthConfigured: boolean) {
+  return http.get(
+    ({ request }) => {
+      const u = new URL(request.url)
+      return (
+        u.pathname === `/${orgSlug}/api/v1/connectors/notion/oauth-app` &&
+        u.searchParams.get("connectionId") === draftId
+      )
+    },
+    ({ request }) =>
+      HttpResponse.json({
+        oauthConfigured: globalNotionOAuthConfigured,
+        oauthAppSaved: false,
+        oauthClientId: null,
+        webhookConfigured: globalNotionOAuthConfigured,
+        globalNotionOAuthConfigured,
+        callbackUrl: `${new URL(request.url).origin}/api/v1/connectors/notion/oauth/callback`,
+        webhookUrl: `${new URL(request.url).origin}/api/v1/webhook/notion`,
+      }),
+  )
+}
+
+const oauthStart = http.get(
+  ({ request }) =>
+    new URL(request.url).pathname.endsWith(
+      "/api/v1/connectors/notion/oauth/start",
+    ),
+  () =>
+    HttpResponse.json({
+      authorizationUrl: "https://api.notion.com/v1/oauth/authorize",
+    }),
+)
+
 export const Idle: Story = {
   render: () => (
     <div className="w-96">
@@ -32,18 +74,7 @@ export const Idle: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith(
-                "/api/v1/connectors/notion/oauth/start",
-              ),
-            () =>
-              HttpResponse.json({
-                authorizationUrl: "https://api.notion.com/v1/oauth/authorize",
-              }),
-          ),
-        ],
+        page: [draftPost, oauthAppHandler(true), oauthStart],
       },
     },
   },
@@ -59,6 +90,8 @@ export const Starting: Story = {
     msw: {
       handlers: {
         page: [
+          draftPost,
+          oauthAppHandler(true),
           http.get(
             ({ request }) =>
               new URL(request.url).pathname.endsWith(

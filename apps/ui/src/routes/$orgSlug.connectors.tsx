@@ -335,6 +335,12 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           <li>
             <AddNotionConnectorButton
               orgSlug={orgSlug}
+              onRegisterRequired={({ connectionId }) => {
+                setCatalogOpen(false)
+                setNotionConnectionId(connectionId)
+                setNotionManageScope(false)
+                setNotionSetupOpen(true)
+              }}
               onConfigurationRequired={() => {
                 setCatalogOpen(false)
                 setNotionOAuthSetupOpen(true)

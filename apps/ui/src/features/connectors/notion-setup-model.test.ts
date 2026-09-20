@@ -3,8 +3,11 @@ import {
   getNotionCardCtaLabel,
   getNotionFailureAction,
   getNotionSetupCurrentIndex,
+  getNotionSetupSteps,
   hasNotionScopeChanged,
   NOTION_SETUP_STEPS,
+  SELF_HOSTED_NOTION_SETUP_STEPS,
+  shouldShowNotionRegisterStep,
   shouldShowNotionSetupComplete,
 } from "./notion-setup-model"
 
@@ -36,6 +39,64 @@ describe("Notion setup model", () => {
         true,
       ),
     ).toBe(false)
+  })
+
+  it("prepends register only when the deployment has no shared Notion app", () => {
+    expect(getNotionSetupSteps()).toEqual(NOTION_SETUP_STEPS)
+    expect(
+      getNotionSetupSteps({
+        oauthAppSaved: false,
+        globalNotionOAuthConfigured: true,
+      }),
+    ).toEqual(NOTION_SETUP_STEPS)
+    expect(
+      getNotionSetupSteps({
+        oauthAppSaved: false,
+        globalNotionOAuthConfigured: false,
+      }),
+    ).toEqual(SELF_HOSTED_NOTION_SETUP_STEPS)
+    expect(
+      shouldShowNotionRegisterStep({
+        oauthAppSaved: false,
+        globalNotionOAuthConfigured: false,
+      }),
+    ).toBe(true)
+    expect(
+      shouldShowNotionRegisterStep({
+        oauthAppSaved: true,
+        globalNotionOAuthConfigured: false,
+      }),
+    ).toBe(false)
+    expect(
+      shouldShowNotionRegisterStep({
+        oauthAppSaved: false,
+        globalNotionOAuthConfigured: true,
+      }),
+    ).toBe(false)
+  })
+
+  it("keeps an uninstalled self-host draft on the register step", () => {
+    const status = {
+      isGithubLinked: false,
+      syncTargetConfigured: false,
+      selectedResourceCount: 0,
+      setupPhase: "draft",
+      pendingConfigPullUrl: null,
+      isInstalled: false,
+    }
+    const selfHost = {
+      oauthAppSaved: false,
+      globalNotionOAuthConfigured: false,
+    }
+    const saved = {
+      oauthAppSaved: true,
+      globalNotionOAuthConfigured: false,
+    }
+
+    expect(getNotionSetupCurrentIndex(status, selfHost)).toBe(0)
+    expect(getNotionSetupCurrentIndex(status, saved)).toBe(0)
+    expect(getNotionCardCtaLabel(status, selfHost)).toBe("Register integration")
+    expect(getNotionCardCtaLabel(status, saved)).toBe("Connect Notion")
   })
 
   it("uses lifecycle state when status omits the Git-backed count", () => {

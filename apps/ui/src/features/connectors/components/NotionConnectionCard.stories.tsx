@@ -25,6 +25,37 @@ const statusComplete = {
   },
 }
 
+function notionOauthAppHandler(
+  body: {
+    oauthAppSaved?: boolean
+    globalNotionOAuthConfigured?: boolean
+  } = {},
+) {
+  return http.get(
+    ({ request }) => {
+      const u = new URL(request.url)
+      return (
+        u.pathname === `/${orgSlug}/api/v1/connectors/notion/oauth-app` &&
+        u.searchParams.get("connectionId") === connectionId
+      )
+    },
+    ({ request }) =>
+      HttpResponse.json({
+        oauthConfigured:
+          Boolean(body.oauthAppSaved) ||
+          (body.globalNotionOAuthConfigured ?? false),
+        oauthAppSaved: body.oauthAppSaved ?? false,
+        oauthClientId: body.oauthAppSaved ? "notion-client-id" : null,
+        webhookConfigured:
+          Boolean(body.oauthAppSaved) ||
+          (body.globalNotionOAuthConfigured ?? false),
+        globalNotionOAuthConfigured: body.globalNotionOAuthConfigured ?? false,
+        callbackUrl: `${new URL(request.url).origin}/api/v1/connectors/notion/oauth/callback`,
+        webhookUrl: `${new URL(request.url).origin}/api/v1/webhook/notion`,
+      }),
+  )
+}
+
 function notionStatus(status: object) {
   return http.get(
     ({ request }) => {
@@ -130,6 +161,10 @@ export const NotYetConnected: Story = {
             pendingConfigPullUrl: null,
             pendingConfigPrCreating: false,
             syncTarget: null,
+          }),
+          notionOauthAppHandler({
+            oauthAppSaved: false,
+            globalNotionOAuthConfigured: false,
           }),
         ],
       },

@@ -35,6 +35,142 @@ const githubInstallationHandler = http.get(
     }),
 )
 
+function notionOauthAppHandler(body: {
+  oauthAppSaved?: boolean
+  globalNotionOAuthConfigured?: boolean
+  oauthClientId?: string | null
+  webhookUrl?: string
+} = {}) {
+  const oauthAppSaved = body.oauthAppSaved ?? false
+  const globalNotionOAuthConfigured = body.globalNotionOAuthConfigured ?? true
+  return http.get(
+    ({ request }) => {
+      const u = new URL(request.url)
+      return (
+        u.pathname === `/${orgSlug}/api/v1/connectors/notion/oauth-app` &&
+        u.searchParams.get("connectionId") === connectionId
+      )
+    },
+    ({ request }) => {
+      const origin = new URL(request.url).origin
+      return HttpResponse.json({
+        oauthConfigured: oauthAppSaved || globalNotionOAuthConfigured,
+        oauthAppSaved,
+        oauthClientId: body.oauthClientId ?? (oauthAppSaved ? "notion-client-id" : null),
+        webhookConfigured: oauthAppSaved || globalNotionOAuthConfigured,
+        globalNotionOAuthConfigured,
+        callbackUrl: `${origin}/api/v1/connectors/notion/oauth/callback`,
+        webhookUrl:
+          body.webhookUrl ??
+          (oauthAppSaved
+            ? `${origin}/api/v1/webhook/notion?connectionId=${connectionId}&provisioningToken=story`
+            : `${origin}/api/v1/webhook/notion`),
+      })
+    },
+  )
+}
+
+const notionOauthAppPut = http.put(
+  ({ request }) => {
+    const u = new URL(request.url)
+    return (
+      u.pathname === `/${orgSlug}/api/v1/connectors/notion/oauth-app` &&
+      u.searchParams.get("connectionId") === connectionId
+    )
+  },
+  () => new HttpResponse(null, { status: 204 }),
+)
+
+const draftStatus = {
+  isInstalled: false,
+  installationStatus: null,
+  workspaceName: null,
+  isGithubLinked: false,
+  selectedResourceCount: 0,
+  syncTargetConfigured: false,
+  setupPhase: "draft",
+  pendingConfigPullUrl: null,
+  pendingConfigPrCreating: false,
+  syncTarget: null,
+}
+
+function notionStatus(status: object) {
+  return http.get(
+    ({ request }) =>
+      new URL(request.url).pathname.includes("/api/v1/connectors/notion/status"),
+    () => HttpResponse.json(status),
+  )
+}
+
+function dialog() {
+  return (
+    <NotionSetupDialog
+      orgSlug={orgSlug}
+      connectionId={connectionId}
+      githubConnectionIds={["con_github"]}
+      isOpen
+      onOpenChange={() => {}}
+    />
+  )
+}
+
+export const RegisterNotionOauth: Story = {
+  name: "Register Notion integration (self-hosted)",
+  render: () => dialog(),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          notionStatus(draftStatus),
+          notionOauthAppHandler({
+            oauthAppSaved: false,
+            globalNotionOAuthConfigured: false,
+          }),
+          notionOauthAppPut,
+        ],
+      },
+    },
+  },
+}
+
+export const RegisterNotionOauthSaved: Story = {
+  name: "Register Notion integration (saved — Event URL)",
+  render: () => dialog(),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          notionStatus(draftStatus),
+          notionOauthAppHandler({
+            oauthAppSaved: true,
+            globalNotionOAuthConfigured: false,
+            oauthClientId: "notion-client-id-story",
+          }),
+          notionOauthAppPut,
+        ],
+      },
+    },
+  },
+}
+
+export const ConnectNotionGlobalEnv: Story = {
+  name: "Connect Notion (hosted env OAuth)",
+  render: () => dialog(),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          notionStatus(draftStatus),
+          notionOauthAppHandler({
+            oauthAppSaved: false,
+            globalNotionOAuthConfigured: true,
+          }),
+        ],
+      },
+    },
+  },
+}
+
 export const ResourceSelection: Story = {
   render: () => (
     <NotionSetupDialog
@@ -130,6 +266,7 @@ export const ResourceSelection: Story = {
               ),
             () => HttpResponse.json({ items: [] }),
           ),
+          notionOauthAppHandler(),
         ],
       },
     },
@@ -240,6 +377,7 @@ export const TargetRepository: Story = {
                 hasMore: false,
               }),
           ),
+          notionOauthAppHandler(),
         ],
       },
     },
