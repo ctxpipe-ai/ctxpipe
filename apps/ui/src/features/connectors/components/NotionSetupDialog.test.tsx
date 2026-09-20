@@ -301,10 +301,16 @@ describe("NotionSetupDialog", () => {
     expect(clientSecret).toBeTruthy()
 
     await act(async () => {
-      clientId!.value = "client_123"
-      clientId!.dispatchEvent(new Event("change", { bubbles: true }))
-      clientSecret!.value = "secret_abc"
-      clientSecret!.dispatchEvent(new Event("change", { bubbles: true }))
+      const setInput = (el: HTMLInputElement, value: string) => {
+        const proto = Object.getPrototypeOf(el) as {
+          value?: string
+        }
+        const descriptor = Object.getOwnPropertyDescriptor(proto, "value")
+        descriptor?.set?.call(el, value)
+        el.dispatchEvent(new Event("input", { bubbles: true }))
+      }
+      setInput(clientId!, "client_123")
+      setInput(clientSecret!, "secret_abc")
     })
 
     const save = Array.from(container.querySelectorAll("button")).find(
