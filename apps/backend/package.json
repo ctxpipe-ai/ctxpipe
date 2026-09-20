@@ -24,7 +24,6 @@
     "openworkflow:doctor": "pnpm dlx @openworkflow/cli doctor",
     "rerun-skill-derivation": "bun run src/scripts/rerunSkillDerivation.ts",
     "graph-quality-report": "bun run src/scripts/graphQualityReport.ts",
-    "answer-eval": "bun run src/scripts/eval/answerEval.ts",
     "reindex-repositories": "bun run src/scripts/reindexRepositories.ts",
     "verify-instruction-ingestion": "bun run src/scripts/verifyInstructionIngestion.ts",
     "verify-connector-assets-runtime": "bun run src/scripts/verifyConnectorAssetRuntime.ts"

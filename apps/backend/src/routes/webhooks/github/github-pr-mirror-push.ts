@@ -3,6 +3,7 @@ import { withOrgDbContext } from "../../../db/client.js"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
 import { listGithubPrMirrorBindingsForRepository } from "../../../models/github-pr-mirror.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
+import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { githubSyncContent } from "../../../openworkflow/workflows/github-sync-content.js"
 import {
@@ -13,8 +14,6 @@ import { compareCommitsTouchesPath } from "../../../services/github/installation
 import { GITHUB_PR_CONFIG_PATH } from "../../../services/github/pull-request-mirror/converter.js"
 
 const GIT_EMPTY_TREE_SHA = "0000000000000000000000000000000000000000"
-
-type GithubWebhookLog = { error: (error: Error) => void }
 
 export async function maybeActivateGithubPrMirrorOnConfigPush(input: {
   installationId: number
@@ -28,7 +27,6 @@ export async function maybeActivateGithubPrMirrorOnConfigPush(input: {
   }>
   before?: string
   after?: string
-  log: GithubWebhookLog
 }): Promise<void> {
   const branchPrefix = "refs/heads/"
   if (!input.ref.startsWith(branchPrefix)) return
@@ -94,8 +92,9 @@ export async function maybeActivateGithubPrMirrorOnConfigPush(input: {
           connectionId: binding.connectionId,
         })
       } catch (error) {
-        input.log.error(
+        getLogger().error(
           error instanceof Error ? error : new Error(String(error)),
+          { step: "github.pr-mirror.config-push" },
         )
       }
     }

@@ -27,9 +27,6 @@ export type KnowledgeGraphQuality = {
   predicates: Record<string, number>
 }
 
-const CONNECTOR_PREFIX_PATH_PATTERN =
-  "^(github|linear|notion|slack|confluence)/"
-
 function rowsOf(result: unknown): Array<Record<string, unknown>> {
   const rows = (result as { rows?: unknown[] }).rows
   if (Array.isArray(rows)) return rows as Array<Record<string, unknown>>
@@ -112,7 +109,7 @@ export async function computeKnowledgeGraphQuality(
         FROM ${objects}
         WHERE ${objects.orgId} = ${orgId}
           AND ${objects.kind} = 'InstructionUnit'
-          AND ${objects.payload}->>'path' ~ ${CONNECTOR_PREFIX_PATH_PATTERN}
+          AND ${objects.payload}->>'path' ~ ${"^(github|linear|notion|slack|confluence)/"}
       `),
   ])
 

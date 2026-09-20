@@ -1,7 +1,7 @@
 /**
  * Enqueue a full re-index for repositories of one organization (rollout tooling,
- * ADR-033): after deploying a graph change, run the connector-unit cleanup, then
- * this, then read `graph-quality-report`.
+ * ADR-033): after deploying a graph change, enqueue this full re-ingest, then
+ * read `graph-quality-report`. The run itself retracts unobserved evidence.
  *
  * Full means `fullReingest: true`: the workflow ignores the last ingested commit
  * (codesearch full mode) and, once extraction succeeds, sweeps evidence the run

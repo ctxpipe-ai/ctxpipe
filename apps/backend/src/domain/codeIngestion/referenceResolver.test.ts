@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest"
 import {
+  asLocatedPath,
   extractBacktickedPaths,
   extractUrls,
   findAdrReferences,
   findLinearIdentifiers,
   githubTeamDedupKey,
   isoDateOf,
+  isUnresolvedProviderIdentity,
   issueDedupKey,
   parseGithubPullRequestUrl,
   parseGithubTeamOwner,
@@ -147,5 +149,17 @@ describe("text scanners", () => {
     expect(isoDateOf("2026-03-02T11:00:00.000Z")).toBe("2026-03-02")
     expect(isoDateOf(null)).toBeUndefined()
     expect(isoDateOf("nope")).toBeUndefined()
+  })
+
+  it("normalizes File paths and flags unresolved GitHub identities", () => {
+    expect(asLocatedPath("./apps/backend/AGENTS.md")).toBe(
+      "apps/backend/AGENTS.md",
+    )
+    expect(asLocatedPath("linear/issues/x.md")).toBeNull()
+    expect(isUnresolvedProviderIdentity("prq:github:acme/api:42")).toBe(true)
+    expect(isUnresolvedProviderIdentity("fil:github:acme/api:src/a.ts")).toBe(
+      true,
+    )
+    expect(isUnresolvedProviderIdentity("prq:repo_api:42")).toBe(false)
   })
 })

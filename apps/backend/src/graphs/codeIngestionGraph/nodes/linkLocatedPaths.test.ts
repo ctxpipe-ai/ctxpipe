@@ -262,9 +262,14 @@ describe("resolveReferenceClaims", () => {
   })
 
   it("stubs pull requests of connected repositories and issues of known teams, drops the rest", async () => {
+    const opsTeam: ExtractedObject = {
+      kind: "Team",
+      deduplicationKey: "team:linear:OPS",
+      name: "Ops",
+    }
     const { claims, summary, stubs } = await resolveReferenceClaims({
       orgId: "org_1",
-      objects: [issue],
+      objects: [issue, opsTeam],
       claims: [
         {
           ...referenceClaim(issue.deduplicationKey, "prq:repo_api:7"),
@@ -301,6 +306,23 @@ describe("resolveReferenceClaims", () => {
         payload: { identifier: "OPS-4", inferredFromReference: true },
       }),
     ])
+  })
+
+  it("does not stub a Linear issue whose team is unknown", async () => {
+    const { claims, summary, stubs } = await resolveReferenceClaims({
+      orgId: "org_1",
+      objects: [issue],
+      claims: [
+        {
+          ...referenceClaim("prq:repo_api:7", "iss:linear:OPS-4"),
+          subjectKind: "PullRequest",
+          objectKind: "Issue",
+        },
+      ],
+    })
+    expect(claims).toHaveLength(0)
+    expect(summary).toEqual({ REFERENCES: { kept: 0, dropped: 1, stubbed: 0 } })
+    expect(stubs).toEqual([])
   })
 
   it("keeps references to existing graph objects and drops unresolved ones", async () => {

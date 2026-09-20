@@ -210,8 +210,6 @@ export type ParsedGithubPullRequest = {
   bodyExcerpt: string
 }
 
-const BODY_EXCERPT_MAX = 2_000
-
 function bodyExcerptAfterFrontmatter(rest: string): string {
   let body = rest.replace(/^\s+/, "")
   if (body.startsWith("# ")) {
@@ -220,7 +218,7 @@ function bodyExcerptAfterFrontmatter(rest: string): string {
   }
   const cut = body.search(/\n## (Reviews|Conversation)\b/)
   if (cut !== -1) body = body.slice(0, cut)
-  return body.trim().slice(0, BODY_EXCERPT_MAX)
+  return body.trim().slice(0, 2_000)
 }
 
 export function parseGithubPullRequestMarkdown(

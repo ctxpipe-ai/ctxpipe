@@ -5,7 +5,6 @@ import { z } from "zod/v3"
  * kinds without an extractor are not declared (ADR-033).
  */
 export const ExtensionNodeType = z.enum([
-  "Incident",
   "Decision",
   "InstructionUnit",
   "Skill",

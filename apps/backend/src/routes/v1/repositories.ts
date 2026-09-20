@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { formatUnknownError } from "../../db/transientDbRetry.js"
+import { getLogger } from "../../observability/logger.js"
 import {
   createRepository,
   deriveRepositoryIndexingStatus,
@@ -324,14 +325,14 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
         { repositoryId: repository.id, orgId: repository.orgId },
         {
           error: (err) =>
-            c
-              .get("log")
-              .error(err, { step: "repositories.create.enqueue-ingestion" }),
+            getLogger().error(err, {
+              step: "repositories.create.enqueue-ingestion",
+            }),
         },
       )
       return c.json(serializeRepository(repository), 201)
     } catch (e) {
-      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+      getLogger().error(e instanceof Error ? e : new Error(String(e)), {
         step: "repositories.create",
       })
       return c.json({ error: "Internal server error" }, 500)
@@ -358,7 +359,7 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
         },
         {
           error: (err) =>
-            c.get("log").error(err, {
+            getLogger().error(err, {
               step: "repositories.reindex.enqueue",
               repositoryId: id,
             }),
@@ -366,7 +367,7 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
       )
       return c.body(null, 202)
     } catch (e) {
-      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+      getLogger().error(e instanceof Error ? e : new Error(String(e)), {
         step: "repositories.reindex",
         repositoryId: id,
       })
@@ -394,7 +395,7 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
         },
         {
           error: (err) =>
-            c.get("log").error(err, {
+            getLogger().error(err, {
               step: "repositories.delete.enqueue-deletion",
               repositoryId: id,
             }),
@@ -405,7 +406,7 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
       }
       return c.body(null, 202)
     } catch (e) {
-      c.get("log").error(
+      getLogger().error(
         e instanceof Error ? e : new Error(formatUnknownError(e)),
         {
           step: "repositories.delete",

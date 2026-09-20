@@ -1,3 +1,4 @@
+import { PREDICATE_DESCRIPTIONS } from "../../../retrieval/schema/allowedConnections.js"
 import type { RetrievalPlan } from "../../../retrieval/schema/plan.js"
 import { RetrievalPlanSchema } from "../../../retrieval/schema/plan.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
@@ -85,6 +86,11 @@ async function planWithLlm(
 
 ${projectContext}Channels (cheat sheet):
 ${CHANNEL_CHEAT_SHEET}
+
+Predicate semantics:
+${Object.entries(PREDICATE_DESCRIPTIONS)
+  .map(([predicate, description]) => `- ${predicate}: ${description}`)
+  .join("\n")}
 
 Guidelines:
 - claim_aggregation: for "what should I use", "what's recommended", "what's common" — use when query asks about tech choices (database, library, framework, auth). Params: { "predicates": ["WRITES_TO","READS_FROM","DEPENDS_ON","USES_LIBRARY"] } — pick predicates that match the question

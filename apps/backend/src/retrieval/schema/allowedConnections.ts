@@ -109,7 +109,6 @@ export const EXTENSION_ALLOWED_CONNECTIONS: Array<{
   { subjectKind: "Issue", predicate: "MENTIONS", objectKind: "File" },
   { subjectKind: "Thread", predicate: "MENTIONS", objectKind: "File" },
   { subjectKind: "Decision", predicate: "MENTIONS", objectKind: "File" },
-  { subjectKind: "Incident", predicate: "MENTIONS", objectKind: "Service" },
   { subjectKind: "Decision", predicate: "SUPERSEDES", objectKind: "Decision" },
   // ownership
   { subjectKind: "Team", predicate: "OWNS", objectKind: "Issue" },
@@ -155,7 +154,7 @@ export const PREDICATE_DESCRIPTIONS: Record<string, string> = {
   REFERENCES:
     "explicit cross-tool link by URL or identifier: Issue and PullRequest reference each other; a Thread references a PullRequest, Issue or Decision",
   MENTIONS:
-    "lexical mention of a File in an Issue, Thread or Decision, or of a Service in an Incident",
+    "lexical mention of a File in an Issue, Thread or Decision",
   OWNS: "ownership: a Team owns a Service, App or Library (CODEOWNERS) or an Issue (tracker team)",
   INFLUENCES: "a Decision (ADR) shapes this Service",
   SUPERSEDES: "a Decision replaces an earlier Decision",

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest"
 import type { GithubPrMirrorRepoConfig } from "./config-yaml.js"
-import { shouldMirrorGithubPullRequest } from "./policy.js"
+import {
+  isGithubPullRequestRepositoryInScope,
+  shouldMirrorGithubPullRequest,
+} from "./policy.js"
 
 const config: GithubPrMirrorRepoConfig = {
   repositories: ["acme/api"],
@@ -36,6 +39,21 @@ describe("shouldMirrorGithubPullRequest", () => {
         },
       }),
     ).toBe(false)
+  })
+
+  it("rejects a repository before any snapshot when it is not in the yaml list", () => {
+    expect(
+      isGithubPullRequestRepositoryInScope({
+        config,
+        repository: "acme/worker",
+      }),
+    ).toBe(false)
+    expect(
+      isGithubPullRequestRepositoryInScope({
+        config,
+        repository: "acme/api",
+      }),
+    ).toBe(true)
   })
 
   it("rejects repositories that are not in the yaml list", () => {

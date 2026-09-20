@@ -29,7 +29,6 @@ import { generateObjectId } from "../../../lib/id.js"
 import { createLogger, withLogger } from "../../../observability/logger.js"
 import {
   purgeRepositoryEvidencePg,
-  retractConnectorPrefixInstructionUnitsPg,
   retractIngestionForDiffPg,
   retractUnobservedRepositoryEvidencePg,
 } from "../../../retrieval/services/ingestionRetraction.js"
@@ -271,7 +270,7 @@ describe.skipIf(!connectionString)("evidence lifecycle (Postgres)", () => {
     expect(after.objects).toBe(0)
   })
 
-  it("removes legacy connector-derived instruction units and reports it in the quality metrics", async () => {
+  it("sweeps unobserved connector-derived instruction units and reports it in the quality metrics", async () => {
     const db = getSystemDb()
     const stubService = generateObjectId("obj")
     const legacyUnit = generateObjectId("obj")
@@ -322,12 +321,15 @@ describe.skipIf(!connectionString)("evidence lifecycle (Postgres)", () => {
     expect(before.kinds).toMatchObject({ InstructionUnit: 1, Service: 1 })
 
     const result = await withOrgDbContext(ORG_ID, (tx) =>
-      retractConnectorPrefixInstructionUnitsPg(tx, { orgId: ORG_ID }),
+      retractUnobservedRepositoryEvidencePg(tx, {
+        orgId: ORG_ID,
+        repositoryId: CONTEXT_REPO,
+        observedBefore: new Date(),
+      }),
     )
-    expect(result.unitsDeleted).toBe(1)
     expect(result.stats.claimsDeleted).toBe(1)
     expect(result.stats.deletedEvidenceRows).toBe(1)
-    expect(result.stats.orphanObjectsDeleted).toBe(1)
+    expect(result.stats.orphanObjectsDeleted).toBe(2)
 
     const after = await withOrgDbContext(ORG_ID, (tx) =>
       computeKnowledgeGraphQuality(tx, ORG_ID),

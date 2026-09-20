@@ -212,7 +212,6 @@ async function processPushEvent(
     commits,
     before,
     after,
-    log: ctx.log,
   })
 
   if (ref !== `refs/heads/${defaultBranch}`) {
@@ -342,7 +341,6 @@ export async function processGithubWebhookPayload(
         eventName,
         payload,
         githubConnectionId: opts?.connectionId,
-        log: ctx.log,
       })
       return
     default:

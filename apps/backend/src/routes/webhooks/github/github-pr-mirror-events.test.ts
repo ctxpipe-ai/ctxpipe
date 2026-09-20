@@ -2,19 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   listInstallations: vi.fn(),
-  findRepo: vi.fn(),
   getBinding: vi.fn(),
   runWorkflow: vi.fn(),
 }))
 
-vi.mock("../../../db/client.js", () => ({
-  withOrgDbContext: vi.fn((_orgId: string, fn: () => unknown) => fn()),
-}))
 vi.mock("../../../models/github-installation.js", () => ({
   listInstallationsByGithubInstallationId: mocks.listInstallations,
-}))
-vi.mock("../../../models/repositories.js", () => ({
-  findRepositoryByGithubInstallation: mocks.findRepo,
 }))
 vi.mock("../../../models/github-pr-mirror.js", () => ({
   getGithubPrMirrorBinding: mocks.getBinding,
@@ -38,7 +31,6 @@ describe("maybeEnqueueGithubPrMirror", () => {
     mocks.listInstallations.mockResolvedValue([
       { id: "con_gh", orgId: "org_1" },
     ])
-    mocks.findRepo.mockResolvedValue({ id: "repo_api" })
     mocks.getBinding.mockResolvedValue({
       enabled: true,
       setupPhase: "live",
@@ -62,7 +54,6 @@ describe("maybeEnqueueGithubPrMirror", () => {
         installation: { id: 99 },
       },
       githubConnectionId: "con_gh",
-      log: { error: vi.fn() },
     })
 
     expect(mocks.runWorkflow).toHaveBeenCalledWith(
@@ -93,7 +84,6 @@ describe("maybeEnqueueGithubPrMirror", () => {
         installation: { id: 99 },
       },
       githubConnectionId: "con_gh",
-      log: { error: vi.fn() },
     })
     expect(mocks.runWorkflow).toHaveBeenCalledWith(
       { name: "github-sync-pull-request" },
@@ -130,8 +120,37 @@ describe("maybeEnqueueGithubPrMirror", () => {
     ).toBe("github-pr:c:a/b:3:unknown")
   })
 
-  it("skips pull requests for repositories that are not ingested", async () => {
-    mocks.findRepo.mockResolvedValue(null)
+  it("enqueues yaml-scoped repositories that are not in the code-ingest picker", async () => {
+    await maybeEnqueueGithubPrMirror({
+      eventName: "pull_request",
+      payload: {
+        action: "closed",
+        pull_request: {
+          number: 42,
+          merged: true,
+          draft: false,
+          updated_at: "2026-03-02T11:00:00Z",
+        },
+        repository: { full_name: "acme/docs-only" },
+        installation: { id: 99 },
+      },
+      githubConnectionId: "con_gh",
+    })
+    expect(mocks.runWorkflow).toHaveBeenCalledWith(
+      { name: "github-sync-pull-request" },
+      expect.objectContaining({
+        sourceRepository: "acme/docs-only",
+        number: 42,
+      }),
+      expect.anything(),
+    )
+  })
+
+  it("skips when the mirror binding is not live", async () => {
+    mocks.getBinding.mockResolvedValue({
+      enabled: true,
+      setupPhase: "awaiting_merge",
+    })
     await maybeEnqueueGithubPrMirror({
       eventName: "pull_request",
       payload: {
@@ -140,7 +159,6 @@ describe("maybeEnqueueGithubPrMirror", () => {
         repository: { full_name: "acme/other" },
         installation: { id: 99 },
       },
-      log: { error: vi.fn() },
     })
     expect(mocks.runWorkflow).not.toHaveBeenCalled()
   })

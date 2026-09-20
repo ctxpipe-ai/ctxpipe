@@ -6,7 +6,6 @@ import {
   getGithubPrMirrorBinding,
   patchGithubPrMirror,
 } from "../../models/github-pr-mirror.js"
-import { getLogger } from "../../observability/logger.js"
 import { loadGithubPrMirrorConfigFromRepo } from "../../services/github/pull-request-mirror/config-from-repo.js"
 import { syncGithubPullRequestsForConfig } from "../../services/github/pull-request-mirror/sync.js"
 import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
@@ -61,19 +60,14 @@ export const githubSyncContent = defineWorkflow(
             env,
             binding: context.binding,
             config: context.config,
-            log: getLogger(),
           }),
       )
-      await runConnectorRepositoryIngestionWorkflow(
-        step,
-        {
-          orgId: input.orgId,
-          repositoryId: context.binding.repositoryId,
-          targetBranch: context.binding.branch,
-          indexingReason: "Mirroring GitHub pull requests",
-        },
-        getLogger(),
-      )
+      await runConnectorRepositoryIngestionWorkflow(step, {
+        orgId: input.orgId,
+        repositoryId: context.binding.repositoryId,
+        targetBranch: context.binding.branch,
+        indexingReason: "Mirroring GitHub pull requests",
+      })
       await withOrgDbContext(input.orgId, () =>
         patchGithubPrMirror({
           orgId: input.orgId,

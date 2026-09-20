@@ -1,6 +1,8 @@
 import { buildEvidenceSourceId } from "../../../domain/codeIngestion/evidenceSourceId.js"
 import {
+  asLocatedPath,
   extractUrls,
+  fileDedupKey,
   findLinearIdentifiers,
   isoDateOf,
   issueDedupKey,
@@ -8,8 +10,6 @@ import {
   pullRequestDedupKey,
 } from "../../../domain/codeIngestion/referenceResolver.js"
 import {
-  asLocatedPath,
-  fileDedupKey,
   matchPackageForPath,
   type PackageRoot,
 } from "../../../graphs/codeIngestionGraph/nodes/linkLocatedPaths.js"
@@ -34,14 +34,6 @@ export function githubPrFileChangePredicate(
     default:
       return "MODIFIED"
   }
-}
-
-export function githubPullRequestDedupKey(input: {
-  sourceRepositoryId?: string
-  repository: string
-  number: number
-}): string {
-  return pullRequestDedupKey(input)
 }
 
 export function githubFileDedupKey(input: {
@@ -94,7 +86,7 @@ export function buildGithubPullRequestGraph(input: {
   const { parsed } = input
   const sourceScope = input.sourceRepositoryId ?? "unresolved"
   const mergedOn = isoDateOf(parsed.mergedAt)
-  const pullKey = githubPullRequestDedupKey({
+  const pullKey = pullRequestDedupKey({
     sourceRepositoryId: input.sourceRepositoryId,
     repository: parsed.repository,
     number: parsed.number,
