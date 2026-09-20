@@ -2,7 +2,6 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { getGithubPrMirrorBinding } from "../../models/github-pr-mirror.js"
-import { getLogger } from "../../observability/logger.js"
 import { loadGithubPrMirrorConfigFromRepo } from "../../services/github/pull-request-mirror/config-from-repo.js"
 import {
   isGithubPullRequestRepositoryInScope,
@@ -97,16 +96,12 @@ export const githubSyncPullRequest = defineWorkflow(
       }),
     )
     if (result.written) {
-      await runConnectorRepositoryIngestionWorkflow(
-        step,
-        {
-          orgId: input.orgId,
-          repositoryId: context.binding.repositoryId,
-          targetBranch: context.binding.branch,
-          indexingReason: "Mirroring GitHub pull requests",
-        },
-        getLogger(),
-      )
+      await runConnectorRepositoryIngestionWorkflow(step, {
+        orgId: input.orgId,
+        repositoryId: context.binding.repositoryId,
+        targetBranch: context.binding.branch,
+        indexingReason: "Mirroring GitHub pull requests",
+      })
     }
     return result
   },

@@ -1,5 +1,6 @@
 import type { Workflow } from "openworkflow"
 import { withOrgDbContext } from "../db/client.js"
+import { getLogger } from "../observability/logger.js"
 import { resolveRepositoryRef } from "../domain/codeIngestion/queue.js"
 import {
   getRepositoryForOrg,
@@ -310,7 +311,7 @@ export async function claimAndRunRepositoryIngestionChild(
 export async function runConnectorRepositoryIngestionWorkflow(
   step: RepositoryIngestionChildStep,
   input: ConnectorRepositoryIngestionInput,
-  log: { error: (err: Error) => void },
+  log: { error: (err: Error) => void } = getLogger(),
 ): Promise<void> {
   const repository = await getRepositoryForOrg(input.orgId, input.repositoryId)
   if (!repository) {
