@@ -233,6 +233,11 @@ describe("PagerDuty connector routes", () => {
         await next()
       })
       .route("/acme/api/v1/connectors/pagerduty", pagerdutyConnectorRoutes)
+    mocks.getConnection.mockResolvedValue({
+      id: "con_pd",
+      oauthClientId: null,
+      oauthClientSecretEnc: null,
+    })
     const response = await app.request(
       "/acme/api/v1/connectors/pagerduty/oauth/start?connectionId=con_pd",
     )

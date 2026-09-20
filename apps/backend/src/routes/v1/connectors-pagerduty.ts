@@ -624,7 +624,7 @@ function pagerdutyCookieSecure(env: AppEnv["Variables"]["env"]): boolean {
   return env.AUTH_BASE_URL.startsWith("https://")
 }
 
-async function resolvePagerdutyCredsForConnection(
+function resolvePagerdutyCredsForConnection(
   connection: PagerdutyConnection | undefined,
   env: AppEnv["Variables"]["env"],
 ) {

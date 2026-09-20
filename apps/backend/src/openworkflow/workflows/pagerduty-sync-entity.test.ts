@@ -182,6 +182,7 @@ describe("pagerdutySyncEntity", () => {
 
   it("fails the retryable OpenWorkflow step when the entity cannot sync", async () => {
     mocks.syncIncremental.mockResolvedValueOnce({
+      status: "failed",
       written: 0,
       deleted: 0,
       errors: [{ externalId: "PINCIDENT", message: "PagerDuty rate limited" }],
