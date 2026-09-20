@@ -61,7 +61,6 @@ export const githubSyncContent = defineWorkflow(
             env,
             binding: context.binding,
             config: context.config,
-            log: getLogger(),
           }),
       )
       await runConnectorRepositoryIngestionWorkflow(

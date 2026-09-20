@@ -2,8 +2,6 @@ import { parse as parseYaml } from "yaml"
 
 /** Shared, defensive helpers for connector Markdown (YAML frontmatter + body). */
 
-const FRONTMATTER = /^---\n([\s\S]*?)\n---/
-
 export function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -23,7 +21,7 @@ export function asStringArray(value: unknown): string[] {
 export function splitFrontmatter(
   content: string,
 ): { data: Record<string, unknown>; body: string } | null {
-  const match = content.match(FRONTMATTER)
+  const match = content.match(/^---\n([\s\S]*?)\n---/)
   if (!match?.[1]) return null
   let parsed: unknown
   try {

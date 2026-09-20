@@ -1,11 +1,9 @@
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph"
+import { CONNECTOR_EXTRACTORS } from "./nodes/connectorExtractors.js"
 import { extractCodeowners } from "./nodes/extractCodeowners.js"
 import { extractDecisions } from "./nodes/extractDecisions.js"
-import { extractGithubPullRequests } from "./nodes/extractGithubPullRequests.js"
 import { extractInstructionUnits } from "./nodes/extractInstructionUnits.js"
 import { extractKind } from "./nodes/extractKind.js"
-import { extractLinear } from "./nodes/extractLinear.js"
-import { extractSlackThreads } from "./nodes/extractSlackThreads.js"
 import { identifyAPIClients } from "./nodes/identifyAPIClients.js"
 import { identifyAPIs } from "./nodes/identifyAPIs.js"
 import { identifyDatabases } from "./nodes/identifyDatabases.js"
@@ -66,54 +64,43 @@ const ExtractionOutputAnnotation = Annotation.Root({
   extractedClaims: extractedClaimsAnnotation,
 })
 
-const extractionSubgraph = new StateGraph(ExtractionStateAnnotation, {
+const identifyNodes = [
+  ["identifyAPIClients", identifyAPIClients],
+  ["identifyAPIs", identifyAPIs],
+  ["identifyDatabases", identifyDatabases],
+  ["identifyInfrastructure", identifyInfrastructure],
+  ["identifyStreams", identifyStreams],
+  ["identifyServiceDependencies", identifyServiceDependencies],
+  ["identifyLibraries", identifyLibraries],
+  ["identifyPatterns", identifyPatterns],
+  ["extractInstructionUnits", extractInstructionUnits],
+  ["extractDecisions", extractDecisions],
+  ["extractCodeowners", extractCodeowners],
+] as const
+
+let extractionGraph = new StateGraph(ExtractionStateAnnotation, {
   output: ExtractionOutputAnnotation,
 })
   .addNode("extractKind", extractKind)
-  .addNode("identifyAPIClients", identifyAPIClients) // use repo explorer
-  .addNode("identifyAPIs", identifyAPIs) // use repo explorer
-  .addNode("identifyDatabases", identifyDatabases) //  use repo explorer
-  .addNode("identifyInfrastructure", identifyInfrastructure) //  use repo explorer
-  .addNode("identifyStreams", identifyStreams) //  use repo explorer
-  .addNode("identifyServiceDependencies", identifyServiceDependencies) //  use repo explorer
-  .addNode("identifyLibraries", identifyLibraries) //  use repo explorer
-  .addNode("identifyPatterns", identifyPatterns) //  use repo explorer
-  .addNode("extractInstructionUnits", extractInstructionUnits)
-  .addNode("extractDecisions", extractDecisions)
-  .addNode("extractCodeowners", extractCodeowners)
-  .addNode("extractGithubPullRequests", extractGithubPullRequests)
-  .addNode("extractLinear", extractLinear)
-  .addNode("extractSlackThreads", extractSlackThreads)
   .addNode("linkLocatedPaths", linkLocatedPathsNode)
   .addEdge(START, "extractKind")
-  .addEdge("extractKind", "identifyAPIClients")
-  .addEdge("extractKind", "identifyAPIs")
-  .addEdge("extractKind", "identifyDatabases")
-  .addEdge("extractKind", "identifyInfrastructure")
-  .addEdge("extractKind", "identifyStreams")
-  .addEdge("extractKind", "identifyServiceDependencies")
-  .addEdge("extractKind", "identifyLibraries")
-  .addEdge("extractKind", "identifyPatterns")
-  .addEdge("extractKind", "extractInstructionUnits")
-  .addEdge("extractKind", "extractDecisions")
-  .addEdge("extractKind", "extractCodeowners")
-  .addEdge("extractKind", "extractGithubPullRequests")
-  .addEdge("extractKind", "extractLinear")
-  .addEdge("extractKind", "extractSlackThreads")
-  .addEdge("identifyAPIClients", "linkLocatedPaths")
-  .addEdge("identifyAPIs", "linkLocatedPaths")
-  .addEdge("identifyDatabases", "linkLocatedPaths")
-  .addEdge("identifyInfrastructure", "linkLocatedPaths")
-  .addEdge("identifyStreams", "linkLocatedPaths")
-  .addEdge("identifyServiceDependencies", "linkLocatedPaths")
-  .addEdge("identifyLibraries", "linkLocatedPaths")
-  .addEdge("identifyPatterns", "linkLocatedPaths")
-  .addEdge("extractInstructionUnits", "linkLocatedPaths")
-  .addEdge("extractDecisions", "linkLocatedPaths")
-  .addEdge("extractCodeowners", "linkLocatedPaths")
-  .addEdge("extractGithubPullRequests", "linkLocatedPaths")
-  .addEdge("extractLinear", "linkLocatedPaths")
-  .addEdge("extractSlackThreads", "linkLocatedPaths")
+
+for (const [name, node] of identifyNodes) {
+  extractionGraph = extractionGraph
+    .addNode(name, node)
+    .addEdge("extractKind", name)
+    .addEdge(name, "linkLocatedPaths")
+}
+
+for (const extractor of CONNECTOR_EXTRACTORS) {
+  const name = extractor.extract.name
+  extractionGraph = extractionGraph
+    .addNode(name, extractor.extract)
+    .addEdge("extractKind", name)
+    .addEdge(name, "linkLocatedPaths")
+}
+
+const extractionSubgraph = extractionGraph
   .addEdge("linkLocatedPaths", END)
   .compile()
 

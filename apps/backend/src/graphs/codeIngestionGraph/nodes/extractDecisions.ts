@@ -6,8 +6,10 @@ import { isConnectorMirrorPath } from "../../../domain/codeIngestion/connectorMi
 import { isUnderDependencyVendorPath } from "../../../domain/codeIngestion/dependencyVendorPaths.js"
 import { buildEvidenceSourceId } from "../../../domain/codeIngestion/evidenceSourceId.js"
 import {
+  asLocatedPath,
   decisionDedupKey,
   extractBacktickedPaths,
+  fileDedupKey,
 } from "../../../domain/codeIngestion/referenceResolver.js"
 import type {
   CodeIngestionState,
@@ -20,8 +22,6 @@ import {
   splitFrontmatter,
 } from "./connectorFrontmatter.js"
 import {
-  asLocatedPath,
-  fileDedupKey,
   matchPackageForPath,
   packageRootsFromObjects,
 } from "./linkLocatedPaths.js"
@@ -40,8 +40,6 @@ export const DECISION_GLOBS = [
   ".ai/memory/decisions/**/*.md",
 ] as const
 
-const MAX_DECISION_FILES = 500
-const EXCERPT_MAX = 2_000
 const KNOWN_STATUSES = new Set([
   "accepted",
   "proposed",
@@ -158,7 +156,7 @@ export function parseDecisionMarkdown(
       body.slice(headingMatch.index + headingMatch[0].length)
   }
   if (boldHeader) body = body.replace(boldHeader[0], "")
-  const excerpt = body.trim().slice(0, EXCERPT_MAX)
+  const excerpt = body.trim().slice(0, 2_000)
 
   const summary =
     sectionParagraph(body, /^##\s+(?:Context|Decision)\s*$/im) ??
@@ -220,7 +218,7 @@ export async function extractDecisions(
     state.ingestMode === "partial" && scanPaths.length > 0
       ? filterPathsByPartialScan(candidates, scanPaths)
       : candidates
-  ).slice(0, MAX_DECISION_FILES)
+  ).slice(0, 500)
   if (scopedPaths.length === 0) return {}
 
   const contents = await fetchFiles(

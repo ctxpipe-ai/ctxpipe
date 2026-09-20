@@ -30,7 +30,6 @@ import {
 } from "./repositoryResolution.js"
 
 export const SLACK_THREADS_GLOB = "slack/channels/**/thread.md"
-const EXCERPT_MAX = 2_000
 
 export type ParsedSlackThread = {
   channelId: string
@@ -88,7 +87,7 @@ export function parseSlackThreadMarkdown(
     messageCount,
     isPrivate: data.is_private === true,
     messages,
-    excerpt: messages.join("\n\n").slice(0, EXCERPT_MAX),
+    excerpt: messages.join("\n\n").slice(0, 2_000),
   }
 }
 
