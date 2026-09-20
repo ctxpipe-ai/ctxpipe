@@ -3,6 +3,7 @@ import { OpenAPIHono } from "@hono/zod-openapi"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
+import { encryptConnectionSecret } from "../../../lib/connection-secrets.js"
 import {
   linearEntityTargetForPayload,
   registerLinearWebhookRoute,
@@ -52,12 +53,32 @@ function createTestApp() {
   return app
 }
 
-function signedRequest(payload: Record<string, unknown>) {
+function signedRequest(
+  payload: Record<string, unknown>,
+  signingSecret = secret,
+) {
   const body = JSON.stringify(payload)
   return {
     body,
-    signature: createHmac("sha256", secret).update(body).digest("hex"),
+    signature: createHmac("sha256", signingSecret).update(body).digest("hex"),
   }
+}
+
+function createTestAppWithEnv(testEnv: typeof env) {
+  const app = new OpenAPIHono<AppEnv>()
+  app.use("*", async (c, next) => {
+    c.set("env", testEnv)
+    c.set("log", {
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      debug: vi.fn(),
+      child: vi.fn(),
+    } as unknown as AppEnv["Variables"]["log"])
+    await next()
+  })
+  registerLinearWebhookRoute(app)
+  return app
 }
 
 beforeEach(() => {
@@ -223,6 +244,101 @@ describe("POST /api/v1/webhook/linear", () => {
 
     expect(response.status).toBe(200)
     expect(mocks.runWorkflow).not.toHaveBeenCalled()
+  })
+
+  it("returns 503 when no webhook secret exists on env or rows", async () => {
+    const emptyEnv = parseEnv({
+      NODE_ENV: "test",
+      DATABASE_URL: "postgres://localhost:5432/ctxpipe",
+      AUTH_SECRET: "abcdefghijklmnopqrstuvwxyz123456",
+    } as Record<string, string | undefined>)
+    mocks.listConnections.mockResolvedValueOnce([
+      { id: "con_linear", orgId: "org_1", status: "installed" },
+    ])
+    const request = signedRequest({
+      type: "Issue",
+      action: "update",
+      organizationId: "workspace-1",
+      webhookTimestamp: Date.now(),
+      data: { id: "issue-1" },
+    })
+    const response = await createTestAppWithEnv(emptyEnv).request(
+      "/api/v1/webhook/linear",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "linear-signature": request.signature,
+        },
+        body: request.body,
+      },
+    )
+    expect(response.status).toBe(503)
+    expect(mocks.runWorkflow).not.toHaveBeenCalled()
+  })
+
+  it("rejects a tampered body that still has a signature", async () => {
+    const request = signedRequest({
+      type: "Issue",
+      action: "update",
+      organizationId: "workspace-1",
+      webhookTimestamp: Date.now(),
+      data: { id: "issue-1" },
+    })
+    const response = await createTestApp().request("/api/v1/webhook/linear", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "linear-signature": request.signature,
+      },
+      body: request.body.replace("issue-1", "issue-2"),
+    })
+    expect(response.status).toBe(401)
+    expect(mocks.runWorkflow).not.toHaveBeenCalled()
+  })
+
+  it("verifies only the connection whose row secret matches", async () => {
+    const rowSecretA = "linear-row-secret-a"
+    const rowSecretB = "linear-row-secret-b"
+    mocks.listConnections.mockResolvedValueOnce([
+      {
+        id: "con_a",
+        orgId: "org_1",
+        status: "installed",
+        webhookSecretEnc: encryptConnectionSecret(rowSecretA, env),
+      },
+      {
+        id: "con_b",
+        orgId: "org_2",
+        status: "installed",
+        webhookSecretEnc: encryptConnectionSecret(rowSecretB, env),
+      },
+    ])
+    const webhookTimestamp = Date.now()
+    const request = signedRequest(
+      {
+        type: "Issue",
+        action: "update",
+        organizationId: "workspace-1",
+        webhookTimestamp,
+        data: { id: "issue-1" },
+      },
+      rowSecretA,
+    )
+    const response = await createTestApp().request("/api/v1/webhook/linear", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "linear-signature": request.signature,
+      },
+      body: request.body,
+    })
+    expect(response.status).toBe(200)
+    expect(mocks.runWorkflow).toHaveBeenCalledTimes(1)
+    expect(mocks.runWorkflow).toHaveBeenCalledWith(
+      { name: "linear-sync-entity" },
+      expect.objectContaining({ connectionId: "con_a", orgId: "org_1" }),
+    )
   })
 })
 

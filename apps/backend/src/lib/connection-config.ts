@@ -130,11 +130,14 @@ export const linearConnectionConfigStoredSchema = z
     accessTokenEnc: z.string().min(1).optional(),
     refreshTokenEnc: z.string().min(1).optional(),
     accessTokenExpiresAt: z.string().datetime().nullable().optional(),
-    workspaceId: z.string().min(1),
-    workspaceName: z.string().min(1),
+    workspaceId: z.string().min(1).optional(),
+    workspaceName: z.string().min(1).optional(),
     workspaceUrlKey: z.string().min(1).nullable().optional(),
     actorUserId: z.string().min(1).nullable().optional(),
-    ownerUserId: z.string().min(1),
+    ownerUserId: z.string().min(1).optional(),
+    oauthClientId: z.string().min(1).optional(),
+    oauthClientSecretEnc: z.string().min(1).optional(),
+    webhookSecretEnc: z.string().min(1).optional(),
     status: z.string().optional(),
     lastEventPayload: z.unknown().nullish(),
     /** Context repository to mirror into (sync binding; not a separate table). */
@@ -190,6 +193,58 @@ export function encodeLinearTokensForDb(
       ? encryptConnectionSecret(input.refreshToken.trim(), env)
       : undefined,
   }
+}
+
+export type LinearOauthAppSecretsWrite = {
+  oauthClientId: string
+  oauthClientSecret: string
+  webhookSecret?: string
+}
+
+export function encodeLinearOauthAppSecretsForDb(
+  input: LinearOauthAppSecretsWrite,
+  env: Env,
+): Pick<
+  LinearConnectionConfigStored,
+  "oauthClientId" | "oauthClientSecretEnc" | "webhookSecretEnc"
+> {
+  return {
+    oauthClientId: input.oauthClientId.trim(),
+    oauthClientSecretEnc: encryptConnectionSecret(
+      input.oauthClientSecret.trim(),
+      env,
+    ),
+    ...(input.webhookSecret
+      ? {
+          webhookSecretEnc: encryptConnectionSecret(
+            input.webhookSecret.trim(),
+            env,
+          ),
+        }
+      : {}),
+  }
+}
+
+export function decodeLinearOauthClientSecret(
+  stored: Pick<LinearConnectionConfigStored, "oauthClientSecretEnc">,
+  env: Env,
+): string | undefined {
+  if (!stored.oauthClientSecretEnc) return undefined
+  return decryptConnectionSecret(stored.oauthClientSecretEnc, env)
+}
+
+export function decodeLinearWebhookSecret(
+  stored: Pick<LinearConnectionConfigStored, "webhookSecretEnc">,
+  env: Env,
+): string | undefined {
+  if (!stored.webhookSecretEnc) return undefined
+  return decryptConnectionSecret(stored.webhookSecretEnc, env)
+}
+
+export function linearOauthAppSavedInConfig(
+  stored: LinearConnectionConfigStored,
+): boolean {
+  return Boolean(stored.oauthClientId && stored.oauthClientSecretEnc)
 }
 
 export function decodeLinearTokens(

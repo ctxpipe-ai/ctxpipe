@@ -28,6 +28,24 @@ describe("Linear OAuth state", () => {
     })
   })
 
+  it("includes connectionId when starting from a draft", () => {
+    const state = createLinearOAuthState({
+      ...input,
+      connectionId: "con_draft",
+    })
+    expect(
+      verifyLinearOAuthState({
+        authSecret: input.authSecret,
+        state,
+        now: input.now + 1,
+      }),
+    ).toMatchObject({
+      connectionId: "con_draft",
+      orgId: input.orgId,
+      userId: input.userId,
+    })
+  })
+
   it("rejects tampered and expired state", () => {
     const state = createLinearOAuthState(input)
     const [payload, signature] = state.split(".")

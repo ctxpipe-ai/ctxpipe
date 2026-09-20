@@ -7,6 +7,7 @@ const LinearOAuthStateSchema = z.object({
   orgId: z.string().min(1),
   orgSlug: z.string().min(1),
   userId: z.string().min(1),
+  connectionId: z.string().min(1).optional(),
 })
 
 export type LinearOAuthState = z.infer<typeof LinearOAuthStateSchema>
@@ -20,6 +21,7 @@ export function createLinearOAuthState(input: {
   orgId: string
   orgSlug: string
   userId: string
+  connectionId?: string
   now?: number
 }): string {
   const payload: LinearOAuthState = {
@@ -28,6 +30,7 @@ export function createLinearOAuthState(input: {
     orgId: input.orgId,
     orgSlug: input.orgSlug,
     userId: input.userId,
+    ...(input.connectionId ? { connectionId: input.connectionId } : {}),
   }
   const encodedPayload = Buffer.from(JSON.stringify(payload)).toString(
     "base64url",

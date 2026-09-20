@@ -1,11 +1,21 @@
 ---
 title: Linear
-description: Configure Linear OAuth, signed webhooks, deployment secrets, and preview testing for self-hosted ctx|.
+description: Register a Linear OAuth application in the product UI, or optionally set a deployment-wide app with LINEAR_* environment variables.
 ---
 
-Self-hosted Linear uses an OAuth application owned by your deployment. The
-backend handles authorization and signed webhook delivery; the worker uses the
-same OAuth credentials to refresh tokens during sync.
+Self-hosted Linear uses an OAuth application that you create in Linear. The
+usual path is to paste the client ID, client secret, and webhook signing secret
+into the connector wizard. No `LINEAR_*` environment variables or service
+restart are required for that path.
+
+The same routes run on hosted ctx| and on self-host. Hosted ctx| keeps a
+deployment-wide Linear app in environment variables as a fallback. Self-host
+operators can use that fallback too if they want one shared Linear application
+for the whole deployment.
+
+The worker decrypts the saved client secret with the same key the backend uses
+(`AUTH_SECRET` or `CONNECTION_SECRETS_ENCRYPTION_KEY`). That is not a new Linear
+environment variable.
 
 ## What you need
 
@@ -23,7 +33,7 @@ Linear scope remains reviewable in Git:
   request branch.
 - Live scope is the same YAML on the configured target branch after merge.
 - The deployment stores encrypted credentials, repository binding, and setup
-  status.
+  status on the `connections` row.
 - Signed Linear events update in-scope generated files through durable worker
   jobs.
 
@@ -74,28 +84,48 @@ acknowledges delivery.
   A Linear application has one webhook destination. You can register several
   OAuth redirect URIs, but events from every workspace installation go to that
   one webhook URL. Use a separate Linear application when a staging or PR
-  environment must receive its own incremental events.
+  environment must receive its own incremental events. Per-organization apps
+  each register the same Event URL and store their own signing secret on the
+  connection.
 </Callout>
 
-## 3. Set deployment variables
+## 3. Register the app in the product UI
 
-Set OAuth credentials on both backend and worker services. The backend handles
-the callback and the worker refreshes tokens during sync. The webhook signing
-secret is consumed by the backend webhook route.
+1. Open **Connectors → Add connection → Linear**.
+2. On **Register Linear OAuth app**, paste the client ID, client secret, and
+   webhook signing secret. The wizard shows the exact callback and webhook URLs
+   for this deployment.
+3. Save the app, then continue to **Connect Linear workspace**.
+4. Complete OAuth, choose a GitHub repository and scope, and merge
+   `linear/config.yaml`.
+
+Secrets are stored encrypted on the Linear `connections` row. List and status
+APIs never return them.
+
+The backend and worker must share the encryption key
+(`AUTH_SECRET` / `CONNECTION_SECRETS_ENCRYPTION_KEY`) so token refresh can use
+the saved client secret.
+
+## 4. Optional deployment-wide environment variables
+
+`LINEAR_*` remains an optional operator shortcut for a deployment-wide Linear
+application (the hosted fallback). When both `LINEAR_CLIENT_ID` and
+`LINEAR_CLIENT_SECRET` are set, the wizard skips Register and starts at Connect.
 
 | Variable | Required | Purpose |
 |---|---:|---|
-| `LINEAR_CLIENT_ID` | Backend + worker | OAuth application client ID |
-| `LINEAR_CLIENT_SECRET` | Backend + worker | OAuth code exchange and token refresh |
+| `LINEAR_CLIENT_ID` | Optional; backend + worker if used | Shared OAuth application client ID |
+| `LINEAR_CLIENT_SECRET` | Optional; backend + worker if used | Shared OAuth code exchange and token refresh |
 | `LINEAR_REDIRECT_URI` | Backend; optional | Exact callback override; defaults to `{AUTH_BASE_URL}/api/v1/integrations/linear/callback` |
-| `LINEAR_WEBHOOK_SECRET` | Backend; required for incremental sync | Verifies signed Linear webhook requests |
+| `LINEAR_WEBHOOK_SECRET` | Optional; backend if used | Shared signing secret for `/api/v1/webhook/linear` |
 
-Restart or redeploy both services after changing credentials. The connector is
-shown as configured only when both client ID and client secret are available.
+Empty values still parse as unset. Restart or redeploy both services after
+changing these variables.
 
 ### Docker Compose
 
-Add the variables to the root `.env` used by the `deploy` profile, then run:
+Add the variables to the root `.env` used by the `deploy` profile only if you
+want a deployment-wide app, then run:
 
 ```bash
 docker compose --profile deploy up -d --build backend worker
@@ -104,9 +134,9 @@ docker compose --profile deploy up -d --build backend worker
 ### Railway
 
 Set OAuth variables on the production backend and worker, and the webhook
-secret on the backend. The repository's Terraform module currently passes
-provided `LINEAR_*` values to both services. For the root Terraform stack, the
-corresponding inputs are
+secret on the backend, only when using the deployment-wide fallback. The
+repository's Terraform module currently passes provided `LINEAR_*` values to
+both services. For the root Terraform stack, the corresponding inputs are
 `TF_VAR_linear_client_id`, `TF_VAR_linear_client_secret`,
 `TF_VAR_linear_redirect_uri`, and `TF_VAR_linear_webhook_secret`.
 
@@ -117,7 +147,8 @@ application to test incremental delivery safely.
 
 ### AWS CDK
 
-Pass the four values through `connectorSecrets`:
+Pass the four values through `connectorSecrets` when you want the
+deployment-wide fallback:
 
 ```ts
 new CtxPipe(stack, "CtxPipe", {
@@ -137,25 +168,25 @@ new CtxPipe(stack, "CtxPipe", {
 The construct stores these values in the connector secret and injects them into
 backend and worker task definitions.
 
-## 4. Verify the connector
+## 5. Verify the connector
 
 1. Confirm `GET /.status` succeeds on the public backend origin.
-2. Confirm the backend and worker have the required `LINEAR_*` variables and
-   the worker is running.
+2. Confirm the worker is running and shares the backend encryption key.
 3. Open **Connectors → Add connection → Linear**.
-4. Complete OAuth and confirm the expected Linear workspace appears.
-5. Choose a GitHub repository and scope. New empty repositories are supported:
+4. If `LINEAR_*` is unset, complete **Register Linear OAuth app**, then Connect.
+5. Complete OAuth and confirm the expected Linear workspace appears.
+6. Choose a GitHub repository and scope. New empty repositories are supported:
    ctx| creates the initial branch before opening the configuration pull
    request.
-6. Merge the generated `linear/config.yaml` pull request.
-7. Confirm the GitHub App delivers the merge push to
+7. Merge the generated `linear/config.yaml` pull request.
+8. Confirm the GitHub App delivers the merge push to
    `{AUTH_BASE_URL}/api/v1/webhook/github/<connectionId>`.
-8. Confirm the connector reaches **Connected** and generated files appear under
+9. Confirm the connector reaches **Connected** and generated files appear under
    `linear/`.
-9. Edit a mirrored Linear issue and confirm
-   `POST /api/v1/webhook/linear` succeeds and the corresponding Git file
-   changes.
-10. Confirm repository ingestion completes.
+10. Edit a mirrored Linear issue and confirm
+    `POST /api/v1/webhook/linear` succeeds and the corresponding Git file
+    changes.
+11. Confirm repository ingestion completes.
 
 Linear file uploads and explicit embedded external media are copied into
 sibling `assets/` directories in the context repository. Ordinary link-only
@@ -165,15 +196,16 @@ Linear entity; unsafe, failed, or oversized assets leave a Linear link or
 textual stub. Treat the destination repository as carrying the same sensitivity
 as the selected Linear scope.
 
-Initial sync proves OAuth, worker, and GitHub access. Step 9 separately proves
-Linear webhook delivery and signature configuration.
+Initial sync proves OAuth, worker, and GitHub access. The webhook step
+separately proves Linear webhook delivery and signature configuration.
 
 ## Troubleshooting
 
 ### “Linear OAuth is not configured”
 
-`LINEAR_CLIENT_ID` or `LINEAR_CLIENT_SECRET` is missing from the backend, empty,
-or was added without restarting the service.
+Neither the connection nor the deployment has a Linear client ID and secret.
+Register the app in the wizard, or set `LINEAR_CLIENT_ID` and
+`LINEAR_CLIENT_SECRET` on backend and worker if you want a deployment-wide app.
 
 ### Linear reports a redirect URI mismatch
 
@@ -184,9 +216,11 @@ with a different external callback.
 
 ### OAuth succeeds but sync later fails
 
-The worker also needs `LINEAR_CLIENT_ID` and `LINEAR_CLIENT_SECRET` because it
-refreshes expiring access tokens. Check outbound HTTPS, worker logs, and whether
-the application authorization was revoked in Linear.
+The worker must be able to decrypt the saved client secret (same
+`AUTH_SECRET` / `CONNECTION_SECRETS_ENCRYPTION_KEY` as the backend) or, when
+using the env fallback, have `LINEAR_CLIENT_ID` and `LINEAR_CLIENT_SECRET`.
+Check outbound HTTPS, worker logs, and whether the application authorization
+was revoked in Linear.
 
 ### Configuration pull request creation fails
 
@@ -199,13 +233,15 @@ selection when retrying.
 
 ### Webhook endpoint returns 503
 
-`LINEAR_WEBHOOK_SECRET` is not present in the backend environment.
+No webhook signing secret is present on the matching Linear connection or in
+`LINEAR_WEBHOOK_SECRET`.
 
 ### Webhook endpoint returns 401
 
-The signing secret does not match the Linear application, a proxy changed the
-raw body, or the event timestamp is stale. Do not parse and re-serialize the
-body in a gateway before forwarding it.
+The signing secret does not match the Linear application that sent the event, a
+proxy changed the raw body, or the event timestamp is stale. Do not parse and
+re-serialize the body in a gateway before forwarding it. A secret saved on one
+connection does not authorize events for another.
 
 ### Initial sync works but later edits do not appear
 

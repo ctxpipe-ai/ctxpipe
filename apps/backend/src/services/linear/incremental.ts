@@ -1,6 +1,7 @@
 import type { CustomerNeed, Issue } from "@linear/sdk"
 import type { Env } from "../../config/env.js"
 import type { LinearConnection } from "../../models/linear-connector.js"
+import { linearAccessToken } from "../../models/linear-oauth-app.js"
 import {
   type ConnectorAssetBytePool,
   connectorPathMatchesPreservation,
@@ -217,7 +218,7 @@ export async function buildLinearIncrementalChanges(input: {
           createdAt: need.createdAt.toISOString(),
           updatedAt: need.updatedAt.toISOString(),
         },
-        accessToken: input.connection.accessToken,
+        accessToken: linearAccessToken(input.connection),
         ...assetOptions,
       })
     }
@@ -299,7 +300,7 @@ export async function buildLinearIncrementalChanges(input: {
                 : null,
           })),
         },
-        input.connection.accessToken,
+        linearAccessToken(input.connection),
         assetOptions,
       )
     }
@@ -334,7 +335,7 @@ export async function buildLinearIncrementalChanges(input: {
                 createdAt: team.createdAt.toISOString(),
                 updatedAt: team.updatedAt.toISOString(),
               },
-              accessToken: input.connection.accessToken,
+              accessToken: linearAccessToken(input.connection),
               ...assetOptions,
             })
             break
@@ -405,7 +406,7 @@ export async function buildLinearIncrementalChanges(input: {
                 updatedAt: project.updatedAt.toISOString(),
               },
               sections: renderLinearUpdateSections(updates),
-              accessToken: input.connection.accessToken,
+              accessToken: linearAccessToken(input.connection),
               ...assetOptions,
             })
             break
@@ -437,7 +438,7 @@ export async function buildLinearIncrementalChanges(input: {
                 creatorId: document.creatorId ?? null,
                 updatedAt: document.updatedAt.toISOString(),
               },
-              accessToken: input.connection.accessToken,
+              accessToken: linearAccessToken(input.connection),
               ...assetOptions,
             })
             break
@@ -466,7 +467,7 @@ export async function buildLinearIncrementalChanges(input: {
                 updatedAt: initiative.updatedAt.toISOString(),
               },
               sections: renderLinearUpdateSections(updates),
-              accessToken: input.connection.accessToken,
+              accessToken: linearAccessToken(input.connection),
               ...assetOptions,
             })
             break
@@ -489,7 +490,7 @@ export async function buildLinearIncrementalChanges(input: {
                 endsAt: cycle.endsAt.toISOString(),
                 completedAt: cycle.completedAt?.toISOString() ?? null,
               },
-              accessToken: input.connection.accessToken,
+              accessToken: linearAccessToken(input.connection),
               ...assetOptions,
             })
             break
@@ -507,7 +508,7 @@ export async function buildLinearIncrementalChanges(input: {
               title: label.name,
               body: label.description,
               metadata: { teamId: label.teamId ?? null, color: label.color },
-              accessToken: input.connection.accessToken,
+              accessToken: linearAccessToken(input.connection),
               ...assetOptions,
             })
             break
@@ -526,7 +527,7 @@ export async function buildLinearIncrementalChanges(input: {
                 guest: user.guest,
                 avatarUrl: user.avatarUrl ?? null,
               },
-              accessToken: input.connection.accessToken,
+              accessToken: linearAccessToken(input.connection),
               ...assetOptions,
             })
             break

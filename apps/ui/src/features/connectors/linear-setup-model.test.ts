@@ -165,4 +165,34 @@ describe("Linear setup model", () => {
       }),
     ).toBe("merge")
   })
+
+  it("inserts Register before Connect when env is not configured", () => {
+    const draft = {
+      ...liveStatus,
+      isInstalled: false,
+      syncTarget: null,
+      selectedScopeCount: 0,
+      setupPhase: "draft" as const,
+    }
+    const selfHostUnsaved = {
+      globalLinearOauthConfigured: false,
+      oauthAppSaved: false,
+    }
+    const selfHostSaved = {
+      globalLinearOauthConfigured: false,
+      oauthAppSaved: true,
+    }
+    const hosted = {
+      globalLinearOauthConfigured: true,
+      oauthAppSaved: false,
+    }
+    expect(getLinearWizardBodyId(draft, selfHostUnsaved)).toBe("register")
+    expect(getLinearCardPrimaryCta(draft, selfHostUnsaved)).toEqual({
+      kind: "open_wizard",
+      label: "Register OAuth app",
+    })
+    expect(getLinearWizardBodyId(draft, selfHostSaved)).toBe("connect")
+    expect(getLinearWizardBodyId(draft, hosted)).toBe("connect")
+    expect(getLinearWizardBodyId(draft)).toBe("connect")
+  })
 })

@@ -76,7 +76,7 @@ Writes go through `commitFiles` in `installation-write-client.ts` (`encoding: "b
 
 Hosted and self-host run the **same** routes. Difference: who creates the provider app and supplies secrets.
 
-- **Deployment-shared** app credentials live in env (`LINEAR_*`, `NOTION_*`, `SLACK_*`). **Connection-specific** credentials (and provider-issued secrets) live encrypted in `connections.config`. Document which model this provider requires. Backend **and** worker need shared client credentials when the worker refreshes tokens.
+- **Deployment-shared** app credentials live in env (`LINEAR_*`, `NOTION_*`, `SLACK_*`). **Connection-specific** credentials (and provider-issued secrets) live encrypted in `connections.config`. Linear app credentials may be connection-specific (self-host), same as Atlassian; hosted still uses `LINEAR_*`. Document which model this provider requires. Backend **and** worker need shared client credentials when the worker refreshes tokens.
 - Callbacks and Event URLs are on **this** deployment’s `AUTH_BASE_URL` (e.g. `/api/v1/integrations/<slug>/callback`, `/api/v1/webhook/<slug>`). Derive redirect URI from `AUTH_BASE_URL`; optional `*_REDIRECT_URI` only when the public URL differs.
 - One Event URL per deployment app; route to a connection by workspace/team id in the payload. Per-connection webhook paths only when the provider app itself is per-connection (GitHub App on the connection row).
 - Per-org provider apps only when sharing one app would cross tenants (Atlassian 3LO on the Forge row — ADR-019). Still processed on this deployment.
