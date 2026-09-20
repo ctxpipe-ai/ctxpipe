@@ -278,13 +278,14 @@ describe("NotionSetupDialog", () => {
     )
   })
 
-  it("saves the integration then offers Connect Notion", async () => {
+  it("saves the integration then offers Connect Notion after webhook verification", async () => {
     saveOauthApp.mockImplementation(async () => {
       oauthAppState.current = {
         ...oauthAppState.current,
         oauthConfigured: true,
         oauthAppSaved: true,
         oauthClientId: "client_123",
+        webhookConfigured: false,
         webhookUrl:
           "http://localhost/api/v1/webhook/notion?connectionId=con_notion&provisioningToken=tok",
       }
@@ -325,11 +326,37 @@ describe("NotionSetupDialog", () => {
     })
     expect(container.textContent).toContain("Event URL")
     expect(container.textContent).toContain("provisioningToken=tok")
+    expect(container.textContent).toContain(
+      "Waiting for Notion to verify the Event URL",
+    )
+
+    const connectWaiting = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Connect Notion",
+    )
+    expect(connectWaiting).toBeDefined()
+    expect(connectWaiting?.disabled).toBe(true)
+    await act(async () => connectWaiting?.click())
+    expect(connectStart).not.toHaveBeenCalled()
+
+    oauthAppState.current = {
+      ...oauthAppState.current,
+      webhookConfigured: true,
+    }
+    await act(async () => {
+      root?.render(
+        <NotionSetupDialog
+          orgSlug="acme"
+          connectionId="con_notion"
+          isOpen
+          onOpenChange={() => {}}
+        />,
+      )
+    })
 
     const connect = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Connect Notion",
     )
-    expect(connect).toBeDefined()
+    expect(connect?.disabled).toBe(false)
     await act(async () => connect?.click())
     expect(connectStart).toHaveBeenCalledWith(
       expect.objectContaining({ connectionId: "con_notion" }),

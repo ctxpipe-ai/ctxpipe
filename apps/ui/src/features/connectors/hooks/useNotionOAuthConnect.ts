@@ -50,7 +50,7 @@ export function useNotionOAuthConnect(orgSlug: string) {
   const start = (input: {
     connectionId: string
     onFinished: (result: { connectionId?: string }) => void
-    onConfigurationRequired?: () => void
+    onNotConfigured?: () => void
   }) => {
     setBusy(true)
     void (async () => {
@@ -86,7 +86,7 @@ export function useNotionOAuthConnect(orgSlug: string) {
       } catch (error) {
         setBusy(false)
         if (error instanceof NotionOAuthNotConfiguredError) {
-          input.onConfigurationRequired?.()
+          input.onNotConfigured?.()
           return
         }
         toast.error(

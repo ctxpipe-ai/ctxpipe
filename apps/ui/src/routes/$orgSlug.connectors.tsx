@@ -22,7 +22,6 @@ import {
   LinearConnectionCard,
   LinearSetupWizard,
   NotionConnectionCard,
-  NotionOAuthSetupModal,
   NotionSetupDialog,
   SlackConnectionCard,
 } from "@/features/connectors"
@@ -98,7 +97,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   const [notionSetupOpen, setNotionSetupOpen] = useState(false)
   const [notionManageScope, setNotionManageScope] = useState(false)
   const [linearManageScope, setLinearManageScope] = useState(false)
-  const [notionOAuthSetupOpen, setNotionOAuthSetupOpen] = useState(false)
   const [notionConnectionId, setNotionConnectionId] = useState<string | null>(
     null,
   )
@@ -341,10 +339,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                 setNotionManageScope(false)
                 setNotionSetupOpen(true)
               }}
-              onConfigurationRequired={() => {
-                setCatalogOpen(false)
-                setNotionOAuthSetupOpen(true)
-              }}
               onFlowFinished={({ connectionId }) => {
                 setCatalogOpen(false)
                 if (!connectionId) return
@@ -515,6 +509,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             .map((item) => item.id)}
           manageScope={notionManageScope}
           isOpen={notionSetupOpen}
+          onConnectionIdChange={setNotionConnectionId}
           onOpenChange={(open) => {
             setNotionSetupOpen(open)
             if (!open) {
@@ -522,11 +517,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
               setNotionManageScope(false)
             }
           }}
-        />
-
-        <NotionOAuthSetupModal
-          isOpen={notionOAuthSetupOpen}
-          onOpenChange={setNotionOAuthSetupOpen}
         />
       </main>
     </AppShell>

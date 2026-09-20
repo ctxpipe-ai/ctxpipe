@@ -17,7 +17,6 @@ export type AddNotionConnectorButtonProps = {
   onFlowStarted?: () => void
   onFlowFinished?: (result: { connectionId?: string }) => void
   onRegisterRequired?: (result: { connectionId: string }) => void
-  onConfigurationRequired?: () => void
 }
 
 export function AddNotionConnectorButton({
@@ -25,7 +24,6 @@ export function AddNotionConnectorButton({
   onFlowStarted,
   onFlowFinished,
   onRegisterRequired,
-  onConfigurationRequired,
 }: AddNotionConnectorButtonProps) {
   const queryClient = useQueryClient()
   const oauth = useNotionOAuthConnect(orgSlug)
@@ -53,7 +51,9 @@ export function AddNotionConnectorButton({
         onFinished: (result) => {
           onFlowFinished?.(result)
         },
-        onConfigurationRequired,
+        onNotConfigured: () => {
+          onRegisterRequired?.({ connectionId: draft.id })
+        },
       })
     } catch (error) {
       toast.error(

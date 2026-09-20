@@ -2,6 +2,10 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import {
+  notionOauthAppHandler,
+  notionOauthAppPutHandler,
+} from "../mocks/notion-oauth-app-msw"
 import { NotionSetupDialog } from "./NotionSetupDialog"
 
 const orgSlug = "acme"
@@ -33,52 +37,6 @@ const githubInstallationHandler = http.get(
       appSlug: "ctxpipe-pr-153",
       accountSlug: "acme",
     }),
-)
-
-function notionOauthAppHandler(body: {
-  oauthAppSaved?: boolean
-  globalNotionOAuthConfigured?: boolean
-  oauthClientId?: string | null
-  webhookUrl?: string
-} = {}) {
-  const oauthAppSaved = body.oauthAppSaved ?? false
-  const globalNotionOAuthConfigured = body.globalNotionOAuthConfigured ?? true
-  return http.get(
-    ({ request }) => {
-      const u = new URL(request.url)
-      return (
-        u.pathname === `/${orgSlug}/api/v1/connectors/notion/oauth-app` &&
-        u.searchParams.get("connectionId") === connectionId
-      )
-    },
-    ({ request }) => {
-      const origin = new URL(request.url).origin
-      return HttpResponse.json({
-        oauthConfigured: oauthAppSaved || globalNotionOAuthConfigured,
-        oauthAppSaved,
-        oauthClientId: body.oauthClientId ?? (oauthAppSaved ? "notion-client-id" : null),
-        webhookConfigured: oauthAppSaved || globalNotionOAuthConfigured,
-        globalNotionOAuthConfigured,
-        callbackUrl: `${origin}/api/v1/connectors/notion/oauth/callback`,
-        webhookUrl:
-          body.webhookUrl ??
-          (oauthAppSaved
-            ? `${origin}/api/v1/webhook/notion?connectionId=${connectionId}&provisioningToken=story`
-            : `${origin}/api/v1/webhook/notion`),
-      })
-    },
-  )
-}
-
-const notionOauthAppPut = http.put(
-  ({ request }) => {
-    const u = new URL(request.url)
-    return (
-      u.pathname === `/${orgSlug}/api/v1/connectors/notion/oauth-app` &&
-      u.searchParams.get("connectionId") === connectionId
-    )
-  },
-  () => new HttpResponse(null, { status: 204 }),
 )
 
 const draftStatus = {
@@ -141,7 +99,7 @@ export const RegisterNotionOauth: Story = {
                     oauthConfigured: saved,
                     oauthAppSaved: saved,
                     oauthClientId: clientId,
-                    webhookConfigured: saved,
+                    webhookConfigured: false,
                     globalNotionOAuthConfigured: false,
                     callbackUrl: `${origin}/api/v1/connectors/notion/oauth/callback`,
                     webhookUrl: saved
@@ -185,11 +143,14 @@ export const RegisterNotionOauthSaved: Story = {
         page: [
           notionStatus(draftStatus),
           notionOauthAppHandler({
+            orgSlug,
+            connectionId,
             oauthAppSaved: true,
             globalNotionOAuthConfigured: false,
             oauthClientId: "notion-client-id-story",
+            webhookConfigured: true,
           }),
-          notionOauthAppPut,
+          notionOauthAppPutHandler({ orgSlug, connectionId }),
         ],
       },
     },
@@ -205,6 +166,8 @@ export const ConnectNotionGlobalEnv: Story = {
         page: [
           notionStatus(draftStatus),
           notionOauthAppHandler({
+            orgSlug,
+            connectionId,
             oauthAppSaved: false,
             globalNotionOAuthConfigured: true,
           }),
@@ -309,7 +272,11 @@ export const ResourceSelection: Story = {
               ),
             () => HttpResponse.json({ items: [] }),
           ),
-          notionOauthAppHandler(),
+          notionOauthAppHandler({
+            orgSlug,
+            connectionId,
+            globalNotionOAuthConfigured: true,
+          }),
         ],
       },
     },
@@ -420,7 +387,11 @@ export const TargetRepository: Story = {
                 hasMore: false,
               }),
           ),
-          notionOauthAppHandler(),
+          notionOauthAppHandler({
+            orgSlug,
+            connectionId,
+            globalNotionOAuthConfigured: true,
+          }),
         ],
       },
     },

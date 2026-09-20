@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import { notionOauthAppHandler } from "../mocks/notion-oauth-app-msw"
 import { AddNotionConnectorButton } from "./AddNotionConnectorButton"
 
 const orgSlug = "acme"
@@ -32,28 +33,6 @@ const draftPost = http.post(
   () => HttpResponse.json({ id: draftId, orgId: "org_story" }),
 )
 
-function oauthAppHandler(globalNotionOAuthConfigured: boolean) {
-  return http.get(
-    ({ request }) => {
-      const u = new URL(request.url)
-      return (
-        u.pathname === `/${orgSlug}/api/v1/connectors/notion/oauth-app` &&
-        u.searchParams.get("connectionId") === draftId
-      )
-    },
-    ({ request }) =>
-      HttpResponse.json({
-        oauthConfigured: globalNotionOAuthConfigured,
-        oauthAppSaved: false,
-        oauthClientId: null,
-        webhookConfigured: globalNotionOAuthConfigured,
-        globalNotionOAuthConfigured,
-        callbackUrl: `${new URL(request.url).origin}/api/v1/connectors/notion/oauth/callback`,
-        webhookUrl: `${new URL(request.url).origin}/api/v1/webhook/notion`,
-      }),
-  )
-}
-
 const oauthStart = http.get(
   ({ request }) =>
     new URL(request.url).pathname.endsWith(
@@ -74,7 +53,15 @@ export const Idle: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [draftPost, oauthAppHandler(true), oauthStart],
+        page: [
+          draftPost,
+          notionOauthAppHandler({
+            orgSlug,
+            connectionId: draftId,
+            globalNotionOAuthConfigured: true,
+          }),
+          oauthStart,
+        ],
       },
     },
   },
@@ -91,7 +78,11 @@ export const Starting: Story = {
       handlers: {
         page: [
           draftPost,
-          oauthAppHandler(true),
+          notionOauthAppHandler({
+            orgSlug,
+            connectionId: draftId,
+            globalNotionOAuthConfigured: true,
+          }),
           http.get(
             ({ request }) =>
               new URL(request.url).pathname.endsWith(

@@ -1,7 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http } from "msw"
 import { entryPageInnerDecorators } from "../../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../../.storybook/decorators/with-story-route"
+import {
+  notionOauthAppHandler,
+  notionOauthAppPutHandler,
+} from "../../mocks/notion-oauth-app-msw"
 import { RegisterNotionOauthStep } from "./RegisterNotionOauthStep"
 
 const orgSlug = "acme"
@@ -31,45 +34,6 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-const oauthAppHandler = (
-  oauthAppSaved: boolean,
-  globalNotionOAuthConfigured = false,
-) =>
-  http.get(
-    ({ request }) => {
-      const u = new URL(request.url)
-      return (
-        u.pathname === `/${orgSlug}/api/v1/connectors/notion/oauth-app` &&
-        u.searchParams.get("connectionId") === connectionId
-      )
-    },
-    ({ request }) => {
-      const origin = new URL(request.url).origin
-      return HttpResponse.json({
-        oauthConfigured: oauthAppSaved || globalNotionOAuthConfigured,
-        oauthAppSaved,
-        oauthClientId: oauthAppSaved ? "notion-oauth-client-id-story" : null,
-        webhookConfigured: oauthAppSaved || globalNotionOAuthConfigured,
-        globalNotionOAuthConfigured,
-        callbackUrl: `${origin}/api/v1/connectors/notion/oauth/callback`,
-        webhookUrl: oauthAppSaved
-          ? `${origin}/api/v1/webhook/notion?connectionId=${connectionId}&provisioningToken=story`
-          : `${origin}/api/v1/webhook/notion`,
-      })
-    },
-  )
-
-const oauthAppPut = http.put(
-  ({ request }) => {
-    const u = new URL(request.url)
-    return (
-      u.pathname === `/${orgSlug}/api/v1/connectors/notion/oauth-app` &&
-      u.searchParams.get("connectionId") === connectionId
-    )
-  },
-  () => new HttpResponse(null, { status: 204 }),
-)
-
 const step = () => (
   <RegisterNotionOauthStep
     orgSlug={orgSlug}
@@ -84,7 +48,15 @@ export const RegisterOAuth: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [oauthAppHandler(false, false), oauthAppPut],
+        page: [
+          notionOauthAppHandler({
+            orgSlug,
+            connectionId,
+            oauthAppSaved: false,
+            globalNotionOAuthConfigured: false,
+          }),
+          notionOauthAppPutHandler({ orgSlug, connectionId }),
+        ],
       },
     },
   },
@@ -96,7 +68,38 @@ export const RegisterOAuthSaved: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [oauthAppHandler(true, false), oauthAppPut],
+        page: [
+          notionOauthAppHandler({
+            orgSlug,
+            connectionId,
+            oauthAppSaved: true,
+            globalNotionOAuthConfigured: false,
+            oauthClientId: "notion-oauth-client-id-story",
+            webhookConfigured: true,
+          }),
+          notionOauthAppPutHandler({ orgSlug, connectionId }),
+        ],
+      },
+    },
+  },
+}
+
+export const WaitingForWebhook: Story = {
+  name: "Saved — waiting for webhook verification",
+  render: step,
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          notionOauthAppHandler({
+            orgSlug,
+            connectionId,
+            oauthAppSaved: true,
+            globalNotionOAuthConfigured: false,
+            webhookConfigured: false,
+          }),
+          notionOauthAppPutHandler({ orgSlug, connectionId }),
+        ],
       },
     },
   },

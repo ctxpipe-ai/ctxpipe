@@ -76,6 +76,7 @@ type NotionSetupDialogProps = {
   manageScope?: boolean
   isOpen: boolean
   onOpenChange: (open: boolean) => void
+  onConnectionIdChange?: (connectionId: string) => void
 }
 
 export function NotionSetupDialog({
@@ -85,6 +86,7 @@ export function NotionSetupDialog({
   manageScope = false,
   isOpen,
   onOpenChange,
+  onConnectionIdChange,
 }: NotionSetupDialogProps) {
   const queryClient = useQueryClient()
   const oauthConnect = useNotionOAuthConnect(orgSlug)
@@ -418,9 +420,23 @@ export function NotionSetupDialog({
       const startConnect = () => {
         oauthConnect.start({
           connectionId,
-          onFinished: async () => {
+          onFinished: async (result) => {
+            if (
+              result.connectionId &&
+              result.connectionId !== connectionId
+            ) {
+              onConnectionIdChange?.(result.connectionId)
+            }
             await queryClient.invalidateQueries({
-              queryKey: notionConnectorKeys.status(orgSlug, connectionId),
+              queryKey: notionConnectorKeys.status(
+                orgSlug,
+                result.connectionId ?? connectionId,
+              ),
+            })
+          },
+          onNotConfigured: () => {
+            void queryClient.invalidateQueries({
+              queryKey: notionConnectorKeys.oauthApp(orgSlug, connectionId),
             })
           },
         })
@@ -442,7 +458,7 @@ export function NotionSetupDialog({
               Connect Notion
             </h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              Authorize ctxpipe to access the Notion workspace you want to
+              Authorise ctxpipe to access the Notion workspace you want to
               mirror.
             </p>
           </div>

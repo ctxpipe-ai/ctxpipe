@@ -3,6 +3,7 @@ import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import { notionOauthAppHandler } from "../mocks/notion-oauth-app-msw"
 import { NotionConnectionCard } from "./NotionConnectionCard"
 
 const orgSlug = "acme"
@@ -23,37 +24,6 @@ const statusComplete = {
     repositoryName: "acme/context",
     branch: "main",
   },
-}
-
-function notionOauthAppHandler(
-  body: {
-    oauthAppSaved?: boolean
-    globalNotionOAuthConfigured?: boolean
-  } = {},
-) {
-  return http.get(
-    ({ request }) => {
-      const u = new URL(request.url)
-      return (
-        u.pathname === `/${orgSlug}/api/v1/connectors/notion/oauth-app` &&
-        u.searchParams.get("connectionId") === connectionId
-      )
-    },
-    ({ request }) =>
-      HttpResponse.json({
-        oauthConfigured:
-          Boolean(body.oauthAppSaved) ||
-          (body.globalNotionOAuthConfigured ?? false),
-        oauthAppSaved: body.oauthAppSaved ?? false,
-        oauthClientId: body.oauthAppSaved ? "notion-client-id" : null,
-        webhookConfigured:
-          Boolean(body.oauthAppSaved) ||
-          (body.globalNotionOAuthConfigured ?? false),
-        globalNotionOAuthConfigured: body.globalNotionOAuthConfigured ?? false,
-        callbackUrl: `${new URL(request.url).origin}/api/v1/connectors/notion/oauth/callback`,
-        webhookUrl: `${new URL(request.url).origin}/api/v1/webhook/notion`,
-      }),
-  )
 }
 
 function notionStatus(status: object) {
@@ -163,6 +133,8 @@ export const NotYetConnected: Story = {
             syncTarget: null,
           }),
           notionOauthAppHandler({
+            orgSlug,
+            connectionId,
             oauthAppSaved: false,
             globalNotionOAuthConfigured: false,
           }),
