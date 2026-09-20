@@ -18,6 +18,7 @@ import { connectorsListRoutes } from "./connectors-list.js"
 import {
   notionConnectorRoutes,
   notionOAuthCallbackRoutes,
+  notionOauthAppReadRoutes,
 } from "./connectors-notion.js"
 import {
   slackConnectorRoutes,
@@ -74,6 +75,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/github/installation", githubInstallationAdminScoped)
     .route("/connectors/atlassian", atlassianConnectorScoped)
     .route("/connectors/linear", linearConnectorScoped)
+    .route("/connectors/notion", notionOauthAppReadRoutes)
     .route("/connectors/notion", notionConnectorScoped)
     .route("/connectors/atlassian/pending-claim", pendingAtlassianClaimRoutes)
     .route("/connectors/slack", slackConnectorScoped)

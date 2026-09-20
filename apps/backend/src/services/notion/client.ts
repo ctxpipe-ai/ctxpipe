@@ -54,22 +54,17 @@ export type NotionTokenRefreshHandler = (
   refreshToken: string | null
 }>
 
-function assertNotionOAuthConfigured(env: Env) {
-  if (!env.NOTION_CLIENT_ID || !env.NOTION_CLIENT_SECRET) {
-    throw new Error("Notion OAuth is not configured")
-  }
+function notionBasicAuth(clientId: string, clientSecret: string): string {
+  return Buffer.from(`${clientId}:${clientSecret}`).toString("base64")
 }
 
 export function getNotionOAuthAuthorizeUrl(input: {
-  env: Env
+  clientId: string
   redirectUri: string
   state: string
 }) {
-  assertNotionOAuthConfigured(input.env)
-  const clientId = input.env.NOTION_CLIENT_ID
-  if (!clientId) throw new Error("Notion OAuth is not configured")
   const params = new URLSearchParams({
-    client_id: clientId,
+    client_id: input.clientId,
     response_type: "code",
     owner: "user",
     redirect_uri: input.redirectUri,
@@ -79,18 +74,15 @@ export function getNotionOAuthAuthorizeUrl(input: {
 }
 
 export async function exchangeNotionOAuthCode(input: {
-  env: Env
+  clientId: string
+  clientSecret: string
   code: string
   redirectUri: string
 }): Promise<NotionTokenResponse> {
-  assertNotionOAuthConfigured(input.env)
-  const credentials = Buffer.from(
-    `${input.env.NOTION_CLIENT_ID}:${input.env.NOTION_CLIENT_SECRET}`,
-  ).toString("base64")
   const res = await fetch("https://api.notion.com/v1/oauth/token", {
     method: "POST",
     headers: {
-      authorization: `Basic ${credentials}`,
+      authorization: `Basic ${notionBasicAuth(input.clientId, input.clientSecret)}`,
       "content-type": "application/json",
     },
     body: JSON.stringify({
@@ -106,17 +98,14 @@ export async function exchangeNotionOAuthCode(input: {
 }
 
 export async function refreshNotionOAuthToken(input: {
-  env: Env
+  clientId: string
+  clientSecret: string
   refreshToken: string
 }): Promise<Pick<NotionTokenResponse, "access_token" | "refresh_token">> {
-  assertNotionOAuthConfigured(input.env)
-  const credentials = Buffer.from(
-    `${input.env.NOTION_CLIENT_ID}:${input.env.NOTION_CLIENT_SECRET}`,
-  ).toString("base64")
   const res = await fetch("https://api.notion.com/v1/oauth/token", {
     method: "POST",
     headers: {
-      authorization: `Basic ${credentials}`,
+      authorization: `Basic ${notionBasicAuth(input.clientId, input.clientSecret)}`,
       "content-type": "application/json",
     },
     body: JSON.stringify({
@@ -185,13 +174,18 @@ async function fetchNotion<T>(
     const expectedAccessToken = input.connection.accessToken
     const tokens = input.onTokenRefresh
       ? await input.onTokenRefresh(expectedRefreshToken, expectedAccessToken)
-      : await refreshNotionOAuthToken({
-          env: input.env,
-          refreshToken: expectedRefreshToken,
-        }).then((refreshed) => ({
-          accessToken: refreshed.access_token,
-          refreshToken: refreshed.refresh_token ?? expectedRefreshToken,
-        }))
+      : input.env.NOTION_CLIENT_ID && input.env.NOTION_CLIENT_SECRET
+        ? await refreshNotionOAuthToken({
+            clientId: input.env.NOTION_CLIENT_ID,
+            clientSecret: input.env.NOTION_CLIENT_SECRET,
+            refreshToken: expectedRefreshToken,
+          }).then((refreshed) => ({
+            accessToken: refreshed.access_token,
+            refreshToken: refreshed.refresh_token ?? expectedRefreshToken,
+          }))
+        : (() => {
+            throw new Error("Notion OAuth is not configured")
+          })()
     input.connection.accessToken = tokens.accessToken
     input.connection.refreshToken = tokens.refreshToken
     res = await request(input.connection.accessToken)

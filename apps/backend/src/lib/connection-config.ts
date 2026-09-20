@@ -290,6 +290,12 @@ export const notionConnectionConfigSchema = z
     setupPhase: z.enum(NOTION_SETUP_PHASES).optional(),
     pendingConfigPullUrl: z.string().nullable().optional(),
     pendingConfigPrCreating: z.boolean().optional(),
+    /** Public Notion integration client id (self-host register step). */
+    oauthClientId: z.string().min(1).optional(),
+    /** AES-GCM ciphertext of the Notion OAuth client secret. */
+    oauthClientSecretEnc: z.string().min(1).optional(),
+    /** AES-GCM ciphertext of the Notion webhook verification token. */
+    webhookSecretEnc: z.string().min(1).optional(),
   })
   .transform((c) => ({
     ...c,
@@ -316,6 +322,13 @@ export function parseNotionConnectionConfig(
   config: Record<string, unknown>,
 ): NotionConnectionConfig {
   return notionConnectionConfigSchema.parse(config)
+}
+
+export function tryParseNotionConnectionConfig(
+  config: unknown,
+): NotionConnectionConfig | null {
+  const parsed = notionConnectionConfigSchema.safeParse(config)
+  return parsed.success ? parsed.data : null
 }
 
 export type NotionConnectionTokens = {

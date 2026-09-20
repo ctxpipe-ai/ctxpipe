@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { parseEnv } from "../config/env.js"
 import type { Env } from "../config/env.js"
 import {
   decodeNotionTokens,
@@ -6,6 +7,11 @@ import {
   migrateLegacyNotionTokensForDb,
   parseNotionConnectionConfig,
 } from "./connection-config.js"
+import { encryptConnectionSecret } from "./connection-secrets.js"
+import {
+  resolveNotionOAuthApp,
+  resolveNotionWebhookSecret,
+} from "./notion-oauth.js"
 
 const env = {
   AUTH_SECRET: "test-secret-at-least-32-characters-long-xx",
@@ -95,5 +101,90 @@ describe("Notion token encryption", () => {
   it("returns undefined when no tokens are present", () => {
     const stored = parseNotionConnectionConfig({ botId: "bot_1" })
     expect(decodeNotionTokens(stored, env)).toBeUndefined()
+  })
+
+  it("round-trips oauth app and webhook secret ciphertext on the row", () => {
+    const stored = parseNotionConnectionConfig({
+      oauthClientId: "notion-client",
+      oauthClientSecretEnc: encryptConnectionSecret("notion-secret", env),
+      webhookSecretEnc: encryptConnectionSecret("verify-token", env),
+    })
+    expect(stored.oauthClientId).toBe("notion-client")
+    expect(stored.oauthClientSecretEnc).toMatch(/^ctxv1:/)
+    expect(stored.webhookSecretEnc).toMatch(/^ctxv1:/)
+    expect(stored.oauthClientSecretEnc).not.toContain("notion-secret")
+    expect(stored.webhookSecretEnc).not.toContain("verify-token")
+  })
+})
+
+describe("parseEnv Notion optionals", () => {
+  it("succeeds when all NOTION_* values are empty strings", () => {
+    const parsed = parseEnv({
+      DATABASE_URL: "postgresql://localhost/test",
+      AUTH_SECRET: "test-secret-at-least-32-characters-long-xx",
+      NOTION_CLIENT_ID: "",
+      NOTION_CLIENT_SECRET: "",
+      NOTION_REDIRECT_URI: "",
+      NOTION_WEBHOOK_SECRET: "",
+    })
+    expect(parsed.NOTION_CLIENT_ID).toBeUndefined()
+    expect(parsed.NOTION_CLIENT_SECRET).toBeUndefined()
+    expect(parsed.NOTION_REDIRECT_URI).toBeUndefined()
+    expect(parsed.NOTION_WEBHOOK_SECRET).toBeUndefined()
+  })
+})
+
+describe("resolveNotionOAuthApp", () => {
+  it("prefers decrypted row credentials over env", () => {
+    const stored = parseNotionConnectionConfig({
+      oauthClientId: "row-id",
+      oauthClientSecretEnc: encryptConnectionSecret("row-secret", env),
+    })
+    const withEnv = {
+      ...env,
+      NOTION_CLIENT_ID: "env-id",
+      NOTION_CLIENT_SECRET: "env-secret",
+    } as Env
+    expect(resolveNotionOAuthApp(stored, withEnv)).toEqual({
+      clientId: "row-id",
+      clientSecret: "row-secret",
+    })
+  })
+
+  it("falls back to env when the row has no app", () => {
+    const withEnv = {
+      ...env,
+      NOTION_CLIENT_ID: "env-id",
+      NOTION_CLIENT_SECRET: "env-secret",
+    } as Env
+    expect(resolveNotionOAuthApp(undefined, withEnv)).toEqual({
+      clientId: "env-id",
+      clientSecret: "env-secret",
+    })
+  })
+
+  it("returns undefined when neither row nor env has both fields", () => {
+    expect(resolveNotionOAuthApp(undefined, env)).toBeUndefined()
+    expect(
+      resolveNotionOAuthApp(
+        parseNotionConnectionConfig({ oauthClientId: "only-id" }),
+        env,
+      ),
+    ).toBeUndefined()
+  })
+})
+
+describe("resolveNotionWebhookSecret", () => {
+  it("prefers the row verification token over env", () => {
+    const stored = parseNotionConnectionConfig({
+      webhookSecretEnc: encryptConnectionSecret("row-hook", env),
+    })
+    const withEnv = { ...env, NOTION_WEBHOOK_SECRET: "env-hook" } as Env
+    expect(resolveNotionWebhookSecret(stored, withEnv)).toBe("row-hook")
+  })
+
+  it("falls back to env when the row has no webhook secret", () => {
+    const withEnv = { ...env, NOTION_WEBHOOK_SECRET: "env-hook" } as Env
+    expect(resolveNotionWebhookSecret(undefined, withEnv)).toBe("env-hook")
   })
 })

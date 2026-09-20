@@ -16,12 +16,15 @@ const transitionNotionBindingStateMock = vi.hoisted(() => vi.fn())
 vi.mock("../../models/notion-connector.js", () => ({
   claimNotionContentSyncRetry: claimNotionContentSyncRetryMock,
   claimNotionConfigPrCreation: claimNotionConfigPrCreationMock,
+  createDraftNotionConnection: vi.fn(),
   deleteNotionConnectionById: vi.fn(),
   getNotionBindingWithRepoByConnectionId:
     getNotionBindingWithRepoByConnectionIdMock,
+  getNotionStoredConfigByConnectionId: vi.fn(),
   MULTIPLE_NOTION_CONNECTIONS_MESSAGE:
     "Multiple Notion connections for this organization; specify connectionId query parameter",
   patchNotionConnectorConfig: patchNotionConnectorConfigMock,
+  patchNotionOauthApp: vi.fn(),
   releaseNotionConfigPrCreationClaim: releaseNotionConfigPrCreationClaimMock,
   resolveNotionConnectionForOrgDetailed:
     resolveNotionConnectionForOrgDetailedMock,
