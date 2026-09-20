@@ -103,7 +103,11 @@ export function PagerdutyConnectionCard({
           isError
             ? "Retry"
             : status
-              ? getPagerdutyCardCtaLabel(status)
+              ? getPagerdutyCardCtaLabel(status, {
+                  globalPagerdutyOAuthConfigured:
+                    status.globalPagerdutyOAuthConfigured,
+                  oauthAppSaved: status.oauthAppSaved,
+                })
               : undefined
         }
         onAction={
@@ -114,6 +118,11 @@ export function PagerdutyConnectionCard({
               : undefined
         }
       >
+        {status?.installationStatus === "revoked" ? (
+          <p className="text-sm text-muted-foreground">
+            PagerDuty authorization is revoked; reconnect the account.
+          </p>
+        ) : null}
         {failureAction ? (
           <p className="text-sm text-muted-foreground">
             {failureAction === "retry_content"

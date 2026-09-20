@@ -15,8 +15,6 @@ const pagerdutySyncEntityInputSchema = z.object({
   orgId: z.string().min(1),
   connectionId: z.string().min(1),
   incidentId: z.string().min(1),
-  action: z.enum(["upsert", "delete"]),
-  eventId: z.string().optional(),
 })
 
 export const pagerdutySyncEntity = defineWorkflow(
@@ -90,7 +88,6 @@ export const pagerdutySyncEntity = defineWorkflow(
           config: context.config,
           entity: {
             incidentId: input.incidentId,
-            action: input.action,
           },
         })
         if (syncResult.status === "failed") {

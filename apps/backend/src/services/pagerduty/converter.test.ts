@@ -45,6 +45,23 @@ describe("renderPagerdutyIncidentMarkdown", () => {
     )
   })
 
+  it("keeps titles and notes that mention a routing key", () => {
+    const markdown = renderPagerdutyIncidentMarkdown({
+      ...baseIncident,
+      title: "Check the routing key in the runbook",
+      notes: [
+        {
+          id: "N1",
+          content: "Do not rotate the routing key without paging on-call.",
+        },
+      ],
+    })
+    expect(markdown).toContain("Check the routing key in the runbook")
+    expect(markdown).toContain(
+      "Do not rotate the routing key without paging on-call.",
+    )
+  })
+
   it("renders notes and overflows extra alerts", () => {
     const markdown = renderPagerdutyIncidentMarkdown({
       ...baseIncident,

@@ -1,14 +1,20 @@
 ---
 title: PagerDuty
-description: Configure PagerDuty OAuth and automatic webhook subscriptions for self-hosted ctxpipe.
+description: Register a PagerDuty OAuth app in the UI, or optionally via deployment env, for self-hosted ctxpipe.
 ---
 
 ## Overview
 
-Self-hosted PagerDuty uses the same connector flow as hosted ctxpipe, but your
-deployment owns one OAuth application. Individual users authorize that
-application; ctxpipe then creates one v3 webhook subscription per connection.
-Operators do not paste a shared webhook signing secret.
+Self-hosted PagerDuty uses the same connector flow as hosted ctxpipe. Someone
+still creates a Scoped OAuth application in the
+[PagerDuty developer portal](https://developer.pagerduty.com). The usual path
+is to paste that app's client id and secret in the connector wizard. ctxpipe
+then creates one v3 webhook subscription per connection. Operators do not
+paste a shared webhook signing secret.
+
+Deployment env (`PAGERDUTY_CLIENT_ID` / `PAGERDUTY_CLIENT_SECRET`) remains an
+optional hosted-style shortcut. You do not need to restart Compose, Railway,
+or CDK to finish first-time setup.
 
 ## What you need
 
@@ -22,17 +28,26 @@ Operators do not paste a shared webhook signing secret.
 PagerDuty cannot deliver webhooks to a private localhost address. End-to-end
 connector testing requires a public HTTPS deployment or tunnel.
 
-## 1. Create the OAuth application
+## 1. Register the OAuth app in the wizard
 
-Create an OAuth application in the
-[PagerDuty developer portal](https://developer.pagerduty.com) and register this
-callback URL exactly:
+1. Open **Connectors → Add connection → PagerDuty**. ctx| creates a draft
+   connection so the app can be saved before account authorization.
+2. Create an OAuth application in the
+   [PagerDuty developer portal](https://developer.pagerduty.com).
+3. Register this callback URL exactly (the wizard copies it for you):
 
 ```text
 {AUTH_BASE_URL}/api/v1/integrations/pagerduty/callback
 ```
 
-Request these scopes:
+4. Use this Event URL when PagerDuty asks for a webhook destination. ctx|
+   creates the subscription after you connect an account:
+
+```text
+{AUTH_BASE_URL}/api/v1/webhook/pagerduty
+```
+
+5. Request these scopes:
 
 - `incidents.read`
 - `services.read`
@@ -40,40 +55,28 @@ Request these scopes:
 - `webhook_subscriptions.read`
 - `webhook_subscriptions.write`
 
+6. Save the client id and secret in **Register PagerDuty OAuth app**. ctx|
+   encrypts the secret on the connection and never returns it from connector
+   metadata. Continue to **Connect PagerDuty**.
+
 Do not add write-back scopes for incidents. ctxpipe does not acknowledge or
 resolve PagerDuty incidents.
-
-Set **`PAGERDUTY_CLIENT_ID`** and **`PAGERDUTY_CLIENT_SECRET`** on the backend
-and the worker. Set **`PAGERDUTY_REDIRECT_URI`** only when the public callback
-differs from the URL derived from `AUTH_BASE_URL`.
-
-The worker needs the client credentials because connector jobs refresh access
-tokens.
 
 <Callout title="No PAGERDUTY_WEBHOOK_SECRET">
   Webhook signing secrets are created per subscription and stored encrypted on
   the connection. Do not invent a deployment-wide PagerDuty webhook secret.
 </Callout>
 
-## 2. Public webhook URL
+## 2. Optional: deployment env shortcut
 
-After a user completes OAuth, ctxpipe creates one account-level v3 webhook
-subscription for incident events and points it at:
+If you prefer one shared app for the whole deployment, set
+**`PAGERDUTY_CLIENT_ID`** and **`PAGERDUTY_CLIENT_SECRET`** on the backend and
+the worker. Set **`PAGERDUTY_REDIRECT_URI`** only when the public callback
+differs from the URL derived from `AUTH_BASE_URL`. The wizard then starts at
+**Connect PagerDuty**.
 
-```text
-{AUTH_BASE_URL}/api/v1/webhook/pagerduty
-```
-
-ctxpipe verifies `X-PagerDuty-Signature` HMAC-SHA256 against the raw request
-body and routes the event with `X-PagerDuty-Subscription`. Re-authorization
-replaces a lost secret instead of stacking another subscription on the same
-event URL.
-
-Account-level delivery can include every service. Events with no service, or
-a service missing from live YAML, are acknowledged with `200` and never
-fetched.
-
-## 3. Supply secrets to the deployment
+Credential resolution is the saved connection app first, then env. The worker
+needs whichever client secret the refresh path will read.
 
 ### Docker Compose
 
@@ -116,12 +119,30 @@ new CtxPipe(stack, "CtxPipe", {
 The construct stores these values in the connector secret and injects them into
 backend and worker task definitions.
 
+## 3. Public webhook URL
+
+After a user completes OAuth, ctxpipe creates one account-level v3 webhook
+subscription for incident events and points it at:
+
+```text
+{AUTH_BASE_URL}/api/v1/webhook/pagerduty
+```
+
+ctxpipe verifies `X-PagerDuty-Signature` HMAC-SHA256 against the raw request
+body, binds the event to the one connection whose stored secret verifies, and
+routes with `X-PagerDuty-Subscription`. Re-authorization replaces a lost
+secret instead of stacking another subscription on the same event URL.
+
+Account-level delivery can include every service. Events with no service, or
+a service missing from live YAML, are acknowledged with `200` and never
+fetched.
+
 ## 4. Verify the connector
 
 1. Confirm `GET /.status` succeeds on the public backend origin.
-2. Confirm the backend and worker have `PAGERDUTY_CLIENT_ID` and
-   `PAGERDUTY_CLIENT_SECRET`.
-3. Open **Connectors → Add connection → PagerDuty**.
+2. Open **Connectors → Add connection → PagerDuty**.
+3. If the wizard shows **Register PagerDuty OAuth app**, save the client id
+   and secret. Skip this when the deployment already has a shared env app.
 4. Complete OAuth and confirm the expected account appears.
 5. Choose a GitHub repository and at least one service. Search and page if the
    account has more than one page of services.
@@ -145,10 +166,11 @@ after OAuth. Do not add a region field to the wizard. The API host is
 
 ### “PagerDuty OAuth is not configured”
 
-`PAGERDUTY_CLIENT_ID` or `PAGERDUTY_CLIENT_SECRET` is missing from the
-backend. The catalog still opens the setup wizard; Connect fails when the
-authorization URL cannot be created. Set both variables on backend and worker,
-then restart.
+Neither the connection nor the deployment has OAuth client credentials. Finish
+**Register PagerDuty OAuth app** in the wizard, or set both
+`PAGERDUTY_CLIENT_ID` and `PAGERDUTY_CLIENT_SECRET` on backend and worker and
+restart. The catalog still opens the setup wizard; Connect fails when the
+authorization URL cannot be created.
 
 ### Callback is rejected
 

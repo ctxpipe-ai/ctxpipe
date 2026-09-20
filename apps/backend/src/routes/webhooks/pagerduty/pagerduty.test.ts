@@ -111,7 +111,6 @@ describe("POST /api/v1/webhook/pagerduty", () => {
         orgId: "org_1",
         connectionId: "con_pd",
         incidentId: "PINCIDENT",
-        action: "upsert",
       }),
       { idempotencyKey: "pagerduty:con_pd:evt_1" },
     )
@@ -244,5 +243,49 @@ describe("POST /api/v1/webhook/pagerduty", () => {
     expect(response.status).toBe(200)
     expect(mocks.runWorkflow).not.toHaveBeenCalled()
     expect(mocks.loadConfig).toHaveBeenCalled()
+  })
+
+  it("binds HMAC verification to the matching connection when subscription ids collide", async () => {
+    const otherSecret = "other-subscription-secret"
+    const otherEnc = encryptConnectionSecret(otherSecret, env)
+    mocks.listConnections.mockResolvedValue([
+      {
+        ...liveConnection,
+        id: "con_wrong",
+        webhookSecretEnc: otherEnc,
+      },
+      liveConnection,
+    ])
+    const occurredAt = new Date().toISOString()
+    const { body, signature } = signedBody({
+      event: {
+        id: "evt_dup",
+        event_type: "incident.triggered",
+        occurred_at: occurredAt,
+        data: {
+          id: "PINCIDENT",
+          service: { id: "PSERVICE" },
+        },
+      },
+    })
+    const response = await createTestApp().request(
+      "/api/v1/webhook/pagerduty",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-pagerduty-signature": signature,
+          "x-pagerduty-subscription": "PFSUB",
+        },
+        body,
+      },
+    )
+    expect(response.status).toBe(200)
+    expect(mocks.runWorkflow).toHaveBeenCalledTimes(1)
+    expect(mocks.runWorkflow).toHaveBeenCalledWith(
+      { name: "pagerduty-sync-entity" },
+      expect.objectContaining({ connectionId: "con_pd" }),
+      { idempotencyKey: "pagerduty:con_pd:evt_dup" },
+    )
   })
 })

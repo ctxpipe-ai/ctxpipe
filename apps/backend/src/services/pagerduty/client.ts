@@ -1,6 +1,9 @@
 import { createHash, randomBytes } from "node:crypto"
 import type { Env } from "../../config/env.js"
-import type { PagerdutyRegion } from "../../lib/connection-config.js"
+import type {
+  PagerdutyOAuthAppCreds,
+  PagerdutyRegion,
+} from "../../lib/connection-config.js"
 import {
   PAGERDUTY_INCIDENT_LOOKBACK_DAYS,
   PAGERDUTY_MAX_INCIDENTS_PER_SERVICE,
@@ -59,16 +62,32 @@ export function createPagerdutyPkcePair(): {
   return { codeVerifier, codeChallenge }
 }
 
+export class PagerdutyAuthorizationRevokedError extends Error {
+  constructor(message = "PagerDuty authorization is revoked") {
+    super(message)
+    this.name = "PagerdutyAuthorizationRevokedError"
+  }
+}
+
+export function isPagerdutyAuthorizationRevokedError(
+  error: unknown,
+): error is PagerdutyAuthorizationRevokedError {
+  return (
+    error instanceof PagerdutyAuthorizationRevokedError ||
+    (error instanceof Error &&
+      (error.name === "PagerdutyAuthorizationRevokedError" ||
+        /invalid_grant|authorization is revoked/i.test(error.message)))
+  )
+}
+
 export function getPagerdutyOAuthAuthorizeUrl(input: {
   env: Env
+  creds: PagerdutyOAuthAppCreds
   state: string
   codeChallenge: string
 }): string {
-  if (!input.env.PAGERDUTY_CLIENT_ID || !input.env.PAGERDUTY_CLIENT_SECRET) {
-    throw new Error("PagerDuty OAuth is not configured")
-  }
   const url = new URL("https://identity.pagerduty.com/oauth/authorize")
-  url.searchParams.set("client_id", input.env.PAGERDUTY_CLIENT_ID)
+  url.searchParams.set("client_id", input.creds.clientId)
   url.searchParams.set("redirect_uri", pagerdutyRedirectUri(input.env))
   url.searchParams.set("response_type", "code")
   url.searchParams.set("scope", PAGERDUTY_OAUTH_SCOPES.join(" "))
@@ -94,19 +113,27 @@ type TokenResponse = {
 
 async function exchangePagerdutyToken(
   env: Env,
+  creds: PagerdutyOAuthAppCreds,
   body: URLSearchParams,
 ): Promise<TokenResponse> {
-  if (!env.PAGERDUTY_CLIENT_ID || !env.PAGERDUTY_CLIENT_SECRET) {
-    throw new Error("PagerDuty OAuth is not configured")
-  }
-  body.set("client_id", env.PAGERDUTY_CLIENT_ID)
-  body.set("client_secret", env.PAGERDUTY_CLIENT_SECRET)
+  body.set("client_id", creds.clientId)
+  body.set("client_secret", creds.clientSecret)
   const response = await fetch("https://identity.pagerduty.com/oauth/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body,
   })
   if (!response.ok) {
+    const text = await response.text().catch(() => "")
+    if (
+      response.status === 400 ||
+      response.status === 401 ||
+      /invalid_grant/i.test(text)
+    ) {
+      throw new PagerdutyAuthorizationRevokedError(
+        `PagerDuty token exchange failed (${response.status})`,
+      )
+    }
     throw new Error(`PagerDuty token exchange failed (${response.status})`)
   }
   return (await response.json()) as TokenResponse
@@ -114,6 +141,7 @@ async function exchangePagerdutyToken(
 
 export async function exchangePagerdutyOAuthCode(input: {
   env: Env
+  creds: PagerdutyOAuthAppCreds
   code: string
   codeVerifier: string
 }): Promise<{
@@ -127,7 +155,7 @@ export async function exchangePagerdutyOAuthCode(input: {
     redirect_uri: pagerdutyRedirectUri(input.env),
     code_verifier: input.codeVerifier,
   })
-  const token = await exchangePagerdutyToken(input.env, body)
+  const token = await exchangePagerdutyToken(input.env, input.creds, body)
   return {
     accessToken: token.access_token,
     refreshToken: token.refresh_token ?? null,
@@ -137,6 +165,7 @@ export async function exchangePagerdutyOAuthCode(input: {
 
 export async function refreshPagerdutyOAuthToken(input: {
   env: Env
+  creds: PagerdutyOAuthAppCreds
   refreshToken: string
 }): Promise<{
   accessToken: string
@@ -147,7 +176,7 @@ export async function refreshPagerdutyOAuthToken(input: {
     grant_type: "refresh_token",
     refresh_token: input.refreshToken,
   })
-  const token = await exchangePagerdutyToken(input.env, body)
+  const token = await exchangePagerdutyToken(input.env, input.creds, body)
   return {
     accessToken: token.access_token,
     refreshToken: token.refresh_token ?? input.refreshToken,
@@ -372,17 +401,20 @@ export async function listPagerdutyServices(input: {
   }
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
 function mapAlert(raw: Record<string, unknown>): PagerdutyAlertForMirror {
-  const body =
-    raw.body && typeof raw.body === "object"
-      ? (raw.body as Record<string, unknown>)
-      : {}
+  const body = asRecord(raw.body) ?? {}
+  const detailsRecord = asRecord(body.details)
+  const cefRecord = asRecord(body.cef_details)
   const details =
-    body.details && typeof body.details === "object"
-      ? (body.details as Record<string, unknown>)
-      : body.cef_details && typeof body.cef_details === "object"
-        ? (body.cef_details as Record<string, unknown>)
-        : null
+    detailsRecord && cefRecord
+      ? { ...cefRecord, ...detailsRecord }
+      : (detailsRecord ?? cefRecord)
   const contexts = Array.isArray(body.contexts)
     ? body.contexts.flatMap((context) => {
         if (!context || typeof context !== "object") return []
@@ -397,10 +429,13 @@ function mapAlert(raw: Record<string, unknown>): PagerdutyAlertForMirror {
         ]
       })
     : []
+  const bodySeverity =
+    typeof body.severity === "string" ? body.severity : undefined
   return {
     id: String(raw.id ?? ""),
     summary: typeof raw.summary === "string" ? raw.summary : "Alert",
-    severity: typeof raw.severity === "string" ? raw.severity : null,
+    severity:
+      bodySeverity ?? (typeof raw.severity === "string" ? raw.severity : null),
     status: typeof raw.status === "string" ? raw.status : null,
     createdAt: typeof raw.created_at === "string" ? raw.created_at : null,
     alertKey: typeof raw.alert_key === "string" ? raw.alert_key : null,
@@ -485,6 +520,9 @@ export async function listPagerdutyIncidentIdsForService(input: {
       path: "/incidents",
       search,
     })
+    if (response.status === 401) {
+      throw new PagerdutyAuthorizationRevokedError()
+    }
     if (!response.ok) {
       throw new Error(`PagerDuty incident list failed (${response.status})`)
     }
@@ -512,6 +550,9 @@ export async function getPagerdutyIncident(input: {
     accessToken: input.accessToken,
     path: `/incidents/${encodeURIComponent(input.incidentId)}`,
   })
+  if (response.status === 401) {
+    throw new PagerdutyAuthorizationRevokedError()
+  }
   if (response.status === 404) return "not_found"
   if (!response.ok) {
     throw new Error(`PagerDuty incident get failed (${response.status})`)

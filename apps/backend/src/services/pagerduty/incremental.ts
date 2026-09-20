@@ -17,7 +17,6 @@ import { capturePagerdutyIncidentAssets } from "./sync-assets.js"
 
 export type PagerdutyEntityChange = {
   incidentId: string
-  action: "upsert" | "delete"
 }
 
 export type PagerdutyIncrementalChanges = {
@@ -49,10 +48,10 @@ export async function buildPagerdutyIncrementalChanges(input: {
     input.existingPaths,
     input.entity.incidentId,
   )
-  if (input.entity.action === "delete") {
-    return { files: [], deletePaths: priorPaths, failures: [] }
-  }
 
+  if (!input.connection.accessToken) {
+    throw new Error("PagerDuty connection has no access token")
+  }
   const incident = await getPagerdutyIncident({
     accessToken: input.connection.accessToken,
     region: input.connection.region,

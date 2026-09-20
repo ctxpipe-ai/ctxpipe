@@ -26,6 +26,12 @@ const statusComplete = {
     branch: "main",
     githubConnectionId: "con_github",
   },
+  pagerdutyOauthConfigured: true,
+  oauthAppSaved: false,
+  globalPagerdutyOAuthConfigured: true,
+  oauthCallbackUrl:
+    "https://app.example.com/api/v1/integrations/pagerduty/callback",
+  webhookUrl: "https://app.example.com/api/v1/webhook/pagerduty",
 }
 
 function pagerdutyStatus(status: object) {

@@ -1,12 +1,17 @@
 import { and, eq } from "drizzle-orm"
 import type { Env } from "../../config/env.js"
 import { getOrgDb, withOrgDbContext } from "../../db/client.js"
+import { resolvePagerdutyOAuthAppCreds } from "../../lib/connection-config.js"
 import type {
   PagerdutyBinding,
   PagerdutyBindingWithRepo,
   PagerdutyConnection,
 } from "../../models/pagerduty-connector.js"
-import { refreshPagerdutyConnectionTokensWithLock } from "../../models/pagerduty-connector.js"
+import {
+  getPagerdutyConnectionByConnectionId,
+  recordPagerdutyOAuthRevocation,
+  refreshPagerdutyConnectionTokensWithLock,
+} from "../../models/pagerduty-connector.js"
 import { repositories } from "../../db/schema/repositories.js"
 import {
   connectorCommitFileUnchanged,
@@ -25,6 +30,7 @@ import {
 } from "../github/installation-write-client.js"
 import {
   getPagerdutyIncident,
+  isPagerdutyAuthorizationRevokedError,
   listPagerdutyIncidentIdsForService,
   refreshPagerdutyOAuthToken,
 } from "./client.js"
@@ -67,14 +73,34 @@ function createPagerdutyTokenRefreshHandler(input: {
         expectedRefreshToken,
         expectedAccessToken,
         refresh: async (refreshToken) => {
-          const refreshed = await refreshPagerdutyOAuthToken({
-            env: input.env,
-            refreshToken,
-          })
-          return {
-            accessToken: refreshed.accessToken,
-            refreshToken: refreshed.refreshToken,
-            accessTokenExpiresAt: refreshed.accessTokenExpiresAt,
+          const connection = await getPagerdutyConnectionByConnectionId(
+            input.orgId,
+            input.connectionId,
+            input.env,
+          )
+          const creds = resolvePagerdutyOAuthAppCreds(connection, input.env)
+          if (!creds) {
+            throw new Error("PagerDuty OAuth is not configured")
+          }
+          try {
+            const refreshed = await refreshPagerdutyOAuthToken({
+              env: input.env,
+              creds,
+              refreshToken,
+            })
+            return {
+              accessToken: refreshed.accessToken,
+              refreshToken: refreshed.refreshToken,
+              accessTokenExpiresAt: refreshed.accessTokenExpiresAt,
+            }
+          } catch (error) {
+            if (isPagerdutyAuthorizationRevokedError(error)) {
+              await recordPagerdutyOAuthRevocation({
+                orgId: input.orgId,
+                connectionId: input.connectionId,
+              })
+            }
+            throw error
           }
         },
       }),
@@ -87,23 +113,44 @@ async function resolveFreshAccessToken(input: {
   connection: PagerdutyConnection
 }): Promise<string> {
   const expiresAt = input.connection.accessTokenExpiresAt
-  if (expiresAt && Date.parse(expiresAt) - 60_000 > Date.now()) {
+  if (
+    input.connection.accessToken &&
+    expiresAt &&
+    Date.parse(expiresAt) - 60_000 > Date.now()
+  ) {
     return input.connection.accessToken
   }
-  if (!input.connection.refreshToken) return input.connection.accessToken
-  const refresh = createPagerdutyTokenRefreshHandler({
-    orgId: input.orgId,
-    connectionId: input.connection.id,
-    env: input.env,
-  })
-  const tokens = await refresh(
-    input.connection.refreshToken,
-    input.connection.accessToken,
-  )
-  input.connection.accessToken = tokens.accessToken
-  input.connection.refreshToken = tokens.refreshToken
-  input.connection.accessTokenExpiresAt = tokens.accessTokenExpiresAt
-  return tokens.accessToken
+  if (!input.connection.refreshToken || !input.connection.accessToken) {
+    if (!input.connection.accessToken) {
+      throw new Error("PagerDuty connection has no access token")
+    }
+    return input.connection.accessToken
+  }
+  try {
+    const refresh = createPagerdutyTokenRefreshHandler({
+      orgId: input.orgId,
+      connectionId: input.connection.id,
+      env: input.env,
+    })
+    const tokens = await refresh(
+      input.connection.refreshToken,
+      input.connection.accessToken,
+    )
+    input.connection.accessToken = tokens.accessToken
+    input.connection.refreshToken = tokens.refreshToken
+    input.connection.accessTokenExpiresAt = tokens.accessTokenExpiresAt
+    return tokens.accessToken
+  } catch (error) {
+    if (isPagerdutyAuthorizationRevokedError(error)) {
+      await withOrgDbContext(input.orgId, () =>
+        recordPagerdutyOAuthRevocation({
+          orgId: input.orgId,
+          connectionId: input.connection.id,
+        }),
+      )
+    }
+    throw error
+  }
 }
 
 async function resolveRepoContextForBinding(
@@ -247,7 +294,7 @@ export async function syncPagerdutyContent(input: {
     )
   }
 
-  await resolveFreshAccessToken({
+  const accessToken = await resolveFreshAccessToken({
     orgId: input.orgId,
     env: input.env,
     connection: input.connection,
@@ -273,13 +320,13 @@ export async function syncPagerdutyContent(input: {
   for (const service of repoScope.services) {
     try {
       const incidentIds = await listPagerdutyIncidentIdsForService({
-        accessToken: input.connection.accessToken,
+        accessToken,
         region: input.connection.region,
         serviceId: service.id,
       })
       for (const incidentId of incidentIds) {
         const incident = await getPagerdutyIncident({
-          accessToken: input.connection.accessToken,
+          accessToken,
           region: input.connection.region,
           incidentId,
         })
@@ -295,6 +342,15 @@ export async function syncPagerdutyContent(input: {
         resourcesProcessed += 1
       }
     } catch (error) {
+      if (isPagerdutyAuthorizationRevokedError(error)) {
+        await withOrgDbContext(input.orgId, () =>
+          recordPagerdutyOAuthRevocation({
+            orgId: input.orgId,
+            connectionId: input.connection.id,
+          }),
+        )
+        throw error
+      }
       resourcesFailed += 1
       errors.push({
         externalId: service.id,
@@ -379,11 +435,12 @@ export async function syncPagerdutyIncrementalContent(input: {
     )
   }
 
-  await resolveFreshAccessToken({
+  const accessToken = await resolveFreshAccessToken({
     orgId: input.orgId,
     env: input.env,
     connection: input.connection,
   })
+  input.connection.accessToken = accessToken
 
   const allRepoFiles = await listFilesInTree({
     orgId: input.orgId,
@@ -403,14 +460,27 @@ export async function syncPagerdutyIncrementalContent(input: {
         path !== PAGERDUTY_CONFIG_PATH,
     )
 
-  const changes = await buildPagerdutyIncrementalChanges({
-    env: input.env,
-    connection: input.connection,
-    config: input.config,
-    entity: input.entity,
-    existingPaths: managedPaths,
-    budget: createConnectorAssetBudget(),
-  })
+  let changes: Awaited<ReturnType<typeof buildPagerdutyIncrementalChanges>>
+  try {
+    changes = await buildPagerdutyIncrementalChanges({
+      env: input.env,
+      connection: input.connection,
+      config: input.config,
+      entity: input.entity,
+      existingPaths: managedPaths,
+      budget: createConnectorAssetBudget(),
+    })
+  } catch (error) {
+    if (isPagerdutyAuthorizationRevokedError(error)) {
+      await withOrgDbContext(input.orgId, () =>
+        recordPagerdutyOAuthRevocation({
+          orgId: input.orgId,
+          connectionId: input.connection.id,
+        }),
+      )
+    }
+    throw error
+  }
 
   const filesToCommit = changes.files.filter(
     (file) => !connectorCommitFileUnchanged(file, existingShaByPath),

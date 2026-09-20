@@ -7,11 +7,17 @@ import { fetchPagerdutyOAuthStart } from "../queries/pagerduty-connector"
 
 type PagerdutyConnectStepProps = {
   orgSlug: string
+  connectionId?: string
+  revoked?: boolean
 }
 
-export function PagerdutyConnectStep({ orgSlug }: PagerdutyConnectStepProps) {
+export function PagerdutyConnectStep({
+  orgSlug,
+  connectionId,
+  revoked = false,
+}: PagerdutyConnectStepProps) {
   const connectMutation = useMutation({
-    mutationFn: () => fetchPagerdutyOAuthStart(orgSlug),
+    mutationFn: () => fetchPagerdutyOAuthStart(orgSlug, connectionId),
     onSuccess: ({ authorizationUrl }) => {
       const popup = window.open(
         authorizationUrl,
@@ -32,8 +38,9 @@ export function PagerdutyConnectStep({ orgSlug }: PagerdutyConnectStepProps) {
           Connect PagerDuty account
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
-          Authorise read-only access to the PagerDuty account you want ctxpipe
-          to mirror. A new window will open for approval.
+          {revoked
+            ? "PagerDuty authorization is revoked; reconnect the account."
+            : "Authorise read-only access to the PagerDuty account you want ctxpipe to mirror. A new window will open for approval."}
         </p>
       </div>
       <Button

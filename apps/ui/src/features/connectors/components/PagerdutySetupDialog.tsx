@@ -22,8 +22,8 @@ import {
 import {
   getPagerdutyFailureAction,
   getPagerdutySetupCurrentIndex,
+  getPagerdutySetupSteps,
   hasPagerdutyScopeChanged,
-  PAGERDUTY_SETUP_STEPS,
   shouldShowPagerdutySetupComplete,
 } from "../pagerduty-setup-model"
 import {
@@ -42,6 +42,7 @@ import { orgConnectionsKeys } from "../queries/org-connections"
 import {
   fetchPagerdutyConnectorConfig,
   fetchPagerdutyConnectorStatus,
+  fetchPagerdutyOAuthApp,
   type PagerdutyService,
   pagerdutyConnectorKeys,
   patchPagerdutyConnectorConfig,
@@ -58,6 +59,7 @@ import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { GitHubPrerequisiteStep } from "./GitHubPrerequisiteStep"
 import { PagerdutyConnectStep } from "./PagerdutyConnectStep"
 import { PagerdutyMark } from "./PagerdutyMark"
+import { PagerdutyRegisterOauthStep } from "./PagerdutyRegisterOauthStep"
 
 type GitHubRepoItem = {
   id: number
@@ -196,6 +198,12 @@ export function PagerdutySetupDialog({
   const configQuery = useQuery({
     queryKey: pagerdutyConnectorKeys.config(orgSlug, connectionId),
     queryFn: () => fetchPagerdutyConnectorConfig(orgSlug, connectionId),
+    enabled: isOpen && Boolean(connectionId),
+  })
+
+  const oauthQuery = useQuery({
+    queryKey: pagerdutyConnectorKeys.oauthApp(orgSlug, connectionId ?? ""),
+    queryFn: () => fetchPagerdutyOAuthApp(orgSlug, connectionId ?? ""),
     enabled: isOpen && Boolean(connectionId),
   })
 
@@ -444,6 +452,14 @@ export function PagerdutySetupDialog({
     onError: (error: Error) => toast.error(error.message),
   })
 
+  const oauthMeta = oauthQuery.data ??
+    (statusQuery.data
+      ? {
+          globalPagerdutyOAuthConfigured:
+            statusQuery.data.globalPagerdutyOAuthConfigured,
+          oauthAppSaved: statusQuery.data.oauthAppSaved,
+        }
+      : undefined)
   const status = connectionId
     ? statusQuery.data
     : {
@@ -459,6 +475,11 @@ export function PagerdutySetupDialog({
         pendingConfigPullUrl: null,
         pendingConfigPrCreating: false,
         syncTarget: null,
+        pagerdutyOauthConfigured: false,
+        oauthAppSaved: false,
+        globalPagerdutyOAuthConfigured: true,
+        oauthCallbackUrl: "",
+        webhookUrl: "",
       }
   const config = configQuery.data
   const failureAction = status ? getPagerdutyFailureAction(status) : null
@@ -467,7 +488,16 @@ export function PagerdutySetupDialog({
     selectedServices,
   )
   const editingLiveScope = status?.setupPhase === "live" && manageScope
-  const setupStepIndex = status ? getPagerdutySetupCurrentIndex(status) : 0
+  const setupSteps = getPagerdutySetupSteps(oauthMeta)
+  const setupStepIndex = status
+    ? getPagerdutySetupCurrentIndex(status, oauthMeta)
+    : 0
+  const needsRegister =
+    Boolean(connectionId) &&
+    oauthMeta !== undefined &&
+    !oauthMeta.globalPagerdutyOAuthConfigured &&
+    !oauthMeta.oauthAppSaved &&
+    !status?.isInstalled
 
   const body = (() => {
     if (connectionId && (statusQuery.isPending || configQuery.isPending)) {
@@ -494,8 +524,22 @@ export function PagerdutySetupDialog({
         </div>
       )
     }
+    if (needsRegister && connectionId) {
+      return (
+        <PagerdutyRegisterOauthStep
+          orgSlug={orgSlug}
+          connectionId={connectionId}
+        />
+      )
+    }
     if (!status?.isInstalled) {
-      return <PagerdutyConnectStep orgSlug={orgSlug} />
+      return (
+        <PagerdutyConnectStep
+          orgSlug={orgSlug}
+          connectionId={connectionId}
+          revoked={status?.installationStatus === "revoked"}
+        />
+      )
     }
     if (!status.isGithubLinked) {
       return (
@@ -1041,7 +1085,7 @@ export function PagerdutySetupDialog({
         {status && !(connectionId && statusQuery.isPending) ? (
           <div className="mb-6">
             <ConnectorSetupStepper
-              steps={PAGERDUTY_SETUP_STEPS}
+              steps={setupSteps}
               currentIndex={setupStepIndex}
             />
           </div>

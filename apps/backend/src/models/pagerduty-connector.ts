@@ -8,9 +8,12 @@ import {
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import {
+  encodePagerdutyOAuthClientSecretForDb,
   encodePagerdutyWebhookSecretForDb,
-  type PagerdutySetupPhase,
+  envHasPagerdutyOAuthApp,
+  pagerdutyConnectionHasOAuthApp,
   parsePagerdutyConnectionStored,
+  type PagerdutySetupPhase,
   serialisePagerdutyConnectionConfigForDb,
 } from "../lib/connection-config.js"
 import { generateObjectId } from "../lib/id.js"
@@ -79,6 +82,9 @@ function mergePagerdutyStoredConfig(
     pendingConfigPrCreating: boolean
     webhookSubscriptionId: string | null
     webhookSecretEnc: string | undefined
+    oauthClientId: string | undefined
+    oauthClientSecretEnc: string | undefined
+    status: string
   }>,
 ): Record<string, unknown> {
   const stored = parsePagerdutyConnectionStored(
@@ -199,25 +205,43 @@ export async function upsertPagerdutyConnectionFromOAuth(input: {
   accountSubdomain: string
   region: "us" | "eu"
   actorUserId: string | null
+  connectionId?: string | null
 }): Promise<PagerdutyConnection> {
   const db = getOrgDb()
   return db.transaction(async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${`${input.orgId}:${input.accountId}`}, 0))`,
     )
-    const [matched] = await tx
-      .select()
-      .from(connections)
-      .where(
-        and(
-          eq(connections.orgId, input.orgId),
-          eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
-          eq(pagerdutyConfigAccountIdRef(), input.accountId),
-        ),
-      )
-      .orderBy(desc(connections.updatedAt))
-      .limit(1)
-    let existing = matched
+    let existing: typeof connections.$inferSelect | undefined
+    if (input.connectionId) {
+      const [draft] = await tx
+        .select()
+        .from(connections)
+        .where(
+          and(
+            eq(connections.id, input.connectionId),
+            eq(connections.orgId, input.orgId),
+            eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
+          ),
+        )
+        .limit(1)
+      existing = draft
+    }
+    if (!existing) {
+      const [matched] = await tx
+        .select()
+        .from(connections)
+        .where(
+          and(
+            eq(connections.orgId, input.orgId),
+            eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
+            eq(pagerdutyConfigAccountIdRef(), input.accountId),
+          ),
+        )
+        .orderBy(desc(connections.updatedAt))
+        .limit(1)
+      existing = matched
+    }
     if (existing) {
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtextextended(${existing.id}, 0))`,
@@ -260,6 +284,8 @@ export async function upsertPagerdutyConnectionFromOAuth(input: {
           existingShape?.pendingConfigPrCreating ?? false,
         webhookSubscriptionId: existingShape?.webhookSubscriptionId ?? null,
         webhookSecretEnc: existingShape?.webhookSecretEnc ?? null,
+        oauthClientId: existingShape?.oauthClientId ?? null,
+        oauthClientSecretEnc: existingShape?.oauthClientSecretEnc ?? null,
       },
       input.env,
     )
@@ -366,6 +392,9 @@ export async function refreshPagerdutyConnectionTokensWithLock(input: {
       current.accessToken !== input.expectedAccessToken ||
       current.refreshToken !== input.expectedRefreshToken
     ) {
+      if (!current.accessToken) {
+        throw new Error("PagerDuty connection has no access token")
+      }
       return {
         accessToken: current.accessToken,
         refreshToken: current.refreshToken,
@@ -425,6 +454,151 @@ export async function listPagerdutyConnectionsByWebhookSubscriptionId(input: {
       ),
     )
   return rows.map((row) => pagerdutyConnectionToShape(row, input.env))
+}
+
+export async function createOrReusePagerdutyDraft(input: {
+  orgId: string
+  env: Env
+  ownerUserId: string
+}): Promise<PagerdutyConnection> {
+  const existing = await listPagerdutyConnectionsForOrg(input.orgId, input.env)
+  const reusable = existing.find(
+    (connection) =>
+      connection.status !== "installed" && connection.status !== "revoked",
+  )
+  if (reusable) return reusable
+
+  const db = getOrgDb()
+  const id = generateObjectId("con")
+  const [row] = await db
+    .insert(connections)
+    .values({
+      id,
+      orgId: input.orgId,
+      type: CONNECTION_TYPE_PAGERDUTY,
+      config: serialisePagerdutyConnectionConfigForDb({
+        accountId: `pending:${id}`,
+        accountName: "Pending PagerDuty account",
+        accountSubdomain: "pending",
+        region: "us",
+        ownerUserId: input.ownerUserId,
+        status: "pending",
+        setupPhase: "draft",
+      }),
+    })
+    .returning()
+  if (!row) throw new Error("Failed to create PagerDuty draft connection")
+  return pagerdutyConnectionToShape(row, input.env)
+}
+
+export type PagerdutyOAuthAppMetadata = {
+  oauthAppSaved: boolean
+  oauthClientId: string | null
+  globalPagerdutyOAuthConfigured: boolean
+  oauthCallbackUrl: string
+  webhookUrl: string
+}
+
+export function pagerdutyOAuthAppMetadata(
+  connection: PagerdutyConnection | undefined,
+  env: Env,
+): PagerdutyOAuthAppMetadata {
+  const publicOrigin = env.AUTH_BASE_URL.replace(/\/$/, "")
+  return {
+    oauthAppSaved: Boolean(
+      connection?.oauthClientId && connection.oauthClientSecretEnc,
+    ),
+    oauthClientId: connection?.oauthClientId ?? null,
+    globalPagerdutyOAuthConfigured: envHasPagerdutyOAuthApp(env),
+    oauthCallbackUrl: `${publicOrigin}/api/v1/integrations/pagerduty/callback`,
+    webhookUrl: `${publicOrigin}/api/v1/webhook/pagerduty`,
+  }
+}
+
+export async function savePagerdutyOAuthApp(input: {
+  orgId: string
+  connectionId: string
+  env: Env
+  clientId: string
+  clientSecret?: string
+}): Promise<PagerdutyOAuthAppMetadata> {
+  const db = getOrgDb()
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
+    )
+    const [row] = await tx
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
+        ),
+      )
+      .limit(1)
+    if (!row) throw new Error("PagerDuty connection not found")
+    const stored = parsePagerdutyConnectionStored(
+      row.config as Record<string, unknown>,
+    )
+    const newSecret = input.clientSecret?.trim() ?? ""
+    if (!pagerdutyConnectionHasOAuthApp(stored) && !newSecret) {
+      throw new Error("clientSecret is required when saving for the first time")
+    }
+    const [updated] = await tx
+      .update(connections)
+      .set({
+        config: mergePagerdutyStoredConfig(row, {
+          oauthClientId: input.clientId.trim(),
+          oauthClientSecretEnc: newSecret
+            ? encodePagerdutyOAuthClientSecretForDb(newSecret, input.env)
+            : stored.oauthClientSecretEnc,
+        }),
+        updatedAt: new Date(),
+      })
+      .where(eq(connections.id, input.connectionId))
+      .returning()
+    if (!updated) throw new Error("PagerDuty connection not found")
+    return pagerdutyOAuthAppMetadata(
+      pagerdutyConnectionToShape(updated, input.env),
+      input.env,
+    )
+  })
+}
+
+export async function recordPagerdutyOAuthRevocation(input: {
+  orgId: string
+  connectionId: string
+}): Promise<void> {
+  const db = getOrgDb()
+  await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
+    )
+    const [row] = await tx
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
+        ),
+      )
+      .limit(1)
+    if (!row) return
+    await tx
+      .update(connections)
+      .set({
+        config: mergePagerdutyStoredConfig(row, {
+          status: "revoked",
+          enabled: false,
+        }),
+        updatedAt: new Date(),
+      })
+      .where(eq(connections.id, input.connectionId))
+  })
 }
 
 export async function deletePagerdutyConnectionById(

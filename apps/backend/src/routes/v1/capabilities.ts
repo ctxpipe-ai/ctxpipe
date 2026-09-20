@@ -7,8 +7,12 @@ import {
   githubRowHasAppCredentials,
 } from "../../models/connection-rows.js"
 import { getGithubConnectionRow } from "../../models/github-installation.js"
+import { pagerdutyOauthConfigured } from "../../lib/connection-config.js"
 import { getLinearConnectionByConnectionId } from "../../models/linear-connector.js"
-import { getPagerdutyConnectionByConnectionId } from "../../models/pagerduty-connector.js"
+import {
+  getPagerdutyConnectionByConnectionId,
+  pagerdutyOAuthAppMetadata,
+} from "../../models/pagerduty-connector.js"
 
 const CapabilitiesQuery = z.object({
   connectionId: z.string().min(1),
@@ -105,14 +109,17 @@ export const orgCapabilitiesRoutes = new OpenAPIHono<AppEnv>().openapi(
       c.var.env,
     )
     if (pagerduty) {
-      const publicApiOrigin = c.var.env.AUTH_BASE_URL.replace(/\/$/, "")
+      const oauth = pagerdutyOAuthAppMetadata(pagerduty, c.var.env)
       return c.json(
         {
-          pagerdutyOauthConfigured: Boolean(
-            c.var.env.PAGERDUTY_CLIENT_ID && c.var.env.PAGERDUTY_CLIENT_SECRET,
+          pagerdutyOauthConfigured: pagerdutyOauthConfigured(
+            pagerduty,
+            c.var.env,
           ),
+          oauthAppSaved: oauth.oauthAppSaved,
+          oauthCallbackUrl: oauth.oauthCallbackUrl,
           pagerdutyAccountName: pagerduty.accountName,
-          pagerdutyWebhookUrl: `${publicApiOrigin}/api/v1/webhook/pagerduty`,
+          pagerdutyWebhookUrl: oauth.webhookUrl,
         },
         200,
       )

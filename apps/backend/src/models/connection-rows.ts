@@ -106,7 +106,7 @@ export type LinearConnectionShape = {
 export type PagerdutyConnectionShape = {
   id: string
   orgId: string
-  accessToken: string
+  accessToken: string | null
   refreshToken: string | null
   accessTokenExpiresAt: string | null
   accountId: string
@@ -124,6 +124,8 @@ export type PagerdutyConnectionShape = {
   pendingConfigPrCreating: boolean
   webhookSubscriptionId: string | null
   webhookSecretEnc: string | null
+  oauthClientId: string | null
+  oauthClientSecretEnc: string | null
   createdAt: Date
   updatedAt: Date
 }
@@ -517,14 +519,11 @@ export function pagerdutyConnectionToShape(
     row.config as Record<string, unknown>,
   )
   const tokens = decodePagerdutyTokens(config, env)
-  if (!tokens) {
-    throw new Error("PagerDuty connection is missing OAuth credentials")
-  }
   return {
     id: row.id,
     orgId: row.orgId,
-    accessToken: tokens.accessToken,
-    refreshToken: tokens.refreshToken,
+    accessToken: tokens?.accessToken ?? null,
+    refreshToken: tokens?.refreshToken ?? null,
     accessTokenExpiresAt: config.accessTokenExpiresAt ?? null,
     accountId: config.accountId,
     accountName: config.accountName,
@@ -541,6 +540,8 @@ export function pagerdutyConnectionToShape(
     pendingConfigPrCreating: config.pendingConfigPrCreating,
     webhookSubscriptionId: config.webhookSubscriptionId,
     webhookSecretEnc: config.webhookSecretEnc ?? null,
+    oauthClientId: config.oauthClientId ?? null,
+    oauthClientSecretEnc: config.oauthClientSecretEnc ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
@@ -554,13 +555,15 @@ export function pagerdutyShapeToConfig(
   env: Env,
 ): Record<string, unknown> {
   return serialisePagerdutyConnectionConfigForDb({
-    ...encodePagerdutyTokensForDb(
-      {
-        accessToken: input.accessToken,
-        refreshToken: input.refreshToken,
-      },
-      env,
-    ),
+    ...(input.accessToken
+      ? encodePagerdutyTokensForDb(
+          {
+            accessToken: input.accessToken,
+            refreshToken: input.refreshToken,
+          },
+          env,
+        )
+      : {}),
     accessTokenExpiresAt: input.accessTokenExpiresAt,
     accountId: input.accountId,
     accountName: input.accountName,
@@ -577,5 +580,7 @@ export function pagerdutyShapeToConfig(
     pendingConfigPrCreating: input.pendingConfigPrCreating,
     webhookSubscriptionId: input.webhookSubscriptionId,
     webhookSecretEnc: input.webhookSecretEnc ?? undefined,
+    oauthClientId: input.oauthClientId ?? undefined,
+    oauthClientSecretEnc: input.oauthClientSecretEnc ?? undefined,
   })
 }

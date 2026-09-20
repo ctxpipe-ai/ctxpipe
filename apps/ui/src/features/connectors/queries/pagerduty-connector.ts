@@ -31,6 +31,28 @@ export type PagerdutyConnectorStatus = {
     branch: string
     githubConnectionId: string | null
   } | null
+  pagerdutyOauthConfigured: boolean
+  oauthAppSaved: boolean
+  globalPagerdutyOAuthConfigured: boolean
+  oauthCallbackUrl: string
+  webhookUrl: string
+}
+
+export type PagerdutyOAuthApp = {
+  oauthAppSaved: boolean
+  oauthClientId: string | null
+  globalPagerdutyOAuthConfigured: boolean
+  oauthCallbackUrl: string
+  webhookUrl: string
+}
+
+export type PagerdutySyncTargetInput = {
+  repositoryId?: string
+  repositoryName?: string
+  gitUrl?: string
+  githubConnectionId?: string
+  branch: string
+  enabled: boolean
 }
 
 export type PagerdutyConnectorConfig = {
@@ -67,6 +89,8 @@ export const pagerdutyConnectorKeys = {
     ] as const,
   allStatusForOrg: (orgSlug: string) =>
     ["pagerduty-connector-status", orgSlug] as const,
+  oauthApp: (orgSlug: string, connectionId: string) =>
+    ["pagerduty-oauth-app", orgSlug, connectionId] as const,
 }
 
 function connectionQuery(connectionId?: string) {
@@ -98,14 +122,64 @@ export async function fetchPagerdutyConnectorConfig(
   return res.json() as Promise<PagerdutyConnectorConfig>
 }
 
+export async function createPagerdutyDraft(
+  orgSlug: string,
+): Promise<{ connectionId: string }> {
+  const res = await fetch(`/${orgSlug}/api/v1/connectors/pagerduty/draft`, {
+    method: "POST",
+    credentials: "include",
+  })
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(body.error ?? "Failed to start PagerDuty setup")
+  }
+  return res.json() as Promise<{ connectionId: string }>
+}
+
+export async function fetchPagerdutyOAuthApp(
+  orgSlug: string,
+  connectionId: string,
+): Promise<PagerdutyOAuthApp> {
+  const res = await fetch(
+    `/${orgSlug}/api/v1/connectors/pagerduty/oauth-app?${new URLSearchParams({ connectionId }).toString()}`,
+    { credentials: "include" },
+  )
+  if (!res.ok) throw new Error("Failed to load PagerDuty OAuth app settings")
+  return res.json() as Promise<PagerdutyOAuthApp>
+}
+
+export async function savePagerdutyOAuthApp(
+  orgSlug: string,
+  connectionId: string,
+  body: { clientId: string; clientSecret?: string },
+): Promise<PagerdutyOAuthApp> {
+  const res = await fetch(
+    `/${orgSlug}/api/v1/connectors/pagerduty/oauth-app?${new URLSearchParams({ connectionId }).toString()}`,
+    {
+      method: "PUT",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  )
+  if (!res.ok) {
+    const errorBody = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(errorBody.error ?? "Failed to save PagerDuty OAuth app")
+  }
+  return res.json() as Promise<PagerdutyOAuthApp>
+}
+
 export async function fetchPagerdutyOAuthStart(
   orgSlug: string,
+  connectionId?: string,
 ): Promise<{ authorizationUrl: string }> {
-  const res = await client[
-    ":orgSlug"
-  ].api.v1.connectors.pagerduty.oauth.start.$get({
-    param: { orgSlug },
-  })
+  const qs = connectionId
+    ? `?${new URLSearchParams({ connectionId }).toString()}`
+    : ""
+  const res = await fetch(
+    `/${orgSlug}/api/v1/connectors/pagerduty/oauth/start${qs}`,
+    { credentials: "include" },
+  )
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string }
     if (res.status === 503) throw new PagerdutyOAuthNotConfiguredError()
@@ -132,7 +206,7 @@ export async function searchPagerdutyServices(
 
 export async function patchPagerdutyConnectorConfig(
   orgSlug: string,
-  body: { services?: PagerdutyService[]; syncTarget?: unknown },
+  body: { services?: PagerdutyService[]; syncTarget?: PagerdutySyncTargetInput },
   connectionId?: string,
 ): Promise<{
   accepted: true

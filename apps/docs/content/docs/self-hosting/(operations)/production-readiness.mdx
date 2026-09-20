@@ -114,9 +114,10 @@ Before inviting users:
 - If using Notion, configure `NOTION_CLIENT_ID` and `NOTION_CLIENT_SECRET`,
   register the exact OAuth redirect URL, and set `NOTION_WEBHOOK_SECRET` after
   the first webhook delivery.
-- If using PagerDuty, configure `PAGERDUTY_CLIENT_ID` and
-  `PAGERDUTY_CLIENT_SECRET` on backend and worker, and register the exact
-  OAuth callback. ctx| creates the webhook subscription after authorization.
+- If using PagerDuty, register the exact OAuth callback. Either save the
+  client id and secret in the connector wizard, or configure
+  `PAGERDUTY_CLIENT_ID` and `PAGERDUTY_CLIENT_SECRET` on backend and worker.
+  ctx| creates the webhook subscription after authorization.
 - Confirm backend and worker can reach `identity.pagerduty.com` and
   `api.pagerduty.com` or `api.eu.pagerduty.com`.
 - Confirm the worker can run connector jobs.

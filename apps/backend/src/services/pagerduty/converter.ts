@@ -113,7 +113,6 @@ function stripRoutingKeys(
   const next: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(details)) {
     if (ROUTING_KEY_PATTERN.test(key)) continue
-    if (typeof value === "string" && ROUTING_KEY_PATTERN.test(value)) continue
     next[key] = value
   }
   return next
@@ -135,7 +134,11 @@ export function pagerdutyAlertAssetCandidates(
 ): PagerdutyAlertAssetCandidate[] {
   const prefix = pagerdutyIncidentAssetDir(incident.number, incident.id)
   const candidates: PagerdutyAlertAssetCandidate[] = []
-  for (const alert of incident.alerts) {
+  const [trigger, ...rest] = incident.alerts
+  const mirrored = trigger
+    ? [trigger, ...rest.slice(0, PAGERDUTY_MAX_ADDITIONAL_ALERT_SUMMARIES)]
+    : []
+  for (const alert of mirrored) {
     for (const [index, context] of (alert.contexts ?? []).entries()) {
       if (context.type !== "image" || !context.src) continue
       if (pagerdutyImageSourceIsUnsafe(context.src)) continue
@@ -295,11 +298,7 @@ export function renderPagerdutyIncidentMarkdown(
     }
   }
 
-  const markdown = `${lines.join("\n").trim()}\n`
-  if (ROUTING_KEY_PATTERN.test(markdown)) {
-    return markdown.replace(/routing[_-]?key[^\n]*/gi, "[redacted]")
-  }
-  return markdown
+  return `${lines.join("\n").trim()}\n`
 }
 
 export function pagerdutyIncidentMirrorFiles(
