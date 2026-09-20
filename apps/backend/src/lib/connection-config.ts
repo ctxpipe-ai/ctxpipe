@@ -564,6 +564,8 @@ export const pagerdutyConnectionConfigStoredSchema = z
     pendingConfigPrCreating: z.boolean().optional(),
     webhookSubscriptionId: z.string().min(1).nullable().optional(),
     webhookSecretEnc: z.string().min(1).optional(),
+    oauthClientId: z.string().min(1).optional(),
+    oauthClientSecretEnc: z.string().min(1).optional(),
   })
   .transform((config) => ({
     ...config,
@@ -642,4 +644,74 @@ export function decodePagerdutyWebhookSecret(
 ): string | undefined {
   if (!stored.webhookSecretEnc) return undefined
   return decryptConnectionSecret(stored.webhookSecretEnc, env)
+}
+
+export type PagerdutyOAuthAppCreds = {
+  clientId: string
+  clientSecret: string
+}
+
+export function encodePagerdutyOAuthClientSecretForDb(
+  secret: string,
+  env: Env,
+): string {
+  return encryptConnectionSecret(secret.trim(), env)
+}
+
+export function decodePagerdutyOAuthClientSecret(
+  stored: PagerdutyConnectionConfigStored,
+  env: Env,
+): string | undefined {
+  if (!stored.oauthClientSecretEnc) return undefined
+  return decryptConnectionSecret(stored.oauthClientSecretEnc, env)
+}
+
+export function pagerdutyConnectionHasOAuthApp(
+  stored: PagerdutyConnectionConfigStored,
+): boolean {
+  return Boolean(stored.oauthClientId && stored.oauthClientSecretEnc)
+}
+
+export function envHasPagerdutyOAuthApp(env: Env): boolean {
+  return Boolean(env.PAGERDUTY_CLIENT_ID && env.PAGERDUTY_CLIENT_SECRET)
+}
+
+/** Row app first, then the optional hosted deployment app. */
+export function resolvePagerdutyOAuthAppCreds(
+  stored:
+    | {
+        oauthClientId?: string | null
+        oauthClientSecretEnc?: string | null
+      }
+    | undefined,
+  env: Env,
+): PagerdutyOAuthAppCreds | undefined {
+  if (stored?.oauthClientId && stored.oauthClientSecretEnc) {
+    const clientSecret = decryptConnectionSecret(
+      stored.oauthClientSecretEnc,
+      env,
+    )
+    if (clientSecret) {
+      return { clientId: stored.oauthClientId, clientSecret }
+    }
+  }
+  if (env.PAGERDUTY_CLIENT_ID && env.PAGERDUTY_CLIENT_SECRET) {
+    return {
+      clientId: env.PAGERDUTY_CLIENT_ID,
+      clientSecret: env.PAGERDUTY_CLIENT_SECRET,
+    }
+  }
+  return undefined
+}
+
+export function pagerdutyOauthConfigured(
+  stored:
+    | {
+        oauthClientId?: string | null
+        oauthClientSecretEnc?: string | null
+      }
+    | undefined,
+  env: Env,
+): boolean {
+  return resolvePagerdutyOAuthAppCreds(stored, env) != null
 }

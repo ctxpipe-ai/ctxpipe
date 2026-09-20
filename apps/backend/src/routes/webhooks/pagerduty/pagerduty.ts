@@ -66,10 +66,10 @@ async function handlePagerdutyWebhook(c: Context<AppEnv>) {
     return c.json({ error: "Unknown PagerDuty subscription" }, 401)
   }
 
-  const verified = connections.some((connection) => {
-    if (!connection.webhookSecretEnc) return false
+  const connection = connections.find((candidate) => {
+    if (!candidate.webhookSecretEnc) return false
     const secret = decryptConnectionSecret(
-      connection.webhookSecretEnc,
+      candidate.webhookSecretEnc,
       c.var.env,
     )
     return verifyPagerdutyWebhookSignature({
@@ -78,7 +78,7 @@ async function handlePagerdutyWebhook(c: Context<AppEnv>) {
       secret,
     })
   })
-  if (!verified) {
+  if (!connection) {
     return c.json({ error: "Unauthorized" }, 401)
   }
 
@@ -97,56 +97,52 @@ async function handlePagerdutyWebhook(c: Context<AppEnv>) {
     return c.json({ error: "Stale PagerDuty event" }, 401)
   }
 
-  const liveConnections = connections.filter(
-    (connection) =>
-      connection.status === "installed" &&
-      Boolean(connection.repositoryId) &&
-      connection.enabled &&
-      connection.setupPhase === "live",
-  )
-  if (liveConnections.length === 0) {
+  if (
+    connection.status !== "installed" ||
+    !connection.repositoryId ||
+    !connection.enabled ||
+    connection.setupPhase !== "live"
+  ) {
     return c.body(null, 200)
   }
 
   try {
-    for (const connection of liveConnections) {
-      const binding = await getPagerdutyBindingWithRepoByConnectionId(
-        connection.orgId,
-        connection.id,
-      )
-      if (!binding?.githubConnectionId) continue
-      const config = await loadPagerdutyScopeFromRepo({
-        orgId: connection.orgId,
-        env: c.var.env,
-        repositoryName: binding.repositoryName,
-        githubConnectionId: binding.githubConnectionId,
-        branch: binding.branch,
-      })
-      if (!config) {
-        throw new Error("PagerDuty live yaml is missing")
-      }
-      if (
-        !event.serviceId ||
-        !config.services.some((service) => service.id === event.serviceId)
-      ) {
-        continue
-      }
-      await runWorkflowWithWorkerWake(
-        pagerdutySyncEntity.spec,
-        {
-          orgId: connection.orgId,
-          connectionId: connection.id,
-          incidentId: event.incidentId,
-          action: "upsert",
-          eventId: event.eventId,
-        },
-        event.eventId
-          ? {
-              idempotencyKey: `pagerduty:${connection.id}:${event.eventId}`,
-            }
-          : undefined,
-      )
+    const binding = await getPagerdutyBindingWithRepoByConnectionId(
+      connection.orgId,
+      connection.id,
+    )
+    if (!binding?.githubConnectionId) {
+      return c.body(null, 200)
     }
+    const config = await loadPagerdutyScopeFromRepo({
+      orgId: connection.orgId,
+      env: c.var.env,
+      repositoryName: binding.repositoryName,
+      githubConnectionId: binding.githubConnectionId,
+      branch: binding.branch,
+    })
+    if (!config) {
+      throw new Error("PagerDuty live yaml is missing")
+    }
+    if (
+      !event.serviceId ||
+      !config.services.some((service) => service.id === event.serviceId)
+    ) {
+      return c.body(null, 200)
+    }
+    await runWorkflowWithWorkerWake(
+      pagerdutySyncEntity.spec,
+      {
+        orgId: connection.orgId,
+        connectionId: connection.id,
+        incidentId: event.incidentId,
+      },
+      event.eventId
+        ? {
+            idempotencyKey: `pagerduty:${connection.id}:${event.eventId}`,
+          }
+        : undefined,
+    )
   } catch (error) {
     getLogger().error(
       error instanceof Error ? error : new Error(String(error)),

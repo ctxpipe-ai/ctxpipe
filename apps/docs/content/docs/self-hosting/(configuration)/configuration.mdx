@@ -190,13 +190,14 @@ See [Notion](/docs/self-hosting/notion) for provisioning and verification.
 
 ## PagerDuty
 
-PagerDuty uses a deployment-owned OAuth application. After a user authorizes
-an account, ctx| creates the signed webhook subscription. Put the OAuth
-credentials on both backend and worker services.
+PagerDuty can use a deployment-owned OAuth application. After a user
+authorizes an account, ctx| creates the signed webhook subscription. These
+variables are an optional hosted-style shortcut; self-host can save the app
+on the connection in the setup wizard instead.
 
 | Variable | Description |
 |---|---|
-| `PAGERDUTY_CLIENT_ID`, `PAGERDUTY_CLIENT_SECRET` | PagerDuty OAuth application credentials. Both are required to enable the connector. |
+| `PAGERDUTY_CLIENT_ID`, `PAGERDUTY_CLIENT_SECRET` | Optional shared PagerDuty OAuth application. When unset, save client id and secret on the connection in the wizard. |
 | `PAGERDUTY_REDIRECT_URI` | Optional exact callback override. Defaults to `{AUTH_BASE_URL}/api/v1/integrations/pagerduty/callback`. |
 
 There is no `PAGERDUTY_WEBHOOK_SECRET`. Per-subscription signing secrets are

@@ -16,7 +16,7 @@ PagerDuty v3 webhooks are incident events. The failure description (`body.detail
 4. Git content is incident Markdown only: `pagerduty/incidents/<number>--<id>.md`. Each in-scope create/update refetches the incident, its alerts, and its notes, and folds alerts into that file. No service/policy/team/user/alert trees.
 5. After a successful write, call `runConnectorRepositoryIngestionWorkflow` (including Git no-op / tip-aware replay) so Zoekt and graph extraction see the file.
 6. One deployment Event URL: `POST /api/v1/webhook/pagerduty`. Verify `X-PagerDuty-Signature` on the raw body, route by `X-PagerDuty-Subscription`. Skip unless setup is live and the incident’s service is in live yaml. Failed enqueue returns 5xx.
-7. OAuth is deployment-owned Scoped OAuth with PKCE (`PAGERDUTY_CLIENT_ID` / `PAGERDUTY_CLIENT_SECRET`). The webhook signing secret is provider-issued per subscription and is not env.
+7. OAuth is Scoped OAuth with PKCE. Hosted deployments may supply a shared app via `PAGERDUTY_CLIENT_ID` / `PAGERDUTY_CLIENT_SECRET` (optional `PAGERDUTY_REDIRECT_URI`). Self-host can finish setup in the UI by saving `oauthClientId` and encrypted `oauthClientSecretEnc` on the PagerDuty `connections` row; credential resolution is row first, then env. The PKCE verifier is never stored in signed OAuth `state`. The webhook signing secret is provider-issued per subscription and is not env.
 8. Full reconcile is capped in code (90-day lookback, 500 incidents per service). Triggering alert is written in full; at most four further alert summaries.
 
 ## Rationale
@@ -27,7 +27,7 @@ PagerDuty v3 webhooks are incident events. The failure description (`body.detail
 
 ## Consequences
 
-- Hosted and self-host deployments must register a PagerDuty OAuth app and copy client credentials to backend and worker.
+- Hosted deployments may keep using the env OAuth app. Self-host operators create the app in PagerDuty and paste client id/secret in the connector wizard; env remains an operator shortcut, not a required deploy step.
 - Account-level webhooks fire for every service; out-of-scope events must ACK without enqueue or fetch.
 - Re-OAuth must not stack webhook subscriptions.
 - Live on-call is not mirrored. ctx| does not write back to PagerDuty.

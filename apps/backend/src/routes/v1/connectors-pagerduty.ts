@@ -2,19 +2,28 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
+import {
+  pagerdutyOauthConfigured,
+  resolvePagerdutyOAuthAppCreds,
+} from "../../lib/connection-config.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
   claimPagerdutyConfigPrCreation,
   claimPagerdutyContentSyncRetry,
+  createOrReusePagerdutyDraft,
   deletePagerdutyConnectionById,
   getPagerdutyBindingWithRepoByConnectionId,
+  getPagerdutyConnectionByConnectionId,
   MULTIPLE_PAGERDUTY_CONNECTIONS_MESSAGE,
   type PagerdutyBindingWithRepo,
   type PagerdutyConnection,
+  pagerdutyOAuthAppMetadata,
   patchPagerdutyConnectorConfig,
+  recordPagerdutyOAuthRevocation,
   refreshPagerdutyConnectionTokensWithLock,
   releasePagerdutyConfigPrCreationClaim,
   resolvePagerdutyConnectionForOrgDetailed,
+  savePagerdutyOAuthApp,
   savePagerdutyWebhookSubscription,
   transitionPagerdutyBindingState,
   upsertPagerdutyConnectionFromOAuth,
@@ -32,6 +41,7 @@ import {
   exchangePagerdutyOAuthCode,
   getPagerdutyAccountIdentity,
   getPagerdutyOAuthAuthorizeUrl,
+  isPagerdutyAuthorizationRevokedError,
   listPagerdutyServices,
   pagerdutyWebhookDeliveryUrl,
   refreshPagerdutyOAuthToken,
@@ -43,6 +53,10 @@ import {
 } from "../../services/pagerduty/config-yaml.js"
 import {
   createPagerdutyOAuthState,
+  expirePagerdutyPkceCookieHeader,
+  pagerdutyPkceCookieFromHeader,
+  pagerdutyPkceCookieHeader,
+  serializePagerdutyPkceCookie,
   verifyPagerdutyOAuthState,
 } from "../../services/pagerduty/oauth-state.js"
 
@@ -88,9 +102,27 @@ const PagerdutyPatchConfigRequestSchema = z
     { message: "Provide services or syncTarget" },
   )
 
+const PagerdutyOAuthAppResponseSchema = z.object({
+  oauthAppSaved: z.boolean(),
+  oauthClientId: z.string().nullable(),
+  globalPagerdutyOAuthConfigured: z.boolean(),
+  oauthCallbackUrl: z.string(),
+  webhookUrl: z.string(),
+})
+
+const PagerdutyOAuthAppPutSchema = z.object({
+  clientId: z.string().min(1),
+  clientSecret: z.string().optional(),
+})
+
+const RequiredConnectionIdQuerySchema = z.object({
+  connectionId: z.string().min(1),
+})
+
 const getOAuthStartRoute = createRoute({
   method: "get",
   path: "/oauth/start",
+  request: { query: ConnectionIdQuerySchema },
   responses: {
     200: {
       content: {
@@ -104,9 +136,85 @@ const getOAuthStartRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
     },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown PagerDuty connection",
+    },
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "PagerDuty OAuth not configured",
+    },
+  },
+})
+
+const postDraftRoute = createRoute({
+  method: "post",
+  path: "/draft",
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({ connectionId: z.string().min(1) }),
+        },
+      },
+      description: "Create or reuse a PagerDuty draft connection",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+  },
+})
+
+const getOAuthAppRoute = createRoute({
+  method: "get",
+  path: "/oauth-app",
+  request: { query: RequiredConnectionIdQuerySchema },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: PagerdutyOAuthAppResponseSchema },
+      },
+      description: "PagerDuty OAuth app metadata (no secrets)",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown PagerDuty connection",
+    },
+  },
+})
+
+const putOAuthAppRoute = createRoute({
+  method: "put",
+  path: "/oauth-app",
+  request: {
+    query: RequiredConnectionIdQuerySchema,
+    body: {
+      content: { "application/json": { schema: PagerdutyOAuthAppPutSchema } },
+    },
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: PagerdutyOAuthAppResponseSchema },
+      },
+      description: "Saved PagerDuty OAuth app on the connection",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Secret required on first save",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown PagerDuty connection",
     },
   },
 })
@@ -150,6 +258,11 @@ const PagerdutyStatusResponseSchema = z.object({
       githubConnectionId: z.string().nullable(),
     })
     .nullable(),
+  pagerdutyOauthConfigured: z.boolean(),
+  oauthAppSaved: z.boolean(),
+  globalPagerdutyOAuthConfigured: z.boolean(),
+  oauthCallbackUrl: z.string(),
+  webhookUrl: z.string(),
 })
 
 const getStatusRoute = createRoute({
@@ -262,11 +375,29 @@ const patchConfigRoute = createRoute({
   },
   responses: {
     200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            accepted: z.literal(true),
+            savedCount: z.number().int(),
+            configPrEnqueued: z.boolean(),
+            workflowName: z.string().optional(),
+          }),
+        },
+      },
       description: "Saved PagerDuty binding and/or enqueued config PR",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Invalid or ambiguous PagerDuty configuration",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown PagerDuty connection",
     },
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -278,16 +409,49 @@ const patchConfigRoute = createRoute({
 const retryPagerdutyConfigRoute = createRoute({
   method: "post",
   path: "/retry-config",
-  request: { query: ConnectionIdQuerySchema },
+  request: {
+    query: ConnectionIdQuerySchema,
+    body: {
+      content: {
+        "application/json": {
+          schema: z
+            .object({
+              services: z.array(PagerdutyServiceSchema).optional(),
+            })
+            .optional(),
+        },
+      },
+      required: false,
+    },
+  },
   responses: {
-    202: { description: "Configuration pull request retry accepted" },
+    202: {
+      content: {
+        "application/json": {
+          schema: z.object({ accepted: z.literal(true) }),
+        },
+      },
+      description: "Configuration pull request retry accepted",
+    },
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not in a failed configuration state",
     },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown PagerDuty connection",
+    },
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Configuration pull request already in progress",
+    },
+    503: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Failed to enqueue configuration pull request",
     },
   },
 })
@@ -297,14 +461,33 @@ const retryPagerdutySyncRoute = createRoute({
   path: "/retry",
   request: { query: ConnectionIdQuerySchema },
   responses: {
-    202: { description: "Content sync retry accepted" },
+    202: {
+      content: {
+        "application/json": {
+          schema: z.object({ accepted: z.literal(true) }),
+        },
+      },
+      description: "Content sync retry accepted",
+    },
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not in a failed content sync state",
     },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown or incomplete PagerDuty connection",
+    },
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Content sync already being retried",
+    },
+    503: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Failed to enqueue content sync retry",
     },
   },
 })
@@ -315,6 +498,14 @@ const deletePagerdutyConnectorRoute = createRoute({
   request: { query: ConnectionIdQuerySchema },
   responses: {
     204: { description: "PagerDuty connection removed" },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Ambiguous PagerDuty connection",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
     404: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "No PagerDuty connection found",
@@ -328,6 +519,7 @@ function setupRelayResponse(input: {
   result:
     | { type: "pagerduty-oauth-complete"; connectionId: string }
     | { type: "pagerduty-oauth-error"; error: string }
+  extraHeaders?: Record<string, string>
 }): Response {
   const payload = JSON.stringify({
     orgSlug: input.orgSlug,
@@ -337,7 +529,12 @@ function setupRelayResponse(input: {
   const connected = input.result.type === "pagerduty-oauth-complete"
   return new Response(
     `<!doctype html><meta charset="utf-8"><title>${connected ? "PagerDuty connected" : "PagerDuty authorization failed"}</title><script>const result=${payload};try{window.opener?.postMessage(result,${origin});localStorage.setItem("pagerduty-setup-result",JSON.stringify(result))}finally{window.close()}</script><p>${connected ? "PagerDuty connected." : "PagerDuty authorization failed."} You can close this window.</p>`,
-    { headers: { "content-type": "text/html; charset=utf-8" } },
+    {
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        ...input.extraHeaders,
+      },
+    },
   )
 }
 
@@ -423,26 +620,115 @@ async function loadPagerdutyServicesFromGit(input: {
   )
 }
 
+function pagerdutyCookieSecure(env: AppEnv["Variables"]["env"]): boolean {
+  return env.AUTH_BASE_URL.startsWith("https://")
+}
+
+async function resolvePagerdutyCredsForConnection(
+  connection: PagerdutyConnection | undefined,
+  env: AppEnv["Variables"]["env"],
+) {
+  return resolvePagerdutyOAuthAppCreds(connection, env)
+}
+
 function pagerdutyTokenRefresh(
   orgId: string,
   connection: PagerdutyConnection,
   env: AppEnv["Variables"]["env"],
 ) {
   return (expectedRefreshToken: string, expectedAccessToken: string) =>
-    withOrgDbContext(orgId, () =>
-      refreshPagerdutyConnectionTokensWithLock({
-        orgId,
-        connectionId: connection.id,
-        env,
-        expectedRefreshToken,
-        expectedAccessToken,
-        refresh: async (refreshToken) =>
-          refreshPagerdutyOAuthToken({ env, refreshToken }),
-      }),
-    )
+    withOrgDbContext(orgId, async () => {
+      try {
+        return await refreshPagerdutyConnectionTokensWithLock({
+          orgId,
+          connectionId: connection.id,
+          env,
+          expectedRefreshToken,
+          expectedAccessToken,
+          refresh: async (refreshToken) => {
+            const creds = resolvePagerdutyOAuthAppCreds(connection, env)
+            if (!creds) {
+              throw new Error("PagerDuty OAuth is not configured")
+            }
+            return refreshPagerdutyOAuthToken({ env, creds, refreshToken })
+          },
+        })
+      } catch (error) {
+        if (isPagerdutyAuthorizationRevokedError(error)) {
+          await recordPagerdutyOAuthRevocation({
+            orgId,
+            connectionId: connection.id,
+          })
+        }
+        throw error
+      }
+    })
 }
 
 export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
+  .openapi(postDraftRoute, async (c) => {
+    const user = c.get("user")
+    const session = c.get("session")
+    const orgId = c.get("orgId")
+    if (!user || !session || !orgId) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const connection = await createOrReusePagerdutyDraft({
+      orgId,
+      env: c.var.env,
+      ownerUserId: user.id,
+    })
+    return c.json({ connectionId: connection.id }, 200)
+  })
+  .openapi(getOAuthAppRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const { connectionId } = RequiredConnectionIdQuerySchema.parse({
+      connectionId: c.req.query("connectionId"),
+    })
+    const connection = await getPagerdutyConnectionByConnectionId(
+      orgId,
+      connectionId,
+      c.var.env,
+    )
+    if (!connection) {
+      return c.json({ error: "Unknown PagerDuty connection" }, 404)
+    }
+    return c.json(pagerdutyOAuthAppMetadata(connection, c.var.env), 200)
+  })
+  .openapi(putOAuthAppRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const { connectionId } = RequiredConnectionIdQuerySchema.parse({
+      connectionId: c.req.query("connectionId"),
+    })
+    const body = PagerdutyOAuthAppPutSchema.parse(await c.req.json())
+    try {
+      const metadata = await savePagerdutyOAuthApp({
+        orgId,
+        connectionId,
+        env: c.var.env,
+        clientId: body.clientId,
+        clientSecret: body.clientSecret,
+      })
+      return c.json(metadata, 200)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : ""
+      if (message === "PagerDuty connection not found") {
+        return c.json({ error: "Unknown PagerDuty connection" }, 404)
+      }
+      if (message.includes("clientSecret is required")) {
+        return c.json({ error: message }, 400)
+      }
+      throw error
+    }
+  })
   .openapi(getOAuthStartRoute, async (c) => {
     const user = c.get("user")
     const session = c.get("session")
@@ -452,21 +738,40 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Unauthorized" }, 401)
     }
     const env = c.var.env
-    if (!env.PAGERDUTY_CLIENT_ID || !env.PAGERDUTY_CLIENT_SECRET) {
+    const { connectionId } = ConnectionIdQuerySchema.parse({
+      connectionId: c.req.query("connectionId") ?? undefined,
+    })
+    const connection = connectionId
+      ? await getPagerdutyConnectionByConnectionId(orgId, connectionId, env)
+      : undefined
+    if (connectionId && !connection) {
+      return c.json({ error: "Unknown PagerDuty connection" }, 404)
+    }
+    const creds = resolvePagerdutyCredsForConnection(connection, env)
+    if (!creds) {
       return c.json({ error: "PagerDuty OAuth is not configured" }, 503)
     }
     const { codeVerifier, codeChallenge } = createPagerdutyPkcePair()
+    const { state, nonce } = createPagerdutyOAuthState({
+      authSecret: env.AUTH_SECRET,
+      orgId,
+      orgSlug,
+      userId: user.id,
+      connectionId: connection?.id,
+    })
+    c.header(
+      "Set-Cookie",
+      pagerdutyPkceCookieHeader(
+        serializePagerdutyPkceCookie({ nonce, codeVerifier }),
+        pagerdutyCookieSecure(env),
+      ),
+    )
     return c.json(
       {
         authorizationUrl: getPagerdutyOAuthAuthorizeUrl({
           env,
-          state: createPagerdutyOAuthState({
-            authSecret: env.AUTH_SECRET,
-            orgId,
-            orgSlug,
-            userId: user.id,
-            codeVerifier,
-          }),
+          creds,
+          state,
           codeChallenge,
         }),
       },
@@ -495,6 +800,7 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
     }
     const connection =
       resolved.status === "ok" ? resolved.connection : undefined
+    const oauth = pagerdutyOAuthAppMetadata(connection, c.var.env)
     const [isGithubLinked, binding] = await Promise.all([
       orgHasAnyGithubConnection(orgId),
       connection
@@ -522,6 +828,14 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
               branch: binding.branch,
             }
           : null,
+        pagerdutyOauthConfigured: pagerdutyOauthConfigured(
+          connection,
+          c.var.env,
+        ),
+        oauthAppSaved: oauth.oauthAppSaved,
+        globalPagerdutyOAuthConfigured: oauth.globalPagerdutyOAuthConfigured,
+        oauthCallbackUrl: oauth.oauthCallbackUrl,
+        webhookUrl: oauth.webhookUrl,
       },
       200,
     )
@@ -550,6 +864,12 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (installed.status === "error") {
       return c.json({ error: installed.error }, installed.httpStatus)
     }
+    if (!installed.connection.accessToken) {
+      return c.json(
+        { error: "PagerDuty authorization is revoked; reconnect the account" },
+        400,
+      )
+    }
     if (installed.connection.refreshToken) {
       const expiresAt = installed.connection.accessTokenExpiresAt
       if (!expiresAt || Date.parse(expiresAt) - 60_000 <= Date.now()) {
@@ -563,6 +883,12 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
         installed.connection.accessTokenExpiresAt =
           refreshed.accessTokenExpiresAt
       }
+    }
+    if (!installed.connection.accessToken) {
+      return c.json(
+        { error: "PagerDuty authorization is revoked; reconnect the account" },
+        400,
+      )
     }
     const page = await listPagerdutyServices({
       accessToken: installed.connection.accessToken,
@@ -937,17 +1263,28 @@ export const pagerdutyOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
       return c.json({ error: "Invalid PagerDuty OAuth state" }, 400)
     }
     const origin = new URL(c.var.env.AUTH_BASE_URL).origin
+    const expireCookie = expirePagerdutyPkceCookieHeader(
+      pagerdutyCookieSecure(c.var.env),
+    )
     const relayError = (error: string) =>
       setupRelayResponse({
         origin,
         orgSlug: state.orgSlug,
         result: { type: "pagerduty-oauth-error", error },
+        extraHeaders: { "Set-Cookie": expireCookie },
       })
     if (query.error) {
       return relayError(`PagerDuty authorization failed: ${query.error}`)
     }
     if (!query.code) {
       return c.json({ error: "Missing PagerDuty OAuth code" }, 400)
+    }
+    const codeVerifier = pagerdutyPkceCookieFromHeader(
+      c.req.header("cookie"),
+      state.nonce,
+    )
+    if (!codeVerifier) {
+      return c.json({ error: "Missing PagerDuty PKCE verifier" }, 400)
     }
     if (
       !(await hasOrgAdminOrOwnerRole({
@@ -961,10 +1298,24 @@ export const pagerdutyOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
     }
 
     try {
+      const draft = state.connectionId
+        ? await withOrgDbContext(state.orgId, () =>
+            getPagerdutyConnectionByConnectionId(
+              state.orgId,
+              state.connectionId ?? "",
+              c.var.env,
+            ),
+          )
+        : undefined
+      const creds = resolvePagerdutyCredsForConnection(draft, c.var.env)
+      if (!creds) {
+        return relayError("PagerDuty OAuth is not configured")
+      }
       const token = await exchangePagerdutyOAuthCode({
         env: c.var.env,
+        creds,
         code: query.code,
-        codeVerifier: state.codeVerifier,
+        codeVerifier,
       })
       const identity = await getPagerdutyAccountIdentity({
         accessToken: token.accessToken,
@@ -982,6 +1333,7 @@ export const pagerdutyOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
           accountSubdomain: identity.accountSubdomain,
           region: identity.region,
           actorUserId: identity.actorUserId,
+          connectionId: state.connectionId,
         }),
       )
       const webhook = await ensurePagerdutyWebhookSubscription({
@@ -1009,6 +1361,7 @@ export const pagerdutyOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
           type: "pagerduty-oauth-complete",
           connectionId: connection.id,
         },
+        extraHeaders: { "Set-Cookie": expireCookie },
       })
     } catch (error) {
       getLogger().error(

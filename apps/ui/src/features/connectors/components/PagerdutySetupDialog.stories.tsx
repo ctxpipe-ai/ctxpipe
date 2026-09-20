@@ -7,6 +7,30 @@ import { PagerdutySetupDialog } from "./PagerdutySetupDialog"
 const orgSlug = "acme"
 const connectionId = "con_story_pagerduty"
 
+const hostedOauth = {
+  pagerdutyOauthConfigured: true,
+  oauthAppSaved: false,
+  globalPagerdutyOAuthConfigured: true,
+  oauthCallbackUrl:
+    "https://app.example.com/api/v1/integrations/pagerduty/callback",
+  webhookUrl: "https://app.example.com/api/v1/webhook/pagerduty",
+}
+
+const oauthAppHandler = http.get(
+  ({ request }) =>
+    new URL(request.url).pathname.includes(
+      "/api/v1/connectors/pagerduty/oauth-app",
+    ),
+  () =>
+    HttpResponse.json({
+      oauthAppSaved: false,
+      oauthClientId: null,
+      globalPagerdutyOAuthConfigured: true,
+      oauthCallbackUrl: hostedOauth.oauthCallbackUrl,
+      webhookUrl: hostedOauth.webhookUrl,
+    }),
+)
+
 const meta = {
   title: "Components/Connections/PagerdutySetupDialog",
   component: PagerdutySetupDialog,
@@ -23,6 +47,73 @@ const meta = {
 export default meta
 
 type Story = StoryObj<typeof meta>
+
+export const RegisterOAuthApp: Story = {
+  render: () => (
+    <PagerdutySetupDialog
+      orgSlug={orgSlug}
+      connectionId={connectionId}
+      isOpen
+      onOpenChange={() => {}}
+      onConnectionIdChange={() => {}}
+    />
+  ),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.includes(
+                "/api/v1/connectors/pagerduty/status",
+              ),
+            () =>
+              HttpResponse.json({
+                isInstalled: false,
+                installationStatus: "pending",
+                accountName: null,
+                accountSubdomain: null,
+                region: null,
+                isGithubLinked: false,
+                selectedServiceCount: null,
+                syncTargetConfigured: false,
+                setupPhase: "draft",
+                pendingConfigPullUrl: null,
+                pendingConfigPrCreating: false,
+                syncTarget: null,
+                pagerdutyOauthConfigured: false,
+                oauthAppSaved: false,
+                globalPagerdutyOAuthConfigured: false,
+                oauthCallbackUrl: hostedOauth.oauthCallbackUrl,
+                webhookUrl: hostedOauth.webhookUrl,
+              }),
+          ),
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.includes(
+                "/api/v1/connectors/pagerduty/oauth-app",
+              ),
+            () =>
+              HttpResponse.json({
+                oauthAppSaved: false,
+                oauthClientId: null,
+                globalPagerdutyOAuthConfigured: false,
+                oauthCallbackUrl: hostedOauth.oauthCallbackUrl,
+                webhookUrl: hostedOauth.webhookUrl,
+              }),
+          ),
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.includes(
+                "/api/v1/connectors/pagerduty/config",
+              ),
+            () => HttpResponse.json({ services: [], syncTarget: null }),
+          ),
+        ],
+      },
+    },
+  },
+}
 
 export const ConnectAccount: Story = {
   render: () => (
@@ -104,8 +195,10 @@ export const ServiceSelection: Story = {
                   branch: "main",
                   githubConnectionId: "con_github",
                 },
+                ...hostedOauth,
               }),
           ),
+          oauthAppHandler,
           http.get(
             ({ request }) =>
               new URL(request.url).pathname.includes(
@@ -188,8 +281,10 @@ export const TargetRepository: Story = {
                 pendingConfigPullUrl: null,
                 pendingConfigPrCreating: false,
                 syncTarget: null,
+                ...hostedOauth,
               }),
           ),
+          oauthAppHandler,
           http.get(
             ({ request }) =>
               new URL(request.url).pathname.includes(

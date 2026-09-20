@@ -2,7 +2,12 @@ import { OpenAPIHono } from "@hono/zod-openapi"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
 import type { Env } from "../../config/env.js"
-import { createPagerdutyOAuthState } from "../../services/pagerduty/oauth-state.js"
+import { encryptConnectionSecret } from "../../lib/connection-secrets.js"
+import {
+  createPagerdutyOAuthState,
+  PAGERDUTY_PKCE_COOKIE,
+  serializePagerdutyPkceCookie,
+} from "../../services/pagerduty/oauth-state.js"
 import {
   pagerdutyConnectorRoutes,
   pagerdutyOauthCallbackRoutes,
@@ -18,6 +23,10 @@ const mocks = vi.hoisted(() => ({
   saveWebhook: vi.fn(),
   deleteConnection: vi.fn(),
   resolveConnection: vi.fn(),
+  getConnection: vi.fn(),
+  createDraft: vi.fn(),
+  saveOauthApp: vi.fn(),
+  oauthMetadata: vi.fn(),
   getTarget: vi.fn(),
   patchConfig: vi.fn(),
   claimConfig: vi.fn(),
@@ -42,13 +51,18 @@ vi.mock("../../models/github-installation.js", () => ({
 vi.mock("../../models/pagerduty-connector.js", () => ({
   claimPagerdutyConfigPrCreation: mocks.claimConfig,
   claimPagerdutyContentSyncRetry: vi.fn(),
+  createOrReusePagerdutyDraft: mocks.createDraft,
   deletePagerdutyConnectionById: mocks.deleteConnection,
   getPagerdutyBindingWithRepoByConnectionId: mocks.getTarget,
+  getPagerdutyConnectionByConnectionId: mocks.getConnection,
   MULTIPLE_PAGERDUTY_CONNECTIONS_MESSAGE: "multiple",
+  pagerdutyOAuthAppMetadata: mocks.oauthMetadata,
   patchPagerdutyConnectorConfig: mocks.patchConfig,
+  recordPagerdutyOAuthRevocation: vi.fn(),
   refreshPagerdutyConnectionTokensWithLock: vi.fn(),
   releasePagerdutyConfigPrCreationClaim: vi.fn(),
   resolvePagerdutyConnectionForOrgDetailed: mocks.resolveConnection,
+  savePagerdutyOAuthApp: mocks.saveOauthApp,
   savePagerdutyWebhookSubscription: mocks.saveWebhook,
   transitionPagerdutyBindingState: vi.fn(),
   upsertPagerdutyConnectionFromOAuth: mocks.upsertConnection,
@@ -140,7 +154,43 @@ beforeEach(() => {
     setupPhase: "draft",
   })
   mocks.runWorkflow.mockResolvedValue({ workflowRun: { id: "run_1" } })
+  mocks.getConnection.mockResolvedValue(undefined)
+  mocks.createDraft.mockResolvedValue({ id: "con_pd" })
+  mocks.oauthMetadata.mockReturnValue({
+    oauthAppSaved: false,
+    oauthClientId: null,
+    globalPagerdutyOAuthConfigured: true,
+    oauthCallbackUrl:
+      "https://ctxpipe.example/api/v1/integrations/pagerduty/callback",
+    webhookUrl: "https://ctxpipe.example/api/v1/webhook/pagerduty",
+  })
+  mocks.saveOauthApp.mockResolvedValue({
+    oauthAppSaved: true,
+    oauthClientId: "row-client",
+    globalPagerdutyOAuthConfigured: false,
+    oauthCallbackUrl:
+      "https://ctxpipe.example/api/v1/integrations/pagerduty/callback",
+    webhookUrl: "https://ctxpipe.example/api/v1/webhook/pagerduty",
+  })
 })
+
+function signedState(overrides: { userId?: string; now?: number; connectionId?: string } = {}) {
+  return createPagerdutyOAuthState({
+    authSecret: env.AUTH_SECRET,
+    orgId: "org_1",
+    orgSlug: "acme",
+    userId: overrides.userId ?? "user_1",
+    connectionId: overrides.connectionId,
+    now: overrides.now,
+  })
+}
+
+function pkceCookie(nonce: string, verifier = "verifier") {
+  return `${PAGERDUTY_PKCE_COOKIE}=${serializePagerdutyPkceCookie({
+    nonce,
+    codeVerifier: verifier,
+  })}`
+}
 
 describe("PagerDuty connector routes", () => {
   it("returns a PKCE authorization URL", async () => {
@@ -161,6 +211,109 @@ describe("PagerDuty connector routes", () => {
       "users.read",
     )
     expect(authorizationUrl.searchParams.get("state")).toBeTruthy()
+    expect(authorizationUrl.searchParams.get("client_id")).toBe("pd-client")
+    expect(response.headers.get("set-cookie")).toContain(PAGERDUTY_PKCE_COOKIE)
+  })
+
+  it("returns 503 when neither the row nor env has an OAuth app", async () => {
+    const emptyEnv = {
+      ...env,
+      PAGERDUTY_CLIENT_ID: undefined,
+      PAGERDUTY_CLIENT_SECRET: undefined,
+    } as Env
+    const app = new OpenAPIHono<AppEnv>()
+      .use("*", async (c, next) => {
+        c.set("env", emptyEnv)
+        c.set("user", { id: "user_1" } as unknown as AppEnv["Variables"]["user"])
+        c.set("session", {
+          id: "session_1",
+        } as unknown as AppEnv["Variables"]["session"])
+        c.set("orgId", "org_1")
+        c.set("orgSlug", "acme")
+        await next()
+      })
+      .route("/acme/api/v1/connectors/pagerduty", pagerdutyConnectorRoutes)
+    const response = await app.request(
+      "/acme/api/v1/connectors/pagerduty/oauth/start?connectionId=con_pd",
+    )
+    expect(response.status).toBe(503)
+  })
+
+  it("starts OAuth with the row client id when env is empty", async () => {
+    const emptyEnv = {
+      ...env,
+      PAGERDUTY_CLIENT_ID: undefined,
+      PAGERDUTY_CLIENT_SECRET: undefined,
+      AUTH_SECRET: env.AUTH_SECRET,
+      AUTH_BASE_URL: env.AUTH_BASE_URL,
+    } as Env
+    mocks.getConnection.mockResolvedValue({
+      id: "con_pd",
+      oauthClientId: "row-client",
+      oauthClientSecretEnc: encryptConnectionSecret("row-secret", emptyEnv),
+    })
+    const app = new OpenAPIHono<AppEnv>()
+      .use("*", async (c, next) => {
+        c.set("env", emptyEnv)
+        c.set("user", { id: "user_1" } as unknown as AppEnv["Variables"]["user"])
+        c.set("session", {
+          id: "session_1",
+        } as unknown as AppEnv["Variables"]["session"])
+        c.set("orgId", "org_1")
+        c.set("orgSlug", "acme")
+        await next()
+      })
+      .route("/acme/api/v1/connectors/pagerduty", pagerdutyConnectorRoutes)
+    const response = await app.request(
+      "/acme/api/v1/connectors/pagerduty/oauth/start?connectionId=con_pd",
+    )
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { authorizationUrl: string }
+    expect(new URL(body.authorizationUrl).searchParams.get("client_id")).toBe(
+      "row-client",
+    )
+  })
+
+  it("creates a draft connection", async () => {
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/pagerduty",
+      pagerdutyConnectorRoutes,
+    )
+    const response = await app.request(
+      "/acme/api/v1/connectors/pagerduty/draft",
+      { method: "POST" },
+    )
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ connectionId: "con_pd" })
+  })
+
+  it("saves an OAuth app without echoing the secret", async () => {
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/pagerduty",
+      pagerdutyConnectorRoutes,
+    )
+    const response = await app.request(
+      "/acme/api/v1/connectors/pagerduty/oauth-app?connectionId=con_pd",
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          clientId: "row-client",
+          clientSecret: "super-secret",
+        }),
+      },
+    )
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as Record<string, unknown>
+    expect(body.oauthAppSaved).toBe(true)
+    expect(body.oauthClientId).toBe("row-client")
+    expect(JSON.stringify(body)).not.toContain("super-secret")
+    expect(mocks.saveOauthApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientId: "row-client",
+        clientSecret: "super-secret",
+      }),
+    )
   })
 
   it("relays the PagerDuty identity error instead of a generic failure", async () => {
@@ -171,15 +324,10 @@ describe("PagerDuty connector routes", () => {
       "/api/v1/integrations/pagerduty",
       pagerdutyOauthCallbackRoutes,
     )
-    const state = createPagerdutyOAuthState({
-      authSecret: env.AUTH_SECRET,
-      orgId: "org_1",
-      orgSlug: "acme",
-      userId: "user_1",
-      codeVerifier: "verifier",
-    })
+    const { state, nonce } = signedState()
     const response = await app.request(
       `/api/v1/integrations/pagerduty/callback?code=oauth-code&state=${encodeURIComponent(state)}`,
+      { headers: { cookie: pkceCookie(nonce) } },
     )
     expect(response.status).toBe(200)
     expect(await response.text()).toContain(
@@ -192,23 +340,22 @@ describe("PagerDuty connector routes", () => {
       "/api/v1/integrations/pagerduty",
       pagerdutyOauthCallbackRoutes,
     )
-    const state = createPagerdutyOAuthState({
-      authSecret: env.AUTH_SECRET,
-      orgId: "org_1",
-      orgSlug: "acme",
-      userId: "user_1",
-      codeVerifier: "verifier",
-    })
+    const { state, nonce } = signedState({ connectionId: "con_pd" })
     const response = await app.request(
       `/api/v1/integrations/pagerduty/callback?code=oauth-code&state=${encodeURIComponent(state)}`,
+      { headers: { cookie: pkceCookie(nonce) } },
     )
     expect(response.status).toBe(200)
     expect(await response.text()).toContain("con_pd")
     expect(mocks.exchangeCode).toHaveBeenCalledWith({
       env,
+      creds: { clientId: "pd-client", clientSecret: "pd-secret" },
       code: "oauth-code",
       codeVerifier: "verifier",
     })
+    expect(mocks.upsertConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ connectionId: "con_pd" }),
+    )
     expect(mocks.saveWebhook).toHaveBeenCalledWith(
       expect.objectContaining({
         webhookSubscriptionId: "PFSUB",
@@ -222,18 +369,28 @@ describe("PagerDuty connector routes", () => {
       "/api/v1/integrations/pagerduty",
       pagerdutyOauthCallbackRoutes,
     )
-    const state = createPagerdutyOAuthState({
-      authSecret: env.AUTH_SECRET,
-      orgId: "org_1",
-      orgSlug: "acme",
-      userId: "user_1",
-      codeVerifier: "verifier",
-      now: Date.now() - 20 * 60 * 1000,
-    })
+    const { state, nonce } = signedState({ now: Date.now() - 20 * 60 * 1000 })
+    const response = await app.request(
+      `/api/v1/integrations/pagerduty/callback?code=oauth-code&state=${encodeURIComponent(state)}`,
+      { headers: { cookie: pkceCookie(nonce) } },
+    )
+    expect(response.status).toBe(400)
+    expect(mocks.exchangeCode).not.toHaveBeenCalled()
+  })
+
+  it("rejects a callback when the PKCE cookie nonce is missing", async () => {
+    const app = appWithVariables().route(
+      "/api/v1/integrations/pagerduty",
+      pagerdutyOauthCallbackRoutes,
+    )
+    const { state } = signedState()
     const response = await app.request(
       `/api/v1/integrations/pagerduty/callback?code=oauth-code&state=${encodeURIComponent(state)}`,
     )
     expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      error: "Missing PagerDuty PKCE verifier",
+    })
     expect(mocks.exchangeCode).not.toHaveBeenCalled()
   })
 
@@ -242,17 +399,35 @@ describe("PagerDuty connector routes", () => {
       "/api/v1/integrations/pagerduty",
       pagerdutyOauthCallbackRoutes,
     )
-    const state = createPagerdutyOAuthState({
-      authSecret: env.AUTH_SECRET,
-      orgId: "org_1",
-      orgSlug: "acme",
-      userId: "other-user",
-      codeVerifier: "verifier",
-    })
+    const { state, nonce } = signedState({ userId: "other-user" })
     const response = await app.request(
       `/api/v1/integrations/pagerduty/callback?code=oauth-code&state=${encodeURIComponent(state)}`,
+      { headers: { cookie: pkceCookie(nonce) } },
     )
     expect(response.status).toBe(400)
+  })
+
+  it("rejects a state signed for another org after callback verification", async () => {
+    const { state, nonce } = createPagerdutyOAuthState({
+      authSecret: env.AUTH_SECRET,
+      orgId: "org_other",
+      orgSlug: "other",
+      userId: "user_1",
+    })
+    const app = appWithVariables().route(
+      "/api/v1/integrations/pagerduty",
+      pagerdutyOauthCallbackRoutes,
+    )
+    mocks.hasAdminRole.mockResolvedValueOnce(false)
+    const response = await app.request(
+      `/api/v1/integrations/pagerduty/callback?code=oauth-code&state=${encodeURIComponent(state)}`,
+      { headers: { cookie: pkceCookie(nonce) } },
+    )
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain(
+      "You no longer have permission to connect PagerDuty",
+    )
+    expect(mocks.exchangeCode).not.toHaveBeenCalled()
   })
 
   it("enqueues a config PR when services change", async () => {

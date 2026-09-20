@@ -371,8 +371,9 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           </li>
           <li>
             <AddPagerdutyConnectorButton
-              onStart={() => {
-                setPagerdutyConnectionId(null)
+              orgSlug={orgSlug}
+              onDraftCreated={({ connectionId }) => {
+                setPagerdutyConnectionId(connectionId)
                 setPagerdutyManageScope(false)
                 setPagerdutySetupOpen(true)
                 setCatalogOpen(false)

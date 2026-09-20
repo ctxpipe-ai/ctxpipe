@@ -15,8 +15,9 @@ PagerDuty incidents, and it does not expose live on-call state.
 <Callout title="Fully managed app flow">
   The hosted ctx| service supplies the PagerDuty OAuth application. After you
   authorize an account, ctx| creates one signed v3 webhook subscription for
-  that connection. Self-hosted operators must register their own application
-  before authorization can succeed. See
+  that connection. Self-hosted deployments that do not set a deployment OAuth
+  app start with **Register PagerDuty OAuth app** in the wizard; paste the
+  client id and secret there instead of restarting the deployment. See
   [Self-host PagerDuty](/docs/self-hosting/pagerduty).
 </Callout>
 
@@ -73,10 +74,20 @@ remains the source of truth for which services are approved.
 
 <Steps>
   <Step>
+    ### Register the OAuth app (self-hosted only)
+
+    On a self-hosted deployment without a deployment OAuth app, choosing
+    **PagerDuty** creates a draft connection and opens **Register PagerDuty
+    OAuth app**. Create a Scoped OAuth application in the PagerDuty developer
+    portal, paste the callback and Event URL shown in the wizard, then save
+    the client id and secret. Hosted ctx| skips this step.
+  </Step>
+
+  <Step>
     ### Connect PagerDuty
 
     Open **Connectors**, choose **Add connection**, then select **PagerDuty**.
-    Authorize the ctx| application in the PagerDuty popup.
+    Authorize the application in the PagerDuty popup.
   </Step>
 
   <Step>
@@ -174,8 +185,9 @@ tests PagerDuty webhook delivery.
 ### Authorization fails
 
 Allow popups and retry. On fully managed ctx|, report persistent OAuth errors to
-support. On a self-hosted deployment, ask the operator to verify that PagerDuty
-OAuth credentials are configured and that the callback URI matches exactly.
+support. On a self-hosted deployment, finish **Register PagerDuty OAuth app**
+in the wizard, or ask the operator to verify that a deployment OAuth app is
+configured, and that the callback URI matches exactly.
 
 ### No pull request appears
 
