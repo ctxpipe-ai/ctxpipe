@@ -3,10 +3,11 @@ import type { Context } from "hono"
 import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
 import { parseNotionConnectionConfig } from "../../../lib/connection-config.js"
+import { decryptConnectionSecret } from "../../../lib/connection-secrets.js"
 import {
   hasValidNotionSignature,
+  notionConnectionHasOauthApp,
   notionProvisioningTokenMatches,
-  resolveNotionOAuthApp,
   resolveNotionWebhookSecret,
 } from "../../../lib/notion-oauth.js"
 import {
@@ -92,8 +93,17 @@ async function handleProvisioning(c: Context<AppEnv>, verificationToken: string)
     const stored = parseNotionConnectionConfig(
       row.config as Record<string, unknown>,
     )
-    const app = resolveNotionOAuthApp(stored, env)
-    if (!app || !supplied || !notionProvisioningTokenMatches(app.clientSecret, supplied)) {
+    if (!notionConnectionHasOauthApp(stored) || !stored.oauthClientSecretEnc) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const clientSecret = decryptConnectionSecret(
+      stored.oauthClientSecretEnc,
+      env,
+    )
+    if (
+      !supplied ||
+      !notionProvisioningTokenMatches(clientSecret, supplied)
+    ) {
       return c.json({ error: "Unauthorized" }, 401)
     }
     const persisted = await persistNotionWebhookSecret({
@@ -172,15 +182,10 @@ async function handleNotionWebhook(c: Context<AppEnv>) {
   })
 
   const accepted = candidates.filter((candidate) => {
-    const rowSecret = resolveNotionWebhookSecret(candidate.stored, {
-      ...c.var.env,
-      NOTION_WEBHOOK_SECRET: undefined,
-    })
-    const secrets = [rowSecret, envSecret].filter(
-      (secret): secret is string => Boolean(secret),
-    )
-    return secrets.some((secret) =>
-      hasValidNotionSignature(rawBody, signature, secret),
+    const secret = resolveNotionWebhookSecret(candidate.stored, c.var.env)
+    return (
+      Boolean(secret) &&
+      hasValidNotionSignature(rawBody, signature, secret as string)
     )
   })
 

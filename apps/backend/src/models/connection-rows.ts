@@ -23,7 +23,6 @@ import {
   parseLinearConnectionStored,
   parseNotionConnectionConfig,
   parseSlackConnectionStored,
-  tryParseNotionConnectionConfig,
   serialiseForgeConnectionConfigForDb,
   serialiseGithubConnectionConfigForDb,
   serialiseLinearConnectionConfigForDb,
@@ -374,10 +373,6 @@ export function notionShapeToConfig(
     "id" | "orgId" | "createdAt" | "updatedAt"
   >,
   env: Env,
-  options?: {
-    /** Keep oauth-app + webhook secret fields; they are not on `NotionConnectionShape`. */
-    preserveOauthAppFromConfig?: Record<string, unknown> | null
-  },
 ): Record<string, unknown> {
   const tokens = input.accessToken
     ? encodeNotionTokensForDb(
@@ -388,9 +383,6 @@ export function notionShapeToConfig(
         env,
       )
     : {}
-  const prior = options?.preserveOauthAppFromConfig
-    ? tryParseNotionConnectionConfig(options.preserveOauthAppFromConfig)
-    : null
   return serialiseNotionConnectionConfigForDb({
     ...tokens,
     botId: input.botId ?? undefined,
@@ -406,9 +398,6 @@ export function notionShapeToConfig(
     setupPhase: input.setupPhase,
     pendingConfigPullUrl: input.pendingConfigPullUrl,
     pendingConfigPrCreating: input.pendingConfigPrCreating,
-    oauthClientId: prior?.oauthClientId,
-    oauthClientSecretEnc: prior?.oauthClientSecretEnc,
-    webhookSecretEnc: prior?.webhookSecretEnc,
   })
 }
 

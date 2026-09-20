@@ -3,9 +3,6 @@ import type { Env } from "../config/env.js"
 import { decryptConnectionSecret } from "./connection-secrets.js"
 import type { NotionConnectionConfig } from "./connection-config.js"
 
-export const NOTION_WEBHOOK_PROVISIONING_CONTEXT =
-  "ctxpipe:notion-webhook-provisioning:v1"
-
 export type NotionOAuthApp = {
   clientId: string
   clientSecret: string
@@ -56,7 +53,7 @@ export function notionConnectionHasWebhookSecret(
 
 export function notionProvisioningToken(clientSecret: string): string {
   return createHmac("sha256", clientSecret)
-    .update(NOTION_WEBHOOK_PROVISIONING_CONTEXT)
+    .update("ctxpipe:notion-webhook-provisioning:v1")
     .digest("base64url")
 }
 
@@ -104,17 +101,4 @@ export function notionWebhookUrl(input: {
     notionProvisioningToken(input.clientSecret),
   )
   return url.toString()
-}
-
-export function notionOauthAppFieldsFromStored(
-  stored: NotionConnectionConfig | null | undefined,
-): Pick<
-  NotionConnectionConfig,
-  "oauthClientId" | "oauthClientSecretEnc" | "webhookSecretEnc"
-> {
-  return {
-    oauthClientId: stored?.oauthClientId,
-    oauthClientSecretEnc: stored?.oauthClientSecretEnc,
-    webhookSecretEnc: stored?.webhookSecretEnc,
-  }
 }

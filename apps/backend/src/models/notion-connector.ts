@@ -19,7 +19,6 @@ import {
   decryptConnectionSecret,
   encryptConnectionSecret,
 } from "../lib/connection-secrets.js"
-import { notionOauthAppFieldsFromStored } from "../lib/notion-oauth.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 import {
@@ -141,39 +140,12 @@ function notionConfigWorkspaceIdRef() {
   return sql<string>`${connections.config}->>'workspaceId'`
 }
 
-function notionConfigOwnerUserIdRef() {
-  return sql<string>`${connections.config}->>'ownerUserId'`
-}
-
-function notionConfigSetupPhaseRef() {
-  return sql<string>`${connections.config}->>'setupPhase'`
-}
-
 function isTokenlessNotionDraft(config: NotionConnectionConfig): boolean {
   return (
     !config.accessTokenEnc &&
     !config.accessToken &&
     config.setupPhase === "draft"
   )
-}
-
-function mergePreservedOauthApp(
-  primary: Record<string, unknown> | null | undefined,
-  fallback?: Record<string, unknown> | null,
-): Record<string, unknown> {
-  const primaryFields = notionOauthAppFieldsFromStored(
-    primary ? parseNotionConnectionConfig(primary) : undefined,
-  )
-  const fallbackFields = notionOauthAppFieldsFromStored(
-    fallback ? parseNotionConnectionConfig(fallback) : undefined,
-  )
-  return {
-    oauthClientId: primaryFields.oauthClientId ?? fallbackFields.oauthClientId,
-    oauthClientSecretEnc:
-      primaryFields.oauthClientSecretEnc ?? fallbackFields.oauthClientSecretEnc,
-    webhookSecretEnc:
-      primaryFields.webhookSecretEnc ?? fallbackFields.webhookSecretEnc,
-  }
 }
 
 async function migrateLegacyNotionTokensOnRead(
@@ -311,8 +283,8 @@ export async function createDraftNotionConnection(input: {
       and(
         eq(connections.orgId, input.orgId),
         eq(connections.type, CONNECTION_TYPE_NOTION),
-        eq(notionConfigOwnerUserIdRef(), input.ownerUserId),
-        eq(notionConfigSetupPhaseRef(), "draft"),
+        eq(sql<string>`${connections.config}->>'ownerUserId'`, input.ownerUserId),
+        eq(sql<string>`${connections.config}->>'setupPhase'`, "draft"),
       ),
     )
     .orderBy(desc(connections.updatedAt))
@@ -588,37 +560,49 @@ export async function upsertNotionConnectionFromOAuth(input: {
         ? targeted
         : undefined
     const writeTarget = unusedDraft ? existing : (targeted ?? existing)
-    const preserveFrom = mergePreservedOauthApp(
-      writeTarget?.config as Record<string, unknown> | undefined,
-      unusedDraft?.config as Record<string, unknown> | undefined,
-    )
+    const writeStored = writeTarget
+      ? parseNotionConnectionConfig(
+          writeTarget.config as Record<string, unknown>,
+        )
+      : undefined
+    const draftStored = unusedDraft
+      ? parseNotionConnectionConfig(
+          unusedDraft.config as Record<string, unknown>,
+        )
+      : undefined
 
     const existingShape = writeTarget
       ? notionConnectionToShape(writeTarget, input.env)
       : undefined
-    const config = notionShapeToConfig(
-      {
-        accessToken: input.accessToken,
-        refreshToken: input.refreshToken ?? null,
-        botId: input.botId,
-        workspaceId: input.workspaceId ?? null,
-        workspaceName: input.workspaceName ?? null,
-        workspaceIcon: input.workspaceIcon ?? null,
-        ownerUserId: input.ownerUserId,
-        status: "installed",
-        lastEventPayload: existingShape?.lastEventPayload ?? null,
-        // Preserve the sync binding when re-running OAuth for an existing connection.
-        repositoryId: existingShape?.repositoryId ?? null,
-        branch: existingShape?.branch ?? null,
-        enabled: existingShape?.enabled ?? true,
-        setupPhase: existingShape?.setupPhase ?? "draft",
-        pendingConfigPullUrl: existingShape?.pendingConfigPullUrl ?? null,
-        pendingConfigPrCreating:
-          existingShape?.pendingConfigPrCreating ?? false,
-      },
-      input.env,
-      { preserveOauthAppFromConfig: preserveFrom },
-    )
+    const config = {
+      ...notionShapeToConfig(
+        {
+          accessToken: input.accessToken,
+          refreshToken: input.refreshToken ?? null,
+          botId: input.botId,
+          workspaceId: input.workspaceId ?? null,
+          workspaceName: input.workspaceName ?? null,
+          workspaceIcon: input.workspaceIcon ?? null,
+          ownerUserId: input.ownerUserId,
+          status: "installed",
+          lastEventPayload: existingShape?.lastEventPayload ?? null,
+          // Preserve the sync binding when re-running OAuth for an existing connection.
+          repositoryId: existingShape?.repositoryId ?? null,
+          branch: existingShape?.branch ?? null,
+          enabled: existingShape?.enabled ?? true,
+          setupPhase: existingShape?.setupPhase ?? "draft",
+          pendingConfigPullUrl: existingShape?.pendingConfigPullUrl ?? null,
+          pendingConfigPrCreating:
+            existingShape?.pendingConfigPrCreating ?? false,
+        },
+        input.env,
+      ),
+      oauthClientId: writeStored?.oauthClientId ?? draftStored?.oauthClientId,
+      oauthClientSecretEnc:
+        writeStored?.oauthClientSecretEnc ?? draftStored?.oauthClientSecretEnc,
+      webhookSecretEnc:
+        writeStored?.webhookSecretEnc ?? draftStored?.webhookSecretEnc,
+    }
 
     if (writeTarget) {
       const [row] = await tx
@@ -704,16 +688,21 @@ export async function refreshNotionConnectionTokensWithLock(input: {
       accessToken: refreshed.accessToken,
       refreshToken: refreshed.refreshToken ?? current.refreshToken,
     }
-    const config = notionShapeToConfig(
-      {
-        ...current,
-        ...tokens,
-      },
-      input.env,
-      {
-        preserveOauthAppFromConfig: row.config as Record<string, unknown>,
-      },
+    const stored = parseNotionConnectionConfig(
+      row.config as Record<string, unknown>,
     )
+    const config = {
+      ...notionShapeToConfig(
+        {
+          ...current,
+          ...tokens,
+        },
+        input.env,
+      ),
+      oauthClientId: stored.oauthClientId,
+      oauthClientSecretEnc: stored.oauthClientSecretEnc,
+      webhookSecretEnc: stored.webhookSecretEnc,
+    }
     const [updated] = await tx
       .update(connections)
       .set({ config, updatedAt: new Date() })

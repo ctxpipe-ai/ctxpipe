@@ -155,8 +155,29 @@ describe("GET /oauth/start", () => {
     )
   })
 
+  it("returns 400 when connectionId is missing", async () => {
+    const res = await startApp().request(
+      "/acme/api/v1/connectors/notion/oauth/start",
+    )
+    expect(res.status).toBe(400)
+  })
+
+  it("returns 404 when the targeted connection is missing", async () => {
+    getNotionStoredConfigByConnectionIdMock.mockResolvedValue(undefined)
+    const res = await startApp().request(
+      "/acme/api/v1/connectors/notion/oauth/start?connectionId=con_missing",
+    )
+    expect(res.status).toBe(404)
+    expect(getNotionOAuthAuthorizeUrlMock).not.toHaveBeenCalled()
+  })
+
   it("returns 503 when neither row nor env is configured", async () => {
-    const res = await startApp().request("/acme/api/v1/connectors/notion/oauth/start")
+    getNotionStoredConfigByConnectionIdMock.mockResolvedValue(
+      parseNotionConnectionConfig({ setupPhase: "draft" }),
+    )
+    const res = await startApp().request(
+      "/acme/api/v1/connectors/notion/oauth/start?connectionId=con_1",
+    )
     expect(res.status).toBe(503)
     expect(await res.json()).toMatchObject({
       code: "notion_oauth_not_configured",
@@ -164,10 +185,13 @@ describe("GET /oauth/start", () => {
   })
 
   it("returns 200 with env-only credentials", async () => {
+    getNotionStoredConfigByConnectionIdMock.mockResolvedValue(
+      parseNotionConnectionConfig({ setupPhase: "draft" }),
+    )
     const res = await startApp({
       NOTION_CLIENT_ID: "env-id",
       NOTION_CLIENT_SECRET: "env-secret",
-    }).request("/acme/api/v1/connectors/notion/oauth/start")
+    }).request("/acme/api/v1/connectors/notion/oauth/start?connectionId=con_1")
     expect(res.status).toBe(200)
     expect(getNotionOAuthAuthorizeUrlMock).toHaveBeenCalledWith(
       expect.objectContaining({ clientId: "env-id" }),
@@ -256,5 +280,17 @@ describe("GET /oauth/callback", () => {
         botId: "bot_1",
       }),
     )
+  })
+
+  it("rejects a missing targeted connection before exchanging the code", async () => {
+    getNotionStoredConfigByConnectionIdMock.mockResolvedValue(undefined)
+    const state = makeState({ connectionId: "con_gone" })
+    const res = await callbackApp({
+      NOTION_CLIENT_ID: "env-id",
+      NOTION_CLIENT_SECRET: "env-secret",
+    }).request(`/oauth/callback?code=abc&state=${state}`)
+    expect(res.status).toBe(404)
+    expect(exchangeNotionOAuthCodeMock).not.toHaveBeenCalled()
+    expect(upsertNotionConnectionFromOAuthMock).not.toHaveBeenCalled()
   })
 })

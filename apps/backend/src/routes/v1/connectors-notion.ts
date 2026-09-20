@@ -124,7 +124,7 @@ const NotionPatchConfigRequestSchema = z
 const getOAuthStartRoute = createRoute({
   method: "get",
   path: "/oauth/start",
-  request: { query: ConnectionIdQuerySchema },
+  request: { query: z.object({ connectionId: z.string().min(1) }) },
   responses: {
     200: {
       content: {
@@ -559,7 +559,7 @@ function makeOAuthState(input: {
   userId: string
   orgSlug: string
   secret: string
-  connectionId?: string
+  connectionId: string
 }): string {
   const payload = encodeBase64Url(
     JSON.stringify({
@@ -567,7 +567,7 @@ function makeOAuthState(input: {
       userId: input.userId,
       orgSlug: input.orgSlug,
       ts: Date.now(),
-      ...(input.connectionId ? { connectionId: input.connectionId } : {}),
+      connectionId: input.connectionId,
     }),
   )
   return `${payload}.${signState(payload, input.secret)}`
@@ -582,7 +582,7 @@ function parseOAuthState(
       userId: string
       orgSlug: string
       ts: number
-      connectionId?: string
+      connectionId: string
     }
   | undefined {
   const [payload, signature] = state.split(".")
@@ -597,7 +597,7 @@ function parseOAuthState(
       userId: z.string(),
       orgSlug: z.string(),
       ts: z.number(),
-      connectionId: z.string().min(1).optional(),
+      connectionId: z.string().min(1),
     })
     .safeParse(JSON.parse(decodeBase64Url(payload)))
   if (!parsed.success) return undefined
@@ -805,13 +805,12 @@ export const notionConnectorRoutes = new OpenAPIHono<AppEnv>().openapi(
     const orgSlug = c.req.param("orgSlug")
     if (!orgSlug) return c.json({ error: "Missing org slug" }, 400)
     const env = c.var.env
-    const { connectionId } = ConnectionIdQuerySchema.parse({
-      connectionId: c.req.query("connectionId") ?? undefined,
-    })
-    const stored = connectionId
-      ? await getNotionStoredConfigByConnectionId(orgId, connectionId)
-      : undefined
-    if (connectionId && !stored) {
+    const connectionId = c.req.query("connectionId")
+    if (!connectionId) {
+      return c.json({ error: "connectionId is required" }, 400)
+    }
+    const stored = await getNotionStoredConfigByConnectionId(orgId, connectionId)
+    if (!stored) {
       return c.json({ error: "Unknown Notion connection" }, 404)
     }
     const app = resolveNotionOAuthApp(stored, env)
@@ -895,12 +894,16 @@ export const notionOAuthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
     if (!member) {
       return c.json({ error: "Not a member of this organization" }, 403)
     }
-    const stored = state.connectionId
-      ? await getNotionStoredConfigByConnectionId(
-          state.orgId,
-          state.connectionId,
-        )
-      : undefined
+    if (!state.connectionId) {
+      return c.json({ error: "Invalid Notion OAuth state" }, 400)
+    }
+    const stored = await getNotionStoredConfigByConnectionId(
+      state.orgId,
+      state.connectionId,
+    )
+    if (!stored) {
+      return c.json({ error: "Unknown Notion connection" }, 404)
+    }
     const app = resolveNotionOAuthApp(stored, env)
     if (!app) {
       return c.json(

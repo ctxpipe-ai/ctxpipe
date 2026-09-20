@@ -181,6 +181,24 @@ describe("Notion webhook", () => {
     })
   })
 
+  it("rejects query-scoped provisioning that only matches the env client secret", async () => {
+    getRowMock.mockResolvedValue({
+      id: "con_draft",
+      orgId: "org_1",
+      type: "notion",
+      config: { setupPhase: "draft" },
+    })
+    const response = await testApp({ webhookSecret: undefined }).request(
+      `/api/v1/webhook/notion?connectionId=con_draft&provisioningToken=${provisioningToken}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ verification_token: "verify-me" }),
+      },
+    )
+    expect(response.status).toBe(401)
+    expect(persistSecretMock).not.toHaveBeenCalled()
+  })
+
   it("rejects provisioning with the wrong connectionId or token", async () => {
     getRowMock.mockResolvedValue(undefined)
     const response = await testApp({ webhookSecret: undefined }).request(
@@ -297,6 +315,35 @@ describe("Notion webhook", () => {
       }),
       { idempotencyKey: "notion:con_org_b:event_cross" },
     )
+  })
+
+  it("does not let the hosted env secret authorize a row with its own secret", async () => {
+    connectionsMock.mockResolvedValue([
+      candidate(
+        { id: "con_self_host", orgId: "org_a" },
+        {
+          webhookSecretEnc: encryptConnectionSecret("secret-a", envBase),
+        },
+      ),
+    ])
+    const body = JSON.stringify({
+      id: "event_env",
+      workspace_id: "workspace_1",
+      type: "page.content_updated",
+      entity: { id: "page_1", type: "page" },
+    })
+
+    const response = await testApp({ webhookSecret: "hosted-env-secret" }).request(
+      "/api/v1/webhook/notion",
+      {
+        method: "POST",
+        headers: { "x-notion-signature": sign(body, "hosted-env-secret") },
+        body,
+      },
+    )
+
+    expect(response.status).toBe(401)
+    expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 
   it("maps data_source deletions to a data_source-scoped delete", async () => {
