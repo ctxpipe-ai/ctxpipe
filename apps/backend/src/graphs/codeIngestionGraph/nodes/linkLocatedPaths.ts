@@ -427,13 +427,17 @@ export async function resolveReferenceClaims(input: {
   }
 
   const resolvable = (ref: string) => isIdRef(ref) || known.has(ref)
-  const stubOrNull = (ref: string, claim: ExtractedClaim): boolean => {
+  const pendingStub = (
+    ref: string,
+    claim: ExtractedClaim,
+  ): ExtractedObject | true | null => {
     if (resolvable(ref)) return true
-    const stub = stubForReference(ref, claim.provenance, known)
-    if (!stub) return false
+    return stubForReference(ref, claim.provenance, known)
+  }
+  const commitStub = (stub: ExtractedObject | true): void => {
+    if (stub === true) return
     stubs.push(stub)
     known.add(stub.deduplicationKey)
-    return true
   }
   const kept: ExtractedClaim[] = []
   for (const claim of input.claims) {
@@ -447,11 +451,12 @@ export async function resolveReferenceClaims(input: {
       stubbed: 0,
     }
     summary[claim.predicate] = entry
-    const stubsBefore = stubs.length
-    if (
-      stubOrNull(claim.subjectRef, claim) &&
-      stubOrNull(claim.objectRef, claim)
-    ) {
+    const subject = pendingStub(claim.subjectRef, claim)
+    const object = pendingStub(claim.objectRef, claim)
+    if (subject && object) {
+      const stubsBefore = stubs.length
+      commitStub(subject)
+      commitStub(object)
       entry.kept += 1
       entry.stubbed += stubs.length - stubsBefore
       kept.push(claim)
