@@ -1,10 +1,13 @@
 # Graph overhaul proposal: a compounding engineering graph
 
+**Status:** Discarded options note. Accepted decisions live in
+[ADR-033](../.ai/memory/decisions/ADR-033-graph-ontology-v2.md) (amends
+ADR-032, builds on ADR-031). Do not treat remaining sections as shipped
+acceptance.
+
 **For:** Jakub  
 **From:** Tom / graph + GitHub PR work  
 **Date:** 2026-09-16  
-**Status:** Proposal. Decisions requested in §11.  
-**Supersedes:** the earlier architecture question in this directory (removed; its layer table and A / B / C options are folded into §2 and D1). Implemented on branch `graph-overhaul`; decisions recorded in ADR-033.  
 **Related:** ADR-018 (unified connections), ADR-022 (Linear git-native), ADR-025 (Slack capture), ADR-028 (assets), ADR-031 (PR scoped mirror), ADR-032 (File as location)
 
 ---
@@ -292,28 +295,24 @@ Join density for this subgraph: the PR node has edges from GitHub, Linear and Sl
 
 ## 8. Metrics and acceptance
 
-Add to `KnowledgeGraphMetricsSchema` and log per ingest:
+Shipped on `GET /knowledge-graph/quality` (ADR-033 §10): join density (north
+star), orphan rate, evidence rows per claim, leftover connector-derived
+instruction units, and kind / predicate counts.
 
-| Metric | Definition | Target direction |
-|---|---|---|
-| Join density | nodes with edges whose evidence comes from ≥2 source families / all nodes | up; north star |
-| Cross-family edge share | edges whose endpoints are in different families / all edges | up |
-| PR → Issue link rate | mirrored PRs with a `REFERENCES Issue` / mirrored PRs | measure; expect >50% where Linear is connected |
-| File containment | File nodes with `PART_OF` / File nodes | ~100% for connected repos |
-| Orphan rate | degree-0 nodes; degree-1 nodes whose only edge is same-family | 0; down |
-| Evidence rows per claim per source | should be ~1 after the key fix | 1 |
-| Dead kinds | kinds in allowed connections with no extractor | 0 |
-| Freshness | webhook receipt → claim projected, p50 | minutes |
-
-Baseline on TruRec AI and two other orgs before re-ingest; report after.
+Not in this release: cross-family edge share, PR→Issue link rate, File
+containment, dead-kind count, freshness, and per-ingest logging. Extracted-claim
+`sourceUrl` persistence and per-kind embedding extras are also deferred.
 
 ---
 
 ## 9. Migration and rollout
 
 1. **Predicates**: rename on the branch. No customer data carries `ABOUT` for File / PR / InstructionUnit yet.
-2. **Legacy instruction units from connector dumps**: one admin job retracts evidence whose key has a path segment under `(linear|notion|slack|confluence|github)/`, reusing `retractIngestionForDiffPg` logic; orphan objects are removed by the existing reconcile. Run once per org before re-ingest.
-3. **Re-ingest** all connected repositories (full) once Phase 0 + 1 are deployed; then run the PR mirror backfill and Linear / Slack re-syncs so the registry extractors see every file. A manual re-index is now a full ingest that also retracts what the repository no longer asserts (ADR-033 §11, Appendix C); before that change a re-index at an unchanged tip added drifted extractions and removed nothing.
+2. **Legacy instruction units from connector dumps**: a healthy context-repo
+   full ingest retracts unobserved connector-derived instruction units
+   (`retractUnobservedRepositoryEvidencePg`). There is no second admin cleanup
+   path.
+3. **Re-ingest** all connected repositories (full) once Phase 0 + 1 are deployed; then run the PR mirror backfill and Linear / Slack re-syncs so the extractors see every file. A manual re-index is now a full ingest that also retracts what the repository no longer asserts (ADR-033 §11); before that change a re-index at an unchanged tip added drifted extractions and removed nothing.
 4. **Hosted GitHub App**: subscribe to `pull_request_review`, `pull_request_review_comment`, `issue_comment`; grant Issues: Read (ADR-031 consequence).
 5. **Docs**: knowledge-graph overview lists kinds by family and predicates with semantics; ingestion page states the three layers (warehouse, search, graph); ADR-033 "Graph ontology v2" amends ADR-032 §2 (predicates) and §4 (connector nodes); source-connectors skill requires an extractor per connector.
 
@@ -323,7 +322,7 @@ Baseline on TruRec AI and two other orgs before re-ingest; report after.
 
 **Phase 0, this branch (`github-pr-mirror`)**: fix the build and the evidence keys; `PART_OF` / `DECLARED_IN` / `TARGETS`; `RENAMED_FROM`; validity plumbing with merged dates; neutral File payload; batch backfill commits; policy before snapshot fetch; idempotency keys; latest-review-per-reviewer decision; per-repo error isolation; connector-only short-circuit; drop dead kinds from planner schema; tests for extractor, sync, client, workflows; changeset; ADR-033 draft.
 
-**Phase 1, stacked branches, same release**: reference resolver and link-pass generalisation; Linear extractor (Issue, Project, Team, `OWNS`, `REFERENCES` both directions); Slack Thread extractor; Decision extractor from ADR files with `SUPERSEDES`, `DECLARED_IN`, `INFLUENCES`; CODEOWNERS → `OWNS`; per-kind embeddings; metrics; planner predicate descriptions; legacy cleanup job.
+**Phase 1, stacked branches, same release**: reference resolver and link-pass generalisation; Linear extractor (Issue, Team, `OWNS`, `REFERENCES` both directions); Slack Thread extractor; Decision extractor from ADR files with `SUPERSEDES`, `DECLARED_IN`, `INFLUENCES`; CODEOWNERS → `OWNS`; planner predicate descriptions; join-density quality report. Per-kind embeddings, extracted-claim `sourceUrl`, and the extra §8 series are deferred.
 
 **Phase 2**: `Document` for Notion / Confluence / Linear documents with hierarchy and `MENTIONS`; promotion pass opening `AGENTS.md` PRs; family-parameterised traversal; Incident contract with opt-in Slack incident captures.
 

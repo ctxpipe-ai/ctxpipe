@@ -37,8 +37,9 @@ typed change edges.
 5. Graph extraction for these files is **deterministic** (no ReAct, no
    instruction LLM). It emits `PullRequest` and `File` objects and edges
    `ADDED` | `MODIFIED` | `REMOVED` | `RENAMED` from the pull request to each
-   changed file, plus `ABOUT` to the source `Repository` (and owning package
-   when classified). Locating `File` edges are graph-wide
+   changed file, plus `TARGETS` to the source `Repository` and `File PART_OF`
+   that repository (and owning package when classified). Locating `File` edges
+   are graph-wide
    ([ADR-032](ADR-032-path-located-graph-edges.md)); PR change predicates are
    one instance. Instruction extraction skips all connector prefixes, not only
    `github/`.

@@ -24,7 +24,6 @@ const ID_PREFIX_TO_KIND: Record<string, string> = {
   inf_: "Infrastructure",
   lib_: "Library",
   pat_: "Pattern",
-  inc_: "Incident",
   dec_: "Decision",
   inu_: "InstructionUnit",
   skl_: "Skill",

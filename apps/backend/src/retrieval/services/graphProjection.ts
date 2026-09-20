@@ -26,7 +26,6 @@ const KIND_PAYLOAD_KEYS: Record<string, string[]> = {
   Library: ["language", "package"],
   Pattern: ["category"],
   Repository: [],
-  Incident: [],
   Decision: ["status", "date", "path", "url"],
   InstructionUnit: ["intent", "modality", "path"],
   Skill: ["intent_summary"],

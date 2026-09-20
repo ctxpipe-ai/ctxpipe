@@ -8,10 +8,6 @@ import { withOrgDbContext } from "../../db/client.js"
 import { computeKnowledgeGraphQuality } from "../../domain/knowledgeGraphQuality.js"
 import { getKnowledgeGraphSnapshot } from "../../domain/knowledgeGraphSnapshot.js"
 import { getLogger } from "../../observability/logger.js"
-import {
-  applyIngestionRetractionGraphEffects,
-  retractConnectorPrefixInstructionUnitsPg,
-} from "../../retrieval/services/ingestionRetraction.js"
 
 const ErrorResponseSchema = z
   .object({ error: z.string() })
@@ -126,69 +122,6 @@ export const getKnowledgeGraphQualityRoute = createRoute({
     },
   },
 })
-
-const RetractConnectorInstructionsResponseSchema = z
-  .object({
-    unitsDeleted: z.number().int(),
-    claimsDeleted: z.number().int(),
-    deletedEvidenceRows: z.number().int(),
-    orphanObjectsDeleted: z.number().int(),
-    graphEdgesDeleted: z.number().int(),
-    graphOrphanObjectsDeleted: z.number().int(),
-  })
-  .openapi("RetractConnectorInstructionsResponse")
-
-export const retractConnectorInstructionsRoute = createRoute({
-  method: "post",
-  path: "/retract-connector-instructions",
-  summary:
-    "Remove legacy InstructionUnits minted from connector Markdown (ADR-033 migration)",
-  responses: {
-    200: {
-      content: {
-        "application/json": {
-          schema: RetractConnectorInstructionsResponseSchema,
-        },
-      },
-      description: "Cleanup statistics",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-  },
-})
-
-/** Org-admin maintenance actions; mounted under an admin-scoped path. */
-export const knowledgeGraphMaintenanceRoutes =
-  new OpenAPIHono<AppEnv>().openapi(
-    retractConnectorInstructionsRoute,
-    async (c) => {
-      const user = c.get("user")
-      const session = c.get("session")
-      if (!user || !session) {
-        return c.json({ error: "Unauthorized" }, 401)
-      }
-      const orgId = requireCurrentOrgId()
-      const result = await withOrgDbContext(orgId, (db) =>
-        retractConnectorPrefixInstructionUnitsPg(db, { orgId }),
-      )
-      const graph = await applyIngestionRetractionGraphEffects(
-        result.graphEffects,
-      )
-      return c.json(
-        {
-          unitsDeleted: result.unitsDeleted,
-          claimsDeleted: result.stats.claimsDeleted,
-          deletedEvidenceRows: result.stats.deletedEvidenceRows,
-          orphanObjectsDeleted: result.stats.orphanObjectsDeleted,
-          graphEdgesDeleted: graph.graphEdgesDeleted,
-          graphOrphanObjectsDeleted: graph.graphOrphanObjectsDeleted,
-        },
-        200,
-      )
-    },
-  )
 
 export const knowledgeGraphRoutes = new OpenAPIHono<AppEnv>()
   .openapi(getKnowledgeGraphQualityRoute, async (c) => {

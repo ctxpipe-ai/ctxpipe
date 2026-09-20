@@ -18,7 +18,6 @@ const ID_PREFIXES = [
   "inf_",
   "lib_",
   "pat_",
-  "inc_",
   "dec_",
   "inu_",
   "skl_",
