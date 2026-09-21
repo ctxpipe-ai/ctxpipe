@@ -14,8 +14,7 @@ const oauthAppState = vi.hoisted(() => ({
     webhookConfigured: false,
     webhookVerificationToken: null as string | null,
     globalNotionOAuthConfigured: false,
-    callbackUrl:
-      "http://localhost/api/v1/connectors/notion/oauth/callback",
+    callbackUrl: "http://localhost/api/v1/connectors/notion/oauth/callback",
     webhookUrl: "http://localhost/api/v1/webhook/notion",
   },
 }))
@@ -151,9 +150,11 @@ vi.mock("@/lib/api", () => ({
       api: {
         v1: {
           repositories: {
-            $get: vi.fn().mockResolvedValue(
-              new Response(JSON.stringify({ items: [] }), { status: 200 }),
-            ),
+            $get: vi
+              .fn()
+              .mockResolvedValue(
+                new Response(JSON.stringify({ items: [] }), { status: 200 }),
+              ),
           },
         },
       },
@@ -193,12 +194,11 @@ vi.mock("../queries/notion-connector", () => ({
       orgSlug,
       connectionId,
     ],
-    resources: (orgSlug: string, connectionId: string | undefined, q: string) => [
-      "notion-connector-resources",
-      orgSlug,
-      connectionId ?? "default",
-      q,
-    ],
+    resources: (
+      orgSlug: string,
+      connectionId: string | undefined,
+      q: string,
+    ) => ["notion-connector-resources", orgSlug, connectionId ?? "default", q],
   },
 }))
 

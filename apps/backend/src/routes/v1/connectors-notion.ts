@@ -3,7 +3,6 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import { and, eq } from "drizzle-orm"
 import type { AppEnv } from "../../app/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
-import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import { members } from "../../db/schema/auth.js"
 import { decryptConnectionSecret } from "../../lib/connection-secrets.js"
 import {
@@ -13,6 +12,7 @@ import {
   notionWebhookUrl,
   resolveNotionOAuthApp,
 } from "../../lib/notion-oauth.js"
+import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
   claimNotionConfigPrCreation,
   claimNotionContentSyncRetry,
@@ -793,7 +793,10 @@ export const notionOauthAppReadRoutes = new OpenAPIHono<AppEnv>().openapi(
     if (!connectionId) {
       return c.json({ error: "connectionId is required" }, 400)
     }
-    const stored = await getNotionStoredConfigByConnectionId(orgId, connectionId)
+    const stored = await getNotionStoredConfigByConnectionId(
+      orgId,
+      connectionId,
+    )
     if (!stored) return c.json({ error: "Unknown Notion connection" }, 404)
     return c.json(notionOauthAppMetadata(stored, c.var.env, connectionId), 200)
   },
@@ -815,7 +818,10 @@ export const notionConnectorRoutes = new OpenAPIHono<AppEnv>().openapi(
     if (!connectionId) {
       return c.json({ error: "connectionId is required" }, 400)
     }
-    const stored = await getNotionStoredConfigByConnectionId(orgId, connectionId)
+    const stored = await getNotionStoredConfigByConnectionId(
+      orgId,
+      connectionId,
+    )
     if (!stored) {
       return c.json({ error: "Unknown Notion connection" }, 404)
     }
@@ -894,7 +900,10 @@ export const notionOAuthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
       .select()
       .from(members)
       .where(
-        and(eq(members.organizationId, state.orgId), eq(members.userId, user.id)),
+        and(
+          eq(members.organizationId, state.orgId),
+          eq(members.userId, user.id),
+        ),
       )
       .limit(1)
     if (!member) {
@@ -986,7 +995,10 @@ notionConnectorRoutes
       return c.json({ error: "connectionId is required" }, 400)
     }
     const body = NotionOauthAppPutSchema.parse(await c.req.json())
-    const stored = await getNotionStoredConfigByConnectionId(orgId, connectionId)
+    const stored = await getNotionStoredConfigByConnectionId(
+      orgId,
+      connectionId,
+    )
     if (!stored) return c.json({ error: "Unknown Notion connection" }, 404)
     const newSecret = body.clientSecret?.trim() ?? ""
     if (!notionConnectionHasOauthApp(stored) && !newSecret) {

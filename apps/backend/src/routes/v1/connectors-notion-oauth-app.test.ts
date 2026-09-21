@@ -1,8 +1,8 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
-import { encryptConnectionSecret } from "../../lib/connection-secrets.js"
 import { parseNotionConnectionConfig } from "../../lib/connection-config.js"
+import { encryptConnectionSecret } from "../../lib/connection-secrets.js"
 
 const getActiveMemberRoleMock = vi.hoisted(() => vi.fn())
 
@@ -289,7 +289,9 @@ describe("POST /connectors/notion/draft", () => {
 
   it("returns draft metadata only", async () => {
     const app = mountApp()
-    const res = await app.request("/connectors/notion/draft", { method: "POST" })
+    const res = await app.request("/connectors/notion/draft", {
+      method: "POST",
+    })
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
       id: "con_draft",

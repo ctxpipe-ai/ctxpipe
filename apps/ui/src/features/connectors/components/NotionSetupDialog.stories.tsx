@@ -3,9 +3,7 @@ import { HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
-import {
-  notionOauthAppHandler,
-} from "../mocks/notion-oauth-app-msw"
+import { notionOauthAppHandler } from "../mocks/notion-oauth-app-msw"
 import { NotionSetupDialog } from "./NotionSetupDialog"
 
 const orgSlug = "acme"
@@ -55,7 +53,9 @@ const draftStatus = {
 function notionStatus(status: object) {
   return http.get(
     ({ request }) =>
-      new URL(request.url).pathname.includes("/api/v1/connectors/notion/status"),
+      new URL(request.url).pathname.includes(
+        "/api/v1/connectors/notion/status",
+      ),
     () => HttpResponse.json(status),
   )
 }

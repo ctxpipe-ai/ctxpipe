@@ -4,13 +4,7 @@ import { IconCheck, IconCopy } from "@tabler/icons-react"
 import { useState } from "react"
 import { Button } from "@/components/ui/Button"
 
-export function CopyableUrl({
-  url,
-  label,
-}: {
-  url?: string
-  label: string
-}) {
+export function CopyableUrl({ url, label }: { url?: string; label: string }) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">(
     "idle",
   )

@@ -23,8 +23,7 @@ export function notionOauthAppHandler(input: {
     ({ request }) => {
       const u = new URL(request.url)
       return (
-        u.pathname ===
-          `/${input.orgSlug}/api/v1/connectors/notion/oauth-app` &&
+        u.pathname === `/${input.orgSlug}/api/v1/connectors/notion/oauth-app` &&
         u.searchParams.get("connectionId") === input.connectionId
       )
     },
@@ -57,8 +56,7 @@ export function notionOauthAppPutHandler(input: {
     ({ request }) => {
       const u = new URL(request.url)
       return (
-        u.pathname ===
-          `/${input.orgSlug}/api/v1/connectors/notion/oauth-app` &&
+        u.pathname === `/${input.orgSlug}/api/v1/connectors/notion/oauth-app` &&
         u.searchParams.get("connectionId") === input.connectionId
       )
     },

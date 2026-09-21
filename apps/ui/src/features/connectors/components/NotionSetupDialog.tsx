@@ -19,6 +19,7 @@ import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import type { Repository } from "@/features/repositories"
 import { client } from "@/lib/api"
+import { useNotionOAuthConnect } from "../hooks/useNotionOAuthConnect"
 import {
   getNotionFailureAction,
   getNotionSetupCurrentIndex,
@@ -28,7 +29,6 @@ import {
   shouldShowNotionSetupComplete,
   shouldShowNotionWebhookStep,
 } from "../notion-setup-model"
-import { useNotionOAuthConnect } from "../hooks/useNotionOAuthConnect"
 import {
   atlassianConnectorKeys,
   searchGithubInstallationRepos,
@@ -446,10 +446,7 @@ export function NotionSetupDialog({
         oauthConnect.start({
           connectionId,
           onFinished: async (result) => {
-            if (
-              result.connectionId &&
-              result.connectionId !== connectionId
-            ) {
+            if (result.connectionId && result.connectionId !== connectionId) {
               onConnectionIdChange?.(result.connectionId)
             }
             await queryClient.invalidateQueries({

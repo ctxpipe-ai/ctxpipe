@@ -79,10 +79,7 @@ export function RegisterNotionOauthStep({
               rel="noreferrer"
             >
               Notion integrations
-              <IconExternalLink
-                className="ml-1 inline size-3.5"
-                aria-hidden
-              />
+              <IconExternalLink className="ml-1 inline size-3.5" aria-hidden />
             </a>{" "}
             portal.
           </li>
