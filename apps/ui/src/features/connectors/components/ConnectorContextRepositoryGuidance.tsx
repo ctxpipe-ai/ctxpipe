@@ -44,13 +44,63 @@ export function getConnectorContextRepositoryCreateUrl(
   return `https://github.com/new?${params.toString()}`
 }
 
+const DOCS_HREF = "https://docs.ctxpipe.ai/docs/connections/context-repository"
+
+function AboutContextRepositoryLink() {
+  return (
+    <a
+      href={DOCS_HREF}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mt-3 inline-flex items-center gap-1 text-sm text-teal-400 hover:text-teal-300"
+    >
+      About connector context repositories
+      <IconExternalLink className="size-3.5" aria-hidden />
+    </a>
+  )
+}
+
 export function ConnectorContextRepositoryGuidance({
   suggestedTarget,
   foundRepositoryName,
+  variant = "connector",
 }: {
   suggestedTarget?: SuggestedConnectorSyncTarget | null
   foundRepositoryName?: string | null
+  variant?: "connector" | "onboarding"
 }) {
+  if (variant === "onboarding") {
+    return (
+      <div>
+        <img
+          src="/images/ctxpipe-context-repo.svg"
+          alt="Developer tools clone into one ctxpipe-context repository"
+          width={718}
+          height={192}
+          className="block h-auto w-full"
+        />
+        <p className="ctx-label mt-4 text-teal-400">Context repository</p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          One GitHub repository for pull requests and later connectors. Create{" "}
+          <code className="bg-muted px-1 py-0.5 text-[11px]">
+            {CONNECTOR_CONTEXT_REPOSITORY_NAME}
+          </code>{" "}
+          once, then reuse it.
+        </p>
+        {foundRepositoryName ? (
+          <p className="mt-2 text-sm text-muted-foreground">
+            This installation includes{" "}
+            <code className="bg-muted px-1 py-0.5 text-[11px]">
+              {foundRepositoryName}
+            </code>
+            .
+          </p>
+        ) : null}
+        <AboutContextRepositoryLink />
+      </div>
+    )
+  }
+
   return (
     <div className="border border-teal-500/40 bg-teal-500/5 p-4">
       <div className="text-xs font-medium tracking-wide text-teal-300 uppercase">
@@ -95,15 +145,7 @@ export function ConnectorContextRepositoryGuidance({
           can choose another name if your team has its own convention.
         </p>
       )}
-      <a
-        href="https://docs.ctxpipe.ai/docs/connections/context-repository"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="mt-3 inline-flex items-center gap-1 text-sm text-teal-400 hover:text-teal-300"
-      >
-        About connector context repositories
-        <IconExternalLink className="size-3.5" aria-hidden />
-      </a>
+      <AboutContextRepositoryLink />
     </div>
   )
 }

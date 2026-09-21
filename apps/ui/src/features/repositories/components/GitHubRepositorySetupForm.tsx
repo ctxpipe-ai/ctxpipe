@@ -449,6 +449,7 @@ export function GitHubRepositorySetupForm({
         ) : (
           <>
             <ConnectorContextRepositoryGuidance
+              variant="onboarding"
               foundRepositoryName={
                 reposPending ? undefined : contextRepo?.full_name
               }
