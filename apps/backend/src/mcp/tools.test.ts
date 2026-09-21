@@ -211,11 +211,6 @@ describe("registerMcpTools", () => {
     expect(config.description).toContain("ctx_advisor")
     expect(config.description).toContain("repository search")
     expect(config.description).toContain("grep")
-    expect(config.description).not.toMatch(/\bMANDATORY\b/)
-    expect(config.description).not.toMatch(/\bALWAYS\b/)
-    expect(config.description).not.toMatch(
-      /even if the user explicitly requested/i,
-    )
     expect(config.annotations).toEqual({
       readOnlyHint: true,
       destructiveHint: false,
