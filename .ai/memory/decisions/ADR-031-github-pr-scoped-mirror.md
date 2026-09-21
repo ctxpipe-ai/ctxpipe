@@ -27,8 +27,8 @@ typed change edges.
    ingested source repository except the context warehouse. Adding or removing
    picker repos updates that list. Operators may still edit the yaml to narrow
    a one-off backfill; the next picker sync overwrites it back to the picker.
-   GitHub repository selection (onboarding and later setup) prompts the user to
-   create or select `ctxpipe-context`. That prompt is not a gate; skip still
+   After the ingest picker, GitHub setup has a second step to create or confirm
+   `ctxpipe-context`. That step is not a gate; skip on the picker still
    completes setup. ctx| does not auto-create the repository (that would need
    GitHub App Administration).
 3. Content commits directly to the bound branch under

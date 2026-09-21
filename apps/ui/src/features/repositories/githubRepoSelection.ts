@@ -117,6 +117,18 @@ export async function collectInstallationRepoPages(
   return { repositories, repositorySelection, manageUrl }
 }
 
+/** Poll GitHub while the context-repository step is waiting for ctxpipe-context. */
+export function githubContextRepoPollMs(
+  step: "select" | "context",
+  repositories: readonly { name: string }[] | undefined,
+): number | false {
+  if (step !== "context") return false
+  if (repositories?.some((repo) => isCtxpipeContextRepositoryName(repo.name))) {
+    return false
+  }
+  return 4000
+}
+
 export function includeCtxpipeContextRepo(
   selectedIds: ReadonlySet<number>,
   repos: readonly GithubRepoItem[],

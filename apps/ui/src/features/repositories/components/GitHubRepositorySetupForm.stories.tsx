@@ -168,7 +168,10 @@ const emptySetupArgs = {
 }
 
 export const ContextRepositoryMissing: Story = {
-  args: emptySetupArgs,
+  args: {
+    ...emptySetupArgs,
+    initialStep: "context",
+  },
   parameters: {
     msw: {
       handlers: {
@@ -182,7 +185,10 @@ export const ContextRepositoryMissing: Story = {
 }
 
 export const ContextRepositoryFound: Story = {
-  args: emptySetupArgs,
+  args: {
+    ...emptySetupArgs,
+    initialStep: "context",
+  },
   parameters: {
     msw: {
       handlers: {

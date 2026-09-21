@@ -177,7 +177,7 @@ export function ConnectorContextRepositoryCreateSteps({
             {manageUrls.length + 2}
           </span>
           <div>
-            <p>Return here and refresh the repository list.</p>
+            <p>Return here. The list updates on its own, or refresh.</p>
             <Button
               variant="secondary"
               className="mt-2 h-8 rounded-none px-3"
@@ -185,7 +185,7 @@ export function ConnectorContextRepositoryCreateSteps({
               isDisabled={isRefreshing}
               onPress={onRefresh}
             >
-              Refresh repositories
+              Refresh
             </Button>
           </div>
         </li>

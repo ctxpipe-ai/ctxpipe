@@ -29,6 +29,7 @@ import {
   type GithubRepoItem,
   type GithubRepoSort,
   githubCloneUrlKey,
+  githubContextRepoPollMs,
   includeCtxpipeContextRepo,
   matchSavedRepoIds,
   selectedCloneUrlKeys,
@@ -43,12 +44,16 @@ export type GitHubRepositorySetupData = {
   savedRepositories: Array<{ name: string; gitUrl: string }>
 }
 
+export type GitHubRepositorySetupStep = "select" | "context"
+
 export type GitHubRepositorySetupFormProps = {
   orgSlug: string
   setupData?: GitHubRepositorySetupData
   /** Affects the small section label above the title (default: repositories). */
   pageContext?: "repositories" | "connectors"
   variant?: "page" | "onboarding"
+  /** Storybook / tests: start on the context-repository step. */
+  initialStep?: GitHubRepositorySetupStep
   onSaveSuccess: () => void
   onCancel: () => void
 }
@@ -84,6 +89,7 @@ export function GitHubRepositorySetupForm({
   setupData,
   pageContext = "repositories",
   variant = "page",
+  initialStep = "select",
   onSaveSuccess,
   onCancel,
 }: GitHubRepositorySetupFormProps) {
@@ -109,12 +115,13 @@ export function GitHubRepositorySetupForm({
   const [sort, setSort] = useState<GithubRepoSort>("pushed-desc")
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set())
   const [selectionHydrated, setSelectionHydrated] = useState(false)
+  const [step, setStep] = useState<GitHubRepositorySetupStep>(initialStep)
+  const [isManualRefresh, setIsManualRefresh] = useState(false)
 
   const {
     data,
     isPending: reposPending,
     isError: reposFailed,
-    isFetching: reposFetching,
   } = useQuery({
     queryKey: ["github-installation-repos", orgSlug],
     queryFn: () =>
@@ -122,6 +129,8 @@ export function GitHubRepositorySetupForm({
         fetchInstallationReposPage(orgSlug, page),
       ),
     enabled: !!session,
+    refetchInterval: (query) =>
+      githubContextRepoPollMs(step, query.state.data?.repositories),
   })
 
   const { data: installation } = useQuery({
@@ -137,13 +146,12 @@ export function GitHubRepositorySetupForm({
   )
 
   if (!reposPending && !selectionHydrated && data) {
-    setSelectedIds(
-      includeCtxpipeContextRepo(
-        matchSavedRepoIds(savedGitUrls, allRepos),
-        allRepos,
-      ),
-    )
+    setSelectedIds(matchSavedRepoIds(savedGitUrls, allRepos))
     setSelectionHydrated(true)
+  }
+
+  if (step === "context" && contextRepo && !selectedIds.has(contextRepo.id)) {
+    setSelectedIds((previous) => includeCtxpipeContextRepo(previous, allRepos))
   }
 
   const unmatchedSaved = useMemo(
@@ -257,8 +265,7 @@ export function GitHubRepositorySetupForm({
     },
   })
 
-  const handleSubmit = (e: FormEvent) => {
-    e.preventDefault()
+  const handleContinueToContext = () => {
     if (mode === "select") {
       const selectedRepositories = buildSelectedRepositories({
         githubRepos: allRepos,
@@ -270,20 +277,34 @@ export function GitHubRepositorySetupForm({
         return
       }
     }
+    setStep("context")
+  }
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault()
+    if (step === "select") {
+      handleContinueToContext()
+      return
+    }
     updateOptionsMutation.mutate()
   }
 
   const handleRefreshRepositories = async () => {
-    const next = await queryClient.fetchQuery({
-      queryKey: ["github-installation-repos", orgSlug],
-      queryFn: () =>
-        collectInstallationRepoPages((page) =>
-          fetchInstallationReposPage(orgSlug, page),
-        ),
-    })
-    setSelectedIds((previous) =>
-      includeCtxpipeContextRepo(previous, next.repositories),
-    )
+    setIsManualRefresh(true)
+    try {
+      const next = await queryClient.fetchQuery({
+        queryKey: ["github-installation-repos", orgSlug],
+        queryFn: () =>
+          collectInstallationRepoPages((page) =>
+            fetchInstallationReposPage(orgSlug, page),
+          ),
+      })
+      setSelectedIds((previous) =>
+        includeCtxpipeContextRepo(previous, next.repositories),
+      )
+    } finally {
+      setIsManualRefresh(false)
+    }
   }
 
   const selectBusy = reposPending || (!selectionHydrated && !reposFailed)
@@ -305,14 +326,18 @@ export function GitHubRepositorySetupForm({
               : "text-3xl font-medium tracking-tight text-foreground"
           }
         >
-          {variant === "onboarding"
-            ? "Choose repositories to index"
-            : "GitHub repository setup"}
+          {step === "context"
+            ? "Create a context repository"
+            : variant === "onboarding"
+              ? "Choose repositories to index"
+              : "GitHub repository setup"}
         </h1>
         <p className="mt-3 text-balance leading-relaxed text-muted-foreground">
-          {variant === "onboarding"
-            ? "GitHub controls which repositories ctx| can access. Now choose which of those repositories to index into your knowledge graph."
-            : "Choose which repositories to ingest. Already indexed repositories stay selected even if you search or have not scrolled the list."}
+          {step === "context"
+            ? "ctx| writes pull-request capture and later connector content here. Create it once, then reuse it."
+            : variant === "onboarding"
+              ? "GitHub controls which repositories ctx| can access. Now choose which of those repositories to index into your knowledge graph."
+              : "Choose which repositories to ingest. Already indexed repositories stay selected even if you search or have not scrolled the list."}
         </p>
       </section>
 
@@ -320,131 +345,167 @@ export function GitHubRepositorySetupForm({
         onSubmit={handleSubmit}
         className="mt-8 space-y-6 rounded-none border border-border bg-card/40 p-6 text-left [&_label]:text-zinc-200!"
       >
-        <RadioGroup
-          label="Ingestion mode"
-          value={mode}
-          onChange={(v) => setMode(v as "all" | "select")}
-        >
-          <Radio value="all">All repositories</Radio>
-          <Radio value="select">Select specific repositories</Radio>
-        </RadioGroup>
+        {step === "select" ? (
+          <>
+            <RadioGroup
+              label="Ingestion mode"
+              value={mode}
+              onChange={(v) => setMode(v as "all" | "select")}
+            >
+              <Radio value="all">All repositories</Radio>
+              <Radio value="select">Select specific repositories</Radio>
+            </RadioGroup>
 
-        <ConnectorContextRepositoryGuidance
-          foundRepositoryName={
-            reposPending ? undefined : contextRepo?.full_name
-          }
-        />
-        {!reposPending && !contextRepo ? (
-          <ConnectorContextRepositoryCreateSteps
-            createUrl={getConnectorContextRepositoryCreateUrl(
-              installation?.accountSlug,
-            )}
-            accountSlug={installation?.accountSlug}
-            manageUrls={data?.manageUrl ? [data.manageUrl] : []}
-            isRefreshing={reposFetching}
-            onRefresh={() => {
-              void handleRefreshRepositories()
-            }}
-          />
-        ) : null}
-
-        {mode === "all" && repositorySelection === "all" && (
-          <Checkbox
-            isSelected={includeFutureRepos}
-            onChange={setIncludeFutureRepos}
-          >
-            Also include repositories added in the future
-          </Checkbox>
-        )}
-
-        {mode === "select" && (
-          <div className="space-y-3">
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <SearchField
-                value={searchQuery}
-                onChange={setSearchQuery}
-                placeholder="Search repositories"
-                aria-label="Search repositories"
-                className="min-w-0 flex-1 [&>div]:rounded-none"
-              />
-              <Select
-                aria-label="Sort repositories"
-                selectedKey={sort}
-                onSelectionChange={(key) => setSort(key as GithubRepoSort)}
-                className="shrink-0"
+            {mode === "all" && repositorySelection === "all" && (
+              <Checkbox
+                isSelected={includeFutureRepos}
+                onChange={setIncludeFutureRepos}
               >
-                <SelectItem id="pushed-desc">Recently pushed</SelectItem>
-                <SelectItem id="created-desc">Newest created</SelectItem>
-                <SelectItem id="created-asc">Oldest created</SelectItem>
-                <SelectItem id="name-asc">Name A–Z</SelectItem>
-              </Select>
-            </div>
-
-            {selectBusy ? (
-              <InlineLoader label="Loading repositories" />
-            ) : reposFailed ? (
-              <p className="text-sm text-zinc-300">
-                Failed to load repositories.
-              </p>
-            ) : allRepos.length === 0 ? (
-              <p className="text-sm text-zinc-300">
-                No repositories found for this installation.
-              </p>
-            ) : (
-              <GithubRepoPickerList
-                repos={filteredRepos}
-                selectedIds={selectedIds}
-                onToggle={handleToggle}
-              />
+                Also include repositories added in the future
+              </Checkbox>
             )}
 
-            {!selectBusy && !reposFailed && savedRepos.length > 0 ? (
-              <p className="text-sm text-zinc-400">
-                {describeSelectionDelta(selectionDelta)}
-                {unmatchedSaved.length > 0
-                  ? ` · keeping ${unmatchedSaved.length} indexed ${
-                      unmatchedSaved.length === 1
-                        ? "repository"
-                        : "repositories"
-                    } not in this GitHub list`
-                  : null}
-              </p>
-            ) : !selectBusy && !reposFailed && selectedIds.size > 0 ? (
-              <p className="text-sm text-zinc-400">
-                {selectedIds.size}{" "}
-                {selectedIds.size === 1 ? "repository" : "repositories"}{" "}
-                selected
-              </p>
-            ) : null}
-          </div>
-        )}
+            {mode === "select" && (
+              <div className="space-y-3">
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <SearchField
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    placeholder="Search repositories"
+                    aria-label="Search repositories"
+                    className="min-w-0 flex-1 [&>div]:rounded-none"
+                  />
+                  <Select
+                    aria-label="Sort repositories"
+                    selectedKey={sort}
+                    onSelectionChange={(key) => setSort(key as GithubRepoSort)}
+                    className="shrink-0"
+                  >
+                    <SelectItem id="pushed-desc">Recently pushed</SelectItem>
+                    <SelectItem id="created-desc">Newest created</SelectItem>
+                    <SelectItem id="created-asc">Oldest created</SelectItem>
+                    <SelectItem id="name-asc">Name A–Z</SelectItem>
+                  </Select>
+                </div>
 
-        <div className="flex gap-3">
-          <Button
-            type="submit"
-            variant="primary"
-            isDisabled={
-              updateOptionsMutation.isPending ||
-              selectBusy ||
-              (mode === "select" && reposFailed)
-            }
-            className="rounded-none"
-          >
-            {updateOptionsMutation.isPending
-              ? "Saving…"
-              : variant === "onboarding"
-                ? "Save and continue"
-                : "Save and queue indexing"}
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            className="rounded-none"
-            onPress={onCancel}
-          >
-            {variant === "onboarding" ? "Skip for now" : "Cancel"}
-          </Button>
-        </div>
+                {selectBusy ? (
+                  <InlineLoader label="Loading repositories" />
+                ) : reposFailed ? (
+                  <p className="text-sm text-zinc-300">
+                    Failed to load repositories.
+                  </p>
+                ) : allRepos.length === 0 ? (
+                  <p className="text-sm text-zinc-300">
+                    No repositories found for this installation.
+                  </p>
+                ) : (
+                  <GithubRepoPickerList
+                    repos={filteredRepos}
+                    selectedIds={selectedIds}
+                    onToggle={handleToggle}
+                  />
+                )}
+
+                {!selectBusy && !reposFailed && savedRepos.length > 0 ? (
+                  <p className="text-sm text-zinc-400">
+                    {describeSelectionDelta(selectionDelta)}
+                    {unmatchedSaved.length > 0
+                      ? ` · keeping ${unmatchedSaved.length} indexed ${
+                          unmatchedSaved.length === 1
+                            ? "repository"
+                            : "repositories"
+                        } not in this GitHub list`
+                      : null}
+                  </p>
+                ) : !selectBusy && !reposFailed && selectedIds.size > 0 ? (
+                  <p className="text-sm text-zinc-400">
+                    {selectedIds.size}{" "}
+                    {selectedIds.size === 1 ? "repository" : "repositories"}{" "}
+                    selected
+                  </p>
+                ) : null}
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <Button
+                type="submit"
+                variant="primary"
+                isDisabled={selectBusy || (mode === "select" && reposFailed)}
+                className="rounded-none"
+              >
+                Continue
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                className="rounded-none"
+                onPress={onCancel}
+              >
+                {variant === "onboarding" ? "Skip for now" : "Cancel"}
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <ConnectorContextRepositoryGuidance
+              foundRepositoryName={
+                reposPending ? undefined : contextRepo?.full_name
+              }
+            />
+            {!reposPending && !contextRepo ? (
+              <>
+                {reposFailed ? (
+                  <p className="text-sm text-zinc-300">
+                    Failed to load repositories.
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Checking GitHub for{" "}
+                    <code className="bg-muted px-1 py-0.5 text-[11px]">
+                      ctxpipe-context
+                    </code>
+                    …
+                  </p>
+                )}
+                <ConnectorContextRepositoryCreateSteps
+                  createUrl={getConnectorContextRepositoryCreateUrl(
+                    installation?.accountSlug,
+                  )}
+                  accountSlug={installation?.accountSlug}
+                  manageUrls={data?.manageUrl ? [data.manageUrl] : []}
+                  isRefreshing={isManualRefresh}
+                  onRefresh={() => {
+                    void handleRefreshRepositories()
+                  }}
+                />
+              </>
+            ) : null}
+
+            <div className="flex gap-3">
+              <Button
+                type="submit"
+                variant="primary"
+                isDisabled={updateOptionsMutation.isPending}
+                className="rounded-none"
+              >
+                {updateOptionsMutation.isPending
+                  ? "Saving…"
+                  : variant === "onboarding"
+                    ? "Save and continue"
+                    : "Save and queue indexing"}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                className="rounded-none"
+                onPress={() => setStep("select")}
+              >
+                Back
+              </Button>
+            </div>
+          </>
+        )}
       </form>
     </>
   )

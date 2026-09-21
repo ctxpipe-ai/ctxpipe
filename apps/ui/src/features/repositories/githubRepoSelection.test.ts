@@ -5,6 +5,7 @@ import {
   countSelectionDelta,
   describeSelectionDelta,
   githubCloneUrlKey,
+  githubContextRepoPollMs,
   includeCtxpipeContextRepo,
   matchSavedRepoIds,
   sortGithubRepos,
@@ -208,6 +209,19 @@ describe("collectInstallationRepoPages", () => {
     expect(result.manageUrl).toBe(
       "https://github.com/organizations/acme/settings/installations/1",
     )
+  })
+})
+
+describe("githubContextRepoPollMs", () => {
+  it("polls only on the context step until ctxpipe-context appears", () => {
+    expect(githubContextRepoPollMs("select", page1)).toBe(false)
+    expect(githubContextRepoPollMs("context", page1)).toBe(4000)
+    expect(
+      githubContextRepoPollMs("context", [
+        ...page1,
+        { name: "ctxpipe-context" },
+      ]),
+    ).toBe(false)
   })
 })
 
