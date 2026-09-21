@@ -1,6 +1,6 @@
 "use client"
 
-import { IconCheck, IconCopy } from "@tabler/icons-react"
+import { IconCheck, IconCopy, IconExternalLink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { Button } from "@/components/ui/Button"
@@ -131,33 +131,105 @@ export function LinearOauthAppPanel({
           is saved. Leave secrets empty to keep the current values.
         </p>
       ) : (
-        <div className="space-y-3 text-sm text-muted-foreground">
-          <ol className="list-decimal space-y-3 pl-5">
-            <li>
-              Create an OAuth application in{" "}
-              <a
-                href={
-                  meta.data?.linearCreateUrl ??
-                  "https://linear.app/settings/api/applications/new"
-                }
-                className="text-primary underline-offset-2 hover:underline"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Linear API applications
-              </a>
-              . Use the <code className="font-mono text-xs">read</code> scope
-              and a user actor.
+        <div className="max-w-prose space-y-4 text-sm text-muted-foreground">
+          <ol className="space-y-4">
+            <li className="flex gap-3">
+              <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center border border-border text-xs text-foreground">
+                1
+              </span>
+              <p>
+                Open{" "}
+                <a
+                  href={
+                    meta.data?.linearCreateUrl ??
+                    "https://linear.app/settings/api/applications/new"
+                  }
+                  className="inline-flex items-center gap-1 text-teal-400 underline decoration-teal-400/80 underline-offset-2 hover:text-teal-300 hover:decoration-teal-300"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Create new application
+                  <IconExternalLink className="size-3.5" aria-hidden />
+                </a>{" "}
+                in Linear Settings → API.
+              </p>
             </li>
-            <li>
-              Register this callback URL, then set the same application&apos;s
-              webhook Event URL.
-              <CopyableUrl label="Callback URL" value={callbackUrl} />
-              <CopyableUrl label="Webhook URL" value={webhookUrl} />
+            <li className="flex gap-3">
+              <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center border border-border text-xs text-foreground">
+                2
+              </span>
+              <div className="min-w-0 flex-1">
+                <p>
+                  Fill{" "}
+                  <strong className="font-medium text-foreground">
+                    Application name
+                  </strong>{" "}
+                  and{" "}
+                  <strong className="font-medium text-foreground">
+                    Developer name
+                  </strong>
+                  . Paste this URL into{" "}
+                  <strong className="font-medium text-foreground">
+                    Redirect URIs
+                  </strong>
+                  .
+                </p>
+                <CopyableUrl label="Redirect URIs" value={callbackUrl} />
+              </div>
             </li>
-            <li>
-              Paste the client ID, client secret, and webhook signing secret
-              below.
+            <li className="flex gap-3">
+              <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center border border-border text-xs text-foreground">
+                3
+              </span>
+              <div className="min-w-0 flex-1">
+                <p>
+                  Turn{" "}
+                  <strong className="font-medium text-foreground">
+                    Webhooks
+                  </strong>{" "}
+                  on. Paste this URL into{" "}
+                  <strong className="font-medium text-foreground">
+                    Webhook URL
+                  </strong>
+                  . Copy{" "}
+                  <strong className="font-medium text-foreground">
+                    Webhook signing secret
+                  </strong>{" "}
+                  from that same form — Linear fills it in before you create.
+                </p>
+                <CopyableUrl label="Webhook URL" value={webhookUrl} />
+                <p className="mt-2">
+                  Under{" "}
+                  <strong className="font-medium text-foreground">
+                    Data change events
+                  </strong>
+                  , tick Issues, Comments, Documents, Projects, Initiatives, and
+                  the related update and attachment boxes. Under{" "}
+                  <strong className="font-medium text-foreground">
+                    Authorization events
+                  </strong>
+                  , tick OAuth authorization events.
+                </p>
+              </div>
+            </li>
+            <li className="flex gap-3">
+              <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center border border-border text-xs text-foreground">
+                4
+              </span>
+              <p>
+                Click{" "}
+                <strong className="font-medium text-foreground">Create</strong>.
+                Linear then shows{" "}
+                <strong className="font-medium text-foreground">
+                  Client ID
+                </strong>{" "}
+                and{" "}
+                <strong className="font-medium text-foreground">
+                  Client secret
+                </strong>
+                . Paste those plus the webhook signing secret into the fields
+                below.
+              </p>
             </li>
           </ol>
           <p>

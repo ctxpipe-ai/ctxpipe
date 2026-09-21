@@ -43,57 +43,61 @@ only credentials and binding state.
 
 ## 1. Create a Linear application
 
-Open [Linear API applications](https://linear.app/settings/api/applications/new)
-and create an OAuth application.
+Open [Create new application](https://linear.app/settings/api/applications/new)
+in Linear Settings → API.
 
-Configure the callback URI exactly:
+Fill **Application name** and **Developer name**. In **Redirect URIs**, paste:
 
 ```text
 https://<public-origin>/api/v1/integrations/linear/callback
 ```
 
-ctx| requests the **`read`** scope with a user actor. Do not add write or admin
-scopes merely to make setup work; they are not required by this connector.
-
-Linear supports multiple registered redirect URIs. Add local, staging, or
+Linear supports several redirect URIs, one per line. Add local, staging, or
 preview callbacks individually when those environments must run OAuth. The
 scheme, host, path, and trailing slash must match the URI sent by ctx|.
+
+ctx| requests the **`read`** scope with a user actor on the authorize URL. You
+do not set those on this Linear form.
 
 Linear cannot deliver webhooks to a private localhost address. End-to-end
 connector testing requires a public HTTPS deployment or tunnel.
 
-## 2. Configure application webhooks
+## 2. Configure webhooks on the same form
 
-Enable webhooks on the same Linear application and set:
+Turn **Webhooks** on and set **Webhook URL** to:
 
 ```text
 https://<public-origin>/api/v1/webhook/linear
 ```
 
-Subscribe to the resource categories your Linear application exposes for the
-mirrored content: issues, comments, attachments, projects and project updates,
-initiatives and initiative updates, cycles, documents, issue labels, users,
-customer needs, and OAuth authorization events.
+Copy **Webhook signing secret** from that form. Linear fills it in before you
+click Create. ctx| verifies the `Linear-Signature` HMAC against the raw request
+body and rejects stale timestamps. Accepted in-scope events start a durable
+update before the endpoint acknowledges delivery.
 
-Copy the webhook signing secret from Linear. ctx| verifies the
-`Linear-Signature` HMAC against the raw request body and rejects stale
-timestamps. Accepted in-scope events start a durable update before the endpoint
-acknowledges delivery.
+Under **Data change events**, tick Issues, Comments, Documents, Projects,
+Initiatives, and the related update and attachment boxes (including cycles,
+issue labels, users, and customer requests). Under **Authorization events**,
+tick OAuth authorization events.
+
+Then click **Create**. Linear shows **Client ID** and **Client secret** only
+after that. Copy them for the next step.
 
 <Callout title="One webhook URL per Linear application">
   A Linear application has one webhook destination. You can register several
   OAuth redirect URIs, but events from every workspace installation go to that
   one webhook URL. Use a separate Linear application when a staging or PR
   environment must receive its own incremental events. Per-organization apps
-  each register the same Event URL and store their own signing secret on the
+  each register the same Webhook URL and store their own signing secret on the
   connection.
 </Callout>
 
 ## 3. Register the app in the product UI
 
 1. Open **Connectors → Add connection → Linear**.
-2. On **Register Linear OAuth app**, paste the client ID, client secret, and
-   webhook signing secret. The wizard shows the exact callback and webhook URLs
+2. On **Register Linear OAuth app**, paste the client ID and client secret
+   Linear shows after Create, plus the webhook signing secret from the create
+   form. The wizard shows the exact **Redirect URIs** and **Webhook URL** values
    for this deployment.
 3. Save the app, then continue to **Connect Linear workspace**.
 4. Complete OAuth, choose a GitHub repository and scope, and merge

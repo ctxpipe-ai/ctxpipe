@@ -18,9 +18,10 @@ export function RegisterLinearOauthStep({
           Register Linear OAuth app
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
-          Self-hosted deployments use their own Linear OAuth application. Create
-          it in Linear, then save the client ID, client secret, and webhook
-          signing secret here before connecting a workspace.
+          Create a Linear application for this deployment. Linear shows the
+          client ID and client secret only after you click Create. Save those
+          here with the webhook signing secret from the create form, then
+          connect a workspace.
         </p>
       </div>
       <LinearOauthAppPanel orgSlug={orgSlug} connectionId={connectionId} />
