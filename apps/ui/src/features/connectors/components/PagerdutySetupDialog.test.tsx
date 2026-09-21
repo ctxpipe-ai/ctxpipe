@@ -83,12 +83,14 @@ vi.mock("../queries/github-connector", () => ({
 vi.mock("../queries/pagerduty-connector", () => ({
   fetchPagerdutyConnectorConfig: vi.fn(),
   fetchPagerdutyConnectorStatus: vi.fn(),
+  fetchPagerdutyOAuthApp: vi.fn(),
   fetchPagerdutyOAuthStart: vi.fn(),
   pagerdutyConnectorKeys: {
     status: () => ["pagerduty-status"],
     config: () => ["pagerduty-config"],
     services: () => ["pagerduty-services"],
     allStatusForOrg: () => ["pagerduty-status-org"],
+    oauthApp: () => ["pagerduty-oauth-app"],
   },
   patchPagerdutyConnectorConfig: vi.fn(),
   retryPagerdutyConfig: vi.fn(),
