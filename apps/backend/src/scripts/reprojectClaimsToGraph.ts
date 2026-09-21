@@ -3,7 +3,11 @@
  * Use when HAS_INSTRUCTION (or other) edges exist in Postgres but were skipped or failed in graph projection.
  *
  * Usage (repo root):
- *   pnpm --filter @ctxpipe/backend run reproject-claims-to-graph -- --org-id <uuid> [--predicate HAS_INSTRUCTION] [--repository-id <id>]
+ *   pnpm --filter @ctxpipe/backend run reproject-claims-to-graph -- --org-id <uuid> [--predicate HAS_INSTRUCTION | --all] [--repository-id <id>]
+ *
+ * `--all` re-projects every predicate: use it to rebuild a fresh graph database
+ * (for example a Railway PR environment, whose FalkorDB volume starts empty while
+ * its Neon branch already holds every claim).
  *
  * Env: apps/backend/.env.local — DATABASE_URL, GRAPH_DB_URI, AUTH_SECRET (parseEnv).
  */
@@ -41,7 +45,8 @@ initEvlog()
 
 function parseArgs(argv: string[]): {
   orgId: string
-  predicate: string
+  /** Undefined = every predicate (`--all`). */
+  predicate: string | undefined
   repositoryId: string | undefined
 } {
   const get = (flag: string): string | undefined => {
@@ -51,9 +56,10 @@ function parseArgs(argv: string[]): {
   }
   if (argv.includes("--help") || argv.includes("-h")) {
     const usage = `Usage:
-  pnpm --filter @ctxpipe/backend run reproject-claims-to-graph -- --org-id <uuid> [--predicate <name>] [--repository-id <id>]
+  pnpm --filter @ctxpipe/backend run reproject-claims-to-graph -- --org-id <uuid> [--predicate <name> | --all] [--repository-id <id>]
 
   --predicate   Defaults to HAS_INSTRUCTION
+  --all         Every predicate (rebuild a fresh graph database from Postgres)
   --repository-id  When set, only claims whose object InstructionUnit has
                     deduplication_key LIKE 'inu:<repository-id>:%'
 `
@@ -64,7 +70,9 @@ function parseArgs(argv: string[]): {
     process.exit(0)
   }
   const orgId = get("--org-id")
-  const predicate = get("--predicate") ?? "HAS_INSTRUCTION"
+  const predicate = argv.includes("--all")
+    ? undefined
+    : (get("--predicate") ?? "HAS_INSTRUCTION")
   const repositoryId = get("--repository-id")
   if (!orgId) {
     log.error({
@@ -133,7 +141,9 @@ async function main(): Promise<void> {
           .where(
             and(
               eq(claims.orgId, orgId),
-              eq(claims.predicate, predicate),
+              ...(predicate !== undefined
+                ? [eq(claims.predicate, predicate)]
+                : []),
               eq(subjectRo.orgId, orgId),
               eq(objectRo.orgId, orgId),
               ...(repoFilter !== undefined ? [repoFilter] : []),
@@ -179,7 +189,7 @@ async function main(): Promise<void> {
         const payload = {
           ok: true as const,
           projected: result.projected,
-          predicate,
+          predicate: predicate ?? "all",
           ...(repositoryId !== undefined ? { repositoryId } : {}),
         }
         log.info({

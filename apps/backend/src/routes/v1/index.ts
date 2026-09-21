@@ -32,6 +32,7 @@ import {
   githubInstallationReadRoutes,
   githubInstallationRoutes,
 } from "./github-installation.js"
+import { githubPrMirrorRoutes } from "./github-pr-mirror.js"
 import { knowledgeGraphRoutes } from "./knowledge-graph.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 import { orgOnboardingRoutes, userOnboardingRoutes } from "./onboarding.js"
@@ -46,6 +47,10 @@ import { repositoryRoutes } from "./repositories.js"
 const githubInstallationAdminScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
   .route("/", githubInstallationRoutes)
+
+const githubPrMirrorAdminScoped = new OpenAPIHono<AppEnv>()
+  .use("*", requireOrgAdminOrOwner)
+  .route("/", githubPrMirrorRoutes)
 
 const atlassianConnectorScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
@@ -80,6 +85,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/conversations", conversationRoutes)
     .route("/github/installation", githubInstallationReadRoutes)
     .route("/github/installation", githubInstallationAdminScoped)
+    .route("/github/pull-request-mirror", githubPrMirrorAdminScoped)
     .route("/connectors/atlassian", atlassianConnectorScoped)
     .route("/connectors/linear", linearConnectorScoped)
     .route("/connectors/notion", notionConnectorScoped)

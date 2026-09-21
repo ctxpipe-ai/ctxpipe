@@ -85,7 +85,16 @@ CLI and Confluence Forge app declare their own licenses.
 
 - Connections use the unified `connections` model with GitHub, Confluence
   (`forge`), Linear, Notion, and Slack connection types.
-- GitHub repositories are selected and ingested directly.
+- GitHub repositories are selected and ingested directly. An optional
+  pull-request mirror (ADR-031) copies merged PR conversation and change
+  lists into the context repository. Graph extraction locates every
+  path-bearing object on a `File` node (ADR-032); pull-request change
+  predicates hang off `PullRequest` onto those same files.
+- Connector Markdown is parsed into typed nodes by a registry of
+  deterministic extractors (`Issue`, `Team`, `Thread`, `PullRequest`) and
+  joined through one reference resolver; ADR files become `Decision` nodes and
+  CODEOWNERS becomes `Team OWNS`. Predicates are grouped into relation
+  families; graph health is measured by join density (ADR-033).
 - Linear, Notion, and Confluence mirror approved scope into a bound GitHub
   repository.
 - Slack captures an existing thread after an in-thread bot mention and commits

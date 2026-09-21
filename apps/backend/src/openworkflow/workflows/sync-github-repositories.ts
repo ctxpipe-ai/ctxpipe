@@ -8,6 +8,7 @@ import {
 import { bulkCreateRepositoriesForOrg } from "../../models/repositories.js"
 import { createLogger, getLogger, withLogger } from "../../observability/logger.js"
 import { claimAndRunRepositoryIngestionChild } from "../enqueue-repository-ingestion.js"
+import { tryEnsureGithubPrMirror } from "../../services/github/pull-request-mirror/ensure.js"
 
 const reposToSyncItemSchema = z.object({
   name: z.string(),
@@ -83,6 +84,16 @@ export const syncGithubRepositories = defineWorkflow(
               },
             ),
           ),
+        )
+
+        await step.run({ name: "ensure-pr-mirror" }, () =>
+          tryEnsureGithubPrMirror({
+            orgId: input.orgId,
+            connectionId: installation.id,
+            env: parseEnv(
+              process.env as Record<string, string | undefined>,
+            ),
+          }),
         )
 
         return { orgId: input.orgId, createdCount: created.length }

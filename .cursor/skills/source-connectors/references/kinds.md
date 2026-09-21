@@ -6,6 +6,8 @@ Read from skill step 1 before picking an anchor. Existing connectors below are *
 
 GitHub is an ingest source **and** today’s rich write adapter (config PRs, `commitFiles`). Installation + encrypted App credentials live on `connections.config`. Repositories are product rows (`repositories.github_connection_id`), not connector scope yaml. Per-connection webhook: `POST /api/v1/webhook/github/:connectionId`.
 
+An optional **pull-request scoped mirror** (ADR-031) binds a context repository on the same GitHub connection (`connections.config.prMirror`) and writes `github/config.yaml` plus `github/pulls/…` Markdown. That is a scoped-mirror job on the GitHub row, not a second connection type. Linear still treats GitHub PRs as references only. Connector warehouse prefixes are never instruction-extracted; each connector's Markdown is parsed by its own deterministic extractor in `graphs/codeIngestionGraph/nodes/connectorExtractors.ts`, and cross-tool references resolve through `domain/codeIngestion/referenceResolver.ts` (ADR-032, ADR-033).
+
 The doctrine is git. Other hosts are in scope later; do not stub a GitLab PR client in a new connector unless that is the task.
 
 ## Scoped mirror — Linear, Notion, PagerDuty
@@ -16,7 +18,7 @@ Linear: teams/projects/documents/initiatives + descendants under `linear/` as fl
 
 Notion: pages as Markdown; databases as `index.md` + `table.csv` + `rows/<row>/index.md` (lesson: Notion database mirror contract). Incremental sync remirrors the affected top-level scoped resource.
 
-PagerDuty: selected services in `pagerduty/config.yaml`; one Markdown file per in-scope incident. v3 webhook HMAC is verified then bound to the one connection whose stored secret matches.
+PagerDuty (ADR-034): selected services in `pagerduty/config.yaml`; one Markdown file per in-scope incident. v3 webhook HMAC is verified then bound to the one connection whose stored secret matches.
 
 Live updates: signed provider webhook → `*-sync-entity` OpenWorkflow → `commitFiles` to the target branch → ingest. Events during `initial_sync` / non-live are skipped.
 

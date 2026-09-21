@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks"
-import neo4j, { type Driver } from "neo4j-driver"
 import { FalkorDB } from "falkordb"
+import neo4j, { type Driver } from "neo4j-driver"
+import { log } from "../../observability/logger.js"
 
 const DB_PER_TENANT = ["falkordb", "neo4j-enterprise", "memgraph"] as const
 type Provider = (typeof DB_PER_TENANT)[number] | "neo4j-community" | "neptune"
@@ -52,7 +53,8 @@ function falkorReplyToRecords(
 
 type FalkorDBInstance = Awaited<ReturnType<typeof FalkorDB.connect>>
 
-const LIMIT_OR_SKIP_PARAM_REGEX = /\b(?:LIMIT|SKIP)\s+\$([A-Za-z_][A-Za-z0-9_]*)\b/g
+const LIMIT_OR_SKIP_PARAM_REGEX =
+  /\b(?:LIMIT|SKIP)\s+\$([A-Za-z_][A-Za-z0-9_]*)\b/g
 
 function normalizeBoltParamsForProvider(
   query: string,
@@ -141,15 +143,39 @@ let databasePerTenantBoltClient: Driver | null = null
 let databasePerTenantFalkorDb: FalkorDBInstance | null = null
 const instancePerTenantBoltClients = new Map<string, Driver>()
 
+/**
+ * FalkorDB extends EventEmitter and re-emits socket errors. Without a listener
+ * a sleeping or restarted database (Railway serverless previews, restarts) is
+ * an unhandled 'error' event that kills the worker and leaves the backend with
+ * a dead connection. Log it, drop the shared client, and let the next call
+ * reconnect (which also wakes a sleeping service).
+ */
+function attachFalkorDbLifecycle(db: FalkorDBInstance): void {
+  db.on("error", (error: unknown) => {
+    log.error({
+      step: "graph.falkordb.connection",
+      message:
+        "FalkorDB connection error; dropping the shared client so the next call reconnects",
+      error: error instanceof Error ? error.message : String(error),
+    })
+    if (databasePerTenantFalkorDb === db) {
+      databasePerTenantFalkorDb = null
+    }
+    void db.close().catch(() => undefined)
+  })
+}
+
 async function resolveFalkorDbClient(orgId: string): Promise<GraphClient> {
   const cfg = getConfig()
   const uri = cfg.uri
   if (!databasePerTenantFalkorDb) {
-    databasePerTenantFalkorDb = await FalkorDB.connect({
+    const db = await FalkorDB.connect({
       url: uri,
       username: cfg.user || undefined,
       password: cfg.password || undefined,
     })
+    attachFalkorDbLifecycle(db)
+    databasePerTenantFalkorDb = db
   }
   return createFalkorDbGraphClient(databasePerTenantFalkorDb, orgId)
 }

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
 import {
   CONNECTOR_CONTEXT_REPOSITORY_NAME,
+  describeSuggestedTargetUse,
   getConnectorContextRepositoryCreateUrl,
+  isCtxpipeContextRepositoryName,
 } from "./ConnectorContextRepositoryGuidance"
 
 describe("getConnectorContextRepositoryCreateUrl", () => {
@@ -20,5 +22,27 @@ describe("getConnectorContextRepositoryCreateUrl", () => {
     const url = new URL(getConnectorContextRepositoryCreateUrl())
 
     expect(url.searchParams.has("owner")).toBe(false)
+  })
+})
+
+describe("describeSuggestedTargetUse", () => {
+  it("names GitHub setup when no other connector has bound the repo", () => {
+    expect(describeSuggestedTargetUse(["github"])).toBe(
+      "Selected during GitHub setup.",
+    )
+  })
+
+  it("lists the connectors that already use the repository", () => {
+    expect(describeSuggestedTargetUse(["linear", "notion"])).toBe(
+      "Already used by Linear and Notion.",
+    )
+  })
+})
+
+describe("isCtxpipeContextRepositoryName", () => {
+  it("matches the short name or owner/name form", () => {
+    expect(isCtxpipeContextRepositoryName("ctxpipe-context")).toBe(true)
+    expect(isCtxpipeContextRepositoryName("acme/ctxpipe-context")).toBe(true)
+    expect(isCtxpipeContextRepositoryName("acme/api")).toBe(false)
   })
 })

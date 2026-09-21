@@ -11,9 +11,15 @@ describe("predicateValidation", () => {
   })
 
   it("accepts extension predicates", () => {
-    expect(isValidPredicate("RELATES_TO")).toBe(true)
-    expect(isValidPredicate("ABOUT")).toBe(true)
-    validatePredicate("RELATES_TO")
+    expect(isValidPredicate("PART_OF")).toBe(true)
+    expect(isValidPredicate("REFERENCES")).toBe(true)
+    expect(isValidPredicate("DECLARED_IN")).toBe(true)
+    validatePredicate("OWNS")
+  })
+
+  it("rejects retired predicates", () => {
+    expect(isValidPredicate("ABOUT")).toBe(false)
+    expect(isValidPredicate("RELATES_TO")).toBe(false)
   })
 
   it("accepts ingestion predicate contains", () => {

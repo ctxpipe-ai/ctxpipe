@@ -57,14 +57,16 @@ const suggestedSyncTargetRoute = createRoute({
                 gitUrl: z.string(),
                 branch: z.string(),
                 githubConnectionId: z.string(),
-                usedBy: z.array(z.enum(["confluence", "notion"])),
+                usedBy: z.array(
+                  z.enum(["confluence", "notion", "linear", "slack", "github"]),
+                ),
               })
               .nullable(),
           }),
         },
       },
       description:
-        "Recommend an unambiguous repository already used by connector sync targets",
+        "Recommend a context repository from existing connectors or GitHub setup",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },

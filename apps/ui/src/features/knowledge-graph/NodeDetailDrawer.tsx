@@ -99,6 +99,19 @@ const KIND_CHIP_FIELDS: Record<string, ReadonlyArray<string>> = {
   Pattern: ["category"],
   InstructionUnit: ["intent", "modality", "path"],
   Skill: ["intent_summary"],
+  PullRequest: [
+    "number",
+    "repository",
+    "url",
+    "review_decision",
+    "merged_at",
+    "author",
+  ],
+  File: ["path", "repository"],
+  Issue: ["identifier", "state", "priority", "team", "project", "url"],
+  Team: ["key", "source", "url"],
+  Thread: ["channel_name", "permalink", "captured_at", "message_count"],
+  Decision: ["status", "date", "path", "url"],
 }
 
 function extractKindChips(node: KnowledgeGraphNode): Array<[string, string]> {
