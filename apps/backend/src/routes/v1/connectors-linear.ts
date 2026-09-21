@@ -24,6 +24,7 @@ import {
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
+import { enqueueGithubPrMirrorEnsureForOrg } from "../../openworkflow/workflows/github-ensure-pr-mirror.js"
 import { linearSyncConfig } from "../../openworkflow/workflows/linear-sync-config.js"
 import { linearSyncContent } from "../../openworkflow/workflows/linear-sync-content.js"
 import {
@@ -744,6 +745,9 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         return c.json({ error: error.message }, 409)
       }
       throw error
+    }
+    if (body.syncTarget !== undefined) {
+      await enqueueGithubPrMirrorEnsureForOrg(orgId)
     }
     if (saved.repositoryIngestion) {
       await enqueueRepositoryIngestionWorkflow(

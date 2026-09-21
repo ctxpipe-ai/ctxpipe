@@ -8,12 +8,13 @@ import {
   envelopesCompatible,
   instructionSourceTier,
   isInstructionCandidatePath,
+  isInstructionSourcePath,
   isRepoRootInstructionPath,
   LlmUnitsResponseSchema,
   looksEphemeral,
   resolveInstructionSubmissionRoot,
-  sortInstructionCandidates,
   SOURCE_EXCERPT_MAX_LENGTH,
+  sortInstructionCandidates,
 } from "./extractInstructionUnits.js"
 
 describe("extractInstructionUnits helpers", () => {
@@ -25,6 +26,38 @@ describe("extractInstructionUnits helpers", () => {
     expect(isRepoRootInstructionPath("apps/ui/README.md")).toBe(false)
   })
 
+  it("isInstructionSourcePath keeps files whose purpose is to instruct and drops other Markdown", () => {
+    const roots = ["./", "apps/backend", "packages/shared"]
+    for (const keep of [
+      "AGENTS.md",
+      "apps/backend/AGENTS.md",
+      "CLAUDE.md",
+      ".cursor/rules/style.mdc",
+      ".agents/skills/deploy/SKILL.md",
+      "CONTRIBUTING.md",
+      "apps/backend/CONTRIBUTING.md",
+      "README.md",
+      "apps/backend/README.md",
+      "docs/engineering-standards.md",
+      "apps/backend/docs/coding-guidelines.md",
+      "docs/release-process.md",
+    ]) {
+      expect(isInstructionSourcePath(keep, roots), keep).toBe(true)
+    }
+    for (const drop of [
+      "src/components/Button/README.md",
+      "docs/architecture-overview.md",
+      "docs/blog/2026-01-launch.md",
+      "CHANGELOG.md",
+      "docs/adr/0007-domain-logic.md",
+      ".ai/memory/decisions/ADR-031-github-pr-scoped-mirror.md",
+      "apps/backend/src/graphs/codeIngestionGraph/nodes/README.md",
+      "notes/todo.md",
+    ]) {
+      expect(isInstructionSourcePath(drop, roots), drop).toBe(false)
+    }
+  })
+
   it("isInstructionCandidatePath includes .agents rules, .mdc, and skills/SKILL.md", () => {
     expect(isInstructionCandidatePath(".agents/rules/project-memory.mdc")).toBe(
       true,
@@ -32,9 +65,9 @@ describe("extractInstructionUnits helpers", () => {
     expect(isInstructionCandidatePath(".cursor/rules/project-memory.mdc")).toBe(
       true,
     )
-    expect(isInstructionCandidatePath(".agents/skills/drizzle-migrations/SKILL.md")).toBe(
-      true,
-    )
+    expect(
+      isInstructionCandidatePath(".agents/skills/drizzle-migrations/SKILL.md"),
+    ).toBe(true)
     expect(isInstructionCandidatePath("apps/foo/README.md")).toBe(true)
     expect(isInstructionCandidatePath("apps/foo/SKILL.md")).toBe(false)
   })

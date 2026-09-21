@@ -15,6 +15,7 @@ import {
   fetchFiles,
   globFiles,
 } from "../../../domain/codeIngestion/codesearchClient.js"
+import { isConnectorMirrorPath } from "../../../domain/codeIngestion/connectorMirrorPaths.js"
 import { isUnderDependencyVendorPath } from "../../../domain/codeIngestion/dependencyVendorPaths.js"
 import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
@@ -23,12 +24,12 @@ import type {
   ExtractedClaim,
   ExtractedObject,
 } from "../schemas.js"
-import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
 import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
+import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
 import {
   filterPathsByPartialScan,
   partialScanPathsForExtractors,
-  shouldSkipExtractorForPartialDeletesOnly,
+  shouldSkipCodeExtractorForPartialDiff,
 } from "./partialIngestionScope.js"
 
 const ModalitySchema = z.enum([
@@ -179,6 +180,44 @@ export function isInstructionCandidatePath(path: string): boolean {
   if (isAgentRulesPath(p)) return true
   if (p.endsWith("/readme.md") || p === "readme.md") return true
   if (isSkillsFolderSkillFile(p)) return true
+  return false
+}
+
+const NORMATIVE_DOC_NAME =
+  /(standard|convention|guideline|style[-_ ]?guide|polic(y|ies)|rules?|workflow|process|checklist|playbook|handbook|contributing)/i
+const DECISION_RECORD_PATH = /(^|\/)(adrs?|decisions)(\/|$)/i
+
+function normalizeRootDir(root: string): string {
+  const trimmed = root.trim().replace(/\\/g, "/").replace(/^\.\//, "")
+  return trimmed === "." || trimmed === "./" ? "" : trimmed.replace(/\/$/, "")
+}
+
+/**
+ * Instruction sources are files whose purpose is to instruct (ADR-033 hygiene):
+ * agent files and rules, skills, CONTRIBUTING, the README at the repository
+ * root or at a package root, and docs whose filename names a norm. Every other
+ * Markdown file is documentation: indexed for search, never minted as an
+ * InstructionUnit. Decision records become `Decision` nodes, not instructions.
+ */
+export function isInstructionSourcePath(
+  path: string,
+  roots: string[],
+): boolean {
+  const p = path.toLowerCase().replace(/\\/g, "/").replace(/^\.\//, "")
+  if (DECISION_RECORD_PATH.test(p)) return false
+  if (p === "agents.md" || p.endsWith("/agents.md")) return true
+  if (p === "claude.md" || p.endsWith("/claude.md")) return true
+  if (isAgentRulesPath(p) || isSkillsFolderSkillFile(p)) return true
+  if (p === "contributing.md" || p.endsWith("/contributing.md")) return true
+  if (p === "readme.md") return true
+  if (p.endsWith("/readme.md")) {
+    const dir = p.slice(0, -"/readme.md".length)
+    return roots.some((root) => normalizeRootDir(root) === dir)
+  }
+  if (p.startsWith("docs/") || p.includes("/docs/")) {
+    const base = p.split("/").pop() ?? ""
+    return NORMATIVE_DOC_NAME.test(base.replace(/\.mdc?$/, ""))
+  }
   return false
 }
 
@@ -474,14 +513,14 @@ export async function extractInstructionUnits(
   requireCurrentOrgId()
   const { repositoryId, orgId, roots = ["./"], targetHash } = state
 
-  if (shouldSkipExtractorForPartialDeletesOnly(state)) {
+  if (shouldSkipCodeExtractorForPartialDiff(state)) {
     return {}
   }
 
   const scanPaths = partialScanPathsForExtractors(state)
 
-  // Discover broadly so docs that reference other md/mdc are not missed;
-  // tier sort still prioritizes AGENTS/CLAUDE/rules/skills/README.
+  // Glob broadly, then keep only files whose purpose is to instruct
+  // (isInstructionSourcePath); other Markdown is search-only documentation.
   const globbed = await globFiles(repositoryId, orgId, {
     pattern: "**/*.{md,mdc}",
     onlyFiles: true,
@@ -490,6 +529,8 @@ export async function extractInstructionUnits(
     .filter((e) => e.type === "file")
     .map((e) => e.path)
     .filter((p) => !isUnderDependencyVendorPath(p))
+    .filter((p) => !isConnectorMirrorPath(p))
+    .filter((p) => isInstructionSourcePath(p, roots))
   const scopedPaths =
     state.ingestMode === "partial" && scanPaths.length > 0
       ? filterPathsByPartialScan(instructionPaths, scanPaths)
@@ -655,6 +696,7 @@ export async function extractInstructionUnits(
   return {
     extractedObjects: [...extractedObjects, ...skillObjects],
     extractedClaims: [...extractedClaims, ...skillClaims],
+    extractionSkippedFiles: filesSkippedLlmError,
   }
 }
 

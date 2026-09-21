@@ -49,6 +49,17 @@ You can connect GitHub during onboarding, or later from the **Connectors** page.
   </Step>
 
   <Step>
+    ### Create or select `ctxpipe-context`
+
+    After you choose repositories, GitHub setup asks you to create the shared
+    [context repository](/docs/connections/context-repository), usually named
+    `ctxpipe-context`. Create it on GitHub, grant the ctx| App access, then
+    return — ctx| lists the new repository automatically. You can skip the
+    picker and add the context repository later. ctx| does not create the
+    repository for you.
+  </Step>
+
+  <Step>
     ### Ingest and manage access
 
     ctx| ingests selected repositories so they can power search, Chat, MCP, and
@@ -64,6 +75,21 @@ You can connect GitHub during onboarding, or later from the **Connectors** page.
 - Repo-native docs, ADRs, `AGENTS.md`, skills, and standards as agent context.
 - Target repositories for synced sources such as Confluence and Linear.
 - Pull requests for ctx| configuration, including MCP setup where supported.
+- Optional mirroring of **merged** pull requests (conversation, reviews, and
+  changed paths — not diffs) into your context repository. After ingest, the
+  knowledge graph locates each changed path as a `File` (shared with
+  source-repository extract) and records `ADDED` / `MODIFIED` / `REMOVED` /
+  `RENAMED` edges from the pull request dated at merge, `PullRequest TARGETS`
+  the source repository, `File PART_OF` the owning service when that
+  repository is already classified, and `PullRequest REFERENCES Issue` when
+  the title, body, or branch names a Linear issue.
+
+Selecting GitHub repositories also captures **merged** pull requests into the
+organization context repository (`ctxpipe-context`, or the repo already used
+by Linear, Notion, or Slack). ctx| writes `github/config.yaml` and backfills
+up to 200 newest updated merged pull requests per selected repository. No
+separate toggle. If the organization has no context repository yet, capture
+starts when one is bound.
 
 ## Where to manage repositories
 

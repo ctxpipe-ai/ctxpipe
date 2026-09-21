@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm"
+import { eq, inArray, sql } from "drizzle-orm"
 import type { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../auth/context.js"
 import { getOrgDb } from "../../db/client.js"
@@ -24,13 +24,11 @@ const ID_PREFIX_TO_KIND: Record<string, string> = {
   inf_: "Infrastructure",
   lib_: "Library",
   pat_: "Pattern",
-  con_: "Concept",
-  cap_: "Capability",
-  top_: "Topic",
-  inc_: "Incident",
   dec_: "Decision",
   inu_: "InstructionUnit",
   skl_: "Skill",
+  prq_: "PullRequest",
+  fil_: "File",
 }
 
 function deriveKindFromId(id: string): string {
@@ -318,6 +316,53 @@ export async function addEvidenceBulk(
           .where(eq(claims.id, claimId))
       }),
     )
+  }
+}
+
+export type TouchEvidenceInput = {
+  id: string
+  claimId: string
+  sourceId: string
+  logicalSourceKey: string | null
+}
+
+/**
+ * Re-observed evidence: bump `observedAt` to this run and move each row to the
+ * source id of the current commit, then refresh `lastObservedAt` on the owning
+ * claims. Keeps one evidence row per logical source while recording that the
+ * fact was seen again — the full-ingest sweep retracts rows a run did not touch.
+ */
+export async function touchEvidenceBulk(
+  inputs: TouchEvidenceInput[],
+  now: Date = new Date(),
+): Promise<void> {
+  if (inputs.length === 0) return
+  const db = getOrgDb()
+
+  for (const chunk of chunkArray(inputs, CLAIM_WRITE_BATCH_SIZE)) {
+    const values = sql.join(
+      chunk.map(
+        (input) =>
+          sql`(${input.id}::text, ${input.sourceId}::text, ${input.logicalSourceKey}::text)`,
+      ),
+      sql`, `,
+    )
+    await db.execute(sql`
+      UPDATE claim_evidence AS ce
+      SET source_id = v.source_id,
+          logical_source_key = v.logical_source_key,
+          observed_at = ${now}::timestamptz
+      FROM (VALUES ${values}) AS v(id, source_id, logical_source_key)
+      WHERE ce.id = v.id
+    `)
+  }
+
+  const claimIds = [...new Set(inputs.map((input) => input.claimId))]
+  for (const chunk of chunkArray(claimIds, CLAIM_WRITE_BATCH_SIZE)) {
+    await db
+      .update(claims)
+      .set({ lastObservedAt: now, updatedAt: now })
+      .where(inArray(claims.id, chunk))
   }
 }
 

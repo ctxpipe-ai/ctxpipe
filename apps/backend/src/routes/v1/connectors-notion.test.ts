@@ -33,6 +33,9 @@ vi.mock("../../models/notion-connector.js", () => ({
 vi.mock("../../models/github-installation.js", () => ({
   orgHasAnyGithubConnection: vi.fn(),
 }))
+vi.mock("../../openworkflow/workflows/github-ensure-pr-mirror.js", () => ({
+  enqueueGithubPrMirrorEnsureForOrg: vi.fn().mockResolvedValue(undefined),
+}))
 
 vi.mock("../../openworkflow/client.js", () => ({
   runWorkflowWithWorkerWake: (...args: unknown[]) => runWorkflowMock(...args),

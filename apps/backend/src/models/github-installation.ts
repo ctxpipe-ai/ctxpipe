@@ -360,6 +360,18 @@ export async function listGithubConnectionsForOrg(
   return rows.map(githubConnectionToShape)
 }
 
+export async function listGithubConnections(): Promise<
+  GitHubInstallationShape[]
+> {
+  const db = getSystemDb()
+  const rows = await db
+    .select()
+    .from(connections)
+    .where(eq(connections.type, CONNECTION_TYPE_GITHUB))
+    .orderBy(connections.createdAt)
+  return rows.map(githubConnectionToShape)
+}
+
 export async function listGithubConnectionRowsForOrg(
   orgId: string,
 ): Promise<ConnectionRow[]> {

@@ -277,10 +277,9 @@ function DotGitHubSetupPage() {
   const popupFlow = useMemo(() => getActiveGithubPopupFlowState(), [])
   const callbackPopupNonce = search.state ?? popupFlow?.nonce
 
-  // Popup path: relay installation_id via localStorage and close immediately.
-  // No API calls — the popup may not have valid auth cookies after the
-  // cross-origin redirect through github.com.
-  if (popupFlow || isPopupWindow() || search.state) {
+  // Only a real popup. A leftover `state` query is not enough — GitHub also
+  // sends `state` on full-page Setup URL returns.
+  if (popupFlow || isPopupWindow()) {
     if (search.installation_id) {
       return (
         <RelayAndClose
@@ -292,7 +291,6 @@ function DotGitHubSetupPage() {
     return <CloseOnly />
   }
 
-  // Direct-navigation path: full page with API calls.
   return <DirectSetupPage />
 }
 
