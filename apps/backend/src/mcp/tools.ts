@@ -19,7 +19,7 @@ import {
   getLangfuseHandler,
   runWithLangfuseContext,
 } from "../observability/langfuse.js"
-import { getLogger } from "../observability/logger.js"
+import { log } from "../observability/logger.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -223,8 +223,10 @@ export function registerMcpTools(server: McpServer): void {
           },
         )
       } catch (error) {
-        getLogger().error(error, {
+        log.error({
           step: "conversation.mcp.ctx_advisor",
+          message: error instanceof Error ? error.message : String(error),
+          error,
         })
         throw error
       }
