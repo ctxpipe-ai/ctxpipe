@@ -34,17 +34,11 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-const step = () => (
-  <RegisterNotionOauthStep
-    orgSlug={orgSlug}
-    connectionId={connectionId}
-    onConnect={() => {}}
-  />
-)
-
 export const RegisterOAuth: Story = {
-  name: "Public integration form",
-  render: step,
+  name: "Private OAuth app form",
+  render: () => (
+    <RegisterNotionOauthStep orgSlug={orgSlug} connectionId={connectionId} />
+  ),
   parameters: {
     msw: {
       handlers: {
@@ -54,49 +48,6 @@ export const RegisterOAuth: Story = {
             connectionId,
             oauthAppSaved: false,
             globalNotionOAuthConfigured: false,
-          }),
-          notionOauthAppPutHandler({ orgSlug, connectionId }),
-        ],
-      },
-    },
-  },
-}
-
-export const RegisterOAuthSaved: Story = {
-  name: "Saved integration — Event URL",
-  render: step,
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          notionOauthAppHandler({
-            orgSlug,
-            connectionId,
-            oauthAppSaved: true,
-            globalNotionOAuthConfigured: false,
-            oauthClientId: "notion-oauth-client-id-story",
-            webhookConfigured: true,
-          }),
-          notionOauthAppPutHandler({ orgSlug, connectionId }),
-        ],
-      },
-    },
-  },
-}
-
-export const WaitingForWebhook: Story = {
-  name: "Saved — waiting for webhook verification",
-  render: step,
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          notionOauthAppHandler({
-            orgSlug,
-            connectionId,
-            oauthAppSaved: true,
-            globalNotionOAuthConfigured: false,
-            webhookConfigured: false,
           }),
           notionOauthAppPutHandler({ orgSlug, connectionId }),
         ],

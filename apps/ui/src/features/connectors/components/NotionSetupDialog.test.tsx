@@ -12,6 +12,7 @@ const oauthAppState = vi.hoisted(() => ({
     oauthAppSaved: false,
     oauthClientId: null as string | null,
     webhookConfigured: false,
+    webhookVerificationToken: null as string | null,
     globalNotionOAuthConfigured: false,
     callbackUrl:
       "http://localhost/api/v1/connectors/notion/oauth/callback",
@@ -225,6 +226,7 @@ describe("NotionSetupDialog", () => {
       oauthAppSaved: false,
       oauthClientId: null,
       webhookConfigured: false,
+      webhookVerificationToken: null,
       globalNotionOAuthConfigured: false,
       callbackUrl: "http://localhost/api/v1/connectors/notion/oauth/callback",
       webhookUrl: "http://localhost/api/v1/webhook/notion",
@@ -254,8 +256,10 @@ describe("NotionSetupDialog", () => {
 
   it("shows the register step when neither the row nor env has an OAuth app", async () => {
     const container = await renderDialog()
-    expect(container.textContent).toContain("Register Notion integration")
+    expect(container.textContent).toContain("Register Notion OAuth app")
     expect(container.textContent).toContain("Client ID")
+    expect(container.textContent).toContain("Client secret")
+    expect(container.textContent).not.toContain("Add webhook")
     expect(container.textContent).not.toContain("Event URL")
   })
 
@@ -266,7 +270,7 @@ describe("NotionSetupDialog", () => {
       globalNotionOAuthConfigured: true,
     }
     const container = await renderDialog()
-    expect(container.textContent).not.toContain("Register Notion integration")
+    expect(container.textContent).not.toContain("Register Notion OAuth app")
     expect(container.textContent).toContain("Connect Notion")
     const connect = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Connect Notion",
@@ -278,7 +282,28 @@ describe("NotionSetupDialog", () => {
     )
   })
 
-  it("saves the integration then offers Connect Notion after webhook verification", async () => {
+  it("resumes on Add webhook without Client ID fields when the OAuth app is already saved", async () => {
+    oauthAppState.current = {
+      ...oauthAppState.current,
+      oauthConfigured: true,
+      oauthAppSaved: true,
+      oauthClientId: "client_123",
+      webhookConfigured: false,
+      webhookUrl:
+        "http://localhost/api/v1/webhook/notion?connectionId=con_notion&provisioningToken=tok",
+    }
+    const container = await renderDialog()
+    expect(container.textContent).toContain("Add webhook")
+    expect(container.textContent).toContain(
+      "Waiting for Notion to send a verification token",
+    )
+    expect(container.querySelector('input[aria-label="Client ID"]')).toBeNull()
+    expect(
+      container.querySelector('input[aria-label="Client secret"]'),
+    ).toBeNull()
+  })
+
+  it("saves the OAuth app then shows webhook waiting, token, and Connect after Continue", async () => {
     saveOauthApp.mockImplementation(async () => {
       oauthAppState.current = {
         ...oauthAppState.current,
@@ -286,6 +311,7 @@ describe("NotionSetupDialog", () => {
         oauthAppSaved: true,
         oauthClientId: "client_123",
         webhookConfigured: false,
+        webhookVerificationToken: null,
         webhookUrl:
           "http://localhost/api/v1/webhook/notion?connectionId=con_notion&provisioningToken=tok",
       }
@@ -315,7 +341,7 @@ describe("NotionSetupDialog", () => {
     })
 
     const save = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Save integration",
+      (button) => button.textContent === "Save",
     )
     expect(save).toBeDefined()
     await act(async () => save?.click())
@@ -324,23 +350,27 @@ describe("NotionSetupDialog", () => {
       clientId: "client_123",
       clientSecret: "secret_abc",
     })
-    expect(container.textContent).toContain("Event URL")
+    expect(container.textContent).toContain("Add webhook")
+    expect(container.textContent).toContain("Webhook URL")
     expect(container.textContent).toContain("provisioningToken=tok")
     expect(container.textContent).toContain(
-      "Waiting for Notion to verify the Event URL",
+      "Waiting for Notion to send a verification token",
     )
+    expect(container.querySelector('input[aria-label="Client ID"]')).toBeNull()
+    expect(
+      container.querySelector('input[aria-label="Client secret"]'),
+    ).toBeNull()
 
-    const connectWaiting = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Connect Notion",
-    )
-    expect(connectWaiting).toBeDefined()
-    expect(connectWaiting?.disabled).toBe(true)
-    await act(async () => connectWaiting?.click())
-    expect(connectStart).not.toHaveBeenCalled()
+    const continueWaiting = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent === "Continue")
+    expect(continueWaiting).toBeDefined()
+    expect(continueWaiting?.disabled).toBe(true)
 
     oauthAppState.current = {
       ...oauthAppState.current,
       webhookConfigured: true,
+      webhookVerificationToken: "secret_notion-verify-token",
     }
     await act(async () => {
       root?.render(
@@ -353,6 +383,16 @@ describe("NotionSetupDialog", () => {
       )
     })
 
+    expect(container.textContent).toContain("secret_notion-verify-token")
+    expect(container.textContent).toContain("Verify subscription")
+    const continueReady = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Continue",
+    )
+    expect(continueReady?.disabled).toBe(false)
+    await act(async () => continueReady?.click())
+
+    expect(container.textContent).toContain("Connect Notion")
+    expect(container.textContent).not.toContain("Client ID")
     const connect = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Connect Notion",
     )

@@ -9,6 +9,7 @@ import {
   SELF_HOSTED_NOTION_SETUP_STEPS,
   shouldShowNotionRegisterStep,
   shouldShowNotionSetupComplete,
+  shouldShowNotionWebhookStep,
 } from "./notion-setup-model"
 
 const page = {
@@ -68,14 +69,26 @@ describe("Notion setup model", () => {
       }),
     ).toBe(false)
     expect(
+      shouldShowNotionWebhookStep({
+        oauthAppSaved: true,
+        globalNotionOAuthConfigured: false,
+      }),
+    ).toBe(true)
+    expect(
       shouldShowNotionRegisterStep({
+        oauthAppSaved: false,
+        globalNotionOAuthConfigured: true,
+      }),
+    ).toBe(false)
+    expect(
+      shouldShowNotionWebhookStep({
         oauthAppSaved: false,
         globalNotionOAuthConfigured: true,
       }),
     ).toBe(false)
   })
 
-  it("keeps an uninstalled self-host draft on the register step", () => {
+  it("keeps an uninstalled self-host draft on register, then webhook", () => {
     const status = {
       isGithubLinked: false,
       syncTargetConfigured: false,
@@ -92,11 +105,18 @@ describe("Notion setup model", () => {
       oauthAppSaved: true,
       globalNotionOAuthConfigured: false,
     }
+    const webhookReady = {
+      oauthAppSaved: true,
+      globalNotionOAuthConfigured: false,
+      webhookConfigured: true,
+    }
 
     expect(getNotionSetupCurrentIndex(status, selfHost)).toBe(0)
-    expect(getNotionSetupCurrentIndex(status, saved)).toBe(0)
-    expect(getNotionCardCtaLabel(status, selfHost)).toBe("Register integration")
-    expect(getNotionCardCtaLabel(status, saved)).toBe("Connect Notion")
+    expect(getNotionSetupCurrentIndex(status, saved)).toBe(1)
+    expect(getNotionSetupCurrentIndex(status, webhookReady)).toBe(1)
+    expect(getNotionCardCtaLabel(status, selfHost)).toBe("Register OAuth app")
+    expect(getNotionCardCtaLabel(status, saved)).toBe("Add webhook")
+    expect(getNotionCardCtaLabel(status, webhookReady)).toBe("Connect Notion")
   })
 
   it("uses lifecycle state when status omits the Git-backed count", () => {

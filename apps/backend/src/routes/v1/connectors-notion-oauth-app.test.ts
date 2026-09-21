@@ -127,8 +127,69 @@ describe("GET /connectors/notion/oauth-app", () => {
     expect(String(body.webhookUrl)).toContain("connectionId=con_1")
     expect(String(body.webhookUrl)).toContain("provisioningToken=")
     expect(JSON.stringify(body)).not.toContain("super-secret-value")
+    expect(body.webhookVerificationToken).toBeNull()
     expect("oauthClientSecretEnc" in body).toBe(false)
     expect("clientSecret" in body).toBe(false)
+  })
+
+  it("returns the row webhook verification token and still omits the client secret", async () => {
+    getNotionStoredConfigByConnectionIdMock.mockResolvedValue(
+      parseNotionConnectionConfig({
+        oauthClientId: "client-id-one",
+        oauthClientSecretEnc: encryptConnectionSecret(
+          "super-secret-value",
+          env,
+        ),
+        webhookSecretEnc: encryptConnectionSecret(
+          "secret_notion-verify-token",
+          env,
+        ),
+      }),
+    )
+
+    const app = mountApp()
+    const res = await app.request(
+      "/connectors/notion/oauth-app?connectionId=con_1",
+    )
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as Record<string, unknown>
+    expect(body.webhookConfigured).toBe(true)
+    expect(body.webhookVerificationToken).toBe("secret_notion-verify-token")
+    expect(JSON.stringify(body)).not.toContain("super-secret-value")
+    expect("clientSecret" in body).toBe(false)
+  })
+
+  it("does not return env NOTION_WEBHOOK_SECRET as webhookVerificationToken", async () => {
+    getNotionStoredConfigByConnectionIdMock.mockResolvedValue(
+      parseNotionConnectionConfig({
+        oauthClientId: "client-id-one",
+        oauthClientSecretEnc: encryptConnectionSecret(
+          "super-secret-value",
+          env,
+        ),
+      }),
+    )
+    const app = new OpenAPIHono<AppEnv>()
+    app.use("*", async (c, next) => {
+      c.set("user", { id: "user_1" } as AppEnv["Variables"]["user"])
+      c.set("session", { id: "sess_1" } as AppEnv["Variables"]["session"])
+      c.set("orgId", "org_1")
+      c.set("orgSlug", "acme")
+      c.set("env", {
+        ...env,
+        NOTION_WEBHOOK_SECRET: "env-only-webhook-secret",
+      })
+      await next()
+    })
+    app.route("/connectors/notion", notionOauthAppReadRoutes)
+    const res = await app.request(
+      "/connectors/notion/oauth-app?connectionId=con_1",
+    )
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as Record<string, unknown>
+    expect(body.webhookConfigured).toBe(true)
+    expect(body.webhookVerificationToken).toBeNull()
+    expect(JSON.stringify(body)).not.toContain("env-only-webhook-secret")
   })
 
   it("returns 404 when the connection is missing", async () => {

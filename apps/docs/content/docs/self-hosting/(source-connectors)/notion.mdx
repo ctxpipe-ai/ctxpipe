@@ -1,26 +1,28 @@
 ---
 title: Notion
-description: Register a public Notion integration in the product UI, or optionally set env as an operator shortcut.
+description: Register a private Notion OAuth app in the product UI, or optionally set env as an operator shortcut.
 ---
 
 ## Overview
 
 Self-hosted Notion uses the same connector routes as hosted ctxpipe. The
-primary path is to register a **public Notion integration** in the product UI
+primary path is to register a **private Notion OAuth app** in the product UI
 so you can connect a workspace without setting `NOTION_*` environment variables
 or restarting. Env remains an optional hosted/operator shortcut.
 
 Traffic stays on **this** deployment's `AUTH_BASE_URL`. Do not point OAuth
-callbacks or Event URLs at hosted ctxpipe.
+callbacks or webhook URLs at hosted ctxpipe.
 
-## 1. Register the integration in the UI
+## 1. Register the OAuth app in the UI
 
 1. Open **Connectors**, choose **Add connection**, then **Notion**. ctxpipe
    creates a draft Notion connection.
-2. On **Register Notion integration**, create a public integration in the
-   [Notion integrations portal](https://www.notion.so/profile/integrations)
-   with public OAuth enabled.
-3. Copy the callback URL from the wizard into the integration. It is:
+2. On **Register Notion OAuth app**, create an OAuth app in the
+   [Notion integrations portal](https://www.notion.so/profile/integrations).
+   For a private install, choose **Selected workspaces only** — do not list on
+   the Marketplace. An internal (token-only) integration will not work.
+3. Copy the callback URL from the wizard into the app's OAuth / redirect URI
+   field. It is:
 
 ```text
 {AUTH_BASE_URL}/api/v1/connectors/notion/oauth/callback
@@ -29,10 +31,11 @@ callbacks or Event URLs at hosted ctxpipe.
 Set **`NOTION_REDIRECT_URI`** only when the public callback differs from the
 URL derived from `AUTH_BASE_URL`.
 
-4. Paste the integration **Client ID** and **Client secret** and save. The
-   secret is stored encrypted on that connection and is never shown again.
-5. After save, copy the **Event URL** from the wizard into the integration
-   webhook settings. It is query-scoped to this connection:
+4. Paste the **Client ID** and **Client secret** and save. The secret is stored
+   encrypted on that connection and is never shown again.
+5. On **Add webhook**, open the same app's **Webhooks** tab, add a webhook, and
+   paste the wizard event URL into **Webhook URL**. It is query-scoped to this
+   connection:
 
 ```text
 {AUTH_BASE_URL}/api/v1/webhook/notion?connectionId={id}&provisioningToken={hmac}
@@ -40,23 +43,24 @@ URL derived from `AUTH_BASE_URL`.
 
 The provisioning token is an HMAC of the saved client secret. Notion's first
 verification request is unsigned; ctxpipe checks that HMAC, stores the
-verification token on the same row, and answers `200` so the subscription
-activates.
+verification token on the same row, and shows it in the wizard. Paste that
+**Verification token** into Notion's **Verify subscription** dialog, then click
+**Verify subscription**.
 
-6. Choose **Connect Notion** and authorize the workspace.
+6. Choose **Continue**, then **Connect Notion**, and authorize the workspace.
 
 The worker resolves OAuth client credentials from the connection row, so token
 refresh works with empty `NOTION_*` env.
 
 ## 2. Optional env shortcut
 
-Operators who already own a shared public integration can set
+Operators who already own a shared OAuth app can set
 **`NOTION_CLIENT_ID`**, **`NOTION_CLIENT_SECRET`**, and
 **`NOTION_WEBHOOK_SECRET`** on the backend and worker instead of saving them
 in the wizard. When those env values are set, **Add Notion** skips the
 register step and opens the OAuth popup.
 
-For env-only webhook provisioning (no `connectionId` on the Event URL),
+For env-only webhook provisioning (no `connectionId` on the webhook URL),
 generate the provisioning token from the repository root:
 
 ```bash
@@ -74,7 +78,7 @@ Copy the **verification token** from Notion after the first delivery and set
 on a connection row.
 
 Do not ask each ctxpipe organization to create a second webhook path. One
-Event URL per integration is enough; self-host scopes it with query
+webhook URL per integration is enough; self-host scopes it with query
 parameters.
 
 ## 3. Supply env secrets when you use the shortcut
@@ -125,7 +129,7 @@ unsafe, or oversized downloads leave a Notion page link or caption stub.
 
 ## Verify the complete flow
 
-1. Add Notion and save a public integration (or confirm env is set).
+1. Add Notion and save a private OAuth app (or confirm env is set).
 2. Authorize a clean Notion workspace through the product flow.
 3. Share a page or database with the integration and confirm it appears.
 4. Select a context repository and merge `notion/config.yaml`.
@@ -149,11 +153,11 @@ The wizard skips registration when both `NOTION_CLIENT_ID` and
 
 ### Signed events return `401` or `503`
 
-If you used the UI Event URL, confirm Notion's verification completed on that
-connection (the Event URL includes `connectionId`). If you used the env
+If you used the UI webhook URL, confirm Notion's verification completed on that
+connection (the webhook URL includes `connectionId`). If you used the env
 shortcut, set `NOTION_WEBHOOK_SECRET` to the verification token shown after
 Notion's first delivery, then restart the backend. The provisioning token in
-the Event URL does not replace the signing secret.
+the webhook URL does not replace the signing secret.
 
 ### Content sync cannot refresh authorization
 

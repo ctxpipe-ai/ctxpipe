@@ -18,6 +18,7 @@ type SetupProgressStatus = SetupStatus & {
 export type NotionOauthMeta = {
   oauthAppSaved: boolean
   globalNotionOAuthConfigured: boolean
+  webhookConfigured?: boolean
 }
 
 export const NOTION_SETUP_STEPS = [
@@ -28,7 +29,8 @@ export const NOTION_SETUP_STEPS = [
 ] as const
 
 export const SELF_HOSTED_NOTION_SETUP_STEPS = [
-  { id: "register", label: "Register Notion integration" },
+  { id: "register", label: "Register Notion OAuth app" },
+  { id: "webhook", label: "Add webhook" },
   ...NOTION_SETUP_STEPS,
 ] as const
 
@@ -49,6 +51,16 @@ export function shouldShowNotionRegisterStep(
   )
 }
 
+export function shouldShowNotionWebhookStep(
+  oauthMeta?: NotionOauthMeta,
+): boolean {
+  return Boolean(
+    oauthMeta &&
+      !oauthMeta.globalNotionOAuthConfigured &&
+      oauthMeta.oauthAppSaved,
+  )
+}
+
 export type NotionFailureAction = "retry_config" | "retry_content"
 
 export function getNotionFailureAction(
@@ -63,10 +75,11 @@ export function getNotionSetupCurrentIndex(
   status: SetupProgressStatus,
   oauthMeta?: NotionOauthMeta,
 ): number {
-  const offset =
-    getNotionSetupSteps(oauthMeta)[0]?.id === "register" ? 1 : 0
-  if (offset === 1 && status.isInstalled === false) {
-    return 0
+  const selfHost = getNotionSetupSteps(oauthMeta)[0]?.id === "register"
+  const offset = selfHost ? 2 : 0
+  if (selfHost && status.isInstalled === false) {
+    if (!oauthMeta?.oauthAppSaved) return 0
+    return 1
   }
   if (!status.isGithubLinked) return offset
   if (!status.syncTargetConfigured) return 1 + offset
@@ -102,9 +115,10 @@ export function getNotionCardCtaLabel(
 ): string {
   if (status.setupPhase === "draft") {
     if (shouldShowNotionRegisterStep(oauthMeta)) {
-      return "Register integration"
+      return "Register OAuth app"
     }
-    if (oauthMeta && !oauthMeta.globalNotionOAuthConfigured && oauthMeta.oauthAppSaved) {
+    if (shouldShowNotionWebhookStep(oauthMeta)) {
+      if (!oauthMeta?.webhookConfigured) return "Add webhook"
       return "Connect Notion"
     }
   }

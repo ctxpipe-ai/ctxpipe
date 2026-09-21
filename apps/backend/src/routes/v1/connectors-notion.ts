@@ -5,6 +5,7 @@ import type { AppEnv } from "../../app/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import { members } from "../../db/schema/auth.js"
+import { decryptConnectionSecret } from "../../lib/connection-secrets.js"
 import {
   notionConnectionHasOauthApp,
   notionConnectionHasWebhookSecret,
@@ -214,6 +215,7 @@ const NotionOauthAppGetResponseSchema = z
     oauthAppSaved: z.boolean(),
     oauthClientId: z.string().nullable(),
     webhookConfigured: z.boolean(),
+    webhookVerificationToken: z.string().min(1).nullable(),
     globalNotionOAuthConfigured: z.boolean(),
     callbackUrl: z.string(),
     webhookUrl: z.string(),
@@ -236,7 +238,8 @@ const getOauthAppRoute = createRoute({
       content: {
         "application/json": { schema: NotionOauthAppGetResponseSchema },
       },
-      description: "Notion OAuth app metadata (no secrets)",
+      description:
+        "Notion OAuth app metadata. Returns the row webhook verification token when stored; never the client secret.",
     },
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -769,6 +772,9 @@ function notionOauthAppMetadata(
     webhookConfigured:
       notionConnectionHasWebhookSecret(stored) ||
       Boolean(env.NOTION_WEBHOOK_SECRET),
+    webhookVerificationToken: stored?.webhookSecretEnc
+      ? decryptConnectionSecret(stored.webhookSecretEnc, env)
+      : null,
     globalNotionOAuthConfigured: envApp,
     callbackUrl,
     webhookUrl,

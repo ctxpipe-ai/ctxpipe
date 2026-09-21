@@ -26,6 +26,7 @@ import {
   hasNotionScopeChanged,
   shouldShowNotionRegisterStep,
   shouldShowNotionSetupComplete,
+  shouldShowNotionWebhookStep,
 } from "../notion-setup-model"
 import { useNotionOAuthConnect } from "../hooks/useNotionOAuthConnect"
 import {
@@ -58,6 +59,7 @@ import {
 } from "./ConnectorContextRepositoryGuidance"
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { GitHubPrerequisiteStep } from "./GitHubPrerequisiteStep"
+import { AddNotionWebhookStep } from "./notion-setup/AddNotionWebhookStep"
 import { RegisterNotionOauthStep } from "./notion-setup/RegisterNotionOauthStep"
 
 type GitHubRepoItem = {
@@ -102,6 +104,12 @@ export function NotionSetupDialog({
     [],
   )
   const [initialized, setInitialized] = useState(false)
+  const [registerSaved, setRegisterSaved] = useState(false)
+  const [webhookContinued, setWebhookContinued] = useState(false)
+  if (!isOpen && (registerSaved || webhookContinued)) {
+    setRegisterSaved(false)
+    setWebhookContinued(false)
+  }
 
   useEffect(() => {
     const id = setTimeout(() => setDebouncedRepoSearch(repoSearch), 300)
@@ -391,11 +399,28 @@ export function NotionSetupDialog({
     selectedResources,
   )
   const editingLiveScope = status?.setupPhase === "live" && manageScope
-  const setupSteps = getNotionSetupSteps(oauthAppQuery.data)
-  const setupStepIndex = status
-    ? getNotionSetupCurrentIndex(status, oauthAppQuery.data)
-    : 0
-  const showRegister = shouldShowNotionRegisterStep(oauthAppQuery.data)
+  const oauthMeta = oauthAppQuery.data
+    ? {
+        ...oauthAppQuery.data,
+        oauthAppSaved: oauthAppQuery.data.oauthAppSaved || registerSaved,
+      }
+    : undefined
+  const setupSteps = getNotionSetupSteps(oauthMeta)
+  const setupStepIndex = (() => {
+    if (!status) return 0
+    const index = getNotionSetupCurrentIndex(status, oauthMeta)
+    if (
+      webhookContinued &&
+      !status.isInstalled &&
+      setupSteps[0]?.id === "register"
+    ) {
+      return 2
+    }
+    return index
+  })()
+  const showRegister = shouldShowNotionRegisterStep(oauthMeta)
+  const showWebhook =
+    shouldShowNotionWebhookStep(oauthMeta) && !webhookContinued
   const body = (() => {
     if (!connectionId) {
       return (
@@ -441,13 +466,21 @@ export function NotionSetupDialog({
           },
         })
       }
-      if (showRegister || oauthAppQuery.data?.oauthAppSaved) {
+      if (showRegister) {
         return (
           <RegisterNotionOauthStep
             orgSlug={orgSlug}
             connectionId={connectionId}
-            connectPending={oauthConnect.busy}
-            onConnect={startConnect}
+            onSaved={() => setRegisterSaved(true)}
+          />
+        )
+      }
+      if (showWebhook) {
+        return (
+          <AddNotionWebhookStep
+            orgSlug={orgSlug}
+            connectionId={connectionId}
+            onContinue={() => setWebhookContinued(true)}
           />
         )
       }
@@ -458,7 +491,7 @@ export function NotionSetupDialog({
               Connect Notion
             </h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              Authorise ctxpipe to access the Notion workspace you want to
+              Authorize ctxpipe to access the Notion workspace you want to
               mirror.
             </p>
           </div>

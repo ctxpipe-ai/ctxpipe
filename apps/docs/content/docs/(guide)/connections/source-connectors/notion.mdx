@@ -13,8 +13,8 @@ content.
 
 <Callout title="Fully managed app flow">
   The hosted ctx| service supplies the Notion OAuth application and webhook
-  configuration. Self-hosted operators register a public integration in the
-  connector setup wizard (client ID, secret, and Event URL). Setting
+  configuration. Self-hosted operators register a private OAuth app in the
+  connector setup wizard (client ID, secret, then Add webhook). Setting
   `NOTION_*` environment variables is an optional operator shortcut, not a
   required restart. See [Self-host Notion](/docs/self-hosting/notion).
 </Callout>
@@ -73,9 +73,9 @@ remains the source of truth for what Notion content is approved.
 
     Open **Connectors**, choose **Add connection**, then select **Notion**.
     On a self-hosted deployment without shared env credentials, complete
-    **Register Notion integration** first, then authorize the workspace in the
-    Notion popup and share the pages or databases the connector should be
-    allowed to read.
+    **Register Notion OAuth app** and **Add webhook** first, then authorize the
+    workspace in the Notion popup and share the pages or databases the connector
+    should be allowed to read.
   </Step>
 
   <Step>
@@ -171,9 +171,9 @@ tests Notion webhook delivery.
 ### Authorization fails
 
     Allow popups and retry. On fully managed ctx|, report persistent OAuth errors to
-    support. On a self-hosted deployment, finish **Register Notion integration**
-    in the wizard (or the optional env shortcut) and confirm the callback URI
-    matches exactly.
+    support. On a self-hosted deployment, finish **Register Notion OAuth app**
+    and **Add webhook** in the wizard (or the optional env shortcut) and confirm
+    the callback URI matches exactly.
 
 ### No pages or databases appear
 

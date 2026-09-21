@@ -7,12 +7,18 @@ export function notionOauthAppHandler(input: {
   globalNotionOAuthConfigured?: boolean
   oauthClientId?: string | null
   webhookConfigured?: boolean
+  webhookVerificationToken?: string | null
   webhookUrl?: string
 }) {
   const oauthAppSaved = input.oauthAppSaved ?? false
   const globalNotionOAuthConfigured = input.globalNotionOAuthConfigured ?? false
   const webhookConfigured =
     input.webhookConfigured ?? (oauthAppSaved || globalNotionOAuthConfigured)
+  const webhookVerificationToken =
+    input.webhookVerificationToken ??
+    (webhookConfigured && oauthAppSaved && !globalNotionOAuthConfigured
+      ? "secret_story-verify-token"
+      : null)
   return http.get(
     ({ request }) => {
       const u = new URL(request.url)
@@ -30,6 +36,7 @@ export function notionOauthAppHandler(input: {
         oauthClientId:
           input.oauthClientId ?? (oauthAppSaved ? "notion-client-id" : null),
         webhookConfigured,
+        webhookVerificationToken,
         globalNotionOAuthConfigured,
         callbackUrl: `${origin}/api/v1/connectors/notion/oauth/callback`,
         webhookUrl:

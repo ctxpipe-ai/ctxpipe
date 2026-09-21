@@ -17,6 +17,7 @@ export type NotionOauthAppGet = {
   oauthAppSaved: boolean
   oauthClientId: string | null
   webhookConfigured: boolean
+  webhookVerificationToken: string | null
   globalNotionOAuthConfigured: boolean
   callbackUrl: string
   webhookUrl: string
