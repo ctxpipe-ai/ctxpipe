@@ -9,7 +9,7 @@ import {
   withLogger,
 } from "../../observability/logger.js"
 import { enqueueFollowUpIfTipAhead } from "../enqueue-follow-up-if-tip-ahead.js"
-import { isSleepSignal } from "../isSleepSignal.js"
+import { isWorkflowControlSignal } from "../isSleepSignal.js"
 import { repositoryIngestion } from "./repository-ingestion.js"
 
 const repositoryIngestionOrchestratorInputSchema = z.object({
@@ -56,7 +56,7 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
             { name: "repository-ingestion-child" },
           )
         } catch (err: unknown) {
-          if (isSleepSignal(err)) {
+          if (isWorkflowControlSignal(err)) {
             throw err
           }
 

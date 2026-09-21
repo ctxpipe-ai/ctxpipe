@@ -5,7 +5,10 @@ import { listGithubPrMirrorBindingsForRepository } from "../../../models/github-
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
-import { githubSyncContent } from "../../../openworkflow/workflows/github-sync-content.js"
+import {
+  githubPrMirrorContentIdempotencyKey,
+  githubSyncContent,
+} from "../../../openworkflow/workflows/github-sync-content.js"
 import {
   githubCommitsMissingPathEntirely,
   githubPushTouchesPath,
@@ -32,6 +35,7 @@ export async function maybeActivateGithubPrMirrorOnConfigPush(input: {
   if (!input.ref.startsWith(branchPrefix)) return
   const pushedBranch = input.ref.slice(branchPrefix.length)
   if (!pushedBranch) return
+  if (!input.after || input.after === GIT_EMPTY_TREE_SHA) return
 
   const touchedByCommitLists = githubPushTouchesPath({
     commits: input.commits,
@@ -87,10 +91,19 @@ export async function maybeActivateGithubPrMirrorOnConfigPush(input: {
       if (binding.branch !== pushedBranch) continue
       if (binding.connectionId !== installation.id) continue
       try {
-        await runWorkflowWithWorkerWake(githubSyncContent.spec, {
-          orgId: binding.orgId,
-          connectionId: binding.connectionId,
-        })
+        await runWorkflowWithWorkerWake(
+          githubSyncContent.spec,
+          {
+            orgId: binding.orgId,
+            connectionId: binding.connectionId,
+          },
+          {
+            idempotencyKey: githubPrMirrorContentIdempotencyKey({
+              connectionId: binding.connectionId,
+              commitSha: input.after,
+            }),
+          },
+        )
       } catch (error) {
         getLogger().error(
           error instanceof Error ? error : new Error(String(error)),

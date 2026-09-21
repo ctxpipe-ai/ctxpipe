@@ -1,15 +1,17 @@
 import type { Env } from "../../../config/env.js"
 import { withOrgDbContext } from "../../../db/client.js"
-import { resolveGithubPrMirrorTarget } from "../../../models/github-pr-mirror-target.js"
 import {
   bindGithubPrMirror,
-  getGithubPrMirrorBinding,
   patchGithubPrMirror,
 } from "../../../models/github-pr-mirror.js"
-import { listRepositoriesForGithubConnection } from "../../../models/repositories.js"
+import { resolveGithubPrMirrorTarget } from "../../../models/github-pr-mirror-target.js"
+import { listRepositoriesForGithubConnectionForOrg } from "../../../models/repositories.js"
 import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
-import { githubSyncContent } from "../../../openworkflow/workflows/github-sync-content.js"
+import {
+  githubPrMirrorContentIdempotencyKey,
+  githubSyncContent,
+} from "../../../openworkflow/workflows/github-sync-content.js"
 import { loadGithubPrMirrorConfigFromRepo } from "./config-from-repo.js"
 import { sourceRepositoriesForPrMirror } from "./source-scope.js"
 import { commitGithubPrMirrorConfigYaml } from "./sync.js"
@@ -19,7 +21,9 @@ export type EnsureGithubPrMirrorResult = {
 }
 
 function sameRepositoryList(left: string[], right: string[]): boolean {
-  return left.length === right.length && left.every((name, i) => name === right[i])
+  return (
+    left.length === right.length && left.every((name, i) => name === right[i])
+  )
 }
 
 export async function ensureGithubPrMirror(input: {
@@ -42,21 +46,20 @@ export async function ensureGithubPrMirror(input: {
       )
   if (!target) return { status: "skipped_no_context" }
 
-  const binding = await withOrgDbContext(input.orgId, async () => {
-    await bindGithubPrMirror({
+  const binding = await withOrgDbContext(input.orgId, () =>
+    bindGithubPrMirror({
       orgId: input.orgId,
       connectionId: input.connectionId,
       repositoryId: target.repositoryId,
       branch: target.branch,
-    })
-    return getGithubPrMirrorBinding(input.orgId, input.connectionId)
-  })
-  if (!binding) return { status: "skipped_no_context" }
+    }),
+  )
 
   const repositories = sourceRepositoriesForPrMirror(
     (
-      await withOrgDbContext(input.orgId, () =>
-        listRepositoriesForGithubConnection(input.connectionId),
+      await listRepositoriesForGithubConnectionForOrg(
+        input.orgId,
+        input.connectionId,
       )
     ).map((repository) => repository.name),
     binding.repositoryName,
@@ -69,37 +72,48 @@ export async function ensureGithubPrMirror(input: {
     githubConnectionId: binding.githubConnectionId,
     branch: binding.branch,
   })
-  const alreadyLive =
+  // `initial_sync` is written by githubSyncContent after its handler starts,
+  // so either phase proves the content handoff happened.
+  const contentStarted =
     binding.setupPhase === "live" || binding.setupPhase === "initial_sync"
   if (
     current &&
     sameRepositoryList(current.repositories, repositories) &&
-    alreadyLive
+    contentStarted
   ) {
     return { status: "unchanged" }
   }
 
-  await commitGithubPrMirrorConfigYaml({
-    orgId: input.orgId,
-    env: input.env,
-    binding,
-    repositories,
-  })
-  await withOrgDbContext(input.orgId, () =>
-    patchGithubPrMirror({
+  try {
+    const configCommit = await commitGithubPrMirrorConfigYaml({
       orgId: input.orgId,
-      connectionId: input.connectionId,
-      patch: {
-        setupPhase: "initial_sync",
-        pendingConfigPullUrl: null,
-        enabled: true,
+      env: input.env,
+      binding,
+      repositories,
+    })
+    await runWorkflowWithWorkerWake(
+      githubSyncContent.spec,
+      {
+        orgId: input.orgId,
+        connectionId: input.connectionId,
       },
-    }),
-  )
-  await runWorkflowWithWorkerWake(githubSyncContent.spec, {
-    orgId: input.orgId,
-    connectionId: input.connectionId,
-  })
+      {
+        idempotencyKey: githubPrMirrorContentIdempotencyKey({
+          connectionId: input.connectionId,
+          commitSha: configCommit.commitSha,
+        }),
+      },
+    )
+  } catch (error) {
+    await withOrgDbContext(input.orgId, () =>
+      patchGithubPrMirror({
+        orgId: input.orgId,
+        connectionId: input.connectionId,
+        patch: { setupPhase: "sync_failed" },
+      }),
+    )
+    throw error
+  }
   return { status: "started" }
 }
 

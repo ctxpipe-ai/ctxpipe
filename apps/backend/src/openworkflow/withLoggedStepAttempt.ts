@@ -1,5 +1,5 @@
 import { flushWorkflowLog, getLogger } from "../observability/logger.js"
-import { isSleepSignal } from "./isSleepSignal.js"
+import { isWorkflowControlSignal } from "./isSleepSignal.js"
 
 /**
  * Wraps an async workflow step fn; on throw, logs the failure to evlog (with
@@ -17,7 +17,7 @@ export async function withLoggedStepAttempt<T>(
   try {
     return await fn()
   } catch (err: unknown) {
-    if (isSleepSignal(err)) {
+    if (isWorkflowControlSignal(err)) {
       throw err
     }
     const normalized = err instanceof Error ? err : new Error(String(err))

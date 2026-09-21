@@ -131,13 +131,36 @@ export async function bindGithubPrMirror(input: {
 }): Promise<GithubPrMirrorBinding> {
   const row = await getGithubConnectionRow(input.orgId, input.connectionId)
   if (!row) throw new Error("GitHub connection not found")
-  const repository = await getRepositoryForOrg(input.orgId, input.repositoryId)
+  const db = getOrgDb()
+  const [repository] = await db
+    .select({
+      id: repositories.id,
+      name: repositories.name,
+      gitUrl: repositories.gitUrl,
+      githubConnectionId: repositories.githubConnectionId,
+    })
+    .from(repositories)
+    .where(
+      and(
+        eq(repositories.id, input.repositoryId),
+        eq(repositories.orgId, input.orgId),
+      ),
+    )
+    .limit(1)
   if (!repository) throw new Error("Context repository not found")
   if (repository.githubConnectionId !== input.connectionId) {
     throw new Error(
       "Context repository must belong to this GitHub App installation",
     )
   }
+  const current = readMirror(row.config as Record<string, unknown>)
+  const sameTarget =
+    current?.repositoryId === input.repositoryId &&
+    current.branch === input.branch
+  const setupPhase = sameTarget ? (current.setupPhase ?? "draft") : "draft"
+  const pendingConfigPullUrl = sameTarget
+    ? (current.pendingConfigPullUrl ?? null)
+    : null
   const config = mergeGithubConnectionConfig(
     row.config as Record<string, unknown>,
     {
@@ -145,22 +168,27 @@ export async function bindGithubPrMirror(input: {
         repositoryId: input.repositoryId,
         branch: input.branch,
         enabled: true,
-        setupPhase: "initial_sync",
-        pendingConfigPullUrl: null,
+        setupPhase,
+        pendingConfigPullUrl,
       },
     },
   )
-  const db = getSystemDb()
   await db
     .update(connections)
     .set({ config, updatedAt: new Date() })
     .where(eq(connections.id, input.connectionId))
-  const binding = await getGithubPrMirrorBinding(
-    input.orgId,
-    input.connectionId,
-  )
-  if (!binding) throw new Error("Failed to bind pull request mirror")
-  return binding
+  return {
+    connectionId: row.id,
+    orgId: row.orgId,
+    repositoryId: repository.id,
+    repositoryName: repository.name,
+    gitUrl: repository.gitUrl,
+    githubConnectionId: repository.githubConnectionId,
+    branch: input.branch,
+    enabled: true,
+    setupPhase,
+    pendingConfigPullUrl,
+  }
 }
 
 export async function patchGithubPrMirror(input: {

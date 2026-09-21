@@ -1,6 +1,5 @@
 import type { Workflow } from "openworkflow"
 import { withOrgDbContext } from "../db/client.js"
-import { getLogger } from "../observability/logger.js"
 import { resolveRepositoryRef } from "../domain/codeIngestion/queue.js"
 import {
   getRepositoryForOrg,
@@ -10,7 +9,7 @@ import {
 } from "../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { enqueueFollowUpIfTipAhead } from "./enqueue-follow-up-if-tip-ahead.js"
-import { isSleepSignal } from "./isSleepSignal.js"
+import { isWorkflowControlSignal } from "./isSleepSignal.js"
 import { repositoryIngestionOrchestrator } from "./workflows/repository-ingestion-orchestrator.js"
 
 export type RepositoryIngestionEnqueueInput = {
@@ -291,7 +290,7 @@ export async function claimAndRunRepositoryIngestionChild(
       name: `ingest-${input.repositoryId}`,
     })
   } catch (err: unknown) {
-    if (isSleepSignal(err)) {
+    if (isWorkflowControlSignal(err)) {
       throw err
     }
     const normalized = err instanceof Error ? err : new Error(String(err))
@@ -311,7 +310,7 @@ export async function claimAndRunRepositoryIngestionChild(
 export async function runConnectorRepositoryIngestionWorkflow(
   step: RepositoryIngestionChildStep,
   input: ConnectorRepositoryIngestionInput,
-  log: { error: (err: Error) => void } = getLogger(),
+  log: { error: (err: Error) => void },
 ): Promise<void> {
   const repository = await getRepositoryForOrg(input.orgId, input.repositoryId)
   if (!repository) {
