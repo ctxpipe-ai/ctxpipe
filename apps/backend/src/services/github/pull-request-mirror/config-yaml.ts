@@ -74,24 +74,3 @@ export function renderGithubPrConfigYaml(input: {
     },
   })
 }
-
-export function getGithubPrConfigPullRequestPayload(input: {
-  repositoryCount: number
-}): { title: string; body: string } {
-  return {
-    title: "Configure ctx| GitHub pull request mirror",
-    body: [
-      "This pull request adds `github/config.yaml`, which lists the source",
-      "repositories whose **merged** pull requests ctx| should copy into this",
-      "context repository (conversation, reviews, and changed paths — not diffs).",
-      "",
-      `Default scope: ${input.repositoryCount} ingested repositor${
-        input.repositoryCount === 1 ? "y" : "ies"
-      }, up to ${DEFAULT_MAX_PULL_REQUESTS_PER_REPOSITORY} newest merged pull requests each.`,
-      "",
-      "After merge, ctx| writes one Markdown file per pull request under",
-      "`github/pulls/` and records added / modified / removed / renamed edges",
-      "in the knowledge graph.",
-    ].join("\n"),
-  }
-}

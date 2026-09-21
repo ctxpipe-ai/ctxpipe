@@ -9,6 +9,16 @@ import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Radio, RadioGroup } from "@/components/ui/RadioGroup"
 import { SearchField } from "@/components/ui/SearchField"
 import { Select, SelectItem } from "@/components/ui/Select"
+import {
+  ConnectorContextRepositoryCreateSteps,
+  ConnectorContextRepositoryGuidance,
+  getConnectorContextRepositoryCreateUrl,
+  isCtxpipeContextRepositoryName,
+} from "@/features/connectors/components/ConnectorContextRepositoryGuidance"
+import {
+  fetchGithubInstallationSummary,
+  githubConnectorKeys,
+} from "@/features/connectors/queries/github-connector"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
 import {
@@ -19,6 +29,7 @@ import {
   type GithubRepoItem,
   type GithubRepoSort,
   githubCloneUrlKey,
+  includeCtxpipeContextRepo,
   matchSavedRepoIds,
   selectedCloneUrlKeys,
   sortGithubRepos,
@@ -64,6 +75,7 @@ async function fetchInstallationReposPage(
     repositories: GithubRepoItem[]
     hasMore: boolean
     repositorySelection: string
+    manageUrl: string | null
   }
 }
 
@@ -102,6 +114,7 @@ export function GitHubRepositorySetupForm({
     data,
     isPending: reposPending,
     isError: reposFailed,
+    isFetching: reposFetching,
   } = useQuery({
     queryKey: ["github-installation-repos", orgSlug],
     queryFn: () =>
@@ -111,11 +124,25 @@ export function GitHubRepositorySetupForm({
     enabled: !!session,
   })
 
+  const { data: installation } = useQuery({
+    queryKey: githubConnectorKeys.installation(orgSlug),
+    queryFn: () => fetchGithubInstallationSummary(orgSlug),
+    enabled: !!session,
+  })
+
   const allRepos = data?.repositories ?? []
   const repositorySelection = data?.repositorySelection
+  const contextRepo = allRepos.find((repo) =>
+    isCtxpipeContextRepositoryName(repo.name),
+  )
 
   if (!reposPending && !selectionHydrated && data) {
-    setSelectedIds(matchSavedRepoIds(savedGitUrls, allRepos))
+    setSelectedIds(
+      includeCtxpipeContextRepo(
+        matchSavedRepoIds(savedGitUrls, allRepos),
+        allRepos,
+      ),
+    )
     setSelectionHydrated(true)
   }
 
@@ -246,6 +273,19 @@ export function GitHubRepositorySetupForm({
     updateOptionsMutation.mutate()
   }
 
+  const handleRefreshRepositories = async () => {
+    const next = await queryClient.fetchQuery({
+      queryKey: ["github-installation-repos", orgSlug],
+      queryFn: () =>
+        collectInstallationRepoPages((page) =>
+          fetchInstallationReposPage(orgSlug, page),
+        ),
+    })
+    setSelectedIds((previous) =>
+      includeCtxpipeContextRepo(previous, next.repositories),
+    )
+  }
+
   const selectBusy = reposPending || (!selectionHydrated && !reposFailed)
 
   return (
@@ -288,6 +328,25 @@ export function GitHubRepositorySetupForm({
           <Radio value="all">All repositories</Radio>
           <Radio value="select">Select specific repositories</Radio>
         </RadioGroup>
+
+        <ConnectorContextRepositoryGuidance
+          foundRepositoryName={
+            reposPending ? undefined : contextRepo?.full_name
+          }
+        />
+        {!reposPending && !contextRepo ? (
+          <ConnectorContextRepositoryCreateSteps
+            createUrl={getConnectorContextRepositoryCreateUrl(
+              installation?.accountSlug,
+            )}
+            accountSlug={installation?.accountSlug}
+            manageUrls={data?.manageUrl ? [data.manageUrl] : []}
+            isRefreshing={reposFetching}
+            onRefresh={() => {
+              void handleRefreshRepositories()
+            }}
+          />
+        ) : null}
 
         {mode === "all" && repositorySelection === "all" && (
           <Checkbox

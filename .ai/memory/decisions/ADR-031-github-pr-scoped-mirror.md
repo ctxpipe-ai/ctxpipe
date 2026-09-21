@@ -19,14 +19,18 @@ typed change edges.
 ## Decision
 
 1. GitHub remains one `connections` row (`type = github`). Pull-request
-   mirroring is an optional scoped-mirror job on that row: `connections.config.prMirror`
+   capture is implied by repository setup, not a second product. `connections.config.prMirror`
    holds the context-repository binding (`repositoryId`, `branch`, `enabled`,
-   `setupPhase`, pending config PR URL). No new connector type and no second
-   OAuth app.
-2. Scope lives in `github/config.yaml` in the bound context repository, created
-   via a configuration pull request. Draft = yaml on the feature branch; live =
-   yaml on the target branch after merge. The list of source repositories is
-   explicit and may diverge from the code-ingest picker.
+   `setupPhase`). No new connector type, no second OAuth app, and no user toggle.
+2. Scope is the code-ingest picker. ctx| writes `github/config.yaml` on the
+   context-repository target branch (no config PR to merge). The list is every
+   ingested source repository except the context warehouse. Adding or removing
+   picker repos updates that list. Operators may still edit the yaml to narrow
+   a one-off backfill; the next picker sync overwrites it back to the picker.
+   GitHub repository selection (onboarding and later setup) prompts the user to
+   create or select `ctxpipe-context`. That prompt is not a gate; skip still
+   completes setup. ctx| does not auto-create the repository (that would need
+   GitHub App Administration).
 3. Content commits directly to the bound branch under
    `github/pulls/<owner>/<repo>/<number>--<id>.md`. One file per pull request:
    title, body, labelled human/bot reviews and comments, review decision, and
@@ -69,6 +73,18 @@ typed change edges.
   any connector warehouse prefix (`github/`, `linear/`, `notion/`, `slack/`,
   `confluence/`).
 - High-churn open pull requests are out of the default yaml (`states: [merged]`).
+- Capture starts when GitHub repos are selected **and** a write target exists:
+  an existing connector context repository, or an ingested `ctxpipe-context`.
+  GitHub-only orgs with no context repository skip until one is bound (Linear,
+  Notion, Slack, or they ingest `ctxpipe-context`). First sync is paced only
+  by GitHub rate limits (default 200 newest merged PRs per source repo).
+- Existing GitHub connections are swept on backend process start: each
+  connection is enqueued to `ensureGithubPrMirror`. The call is idempotent
+  (`unchanged` / `skipped_no_context`). This is how orgs that already selected
+  repos pick up capture after deploy, without a picker re-save or a webhook.
+- Connector setup (Linear, Notion, Slack, Confluence) preselects that same
+  context repository: an existing connector bind if one is unambiguous, otherwise
+  an ingested `ctxpipe-context` from GitHub setup.
 
 ## Alternatives considered
 

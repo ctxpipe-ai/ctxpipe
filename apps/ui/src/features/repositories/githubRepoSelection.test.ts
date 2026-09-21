@@ -5,6 +5,7 @@ import {
   countSelectionDelta,
   describeSelectionDelta,
   githubCloneUrlKey,
+  includeCtxpipeContextRepo,
   matchSavedRepoIds,
   sortGithubRepos,
   unmatchedSavedRepos,
@@ -191,5 +192,41 @@ describe("collectInstallationRepoPages", () => {
     const result = await collectInstallationRepoPages(fetchPage)
     expect(fetchPage).toHaveBeenCalledTimes(2)
     expect(result.repositories.map((repo) => repo.id)).toEqual([1, 2, 31])
+    expect(result.manageUrl).toBeNull()
+  })
+
+  it("keeps the first manage URL from the installation pages", async () => {
+    const result = await collectInstallationRepoPages(async (page) => ({
+      repositories: page === 1 ? page1 : page2,
+      hasMore: page === 1,
+      repositorySelection: "selected",
+      manageUrl:
+        page === 1
+          ? "https://github.com/organizations/acme/settings/installations/1"
+          : null,
+    }))
+    expect(result.manageUrl).toBe(
+      "https://github.com/organizations/acme/settings/installations/1",
+    )
+  })
+})
+
+describe("includeCtxpipeContextRepo", () => {
+  it("adds ctxpipe-context without dropping an existing selection", () => {
+    const repos = [
+      ...page1,
+      {
+        id: 9,
+        full_name: "acme/ctxpipe-context",
+        html_url: "https://github.com/acme/ctxpipe-context",
+        clone_url: "https://github.com/acme/ctxpipe-context.git",
+        name: "ctxpipe-context",
+        created_at: "2026-01-01T00:00:00Z",
+        pushed_at: "2026-01-01T00:00:00Z",
+      },
+    ]
+    expect(includeCtxpipeContextRepo(new Set([1]), repos)).toEqual(
+      new Set([1, 9]),
+    )
   })
 })

@@ -6,7 +6,6 @@ import type { GithubPullRequestSnapshot } from "./types.js"
 const mocks = vi.hoisted(() => ({
   getInstallationOctokitForOrg: vi.fn(),
   commitFiles: vi.fn(),
-  createPullRequestWithFiles: vi.fn(),
   fetchGithubPullRequestSnapshot: vi.fn(),
   listMergedPullRequestNumbers: vi.fn(),
 }))
@@ -16,7 +15,6 @@ vi.mock("../../../models/github-installation.js", () => ({
 }))
 vi.mock("../installation-write-client.js", () => ({
   commitFiles: mocks.commitFiles,
-  createPullRequestWithFiles: mocks.createPullRequestWithFiles,
 }))
 vi.mock("./client.js", () => ({
   fetchGithubPullRequestSnapshot: mocks.fetchGithubPullRequestSnapshot,

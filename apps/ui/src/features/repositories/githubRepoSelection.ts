@@ -1,3 +1,5 @@
+import { isCtxpipeContextRepositoryName } from "@/features/connectors/components/ConnectorContextRepositoryGuidance"
+
 export type SavedGithubRepo = {
   name: string
   gitUrl: string
@@ -95,20 +97,35 @@ export async function collectInstallationRepoPages(
     repositories: GithubRepoItem[]
     hasMore: boolean
     repositorySelection: string
+    manageUrl?: string | null
   }>,
 ): Promise<{
   repositories: GithubRepoItem[]
   repositorySelection: string
+  manageUrl: string | null
 }> {
   const repositories: GithubRepoItem[] = []
   let repositorySelection = "selected"
+  let manageUrl: string | null = null
   for (let page = 1; page <= MAX_INSTALLATION_PAGES; page += 1) {
     const result = await fetchPage(page)
     repositorySelection = result.repositorySelection
+    if (!manageUrl && result.manageUrl) manageUrl = result.manageUrl
     repositories.push(...result.repositories)
     if (!result.hasMore) break
   }
-  return { repositories, repositorySelection }
+  return { repositories, repositorySelection, manageUrl }
+}
+
+export function includeCtxpipeContextRepo(
+  selectedIds: ReadonlySet<number>,
+  repos: readonly GithubRepoItem[],
+): Set<number> {
+  const next = new Set(selectedIds)
+  for (const repo of repos) {
+    if (isCtxpipeContextRepositoryName(repo.name)) next.add(repo.id)
+  }
+  return next
 }
 
 export function selectedCloneUrlKeys(

@@ -37,6 +37,50 @@ const alreadyIndexed = installationRepos
   .filter((repo) => repo.id % 5 === 0 || repo.id > 30)
   .slice(0, 80)
 
+const contextRepository = {
+  id: 9001,
+  name: "ctxpipe-context",
+  full_name: "acme/ctxpipe-context",
+  html_url: "https://github.com/acme/ctxpipe-context",
+  clone_url: "https://github.com/acme/ctxpipe-context.git",
+  default_branch: "main",
+  created_at: "2026-01-01T00:00:00.000Z",
+  pushed_at: "2026-01-01T00:00:00.000Z",
+}
+
+const installationSummary = http.get(
+  ({ request }) =>
+    new URL(request.url).pathname === `/${orgSlug}/api/v1/github/installation`,
+  () =>
+    HttpResponse.json({
+      id: "con_github_1",
+      appSlug: "ctxpipe",
+      accountSlug: "acme",
+    }),
+)
+
+function installationReposHandler(repositories: typeof installationRepos) {
+  return http.get(
+    ({ request }) =>
+      new URL(request.url).pathname ===
+      `/${orgSlug}/api/v1/github/installation/repositories`,
+    ({ request }) => {
+      const url = new URL(request.url)
+      const page = Number(url.searchParams.get("page") ?? "1")
+      const perPage = Number(url.searchParams.get("per_page") ?? "30")
+      const start = (page - 1) * perPage
+      const slice = repositories.slice(start, start + perPage)
+      return HttpResponse.json({
+        repositories: slice,
+        repositorySelection: "selected",
+        manageUrl:
+          "https://github.com/organizations/acme/settings/installations/1",
+        hasMore: start + slice.length < repositories.length,
+      })
+    },
+  )
+}
+
 const meta = {
   title: "Pages/Repositories",
   component: GitHubRepositorySetupForm,
@@ -81,25 +125,8 @@ export const FourHundredGitHubPicker: Story = {
     msw: {
       handlers: {
         page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname ===
-              `/${orgSlug}/api/v1/github/installation/repositories`,
-            ({ request }) => {
-              const url = new URL(request.url)
-              const page = Number(url.searchParams.get("page") ?? "1")
-              const perPage = Number(url.searchParams.get("per_page") ?? "30")
-              const start = (page - 1) * perPage
-              const slice = installationRepos.slice(start, start + perPage)
-              return HttpResponse.json({
-                repositories: slice,
-                repositorySelection: "selected",
-                manageUrl:
-                  "https://github.com/organizations/acme/settings/installations/1",
-                hasMore: start + slice.length < installationRepos.length,
-              })
-            },
-          ),
+          installationSummary,
+          installationReposHandler(installationRepos),
           http.patch(
             ({ request }) =>
               new URL(request.url).pathname ===
@@ -123,6 +150,48 @@ export const FourHundredGitHubPicker: Story = {
               })
             },
           ),
+        ],
+      },
+    },
+  },
+}
+
+const emptySetupArgs = {
+  orgSlug,
+  setupData: {
+    ingestAllRepositories: false,
+    includeFutureRepos: false,
+    savedRepositories: [] as Array<{ name: string; gitUrl: string }>,
+  },
+  onSaveSuccess: () => undefined,
+  onCancel: () => undefined,
+}
+
+export const ContextRepositoryMissing: Story = {
+  args: emptySetupArgs,
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          installationSummary,
+          installationReposHandler(installationRepos.slice(0, 8)),
+        ],
+      },
+    },
+  },
+}
+
+export const ContextRepositoryFound: Story = {
+  args: emptySetupArgs,
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          installationSummary,
+          installationReposHandler([
+            contextRepository,
+            ...installationRepos.slice(0, 8),
+          ]),
         ],
       },
     },

@@ -2,19 +2,13 @@ import type { Env } from "../../../config/env.js"
 import { getInstallationOctokitForOrg } from "../../../models/github-installation.js"
 import type { GithubPrMirrorBinding } from "../../../models/github-pr-mirror.js"
 import { log } from "../../../observability/logger.js"
-import {
-  commitFiles,
-  createPullRequestWithFiles,
-} from "../installation-write-client.js"
+import { commitFiles } from "../installation-write-client.js"
 import {
   fetchGithubPullRequestSnapshot,
   listMergedPullRequestNumbers,
 } from "./client.js"
 import type { GithubPrMirrorRepoConfig } from "./config-yaml.js"
-import {
-  getGithubPrConfigPullRequestPayload,
-  renderGithubPrConfigYaml,
-} from "./config-yaml.js"
+import { renderGithubPrConfigYaml } from "./config-yaml.js"
 import { GITHUB_PR_CONFIG_PATH, renderGithubPullRequest } from "./converter.js"
 import { shouldMirrorGithubPullRequest } from "./policy.js"
 import type { GithubPrMirrorFile, GithubPrReview } from "./types.js"
@@ -61,24 +55,19 @@ export function reviewDecisionFromReviews(
   return null
 }
 
-export async function syncGithubPrMirrorConfigYaml(input: {
+export async function commitGithubPrMirrorConfigYaml(input: {
   orgId: string
   env: Env
   binding: GithubPrMirrorBinding
   repositories: string[]
-}): Promise<{ pullUrl: string; pullNumber: number }> {
-  const payload = getGithubPrConfigPullRequestPayload({
-    repositoryCount: input.repositories.length,
-  })
-  return createPullRequestWithFiles({
+}): Promise<void> {
+  await commitFiles({
     orgId: input.orgId,
     env: input.env,
     repositoryName: input.binding.repositoryName,
     githubConnectionId: input.binding.githubConnectionId,
-    baseBranch: input.binding.branch,
-    title: payload.title,
-    body: payload.body,
-    commitMessage: "Add github/config.yaml for pull request mirroring",
+    branch: input.binding.branch,
+    message: "Update github/config.yaml for pull request capture",
     files: [
       {
         path: GITHUB_PR_CONFIG_PATH,
@@ -87,7 +76,6 @@ export async function syncGithubPrMirrorConfigYaml(input: {
         }),
       },
     ],
-    featureBranchPrefix: "ctxpipe/github-pr-config",
   })
 }
 

@@ -4,7 +4,7 @@ import { withOrgDbContext } from "../../db/client.js"
 import { getGithubPrMirrorBinding } from "../../models/github-pr-mirror.js"
 import { getRepositoryForOrg } from "../../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
-import { githubSyncConfig } from "../../openworkflow/workflows/github-sync-config.js"
+import { githubEnsurePrMirror } from "../../openworkflow/workflows/github-ensure-pr-mirror.js"
 import { githubSyncContent } from "../../openworkflow/workflows/github-sync-content.js"
 
 const ErrorResponseSchema = z.object({ error: z.string() })
@@ -47,7 +47,7 @@ const bindRoute = createRoute({
   method: "post",
   path: "/",
   tags: ["GitHub"],
-  summary: "Bind a context repository and open github/config.yaml",
+  summary: "Bind a context repository and start pull-request capture",
   request: {
     body: {
       content: {
@@ -63,7 +63,7 @@ const bindRoute = createRoute({
   },
   responses: {
     202: {
-      description: "Configuration pull request workflow enqueued",
+      description: "Pull request capture workflow enqueued",
       content: {
         "application/json": {
           schema: z.object({ accepted: z.literal(true) }),
@@ -156,7 +156,7 @@ export const githubPrMirrorRoutes = new OpenAPIHono<AppEnv>()
         400,
       )
     }
-    await runWorkflowWithWorkerWake(githubSyncConfig.spec, {
+    await runWorkflowWithWorkerWake(githubEnsurePrMirror.spec, {
       orgId,
       connectionId: body.connectionId,
       repositoryId: body.repositoryId,

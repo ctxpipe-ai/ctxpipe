@@ -75,7 +75,7 @@ export async function bindGithubPrMirror(input: {
         repositoryId: input.repositoryId,
         branch: input.branch,
         enabled: true,
-        setupPhase: "awaiting_merge",
+        setupPhase: "initial_sync",
         pendingConfigPullUrl: null,
       },
     },

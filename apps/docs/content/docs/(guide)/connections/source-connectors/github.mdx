@@ -49,6 +49,16 @@ You can connect GitHub during onboarding, or later from the **Connectors** page.
   </Step>
 
   <Step>
+    ### Create or select `ctxpipe-context`
+
+    GitHub setup also asks you to create the shared
+    [context repository](/docs/connections/context-repository), usually named
+    `ctxpipe-context`. Create it on GitHub, grant the ctx| App access, then
+    refresh and include it in the selection. You can skip this and add it later.
+    ctx| does not create the repository for you.
+  </Step>
+
+  <Step>
     ### Ingest and manage access
 
     ctx| ingests selected repositories so they can power search, Chat, MCP, and
@@ -73,10 +83,12 @@ You can connect GitHub during onboarding, or later from the **Connectors** page.
   repository is already classified, and `PullRequest REFERENCES Issue` when
   the title, body, or branch names a Linear issue.
 
-Bind a context repository with
-`POST /:orgSlug/api/v1/github/pull-request-mirror`, merge the
-`github/config.yaml` pull request, then ctx| backfills up to 200 newest
-updated merged pull requests per listed repository.
+Selecting GitHub repositories also captures **merged** pull requests into the
+organization context repository (`ctxpipe-context`, or the repo already used
+by Linear, Notion, or Slack). ctx| writes `github/config.yaml` and backfills
+up to 200 newest updated merged pull requests per selected repository. No
+separate toggle. If the organization has no context repository yet, capture
+starts when one is bound.
 
 ## Where to manage repositories
 
