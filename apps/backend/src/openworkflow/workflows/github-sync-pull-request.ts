@@ -2,6 +2,11 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { getGithubPrMirrorBinding } from "../../models/github-pr-mirror.js"
+import {
+  createLogger,
+  getLogger,
+  withLogger,
+} from "../../observability/logger.js"
 import { loadGithubPrMirrorConfigFromRepo } from "../../services/github/pull-request-mirror/config-from-repo.js"
 import {
   isGithubPullRequestRepositoryInScope,
@@ -96,12 +101,32 @@ export const githubSyncPullRequest = defineWorkflow(
       }),
     )
     if (result.written) {
-      await runConnectorRepositoryIngestionWorkflow(step, {
-        orgId: input.orgId,
-        repositoryId: context.binding.repositoryId,
-        targetBranch: context.binding.branch,
-        indexingReason: "Mirroring GitHub pull requests",
-      })
+      await withLogger(
+        createLogger({
+          workflow: "github-sync-pull-request",
+          orgId: input.orgId,
+          connectionId: input.connectionId,
+          sourceRepository: input.sourceRepository,
+          pullRequestNumber: input.number,
+        }),
+        () =>
+          runConnectorRepositoryIngestionWorkflow(
+            step,
+            {
+              orgId: input.orgId,
+              repositoryId: context.binding.repositoryId,
+              targetBranch: context.binding.branch,
+              indexingReason: "Mirroring GitHub pull requests",
+            },
+            {
+              error: (error) =>
+                getLogger().error(error, {
+                  step: "github-sync-pull-request.ingestion",
+                  connectionId: input.connectionId,
+                }),
+            },
+          ),
+      )
     }
     return result
   },

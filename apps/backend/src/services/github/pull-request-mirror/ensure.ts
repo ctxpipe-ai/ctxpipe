@@ -8,7 +8,10 @@ import { resolveGithubPrMirrorTarget } from "../../../models/github-pr-mirror-ta
 import { listRepositoriesForGithubConnectionForOrg } from "../../../models/repositories.js"
 import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
-import { githubSyncContent } from "../../../openworkflow/workflows/github-sync-content.js"
+import {
+  githubPrMirrorContentIdempotencyKey,
+  githubSyncContent,
+} from "../../../openworkflow/workflows/github-sync-content.js"
 import { loadGithubPrMirrorConfigFromRepo } from "./config-from-repo.js"
 import { sourceRepositoriesForPrMirror } from "./source-scope.js"
 import { commitGithubPrMirrorConfigYaml } from "./sync.js"
@@ -69,37 +72,48 @@ export async function ensureGithubPrMirror(input: {
     githubConnectionId: binding.githubConnectionId,
     branch: binding.branch,
   })
-  const alreadyLive =
+  // `initial_sync` is written by githubSyncContent after its handler starts,
+  // so either phase proves the content handoff happened.
+  const contentStarted =
     binding.setupPhase === "live" || binding.setupPhase === "initial_sync"
   if (
     current &&
     sameRepositoryList(current.repositories, repositories) &&
-    alreadyLive
+    contentStarted
   ) {
     return { status: "unchanged" }
   }
 
-  await commitGithubPrMirrorConfigYaml({
-    orgId: input.orgId,
-    env: input.env,
-    binding,
-    repositories,
-  })
-  await withOrgDbContext(input.orgId, () =>
-    patchGithubPrMirror({
+  try {
+    const configCommit = await commitGithubPrMirrorConfigYaml({
       orgId: input.orgId,
-      connectionId: input.connectionId,
-      patch: {
-        setupPhase: "initial_sync",
-        pendingConfigPullUrl: null,
-        enabled: true,
+      env: input.env,
+      binding,
+      repositories,
+    })
+    await runWorkflowWithWorkerWake(
+      githubSyncContent.spec,
+      {
+        orgId: input.orgId,
+        connectionId: input.connectionId,
       },
-    }),
-  )
-  await runWorkflowWithWorkerWake(githubSyncContent.spec, {
-    orgId: input.orgId,
-    connectionId: input.connectionId,
-  })
+      {
+        idempotencyKey: githubPrMirrorContentIdempotencyKey({
+          connectionId: input.connectionId,
+          commitSha: configCommit.commitSha,
+        }),
+      },
+    )
+  } catch (error) {
+    await withOrgDbContext(input.orgId, () =>
+      patchGithubPrMirror({
+        orgId: input.orgId,
+        connectionId: input.connectionId,
+        patch: { setupPhase: "sync_failed" },
+      }),
+    )
+    throw error
+  }
   return { status: "started" }
 }
 

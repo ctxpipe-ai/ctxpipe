@@ -84,7 +84,7 @@ describe.skipIf(!connectionString)(
         repositoryName: "acme/ctxpipe-context",
         branch: "main",
         enabled: true,
-        setupPhase: "initial_sync",
+        setupPhase: "draft",
       })
     })
   },

@@ -6,14 +6,27 @@ import {
   getGithubPrMirrorBinding,
   patchGithubPrMirror,
 } from "../../models/github-pr-mirror.js"
+import {
+  createLogger,
+  getLogger,
+  withLogger,
+} from "../../observability/logger.js"
 import { loadGithubPrMirrorConfigFromRepo } from "../../services/github/pull-request-mirror/config-from-repo.js"
 import { syncGithubPullRequestsForConfig } from "../../services/github/pull-request-mirror/sync.js"
 import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
+import { isWorkflowControlSignal } from "../isSleepSignal.js"
 
 const GithubSyncContentInputSchema = z.object({
   orgId: z.string().min(1),
   connectionId: z.string().min(1),
 })
+
+export function githubPrMirrorContentIdempotencyKey(input: {
+  connectionId: string
+  commitSha: string
+}): string {
+  return `github-pr-mirror-content:${input.connectionId}:${input.commitSha}`
+}
 
 export const githubSyncContent = defineWorkflow(
   {
@@ -49,7 +62,11 @@ export const githubSyncContent = defineWorkflow(
         patchGithubPrMirror({
           orgId: input.orgId,
           connectionId: input.connectionId,
-          patch: { setupPhase: "initial_sync" },
+          patch: {
+            setupPhase: "initial_sync",
+            pendingConfigPullUrl: null,
+            enabled: true,
+          },
         }),
       )
       const result = await step.run(
@@ -62,12 +79,30 @@ export const githubSyncContent = defineWorkflow(
             config: context.config,
           }),
       )
-      await runConnectorRepositoryIngestionWorkflow(step, {
-        orgId: input.orgId,
-        repositoryId: context.binding.repositoryId,
-        targetBranch: context.binding.branch,
-        indexingReason: "Mirroring GitHub pull requests",
-      })
+      await withLogger(
+        createLogger({
+          workflow: "github-sync-content",
+          orgId: input.orgId,
+          connectionId: input.connectionId,
+        }),
+        () =>
+          runConnectorRepositoryIngestionWorkflow(
+            step,
+            {
+              orgId: input.orgId,
+              repositoryId: context.binding.repositoryId,
+              targetBranch: context.binding.branch,
+              indexingReason: "Mirroring GitHub pull requests",
+            },
+            {
+              error: (error) =>
+                getLogger().error(error, {
+                  step: "github-sync-content.ingestion",
+                  connectionId: input.connectionId,
+                }),
+            },
+          ),
+      )
       await withOrgDbContext(input.orgId, () =>
         patchGithubPrMirror({
           orgId: input.orgId,
@@ -77,6 +112,7 @@ export const githubSyncContent = defineWorkflow(
       )
       return result
     } catch (error) {
+      if (isWorkflowControlSignal(error)) throw error
       await withOrgDbContext(input.orgId, () =>
         patchGithubPrMirror({
           orgId: input.orgId,
