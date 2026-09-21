@@ -7,7 +7,6 @@ import {
   markRepositoryIndexingReady,
   tryClaimRepositoryIndexingEnqueue,
 } from "../models/repositories.js"
-import { getLogger } from "../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { enqueueFollowUpIfTipAhead } from "./enqueue-follow-up-if-tip-ahead.js"
 import { isWorkflowControlSignal } from "./isSleepSignal.js"
@@ -311,7 +310,7 @@ export async function claimAndRunRepositoryIngestionChild(
 export async function runConnectorRepositoryIngestionWorkflow(
   step: RepositoryIngestionChildStep,
   input: ConnectorRepositoryIngestionInput,
-  log: { error: (err: Error) => void } = getLogger(),
+  log: { error: (err: Error) => void },
 ): Promise<void> {
   const repository = await getRepositoryForOrg(input.orgId, input.repositoryId)
   if (!repository) {

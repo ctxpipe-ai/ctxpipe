@@ -60,8 +60,8 @@ export async function commitGithubPrMirrorConfigYaml(input: {
   env: Env
   binding: GithubPrMirrorBinding
   repositories: string[]
-}): Promise<void> {
-  await commitFiles({
+}) {
+  const { commitSha } = await commitFiles({
     orgId: input.orgId,
     env: input.env,
     repositoryName: input.binding.repositoryName,
@@ -77,6 +77,7 @@ export async function commitGithubPrMirrorConfigYaml(input: {
       },
     ],
   })
+  return { commitSha }
 }
 
 /** Fetch, decide, render. Null when the scope policy excludes the pull request. */

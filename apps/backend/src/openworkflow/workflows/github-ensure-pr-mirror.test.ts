@@ -32,6 +32,9 @@ describe("githubEnsurePrMirror", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     ensureMock.mockResolvedValue({ status: "started" })
+    vi.mocked(runWorkflowWithWorkerWake).mockResolvedValue({
+      workflowRun: { id: "run_pending", status: "pending" },
+    } as never)
   })
 
   it("ensures capture for the GitHub connection", async () => {
@@ -59,11 +62,36 @@ describe("githubEnsurePrMirror", () => {
       1,
       githubEnsurePrMirror.spec,
       { orgId: "org_a", connectionId: "con_a" },
+      { idempotencyKey: "github-pr-mirror-startup:v1:org_a:con_a" },
     )
     expect(runWorkflowWithWorkerWake).toHaveBeenNthCalledWith(
       2,
       githubEnsurePrMirror.spec,
       { orgId: "org_b", connectionId: "con_b" },
+      { idempotencyKey: "github-pr-mirror-startup:v1:org_b:con_b" },
+    )
+  })
+
+  it("starts a retry when the keyed startup run already failed", async () => {
+    listGithubConnections.mockResolvedValue([{ id: "con_a", orgId: "org_a" }])
+    vi.mocked(runWorkflowWithWorkerWake)
+      .mockResolvedValueOnce({
+        workflowRun: { id: "run_failed", status: "failed" },
+      } as never)
+      .mockResolvedValueOnce({
+        workflowRun: { id: "run_retry", status: "pending" },
+      } as never)
+
+    await enqueueGithubPrMirrorEnsureSweep()
+
+    expect(runWorkflowWithWorkerWake).toHaveBeenNthCalledWith(
+      2,
+      githubEnsurePrMirror.spec,
+      { orgId: "org_a", connectionId: "con_a" },
+      {
+        idempotencyKey:
+          "github-pr-mirror-startup:v1:org_a:con_a:retry:run_failed",
+      },
     )
   })
 })

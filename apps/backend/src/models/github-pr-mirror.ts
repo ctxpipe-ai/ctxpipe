@@ -153,6 +153,16 @@ export async function bindGithubPrMirror(input: {
       "Context repository must belong to this GitHub App installation",
     )
   }
+  const current = readMirror(row.config as Record<string, unknown>)
+  const sameTarget =
+    current?.repositoryId === input.repositoryId &&
+    current.branch === input.branch
+  const setupPhase = sameTarget
+    ? (current.setupPhase ?? "draft")
+    : "initial_sync"
+  const pendingConfigPullUrl = sameTarget
+    ? (current.pendingConfigPullUrl ?? null)
+    : null
   const config = mergeGithubConnectionConfig(
     row.config as Record<string, unknown>,
     {
@@ -160,8 +170,8 @@ export async function bindGithubPrMirror(input: {
         repositoryId: input.repositoryId,
         branch: input.branch,
         enabled: true,
-        setupPhase: "initial_sync",
-        pendingConfigPullUrl: null,
+        setupPhase,
+        pendingConfigPullUrl,
       },
     },
   )
@@ -178,8 +188,8 @@ export async function bindGithubPrMirror(input: {
     githubConnectionId: repository.githubConnectionId,
     branch: input.branch,
     enabled: true,
-    setupPhase: "initial_sync",
-    pendingConfigPullUrl: null,
+    setupPhase,
+    pendingConfigPullUrl,
   }
 }
 

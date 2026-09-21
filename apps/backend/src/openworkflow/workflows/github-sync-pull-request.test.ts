@@ -14,11 +14,16 @@ vi.mock("../../models/github-pr-mirror.js", () => ({
   getGithubPrMirrorBinding: mocks.getBinding,
 }))
 vi.mock("../../observability/logger.js", () => ({
+  createLogger: vi.fn(() => ({})),
   getLogger: vi.fn(() => ({ error: vi.fn() })),
+  withLogger: (_logger: unknown, handler: () => Promise<unknown>) => handler(),
 }))
-vi.mock("../../services/github/pull-request-mirror/config-from-repo.js", () => ({
-  loadGithubPrMirrorConfigFromRepo: mocks.loadConfig,
-}))
+vi.mock(
+  "../../services/github/pull-request-mirror/config-from-repo.js",
+  () => ({
+    loadGithubPrMirrorConfigFromRepo: mocks.loadConfig,
+  }),
+)
 vi.mock("../../services/github/pull-request-mirror/sync.js", () => ({
   syncGithubPullRequestToGit: mocks.syncPullRequest,
 }))
@@ -99,6 +104,11 @@ describe("githubSyncPullRequest", () => {
         sourceRepository: "acme/api",
         number: 7,
       }),
+    )
+    expect(mocks.runIngestion).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ repositoryId: "repo_ctx" }),
+      expect.objectContaining({ error: expect.any(Function) }),
     )
   })
 })
