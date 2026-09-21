@@ -1,8 +1,10 @@
-import { ExportResultCode } from "@opentelemetry/core"
 import {
   MetricReader,
   type PushMetricExporter,
 } from "@opentelemetry/sdk-metrics"
+
+/** Same value as `@opentelemetry/core` `ExportResultCode.SUCCESS`. */
+const EXPORT_SUCCESS = 0
 
 /**
  * Push metrics only on `forceFlush` / shutdown. No periodic timer.
@@ -32,7 +34,7 @@ export class FlushOnDemandMetricReader extends MetricReader {
     if (resourceMetrics.scopeMetrics.length === 0) return
     await new Promise<void>((resolve, reject) => {
       this.#exporter.export(resourceMetrics, (result) => {
-        if (result.code === ExportResultCode.SUCCESS) {
+        if (result.code === EXPORT_SUCCESS) {
           resolve()
           return
         }

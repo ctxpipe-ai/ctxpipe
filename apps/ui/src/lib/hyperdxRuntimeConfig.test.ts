@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it } from "vitest"
 import { getHyperDxRuntimeConfig } from "./hyperdxRuntimeConfig"
 
 describe("getHyperDxRuntimeConfig", () => {
-  afterEach(() => {
+  beforeEach(() => {
     delete process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
     delete process.env.OTEL_BROWSER_OTLP_URL
     delete process.env.OTEL_BROWSER_API_KEY
@@ -32,7 +32,7 @@ describe("getHyperDxRuntimeConfig", () => {
     expect(getHyperDxRuntimeConfig()).toEqual({
       enabled: true,
       url: "https://otel.example:4318",
-      environment: "development",
+      environment: "test",
       apiKey: "hdx_key",
     })
   })
