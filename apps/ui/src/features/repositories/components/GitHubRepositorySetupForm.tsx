@@ -21,6 +21,7 @@ import {
 } from "@/features/connectors/queries/github-connector"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
+import { githubGrantAccessUrls } from "@/lib/github-app-url"
 import {
   buildSelectedRepositories,
   collectInstallationRepoPages,
@@ -289,6 +290,15 @@ export function GitHubRepositorySetupForm({
     updateOptionsMutation.mutate()
   }
 
+  const grantAccessUrls = useMemo(
+    () =>
+      githubGrantAccessUrls({
+        appSlug: installation?.appSlug,
+        manageUrl: data?.manageUrl,
+      }),
+    [installation?.appSlug, data?.manageUrl],
+  )
+
   const handleRefreshRepositories = async () => {
     setIsManualRefresh(true)
     try {
@@ -460,21 +470,13 @@ export function GitHubRepositorySetupForm({
                   <p className="text-sm text-zinc-300">
                     Failed to load repositories.
                   </p>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    Checking GitHub for{" "}
-                    <code className="bg-muted px-1 py-0.5 text-[11px]">
-                      ctxpipe-context
-                    </code>
-                    …
-                  </p>
-                )}
+                ) : null}
                 <ConnectorContextRepositoryCreateSteps
                   createUrl={getConnectorContextRepositoryCreateUrl(
                     installation?.accountSlug,
                   )}
                   accountSlug={installation?.accountSlug}
-                  manageUrls={data?.manageUrl ? [data.manageUrl] : []}
+                  manageUrls={grantAccessUrls}
                   isRefreshing={isManualRefresh}
                   onRefresh={() => {
                     void handleRefreshRepositories()

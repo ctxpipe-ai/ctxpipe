@@ -219,7 +219,13 @@ export function ConnectorContextRepositoryCreateSteps({
             {manageUrls.length + 2}
           </span>
           <div>
-            <p>Return here. The list updates on its own, or refresh.</p>
+            <p>
+              Return to this tab. We detect{" "}
+              <code className="bg-muted px-1 py-0.5 text-[11px]">
+                {CONNECTOR_CONTEXT_REPOSITORY_NAME}
+              </code>{" "}
+              when the App can see it, or refresh.
+            </p>
             <Button
               variant="secondary"
               className="mt-2 h-8 rounded-none px-3"
