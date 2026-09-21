@@ -139,6 +139,14 @@ export const listRepositoriesForGithubConnection = async (
   return selectRepositoriesWithZoekt(db, orgId, githubConnectionId)
 }
 
+/** Repositories for a GitHub connection from worker/system context. */
+export const listRepositoriesForGithubConnectionForOrg = async (
+  orgId: string,
+  githubConnectionId: string,
+): Promise<RepositoryWithSearch[]> => {
+  return selectRepositoriesWithZoekt(getSystemDb(), orgId, githubConnectionId)
+}
+
 /** Repositories linked to this GitHub App connection (`github_connection_id`). */
 export async function countRepositoriesForGithubConnection(
   githubConnectionId: string,

@@ -131,7 +131,22 @@ export async function bindGithubPrMirror(input: {
 }): Promise<GithubPrMirrorBinding> {
   const row = await getGithubConnectionRow(input.orgId, input.connectionId)
   if (!row) throw new Error("GitHub connection not found")
-  const repository = await getRepositoryForOrg(input.orgId, input.repositoryId)
+  const db = getOrgDb()
+  const [repository] = await db
+    .select({
+      id: repositories.id,
+      name: repositories.name,
+      gitUrl: repositories.gitUrl,
+      githubConnectionId: repositories.githubConnectionId,
+    })
+    .from(repositories)
+    .where(
+      and(
+        eq(repositories.id, input.repositoryId),
+        eq(repositories.orgId, input.orgId),
+      ),
+    )
+    .limit(1)
   if (!repository) throw new Error("Context repository not found")
   if (repository.githubConnectionId !== input.connectionId) {
     throw new Error(
@@ -150,17 +165,22 @@ export async function bindGithubPrMirror(input: {
       },
     },
   )
-  const db = getSystemDb()
   await db
     .update(connections)
     .set({ config, updatedAt: new Date() })
     .where(eq(connections.id, input.connectionId))
-  const binding = await getGithubPrMirrorBinding(
-    input.orgId,
-    input.connectionId,
-  )
-  if (!binding) throw new Error("Failed to bind pull request mirror")
-  return binding
+  return {
+    connectionId: row.id,
+    orgId: row.orgId,
+    repositoryId: repository.id,
+    repositoryName: repository.name,
+    gitUrl: repository.gitUrl,
+    githubConnectionId: repository.githubConnectionId,
+    branch: input.branch,
+    enabled: true,
+    setupPhase: "initial_sync",
+    pendingConfigPullUrl: null,
+  }
 }
 
 export async function patchGithubPrMirror(input: {

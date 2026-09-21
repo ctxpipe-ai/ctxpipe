@@ -1,12 +1,11 @@
 import type { Env } from "../../../config/env.js"
 import { withOrgDbContext } from "../../../db/client.js"
-import { resolveGithubPrMirrorTarget } from "../../../models/github-pr-mirror-target.js"
 import {
   bindGithubPrMirror,
-  getGithubPrMirrorBinding,
   patchGithubPrMirror,
 } from "../../../models/github-pr-mirror.js"
-import { listRepositoriesForGithubConnection } from "../../../models/repositories.js"
+import { resolveGithubPrMirrorTarget } from "../../../models/github-pr-mirror-target.js"
+import { listRepositoriesForGithubConnectionForOrg } from "../../../models/repositories.js"
 import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { githubSyncContent } from "../../../openworkflow/workflows/github-sync-content.js"
@@ -19,7 +18,9 @@ export type EnsureGithubPrMirrorResult = {
 }
 
 function sameRepositoryList(left: string[], right: string[]): boolean {
-  return left.length === right.length && left.every((name, i) => name === right[i])
+  return (
+    left.length === right.length && left.every((name, i) => name === right[i])
+  )
 }
 
 export async function ensureGithubPrMirror(input: {
@@ -42,21 +43,20 @@ export async function ensureGithubPrMirror(input: {
       )
   if (!target) return { status: "skipped_no_context" }
 
-  const binding = await withOrgDbContext(input.orgId, async () => {
-    await bindGithubPrMirror({
+  const binding = await withOrgDbContext(input.orgId, () =>
+    bindGithubPrMirror({
       orgId: input.orgId,
       connectionId: input.connectionId,
       repositoryId: target.repositoryId,
       branch: target.branch,
-    })
-    return getGithubPrMirrorBinding(input.orgId, input.connectionId)
-  })
-  if (!binding) return { status: "skipped_no_context" }
+    }),
+  )
 
   const repositories = sourceRepositoriesForPrMirror(
     (
-      await withOrgDbContext(input.orgId, () =>
-        listRepositoriesForGithubConnection(input.connectionId),
+      await listRepositoriesForGithubConnectionForOrg(
+        input.orgId,
+        input.connectionId,
       )
     ).map((repository) => repository.name),
     binding.repositoryName,
