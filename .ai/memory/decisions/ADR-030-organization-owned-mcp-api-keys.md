@@ -48,7 +48,9 @@ credentials or allowing an API key to shadow a valid OAuth access token.
    access tokens before any API-key check. Only an unrecognised opaque MCP
    Bearer falls back to personal/org API-key verification. This supports hosts
    such as CodeRabbit without broadening REST access or changing OAuth
-   precedence.
+   precedence. When both headers are present, the Bearer credential is resolved
+   before `x-api-key` or cookie authentication, so a second API-key header
+   cannot reject or shadow a valid OAuth token.
 
 4. **One org per key.** Resolve tenant from `orgApiKey.orgId` with no membership
    join. Bare `/mcp` is enough. Query `orgSlug` is optional; mismatch is **404**.

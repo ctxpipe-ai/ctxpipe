@@ -209,15 +209,6 @@ type StoryOrgApiKey = {
   expiresAt: string | null
 }
 
-function requireOrganizationApiKeyConfig(request: Request): Response | null {
-  const url = new URL(request.url)
-  if (url.searchParams.get("configId") === "organization") return null
-  return HttpResponse.json(
-    { message: "Expected configId=organization for org API keys" },
-    { status: 400 },
-  )
-}
-
 async function requireOrganizationApiKeyBody(
   request: Request,
 ): Promise<Response | null> {
@@ -231,8 +222,13 @@ async function requireOrganizationApiKeyBody(
 
 export function orgApiKeysListHandler(apiKeys: StoryOrgApiKey[]) {
   return http.get(`${authBase}/api-key/list`, ({ request }) => {
-    const rejected = requireOrganizationApiKeyConfig(request)
-    if (rejected) return rejected
+    const url = new URL(request.url)
+    if (url.searchParams.get("configId") !== "organization") {
+      return HttpResponse.json(
+        { message: "Expected configId=organization for org API keys" },
+        { status: 400 },
+      )
+    }
     return HttpResponse.json({ apiKeys, total: apiKeys.length })
   })
 }

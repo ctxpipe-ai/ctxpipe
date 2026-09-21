@@ -124,6 +124,15 @@ describe("MCP route auth and org validation", () => {
 
     expect(registerMcpToolsMock).toHaveBeenCalledTimes(1)
     expect(response.status).toBe(200)
+    expect(withMcpBearerAuthMock).toHaveBeenCalledTimes(1)
+    expect(withCookieAuthMock).toHaveBeenCalledTimes(1)
+    expect(withOrgApiKeyAuthMock).toHaveBeenCalledTimes(1)
+    expect(withMcpBearerAuthMock.mock.invocationCallOrder[0]).toBeLessThan(
+      withCookieAuthMock.mock.invocationCallOrder[0] ?? 0,
+    )
+    expect(withCookieAuthMock.mock.invocationCallOrder[0]).toBeLessThan(
+      withOrgApiKeyAuthMock.mock.invocationCallOrder[0] ?? 0,
+    )
   })
 
   it("rejects an untrusted browser origin before authentication", async () => {

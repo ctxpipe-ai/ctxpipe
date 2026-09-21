@@ -245,6 +245,7 @@ async function resolveOpaqueAccessToken(token: string): Promise<{
 }
 
 export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
+  if (c.get("user") || c.get("session") || c.get("orgApiKey")) return next()
   const auth = getAuth()
   const apiKeyHeader = c.req.header("x-api-key")?.trim()
   let authSession: Awaited<ReturnType<typeof auth.api.getSession>> = null
@@ -345,7 +346,7 @@ async function resolveBearerApiKeyAuth(
  * here would count against the org key's rate limit.
  */
 export const withOrgApiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
-  if (c.get("user") || c.get("session")) return next()
+  if (c.get("user") || c.get("session") || c.get("orgApiKey")) return next()
   const apiKey = c.req.header("x-api-key")?.trim()
   if (!apiKey) return next()
 
@@ -385,12 +386,6 @@ async function authenticateBearer(
       c.set("session", resolved.session)
       c.set("user", resolved.user)
       c.set("oauthOrganizationId", resolved.oauthOrganizationId)
-      return next()
-    }
-
-    // Already authenticated via cookie / x-api-key — do not 401 on a
-    // non-OAuth Bearer that is not a valid API key either.
-    if (c.get("user") || c.get("session") || c.get("orgApiKey")) {
       return next()
     }
 

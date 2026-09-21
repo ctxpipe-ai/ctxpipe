@@ -132,7 +132,7 @@ describe("AuthProvider", () => {
       index,
       call,
     ] of authUiProviderTanstackMock.mock.calls.entries()) {
-      const props = call[0] as { organization?: { apiKey?: unknown } }
+      const props = call[0] as { organization?: { apiKey?: boolean } }
       expect(props.organization?.apiKey).toBe(cases[index]?.apiKey)
     }
   })

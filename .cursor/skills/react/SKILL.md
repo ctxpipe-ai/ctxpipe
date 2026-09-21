@@ -63,11 +63,3 @@ If there is **no external system**—for example, you only need to update local 
 ## Extending this skill
 
 This file is the **React** skill entry point for the repo. When the team adopts new rules (RSC, data loaders, testing patterns, etc.), add **short** sections here with links to official docs or internal docs—keep the file skimmable.
-
-## Testing UI in this app
-
-Use **Storybook `play()` + MSW** for visual interaction scenarios (see the
-[storybook](../storybook/SKILL.md) skill). Storybook plays are not currently
-run in CI, so security and request-contract regressions need focused Vitest
-coverage at a non-visual seam. Avoid mock-heavy component tests that replace
-the entire rendered stack.
