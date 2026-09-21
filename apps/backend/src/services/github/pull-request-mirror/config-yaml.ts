@@ -1,6 +1,8 @@
 import { parse as parseYaml, stringify } from "yaml"
 import { z } from "zod"
 
+const DEFAULT_MAX_PULL_REQUESTS_PER_REPOSITORY = 200
+
 const GithubPrConfigFileSchema = z.object({
   version: z.literal(1).default(1),
   source: z.literal("github").default("github"),
@@ -10,13 +12,17 @@ const GithubPrConfigFileSchema = z.object({
       states: z.array(z.enum(["open", "merged"])).default(["merged"]),
       includeDrafts: z.boolean().default(false),
       updatedSince: z.string().min(1).optional(),
-      maxPullRequestsPerRepository: z.number().int().positive().default(100),
+      maxPullRequestsPerRepository: z
+        .number()
+        .int()
+        .positive()
+        .default(DEFAULT_MAX_PULL_REQUESTS_PER_REPOSITORY),
     })
     .default({
       repositories: [],
       states: ["merged"],
       includeDrafts: false,
-      maxPullRequestsPerRepository: 100,
+      maxPullRequestsPerRepository: DEFAULT_MAX_PULL_REQUESTS_PER_REPOSITORY,
     }),
 })
 
@@ -64,7 +70,7 @@ export function renderGithubPrConfigYaml(input: {
       ),
       states: ["merged"],
       includeDrafts: false,
-      maxPullRequestsPerRepository: 100,
+      maxPullRequestsPerRepository: DEFAULT_MAX_PULL_REQUESTS_PER_REPOSITORY,
     },
   })
 }
@@ -81,7 +87,7 @@ export function getGithubPrConfigPullRequestPayload(input: {
       "",
       `Default scope: ${input.repositoryCount} ingested repositor${
         input.repositoryCount === 1 ? "y" : "ies"
-      }.`,
+      }, up to ${DEFAULT_MAX_PULL_REQUESTS_PER_REPOSITORY} newest merged pull requests each.`,
       "",
       "After merge, ctx| writes one Markdown file per pull request under",
       "`github/pulls/` and records added / modified / removed / renamed edges",

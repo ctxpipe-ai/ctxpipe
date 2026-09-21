@@ -75,7 +75,8 @@ You can connect GitHub during onboarding, or later from the **Connectors** page.
 
 Bind a context repository with
 `POST /:orgSlug/api/v1/github/pull-request-mirror`, merge the
-`github/config.yaml` pull request, then ctx| backfills listed repositories.
+`github/config.yaml` pull request, then ctx| backfills up to 200 newest
+updated merged pull requests per listed repository.
 
 ## Where to manage repositories
 

@@ -13,8 +13,22 @@ describe("github/config.yaml", () => {
       repositories: ["acme/api", "acme/worker"],
       states: ["merged"],
       includeDrafts: false,
-      maxPullRequestsPerRepository: 100,
+      maxPullRequestsPerRepository: 200,
     })
+  })
+
+  it("defaults an omitted pull-request cap to 200", () => {
+    expect(
+      parseGithubPrConfigYamlContent(
+        [
+          "version: 1",
+          "source: github",
+          "pullRequests:",
+          "  repositories: [acme/api]",
+          "  states: [merged]",
+        ].join("\n"),
+      ),
+    ).toMatchObject({ maxPullRequestsPerRepository: 200 })
   })
 
   it("rejects yaml that is not a github pull-request config", () => {
