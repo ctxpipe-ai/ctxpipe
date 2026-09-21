@@ -17,7 +17,7 @@ For **ctxpipe product / ops debugging**, do **not** start from (or require) a lo
 
 1. **Railway MCP** (`railway`) — service status + deploy/runtime logs (**primary** for “what’s failing / what did the service log?”).
 2. **Langfuse MCP** (`langfuse`) — traces, LLM calls, advisor / conversation quality.
-3. **Better Stack MCP** (`betterstack`) — only when uptime or telemetry data is present and needed for the question.
+3. **HyperDX** (ClickStack UI on `ctxpipe-observability`) — logs, traces, metrics, browser `page_view`. Not an MCP; search `service:ui` and `deployment.environment`.
 
 See also root [AGENTS.md](../../../AGENTS.md) (**Ops debugging / logs**). Use the **evlog FS drain** guidance in the sections below only as **optional / secondary** (legacy or other stacks that actually write `.evlog/logs/`), never as a prerequisite for debugging this repo’s backend.
 
@@ -60,7 +60,7 @@ Files are named by date: `2026-03-14.jsonl`. Start with the most recent file.
 
 ## If no logs are found
 
-**In this repo (ctxpipe):** missing `.evlog/logs/` is expected. Use Railway → Langfuse → Better Stack (see **When in this repo** above). Do not treat FS-drain setup as required for product debugging.
+**In this repo (ctxpipe):** missing `.evlog/logs/` is expected. Use Railway → Langfuse → HyperDX (see **When in this repo** above). Do not treat FS-drain setup as required for product debugging.
 
 For other stacks where the file system drain is intended but missing, guide the user to set it up:
 

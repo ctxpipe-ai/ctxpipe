@@ -12,10 +12,6 @@
       "type": "streamable-http",
       "url": "https://mcp.neon.tech/mcp?readonly=true"
     },
-    "amplitude": {
-      "type": "streamable-http",
-      "url": "https://mcp.amplitude.com/mcp"
-    },
     "railway": {
       "type": "streamable-http",
       "url": "https://mcp.railway.com"
@@ -26,10 +22,6 @@
       "headers": {
         "Authorization": "Basic ${env:LANGFUSE_AUTH_STRING}"
       }
-    },
-    "betterstack": {
-      "type": "streamable-http",
-      "url": "https://mcp.betterstack.com"
     }
   }
 }

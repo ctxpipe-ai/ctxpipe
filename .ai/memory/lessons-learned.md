@@ -496,8 +496,8 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
 
-### Amplitude / product analytics:
-- **Rule:** Self-hosters should **not** need to **rebuild** the UI image — set **runtime** env on the UI server. Resolve **`AMPLITUDE_API_KEY`** / **`AMPLITUDE_REGION`** in the **root route loader** via **`getAmplitudeRuntimeConfig()`** (server-side during SSR); pass config into the client as loader data — **no client `fetch`** for bootstrap. Same JSON shape is also served at **`GET /api/v1/c/s`** for operators. Point the Browser SDK **`serverUrl`** at a **same-origin proxy** (`/.amp/events`). **Single** project key for browser + backend MCP. **Page views:** SDK **autocapture** defaults. See ADR-017.
+### Browser OTEL / HyperDX:
+- **Rule:** Self-hosters should **not** need to **rebuild** the UI image — set **runtime** env on the UI server. Enable `@hyperdx/browser` when `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set; resolve config in the **root route loader** via **`getHyperDxRuntimeConfig()`** (server-side during SSR); pass config into the client as loader data — **no client `fetch`** for bootstrap. Default `url` is the same-origin proxy **`/.otel`** (ingest token stays on the server). Operators may set **`OTEL_BROWSER_OTLP_URL`** to their collector instead. SPA page views: **`HyperDX.addAction("page_view", { path })`**. Hosted default: **`disableReplay: true`**. See ADR-031 (supersedes ADR-017).
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md

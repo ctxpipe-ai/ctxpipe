@@ -1,6 +1,6 @@
 # ADR-017: Amplitude analytics (UI + backend)
 
-**Status:** Accepted | **Date:** 2026-04-08 | **Tags:** analytics, amplitude, ui, backend, mcp, observability
+**Status:** Superseded by [ADR-031](ADR-031-self-hosted-clickstack-langfuse.md) | **Date:** 2026-04-08 | **Tags:** analytics, amplitude, ui, backend, mcp, observability
 
 ## Context
 
