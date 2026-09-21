@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { createHash } from "node:crypto"
 import { and, desc, eq } from "drizzle-orm"
-import type { MiddlewareHandler } from "hono"
+import type { Context, MiddlewareHandler, Next } from "hono"
 import {
   createLocalJWKSet,
   decodeProtectedHeader,
@@ -273,12 +273,6 @@ export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   return next()
 }
 
-/**
- * Verify an org-owned `x-api-key` without fabricating a user session.
- * User keys still authenticate via {@link withCookieAuth} (`getSession`).
- * Mount only on `/mcp` — REST already 401s with no user session, and verifying
- * here would count against the org key's rate limit.
- */
 type BearerApiKeyAuthResult =
   | { kind: "user"; user: AuthUser; session: AuthSession }
   | {
@@ -286,6 +280,35 @@ type BearerApiKeyAuthResult =
       orgApiKey: NonNullable<AppEnv["Variables"]["orgApiKey"]>
     }
   | { kind: "invalid" }
+
+async function resolveOrgApiKey(
+  apiKey: string,
+): Promise<NonNullable<AppEnv["Variables"]["orgApiKey"]> | null> {
+  const verified = await getAuth()
+    .api.verifyApiKey({ body: { key: apiKey } })
+    .catch((err: unknown) => {
+      getLogger().error(
+        err instanceof Error ? err : new Error(String(err), { cause: err }),
+        { reason: "org_api_key_verify" },
+      )
+      return null
+    })
+
+  if (
+    !verified?.valid ||
+    !verified.key ||
+    verified.key.configId !== "organization" ||
+    !verified.key.referenceId
+  ) {
+    return null
+  }
+
+  return {
+    id: verified.key.id,
+    orgId: verified.key.referenceId,
+    configId: verified.key.configId,
+  }
+}
 
 /**
  * Personal or org API key presented as `Authorization: Bearer <key>` (MCP
@@ -311,44 +334,8 @@ async function resolveBearerApiKeyAuth(
     // Org keys cannot mock a user session; fall through to verifyApiKey.
   }
 
-  const verified = await auth.api
-    .verifyApiKey({ body: { key: apiKey } })
-    .catch((err: unknown) => {
-      getLogger().error(
-        err instanceof Error ? err : new Error(String(err), { cause: err }),
-        { reason: "org_api_key_verify" },
-      )
-      return {
-        valid: false as const,
-        error: {
-          message: "The API key could not be validated",
-          code: "INVALID_API_KEY",
-        },
-        key: null,
-      }
-    })
-
-  if (!verified?.valid || !verified.key) {
-    return { kind: "invalid" }
-  }
-
-  if (verified.key.configId !== "organization") {
-    return { kind: "invalid" }
-  }
-
-  const orgId = verified.key.referenceId
-  if (!orgId) {
-    return { kind: "invalid" }
-  }
-
-  return {
-    kind: "org",
-    orgApiKey: {
-      id: verified.key.id,
-      orgId,
-      configId: verified.key.configId,
-    },
-  }
+  const orgApiKey = await resolveOrgApiKey(apiKey)
+  return orgApiKey ? { kind: "org", orgApiKey } : { kind: "invalid" }
 }
 
 /**
@@ -362,25 +349,8 @@ export const withOrgApiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const apiKey = c.req.header("x-api-key")?.trim()
   if (!apiKey) return next()
 
-  const auth = getAuth()
-  const verified = await auth.api
-    .verifyApiKey({ body: { key: apiKey } })
-    .catch((err: unknown) => {
-      getLogger().error(
-        err instanceof Error ? err : new Error(String(err), { cause: err }),
-        { reason: "org_api_key_verify" },
-      )
-      return {
-        valid: false as const,
-        error: {
-          message: "The API key could not be validated",
-          code: "INVALID_API_KEY",
-        },
-        key: null,
-      }
-    })
-
-  if (!verified.valid || !verified.key) {
+  const orgApiKey = await resolveOrgApiKey(apiKey)
+  if (!orgApiKey) {
     getLogger().warn("Unauthorized because of invalid API key")
     return c.json(
       { error: "Unauthorized" },
@@ -389,29 +359,15 @@ export const withOrgApiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     )
   }
 
-  if (verified.key.configId !== "organization") {
-    return next()
-  }
-
-  const orgId = verified.key.referenceId
-  if (!orgId) {
-    getLogger().warn("Unauthorized because org API key has no organization")
-    return c.json(
-      { error: "Unauthorized" },
-      401,
-      wwwAuthenticateForMcpRoute(c, "The API key could not be validated"),
-    )
-  }
-
-  c.set("orgApiKey", {
-    id: verified.key.id,
-    orgId,
-    configId: verified.key.configId,
-  })
+  c.set("orgApiKey", orgApiKey)
   return next()
 }
 
-export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
+async function authenticateBearer(
+  c: Context<AppEnv>,
+  next: Next,
+  allowApiKeyFallback: boolean,
+) {
   const authorization = c.req.header("authorization")
   const accessToken = authorization?.startsWith("Bearer ")
     ? authorization.replace("Bearer ", "").trim()
@@ -421,8 +377,8 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   // Better Auth's oauthProvider only issues JWT access tokens when the client
   // sends the RFC 8707 `resource` parameter (`index.mjs:411`). MCP clients like
   // CodeRabbit omit it, so we get an opaque random string instead. JWTs have
-  // three `.`-separated base64url segments; anything else we treat as opaque
-  // OAuth first, then as a personal/org API key (Bearer-only hosts).
+  // three `.`-separated base64url segments; anything else is opaque OAuth
+  // first, then (on MCP only) a personal/org API key.
   if (accessToken.split(".").length !== 3) {
     const resolved = await resolveOpaqueAccessToken(accessToken)
     if (resolved) {
@@ -438,15 +394,17 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       return next()
     }
 
-    const apiKeyAuth = await resolveBearerApiKeyAuth(accessToken)
-    if (apiKeyAuth.kind === "user") {
-      c.set("user", apiKeyAuth.user)
-      c.set("session", apiKeyAuth.session)
-      return next()
-    }
-    if (apiKeyAuth.kind === "org") {
-      c.set("orgApiKey", apiKeyAuth.orgApiKey)
-      return next()
+    if (allowApiKeyFallback) {
+      const apiKeyAuth = await resolveBearerApiKeyAuth(accessToken)
+      if (apiKeyAuth.kind === "user") {
+        c.set("user", apiKeyAuth.user)
+        c.set("session", apiKeyAuth.session)
+        return next()
+      }
+      if (apiKeyAuth.kind === "org") {
+        c.set("orgApiKey", apiKeyAuth.orgApiKey)
+        return next()
+      }
     }
 
     logBearerAuthFailure(new Error("Opaque access token not recognized"))
@@ -619,6 +577,17 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     wwwAuthenticateForMcpRoute(c, "The access token could not be validated"),
   )
 }
+
+/** OAuth Bearer authentication shared by REST and MCP routes. */
+export const withBearerAuth: MiddlewareHandler<AppEnv> = (c, next) =>
+  authenticateBearer(c, next, false)
+
+/**
+ * OAuth Bearer authentication with an MCP-only API-key fallback for hosts that
+ * cannot set `x-api-key`. Opaque OAuth access tokens always take precedence.
+ */
+export const withMcpBearerAuth: MiddlewareHandler<AppEnv> = (c, next) =>
+  authenticateBearer(c, next, true)
 
 export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const orgApiKey = c.get("orgApiKey")

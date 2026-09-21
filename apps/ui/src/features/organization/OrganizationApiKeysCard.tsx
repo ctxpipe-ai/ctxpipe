@@ -39,12 +39,15 @@ import { Select, SelectItem } from "@/components/ui/Select"
 import { ShimmerPlaceholder } from "@/components/ui/ShimmerPlaceholder"
 import { TextField } from "@/components/ui/TextField"
 import { betterAuthShellClassNames } from "@/features/auth/betterAuthShellClassNames"
-import { authClient } from "@/lib/auth-client"
+import {
+  createOrganizationApiKey,
+  deleteOrganizationApiKey,
+  listOrganizationApiKeys,
+  type OrgApiKey,
+} from "@/features/organization/organizationApiKeys"
 import { cn } from "@/lib/utils"
 
 const orgSettingsCardClassNames = betterAuthShellClassNames.card
-
-const ORG_API_KEY_CONFIG_ID = "organization"
 
 const EXPIRY_OPTIONS = [
   { id: "1", label: "1 day" },
@@ -58,13 +61,6 @@ const EXPIRY_OPTIONS = [
 ] as const
 
 type ExpiryOptionId = (typeof EXPIRY_OPTIONS)[number]["id"]
-
-type OrgApiKey = {
-  id: string
-  name?: string | null
-  start?: string | null
-  expiresAt?: Date | string | null
-}
 
 function orgApiKeysQueryKey(organizationId: string) {
   return ["organization-api-keys", organizationId] as const
@@ -114,52 +110,6 @@ function formatExpiry(expiresAt: Date | string | null | undefined): string {
     month: "short",
     year: "numeric",
   })}`
-}
-
-async function listOrganizationApiKeys(organizationId: string) {
-  const result = await authClient.apiKey.list({
-    query: {
-      configId: ORG_API_KEY_CONFIG_ID,
-      organizationId,
-    },
-  })
-  if (result.error) throw result.error
-  const payload = result.data as { apiKeys?: OrgApiKey[] } | OrgApiKey[] | null
-  if (Array.isArray(payload)) return payload
-  return payload?.apiKeys ?? []
-}
-
-async function createOrganizationApiKey(input: {
-  organizationId: string
-  name: string
-  expiresIn: number | null
-}) {
-  const created = (await authClient.apiKey.create({
-    configId: ORG_API_KEY_CONFIG_ID,
-    organizationId: input.organizationId,
-    name: input.name,
-    expiresIn: input.expiresIn ?? undefined,
-    fetchOptions: { throw: true },
-  })) as OrgApiKey & { key?: string; id: string }
-
-  if (input.expiresIn === null && created.id) {
-    await authClient.apiKey.update({
-      keyId: created.id,
-      configId: ORG_API_KEY_CONFIG_ID,
-      expiresIn: null,
-      fetchOptions: { throw: true },
-    })
-  }
-
-  return created
-}
-
-async function deleteOrganizationApiKey(keyId: string) {
-  await authClient.apiKey.delete({
-    keyId,
-    configId: ORG_API_KEY_CONFIG_ID,
-    fetchOptions: { throw: true },
-  })
 }
 
 export function OrganizationApiKeysCard(props: { organizationId: string }) {

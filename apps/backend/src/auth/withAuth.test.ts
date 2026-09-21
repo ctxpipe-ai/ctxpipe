@@ -64,6 +64,7 @@ import {
   resetBearerJwksCacheForTests,
   withBearerAuth,
   withCookieAuth,
+  withMcpBearerAuth,
   withNetworkOrgContext,
   withOrgApiKeyAuth,
 } from "./withAuth.js"
@@ -185,7 +186,7 @@ function createComposedTestApp(): Hono<AppEnv> {
     "/mcp",
     withCookieAuth,
     withOrgApiKeyAuth,
-    withBearerAuth,
+    withMcpBearerAuth,
     requireAuth,
     withNetworkOrgContext,
   )
@@ -398,6 +399,7 @@ describe("auth middleware composition", () => {
     })
     expect(jwtVerifyMock).not.toHaveBeenCalled()
     expect(authHandlerMock).not.toHaveBeenCalled()
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
   })
 
   it("withBearerAuth returns 401 for an unknown opaque access token", async () => {
@@ -702,6 +704,7 @@ describe("auth middleware composition", () => {
       orgSlug: "bound",
       orgId: "org_bound",
     })
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
   })
 
   it("rejects an explicit orgSlug that conflicts with the JWT grant", async () => {
@@ -773,6 +776,7 @@ describe("auth middleware composition", () => {
       orgSlug: "bound",
       orgId: "org_bound",
     })
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
   })
 
   it("accepts an organization-bound JWT after its browser session is deleted", async () => {
@@ -940,7 +944,7 @@ describe("org API-key principal", () => {
       "/mcp",
       withCookieAuth,
       withOrgApiKeyAuth,
-      withBearerAuth,
+      withMcpBearerAuth,
       requireAuth,
     )
     app.post("/mcp", (c) =>
@@ -955,7 +959,12 @@ describe("org API-key principal", () => {
 
   function createRestPrincipalApp(): Hono<AppEnv> {
     const app = createBaseApp()
-    app.use("/:orgSlug/api/v1/conversations", withCookieAuth, requireAuth)
+    app.use(
+      "/:orgSlug/api/v1/conversations",
+      withCookieAuth,
+      withBearerAuth,
+      requireAuth,
+    )
     app.get("/:orgSlug/api/v1/conversations", (c) =>
       c.json({
         ok: true,
@@ -1091,6 +1100,28 @@ describe("org API-key principal", () => {
       session: { id: "sess_api_key", userId: "user_api_key" },
       orgApiKey: null,
     })
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
+  })
+
+  it("Bearer API keys do not authenticate REST routes", async () => {
+    testState.db = createMockDb({ opaqueTokenRows: [] })
+    getSessionMock.mockImplementation(
+      async ({ headers }: { headers: Headers }) => {
+        if (headers.get("x-api-key") !== "ctxp_user_key") return null
+        return {
+          user: { id: "user_api_key", email: "api-key@example.com" },
+          session: { id: "sess_api_key", userId: "user_api_key" },
+        }
+      },
+    )
+
+    const app = createRestPrincipalApp()
+    const response = await app.request("/acme/api/v1/conversations", {
+      headers: { authorization: "Bearer ctxp_user_key" },
+    })
+
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({ error: "Unauthorized" })
     expect(verifyApiKeyMock).not.toHaveBeenCalled()
   })
 

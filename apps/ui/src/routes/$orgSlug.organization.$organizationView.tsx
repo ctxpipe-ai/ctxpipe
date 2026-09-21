@@ -60,35 +60,29 @@ export function OrganizationSettingsBody(props: {
   const { orgSlug, organizationView, organizationId } = props
   const isApiKeys = organizationView === "api-keys"
 
-  // Own the sidebar so API Keys stays visible while AuthProvider keeps
-  // organization.apiKey false (that flag also unlocks org minting in the
-  // personal CreateApiKeyDialog — no per-call-site opt-out in better-auth-ui).
   return (
     <main className="mx-auto max-w-3xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
       <h1 className="mb-6 font-mono text-xs font-normal uppercase tracking-[0.24em] text-teal-400 sm:mb-8">
         organisation settings
       </h1>
-      <div className="flex w-full grow flex-col gap-4 md:flex-row md:gap-12">
-        <OrganizationSettingsNav orgSlug={orgSlug} current={organizationView} />
-        <div className="min-w-0 flex-1">
-          {isApiKeys ? (
-            organizationId ? (
-              <OrganizationApiKeysCard organizationId={organizationId} />
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                This organisation could not be loaded.
-              </p>
-            )
+      {isApiKeys ? (
+        <div className="flex w-full grow flex-col gap-4 md:flex-row md:gap-12">
+          <OrganizationSettingsNav orgSlug={orgSlug} current="api-keys" />
+          {organizationId ? (
+            <OrganizationApiKeysCard organizationId={organizationId} />
           ) : (
-            <OrganizationView
-              pathname={organizationView}
-              hideNav
-              localization={organizationApiKeyLocalization}
-              classNames={organizationViewClassNames}
-            />
+            <p className="text-sm text-muted-foreground">
+              This organisation could not be loaded.
+            </p>
           )}
         </div>
-      </div>
+      ) : (
+        <OrganizationView
+          pathname={organizationView}
+          localization={organizationApiKeyLocalization}
+          classNames={organizationViewClassNames}
+        />
+      )}
     </main>
   )
 }

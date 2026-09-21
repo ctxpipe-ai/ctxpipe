@@ -41,9 +41,11 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
   const pathname =
     router?.state?.location.pathname ??
     (typeof window !== "undefined" ? window.location.pathname : "/")
-  const firstSegment = pathname.split("/").filter(Boolean)[0]
+  const pathSegments = pathname.split("/").filter(Boolean)
+  const firstSegment = pathSegments[0]
   const orgSlug =
     firstSegment && !firstSegment.startsWith(".") ? firstSegment : undefined
+  const isOrganizationSettings = pathSegments[1] === "organization"
 
   const { data: config } = useGetAuthConfig()
 
@@ -111,15 +113,20 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
         credentials={{ forgotPassword: true }}
         twoFactor={["totp"]}
         account={{ basePath: "/.auth/account" }}
-        // organization.apiKey must stay false: better-auth-ui's CreateApiKeyDialog
-        // gates its organisation/personal selector on this flag (no per-call-site
-        // opt-out). Leaving it true lets the user-account ApiKeysCard mint org keys,
-        // which would be confusing — user settings are for personal keys only.
-        // Org key minting lives in features/organization/OrganizationApiKeysCard.
+        // Keep the library's API-key navigation on organisation settings while
+        // excluding its organisation selector from personal account settings.
+        // Org key minting itself uses the configId-scoped custom card.
         organization={
           orgSlug
-            ? { slug: orgSlug, basePath: "/.auth/organization", apiKey: false }
-            : { basePath: "/.auth/organization", apiKey: false }
+            ? {
+                slug: orgSlug,
+                basePath: "/.auth/organization",
+                apiKey: isOrganizationSettings,
+              }
+            : {
+                basePath: "/.auth/organization",
+                apiKey: isOrganizationSettings,
+              }
         }
         onSessionChange={() => {
           void router?.invalidate()

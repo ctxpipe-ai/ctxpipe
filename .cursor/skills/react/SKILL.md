@@ -66,4 +66,8 @@ This file is the **React** skill entry point for the repo. When the team adopts 
 
 ## Testing UI in this app
 
-For `apps/ui` component/page behaviour, use **Storybook `play()` + MSW** (see the [storybook](../storybook/SKILL.md) skill and [apps/ui/AGENTS.md](../../../apps/ui/AGENTS.md)). Do **not** add Vitest/jsdom `*.test.tsx` for React UI — reserve Vitest for non-UI pure logic.
+Use **Storybook `play()` + MSW** for visual interaction scenarios (see the
+[storybook](../storybook/SKILL.md) skill). Storybook plays are not currently
+run in CI, so security and request-contract regressions need focused Vitest
+coverage at a non-visual seam. Avoid mock-heavy component tests that replace
+the entire rendered stack.

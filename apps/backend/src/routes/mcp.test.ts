@@ -6,7 +6,7 @@ import { registerMcpRoutes } from "./mcp.js"
 const {
   withCookieAuthMock,
   withOrgApiKeyAuthMock,
-  withBearerAuthMock,
+  withMcpBearerAuthMock,
   requireAuthMock,
   withNetworkOrgContextMock,
   registerMcpToolsMock,
@@ -16,7 +16,7 @@ const {
 } = vi.hoisted(() => ({
   withCookieAuthMock: vi.fn(),
   withOrgApiKeyAuthMock: vi.fn(),
-  withBearerAuthMock: vi.fn(),
+  withMcpBearerAuthMock: vi.fn(),
   requireAuthMock: vi.fn(),
   withNetworkOrgContextMock: vi.fn(),
   registerMcpToolsMock: vi.fn(),
@@ -28,7 +28,7 @@ const {
 vi.mock("../auth/withAuth.js", () => ({
   withCookieAuth: withCookieAuthMock,
   withOrgApiKeyAuth: withOrgApiKeyAuthMock,
-  withBearerAuth: withBearerAuthMock,
+  withMcpBearerAuth: withMcpBearerAuthMock,
   requireAuth: requireAuthMock,
   withNetworkOrgContext: withNetworkOrgContextMock,
 }))
@@ -69,7 +69,7 @@ describe("MCP route auth and org validation", () => {
     vi.clearAllMocks()
     withCookieAuthMock.mockImplementation(async (_c, next) => next())
     withOrgApiKeyAuthMock.mockImplementation(async (_c, next) => next())
-    withBearerAuthMock.mockImplementation(async (_c, next) => next())
+    withMcpBearerAuthMock.mockImplementation(async (_c, next) => next())
     requireAuthMock.mockImplementation(async (_c, next) => next())
     withNetworkOrgContextMock.mockImplementation(async (_c, next) => next())
   })

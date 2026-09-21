@@ -84,10 +84,7 @@ describe("AuthProvider", () => {
     )
   })
 
-  it("keeps organisation API keys disabled even when an org slug is in the path", async () => {
-    // The custom OrganizationApiKeysCard handles org keys directly via the
-    // authClient with configId: "organization", so we don't need the library's
-    // org-side UI and we keep the dropdown suppressed.
+  it("enables organisation API-key navigation only inside organisation settings", async () => {
     useRouterMock.mockReturnValue({
       state: { location: { pathname: "/acme/organization/members" } },
       invalidate: vi.fn(),
@@ -106,25 +103,21 @@ describe("AuthProvider", () => {
         organization: {
           slug: "acme",
           basePath: "/.auth/organization",
-          apiKey: false,
+          apiKey: true,
         },
       }),
     )
   })
 
-  it("never enables the organisation API-key flag under any pathname", async () => {
-    // Regression: better-auth-ui's CreateApiKeyDialog gates its
-    // organisation/personal selector on contextOrganization.apiKey. If this
-    // ever flips back to true, users can mint org keys from /.auth/account.
+  it("keeps the organisation key selector out of personal account routes", async () => {
     const { AuthProvider } = await import("./AuthProvider")
-    const pathnames = [
-      "/.auth/account/security",
-      "/.auth/account/api-keys",
-      "/.auth/organization/settings",
-      "/acme/organization/members",
-      "/acme/organization/api-keys",
+    const cases = [
+      { pathname: "/.auth/account/security", apiKey: false },
+      { pathname: "/.auth/account/api-keys", apiKey: false },
+      { pathname: "/acme/organization/members", apiKey: true },
+      { pathname: "/acme/organization/api-keys", apiKey: true },
     ]
-    for (const pathname of pathnames) {
+    for (const { pathname } of cases) {
       useRouterMock.mockReturnValue({
         state: { location: { pathname } },
         invalidate: vi.fn(),
@@ -135,9 +128,12 @@ describe("AuthProvider", () => {
         </AuthProvider>,
       )
     }
-    for (const call of authUiProviderTanstackMock.mock.calls) {
+    for (const [
+      index,
+      call,
+    ] of authUiProviderTanstackMock.mock.calls.entries()) {
       const props = call[0] as { organization?: { apiKey?: unknown } }
-      expect(props.organization?.apiKey).toBe(false)
+      expect(props.organization?.apiKey).toBe(cases[index]?.apiKey)
     }
   })
 })
