@@ -4,6 +4,7 @@ import { parseEnv } from "./config/env.js"
 import { closeDb } from "./db/client.js"
 import { flushEvlog, initEvlog } from "./observability/logger.js"
 import { initOtel, shutdownOtel } from "./observability/otel.js"
+import { startGithubPrMirrorEnsureSweepOnce } from "./openworkflow/workflows/github-ensure-pr-mirror.js"
 import { shutdownGraphClients } from "./platform/graph/index.js"
 import {
   handleWebSocketProxy,
@@ -15,6 +16,7 @@ const env = parseEnv(process.env as Record<string, string | undefined>)
 initOtel(env)
 initEvlog()
 const app = createApp()
+startGithubPrMirrorEnsureSweepOnce()
 let shuttingDown = false
 
 async function shutdownResources() {

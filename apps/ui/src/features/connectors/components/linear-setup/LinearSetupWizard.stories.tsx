@@ -114,9 +114,29 @@ export const SelectRepository: Story = {
           http.get(`/${orgSlug}/api/v1/connectors/linear/config`, () =>
             HttpResponse.json({ scopes: [], syncTarget: null }),
           ),
+          http.get(`/${orgSlug}/api/v1/connectors/suggested-sync-target`, () =>
+            HttpResponse.json({
+              target: {
+                repositoryId: "repo_ctx",
+                repositoryName: "acme/ctxpipe-context",
+                gitUrl: "https://github.com/acme/ctxpipe-context.git",
+                branch: "main",
+                githubConnectionId: "github_1",
+                usedBy: ["github"],
+              },
+            }),
+          ),
           http.get(`/${orgSlug}/api/v1/github/installation/repositories`, () =>
             HttpResponse.json({
               repositories: [
+                {
+                  id: 2,
+                  full_name: "acme/ctxpipe-context",
+                  html_url: "https://github.com/acme/ctxpipe-context",
+                  clone_url: "https://github.com/acme/ctxpipe-context.git",
+                  name: "ctxpipe-context",
+                  default_branch: "main",
+                },
                 {
                   id: 1,
                   full_name: "acme/context",

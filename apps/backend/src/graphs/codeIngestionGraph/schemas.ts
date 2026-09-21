@@ -18,13 +18,11 @@ const ID_PREFIXES = [
   "inf_",
   "lib_",
   "pat_",
-  "con_",
-  "cap_",
-  "top_",
-  "inc_",
   "dec_",
   "inu_",
   "skl_",
+  "prq_",
+  "fil_",
 ]
 
 export function isIdRef(ref: string): boolean {
@@ -52,6 +50,15 @@ export const ExtractedClaimSchema = z.object({
   extractionMethod: ExtractionMethod,
   confidence: z.number().min(0).max(1),
   provenance: z.record(z.unknown()).optional(),
+  /** Claim validity window as ISO dates (YYYY-MM-DD); change edges set validFrom to the merge date. */
+  validFrom: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  validTo: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
 })
 
 export type ExtractedObject = z.infer<typeof ExtractedObjectSchema>
@@ -124,6 +131,11 @@ export const CodeIngestionStateSchema = z.object({
   deletedPaths: z.array(z.string()).optional(),
   renames: z.array(CodeIngestionRenameSchema).optional(),
   indexedAt: z.string().optional(),
+  /**
+   * Candidate files an extractor skipped because its LLM call failed. A full
+   * ingest only sweeps unobserved evidence when this is 0 (ADR-033 §11).
+   */
+  extractionSkippedFiles: z.number().int().nonnegative().optional(),
   roots: z.array(z.string()).optional(),
   extractedObjects: zodArrayConcat(ExtractedObjectSchema),
   extractedClaims: zodArrayConcat(ExtractedClaimSchema),
