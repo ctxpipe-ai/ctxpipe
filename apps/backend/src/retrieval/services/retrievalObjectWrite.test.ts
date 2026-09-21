@@ -44,7 +44,7 @@ describe("mergeRetrievalObjectPayloads", () => {
     })
   })
 
-  it("replaces stub when incoming is full extraction", () => {
+  it("replaces stub when incoming is full extraction and drops the stub marker", () => {
     const existing = {
       path: "apps/web/src/app/api",
       inferredFromConsumer: true,
@@ -55,7 +55,6 @@ describe("mergeRetrievalObjectPayloads", () => {
     }
     expect(mergeRetrievalObjectPayloads(existing, incoming)).toEqual({
       path: "apps/web/src/app/api",
-      inferredFromConsumer: true,
       framework: "Hono",
     })
   })

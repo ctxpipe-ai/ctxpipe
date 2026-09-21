@@ -46,7 +46,12 @@ const installationLoading = http.get(
 const installationInstalled = http.get(
   ({ request }) =>
     new URL(request.url).pathname === `/${orgSlug}/api/v1/github/installation`,
-  () => HttpResponse.json({ id: "story-install" }),
+  () =>
+    HttpResponse.json({
+      id: "story-install",
+      appSlug: "ctxpipe",
+      accountSlug: "acme",
+    }),
 )
 
 const setupEmpty = http.get(

@@ -12,6 +12,10 @@ import type { Repository } from "@/features/repositories"
 import { client } from "@/lib/api"
 import { searchGithubInstallationRepos } from "../../queries/atlassian-connector"
 import {
+  connectorSyncTargetKeys,
+  fetchSuggestedConnectorSyncTarget,
+} from "../../queries/connector-sync-target"
+import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
 } from "../../queries/github-connector"
@@ -26,6 +30,7 @@ import {
 } from "../../queries/org-connections"
 import {
   CONNECTOR_CONTEXT_REPOSITORY_NAME,
+  ConnectorContextRepositoryGuidance,
   getConnectorContextRepositoryCreateUrl,
 } from "../ConnectorContextRepositoryGuidance"
 
@@ -56,6 +61,7 @@ export function LinearTargetStep({
   const [selectedRepo, setSelectedRepo] = useState<GitHubRepoItem | null>(null)
   const [repoSearch, setRepoSearch] = useState("")
   const [debouncedRepoSearch, setDebouncedRepoSearch] = useState("")
+  const [targetInitialized, setTargetInitialized] = useState(false)
 
   useEffect(() => {
     const id = window.setTimeout(() => setDebouncedRepoSearch(repoSearch), 300)
@@ -82,6 +88,11 @@ export function LinearTargetStep({
     queryFn: () => fetchOrgConnections(orgSlug),
     select: (connections) =>
       connections.filter((connection) => connection.type === "github"),
+  })
+  const suggestedTargetQuery = useQuery({
+    queryKey: connectorSyncTargetKeys.suggestion(orgSlug),
+    queryFn: () => fetchSuggestedConnectorSyncTarget(orgSlug),
+    enabled: config !== undefined && !config.syncTarget,
   })
   const { data: searchResults, isFetching } = useQuery({
     queryKey: [
@@ -172,6 +183,7 @@ export function LinearTargetStep({
   const preferredGithubConnectionId =
     effectiveRepo?.githubConnectionId ??
     config?.syncTarget?.githubConnectionId ??
+    suggestedTargetQuery.data?.githubConnectionId ??
     (githubConnections.length === 1 ? githubConnections[0]?.id : undefined)
   const { data: githubInstallation } = useQuery({
     queryKey: githubConnectorKeys.installation(
@@ -224,6 +236,33 @@ export function LinearTargetStep({
     onError: (error: Error) => toast.error(error.message),
   })
 
+  if (
+    !targetInitialized &&
+    config !== undefined &&
+    !(suggestedTargetQuery.isEnabled && suggestedTargetQuery.isPending)
+  ) {
+    if (!selectedRepo && suggestedTargetQuery.data && !config?.syncTarget) {
+      const suggested = suggestedTargetQuery.data
+      const fromOrg = orgRepos?.find(
+        (repository) => repository.id === suggested.repositoryId,
+      )
+      setSelectedRepo({
+        id: 0,
+        full_name: suggested.repositoryName,
+        html_url: suggested.gitUrl.replace(/\.git$/, ""),
+        clone_url: suggested.gitUrl,
+        name:
+          fromOrg?.name ??
+          suggested.repositoryName.split("/").pop() ??
+          suggested.repositoryName,
+        default_branch: suggested.branch,
+        githubConnectionId: suggested.githubConnectionId,
+      })
+      setRepoSearch(suggested.repositoryName)
+    }
+    setTargetInitialized(true)
+  }
+
   return (
     <div className="space-y-4">
       <div>
@@ -236,35 +275,9 @@ export function LinearTargetStep({
           request context.
         </p>
       </div>
-      <div className="border border-teal-500/40 bg-teal-500/5 p-4">
-        <div className="text-xs font-medium tracking-wide text-teal-300 uppercase">
-          Shared connector context repository
-        </div>
-        <p className="mt-2 text-sm text-muted-foreground">
-          We recommend using one GitHub repository for all ctxpipe connector
-          content. Connector files remain separated under paths such as{" "}
-          <code className="bg-muted px-1 py-0.5 text-[11px]">linear/</code>,{" "}
-          <code className="bg-muted px-1 py-0.5 text-[11px]">notion/</code> and{" "}
-          <code className="bg-muted px-1 py-0.5 text-[11px]">confluence/</code>.
-        </p>
-        <p className="mt-3 text-sm text-muted-foreground">
-          For your first connector, create{" "}
-          <code className="bg-muted px-1 py-0.5 text-[11px]">
-            {CONNECTOR_CONTEXT_REPOSITORY_NAME}
-          </code>{" "}
-          once, then reuse it for future connectors. You can choose another name
-          if your team has its own convention.
-        </p>
-        <a
-          href="https://docs.ctxpipe.ai/docs/connections/context-repository"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-3 inline-flex items-center gap-1 text-sm text-teal-400 hover:text-teal-300"
-        >
-          About connector context repositories
-          <IconExternalLink className="size-3.5" aria-hidden />
-        </a>
-      </div>
+      <ConnectorContextRepositoryGuidance
+        suggestedTarget={suggestedTargetQuery.data}
+      />
       <ComboBox
         label="Repository"
         placeholder="Search repositories..."

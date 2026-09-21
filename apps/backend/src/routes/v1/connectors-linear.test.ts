@@ -35,6 +35,9 @@ vi.mock("../../db/client.js", () => ({
 vi.mock("../../models/github-installation.js", () => ({
   orgHasAnyGithubConnection: vi.fn().mockResolvedValue(true),
 }))
+vi.mock("../../openworkflow/workflows/github-ensure-pr-mirror.js", () => ({
+  enqueueGithubPrMirrorEnsureForOrg: vi.fn().mockResolvedValue(undefined),
+}))
 vi.mock("../../models/linear-connector.js", () => ({
   claimLinearContentSyncRetry: mocks.claimContentRetry,
   deleteLinearConnectionById: vi.fn(),

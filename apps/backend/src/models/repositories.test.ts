@@ -48,6 +48,7 @@ import {
   deleteRepository,
   getRepositoryForOrg,
   listRepositoriesForGithubConnection,
+  listRepositoriesForGithubConnectionForOrg,
   listRepositoriesForOrg,
   markRepositoryIndexingFailed,
   markRepositoryIndexingReadyWithIssues,
@@ -113,6 +114,23 @@ describe("listRepositoriesForGithubConnection", () => {
     await expect(
       listRepositoriesForGithubConnection(githubConnectionId),
     ).resolves.toEqual(rows)
+    expect(query.where).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("listRepositoriesForGithubConnectionForOrg", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("uses explicit org scope without Hono request context", async () => {
+    const rows = [{ id: "repo_linked", orgId, githubConnectionId }]
+    const query = mockRepositoriesWithZoekt(rows, getSystemDbMock)
+
+    await expect(
+      listRepositoriesForGithubConnectionForOrg(orgId, githubConnectionId),
+    ).resolves.toEqual(rows)
+    expect(requireCurrentOrgIdMock).not.toHaveBeenCalled()
     expect(query.where).toHaveBeenCalledTimes(1)
   })
 })

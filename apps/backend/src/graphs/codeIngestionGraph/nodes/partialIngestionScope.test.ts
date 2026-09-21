@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest"
 import type { CodeIngestionState } from "../schemas.js"
 import {
   filterPathsByPartialScan,
+  isConnectorOnlyPartialDiff,
   repoPathMatchesPartialScan,
+  shouldSkipCodeExtractorForPartialDiff,
   shouldSkipExtractorForPartialDeletesOnly,
 } from "./partialIngestionScope.js"
 
@@ -112,6 +114,74 @@ describe("shouldSkipExtractorForPartialDeletesOnly", () => {
           renames: [],
         }),
       ),
+    ).toBe(false)
+  })
+})
+
+describe("connector-only partial diffs", () => {
+  const base = {
+    repositoryId: "repo_ctx",
+    orgId: "org_1",
+    targetHash: "h",
+    extractedObjects: [],
+    extractedClaims: [],
+    objectIds: [],
+    touchedObjectIds: [],
+    claimsForProjection: [],
+  }
+
+  it("detects diffs made only of connector warehouse paths", () => {
+    expect(
+      isConnectorOnlyPartialDiff({
+        ...base,
+        ingestMode: "partial",
+        changedPaths: [
+          "github/pulls/acme/api/1--1.md",
+          "./linear/issues/a--1.md",
+        ],
+        deletedPaths: ["slack/channels/x--C1/threads/2026/01/1.1/thread.md"],
+      }),
+    ).toBe(true)
+    expect(
+      isConnectorOnlyPartialDiff({
+        ...base,
+        ingestMode: "partial",
+        changedPaths: ["github/pulls/acme/api/1--1.md", "AGENTS.md"],
+      }),
+    ).toBe(false)
+    expect(isConnectorOnlyPartialDiff({ ...base, ingestMode: "partial" })).toBe(
+      false,
+    )
+    expect(
+      isConnectorOnlyPartialDiff({
+        ...base,
+        ingestMode: "full",
+        changedPaths: ["linear/x.md"],
+      }),
+    ).toBe(false)
+  })
+
+  it("skips code extractors for deletes-only and connector-only diffs", () => {
+    expect(
+      shouldSkipCodeExtractorForPartialDiff({
+        ...base,
+        ingestMode: "partial",
+        deletedPaths: ["src/a.ts"],
+      }),
+    ).toBe(true)
+    expect(
+      shouldSkipCodeExtractorForPartialDiff({
+        ...base,
+        ingestMode: "partial",
+        changedPaths: ["linear/issues/a--1.md"],
+      }),
+    ).toBe(true)
+    expect(
+      shouldSkipCodeExtractorForPartialDiff({
+        ...base,
+        ingestMode: "partial",
+        changedPaths: ["src/a.ts"],
+      }),
     ).toBe(false)
   })
 })

@@ -1,8 +1,11 @@
 import YAML from "yaml"
+import {
+  getAllowedConnections,
+  PREDICATE_DESCRIPTIONS,
+} from "./allowedConnections.js"
 import { ClaimStatus, ExtractionMethod, SourceType } from "./claims.js"
 import { CoreNodeType, CoreRelType } from "./core.js"
 import { ExtensionNodeType, ExtensionRelType } from "./extension.js"
-import { getAllowedConnections } from "./allowedConnections.js"
 
 /**
  * Returns a simplified YAML schema for LLM retrieval planning.
@@ -83,6 +86,7 @@ export function getYamlSchemaForLlm(): string {
     coreRelTypes: CoreRelType.options,
     extensionNodeTypes: ExtensionNodeType.options,
     extensionRelTypes: ExtensionRelType.options,
+    predicateDescriptions: PREDICATE_DESCRIPTIONS,
     allowedConnections: {
       core: coreConnections,
       extension: extensionConnections,

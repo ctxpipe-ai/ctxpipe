@@ -9,13 +9,14 @@ export type TraversalResult = {
 const MIN_DEPTH = 1
 const MAX_DEPTH = 5
 
-const EXTENSION_PREDICATES = [
-  "RELATES_TO",
-  "ABOUT",
+/** Reference, cause and ownership families (ADR-033); containment and change stay on the core walk. */
+export const EXTENSION_TRAVERSAL_PREDICATES = [
+  "REFERENCES",
   "MENTIONS",
-  "ASSOCIATED_WITH",
   "INFLUENCES",
-]
+  "SUPERSEDES",
+  "OWNS",
+] as const
 
 export type GraphTraversalOptions = {
   /** Max depth (default 3, clamped to 1-5) */
@@ -24,7 +25,7 @@ export type GraphTraversalOptions = {
   limit?: number
   /** When set, filter edges to those valid at this time */
   validAt?: Date
-  /** When true, only traverse edges with extension predicates (RELATES_TO, ABOUT, etc.) */
+  /** When true, only traverse reference / cause / ownership edges (REFERENCES, MENTIONS, INFLUENCES, SUPERSEDES, OWNS) */
   useExtensionLayer?: boolean
 }
 
@@ -49,7 +50,10 @@ export async function graphTraversal(
   options?: GraphTraversalOptions,
 ): Promise<TraversalResult> {
   const maxDepth = clampDepth(options?.maxDepth ?? 3)
-  const limit = Math.min(100, Math.max(1, Math.floor(Number(options?.limit ?? 50))))
+  const limit = Math.min(
+    100,
+    Math.max(1, Math.floor(Number(options?.limit ?? 50))),
+  )
   const validAt = options?.validAt
   const useExtensionLayer = options?.useExtensionLayer ?? false
 
@@ -64,7 +68,7 @@ export async function graphTraversal(
              OR (rel.valid_from <= datetime($validAt) AND rel.valid_to >= datetime($validAt))]) = size(relationships(path))`
         : ""
     const extensionFilter = useExtensionLayer
-      ? ` AND size([rel IN relationships(path) WHERE type(rel) IN ['${EXTENSION_PREDICATES.join("','")}']) = size(relationships(path))`
+      ? ` AND size([rel IN relationships(path) WHERE type(rel) IN ['${EXTENSION_TRAVERSAL_PREDICATES.join("','")}']]) = size(relationships(path))`
       : ""
 
     const params: Record<string, unknown> = { startId, orgId, limit }

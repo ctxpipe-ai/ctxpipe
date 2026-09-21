@@ -7,9 +7,10 @@ import {
   markRepositoryIndexingReady,
   tryClaimRepositoryIndexingEnqueue,
 } from "../models/repositories.js"
+import { getLogger } from "../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { enqueueFollowUpIfTipAhead } from "./enqueue-follow-up-if-tip-ahead.js"
-import { isSleepSignal } from "./isSleepSignal.js"
+import { isWorkflowControlSignal } from "./isSleepSignal.js"
 import { repositoryIngestionOrchestrator } from "./workflows/repository-ingestion-orchestrator.js"
 
 export type RepositoryIngestionEnqueueInput = {
@@ -23,6 +24,12 @@ export type RepositoryIngestionEnqueueInput = {
   idempotencyKey?: string
   /** Used only to resolve the correct repository tip after a duplicate run. */
   githubConnectionId?: string | null
+  /**
+   * Ignore the last ingested commit: codesearch runs in full mode and the
+   * workflow sweeps evidence the run did not re-observe. Manual re-index only;
+   * webhook-driven ingests stay incremental.
+   */
+  fullReingest?: boolean
 }
 
 export type ConnectorRepositoryIngestionInput = Omit<
@@ -87,6 +94,9 @@ function startRepositoryIngestionWorkflow(
       : {}),
     ...(input.githubConnectionId !== undefined
       ? { githubConnectionId: input.githubConnectionId }
+      : {}),
+    ...(input.fullReingest !== undefined
+      ? { fullReingest: input.fullReingest }
       : {}),
   }
   return input.idempotencyKey
@@ -281,7 +291,7 @@ export async function claimAndRunRepositoryIngestionChild(
       name: `ingest-${input.repositoryId}`,
     })
   } catch (err: unknown) {
-    if (isSleepSignal(err)) {
+    if (isWorkflowControlSignal(err)) {
       throw err
     }
     const normalized = err instanceof Error ? err : new Error(String(err))
@@ -301,7 +311,7 @@ export async function claimAndRunRepositoryIngestionChild(
 export async function runConnectorRepositoryIngestionWorkflow(
   step: RepositoryIngestionChildStep,
   input: ConnectorRepositoryIngestionInput,
-  log: { error: (err: Error) => void },
+  log: { error: (err: Error) => void } = getLogger(),
 ): Promise<void> {
   const repository = await getRepositoryForOrg(input.orgId, input.repositoryId)
   if (!repository) {

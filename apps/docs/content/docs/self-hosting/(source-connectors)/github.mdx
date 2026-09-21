@@ -74,8 +74,14 @@ Set account permissions:
 Subscribe to these events:
 
 - **Pull request**
+- **Pull request review**
+- **Pull request review comment**
+- **Issue comment** (conversation on pull requests)
 - **Push**
 - **Repository**
+
+Optional for richer PR conversation: **Issues: Read**. Required-check
+conclusions are not mirrored in v1.
 
 Write access is required because ctx| can open configuration pull requests and
 commit connector-generated Markdown into a context repository. Limit the App
