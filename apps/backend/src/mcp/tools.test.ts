@@ -15,6 +15,7 @@ const {
   runWithLangfuseContextMock,
   getLangfuseHandlerMock,
   withOrgDbContextMock,
+  logErrorMock,
 } = vi.hoisted(() => ({
   generateObjectIdMock: vi.fn(() => "thr_test"),
   streamMock: vi.fn(),
@@ -36,6 +37,7 @@ const {
   withOrgDbContextMock: vi.fn(
     async (_orgId: string, handler: () => Promise<unknown>) => handler(),
   ),
+  logErrorMock: vi.fn(),
 }))
 
 vi.mock("../graphs/index.js", () => ({
@@ -74,6 +76,11 @@ vi.mock("../db/client.js", () => ({
   withOrgDbContext: withOrgDbContextMock,
 }))
 
+vi.mock("../observability/logger.js", () => ({
+  getLogger: vi.fn(),
+  log: { error: logErrorMock },
+}))
+
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { registerMcpTools } from "./tools.js"
 
@@ -102,6 +109,7 @@ describe("registerMcpTools", () => {
       .mockImplementation(
         async (_orgId: string, handler: () => Promise<unknown>) => handler(),
       )
+    logErrorMock.mockReset()
   })
 
   it("does not hold an org transaction across the advisor graph", async () => {
@@ -203,6 +211,11 @@ describe("registerMcpTools", () => {
     expect(config.description).toContain("ctx_advisor")
     expect(config.description).toContain("repository search")
     expect(config.description).toContain("grep")
+    expect(config.description).not.toMatch(/\bMANDATORY\b/)
+    expect(config.description).not.toMatch(/\bALWAYS\b/)
+    expect(config.description).not.toMatch(
+      /even if the user explicitly requested/i,
+    )
     expect(config.annotations).toEqual({
       readOnlyHint: true,
       destructiveHint: false,
@@ -492,5 +505,34 @@ describe("registerMcpTools", () => {
       },
       expect.any(Function),
     )
+  })
+
+  it("logs advisor failures on the process logger so they survive a sealed request event", async () => {
+    const failure = new Error("'all' predicate function is not supported.")
+    streamMock.mockRejectedValueOnce(failure)
+
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string },
+        extra: { sendNotification: (n: unknown) => Promise<void> },
+      ) => Promise<unknown>,
+    ]
+
+    await expect(
+      handler({ prompt: "What database should we use?" }, {
+        sendNotification: vi.fn(async () => {}),
+      }),
+    ).rejects.toThrow(failure)
+
+    expect(logErrorMock).toHaveBeenCalledWith({
+      step: "conversation.mcp.ctx_advisor",
+      message: failure.message,
+      error: failure,
+    })
   })
 })
