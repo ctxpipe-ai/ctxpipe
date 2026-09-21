@@ -49,7 +49,9 @@ When you add a **reusable component** or a **new page/screen** (a route that rep
 
 ## Testing in Storybook
 
-Vitest and Testing Library are used for **unit/component tests** (`*.test.tsx`). This app does not currently add **@storybook/addon-vitest**; the MCP’s **`run-story-tests`** tool applies when that integration exists. Until then, rely on Vitest in CI and a11y via **`@storybook/addon-a11y`** in Storybook.
+**Prefer Storybook `play()` + MSW** for UI component and page behaviour. **Do not** add new Vitest/jsdom `*.test.tsx` suites for React components, routes, or screens in `apps/ui` — those belong as colocated stories with interaction tests. Vitest remains appropriate for **non-UI** pure helpers (parsers, filters, config-object wiring).
+
+This app does not currently add **@storybook/addon-vitest**; the MCP’s **`run-story-tests`** tool applies when that integration exists. Until then, author `play()` functions in stories and use **`@storybook/addon-a11y`** in Storybook; CI still runs existing Vitest unit tests for non-UI logic.
 
 ## Quick reference (commands)
 

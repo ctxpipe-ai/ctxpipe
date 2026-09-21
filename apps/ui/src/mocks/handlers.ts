@@ -209,12 +209,30 @@ type StoryOrgApiKey = {
   expiresAt: string | null
 }
 
+function requireOrganizationApiKeyConfig(request: Request): Response | null {
+  const url = new URL(request.url)
+  if (url.searchParams.get("configId") === "organization") return null
+  return HttpResponse.json(
+    { message: "Expected configId=organization for org API keys" },
+    { status: 400 },
+  )
+}
+
+async function requireOrganizationApiKeyBody(
+  request: Request,
+): Promise<Response | null> {
+  const body = (await request.clone().json()) as { configId?: string }
+  if (body.configId === "organization") return null
+  return HttpResponse.json(
+    { message: "Expected configId=organization for org API keys" },
+    { status: 400 },
+  )
+}
+
 export function orgApiKeysListHandler(apiKeys: StoryOrgApiKey[]) {
   return http.get(`${authBase}/api-key/list`, ({ request }) => {
-    const url = new URL(request.url)
-    if (url.searchParams.get("configId") !== "organization") {
-      return HttpResponse.json({ apiKeys: [], total: 0 })
-    }
+    const rejected = requireOrganizationApiKeyConfig(request)
+    if (rejected) return rejected
     return HttpResponse.json({ apiKeys, total: apiKeys.length })
   })
 }
@@ -241,6 +259,8 @@ export const orgApiKeysListForbiddenHandler = http.get(
 
 export function orgApiKeysCreateHandler() {
   return http.post(`${authBase}/api-key/create`, async ({ request }) => {
+    const rejected = await requireOrganizationApiKeyBody(request)
+    if (rejected) return rejected
     const body = (await request.json()) as {
       name?: string
       configId?: string
@@ -251,7 +271,7 @@ export function orgApiKeysCreateHandler() {
       name: body.name ?? "unnamed",
       start: "org_new",
       key: "org_plaintext_shown_once",
-      configId: body.configId ?? "organization",
+      configId: body.configId,
       referenceId: body.organizationId ?? "org_storybook",
       expiresAt: "2026-10-14T00:00:00.000Z",
       createdAt: new Date().toISOString(),
@@ -261,13 +281,17 @@ export function orgApiKeysCreateHandler() {
 }
 
 export function orgApiKeysUpdateHandler() {
-  return http.post(`${authBase}/api-key/update`, async () =>
-    HttpResponse.json({ success: true }),
-  )
+  return http.post(`${authBase}/api-key/update`, async ({ request }) => {
+    const rejected = await requireOrganizationApiKeyBody(request)
+    if (rejected) return rejected
+    return HttpResponse.json({ success: true })
+  })
 }
 
 export function orgApiKeysDeleteHandler() {
-  return http.post(`${authBase}/api-key/delete`, async () =>
-    HttpResponse.json({ success: true }),
-  )
+  return http.post(`${authBase}/api-key/delete`, async ({ request }) => {
+    const rejected = await requireOrganizationApiKeyBody(request)
+    if (rejected) return rejected
+    return HttpResponse.json({ success: true })
+  })
 }

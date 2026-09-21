@@ -63,3 +63,7 @@ If there is **no external system**—for example, you only need to update local 
 ## Extending this skill
 
 This file is the **React** skill entry point for the repo. When the team adopts new rules (RSC, data loaders, testing patterns, etc.), add **short** sections here with links to official docs or internal docs—keep the file skimmable.
+
+## Testing UI in this app
+
+For `apps/ui` component/page behaviour, use **Storybook `play()` + MSW** (see the [storybook](../storybook/SKILL.md) skill and [apps/ui/AGENTS.md](../../../apps/ui/AGENTS.md)). Do **not** add Vitest/jsdom `*.test.tsx` for React UI — reserve Vitest for non-UI pure logic.

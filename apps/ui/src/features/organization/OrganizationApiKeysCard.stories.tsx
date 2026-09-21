@@ -72,8 +72,20 @@ export const Forbidden: Story = {
       },
     },
   },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      await canvas.findByText("Admin or owner required"),
+    ).toBeVisible()
+    await expect(canvas.queryByText("ci-mcp")).toBeNull()
+  },
 }
 
+/**
+ * MSW org-key handlers reject any non-`organization` configId (400). A
+ * successful create/revoke here proves the card never mint/lists/revokes with
+ * the personal `"default"` configId.
+ */
 export const CreateNamedKey: Story = {
   parameters: {
     msw: {
@@ -104,5 +116,26 @@ export const CreateNamedKey: Story = {
     await expect(canvas.getAllByText(/CTXPIPE_API_KEY/).length).toBeGreaterThan(
       0,
     )
+  },
+}
+
+export const RevokeKey: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [orgApiKeysListPopulatedHandler, orgApiKeysDeleteHandler()],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(await canvas.findByText("ci-mcp")).toBeVisible()
+    await userEvent.click(canvas.getByRole("button", { name: /Revoke/i }))
+    const dialog = await canvas.findByRole("alertdialog")
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Revoke key" }),
+    )
+    // Handler only succeeds for configId=organization; errors would stay visible.
+    await expect(canvas.queryByText(/Expected configId/)).toBeNull()
   },
 }

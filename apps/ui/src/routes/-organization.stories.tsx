@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { expect, within } from "storybook/test"
 import {
   orgApiKeysListEmptyHandler,
   orgApiKeysListForbiddenHandler,
@@ -43,6 +44,15 @@ export const Settings: Story = {
       },
     },
   },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const nav = canvas.getByRole("navigation", {
+      name: "Organisation settings",
+    })
+    await expect(nav).toHaveTextContent("Settings")
+    await expect(nav).toHaveTextContent("Members")
+    await expect(nav).toHaveTextContent("API Keys")
+  },
 }
 
 export const ApiKeysEmpty: Story = {
@@ -56,6 +66,16 @@ export const ApiKeysEmpty: Story = {
         ],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const nav = canvas.getByRole("navigation", {
+      name: "Organisation settings",
+    })
+    await expect(nav).toHaveTextContent("API Keys")
+    await expect(
+      await canvas.findByText("No organisation keys yet"),
+    ).toBeVisible()
   },
 }
 
