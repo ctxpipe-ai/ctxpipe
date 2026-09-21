@@ -2,6 +2,7 @@ import { and, eq, inArray, sql } from "drizzle-orm"
 import { getSystemDb } from "../db/client.js"
 import { confluenceSyncTargets } from "../db/schema/confluenceSyncTargets.js"
 import {
+  CONNECTION_TYPE_GITHUB,
   CONNECTION_TYPE_LINEAR,
   CONNECTION_TYPE_NOTION,
   CONNECTION_TYPE_SLACK,
@@ -87,8 +88,8 @@ export async function getSuggestedConnectorSyncTarget(
   orgId: string,
 ): Promise<SuggestedConnectorSyncTarget | null> {
   const db = getSystemDb()
-  const [confluenceTargets, connectionTargets, contextRows] = await Promise.all(
-    [
+  const [confluenceTargets, connectionTargets, githubTargets, contextRows] =
+    await Promise.all([
       db
         .select({
           repositoryId: confluenceSyncTargets.repositoryId,
@@ -137,6 +138,36 @@ export async function getSuggestedConnectorSyncTarget(
         ),
       db
         .select({
+          repositoryId: sql<string>`${connections.config}->'prMirror'->>'repositoryId'`,
+          repositoryName: repositories.name,
+          gitUrl: repositories.gitUrl,
+          branch: sql<
+            string | null
+          >`${connections.config}->'prMirror'->>'branch'`,
+          githubConnectionId: repositories.githubConnectionId,
+        })
+        .from(connections)
+        .innerJoin(
+          repositories,
+          and(
+            eq(repositories.orgId, connections.orgId),
+            eq(
+              repositories.id,
+              sql`${connections.config}->'prMirror'->>'repositoryId'`,
+            ),
+          ),
+        )
+        .where(
+          and(
+            eq(connections.orgId, orgId),
+            eq(connections.type, CONNECTION_TYPE_GITHUB),
+            eq(repositories.orgId, orgId),
+            sql`coalesce(${connections.config}->'prMirror'->>'repositoryId', '') <> ''`,
+            sql`coalesce(${connections.config}->'prMirror'->>'enabled', 'true') = 'true'`,
+          ),
+        ),
+      db
+        .select({
           repositoryId: repositories.id,
           repositoryName: repositories.name,
           gitUrl: repositories.gitUrl,
@@ -152,8 +183,7 @@ export async function getSuggestedConnectorSyncTarget(
           ),
         )
         .where(eq(repositories.orgId, orgId)),
-    ],
-  )
+    ])
 
   const connectorCandidates: SyncTargetCandidate[] = [
     ...confluenceTargets.flatMap((target) =>
@@ -163,6 +193,20 @@ export async function getSuggestedConnectorSyncTarget(
               ...target,
               githubConnectionId: target.githubConnectionId,
               source: "confluence" as const,
+            },
+          ]
+        : [],
+    ),
+    ...githubTargets.flatMap((target) =>
+      target.githubConnectionId
+        ? [
+            {
+              repositoryId: target.repositoryId,
+              repositoryName: target.repositoryName,
+              gitUrl: target.gitUrl,
+              branch: target.branch?.trim() || "main",
+              githubConnectionId: target.githubConnectionId,
+              source: "github" as const,
             },
           ]
         : [],

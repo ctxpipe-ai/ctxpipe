@@ -4,13 +4,16 @@ import {
   CONNECTION_TYPE_GITHUB,
   connections,
 } from "../db/schema/connections.js"
+import { repositories } from "../db/schema/repositories.js"
+import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import {
   type GithubPrMirrorSetupPhase,
   parseGithubConnectionStored,
 } from "../lib/connection-config.js"
+import { generateObjectId } from "../lib/id.js"
 import { mergeGithubConnectionConfig } from "./connection-rows.js"
 import { getGithubConnectionRow } from "./github-installation.js"
-import { getRepositoryForOrg } from "./repositories.js"
+import { DEFAULT_CHECKOUT_KEY, getRepositoryForOrg } from "./repositories.js"
 
 export type GithubPrMirrorBinding = {
   connectionId: string
@@ -51,6 +54,73 @@ export async function getGithubPrMirrorBinding(
     setupPhase: mirror.setupPhase ?? "draft",
     pendingConfigPullUrl: mirror.pendingConfigPullUrl ?? null,
   }
+}
+
+export async function resolveGithubPrMirrorRepository(input: {
+  orgId: string
+  connectionId: string
+  repositoryName: string
+  gitUrl: string
+  branch: string
+}): Promise<string> {
+  const db = getOrgDb()
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({
+        id: repositories.id,
+        githubConnectionId: repositories.githubConnectionId,
+      })
+      .from(repositories)
+      .where(
+        and(
+          eq(repositories.orgId, input.orgId),
+          eq(repositories.gitUrl, input.gitUrl),
+        ),
+      )
+      .limit(1)
+    if (existing) {
+      if (
+        existing.githubConnectionId &&
+        existing.githubConnectionId !== input.connectionId
+      ) {
+        throw new Error(
+          "Context repository must belong to this GitHub App installation",
+        )
+      }
+      if (!existing.githubConnectionId) {
+        await tx
+          .update(repositories)
+          .set({ githubConnectionId: input.connectionId })
+          .where(eq(repositories.id, existing.id))
+      }
+      return existing.id
+    }
+
+    const repositoryId = generateObjectId("repo")
+    const [created] = await tx
+      .insert(repositories)
+      .values({
+        id: repositoryId,
+        orgId: input.orgId,
+        name: input.repositoryName,
+        gitUrl: input.gitUrl,
+        githubConnectionId: input.connectionId,
+      })
+      .returning({ id: repositories.id })
+    if (!created) throw new Error("Failed to create context repository")
+
+    const [checkout] = await tx
+      .insert(repositoryCheckouts)
+      .values({
+        id: generateObjectId("co"),
+        repositoryId,
+        ref: input.branch,
+        checkoutKey: DEFAULT_CHECKOUT_KEY,
+      })
+      .returning({ id: repositoryCheckouts.id })
+    if (!checkout) throw new Error("Failed to create repository checkout")
+    return created.id
+  })
 }
 
 export async function bindGithubPrMirror(input: {

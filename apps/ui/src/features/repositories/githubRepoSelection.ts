@@ -13,6 +13,7 @@ export type GithubRepoItem = {
   name: string
   created_at: string | null
   pushed_at: string | null
+  default_branch?: string
 }
 
 export type GithubRepoSort =
@@ -117,27 +118,29 @@ export async function collectInstallationRepoPages(
   return { repositories, repositorySelection, manageUrl }
 }
 
-/** Poll GitHub while the context-repository step is waiting for ctxpipe-context. */
+/** Poll GitHub while the context-repository step is open so a new repo can appear. */
 export function githubContextRepoPollMs(
   step: "select" | "context",
-  repositories: readonly { name: string }[] | undefined,
 ): number | false {
-  if (step !== "context") return false
-  if (repositories?.some((repo) => isCtxpipeContextRepositoryName(repo.name))) {
-    return false
-  }
-  return 4000
+  return step === "context" ? 4000 : false
 }
 
-export function includeCtxpipeContextRepo(
-  selectedIds: ReadonlySet<number>,
-  repos: readonly GithubRepoItem[],
-): Set<number> {
-  const next = new Set(selectedIds)
-  for (const repo of repos) {
-    if (isCtxpipeContextRepositoryName(repo.name)) next.add(repo.id)
+export function suggestedContextRepository<T extends { name: string }>(
+  repos: readonly T[],
+): T | undefined {
+  return repos.find((repo) => isCtxpipeContextRepositoryName(repo.name))
+}
+
+export function resolvedContextRepository<
+  T extends { id: number; name: string },
+>(
+  repos: readonly T[],
+  args: { picked: boolean; selectedId: number | null },
+): T | null {
+  if (args.picked) {
+    return repos.find((repo) => repo.id === args.selectedId) ?? null
   }
-  return next
+  return suggestedContextRepository(repos) ?? null
 }
 
 export function selectedCloneUrlKeys(

@@ -5,6 +5,7 @@ import { type FormEvent, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Checkbox } from "@/components/ui/Checkbox"
+import { ComboBox, ComboBoxItem } from "@/components/ui/ComboBox"
 import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Radio, RadioGroup } from "@/components/ui/RadioGroup"
 import { SearchField } from "@/components/ui/SearchField"
@@ -13,7 +14,6 @@ import {
   ConnectorContextRepositoryCreateSteps,
   ConnectorContextRepositoryGuidance,
   getConnectorContextRepositoryCreateUrl,
-  isCtxpipeContextRepositoryName,
 } from "@/features/connectors/components/ConnectorContextRepositoryGuidance"
 import {
   fetchGithubInstallationSummary,
@@ -31,8 +31,8 @@ import {
   type GithubRepoSort,
   githubCloneUrlKey,
   githubContextRepoPollMs,
-  includeCtxpipeContextRepo,
   matchSavedRepoIds,
+  resolvedContextRepository,
   selectedCloneUrlKeys,
   sortGithubRepos,
   unmatchedSavedRepos,
@@ -118,6 +118,8 @@ export function GitHubRepositorySetupForm({
   const [selectionHydrated, setSelectionHydrated] = useState(false)
   const [step, setStep] = useState<GitHubRepositorySetupStep>(initialStep)
   const [isManualRefresh, setIsManualRefresh] = useState(false)
+  const [contextPicked, setContextPicked] = useState(false)
+  const [contextRepoId, setContextRepoId] = useState<number | null>(null)
 
   const {
     data,
@@ -130,8 +132,7 @@ export function GitHubRepositorySetupForm({
         fetchInstallationReposPage(orgSlug, page),
       ),
     enabled: !!session,
-    refetchInterval: (query) =>
-      githubContextRepoPollMs(step, query.state.data?.repositories),
+    refetchInterval: () => githubContextRepoPollMs(step),
   })
 
   const { data: installation } = useQuery({
@@ -142,17 +143,18 @@ export function GitHubRepositorySetupForm({
 
   const allRepos = data?.repositories ?? []
   const repositorySelection = data?.repositorySelection
-  const contextRepo = allRepos.find((repo) =>
-    isCtxpipeContextRepositoryName(repo.name),
+  const contextRepo = resolvedContextRepository(allRepos, {
+    picked: contextPicked,
+    selectedId: contextRepoId,
+  })
+  const contextRepoOptions = useMemo(
+    () => sortGithubRepos(allRepos, "name-asc"),
+    [allRepos],
   )
 
   if (!reposPending && !selectionHydrated && data) {
     setSelectedIds(matchSavedRepoIds(savedGitUrls, allRepos))
     setSelectionHydrated(true)
-  }
-
-  if (step === "context" && contextRepo && !selectedIds.has(contextRepo.id)) {
-    setSelectedIds((previous) => includeCtxpipeContextRepo(previous, allRepos))
   }
 
   const unmatchedSaved = useMemo(
@@ -196,12 +198,21 @@ export function GitHubRepositorySetupForm({
 
   const updateOptionsMutation = useMutation({
     mutationFn: async () => {
+      const contextRepository = contextRepo
+        ? {
+            full_name: contextRepo.full_name,
+            name: contextRepo.name,
+            clone_url: contextRepo.clone_url,
+            default_branch: contextRepo.default_branch ?? "main",
+          }
+        : undefined
       if (mode === "all") {
         const res = await patchInstallation({
           param: { orgSlug },
           json: {
             ingestAllRepositories: true,
             includeFutureRepos,
+            ...(contextRepository ? { contextRepository } : {}),
           },
         })
         if (!res.ok) {
@@ -219,7 +230,9 @@ export function GitHubRepositorySetupForm({
 
       const selectedRepositories = buildSelectedRepositories({
         githubRepos: allRepos,
-        selectedIds,
+        selectedIds: contextRepo
+          ? new Set(selectedIds).add(contextRepo.id)
+          : selectedIds,
         unmatchedSaved,
       })
       const res = await patchInstallation({
@@ -228,6 +241,7 @@ export function GitHubRepositorySetupForm({
           ingestAllRepositories: false,
           includeFutureRepos: false,
           selectedRepositories,
+          ...(contextRepository ? { contextRepository } : {}),
         },
       })
       if (!res.ok) {
@@ -302,16 +316,13 @@ export function GitHubRepositorySetupForm({
   const handleRefreshRepositories = async () => {
     setIsManualRefresh(true)
     try {
-      const next = await queryClient.fetchQuery({
+      await queryClient.fetchQuery({
         queryKey: ["github-installation-repos", orgSlug],
         queryFn: () =>
           collectInstallationRepoPages((page) =>
             fetchInstallationReposPage(orgSlug, page),
           ),
       })
-      setSelectedIds((previous) =>
-        includeCtxpipeContextRepo(previous, next.repositories),
-      )
     } finally {
       setIsManualRefresh(false)
     }
@@ -337,14 +348,14 @@ export function GitHubRepositorySetupForm({
           }
         >
           {step === "context"
-            ? "Create a context repository"
+            ? "Choose a context repository"
             : variant === "onboarding"
               ? "Choose repositories to index"
               : "GitHub repository setup"}
         </h1>
         <p className="mt-3 text-balance leading-relaxed text-muted-foreground">
           {step === "context"
-            ? "ctx| writes pull-request capture and later connector content here. Create it once, then reuse it."
+            ? "ctx| writes pull-request capture and later connector content here. Prefer ctxpipe-context, or pick another repository the App can see."
             : variant === "onboarding"
               ? "GitHub controls which repositories ctx| can access. Now choose which of those repositories to index into your knowledge graph."
               : "Choose which repositories to ingest. Already indexed repositories stay selected even if you search or have not scrolled the list."}
@@ -464,25 +475,50 @@ export function GitHubRepositorySetupForm({
                 reposPending ? undefined : contextRepo?.full_name
               }
             />
+            {selectBusy ? (
+              <InlineLoader label="Loading repositories" />
+            ) : reposFailed ? (
+              <p className="text-sm text-zinc-300">
+                Failed to load repositories.
+              </p>
+            ) : (
+              <ComboBox
+                label="Context repository"
+                placeholder="Search repositories"
+                selectedKey={contextRepo ? String(contextRepo.id) : null}
+                onSelectionChange={(key) => {
+                  setContextPicked(true)
+                  if (key == null || key === "") {
+                    setContextRepoId(null)
+                    return
+                  }
+                  const parsed = Number(key)
+                  setContextRepoId(Number.isFinite(parsed) ? parsed : null)
+                }}
+                items={contextRepoOptions}
+              >
+                {(repository) => (
+                  <ComboBoxItem
+                    id={String(repository.id)}
+                    textValue={repository.full_name}
+                  >
+                    {repository.full_name}
+                  </ComboBoxItem>
+                )}
+              </ComboBox>
+            )}
             {!reposPending && !contextRepo ? (
-              <>
-                {reposFailed ? (
-                  <p className="text-sm text-zinc-300">
-                    Failed to load repositories.
-                  </p>
-                ) : null}
-                <ConnectorContextRepositoryCreateSteps
-                  createUrl={getConnectorContextRepositoryCreateUrl(
-                    installation?.accountSlug,
-                  )}
-                  accountSlug={installation?.accountSlug}
-                  manageUrls={grantAccessUrls}
-                  isRefreshing={isManualRefresh}
-                  onRefresh={() => {
-                    void handleRefreshRepositories()
-                  }}
-                />
-              </>
+              <ConnectorContextRepositoryCreateSteps
+                createUrl={getConnectorContextRepositoryCreateUrl(
+                  installation?.accountSlug,
+                )}
+                accountSlug={installation?.accountSlug}
+                manageUrls={grantAccessUrls}
+                isRefreshing={isManualRefresh}
+                onRefresh={() => {
+                  void handleRefreshRepositories()
+                }}
+              />
             ) : null}
 
             <div className="flex gap-3">

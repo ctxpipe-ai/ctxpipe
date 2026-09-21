@@ -60,6 +60,39 @@ describe("chooseSuggestedConnectorSyncTarget", () => {
 })
 
 describe("suggestConnectorSyncTarget", () => {
+  it("uses a GitHub pull-request bind even when the repo is not named ctxpipe-context", () => {
+    expect(
+      suggestConnectorSyncTarget({
+        connectorCandidates: [
+          {
+            repositoryId: "repo_demo",
+            repositoryName: "acme/ctxpipe-context-demo",
+            gitUrl: "https://github.com/acme/ctxpipe-context-demo.git",
+            branch: "main",
+            githubConnectionId: "con_github",
+            source: "github",
+          },
+        ],
+        ctxpipeContextRepos: [
+          {
+            repositoryId: "repo_ctx",
+            repositoryName: "acme/ctxpipe-context",
+            gitUrl: "https://github.com/acme/ctxpipe-context.git",
+            branch: "main",
+            githubConnectionId: "con_github",
+          },
+        ],
+      }),
+    ).toEqual({
+      repositoryId: "repo_demo",
+      repositoryName: "acme/ctxpipe-context-demo",
+      gitUrl: "https://github.com/acme/ctxpipe-context-demo.git",
+      branch: "main",
+      githubConnectionId: "con_github",
+      usedBy: ["github"],
+    })
+  })
+
   it("falls back to an ingested ctxpipe-context when no connector is bound", () => {
     expect(
       suggestConnectorSyncTarget({

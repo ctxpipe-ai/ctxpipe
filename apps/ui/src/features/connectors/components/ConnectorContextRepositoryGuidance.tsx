@@ -81,11 +81,11 @@ export function ConnectorContextRepositoryGuidance({
         />
         <p className="ctx-label mt-4 text-teal-400">Context repository</p>
         <p className="mt-2 text-sm text-muted-foreground">
-          One GitHub repository for pull requests and later connectors. Create{" "}
+          One GitHub repository for pull requests and later connectors.{" "}
           <code className="bg-muted px-1 py-0.5 text-[11px]">
             {CONNECTOR_CONTEXT_REPOSITORY_NAME}
           </code>{" "}
-          once, then reuse it.
+          is the usual name. You can pick another.
         </p>
         {foundRepositoryName ? (
           <p className="mt-2 text-sm text-muted-foreground">
@@ -219,13 +219,7 @@ export function ConnectorContextRepositoryCreateSteps({
             {manageUrls.length + 2}
           </span>
           <div>
-            <p>
-              Return to this tab. We detect{" "}
-              <code className="bg-muted px-1 py-0.5 text-[11px]">
-                {CONNECTOR_CONTEXT_REPOSITORY_NAME}
-              </code>{" "}
-              when the App can see it, or refresh.
-            </p>
+            <p>Return to this tab, refresh, then pick the new repository.</p>
             <Button
               variant="secondary"
               className="mt-2 h-8 rounded-none px-3"
