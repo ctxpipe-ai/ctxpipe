@@ -3,9 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({
   resolveTarget: vi.fn(),
   bind: vi.fn(),
-  getBinding: vi.fn(),
   patch: vi.fn(),
-  listRepos: vi.fn(),
+  listReposForOrg: vi.fn(),
   loadConfig: vi.fn(),
   commitYaml: vi.fn(),
   runWorkflow: vi.fn(),
@@ -19,11 +18,10 @@ vi.mock("../../../models/github-pr-mirror-target.js", () => ({
 }))
 vi.mock("../../../models/github-pr-mirror.js", () => ({
   bindGithubPrMirror: mocks.bind,
-  getGithubPrMirrorBinding: mocks.getBinding,
   patchGithubPrMirror: mocks.patch,
 }))
 vi.mock("../../../models/repositories.js", () => ({
-  listRepositoriesForGithubConnection: mocks.listRepos,
+  listRepositoriesForGithubConnectionForOrg: mocks.listReposForOrg,
 }))
 vi.mock("../../../observability/logger.js", () => ({
   getLogger: () => ({ error: vi.fn() }),
@@ -60,8 +58,8 @@ describe("ensureGithubPrMirror", () => {
       repositoryName: "acme/ctxpipe-context",
       branch: "main",
     })
-    mocks.getBinding.mockResolvedValue(binding)
-    mocks.listRepos.mockResolvedValue([
+    mocks.bind.mockResolvedValue(binding)
+    mocks.listReposForOrg.mockResolvedValue([
       { name: "acme/api" },
       { name: "acme/ctxpipe-context" },
     ])
@@ -93,11 +91,12 @@ describe("ensureGithubPrMirror", () => {
         repositories: ["acme/api"],
       }),
     )
+    expect(mocks.listReposForOrg).toHaveBeenCalledWith("org_1", "con_gh")
     expect(mocks.runWorkflow).toHaveBeenCalled()
   })
 
   it("does not rewrite a live yaml that already matches the picker", async () => {
-    mocks.getBinding.mockResolvedValue({ ...binding, setupPhase: "live" })
+    mocks.bind.mockResolvedValue({ ...binding, setupPhase: "live" })
     mocks.loadConfig.mockResolvedValue({
       repositories: ["acme/api"],
       states: ["merged"],
