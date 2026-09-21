@@ -468,6 +468,7 @@ describe("claimAndRunRepositoryIngestionChild", () => {
   it.each([
     "SleepSignal",
     "SleepSignalError",
+    "StaleExecutionBranchError",
   ] as const)("rethrows %s without logging", async (name) => {
     const sleepSignal = new Error(name)
     sleepSignal.name = name

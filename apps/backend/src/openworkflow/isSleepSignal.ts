@@ -1,9 +1,13 @@
 /**
- * OpenWorkflow parks a parent run by throwing this control signal (not a
- * real failure). 0.8/0.9 used `SleepSignal`; 0.10+ renamed it to
- * `SleepSignalError`. Treat both as a park so ingest is not marked failed.
+ * OpenWorkflow parks or finalizes an execution branch by throwing internal
+ * control signals. They must reach the worker runtime instead of being handled
+ * as application failures.
  */
-export function isSleepSignal(err: unknown): boolean {
+export function isWorkflowControlSignal(err: unknown): boolean {
   if (!(err instanceof Error)) return false
-  return err.name === "SleepSignal" || err.name === "SleepSignalError"
+  return (
+    err.name === "SleepSignal" ||
+    err.name === "SleepSignalError" ||
+    err.name === "StaleExecutionBranchError"
+  )
 }
