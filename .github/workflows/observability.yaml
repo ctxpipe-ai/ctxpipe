@@ -1,0 +1,49 @@
+name: Observability deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ops/observability/**"
+      - ".github/workflows/observability.yaml"
+  workflow_dispatch:
+
+concurrency:
+  group: observability-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy ctxpipe-observability
+    if: github.repository == 'ctxpipe-ai/ctxpipe' && github.ref == 'refs/heads/main'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: observability
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: useblacksmith/checkout@v1
+
+      - uses: useblacksmith/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Install Railway CLI
+        uses: nick-fields/retry@v4
+        with:
+          timeout_minutes: 3
+          max_attempts: 3
+          retry_wait_seconds: 15
+          command: npm install -g @railway/cli@4.35.2
+
+      - name: Link and redeploy
+        env:
+          RAILWAY_TOKEN: ${{ secrets.OBSERVABILITY_RAILWAY_TOKEN }}
+          OBSERVABILITY_RAILWAY_TOKEN: ${{ secrets.OBSERVABILITY_RAILWAY_TOKEN }}
+          OBSERVABILITY_RAILWAY_PROJECT_ID: ${{ secrets.OBSERVABILITY_RAILWAY_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          chmod +x ops/observability/deploy.sh
+          ./ops/observability/deploy.sh

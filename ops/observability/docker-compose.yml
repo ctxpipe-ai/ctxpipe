@@ -1,0 +1,132 @@
+# Optional laptop / VPS recipe. Railway production uses the same images via deploy.sh.
+# Copy .env.example → .env and fill secrets. Postgres for Langfuse is Neon (DATABASE_URL), not Compose.
+
+name: ctxpipe-observability
+
+services:
+  clickhouse:
+    build: ./clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_OTEL_PASSWORD: ${CLICKHOUSE_OTEL_PASSWORD:?}
+      CLICKHOUSE_LANGFUSE_PASSWORD: ${CLICKHOUSE_LANGFUSE_PASSWORD:?}
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    ports:
+      - "8123:8123"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  collector:
+    build: ./collector
+    restart: unless-stopped
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      CLICKHOUSE_ENDPOINT: http://clickhouse:8123
+      CLICKHOUSE_USER: otel
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_OTEL_PASSWORD:?}
+      HYPERDX_OTEL_EXPORTER_CLICKHOUSE_DATABASE: otel
+      HYPERDX_API_KEY: ${HYPERDX_API_KEY:?}
+      LANGFUSE_OTLP_ENDPOINT: ${LANGFUSE_OTLP_ENDPOINT:?}
+      LANGFUSE_AUTH_STRING: ${LANGFUSE_AUTH_STRING:?}
+      CUSTOM_OTELCOL_CONFIG_FILE: /etc/otelcol-contrib/custom.config.yaml
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  hyperdx:
+    image: hyperdx/hyperdx:2
+    restart: unless-stopped
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      mongo:
+        condition: service_started
+    environment:
+      MONGO_URI: mongodb://mongo:27017/hyperdx
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_USER: otel
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_OTEL_PASSWORD:?}
+      CLICKHOUSE_DATABASE: otel
+      HYPERDX_API_KEY: ${HYPERDX_API_KEY:?}
+      FRONTEND_URL: ${HYPERDX_FRONTEND_URL:-http://localhost:8080}
+    ports:
+      - "8080:8080"
+
+  langfuse-web:
+    image: langfuse/langfuse:3
+    restart: unless-stopped
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      DATABASE_URL: ${LANGFUSE_DATABASE_URL:?}
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_LANGFUSE_PASSWORD:?}
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      CLICKHOUSE_DB: langfuse
+      REDIS_CONNECTION_STRING: redis://redis:6379
+      NEXTAUTH_URL: ${LANGFUSE_NEXTAUTH_URL:-http://localhost:3000}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:?}
+      SALT: ${LANGFUSE_SALT:?}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:?}
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: ${LANGFUSE_S3_EVENT_UPLOAD_BUCKET:-}
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: ${LANGFUSE_S3_EVENT_UPLOAD_REGION:-auto}
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID:-}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY:-}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: ${LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT:-}
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+    ports:
+      - "3000:3000"
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    restart: unless-stopped
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      DATABASE_URL: ${LANGFUSE_DATABASE_URL:?}
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_LANGFUSE_PASSWORD:?}
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      CLICKHOUSE_DB: langfuse
+      REDIS_CONNECTION_STRING: redis://redis:6379
+      SALT: ${LANGFUSE_SALT:?}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:?}
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: ${LANGFUSE_S3_EVENT_UPLOAD_BUCKET:-}
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: ${LANGFUSE_S3_EVENT_UPLOAD_REGION:-auto}
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID:-}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY:-}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: ${LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT:-}
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+
+volumes:
+  clickhouse-data:
+  mongo-data:

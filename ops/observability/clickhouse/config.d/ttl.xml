@@ -1,0 +1,6 @@
+<clickhouse>
+  <!-- Default MergeTree TTL: 14 days. ClickStack / Langfuse tables inherit unless they set their own. -->
+  <merge_tree>
+    <ttl_only_drop_parts>1</ttl_only_drop_parts>
+  </merge_tree>
+</clickhouse>
