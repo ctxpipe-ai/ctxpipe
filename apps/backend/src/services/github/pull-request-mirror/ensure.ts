@@ -72,27 +72,18 @@ export async function ensureGithubPrMirror(input: {
     githubConnectionId: binding.githubConnectionId,
     branch: binding.branch,
   })
-  const alreadyLive =
+  // `initial_sync` is written by githubSyncContent after its handler starts,
+  // so either phase proves the content handoff happened.
+  const contentStarted =
     binding.setupPhase === "live" || binding.setupPhase === "initial_sync"
   if (
     current &&
     sameRepositoryList(current.repositories, repositories) &&
-    alreadyLive
+    contentStarted
   ) {
     return { status: "unchanged" }
   }
 
-  await withOrgDbContext(input.orgId, () =>
-    patchGithubPrMirror({
-      orgId: input.orgId,
-      connectionId: input.connectionId,
-      patch: {
-        setupPhase: "initial_sync",
-        pendingConfigPullUrl: null,
-        enabled: true,
-      },
-    }),
-  )
   try {
     const configCommit = await commitGithubPrMirrorConfigYaml({
       orgId: input.orgId,

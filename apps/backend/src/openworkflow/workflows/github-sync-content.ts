@@ -62,7 +62,11 @@ export const githubSyncContent = defineWorkflow(
         patchGithubPrMirror({
           orgId: input.orgId,
           connectionId: input.connectionId,
-          patch: { setupPhase: "initial_sync" },
+          patch: {
+            setupPhase: "initial_sync",
+            pendingConfigPullUrl: null,
+            enabled: true,
+          },
         }),
       )
       const result = await step.run(

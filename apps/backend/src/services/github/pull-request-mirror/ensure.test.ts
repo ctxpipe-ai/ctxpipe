@@ -88,7 +88,7 @@ describe("ensureGithubPrMirror", () => {
 
   it("writes yaml from the picker and starts backfill", async () => {
     mocks.commitYaml.mockImplementationOnce(async () => {
-      expect(mocks.patch).toHaveBeenCalledWith(
+      expect(mocks.patch).not.toHaveBeenCalledWith(
         expect.objectContaining({
           patch: expect.objectContaining({ setupPhase: "initial_sync" }),
         }),

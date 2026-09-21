@@ -77,7 +77,7 @@ describe("bindGithubPrMirror", () => {
       repositoryId: "repo_ctx",
       repositoryName: "acme/ctxpipe-context",
       enabled: true,
-      setupPhase: "initial_sync",
+      setupPhase: "draft",
     })
     expect(mocks.update).toHaveBeenCalled()
   })

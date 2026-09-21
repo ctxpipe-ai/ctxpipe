@@ -157,9 +157,7 @@ export async function bindGithubPrMirror(input: {
   const sameTarget =
     current?.repositoryId === input.repositoryId &&
     current.branch === input.branch
-  const setupPhase = sameTarget
-    ? (current.setupPhase ?? "draft")
-    : "initial_sync"
+  const setupPhase = sameTarget ? (current.setupPhase ?? "draft") : "draft"
   const pendingConfigPullUrl = sameTarget
     ? (current.pendingConfigPullUrl ?? null)
     : null

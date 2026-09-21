@@ -91,6 +91,16 @@ describe("githubSyncContent", () => {
       expect.objectContaining({ repositoryId: "repo_ctx" }),
       expect.objectContaining({ error: expect.any(Function) }),
     )
+    expect(mocks.patchMirror).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        patch: {
+          setupPhase: "initial_sync",
+          pendingConfigPullUrl: null,
+          enabled: true,
+        },
+      }),
+    )
   })
 
   it("does not mark OpenWorkflow suspension as a failed sync", async () => {
