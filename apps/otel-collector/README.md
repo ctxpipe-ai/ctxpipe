@@ -1,6 +1,6 @@
-# OpenTelemetry Collector
+# OpenTelemetry Collector (laptop / contrib)
 
-Shared OpenTelemetry Collector for Better Stack (logs + traces) and LangFuse (traces). Used by backend and other apps when running via docker compose.
+Shared OpenTelemetry Collector for local docker compose (optional Better Stack + LangFuse). **Hosted ingest** is the ClickStack collector under [`ops/observability/collector`](../../ops/observability/collector) ([ADR-031](../../.ai/memory/decisions/ADR-031-self-hosted-clickstack-langfuse.md)). Keep the `filter/llm_only` allowlist in sync with that file.
 
 ## Trace pipelines
 
@@ -18,7 +18,7 @@ Everything else is dropped on the LLM pipeline only. If you point the LLM export
 
 To extend the allowlist (e.g. another framework), edit the OTTL expression in `config.yaml` or add attribute keys under Tier 1.
 
-This is intended to be used only when running in ctx| environment (BetterStack + LangFuse). You can use this as inspiration for your own specific collector when self-hosting but unless you're using the same observability stack it's not good fit.
+This is the **laptop / contrib** collector. Hosted Railway ingest uses [`ops/observability/collector/config.yaml`](../../ops/observability/collector/config.yaml). Keep the `filter/llm_only` allowlist in sync.
 
 ## Setup
 

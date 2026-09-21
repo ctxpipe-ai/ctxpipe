@@ -3,15 +3,15 @@ import { createRootRoute, HeadContent, Scripts } from "@tanstack/react-router"
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
 import type { ReactNode } from "react"
 import { Toaster } from "sonner"
-import { getAmplitudeRuntimeConfig } from "@/lib/amplitudeRuntimeConfig"
 import { getConfluenceForgeRuntimeConfig } from "@/lib/confluenceForgeRuntimeConfig"
+import { getHyperDxRuntimeConfig } from "@/lib/hyperdxRuntimeConfig"
 import { Providers } from "@/providers"
 
 import appCss from "../styles.css?url"
 
 export const Route = createRootRoute({
   loader: () => ({
-    amplitudeRuntimeConfig: getAmplitudeRuntimeConfig(),
+    hyperdxRuntimeConfig: getHyperDxRuntimeConfig(),
     confluenceForgeRuntimeConfig: getConfluenceForgeRuntimeConfig(),
   }),
   head: () => ({
@@ -52,7 +52,7 @@ export const Route = createRootRoute({
 })
 
 function RootDocument({ children }: { children: ReactNode }) {
-  const { amplitudeRuntimeConfig, confluenceForgeRuntimeConfig } =
+  const { hyperdxRuntimeConfig, confluenceForgeRuntimeConfig } =
     Route.useLoaderData()
   return (
     <html lang="en" className="dark">
@@ -61,7 +61,7 @@ function RootDocument({ children }: { children: ReactNode }) {
       </head>
       <body>
         <Providers
-          amplitudeRuntimeConfig={amplitudeRuntimeConfig}
+          hyperdxRuntimeConfig={hyperdxRuntimeConfig}
           confluenceForgeRuntimeConfig={confluenceForgeRuntimeConfig}
         >
           {children}

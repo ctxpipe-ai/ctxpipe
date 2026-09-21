@@ -2,11 +2,7 @@ import { HumanMessage } from "@langchain/core/messages"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import slugify from "@sindresorhus/slugify"
 import { z } from "zod"
-import {
-  currentMcpActor,
-  requireCurrentOrgId,
-  requireCurrentOrgSlug,
-} from "../auth/context.js"
+import { currentMcpActor, requireCurrentOrgId } from "../auth/context.js"
 import { withOrgDbContext } from "../db/client.js"
 import { conversationGraph } from "../graphs/index.js"
 import { generateObjectId } from "../lib/id.js"
@@ -14,7 +10,6 @@ import {
   ensureConversation,
   touchConversationLastMessage,
 } from "../models/conversations.js"
-import { trackMcpToolInvocation } from "../observability/amplitude.js"
 import {
   getLangfuseHandler,
   runWithLangfuseContext,
@@ -96,14 +91,6 @@ export function registerMcpTools(server: McpServer): void {
     async ({ prompt, currentProjectName, conversationId }, extra) => {
       const actor = currentMcpActor()
       const orgId = requireCurrentOrgId()
-      // No-op when `AMPLITUDE_API_KEY` unset (`observability/amplitude.ts`).
-      trackMcpToolInvocation({
-        userId:
-          actor.type === "org-service" ? `org:${actor.orgId}` : actor.userId,
-        orgId,
-        orgSlug: requireCurrentOrgSlug(),
-        toolName: "ctx_advisor",
-      })
       const threadActorKey = actor.type === "org-service" ? "org" : actor.userId
       const threadId =
         conversationId != null

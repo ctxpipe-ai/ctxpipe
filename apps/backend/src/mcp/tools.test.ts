@@ -11,7 +11,6 @@ const {
   requireCurrentOrgIdMock,
   requireCurrentOrgSlugMock,
   currentMcpActorMock,
-  trackMcpToolInvocationMock,
   runWithLangfuseContextMock,
   getLangfuseHandlerMock,
   withOrgDbContextMock,
@@ -28,7 +27,6 @@ const {
     type: "user" as const,
     userId: "user_test123",
   })),
-  trackMcpToolInvocationMock: vi.fn(),
   runWithLangfuseContextMock: vi.fn(
     async (_attrs: unknown, fn: () => Promise<unknown>) => fn(),
   ),
@@ -61,10 +59,6 @@ vi.mock("../auth/context.js", () => ({
   currentMcpActor: currentMcpActorMock,
 }))
 
-vi.mock("../observability/amplitude.js", () => ({
-  trackMcpToolInvocation: trackMcpToolInvocationMock,
-}))
-
 vi.mock("../observability/langfuse.js", () => ({
   runWithLangfuseContext: runWithLangfuseContextMock,
   getLangfuseHandler: getLangfuseHandlerMock,
@@ -90,7 +84,6 @@ describe("registerMcpTools", () => {
       userId: "user_test123",
     })
     requireCurrentUserIdMock.mockReset().mockReturnValue("user_test123")
-    trackMcpToolInvocationMock.mockReset()
     runWithLangfuseContextMock
       .mockReset()
       .mockImplementation(async (_attrs: unknown, fn: () => Promise<unknown>) =>
@@ -467,12 +460,6 @@ describe("registerMcpTools", () => {
 
     expect(requireCurrentUserIdMock).not.toHaveBeenCalled()
     expect(generateObjectIdMock).not.toHaveBeenCalled()
-    expect(trackMcpToolInvocationMock).toHaveBeenCalledWith({
-      userId: "org:org_test",
-      orgId: "org_test",
-      orgSlug: "test-org",
-      toolName: "ctx_advisor",
-    })
 
     const callConfig = streamMock.mock.calls[0]?.[1] as {
       configurable?: { thread_id?: string }

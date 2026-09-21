@@ -111,15 +111,6 @@ const envSchema = z.object({
   GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),
   /** Public GitHub App slug for install links (e.g. `ctxpipe-agent`). When unset but app id/key are set, defaults to `ctxpipe-agent` in bootstrap URLs only. */
   GITHUB_APP_SLUG: z.string().min(1).optional(),
-
-  /** If unset, Amplitude is off: no product analytics events are sent (see `observability/amplitude.ts`). */
-  AMPLITUDE_API_KEY: z.string().min(1).optional(),
-  AMPLITUDE_REGION: z
-    .string()
-    .optional()
-    .transform((v): "us" | "eu" =>
-      v?.trim().toLowerCase() === "eu" ? "eu" : "us",
-    ),
 })
 
 export type Env = z.infer<typeof envSchema>

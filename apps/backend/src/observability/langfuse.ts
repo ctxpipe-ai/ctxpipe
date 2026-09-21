@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { randomUUID } from "node:crypto"
 import type { Serialized } from "@langchain/core/load/serializable"
 import { CallbackHandler } from "@langfuse/langchain"
+import { otelDeploymentEnvironment } from "./otel.js"
 
 export type LangfuseContext = {
   handler: CallbackHandler
@@ -52,16 +53,22 @@ export function runWithLangfuseContext<T>(
   fn: () => T | Promise<T>,
 ): Promise<T> {
   const current = langfuseStorage.getStore()
-  const handler = current?.handler ?? new CallbackHandler(attrs)
+  const envTag = `env:${otelDeploymentEnvironment()}`
+  const tags = uniqueTags([...(attrs.tags ?? current?.tags ?? []), envTag])
+  const handler = current?.handler ?? new CallbackHandler({ ...attrs, tags })
   return langfuseStorage.run(
     {
       handler,
       parentRunId: current?.parentRunId,
-      tags: attrs.tags ?? current?.tags,
+      tags,
       metadata: attrs.traceMetadata ?? current?.metadata,
     },
     fn,
   ) as Promise<T>
+}
+
+function uniqueTags(tags: string[]): string[] {
+  return [...new Set(tags.filter((tag) => tag.length > 0))]
 }
 
 export async function withLangfuseObservation<T>(

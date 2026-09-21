@@ -1,5 +1,5 @@
-# OpenTelemetry Collector — Better Stack + LangFuse
-# Configure via apps/otel-collector/.env (copy from .env.example)
+# OpenTelemetry Collector — laptop / contrib (Better Stack + LangFuse).
+# Hosted allowlist: ops/observability/collector/config.yaml
 
 receivers:
   otlp:

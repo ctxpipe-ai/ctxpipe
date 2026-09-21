@@ -23,7 +23,7 @@ import { Route as DotauthDeviceRouteImport } from './routes/[.]auth.device'
 import { Route as DotauthConsentRouteImport } from './routes/[.]auth.consent'
 import { Route as DotauthAccountRouteImport } from './routes/[.]auth.account'
 import { Route as DotauthAuthViewRouteImport } from './routes/[.]auth.$authView'
-import { Route as DotampEventsRouteImport } from './routes/[.]amp.events'
+import { Route as DototelSplatRouteImport } from './routes/[.]otel.$'
 import { Route as OrgSlugSetupRouteImport } from './routes/$orgSlug.setup'
 import { Route as OrgSlugRepositoriesRouteImport } from './routes/$orgSlug.repositories'
 import { Route as OrgSlugKnowledgeGraphRouteImport } from './routes/$orgSlug.knowledge-graph'
@@ -108,9 +108,9 @@ const DotauthAuthViewRoute = DotauthAuthViewRouteImport.update({
   path: '/.auth/$authView',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DotampEventsRoute = DotampEventsRouteImport.update({
-  id: '/.amp/events',
-  path: '/.amp/events',
+const DototelSplatRoute = DototelSplatRouteImport.update({
+  id: '/.otel/$',
+  path: '/.otel/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OrgSlugSetupRoute = OrgSlugSetupRouteImport.update({
@@ -189,7 +189,7 @@ export interface FileRoutesByFullPath {
   '/$orgSlug/knowledge-graph': typeof OrgSlugKnowledgeGraphRoute
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRouteWithChildren
   '/$orgSlug/setup': typeof OrgSlugSetupRoute
-  '/.amp/events': typeof DotampEventsRoute
+  '/.otel/$': typeof DototelSplatRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -215,7 +215,7 @@ export interface FileRoutesByTo {
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/knowledge-graph': typeof OrgSlugKnowledgeGraphRoute
   '/$orgSlug/setup': typeof OrgSlugSetupRoute
-  '/.amp/events': typeof DotampEventsRoute
+  '/.otel/$': typeof DototelSplatRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -245,7 +245,7 @@ export interface FileRoutesById {
   '/$orgSlug/knowledge-graph': typeof OrgSlugKnowledgeGraphRoute
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRouteWithChildren
   '/$orgSlug/setup': typeof OrgSlugSetupRoute
-  '/.amp/events': typeof DotampEventsRoute
+  '/.otel/$': typeof DototelSplatRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -276,7 +276,7 @@ export interface FileRouteTypes {
     | '/$orgSlug/knowledge-graph'
     | '/$orgSlug/repositories'
     | '/$orgSlug/setup'
-    | '/.amp/events'
+    | '/.otel/$'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -302,7 +302,7 @@ export interface FileRouteTypes {
     | '/$orgSlug/connectors'
     | '/$orgSlug/knowledge-graph'
     | '/$orgSlug/setup'
-    | '/.amp/events'
+    | '/.otel/$'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -331,7 +331,7 @@ export interface FileRouteTypes {
     | '/$orgSlug/knowledge-graph'
     | '/$orgSlug/repositories'
     | '/$orgSlug/setup'
-    | '/.amp/events'
+    | '/.otel/$'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -356,7 +356,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   OrgSlugRoute: typeof OrgSlugRouteWithChildren
   OnboardingRoute: typeof OnboardingRoute
-  DotampEventsRoute: typeof DotampEventsRoute
+  DototelSplatRoute: typeof DototelSplatRoute
   DotauthAuthViewRoute: typeof DotauthAuthViewRoute
   DotauthAccountRoute: typeof DotauthAccountRouteWithChildren
   DotauthConsentRoute: typeof DotauthConsentRoute
@@ -470,11 +470,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DotauthAuthViewRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/.amp/events': {
-      id: '/.amp/events'
-      path: '/.amp/events'
-      fullPath: '/.amp/events'
-      preLoaderRoute: typeof DotampEventsRouteImport
+    '/.otel/$': {
+      id: '/.otel/$'
+      path: '/.otel/$'
+      fullPath: '/.otel/$'
+      preLoaderRoute: typeof DototelSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$orgSlug/setup': {
@@ -631,7 +631,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   OrgSlugRoute: OrgSlugRouteWithChildren,
   OnboardingRoute: OnboardingRoute,
-  DotampEventsRoute: DotampEventsRoute,
+  DototelSplatRoute: DototelSplatRoute,
   DotauthAuthViewRoute: DotauthAuthViewRoute,
   DotauthAccountRoute: DotauthAccountRouteWithChildren,
   DotauthConsentRoute: DotauthConsentRoute,

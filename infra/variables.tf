@@ -154,15 +154,15 @@ variable "langfuse_otlp_endpoint" {
   sensitive   = true
 }
 
-variable "amplitude_api_key" {
+variable "otel_otlp_endpoint" {
   type        = string
-  description = "Amplitude project API key; leave empty to disable analytics."
+  description = "Public ClickStack collector OTLP HTTP base. Empty keeps the in-project otelcollector."
   default     = ""
-  sensitive   = true
 }
 
-variable "amplitude_region" {
+variable "otel_otlp_headers" {
   type        = string
-  description = "Amplitude data region: us or eu."
-  default     = "us"
+  description = "OTEL_EXPORTER_OTLP_HEADERS for the public collector."
+  default     = ""
+  sensitive   = true
 }

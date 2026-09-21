@@ -221,17 +221,17 @@ variable "langfuse_otlp_endpoint" {
   sensitive   = true
 }
 
-variable "amplitude_api_key" {
+variable "otel_otlp_endpoint" {
   type        = string
-  description = "Amplitude project API key (browser + MCP); leave empty to disable."
+  description = "Public ClickStack collector OTLP HTTP base (scheme://host:4318). Empty keeps the in-project otelcollector."
   default     = ""
-  sensitive   = true
 }
 
-variable "amplitude_region" {
+variable "otel_otlp_headers" {
   type        = string
-  description = "Amplitude data region: us or eu."
-  default     = "us"
+  description = "OTEL_EXPORTER_OTLP_HEADERS for the public collector (e.g. authorization=<HYPERDX_API_KEY>)."
+  default     = ""
+  sensitive   = true
 }
 
 variable "neon_project" {

@@ -190,6 +190,8 @@ jobs:
       PR_ENV: pr-${{ needs.resolve_pr.outputs.pr_number }}
       IMAGE_TAG: pr-${{ needs.resolve_pr.outputs.pr_number }}-${{ needs.resolve_pr.outputs.head_sha }}
       PR_NUMBER: ${{ needs.resolve_pr.outputs.pr_number }}
+      OBSERVABILITY_OTLP_ENDPOINT: ${{ vars.OBSERVABILITY_OTLP_ENDPOINT }}
+      OBSERVABILITY_OTLP_HEADERS: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
     outputs:
       env_id: ${{ steps.railway_env.outputs.env_id }}
     steps:
@@ -470,8 +472,10 @@ jobs:
               echo "Updated DATABASE_URL for service $service_id with skipDeploys=true"
             }
 
-            # Preview-only: turn off LangSmith and delete OTEL exporters so apps do not
-            # emit 60s metrics/logs (which keep Railway Serverless awake and wake otelcollector).
+            # Preview-only: turn off LangSmith. OTEL goes to the shared ClickStack
+            # collector when OBSERVABILITY_OTLP_ENDPOINT is set (PR uses flush-on-demand
+            # metrics, so no 60s timer). Until that var exists, delete cloned in-project
+            # collector URLs so we do not talk to a scaled-to-0 otelcollector.
             delete_service_variable() {
               local service_id="$1"
               local name="$2"
@@ -479,6 +483,50 @@ jobs:
                 'mutation variableDelete($input: VariableDeleteInput!) { variableDelete(input: $input) }' \
                 "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" --arg name "$name" \
                   '{input:{projectId:$project, environmentId:$env, serviceId:$service, name:$name}}')" >/dev/null 2>&1 || true
+            }
+
+            upsert_preview_otel_variables() {
+              local service_id="$1"
+              local base="${OBSERVABILITY_OTLP_ENDPOINT:-}"
+              if [[ -z "$base" ]]; then
+                delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
+                delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
+                delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
+                delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_HEADERS"
+                echo "OBSERVABILITY_OTLP_ENDPOINT unset; removed OTEL exporters on $service_id"
+                return 0
+              fi
+              base="${base%/}"
+              local traces="${base}/v1/traces"
+              local logs="${base}/v1/logs"
+              local metrics="${base}/v1/metrics"
+              local headers="${OBSERVABILITY_OTLP_HEADERS:-}"
+              railway_graphql \
+                'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
+                "$(jq -nc \
+                  --arg project "$RAILWAY_PROJECT_ID" \
+                  --arg env "$ENV_ID" \
+                  --arg service "$service_id" \
+                  --arg traces "$traces" \
+                  --arg logs "$logs" \
+                  --arg metrics "$metrics" \
+                  --arg headers "$headers" \
+                  '{
+                    input: {
+                      projectId: $project,
+                      environmentId: $env,
+                      serviceId: $service,
+                      skipDeploys: true,
+                      variables: (
+                        {
+                          OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: $traces,
+                          OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: $logs,
+                          OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: $metrics
+                        } + (if $headers == "" then {} else {OTEL_EXPORTER_OTLP_HEADERS: $headers} end)
+                      )
+                    }
+                  }')"
+              echo "Pointed OTEL exporters at shared collector for service $service_id"
             }
 
             upsert_preview_service_variables() {
@@ -498,10 +546,7 @@ jobs:
                       }
                     }
                   }')"
-              # Delete (not empty-string upsert) so Railway truly unsets OTEL endpoints.
-              delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
-              delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
-              delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
+              upsert_preview_otel_variables "$service_id"
               echo "Updated preview namespace/telemetry variables for service $service_id"
             }
 
@@ -693,6 +738,7 @@ jobs:
 
             upsert_database_url_without_deploy "$CODESEARCH_SERVICE_ID" >/dev/null
             upsert_preview_codesearch_capacity "$CODESEARCH_SERVICE_ID" >/dev/null
+            upsert_preview_otel_variables "$CODESEARCH_SERVICE_ID" >/dev/null
             update_source_image "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE" >/dev/null
             deploy_service "$CODESEARCH_SERVICE_ID" >/dev/null
 
