@@ -6,6 +6,7 @@ import { OrganizationApiKeysCard } from "@/features/organization/OrganizationApi
 import { OrganizationSettingsNav } from "@/features/organization/OrganizationSettingsNav"
 import { organizationViewClassNames } from "@/features/organization/organizationViewTheme"
 import { useListOrganizations, useSession } from "@/lib/auth-client"
+import { cn } from "@/lib/utils"
 
 export const Route = createFileRoute(
   "/$orgSlug/organization/$organizationView",
@@ -61,7 +62,12 @@ export function OrganizationSettingsBody(props: {
   const isApiKeys = organizationView === "api-keys"
 
   return (
-    <main className="mx-auto max-w-3xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
+    <main
+      className={cn(
+        "mx-auto px-2 py-2 text-zinc-100 sm:px-6 sm:py-10",
+        isApiKeys ? "max-w-4xl" : "max-w-3xl",
+      )}
+    >
       <h1 className="mb-6 font-mono text-xs font-normal uppercase tracking-[0.24em] text-teal-400 sm:mb-8">
         organisation settings
       </h1>

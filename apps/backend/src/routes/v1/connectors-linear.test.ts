@@ -41,6 +41,9 @@ const extraMocks = vi.hoisted(() => ({
   saveOauthApp: vi.fn(),
 }))
 
+vi.mock("../../openworkflow/workflows/github-ensure-pr-mirror.js", () => ({
+  enqueueGithubPrMirrorEnsureForOrg: vi.fn().mockResolvedValue(undefined),
+}))
 vi.mock("../../models/linear-connector.js", () => ({
   claimLinearContentSyncRetry: mocks.claimContentRetry,
   deleteLinearConnectionById: vi.fn(),
@@ -308,7 +311,9 @@ describe("Linear connector routes", () => {
     const app = new OpenAPIHono<AppEnv>()
       .use("*", async (c, next) => {
         c.set("env", rowEnv)
-        c.set("user", { id: "user_1" } as unknown as AppEnv["Variables"]["user"])
+        c.set("user", {
+          id: "user_1",
+        } as unknown as AppEnv["Variables"]["user"])
         c.set("session", {
           id: "session_1",
         } as unknown as AppEnv["Variables"]["session"])
@@ -336,7 +341,9 @@ describe("Linear connector routes", () => {
     const app = new OpenAPIHono<AppEnv>()
       .use("*", async (c, next) => {
         c.set("env", emptyEnv)
-        c.set("user", { id: "user_1" } as unknown as AppEnv["Variables"]["user"])
+        c.set("user", {
+          id: "user_1",
+        } as unknown as AppEnv["Variables"]["user"])
         c.set("session", {
           id: "session_1",
         } as unknown as AppEnv["Variables"]["session"])

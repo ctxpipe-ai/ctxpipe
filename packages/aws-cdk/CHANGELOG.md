@@ -1,5 +1,12 @@
 # @ctxpipe/aws-cdk
 
+## 3.1.10
+
+### Patch Changes
+
+- 9c9e889: Add API-key MCP auth as an OAuth alternative: `--auth api-key` writes a client-specific interpolation of `CTXPIPE_API_KEY` (never the secret) into repo or user MCP config. Mint organisation keys in Organisation settings; personal keys remain under User account. `doctor mcp` sends `x-api-key` when `CTXPIPE_API_KEY` is set in that process. Raise dashboard API-key rate limits so MCP is usable.
+- 8c1fbd2: Fix ctx_advisor on Neptune-backed AWS CDK deploys: graph traversal now uses openCypher `size()` list predicates instead of Neo4j `ALL()`, and advisor failures emit on the process logger so they survive a sealed request event.
+
 ## 3.1.9
 
 ### Patch Changes

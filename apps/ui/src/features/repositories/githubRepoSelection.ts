@@ -1,3 +1,5 @@
+import { isCtxpipeContextRepositoryName } from "@/features/connectors/components/ConnectorContextRepositoryGuidance"
+
 export type SavedGithubRepo = {
   name: string
   gitUrl: string
@@ -11,6 +13,7 @@ export type GithubRepoItem = {
   name: string
   created_at: string | null
   pushed_at: string | null
+  default_branch?: string
 }
 
 export type GithubRepoSort =
@@ -95,20 +98,49 @@ export async function collectInstallationRepoPages(
     repositories: GithubRepoItem[]
     hasMore: boolean
     repositorySelection: string
+    manageUrl?: string | null
   }>,
 ): Promise<{
   repositories: GithubRepoItem[]
   repositorySelection: string
+  manageUrl: string | null
 }> {
   const repositories: GithubRepoItem[] = []
   let repositorySelection = "selected"
+  let manageUrl: string | null = null
   for (let page = 1; page <= MAX_INSTALLATION_PAGES; page += 1) {
     const result = await fetchPage(page)
     repositorySelection = result.repositorySelection
+    if (!manageUrl && result.manageUrl) manageUrl = result.manageUrl
     repositories.push(...result.repositories)
     if (!result.hasMore) break
   }
-  return { repositories, repositorySelection }
+  return { repositories, repositorySelection, manageUrl }
+}
+
+/** Poll GitHub while the context-repository step is open so a new repo can appear. */
+export function githubContextRepoPollMs(
+  step: "select" | "context",
+): number | false {
+  return step === "context" ? 4000 : false
+}
+
+export function suggestedContextRepository<T extends { name: string }>(
+  repos: readonly T[],
+): T | undefined {
+  return repos.find((repo) => isCtxpipeContextRepositoryName(repo.name))
+}
+
+export function resolvedContextRepository<
+  T extends { id: number; name: string },
+>(
+  repos: readonly T[],
+  args: { picked: boolean; selectedId: number | null },
+): T | null {
+  if (args.picked) {
+    return repos.find((repo) => repo.id === args.selectedId) ?? null
+  }
+  return suggestedContextRepository(repos) ?? null
 }
 
 export function selectedCloneUrlKeys(

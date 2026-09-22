@@ -9,7 +9,7 @@ import {
   withLogger,
 } from "../../observability/logger.js"
 import { enqueueFollowUpIfTipAhead } from "../enqueue-follow-up-if-tip-ahead.js"
-import { isSleepSignal } from "../isSleepSignal.js"
+import { isWorkflowControlSignal } from "../isSleepSignal.js"
 import { repositoryIngestion } from "./repository-ingestion.js"
 
 const repositoryIngestionOrchestratorInputSchema = z.object({
@@ -18,6 +18,7 @@ const repositoryIngestionOrchestratorInputSchema = z.object({
   targetBranch: z.string().nullable().optional(),
   indexingReason: z.string().nullable().optional(),
   githubConnectionId: z.string().nullable().optional(),
+  fullReingest: z.boolean().optional(),
 })
 
 export const repositoryIngestionOrchestrator = defineWorkflow(
@@ -48,11 +49,14 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
               ...(input.githubConnectionId !== undefined
                 ? { githubConnectionId: input.githubConnectionId }
                 : {}),
+              ...(input.fullReingest !== undefined
+                ? { fullReingest: input.fullReingest }
+                : {}),
             },
             { name: "repository-ingestion-child" },
           )
         } catch (err: unknown) {
-          if (isSleepSignal(err)) {
+          if (isWorkflowControlSignal(err)) {
             throw err
           }
 

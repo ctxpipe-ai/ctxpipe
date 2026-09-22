@@ -64,6 +64,7 @@ import {
   resetBearerJwksCacheForTests,
   withBearerAuth,
   withCookieAuth,
+  withMcpBearerAuth,
   withNetworkOrgContext,
   withOrgApiKeyAuth,
 } from "./withAuth.js"
@@ -183,9 +184,9 @@ function createComposedTestApp(): Hono<AppEnv> {
   const app = createBaseApp()
   app.use(
     "/mcp",
+    withMcpBearerAuth,
     withCookieAuth,
     withOrgApiKeyAuth,
-    withBearerAuth,
     requireAuth,
     withNetworkOrgContext,
   )
@@ -201,24 +202,42 @@ function createComposedTestApp(): Hono<AppEnv> {
   return app
 }
 
+function resetAuthMocks(): void {
+  vi.clearAllMocks()
+  resetBearerJwksCacheForTests()
+  testState.db = createMockDb({})
+  getSystemDbMock.mockReset()
+  getSystemDbMock.mockImplementation(() => testState.db as never)
+  withOrgDbContextMock.mockReset()
+  withOrgDbContextMock.mockImplementation(
+    async (_orgId: string, handler: (db: unknown) => Promise<unknown>) =>
+      handler(testState.db),
+  )
+  createLocalJWKSetMock.mockReset()
+  createLocalJWKSetMock.mockReturnValue("mock-jwks-set")
+  jwtVerifyMock.mockReset()
+  authHandlerMock.mockReset()
+  authHandlerMock.mockImplementation(() =>
+    Promise.resolve(
+      new Response(JSON.stringify({ keys: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    ),
+  )
+  getSessionMock.mockReset()
+  getSessionMock.mockResolvedValue(null)
+  verifyApiKeyMock.mockReset()
+  verifyApiKeyMock.mockResolvedValue({
+    valid: false,
+    error: { message: "KEY_NOT_FOUND", code: "KEY_NOT_FOUND" },
+    key: null,
+  })
+}
+
 describe("auth middleware composition", () => {
   beforeEach(() => {
-    vi.clearAllMocks()
-    resetBearerJwksCacheForTests()
-    getSystemDbMock.mockImplementation(() => testState.db as never)
-    withOrgDbContextMock.mockImplementation(
-      async (_orgId: string, handler: (db: unknown) => Promise<unknown>) =>
-        handler(testState.db),
-    )
-    createLocalJWKSetMock.mockReturnValue("mock-jwks-set")
-    authHandlerMock.mockImplementation(() =>
-      Promise.resolve(
-        new Response(JSON.stringify({ keys: [] }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      ),
-    )
+    resetAuthMocks()
   })
 
   it("withCookieAuth sets user and session from cookie session", async () => {
@@ -392,6 +411,7 @@ describe("auth middleware composition", () => {
     })
     expect(jwtVerifyMock).not.toHaveBeenCalled()
     expect(authHandlerMock).not.toHaveBeenCalled()
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
   })
 
   it("withBearerAuth returns 401 for an unknown opaque access token", async () => {
@@ -696,6 +716,7 @@ describe("auth middleware composition", () => {
       orgSlug: "bound",
       orgId: "org_bound",
     })
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
   })
 
   it("rejects an explicit orgSlug that conflicts with the JWT grant", async () => {
@@ -767,6 +788,7 @@ describe("auth middleware composition", () => {
       orgSlug: "bound",
       orgId: "org_bound",
     })
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
   })
 
   it("accepts an organization-bound JWT after its browser session is deleted", async () => {
@@ -907,6 +929,9 @@ describe("auth middleware composition", () => {
   })
 
   it("withBearerAuth 401 on /mcp includes resource_metadata", async () => {
+    // Auth API mocks stay at the Better Auth boundary (beforeEach defaults:
+    // no session, verifyApiKey invalid). This case asserts the real
+    // WWW-Authenticate header built from AUTH_BASE_URL once that path 401s.
     testState.db = createMockDb({ opaqueTokenRows: [] })
     const app = createBaseApp()
     app.use("/mcp", withBearerAuth)
@@ -929,9 +954,9 @@ describe("org API-key principal", () => {
     const app = createBaseApp()
     app.use(
       "/mcp",
+      withMcpBearerAuth,
       withCookieAuth,
       withOrgApiKeyAuth,
-      withBearerAuth,
       requireAuth,
     )
     app.post("/mcp", (c) =>
@@ -946,7 +971,12 @@ describe("org API-key principal", () => {
 
   function createRestPrincipalApp(): Hono<AppEnv> {
     const app = createBaseApp()
-    app.use("/:orgSlug/api/v1/conversations", withCookieAuth, requireAuth)
+    app.use(
+      "/:orgSlug/api/v1/conversations",
+      withCookieAuth,
+      withBearerAuth,
+      requireAuth,
+    )
     app.get("/:orgSlug/api/v1/conversations", (c) =>
       c.json({
         ok: true,
@@ -982,11 +1012,20 @@ describe("org API-key principal", () => {
     })
   }
 
+  function mockPersonalApiKeySession() {
+    getSessionMock.mockImplementation(
+      async ({ headers }: { headers: Headers }) => {
+        if (headers.get("x-api-key") !== "ctxp_user_key") return null
+        return {
+          user: { id: "user_api_key", email: "api-key@example.com" },
+          session: { id: "sess_api_key", userId: "user_api_key" },
+        }
+      },
+    )
+  }
+
   beforeEach(() => {
-    vi.clearAllMocks()
-    resetBearerJwksCacheForTests()
-    getSystemDbMock.mockImplementation(() => testState.db as never)
-    getSessionMock.mockResolvedValue(null)
+    resetAuthMocks()
   })
 
   it("user x-api-key still sets user and session", async () => {
@@ -1085,6 +1124,20 @@ describe("org API-key principal", () => {
     expect(verifyApiKeyMock).not.toHaveBeenCalled()
   })
 
+  it("Bearer API keys do not authenticate REST routes", async () => {
+    testState.db = createMockDb({ opaqueTokenRows: [] })
+    mockPersonalApiKeySession()
+
+    const app = createRestPrincipalApp()
+    const response = await app.request("/acme/api/v1/conversations", {
+      headers: { authorization: "Bearer ctxp_user_key" },
+    })
+
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({ error: "Unauthorized" })
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
+  })
+
   it("Bearer OAuth is unchanged and does not set orgApiKey", async () => {
     jwtVerifyMock.mockResolvedValueOnce({
       payload: { sub: "token_sub", sid: "sess_token" },
@@ -1113,8 +1166,132 @@ describe("org API-key principal", () => {
     expect(verifyApiKeyMock).not.toHaveBeenCalled()
   })
 
-  it("Bearer that looks like an API key still 401s with no org-key fallback", async () => {
+  it("OAuth Bearer takes precedence over a simultaneous org x-api-key", async () => {
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: { sub: "token_sub", sid: "sess_token" },
+    })
+    testState.db = createMockDb({
+      tokenSessionRows: [
+        {
+          session: { id: "sess_token", userId: "user_token" },
+          user: { id: "user_token", email: "token@example.com" },
+        },
+      ],
+    })
+    mockOrgKey()
+
+    const app = createMcpPrincipalApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer header.payload.signature",
+        "x-api-key": "ctxp_org_key",
+      },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: { id: "user_token", email: "token@example.com" },
+      session: { id: "sess_token", userId: "user_token" },
+      orgApiKey: null,
+    })
+    expect(getSessionMock).not.toHaveBeenCalled()
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
+  })
+
+  it("does not ignore an invalid Bearer when a cookie session is present", async () => {
     testState.db = createMockDb({ opaqueTokenRows: [] })
+    getSessionMock.mockImplementation(
+      async ({ headers }: { headers: Headers }) =>
+        headers.get("x-api-key")
+          ? null
+          : {
+              user: { id: "user_cookie", email: "cookie@example.com" },
+              session: { id: "sess_cookie", userId: "user_cookie" },
+            },
+    )
+    mockInvalidKey("KEY_NOT_FOUND")
+
+    const app = createMcpPrincipalApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer invalid-bearer",
+        cookie: "session=present",
+      },
+    })
+
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({ error: "Unauthorized" })
+  })
+
+  it("Bearer personal API key sets user and session", async () => {
+    testState.db = createMockDb({ opaqueTokenRows: [] })
+    mockPersonalApiKeySession()
+
+    const app = createMcpPrincipalApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer ctxp_user_key" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: { id: "user_api_key", email: "api-key@example.com" },
+      session: { id: "sess_api_key", userId: "user_api_key" },
+      orgApiKey: null,
+    })
+  })
+
+  it("Bearer org API key sets orgApiKey without a user session", async () => {
+    testState.db = createMockDb({ opaqueTokenRows: [] })
+    getSessionMock.mockResolvedValue(null)
+    mockOrgKey()
+
+    const app = createMcpPrincipalApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer ctxp_org_key" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: null,
+      session: null,
+      orgApiKey: {
+        id: "key_org",
+        orgId: "org_acme",
+        configId: "organization",
+      },
+    })
+  })
+
+  it("Bearer org API key takes precedence over a simultaneous x-api-key", async () => {
+    testState.db = createMockDb({ opaqueTokenRows: [] })
+    mockOrgKey()
+
+    const app = createMcpPrincipalApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer ctxp_org_key",
+        "x-api-key": "ctxp_other_key",
+      },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      user: null,
+      session: null,
+      orgApiKey: { id: "key_org", orgId: "org_acme" },
+    })
+    expect(verifyApiKeyMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("Bearer that is neither OAuth nor API key returns 401", async () => {
+    testState.db = createMockDb({ opaqueTokenRows: [] })
+    getSessionMock.mockResolvedValue(null)
+    mockInvalidKey("KEY_NOT_FOUND")
 
     const app = createMcpPrincipalApp()
     const response = await app.request("/mcp", {
@@ -1123,8 +1300,7 @@ describe("org API-key principal", () => {
     })
 
     expect(response.status).toBe(401)
-    expect(verifyApiKeyMock).not.toHaveBeenCalled()
-    expect(jwtVerifyMock).not.toHaveBeenCalled()
+    expect(await response.json()).toEqual({ error: "Unauthorized" })
   })
 
   it("invalid org key returns 401", async () => {
@@ -1180,13 +1356,7 @@ describe("org API-key tenant binding", () => {
   }
 
   beforeEach(() => {
-    vi.clearAllMocks()
-    resetBearerJwksCacheForTests()
-    getSystemDbMock.mockImplementation(() => testState.db as never)
-    withOrgDbContextMock.mockImplementation(
-      async (_orgId: string, handler: (db: unknown) => Promise<unknown>) =>
-        handler(testState.db),
-    )
+    resetAuthMocks()
   })
 
   it("org x-api-key on /mcp binds the key's org without orgSlug or membership", async () => {

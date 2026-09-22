@@ -16,6 +16,30 @@ function trimNullableConnectionString(v: unknown): unknown {
   return t.length > 0 ? t : null
 }
 
+export const GITHUB_PR_MIRROR_SETUP_PHASES = [
+  "draft",
+  "awaiting_merge",
+  "config_failed",
+  "initial_sync",
+  "sync_failed",
+  "live",
+] as const
+
+export type GithubPrMirrorSetupPhase =
+  (typeof GITHUB_PR_MIRROR_SETUP_PHASES)[number]
+
+export const githubPrMirrorConfigSchema = z.object({
+  repositoryId: z.string().min(1).nullable().optional(),
+  branch: z.string().min(1).nullable().optional(),
+  enabled: z.boolean().optional(),
+  setupPhase: z.enum(GITHUB_PR_MIRROR_SETUP_PHASES).optional(),
+  pendingConfigPullUrl: z.string().nullable().optional(),
+})
+
+export type GithubPrMirrorConfigStored = z.infer<
+  typeof githubPrMirrorConfigSchema
+>
+
 /** Stored in `connections.config` for `type === "github"` (includes ciphertext fields). */
 export const githubConnectionConfigStoredSchema = z.object({
   /** Set after GitHub redirects back from app installation. */
@@ -30,6 +54,8 @@ export const githubConnectionConfigStoredSchema = z.object({
   /** AES-GCM ciphertext (see `encryptConnectionSecret`). */
   privateKeyEnc: z.string().min(1).optional(),
   webhookSecretEnc: z.string().min(1).optional(),
+  /** Optional scoped mirror of pull requests into a context repository. */
+  prMirror: githubPrMirrorConfigSchema.optional(),
 })
 
 export type GithubConnectionConfigStored = z.infer<
