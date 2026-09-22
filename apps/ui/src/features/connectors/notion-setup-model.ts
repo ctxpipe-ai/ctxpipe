@@ -12,6 +12,13 @@ type SetupProgressStatus = SetupStatus & {
   syncTargetConfigured: boolean
   pendingConfigPullUrl: string | null
   pendingConfigPrCreating?: boolean
+  isInstalled?: boolean
+}
+
+export type NotionOauthMeta = {
+  oauthAppSaved: boolean
+  globalNotionOAuthConfigured: boolean
+  webhookConfigured?: boolean
 }
 
 export const NOTION_SETUP_STEPS = [
@@ -20,6 +27,39 @@ export const NOTION_SETUP_STEPS = [
   { id: "scope", label: "Choose Notion content" },
   { id: "merge", label: "Approve configuration in GitHub" },
 ] as const
+
+export const SELF_HOSTED_NOTION_SETUP_STEPS = [
+  { id: "register", label: "Register Notion OAuth app" },
+  { id: "webhook", label: "Add webhook" },
+  ...NOTION_SETUP_STEPS,
+] as const
+
+export function getNotionSetupSteps(oauthMeta?: NotionOauthMeta) {
+  if (!oauthMeta || oauthMeta.globalNotionOAuthConfigured) {
+    return NOTION_SETUP_STEPS
+  }
+  return SELF_HOSTED_NOTION_SETUP_STEPS
+}
+
+export function shouldShowNotionRegisterStep(
+  oauthMeta?: NotionOauthMeta,
+): boolean {
+  return Boolean(
+    oauthMeta &&
+      !oauthMeta.globalNotionOAuthConfigured &&
+      !oauthMeta.oauthAppSaved,
+  )
+}
+
+export function shouldShowNotionWebhookStep(
+  oauthMeta?: NotionOauthMeta,
+): boolean {
+  return Boolean(
+    oauthMeta &&
+      !oauthMeta.globalNotionOAuthConfigured &&
+      oauthMeta.oauthAppSaved,
+  )
+}
 
 export type NotionFailureAction = "retry_config" | "retry_content"
 
@@ -33,16 +73,23 @@ export function getNotionFailureAction(
 
 export function getNotionSetupCurrentIndex(
   status: SetupProgressStatus,
+  oauthMeta?: NotionOauthMeta,
 ): number {
-  if (!status.isGithubLinked) return 0
-  if (!status.syncTargetConfigured) return 1
+  const selfHost = getNotionSetupSteps(oauthMeta)[0]?.id === "register"
+  const offset = selfHost ? 2 : 0
+  if (selfHost && status.isInstalled === false) {
+    if (!oauthMeta?.oauthAppSaved) return 0
+    return 1
+  }
+  if (!status.isGithubLinked) return offset
+  if (!status.syncTargetConfigured) return 1 + offset
   // Pre-PR config failure has no git draft — resubmit resources.
   if (
     status.setupPhase === "config_failed" &&
     !status.pendingConfigPullUrl &&
     !status.pendingConfigPrCreating
   ) {
-    return 2
+    return 2 + offset
   }
   // Git scope is loaded only inside setup. Status polling must stay DB-only, so
   // the count is null and lifecycle state drives progress here.
@@ -54,13 +101,27 @@ export function getNotionSetupCurrentIndex(
     status.setupPhase === "initial_sync" ||
     status.setupPhase === "sync_failed"
   ) {
-    return 3
+    return 3 + offset
   }
-  if (status.setupPhase === "live") return NOTION_SETUP_STEPS.length
-  return 2
+  if (status.setupPhase === "live") {
+    return getNotionSetupSteps(oauthMeta).length
+  }
+  return 2 + offset
 }
 
-export function getNotionCardCtaLabel(status: SetupStatus): string {
+export function getNotionCardCtaLabel(
+  status: SetupStatus,
+  oauthMeta?: NotionOauthMeta,
+): string {
+  if (status.setupPhase === "draft") {
+    if (shouldShowNotionRegisterStep(oauthMeta)) {
+      return "Register OAuth app"
+    }
+    if (shouldShowNotionWebhookStep(oauthMeta)) {
+      if (!oauthMeta?.webhookConfigured) return "Add webhook"
+      return "Connect Notion"
+    }
+  }
   if (getNotionFailureAction(status)) return "Review failure"
   if (status.setupPhase === "live") {
     return "Manage scope"

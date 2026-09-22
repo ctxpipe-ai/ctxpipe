@@ -29,6 +29,28 @@ describe("Notion connector API helpers", () => {
     await expect(fetchNotionOAuthStart("acme")).rejects.toBeInstanceOf(
       NotionOAuthNotConfiguredError,
     )
+    expect(fetch).toHaveBeenCalledWith(
+      "/acme/api/v1/connectors/notion/oauth/start",
+      { credentials: "include" },
+    )
+  })
+
+  it("includes connectionId on OAuth start", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          authorizationUrl: "https://api.notion.com/v1/oauth/authorize",
+        }),
+        { status: 200 },
+      ),
+    )
+
+    await fetchNotionOAuthStart("acme", "con_notion")
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/acme/api/v1/connectors/notion/oauth/start?connectionId=con_notion",
+      { credentials: "include" },
+    )
   })
 
   it("posts a content sync retry for the selected connection", async () => {

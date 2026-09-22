@@ -51,6 +51,16 @@ export type LinearConnectorConfig = {
     | null
 }
 
+export type LinearOauthApp = {
+  linearOauthConfigured: boolean
+  globalLinearOauthConfigured: boolean
+  oauthCallbackUrl: string
+  linearWebhookUrl: string
+  linearCreateUrl: string
+  oauthAppSaved: boolean
+  oauthClientId: string | null
+}
+
 export const linearConnectorKeys = {
   status: (orgSlug: string, connectionId?: string) =>
     ["linear-connector-status", orgSlug, connectionId ?? "default"] as const,
@@ -62,6 +72,8 @@ export const linearConnectorKeys = {
     ["linear-connector-config", orgSlug] as const,
   availableScopes: (orgSlug: string, connectionId: string) =>
     ["linear-available-scopes", orgSlug, connectionId] as const,
+  oauthApp: (orgSlug: string, connectionId?: string) =>
+    ["linear-oauth-app", orgSlug, connectionId ?? "default"] as const,
 }
 
 function connectionQuery(connectionId?: string): string {
@@ -132,15 +144,65 @@ export async function fetchLinearAvailableScopes(
 
 export async function fetchLinearOAuthStart(
   orgSlug: string,
+  connectionId?: string,
 ): Promise<{ authorizationUrl: string }> {
   const response = await fetch(
-    `/${orgSlug}/api/v1/connectors/linear/oauth/start`,
+    `/${orgSlug}/api/v1/connectors/linear/oauth/start${connectionQuery(connectionId)}`,
     { credentials: "include" },
   )
   if (!response.ok) {
     throw await errorFromResponse(response, "Failed to start Linear connection")
   }
   return response.json() as Promise<{ authorizationUrl: string }>
+}
+
+export async function fetchLinearOauthApp(
+  orgSlug: string,
+  connectionId?: string,
+): Promise<LinearOauthApp> {
+  const response = await fetch(
+    `/${orgSlug}/api/v1/connectors/linear/oauth-app${connectionQuery(connectionId)}`,
+    { credentials: "include" },
+  )
+  if (!response.ok) {
+    throw await errorFromResponse(
+      response,
+      "Failed to load Linear OAuth app settings",
+    )
+  }
+  return response.json() as Promise<LinearOauthApp>
+}
+
+export async function createLinearDraft(
+  orgSlug: string,
+): Promise<{ connectionId: string }> {
+  const response = await fetch(`/${orgSlug}/api/v1/connectors/linear/draft`, {
+    method: "POST",
+    credentials: "include",
+  })
+  if (!response.ok) {
+    throw await errorFromResponse(response, "Failed to start Linear setup")
+  }
+  return response.json() as Promise<{ connectionId: string }>
+}
+
+export async function saveLinearOauthApp(
+  orgSlug: string,
+  connectionId: string,
+  body: { clientId: string; clientSecret?: string; webhookSecret?: string },
+): Promise<void> {
+  const response = await fetch(
+    `/${orgSlug}/api/v1/connectors/linear/oauth-app${connectionQuery(connectionId)}`,
+    {
+      method: "PUT",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  )
+  if (!response.ok) {
+    throw await errorFromResponse(response, "Failed to save Linear OAuth app")
+  }
 }
 
 export async function patchLinearConnectorConfig(

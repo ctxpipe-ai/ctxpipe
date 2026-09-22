@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Env } from "../../config/env.js"
 import type { NotionConnection } from "../../models/notion-connector.js"
-import { listNotionBlockChildren, searchNotionResources } from "./client.js"
+import {
+  exchangeNotionOAuthCode,
+  listNotionBlockChildren,
+  refreshNotionOAuthToken,
+  searchNotionResources,
+} from "./client.js"
 
 const env = {
   NOTION_CLIENT_ID: "client-id",
@@ -177,5 +182,60 @@ describe("Notion API client", () => {
     await expect(
       listNotionBlockChildren({ env, connection, blockId: "page-1" }),
     ).resolves.toHaveLength(2)
+  })
+})
+
+describe("Notion OAuth token HTTP", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it("exchanges a code with explicit row credentials when env is unset", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          access_token: "tok",
+          bot_id: "bot_1",
+        }),
+        { status: 200 },
+      ),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await exchangeNotionOAuthCode({
+      clientId: "row-id",
+      clientSecret: "row-secret",
+      code: "abc",
+      redirectUri: "https://app.test/api/v1/connectors/notion/oauth/callback",
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.notion.com/v1/oauth/token",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          authorization: `Basic ${Buffer.from("row-id:row-secret").toString("base64")}`,
+        }),
+      }),
+    )
+  })
+
+  it("refreshes a token with explicit row credentials when env is unset", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ access_token: "fresh" }), { status: 200 }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await refreshNotionOAuthToken({
+      clientId: "row-id",
+      clientSecret: "row-secret",
+      refreshToken: "refresh",
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.notion.com/v1/oauth/token",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          authorization: `Basic ${Buffer.from("row-id:row-secret").toString("base64")}`,
+        }),
+      }),
+    )
   })
 })

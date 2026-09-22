@@ -156,11 +156,14 @@ export const linearConnectionConfigStoredSchema = z
     accessTokenEnc: z.string().min(1).optional(),
     refreshTokenEnc: z.string().min(1).optional(),
     accessTokenExpiresAt: z.string().datetime().nullable().optional(),
-    workspaceId: z.string().min(1),
-    workspaceName: z.string().min(1),
+    workspaceId: z.string().min(1).optional(),
+    workspaceName: z.string().min(1).optional(),
     workspaceUrlKey: z.string().min(1).nullable().optional(),
     actorUserId: z.string().min(1).nullable().optional(),
-    ownerUserId: z.string().min(1),
+    ownerUserId: z.string().min(1).optional(),
+    oauthClientId: z.string().min(1).optional(),
+    oauthClientSecretEnc: z.string().min(1).optional(),
+    webhookSecretEnc: z.string().min(1).optional(),
     status: z.string().optional(),
     lastEventPayload: z.unknown().nullish(),
     /** Context repository to mirror into (sync binding; not a separate table). */
@@ -216,6 +219,69 @@ export function encodeLinearTokensForDb(
       ? encryptConnectionSecret(input.refreshToken.trim(), env)
       : undefined,
   }
+}
+
+export type LinearOauthAppSecretsWrite = {
+  oauthClientId: string
+  oauthClientSecret?: string
+  webhookSecret?: string
+}
+
+export function encodeLinearOauthAppSecretsForDb(
+  input: LinearOauthAppSecretsWrite,
+  env: Env,
+): Pick<
+  LinearConnectionConfigStored,
+  "oauthClientId" | "oauthClientSecretEnc" | "webhookSecretEnc"
+> {
+  return {
+    oauthClientId: input.oauthClientId.trim(),
+    ...(input.oauthClientSecret
+      ? {
+          oauthClientSecretEnc: encryptConnectionSecret(
+            input.oauthClientSecret.trim(),
+            env,
+          ),
+        }
+      : {}),
+    ...(input.webhookSecret
+      ? {
+          webhookSecretEnc: encryptConnectionSecret(
+            input.webhookSecret.trim(),
+            env,
+          ),
+        }
+      : {}),
+  }
+}
+
+export function decodeLinearOauthClientSecret(
+  stored: Pick<LinearConnectionConfigStored, "oauthClientSecretEnc">,
+  env: Env,
+): string | undefined {
+  if (!stored.oauthClientSecretEnc) return undefined
+  return decryptConnectionSecret(stored.oauthClientSecretEnc, env)
+}
+
+export function decodeLinearWebhookSecret(
+  stored: Pick<LinearConnectionConfigStored, "webhookSecretEnc">,
+  env: Env,
+): string | undefined {
+  if (!stored.webhookSecretEnc) return undefined
+  return decryptConnectionSecret(stored.webhookSecretEnc, env)
+}
+
+export function linearOauthAppSavedInConfig(
+  stored: Pick<
+    LinearConnectionConfigStored,
+    "oauthClientId" | "oauthClientSecretEnc" | "webhookSecretEnc"
+  >,
+): boolean {
+  return Boolean(
+    stored.oauthClientId &&
+      stored.oauthClientSecretEnc &&
+      stored.webhookSecretEnc,
+  )
 }
 
 export function decodeLinearTokens(
@@ -316,6 +382,12 @@ export const notionConnectionConfigSchema = z
     setupPhase: z.enum(NOTION_SETUP_PHASES).optional(),
     pendingConfigPullUrl: z.string().nullable().optional(),
     pendingConfigPrCreating: z.boolean().optional(),
+    /** Public Notion integration client id (self-host register step). */
+    oauthClientId: z.string().min(1).optional(),
+    /** AES-GCM ciphertext of the Notion OAuth client secret. */
+    oauthClientSecretEnc: z.string().min(1).optional(),
+    /** AES-GCM ciphertext of the Notion webhook verification token. */
+    webhookSecretEnc: z.string().min(1).optional(),
   })
   .transform((c) => ({
     ...c,
@@ -342,6 +414,13 @@ export function parseNotionConnectionConfig(
   config: Record<string, unknown>,
 ): NotionConnectionConfig {
   return notionConnectionConfigSchema.parse(config)
+}
+
+export function tryParseNotionConnectionConfig(
+  config: unknown,
+): NotionConnectionConfig | null {
+  const parsed = notionConnectionConfigSchema.safeParse(config)
+  return parsed.success ? parsed.data : null
 }
 
 export type NotionConnectionTokens = {

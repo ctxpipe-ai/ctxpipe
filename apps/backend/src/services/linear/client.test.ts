@@ -22,7 +22,14 @@ afterEach(() => {
 describe("Linear API client", () => {
   it("requests only read access through the fixed callback URL", () => {
     const url = new URL(
-      getLinearOAuthAuthorizeUrl({ env, state: "signed-state" }),
+      getLinearOAuthAuthorizeUrl({
+        env,
+        state: "signed-state",
+        creds: {
+          clientId: "linear-client",
+          clientSecret: "linear-secret",
+        },
+      }),
     )
     expect(url.origin + url.pathname).toBe("https://linear.app/oauth/authorize")
     expect(url.searchParams.get("scope")).toBe("read")
@@ -64,8 +71,16 @@ describe("Linear API client", () => {
       )
     vi.stubGlobal("fetch", fetchMock)
 
-    await exchangeLinearOAuthCode({ env, code: "oauth-code" })
-    await refreshLinearOAuthToken({ env, refreshToken: "refresh-1" })
+    await exchangeLinearOAuthCode({
+      env,
+      code: "oauth-code",
+      creds: { clientId: "linear-client", clientSecret: "linear-secret" },
+    })
+    await refreshLinearOAuthToken({
+      env,
+      refreshToken: "refresh-1",
+      creds: { clientId: "linear-client", clientSecret: "linear-secret" },
+    })
 
     const exchangeRequest = fetchMock.mock.calls[0]
     const refreshRequest = fetchMock.mock.calls[1]
@@ -96,6 +111,9 @@ describe("Linear API client", () => {
       workspaceUrlKey: "acme",
       actorUserId: "user-1",
       ownerUserId: "owner-1",
+      oauthClientId: null,
+      oauthClientSecretEnc: null,
+      webhookSecretEnc: null,
       status: "installed",
       lastEventPayload: null,
       repositoryId: null,
@@ -135,6 +153,9 @@ describe("Linear API client", () => {
       workspaceUrlKey: "acme",
       actorUserId: "user-1",
       ownerUserId: "owner-1",
+      oauthClientId: null,
+      oauthClientSecretEnc: null,
+      webhookSecretEnc: null,
       status: "installed",
       lastEventPayload: null,
       repositoryId: null,

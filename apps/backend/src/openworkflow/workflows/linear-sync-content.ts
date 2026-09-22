@@ -8,6 +8,7 @@ import {
   getLinearConnectionByConnectionId,
   refreshLinearConnectionTokensWithLock,
 } from "../../models/linear-connector.js"
+import { getLinearOauthAppCreds } from "../../models/linear-oauth-app.js"
 import { getLogger } from "../../observability/logger.js"
 import {
   linearTokenExpiresAt,
@@ -93,9 +94,17 @@ export const linearSyncContent = defineWorkflow(
                 expectedRefreshToken,
                 expectedAccessToken,
                 refresh: async (refreshToken) => {
+                  const creds = getLinearOauthAppCreds(
+                    context.connection,
+                    env,
+                  )
+                  if (!creds) {
+                    throw new Error("Linear OAuth is not configured")
+                  }
                   const token = await refreshLinearOAuthToken({
                     env,
                     refreshToken,
+                    creds,
                   })
                   return {
                     accessToken: token.access_token,

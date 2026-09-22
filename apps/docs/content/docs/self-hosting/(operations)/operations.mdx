@@ -125,9 +125,11 @@ changes.
 
 ### Linear setup stalls or content becomes stale
 
-- Confirm Linear OAuth credentials are present on backend and worker.
-- Confirm the Linear webhook secret is present on backend and signed requests
-  reach `/api/v1/webhook/linear`.
+- Confirm a Linear OAuth application is registered in the wizard or that
+  `LINEAR_*` is present on backend and worker.
+- Confirm the Linear webhook secret is saved on the connection or
+  `LINEAR_WEBHOOK_SECRET` is present on backend, and signed requests reach
+  `/api/v1/webhook/linear`.
 - Confirm the selected GitHub App installation still has write access and that
   merge pushes reach `/api/v1/webhook/github/<connectionId>`.
 - Check worker logs for `linear-sync-config`, `linear-sync-content`, or

@@ -1,16 +1,29 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
+import { and, eq } from "drizzle-orm"
 import type { AppEnv } from "../../app/env.js"
-import { withOrgDbContext } from "../../db/client.js"
+import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { members } from "../../db/schema/auth.js"
+import { decryptConnectionSecret } from "../../lib/connection-secrets.js"
+import {
+  notionConnectionHasOauthApp,
+  notionConnectionHasWebhookSecret,
+  notionRedirectUri,
+  notionWebhookUrl,
+  resolveNotionOAuthApp,
+} from "../../lib/notion-oauth.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
   claimNotionConfigPrCreation,
   claimNotionContentSyncRetry,
+  createDraftNotionConnection,
   deleteNotionConnectionById,
   getNotionBindingWithRepoByConnectionId,
+  getNotionStoredConfigByConnectionId,
   MULTIPLE_NOTION_CONNECTIONS_MESSAGE,
   type NotionBindingWithRepo,
   patchNotionConnectorConfig,
+  patchNotionOauthApp,
   refreshNotionConnectionTokensWithLock,
   releaseNotionConfigPrCreationClaim,
   resolveNotionConnectionForOrgDetailed,
@@ -113,6 +126,7 @@ const NotionPatchConfigRequestSchema = z
 const getOAuthStartRoute = createRoute({
   method: "get",
   path: "/oauth/start",
+  request: { query: z.object({ connectionId: z.string().min(1) }) },
   responses: {
     200: {
       content: {
@@ -129,6 +143,10 @@ const getOAuthStartRoute = createRoute({
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Invalid org route",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown connectionId",
     },
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -154,6 +172,114 @@ const getOAuthCallbackRoute = createRoute({
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
+    },
+    403: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not a member of the organisation in state",
+    },
+    503: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Notion OAuth not configured",
+    },
+  },
+})
+
+const NotionDraftResponseSchema = z
+  .object({
+    id: z.string(),
+    orgId: z.string(),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+  })
+  .openapi("NotionDraftConnectionResponse")
+
+const postDraftRoute = createRoute({
+  method: "post",
+  path: "/draft",
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: NotionDraftResponseSchema },
+      },
+      description: "Draft Notion connection",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+  },
+})
+
+const NotionOauthAppGetResponseSchema = z
+  .object({
+    oauthConfigured: z.boolean(),
+    oauthAppSaved: z.boolean(),
+    oauthClientId: z.string().nullable(),
+    webhookConfigured: z.boolean(),
+    webhookVerificationToken: z.string().min(1).nullable(),
+    globalNotionOAuthConfigured: z.boolean(),
+    callbackUrl: z.string(),
+    webhookUrl: z.string(),
+  })
+  .openapi("NotionOauthAppGetResponse")
+
+const NotionOauthAppPutSchema = z
+  .object({
+    clientId: z.string().min(1),
+    clientSecret: z.string().optional(),
+  })
+  .openapi("NotionOauthAppPut")
+
+const getOauthAppRoute = createRoute({
+  method: "get",
+  path: "/oauth-app",
+  request: { query: z.object({ connectionId: z.string().min(1) }) },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: NotionOauthAppGetResponseSchema },
+      },
+      description:
+        "Notion OAuth app metadata. Returns the row webhook verification token when stored; never the client secret.",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Missing connectionId",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown connection",
+    },
+  },
+})
+
+const putOauthAppRoute = createRoute({
+  method: "put",
+  path: "/oauth-app",
+  request: {
+    query: z.object({ connectionId: z.string().min(1) }),
+    body: {
+      content: { "application/json": { schema: NotionOauthAppPutSchema } },
+    },
+  },
+  responses: {
+    204: { description: "Saved" },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Invalid body",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    403: { description: "Forbidden" },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown connection",
     },
   },
 })
@@ -437,6 +563,7 @@ function makeOAuthState(input: {
   userId: string
   orgSlug: string
   secret: string
+  connectionId: string
 }): string {
   const payload = encodeBase64Url(
     JSON.stringify({
@@ -444,6 +571,7 @@ function makeOAuthState(input: {
       userId: input.userId,
       orgSlug: input.orgSlug,
       ts: Date.now(),
+      connectionId: input.connectionId,
     }),
   )
   return `${payload}.${signState(payload, input.secret)}`
@@ -452,7 +580,15 @@ function makeOAuthState(input: {
 function parseOAuthState(
   state: string,
   secret: string,
-): { orgId: string; userId: string; orgSlug: string; ts: number } | undefined {
+):
+  | {
+      orgId: string
+      userId: string
+      orgSlug: string
+      ts: number
+      connectionId: string
+    }
+  | undefined {
   const [payload, signature] = state.split(".")
   if (!payload || !signature) return undefined
   const expected = signState(payload, secret)
@@ -465,19 +601,12 @@ function parseOAuthState(
       userId: z.string(),
       orgSlug: z.string(),
       ts: z.number(),
+      connectionId: z.string().min(1),
     })
     .safeParse(JSON.parse(decodeBase64Url(payload)))
   if (!parsed.success) return undefined
   if (Date.now() - parsed.data.ts > 10 * 60 * 1000) return undefined
   return parsed.data
-}
-
-function notionRedirectUri(input: {
-  baseUrl: string
-  override?: string
-}): string {
-  if (input.override) return input.override
-  return `${input.baseUrl.replace(/\/$/, "")}/api/v1/connectors/notion/oauth/callback`
 }
 
 function notionSetupRelayPath(input: {
@@ -616,6 +745,64 @@ async function loadNotionResourcesFromGit(input: {
   )
 }
 
+function globalNotionOAuthConfigured(env: AppEnv["Variables"]["env"]): boolean {
+  return Boolean(env.NOTION_CLIENT_ID && env.NOTION_CLIENT_SECRET)
+}
+
+function notionOauthAppMetadata(
+  stored: Awaited<ReturnType<typeof getNotionStoredConfigByConnectionId>>,
+  env: AppEnv["Variables"]["env"],
+  connectionId: string,
+) {
+  const rowApp = notionConnectionHasOauthApp(stored)
+  const envApp = globalNotionOAuthConfigured(env)
+  const app = resolveNotionOAuthApp(stored, env)
+  const callbackUrl = notionRedirectUri({
+    AUTH_BASE_URL: env.AUTH_BASE_URL,
+    NOTION_REDIRECT_URI: env.NOTION_REDIRECT_URI,
+  })
+  const webhookUrl = notionWebhookUrl({
+    AUTH_BASE_URL: env.AUTH_BASE_URL,
+    connectionId: rowApp ? connectionId : undefined,
+    clientSecret: rowApp ? app?.clientSecret : undefined,
+  })
+  return {
+    oauthConfigured: Boolean(app),
+    oauthAppSaved: rowApp,
+    oauthClientId: stored?.oauthClientId ?? null,
+    webhookConfigured:
+      notionConnectionHasWebhookSecret(stored) ||
+      Boolean(env.NOTION_WEBHOOK_SECRET),
+    webhookVerificationToken: stored?.webhookSecretEnc
+      ? decryptConnectionSecret(stored.webhookSecretEnc, env)
+      : null,
+    globalNotionOAuthConfigured: envApp,
+    callbackUrl,
+    webhookUrl,
+  }
+}
+
+export const notionOauthAppReadRoutes = new OpenAPIHono<AppEnv>().openapi(
+  getOauthAppRoute,
+  async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const connectionId = c.req.query("connectionId")
+    if (!connectionId) {
+      return c.json({ error: "connectionId is required" }, 400)
+    }
+    const stored = await getNotionStoredConfigByConnectionId(
+      orgId,
+      connectionId,
+    )
+    if (!stored) return c.json({ error: "Unknown Notion connection" }, 404)
+    return c.json(notionOauthAppMetadata(stored, c.var.env, connectionId), 200)
+  },
+)
+
 export const notionConnectorRoutes = new OpenAPIHono<AppEnv>().openapi(
   getOAuthStartRoute,
   async (c) => {
@@ -628,7 +815,19 @@ export const notionConnectorRoutes = new OpenAPIHono<AppEnv>().openapi(
     const orgSlug = c.req.param("orgSlug")
     if (!orgSlug) return c.json({ error: "Missing org slug" }, 400)
     const env = c.var.env
-    if (!env.NOTION_CLIENT_ID || !env.NOTION_CLIENT_SECRET) {
+    const connectionId = c.req.query("connectionId")
+    if (!connectionId) {
+      return c.json({ error: "connectionId is required" }, 400)
+    }
+    const stored = await getNotionStoredConfigByConnectionId(
+      orgId,
+      connectionId,
+    )
+    if (!stored) {
+      return c.json({ error: "Unknown Notion connection" }, 404)
+    }
+    const app = resolveNotionOAuthApp(stored, env)
+    if (!app) {
       return c.json(
         {
           code: "notion_oauth_not_configured",
@@ -638,13 +837,14 @@ export const notionConnectorRoutes = new OpenAPIHono<AppEnv>().openapi(
       )
     }
     const redirectUri = notionRedirectUri({
-      baseUrl: env.AUTH_BASE_URL,
-      override: env.NOTION_REDIRECT_URI,
+      AUTH_BASE_URL: env.AUTH_BASE_URL,
+      NOTION_REDIRECT_URI: env.NOTION_REDIRECT_URI,
     })
     getLogger().info("notion_oauth_start", {
-      clientId: env.NOTION_CLIENT_ID,
+      clientId: app.clientId,
       orgId,
       orgSlug,
+      connectionId,
       redirectUri,
       hasRedirectUriOverride: Boolean(env.NOTION_REDIRECT_URI),
     })
@@ -653,11 +853,12 @@ export const notionConnectorRoutes = new OpenAPIHono<AppEnv>().openapi(
       userId: user.id,
       orgSlug,
       secret: env.AUTH_SECRET,
+      connectionId,
     })
     return c.json(
       {
         authorizationUrl: getNotionOAuthAuthorizeUrl({
-          env,
+          clientId: app.clientId,
           redirectUri,
           state,
         }),
@@ -696,12 +897,46 @@ export const notionOAuthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
     if (!state || state.userId !== user.id) {
       return c.json({ error: "Invalid Notion OAuth state" }, 400)
     }
+    const [member] = await getSystemDb()
+      .select()
+      .from(members)
+      .where(
+        and(
+          eq(members.organizationId, state.orgId),
+          eq(members.userId, user.id),
+        ),
+      )
+      .limit(1)
+    if (!member) {
+      return c.json({ error: "Not a member of this organization" }, 403)
+    }
+    if (!state.connectionId) {
+      return c.json({ error: "Invalid Notion OAuth state" }, 400)
+    }
+    const stored = await getNotionStoredConfigByConnectionId(
+      state.orgId,
+      state.connectionId,
+    )
+    if (!stored) {
+      return c.json({ error: "Unknown Notion connection" }, 404)
+    }
+    const app = resolveNotionOAuthApp(stored, env)
+    if (!app) {
+      return c.json(
+        {
+          code: "notion_oauth_not_configured",
+          error: "Notion OAuth is not configured for this ctxpipe deployment.",
+        },
+        503,
+      )
+    }
     const redirectUri = notionRedirectUri({
-      baseUrl: env.AUTH_BASE_URL,
-      override: env.NOTION_REDIRECT_URI,
+      AUTH_BASE_URL: env.AUTH_BASE_URL,
+      NOTION_REDIRECT_URI: env.NOTION_REDIRECT_URI,
     })
     const token = await exchangeNotionOAuthCode({
-      env,
+      clientId: app.clientId,
+      clientSecret: app.clientSecret,
       code: query.code,
       redirectUri,
     })
@@ -716,6 +951,7 @@ export const notionOAuthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
         workspaceId: token.workspace_id,
         workspaceName: token.workspace_name,
         workspaceIcon: token.workspace_icon,
+        connectionId: state.connectionId,
       }),
     )
     return notionSetupRelayResponse({
@@ -726,6 +962,64 @@ export const notionOAuthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
 )
 
 notionConnectorRoutes
+  .openapi(postDraftRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const user = c.get("user") as { id: string }
+    const draft = await withOrgDbContext(orgId, () =>
+      createDraftNotionConnection({
+        orgId,
+        ownerUserId: user.id,
+      }),
+    )
+    return c.json(
+      {
+        id: draft.id,
+        orgId: draft.orgId,
+        createdAt: draft.createdAt.toISOString(),
+        updatedAt: draft.updatedAt.toISOString(),
+      },
+      200,
+    )
+  })
+  .openapi(putOauthAppRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const connectionId = c.req.query("connectionId")
+    if (!connectionId) {
+      return c.json({ error: "connectionId is required" }, 400)
+    }
+    const body = NotionOauthAppPutSchema.parse(await c.req.json())
+    const stored = await getNotionStoredConfigByConnectionId(
+      orgId,
+      connectionId,
+    )
+    if (!stored) return c.json({ error: "Unknown Notion connection" }, 404)
+    const newSecret = body.clientSecret?.trim() ?? ""
+    if (!notionConnectionHasOauthApp(stored) && !newSecret) {
+      return c.json(
+        { error: "clientSecret is required when saving for the first time" },
+        400,
+      )
+    }
+    const saved = await withOrgDbContext(orgId, () =>
+      patchNotionOauthApp({
+        orgId,
+        connectionId,
+        env: c.var.env,
+        clientId: body.clientId,
+        clientSecret: newSecret || undefined,
+      }),
+    )
+    if (!saved) return c.json({ error: "Unknown Notion connection" }, 404)
+    return c.body(null, 204)
+  })
   .openapi(getStatusRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
@@ -811,8 +1105,15 @@ notionConnectorRoutes
             expectedRefreshToken,
             expectedAccessToken,
             refresh: async (refreshToken) => {
+              const stored = await getNotionStoredConfigByConnectionId(
+                orgId,
+                installed.connection.id,
+              )
+              const app = resolveNotionOAuthApp(stored, c.var.env)
+              if (!app) throw new Error("Notion OAuth is not configured")
               const refreshed = await refreshNotionOAuthToken({
-                env: c.var.env,
+                clientId: app.clientId,
+                clientSecret: app.clientSecret,
                 refreshToken,
               })
               return {

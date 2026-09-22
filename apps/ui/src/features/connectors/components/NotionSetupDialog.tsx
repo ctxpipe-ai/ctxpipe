@@ -19,12 +19,15 @@ import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import type { Repository } from "@/features/repositories"
 import { client } from "@/lib/api"
+import { useNotionOAuthConnect } from "../hooks/useNotionOAuthConnect"
 import {
   getNotionFailureAction,
   getNotionSetupCurrentIndex,
+  getNotionSetupSteps,
   hasNotionScopeChanged,
-  NOTION_SETUP_STEPS,
+  shouldShowNotionRegisterStep,
   shouldShowNotionSetupComplete,
+  shouldShowNotionWebhookStep,
 } from "../notion-setup-model"
 import {
   atlassianConnectorKeys,
@@ -41,6 +44,7 @@ import {
 import {
   fetchNotionConnectorConfig,
   fetchNotionConnectorStatus,
+  fetchNotionOauthApp,
   notionConnectorKeys,
   patchNotionConnectorConfig,
   retryNotionConfig,
@@ -55,6 +59,8 @@ import {
 } from "./ConnectorContextRepositoryGuidance"
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { GitHubPrerequisiteStep } from "./GitHubPrerequisiteStep"
+import { AddNotionWebhookStep } from "./notion-setup/AddNotionWebhookStep"
+import { RegisterNotionOauthStep } from "./notion-setup/RegisterNotionOauthStep"
 
 type GitHubRepoItem = {
   id: number
@@ -72,6 +78,7 @@ type NotionSetupDialogProps = {
   manageScope?: boolean
   isOpen: boolean
   onOpenChange: (open: boolean) => void
+  onConnectionIdChange?: (connectionId: string) => void
 }
 
 export function NotionSetupDialog({
@@ -81,8 +88,10 @@ export function NotionSetupDialog({
   manageScope = false,
   isOpen,
   onOpenChange,
+  onConnectionIdChange,
 }: NotionSetupDialogProps) {
   const queryClient = useQueryClient()
+  const oauthConnect = useNotionOAuthConnect(orgSlug)
   const [repoSearch, setRepoSearch] = useState("")
   const [debouncedRepoSearch, setDebouncedRepoSearch] = useState("")
   const [selectedRepo, setSelectedRepo] = useState<GitHubRepoItem | null>(null)
@@ -95,6 +104,12 @@ export function NotionSetupDialog({
     [],
   )
   const [initialized, setInitialized] = useState(false)
+  const [registerSaved, setRegisterSaved] = useState(false)
+  const [webhookContinued, setWebhookContinued] = useState(false)
+  if (!isOpen && (registerSaved || webhookContinued)) {
+    setRegisterSaved(false)
+    setWebhookContinued(false)
+  }
 
   useEffect(() => {
     const id = setTimeout(() => setDebouncedRepoSearch(repoSearch), 300)
@@ -105,6 +120,12 @@ export function NotionSetupDialog({
     const id = setTimeout(() => setDebouncedResourceSearch(resourceSearch), 300)
     return () => clearTimeout(id)
   }, [resourceSearch])
+
+  const oauthAppQuery = useQuery({
+    queryKey: notionConnectorKeys.oauthApp(orgSlug, connectionId ?? ""),
+    queryFn: () => fetchNotionOauthApp(orgSlug, connectionId ?? ""),
+    enabled: isOpen && Boolean(connectionId),
+  })
 
   const statusQuery = useQuery({
     queryKey: notionConnectorKeys.status(orgSlug, connectionId),
@@ -378,7 +399,28 @@ export function NotionSetupDialog({
     selectedResources,
   )
   const editingLiveScope = status?.setupPhase === "live" && manageScope
-  const setupStepIndex = status ? getNotionSetupCurrentIndex(status) : 0
+  const oauthMeta = oauthAppQuery.data
+    ? {
+        ...oauthAppQuery.data,
+        oauthAppSaved: oauthAppQuery.data.oauthAppSaved || registerSaved,
+      }
+    : undefined
+  const setupSteps = getNotionSetupSteps(oauthMeta)
+  const setupStepIndex = (() => {
+    if (!status) return 0
+    const index = getNotionSetupCurrentIndex(status, oauthMeta)
+    if (
+      webhookContinued &&
+      !status.isInstalled &&
+      setupSteps[0]?.id === "register"
+    ) {
+      return 2
+    }
+    return index
+  })()
+  const showRegister = shouldShowNotionRegisterStep(oauthMeta)
+  const showWebhook =
+    shouldShowNotionWebhookStep(oauthMeta) && !webhookContinued
   const body = (() => {
     if (!connectionId) {
       return (
@@ -387,7 +429,11 @@ export function NotionSetupDialog({
         </p>
       )
     }
-    if (statusQuery.isPending || configQuery.isPending) {
+    if (
+      statusQuery.isPending ||
+      oauthAppQuery.isPending ||
+      (status?.isInstalled && configQuery.isPending)
+    ) {
       return (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
@@ -396,11 +442,65 @@ export function NotionSetupDialog({
       )
     }
     if (!status?.isInstalled) {
+      const startConnect = () => {
+        oauthConnect.start({
+          connectionId,
+          onFinished: async (result) => {
+            if (result.connectionId && result.connectionId !== connectionId) {
+              onConnectionIdChange?.(result.connectionId)
+            }
+            await queryClient.invalidateQueries({
+              queryKey: notionConnectorKeys.status(
+                orgSlug,
+                result.connectionId ?? connectionId,
+              ),
+            })
+          },
+          onNotConfigured: () => {
+            void queryClient.invalidateQueries({
+              queryKey: notionConnectorKeys.oauthApp(orgSlug, connectionId),
+            })
+          },
+        })
+      }
+      if (showRegister) {
+        return (
+          <RegisterNotionOauthStep
+            orgSlug={orgSlug}
+            connectionId={connectionId}
+            onSaved={() => setRegisterSaved(true)}
+          />
+        )
+      }
+      if (showWebhook) {
+        return (
+          <AddNotionWebhookStep
+            orgSlug={orgSlug}
+            connectionId={connectionId}
+            onContinue={() => setWebhookContinued(true)}
+          />
+        )
+      }
       return (
-        <p className="text-sm text-muted-foreground">
-          This Notion connection is not installed. Reconnect Notion from the Add
-          connection menu.
-        </p>
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-base font-medium text-foreground">
+              Connect Notion
+            </h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Authorize ctxpipe to access the Notion workspace you want to
+              mirror.
+            </p>
+          </div>
+          <Button
+            variant="primary"
+            className="rounded-none"
+            isPending={oauthConnect.busy}
+            onPress={startConnect}
+          >
+            Connect Notion
+          </Button>
+        </div>
       )
     }
     if (!status.isGithubLinked) {
@@ -903,10 +1003,10 @@ export function NotionSetupDialog({
             Close
           </Button>
         </div>
-        {status?.isInstalled ? (
+        {status?.isInstalled || oauthAppQuery.data ? (
           <div className="mb-6">
             <ConnectorSetupStepper
-              steps={NOTION_SETUP_STEPS}
+              steps={setupSteps}
               currentIndex={setupStepIndex}
             />
           </div>

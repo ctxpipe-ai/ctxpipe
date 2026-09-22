@@ -5,6 +5,7 @@ import {
   type LinearScope,
   withLinearBindingSnapshot,
 } from "../../models/linear-connector.js"
+import { linearWorkspaceIdentity } from "../../models/linear-oauth-app.js"
 import { connectorPathMatchesPreservation } from "../connectors/assets.js"
 import {
   closePullRequest,
@@ -71,9 +72,10 @@ export async function syncLinearConfigYaml(input: {
         })) ?? current
     }
   }
+  const workspace = linearWorkspaceIdentity(input.connection)
   const next = renderLinearConfigYaml({
-    workspaceId: input.connection.workspaceId,
-    workspaceName: input.connection.workspaceName,
+    workspaceId: workspace.workspaceId,
+    workspaceName: workspace.workspaceName,
     scopes: input.scopes,
     customerRequests:
       parseLinearConfigYamlContent(current)?.customerRequests ?? "limited",
