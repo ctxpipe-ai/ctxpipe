@@ -1,4 +1,7 @@
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph"
+import { CONNECTOR_EXTRACTORS } from "./nodes/connectorExtractors.js"
+import { extractCodeowners } from "./nodes/extractCodeowners.js"
+import { extractDecisions } from "./nodes/extractDecisions.js"
 import { extractInstructionUnits } from "./nodes/extractInstructionUnits.js"
 import { extractKind } from "./nodes/extractKind.js"
 import { identifyAPIClients } from "./nodes/identifyAPIClients.js"
@@ -9,6 +12,7 @@ import { identifyLibraries } from "./nodes/identifyLibraries.js"
 import { identifyPatterns } from "./nodes/identifyPatterns.js"
 import { identifyServiceDependencies } from "./nodes/identifyServiceDependencies.js"
 import { identifyStreams } from "./nodes/identifyStreams.js"
+import { linkLocatedPathsNode } from "./nodes/linkLocatedPaths.js"
 import type { ExtractedClaim, ExtractedObject } from "./schemas.js"
 
 const arrayReducer = <T>(left: T[], right: T | T[]): T[] =>
@@ -60,38 +64,44 @@ const ExtractionOutputAnnotation = Annotation.Root({
   extractedClaims: extractedClaimsAnnotation,
 })
 
-const extractionSubgraph = new StateGraph(ExtractionStateAnnotation, {
+const identifyNodes = [
+  ["identifyAPIClients", identifyAPIClients],
+  ["identifyAPIs", identifyAPIs],
+  ["identifyDatabases", identifyDatabases],
+  ["identifyInfrastructure", identifyInfrastructure],
+  ["identifyStreams", identifyStreams],
+  ["identifyServiceDependencies", identifyServiceDependencies],
+  ["identifyLibraries", identifyLibraries],
+  ["identifyPatterns", identifyPatterns],
+  ["extractInstructionUnits", extractInstructionUnits],
+  ["extractDecisions", extractDecisions],
+  ["extractCodeowners", extractCodeowners],
+] as const
+
+let extractionGraph = new StateGraph(ExtractionStateAnnotation, {
   output: ExtractionOutputAnnotation,
 })
   .addNode("extractKind", extractKind)
-  .addNode("identifyAPIClients", identifyAPIClients) // use repo explorer
-  .addNode("identifyAPIs", identifyAPIs) // use repo explorer
-  .addNode("identifyDatabases", identifyDatabases) //  use repo explorer
-  .addNode("identifyInfrastructure", identifyInfrastructure) //  use repo explorer
-  .addNode("identifyStreams", identifyStreams) //  use repo explorer
-  .addNode("identifyServiceDependencies", identifyServiceDependencies) //  use repo explorer
-  .addNode("identifyLibraries", identifyLibraries) //  use repo explorer
-  .addNode("identifyPatterns", identifyPatterns) //  use repo explorer
-  .addNode("extractInstructionUnits", extractInstructionUnits)
+  .addNode("linkLocatedPaths", linkLocatedPathsNode)
   .addEdge(START, "extractKind")
-  .addEdge("extractKind", "identifyAPIClients")
-  .addEdge("extractKind", "identifyAPIs")
-  .addEdge("extractKind", "identifyDatabases")
-  .addEdge("extractKind", "identifyInfrastructure")
-  .addEdge("extractKind", "identifyStreams")
-  .addEdge("extractKind", "identifyServiceDependencies")
-  .addEdge("extractKind", "identifyLibraries")
-  .addEdge("extractKind", "identifyPatterns")
-  .addEdge("extractKind", "extractInstructionUnits")
-  .addEdge("identifyAPIClients", END)
-  .addEdge("identifyAPIs", END)
-  .addEdge("identifyDatabases", END)
-  .addEdge("identifyInfrastructure", END)
-  .addEdge("identifyStreams", END)
-  .addEdge("identifyServiceDependencies", END)
-  .addEdge("identifyLibraries", END)
-  .addEdge("identifyPatterns", END)
-  .addEdge("extractInstructionUnits", END)
+
+for (const [name, node] of identifyNodes) {
+  extractionGraph = extractionGraph
+    .addNode(name, node)
+    .addEdge("extractKind", name)
+    .addEdge(name, "linkLocatedPaths")
+}
+
+for (const extractor of CONNECTOR_EXTRACTORS) {
+  const name = extractor.extract.name
+  extractionGraph = extractionGraph
+    .addNode(name, extractor.extract)
+    .addEdge("extractKind", name)
+    .addEdge(name, "linkLocatedPaths")
+}
+
+const extractionSubgraph = extractionGraph
+  .addEdge("linkLocatedPaths", END)
   .compile()
 
 export { extractionSubgraph }

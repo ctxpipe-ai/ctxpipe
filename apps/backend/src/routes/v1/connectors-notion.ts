@@ -33,6 +33,7 @@ import {
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
+import { enqueueGithubPrMirrorEnsureForOrg } from "../../openworkflow/workflows/github-ensure-pr-mirror.js"
 import { notionSyncConfig } from "../../openworkflow/workflows/notion-sync-config.js"
 import { notionSyncContent } from "../../openworkflow/workflows/notion-sync-content.js"
 import { getPullRequestHeadBranch } from "../../services/github/installation-write-client.js"
@@ -1232,6 +1233,9 @@ notionConnectorRoutes
       ...(body.syncTarget !== undefined ? { syncTarget: body.syncTarget } : {}),
     })
 
+    if (body.syncTarget !== undefined) {
+      await enqueueGithubPrMirrorEnsureForOrg(orgId)
+    }
     if (saved.repositoryIngestion) {
       await enqueueRepositoryIngestionWorkflow(
         {

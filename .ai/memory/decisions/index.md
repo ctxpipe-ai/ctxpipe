@@ -40,4 +40,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-027](ADR-027-codesearch-openworkflow-concurrency.md) | Size-based OpenWorkflow concurrency for single-instance codesearch | Accepted |
 | [ADR-028](ADR-028-git-native-connector-assets.md) | Git-native connector assets | Accepted |
 | [ADR-029](ADR-029-railway-us-east-next-to-neon.md) | Railway compute in US East next to Neon | Accepted |
-| [ADR-030](ADR-030-organization-owned-mcp-api-keys.md) | Organization-owned MCP API keys | Accepted |
+| [ADR-030](ADR-030-organization-owned-mcp-api-keys.md) | Organization-owned MCP API keys | Accepted (amended 2026-09-22) |
+| [ADR-031](ADR-031-github-pr-scoped-mirror.md) | GitHub pull-request scoped mirror | Accepted |
+| [ADR-032](ADR-032-path-located-graph-edges.md) | Path-located graph edges | Accepted (amended by ADR-033) |
+| [ADR-033](ADR-033-graph-ontology-v2.md) | Graph ontology v2: relation families, shared identity, deterministic connector extraction | Accepted |

@@ -32,8 +32,11 @@ ctxpipe-context/
 ├── linear/
 │   ├── config.yaml
 │   └── issues/<issue>/assets/
-└── slack/
-    └── channels/<channel>/threads/<date>/<thread>/assets/
+├── slack/
+│   └── channels/<channel>/threads/<date>/<thread>/assets/
+└── github/
+    ├── config.yaml
+    └── pulls/<owner>/<repo>/<number>--<id>.md
 ```
 
 ## Create the repository
@@ -57,10 +60,11 @@ ctxpipe-context/
   </Step>
 
   <Step>
-    ### Refresh and select it in ctxpipe
+    ### Return to ctxpipe
 
-    Return to connector setup and refresh the repository list. Select
-    `ctxpipe-context`, then continue with the connector's content scope.
+    GitHub setup lists `ctxpipe-context` automatically once the App can see it.
+    On later connector setup, refresh if needed, then continue with that
+    repository.
   </Step>
 
   <Step>

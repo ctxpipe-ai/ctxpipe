@@ -4,6 +4,7 @@ const requireCurrentOrgIdMock = vi.hoisted(() => vi.fn(() => "org_1"))
 const requireCurrentOrgSlugMock = vi.hoisted(() => vi.fn(() => "acme"))
 const getSystemDbMock = vi.hoisted(() => vi.fn())
 const getOrgDbMock = vi.hoisted(() => vi.fn())
+const withOrgDbContextMock = vi.hoisted(() => vi.fn())
 const executeQueryMock = vi.hoisted(() => vi.fn())
 const getGraphClientMock = vi.hoisted(() =>
   vi.fn(() => ({ executeQuery: executeQueryMock })),
@@ -30,6 +31,7 @@ vi.mock("../../auth/context.js", () => ({
 vi.mock("../../db/client.js", () => ({
   getSystemDb: getSystemDbMock,
   getOrgDb: getOrgDbMock,
+  withOrgDbContext: withOrgDbContextMock,
 }))
 
 vi.mock("../../platform/graph/client.js", () => ({
@@ -49,6 +51,7 @@ import {
   PROJECT_CLAIM_BATCH_SIZE,
   projectClaimsFromState,
   retractClaimsFromGraph,
+  refreshClaimProjections,
   type PreparedProjectionRow,
 } from "./graphProjection.js"
 import type { ClaimForProjection } from "../schema/claimForProjection.js"
@@ -224,5 +227,35 @@ describe("retractClaimsFromGraph / deleteObjectsFromGraph", () => {
       ids: ["o1", "o2"],
       orgId: "org_1",
     })
+  })
+})
+
+describe("refreshClaimProjections", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getOrgDbMock.mockImplementation(() => {
+      throw new Error("Org database not initialized")
+    })
+  })
+
+  it("loads claims inside a short organisation DB context", async () => {
+    const where = vi.fn().mockResolvedValue([])
+    const secondJoin = vi.fn().mockReturnValue({ where })
+    const firstJoin = vi.fn().mockReturnValue({ innerJoin: secondJoin })
+    const from = vi.fn().mockReturnValue({ innerJoin: firstJoin })
+    const db = { select: vi.fn().mockReturnValue({ from }) }
+    withOrgDbContextMock.mockImplementation(
+      async (
+        _orgId: string,
+        handler: (contextDb: typeof db) => Promise<unknown>,
+      ) => handler(db),
+    )
+
+    await expect(refreshClaimProjections(["claim_1"])).resolves.toBe(0)
+
+    expect(withOrgDbContextMock).toHaveBeenCalledWith(
+      "org_1",
+      expect.any(Function),
+    )
   })
 })

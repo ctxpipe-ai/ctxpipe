@@ -39,7 +39,13 @@ latest ingestion run failed or completed with issues:
 3. Choose **Retry indexing**.
 4. Follow the new run through the repository status.
 
-Retrying keeps the repository record and starts a fresh ingestion attempt.
+Retrying keeps the repository record and starts a fresh **full** ingestion: the
+run ignores the last ingested commit, re-reads the whole repository, and then
+removes graph claims that this repository no longer asserts (for example
+instruction units whose wording changed, or files a refactor deleted). Facts
+contributed by other repositories are untouched. If the search or code
+intelligence index is unavailable during the run, the repository completes
+with issues and nothing is removed.
 
 ## When to retry
 
@@ -55,7 +61,8 @@ Retry indexing when:
 - Unindexing is organization-scoped. It does not change the GitHub repository or
   GitHub App installation.
 - Retrying can take time because search and graph context both need to
-  run again.
+  run again. Merge-triggered ingests stay incremental; only **Retry indexing**
+  (and the operator `reindex-repositories` script) run the full rebuild.
 - During a retry, Chat and MCP answers may be incomplete for that repository
   until indexing finishes.
 

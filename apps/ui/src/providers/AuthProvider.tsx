@@ -41,9 +41,11 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
   const pathname =
     router?.state?.location.pathname ??
     (typeof window !== "undefined" ? window.location.pathname : "/")
-  const firstSegment = pathname.split("/").filter(Boolean)[0]
+  const pathSegments = pathname.split("/").filter(Boolean)
+  const firstSegment = pathSegments[0]
   const orgSlug =
     firstSegment && !firstSegment.startsWith(".") ? firstSegment : undefined
+  const isOrganizationSettings = pathSegments[1] === "organization"
 
   const { data: config } = useGetAuthConfig()
 
@@ -111,10 +113,20 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
         credentials={{ forgotPassword: true }}
         twoFactor={["totp"]}
         account={{ basePath: "/.auth/account" }}
+        // Keep the library's API-key navigation on organisation settings while
+        // excluding its organisation selector from personal account settings.
+        // Org key minting itself uses the configId-scoped custom card.
         organization={
           orgSlug
-            ? { slug: orgSlug, basePath: "/.auth/organization", apiKey: true }
-            : { basePath: "/.auth/organization", apiKey: true }
+            ? {
+                slug: orgSlug,
+                basePath: "/.auth/organization",
+                apiKey: isOrganizationSettings,
+              }
+            : {
+                basePath: "/.auth/organization",
+                apiKey: isOrganizationSettings,
+              }
         }
         onSessionChange={() => {
           void router?.invalidate()

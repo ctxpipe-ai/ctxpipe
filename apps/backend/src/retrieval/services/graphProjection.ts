@@ -3,15 +3,11 @@ import {
   requireCurrentOrgId,
   requireCurrentOrgSlug,
 } from "../../auth/context.js"
-import { getOrgDb, getSystemDb } from "../../db/client.js"
+import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { claimEvidence } from "../../db/schema/claim_evidence.js"
 import { claims } from "../../db/schema/claims.js"
 import { objects } from "../../db/schema/objects.js"
-import {
-  flushWorkflowLog,
-  getLogger,
-  log,
-} from "../../observability/logger.js"
+import { flushWorkflowLog, getLogger, log } from "../../observability/logger.js"
 import { getGraphClient, withGraphClient } from "../../platform/graph/client.js"
 import { isValidGraphEdgeType } from "../schema/allowedConnections.js"
 import type { ClaimForProjection } from "../schema/claimForProjection.js"
@@ -30,13 +26,21 @@ const KIND_PAYLOAD_KEYS: Record<string, string[]> = {
   Library: ["language", "package"],
   Pattern: ["category"],
   Repository: [],
-  Concept: [],
-  Capability: [],
-  Topic: [],
-  Incident: [],
-  Decision: [],
+  Decision: ["status", "date", "path", "url"],
   InstructionUnit: ["intent", "modality", "path"],
   Skill: ["intent_summary"],
+  PullRequest: [
+    "number",
+    "repository",
+    "url",
+    "review_decision",
+    "merged_at",
+    "author",
+  ],
+  File: ["path", "repository"],
+  Issue: ["identifier", "state", "priority", "team", "project", "url"],
+  Team: ["key", "source", "url"],
+  Thread: ["channel_name", "permalink", "captured_at", "message_count"],
 }
 
 const SAFE_CYPHER_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/
@@ -76,7 +80,11 @@ function propsToScalarMap(
 ): Record<string, string | number | boolean> {
   const out: Record<string, string | number | boolean> = {}
   for (const [k, v] of Object.entries(props)) {
-    if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+    if (
+      typeof v === "string" ||
+      typeof v === "number" ||
+      typeof v === "boolean"
+    ) {
       out[k] = v
     } else if (v == null) {
       out[k] = ""
@@ -544,7 +552,9 @@ export async function deleteObjectFromGraph(objectId: string): Promise<void> {
 /**
  * Removes claim edges from FalkorDB (Postgres remains source of truth).
  */
-export async function retractClaimsFromGraph(claimIds: string[]): Promise<void> {
+export async function retractClaimsFromGraph(
+  claimIds: string[],
+): Promise<void> {
   const uniqueIds = [...new Set(claimIds.filter(Boolean))]
   if (uniqueIds.length === 0) return
 
@@ -583,71 +593,77 @@ export async function refreshClaimProjections(
   if (uniqueIds.length === 0) return 0
 
   const resolvedOrgId = requireCurrentOrgId()
-  const db = getOrgDb()
   const subjectRo = aliasedTable(objects, "subject_ro")
   const objectRo = aliasedTable(objects, "object_ro")
 
-  const projectionClaims: ClaimForProjection[] = []
+  const projectionClaims = await withOrgDbContext(resolvedOrgId, async (db) => {
+    const loaded: ClaimForProjection[] = []
+    for (const idChunk of chunkArray(uniqueIds, PROJECT_CLAIM_BATCH_SIZE)) {
+      const rows = await db
+        .select({
+          id: claims.id,
+          subjectId: claims.subjectId,
+          objectId: claims.objectId,
+          subjectKind: subjectRo.kind,
+          objectKind: objectRo.kind,
+          predicate: claims.predicate,
+          status: claims.status,
+          aggregatedConfidence: claims.aggregatedConfidence,
+          lastObservedAt: claims.lastObservedAt,
+          validFrom: claims.validFrom,
+          validTo: claims.validTo,
+        })
+        .from(claims)
+        .innerJoin(subjectRo, eq(claims.subjectId, subjectRo.id))
+        .innerJoin(objectRo, eq(claims.objectId, objectRo.id))
+        .where(
+          and(
+            eq(claims.orgId, resolvedOrgId),
+            inArray(claims.id, idChunk),
+            eq(subjectRo.orgId, resolvedOrgId),
+            eq(objectRo.orgId, resolvedOrgId),
+          ),
+        )
 
-  for (const idChunk of chunkArray(uniqueIds, PROJECT_CLAIM_BATCH_SIZE)) {
-    const rows = await db
-      .select({
-        id: claims.id,
-        subjectId: claims.subjectId,
-        objectId: claims.objectId,
-        subjectKind: subjectRo.kind,
-        objectKind: objectRo.kind,
-        predicate: claims.predicate,
-        status: claims.status,
-        aggregatedConfidence: claims.aggregatedConfidence,
-        lastObservedAt: claims.lastObservedAt,
-        validFrom: claims.validFrom,
-        validTo: claims.validTo,
-      })
-      .from(claims)
-      .innerJoin(subjectRo, eq(claims.subjectId, subjectRo.id))
-      .innerJoin(objectRo, eq(claims.objectId, objectRo.id))
-      .where(
-        and(
-          eq(claims.orgId, resolvedOrgId),
-          inArray(claims.id, idChunk),
-          eq(subjectRo.orgId, resolvedOrgId),
-          eq(objectRo.orgId, resolvedOrgId),
-        ),
+      if (rows.length === 0) continue
+
+      const evidenceCounts = Object.fromEntries(
+        (
+          await db
+            .select({
+              claimId: claimEvidence.claimId,
+              count: sql<number>`count(*)::int`,
+            })
+            .from(claimEvidence)
+            .where(
+              inArray(
+                claimEvidence.claimId,
+                rows.map((r) => r.id),
+              ),
+            )
+            .groupBy(claimEvidence.claimId)
+        ).map((r) => [r.claimId, r.count]),
       )
 
-    if (rows.length === 0) continue
-
-    const evidenceCounts = Object.fromEntries(
-      (
-        await db
-          .select({
-            claimId: claimEvidence.claimId,
-            count: sql<number>`count(*)::int`,
-          })
-          .from(claimEvidence)
-          .where(inArray(claimEvidence.claimId, rows.map((r) => r.id)))
-          .groupBy(claimEvidence.claimId)
-      ).map((r) => [r.claimId, r.count]),
-    )
-
-    for (const row of rows) {
-      projectionClaims.push({
-        id: row.id,
-        subjectId: row.subjectId,
-        objectId: row.objectId,
-        subjectKind: row.subjectKind,
-        objectKind: row.objectKind,
-        predicate: row.predicate,
-        status: row.status,
-        aggregatedConfidence: row.aggregatedConfidence,
-        sourceCount: evidenceCounts[row.id] ?? 0,
-        lastObservedAt: row.lastObservedAt.toISOString(),
-        validFrom: row.validFrom?.toISOString() ?? null,
-        validTo: row.validTo?.toISOString() ?? null,
-      })
+      for (const row of rows) {
+        loaded.push({
+          id: row.id,
+          subjectId: row.subjectId,
+          objectId: row.objectId,
+          subjectKind: row.subjectKind,
+          objectKind: row.objectKind,
+          predicate: row.predicate,
+          status: row.status,
+          aggregatedConfidence: row.aggregatedConfidence,
+          sourceCount: evidenceCounts[row.id] ?? 0,
+          lastObservedAt: row.lastObservedAt.toISOString(),
+          validFrom: row.validFrom?.toISOString() ?? null,
+          validTo: row.validTo?.toISOString() ?? null,
+        })
+      }
     }
-  }
+    return loaded
+  })
 
   if (projectionClaims.length === 0) return 0
   const result = await projectClaimsFromState(projectionClaims)

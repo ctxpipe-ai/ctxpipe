@@ -18,6 +18,12 @@ When `roots` includes both `./` and package paths (e.g. `apps/web`), post-proces
 | identifyLibraries | Library | USES_LIBRARY | lib:${repositoryId}:${root}:${libraryName} |
 | identifyPatterns | Pattern | IMPLEMENTS_PATTERN | pat:${repositoryId}:${root}:${patternName} |
 | extractInstructionUnits | InstructionUnit, Skill | HAS_INSTRUCTION, MEMBER_OF_PRIMARY | inu:${repositoryId}:${root}:${hash}, skl:${repositoryId}:${hash} |
+| extractDecisions | Decision | INFLUENCES, SUPERSEDES, MENTIONS | dec:${repositoryId}:${path} |
+| extractCodeowners | Team | OWNS (Team → Service/App/Library) | team:github:${org}/${slug} |
+| extractGithubPullRequests (connector) | PullRequest, File | TARGETS, ADDED, MODIFIED, REMOVED, RENAMED, PART_OF, REFERENCES (→ Issue) | prq:${sourceRepo}:${number}, fil:${sourceRepo}:${path} |
+| extractLinear (connector) | Issue, Team | OWNS (Team → Issue), REFERENCES (→ PullRequest) | iss:linear:${identifier}, team:linear:${key} |
+| extractSlackThreads (connector) | Thread | REFERENCES (→ PullRequest / Issue) | thr:slack:${channelId}:${threadTs} |
+| linkLocatedPaths | File, stub PullRequest / Issue | File PART_OF Repository/Service/App/Library, InstructionUnit/Decision DECLARED_IN File; after all roots concatenate, reference-family claims to a connected repository's PR or a known team's issue get a stub node (`inferredFromReference`), other unresolved references are dropped | fil:${repositoryId}:${path}, prq:${repoId}:${n}, iss:linear:${IDENT} |
 
 ## identifyRoots
 
@@ -31,9 +37,14 @@ Root detection is deterministic-first:
 
 ## extractInstructionUnits
 
-Extracts **InstructionUnit** objects from normative docs and agent rule files (`AGENTS.md`, `CLAUDE.md`, `.cursor/rules/**/*.md`, `CONTRIBUTING.md`, `README.md`), then derives **repo-local Skill** objects when ≥2 units share intent + compatible applicability envelope (payload). Uses structured LLM output per file (skipped when `MODEL_PROVIDER_API_KEY` is unset). Build manifests (e.g. `package.json` scripts) are **not** ingested as instruction units here—agents can read those files directly.
+Extracts **InstructionUnit** objects from files whose purpose is to instruct (`isInstructionSourcePath`: `AGENTS.md`, `CLAUDE.md`, `.cursor/rules/**`, `.agents/rules/**`, skills `SKILL.md`, `CONTRIBUTING.md`, the README at the repository root or a package root, and `docs/` files whose filename names a norm such as standards, guidelines, conventions, policies, workflow). Other Markdown is search-only; decision records (`adr/`, `decisions/`) are `Decision` nodes, never instructions. Units are then derived **repo-local Skill** objects when ≥2 units share intent + compatible applicability envelope (payload). Uses structured LLM output per file (skipped when `MODEL_PROVIDER_API_KEY` is unset). Build manifests (e.g. `package.json` scripts) are **not** ingested as instruction units here—agents can read those files directly.
 
-- **Dependency/vendor paths:** Instruction candidates under known dependency directory segments are excluded (convention-aware: e.g. `vendor/` but not `internal/vendor/`, root-only `external/`); see [`dependencyVendorPaths.ts`](../../../domain/codeIngestion/dependencyVendorPaths.ts).
+- **Dependency/vendor paths:** Instruction candidates under known dependency directory segments are excluded (convention-aware: e.g. `vendor/` but not `internal/vendor/`, root-only `external/`); see [`dependencyVendorPaths.ts`](../../../domain/codeIngestion/dependencyVendorPaths.ts). Connector warehouse prefixes (`github/`, `linear/`, `notion/`, `slack/`, `confluence/`) are also skipped.
+
+- **Locating edges:** After extractors run, `linkLocatedPaths` emits `File` nodes for this-repo paths, `File PART_OF Repository|Service|App|Library`, and `InstructionUnit|Decision DECLARED_IN File` (ADR-032, ADR-033). Evidence ids follow `extractor:repositoryId:…:targetHash` (`domain/codeIngestion/evidenceSourceId.ts`).
+
+- **Connector extractors:** `connectorExtractors.ts` is the registry of deterministic extractors (`extractGithubPullRequests`, `extractLinear`, `extractSlackThreads`). Connector Markdown is parsed from frontmatter, never LLM-read. Cross-tool references resolve through `domain/codeIngestion/referenceResolver.ts`; unresolved reference-family claims and unconnected `prq:github:` / `fil:github:` identities are dropped once after all roots concatenate (`finalizeExtractedReferences`). Connector-only partial diffs skip every code extractor (`shouldSkipCodeExtractorForPartialDiff`).
+- **Re-observation and sweep:** `deduplicateAndStore` touches evidence matched by logical key (`touchEvidenceBulk`: `observedAt` to now, source id to the current commit). After a healthy full ingest the workflow calls `retractUnobservedRepositoryEvidencePg` with the index child's `indexedAt` as cutoff, so evidence this repository (second source-id segment = producer) did not observe since then is retracted with its orphaned claims and nodes. Time, not hash: a re-index at an unchanged tip re-observes at the same commit. The sweep is skipped when an index degraded or when `extractInstructionUnits` skipped files on LLM failure (`extractionSkippedFiles`). Manual re-index requests `fullReingest`; webhook ingests stay incremental (ADR-033 §11).
 
 - **Evidence (MVP):** The product does not persist evidence rows without a promoted `InstructionUnit`—ingestion either promotes to a unit or skips; there is no separate persisted “evidence-only” store for this slice.
 
