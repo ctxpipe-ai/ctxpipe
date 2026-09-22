@@ -1,5 +1,12 @@
 # @ctxpipe/aws-cdk
 
+## 3.1.12
+
+### Patch Changes
+
+- a745669: Start scoped-mirror sync when config.yaml already matches after a context-repo rebind, and keep connector ingest from dying without a logger.
+- a974425: Stop organisation invites from 403ing when the browser is signed in as a different email than the invitation.
+
 ## 3.1.11
 
 ### Patch Changes
