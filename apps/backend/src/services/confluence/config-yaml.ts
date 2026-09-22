@@ -62,6 +62,22 @@ export function renderConfluenceConfigYaml(input: {
   return stringify(payload)
 }
 
+export function confluenceSpacesEqual(
+  left: Array<{ spaceKey: string; selectedPageIds: string[] | null }>,
+  right: Array<{ spaceKey: string; selectedPageIds: string[] | null }>,
+): boolean {
+  const normalize = (
+    spaces: Array<{ spaceKey: string; selectedPageIds: string[] | null }>,
+  ) =>
+    [...spaces]
+      .map((space) => ({
+        spaceKey: space.spaceKey,
+        selectedPageIds: [...(space.selectedPageIds ?? [])].sort(),
+      }))
+      .sort((a, b) => a.spaceKey.localeCompare(b.spaceKey))
+  return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right))
+}
+
 export function hasConfigYamlChanged(input: {
   current: string | undefined
   next: string

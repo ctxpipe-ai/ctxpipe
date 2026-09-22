@@ -214,6 +214,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-21
 - **Source:** user-confirmed cross-connector image/file capture policy
 
+### Scoped-mirror rebound with matching config.yaml starts content sync
+- **Rule:** After context-repo delete/recreate or rebind, a `draft` binding whose `<slug>/config.yaml` already matches the selected scope must start `initial_sync` (no config PR, `configPrEnqueued: false`, UI honours that). A matching live scope stays a no-op. Applies to Linear, Notion, PagerDuty, and Confluence (Confluence also starts content from the config workflow when yaml is unchanged). Slack has no yaml PR. Ingest after a connector git write goes through `runConnectorRepositoryIngestionWorkflow` (that helper owns logger context).
+- **Category:** convention
+- **Date:** 2026-09-22
+- **Source:** production Linear stall after ctxpipe-context recreate; copied to sibling scoped mirrors
+
 ### New source connectors follow Linear/Notion, not Confluence
 - **Rule:** do **not** copy Confluence’s control plane (`*_sync_targets` tables, config-PR columns, channel/space catalogues in Postgres, dirty-entity flush tables) when adding or simplifying a connector. Linear and Notion are the aligned pattern: identity and repo binding on `connections.config` jsonb ([ADR-022](decisions/ADR-022-linear-connector-git-native-mirror.md), [ADR-023](decisions/ADR-023-notion-connector-git-native-mirror.md)). A connector that is thinner than a git-native mirror (e.g. Slack intent capture) should stay thinner — omit `pendingConfig*`, `*/config.yaml`, and GitHub config-push remirror unless the product actually has a reviewed scope file. Keep `confluence_sync_targets` as legacy Confluence only.
 - **Category:** convention

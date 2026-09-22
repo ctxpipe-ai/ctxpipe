@@ -315,9 +315,10 @@ export function LinearSetupWizard({
                     setupSteps.findIndex((step) => step.id === "target"),
                   )
                 }}
-                onSaved={async () => {
+                onSaved={async (configPrEnqueued) => {
                   setManualScope(false)
                   setManualStepIndex(null)
+                  setConfigPrSubmitting(configPrEnqueued)
                   const result = await statusQuery.refetch()
                   const next = result.data
                   if (

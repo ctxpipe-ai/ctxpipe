@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   getTarget: vi.fn(),
   patchConfig: vi.fn(),
   claimConfig: vi.fn(),
+  transitionTarget: vi.fn(),
   runWorkflow: vi.fn(),
   loadConfig: vi.fn(),
 }))
@@ -64,7 +65,7 @@ vi.mock("../../models/pagerduty-connector.js", () => ({
   resolvePagerdutyConnectionForOrgDetailed: mocks.resolveConnection,
   savePagerdutyOAuthApp: mocks.saveOauthApp,
   persistPagerdutyWebhookSubscriptionIfAbsent: mocks.persistWebhook,
-  transitionPagerdutyBindingState: vi.fn(),
+  transitionPagerdutyBindingState: mocks.transitionTarget,
   upsertPagerdutyConnectionFromOAuth: mocks.upsertConnection,
 }))
 vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
@@ -147,9 +148,12 @@ beforeEach(() => {
     branch: "main",
     enabled: true,
     setupPhase: "draft",
+    pendingConfigPullUrl: null,
+    pendingConfigPrCreating: false,
   })
   mocks.loadConfig.mockResolvedValue({ services: [] })
   mocks.patchConfig.mockResolvedValue({ bindingChanged: true })
+  mocks.transitionTarget.mockResolvedValue(true)
   mocks.claimConfig.mockResolvedValue({
     pendingConfigPullUrl: null,
     setupPhase: "draft",
@@ -615,6 +619,72 @@ describe("PagerDuty connector routes", () => {
         services: [{ id: "PSVC", name: "checkout" }],
       }),
     )
+  })
+
+  it("continues a rebound draft when the target config already matches", async () => {
+    const services = [{ id: "PSVC", name: "checkout" }]
+    mocks.loadConfig.mockResolvedValue({ services })
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/pagerduty",
+      pagerdutyConnectorRoutes,
+    )
+    const response = await app.request(
+      "/acme/api/v1/connectors/pagerduty/config?connectionId=con_pd",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ services }),
+      },
+    )
+    expect(response.status).toBe(200)
+    expect(mocks.claimConfig).not.toHaveBeenCalled()
+    expect(mocks.transitionTarget).toHaveBeenCalledWith({
+      connectionId: "con_pd",
+      expectedSetupPhase: "draft",
+      expectedPendingConfigPrCreating: false,
+      repositoryId: "repo_1",
+      branch: "main",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      setupPhase: "initial_sync",
+    })
+    expect(mocks.runWorkflow).toHaveBeenCalledWith(
+      { name: "pagerduty-sync-content" },
+      {
+        orgId: "org_1",
+        connectionId: "con_pd",
+      },
+    )
+    expect(await response.json()).toMatchObject({ configPrEnqueued: false })
+  })
+
+  it("marks a rebound draft failed when initial sync cannot be enqueued", async () => {
+    const services = [{ id: "PSVC", name: "checkout" }]
+    mocks.loadConfig.mockResolvedValue({ services })
+    mocks.runWorkflow.mockRejectedValueOnce(new Error("worker unavailable"))
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/pagerduty",
+      pagerdutyConnectorRoutes,
+    )
+    const response = await app.request(
+      "/acme/api/v1/connectors/pagerduty/config?connectionId=con_pd",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ services }),
+      },
+    )
+    expect(response.status).toBe(503)
+    expect(mocks.transitionTarget).toHaveBeenLastCalledWith({
+      connectionId: "con_pd",
+      expectedSetupPhase: "initial_sync",
+      expectedPendingConfigPrCreating: false,
+      repositoryId: "repo_1",
+      branch: "main",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      setupPhase: "sync_failed",
+    })
   })
 
   it("removes the PagerDuty subscription before deleting the connection", async () => {

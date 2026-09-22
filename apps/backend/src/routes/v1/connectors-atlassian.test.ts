@@ -25,6 +25,8 @@ const getConfluenceSyncTargetWithRepoByConnectionIdMock = vi.hoisted(() =>
   vi.fn(),
 )
 const markAwaitingConfigMergeSetupMock = vi.hoisted(() => vi.fn())
+const markConfluenceSyncTargetInitialSyncMock = vi.hoisted(() => vi.fn())
+const loadConfluenceScopeFromRepoMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../models/atlassian-connector.js", async (importOriginal) => {
@@ -64,6 +66,15 @@ vi.mock("../../models/confluence-sync-target.js", () => ({
   getConfluenceSyncTargetWithRepoByConnectionId:
     getConfluenceSyncTargetWithRepoByConnectionIdMock,
   markAwaitingConfigMergeSetup: markAwaitingConfigMergeSetupMock,
+  markConfluenceSyncTargetInitialSync: markConfluenceSyncTargetInitialSyncMock,
+}))
+
+vi.mock("../../services/confluence/config-from-repo.js", () => ({
+  loadConfluenceScopeFromRepo: loadConfluenceScopeFromRepoMock,
+}))
+
+vi.mock("../../openworkflow/workflows/confluence-sync-content.js", () => ({
+  confluenceSyncContent: { spec: { name: "confluence-sync-content" } },
 }))
 
 vi.mock("../../openworkflow/client.js", () => ({
@@ -80,6 +91,8 @@ function createApp(): OpenAPIHono<AppEnv> {
     c.set("user", { id: "user_1" } as AppEnv["Variables"]["user"])
     c.set("session", { id: "sess_1" } as AppEnv["Variables"]["session"])
     c.set("orgId", "org_1")
+    c.set("orgSlug", "acme")
+    c.set("env", {} as AppEnv["Variables"]["env"])
     await next()
   })
   const scoped = new OpenAPIHono<AppEnv>()
@@ -102,7 +115,8 @@ describe("Atlassian connector routes", () => {
     orgHasAnyGithubConnectionMock.mockResolvedValue(false)
     getConfluenceSyncTargetWithRepoByOrgIdMock.mockResolvedValue(undefined)
     getConfluenceSyncTargetWithRepoByConnectionIdMock.mockImplementation(
-      async (orgId: string) => getConfluenceSyncTargetWithRepoByOrgIdMock(orgId),
+      async (orgId: string) =>
+        getConfluenceSyncTargetWithRepoByOrgIdMock(orgId),
     )
     runWorkflowMock.mockResolvedValue({ status: "completed" })
     upsertPendingForgeInstallationMock.mockResolvedValue({
@@ -119,6 +133,8 @@ describe("Atlassian connector routes", () => {
     })
     deleteForgeInstallationByOrgIdMock.mockResolvedValue(true)
     markAwaitingConfigMergeSetupMock.mockResolvedValue(undefined)
+    markConfluenceSyncTargetInitialSyncMock.mockResolvedValue(undefined)
+    loadConfluenceScopeFromRepoMock.mockResolvedValue(undefined)
   })
 
   it("GET /status returns connector state", async () => {
@@ -315,6 +331,73 @@ describe("Atlassian connector routes", () => {
     }
     expect(body.configPrEnqueued).toBe(true)
     expect(body.workflowName).toBeDefined()
+  })
+
+  it("continues a rebound draft when the target config already matches", async () => {
+    getForgeInstallationByOrgIdMock.mockResolvedValueOnce({
+      id: "fgi_1",
+      status: "installed",
+      cloudId: "cloud_1",
+    })
+    getConfluenceSyncTargetWithRepoByConnectionIdMock.mockResolvedValue({
+      id: "cst_1",
+      orgId: "org_1",
+      connectionId: "fgi_1",
+      repositoryId: "repo_1",
+      repositoryName: "owner/repo",
+      branch: "main",
+      enabled: true,
+      setupPhase: "draft",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      githubConnectionId: "ghconn_1",
+      createdAt: new Date("2026-03-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-03-01T00:00:00.000Z"),
+    })
+    loadConfluenceScopeFromRepoMock.mockResolvedValue({
+      spaces: [{ spaceKey: "ENG", selectedPageIds: null }],
+    })
+    patchAtlassianConnectorConfigMock.mockResolvedValueOnce({
+      spaces: [
+        {
+          id: "csp_1",
+          connectionId: "fgi_1",
+          spaceKey: "ENG",
+          spaceName: "Engineering",
+          selectedPageIds: null,
+          lastSyncedPageId: null,
+          lastSyncedAt: null,
+          createdAt: new Date("2026-03-01T00:00:00.000Z"),
+          updatedAt: new Date("2026-03-01T00:00:00.000Z"),
+        },
+      ],
+    })
+
+    const app = createApp()
+    const res = await app.request("/connectors/atlassian/config", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        spaces: [
+          { spaceKey: "ENG", spaceName: "Engineering", selectedPageIds: null },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(markAwaitingConfigMergeSetupMock).not.toHaveBeenCalled()
+    expect(markConfluenceSyncTargetInitialSyncMock).toHaveBeenCalledWith({
+      connectionId: "fgi_1",
+    })
+    expect(runWorkflowMock).toHaveBeenCalledWith(
+      { name: "confluence-sync-content" },
+      {
+        orgId: "org_1",
+        orgSlug: "acme",
+        connectionId: "fgi_1",
+      },
+    )
+    expect(await res.json()).toMatchObject({ configPrEnqueued: false })
   })
 
   it("PATCH /config with only sync target still opens config PR workflow", async () => {
