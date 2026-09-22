@@ -3,9 +3,9 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import slugify from "@sindresorhus/slugify"
 import { z } from "zod"
 import {
+  currentMcpActor,
   requireCurrentOrgId,
   requireCurrentOrgSlug,
-  requireCurrentUserId,
 } from "../auth/context.js"
 import { withOrgDbContext } from "../db/client.js"
 import { conversationGraph } from "../graphs/index.js"
@@ -19,7 +19,7 @@ import {
   getLangfuseHandler,
   runWithLangfuseContext,
 } from "../observability/langfuse.js"
-import { getLogger } from "../observability/logger.js"
+import { log } from "../observability/logger.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -94,18 +94,20 @@ export function registerMcpTools(server: McpServer): void {
       }),
     },
     async ({ prompt, currentProjectName, conversationId }, extra) => {
-      const userId = requireCurrentUserId()
+      const actor = currentMcpActor()
       const orgId = requireCurrentOrgId()
       // No-op when `AMPLITUDE_API_KEY` unset (`observability/amplitude.ts`).
       trackMcpToolInvocation({
-        userId,
+        userId:
+          actor.type === "org-service" ? `org:${actor.orgId}` : actor.userId,
         orgId,
         orgSlug: requireCurrentOrgSlug(),
         toolName: "ctx_advisor",
       })
+      const threadActorKey = actor.type === "org-service" ? "org" : actor.userId
       const threadId =
         conversationId != null
-          ? `${orgId}_${userId}_${slugify(currentProjectName ?? "default")}_${conversationId}`
+          ? `${orgId}_${threadActorKey}_${slugify(currentProjectName ?? "default")}_${conversationId}`
           : generateObjectId("thr")
       await withOrgDbContext(orgId, () =>
         ensureConversation({ id: threadId, source: "mcp" }),
@@ -119,7 +121,11 @@ export function registerMcpTools(server: McpServer): void {
       }
       try {
         return await runWithLangfuseContext(
-          { sessionId: threadId, tags: ["mcp"] },
+          {
+            sessionId: threadId,
+            tags:
+              actor.type === "org-service" ? ["mcp", "mcp-org-key"] : ["mcp"],
+          },
           async () => {
             const initialState: {
               messages: HumanMessage[]
@@ -217,8 +223,10 @@ export function registerMcpTools(server: McpServer): void {
           },
         )
       } catch (error) {
-        getLogger().error(error, {
+        log.error({
           step: "conversation.mcp.ctx_advisor",
+          message: error instanceof Error ? error.message : String(error),
+          error,
         })
         throw error
       }

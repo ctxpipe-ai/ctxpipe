@@ -7,7 +7,11 @@ import type {
   NotionBindingWithRepo,
   NotionConnection,
 } from "../../models/notion-connector.js"
-import { refreshNotionConnectionTokensWithLock } from "../../models/notion-connector.js"
+import {
+  getNotionStoredConfigByConnectionId,
+  refreshNotionConnectionTokensWithLock,
+} from "../../models/notion-connector.js"
+import { resolveNotionOAuthApp } from "../../lib/notion-oauth.js"
 import {
   connectorPathMatchesPreservation,
   createConnectorAssetBytePool,
@@ -78,8 +82,15 @@ function createNotionTokenRefreshHandler(input: {
         expectedRefreshToken,
         expectedAccessToken,
         refresh: async (refreshToken) => {
+          const stored = await getNotionStoredConfigByConnectionId(
+            input.orgId,
+            input.connectionId,
+          )
+          const app = resolveNotionOAuthApp(stored, input.env)
+          if (!app) throw new Error("Notion OAuth is not configured")
           const refreshed = await refreshNotionOAuthToken({
-            env: input.env,
+            clientId: app.clientId,
+            clientSecret: app.clientSecret,
             refreshToken,
           })
           return {

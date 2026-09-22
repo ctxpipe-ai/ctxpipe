@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Env } from "../config/env.js"
 import type { Db } from "../db/client.js"
 import type { NotionSetupPhase } from "../lib/connection-config.js"
+import { encryptConnectionSecret } from "../lib/connection-secrets.js"
 import {
   claimNotionBindingInitialSync,
   clearNotionSyncBindingsForRepository,
@@ -273,6 +274,80 @@ describe("Notion connection storage maintenance", () => {
       repositoryId: "repo_rebound",
       branch: "release",
     })
+  })
+
+  it("preserves oauth-app and webhook fields across OAuth upsert and refresh", async () => {
+    const oauthClientSecretEnc = encryptConnectionSecret("row-secret", env)
+    const webhookSecretEnc = encryptConnectionSecret("row-hook", env)
+    const matched = {
+      ...notionConnectionRow("live"),
+      config: {
+        ...notionConnectionRow("live").config,
+        accessToken: "old_access",
+        refreshToken: "old_refresh",
+        botId: "bot_1",
+        oauthClientId: "row-id",
+        oauthClientSecretEnc,
+        webhookSecretEnc,
+      },
+    }
+    let updatedConfig: Record<string, unknown> | undefined
+    const returning = vi.fn(async () => [
+      { ...matched, config: updatedConfig ?? matched.config },
+    ])
+    const set = vi.fn((value: { config: Record<string, unknown> }) => {
+      updatedConfig = value.config
+      return { where: vi.fn(() => ({ returning })) }
+    })
+    const select = vi
+      .fn()
+      .mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            orderBy: vi.fn(() => ({
+              limit: vi.fn().mockResolvedValue([matched]),
+            })),
+          })),
+        })),
+      })
+      .mockReturnValue({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([matched]),
+          })),
+        })),
+      })
+    const tx = {
+      execute: vi.fn(),
+      select,
+      update: vi.fn(() => ({ set })),
+      delete: vi.fn(() => ({ where: vi.fn() })),
+    }
+    const db = {
+      transaction: vi.fn((operation: (transaction: Db) => Promise<unknown>) =>
+        operation(tx as unknown as Db),
+      ),
+    } as unknown as Db
+    dbMocks.getOrgDb.mockReturnValue(db)
+
+    await upsertNotionConnectionFromOAuth({
+      orgId: "org_1",
+      env,
+      ownerUserId: "user_1",
+      accessToken: "new_access",
+      refreshToken: "new_refresh",
+      botId: "bot_1",
+    })
+
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          oauthClientId: "row-id",
+          oauthClientSecretEnc,
+          webhookSecretEnc,
+        }),
+      }),
+    )
   })
 
   it("rewrites legacy plaintext tokens after reading a connection", async () => {

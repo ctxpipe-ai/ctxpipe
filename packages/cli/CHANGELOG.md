@@ -1,5 +1,17 @@
 # ctxpipe
 
+## 0.4.0
+
+### Minor Changes
+
+- 078c8e2: Graph ontology v2 (ADR-033). Predicates are grouped into relation families (`PART_OF`, `DECLARED_IN`, `TARGETS`, `REFERENCES`, `OWNS`, `SUPERSEDES`, `INFLUENCES`, change edges dated at merge); the overloaded `ABOUT` and the never-extracted `Concept` / `Capability` / `Topic` kinds are retired. Connector Markdown is parsed by deterministic extractors instead of the instruction LLM: Linear issues and teams (`Issue`, `Team OWNS Issue`, `Issue REFERENCES PullRequest`), Slack captures (`Thread REFERENCES PullRequest | Issue`), and the GitHub pull-request mirror (`PullRequest TARGETS Repository`, change edges, `PullRequest REFERENCES Issue`). Source repositories gain `Decision` nodes from ADR files and `Team OWNS Service | App | Library` from CODEOWNERS. One reference resolver joins URLs, identifiers and paths into shared keys. Evidence ids now follow `extractor:repositoryId:…:targetHash` so dedup, retraction and purge work for connector claims. Connector-only partial ingests skip the code extractors. New `GET /knowledge-graph/quality` (join density, orphans, evidence per claim). A healthy full ingest retracts leftover connector-derived instruction units; there is no second cleanup path. Instruction units are minted only from files whose purpose is to instruct (agent files, rules, skills, CONTRIBUTING, root and package READMEs, norm-named docs); other Markdown stays search-only. References to pull requests of connected repositories and to known-team Linear issues create stub nodes that the mirror later enriches; Linear issues derive their team from the identifier prefix when the mirror lacks it. Manual re-index (UI **Retry indexing**, `reindex-repositories` script) is now a full re-ingest: it ignores the last ingested commit and, after a healthy run, retracts evidence the repository no longer asserts, so re-indexing stops accumulating drifted LLM extractions; re-observed evidence is stamped with the run and the current commit. Re-ingest connected repositories after deploying.
+- 9c9e889: Add API-key MCP auth as an OAuth alternative: `--auth api-key` writes a client-specific interpolation of `CTXPIPE_API_KEY` (never the secret) into repo or user MCP config. Mint organisation keys in Organisation settings; personal keys remain under User account. `doctor mcp` sends `x-api-key` when `CTXPIPE_API_KEY` is set in that process. Raise dashboard API-key rate limits so MCP is usable.
+
+### Patch Changes
+
+- 9c9e889: Write Cursor and Claude MCP config with `"type": "http"` so Cursor Agent CLI and Desktop accept the Streamable HTTP server.
+- 2881db2: Fix first-run GitHub pull-request mirror setup so context-repository binding is transactionally visible and background initialisation uses explicit organisation scope. Prevent OpenWorkflow's stale parallel-branch control signal from falsely marking successful repository ingestions as failed.
+
 ## 0.3.4
 
 ### Patch Changes

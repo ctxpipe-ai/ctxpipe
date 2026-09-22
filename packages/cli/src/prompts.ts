@@ -8,7 +8,7 @@ import {
   spinner,
   text,
 } from "@clack/prompts"
-import { CLIENT_COMMANDS, CLIENT_LABELS, CLIENTS, type Client } from "./constants.js"
+import type { Organization } from "./auth.js"
 import {
   fetchOrganizations,
   fetchSession,
@@ -17,7 +17,14 @@ import {
   readStoredAuth,
   userLabel,
 } from "./auth.js"
-import type { Organization } from "./auth.js"
+import {
+  CLIENT_COMMANDS,
+  CLIENT_LABELS,
+  CLIENTS,
+  MCP_API_KEY_MINT_HINT,
+  type Client,
+  type McpAuthMode,
+} from "./constants.js"
 import { readJsonObject } from "./fs-operations.js"
 import { commandExists } from "./system.js"
 import { muted, printWizardHeader } from "./ui.js"
@@ -34,6 +41,7 @@ export type InitPromptState = {
   agents: string[]
   scope: string | null
   mcp: boolean
+  auth: string | null
   /** Tri-state from CLI flags. undefined means "ask". */
   memory?: boolean | undefined
 }
@@ -43,18 +51,21 @@ export type InitPromptAnswers = {
   scope?: "repo" | "user" | "both"
   agents?: Client[]
   memory?: boolean
+  auth?: McpAuthMode
 }
 
 export type McpPromptState = {
   org: string | null
   clients: string[]
   scope: string | null
+  auth: string | null
 }
 
 export type McpPromptAnswers = {
   org?: string
   scope?: "repo" | "user" | "both"
   clients?: Client[]
+  auth?: McpAuthMode
 }
 
 export type MemoryInitPromptState = {
@@ -117,7 +128,9 @@ export async function promptMemoryInitWizard(
 async function promptMemoryAgents(): Promise<Client[]> {
   const detectSpinner = spinner()
   detectSpinner.start("Detecting installed agents")
-  const detected = CLIENTS.filter((client) => commandExists(CLIENT_COMMANDS[client]))
+  const detected = CLIENTS.filter((client) =>
+    commandExists(CLIENT_COMMANDS[client]),
+  )
   detectSpinner.stop(
     detected.length > 0
       ? `Detected ${detected.length} agent${detected.length === 1 ? "" : "s"}`
@@ -162,7 +175,11 @@ async function promptMemoryAuthOrSkip(baseUrl: string): Promise<string | null> {
   })
 
   if (choice === "skip") {
-    log.message(muted("Local-only mode — Markdown memory and capture hooks need no account."))
+    log.message(
+      muted(
+        "Local-only mode — Markdown memory and capture hooks need no account.",
+      ),
+    )
     return null
   }
 
@@ -186,7 +203,9 @@ async function resolveOrgFromAuth(
       fetchOrganizations({ baseUrl, accessToken }).catch(() => []),
       fetchSession({ baseUrl, accessToken }).catch(() => null),
     ])
-    orgSpinner.stop(orgs.length > 0 ? "Loaded ctx| organizations" : "No organizations found")
+    orgSpinner.stop(
+      orgs.length > 0 ? "Loaded ctx| organizations" : "No organizations found",
+    )
   } catch (error) {
     orgSpinner.stop("Could not load ctx| organizations")
     throw error
@@ -232,29 +251,6 @@ export async function promptInitWizard(
   if (!current.org) {
     answers.org = await promptSetupOrg(current.baseUrl)
   }
-  if (!current.scope) {
-    answers.scope = await promptSelect<"repo" | "user" | "both">({
-      message: "Where should ctxpipe apply setup?",
-      initial: "repo",
-      choices: [
-        {
-          title: "This repo",
-          value: "repo",
-          description: "Write project files such as .ctxpipe/config.json and MCP config.",
-        },
-        {
-          title: "Globally",
-          value: "user",
-          description: "Configure supported clients for your whole machine when possible.",
-        },
-        {
-          title: "Both",
-          value: "both",
-          description: "Set up this repo and your user-level client config.",
-        },
-      ],
-    })
-  }
   if (current.memory === undefined) {
     answers.memory = await promptConfirm(
       "Enable local agent memory for this repo? (writes .ai/memory, capture skills/rule, and host hooks)",
@@ -266,6 +262,34 @@ export async function promptInitWizard(
     (current.mcp || current.memory === true || answers.memory === true)
   ) {
     answers.agents = await promptAgents()
+  }
+  if (current.mcp) {
+    Object.assign(answers, await promptMcpAuth(current))
+  }
+  if (!current.scope) {
+    answers.scope = await promptSelect<"repo" | "user" | "both">({
+      message: "Where should ctxpipe apply setup?",
+      initial: "repo",
+      choices: [
+        {
+          title: "This repo",
+          value: "repo",
+          description:
+            "Write project files such as .ctxpipe/config.json and MCP config.",
+        },
+        {
+          title: "Globally",
+          value: "user",
+          description:
+            "Configure supported clients for your whole machine when possible.",
+        },
+        {
+          title: "Both",
+          value: "both",
+          description: "Set up this repo and your user-level client config.",
+        },
+      ],
+    })
   }
 
   return answers
@@ -282,8 +306,12 @@ async function promptSetupOrg(baseUrl: string): Promise<string> {
     sessionSpinner.start("Checking existing ctx| session")
     try {
       ;[orgs, session] = await Promise.all([
-        fetchOrganizations({ baseUrl, accessToken: auth.accessToken }).catch(() => []),
-        fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(() => null),
+        fetchOrganizations({ baseUrl, accessToken: auth.accessToken }).catch(
+          () => [],
+        ),
+        fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(
+          () => null,
+        ),
       ])
       sessionSpinner.stop(
         orgs.length > 0 ? "Loaded ctx| organizations" : "Sign-in required",
@@ -303,7 +331,9 @@ async function promptSetupOrg(baseUrl: string): Promise<string> {
     try {
       ;[orgs, session] = await Promise.all([
         fetchOrganizations({ baseUrl, accessToken: auth.accessToken }),
-        fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(() => null),
+        fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(
+          () => null,
+        ),
       ])
       orgSpinner.stop("Loaded ctx| organizations")
     } catch (error) {
@@ -348,7 +378,11 @@ export async function promptMcpWizard(
 ): Promise<McpPromptAnswers> {
   printWizardHeader()
   log.step("MCP")
-  log.message(muted("Choose the clients ctxpipe should configure for this machine or repo."))
+  log.message(
+    muted(
+      "Choose the clients ctxpipe should configure for this machine or repo.",
+    ),
+  )
 
   const answers: McpPromptAnswers = {}
   if (!current.org) {
@@ -357,6 +391,10 @@ export async function promptMcpWizard(
       initial: detectDefaultOrgSlug(),
     })
   }
+  if (current.clients.length === 0) {
+    answers.clients = await promptAgents()
+  }
+  Object.assign(answers, await promptMcpAuth(current))
   if (!current.scope) {
     answers.scope = await promptSelect<"repo" | "user" | "both">({
       message: "Where should ctxpipe configure MCP?",
@@ -368,8 +406,39 @@ export async function promptMcpWizard(
       ],
     })
   }
-  if (current.clients.length === 0) {
-    answers.clients = await promptAgents()
+  return answers
+}
+
+async function promptMcpAuth(current: { auth: string | null }): Promise<{
+  auth?: McpAuthMode
+}> {
+  const answers: { auth?: McpAuthMode } = {}
+  if (!current.auth) {
+    answers.auth = await promptSelect<McpAuthMode>({
+      message: "How should this machine authenticate MCP?",
+      initial: "oauth",
+      choices: [
+        {
+          title: "OAuth (recommended)",
+          value: "oauth",
+          description:
+            "URL-only config. The client opens a browser to sign in.",
+        },
+        {
+          title: "API key",
+          value: "api-key",
+          description:
+            "Write an x-api-key header that interpolates CTXPIPE_API_KEY. Mint organisation keys in Organisation settings; personal keys under User account.",
+        },
+      ],
+    })
+  }
+  if ((answers.auth ?? current.auth) === "api-key") {
+    log.message(
+      muted(
+        `${MCP_API_KEY_MINT_HINT} Set CTXPIPE_API_KEY in the MCP client environment. The CLI writes a placeholder, not the secret.`,
+      ),
+    )
   }
   return answers
 }
@@ -377,7 +446,9 @@ export async function promptMcpWizard(
 async function promptAgents(): Promise<Client[]> {
   const detectSpinner = spinner()
   detectSpinner.start("Detecting installed agents")
-  const detected = CLIENTS.filter((client) => commandExists(CLIENT_COMMANDS[client]))
+  const detected = CLIENTS.filter((client) =>
+    commandExists(CLIENT_COMMANDS[client]),
+  )
   detectSpinner.stop(
     detected.length > 0
       ? `Detected ${detected.length} agent${detected.length === 1 ? "" : "s"}`
@@ -414,7 +485,9 @@ async function promptText({
 }
 
 export function detectDefaultOrgSlug(): string | undefined {
-  const existing = readJsonObject(resolve(process.cwd(), ".ctxpipe", "config.json"))
+  const existing = readJsonObject(
+    resolve(process.cwd(), ".ctxpipe", "config.json"),
+  )
   if (typeof existing.orgSlug === "string" && existing.orgSlug.trim()) {
     return existing.orgSlug
   }

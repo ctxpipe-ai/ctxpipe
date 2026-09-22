@@ -60,32 +60,105 @@ export const CORE_ALLOWED_CONNECTIONS: Array<{
   },
 ]
 
+const PACKAGE_KINDS = ["Service", "App", "Library"] as const
+
 /**
- * Allowed (subjectKind, predicate, objectKind) for extension layer.
+ * Allowed (subjectKind, predicate, objectKind) for the extension layer,
+ * grouped by relation family (ADR-033).
  */
 export const EXTENSION_ALLOWED_CONNECTIONS: Array<{
   subjectKind: string
   predicate: string
   objectKind: string
 }> = [
-  { subjectKind: "Concept", predicate: "RELATES_TO", objectKind: "Concept" },
-  { subjectKind: "Concept", predicate: "ABOUT", objectKind: "Service" },
-  { subjectKind: "Concept", predicate: "ABOUT", objectKind: "API" },
-  { subjectKind: "Topic", predicate: "RELATES_TO", objectKind: "Topic" },
-  { subjectKind: "Topic", predicate: "ABOUT", objectKind: "Service" },
-  {
-    subjectKind: "Capability",
-    predicate: "ASSOCIATED_WITH",
-    objectKind: "Service",
-  },
-  { subjectKind: "Decision", predicate: "INFLUENCES", objectKind: "Service" },
-  { subjectKind: "Incident", predicate: "MENTIONS", objectKind: "Service" },
+  // provenance
   {
     subjectKind: "InstructionUnit",
     predicate: "MEMBER_OF_PRIMARY",
     objectKind: "Skill",
   },
+  {
+    subjectKind: "InstructionUnit",
+    predicate: "DECLARED_IN",
+    objectKind: "File",
+  },
+  { subjectKind: "Decision", predicate: "DECLARED_IN", objectKind: "File" },
+  // containment
+  { subjectKind: "File", predicate: "PART_OF", objectKind: "Repository" },
+  ...PACKAGE_KINDS.map((objectKind) => ({
+    subjectKind: "File",
+    predicate: "PART_OF",
+    objectKind,
+  })),
+  // change
+  {
+    subjectKind: "PullRequest",
+    predicate: "TARGETS",
+    objectKind: "Repository",
+  },
+  { subjectKind: "PullRequest", predicate: "ADDED", objectKind: "File" },
+  { subjectKind: "PullRequest", predicate: "MODIFIED", objectKind: "File" },
+  { subjectKind: "PullRequest", predicate: "REMOVED", objectKind: "File" },
+  { subjectKind: "PullRequest", predicate: "RENAMED", objectKind: "File" },
+  // reference
+  { subjectKind: "Issue", predicate: "REFERENCES", objectKind: "PullRequest" },
+  { subjectKind: "PullRequest", predicate: "REFERENCES", objectKind: "Issue" },
+  { subjectKind: "Thread", predicate: "REFERENCES", objectKind: "PullRequest" },
+  { subjectKind: "Thread", predicate: "REFERENCES", objectKind: "Issue" },
+  { subjectKind: "Thread", predicate: "REFERENCES", objectKind: "Decision" },
+  { subjectKind: "Issue", predicate: "MENTIONS", objectKind: "File" },
+  { subjectKind: "Thread", predicate: "MENTIONS", objectKind: "File" },
+  { subjectKind: "Decision", predicate: "MENTIONS", objectKind: "File" },
+  { subjectKind: "Decision", predicate: "SUPERSEDES", objectKind: "Decision" },
+  // ownership
+  { subjectKind: "Team", predicate: "OWNS", objectKind: "Issue" },
+  ...PACKAGE_KINDS.map((objectKind) => ({
+    subjectKind: "Team",
+    predicate: "OWNS",
+    objectKind,
+  })),
+  // cause
+  { subjectKind: "Decision", predicate: "INFLUENCES", objectKind: "Service" },
 ]
+
+/** One-line semantics per predicate, surfaced to the retrieval planner. */
+export const PREDICATE_DESCRIPTIONS: Record<string, string> = {
+  IMPLEMENTED_IN: "a Service, App or Library lives in this Repository",
+  DEPENDS_ON: "runtime dependency on a Service, Database or Library",
+  EXPOSES_API: "a Service serves this API",
+  CONSUMES_API: "a Service or API calls this API or Operation",
+  HAS_OPERATION: "an API has this Operation (method + path)",
+  PRODUCES_TO: "a Service publishes to this Stream",
+  CONSUMES_FROM: "a Service consumes from this Stream",
+  READS_FROM: "a Service reads this Database",
+  WRITES_TO: "a Service writes this Database",
+  USES_LIBRARY: "a Service uses this Library",
+  IMPLEMENTS_PATTERN: "a Service implements this architectural Pattern",
+  RUNS_ON: "a Service is deployed on this Infrastructure",
+  HAS_INSTRUCTION:
+    "a Repository or Service is governed by this InstructionUnit (stated norm)",
+  MEMBER_OF_PRIMARY: "an InstructionUnit belongs to this Skill",
+  DECLARED_IN:
+    "provenance: the InstructionUnit or Decision is stated in this File",
+  PART_OF:
+    "containment: the File is inside this Repository, Service, App or Library",
+  TARGETS: "the PullRequest's base Repository",
+  ADDED:
+    "change event: the PullRequest added this File (valid_from = merge date)",
+  MODIFIED:
+    "change event: the PullRequest modified this File (valid_from = merge date)",
+  REMOVED:
+    "change event: the PullRequest removed this File (valid_from = merge date)",
+  RENAMED:
+    "change event: the PullRequest renamed a file to this File (valid_from = merge date)",
+  REFERENCES:
+    "explicit cross-tool link by URL or identifier: Issue and PullRequest reference each other; a Thread references a PullRequest, Issue or Decision",
+  MENTIONS:
+    "lexical mention of a File in an Issue, Thread or Decision",
+  OWNS: "ownership: a Team owns a Service, App or Library (CODEOWNERS) or an Issue (tracker team)",
+  INFLUENCES: "a Decision (ADR) shapes this Service",
+  SUPERSEDES: "a Decision replaces an earlier Decision",
+}
 
 export type AllowedConnections = {
   core: typeof CORE_ALLOWED_CONNECTIONS

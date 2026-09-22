@@ -47,9 +47,8 @@ import {
   clearRepositoryIndexingFollowUpPending,
   deleteRepository,
   getRepositoryForOrg,
-  INDEXING_QUEUED_STALE_MS,
-  INDEXING_RUNNING_STALE_MS,
   listRepositoriesForGithubConnection,
+  listRepositoriesForGithubConnectionForOrg,
   listRepositoriesForOrg,
   markRepositoryIndexingFailed,
   markRepositoryIndexingReadyWithIssues,
@@ -115,6 +114,23 @@ describe("listRepositoriesForGithubConnection", () => {
     await expect(
       listRepositoriesForGithubConnection(githubConnectionId),
     ).resolves.toEqual(rows)
+    expect(query.where).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("listRepositoriesForGithubConnectionForOrg", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("uses explicit org scope without Hono request context", async () => {
+    const rows = [{ id: "repo_linked", orgId, githubConnectionId }]
+    const query = mockRepositoriesWithZoekt(rows, getSystemDbMock)
+
+    await expect(
+      listRepositoriesForGithubConnectionForOrg(orgId, githubConnectionId),
+    ).resolves.toEqual(rows)
+    expect(requireCurrentOrgIdMock).not.toHaveBeenCalled()
     expect(query.where).toHaveBeenCalledTimes(1)
   })
 })
@@ -475,7 +491,7 @@ describe("tryClaimRepositoryIndexingEnqueue", () => {
     )
   })
 
-  it("returns false when already queued or running and not stale", async () => {
+  it("returns false when already queued or running", async () => {
     const claimReturning = vi.fn().mockResolvedValue([])
     const pendingReturning = vi.fn().mockResolvedValue([{ id: repositoryId }])
     const claimWhere = vi.fn().mockReturnValue({ returning: claimReturning })
@@ -499,35 +515,7 @@ describe("tryClaimRepositoryIndexingEnqueue", () => {
     expect(pendingSet).toHaveBeenCalledWith({
       indexingFollowUpPending: true,
     })
-  })
-
-  it("uses 30min queued and 6h running stale cutoffs", () => {
-    expect(INDEXING_QUEUED_STALE_MS).toBe(30 * 60 * 1000)
-    expect(INDEXING_RUNNING_STALE_MS).toBe(6 * 60 * 60 * 1000)
-  })
-
-  it("returns true when a stale queued/running row is reclaimed", async () => {
-    const returning = vi.fn().mockResolvedValue([{ id: repositoryId }])
-    const where = vi.fn().mockReturnValue({ returning })
-    const set = vi.fn().mockReturnValue({ where })
-    const update = vi.fn().mockReturnValue({ set })
-    getOrgDbMock.mockReturnValue({ update })
-
-    const nowMs = Date.parse("2026-07-26T12:00:00.000Z")
-    await expect(
-      tryClaimRepositoryIndexingEnqueue({
-        repositoryId,
-        reason: "manual",
-        nowMs,
-      }),
-    ).resolves.toBe(true)
-
-    expect(set).toHaveBeenCalledWith(
-      expect.objectContaining({
-        updatedAt: new Date(nowMs),
-      }),
-    )
-    expect(where).toHaveBeenCalled()
+    expect(update).toHaveBeenCalledTimes(2)
   })
 })
 

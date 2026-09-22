@@ -38,6 +38,7 @@ async function createTestApp(options?: {
     c.set("user", null)
     c.set("session", null)
     c.set("oauthOrganizationId", null)
+    c.set("orgApiKey", null)
     c.set("orgSlug", null)
     c.set("orgId", null)
     await next()

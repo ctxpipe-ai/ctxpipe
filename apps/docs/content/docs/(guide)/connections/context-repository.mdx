@@ -1,6 +1,6 @@
 ---
 title: Connector context repository
-description: Create one Git repository for content synchronized from Confluence, Slack, Linear, Notion, and other ctxpipe connectors.
+description: Create one Git repository for content synchronized from Confluence, Slack, Linear, Notion, PagerDuty, and other ctxpipe connectors.
 ---
 
 ctxpipe is Git-native. Source connectors mirror approved content into a GitHub
@@ -32,8 +32,14 @@ ctxpipe-context/
 ├── linear/
 │   ├── config.yaml
 │   └── issues/<issue>/assets/
-└── slack/
-    └── channels/<channel>/threads/<date>/<thread>/assets/
+├── pagerduty/
+│   ├── config.yaml
+│   └── incidents/<number>--<id>/assets/
+├── slack/
+│   └── channels/<channel>/threads/<date>/<thread>/assets/
+└── github/
+    ├── config.yaml
+    └── pulls/<owner>/<repo>/<number>--<id>.md
 ```
 
 ## Create the repository
@@ -57,10 +63,11 @@ ctxpipe-context/
   </Step>
 
   <Step>
-    ### Refresh and select it in ctxpipe
+    ### Return to ctxpipe
 
-    Return to connector setup and refresh the repository list. Select
-    `ctxpipe-context`, then continue with the connector's content scope.
+    GitHub setup lists `ctxpipe-context` automatically once the App can see it.
+    On later connector setup, refresh if needed, then continue with that
+    repository.
   </Step>
 
   <Step>
@@ -87,9 +94,10 @@ security boundary; do not combine sources merely to avoid an extra setup step.
 
 ## What ctxpipe writes
 
-For curated systems such as Confluence, Notion, and Linear, connector setup
-first proposes a configuration file (for example `confluence/config.yaml`,
-`notion/config.yaml`, or `linear/config.yaml`) in a pull request. That file
+For curated systems such as Confluence, Notion, Linear, and PagerDuty, connector
+setup first proposes a configuration file (for example `confluence/config.yaml`,
+`notion/config.yaml`, `linear/config.yaml`, or `pagerduty/config.yaml`) in a
+pull request. That file
 records the approved source scope. After it is merged, ctxpipe synchronizes the
 selected content under the connector's directory and reindexes repository
 changes.
@@ -117,5 +125,6 @@ they apply, and use Git history to understand when connector context changed.
 - [Slack connector](/docs/connections/source-connectors/slack)
 - [Linear connector](/docs/connections/source-connectors/linear)
 - [Notion connector](/docs/connections/source-connectors/notion)
+- [PagerDuty connector](/docs/connections/source-connectors/pagerduty)
 - [Manage repositories](/docs/git-repositories/manage-repositories)
 - [Ingestion](/docs/connections/ingestion)

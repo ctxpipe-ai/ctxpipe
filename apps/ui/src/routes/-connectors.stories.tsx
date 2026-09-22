@@ -72,6 +72,7 @@ const githubId = "conn_github_1"
 const slackId = "conn_slack_1"
 const linearId = "conn_linear_1"
 const notionId = "conn_notion_1"
+const pagerdutyId = "conn_pagerduty_1"
 
 const connectionItems = [
   {
@@ -101,6 +102,12 @@ const connectionItems = [
   {
     id: notionId,
     type: "notion" as const,
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-02T00:00:00.000Z",
+  },
+  {
+    id: pagerdutyId,
+    type: "pagerduty" as const,
     createdAt: "2025-01-01T00:00:00.000Z",
     updatedAt: "2025-01-02T00:00:00.000Z",
   },
@@ -177,6 +184,30 @@ const linearStatusComplete = {
   },
 }
 
+const pagerdutyStatusComplete = {
+  isInstalled: true,
+  installationStatus: "installed",
+  accountName: "Acme",
+  accountSubdomain: "acme",
+  region: "us",
+  isGithubLinked: true,
+  selectedServiceCount: 3,
+  syncTargetConfigured: true,
+  setupPhase: "live",
+  pendingConfigPullUrl: null,
+  pendingConfigPrCreating: false,
+  syncTarget: {
+    repositoryId: "repo_1",
+    repositoryName: "acme/ingest",
+    branch: "main",
+    githubConnectionId: githubId,
+  },
+  oauthAppSaved: false,
+  globalPagerdutyOAuthConfigured: true,
+  oauthCallbackUrl:
+    "https://app.example.com/api/v1/integrations/pagerduty/callback",
+}
+
 const slackStatusComplete = {
   isInstalled: true,
   installationStatus: "installed",
@@ -245,6 +276,19 @@ function linearStatusHandler(status: object) {
   )
 }
 
+function pagerdutyStatusHandler(status: object) {
+  return http.get(
+    ({ request }) => {
+      const u = new URL(request.url)
+      return (
+        u.pathname.endsWith("/api/v1/connectors/pagerduty/status") &&
+        u.searchParams.get("connectionId") === pagerdutyId
+      )
+    },
+    () => HttpResponse.json(status),
+  )
+}
+
 function slackStatusHandler(status: object) {
   return http.get(
     ({ request }) => {
@@ -306,6 +350,7 @@ export const Full: Story = {
     githubInstallationHandler(githubInstallationComplete),
     linearStatusHandler(linearStatusComplete),
     slackStatusHandler(slackStatusComplete),
+    pagerdutyStatusHandler(pagerdutyStatusComplete),
   ]),
 }
 
@@ -354,6 +399,14 @@ export const InProgress: Story = {
       setupPhase: "draft",
       syncTarget: null,
     }),
+    pagerdutyStatusHandler({
+      ...pagerdutyStatusComplete,
+      isGithubLinked: true,
+      syncTargetConfigured: true,
+      selectedServiceCount: 2,
+      setupPhase: "awaiting_merge",
+      pendingConfigPullUrl: "https://github.com/acme/ingest/pull/43",
+    }),
   ]),
 }
 
@@ -382,6 +435,10 @@ export const MixedHealth: Story = {
       setupPhase: "config_failed",
     }),
     slackStatusHandler(slackStatusComplete),
+    pagerdutyStatusHandler({
+      ...pagerdutyStatusComplete,
+      setupPhase: "sync_failed",
+    }),
   ]),
 }
 
@@ -395,5 +452,6 @@ export const CouldntLoad: Story = {
     statusFailed("/api/v1/connectors/linear/status", linearId),
     statusFailed("/api/v1/connectors/notion/status", notionId),
     statusFailed("/api/v1/connectors/slack/status", slackId),
+    statusFailed("/api/v1/connectors/pagerduty/status", pagerdutyId),
   ]),
 }

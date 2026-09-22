@@ -17,6 +17,7 @@ import {
 import {
   deleteNotionConnector,
   fetchNotionConnectorStatus,
+  fetchNotionOauthApp,
   notionConnectorKeys,
 } from "../queries/notion-connector"
 import { orgConnectionsKeys } from "../queries/org-connections"
@@ -48,6 +49,11 @@ export function NotionConnectionCard({
   } = useQuery({
     queryKey: notionConnectorKeys.status(orgSlug, connectionId),
     queryFn: () => fetchNotionConnectorStatus(orgSlug, connectionId),
+  })
+  const oauthAppQuery = useQuery({
+    queryKey: notionConnectorKeys.oauthApp(orgSlug, connectionId),
+    queryFn: () => fetchNotionOauthApp(orgSlug, connectionId),
+    enabled: status?.setupPhase === "draft",
   })
 
   const removeMutation = useMutation({
@@ -102,7 +108,11 @@ export function NotionConnectionCard({
         }
         syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
         actionLabel={
-          isError ? "Retry" : status ? getNotionCardCtaLabel(status) : undefined
+          isError
+            ? "Retry"
+            : status
+              ? getNotionCardCtaLabel(status, oauthAppQuery.data)
+              : undefined
         }
         onAction={
           isError

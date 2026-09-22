@@ -4,7 +4,6 @@ import {
   eq,
   inArray,
   isNull,
-  lt,
   lte,
   notInArray,
   or,
@@ -138,6 +137,14 @@ export const listRepositoriesForGithubConnection = async (
   const orgId = requireCurrentOrgId()
   const db = getOrgDb()
   return selectRepositoriesWithZoekt(db, orgId, githubConnectionId)
+}
+
+/** Repositories for a GitHub connection from worker/system context. */
+export const listRepositoriesForGithubConnectionForOrg = async (
+  orgId: string,
+  githubConnectionId: string,
+): Promise<RepositoryWithSearch[]> => {
+  return selectRepositoriesWithZoekt(getSystemDb(), orgId, githubConnectionId)
 }
 
 /** Repositories linked to this GitHub App connection (`github_connection_id`). */
@@ -290,16 +297,6 @@ export async function markRepositoryIndexingPending(input: {
     .where(eq(repositories.id, input.repositoryId))
 }
 
-/** Reclaim a stuck `queued` claim if status has not changed for this long. */
-export const INDEXING_QUEUED_STALE_MS = 30 * 60 * 1000
-
-/**
- * Reclaim a stuck `running` ingest if status has not changed for this long.
- * Long enough that large-repo codesearch + LLM ingest can finish; short enough
- * to recover from a dead worker that never called mark-failed.
- */
-export const INDEXING_RUNNING_STALE_MS = 6 * 60 * 60 * 1000
-
 export async function markRepositoryIndexingFollowUpPending(input: {
   repositoryId: string
 }): Promise<void> {
@@ -342,23 +339,19 @@ export async function hasPendingRepositoryIndexingFollowUp(input: {
 
 /**
  * Marks a repository queued for a new ingestion orchestrator only when it is
- * not already `queued` or `running` (single-flight per repo), unless that
- * status is stale (`queued` > 30min or `running` > 6h based on `updatedAt`).
+ * not already `queued` or `running` (single-flight per repo). A crashed
+ * worker must mark the run `failed` after OpenWorkflow retries; do not
+ * reclaim from `updatedAt` age.
  *
  * @returns true when the caller should start a new orchestrator workflow.
  */
 export async function tryClaimRepositoryIndexingEnqueue(input: {
   repositoryId: string
   reason: string | null
-  /** Injected for tests; defaults to Date.now(). */
-  nowMs?: number
 }): Promise<boolean> {
   const db = getOrgDb()
-  const nowMs = input.nowMs ?? Date.now()
   const queuedStep = resolveIndexingStep("queued")
   if (!queuedStep) throw new Error("Failed to resolve queued indexing step")
-  const queuedStaleBefore = new Date(nowMs - INDEXING_QUEUED_STALE_MS)
-  const runningStaleBefore = new Date(nowMs - INDEXING_RUNNING_STALE_MS)
   for (;;) {
     const claimed = await db
       .update(repositories)
@@ -372,7 +365,7 @@ export async function tryClaimRepositoryIndexingEnqueue(input: {
         indexingStep: queuedStep.step,
         indexingStepTotal: queuedStep.total,
         indexingStepKey: queuedStep.key,
-        updatedAt: new Date(nowMs),
+        updatedAt: new Date(),
       })
       .where(
         and(
@@ -380,14 +373,6 @@ export async function tryClaimRepositoryIndexingEnqueue(input: {
           or(
             isNull(repositories.indexingStatus),
             notInArray(repositories.indexingStatus, ["queued", "running"]),
-            and(
-              eq(repositories.indexingStatus, "queued"),
-              lt(repositories.updatedAt, queuedStaleBefore),
-            ),
-            and(
-              eq(repositories.indexingStatus, "running"),
-              lt(repositories.updatedAt, runningStaleBefore),
-            ),
           ),
         ),
       )

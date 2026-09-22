@@ -2,28 +2,38 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { linearOauthAppSavedInConfig } from "../../lib/connection-config.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
-import { getRepositoryForOrg } from "../../models/repositories.js"
 import {
   claimLinearContentSyncRetry,
   deleteLinearConnectionById,
   getLinearBindingWithRepoByConnectionId,
-  LinearConfigPrCreationInProgressError,
   type LinearBindingWithRepo,
+  LinearConfigPrCreationInProgressError,
   type LinearConnection,
   type LinearScope,
   LinearSyncBindingBusyError,
+  LinearWorkspaceCollisionError,
   MULTIPLE_LINEAR_CONNECTIONS_MESSAGE,
   patchLinearConnectorConfig,
   refreshLinearConnectionTokensWithLock,
   releaseLinearConfigPrCreationClaim,
   resolveLinearConnectionForOrgDetailed,
+  saveLinearOauthAppOnConnection,
   updateLinearBindingPrState,
   upsertLinearConnectionFromOAuth,
+  upsertLinearDraftConnection,
 } from "../../models/linear-connector.js"
+import {
+  envLinearOauthConfigured,
+  getLinearOauthAppCreds,
+  linearConnectionIsInstalled,
+} from "../../models/linear-oauth-app.js"
+import { getRepositoryForOrg } from "../../models/repositories.js"
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
+import { enqueueGithubPrMirrorEnsureForOrg } from "../../openworkflow/workflows/github-ensure-pr-mirror.js"
 import { linearSyncConfig } from "../../openworkflow/workflows/linear-sync-config.js"
 import { linearSyncContent } from "../../openworkflow/workflows/linear-sync-content.js"
 import {
@@ -94,9 +104,105 @@ const LinearPatchConfigRequestSchema = z
     { message: "Provide scopes or syncTarget" },
   )
 
+const LinearOauthAppGetResponseSchema = z
+  .object({
+    linearOauthConfigured: z.boolean(),
+    globalLinearOauthConfigured: z.boolean(),
+    oauthCallbackUrl: z.string(),
+    linearWebhookUrl: z.string(),
+    linearCreateUrl: z.string(),
+    oauthAppSaved: z.boolean(),
+    oauthClientId: z.string().nullable(),
+  })
+  .openapi("LinearOauthAppGetResponse")
+
+const LinearOauthAppPutBodySchema = z
+  .object({
+    clientId: z.string().min(1),
+    clientSecret: z.string().optional(),
+    webhookSecret: z.string().optional(),
+  })
+  .openapi("LinearOauthAppPut")
+
+const postDraftRoute = createRoute({
+  method: "post",
+  path: "/draft",
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({ connectionId: z.string().min(1) }),
+        },
+      },
+      description: "Create or reuse a Linear draft connection",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Ambiguous Linear draft connection",
+    },
+  },
+})
+
+const getOauthAppRoute = createRoute({
+  method: "get",
+  path: "/oauth-app",
+  request: { query: ConnectionIdQuerySchema },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: LinearOauthAppGetResponseSchema },
+      },
+      description: "Linear OAuth app metadata (no secrets)",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Ambiguous Linear connection",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown Linear connection",
+    },
+  },
+})
+
+const putOauthAppRoute = createRoute({
+  method: "put",
+  path: "/oauth-app",
+  request: {
+    query: z.object({ connectionId: z.string().min(1) }),
+    body: {
+      content: { "application/json": { schema: LinearOauthAppPutBodySchema } },
+    },
+  },
+  responses: {
+    204: { description: "Saved" },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "clientSecret and webhookSecret required on first save",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown Linear connection",
+    },
+  },
+})
+
 const getOAuthStartRoute = createRoute({
   method: "get",
   path: "/oauth/start",
+  request: { query: ConnectionIdQuerySchema },
   responses: {
     200: {
       content: {
@@ -109,6 +215,14 @@ const getOAuthStartRoute = createRoute({
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Ambiguous Linear connection",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown Linear connection",
     },
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -459,10 +573,13 @@ async function resolveInstalledLinear(
       httpStatus: 404,
     }
   }
-  if (resolved.connection.status !== "installed") {
+  if (!linearConnectionIsInstalled(resolved.connection)) {
     return {
       status: "error",
-      error: "Linear authorization is revoked; reconnect the workspace",
+      error:
+        resolved.connection.status === "revoked"
+          ? "Linear authorization is revoked; reconnect the workspace"
+          : "Linear workspace is not connected",
       httpStatus: 400,
     }
   }
@@ -515,6 +632,104 @@ async function loadLinearScopesFromGit(input: {
 }
 
 export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
+  .openapi(postDraftRoute, async (c) => {
+    const user = c.get("user")
+    const session = c.get("session")
+    const orgId = c.get("orgId")
+    if (!user || !session || !orgId) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const draft = await upsertLinearDraftConnection({
+      orgId,
+      env: c.var.env,
+      ownerUserId: user.id,
+    })
+    if (draft.status === "ambiguous") {
+      return c.json({ error: MULTIPLE_LINEAR_CONNECTIONS_MESSAGE }, 400)
+    }
+    return c.json({ connectionId: draft.connection.id }, 200)
+  })
+  .openapi(getOauthAppRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const { connectionId } = ConnectionIdQuerySchema.parse({
+      connectionId: c.req.query("connectionId") ?? undefined,
+    })
+    const env = c.var.env
+    const globalConfigured = envLinearOauthConfigured(env)
+    let connection: LinearConnection | undefined
+    if (connectionId) {
+      const resolved = await resolveLinearConnectionForOrgDetailed(
+        orgId,
+        env,
+        connectionId,
+      )
+      if (resolved.status === "none") {
+        return c.json({ error: "Unknown Linear connection" }, 404)
+      }
+      if (resolved.status === "ambiguous") {
+        return c.json({ error: MULTIPLE_LINEAR_CONNECTIONS_MESSAGE }, 400)
+      }
+      connection = resolved.connection
+    }
+    const resolvedCreds = getLinearOauthAppCreds(connection, env)
+    const oauthAppSaved = connection
+      ? linearOauthAppSavedInConfig({
+          oauthClientId: connection.oauthClientId ?? undefined,
+          oauthClientSecretEnc: connection.oauthClientSecretEnc ?? undefined,
+          webhookSecretEnc: connection.webhookSecretEnc ?? undefined,
+        })
+      : false
+    const publicOrigin = env.AUTH_BASE_URL.replace(/\/$/, "")
+    return c.json(
+      {
+        linearOauthConfigured: Boolean(resolvedCreds),
+        globalLinearOauthConfigured: globalConfigured,
+        oauthCallbackUrl: `${publicOrigin}/api/v1/integrations/linear/callback`,
+        linearWebhookUrl: `${publicOrigin}/api/v1/webhook/linear`,
+        linearCreateUrl: "https://linear.app/settings/api/applications/new",
+        oauthAppSaved,
+        oauthClientId: connection?.oauthClientId ?? null,
+      },
+      200,
+    )
+  })
+  .openapi(putOauthAppRoute, async (c) => {
+    const user = c.get("user")
+    const session = c.get("session")
+    const orgId = c.get("orgId")
+    if (!user || !session || !orgId) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const { connectionId } = z
+      .object({ connectionId: z.string().min(1) })
+      .parse({ connectionId: c.req.query("connectionId") })
+    const body = LinearOauthAppPutBodySchema.parse(await c.req.json())
+    const saved = await saveLinearOauthAppOnConnection({
+      orgId,
+      connectionId,
+      env: c.var.env,
+      clientId: body.clientId,
+      clientSecret: body.clientSecret,
+      webhookSecret: body.webhookSecret,
+    })
+    if (saved === "not_found") {
+      return c.json({ error: "Unknown Linear connection" }, 404)
+    }
+    if (saved === "secret_required") {
+      return c.json(
+        {
+          error:
+            "clientSecret and webhookSecret are required when saving for the first time",
+        },
+        400,
+      )
+    }
+    return c.body(null, 204)
+  })
   .openapi(getOAuthStartRoute, async (c) => {
     const user = c.get("user")
     const session = c.get("session")
@@ -524,18 +739,39 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Unauthorized" }, 401)
     }
     const env = c.var.env
-    if (!env.LINEAR_CLIENT_ID || !env.LINEAR_CLIENT_SECRET) {
+    const { connectionId } = ConnectionIdQuerySchema.parse({
+      connectionId: c.req.query("connectionId") ?? undefined,
+    })
+    let connection: LinearConnection | undefined
+    if (connectionId) {
+      const resolved = await resolveLinearConnectionForOrgDetailed(
+        orgId,
+        env,
+        connectionId,
+      )
+      if (resolved.status === "none") {
+        return c.json({ error: "Unknown Linear connection" }, 404)
+      }
+      if (resolved.status === "ambiguous") {
+        return c.json({ error: MULTIPLE_LINEAR_CONNECTIONS_MESSAGE }, 400)
+      }
+      connection = resolved.connection
+    }
+    const creds = getLinearOauthAppCreds(connection, env)
+    if (!creds) {
       return c.json({ error: "Linear OAuth is not configured" }, 503)
     }
     return c.json(
       {
         authorizationUrl: getLinearOAuthAuthorizeUrl({
           env,
+          creds,
           state: createLinearOAuthState({
             authSecret: env.AUTH_SECRET,
             orgId,
             orgSlug,
             userId: user.id,
+            connectionId: connection?.id,
           }),
         }),
       },
@@ -572,7 +808,9 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
     ])
     return c.json(
       {
-        isInstalled: connection?.status === "installed",
+        isInstalled: connection
+          ? linearConnectionIsInstalled(connection)
+          : false,
         installationStatus: connection?.status ?? null,
         workspaceName: connection?.workspaceName ?? null,
         isGithubLinked,
@@ -621,9 +859,17 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
             expectedRefreshToken,
             expectedAccessToken,
             refresh: async (refreshToken) => {
+              const creds = getLinearOauthAppCreds(
+                installed.connection,
+                c.var.env,
+              )
+              if (!creds) {
+                throw new Error("Linear OAuth is not configured")
+              }
               const token = await refreshLinearOAuthToken({
                 env: c.var.env,
                 refreshToken,
+                creds,
               })
               return {
                 accessToken: token.access_token,
@@ -732,9 +978,7 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         connectionId: installed.connection.id,
         claimConfigPrCreation: shouldEnqueueConfigPr,
         ...(body.scopes !== undefined ? { scopes: body.scopes } : {}),
-        ...(body.syncTarget !== undefined
-          ? { binding: body.syncTarget }
-          : {}),
+        ...(body.syncTarget !== undefined ? { binding: body.syncTarget } : {}),
       })
     } catch (error) {
       if (
@@ -744,6 +988,9 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         return c.json({ error: error.message }, 409)
       }
       throw error
+    }
+    if (body.syncTarget !== undefined) {
+      await enqueueGithubPrMirrorEnsureForOrg(orgId)
     }
     if (saved.repositoryIngestion) {
       await enqueueRepositoryIngestionWorkflow(
@@ -1050,9 +1297,25 @@ export const linearOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
     }
 
     try {
+      const draft = state.connectionId
+        ? await withOrgDbContext(state.orgId, () =>
+            resolveLinearConnectionForOrgDetailed(
+              state.orgId,
+              c.var.env,
+              state.connectionId,
+            ),
+          )
+        : undefined
+      const draftConnection =
+        draft?.status === "ok" ? draft.connection : undefined
+      const creds = getLinearOauthAppCreds(draftConnection, c.var.env)
+      if (!creds) {
+        return relayError("Linear OAuth is not configured")
+      }
       const token = await exchangeLinearOAuthCode({
         env: c.var.env,
         code: query.code,
+        creds,
       })
       const workspace = await getLinearWorkspaceIdentity(token.access_token)
       const connection = await withOrgDbContext(state.orgId, () =>
@@ -1067,6 +1330,7 @@ export const linearOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
           workspaceName: workspace.workspaceName,
           workspaceUrlKey: workspace.workspaceUrlKey,
           actorUserId: workspace.actorUserId,
+          connectionId: state.connectionId,
         }),
       )
       return setupRelayResponse({
@@ -1083,7 +1347,9 @@ export const linearOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
         { step: "linear.oauth_callback" },
       )
       return relayError(
-        "Linear authorization could not be completed. Close this window and try again.",
+        error instanceof LinearWorkspaceCollisionError
+          ? error.message
+          : "Linear authorization could not be completed. Close this window and try again.",
       )
     }
   },

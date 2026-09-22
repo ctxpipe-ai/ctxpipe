@@ -317,7 +317,7 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### Repository indexing admission
-- **Rule:** keep durability in OpenWorkflow step boundaries and memory admission at process boundaries; do not add cross-step HTTP/Postgres/Redis leases for codesearch indexing. Codesearch phase APIs run without a begin/end protocol; same-process repo index work may overlap, while purge takes a same-repo in-process exclusive operation so disk/shard removal does not race active phase work.
+- **Rule:** keep durability in OpenWorkflow step boundaries and memory admission at process boundaries; do not add cross-step HTTP/Postgres/Redis leases for codesearch indexing. Codesearch phase APIs run without a begin/end protocol. The in-process pipeline map stays sticky across phases and is dropped locally on `merge-scip` or a fatal clone/detect response (idle TTL reclaims abandoned holds). Overflow sleeps 30s until a slot opens — do not escalate backoff or thread Retry-After; this is a queue, not a failing API. Do not bump `repositories.updatedAt` as an indexing heartbeat; that column is the row’s last write. After OpenWorkflow retries a crashed step, mark the run `failed` instead of reclaiming `queued`/`running` by age. Same-process repo index work may overlap, while purge takes a same-repo in-process exclusive operation so disk/shard removal does not race active phase work.
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
@@ -652,3 +652,27 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-21
 - **Source:** user-confirmed Slack connector production incident (ctxpipe workspace passed because its historical grant masked the fresh Tru Rec installation path)
 
+
+### Claim evidence source ids must be `extractor:repositoryId:…:targetHash`
+- **Rule:** Every extractor's `sourceId` must contain `:${repositoryId}:` and end with `:${targetHash}`. `deriveLogicalSourceKey` only strips a *trailing* hash, so a hash placed mid-string makes every re-ingest append a new evidence row to the same claim; retraction and repository purge select evidence by the `:${repositoryId}:` needle plus a `(^|:)path(:|$)` segment regex, so an id without the repository id can never be retracted or purged. A claim extracted in one repository about another (e.g. context-repo PR mirror → source-repo File) must carry both repository ids and the warehouse file path as segments. Add a render→extract→dedup round-trip test for any new extractor.
+- **Category:** convention
+- **Date:** 2026-09-16
+- **Source:** `github-pr-mirror` branch review; PR extract and `linkLocatedPaths` ids embedded the hash mid-string and omitted repository ids (`logicalSourceKey.ts`, `ingestionRetraction.ts`)
+
+### FalkorDB dropped connections must reconnect instead of crashing the worker
+- **Rule:** When the FalkorDB client emits `error` (serverless sleep, socket close), log it, drop the shared connection, and reconnect on the next call (`platform/graph/client.ts`). Do not leave an unhandled `error` listener gap — that exits the OpenWorkflow worker. Keep that listener when touching the graph client.
+- **Category:** reliability
+- **Date:** 2026-09-17
+- **Source:** Railway FalkorDB sleep closed the socket mid-ingest; the worker exited and knowledge-graph reads hung until the client learned to reconnect
+
+### A re-index at an unchanged tip is a partial ingest with an empty diff, so nothing is ever retracted
+- **Rule:** `repository-ingestion` passes `fromHash = lastIngestedHash` to codesearch; when that commit is an ancestor of the target (including the same commit) the run is `partial`, and `retractIngestionForDiffPg` is a no-op without changed paths while the extractors still re-run over the whole repository. Non-deterministic (LLM) extractors then mint new dedup keys next to the old ones and the object count only grows. Treat "re-index" as `fullReingest: true` (no `fromHash`), have dedup touch every re-observed evidence row (`touchEvidenceBulk` bumps `observedAt`), and after a healthy full run sweep this repository's evidence observed before the index child's `indexedAt` (`retractUnobservedRepositoryEvidencePg`). Take the cutoff from an existing durable step result, not a new step: a new "started at" step executes late for runs already in flight when the worker is redeployed and would sweep the run's own evidence. Do not key the sweep on the commit hash: a re-index at an unchanged tip re-observes at the same hash as the stale rows. Never run the sweep on a degraded run (search/SCIP index failed). When judging a graph change, compare object counts across two runs at the same tip: growth means accumulation, not new knowledge.
+- **Category:** reliability
+- **Date:** 2026-09-17
+- **Source:** `apps/codesearch/src/domain/indexing/phases.ts` mode decision; unchanged-tip re-index accumulated LLM naming drift until the full-ingest sweep landed
+
+### The PR worker supervisor must count runs in its own OpenWorkflow namespace
+- **Rule:** `worker-supervisor.ts` decides idle-exit from `workflow_runs` / `step_attempts` rows. Preview workers claim runs from their own OpenWorkflow namespace (`preview-pr-N` via `openWorkflowNamespaceId`), so a query pinned to `default` sees an idle system while ingests are in flight and exits after `OPENWORKFLOW_IDLE_EXIT_SECONDS`. Nothing re-wakes it: the Railway wake fires only on new enqueues, and sleeping or unclaimed runs wait forever. Resolve the namespace the same way the worker does, and when a preview looks "paused" check `available_at` in the past with `worker_id` null before suspecting codesearch or FalkorDB.
+- **Category:** reliability
+- **Date:** 2026-09-17
+- **Source:** Preview idle-exit while `repository-ingestion` runs sat unclaimed in a non-default namespace

@@ -3,6 +3,7 @@ import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import { notionOauthAppHandler } from "../mocks/notion-oauth-app-msw"
 import { NotionConnectionCard } from "./NotionConnectionCard"
 
 const orgSlug = "acme"
@@ -130,6 +131,12 @@ export const NotYetConnected: Story = {
             pendingConfigPullUrl: null,
             pendingConfigPrCreating: false,
             syncTarget: null,
+          }),
+          notionOauthAppHandler({
+            orgSlug,
+            connectionId,
+            oauthAppSaved: false,
+            globalNotionOAuthConfigured: false,
           }),
         ],
       },

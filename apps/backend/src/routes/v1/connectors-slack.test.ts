@@ -38,6 +38,9 @@ vi.mock("../../db/client.js", () => ({
 vi.mock("../../models/github-installation.js", () => ({
   orgHasAnyGithubConnection: orgHasGithubMock,
 }))
+vi.mock("../../openworkflow/workflows/github-ensure-pr-mirror.js", () => ({
+  enqueueGithubPrMirrorEnsureForOrg: vi.fn().mockResolvedValue(undefined),
+}))
 vi.mock("../../models/slack-connector.js", () => ({
   bindSlackSyncTargetRepository: bindRepositoryMock,
   deleteSlackConnectionById: vi.fn(),

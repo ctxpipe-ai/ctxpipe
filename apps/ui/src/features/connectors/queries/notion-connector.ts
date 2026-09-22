@@ -12,11 +12,24 @@ export class NotionOAuthNotConfiguredError extends Error {
   }
 }
 
+export type NotionOauthAppGet = {
+  oauthConfigured: boolean
+  oauthAppSaved: boolean
+  oauthClientId: string | null
+  webhookConfigured: boolean
+  webhookVerificationToken: string | null
+  globalNotionOAuthConfigured: boolean
+  callbackUrl: string
+  webhookUrl: string
+}
+
 export const notionConnectorKeys = {
   status: (orgSlug: string, connectionId?: string) =>
     ["notion-connector-status", orgSlug, connectionId ?? "default"] as const,
   config: (orgSlug: string, connectionId?: string) =>
     ["notion-connector-config", orgSlug, connectionId ?? "default"] as const,
+  oauthApp: (orgSlug: string, connectionId: string) =>
+    ["notion-oauth-app", orgSlug, connectionId] as const,
   resources: (orgSlug: string, connectionId: string | undefined, q: string) =>
     [
       "notion-connector-resources",
@@ -70,14 +83,63 @@ export async function fetchNotionConnectorConfig(
   return res.json() as Promise<NotionConnectorConfig>
 }
 
+export async function createDraftNotionConnection(
+  orgSlug: string,
+): Promise<{ id: string; orgId: string }> {
+  const res = await fetch(`/${orgSlug}/api/v1/connectors/notion/draft`, {
+    method: "POST",
+    credentials: "include",
+  })
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(body.error ?? "Failed to create Notion connection")
+  }
+  return res.json() as Promise<{ id: string; orgId: string }>
+}
+
+export async function fetchNotionOauthApp(
+  orgSlug: string,
+  connectionId: string,
+): Promise<NotionOauthAppGet> {
+  const q = new URLSearchParams({ connectionId })
+  const res = await fetch(
+    `/${orgSlug}/api/v1/connectors/notion/oauth-app?${q.toString()}`,
+    { credentials: "include" },
+  )
+  if (!res.ok) throw new Error("Failed to load Notion integration settings")
+  return res.json() as Promise<NotionOauthAppGet>
+}
+
+export async function saveNotionOauthApp(
+  orgSlug: string,
+  connectionId: string,
+  body: { clientId: string; clientSecret?: string },
+): Promise<void> {
+  const q = new URLSearchParams({ connectionId })
+  const res = await fetch(
+    `/${orgSlug}/api/v1/connectors/notion/oauth-app?${q.toString()}`,
+    {
+      method: "PUT",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  )
+  if (!res.ok) {
+    const json = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(json.error ?? "Failed to save Notion integration")
+  }
+}
+
 export async function fetchNotionOAuthStart(
   orgSlug: string,
+  connectionId?: string,
 ): Promise<{ authorizationUrl: string }> {
-  const res = await client[
-    ":orgSlug"
-  ].api.v1.connectors.notion.oauth.start.$get({
-    param: { orgSlug },
-  })
+  const q = connectionId ? `?${new URLSearchParams({ connectionId })}` : ""
+  const res = await fetch(
+    `/${orgSlug}/api/v1/connectors/notion/oauth/start${q}`,
+    { credentials: "include" },
+  )
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as {
       code?: string

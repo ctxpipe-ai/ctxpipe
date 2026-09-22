@@ -23,6 +23,7 @@ export function initAmplitudeFromEnv(env: Env): void {
 }
 
 export function trackMcpToolInvocation(args: {
+  /** Amplitude `user_id`. Org-service MCP keys use `org:${orgId}`, never a member id. */
   userId: string
   orgId: string
   orgSlug: string

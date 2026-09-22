@@ -11,22 +11,13 @@ Internal behaviour notes for engineers. Not public product documentation.
 
 ## Single-flight claim
 
-[`tryClaimRepositoryIndexingEnqueue`](../src/models/repositories.ts) marks a repo `queued` and returns `true` only when status is not already `queued` or `running` (unless stale).
+[`tryClaimRepositoryIndexingEnqueue`](../src/models/repositories.ts) marks a repo `queued` and returns `true` only when status is not already `queued` or `running`.
 
 Callers: [`enqueueRepositoryIngestionWorkflow`](../src/openworkflow/enqueue-repository-ingestion.ts) (webhooks, UI retry), `claimAndRunRepositoryIngestionChild` (in-workflow fan-out via `step.runWorkflow`), and `runConnectorRepositoryIngestionWorkflow` (connector syncs: tip-aware, then the child helper).
 
 If claim returns `false`, no new orchestrator is started for that event.
 
-### Stale reclaim
-
-If a claim is left stuck without a live workflow:
-
-| Status    | Stale after | Constant                     |
-|-----------|-------------|------------------------------|
-| `queued`  | 30 minutes  | `INDEXING_QUEUED_STALE_MS`   |
-| `running` | 6 hours     | `INDEXING_RUNNING_STALE_MS`  |
-
-Staleness uses `repositories.updatedAt` (bumped when status transitions via claim / mark-running / mark-ready / mark-failed).
+A worker crash is not treated as a stale `queued`/`running` row. OpenWorkflow retries the failed step, then the orchestrator `mark-failed`s so status is `failed`. A later push or UI retry can claim again. Codesearch drops an abandoned pipeline reservation (fatal clone/detect, `merge-scip`, or idle TTL) so the next waiting repo can take the slot.
 
 ## Success tip follow-up
 

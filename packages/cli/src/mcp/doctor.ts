@@ -7,12 +7,13 @@ export type McpDoctorCheck = {
     | "oauth-challenge"
     | "protected-resource-metadata"
     | "authorization-server-metadata"
+    | "api-key-initialize"
   status: McpDoctorCheckStatus
   summary: string
 }
 
 export type McpDoctorResult = {
-  status: "ready-for-oauth" | "warning" | "failed"
+  status: "ready-for-oauth" | "ready-for-api-key" | "warning" | "failed"
   target: string
   checks: McpDoctorCheck[]
   nextSteps: string[]
@@ -27,6 +28,8 @@ export type DiagnoseMcpEndpointOptions = {
   url: string
   timeoutMs?: number
   fetch?: FetchLike
+  /** Raw key from the doctor process env. Never written to summaries or next steps. */
+  apiKey?: string
 }
 
 function isLoopbackHostname(hostname: string): boolean {
@@ -105,29 +108,67 @@ async function responseJson(response: Response): Promise<unknown> {
   }
 }
 
+function initializeRequest(apiKey?: string): RequestInit {
+  return {
+    method: "POST",
+    headers: {
+      accept: "application/json, text/event-stream",
+      "content-type": "application/json",
+      ...(apiKey ? { "x-api-key": apiKey } : {}),
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: "ctxpipe-doctor",
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-11-25",
+        capabilities: {},
+        clientInfo: { name: "ctxpipe-doctor", version: "1" },
+      },
+    }),
+  }
+}
+
 function resultFromChecks(
   target: string,
   checks: McpDoctorCheck[],
 ): McpDoctorResult {
+  const usedApiKey = checks.some((check) => check.id === "api-key-initialize")
   const status = checks.some((check) => check.status === "fail")
     ? "failed"
     : checks.some((check) => check.status === "warn")
       ? "warning"
-      : "ready-for-oauth"
+      : usedApiKey
+        ? "ready-for-api-key"
+        : "ready-for-oauth"
   return {
     status,
     target,
     checks,
-    nextSteps:
-      status === "failed"
-        ? [
-            "Fix the failed endpoint or discovery checks, then run this command again.",
-          ]
-        : [
-            "Complete OAuth in an MCP client to prove authenticated access.",
-            "Use MCPJam for an OAuth trace, tools/list, and a test ctx_advisor call.",
-          ],
+    nextSteps: nextStepsFor(status, usedApiKey),
   }
+}
+
+function nextStepsFor(
+  status: McpDoctorResult["status"],
+  usedApiKey: boolean,
+): string[] {
+  if (status === "failed") {
+    return [
+      usedApiKey
+        ? "Fix the failed endpoint or API-key initialize check, then run this command again."
+        : "Fix the failed endpoint or discovery checks, then run this command again.",
+    ]
+  }
+  if (usedApiKey) {
+    return [
+      "Authenticated initialize succeeded with x-api-key from CTXPIPE_API_KEY.",
+    ]
+  }
+  return [
+    "Complete OAuth in an MCP client to prove authenticated access.",
+    "Use MCPJam for an OAuth trace, tools/list, and a test ctx_advisor call.",
+  ]
 }
 
 export async function diagnoseMcpEndpoint(
@@ -216,28 +257,41 @@ export async function diagnoseMcpEndpoint(
     })
   }
 
+  const apiKey = options.apiKey?.trim() || undefined
+  if (apiKey) {
+    try {
+      const response = await fetchWithTimeout(
+        fetchFn,
+        target,
+        initializeRequest(apiKey),
+        timeoutMs,
+      )
+      checks.push({
+        id: "api-key-initialize",
+        status: response.ok ? "pass" : "fail",
+        summary: response.ok
+          ? "MCP initialize succeeded with x-api-key."
+          : `API-key initialize returned HTTP ${response.status}; expected 2xx.`,
+      })
+    } catch (error) {
+      checks.push({
+        id: "api-key-initialize",
+        status: "fail",
+        summary:
+          error instanceof Error && error.name === "AbortError"
+            ? `API-key initialize timed out after ${timeoutMs} ms.`
+            : "API-key initialize probe is unreachable.",
+      })
+    }
+    return resultFromChecks(targetDisplay, checks)
+  }
+
   let metadataUrl: URL | null = null
   try {
     const response = await fetchWithTimeout(
       fetchFn,
       target,
-      {
-        method: "POST",
-        headers: {
-          accept: "application/json, text/event-stream",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: "ctxpipe-doctor",
-          method: "initialize",
-          params: {
-            protocolVersion: "2025-11-25",
-            capabilities: {},
-            clientInfo: { name: "ctxpipe-doctor", version: "1" },
-          },
-        }),
-      },
+      initializeRequest(),
       timeoutMs,
     )
     const challenge = response.headers.get("www-authenticate")

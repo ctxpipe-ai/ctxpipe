@@ -8,12 +8,13 @@ import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import {
   getLinearSetupCurrentIndex,
+  getLinearSetupSteps,
   getLinearStatusRefetchInterval,
   getLinearWizardBodyId,
-  LINEAR_SETUP_STEPS,
 } from "../../linear-setup-model"
 import {
   fetchLinearConnectorStatus,
+  fetchLinearOauthApp,
   type LinearConnectorStatus,
   type LinearScope,
   linearConnectorKeys,
@@ -25,6 +26,7 @@ import { LinearConnectStep } from "./LinearConnectStep"
 import { LinearMergeStep } from "./LinearMergeStep"
 import { LinearScopeStep } from "./LinearScopeStep"
 import { LinearTargetStep } from "./LinearTargetStep"
+import { RegisterLinearOauthStep } from "./RegisterLinearOauthStep"
 
 type LinearSetupWizardProps = {
   orgSlug: string
@@ -59,6 +61,13 @@ export function LinearSetupWizard({
       return getLinearStatusRefetchInterval(query.state.data)
     },
   })
+  const oauthQuery = useQuery({
+    queryKey: linearConnectorKeys.oauthApp(orgSlug, connectionId),
+    queryFn: () => fetchLinearOauthApp(orgSlug, connectionId),
+    enabled: isOpen,
+  })
+  const oauthMeta = oauthQuery.data
+  const setupSteps = getLinearSetupSteps(oauthMeta)
 
   useEffect(() => {
     if (!isOpen) return
@@ -141,16 +150,20 @@ export function LinearSetupWizard({
           pendingConfigPrCreating: true,
         }
       : serverStatus
-  const currentIndex = status ? getLinearSetupCurrentIndex(status) : 0
+  const currentIndex = status
+    ? getLinearSetupCurrentIndex(status, oauthMeta)
+    : 0
   const effectiveManualStepIndex =
     manualStepIndex != null && manualStepIndex < currentIndex
       ? manualStepIndex
       : null
-  const serverBody = status ? getLinearWizardBodyId(status) : "connect"
+  const serverBody = status
+    ? getLinearWizardBodyId(status, oauthMeta)
+    : "connect"
   const manualBody =
     effectiveManualStepIndex == null
       ? null
-      : (LINEAR_SETUP_STEPS[effectiveManualStepIndex]?.id ?? null)
+      : (setupSteps[effectiveManualStepIndex]?.id ?? null)
   const body = configPrSubmitting
     ? "merge"
     : manualScope || (manageScope && serverBody === "complete" && !manualBody)
@@ -217,10 +230,10 @@ export function LinearSetupWizard({
           </Button>
         </div>
 
-        {status && !statusQuery.isPending ? (
+        {status && !statusQuery.isPending && !oauthQuery.isPending ? (
           <div className="mb-6">
             <ConnectorSetupStepper
-              steps={LINEAR_SETUP_STEPS}
+              steps={setupSteps}
               currentIndex={currentIndex}
               focusOverride={effectiveManualStepIndex}
               onStepSelect={(index) => {
@@ -241,7 +254,7 @@ export function LinearSetupWizard({
           </div>
         ) : null}
 
-        {connectionId && statusQuery.isPending ? (
+        {(connectionId && statusQuery.isPending) || oauthQuery.isPending ? (
           <div className="mt-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
             <Spinner className="size-4" />
             Loading connector status...
@@ -261,8 +274,17 @@ export function LinearSetupWizard({
           </div>
         ) : status ? (
           <div className="mt-2">
+            {body === "register" && connectionId ? (
+              <RegisterLinearOauthStep
+                orgSlug={orgSlug}
+                connectionId={connectionId}
+              />
+            ) : null}
             {body === "connect" ? (
-              <LinearConnectStep orgSlug={orgSlug} />
+              <LinearConnectStep
+                orgSlug={orgSlug}
+                connectionId={connectionId}
+              />
             ) : null}
             {body === "github" ? (
               <GitHubPrerequisiteStep orgSlug={orgSlug} sourceName="Linear" />
@@ -273,9 +295,7 @@ export function LinearSetupWizard({
                 connectionId={connectionId}
                 onBack={() =>
                   setManualStepIndex(
-                    LINEAR_SETUP_STEPS.findIndex(
-                      (step) => step.id === "github",
-                    ),
+                    setupSteps.findIndex((step) => step.id === "github"),
                   )
                 }
                 onSaved={async () => {
@@ -292,9 +312,7 @@ export function LinearSetupWizard({
                 onBack={() => {
                   setManualScope(false)
                   setManualStepIndex(
-                    LINEAR_SETUP_STEPS.findIndex(
-                      (step) => step.id === "target",
-                    ),
+                    setupSteps.findIndex((step) => step.id === "target"),
                   )
                 }}
                 onSaved={async () => {
@@ -362,7 +380,9 @@ export function LinearSetupWizard({
                 </div>
               </div>
             ) : null}
-            {body !== "connect" && !requireConnection ? (
+            {body !== "connect" &&
+            body !== "register" &&
+            !requireConnection ? (
               <p className="text-sm text-destructive">
                 The Linear connection identifier is missing. Close this dialog
                 and reopen setup from the connector card.

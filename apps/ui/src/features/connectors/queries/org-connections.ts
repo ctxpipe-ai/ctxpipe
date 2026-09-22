@@ -1,6 +1,6 @@
 export type OrgConnectionListItem = {
   id: string
-  type: "github" | "forge" | "slack" | "linear" | "notion"
+  type: "github" | "forge" | "slack" | "linear" | "notion" | "pagerduty"
   createdAt: string
   updatedAt: string
 }
@@ -14,6 +14,8 @@ const TYPE_ORDER: Record<OrgConnectionListItem["type"], number> = {
   forge: 1,
   linear: 2,
   notion: 3,
+  slack: 4,
+  pagerduty: 5,
 }
 
 /** GitHub first — every other connector syncs through it. Then createdAt. */

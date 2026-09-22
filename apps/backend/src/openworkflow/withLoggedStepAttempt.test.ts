@@ -86,9 +86,13 @@ describe("withLoggedStepAttempt", () => {
     expect(firstArg.message).toBe("raw string error")
   })
 
-  it("rethrows SleepSignal without logging or flushing", async () => {
-    const sleepSignal = new Error("sleep")
-    sleepSignal.name = "SleepSignal"
+  it.each([
+    "SleepSignal",
+    "SleepSignalError",
+    "StaleExecutionBranchError",
+  ] as const)("rethrows %s without logging or flushing", async (name) => {
+    const sleepSignal = new Error(name)
+    sleepSignal.name = name
 
     await expect(
       withLoggedStepAttempt(
@@ -102,7 +106,7 @@ describe("withLoggedStepAttempt", () => {
           throw sleepSignal
         },
       ),
-    ).rejects.toMatchObject({ name: "SleepSignal" })
+    ).rejects.toMatchObject({ name })
 
     expect(getLoggerErrorMock).not.toHaveBeenCalled()
     expect(flushWorkflowLogMock).not.toHaveBeenCalled()

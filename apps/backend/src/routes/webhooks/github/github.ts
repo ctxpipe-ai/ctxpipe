@@ -18,6 +18,9 @@ import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-git
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
 import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
+import { maybeActivatePagerdutySyncOnConfigPush } from "./github-pagerduty-push.js"
+import { maybeEnqueueGithubPrMirror } from "./github-pr-mirror-events.js"
+import { maybeActivateGithubPrMirrorOnConfigPush } from "./github-pr-mirror-push.js"
 
 const pushPayloadSchema = z.object({
   ref: z.string(),
@@ -202,6 +205,25 @@ async function processPushEvent(
     after,
     log: ctx.log,
   })
+  await maybeActivatePagerdutySyncOnConfigPush({
+    installationId: installation.id,
+    githubConnectionId,
+    repoFullName: repo.full_name,
+    ref,
+    commits,
+    before,
+    after,
+    log: ctx.log,
+  })
+  await maybeActivateGithubPrMirrorOnConfigPush({
+    installationId: installation.id,
+    githubConnectionId,
+    repoFullName: repo.full_name,
+    ref,
+    commits,
+    before,
+    after,
+  })
 
   if (ref !== `refs/heads/${defaultBranch}`) {
     return
@@ -321,6 +343,16 @@ export async function processGithubWebhookPayload(
         payload,
         ctx,
       )
+      return
+    case "pull_request":
+    case "pull_request_review":
+    case "pull_request_review_comment":
+    case "issue_comment":
+      await maybeEnqueueGithubPrMirror({
+        eventName,
+        payload,
+        githubConnectionId: opts?.connectionId,
+      })
       return
     default:
       return

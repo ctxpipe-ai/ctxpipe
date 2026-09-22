@@ -59,6 +59,23 @@ ctx| before every capability is ready.
   against the current source.
 </Callout>
 
+## Three layers
+
+Connected content lives in up to three layers, and they are not the same
+thing:
+
+1. **Warehouse**: bytes in git, either the source repository itself or
+   connector Markdown committed to a context repository.
+2. **Search**: the code and text index over that tree. Chat and MCP can
+   retrieve anything warehoused.
+3. **Graph**: typed nodes and claims. Only kinds an extractor was written for
+   appear here. Connector Markdown is parsed from its frontmatter into
+   `Issue`, `Team`, `Thread`, and `PullRequest` nodes; it is never read as
+   instructions. Cross-tool links are joined by URL or identifier.
+
+When a context-repository change touches only connector content, ingestion
+skips the code extractors and runs the connector extractors alone.
+
 ## Keeping context current
 
 Repository changes can trigger another ingestion run. Connector-generated

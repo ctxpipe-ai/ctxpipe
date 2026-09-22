@@ -13,10 +13,14 @@ resource "railway_project" "this" {
 locals {
   database_url  = neon_project.this.connection_uri_pooler
   falkordb_port = 6379
+  # Honor var.railway_regions (default us-east4-eqdc4a). A direct assign
+  # or `for` over the list fails plan in railway 0.6.1 (ServiceResourceRegionModel
+  # "unknown value"). Expanding the one element into an HCL object still
+  # reads the variable. See variable validation (exactly one region).
   regions = [
     {
-      num_replicas : 1,
-      region : "asia-southeast1-eqsg3a"
+      num_replicas = var.railway_regions[0].num_replicas
+      region       = var.railway_regions[0].region
     }
   ]
   amplitude_shared_env = length(var.amplitude_api_key) > 0 ? [
@@ -60,6 +64,20 @@ locals {
     length(var.linear_webhook_secret) > 0 ? [{
       name  = "LINEAR_WEBHOOK_SECRET"
       value = var.linear_webhook_secret
+    }] : [],
+  )
+  pagerduty_shared_env = concat(
+    length(var.pagerduty_client_id) > 0 ? [{
+      name  = "PAGERDUTY_CLIENT_ID"
+      value = var.pagerduty_client_id
+    }] : [],
+    length(var.pagerduty_client_secret) > 0 ? [{
+      name  = "PAGERDUTY_CLIENT_SECRET"
+      value = var.pagerduty_client_secret
+    }] : [],
+    length(var.pagerduty_redirect_uri) > 0 ? [{
+      name  = "PAGERDUTY_REDIRECT_URI"
+      value = var.pagerduty_redirect_uri
     }] : [],
   )
   shared_backend_env_variables = concat([
@@ -163,7 +181,7 @@ locals {
       name  = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
       value = "http://$${{otelcollector.RAILWAY_PRIVATE_DOMAIN}}:4318/v1/metrics"
     }
-  ], local.amplitude_shared_env, local.slack_shared_env, local.linear_shared_env)
+  ], local.amplitude_shared_env, local.slack_shared_env, local.linear_shared_env, local.pagerduty_shared_env)
 }
 
 resource "railway_service" "ui" {
@@ -174,6 +192,9 @@ resource "railway_service" "ui" {
 
   lifecycle {
     prevent_destroy = true
+    # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
+    # Region writes go through scripts/railway-set-regions.sh.
+    ignore_changes = [regions]
   }
 }
 
@@ -200,6 +221,8 @@ resource "railway_service" "otelcollector" {
   source_image = "${var.otel_collector_source_image}:${var.image_tag}"
   lifecycle {
     prevent_destroy = true
+    # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
+    ignore_changes = [regions]
   }
 }
 
@@ -231,6 +254,8 @@ resource "railway_service" "backend" {
   depends_on   = [railway_service.falkordb, railway_service.ui, railway_service.code_search, railway_service.otelcollector]
   lifecycle {
     prevent_destroy = true
+    # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
+    ignore_changes = [regions]
   }
 }
 
@@ -277,6 +302,8 @@ resource "railway_service" "code_search" {
   }
   lifecycle {
     prevent_destroy = true
+    # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
+    ignore_changes = [regions]
   }
 }
 
@@ -328,6 +355,8 @@ resource "railway_service" "open_workflow" {
   depends_on   = [railway_service.falkordb, railway_service.backend, railway_service.otelcollector]
   lifecycle {
     prevent_destroy = true
+    # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
+    ignore_changes = [regions]
   }
 }
 
@@ -370,6 +399,8 @@ resource "railway_service" "falkordb" {
   }
   lifecycle {
     prevent_destroy = true
+    # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
+    ignore_changes = [regions]
   }
 }
 
