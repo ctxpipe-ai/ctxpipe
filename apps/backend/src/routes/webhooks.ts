@@ -4,6 +4,7 @@ import { registerAtlassianWebhookRoute } from "./webhooks/atlassian/atlassian.js
 import { registerGithubWebhookRoute } from "./webhooks/github/github.js"
 import { registerLinearWebhookRoute } from "./webhooks/linear/linear.js"
 import { registerNotionWebhookRoute } from "./webhooks/notion/notion.js"
+import { registerPagerdutyWebhookRoute } from "./webhooks/pagerduty/pagerduty.js"
 import { registerSlackWebhookRoute } from "./webhooks/slack/slack.js"
 
 export function registerWebhookRoutes(app: OpenAPIHono<AppEnv>) {
@@ -12,4 +13,5 @@ export function registerWebhookRoutes(app: OpenAPIHono<AppEnv>) {
   registerSlackWebhookRoute(app)
   registerLinearWebhookRoute(app)
   registerNotionWebhookRoute(app)
+  registerPagerdutyWebhookRoute(app)
 }

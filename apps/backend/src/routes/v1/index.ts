@@ -21,6 +21,10 @@ import {
   notionOauthAppReadRoutes,
 } from "./connectors-notion.js"
 import {
+  pagerdutyConnectorRoutes,
+  pagerdutyOauthCallbackRoutes,
+} from "./connectors-pagerduty.js"
+import {
   slackConnectorRoutes,
   slackOAuthCallbackRoutes,
 } from "./connectors-slack.js"
@@ -65,6 +69,10 @@ const notionConnectorScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
   .route("/", notionConnectorRoutes)
 
+const pagerdutyConnectorScoped = new OpenAPIHono<AppEnv>()
+  .use("*", requireOrgAdminOrOwner)
+  .route("/", pagerdutyConnectorRoutes)
+
 export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
   // For RPC client type inference to work, we need to chain the handlers
   // https://hono.dev/docs/guides/rpc#using-rpc-with-larger-applications
@@ -83,6 +91,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/connectors/linear", linearConnectorScoped)
     .route("/connectors/notion", notionOauthAppReadRoutes)
     .route("/connectors/notion", notionConnectorScoped)
+    .route("/connectors/pagerduty", pagerdutyConnectorScoped)
     .route("/connectors/atlassian/pending-claim", pendingAtlassianClaimRoutes)
     .route("/connectors/slack", slackConnectorScoped)
     .route("/org/atlassian-oauth", orgAtlassianOauthReadRoutes)
@@ -101,6 +110,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/integrations/atlassian", atlassianOauthCallbackRoutes)
     .route("/connectors/slack", slackOAuthCallbackRoutes)
     .route("/integrations/linear", linearOauthCallbackRoutes)
+    .route("/integrations/pagerduty", pagerdutyOauthCallbackRoutes)
     .route("/me/github/installations", meGithubInstallationsRoutes)
     .route("/connectors/notion", notionOAuthCallbackRoutes)
     .route("/onboarding", userOnboardingRoutes)

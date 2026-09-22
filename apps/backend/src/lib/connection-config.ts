@@ -632,3 +632,191 @@ export function decodeSlackBotToken(
 export function encodeSlackBotTokenForDb(botToken: string, env: Env): string {
   return encryptConnectionSecret(botToken.trim(), env)
 }
+
+/** Runtime setup phases for PagerDuty sync binding stored on `connections.config`. */
+export const PAGERDUTY_SETUP_PHASES = [
+  "draft",
+  "awaiting_merge",
+  "config_failed",
+  "initial_sync",
+  "sync_failed",
+  "live",
+] as const
+
+export type PagerdutySetupPhase = (typeof PAGERDUTY_SETUP_PHASES)[number]
+
+export const PAGERDUTY_REGIONS = ["us", "eu"] as const
+export type PagerdutyRegion = (typeof PAGERDUTY_REGIONS)[number]
+
+/** Stored in `connections.config` for `type === "pagerduty"`. */
+export const pagerdutyConnectionConfigStoredSchema = z
+  .object({
+    accessTokenEnc: z.string().min(1).optional(),
+    refreshTokenEnc: z.string().min(1).optional(),
+    accessTokenExpiresAt: z.string().datetime().nullable().optional(),
+    accountId: z.string().min(1),
+    accountName: z.string().min(1),
+    accountSubdomain: z.string().min(1),
+    region: z.enum(PAGERDUTY_REGIONS),
+    actorUserId: z.string().min(1).nullable().optional(),
+    ownerUserId: z.string().min(1),
+    status: z.string().optional(),
+    repositoryId: z.string().min(1).nullable().optional(),
+    branch: z.string().min(1).nullable().optional(),
+    enabled: z.boolean().optional(),
+    setupPhase: z.enum(PAGERDUTY_SETUP_PHASES).optional(),
+    pendingConfigPullUrl: z.string().nullable().optional(),
+    pendingConfigPrCreating: z.boolean().optional(),
+    webhookSubscriptionId: z.string().min(1).nullable().optional(),
+    webhookSecretEnc: z.string().min(1).optional(),
+    oauthClientId: z.string().min(1).optional(),
+    oauthClientSecretEnc: z.string().min(1).optional(),
+  })
+  .transform((config) => ({
+    ...config,
+    status: config.status ?? "installed",
+    repositoryId: config.repositoryId ?? null,
+    branch: config.branch ?? null,
+    enabled: config.enabled ?? true,
+    setupPhase: config.setupPhase ?? ("draft" satisfies PagerdutySetupPhase),
+    pendingConfigPullUrl: config.pendingConfigPullUrl ?? null,
+    pendingConfigPrCreating: config.pendingConfigPrCreating ?? false,
+    webhookSubscriptionId: config.webhookSubscriptionId ?? null,
+  }))
+
+export type PagerdutyConnectionConfigStored = z.infer<
+  typeof pagerdutyConnectionConfigStoredSchema
+>
+
+export type PagerdutyConnectionTokens = {
+  accessToken: string
+  refreshToken: string | null
+}
+
+export function parsePagerdutyConnectionStored(
+  config: Record<string, unknown>,
+): PagerdutyConnectionConfigStored {
+  return pagerdutyConnectionConfigStoredSchema.parse(config)
+}
+
+export function serialisePagerdutyConnectionConfigForDb(
+  input: z.input<typeof pagerdutyConnectionConfigStoredSchema>,
+): Record<string, unknown> {
+  return pagerdutyConnectionConfigStoredSchema.parse(input) as unknown as Record<
+    string,
+    unknown
+  >
+}
+
+export function encodePagerdutyTokensForDb(
+  input: PagerdutyConnectionTokens,
+  env: Env,
+): Pick<
+  PagerdutyConnectionConfigStored,
+  "accessTokenEnc" | "refreshTokenEnc"
+> {
+  return {
+    accessTokenEnc: encryptConnectionSecret(input.accessToken.trim(), env),
+    refreshTokenEnc: input.refreshToken
+      ? encryptConnectionSecret(input.refreshToken.trim(), env)
+      : undefined,
+  }
+}
+
+export function decodePagerdutyTokens(
+  stored: PagerdutyConnectionConfigStored,
+  env: Env,
+): PagerdutyConnectionTokens | undefined {
+  if (!stored.accessTokenEnc) return undefined
+  return {
+    accessToken: decryptConnectionSecret(stored.accessTokenEnc, env),
+    refreshToken: stored.refreshTokenEnc
+      ? decryptConnectionSecret(stored.refreshTokenEnc, env)
+      : null,
+  }
+}
+
+export function encodePagerdutyWebhookSecretForDb(
+  secret: string,
+  env: Env,
+): string {
+  return encryptConnectionSecret(secret.trim(), env)
+}
+
+export function decodePagerdutyWebhookSecret(
+  stored: PagerdutyConnectionConfigStored,
+  env: Env,
+): string | undefined {
+  if (!stored.webhookSecretEnc) return undefined
+  return decryptConnectionSecret(stored.webhookSecretEnc, env)
+}
+
+export type PagerdutyOAuthAppCreds = {
+  clientId: string
+  clientSecret: string
+}
+
+export function encodePagerdutyOAuthClientSecretForDb(
+  secret: string,
+  env: Env,
+): string {
+  return encryptConnectionSecret(secret.trim(), env)
+}
+
+export function decodePagerdutyOAuthClientSecret(
+  stored: PagerdutyConnectionConfigStored,
+  env: Env,
+): string | undefined {
+  if (!stored.oauthClientSecretEnc) return undefined
+  return decryptConnectionSecret(stored.oauthClientSecretEnc, env)
+}
+
+export function pagerdutyConnectionHasOAuthApp(
+  stored: PagerdutyConnectionConfigStored,
+): boolean {
+  return Boolean(stored.oauthClientId && stored.oauthClientSecretEnc)
+}
+
+export function envHasPagerdutyOAuthApp(env: Env): boolean {
+  return Boolean(env.PAGERDUTY_CLIENT_ID && env.PAGERDUTY_CLIENT_SECRET)
+}
+
+/** Row app first, then the optional hosted deployment app. */
+export function resolvePagerdutyOAuthAppCreds(
+  stored:
+    | {
+        oauthClientId?: string | null
+        oauthClientSecretEnc?: string | null
+      }
+    | undefined,
+  env: Env,
+): PagerdutyOAuthAppCreds | undefined {
+  if (stored?.oauthClientId && stored.oauthClientSecretEnc) {
+    const clientSecret = decryptConnectionSecret(
+      stored.oauthClientSecretEnc,
+      env,
+    )
+    if (clientSecret) {
+      return { clientId: stored.oauthClientId, clientSecret }
+    }
+  }
+  if (env.PAGERDUTY_CLIENT_ID && env.PAGERDUTY_CLIENT_SECRET) {
+    return {
+      clientId: env.PAGERDUTY_CLIENT_ID,
+      clientSecret: env.PAGERDUTY_CLIENT_SECRET,
+    }
+  }
+  return undefined
+}
+
+export function pagerdutyOauthConfigured(
+  stored:
+    | {
+        oauthClientId?: string | null
+        oauthClientSecretEnc?: string | null
+      }
+    | undefined,
+  env: Env,
+): boolean {
+  return resolvePagerdutyOAuthAppCreds(stored, env) != null
+}

@@ -14,6 +14,7 @@ Anchor implementations: Linear and Notion on `main`; Slack on PR #267 (`slack-co
 | Model: list/get, bind, phase transitions, token refresh with lock | `apps/backend/src/models/<slug>-connector.ts` |
 | Org list metadata enum | `apps/backend/src/routes/v1/connectors-list.ts` |
 | Org-scoped routes | `apps/backend/src/routes/v1/connectors-<slug>.ts` — mount in `routes/v1/index.ts` under `requireOrgAdminOrOwner` |
+| Per-connection OAuth app (PagerDuty; Confluence/Atlassian) | PagerDuty: `POST /draft`, `GET`/`PUT /oauth-app` on `connectors-pagerduty.ts` (`oauthClientId` + encrypted `oauthClientSecretEnc`; resolve **row, then env**). Atlassian: `org-atlassian-oauth.ts`. Linear/Notion stay env-app. |
 | OAuth callback (non-org) | same file or `*-oauth-callback`; HTML popup relay |
 | Capabilities (oauth configured, webhook URL) | `apps/backend/src/routes/v1/capabilities.ts` |
 | Binding cleared when repo deleted | `apps/backend/src/domain/repositoryDeletion.ts` |

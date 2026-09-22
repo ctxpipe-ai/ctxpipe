@@ -13,6 +13,7 @@ import {
   AddGithubConnectorButton,
   AddLinearConnectorButton,
   AddNotionConnectorButton,
+  AddPagerdutyConnectorButton,
   AddSlackConnectorButton,
   ConfluenceConnectionCard,
   ConnectorSetupDialog,
@@ -23,6 +24,8 @@ import {
   LinearSetupWizard,
   NotionConnectionCard,
   NotionSetupDialog,
+  PagerdutyConnectionCard,
+  PagerdutySetupDialog,
   SlackConnectionCard,
 } from "@/features/connectors"
 import { AtlassianAccountClaimModalContent } from "@/features/connectors/components/AtlassianAccountClaimModalContent"
@@ -96,10 +99,15 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   )
   const [notionSetupOpen, setNotionSetupOpen] = useState(false)
   const [notionManageScope, setNotionManageScope] = useState(false)
+  const [pagerdutySetupOpen, setPagerdutySetupOpen] = useState(false)
+  const [pagerdutyManageScope, setPagerdutyManageScope] = useState(false)
   const [linearManageScope, setLinearManageScope] = useState(false)
   const [notionConnectionId, setNotionConnectionId] = useState<string | null>(
     null,
   )
+  const [pagerdutyConnectionId, setPagerdutyConnectionId] = useState<
+    string | null
+  >(null)
   const [githubSelfHostedWizardOpen, setGithubSelfHostedWizardOpen] =
     useState(false)
   const [slackSetupOpen, setSlackSetupOpen] = useState(false)
@@ -278,6 +286,20 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                   />
                 )
               }
+              if (row.type === "pagerduty") {
+                return (
+                  <PagerdutyConnectionCard
+                    key={row.id}
+                    orgSlug={orgSlug}
+                    connectionId={row.id}
+                    onOpenSetup={(manageScope) => {
+                      setPagerdutyConnectionId(row.id)
+                      setPagerdutyManageScope(manageScope)
+                      setPagerdutySetupOpen(true)
+                    }}
+                  />
+                )
+              }
               return (
                 <GithubConnectionCard
                   key={row.id}
@@ -345,6 +367,17 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                 if (!connectionId) return
                 setNotionConnectionId(connectionId)
                 setNotionSetupOpen(true)
+              }}
+            />
+          </li>
+          <li>
+            <AddPagerdutyConnectorButton
+              orgSlug={orgSlug}
+              onStart={({ connectionId }) => {
+                setPagerdutyConnectionId(connectionId ?? null)
+                setPagerdutyManageScope(false)
+                setPagerdutySetupOpen(true)
+                setCatalogOpen(false)
               }}
             />
           </li>
@@ -516,6 +549,29 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             if (!open) {
               setNotionConnectionId(null)
               setNotionManageScope(false)
+            }
+          }}
+        />
+
+        <PagerdutySetupDialog
+          orgSlug={orgSlug}
+          connectionId={pagerdutyConnectionId ?? undefined}
+          githubConnectionIds={items
+            .filter((item) => item.type === "github")
+            .map((item) => item.id)}
+          manageScope={pagerdutyManageScope}
+          isOpen={pagerdutySetupOpen}
+          onConnectionIdChange={(nextConnectionId) => {
+            setPagerdutyConnectionId(nextConnectionId)
+            void queryClient.invalidateQueries({
+              queryKey: orgConnectionsKeys.list(orgSlug),
+            })
+          }}
+          onOpenChange={(open) => {
+            setPagerdutySetupOpen(open)
+            if (!open) {
+              setPagerdutyConnectionId(null)
+              setPagerdutyManageScope(false)
             }
           }}
         />

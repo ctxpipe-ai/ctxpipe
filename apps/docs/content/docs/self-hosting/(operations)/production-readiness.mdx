@@ -49,6 +49,8 @@ Register callback and webhook URLs against your public origin.
 | Slack Events API | `{AUTH_BASE_URL}/api/v1/webhook/slack` |
 | Notion OAuth | `{AUTH_BASE_URL}/api/v1/connectors/notion/oauth/callback` |
 | Notion webhook | `{AUTH_BASE_URL}/api/v1/webhook/notion?provisioningToken=...` |
+| PagerDuty OAuth | `{AUTH_BASE_URL}/api/v1/integrations/pagerduty/callback` |
+| PagerDuty webhook | `{AUTH_BASE_URL}/api/v1/webhook/pagerduty` |
 | MCP | `{AUTH_BASE_URL}/mcp?orgSlug=<org-slug>` |
 | App auth | `/.auth/*` routes under `AUTH_BASE_URL` |
 
@@ -112,6 +114,12 @@ Before inviting users:
 - If using Notion, configure `NOTION_CLIENT_ID` and `NOTION_CLIENT_SECRET`,
   register the exact OAuth redirect URL, and set `NOTION_WEBHOOK_SECRET` after
   the first webhook delivery.
+- If using PagerDuty, register the exact OAuth callback. Either save the
+  client id and secret in the connector wizard, or configure
+  `PAGERDUTY_CLIENT_ID` and `PAGERDUTY_CLIENT_SECRET` on backend and worker.
+  ctx| creates the webhook subscription after authorization.
+- Confirm backend and worker can reach `identity.pagerduty.com` and
+  `api.pagerduty.com` or `api.eu.pagerduty.com`.
 - Confirm the worker can run connector jobs.
 - Confirm `codesearch` can clone the expected repositories.
 - Confirm model provider credentials work for both chat and embedding calls.
@@ -137,4 +145,5 @@ Before inviting users:
   <Card title="Slack" href="/docs/self-hosting/slack" description="Slack app scopes, app_mention Events, deployment secrets, and troubleshooting." />
   <Card title="Linear" href="/docs/self-hosting/linear" description="Linear OAuth, signed webhooks, and end-to-end verification." />
   <Card title="Notion" href="/docs/self-hosting/notion" description="Notion OAuth, webhook signing, and end-to-end verification." />
+  <Card title="PagerDuty" href="/docs/self-hosting/pagerduty" description="PagerDuty OAuth, automatic webhooks, and end-to-end verification." />
 </Cards>

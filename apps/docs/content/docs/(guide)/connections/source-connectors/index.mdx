@@ -17,6 +17,7 @@ the source instead of assuming every provider is a continuous workspace sync.
 | **Notion** | Scoped mirror | Selected pages and databases | Merged `notion/config.yaml` plus supported source events |
 | **Confluence** | Scoped mirror | Selected spaces and pages | Merged `confluence/config.yaml` plus Forge events |
 | **Slack** | Intent capture | One existing thread at a time | A user mentions the bot inside that thread |
+| **PagerDuty** | Scoped mirror | Selected services' incidents and alerts | Merged `pagerduty/config.yaml` plus supported incident events |
 
 The important distinction is **scope**. A scoped mirror keeps an approved subset
 current. Slack does not have a channel scope or history backfill: users promote a
@@ -24,7 +25,7 @@ specific discussion into durable Git history only when it is worth keeping.
 
 ## Git is the review and access boundary
 
-Linear, Notion, and Confluence propose source scope in a configuration pull
+Linear, Notion, Confluence, and PagerDuty propose source scope in a configuration pull
 request. After merge, generated Markdown is written under the connector's
 managed directory and the repository is ingested like any other Git source.
 
@@ -44,6 +45,7 @@ different audience.
   <Card title="Notion" href="/docs/connections/source-connectors/notion" description="Mirror selected pages and databases into readable repository files." />
   <Card title="Confluence" href="/docs/connections/source-connectors/confluence" description="Connect Atlassian, approve space scope, and merge it into Git." />
   <Card title="Slack" href="/docs/connections/source-connectors/slack" description="Capture valuable threads on demand without mirroring channels." />
+  <Card title="PagerDuty" href="/docs/connections/source-connectors/pagerduty" description="Mirror selected incident context through reviewable Git scope." />
   <Card title="Connected sources" href="/docs/connections/connected-sources" description="See the complete source catalog and availability." />
 </Cards>
 

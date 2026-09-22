@@ -50,7 +50,7 @@ endpoint, logs go to stdout.
 | Component | Useful signals |
 |---|---|
 | `backend` | auth failures, REST errors, MCP requests, graph read failures, connector callbacks |
-| `worker` | ingestion jobs, Confluence and Linear sync, Forge provisioning, background workflow failures |
+| `worker` | ingestion jobs, Confluence, Linear, and PagerDuty sync, Forge provisioning, background workflow failures |
 | `codesearch` | clone failures, indexing failures, Zoekt errors |
 | `postgres` | connection limits, slow queries, disk pressure |
 | `graph database` | connection failures, memory pressure, query errors |
@@ -138,6 +138,20 @@ changes.
   underlying credential, network, or permission failure.
 - See [Linear](/docs/self-hosting/linear).
 
+### PagerDuty setup stalls or incidents become stale
+
+- Confirm PagerDuty OAuth credentials are present on backend and worker.
+- Confirm the connection is live and the incident's service is listed in the
+  merged `pagerduty/config.yaml`. There is no shared webhook secret; ctx|
+  stores the per-subscription secret on the connection.
+- Confirm signed requests reach `/api/v1/webhook/pagerduty` and merge pushes
+  reach `/api/v1/webhook/github/<connectionId>`.
+- Check worker logs for `pagerduty-sync-config`, `pagerduty-sync-content`, or
+  `pagerduty-sync-entity` failures.
+- Use the setup dialog's configuration or content retry action after fixing the
+  underlying credential, network, or permission failure.
+- See [PagerDuty](/docs/self-hosting/pagerduty).
+
 ## Related pages
 
 <Cards>
@@ -145,5 +159,6 @@ changes.
   <Card title="Upgrades" href="/docs/self-hosting/upgrades" description="Backup, migrate, validate, and roll back." />
   <Card title="Graph databases" href="/docs/self-hosting/graph-databases" description="Provider-specific graph behavior." />
   <Card title="Linear" href="/docs/self-hosting/linear" description="OAuth, webhook, and connector recovery guidance." />
+  <Card title="PagerDuty" href="/docs/self-hosting/pagerduty" description="OAuth, automatic webhooks, and connector recovery guidance." />
   <Card title="MCP" href="/docs/self-hosting/mcp" description="Doctor mcp, OAuth discovery, and MCPJam diagnostics." />
 </Cards>

@@ -7,9 +7,11 @@ import {
   decodeNotionTokens,
   encodeLinearOauthAppSecretsForDb,
   encodeNotionTokensForDb,
+  encodePagerdutyOAuthClientSecretForDb,
   migrateLegacyNotionTokensForDb,
   parseLinearConnectionStored,
   parseNotionConnectionConfig,
+  resolvePagerdutyOAuthAppCreds,
 } from "./connection-config.js"
 import { encryptConnectionSecret } from "./connection-secrets.js"
 import {
@@ -221,5 +223,44 @@ describe("Linear OAuth app encryption", () => {
     expect(stored.workspaceName).toBeUndefined()
     expect(stored.oauthClientId).toBe("lin_client")
     expect(stored.setupPhase).toBe("draft")
+  })
+})
+
+describe("PagerDuty OAuth app resolution", () => {
+  it("prefers connection credentials over the hosted env app", () => {
+    const hostedEnv = {
+      ...env,
+      PAGERDUTY_CLIENT_ID: "hosted-client",
+      PAGERDUTY_CLIENT_SECRET: "hosted-secret",
+    } as Env
+
+    expect(
+      resolvePagerdutyOAuthAppCreds(
+        {
+          oauthClientId: "row-client",
+          oauthClientSecretEnc: encodePagerdutyOAuthClientSecretForDb(
+            "row-secret",
+            hostedEnv,
+          ),
+        },
+        hostedEnv,
+      ),
+    ).toEqual({
+      clientId: "row-client",
+      clientSecret: "row-secret",
+    })
+  })
+
+  it("falls back to hosted env credentials when the row has no app", () => {
+    expect(
+      resolvePagerdutyOAuthAppCreds(undefined, {
+        ...env,
+        PAGERDUTY_CLIENT_ID: "hosted-client",
+        PAGERDUTY_CLIENT_SECRET: "hosted-secret",
+      } as Env),
+    ).toEqual({
+      clientId: "hosted-client",
+      clientSecret: "hosted-secret",
+    })
   })
 })

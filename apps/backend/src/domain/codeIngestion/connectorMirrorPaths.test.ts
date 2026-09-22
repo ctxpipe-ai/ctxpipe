@@ -9,6 +9,8 @@ describe("isConnectorMirrorPath", () => {
     expect(isConnectorMirrorPath("notion/pages/root--p1/index.md")).toBe(true)
     expect(isConnectorMirrorPath("slack/channels/eng--C1/index.md")).toBe(true)
     expect(isConnectorMirrorPath("confluence/spaces/ENG/page--1.md")).toBe(true)
+    expect(isConnectorMirrorPath("pagerduty/incidents/12--P1.md")).toBe(true)
+    expect(isConnectorMirrorPath("pagerduty/config.yaml")).toBe(true)
   })
 
   it("leaves source-repo paths alone", () => {

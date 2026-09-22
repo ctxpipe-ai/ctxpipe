@@ -5,6 +5,7 @@ export const CONNECTOR_MIRROR_ROOTS = [
   "notion",
   "slack",
   "confluence",
+  "pagerduty",
 ] as const
 
 /** True for connector warehouse paths (`linear/…`, `github/pulls/…`, …). */
