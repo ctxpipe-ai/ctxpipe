@@ -3,7 +3,7 @@ import type { AppEnv } from "../../app/env.js"
 import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
-  pagerdutyOauthConfigured,
+  envHasPagerdutyOAuthApp,
   resolvePagerdutyOAuthAppCreds,
 } from "../../lib/connection-config.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
@@ -19,12 +19,12 @@ import {
   type PagerdutyConnection,
   pagerdutyOAuthAppMetadata,
   patchPagerdutyConnectorConfig,
+  persistPagerdutyWebhookSubscriptionIfAbsent,
   recordPagerdutyOAuthRevocation,
   refreshPagerdutyConnectionTokensWithLock,
   releasePagerdutyConfigPrCreationClaim,
   resolvePagerdutyConnectionForOrgDetailed,
   savePagerdutyOAuthApp,
-  savePagerdutyWebhookSubscription,
   transitionPagerdutyBindingState,
   upsertPagerdutyConnectionFromOAuth,
 } from "../../models/pagerduty-connector.js"
@@ -102,17 +102,9 @@ const PagerdutyPatchConfigRequestSchema = z
     { message: "Provide services or syncTarget" },
   )
 
-const PagerdutyOAuthAppResponseSchema = z.object({
-  oauthAppSaved: z.boolean(),
-  oauthClientId: z.string().nullable(),
-  globalPagerdutyOAuthConfigured: z.boolean(),
-  oauthCallbackUrl: z.string(),
-  webhookUrl: z.string(),
-})
-
 const PagerdutyOAuthAppPutSchema = z.object({
   clientId: z.string().min(1),
-  clientSecret: z.string().optional(),
+  clientSecret: z.string().min(1),
 })
 
 const RequiredConnectionIdQuerySchema = z.object({
@@ -147,43 +139,21 @@ const getOAuthStartRoute = createRoute({
   },
 })
 
-const postDraftRoute = createRoute({
+const postSetupRoute = createRoute({
   method: "post",
-  path: "/draft",
+  path: "/setup",
   responses: {
     200: {
       content: {
         "application/json": {
-          schema: z.object({ connectionId: z.string().min(1) }),
+          schema: z.object({ connectionId: z.string().min(1).nullable() }),
         },
       },
-      description: "Create or reuse a PagerDuty draft connection",
+      description: "Start hosted or self-hosted PagerDuty setup",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
-    },
-  },
-})
-
-const getOAuthAppRoute = createRoute({
-  method: "get",
-  path: "/oauth-app",
-  request: { query: RequiredConnectionIdQuerySchema },
-  responses: {
-    200: {
-      content: {
-        "application/json": { schema: PagerdutyOAuthAppResponseSchema },
-      },
-      description: "PagerDuty OAuth app metadata (no secrets)",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unknown PagerDuty connection",
     },
   },
 })
@@ -198,15 +168,12 @@ const putOAuthAppRoute = createRoute({
     },
   },
   responses: {
-    200: {
-      content: {
-        "application/json": { schema: PagerdutyOAuthAppResponseSchema },
-      },
+    204: {
       description: "Saved PagerDuty OAuth app on the connection",
     },
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Secret required on first save",
+      description: "Invalid PagerDuty OAuth app credentials",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -215,6 +182,10 @@ const putOAuthAppRoute = createRoute({
     404: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unknown PagerDuty connection",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "OAuth app is already bound to authorised tokens",
     },
   },
 })
@@ -258,11 +229,9 @@ const PagerdutyStatusResponseSchema = z.object({
       githubConnectionId: z.string().nullable(),
     })
     .nullable(),
-  pagerdutyOauthConfigured: z.boolean(),
   oauthAppSaved: z.boolean(),
   globalPagerdutyOAuthConfigured: z.boolean(),
   oauthCallbackUrl: z.string(),
-  webhookUrl: z.string(),
 })
 
 const getStatusRoute = createRoute({
@@ -636,10 +605,10 @@ function pagerdutyTokenRefresh(
   connection: PagerdutyConnection,
   env: AppEnv["Variables"]["env"],
 ) {
-  return (expectedRefreshToken: string, expectedAccessToken: string) =>
-    withOrgDbContext(orgId, async () => {
-      try {
-        return await refreshPagerdutyConnectionTokensWithLock({
+  return async (expectedRefreshToken: string, expectedAccessToken: string) => {
+    try {
+      return await withOrgDbContext(orgId, () =>
+        refreshPagerdutyConnectionTokensWithLock({
           orgId,
           connectionId: connection.id,
           env,
@@ -652,26 +621,34 @@ function pagerdutyTokenRefresh(
             }
             return refreshPagerdutyOAuthToken({ env, creds, refreshToken })
           },
-        })
-      } catch (error) {
-        if (isPagerdutyAuthorizationRevokedError(error)) {
-          await recordPagerdutyOAuthRevocation({
+        }),
+      )
+    } catch (error) {
+      if (isPagerdutyAuthorizationRevokedError(error)) {
+        await withOrgDbContext(orgId, () =>
+          recordPagerdutyOAuthRevocation({
             orgId,
             connectionId: connection.id,
-          })
-        }
-        throw error
+            env,
+            expectedAccessToken,
+          }),
+        )
       }
-    })
+      throw error
+    }
+  }
 }
 
 export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
-  .openapi(postDraftRoute, async (c) => {
+  .openapi(postSetupRoute, async (c) => {
     const user = c.get("user")
     const session = c.get("session")
     const orgId = c.get("orgId")
     if (!user || !session || !orgId) {
       return c.json({ error: "Unauthorized" }, 401)
+    }
+    if (envHasPagerdutyOAuthApp(c.var.env)) {
+      return c.json({ connectionId: null }, 200)
     }
     const connection = await createOrReusePagerdutyDraft({
       orgId,
@@ -679,25 +656,6 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
       ownerUserId: user.id,
     })
     return c.json({ connectionId: connection.id }, 200)
-  })
-  .openapi(getOAuthAppRoute, async (c) => {
-    if (!c.get("user") || !c.get("session")) {
-      return c.json({ error: "Unauthorized" }, 401)
-    }
-    const orgId = c.get("orgId")
-    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
-    const { connectionId } = RequiredConnectionIdQuerySchema.parse({
-      connectionId: c.req.query("connectionId"),
-    })
-    const connection = await getPagerdutyConnectionByConnectionId(
-      orgId,
-      connectionId,
-      c.var.env,
-    )
-    if (!connection) {
-      return c.json({ error: "Unknown PagerDuty connection" }, 404)
-    }
-    return c.json(pagerdutyOAuthAppMetadata(connection, c.var.env), 200)
   })
   .openapi(putOAuthAppRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
@@ -710,21 +668,21 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
     })
     const body = PagerdutyOAuthAppPutSchema.parse(await c.req.json())
     try {
-      const metadata = await savePagerdutyOAuthApp({
+      await savePagerdutyOAuthApp({
         orgId,
         connectionId,
         env: c.var.env,
         clientId: body.clientId,
         clientSecret: body.clientSecret,
       })
-      return c.json(metadata, 200)
+      return c.body(null, 204)
     } catch (error) {
       const message = error instanceof Error ? error.message : ""
       if (message === "PagerDuty connection not found") {
         return c.json({ error: "Unknown PagerDuty connection" }, 404)
       }
-      if (message.includes("clientSecret is required")) {
-        return c.json({ error: message }, 400)
+      if (message.includes("cannot be changed after account authorisation")) {
+        return c.json({ error: message }, 409)
       }
       throw error
     }
@@ -828,14 +786,9 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
               branch: binding.branch,
             }
           : null,
-        pagerdutyOauthConfigured: pagerdutyOauthConfigured(
-          connection,
-          c.var.env,
-        ),
         oauthAppSaved: oauth.oauthAppSaved,
         globalPagerdutyOAuthConfigured: oauth.globalPagerdutyOAuthConfigured,
         oauthCallbackUrl: oauth.oauthCallbackUrl,
-        webhookUrl: oauth.webhookUrl,
       },
       200,
     )
@@ -1307,6 +1260,11 @@ export const pagerdutyOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
             ),
           )
         : undefined
+      if (state.connectionId && !draft) {
+        return relayError(
+          "PagerDuty connection was removed before authorisation completed",
+        )
+      }
       const creds = resolvePagerdutyCredsForConnection(draft, c.var.env)
       if (!creds) {
         return relayError("PagerDuty OAuth is not configured")
@@ -1333,26 +1291,58 @@ export const pagerdutyOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
           accountSubdomain: identity.accountSubdomain,
           region: identity.region,
           actorUserId: identity.actorUserId,
+          oauthApp: creds,
           connectionId: state.connectionId,
         }),
       )
-      const webhook = await ensurePagerdutyWebhookSubscription({
-        accessToken: token.accessToken,
-        region: identity.region,
-        deliveryUrl: pagerdutyWebhookDeliveryUrl(c.var.env),
-        existingSubscriptionId: connection.webhookSubscriptionId,
-        hasStoredSecret: Boolean(connection.webhookSecretEnc),
-      })
-      if (!("reused" in webhook)) {
-        await withOrgDbContext(state.orgId, () =>
-          savePagerdutyWebhookSubscription({
-            orgId: state.orgId,
-            connectionId: connection.id,
-            env: c.var.env,
-            webhookSubscriptionId: webhook.id,
-            webhookSecret: webhook.secret,
-          }),
-        )
+      if (!connection.webhookSubscriptionId || !connection.webhookSecretEnc) {
+        const webhook = await ensurePagerdutyWebhookSubscription({
+          accessToken: token.accessToken,
+          region: identity.region,
+          deliveryUrl: pagerdutyWebhookDeliveryUrl(c.var.env),
+          existingSubscriptionId: connection.webhookSubscriptionId,
+          hasStoredSecret: Boolean(connection.webhookSecretEnc),
+        })
+        if ("reused" in webhook) {
+          throw new Error(
+            "PagerDuty reused a webhook without a stored signing secret",
+          )
+        }
+        const cleanupWebhook = async () => {
+          try {
+            await deletePagerdutyWebhookSubscription({
+              accessToken: token.accessToken,
+              region: identity.region,
+              subscriptionId: webhook.id,
+            })
+          } catch (cleanupError) {
+            getLogger().warn("pagerduty_oauth_webhook_cleanup_failed", {
+              connectionId: connection.id,
+              webhookSubscriptionId: webhook.id,
+              error:
+                cleanupError instanceof Error
+                  ? cleanupError.message
+                  : String(cleanupError),
+            })
+          }
+        }
+        try {
+          const retainedSubscriptionId = await withOrgDbContext(
+            state.orgId,
+            () =>
+              persistPagerdutyWebhookSubscriptionIfAbsent({
+                orgId: state.orgId,
+                connectionId: connection.id,
+                env: c.var.env,
+                webhookSubscriptionId: webhook.id,
+                webhookSecret: webhook.secret,
+              }),
+          )
+          if (retainedSubscriptionId !== webhook.id) await cleanupWebhook()
+        } catch (error) {
+          await cleanupWebhook()
+          throw error
+        }
       }
       return setupRelayResponse({
         origin,

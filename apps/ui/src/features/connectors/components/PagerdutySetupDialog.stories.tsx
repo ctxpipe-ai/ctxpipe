@@ -1,35 +1,20 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { PagerdutySetupDialog } from "./PagerdutySetupDialog"
 
 const orgSlug = "acme"
 const connectionId = "con_story_pagerduty"
+const saveOauthAppRequest = fn()
 
 const hostedOauth = {
-  pagerdutyOauthConfigured: true,
   oauthAppSaved: false,
   globalPagerdutyOAuthConfigured: true,
   oauthCallbackUrl:
     "https://app.example.com/api/v1/integrations/pagerduty/callback",
-  webhookUrl: "https://app.example.com/api/v1/webhook/pagerduty",
 }
-
-const oauthAppHandler = http.get(
-  ({ request }) =>
-    new URL(request.url).pathname.includes(
-      "/api/v1/connectors/pagerduty/oauth-app",
-    ),
-  () =>
-    HttpResponse.json({
-      oauthAppSaved: false,
-      oauthClientId: null,
-      globalPagerdutyOAuthConfigured: true,
-      oauthCallbackUrl: hostedOauth.oauthCallbackUrl,
-      webhookUrl: hostedOauth.webhookUrl,
-    }),
-)
 
 const meta = {
   title: "Components/Connections/PagerdutySetupDialog",
@@ -81,37 +66,39 @@ export const RegisterOAuthApp: Story = {
                 pendingConfigPullUrl: null,
                 pendingConfigPrCreating: false,
                 syncTarget: null,
-                pagerdutyOauthConfigured: false,
                 oauthAppSaved: false,
                 globalPagerdutyOAuthConfigured: false,
                 oauthCallbackUrl: hostedOauth.oauthCallbackUrl,
-                webhookUrl: hostedOauth.webhookUrl,
               }),
           ),
-          http.get(
+          http.put(
             ({ request }) =>
               new URL(request.url).pathname.includes(
                 "/api/v1/connectors/pagerduty/oauth-app",
               ),
-            () =>
-              HttpResponse.json({
-                oauthAppSaved: false,
-                oauthClientId: null,
-                globalPagerdutyOAuthConfigured: false,
-                oauthCallbackUrl: hostedOauth.oauthCallbackUrl,
-                webhookUrl: hostedOauth.webhookUrl,
-              }),
-          ),
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.includes(
-                "/api/v1/connectors/pagerduty/config",
-              ),
-            () => HttpResponse.json({ services: [], syncTarget: null }),
+            async ({ request }) => {
+              saveOauthAppRequest(await request.json())
+              return new HttpResponse(null, { status: 204 })
+            },
           ),
         ],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.type(canvas.getByLabelText("Client ID"), "pd-client")
+    await userEvent.type(canvas.getByLabelText("Client secret"), "pd-secret")
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Save OAuth app" }),
+    )
+    await waitFor(() =>
+      expect(saveOauthAppRequest).toHaveBeenCalledWith({
+        clientId: "pd-client",
+        clientSecret: "pd-secret",
+      }),
+    )
+    await expect(canvas.getByLabelText("Client secret")).toHaveValue("")
   },
 }
 
@@ -198,7 +185,6 @@ export const ServiceSelection: Story = {
                 ...hostedOauth,
               }),
           ),
-          oauthAppHandler,
           http.get(
             ({ request }) =>
               new URL(request.url).pathname.includes(
@@ -284,7 +270,6 @@ export const TargetRepository: Story = {
                 ...hostedOauth,
               }),
           ),
-          oauthAppHandler,
           http.get(
             ({ request }) =>
               new URL(request.url).pathname.includes(

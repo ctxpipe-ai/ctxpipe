@@ -2,26 +2,28 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { Spinner } from "@/components/ui/spinner"
 import { orgConnectionsKeys } from "../queries/org-connections"
-import { createPagerdutyDraft } from "../queries/pagerduty-connector"
+import { startPagerdutySetup } from "../queries/pagerduty-connector"
 import { PagerdutyMark } from "./PagerdutyMark"
 
 export type AddPagerdutyConnectorButtonProps = {
   orgSlug: string
-  onDraftCreated: (args: { connectionId: string }) => void
+  onStart: (args: { connectionId?: string }) => void
 }
 
 export function AddPagerdutyConnectorButton({
   orgSlug,
-  onDraftCreated,
+  onStart,
 }: AddPagerdutyConnectorButtonProps) {
   const queryClient = useQueryClient()
   const mutation = useMutation({
-    mutationFn: () => createPagerdutyDraft(orgSlug),
+    mutationFn: () => startPagerdutySetup(orgSlug),
     onSuccess: async (data) => {
-      await queryClient.invalidateQueries({
-        queryKey: orgConnectionsKeys.list(orgSlug),
-      })
-      onDraftCreated({ connectionId: data.connectionId })
+      if (data.connectionId) {
+        await queryClient.invalidateQueries({
+          queryKey: orgConnectionsKeys.list(orgSlug),
+        })
+      }
+      onStart({ connectionId: data.connectionId ?? undefined })
     },
     onError: (error: Error) => toast.error(error.message),
   })

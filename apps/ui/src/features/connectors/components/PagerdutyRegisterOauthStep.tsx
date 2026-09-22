@@ -1,13 +1,13 @@
 "use client"
 
-import { IconCheck, IconCopy } from "@tabler/icons-react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { IconCheck, IconCopy, IconExternalLink } from "@tabler/icons-react"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { Button } from "@/components/ui/Button"
+import { InlineAlert } from "@/components/ui/InlineAlert"
 import { TextField } from "@/components/ui/TextField"
 import { displayOAuthCallbackUrl } from "../lib/display-oauth-callback-url"
 import {
-  fetchPagerdutyOAuthApp,
   pagerdutyConnectorKeys,
   savePagerdutyOAuthApp,
 } from "../queries/pagerduty-connector"
@@ -15,6 +15,7 @@ import {
 type PagerdutyRegisterOauthStepProps = {
   orgSlug: string
   connectionId: string
+  oauthCallbackUrl: string
 }
 
 function CopyableUrl({
@@ -28,6 +29,18 @@ function CopyableUrl({
     "idle",
   )
   const display = value ?? "…"
+
+  const copy = async () => {
+    if (!value) return
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopyState("copied")
+      window.setTimeout(() => setCopyState("idle"), 2000)
+    } catch {
+      setCopyState("error")
+      window.setTimeout(() => setCopyState("idle"), 2000)
+    }
+  }
 
   return (
     <div>
@@ -48,21 +61,11 @@ function CopyableUrl({
                 ? "h-full min-h-10 w-11 shrink-0 rounded-none px-0 text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400"
                 : "h-full min-h-10 w-11 shrink-0 rounded-none px-0 text-primary hover:bg-primary/10"
             }
-            aria-label={copyState === "copied" ? `${label} copied` : `Copy ${label}`}
+            aria-label={
+              copyState === "copied" ? `${label} copied` : `Copy ${label}`
+            }
             isDisabled={!value}
-            onPress={() => {
-              if (!value) return
-              void navigator.clipboard.writeText(value).then(
-                () => {
-                  setCopyState("copied")
-                  window.setTimeout(() => setCopyState("idle"), 2000)
-                },
-                () => {
-                  setCopyState("error")
-                  window.setTimeout(() => setCopyState("idle"), 2000)
-                },
-              )
-            }}
+            onPress={() => void copy()}
           >
             {copyState === "copied" ? (
               <IconCheck className="h-4 w-4" aria-hidden />
@@ -72,6 +75,14 @@ function CopyableUrl({
           </Button>
         </div>
       </div>
+      {copyState === "error" ? (
+        <output
+          aria-live="polite"
+          className="mt-1 block text-xs text-destructive"
+        >
+          Could not copy — copy the URL manually.
+        </output>
+      ) : null}
     </div>
   )
 }
@@ -79,116 +90,128 @@ function CopyableUrl({
 export function PagerdutyRegisterOauthStep({
   orgSlug,
   connectionId,
+  oauthCallbackUrl,
 }: PagerdutyRegisterOauthStepProps) {
   const queryClient = useQueryClient()
-  const oauthQuery = useQuery({
-    queryKey: pagerdutyConnectorKeys.oauthApp(orgSlug, connectionId),
-    queryFn: () => fetchPagerdutyOAuthApp(orgSlug, connectionId),
-  })
   const [clientId, setClientId] = useState("")
   const [clientSecret, setClientSecret] = useState("")
-  const savedClientId = oauthQuery.data?.oauthClientId ?? ""
-  const formClientId = clientId || savedClientId
-  const callbackUrl = displayOAuthCallbackUrl(oauthQuery.data?.oauthCallbackUrl)
-  const webhookUrl = displayOAuthCallbackUrl(oauthQuery.data?.webhookUrl)
+  const callbackUrl = displayOAuthCallbackUrl(oauthCallbackUrl)
 
   const save = useMutation({
     mutationFn: () =>
       savePagerdutyOAuthApp(orgSlug, connectionId, {
-        clientId: formClientId.trim(),
-        ...(clientSecret.trim() ? { clientSecret: clientSecret.trim() } : {}),
+        clientId: clientId.trim(),
+        clientSecret: clientSecret.trim(),
       }),
     onSuccess: async () => {
       setClientSecret("")
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: pagerdutyConnectorKeys.oauthApp(orgSlug, connectionId),
-        }),
-        queryClient.invalidateQueries({
-          queryKey: pagerdutyConnectorKeys.status(orgSlug, connectionId),
-        }),
-      ])
+      await queryClient.invalidateQueries({
+        queryKey: pagerdutyConnectorKeys.status(orgSlug, connectionId),
+      })
     },
   })
 
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-base font-semibold text-foreground">
+        <h3 className="text-base font-medium text-foreground">
           Register PagerDuty OAuth app
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
-          Self-hosted deployments use their own Scoped OAuth app in the
-          PagerDuty developer portal. Paste the callback and Event URL below,
-          then save the client id and secret here. You do not need to restart
-          the deployment.
+          Create a Scoped OAuth app for this deployment, then save its
+          credentials here. ctxpipe creates the webhook subscription after you
+          connect an account, so PagerDuty Events Integration stays off.
         </p>
       </div>
       <ol className="list-decimal space-y-3 pl-5 text-sm text-muted-foreground">
         <li>
-          Create an OAuth application in the{" "}
+          Open{" "}
           <a
-            href="https://developer.pagerduty.com"
-            className="text-primary underline-offset-2 hover:underline"
+            href="https://developer.pagerduty.com/my-apps"
+            className="font-medium text-teal-400 underline decoration-teal-400/50 underline-offset-4 hover:text-teal-300 hover:decoration-teal-300"
             target="_blank"
             rel="noreferrer"
           >
-            PagerDuty developer portal
+            PagerDuty App Registration
+            <IconExternalLink className="ml-1 inline size-3.5" aria-hidden />
           </a>
-          .
+          , select{" "}
+          <strong className="font-medium text-foreground">New App</strong>, and
+          name it{" "}
+          <strong className="font-medium text-foreground">ctxpipe</strong> or
+          after this deployment.
         </li>
         <li>
-          Register this callback URL exactly.
+          Under{" "}
+          <strong className="font-medium text-foreground">Functionality</strong>
+          , select{" "}
+          <strong className="font-medium text-foreground">OAuth 2.0</strong>.
+          Leave{" "}
+          <strong className="font-medium text-foreground">
+            Events Integration
+          </strong>{" "}
+          unselected, then continue.
+        </li>
+        <li>
+          Choose{" "}
+          <strong className="font-medium text-foreground">Scoped OAuth</strong>{" "}
+          and register this redirect URL exactly:
           <div className="mt-2">
-            <CopyableUrl label="Callback URL" value={callbackUrl} />
+            <CopyableUrl label="Redirect URL" value={callbackUrl} />
           </div>
         </li>
         <li>
-          Use this Event URL when PagerDuty asks for a webhook destination. ctx|
-          creates the subscription after you connect an account.
-          <div className="mt-2">
-            <CopyableUrl label="Event URL" value={webhookUrl} />
+          Grant only these permission scopes:
+          <div className="mt-2 flex flex-wrap gap-2">
+            {[
+              "incidents.read",
+              "services.read",
+              "users.read",
+              "webhook_subscriptions.read",
+              "webhook_subscriptions.write",
+            ].map((scope) => (
+              <code
+                key={scope}
+                className="rounded-none border border-border bg-muted px-2 py-1 font-mono text-xs text-foreground"
+              >
+                {scope}
+              </code>
+            ))}
           </div>
+        </li>
+        <li>
+          Select{" "}
+          <strong className="font-medium text-foreground">Register App</strong>,
+          then copy the generated client ID and client secret into the fields
+          below. PagerDuty only shows the secret once.
         </li>
       </ol>
       <TextField
         label="Client ID"
-        value={formClientId}
+        value={clientId}
         onChange={setClientId}
         autoComplete="off"
       />
       <TextField
-        label={oauthQuery.data?.oauthAppSaved ? "New client secret" : "Client secret"}
+        label="Client secret"
         value={clientSecret}
         onChange={setClientSecret}
         type="password"
         autoComplete="off"
-        description={
-          oauthQuery.data?.oauthAppSaved
-            ? "Leave empty to keep the current secret."
-            : undefined
-        }
       />
       <Button
         variant="primary"
         className="rounded-none"
         isPending={save.isPending}
-        isDisabled={
-          !formClientId.trim() ||
-          (!oauthQuery.data?.oauthAppSaved && !clientSecret.trim())
-        }
+        isDisabled={!clientId.trim() || !clientSecret.trim()}
         onPress={() => void save.mutateAsync()}
       >
-        {oauthQuery.data?.oauthAppSaved ? "Update OAuth app" : "Save OAuth app"}
+        Save OAuth app
       </Button>
       {save.error ? (
-        <p className="text-sm text-destructive">{save.error.message}</p>
-      ) : null}
-      {oauthQuery.data?.oauthAppSaved ? (
-        <p className="text-sm text-muted-foreground">
-          OAuth app saved. Continue to connect a PagerDuty account. The client
-          secret is never shown again.
-        </p>
+        <InlineAlert variant="error" title="Could not save the OAuth app">
+          {save.error.message} Check the client ID and secret, then try again.
+        </InlineAlert>
       ) : null}
     </div>
   )

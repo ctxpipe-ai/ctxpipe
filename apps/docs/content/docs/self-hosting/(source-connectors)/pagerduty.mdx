@@ -32,22 +32,19 @@ connector testing requires a public HTTPS deployment or tunnel.
 
 1. Open **Connectors → Add connection → PagerDuty**. ctx| creates a draft
    connection so the app can be saved before account authorization.
-2. Create an OAuth application in the
-   [PagerDuty developer portal](https://developer.pagerduty.com).
-3. Register this callback URL exactly (the wizard copies it for you):
+2. Open [PagerDuty App Registration](https://developer.pagerduty.com/my-apps),
+   select **New App**, and name the app `ctxpipe` or after your deployment.
+3. Under **Functionality**, select **OAuth 2.0**. Leave **Events Integration**
+   unselected. ctxpipe creates a v3 webhook subscription through PagerDuty's
+   API after account authorization; this is not an Events API integration.
+4. Choose **Scoped OAuth** and register this redirect URL exactly (the wizard
+   copies it for you):
 
 ```text
 {AUTH_BASE_URL}/api/v1/integrations/pagerduty/callback
 ```
 
-4. Use this Event URL when PagerDuty asks for a webhook destination. ctx|
-   creates the subscription after you connect an account:
-
-```text
-{AUTH_BASE_URL}/api/v1/webhook/pagerduty
-```
-
-5. Request these scopes:
+5. Grant only these permission scopes:
 
 - `incidents.read`
 - `services.read`
@@ -55,7 +52,9 @@ connector testing requires a public HTTPS deployment or tunnel.
 - `webhook_subscriptions.read`
 - `webhook_subscriptions.write`
 
-6. Save the client id and secret in **Register PagerDuty OAuth app**. ctx|
+6. Select **Register App**. Copy the generated client id and client secret
+   before closing the confirmation; PagerDuty only shows the secret once.
+7. Save both values in **Register PagerDuty OAuth app**. ctx|
    encrypts the secret on the connection and never returns it from connector
    metadata. Continue to **Connect PagerDuty**.
 
@@ -128,6 +127,10 @@ subscription for incident events and points it at:
 {AUTH_BASE_URL}/api/v1/webhook/pagerduty
 ```
 
+Do not paste this URL into **Events Integration** during App Registration.
+PagerDuty receives it when ctxpipe creates the webhook subscription through
+the Webhook Subscriptions API.
+
 ctxpipe verifies `X-PagerDuty-Signature` HMAC-SHA256 against the raw request
 body, binds the event to the one connection whose stored secret verifies, and
 routes with `X-PagerDuty-Subscription`. Re-authorization replaces a lost
@@ -176,7 +179,8 @@ authorization URL cannot be created.
 
 The registered redirect URI must match
 `{AUTH_BASE_URL}/api/v1/integrations/pagerduty/callback` or
-`PAGERDUTY_REDIRECT_URI` exactly, including scheme and trailing slash.
+`PAGERDUTY_REDIRECT_URI` exactly, including scheme, host, path, and whether a
+trailing slash is present.
 
 ### Incremental events never arrive
 

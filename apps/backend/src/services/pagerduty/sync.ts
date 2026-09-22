@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm"
 import type { Env } from "../../config/env.js"
 import { getOrgDb, withOrgDbContext } from "../../db/client.js"
+import { repositories } from "../../db/schema/repositories.js"
 import { resolvePagerdutyOAuthAppCreds } from "../../lib/connection-config.js"
 import type {
   PagerdutyBinding,
@@ -12,7 +13,6 @@ import {
   recordPagerdutyOAuthRevocation,
   refreshPagerdutyConnectionTokensWithLock,
 } from "../../models/pagerduty-connector.js"
-import { repositories } from "../../db/schema/repositories.js"
 import {
   connectorCommitFileUnchanged,
   connectorPathMatchesPreservation,
@@ -82,25 +82,15 @@ function createPagerdutyTokenRefreshHandler(input: {
           if (!creds) {
             throw new Error("PagerDuty OAuth is not configured")
           }
-          try {
-            const refreshed = await refreshPagerdutyOAuthToken({
-              env: input.env,
-              creds,
-              refreshToken,
-            })
-            return {
-              accessToken: refreshed.accessToken,
-              refreshToken: refreshed.refreshToken,
-              accessTokenExpiresAt: refreshed.accessTokenExpiresAt,
-            }
-          } catch (error) {
-            if (isPagerdutyAuthorizationRevokedError(error)) {
-              await recordPagerdutyOAuthRevocation({
-                orgId: input.orgId,
-                connectionId: input.connectionId,
-              })
-            }
-            throw error
+          const refreshed = await refreshPagerdutyOAuthToken({
+            env: input.env,
+            creds,
+            refreshToken,
+          })
+          return {
+            accessToken: refreshed.accessToken,
+            refreshToken: refreshed.refreshToken,
+            accessTokenExpiresAt: refreshed.accessTokenExpiresAt,
           }
         },
       }),
@@ -146,6 +136,8 @@ async function resolveFreshAccessToken(input: {
         recordPagerdutyOAuthRevocation({
           orgId: input.orgId,
           connectionId: input.connection.id,
+          env: input.env,
+          expectedAccessToken: input.connection.accessToken,
         }),
       )
     }
@@ -347,6 +339,8 @@ export async function syncPagerdutyContent(input: {
           recordPagerdutyOAuthRevocation({
             orgId: input.orgId,
             connectionId: input.connection.id,
+            env: input.env,
+            expectedAccessToken: accessToken,
           }),
         )
         throw error
@@ -476,6 +470,8 @@ export async function syncPagerdutyIncrementalContent(input: {
         recordPagerdutyOAuthRevocation({
           orgId: input.orgId,
           connectionId: input.connection.id,
+          env: input.env,
+          expectedAccessToken: accessToken,
         }),
       )
     }

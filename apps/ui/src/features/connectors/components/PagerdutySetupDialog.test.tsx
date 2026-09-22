@@ -2,9 +2,14 @@
 
 import { act, type ReactNode } from "react"
 import { createRoot, type Root } from "react-dom/client"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+
+const { useQueriesMock, useQueryMock } = vi.hoisted(() => ({
+  useQueriesMock: vi.fn(),
+  useQueryMock: vi.fn(),
+}))
 
 vi.mock("@tanstack/react-query", () => ({
   useMutation: () => ({
@@ -12,14 +17,8 @@ vi.mock("@tanstack/react-query", () => ({
     mutate: vi.fn(),
     mutateAsync: vi.fn(),
   }),
-  useQueries: () => [],
-  useQuery: () => ({
-    data: undefined,
-    isError: false,
-    isFetching: false,
-    isPending: false,
-    refetch: vi.fn(),
-  }),
+  useQueries: useQueriesMock,
+  useQuery: useQueryMock,
   useQueryClient: () => ({
     invalidateQueries: vi.fn(),
   }),
@@ -83,14 +82,12 @@ vi.mock("../queries/github-connector", () => ({
 vi.mock("../queries/pagerduty-connector", () => ({
   fetchPagerdutyConnectorConfig: vi.fn(),
   fetchPagerdutyConnectorStatus: vi.fn(),
-  fetchPagerdutyOAuthApp: vi.fn(),
   fetchPagerdutyOAuthStart: vi.fn(),
   pagerdutyConnectorKeys: {
     status: () => ["pagerduty-status"],
     config: () => ["pagerduty-config"],
     services: () => ["pagerduty-services"],
     allStatusForOrg: () => ["pagerduty-status-org"],
-    oauthApp: () => ["pagerduty-oauth-app"],
   },
   patchPagerdutyConnectorConfig: vi.fn(),
   retryPagerdutyConfig: vi.fn(),
@@ -112,10 +109,27 @@ vi.mock("./GitHubPrerequisiteStep", () => ({
   GitHubPrerequisiteStep: () => null,
 }))
 
+vi.mock("./PagerdutyRegisterOauthStep", () => ({
+  PagerdutyRegisterOauthStep: () => <div>Register PagerDuty OAuth app</div>,
+}))
+
 import { PagerdutySetupDialog } from "./PagerdutySetupDialog"
 
 describe("PagerdutySetupDialog", () => {
   let root: Root | null = null
+
+  beforeEach(() => {
+    useQueriesMock.mockReset()
+    useQueriesMock.mockReturnValue([])
+    useQueryMock.mockReset()
+    useQueryMock.mockReturnValue({
+      data: undefined,
+      isError: false,
+      isFetching: false,
+      isPending: false,
+      refetch: vi.fn(),
+    })
+  })
 
   afterEach(async () => {
     if (root) {
@@ -158,5 +172,85 @@ describe("PagerdutySetupDialog", () => {
     expect(container.textContent).toContain("Connect PagerDuty account")
     expect(container.textContent).toContain("Connect PagerDuty")
     expect(container.textContent).not.toContain("Add connection menu")
+  })
+
+  it("does not load config or repositories for an unauthorised draft", async () => {
+    useQueryMock.mockImplementation(
+      ({ queryKey }: { queryKey: readonly unknown[] }) => ({
+        data:
+          queryKey[0] === "pagerduty-status"
+            ? {
+                isInstalled: false,
+                installationStatus: "pending",
+                accountName: null,
+                accountSubdomain: null,
+                region: null,
+                isGithubLinked: false,
+                selectedServiceCount: null,
+                syncTargetConfigured: false,
+                setupPhase: "draft",
+                pendingConfigPullUrl: null,
+                pendingConfigPrCreating: false,
+                syncTarget: null,
+                oauthAppSaved: false,
+                globalPagerdutyOAuthConfigured: false,
+                oauthCallbackUrl:
+                  "https://app.example.com/api/v1/integrations/pagerduty/callback",
+              }
+            : undefined,
+        isError: false,
+        isFetching: false,
+        isPending: false,
+        refetch: vi.fn(),
+      }),
+    )
+
+    const container = document.createElement("div")
+    document.body.append(container)
+    root = createRoot(container)
+
+    await act(async () => {
+      root?.render(
+        <PagerdutySetupDialog
+          orgSlug="acme"
+          connectionId="con_draft"
+          githubConnectionIds={["con_github"]}
+          isOpen
+          onOpenChange={() => {}}
+          onConnectionIdChange={() => {}}
+        />,
+      )
+    })
+
+    const queryOptions = useQueryMock.mock.calls.map(
+      ([options]) =>
+        options as {
+          queryKey: readonly unknown[]
+          enabled?: boolean
+        },
+    )
+    expect(
+      queryOptions.find(({ queryKey }) => queryKey[0] === "pagerduty-config")
+        ?.enabled,
+    ).toBe(false)
+    expect(
+      queryOptions.find(({ queryKey }) => queryKey[0] === "repositories")
+        ?.enabled,
+    ).toBe(false)
+    expect(
+      queryOptions.find(({ queryKey }) => queryKey[0] === "suggestion")
+        ?.enabled,
+    ).toBe(false)
+    expect(
+      queryOptions.find(({ queryKey }) => queryKey[0] === "github-repos")
+        ?.enabled,
+    ).toBe(false)
+    expect(
+      (
+        useQueriesMock.mock.calls[0]?.[0] as {
+          queries: Array<{ enabled?: boolean }>
+        }
+      ).queries.every(({ enabled }) => enabled === false),
+    ).toBe(true)
   })
 })

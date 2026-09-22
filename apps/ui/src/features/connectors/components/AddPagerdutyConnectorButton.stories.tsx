@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
-import { fn } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { AddPagerdutyConnectorButton } from "./AddPagerdutyConnectorButton"
 
 const orgSlug = "acme"
@@ -13,14 +13,14 @@ const meta = {
     msw: {
       handlers: {
         page: [
-          http.post(`/${orgSlug}/api/v1/connectors/pagerduty/draft`, () =>
+          http.post(`/${orgSlug}/api/v1/connectors/pagerduty/setup`, () =>
             HttpResponse.json({ connectionId: "con_pd_draft" }),
           ),
         ],
       },
     },
   },
-  args: { orgSlug, onDraftCreated: fn() },
+  args: { orgSlug, onStart: fn() },
   decorators: [
     (Story) => (
       <div className="w-[min(32rem,90vw)]">
@@ -34,4 +34,39 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Available: Story = {}
+export const SelfHosted: Story = {
+  play: async ({ args, canvasElement }) => {
+    await userEvent.click(
+      within(canvasElement).getByRole("button", { name: /PagerDuty/ }),
+    )
+    await waitFor(() =>
+      expect(args.onStart).toHaveBeenCalledWith({
+        connectionId: "con_pd_draft",
+      }),
+    )
+  },
+}
+
+export const Hosted: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.post(`/${orgSlug}/api/v1/connectors/pagerduty/setup`, () =>
+            HttpResponse.json({ connectionId: null }),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ args, canvasElement }) => {
+    await userEvent.click(
+      within(canvasElement).getByRole("button", { name: /PagerDuty/ }),
+    )
+    await waitFor(() =>
+      expect(args.onStart).toHaveBeenCalledWith({
+        connectionId: undefined,
+      }),
+    )
+  },
+}

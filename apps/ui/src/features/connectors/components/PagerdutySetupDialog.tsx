@@ -42,7 +42,6 @@ import { orgConnectionsKeys } from "../queries/org-connections"
 import {
   fetchPagerdutyConnectorConfig,
   fetchPagerdutyConnectorStatus,
-  fetchPagerdutyOAuthApp,
   type PagerdutyService,
   pagerdutyConnectorKeys,
   patchPagerdutyConnectorConfig,
@@ -80,7 +79,16 @@ type PagerdutySetupDialogProps = {
   onConnectionIdChange: (connectionId: string) => void
 }
 
-export function PagerdutySetupDialog({
+export function PagerdutySetupDialog(props: PagerdutySetupDialogProps) {
+  return (
+    <PagerdutySetupDialogContent
+      key={`${props.connectionId ?? "new"}:${props.manageScope ? "manage" : "setup"}`}
+      {...props}
+    />
+  )
+}
+
+function PagerdutySetupDialogContent({
   orgSlug,
   connectionId,
   githubConnectionIds = [],
@@ -194,17 +202,12 @@ export function PagerdutySetupDialog({
       return false
     },
   })
+  const isPagerdutyInstalled = statusQuery.data?.isInstalled === true
 
   const configQuery = useQuery({
     queryKey: pagerdutyConnectorKeys.config(orgSlug, connectionId),
     queryFn: () => fetchPagerdutyConnectorConfig(orgSlug, connectionId),
-    enabled: isOpen && Boolean(connectionId),
-  })
-
-  const oauthQuery = useQuery({
-    queryKey: pagerdutyConnectorKeys.oauthApp(orgSlug, connectionId ?? ""),
-    queryFn: () => fetchPagerdutyOAuthApp(orgSlug, connectionId ?? ""),
-    enabled: isOpen && Boolean(connectionId),
+    enabled: isOpen && Boolean(connectionId) && isPagerdutyInstalled,
   })
 
   const { data: orgRepos } = useQuery({
@@ -217,7 +220,7 @@ export function PagerdutySetupDialog({
       const json = (await res.json()) as { items: Repository[] }
       return json.items
     },
-    enabled: isOpen,
+    enabled: isOpen && isPagerdutyInstalled && statusQuery.data.isGithubLinked,
   })
 
   const suggestedTargetQuery = useQuery({
@@ -225,6 +228,7 @@ export function PagerdutySetupDialog({
     queryFn: () => fetchSuggestedConnectorSyncTarget(orgSlug),
     enabled:
       isOpen &&
+      isPagerdutyInstalled &&
       Boolean(statusQuery.data?.isGithubLinked) &&
       !statusQuery.data?.syncTargetConfigured,
   })
@@ -242,6 +246,7 @@ export function PagerdutySetupDialog({
         fetchGithubInstallationSummary(orgSlug, githubConnectionId),
       enabled:
         isOpen &&
+        isPagerdutyInstalled &&
         Boolean(statusQuery.data?.isGithubLinked) &&
         !statusQuery.data?.syncTargetConfigured,
     })),
@@ -321,6 +326,7 @@ export function PagerdutySetupDialog({
       ),
     enabled:
       isOpen &&
+      isPagerdutyInstalled &&
       Boolean(statusQuery.data?.isGithubLinked) &&
       Boolean(activeGithubConnectionId),
     refetchOnWindowFocus: "always",
@@ -339,8 +345,7 @@ export function PagerdutySetupDialog({
         offset: serviceOffset,
         connectionId,
       }),
-    enabled:
-      isOpen && Boolean(connectionId) && Boolean(statusQuery.data?.isInstalled),
+    enabled: isOpen && Boolean(connectionId) && isPagerdutyInstalled,
   })
 
   const selectedIds = useMemo(
@@ -452,14 +457,13 @@ export function PagerdutySetupDialog({
     onError: (error: Error) => toast.error(error.message),
   })
 
-  const oauthMeta = oauthQuery.data ??
-    (statusQuery.data
-      ? {
-          globalPagerdutyOAuthConfigured:
-            statusQuery.data.globalPagerdutyOAuthConfigured,
-          oauthAppSaved: statusQuery.data.oauthAppSaved,
-        }
-      : undefined)
+  const oauthMeta = statusQuery.data
+    ? {
+        globalPagerdutyOAuthConfigured:
+          statusQuery.data.globalPagerdutyOAuthConfigured,
+        oauthAppSaved: statusQuery.data.oauthAppSaved,
+      }
+    : undefined
   const status = connectionId
     ? statusQuery.data
     : {
@@ -475,11 +479,9 @@ export function PagerdutySetupDialog({
         pendingConfigPullUrl: null,
         pendingConfigPrCreating: false,
         syncTarget: null,
-        pagerdutyOauthConfigured: false,
         oauthAppSaved: false,
         globalPagerdutyOAuthConfigured: true,
         oauthCallbackUrl: "",
-        webhookUrl: "",
       }
   const config = configQuery.data
   const failureAction = status ? getPagerdutyFailureAction(status) : null
@@ -500,7 +502,10 @@ export function PagerdutySetupDialog({
     !status?.isInstalled
 
   const body = (() => {
-    if (connectionId && (statusQuery.isPending || configQuery.isPending)) {
+    if (
+      connectionId &&
+      (statusQuery.isPending || (isPagerdutyInstalled && configQuery.isPending))
+    ) {
       return (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
@@ -529,6 +534,7 @@ export function PagerdutySetupDialog({
         <PagerdutyRegisterOauthStep
           orgSlug={orgSlug}
           connectionId={connectionId}
+          oauthCallbackUrl={status.oauthCallbackUrl}
         />
       )
     }
