@@ -4,16 +4,16 @@ import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { linearOauthAppSavedInConfig } from "../../lib/connection-config.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
-import { getRepositoryForOrg } from "../../models/repositories.js"
 import {
   claimLinearContentSyncRetry,
   deleteLinearConnectionById,
   getLinearBindingWithRepoByConnectionId,
-  LinearConfigPrCreationInProgressError,
   type LinearBindingWithRepo,
+  LinearConfigPrCreationInProgressError,
   type LinearConnection,
   type LinearScope,
   LinearSyncBindingBusyError,
+  LinearWorkspaceCollisionError,
   MULTIPLE_LINEAR_CONNECTIONS_MESSAGE,
   patchLinearConnectorConfig,
   refreshLinearConnectionTokensWithLock,
@@ -29,6 +29,7 @@ import {
   getLinearOauthAppCreds,
   linearConnectionIsInstalled,
 } from "../../models/linear-oauth-app.js"
+import { getRepositoryForOrg } from "../../models/repositories.js"
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
@@ -575,9 +576,10 @@ async function resolveInstalledLinear(
   if (!linearConnectionIsInstalled(resolved.connection)) {
     return {
       status: "error",
-      error: resolved.connection.status === "revoked"
-        ? "Linear authorization is revoked; reconnect the workspace"
-        : "Linear workspace is not connected",
+      error:
+        resolved.connection.status === "revoked"
+          ? "Linear authorization is revoked; reconnect the workspace"
+          : "Linear workspace is not connected",
       httpStatus: 400,
     }
   }
@@ -976,9 +978,7 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         connectionId: installed.connection.id,
         claimConfigPrCreation: shouldEnqueueConfigPr,
         ...(body.scopes !== undefined ? { scopes: body.scopes } : {}),
-        ...(body.syncTarget !== undefined
-          ? { binding: body.syncTarget }
-          : {}),
+        ...(body.syncTarget !== undefined ? { binding: body.syncTarget } : {}),
       })
     } catch (error) {
       if (
@@ -1347,7 +1347,9 @@ export const linearOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
         { step: "linear.oauth_callback" },
       )
       return relayError(
-        "Linear authorization could not be completed. Close this window and try again.",
+        error instanceof LinearWorkspaceCollisionError
+          ? error.message
+          : "Linear authorization could not be completed. Close this window and try again.",
       )
     }
   },

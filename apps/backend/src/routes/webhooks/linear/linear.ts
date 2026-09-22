@@ -5,9 +5,9 @@ import type { AppEnv } from "../../../app/env.js"
 import type { Env } from "../../../config/env.js"
 import {
   getLinearBindingByConnectionId,
+  type LinearWebhookConnection,
   listLinearWebhookConnectionsByWorkspaceId,
   recordLinearOAuthRevocation,
-  type LinearWebhookConnection,
 } from "../../../models/linear-connector.js"
 import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
@@ -215,7 +215,9 @@ function bindLinearWebhookConnections(input: {
       return {
         status: "verified",
         payload: verified,
-        connections: input.connections,
+        connections: input.connections.filter(
+          (connection) => !connection.webhookSecret,
+        ),
       }
     }
   }

@@ -48,6 +48,14 @@ vi.mock("../../models/linear-connector.js", () => ({
   claimLinearContentSyncRetry: mocks.claimContentRetry,
   deleteLinearConnectionById: vi.fn(),
   getLinearBindingWithRepoByConnectionId: mocks.getTarget,
+  LinearWorkspaceCollisionError: class LinearWorkspaceCollisionError extends Error {
+    constructor() {
+      super(
+        "This Linear workspace is already connected. Close this window and use the existing connection.",
+      )
+      this.name = "LinearWorkspaceCollisionError"
+    }
+  },
   MULTIPLE_LINEAR_CONNECTIONS_MESSAGE: "multiple",
   patchLinearConnectorConfig: mocks.patchConfig,
   refreshLinearConnectionTokensWithLock: vi.fn(),

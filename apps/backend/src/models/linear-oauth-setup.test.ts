@@ -9,6 +9,7 @@ import {
 } from "../lib/connection-config.js"
 import { encryptConnectionSecret } from "../lib/connection-secrets.js"
 import {
+  LinearWorkspaceCollisionError,
   listLinearWebhookConnectionsByWorkspaceId,
   saveLinearOauthAppOnConnection,
   upsertLinearConnectionFromOAuth,
@@ -33,10 +34,7 @@ const env = {
   AUTH_SECRET: "linear-oauth-setup-secret-that-is-long-enough",
 } as Env
 
-function linearRow(input: {
-  id: string
-  config: Record<string, unknown>
-}) {
+function linearRow(input: { id: string; config: Record<string, unknown> }) {
   return {
     id: input.id,
     orgId: "org_1",
@@ -100,8 +98,7 @@ function orgDb(selectQueues: unknown[][], updateId = "con_updated") {
     })),
   }
   dbMocks.getOrgDb.mockReturnValue({
-    transaction: async (run: (inner: typeof tx) => Promise<unknown>) =>
-      run(tx),
+    transaction: async (run: (inner: typeof tx) => Promise<unknown>) => run(tx),
   } as unknown as Db)
   return { tx, deletedIds, getLastUpdate: () => lastUpdate }
 }
@@ -272,6 +269,53 @@ describe("upsertLinearConnectionFromOAuth", () => {
     expect(written.oauthClientId).toBe("draft-client")
     expect(written.webhookSecretEnc).toBe(secrets.webhookSecretEnc)
     expect(deletedIds).toEqual(["deleted"])
+  })
+
+  it("rejects an installed connection colliding with another workspace row", async () => {
+    const workspace = linearRow({
+      id: "con_workspace",
+      config: {
+        workspaceId: "ws_1",
+        workspaceName: "Acme",
+        ownerUserId: "user_1",
+        accessTokenEnc: encryptConnectionSecret("workspace-token", env),
+        status: "installed",
+        setupPhase: "live",
+      },
+    })
+    const installedSource = linearRow({
+      id: "con_installed",
+      config: {
+        workspaceId: "ws_other",
+        workspaceName: "Other",
+        ownerUserId: "user_1",
+        accessTokenEnc: encryptConnectionSecret("source-token", env),
+        status: "installed",
+        setupPhase: "live",
+      },
+    })
+    const { tx, deletedIds, getLastUpdate } = orgDb(
+      [[workspace], [workspace], [installedSource]],
+      "con_workspace",
+    )
+    await expect(
+      upsertLinearConnectionFromOAuth({
+        orgId: "org_1",
+        env,
+        ownerUserId: "user_1",
+        accessToken: "new-token",
+        refreshToken: null,
+        accessTokenExpiresAt: null,
+        workspaceId: "ws_1",
+        workspaceName: "Acme",
+        workspaceUrlKey: "acme",
+        actorUserId: "actor_1",
+        connectionId: "con_installed",
+      }),
+    ).rejects.toBeInstanceOf(LinearWorkspaceCollisionError)
+    expect(deletedIds).toEqual([])
+    expect(tx.update).not.toHaveBeenCalled()
+    expect(getLastUpdate()).toBeUndefined()
   })
 })
 

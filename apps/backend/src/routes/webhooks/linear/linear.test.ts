@@ -346,6 +346,83 @@ describe("POST /api/v1/webhook/linear", () => {
       expect.objectContaining({ connectionId: "con_a", orgId: "org_1" }),
     )
   })
+
+  it("does not apply an env-signed webhook to rows that have their own secret", async () => {
+    mocks.listConnections.mockResolvedValueOnce([
+      {
+        id: "con_row",
+        orgId: "org_row",
+        status: "installed",
+        webhookSecret: "linear-row-secret-a",
+      },
+      {
+        id: "con_env",
+        orgId: "org_env",
+        status: "installed",
+      },
+    ])
+    const request = signedRequest({
+      type: "Issue",
+      action: "update",
+      organizationId: "workspace-1",
+      webhookTimestamp: Date.now(),
+      data: { id: "issue-1" },
+    })
+    const response = await createTestApp().request("/api/v1/webhook/linear", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "linear-signature": request.signature,
+      },
+      body: request.body,
+    })
+    expect(response.status).toBe(200)
+    expect(mocks.runWorkflow).toHaveBeenCalledTimes(1)
+    expect(mocks.runWorkflow).toHaveBeenCalledWith(
+      { name: "linear-sync-entity" },
+      expect.objectContaining({ connectionId: "con_env", orgId: "org_env" }),
+    )
+  })
+
+  it("does not revoke row-secret connections from an env-signed OAuth revocation", async () => {
+    mocks.listConnections.mockResolvedValueOnce([
+      {
+        id: "con_row",
+        orgId: "org_row",
+        status: "installed",
+        webhookSecret: "linear-row-secret-a",
+      },
+      {
+        id: "con_env",
+        orgId: "org_env",
+        status: "installed",
+      },
+    ])
+    const payload = {
+      type: "OAuthApp",
+      action: "revoked",
+      organizationId: "workspace-1",
+      oauthClientId: "oauth-client",
+      webhookTimestamp: Date.now(),
+    }
+    const request = signedRequest(payload)
+    const response = await createTestApp().request("/api/v1/webhook/linear", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "linear-signature": request.signature,
+      },
+      body: request.body,
+    })
+    expect(response.status).toBe(200)
+    expect(mocks.recordRevocation).toHaveBeenCalledTimes(1)
+    expect(mocks.recordRevocation).toHaveBeenCalledWith({
+      connectionId: "con_env",
+      env,
+      payload,
+    })
+    expect(mocks.runWorkflow).not.toHaveBeenCalled()
+  })
 })
 
 describe("linearEntityTargetForPayload", () => {

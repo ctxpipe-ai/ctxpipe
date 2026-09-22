@@ -9,12 +9,12 @@ import {
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import {
+  decodeLinearWebhookSecret,
   encodeLinearOauthAppSecretsForDb,
   type LinearSetupPhase,
   linearOauthAppSavedInConfig,
   parseLinearConnectionStored,
   serialiseLinearConnectionConfigForDb,
-  decodeLinearWebhookSecret,
 } from "../lib/connection-config.js"
 import { generateObjectId } from "../lib/id.js"
 import {
@@ -111,6 +111,15 @@ export class LinearSyncBindingBusyError extends Error {
   constructor(message: string) {
     super(message)
     this.name = "LinearSyncBindingBusyError"
+  }
+}
+
+export class LinearWorkspaceCollisionError extends Error {
+  constructor() {
+    super(
+      "This Linear workspace is already connected. Close this window and use the existing connection.",
+    )
+    this.name = "LinearWorkspaceCollisionError"
   }
 }
 
@@ -449,6 +458,15 @@ export async function upsertLinearConnectionFromOAuth(input: {
     const draftShape = draftRow
       ? linearConnectionToShape(draftRow, input.env)
       : undefined
+    const requestedIsDraft = !draftShape?.workspaceId
+    if (
+      draftRow &&
+      existing &&
+      existing.id !== draftRow.id &&
+      !requestedIsDraft
+    ) {
+      throw new LinearWorkspaceCollisionError()
+    }
     const config = linearShapeToConfig(
       {
         accessToken: input.accessToken,
@@ -505,7 +523,7 @@ export async function upsertLinearConnectionFromOAuth(input: {
       .where(eq(connections.id, existing.id))
       .returning()
     if (!row) throw new Error("Failed to update Linear connection")
-    if (draftRow && existing.id !== draftRow.id) {
+    if (draftRow && existing.id !== draftRow.id && requestedIsDraft) {
       await tx
         .delete(connections)
         .where(
