@@ -73,9 +73,7 @@ export const ApiKeysEmpty: Story = {
       name: "Organisation settings",
     })
     await expect(nav).toHaveTextContent("API Keys")
-    await expect(
-      await canvas.findByText("No organisation keys yet"),
-    ).toBeVisible()
+    await expect(await canvas.findByText("No organisation keys")).toBeVisible()
   },
 }
 

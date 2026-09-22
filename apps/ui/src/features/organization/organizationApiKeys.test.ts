@@ -15,7 +15,7 @@ function jsonResponse(body: object): Response {
   })
 }
 
-describe("organization API-key client", () => {
+describe("API-key client", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", fetchMock)
     vi.resetModules()
@@ -78,6 +78,37 @@ describe("organization API-key client", () => {
     expect(await requestAt(0).json()).toEqual({
       keyId: "key_org",
       configId: "organization",
+    })
+  })
+
+  it("uses the personal key configuration without an organisation id", async () => {
+    const { createPersonalApiKey, deletePersonalApiKey, listPersonalApiKeys } =
+      await import("./organizationApiKeys")
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ apiKeys: [], total: 0 }))
+      .mockResolvedValueOnce(
+        jsonResponse({ id: "key_personal", key: "secret" }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+
+    await listPersonalApiKeys()
+    await createPersonalApiKey({
+      name: "my-agent",
+      expiresIn: 30 * 24 * 60 * 60,
+    })
+    await deletePersonalApiKey("key_personal")
+
+    expect(new URL(requestAt(0).url).searchParams).toEqual(
+      new URLSearchParams({ configId: "default" }),
+    )
+    expect(await requestAt(1).json()).toEqual({
+      configId: "default",
+      name: "my-agent",
+      expiresIn: 2_592_000,
+    })
+    expect(await requestAt(2).json()).toEqual({
+      keyId: "key_personal",
+      configId: "default",
     })
   })
 })
