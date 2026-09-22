@@ -161,14 +161,15 @@ intent-based thread capture.
 
 ## Linear
 
-Linear uses a deployment-owned OAuth application and signed application
-webhooks. Put the credentials on both backend and worker services.
+Linear can store the OAuth application and webhook signing secret on the
+connection (Register in the product UI). `LINEAR_*` is an optional
+deployment-wide fallback.
 
 | Variable | Description |
 |---|---|
-| `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET` | Linear OAuth application credentials. Both are required to enable the connector. |
+| `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET` | Optional shared Linear OAuth application credentials. When both are set, the wizard skips Register. |
 | `LINEAR_REDIRECT_URI` | Optional exact callback override. Defaults to `{AUTH_BASE_URL}/api/v1/integrations/linear/callback`. |
-| `LINEAR_WEBHOOK_SECRET` | Signing secret for requests delivered to `/api/v1/webhook/linear`. Required for incremental updates. |
+| `LINEAR_WEBHOOK_SECRET` | Optional shared signing secret for `/api/v1/webhook/linear`. Per-connection secrets are stored on the row. |
 
 See [Linear](/docs/self-hosting/linear) for application registration, webhook
 subscriptions, preview limitations, and troubleshooting.

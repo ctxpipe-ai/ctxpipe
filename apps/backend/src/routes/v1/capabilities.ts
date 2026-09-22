@@ -8,6 +8,7 @@ import {
 } from "../../models/connection-rows.js"
 import { getGithubConnectionRow } from "../../models/github-installation.js"
 import { getLinearConnectionByConnectionId } from "../../models/linear-connector.js"
+import { getLinearOauthAppCreds } from "../../models/linear-oauth-app.js"
 
 const CapabilitiesQuery = z.object({
   connectionId: z.string().min(1),
@@ -89,7 +90,7 @@ export const orgCapabilitiesRoutes = new OpenAPIHono<AppEnv>().openapi(
       return c.json(
         {
           linearOauthConfigured: Boolean(
-            c.var.env.LINEAR_CLIENT_ID && c.var.env.LINEAR_CLIENT_SECRET,
+            getLinearOauthAppCreds(linear, c.var.env),
           ),
           linearWorkspaceName: linear.workspaceName,
           linearWebhookUrl: `${publicApiOrigin}/api/v1/webhook/linear`,

@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest"
 import type { Env } from "../config/env.js"
 import {
+  decodeLinearOauthClientSecret,
+  decodeLinearWebhookSecret,
   decodeNotionTokens,
+  encodeLinearOauthAppSecretsForDb,
   encodeNotionTokensForDb,
   migrateLegacyNotionTokensForDb,
+  parseLinearConnectionStored,
   parseNotionConnectionConfig,
 } from "./connection-config.js"
 
@@ -95,5 +99,36 @@ describe("Notion token encryption", () => {
   it("returns undefined when no tokens are present", () => {
     const stored = parseNotionConnectionConfig({ botId: "bot_1" })
     expect(decodeNotionTokens(stored, env)).toBeUndefined()
+  })
+})
+
+describe("Linear OAuth app encryption", () => {
+  it("stores client and webhook secrets as ciphertext", () => {
+    const encoded = encodeLinearOauthAppSecretsForDb(
+      {
+        oauthClientId: "lin_client",
+        oauthClientSecret: "lin_secret",
+        webhookSecret: "lin_webhook",
+      },
+      env,
+    )
+    expect(encoded.oauthClientId).toBe("lin_client")
+    expect(encoded.oauthClientSecretEnc).toMatch(/^ctxv1:/)
+    expect(encoded.webhookSecretEnc).toMatch(/^ctxv1:/)
+    expect(encoded.oauthClientSecretEnc).not.toContain("lin_secret")
+    expect(encoded.webhookSecretEnc).not.toContain("lin_webhook")
+    expect(decodeLinearOauthClientSecret(encoded, env)).toBe("lin_secret")
+    expect(decodeLinearWebhookSecret(encoded, env)).toBe("lin_webhook")
+  })
+
+  it("parses a draft Linear config without workspace identity", () => {
+    const stored = parseLinearConnectionStored({
+      oauthClientId: "lin_client",
+      setupPhase: "draft",
+    })
+    expect(stored.workspaceId).toBeUndefined()
+    expect(stored.workspaceName).toBeUndefined()
+    expect(stored.oauthClientId).toBe("lin_client")
+    expect(stored.setupPhase).toBe("draft")
   })
 })

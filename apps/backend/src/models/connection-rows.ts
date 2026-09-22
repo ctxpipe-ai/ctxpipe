@@ -77,14 +77,17 @@ export type GitHubInstallationShape = {
 export type LinearConnectionShape = {
   id: string
   orgId: string
-  accessToken: string
+  accessToken: string | null
   refreshToken: string | null
   accessTokenExpiresAt: string | null
-  workspaceId: string
-  workspaceName: string
+  workspaceId: string | null
+  workspaceName: string | null
   workspaceUrlKey: string | null
   actorUserId: string | null
-  ownerUserId: string
+  ownerUserId: string | null
+  oauthClientId?: string | null
+  oauthClientSecretEnc?: string | null
+  webhookSecretEnc?: string | null
   status: string
   lastEventPayload: unknown
   repositoryId: string | null
@@ -184,20 +187,20 @@ export function linearConnectionToShape(
     row.config as Record<string, unknown>,
   )
   const tokens = decodeLinearTokens(config, env)
-  if (!tokens) {
-    throw new Error("Linear connection is missing OAuth credentials")
-  }
   return {
     id: row.id,
     orgId: row.orgId,
-    accessToken: tokens.accessToken,
-    refreshToken: tokens.refreshToken,
+    accessToken: tokens?.accessToken ?? null,
+    refreshToken: tokens?.refreshToken ?? null,
     accessTokenExpiresAt: config.accessTokenExpiresAt ?? null,
-    workspaceId: config.workspaceId,
-    workspaceName: config.workspaceName,
+    workspaceId: config.workspaceId ?? null,
+    workspaceName: config.workspaceName ?? null,
     workspaceUrlKey: config.workspaceUrlKey ?? null,
     actorUserId: config.actorUserId ?? null,
-    ownerUserId: config.ownerUserId,
+    ownerUserId: config.ownerUserId ?? null,
+    oauthClientId: config.oauthClientId ?? null,
+    oauthClientSecretEnc: config.oauthClientSecretEnc ?? null,
+    webhookSecretEnc: config.webhookSecretEnc ?? null,
     status: config.status,
     lastEventPayload: config.lastEventPayload,
     repositoryId: config.repositoryId,
@@ -321,19 +324,24 @@ export function linearShapeToConfig(
   env: Env,
 ): Record<string, unknown> {
   return serialiseLinearConnectionConfigForDb({
-    ...encodeLinearTokensForDb(
-      {
-        accessToken: input.accessToken,
-        refreshToken: input.refreshToken,
-      },
-      env,
-    ),
+    ...(input.accessToken
+      ? encodeLinearTokensForDb(
+          {
+            accessToken: input.accessToken,
+            refreshToken: input.refreshToken,
+          },
+          env,
+        )
+      : {}),
     accessTokenExpiresAt: input.accessTokenExpiresAt,
-    workspaceId: input.workspaceId,
-    workspaceName: input.workspaceName,
+    workspaceId: input.workspaceId ?? undefined,
+    workspaceName: input.workspaceName ?? undefined,
     workspaceUrlKey: input.workspaceUrlKey,
     actorUserId: input.actorUserId,
-    ownerUserId: input.ownerUserId,
+    ownerUserId: input.ownerUserId ?? undefined,
+    oauthClientId: input.oauthClientId ?? undefined,
+    oauthClientSecretEnc: input.oauthClientSecretEnc ?? undefined,
+    webhookSecretEnc: input.webhookSecretEnc ?? undefined,
     status: input.status,
     lastEventPayload: input.lastEventPayload,
     repositoryId: input.repositoryId,

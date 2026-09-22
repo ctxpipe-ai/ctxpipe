@@ -2,6 +2,10 @@ import { LinearClient } from "@linear/sdk"
 import { z } from "zod"
 import type { Env } from "../../config/env.js"
 import type { LinearConnection } from "../../models/linear-connector.js"
+import {
+  getLinearOauthAppCreds,
+  type LinearOauthAppCreds,
+} from "../../models/linear-oauth-app.js"
 
 const LinearOAuthTokenResponseSchema = z.object({
   access_token: z.string().min(1),
@@ -40,11 +44,10 @@ export type LinearDiscoveredScope = {
   teamKey: string | null
 }
 
-function assertLinearOAuthConfigured(env: Env): asserts env is Env & {
-  LINEAR_CLIENT_ID: string
-  LINEAR_CLIENT_SECRET: string
-} {
-  if (!env.LINEAR_CLIENT_ID || !env.LINEAR_CLIENT_SECRET) {
+function assertLinearOauthAppCreds(
+  creds: LinearOauthAppCreds | undefined,
+): asserts creds is LinearOauthAppCreds {
+  if (!creds?.clientId || !creds.clientSecret) {
     throw new Error("Linear OAuth is not configured")
   }
 }
@@ -59,11 +62,12 @@ export function linearOAuthRedirectUri(env: Env): string {
 export function getLinearOAuthAuthorizeUrl(input: {
   env: Env
   state: string
+  creds: LinearOauthAppCreds
 }): string {
-  assertLinearOAuthConfigured(input.env)
+  assertLinearOauthAppCreds(input.creds)
   const params = new URLSearchParams({
     actor: "user",
-    client_id: input.env.LINEAR_CLIENT_ID,
+    client_id: input.creds.clientId,
     prompt: "consent",
     redirect_uri: linearOAuthRedirectUri(input.env),
     response_type: "code",
@@ -74,12 +78,12 @@ export function getLinearOAuthAuthorizeUrl(input: {
 }
 
 async function requestLinearOAuthToken(
-  env: Env,
+  creds: LinearOauthAppCreds,
   body: URLSearchParams,
 ): Promise<LinearOAuthTokenResponse> {
-  assertLinearOAuthConfigured(env)
-  body.set("client_id", env.LINEAR_CLIENT_ID)
-  body.set("client_secret", env.LINEAR_CLIENT_SECRET)
+  assertLinearOauthAppCreds(creds)
+  body.set("client_id", creds.clientId)
+  body.set("client_secret", creds.clientSecret)
   const response = await fetch("https://api.linear.app/oauth/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -99,9 +103,10 @@ export function linearTokenExpiresAt(expiresInSeconds: number): string {
 export async function exchangeLinearOAuthCode(input: {
   env: Env
   code: string
+  creds: LinearOauthAppCreds
 }): Promise<LinearOAuthTokenResponse> {
   return requestLinearOAuthToken(
-    input.env,
+    input.creds,
     new URLSearchParams({
       code: input.code,
       grant_type: "authorization_code",
@@ -113,9 +118,10 @@ export async function exchangeLinearOAuthCode(input: {
 export async function refreshLinearOAuthToken(input: {
   env: Env
   refreshToken: string
+  creds: LinearOauthAppCreds
 }): Promise<LinearOAuthTokenResponse> {
   return requestLinearOAuthToken(
-    input.env,
+    input.creds,
     new URLSearchParams({
       grant_type: "refresh_token",
       refresh_token: input.refreshToken,
@@ -131,15 +137,18 @@ async function refreshConnectionToken(input: {
   if (!input.connection.refreshToken) {
     throw new Error("Linear connection has no refresh token")
   }
+  if (!input.connection.accessToken) {
+    throw new Error("Linear connection is missing OAuth credentials")
+  }
   const expectedRefreshToken = input.connection.refreshToken
+  const expectedAccessToken = input.connection.accessToken
+  const creds = getLinearOauthAppCreds(input.connection, input.env)
   const tokens = input.onTokenRefresh
-    ? await input.onTokenRefresh(
-        expectedRefreshToken,
-        input.connection.accessToken,
-      )
+    ? await input.onTokenRefresh(expectedRefreshToken, expectedAccessToken)
     : await refreshLinearOAuthToken({
         env: input.env,
         refreshToken: expectedRefreshToken,
+        creds: (assertLinearOauthAppCreds(creds), creds),
       }).then((token) => ({
         accessToken: token.access_token,
         refreshToken: token.refresh_token ?? expectedRefreshToken,
@@ -177,19 +186,28 @@ export async function withLinearClient<T>(
   }
 
   const requestedAccessToken = input.connection.accessToken
+  if (!requestedAccessToken) {
+    throw new Error("Linear connection is missing OAuth credentials")
+  }
   try {
     return await run(new LinearClient({ accessToken: requestedAccessToken }))
   } catch (error) {
     if (linearErrorStatus(error) !== 401) {
       throw error
     }
-    if (input.connection.accessToken !== requestedAccessToken) {
+    if (
+      input.connection.accessToken &&
+      input.connection.accessToken !== requestedAccessToken
+    ) {
       return run(
         new LinearClient({ accessToken: input.connection.accessToken }),
       )
     }
     if (!input.connection.refreshToken) throw error
     await refreshConnectionToken(input)
+    if (!input.connection.accessToken) {
+      throw new Error("Linear connection is missing OAuth credentials")
+    }
     return run(new LinearClient({ accessToken: input.connection.accessToken }))
   }
 }
