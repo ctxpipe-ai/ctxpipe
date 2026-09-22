@@ -323,8 +323,9 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           </li>
           <li>
             <AddLinearConnectorButton
-              onStart={() => {
-                setLinearConnectionId(undefined)
+              orgSlug={orgSlug}
+              onStart={(connectionId) => {
+                setLinearConnectionId(connectionId)
                 setLinearWizardOpen(true)
                 setCatalogOpen(false)
               }}

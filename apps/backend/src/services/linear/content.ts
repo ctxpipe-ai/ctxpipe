@@ -1,6 +1,7 @@
 import type { Document, Initiative, Issue, Project, User } from "@linear/sdk"
 import type { Env } from "../../config/env.js"
 import type { LinearConnection } from "../../models/linear-connector.js"
+import { linearAccessToken } from "../../models/linear-oauth-app.js"
 import { createConnectorAssetBytePool } from "../connectors/assets.js"
 import {
   linearEntityMirrorFiles,
@@ -108,7 +109,7 @@ export async function buildLinearMirror(input: {
       addFiles(
         await linearEntityMirrorFiles({
           ...renderInput,
-          accessToken: input.connection.accessToken,
+          accessToken: linearAccessToken(input.connection),
           onPreservePathPrefix,
           bytePool: assetBytePool,
           existingShaByPath,
@@ -236,7 +237,7 @@ export async function buildLinearMirror(input: {
                     : null,
               })),
             },
-            input.connection.accessToken,
+            linearAccessToken(input.connection),
             {
               onPreservePathPrefix,
               bytePool: assetBytePool,
