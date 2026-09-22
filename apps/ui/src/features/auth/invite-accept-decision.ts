@@ -26,6 +26,7 @@ export function decideInviteAccept(input: {
 
   if (!sessionEmail) return { kind: "join" }
   if (!invitationEmail) return { kind: "unknown" }
+  if (!input.invitationConfirmed) return { kind: "unknown" }
   if (!emailsMatch(sessionEmail, invitationEmail)) {
     return {
       kind: "wrong-account",
@@ -33,7 +34,6 @@ export function decideInviteAccept(input: {
       invitationEmail,
     }
   }
-  if (!input.invitationConfirmed) return { kind: "unknown" }
   return { kind: "accept" }
 }
 

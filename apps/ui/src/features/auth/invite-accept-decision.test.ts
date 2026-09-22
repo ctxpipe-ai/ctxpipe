@@ -37,6 +37,16 @@ describe("decideInviteAccept", () => {
     ).toEqual({ kind: "unknown" })
   })
 
+  it("does not declare a wrong account from an unconfirmed URL email hint", () => {
+    expect(
+      decideInviteAccept({
+        sessionEmail: "other@example.com",
+        invitationEmail: "member@example.com",
+        invitationConfirmed: false,
+      }),
+    ).toEqual({ kind: "unknown" })
+  })
+
   it("accepts when the confirmed invitation email matches the session", () => {
     expect(
       decideInviteAccept({
