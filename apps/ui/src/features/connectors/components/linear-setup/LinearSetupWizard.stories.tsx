@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http } from "msw"
-import { fn } from "storybook/test"
+import { delay, HttpResponse, http } from "msw"
+import { expect, fn, userEvent, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../../.storybook/decorators/with-story-route"
 import type { LinearConnectorStatus } from "../../queries/linear-connector"
@@ -48,6 +48,53 @@ function oauthAppHandler(input: {
       oauthClientId: input.oauthClientId ?? null,
     }),
   )
+}
+
+function noPullRequestResponseHandlers() {
+  const draftStatus: LinearConnectorStatus = {
+    ...baseStatus,
+    selectedScopeCount: 0,
+    setupPhase: "draft",
+    pendingConfigPullUrl: null,
+  }
+  return [
+    http.get(`/${orgSlug}/api/v1/connectors/linear/status`, () =>
+      HttpResponse.json(draftStatus),
+    ),
+    http.get(`/${orgSlug}/api/v1/connectors/linear/available-scopes`, () =>
+      HttpResponse.json({
+        items: [
+          {
+            externalId: "team-1",
+            type: "team",
+            title: "Product",
+            teamId: "team-1",
+            teamKey: "PRO",
+          },
+        ],
+      }),
+    ),
+    http.get(`/${orgSlug}/api/v1/connectors/linear/config`, () =>
+      HttpResponse.json({
+        scopes: [],
+        syncTarget: {
+          ...baseStatus.syncTarget,
+          enabled: true,
+          setupPhase: "draft",
+          pendingConfigPullUrl: null,
+          pendingConfigPrCreating: false,
+        },
+      }),
+    ),
+    http.patch(`/${orgSlug}/api/v1/connectors/linear/config`, async () => {
+      await delay(100)
+      return HttpResponse.json({
+        accepted: true,
+        savedCount: 1,
+        configPrEnqueued: false,
+      })
+    }),
+  ]
 }
 
 const meta = {
@@ -283,6 +330,34 @@ export const SelectScope: Story = {
         ],
       },
     },
+  },
+}
+
+export const NoPullRequestResponseClearsProgress: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: noPullRequestResponseHandlers(),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByText("Product"))
+    await userEvent.click(
+      canvas.getByRole("button", {
+        name: "Save scope and create pull request",
+      }),
+    )
+    await expect(
+      await canvas.findByText("Creating configuration pull request..."),
+    ).toBeVisible()
+    await expect(
+      await canvas.findByText("Configure Linear scope"),
+    ).toBeVisible()
+    await expect(
+      canvas.queryByText("Creating configuration pull request..."),
+    ).toBeNull()
   },
 }
 

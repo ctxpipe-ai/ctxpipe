@@ -917,18 +917,26 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: installed.error }, installed.httpStatus)
     }
     const body = PagerdutyPatchConfigRequestSchema.parse(await c.req.json())
+    const binding = await getPagerdutyBindingWithRepoByConnectionId(
+      orgId,
+      installed.connection.id,
+    )
     const gitServices = await loadPagerdutyServicesFromGit({
       orgId,
       env: c.var.env,
-      binding: await getPagerdutyBindingWithRepoByConnectionId(
-        orgId,
-        installed.connection.id,
-      ),
+      binding,
       fallbackToTargetBranch: true,
     })
-    const servicesChanged =
+    const servicesMatch =
       body.services !== undefined &&
-      !pagerdutyServicesEqual(body.services, gitServices)
+      pagerdutyServicesEqual(body.services, gitServices)
+    const shouldStartInitialSync =
+      servicesMatch &&
+      binding?.enabled === true &&
+      binding.setupPhase === "draft"
+    // A matching live scope is a no-op. A matching rebound draft skips the PR
+    // but still needs its initial content sync.
+    const servicesChanged = body.services !== undefined && !servicesMatch
 
     const saved = await patchPagerdutyConnectorConfig({
       orgId,
@@ -977,6 +985,55 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
         })
         return c.json(
           { error: "Failed to enqueue PagerDuty configuration pull request" },
+          503,
+        )
+      }
+    }
+
+    if (shouldStartInitialSync && binding) {
+      const claimed = await transitionPagerdutyBindingState({
+        connectionId: installed.connection.id,
+        expectedSetupPhase: "draft",
+        expectedPendingConfigPrCreating: false,
+        repositoryId: binding.repositoryId,
+        branch: binding.branch,
+        pendingConfigPullUrl: null,
+        pendingConfigPrCreating: false,
+        setupPhase: "initial_sync",
+      })
+      if (!claimed) {
+        return c.json(
+          {
+            error: "PagerDuty sync target changed while starting initial sync",
+          },
+          409,
+        )
+      }
+      try {
+        await runWorkflowWithWorkerWake(pagerdutySyncContent.spec, {
+          orgId,
+          connectionId: installed.connection.id,
+        })
+      } catch (error) {
+        await transitionPagerdutyBindingState({
+          connectionId: installed.connection.id,
+          expectedSetupPhase: "initial_sync",
+          expectedPendingConfigPrCreating: false,
+          repositoryId: binding.repositoryId,
+          branch: binding.branch,
+          pendingConfigPullUrl: null,
+          pendingConfigPrCreating: false,
+          setupPhase: "sync_failed",
+        })
+        getLogger().error(
+          error instanceof Error ? error : new Error(String(error)),
+          {
+            step: "pagerduty.initial_sync.enqueue",
+            connectionId: installed.connection.id,
+          },
+        )
+        return c.json(
+          { error: "Failed to enqueue PagerDuty initial sync" },
           503,
         )
       }

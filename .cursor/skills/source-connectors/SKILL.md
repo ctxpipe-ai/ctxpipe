@@ -92,6 +92,8 @@ Hosted and self-host run the **same** routes. Difference: who creates the provid
 
 Phases: `draft` → `awaiting_merge` → `initial_sync` / first content → `live` (plus `config_failed` / `sync_failed`). Config workflow opens the yaml PR. GitHub push on the target branch after merge starts content (full reconcile, or capture becomes eligible). Live webhooks run entity-sync or capture jobs that commit content to the target branch.
 
+If the binding is `draft` after rebind or context-repo recreate and `<slug>/config.yaml` on the target already matches the selected scope, **do not no-op**. Skip the config PR, start `initial_sync`, enqueue content sync, and return `configPrEnqueued: false`. UI must honour that flag (no phantom “creating PR”). A matching **live** scope stays a no-op. Slack has no yaml PR — leave it. Confluence is heavier (Postgres spaces) but follows the same rule; an unchanged `confluence/config.yaml` starts content sync instead of flipping to `live`.
+
 **Intent capture** still waits on live config. Slack’s shipped path derives `live` from binding with no yaml — leave it; new capture connectors use the config PR.
 
 Rebind (repository/branch change) resets lifecycle. `app_uninstalled` / token revoke sets `status: revoked` and disables binding; git stays. Deleting the bound repository clears binding fields.

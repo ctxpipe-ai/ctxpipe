@@ -219,6 +219,61 @@ describe("Notion connector config", () => {
     expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 
+  it("continues a rebound draft when the target config already matches", async () => {
+    getNotionBindingWithRepoByConnectionIdMock.mockResolvedValue({
+      ...binding,
+      setupPhase: "draft",
+    })
+    loadNotionScopeFromRepoMock.mockResolvedValue({ resources: [pageResource] })
+
+    const response = await patchResources()
+
+    expect(response.status).toBe(200)
+    expect(claimNotionConfigPrCreationMock).not.toHaveBeenCalled()
+    expect(transitionNotionBindingStateMock).toHaveBeenCalledWith({
+      connectionId: "con_1",
+      expectedSetupPhase: "draft",
+      expectedPendingConfigPrCreating: false,
+      repositoryId: "repo_1",
+      branch: "main",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      setupPhase: "initial_sync",
+    })
+    expect(runWorkflowMock).toHaveBeenCalledWith(
+      { name: "notion-sync-content" },
+      {
+        orgId: "org_1",
+        orgSlug: "demo",
+        connectionId: "con_1",
+      },
+    )
+    expect(await response.json()).toMatchObject({ configPrEnqueued: false })
+  })
+
+  it("marks a rebound draft failed when initial sync cannot be enqueued", async () => {
+    getNotionBindingWithRepoByConnectionIdMock.mockResolvedValue({
+      ...binding,
+      setupPhase: "draft",
+    })
+    loadNotionScopeFromRepoMock.mockResolvedValue({ resources: [pageResource] })
+    runWorkflowMock.mockRejectedValueOnce(new Error("worker unavailable"))
+
+    const response = await patchResources()
+
+    expect(response.status).toBe(503)
+    expect(transitionNotionBindingStateMock).toHaveBeenLastCalledWith({
+      connectionId: "con_1",
+      expectedSetupPhase: "initial_sync",
+      expectedPendingConfigPrCreating: false,
+      repositoryId: "repo_1",
+      branch: "main",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      setupPhase: "sync_failed",
+    })
+  })
+
   it("does not enqueue a config PR for a binding-only change (scope stays git-native)", async () => {
     patchNotionConnectorConfigMock.mockResolvedValueOnce({
       bindingChanged: true,

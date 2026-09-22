@@ -7,6 +7,7 @@ import {
   markRepositoryIndexingReady,
   tryClaimRepositoryIndexingEnqueue,
 } from "../models/repositories.js"
+import { createLogger, withLogger } from "../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { enqueueFollowUpIfTipAhead } from "./enqueue-follow-up-if-tip-ahead.js"
 import { isWorkflowControlSignal } from "./isSleepSignal.js"
@@ -312,31 +313,43 @@ export async function runConnectorRepositoryIngestionWorkflow(
   input: ConnectorRepositoryIngestionInput,
   log: { error: (err: Error) => void },
 ): Promise<void> {
-  const repository = await getRepositoryForOrg(input.orgId, input.repositoryId)
-  if (!repository) {
-    throw new Error(`Repository ${input.repositoryId} was not found`)
-  }
-  const tip = await resolveRepositoryRef({
-    repositoryId: input.repositoryId,
-    orgId: input.orgId,
-    branch: input.targetBranch ?? undefined,
-    githubConnectionId: repository.githubConnectionId,
-  })
-  if (tip.hash === repository.lastIngestedHash) return
-
-  await claimAndRunRepositoryIngestionChild(
-    step,
-    {
-      repositoryId: input.repositoryId,
+  await withLogger(
+    createLogger({
+      workflow: "connector-repository-ingestion",
       orgId: input.orgId,
-      ...(input.targetBranch !== undefined
-        ? { targetBranch: input.targetBranch }
-        : {}),
-      ...(input.indexingReason !== undefined
-        ? { indexingReason: input.indexingReason }
-        : {}),
-      githubConnectionId: repository.githubConnectionId,
+      repositoryId: input.repositoryId,
+    }),
+    async () => {
+      const repository = await getRepositoryForOrg(
+        input.orgId,
+        input.repositoryId,
+      )
+      if (!repository) {
+        throw new Error(`Repository ${input.repositoryId} was not found`)
+      }
+      const tip = await resolveRepositoryRef({
+        repositoryId: input.repositoryId,
+        orgId: input.orgId,
+        branch: input.targetBranch ?? undefined,
+        githubConnectionId: repository.githubConnectionId,
+      })
+      if (tip.hash === repository.lastIngestedHash) return
+
+      await claimAndRunRepositoryIngestionChild(
+        step,
+        {
+          repositoryId: input.repositoryId,
+          orgId: input.orgId,
+          ...(input.targetBranch !== undefined
+            ? { targetBranch: input.targetBranch }
+            : {}),
+          ...(input.indexingReason !== undefined
+            ? { indexingReason: input.indexingReason }
+            : {}),
+          githubConnectionId: repository.githubConnectionId,
+        },
+        log,
+      )
     },
-    log,
   )
 }

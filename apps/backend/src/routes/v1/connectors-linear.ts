@@ -20,6 +20,7 @@ import {
   releaseLinearConfigPrCreationClaim,
   resolveLinearConnectionForOrgDetailed,
   saveLinearOauthAppOnConnection,
+  transitionLinearBindingState,
   updateLinearBindingPrState,
   upsertLinearConnectionFromOAuth,
   upsertLinearDraftConnection,
@@ -100,8 +101,8 @@ const LinearPatchConfigRequestSchema = z
     syncTarget: LinearConnectionBindingSchema.optional(),
   })
   .refine(
-    (body) => body.scopes !== undefined || body.syncTarget !== undefined,
-    { message: "Provide scopes or syncTarget" },
+    (body) => (body.scopes !== undefined) !== (body.syncTarget !== undefined),
+    { message: "Provide either scopes or syncTarget, not both" },
   )
 
 const LinearOauthAppGetResponseSchema = z
@@ -955,22 +956,26 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: installed.error }, installed.httpStatus)
     }
     const body = LinearPatchConfigRequestSchema.parse(await c.req.json())
-    // Compare against git scope only to skip noop manage-scope (no DB draft).
-    const shouldEnqueueConfigPr =
-      body.scopes === undefined
-        ? false
-        : !linearScopesEqual(
-            body.scopes,
-            await loadLinearScopesFromGit({
-              orgId,
-              env: c.var.env,
-              binding: await getLinearBindingWithRepoByConnectionId(
-                orgId,
-                installed.connection.id,
-              ),
-              fallbackToTargetBranch: true,
-            }),
-          )
+    const binding = await getLinearBindingWithRepoByConnectionId(
+      orgId,
+      installed.connection.id,
+    )
+    const scopesMatch =
+      body.scopes !== undefined &&
+      linearScopesEqual(
+        body.scopes,
+        await loadLinearScopesFromGit({
+          orgId,
+          env: c.var.env,
+          binding,
+          fallbackToTargetBranch: true,
+        }),
+      )
+    const shouldStartInitialSync =
+      scopesMatch && binding?.enabled === true && binding.setupPhase === "draft"
+    // A matching live scope is a no-op. A matching rebound draft skips the PR
+    // but still needs its initial content sync.
+    const shouldEnqueueConfigPr = body.scopes !== undefined && !scopesMatch
     let saved: Awaited<ReturnType<typeof patchLinearConnectorConfig>>
     try {
       saved = await patchLinearConnectorConfig({
@@ -1036,6 +1041,49 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
             },
           )
         }
+      }
+    }
+    if (shouldStartInitialSync && binding) {
+      const claimed = await transitionLinearBindingState({
+        connectionId: installed.connection.id,
+        expectedSetupPhase: "draft",
+        expectedPendingConfigPrCreating: false,
+        repositoryId: binding.repositoryId,
+        branch: binding.branch,
+        pendingConfigPullUrl: null,
+        pendingConfigPrCreating: false,
+        setupPhase: "initial_sync",
+      })
+      if (!claimed) {
+        return c.json(
+          { error: "Linear sync target changed while starting initial sync" },
+          409,
+        )
+      }
+      try {
+        await runWorkflowWithWorkerWake(linearSyncContent.spec, {
+          orgId,
+          connectionId: installed.connection.id,
+        })
+      } catch (error) {
+        await transitionLinearBindingState({
+          connectionId: installed.connection.id,
+          expectedSetupPhase: "initial_sync",
+          expectedPendingConfigPrCreating: false,
+          repositoryId: binding.repositoryId,
+          branch: binding.branch,
+          pendingConfigPullUrl: null,
+          pendingConfigPrCreating: false,
+          setupPhase: "sync_failed",
+        })
+        getLogger().error(
+          error instanceof Error ? error : new Error(String(error)),
+          {
+            step: "linear.initial_sync.enqueue",
+            connectionId: installed.connection.id,
+          },
+        )
+        return c.json({ error: "Failed to enqueue Linear initial sync" }, 503)
       }
     }
     if (saved.configPrClaimed && body.scopes !== undefined) {

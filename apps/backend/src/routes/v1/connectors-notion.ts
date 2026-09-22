@@ -1211,21 +1211,29 @@ notionConnectorRoutes
       return c.json({ error: installed.error }, installed.status)
     }
     const body = NotionPatchConfigRequestSchema.parse(await c.req.json())
+    const binding = await getNotionBindingWithRepoByConnectionId(
+      orgId,
+      installed.connection.id,
+    )
 
     // Scope lives in git. Compare the requested selection against the git-native
     // scope (never Postgres) to decide whether a config PR is warranted.
     const gitResources = await loadNotionResourcesFromGit({
       orgId,
       env: c.var.env,
-      binding: await getNotionBindingWithRepoByConnectionId(
-        orgId,
-        installed.connection.id,
-      ),
+      binding,
       fallbackToTargetBranch: true,
     })
-    const resourcesChanged =
+    const resourcesMatch =
       body.resources !== undefined &&
-      !notionResourcesEqual(body.resources, gitResources)
+      notionResourcesEqual(body.resources, gitResources)
+    const shouldStartInitialSync =
+      resourcesMatch &&
+      binding?.enabled === true &&
+      binding.setupPhase === "draft"
+    // A matching live scope is a no-op. A matching rebound draft skips the PR
+    // but still needs its initial content sync.
+    const resourcesChanged = body.resources !== undefined && !resourcesMatch
 
     const saved = await patchNotionConnectorConfig({
       orgId,
@@ -1279,6 +1287,53 @@ notionConnectorRoutes
           { error: "Failed to enqueue Notion configuration pull request" },
           503,
         )
+      }
+    }
+
+    if (shouldStartInitialSync && binding) {
+      const claimed = await transitionNotionBindingState({
+        connectionId: installed.connection.id,
+        expectedSetupPhase: "draft",
+        expectedPendingConfigPrCreating: false,
+        repositoryId: binding.repositoryId,
+        branch: binding.branch,
+        pendingConfigPullUrl: null,
+        pendingConfigPrCreating: false,
+        setupPhase: "initial_sync",
+      })
+      if (!claimed) {
+        return c.json(
+          { error: "Notion sync target changed while starting initial sync" },
+          409,
+        )
+      }
+      const orgSlug = c.get("orgSlug") ?? c.req.param("orgSlug")
+      if (!orgSlug) return c.json({ error: "Unauthorized" }, 401)
+      try {
+        await runWorkflowWithWorkerWake(notionSyncContent.spec, {
+          orgId,
+          orgSlug,
+          connectionId: installed.connection.id,
+        })
+      } catch (error) {
+        await transitionNotionBindingState({
+          connectionId: installed.connection.id,
+          expectedSetupPhase: "initial_sync",
+          expectedPendingConfigPrCreating: false,
+          repositoryId: binding.repositoryId,
+          branch: binding.branch,
+          pendingConfigPullUrl: null,
+          pendingConfigPrCreating: false,
+          setupPhase: "sync_failed",
+        })
+        getLogger().error(
+          error instanceof Error ? error : new Error(String(error)),
+          {
+            step: "notion.initial_sync.enqueue",
+            connectionId: installed.connection.id,
+          },
+        )
+        return c.json({ error: "Failed to enqueue Notion initial sync" }, 503)
       }
     }
 
