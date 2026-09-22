@@ -1,5 +1,15 @@
 # @ctxpipe/aws-cdk
 
+## 3.1.11
+
+### Patch Changes
+
+- 23b1ccf: Allow Bearer-only MCP hosts to present personal or organisation API keys after OAuth resolution fails, without enabling Bearer API-key authentication on REST. Keep organisation key minting in Organisation settings instead of the personal API keys dialog.
+- 0ffa523: Fix GitHub pull-request graph ingestion and retraction, and deduplicate PR mirror startup and content-sync workflows.
+- 8cbc8c8: Store Linear OAuth app credentials on the connection so self-host can register the Linear app in the product UI without `LINEAR_*` env. Hosted env remains the fallback.
+- b22e75e: Let self-hosters register a public Notion integration in the product UI so empty `NOTION_*` env still connects and receives signed webhooks. Hosted keeps the env-owned one-click path.
+- 3b7c44a: Add optional PagerDuty OAuth connector secrets for self-hosted deployments.
+
 ## 3.1.10
 
 ### Patch Changes
