@@ -49,7 +49,12 @@ When you add a **reusable component** or a **new page/screen** (a route that rep
 
 ## Testing in Storybook
 
-Vitest and Testing Library are used for **unit/component tests** (`*.test.tsx`). This app does not currently add **@storybook/addon-vitest**; the MCP’s **`run-story-tests`** tool applies when that integration exists. Until then, rely on Vitest in CI and a11y via **`@storybook/addon-a11y`** in Storybook.
+Vitest is used for CI-executed unit and contract tests. Storybook `play()` +
+MSW is used for visual interaction scenarios, but this app does not currently
+add **@storybook/addon-vitest**, so those plays are not CI regression coverage.
+The MCP’s **`run-story-tests`** tool applies when that integration exists.
+Until then, keep security and request-contract assertions in focused Vitest
+tests and use **`@storybook/addon-a11y`** for manual Storybook verification.
 
 ## Quick reference (commands)
 

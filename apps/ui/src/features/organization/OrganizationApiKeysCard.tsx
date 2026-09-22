@@ -1,5 +1,21 @@
+/**
+ * Shared personal and organisation API-key UI.
+ *
+ * Replaces better-auth-ui's <ApiKeysCard> so both ownership modes share one
+ * information hierarchy and empty state. The library card's
+ * `CreateApiKeyDialog` gates an organisation/personal selector on
+ * `contextOrganization.apiKey` (no per-call-site opt-out). That selector would
+ * mix ownership modes on both settings pages. Calling
+ * `authClient.apiKey.{list,create,delete}` with an explicit config keeps each
+ * page scoped to its intended owner.
+ *
+ * The "Admin or owner required" branch is enforced by the backend
+ * `organizationRoles` config (apps/backend/src/auth/config.ts) which only
+ * grants `apiKey` actions to owner/admin — this card surfaces that 403.
+ */
 import { IconCopy, IconKey, IconTrash } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Link } from "@tanstack/react-router"
 import { useState } from "react"
 import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Button } from "@/components/ui/Button"
@@ -24,9 +40,23 @@ import { Modal } from "@/components/ui/Modal"
 import { Select, SelectItem } from "@/components/ui/Select"
 import { ShimmerPlaceholder } from "@/components/ui/ShimmerPlaceholder"
 import { TextField } from "@/components/ui/TextField"
-import { authClient } from "@/lib/auth-client"
+import { betterAuthShellClassNames } from "@/features/auth/betterAuthShellClassNames"
+import {
+  organizationApiKeyLocalization,
+  personalApiKeyLocalization,
+} from "@/features/organization/apiKeyCopy"
+import {
+  type ApiKey,
+  createOrganizationApiKey,
+  createPersonalApiKey,
+  deleteOrganizationApiKey,
+  deletePersonalApiKey,
+  listOrganizationApiKeys,
+  listPersonalApiKeys,
+} from "@/features/organization/organizationApiKeys"
+import { cn } from "@/lib/utils"
 
-const ORG_API_KEY_CONFIG_ID = "organization"
+const apiKeysCardClassNames = betterAuthShellClassNames.card
 
 const EXPIRY_OPTIONS = [
   { id: "1", label: "1 day" },
@@ -41,15 +71,11 @@ const EXPIRY_OPTIONS = [
 
 type ExpiryOptionId = (typeof EXPIRY_OPTIONS)[number]["id"]
 
-type OrgApiKey = {
-  id: string
-  name?: string | null
-  start?: string | null
-  expiresAt?: Date | string | null
-}
-
-function orgApiKeysQueryKey(organizationId: string) {
-  return ["organization-api-keys", organizationId] as const
+function apiKeysQueryKey(
+  kind: "personal" | "organization",
+  organizationId?: string,
+) {
+  return ["api-keys", kind, organizationId ?? null] as const
 }
 
 function errorMessage(error: unknown): string {
@@ -98,74 +124,52 @@ function formatExpiry(expiresAt: Date | string | null | undefined): string {
   })}`
 }
 
-async function listOrganizationApiKeys(organizationId: string) {
-  const result = await authClient.apiKey.list({
-    query: {
-      configId: ORG_API_KEY_CONFIG_ID,
-      organizationId,
-    },
-  })
-  if (result.error) throw result.error
-  const payload = result.data as { apiKeys?: OrgApiKey[] } | OrgApiKey[] | null
-  if (Array.isArray(payload)) return payload
-  return payload?.apiKeys ?? []
-}
+type ApiKeysCardProps =
+  | { kind: "personal" }
+  | { kind: "organization"; organizationId: string }
 
-async function createOrganizationApiKey(input: {
-  organizationId: string
-  name: string
-  expiresIn: number | null
-}) {
-  const created = (await authClient.apiKey.create({
-    configId: ORG_API_KEY_CONFIG_ID,
-    organizationId: input.organizationId,
-    name: input.name,
-    expiresIn: input.expiresIn ?? undefined,
-    fetchOptions: { throw: true },
-  })) as OrgApiKey & { key?: string; id: string }
-
-  if (input.expiresIn === null && created.id) {
-    await authClient.apiKey.update({
-      keyId: created.id,
-      configId: ORG_API_KEY_CONFIG_ID,
-      expiresIn: null,
-      fetchOptions: { throw: true },
-    })
-  }
-
-  return created
-}
-
-async function deleteOrganizationApiKey(keyId: string) {
-  await authClient.apiKey.delete({
-    keyId,
-    configId: ORG_API_KEY_CONFIG_ID,
-    fetchOptions: { throw: true },
-  })
+export function PersonalApiKeysCard() {
+  return <ApiKeysCard kind="personal" />
 }
 
 export function OrganizationApiKeysCard(props: { organizationId: string }) {
-  const { organizationId } = props
+  return (
+    <ApiKeysCard kind="organization" organizationId={props.organizationId} />
+  )
+}
+
+function ApiKeysCard(props: ApiKeysCardProps) {
+  const isOrganization = props.kind === "organization"
+  const organizationId = isOrganization ? props.organizationId : undefined
+  const localization = isOrganization
+    ? organizationApiKeyLocalization
+    : personalApiKeyLocalization
+  const queryKey = apiKeysQueryKey(props.kind, organizationId)
   const queryClient = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
-  const [keyToRevoke, setKeyToRevoke] = useState<OrgApiKey | null>(null)
+  const [keyToRevoke, setKeyToRevoke] = useState<ApiKey | null>(null)
   const [createdSecret, setCreatedSecret] = useState<string | null>(null)
 
   const keysQuery = useQuery({
-    queryKey: orgApiKeysQueryKey(organizationId),
-    queryFn: () => listOrganizationApiKeys(organizationId),
+    queryKey,
+    queryFn: () =>
+      props.kind === "organization"
+        ? listOrganizationApiKeys(props.organizationId)
+        : listPersonalApiKeys(),
   })
 
   const createMutation = useMutation({
     mutationFn: (input: { name: string; expiresIn: number | null }) =>
-      createOrganizationApiKey({
-        organizationId,
-        name: input.name,
-        expiresIn: input.expiresIn,
-      }),
+      props.kind === "organization"
+        ? createOrganizationApiKey({
+            organizationId: props.organizationId,
+            name: input.name,
+            expiresIn: input.expiresIn,
+          })
+        : createPersonalApiKey(input),
     onSuccess: async (created) => {
       await queryClient.invalidateQueries({
-        queryKey: orgApiKeysQueryKey(organizationId),
+        queryKey,
       })
       setCreateOpen(false)
       setCreatedSecret(created.key ?? null)
@@ -173,30 +177,64 @@ export function OrganizationApiKeysCard(props: { organizationId: string }) {
   })
 
   const revokeMutation = useMutation({
-    mutationFn: (keyId: string) => deleteOrganizationApiKey(keyId),
+    mutationFn: (keyId: string) =>
+      isOrganization
+        ? deleteOrganizationApiKey(keyId)
+        : deletePersonalApiKey(keyId),
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: orgApiKeysQueryKey(organizationId),
+        queryKey,
       })
       setKeyToRevoke(null)
     },
   })
 
   const keys = keysQuery.data ?? []
-  const forbidden = keysQuery.error != null && isForbidden(keysQuery.error)
+  const forbidden =
+    isOrganization && keysQuery.error != null && isForbidden(keysQuery.error)
   const loadError = keysQuery.error != null && !forbidden
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-4">
-      <Card className="rounded-none">
+      <Card
+        className={cn(
+          apiKeysCardClassNames?.base,
+          // Match Better Auth settings cards: hairline border, no ring/crosses.
+          "ring-0 [&>span[aria-hidden]]:hidden",
+        )}
+      >
         <CardHeader>
           <CardTitle>API keys</CardTitle>
-          <CardDescription>
-            Organisation keys authenticate MCP as this organisation, not the
-            person who minted them. Name each key. Keys last 30 days by default.
-            Interpolate{" "}
-            <code className="font-mono text-xs">CTXPIPE_API_KEY</code> in client
-            config; do not put the key value in repository files.
+          <CardDescription className="max-w-prose space-y-2">
+            <p>{localization.API_KEYS_DESCRIPTION}</p>
+            <p>
+              Send it as{" "}
+              <code className="font-mono text-xs text-foreground/80">
+                x-api-key
+              </code>
+              , or{" "}
+              <code className="font-mono text-xs text-foreground/80">
+                Bearer
+              </code>{" "}
+              to MCP.{" "}
+              {isOrganization ? (
+                <Link
+                  to="/.auth/account/$accountView"
+                  params={{ accountView: "api-keys" }}
+                  className="font-medium text-teal-400 underline-offset-4 hover:underline"
+                >
+                  Use a personal key instead.
+                </Link>
+              ) : (
+                <Link
+                  to="/.auth/organization/$organizationView"
+                  params={{ organizationView: "api-keys" }}
+                  className="font-medium text-teal-400 underline-offset-4 hover:underline"
+                >
+                  Use an organisation key instead.
+                </Link>
+              )}
+            </p>
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -211,34 +249,44 @@ export function OrganizationApiKeysCard(props: { organizationId: string }) {
             </div>
           ) : forbidden ? (
             <InlineAlert variant="error" title="Admin or owner required">
-              Only organisation admins and owners can list, mint, or revoke
-              organisation keys. Ask an admin if you need a shared MCP key.
+              Only organisation admins and owners can manage these keys.
             </InlineAlert>
           ) : loadError ? (
             <InlineAlert variant="error" title="Could not load API keys">
               {errorMessage(keysQuery.error)}. Refresh the page and try again.
             </InlineAlert>
           ) : keys.length === 0 ? (
-            <div className="max-w-prose">
-              <p className="text-sm font-medium text-foreground">
-                No organisation keys yet
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Mint a named key for CI, headless agents, or other machines that
-                cannot sign in with OAuth.
-              </p>
+            <div className="flex max-w-prose items-start gap-3">
+              <span className="ctx-node h-9 w-9 shrink-0">
+                <IconKey className="size-4 text-muted-foreground" aria-hidden />
+              </span>
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  No {isOrganization ? "organisation" : "personal"} keys
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {isOrganization
+                    ? "Create one for CI or a shared agent."
+                    : "Create one for your own scripts or agents."}
+                </p>
+              </div>
             </div>
           ) : (
             <GridList
-              aria-label="Organisation API keys"
-              className="rounded-none border-white/10 bg-transparent dark:bg-transparent"
+              aria-label={
+                isOrganization ? "Organisation API keys" : "Personal API keys"
+              }
+              className={cn(
+                apiKeysCardClassNames?.cell,
+                "bg-transparent dark:bg-transparent",
+              )}
             >
               {keys.map((apiKey) => (
                 <GridListItem
                   key={apiKey.id}
                   id={apiKey.id}
                   textValue={apiKey.name ?? apiKey.start ?? apiKey.id}
-                  className="rounded-none"
+                  className="rounded-none border-border"
                 >
                   <IconKey
                     className="size-4 shrink-0 text-muted-foreground"
@@ -267,7 +315,12 @@ export function OrganizationApiKeysCard(props: { organizationId: string }) {
             </GridList>
           )}
         </CardContent>
-        <CardFooter>
+        <CardFooter
+          className={cn(
+            apiKeysCardClassNames?.footer,
+            "justify-end border-t py-4",
+          )}
+        >
           <Button
             variant="primary"
             className="rounded-none"
@@ -281,12 +334,12 @@ export function OrganizationApiKeysCard(props: { organizationId: string }) {
         </CardFooter>
       </Card>
 
-      <CreateOrgApiKeyModal
+      <CreateApiKeyModal
         isOpen={createOpen}
         isPending={createMutation.isPending}
         error={
           createMutation.error
-            ? isForbidden(createMutation.error)
+            ? isOrganization && isForbidden(createMutation.error)
               ? "Only organisation admins and owners can mint organisation keys."
               : errorMessage(createMutation.error)
             : undefined
@@ -335,7 +388,7 @@ export function OrganizationApiKeysCard(props: { organizationId: string }) {
           >
             {revokeMutation.error
               ? errorMessage(revokeMutation.error)
-              : `${keyToRevoke.name || "This key"} (${keyToRevoke.start ?? "prefix hidden"}******) will stop authenticating MCP immediately. This cannot be undone.`}
+              : `${keyToRevoke.name || "This key"} (${keyToRevoke.start ?? "prefix hidden"}******) will stop authenticating immediately. This cannot be undone.`}
           </AlertDialog>
         </Modal>
       ) : null}
@@ -343,7 +396,7 @@ export function OrganizationApiKeysCard(props: { organizationId: string }) {
   )
 }
 
-function CreateOrgApiKeyModal(props: {
+function CreateApiKeyModal(props: {
   isOpen: boolean
   isPending: boolean
   error: string | undefined
@@ -389,9 +442,7 @@ function CreateOrgApiKeyModal(props: {
           <DialogHeader>
             <DialogTitle>Create API key</DialogTitle>
             <DialogDescription>
-              Give the key a name so you can tell it apart later. Keys last 30
-              days unless you pick another expiry. Copy the secret once after
-              minting.
+              Name the key and choose an expiry. The secret is shown once.
             </DialogDescription>
           </DialogHeader>
           {error ? <InlineAlert variant="error">{error}</InlineAlert> : null}
@@ -471,9 +522,9 @@ function CreatedSecretDialog(props: { secret: string; onDone: () => void }) {
       <DialogHeader>
         <DialogTitle>API key created</DialogTitle>
         <DialogDescription>
-          Copy the secret now — it is shown once. Interpolate{" "}
-          <code className="font-mono text-xs">CTXPIPE_API_KEY</code> in MCP
-          client config. Do not put the key value in repository files.
+          Copy this secret now. Store it in{" "}
+          <code className="font-mono text-xs">CTXPIPE_API_KEY</code> and never
+          commit it; it will not be shown again.
         </DialogDescription>
       </DialogHeader>
       <p className="mt-4 break-all rounded-none border border-border bg-zinc-900 px-3 py-3 font-mono text-sm text-zinc-100">

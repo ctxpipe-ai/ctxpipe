@@ -6,7 +6,7 @@ import { registerMcpRoutes } from "./mcp.js"
 const {
   withCookieAuthMock,
   withOrgApiKeyAuthMock,
-  withBearerAuthMock,
+  withMcpBearerAuthMock,
   requireAuthMock,
   withNetworkOrgContextMock,
   registerMcpToolsMock,
@@ -16,7 +16,7 @@ const {
 } = vi.hoisted(() => ({
   withCookieAuthMock: vi.fn(),
   withOrgApiKeyAuthMock: vi.fn(),
-  withBearerAuthMock: vi.fn(),
+  withMcpBearerAuthMock: vi.fn(),
   requireAuthMock: vi.fn(),
   withNetworkOrgContextMock: vi.fn(),
   registerMcpToolsMock: vi.fn(),
@@ -28,7 +28,7 @@ const {
 vi.mock("../auth/withAuth.js", () => ({
   withCookieAuth: withCookieAuthMock,
   withOrgApiKeyAuth: withOrgApiKeyAuthMock,
-  withBearerAuth: withBearerAuthMock,
+  withMcpBearerAuth: withMcpBearerAuthMock,
   requireAuth: requireAuthMock,
   withNetworkOrgContext: withNetworkOrgContextMock,
 }))
@@ -69,7 +69,7 @@ describe("MCP route auth and org validation", () => {
     vi.clearAllMocks()
     withCookieAuthMock.mockImplementation(async (_c, next) => next())
     withOrgApiKeyAuthMock.mockImplementation(async (_c, next) => next())
-    withBearerAuthMock.mockImplementation(async (_c, next) => next())
+    withMcpBearerAuthMock.mockImplementation(async (_c, next) => next())
     requireAuthMock.mockImplementation(async (_c, next) => next())
     withNetworkOrgContextMock.mockImplementation(async (_c, next) => next())
   })
@@ -124,6 +124,15 @@ describe("MCP route auth and org validation", () => {
 
     expect(registerMcpToolsMock).toHaveBeenCalledTimes(1)
     expect(response.status).toBe(200)
+    expect(withMcpBearerAuthMock).toHaveBeenCalledTimes(1)
+    expect(withCookieAuthMock).toHaveBeenCalledTimes(1)
+    expect(withOrgApiKeyAuthMock).toHaveBeenCalledTimes(1)
+    expect(withMcpBearerAuthMock.mock.invocationCallOrder[0]).toBeLessThan(
+      withCookieAuthMock.mock.invocationCallOrder[0] ?? 0,
+    )
+    expect(withCookieAuthMock.mock.invocationCallOrder[0]).toBeLessThan(
+      withOrgApiKeyAuthMock.mock.invocationCallOrder[0] ?? 0,
+    )
   })
 
   it("rejects an untrusted browser origin before authentication", async () => {

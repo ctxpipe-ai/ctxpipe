@@ -1,3 +1,4 @@
+import { withOrgDbContext } from "../../../db/client.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 
 /** Per-run cache: GitHub `owner/repo` → repository id (or undefined when not connected). */
@@ -14,20 +15,18 @@ export async function resolveSourceRepositoryId(input: {
   githubConnectionId?: string
   cache?: RepositoryIdCache
 }): Promise<string | undefined> {
-  if (!input.githubConnectionId) return undefined
+  const githubConnectionId = input.githubConnectionId
+  if (!githubConnectionId) return undefined
   const cached = input.cache?.get(input.repository)
   if (input.cache?.has(input.repository)) return cached
-  let resolved: string | undefined
-  try {
-    const row = await findRepositoryByGithubInstallation(
+  const row = await withOrgDbContext(input.orgId, () =>
+    findRepositoryByGithubInstallation(
       input.orgId,
       input.repository,
-      input.githubConnectionId,
-    )
-    resolved = row?.id
-  } catch {
-    resolved = undefined
-  }
+      githubConnectionId,
+    ),
+  )
+  const resolved = row?.id
   input.cache?.set(input.repository, resolved)
   return resolved
 }

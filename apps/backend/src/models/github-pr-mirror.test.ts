@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getOrgDb: vi.fn(),
   getRepositoryForOrg: vi.fn(),
   getSystemDb: vi.fn(),
+  update: vi.fn(),
   mergeConfig: vi.fn(
     (_config: Record<string, unknown>, patch: Record<string, unknown>) => patch,
   ),
@@ -36,11 +37,11 @@ describe("bindGithubPrMirror", () => {
     mocks.getConnection.mockResolvedValue({
       id: "con_gh",
       orgId: "org_1",
-      config: {},
+      config: {
+        ingestAllRepositories: false,
+        includeFutureRepos: false,
+      },
     })
-  })
-
-  it("binds a context repository created in the active org transaction", async () => {
     const repository = {
       id: "repo_ctx",
       orgId: "org_1",
@@ -54,13 +55,15 @@ describe("bindGithubPrMirror", () => {
     const select = vi.fn().mockReturnValue({ from })
     const updateWhere = vi.fn().mockResolvedValue(undefined)
     const set = vi.fn().mockReturnValue({ where: updateWhere })
-    const update = vi.fn().mockReturnValue({ set })
-    mocks.getOrgDb.mockReturnValue({ select, update })
+    mocks.update.mockReturnValue({ set })
+    mocks.getOrgDb.mockReturnValue({ select, update: mocks.update })
     mocks.getRepositoryForOrg.mockResolvedValue(null)
     mocks.getSystemDb.mockImplementation(() => {
       throw new Error("system DB cannot see the uncommitted repository")
     })
+  })
 
+  it("binds a context repository created in the active org transaction", async () => {
     await expect(
       bindGithubPrMirror({
         orgId: "org_1",
@@ -74,8 +77,35 @@ describe("bindGithubPrMirror", () => {
       repositoryId: "repo_ctx",
       repositoryName: "acme/ctxpipe-context",
       enabled: true,
-      setupPhase: "initial_sync",
+      setupPhase: "draft",
     })
-    expect(update).toHaveBeenCalled()
+    expect(mocks.update).toHaveBeenCalled()
+  })
+
+  it("preserves the phase when the mirror is already bound to the same target", async () => {
+    mocks.getConnection.mockResolvedValue({
+      id: "con_gh",
+      orgId: "org_1",
+      config: {
+        ingestAllRepositories: false,
+        includeFutureRepos: false,
+        prMirror: {
+          repositoryId: "repo_ctx",
+          branch: "main",
+          enabled: true,
+          setupPhase: "sync_failed",
+          pendingConfigPullUrl: null,
+        },
+      },
+    })
+
+    await expect(
+      bindGithubPrMirror({
+        orgId: "org_1",
+        connectionId: "con_gh",
+        repositoryId: "repo_ctx",
+        branch: "main",
+      }),
+    ).resolves.toMatchObject({ setupPhase: "sync_failed" })
   })
 })

@@ -55,19 +55,47 @@ export async function enqueueGithubPrMirrorEnsureForOrg(
   }
 }
 
+async function enqueueStartupEnsure(input: {
+  orgId: string
+  connectionId: string
+}): Promise<void> {
+  // OpenWorkflow retains idempotency keys for 24 hours, coalescing deploy
+  // restart storms without disabling reconciliation on later process starts.
+  const baseKey = `github-pr-mirror-startup:v1:${input.orgId}:${input.connectionId}`
+  let idempotencyKey = baseKey
+  const failedRunIds = new Set<string>()
+  for (;;) {
+    const handle = await runWorkflowWithWorkerWake(
+      githubEnsurePrMirror.spec,
+      input,
+      { idempotencyKey },
+    )
+    const { id, status } = handle.workflowRun
+    if (status !== "failed" && status !== "canceled") return
+    if (failedRunIds.has(id)) {
+      throw new Error(`Startup PR mirror ensure remained ${status}: ${id}`)
+    }
+    failedRunIds.add(id)
+    idempotencyKey = `${baseKey}:retry:${id}`
+  }
+}
+
 export async function enqueueGithubPrMirrorEnsureSweep(): Promise<number> {
   const connections = await listGithubConnections()
   for (const connection of connections) {
     try {
-      await runWorkflowWithWorkerWake(githubEnsurePrMirror.spec, {
+      await enqueueStartupEnsure({
         orgId: connection.orgId,
         connectionId: connection.id,
       })
     } catch (error) {
-      log.error(error instanceof Error ? error : new Error(String(error)), {
+      const normalized =
+        error instanceof Error ? error : new Error(String(error))
+      log.error({
         step: "github.pr-mirror.ensure.sweep.enqueue",
         connectionId: connection.id,
         orgId: connection.orgId,
+        message: normalized.message,
       })
     }
   }
@@ -83,8 +111,10 @@ export function startGithubPrMirrorEnsureSweepOnce(): void {
   if (state[sweepOnceKey]) return
   state[sweepOnceKey] = true
   void enqueueGithubPrMirrorEnsureSweep().catch((error) => {
-    log.error(error instanceof Error ? error : new Error(String(error)), {
+    const normalized = error instanceof Error ? error : new Error(String(error))
+    log.error({
       step: "github.pr-mirror.ensure.sweep",
+      message: normalized.message,
     })
   })
 }
