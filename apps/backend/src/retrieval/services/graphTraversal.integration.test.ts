@@ -201,6 +201,10 @@ describe.skipIf(!graphUri)("graph traversal evaluation (FalkorDB)", () => {
       edge(["Team", "team_new"], "OWNS", billing, 0.95, {
         validFrom: "2025-01-01T00:00:00.000Z",
       }),
+      edge(["Team", "team_ends_today"], "OWNS", billing, 0.95, {
+        validFrom: "2025-01-01T00:00:00.000Z",
+        validTo: `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`,
+      }),
       edge(queueAdr, "INFLUENCES", billing, 0.9),
     ])
 
@@ -213,6 +217,7 @@ describe.skipIf(!graphUri)("graph traversal evaluation (FalkorDB)", () => {
       expect.arrayContaining(["team_new", "adr_queue"]),
     )
     expect(result.nodeIds).not.toContain("team_old")
+    expect(result.nodeIds).not.toContain("team_ends_today")
   })
 
   it("why is billing built this way: the discussion and the superseded ADR survive the ADR's file mentions", async () => {

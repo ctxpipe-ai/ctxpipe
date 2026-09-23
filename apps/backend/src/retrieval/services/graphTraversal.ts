@@ -33,7 +33,7 @@ export type GraphTraversalOptions = {
   maxDepth?: number
   /** Edges kept across all hops (default 50, max 100) */
   limit?: number
-  /** Only walk edges valid on this day (default today) */
+  /** Only walk edges valid on this day (default today): valid_from <= day < valid_to */
   validAt?: Date
   /** When true, only traverse reference / cause / ownership edges (REFERENCES, MENTIONS, INFLUENCES, SUPERSEDES, OWNS) */
   useExtensionLayer?: boolean
@@ -153,7 +153,7 @@ export async function graphTraversal(
          MATCH (a)-[rel]-(b)
          WHERE b.orgId = $orgId AND NOT b.id IN $visited
            AND (coalesce(rel.valid_from, '') = '' OR substring(rel.valid_from, 0, 10) <= $validDay)
-           AND (coalesce(rel.valid_to, '') = '' OR substring(rel.valid_to, 0, 10) >= $validDay)${extensionFilter}
+           AND (coalesce(rel.valid_to, '') = '' OR substring(rel.valid_to, 0, 10) > $validDay)${extensionFilter}
          WITH b, rel, f.trust * coalesce(rel.aggregate_confidence, 0.5) *
               CASE
                 WHEN coalesce(b.kind, '') <> 'Decision' OR b.status = 'accepted' THEN 1.0

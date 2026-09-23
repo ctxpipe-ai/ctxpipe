@@ -31,8 +31,10 @@ layer now manages indexes per provider). Builds on
    types in turns (`pickRoundRobin`). Hops before the last take at most half
    of what is left; budget left at the end goes to the best edges passed over.
    Ties break by claim id, so the result does not depend on write order.
-2. **Only edges valid on the query day are walked** (default today). Days are
-   compared as `YYYY-MM-DD` strings; `""` and null mean open-ended.
+2. **Only edges valid on the query day are walked** (default today), over the
+   half-open interval `[valid_from, valid_to)` used by git-backed workspaces
+   (#280). Days are compared as `YYYY-MM-DD` strings; `""` and null mean
+   open-ended.
 3. **The advisor hydrates every claim the traversal kept** (`state.claimIds`),
    whatever the candidate rank, as one compact row per claim: the fact,
    confidence, validity, evidence count, `sourceType/extractionMethod` of its
