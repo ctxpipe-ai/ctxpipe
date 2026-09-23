@@ -1,0 +1,10 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+watchPatterns = ["**"]
+
+[deploy]
+healthcheckPath = "/ping"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+sleepApplication = false

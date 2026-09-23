@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Redeploy ctxpipe-observability from this tree. Invoked by
-# .github/workflows/observability.yaml. First-time service create is manual
-# (see README.md); this script only links + uploads/redeploys.
+# Optional escape hatch. Preferred path is the Railway GitHub integration
+# (terraform source_repo on clickhouse + collector). Use this only when you
+# need to push local Docker contexts with the Railway CLI.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_ID="${OBSERVABILITY_RAILWAY_PROJECT_ID:?set OBSERVABILITY_RAILWAY_PROJECT_ID}"
-TOKEN="${OBSERVABILITY_RAILWAY_TOKEN:-${RAILWAY_TOKEN:-}}"
+PROJECT_ID="${OBSERVABILITY_RAILWAY_PROJECT_ID:-305aa114-c6f3-4aca-b883-0faa9c331aa2}"
+TOKEN="${RAILWAY_TOKEN:-}"
 if [[ -z "$TOKEN" ]]; then
-  echo "set OBSERVABILITY_RAILWAY_TOKEN or RAILWAY_TOKEN" >&2
+  echo "set RAILWAY_TOKEN (workspace token used by infra/; no separate project token)" >&2
   exit 1
 fi
 export RAILWAY_TOKEN="$TOKEN"
@@ -22,6 +22,6 @@ for svc in hyperdx langfuse-web langfuse-worker redis mongo; do
   if railway status --service "$svc" >/dev/null 2>&1; then
     railway redeploy --service "$svc" --yes
   else
-    echo "skip $svc (not linked yet — create it in the Railway project first)"
+    echo "skip $svc (not linked yet — apply ops/observability/terraform first)"
   fi
 done

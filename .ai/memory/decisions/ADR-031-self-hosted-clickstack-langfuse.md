@@ -10,7 +10,7 @@ Hosted observability was Langfuse Cloud (paid) plus unused Better Stack / Amplit
 
 1. **Separate Railway project** `ctxpipe-observability` (`has_pr_deploys = false`, region `us-east4-eqdc4a`). Internal ops tool in the OSS repo under [`ops/observability/`](../../../ops/observability/), not [`infra/module/ctxpipe`](../../../infra/module/ctxpipe) and not [`.github/workflows/deploy.yaml`](../../../.github/workflows/deploy.yaml).
 
-2. **One small ClickHouse** (1 GiB cap, 10 GB volume, 14-day TTL) with databases `otel` (ClickStack) and `langfuse`. Langfuse Postgres stays on Neon; blobs on a Railway bucket. No replicas, no MinIO, no Railway Postgres.
+2. **One small ClickHouse** (1 GiB cap, volume, 14-day TTL) with databases `otel` (ClickStack) and `langfuse`. Langfuse Postgres is a **dedicated `langfuse` database** on the existing Neon `ctxpipe` project (same compute; not a new Neon project). A schema on `neondb` is rejected — Langfuse Prisma migrations hardcode `public`. Blobs on Railway bucket `langfuse-events`. No replicas, no MinIO, no Railway Postgres.
 
 3. **One ingest collector:** ClickStack (`clickhouse/clickstack-otel-collector`) with `CUSTOM_OTELCOL_CONFIG_FILE` adding `filter/llm_only` + `otlphttp/langfuse`. Apps still export OTLP once ([ADR-011](ADR-011-backend-observability-otel.md)). The product `otelcollector` service remains until cutover, then is removed. Fallback: contrib collector only — never two collectors.
 
@@ -20,7 +20,7 @@ Hosted observability was Langfuse Cloud (paid) plus unused Better Stack / Amplit
 
 6. **Browser:** `@hyperdx/browser` with `url` = same-origin `/.otel` (or operator collector). `disableReplay: true`. SPA `page_view` via `HyperDX.addAction`. [ADR-017](ADR-017-amplitude-analytics.md) is superseded.
 
-7. **Deploy path:** [`.github/workflows/observability.yaml`](../../../.github/workflows/observability.yaml) on `ops/observability/**` changes to `main`, GitHub Environment `observability`, project token `OBSERVABILITY_RAILWAY_TOKEN`. Product Terraform `otel_otlp_endpoint` / `otel_otlp_headers` are optional until cutover.
+7. **Deploy path:** Terraform in [`ops/observability/terraform/`](../../../ops/observability/terraform/) targets the existing Railway project `305aa114-c6f3-4aca-b883-0faa9c331aa2` (does not create it). ClickHouse and the collector use the **Railway GitHub integration** (`source_repo` + `root_directory`); image services pull public images. No static `OBSERVABILITY_RAILWAY_TOKEN`. [`.github/workflows/observability.yaml`](../../../.github/workflows/observability.yaml) only validates Terraform. Apply is manual. Public collector hostname is `telemetry.ctxpipe.ai`. Product Terraform `otel_otlp_endpoint` / `otel_otlp_headers` stay optional until cutover. `LANGFUSE_INIT_*` pre-creates the Langfuse project + API keys so the collector can fan out on first boot.
 
 ### Consequences
 
@@ -34,7 +34,8 @@ Hosted observability was Langfuse Cloud (paid) plus unused Better Stack / Amplit
 
 - Single-node ClickHouse: crash loses ingest until restart; 14-day TTL is the retention story.
 - Cross-project OTLP is public + token (private networking does not cross Railway projects/environments).
-- First-time Railway service create is manual; the Action only redeploys.
+- First apply is manual `terraform apply` plus one Railway bucket (`langfuse-events`) the 0.6.1 provider cannot create. DNS for `telemetry.ctxpipe.ai` is operator-owned.
+- Langfuse isolation is a second database on the existing Neon project, not a schema.
 
 ### Alternatives Considered
 
@@ -42,3 +43,5 @@ Hosted observability was Langfuse Cloud (paid) plus unused Better Stack / Amplit
 - **Keep Amplitude:** Rejected — no funnels; `@hyperdx/browser` is OTEL and operator-pointable.
 - **Periodic metrics on PR:** Rejected — 60s export prevents Railway sleep.
 - **Custom MetricReader in production:** Rejected — always-on prod wants the 60s periodic reader.
+- **Dedicated schema on `neondb`:** Rejected — Langfuse Prisma SQL hardcodes `public`; same Neon instance gets database `langfuse` instead.
+- **Static `OBSERVABILITY_RAILWAY_TOKEN` + `railway up` Action:** Rejected — ClickHouse/collector deploy via Railway’s GitHub integration; the workspace token already used by `infra/` is enough for manual Terraform apply.

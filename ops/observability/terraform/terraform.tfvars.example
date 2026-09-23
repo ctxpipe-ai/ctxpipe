@@ -1,0 +1,19 @@
+# Copy to terraform.tfvars (gitignored) or pass TF_VAR_*.
+# railway_project_id and railway_environment_id default to ctxpipe-observability production.
+
+github_repo_branch = "main"
+
+langfuse_init_user_email = "ops@example.com"
+
+# Generate:
+#   openssl rand -hex 16                 # clickhouse passwords, nextauth, salt
+#   openssl rand -hex 32                 # hyperdx_api_key
+#   openssl rand -hex 32                 # langfuse_encryption_key (64 hex chars)
+#   echo "pk-lf-$(uuidgen | tr '[:upper:]' '[:lower:]')"
+#   echo "sk-lf-$(uuidgen | tr '[:upper:]' '[:lower:]')"
+#   printf '%s' 'pk:sk' | base64         # langfuse_auth_string
+#
+# Neon: dedicated database `langfuse` on the existing ctxpipe project
+# (not a schema on neondb — Langfuse Prisma hardcodes public).
+# langfuse_database_url = "postgresql://langfuse:...@...-pooler.../langfuse?sslmode=require"
+# langfuse_direct_url   = "postgresql://langfuse:...@.../langfuse?sslmode=require"
