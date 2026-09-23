@@ -538,9 +538,11 @@ export async function deleteObjectsFromGraph(
     async () => {
       const driver = getGraphClient()
       for (const chunk of chunkArray(uniqueIds, PROJECT_CLAIM_BATCH_SIZE)) {
+        // One scan per chunk: a label-less match cannot use an index, so
+        // matching once per id would scan the whole graph once per id.
         await driver.executeQuery(
-          `UNWIND $ids AS id
-           MATCH (n { id: id, orgId: $orgId })
+          `MATCH (n)
+           WHERE n.id IN $ids AND n.orgId = $orgId
            DETACH DELETE n`,
           { ids: chunk, orgId: resolvedOrgId },
         )
@@ -571,10 +573,10 @@ export async function retractClaimsFromGraph(
     async () => {
       const driver = getGraphClient()
       for (const chunk of chunkArray(uniqueIds, PROJECT_CLAIM_BATCH_SIZE)) {
+        // One scan per chunk, as in deleteObjectsFromGraph.
         await driver.executeQuery(
-          `UNWIND $claimIds AS claimId
-           MATCH (s)-[r]->(o)
-           WHERE r.claim_id = claimId AND s.orgId = $orgId AND o.orgId = $orgId
+          `MATCH (s)-[r]->(o)
+           WHERE r.claim_id IN $claimIds AND s.orgId = $orgId AND o.orgId = $orgId
            DELETE r`,
           { claimIds: chunk, orgId: resolvedOrgId },
         )

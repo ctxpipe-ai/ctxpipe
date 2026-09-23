@@ -44,6 +44,12 @@ layer now manages indexes per provider). Builds on
    projection continues without the index.
 5. Traversal node lookups stay label-less and therefore unindexed; the
    per-kind indexes serve writes.
+6. **Label-less matches over many ids scan once per batch**
+   (`WHERE x IN $ids`), never once per id (`UNWIND $ids … MATCH`). This
+   applies to traversal hops, claim retraction and node deletion. Per 100-id
+   batch, retraction went from 658 ms to 11 ms at the current largest org and
+   from 10.4 s to 129 ms at 20×; node deletion from 99 ms to 6 ms and from
+   1.8 s to 97 ms.
 
 ## Rationale
 
@@ -70,16 +76,17 @@ layer now manages indexes per provider). Builds on
   at 20 edges picked by write order.
 - **Prompt size:** at most `limit` claims per traversal step (default 20; the
   planner runs up to two traversal steps).
-- **Engines verified:** `graphTraversal.integration.test.ts` and
-  `indexes.integration.test.ts` pass on FalkorDB and Neo4j 5, and the traversal
-  passes on Memgraph over a single-database connection (Memgraph database per
-  org needs Enterprise; not tested). **Neptune is not verified locally**; check
+- **Engines verified:** `graphTraversal.integration.test.ts`,
+  `graphProjection.integration.test.ts` and `indexes.integration.test.ts` pass
+  on FalkorDB and Neo4j 5; the first two pass on Memgraph over a
+  single-database connection, and its index statement was checked directly
+  (Memgraph database per org needs Enterprise; not tested). **Neptune is not verified locally**; check
   through `examples/aws-cdk-self-host` before relying on a change to these
   queries. CI runs no graph database, so these tests run locally only.
 - Confidence is mostly a fixed number per extractor today, so ordering within
   a relation type matters little until corroboration and sign-off feed it.
-- **Unchanged:** candidate rerank (channel scores stay on incompatible scales);
-  retraction and delete queries still scan label-less per row.
+- **Unchanged:** candidate rerank (channel scores stay on incompatible
+  scales); the knowledge-graph snapshot still loads every node and edge.
 
 ## Alternatives considered
 

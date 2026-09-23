@@ -213,20 +213,24 @@ describe("retractClaimsFromGraph / deleteObjectsFromGraph", () => {
     executeQueryMock.mockResolvedValue({ records: [] })
   })
 
-  it("retracts many claim edges with one UNWIND query", async () => {
+  it("retracts many claim edges in one scan, not one scan per claim", async () => {
     await retractClaimsFromGraph(["c1", "c2", "c1"])
     expect(executeQueryMock).toHaveBeenCalledTimes(1)
-    expect(executeQueryMock.mock.calls[0]?.[0]).toContain("UNWIND $claimIds")
+    const query = String(executeQueryMock.mock.calls[0]?.[0])
+    expect(query).toContain("r.claim_id IN $claimIds")
+    expect(query).not.toContain("UNWIND")
     expect(executeQueryMock.mock.calls[0]?.[1]).toEqual({
       claimIds: ["c1", "c2"],
       orgId: "org_1",
     })
   })
 
-  it("deletes many object nodes with one UNWIND query", async () => {
+  it("deletes many object nodes in one scan, not one scan per node", async () => {
     await deleteObjectsFromGraph(["o1", "o2"])
     expect(executeQueryMock).toHaveBeenCalledTimes(1)
-    expect(executeQueryMock.mock.calls[0]?.[0]).toContain("UNWIND $ids")
+    const query = String(executeQueryMock.mock.calls[0]?.[0])
+    expect(query).toContain("n.id IN $ids")
+    expect(query).not.toContain("UNWIND")
     expect(executeQueryMock.mock.calls[0]?.[1]).toEqual({
       ids: ["o1", "o2"],
       orgId: "org_1",
