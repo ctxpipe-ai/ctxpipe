@@ -237,6 +237,55 @@ describe("extractDecisions", () => {
     }
   })
 
+  it("scopes a decision to its package, else to the services it references, else to every service in the repository", async () => {
+    const adrs: Record<string, string> = {
+      ".ai/memory/decisions/ADR-010-graph-db.md":
+        "# ADR-010: Graph DB\n\n**Status:** Accepted\n\nThe backend (`apps/backend/src/platform/graph/client.ts`) owns graph access. See [UI notes](../../../apps/ui/README.md) and [FalkorDB](https://www.falkordb.com/).\n",
+      ".ai/memory/decisions/ADR-013-terraform.md":
+        "# ADR-013: Terraform\n\n**Status:** Accepted\n\nAll infrastructure is Terraform. See [HashiCorp](https://www.terraform.io/).\n",
+      "apps/backend/docs/adr/0002-bun.md":
+        "# Bun runtime\n\nStatus: Accepted\n\nThe UI build (`apps/ui/vite.config.ts`) stays on Node.\n",
+    }
+    mocks.globFiles.mockResolvedValue({
+      entries: Object.keys(adrs).map((path) => ({ type: "file", path })),
+    })
+    mocks.fetchFiles.mockImplementation(
+      async (_repo: string, _org: string, paths: string[]) =>
+        Object.fromEntries(paths.map((path) => [path, adrs[path]])),
+    )
+
+    const { extractedClaims = [] } = await extractDecisions(
+      state({
+        extractedObjects: [service("apps/backend"), service("apps/ui")],
+      }),
+    )
+
+    const influences = extractedClaims
+      .filter((c) => c.predicate === "INFLUENCES")
+      .map((c) => [c.subjectRef.split(":").pop(), c.objectRef, c.confidence])
+      .sort()
+    expect(influences).toEqual([
+      [
+        ".ai/memory/decisions/ADR-010-graph-db.md",
+        "svc:repo_api:apps/backend",
+        0.8,
+      ],
+      [".ai/memory/decisions/ADR-010-graph-db.md", "svc:repo_api:apps/ui", 0.8],
+      [
+        ".ai/memory/decisions/ADR-013-terraform.md",
+        "svc:repo_api:apps/backend",
+        0.6,
+      ],
+      [
+        ".ai/memory/decisions/ADR-013-terraform.md",
+        "svc:repo_api:apps/ui",
+        0.6,
+      ],
+      ["apps/backend/docs/adr/0002-bun.md", "svc:repo_api:apps/backend", 0.9],
+      ["apps/backend/docs/adr/0002-bun.md", "svc:repo_api:apps/ui", 0.8],
+    ])
+  })
+
   it("restricts to changed paths on partial ingest and skips connector-only diffs", async () => {
     const { extractedObjects = [] } = await extractDecisions(
       state({
