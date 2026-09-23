@@ -48,4 +48,51 @@ describe("assembleNode claim hydration", () => {
       expect.arrayContaining(["clm_adr_influences", "clm_team_owns"]),
     )
   })
+
+  it("gives one compact row per claim: the fact, its confidence, how it was sourced, and where to cite", async () => {
+    const rawSourceId = `decision:repo_1:${"x".repeat(160)}:INFLUENCES:./:abc123`
+    const evidence = (sourceType: string, extractionMethod: string) => ({
+      id: `ev_${sourceType}`,
+      claimId: "clm_adr",
+      sourceType,
+      sourceId: rawSourceId,
+      sourceUrl: null,
+      extractionMethod,
+      confidence: 0.9,
+      observedAt: new Date("2026-09-20T00:00:00.000Z"),
+      validFrom: null,
+      validTo: null,
+      provenance: { path: "docs/adr/0041-use-sqs.md" },
+    })
+    hydrateClaimsWithEvidenceMock.mockResolvedValue([
+      {
+        id: "clm_adr",
+        orgId: "org_1",
+        subjectId: "obj_adr",
+        predicate: "INFLUENCES",
+        objectId: "obj_billing",
+        status: "active",
+        validFrom: null,
+        validTo: null,
+        firstObservedAt: new Date("2026-09-01T00:00:00.000Z"),
+        lastObservedAt: new Date("2026-09-20T00:00:00.000Z"),
+        aggregatedConfidence: 0.9,
+        evidence: [evidence("git", "deterministic"), evidence("slack", "llm")],
+      },
+    ])
+    const state = {
+      orgId: "org_1",
+      query: "why does billing use SQS?",
+      candidates: [],
+      claimIds: ["clm_adr"],
+    } as unknown as ConversationGraphState
+
+    const { retrievalContext = "" } = await assembleNode(state)
+
+    expect(retrievalContext).toContain("docs/adr/0041-use-sqs.md")
+    expect(retrievalContext).toContain("git/deterministic")
+    expect(retrievalContext).toContain("slack/llm")
+    expect(retrievalContext).not.toContain(rawSourceId)
+    expect(retrievalContext).not.toContain("org_1")
+  })
 })

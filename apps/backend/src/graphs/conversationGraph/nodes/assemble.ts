@@ -59,21 +59,32 @@ export async function assembleNode(
       : []
 
   if (hydratedClaimsWithEvidence.length > 0) {
+    const distinct = (values: Array<string | null | undefined>) =>
+      [...new Set(values.filter((v): v is string => Boolean(v)))].join(" ")
     contextParts.push(
       `Claims with evidence (provenance):\n${toToon({
         claims: hydratedClaimsWithEvidence.map((c) => ({
-          ...c,
+          id: c.id,
+          subjectId: c.subjectId,
+          predicate: c.predicate,
+          objectId: c.objectId,
+          confidence: c.aggregatedConfidence,
+          validFrom: c.validFrom?.toISOString().slice(0, 10) ?? "",
+          validTo: c.validTo?.toISOString().slice(0, 10) ?? "",
           evidenceCount: c.evidence.length,
+          sources: distinct(
+            c.evidence.map((e) => `${e.sourceType}/${e.extractionMethod}`),
+          ),
+          cite: distinct(
+            c.evidence.map(
+              (e) =>
+                e.sourceUrl ??
+                (typeof e.provenance?.path === "string"
+                  ? e.provenance.path
+                  : null),
+            ),
+          ),
         })),
-        evidence: hydratedClaimsWithEvidence.flatMap((c) =>
-          c.evidence.map((e) => ({
-            claimId: c.id,
-            sourceType: e.sourceType,
-            sourceId: e.sourceId,
-            extractionMethod: e.extractionMethod,
-            confidence: e.confidence,
-          })),
-        ),
       })}`,
     )
   }

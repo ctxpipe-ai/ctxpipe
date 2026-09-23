@@ -34,7 +34,10 @@ layer now manages indexes per provider). Builds on
 2. **Only edges valid on the query day are walked** (default today). Days are
    compared as `YYYY-MM-DD` strings; `""` and null mean open-ended.
 3. **The advisor hydrates every claim the traversal kept** (`state.claimIds`),
-   whatever the candidate rank.
+   whatever the candidate rank, as one compact row per claim: the fact,
+   confidence, validity, evidence count, `sourceType/extractionMethod` of its
+   evidence, and a path or URL to cite. Raw evidence ids (about 200
+   characters each) and a second, flat evidence list are not sent.
 4. **Projection ensures an `id` index per node kind** before `MERGE`, once per
    org and kind per process (`platform/graph/indexes.ts`):
    FalkorDB `CREATE INDEX FOR (n:K) ON (n.id)`; Neo4j
@@ -75,7 +78,10 @@ layer now manages indexes per provider). Builds on
   was 12–35 ms. The budget bounds it. The old query was fast because it looked
   at 20 edges picked by write order.
 - **Prompt size:** at most `limit` claims per traversal step (default 20; the
-  planner runs up to two traversal steps).
+  planner runs up to two traversal steps). Per walk of 18 claims, the claims
+  section shrank from ~7,500 to ~1,070 tokens, and walked-node candidates from
+  ~2,150 to ~850 (ADR-036 readable nodes). A walk now costs ~1,900 tokens
+  against ~2,150 before when evidence was crowded out and ~9,650 when not.
 - **Engines verified:** `graphTraversal.integration.test.ts`,
   `graphProjection.integration.test.ts` and `indexes.integration.test.ts` pass
   on FalkorDB and Neo4j 5; the first two pass on Memgraph over a
