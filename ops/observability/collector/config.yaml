@@ -1,6 +1,7 @@
 # ClickStack collector custom merge (CUSTOM_OTELCOL_CONFIG_FILE).
-# Do not redefine otlp, memory_limiter, batch, or the built-in clickhouse exporter.
-# Hosted allowlist source of truth; keep in sync with apps/otel-collector/config.yaml.
+# Do not redefine otlp/hyperdx, memory_limiter, batch, or the clickhouse exporter.
+# The base receiver name is otlp/hyperdx (not otlp). Hosted allowlist source of
+# truth; keep in sync with apps/otel-collector/config.yaml.
 
 processors:
   filter/llm_only:
@@ -21,6 +22,6 @@ exporters:
 service:
   pipelines:
     traces/llm:
-      receivers: [otlp]
+      receivers: [otlp/hyperdx]
       processors: [filter/llm_only, batch/langfuse]
       exporters: [otlphttp/langfuse]
