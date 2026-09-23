@@ -39,6 +39,10 @@ vi.mock("../../platform/graph/client.js", () => ({
   withGraphClient: withGraphClientMock,
 }))
 
+vi.mock("../../platform/graph/indexes.js", () => ({
+  ensureNodeIdIndexes: vi.fn(async () => undefined),
+}))
+
 vi.mock("../../observability/logger.js", () => ({
   getLogger: getLoggerMock,
   flushWorkflowLog: flushWorkflowLogMock,

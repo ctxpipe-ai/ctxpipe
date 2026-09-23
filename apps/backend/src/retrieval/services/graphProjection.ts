@@ -9,6 +9,7 @@ import { claims } from "../../db/schema/claims.js"
 import { objects } from "../../db/schema/objects.js"
 import { flushWorkflowLog, getLogger, log } from "../../observability/logger.js"
 import { getGraphClient, withGraphClient } from "../../platform/graph/client.js"
+import { ensureNodeIdIndexes } from "../../platform/graph/indexes.js"
 import { isValidGraphEdgeType } from "../schema/allowedConnections.js"
 import type { ClaimForProjection } from "../schema/claimForProjection.js"
 
@@ -407,6 +408,10 @@ export async function projectClaimsFromState(
     { orgId: resolvedOrgId, orgSlug: resolvedOrgSlug },
     async () => {
       const driver = getGraphClient()
+      await ensureNodeIdIndexes(
+        resolvedOrgId,
+        preparedRows.flatMap((r) => [r.claim.subjectKind, r.claim.objectKind]),
+      )
 
       for (const groupRows of groups.values()) {
         const first = groupRows[0]
