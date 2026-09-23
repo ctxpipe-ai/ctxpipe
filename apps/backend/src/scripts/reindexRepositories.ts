@@ -7,11 +7,16 @@
  * (codesearch full mode) and, once extraction succeeds, sweeps evidence the run
  * did not re-observe — the same path as the "Reindex" button in the UI.
  *
+ * `--deterministic-only` instead re-reads the repository with only the
+ * deterministic extractors (decisions, CODEOWNERS, connector files, path
+ * links): no LLM calls and no sweep. Use it to roll out an extractor change
+ * that needs no LLM, e.g. decision scoping (ADR-036).
+ *
  * Usage (apps/backend; DATABASE_URL and the OpenWorkflow / Railway wake variables
  * come from the environment, e.g. `railway run --environment <env> --service backend -- …`):
  *   bun run src/scripts/reindexRepositories.ts --org-id <org> --all [--reason "graph ontology v2"]
  *   bun run src/scripts/reindexRepositories.ts --org-id <org> --repository-id <id> [--repository-id <id> …]
- *   add --dry-run to list what would be enqueued.
+ *   add --dry-run to list what would be enqueued, --deterministic-only to skip LLM extractors.
  */
 import { resolve } from "node:path"
 import { setTimeout } from "node:timers/promises"
@@ -45,6 +50,7 @@ async function main(argv: string[]): Promise<void> {
     throw new Error("pass --all or one or more --repository-id <id>")
   }
   const dryRun = argv.includes("--dry-run")
+  const deterministicOnly = argv.includes("--deterministic-only")
   const reason = flag(argv, "--reason") ?? "graph re-index"
   const connectionString = process.env.DATABASE_URL
   if (!connectionString) throw new Error("DATABASE_URL is required")
@@ -88,14 +94,16 @@ async function main(argv: string[]): Promise<void> {
           repositoryId: repository.id,
           orgId,
           indexingReason: reason,
-          fullReingest: true,
+          ...(deterministicOnly
+            ? { deterministicOnly }
+            : { fullReingest: true }),
         },
         log,
       )
       process.stdout.write(`enqueued ${repository.id} ${repository.name}\n`)
     }
     process.stdout.write(
-      `${JSON.stringify({ orgId, selected: selected.length, dryRun, errors })}\n`,
+      `${JSON.stringify({ orgId, selected: selected.length, dryRun, deterministicOnly, errors })}\n`,
     )
     if (errors.length > 0) process.exitCode = 1
   } finally {

@@ -64,10 +64,24 @@ export async function runExtractKindForRoot(
   return extractKind({ ...state, roots: [root] })
 }
 
+/** Extractors that call an LLM; a deterministic-only run skips them. */
+const LLM_EXTRACTORS = [
+  identifyAPIClients,
+  identifyAPIs,
+  identifyDatabases,
+  identifyInfrastructure,
+  identifyStreams,
+  identifyServiceDependencies,
+  identifyLibraries,
+  identifyPatterns,
+  extractInstructionUnits,
+]
+
 export async function runIdentifyPhaseForRoot(
   state: CodeIngestionState,
   root: string,
   kindPartial: Partial<CodeIngestionState>,
+  options: { deterministicOnly?: boolean } = {},
 ): Promise<{
   extractedObjects: ExtractedObject[]
   extractedClaims: ExtractedClaim[]
@@ -83,15 +97,9 @@ export async function runIdentifyPhaseForRoot(
   }
 
   const parts = await Promise.all([
-    identifyAPIClients(rootState),
-    identifyAPIs(rootState),
-    identifyDatabases(rootState),
-    identifyInfrastructure(rootState),
-    identifyStreams(rootState),
-    identifyServiceDependencies(rootState),
-    identifyLibraries(rootState),
-    identifyPatterns(rootState),
-    extractInstructionUnits(rootState),
+    ...(options.deterministicOnly ? [] : LLM_EXTRACTORS).map((extract) =>
+      extract(rootState),
+    ),
     extractDecisions(rootState),
     extractCodeowners(rootState),
     ...CONNECTOR_EXTRACTORS.map((extractor) => extractor.extract(rootState)),

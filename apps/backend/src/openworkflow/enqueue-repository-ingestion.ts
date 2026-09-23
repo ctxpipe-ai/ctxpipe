@@ -30,6 +30,11 @@ export type RepositoryIngestionEnqueueInput = {
    * webhook-driven ingests stay incremental.
    */
   fullReingest?: boolean
+  /**
+   * Re-read the whole repository with only the deterministic extractors: no
+   * LLM calls and no unobserved-evidence sweep. Operator tooling only.
+   */
+  deterministicOnly?: boolean
 }
 
 export type ConnectorRepositoryIngestionInput = Omit<
@@ -97,6 +102,9 @@ function startRepositoryIngestionWorkflow(
       : {}),
     ...(input.fullReingest !== undefined
       ? { fullReingest: input.fullReingest }
+      : {}),
+    ...(input.deterministicOnly !== undefined
+      ? { deterministicOnly: input.deterministicOnly }
       : {}),
   }
   return input.idempotencyKey

@@ -54,8 +54,12 @@ was by location only). Builds on
 ## Consequences
 
 - Scope and supersession take effect when a repository's ADRs are next
-  extracted (a full reindex, or the ADR files changing). Status weighting
-  and readable nodes take effect on deploy.
+  extracted. Roll out with a deterministic-only run
+  (`reindex-repositories --deterministic-only`): it re-reads the repository
+  with only the deterministic extractors, makes no LLM calls, and skips the
+  unobserved-evidence sweep so LLM-extracted facts are kept. A full reindex
+  or the ADR files changing also picks it up. Status weighting and readable
+  nodes take effect on deploy.
 - ctxpipe's 35 ADRs: 14 scoped by reference, 21 repository-wide. Paths
   written relative to a package (`domain/codeIngestion/…`) are not
   resolved, so those ADRs fall back to repository-wide; resolving them
