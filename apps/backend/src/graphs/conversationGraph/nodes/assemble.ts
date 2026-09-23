@@ -6,28 +6,10 @@ import { toToon } from "../../../lib/agentToolRuntime.js"
 import { hydrateClaimsWithEvidence } from "../../../retrieval/index.js"
 import type { ConversationGraphState } from "../state.js"
 
-const TOP_CANDIDATES_FOR_CLAIM_HYDRATION = 20
-
-/** Extracts claim IDs referenced by top candidates (e.g. from traversal edgeClaimIds). */
-function claimIdsFromTopCandidates(
-  candidates: ConversationGraphState["candidates"],
-  limit: number,
-): string[] {
-  const ids = new Set<string>()
-  for (const c of (candidates ?? []).slice(0, limit)) {
-    const edgeClaimIds = (c.payload?.edgeClaimIds as string[] | undefined)
-    if (Array.isArray(edgeClaimIds)) {
-      for (const id of edgeClaimIds) if (id) ids.add(id)
-    }
-    const claimId = c.claimId
-    if (claimId) ids.add(claimId)
-  }
-  return [...ids]
-}
-
 /**
  * Builds retrieval context from combined candidates (graph + semantic + code)
- * and hydrated claims. Hydrates claims only for top-ranked candidates (after rerank).
+ * and hydrated claims. Hydrates every claim the traversal kept; the traversal
+ * budget bounds how many, and candidate rank does not.
  */
 export async function assembleNode(
   state: ConversationGraphState,
@@ -70,10 +52,7 @@ export async function assembleNode(
     )
   }
 
-  const claimIdsToHydrate = claimIdsFromTopCandidates(
-    state.candidates,
-    TOP_CANDIDATES_FOR_CLAIM_HYDRATION,
-  )
+  const claimIdsToHydrate = state.claimIds ?? []
   const hydratedClaimsWithEvidence =
     state.orgId && claimIdsToHydrate.length > 0
       ? await hydrateClaimsWithEvidence(state.orgId, claimIdsToHydrate)
