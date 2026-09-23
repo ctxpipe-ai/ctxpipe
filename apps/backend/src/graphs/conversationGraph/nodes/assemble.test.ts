@@ -32,7 +32,7 @@ describe("assembleNode claim hydration", () => {
       id: "cand_trav_adr_queue",
       sourceChannels: ["graph" as const],
       objectId: "adr_queue",
-      payload: { fromTraversal: true, edgeClaimIds: ["clm_adr_influences"] },
+      payload: { fromTraversal: true, kind: "Decision" },
     }
     const state = {
       orgId: "org_1",

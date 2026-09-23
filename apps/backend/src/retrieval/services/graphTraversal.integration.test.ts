@@ -55,7 +55,11 @@ function claimId(e: Edge): string {
  * order is how a scenario reproduces "the useful fact was written first".
  * Open-ended validity is "" because graphProjection writes it that way.
  */
-async function seed(name: string, edges: Edge[]): Promise<string> {
+async function seed(
+  name: string,
+  edges: Edge[],
+  statuses: Record<string, string> = {},
+): Promise<string> {
   const orgId = `org_eval_${name}_${Date.now()}`
   seededOrgIds.push(orgId)
 
@@ -76,6 +80,8 @@ async function seed(name: string, edges: Edge[]): Promise<string> {
         `UNWIND $rows AS row
          MERGE (s:${first.from[0]} { id: row.from, orgId: $orgId })
          MERGE (o:${first.to[0]} { id: row.to, orgId: $orgId })
+         SET s.kind = '${first.from[0]}', s.name = row.from,
+             o.kind = '${first.to[0]}', o.name = row.to
          CREATE (s)-[:${first.predicate} {
            claim_id: row.claimId,
            status: 'active',
@@ -96,6 +102,15 @@ async function seed(name: string, edges: Edge[]): Promise<string> {
         },
       )
     }
+    await driver.executeQuery(
+      `UNWIND $rows AS row
+       MATCH (n) WHERE n.id = row.id AND n.orgId = $orgId
+       SET n.status = row.status`,
+      {
+        orgId,
+        rows: Object.entries(statuses).map(([id, status]) => ({ id, status })),
+      },
+    )
   })
   return orgId
 }
@@ -254,6 +269,40 @@ describe.skipIf(!graphUri)("graph traversal evaluation (FalkorDB)", () => {
     })
 
     expect(result.edgeClaimIds).toHaveLength(15)
+  })
+
+  it("what is the standard for billing's queue: the accepted ADR wins over proposed and superseded ones, and the model can read which is which", async () => {
+    const orgId = await seed(
+      "adr_status",
+      [
+        edge(["Decision", "adr_kafka"], "INFLUENCES", billing, 0.9),
+        edge(["Decision", "adr_rabbit"], "INFLUENCES", billing, 0.9),
+        edge(["Decision", "adr_sqs"], "INFLUENCES", billing, 0.9),
+        ...Array.from({ length: 50 }, (_, i) =>
+          edge(
+            billing,
+            "HAS_INSTRUCTION",
+            ["InstructionUnit", `iu_${i}`],
+            0.72,
+          ),
+        ),
+      ],
+      { adr_kafka: "proposed", adr_rabbit: "superseded", adr_sqs: "accepted" },
+    )
+
+    const result = await traverse(orgId, "svc_billing", {
+      maxDepth: 1,
+      limit: 4,
+    })
+
+    expect(result.nodeIds).toContain("adr_sqs")
+    expect(result.nodeIds).not.toContain("adr_rabbit")
+    expect(result.nodes).toContainEqual({
+      id: "adr_sqs",
+      kind: "Decision",
+      name: "adr_sqs",
+      status: "accepted",
+    })
   })
 
   it("what does billing depend on: better-evidenced facts win the limited slots", async () => {

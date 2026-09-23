@@ -46,6 +46,7 @@ export {
 } from "./services/graphProjection.js"
 export type {
   GraphTraversalOptions,
+  TraversalNode,
   TraversalResult,
 } from "./services/graphTraversal.js"
 export { graphTraversal } from "./services/graphTraversal.js"
