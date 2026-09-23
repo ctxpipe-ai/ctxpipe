@@ -125,6 +125,49 @@ describe("parseDecisionMarkdown", () => {
     })
     expect(parseDecisionMarkdown("no heading here", "x.md")).toBeNull()
   })
+
+  it("reads supersession written as links, in the status header or front matter", () => {
+    const parse = (content: string) => parseDecisionMarkdown(content, "x.md")
+
+    expect(
+      parse(`# ADR-021: Local agent memory
+
+**Status:** Superseded by [ADR-024](ADR-024-markdown-only-local-memory.md) | **Date:** 2026-05-25 | **Tags:** memory
+`),
+    ).toMatchObject({ status: "superseded", supersededBy: ["ADR-24"] })
+    expect(
+      parse(`# ADR-004: Local development with Docker Compose
+
+**Status:** Superseded | **Superseded by:** [ADR-015](ADR-015-compose-profiles.md) | **Date:** 2026-02-13
+`),
+    ).toMatchObject({ status: "superseded", supersededBy: ["ADR-15"] })
+    expect(
+      parse(`# ADR-024: Markdown-only local memory
+
+**Status:** Accepted | **Date:** 2026-08-11 | **Tags:** memory
+
+**Supersedes:** [ADR-021](ADR-021-local-agent-memory.md)
+`),
+    ).toMatchObject({ status: "accepted", supersedes: ["ADR-21"] })
+    expect(
+      parse(`---
+status: "superseded by [ADR-0005](0005-example.md)"
+---
+
+# Use plain JUnit5 for advanced test assertions
+`),
+    ).toMatchObject({ status: "superseded", supersededBy: ["ADR-5"] })
+    expect(
+      parse(`# ADR-014: Parallel worktree local development
+
+**Status:** Accepted | **Date:** 2026-03-20
+
+## Related
+
+- [ADR-004](ADR-004.md) (Compose layout superseded by [ADR-015](ADR-015.md))
+`),
+    ).toMatchObject({ status: "accepted", supersedes: [], supersededBy: [] })
+  })
 })
 
 describe("extractDecisions", () => {

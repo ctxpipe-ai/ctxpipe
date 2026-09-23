@@ -162,6 +162,26 @@ export function parseDecisionMarkdown(
     sectionParagraph(body, /^##\s+(?:Context|Decision)\s*$/im) ??
     firstParagraph(excerpt)
 
+  // Supersession is declared in the status header or a field line, often as a
+  // link (`Superseded by [ADR-24](...)`, `**Supersedes:** [ADR-21](...)`).
+  // In prose only the plain form counts: a linked mention there usually
+  // describes another ADR.
+  const declared = [
+    asString(data.status),
+    boldHeader?.[0],
+    statusLine?.[0],
+    statusSection?.[0],
+    ...((split?.body ?? content).match(
+      /^\s*(?:\*\*|__)?(?:supersedes|superseded\s+by)\b.*$/gim,
+    ) ?? []),
+  ].join("\n")
+  const supersession = (declaredPattern: RegExp, prosePattern: RegExp) => [
+    ...new Set([
+      ...adrNumbers(declared, declaredPattern),
+      ...adrNumbers(body, prosePattern),
+    ]),
+  ]
+
   return {
     title,
     adrId,
@@ -169,9 +189,12 @@ export function parseDecisionMarkdown(
     date,
     summary,
     excerpt,
-    supersedes: adrNumbers(body, /\bsupersedes\s+ADR[-\s]?0*(\d{1,5})\b/gi),
-    supersededBy: adrNumbers(
-      body,
+    supersedes: supersession(
+      /\bsupersedes\b[\s:*_[]*ADR[-\s]?0*(\d{1,5})\b/gi,
+      /\bsupersedes\s+ADR[-\s]?0*(\d{1,5})\b/gi,
+    ),
+    supersededBy: supersession(
+      /\bsuperseded\s+by\b[\s:*_[]*ADR[-\s]?0*(\d{1,5})\b/gi,
       /\bsuperseded\s+by\s+ADR[-\s]?0*(\d{1,5})\b/gi,
     ),
   }
