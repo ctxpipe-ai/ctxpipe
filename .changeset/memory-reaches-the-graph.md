@@ -1,6 +1,0 @@
----
-"ctxpipe": minor
-"@ctxpipe/aws-cdk": patch
----
-
-Get local memory into git and the graph. The Stop hook, `memory status` and `memory doctor` now report durable `.ai/memory` files left uncommitted, and the installed rule and skills tell agents to commit memory with the work it came from and to summarize that work in the pull request description. `memory init` now also installs the memory rule and skills for Claude Code (`.claude/rules/`, `.claude/skills/`), capture hooks for VS Code (`.github/hooks/ctxpipe-memory.json`) and a capture plugin for OpenCode (`.opencode/plugins/ctxpipe-memory.js`); a Claude Code hook that Cursor or VS Code also runs now stands aside when that tool has its own, so capture runs once. Ingestion reads `.ai/memory/lessons-learned.md` as an instruction source (below `AGENTS.md`), and extracts instruction files over 48,000 characters in chunks (split at headings, then paragraphs) instead of truncating them. Lessons already committed reach the graph the next time the file changes or the repository is re-indexed. `memory init` no longer replaces a team's `.ai/memory/README.md` because it mentions the current `memory-search` skill, and capture no longer proposes a glossary entry whenever a message mentions the glossary.
