@@ -74,6 +74,10 @@ resource "railway_variable_collection" "collector" {
       value = "otel"
     },
     {
+      name  = "CLICKHOUSE_DATABASE"
+      value = "otel"
+    },
+    {
       name  = "HYPERDX_API_KEY"
       value = var.hyperdx_api_key
     },
