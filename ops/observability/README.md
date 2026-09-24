@@ -10,7 +10,7 @@ See [ADR-031](../../.ai/memory/decisions/ADR-031-self-hosted-clickstack-langfuse
 | --- | --- | --- |
 | ClickHouse | GitHub `ops/observability/clickhouse` | 1 GiB RAM cap, volume, DBs `otel` + `langfuse`, 14-day TTL |
 | Collector | GitHub `ops/observability/collector` | Built-in ClickHouse APM + custom LLM allowlist → Langfuse. Public hostname `telemetry.ctxpipe.ai` |
-| HyperDX | `hyperdx/hyperdx:2` | UI at `hyperdx.ctxpipe.ai`; Railway Serverless OK |
+| HyperDX | `hyperdx/hyperdx:2` | UI at `hyperdx.ctxpipe.ai`; Serverless flag on, Mongo pool keeps it warm |
 | Mongo | `mongo:7` | HyperDX metadata only |
 | Langfuse web | `langfuse/langfuse:3` | UI at `langfuse.ctxpipe.ai` + `/api/public/otel` |
 | Langfuse worker | `langfuse/langfuse-worker:3` | ClickHouse + Neon + bucket |
@@ -52,4 +52,4 @@ If the ClickStack image cannot merge `otlphttp/langfuse`, run only the contrib c
 
 ## Cost target
 
-Single replica, no PR copies, Railway Serverless on every service, ~$25–35/mo. Uncapped ClickHouse or cloning this stack into `ctxpipe` preview envs is what blows the bill. The Railway 0.6.1 provider cannot set `sleepApplication`; GitHub-built services use `railway.toml`, image services are set on the Railway service.
+Single replica, no PR copies, Railway Serverless flagged on every service, ~$25–35/mo target. Uncapped ClickHouse or cloning this stack into `ctxpipe` preview envs is what blows the bill. The Railway 0.6.1 provider cannot set `sleepApplication`; GitHub-built services use `railway.toml`, image services are set on the Railway service. E2e (2026-09-24): no service reached `SLEEPING` while production/PR posted `/v1/metrics` every 60s and Langfuse worker flushed ClickHouse every 1s. Railway needs 5–10 minutes with zero outbound packets; connection pools and periodic export prevent that.
