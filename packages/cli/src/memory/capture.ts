@@ -8,6 +8,7 @@ import {
 import { join, resolve as pathResolve } from "node:path"
 import { createHash, randomUUID } from "node:crypto"
 import { resolveRepoRoot } from "./paths.js"
+import { uncommittedMemory } from "./uncommitted.js"
 
 export { resolveRepoRoot } from "./paths.js"
 
@@ -63,7 +64,8 @@ const CLASSIFIERS: Array<{
     destination: ".ai/memory/glossary.md",
     action: "Add a glossary term; keep glossary.md in sync",
     patterns: [
-      /\b(we call (this|that)|means in this (project|repo)|glossary)\b/i,
+      /\b(we call (this|that)|means in this (project|repo))\b/i,
+      /\b(add|put|record)\b[^.\n]{0,60}\b(to|in) the glossary\b/i,
     ],
   },
 ]
@@ -104,7 +106,7 @@ const DENY_PATH_FRAGMENTS = [
 ]
 
 const FOLLOWUP_PROMPT_RE =
-  /Memory candidates \(|Promote via skills\/rules|mark ids promoted\/dismissed|do not auto-write ADRs from hooks/i
+  /Memory candidates \(|Uncommitted memory \(|Promote via skills\/rules|mark ids promoted\/dismissed|do not auto-write ADRs from hooks/i
 
 const SELF_CAPTURE_RE =
   /memory capture|memory-capture|capture\.ts|capture-adr|capture-lesson|capture-glossary|capture-decision/i
@@ -632,6 +634,8 @@ export type SummaryResult = {
   candidates: SummaryCandidate[]
   /** IDs listed in this summary; call acknowledgeSurfaced after successful delivery. */
   surfacedIds: string[]
+  /** Set when the message includes the uncommitted-memory notice; acknowledge it with the ids. */
+  uncommittedKey?: string
   parseErrors: number
 }
 
@@ -726,6 +730,8 @@ type CandidateLifecycleState = {
   promoted: string[]
   /** IDs agent dismissed without promoting. */
   dismissed: string[]
+  /** Last uncommitted-memory notice delivered (branch + HEAD + files). */
+  uncommittedKey?: string
   updatedAt?: string
 }
 
@@ -747,6 +753,8 @@ function readLifecycle(repoRoot: string): CandidateLifecycleState {
         surfaced: Array.isArray(data.surfaced) ? data.surfaced : [],
         promoted: Array.isArray(data.promoted) ? data.promoted : [],
         dismissed: Array.isArray(data.dismissed) ? data.dismissed : [],
+        uncommittedKey:
+          typeof data.uncommittedKey === "string" ? data.uncommittedKey : undefined,
         updatedAt: data.updatedAt,
       }
     } catch {
@@ -780,14 +788,15 @@ function closedIds(state: CandidateLifecycleState): Set<string> {
  */
 export function acknowledgeSurfaced(
   ids: string[],
-  opts: { cwd?: string } = {},
+  opts: { cwd?: string; uncommittedKey?: string } = {},
 ): void {
-  if (ids.length === 0) return
+  if (ids.length === 0 && !opts.uncommittedKey) return
   const repoRoot = resolveRepoRoot(opts.cwd)
   const lifecycle = readLifecycle(repoRoot)
   writeLifecycle(repoRoot, {
     ...lifecycle,
     surfaced: [...new Set([...lifecycle.surfaced, ...ids])],
+    uncommittedKey: opts.uncommittedKey ?? lifecycle.uncommittedKey,
   })
 }
 
@@ -827,6 +836,9 @@ export function markDismissed(ids: string[], opts: { cwd?: string } = {}): void 
  * Cursor additionally requires a user-prompt source. Tool/edit-sourced items
  * are dismissed (MCP/grep/test dumps, not conventions). Already-surfaced ids
  * stay pending for promote/dismiss but must not decision:block every later Stop.
+ *
+ * Uncommitted durable memory adds a notice, one-shot per branch + HEAD + file
+ * set, so a commit that leaves memory out surfaces it again.
  */
 export function summarizeCapture(
   opts: { cwd?: string; host?: CaptureHost } = {},
@@ -835,6 +847,7 @@ export function summarizeCapture(
   const repoRoot = resolveRepoRoot(opts.cwd)
   const { candidates: all, parseErrors } = readCandidates(repoRoot)
   const lifecycle = readLifecycle(repoRoot)
+  const notice = uncommittedNotice(repoRoot, lifecycle)
   const closed = closedIds(lifecycle)
   const surfaced = new Set(lifecycle.surfaced)
   let pending = all.filter((c) => {
@@ -867,6 +880,7 @@ export function summarizeCapture(
       : ""
 
   if (pending.length === 0) {
+    if (notice) return noticeSummary(notice, parseErrors)
     return {
       priority: "low",
       message:
@@ -888,6 +902,7 @@ export function summarizeCapture(
       : neverShown
 
   if (pool.length === 0) {
+    if (notice) return noticeSummary(notice, parseErrors)
     return {
       priority: "low",
       message: `${pending.length} memory candidate(s) pending (already shown or not eligible). Not injecting a turn.${parseNote}`,
@@ -919,6 +934,7 @@ export function summarizeCapture(
     ...(parseErrors > 0
       ? [`Warning: skipped ${parseErrors} malformed candidates.jsonl line(s).`]
       : []),
+    ...(notice ? ["", notice.message] : []),
   ]
 
   const surfacedIds = listed
@@ -930,6 +946,48 @@ export function summarizeCapture(
     message: lines.join("\n"),
     candidates: listed,
     surfacedIds,
+    uncommittedKey: notice?.key,
+    parseErrors,
+  }
+}
+
+type UncommittedNotice = { message: string; key: string }
+
+function uncommittedNotice(
+  repoRoot: string,
+  lifecycle: CandidateLifecycleState,
+): UncommittedNotice | null {
+  const state = uncommittedMemory(repoRoot)
+  if (!state || state.files.length === 0) return null
+  const files = [...state.files].sort()
+  const key = createHash("sha256")
+    .update([state.branch, state.head, ...files].join("\n"))
+    .digest("hex")
+    .slice(0, 16)
+  if (lifecycle.uncommittedKey === key) return null
+  const count = `${files.length} file${files.length === 1 ? "" : "s"}`
+  const more = files.length > 5 ? ` and ${files.length - 5} more` : ""
+  return {
+    key,
+    message: [
+      `Uncommitted memory (${count} on \`${state.branch}\`): ${files.slice(0, 5).join(", ")}${more}.`,
+      "Memory is shared with teammates and the ctx| graph only once it merges: include these files in the commit for the work they came from, on that work's branch.",
+      "When you open or update that work's pull request, summarise the work in the pull request description: what changed, why, what was tried and ruled out, follow-ups.",
+      "If you are not committing now, tell the user in one sentence that memory is uncommitted.",
+    ].join("\n"),
+  }
+}
+
+function noticeSummary(
+  notice: UncommittedNotice,
+  parseErrors: number,
+): SummaryResult {
+  return {
+    priority: "medium",
+    message: notice.message,
+    candidates: [],
+    surfacedIds: [],
+    uncommittedKey: notice.key,
     parseErrors,
   }
 }

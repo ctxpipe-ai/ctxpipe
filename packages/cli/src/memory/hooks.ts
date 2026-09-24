@@ -77,6 +77,9 @@ npx -y ctxpipe memory capture promote <candidateId>
 # or: npx -y ctxpipe memory capture dismiss <candidateId>
 npx -y ctxpipe memory capture summary
 \`\`\`
+
+Commit \`.ai/memory/\` changes with the work they came from, on that work's branch, and
+summarise the work in its pull request description (what changed, why, what was ruled out).
 ${MEMORY_INSTRUCTION_MARKER_END}
 `
 }

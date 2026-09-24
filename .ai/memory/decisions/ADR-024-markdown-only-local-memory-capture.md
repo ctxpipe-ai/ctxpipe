@@ -4,6 +4,8 @@
 
 **Supersedes:** [ADR-021](ADR-021-local-agent-memory-agentmemory-hybrid-mcp-proxy.md)
 
+**Amended by:** [ADR-037](ADR-037-committed-memory-reaches-the-graph.md) — memory is committed with its work, the pull request description is the work summary, and `sessions/` is only for work with no pull request.
+
 ## Context
 
 ADR-021 wired a hybrid path: repo Markdown plus a disposable local search runtime hydrated from `.ai/memory/`. In practice that split the product:

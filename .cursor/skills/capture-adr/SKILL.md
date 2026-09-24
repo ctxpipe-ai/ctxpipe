@@ -24,3 +24,12 @@ npx -y ctxpipe memory capture promote <candidateId>
 npx -y ctxpipe memory capture dismiss <candidateId>
 ```
 
+Include the `.ai/memory/` change in the commit for the work it came from.
+
+## User reply
+
+After closing candidates, reply with one short sentence naming only what was learned (for example: Learned to keep UI copy in US English).
+If nothing was promoted, say nothing about memory.
+Omit dismissals, candidate ids, and unchanged files or stores.
+
+

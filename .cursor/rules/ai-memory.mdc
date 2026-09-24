@@ -38,6 +38,12 @@ rg -i "keyword" .ai/memory --glob '*.md' --glob '!events/**'
 - **Always update the relevant `index.md`** when adding or renaming durable entries.
 - Never commit secrets into `.ai/memory/`.
 
+## Commit and share
+
+- Memory is shared with teammates (and the ctx| graph) only once it merges. Include `.ai/memory/` changes in the commit for the work they came from, on that work's branch — not a separate memory branch.
+- Summarise the work in the pull request description: what changed, why, what was tried and ruled out, follow-ups. Use `sessions/` only for work with no PR.
+- Describe people by role, not by name or email address.
+
 ## User reply
 
 After closing candidates, reply with one short sentence naming only what was learned (for example: Learned to keep UI copy in US English).

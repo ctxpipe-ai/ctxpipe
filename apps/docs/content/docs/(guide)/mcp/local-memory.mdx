@@ -58,7 +58,7 @@ capture for the agents you select:
   product-context.md
   decisions/index.md + ADR-*.md
   PRDs/
-  sessions/
+  sessions/        # summaries of work with no pull request
   events/          # gitignored candidate inbox
 ```
 
@@ -71,6 +71,23 @@ capture for the agents you select:
 4. Agents write durable Markdown with `capture-adr`, `capture-lesson`,
    `capture-glossary`, or `capture-decision`, **update the matching `index.md`**, then
    run `memory capture promote|dismiss <id>` so candidates leave the surfaced set.
+
+## Commit and share
+
+Memory is shared only once it merges. Hooks never commit, so:
+
+- **Commit memory with its work.** Include `.ai/memory/` changes in the commit for the
+  work they came from, on that work's branch. When durable memory is uncommitted, the
+  Stop hook says so once (and again if a later commit leaves it out);
+  `memory status` and `memory doctor` report it too.
+- **Summarise work in the pull request description**: what changed, why, what was tried
+  and ruled out, follow-ups. With the pull request mirror enabled, ctx| ingests that
+  description alongside the changed files. Use `sessions/` only for work with no pull
+  request.
+- **Merged lessons become instructions.** When a connected repository is ingested,
+  `.ai/memory/lessons-learned.md` is read as an instruction source, ranked below
+  `AGENTS.md` and agent rules. Other memory files are indexed for search; ADRs become
+  decisions.
 
 ## Recall
 

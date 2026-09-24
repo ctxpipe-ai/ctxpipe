@@ -34,9 +34,15 @@ async function writeStopStdout(
     const output = formatStopHookOutput(host, result, payload)
     await writeStdoutJson(output)
     delivered = true
-    // Only after confirmed delivery, and only when the host received candidate text.
-    if (Object.keys(output).length > 0 && result.surfacedIds.length > 0) {
-      acknowledgeSurfaced(result.surfacedIds, { cwd })
+    // Only after confirmed delivery, and only when the host received the text.
+    if (
+      Object.keys(output).length > 0 &&
+      (result.surfacedIds.length > 0 || result.uncommittedKey)
+    ) {
+      acknowledgeSurfaced(result.surfacedIds, {
+        cwd,
+        uncommittedKey: result.uncommittedKey,
+      })
     }
   } catch {
     // Never emit a second JSON document after a successful write (hosts parse one object).

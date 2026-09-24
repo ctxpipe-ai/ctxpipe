@@ -501,6 +501,38 @@ enabled = true
     expect(repoCodexToml).toContain("ctxpipe memory capture")
   })
 
+  it("keeps a team README that names the memory-search skill and AgentMemory history", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-team-readme-"))
+    const readme =
+      "# Team memory\n\nWe moved off AgentMemory in August (see ADR-021).\nRecall with the memory-search skill.\n"
+    mkdirSync(join(cwd, ".ai", "memory"), { recursive: true })
+    writeFileSync(join(cwd, ".ai", "memory", "README.md"), readme)
+
+    runMemoryInit(cwd, ["--agents", "cursor", "--non-interactive"])
+
+    expect(readFileSync(join(cwd, ".ai", "memory", "README.md"), "utf8")).toBe(
+      readme,
+    )
+  })
+
+  it("memory doctor warns about uncommitted durable memory", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-doctor-"))
+    execFileSync("git", ["init", "-q"], { cwd })
+    mkdirSync(join(cwd, ".ai", "memory"), { recursive: true })
+    writeFileSync(join(cwd, ".ai", "memory", "lessons-learned.md"), "### A\n")
+
+    const out = JSON.parse(
+      execFileSync(process.execPath, [BIN, "memory", "doctor", "--json"], {
+        cwd,
+        encoding: "utf8",
+      }),
+    ) as { checks: Array<{ name: string; status: string; detail: string }> }
+
+    const check = out.checks.find((c) => c.name === "uncommitted")
+    expect(check?.status).toBe("warn")
+    expect(check?.detail).toContain(".ai/memory/lessons-learned.md")
+  })
+
   it("requires --agents in non-interactive mode", () => {
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-no-agents-"))
     expect(() => runMemoryInit(cwd, ["--non-interactive"])).toThrow(

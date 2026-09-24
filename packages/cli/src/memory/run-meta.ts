@@ -3,6 +3,7 @@ import { join } from "node:path"
 import { log, note } from "@clack/prompts"
 import { resolveCtxpipeBaseUrl } from "../auth.js"
 import { resolveMemoryRoot, resolveRepoRoot } from "./paths.js"
+import { type UncommittedMemory, uncommittedMemory } from "./uncommitted.js"
 
 export async function runMemoryStatus(opts: {
   baseUrl: string
@@ -58,6 +59,8 @@ type StatusSnapshot = {
   memoryRootExists: boolean
   indexExists: boolean
   eventsDirExists: boolean
+  /** null outside a git repository. */
+  uncommitted: UncommittedMemory | null
   mode: "markdown-only"
 }
 
@@ -71,6 +74,7 @@ function collectStatus(baseUrl: string): StatusSnapshot {
     memoryRootExists: existsSync(memoryRoot),
     indexExists: existsSync(join(memoryRoot, "index.md")),
     eventsDirExists: existsSync(join(memoryRoot, "events")),
+    uncommitted: uncommittedMemory(cwd),
     mode: "markdown-only",
   }
 }
@@ -104,7 +108,30 @@ function collectDoctorChecks(status: StatusSnapshot): DoctorCheck[] {
         ? "events/ present (gitignored candidate inbox)"
         : "events/ missing — re-run memory init",
     },
+    uncommittedCheck(status.uncommitted),
   ]
+}
+
+function uncommittedCheck(uncommitted: UncommittedMemory | null): DoctorCheck {
+  if (!uncommitted) {
+    return {
+      name: "uncommitted",
+      status: "warn",
+      detail: "not a git repository — memory cannot be committed or shared",
+    }
+  }
+  if (uncommitted.files.length === 0) {
+    return {
+      name: "uncommitted",
+      status: "ok",
+      detail: "durable memory is committed",
+    }
+  }
+  return {
+    name: "uncommitted",
+    status: "warn",
+    detail: `${uncommitted.files.join(", ")} uncommitted on ${uncommitted.branch} — commit with the work they came from`,
+  }
 }
 
 function formatStatusText(state: StatusSnapshot): string {
@@ -113,6 +140,7 @@ function formatStatusText(state: StatusSnapshot): string {
     `memory root:    ${state.memoryRoot}${state.memoryRootExists ? "" : " (missing)"}`,
     `index.md:       ${state.indexExists ? "yes" : "missing"}`,
     `events/:        ${state.eventsDirExists ? "yes" : "missing"}`,
+    `uncommitted:    ${state.uncommitted ? state.uncommitted.files.length : "n/a (not a git repository)"}`,
   ].join("\n")
 }
 
