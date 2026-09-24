@@ -135,6 +135,14 @@ function isSkillsFolderSkillFile(p: string): boolean {
   return base.toLowerCase() === "skill.md"
 }
 
+/** Lessons agents promote into local memory (`ctxpipe memory`, ADR-037). */
+function isMemoryLessonsPath(p: string): boolean {
+  return (
+    p === ".ai/memory/lessons-learned.md" ||
+    p.endsWith("/.ai/memory/lessons-learned.md")
+  )
+}
+
 export function instructionSourceTier(path: string): 1 | 2 | 3 {
   const p = path.toLowerCase().replace(/\\/g, "/")
   if (
@@ -150,7 +158,8 @@ export function instructionSourceTier(path: string): 1 | 2 | 3 {
   if (
     p.includes("/docs/") ||
     p.endsWith("contributing.md") ||
-    p.endsWith("/contributing.md")
+    p.endsWith("/contributing.md") ||
+    isMemoryLessonsPath(p)
   ) {
     return 2
   }
@@ -180,6 +189,7 @@ export function isInstructionCandidatePath(path: string): boolean {
   if (isAgentRulesPath(p)) return true
   if (p.endsWith("/readme.md") || p === "readme.md") return true
   if (isSkillsFolderSkillFile(p)) return true
+  if (isMemoryLessonsPath(p)) return true
   return false
 }
 
@@ -194,10 +204,11 @@ function normalizeRootDir(root: string): string {
 
 /**
  * Instruction sources are files whose purpose is to instruct (ADR-033 hygiene):
- * agent files and rules, skills, CONTRIBUTING, the README at the repository
- * root or at a package root, and docs whose filename names a norm. Every other
- * Markdown file is documentation: indexed for search, never minted as an
- * InstructionUnit. Decision records become `Decision` nodes, not instructions.
+ * agent files and rules, skills, CONTRIBUTING, local-memory lessons (ADR-037),
+ * the README at the repository root or at a package root, and docs whose
+ * filename names a norm. Every other Markdown file is documentation: indexed
+ * for search, never minted as an InstructionUnit. Decision records become
+ * `Decision` nodes, not instructions.
  */
 export function isInstructionSourcePath(
   path: string,
@@ -208,6 +219,7 @@ export function isInstructionSourcePath(
   if (p === "agents.md" || p.endsWith("/agents.md")) return true
   if (p === "claude.md" || p.endsWith("/claude.md")) return true
   if (isAgentRulesPath(p) || isSkillsFolderSkillFile(p)) return true
+  if (isMemoryLessonsPath(p)) return true
   if (p === "contributing.md" || p.endsWith("/contributing.md")) return true
   if (p === "readme.md") return true
   if (p.endsWith("/readme.md")) {
@@ -247,6 +259,7 @@ export function isRepoRootInstructionPath(path: string): boolean {
   if (!p.includes("/")) return true
   if (p.startsWith(".cursor/")) return true
   if (p.startsWith(".agents/")) return true
+  if (p.startsWith(".ai/memory/")) return true
   if (p.startsWith("docs/")) return true
   return false
 }
@@ -444,6 +457,31 @@ function clusterPassesSkillPromotion(members: ExtractedObject[]): boolean {
   return true
 }
 
+/** Characters sent to the extraction model per call. */
+const EXTRACTION_CHAR_LIMIT = 48_000
+
+/**
+ * Heading-bounded chunks of at most `limit` characters, so long instruction
+ * files are extracted whole rather than truncated. A single section over the
+ * limit stays one chunk.
+ */
+export function splitForExtraction(content: string, limit: number): string[] {
+  if (content.length <= limit) return [content]
+  const chunks: string[] = []
+  let current = ""
+  for (const section of content.split(/\n(?=#{1,3} )/)) {
+    const joined = current ? `${current}\n${section}` : section
+    if (current && joined.length > limit) {
+      chunks.push(current)
+      current = section
+    } else {
+      current = joined
+    }
+  }
+  if (current) chunks.push(current)
+  return chunks
+}
+
 async function extractUnitsFromFileContent(input: {
   path: string
   content: string
@@ -465,8 +503,8 @@ async function extractUnitsFromFileContent(input: {
   })
 
   const truncated =
-    input.content.length > 48_000
-      ? `${input.content.slice(0, 48_000)}\n\n[truncated]`
+    input.content.length > EXTRACTION_CHAR_LIMIT
+      ? `${input.content.slice(0, EXTRACTION_CHAR_LIMIT)}\n\n[truncated]`
       : input.content
 
   const res = await structured.invoke(
@@ -583,22 +621,25 @@ export async function extractInstructionUnits(
       continue
     }
 
-    let parsed: z.infer<typeof LlmUnitsResponseSchema>
+    const returned: z.infer<typeof LlmUnitsResponseSchema>["units"] = []
     try {
-      parsed = await extractUnitsFromFileContent({
-        path,
-        content,
-        repositoryId,
-        targetHash,
-      })
+      for (const chunk of splitForExtraction(content, EXTRACTION_CHAR_LIMIT)) {
+        const parsed = await extractUnitsFromFileContent({
+          path,
+          content: chunk,
+          repositoryId,
+          targetHash,
+        })
+        returned.push(...parsed.units)
+      }
     } catch {
       filesSkippedLlmError++
       continue
     }
     filesProcessed++
 
-    unitsReturned += parsed.units.length
-    const units = dedupeUnitsBySourceExcerpt(parsed.units)
+    unitsReturned += returned.length
+    const units = dedupeUnitsBySourceExcerpt(returned)
     unitsAfterExcerptDedupe += units.length
 
     const tier = instructionSourceTier(path)
