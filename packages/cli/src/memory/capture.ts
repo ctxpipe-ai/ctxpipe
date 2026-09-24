@@ -108,9 +108,6 @@ const DENY_PATH_FRAGMENTS = [
 const FOLLOWUP_PROMPT_RE =
   /Memory candidates \(|Uncommitted memory \(|Promote via skills\/rules|mark ids promoted\/dismissed|do not auto-write ADRs from hooks/i
 
-/** Claude Code submits subagent reports as prompts; the frame marks them as not from the user. */
-const AGENT_MESSAGE_FRAME_RE = /^<agent-message\b/m
-
 const SELF_CAPTURE_RE =
   /memory capture|memory-capture|capture\.ts|capture-adr|capture-lesson|capture-glossary|capture-decision/i
 
@@ -506,7 +503,8 @@ export function observeCapture(opts: {
   }
   if (
     FOLLOWUP_PROMPT_RE.test(promptRaw) ||
-    AGENT_MESSAGE_FRAME_RE.test(promptRaw) ||
+    // Claude Code submits subagent reports as prompts, framed as not from the user.
+    /^<agent-message\b/m.test(promptRaw) ||
     FOLLOWUP_PROMPT_RE.test(assistantRaw) ||
     FOLLOWUP_PROMPT_RE.test(payloadBlob)
   ) {
