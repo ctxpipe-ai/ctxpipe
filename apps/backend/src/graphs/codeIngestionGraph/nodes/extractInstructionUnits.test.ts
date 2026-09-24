@@ -101,7 +101,22 @@ describe("extractInstructionUnits helpers", () => {
       expect(chunk.length).toBeLessThanOrEqual(120)
     }
     expect(chunks.slice(1).every((c) => c.startsWith("### Lesson"))).toBe(true)
-    expect(chunks.join("\n")).toBe(content)
+    expect(chunks.join("")).toBe(content)
+  })
+
+  it("splitForExtraction splits a section over the limit at paragraphs, then at the limit", () => {
+    const paragraphs = [1, 2, 3, 4]
+      .map((n) => `Rule ${n}: ${"y".repeat(40)}`)
+      .join("\n\n")
+    const unbroken = "z".repeat(250)
+    for (const content of [paragraphs, `# Rules\n\n${paragraphs}`, unbroken]) {
+      const chunks = splitForExtraction(content, 100)
+      expect(chunks.length).toBeGreaterThan(1)
+      for (const chunk of chunks) {
+        expect(chunk.length).toBeLessThanOrEqual(100)
+      }
+      expect(chunks.join("")).toBe(content)
+    }
   })
 
   it("sortInstructionCandidates orders by tier then path", () => {

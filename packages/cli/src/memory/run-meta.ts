@@ -140,7 +140,13 @@ function formatStatusText(state: StatusSnapshot): string {
     `memory root:    ${state.memoryRoot}${state.memoryRootExists ? "" : " (missing)"}`,
     `index.md:       ${state.indexExists ? "yes" : "missing"}`,
     `events/:        ${state.eventsDirExists ? "yes" : "missing"}`,
-    `uncommitted:    ${state.uncommitted ? state.uncommitted.files.length : "n/a (not a git repository)"}`,
+    `uncommitted:    ${
+      !state.uncommitted
+        ? "n/a (not a git repository)"
+        : state.uncommitted.files.length === 0
+          ? "none"
+          : `${state.uncommitted.files.join(", ")} on ${state.uncommitted.branch}`
+    }`,
   ].join("\n")
 }
 

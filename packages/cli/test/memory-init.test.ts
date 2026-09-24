@@ -597,6 +597,20 @@ enabled = true
     expect(check?.detail).toContain(".ai/memory/lessons-learned.md")
   })
 
+  it("memory status lists uncommitted memory files", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-status-"))
+    execFileSync("git", ["init", "-q", "-b", "feature/memory"], { cwd })
+    mkdirSync(join(cwd, ".ai", "memory"), { recursive: true })
+    writeFileSync(join(cwd, ".ai", "memory", "lessons-learned.md"), "### A\n")
+
+    const out = execFileSync(process.execPath, [BIN, "memory", "status"], {
+      cwd,
+      encoding: "utf8",
+    })
+
+    expect(out).toContain(".ai/memory/lessons-learned.md on feature/memory")
+  })
+
   it("requires --agents in non-interactive mode", () => {
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-no-agents-"))
     expect(() => runMemoryInit(cwd, ["--non-interactive"])).toThrow(

@@ -47,7 +47,8 @@ is what the team reviews and merges.
    and rules (0.82): agents write it and it gets lighter review than `AGENTS.md`.
    Glossary, PRDs, product context and sessions stay search-only documentation.
 4. **Instruction files over the per-call limit are extracted in
-   heading-bounded chunks** instead of truncated. This applies to every
+   chunks** instead of truncated: split at H1–H3 headings, then at paragraphs
+   inside a longer section, then at the limit. This applies to every
    instruction source, not only lessons.
 5. **Claude Code gets the memory rule and capture skills** in `.claude/rules/`
    and `.claude/skills/` (repo or user scope), as Cursor does in `.cursor/`.

@@ -457,25 +457,32 @@ function clusterPassesSkillPromotion(members: ExtractedObject[]): boolean {
   return true
 }
 
-/** Characters sent to the extraction model per call. */
-const EXTRACTION_CHAR_LIMIT = 48_000
-
 /**
- * Heading-bounded chunks of at most `limit` characters, so long instruction
- * files are extracted whole rather than truncated. A single section over the
- * limit stays one chunk.
+ * Chunks of at most `limit` characters that join back to `content`, so long
+ * instruction files are extracted whole rather than truncated. Splits at H1–H3
+ * headings, then at paragraphs inside a longer section, then at the limit.
  */
 export function splitForExtraction(content: string, limit: number): string[] {
   if (content.length <= limit) return [content]
+  const pieces = content.split(/(?<=\n)(?=#{1,3} )/).flatMap((section) =>
+    section.length <= limit
+      ? [section]
+      : section.split(/(?<=\n\n)/).flatMap((paragraph) => {
+          const slices: string[] = []
+          for (let i = 0; i < paragraph.length; i += limit) {
+            slices.push(paragraph.slice(i, i + limit))
+          }
+          return slices
+        }),
+  )
   const chunks: string[] = []
   let current = ""
-  for (const section of content.split(/\n(?=#{1,3} )/)) {
-    const joined = current ? `${current}\n${section}` : section
-    if (current && joined.length > limit) {
+  for (const piece of pieces) {
+    if (current && current.length + piece.length > limit) {
       chunks.push(current)
-      current = section
+      current = piece
     } else {
-      current = joined
+      current += piece
     }
   }
   if (current) chunks.push(current)
@@ -502,11 +509,6 @@ async function extractUnitsFromFileContent(input: {
     name: "instruction_units",
   })
 
-  const truncated =
-    input.content.length > EXTRACTION_CHAR_LIMIT
-      ? `${input.content.slice(0, EXTRACTION_CHAR_LIMIT)}\n\n[truncated]`
-      : input.content
-
   const res = await structured.invoke(
     [
       new SystemMessage(`You extract procedural instruction-units from repository documentation and agent rule files.
@@ -532,7 +534,7 @@ Rules:
 - source_excerpt: copy the exact supporting lines from the file (verbatim); keep short (the supporting span only, not surrounding sections).
 - name + summary: may lightly clarify grammar; do not remove tool-specific tokens.`),
       new HumanMessage(
-        `File path: ${input.path}\nrepositoryId: ${input.repositoryId}\ntargetHash: ${input.targetHash}\n\n---\n${truncated}`,
+        `File path: ${input.path}\nrepositoryId: ${input.repositoryId}\ntargetHash: ${input.targetHash}\n\n---\n${input.content}`,
       ),
     ],
     mergeConfigs(getConfig()),
@@ -623,7 +625,7 @@ export async function extractInstructionUnits(
 
     const returned: z.infer<typeof LlmUnitsResponseSchema>["units"] = []
     try {
-      for (const chunk of splitForExtraction(content, EXTRACTION_CHAR_LIMIT)) {
+      for (const chunk of splitForExtraction(content, 48_000)) {
         const parsed = await extractUnitsFromFileContent({
           path,
           content: chunk,
