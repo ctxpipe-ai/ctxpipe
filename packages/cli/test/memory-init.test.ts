@@ -180,6 +180,47 @@ describe("memory init (end-to-end)", () => {
     expect(settings.hooks?.Stop?.[0]?.hooks?.[0]?.command).toMatch(
       /memory capture finalize --host claude --event Stop/,
     )
+    expect(
+      readFileSync(join(home, ".claude", "rules", "ai-memory.md"), "utf8"),
+    ).toContain("## Commit and share")
+    expect(
+      existsSync(join(home, ".claude", "skills", "capture-lesson", "SKILL.md")),
+    ).toBe(true)
+    expect(existsSync(join(cwd, ".claude", "rules"))).toBe(false)
+  })
+
+  it("gives Claude Code the memory rule and skills without creating CLAUDE.md", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-claude-rule-"))
+    runMemoryInit(cwd, ["--agents", "claude", "--non-interactive"])
+
+    // Claude Code loads .claude/rules every session; a CLAUDE.md would stop it
+    // falling back to AGENTS.md.
+    const rule = readFileSync(
+      join(cwd, ".claude", "rules", "ai-memory.md"),
+      "utf8",
+    )
+    expect(rule.startsWith("# Local memory")).toBe(true)
+    expect(rule).toContain("## Commit and share")
+    for (const skill of [
+      "capture-adr",
+      "capture-lesson",
+      "capture-glossary",
+      "capture-decision",
+      "memory-search",
+    ]) {
+      expect(
+        existsSync(join(cwd, ".claude", "skills", skill, "SKILL.md")),
+        skill,
+      ).toBe(true)
+    }
+    expect(
+      readFileSync(
+        join(cwd, ".claude", "skills", "capture-lesson", "SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("Include the `.ai/memory/` change in the commit")
+    expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false)
+    expect(existsSync(join(cwd, ".claude", "CLAUDE.md"))).toBe(false)
   })
 
   it("installs Codex, OpenCode, and VS Code capture artifacts (not manual-only)", () => {

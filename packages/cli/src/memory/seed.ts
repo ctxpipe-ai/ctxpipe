@@ -115,12 +115,8 @@ Living product requirement documents for this repo.
 |-----|-------|--------|
 `
 
-export const AI_MEMORY_RULE = `---
-description: Local .ai/memory load order, indexes, and candidate-first capture
-alwaysApply: true
----
-
-# Local memory (\`.ai/memory\`)
+/** Rule text without host frontmatter (Claude Code `.claude/rules/`). */
+export const AI_MEMORY_RULE_BODY = `# Local memory (\`.ai/memory\`)
 
 ## Read order (non-trivial tasks)
 
@@ -167,6 +163,13 @@ After closing candidates, reply with one short sentence naming only what was lea
 If nothing was promoted, say nothing about memory.
 Omit dismissals, candidate ids, and unchanged files or stores.
 `
+
+export const AI_MEMORY_RULE = `---
+description: Local .ai/memory load order, indexes, and candidate-first capture
+alwaysApply: true
+---
+
+${AI_MEMORY_RULE_BODY}`
 
 export function captureSkill(name: string, description: string, body: string): string {
   return `---

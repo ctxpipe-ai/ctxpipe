@@ -6,9 +6,13 @@ import type {
   WriteJsonOperation,
   WriteTextOperation,
 } from "../mcp/mcp-operations.js"
-import { createOperationContext } from "../mcp/mcp-operations.js"
+import {
+  buildMemorySkillOperations,
+  createOperationContext,
+} from "../mcp/mcp-operations.js"
 import { isObject } from "../mcp/json.js"
 import { relativePath, scopesFor } from "../mcp/paths.js"
+import { AI_MEMORY_RULE_BODY } from "./seed.js"
 
 const OBSERVE = (host: string, event: string) =>
   `npx -y ctxpipe memory capture observe --host ${host} --event ${event}`
@@ -382,21 +386,27 @@ export function buildMemoryHookOperations({
 
   if (clients.includes("claude")) {
     for (const s of scopes) {
-      if (s === "repo") {
-        ops.push(
-          buildClaudeCaptureHooksOperation({
-            path: resolve(context.cwd, ".claude", "settings.json"),
-            context,
-          }),
-        )
-      } else if (s === "user") {
-        ops.push(
-          buildClaudeCaptureHooksOperation({
-            path: join(context.homeDir, ".claude", "settings.json"),
-            context,
-          }),
-        )
-      }
+      const claudeRoot =
+        s === "repo"
+          ? resolve(context.cwd, ".claude")
+          : join(context.homeDir, ".claude")
+      const rulePath = join(claudeRoot, "rules", "ai-memory.md")
+      ops.push(
+        buildClaudeCaptureHooksOperation({
+          path: join(claudeRoot, "settings.json"),
+          context,
+        }),
+        // Claude Code loads .claude/rules every session, whether it reads
+        // CLAUDE.md or falls back to AGENTS.md; never create CLAUDE.md, which
+        // would switch that fallback off.
+        {
+          type: "write-text",
+          path: rulePath,
+          description: `install Claude Code memory rule at ${relativePath(rulePath, context.cwd)}`,
+          content: () => AI_MEMORY_RULE_BODY,
+        },
+        ...buildMemorySkillOperations(join(claudeRoot, "skills"), context),
+      )
     }
   }
 

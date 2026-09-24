@@ -49,6 +49,13 @@ is what the team reviews and merges.
 4. **Instruction files over the per-call limit are extracted in
    heading-bounded chunks** instead of truncated. This applies to every
    instruction source, not only lessons.
+5. **Claude Code gets the memory rule and capture skills** in `.claude/rules/`
+   and `.claude/skills/` (repo or user scope), as Cursor does in `.cursor/`.
+   Since 2.1.277 Claude Code reads `AGENTS.md` only as a fallback when no
+   `CLAUDE.md` exists, and not on Bedrock, Vertex or Foundry, with telemetry
+   off, or in the first session after an upgrade; `.claude/rules/` loads in
+   every session. Init never creates `CLAUDE.md`, which would switch the
+   `AGENTS.md` fallback off.
 
 ## Consequences
 
@@ -78,3 +85,6 @@ is what the team reviews and merges.
   (ADR-014).
 - **Push local memory straight to the hosted graph** — rejected: bypasses Git as
   the reviewed source of truth.
+- **Reach Claude Code through `AGENTS.md` or `CLAUDE.md`** — rejected: the
+  `AGENTS.md` block is ignored wherever a `CLAUDE.md` exists, and writing
+  `CLAUDE.md` would hide the rest of `AGENTS.md` from Claude.
