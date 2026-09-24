@@ -1,8 +1,12 @@
-import { existsSync, readFileSync } from "node:fs"
-import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import type { Candidate } from "../../retrieval/schema/candidate.js"
 import { decisionGate } from "./decisionGate.js"
+import {
+  type DecisionGateCase,
+  decisionGateCasesExist,
+  readDecisionGateCases,
+  readProductionDecisions,
+} from "./decisionGateCases.js"
 
 /**
  * Scores the gate against real Decision objects from production
@@ -10,25 +14,9 @@ import { decisionGate } from "./decisionGate.js"
  * gate — not retrieval — must find the covering one or none.
  */
 
-type Row = { path?: string; name: string; summary?: string; status?: string }
-type Case = {
-  id: string
-  prompt: string
-  escalate: boolean
-  covering: string[] | null
-  exclude?: string[]
-  inject?: Array<Row & { kind: string; corrects?: string }>
-}
+const decisions = readProductionDecisions()
 
-const evalDir = fileURLToPath(
-  new URL("../../../evals/decision-gate/", import.meta.url),
-)
-const read = <T>(file: string): T =>
-  JSON.parse(readFileSync(`${evalDir}${file}`, "utf8")) as T
-
-const decisions = read<{ decisions: Row[] }>("decisions.json").decisions
-
-function candidatesFor(c: Case): Candidate[] {
+function candidatesFor(c: DecisionGateCase): Candidate[] {
   const kept = decisions
     .filter((d) => !c.exclude?.includes(d.path ?? ""))
     .map((d) => ({ kind: "Decision", ...d }))
@@ -39,13 +27,13 @@ function candidatesFor(c: Case): Candidate[] {
   }))
 }
 
-function score(cases: Case[]) {
+function score(cases: DecisionGateCase[]) {
   const failures: string[] = []
   const tally = { tp: 0, fp: 0, fn: 0, tn: 0, wrongCoverage: 0 }
   for (const c of cases) {
     const gate = decisionGate(c.prompt, candidatesFor(c))
     const injectedCover = (c.inject ?? [])
-      .filter((i) => i.kind === "Decision" && i.status === "accepted")
+      .filter((i) => i.status === "accepted" || i.source_tier === 1)
       .map((i) => i.name)
     const expectedNames = [
       ...(c.covering ?? []).map(
@@ -82,16 +70,25 @@ function report(label: string, result: ReturnType<typeof score>): void {
 
 describe("decision gate eval (real production decisions)", () => {
   it("passes every tuning case", () => {
-    const result = score(read<{ cases: Case[] }>("scenarios.json").cases)
+    const result = score(readDecisionGateCases("scenarios.json"))
     report("tuning set", result)
     expect(result.failures).toEqual([])
   })
 
-  for (const file of ["held-out.json", "held-out-2.json"]) {
-    it.runIf(existsSync(`${evalDir}${file}`))(`reports ${file}`, () => {
-      const result = score(read<{ cases: Case[] }>(file).cases)
-      report(file, result)
-      expect(result.total).toBeGreaterThan(0)
-    })
+  // Held-out sets are diagnostic (ADR-038); the floor only stops regressions.
+  for (const [file, floor] of [
+    ["held-out.json", 25],
+    ["held-out-2.json", 20],
+  ] as const) {
+    it.runIf(decisionGateCasesExist(file))(
+      `does not regress on ${file}`,
+      () => {
+        const result = score(readDecisionGateCases(file))
+        report(file, result)
+        expect(result.total - result.failures.length).toBeGreaterThanOrEqual(
+          floor,
+        )
+      },
+    )
   }
 })

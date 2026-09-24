@@ -21,7 +21,10 @@ import {
   runWithLangfuseContext,
 } from "../observability/langfuse.js"
 import { log } from "../observability/logger.js"
-import type { Candidate } from "../retrieval/schema/candidate.js"
+import {
+  type Candidate,
+  CandidateSchema,
+} from "../retrieval/schema/candidate.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -252,8 +255,9 @@ export function registerMcpTools(server: McpServer): void {
 }
 
 function candidatesOf(state: object): Candidate[] {
-  const candidates = (state as { candidates?: unknown }).candidates
-  return Array.isArray(candidates) ? (candidates as Candidate[]) : []
+  if (!("candidates" in state)) return []
+  const parsed = CandidateSchema.array().safeParse(state.candidates)
+  return parsed.success ? parsed.data : []
 }
 
 function extractFinalText(result: unknown): string {

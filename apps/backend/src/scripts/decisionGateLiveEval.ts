@@ -10,20 +10,15 @@
  * org whose decisions are in decisions.json, i.e. ctx-tev):
  *   bun run src/scripts/decisionGateLiveEval.ts --url https://<pr-preview-host>/mcp [--out evals/decision-gate/results/<name>.json]
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
-import { fileURLToPath } from "node:url"
+import { writeFileSync } from "node:fs"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
-
-type Case = {
-  id: string
-  prompt: string
-  escalate: boolean
-  exclude?: unknown[]
-  inject?: unknown[]
-}
-
-const MARKER = "**Human decision needed**"
+import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js"
+import {
+  type DecisionGateCase,
+  decisionGateCasesExist,
+  readDecisionGateCases,
+} from "../graphs/conversationGraph/decisionGateCases.js"
 
 function flag(argv: string[], name: string): string | undefined {
   const index = argv.indexOf(name)
@@ -36,16 +31,9 @@ async function main(argv: string[]): Promise<void> {
   if (!url || !apiKey) {
     throw new Error("Pass --url <mcp endpoint> and set CTXPIPE_API_KEY")
   }
-  const dir = fileURLToPath(
-    new URL("../../evals/decision-gate/", import.meta.url),
-  )
   const cases = ["scenarios.json", "held-out.json", "held-out-2.json"]
-    .filter((file) => existsSync(`${dir}${file}`))
-    .flatMap(
-      (file) =>
-        (JSON.parse(readFileSync(`${dir}${file}`, "utf8")) as { cases: Case[] })
-          .cases,
-    )
+    .filter(decisionGateCasesExist)
+    .flatMap(readDecisionGateCases)
     .filter((c) => !c.inject?.length && !c.exclude?.length)
 
   const client = new Client({ name: "decision-gate-eval", version: "1.0.0" })
@@ -55,16 +43,23 @@ async function main(argv: string[]): Promise<void> {
     }),
   )
 
-  const results: Array<Case & { answer: string; flagged: boolean }> = []
+  const results: Array<
+    DecisionGateCase & { answer: string; flagged: boolean }
+  > = []
   for (const c of cases) {
-    const response = (await client.callTool({
-      name: "ctx_advisor",
-      arguments: { prompt: c.prompt, conversationId: `decision-gate-${c.id}` },
-    })) as { content?: Array<{ type: string; text?: string }> }
-    const answer = (response.content ?? [])
-      .map((part) => part.text ?? "")
+    const response = CallToolResultSchema.parse(
+      await client.callTool({
+        name: "ctx_advisor",
+        arguments: {
+          prompt: c.prompt,
+          conversationId: `decision-gate-${c.id}`,
+        },
+      }),
+    )
+    const answer = response.content
+      .map((part) => (part.type === "text" ? part.text : ""))
       .join("\n")
-    const flagged = answer.includes(MARKER)
+    const flagged = answer.includes("**Human decision needed**")
     results.push({ ...c, answer, flagged })
     process.stdout.write(
       `${flagged === c.escalate ? "pass" : "FAIL"}  ${c.id.padEnd(40)} expected ${c.escalate ? "escalate" : "none"}, got ${flagged ? "escalate" : "none"}\n`,

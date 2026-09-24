@@ -73,9 +73,14 @@ wrong area.
 
 ## Consequences
 
-- The root design holds: escalation produces a proposed ADR in Git, status
-  weighting keeps it out of the standard until accepted, and nothing bypasses
-  review. The weak link is deciding whether something is already decided.
+- Nothing in the prototype conflicts with the root design: escalation ends in
+  Git (a decision recorded in the pull request, or a proposed ADR), status
+  weighting keeps a proposed ADR out of the standard, and nothing bypasses
+  review. The evaluation does not show that agents act on the block (stop, ask,
+  record), that containment works at scale, or that the advisor's reasoning
+  changes (decision 1) take effect: those are prompt-only and unmeasured, and the
+  live eval checks only that the block appears. The measured weak link is
+  deciding whether something is already decided.
 - At 0.75 precision, one escalation in four is noise; an always-on gate at that
   level recreates the approval fatigue it is meant to fix.
 - **Bar before this ADR is accepted:** the live eval

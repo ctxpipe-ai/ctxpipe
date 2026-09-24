@@ -24,174 +24,6 @@ type StakesCategory =
   | "architecture"
   | "infrastructure"
 
-/** In priority order: coverage must match the first category the prompt hits. */
-const STAKES: Array<[StakesCategory, string[]]> = [
-  [
-    "security",
-    [
-      "secret",
-      "credential",
-      "password",
-      "token",
-      "api key",
-      "signing",
-      "encryption",
-      "encrypt",
-      "auth",
-      "authentication",
-      "authorization",
-      "oauth",
-      "saml",
-      "sso",
-      "permission",
-      "rbac",
-      "1password",
-      "vault",
-      "kms",
-      "secrets manager",
-    ],
-  ],
-  [
-    "personal data",
-    [
-      "pii",
-      "personal data",
-      "email",
-      "user data",
-      "customer data",
-      "retention",
-      "retain",
-      "deletion",
-      "delete their",
-      "delete customer",
-      "delete user",
-      "gdpr",
-      "anonymise",
-      "anonymize",
-    ],
-  ],
-  [
-    "compliance",
-    [
-      "license",
-      "licence",
-      "licensed",
-      "agpl",
-      "gpl",
-      "soc 2",
-      "soc2",
-      "hipaa",
-      "compliance",
-    ],
-  ],
-  [
-    "payments",
-    [
-      "payment",
-      "billing",
-      "stripe",
-      "paddle",
-      "invoice",
-      "pricing",
-      "subscription",
-    ],
-  ],
-  [
-    "data model",
-    [
-      "database",
-      "postgres",
-      "mysql",
-      "sqlite",
-      "schema",
-      "migration",
-      "orm",
-      "drizzle",
-      "prisma",
-      "graph",
-      "neo4j",
-      "falkordb",
-      "memgraph",
-      "neptune",
-      "opencypher",
-    ],
-  ],
-  [
-    "architecture",
-    [
-      "queue",
-      "broker",
-      "kafka",
-      "sqs",
-      "rabbitmq",
-      "pubsub",
-      "event bus",
-      "runtime",
-      "search runtime",
-      "bun",
-      "node",
-      "deno",
-      "framework",
-      "react",
-      "svelte",
-      "vue",
-      "hono",
-      "tailwind",
-      "microservice",
-      "dependency",
-      "library",
-      "sdk",
-      "vendor",
-      "agentmemory",
-    ],
-  ],
-  [
-    "infrastructure",
-    [
-      "region",
-      "railway",
-      "aws",
-      "gcp",
-      "azure",
-      "cloud provider",
-      "terraform",
-      "pulumi",
-      "cdk",
-      "iac",
-      "kubernetes",
-      "hosting",
-      "observability",
-      "opentelemetry",
-      "analytics",
-      "amplitude",
-      "posthog",
-    ],
-  ],
-]
-
-/**
- * A question asking whether or what to do ("should…?", "can we…?", "which…
- * should…?"), or an explicit choice. Requests to the assistant ("can you…")
- * and statements or instructions ("fix…", "add a test…") are not decisions.
- */
-const DECISION_INTENT = [
-  /\b(should|shall|can|could|may|would)\b(?! you\b)[^?]*\?/,
-  /\b(choose|pick|select|adopt|standardi[sz]e on)\b/,
-  /\binstead of\b|\bvs\.?\s|\bversus\b/,
-  /\ballowed to\b/,
-]
-
-const STOP = new Set(
-  "the and for our you your are was can use used uses using new should would could which what where when how why who there their them they this that these those with from into onto about instead between other than then also just only some any all each per via not but has have had does did doing done make made need want like good best better keep put add run move switch pick choose select adopt replace upgrade store stay stick again first default service backend self data code repo repository project team thing way".split(
-    " ",
-  ),
-)
-
-const SYNONYMS: Record<string, string> = {
-  postgresql: "postgres",
-  db: "database",
-}
-
 function normalize(text: string): string {
   return ` ${text
     .toLowerCase()
@@ -204,15 +36,19 @@ function has(text: string, term: string): boolean {
 }
 
 function tokens(text: string): Set<string> {
+  const stop = new Set(
+    "the and for our you your are was can use used uses using new should would could which what where when how why who there their them they this that these those with from into onto about instead between other than then also just only some any all each per via not but has have had does did doing done make made need want like good best better keep put add run move switch pick choose select adopt replace upgrade store stay stick again first default service backend self data code repo repository project team thing way".split(
+      " ",
+    ),
+  )
   const out = new Set<string>()
   for (const raw of normalize(text).split(" ")) {
-    if (raw.length < 3 || STOP.has(raw)) continue
+    if (raw.length < 3 || stop.has(raw)) continue
     const word =
-      SYNONYMS[raw] ??
-      (raw.length > 3 && raw.endsWith("s") && !raw.endsWith("ss")
+      raw.length > 3 && raw.endsWith("s") && !raw.endsWith("ss")
         ? raw.slice(0, -1)
-        : raw)
-    if (!STOP.has(word)) out.add(word)
+        : raw
+    if (!stop.has(word)) out.add(word)
   }
   return out
 }
@@ -220,11 +56,50 @@ function tokens(text: string): Set<string> {
 type Topic = { category: StakesCategory; terms: string[]; words: Set<string> }
 
 function topicOf(prompt: string): Topic | null {
+  // A question asking whether or what to do ("should…?", "can we…?", "is it
+  // safe to…?"), or an explicit choice. Requests to the assistant ("can
+  // you…") and instructions ("fix…", "add a test…") are not decisions.
   const lower = prompt.toLowerCase()
-  if (!DECISION_INTENT.some((re) => re.test(lower))) return null
+  const decisionShaped = [
+    /\b(should|shall|can|could|may|would)\b(?! you\b)[^?]*\?/,
+    /\b(is|are) (it|this|that|we) (ok|okay|safe|fine|allowed|acceptable)\b/,
+    /\b(choose|pick|select|adopt|standardi[sz]e on)\b/,
+    /\binstead of\b|\bvs\.?\s|\bversus\b/,
+    /\ballowed to\b/,
+  ].some((re) => re.test(lower))
+  if (!decisionShaped) return null
+
+  // In priority order: coverage must match the first category the prompt hits.
+  const stakes: Array<[StakesCategory, string]> = [
+    [
+      "security",
+      "secret|credential|password|token|api key|signing|encryption|encrypt|auth|authentication|authorization|oauth|saml|sso|permission|rbac|1password|vault|kms|secrets manager",
+    ],
+    [
+      "personal data",
+      "pii|personal data|email|user data|customer data|retention|retain|deletion|delete their|delete customer|delete user|gdpr|anonymise|anonymize",
+    ],
+    [
+      "compliance",
+      "license|licence|licensed|agpl|gpl|soc 2|soc2|hipaa|compliance",
+    ],
+    ["payments", "payment|billing|stripe|paddle|invoice|pricing|subscription"],
+    [
+      "data model",
+      "database|postgres|mysql|sqlite|schema|migration|orm|drizzle|prisma|graph|neo4j|falkordb|memgraph|neptune|opencypher",
+    ],
+    [
+      "architecture",
+      "queue|broker|kafka|sqs|rabbitmq|pubsub|event bus|runtime|search runtime|bun|node|deno|framework|react|svelte|vue|hono|tailwind|microservice|dependency|library|sdk|vendor|agentmemory",
+    ],
+    [
+      "infrastructure",
+      "region|railway|aws|gcp|azure|cloud provider|terraform|pulumi|cdk|iac|kubernetes|hosting|observability|opentelemetry|analytics|amplitude|posthog",
+    ],
+  ]
   const text = normalize(prompt)
-  for (const [category, vocabulary] of STAKES) {
-    const matched = vocabulary.filter((term) => has(text, term))
+  for (const [category, vocabulary] of stakes) {
+    const matched = vocabulary.split("|").filter((term) => has(text, term))
     // Longest match wins: "search runtime" must not also count as "runtime".
     const terms = matched.filter(
       (term) =>
@@ -277,7 +152,7 @@ export function decisionGate(
     const onTopic = isOnTopic(topic, name, text(payload, "summary"))
     if (kind === "Decision" && onTopic) {
       const status = text(payload, "status").toLowerCase()
-      if (status === "accepted" || status === "approved") covering ??= name
+      if (status === "accepted") covering ??= name
       else if (status === "proposed" || status === "draft") proposed ??= name
     }
     if (kind === "InstructionUnit") {
