@@ -8,7 +8,6 @@ import {
   requireCurrentOrgSlug,
 } from "../auth/context.js"
 import { withOrgDbContext } from "../db/client.js"
-import { withDecisionGate } from "../graphs/conversationGraph/decisionGate.js"
 import { conversationGraph } from "../graphs/index.js"
 import { generateObjectId } from "../lib/id.js"
 import {
@@ -21,10 +20,6 @@ import {
   runWithLangfuseContext,
 } from "../observability/langfuse.js"
 import { log } from "../observability/logger.js"
-import {
-  type Candidate,
-  CandidateSchema,
-} from "../retrieval/schema/candidate.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -151,7 +146,6 @@ export function registerMcpTools(server: McpServer): void {
             let progress = 0
             let streamedText = ""
             let finalMessages: unknown[] | undefined
-            let finalCandidates: Candidate[] = []
 
             for await (const chunk of stream) {
               if (
@@ -163,7 +157,6 @@ export function registerMcpTools(server: McpServer): void {
                 continue
               }
               finalMessages = chunk.messages
-              finalCandidates = candidatesOf(chunk)
 
               if (!progressToken) continue
               const currentText = extractFinalText({ messages: chunk.messages })
@@ -194,11 +187,7 @@ export function registerMcpTools(server: McpServer): void {
             const result = {
               messages: finalMessages ?? [],
             }
-            const text = withDecisionGate(
-              extractFinalText(result),
-              prompt,
-              finalCandidates,
-            )
+            const text = extractFinalText(result)
             if (progressToken && text.length > 0 && text !== streamedText) {
               progress += 1
               await extra.sendNotification({
@@ -224,16 +213,7 @@ export function registerMcpTools(server: McpServer): void {
                 callbacks: [getLangfuseHandler()],
               })
               return {
-                content: [
-                  {
-                    type: "text",
-                    text: withDecisionGate(
-                      extractFinalText(fallback),
-                      prompt,
-                      candidatesOf(fallback),
-                    ),
-                  },
-                ],
+                content: [{ type: "text", text: extractFinalText(fallback) }],
               }
             }
 
@@ -252,12 +232,6 @@ export function registerMcpTools(server: McpServer): void {
       }
     },
   )
-}
-
-function candidatesOf(state: object): Candidate[] {
-  if (!("candidates" in state)) return []
-  const parsed = CandidateSchema.array().safeParse(state.candidates)
-  return parsed.success ? parsed.data : []
 }
 
 function extractFinalText(result: unknown): string {

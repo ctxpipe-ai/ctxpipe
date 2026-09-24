@@ -12,6 +12,7 @@ Use when an architectural or tooling decision should be durable.
 3. **Update** `.ai/memory/decisions/index.md`.
 4. If needed, link from `.ai/memory/index.md` or product context.
 5. Do not invent decisions from noisy hook candidates — confirm with the user or clear session evidence.
+
 ## Close the candidate lifecycle
 
 After durable Markdown is written (or you reject the candidate), mark ids so they

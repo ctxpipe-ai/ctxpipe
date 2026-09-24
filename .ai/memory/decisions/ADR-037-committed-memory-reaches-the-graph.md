@@ -60,13 +60,9 @@ is what the team reviews and merges.
    store. `ctx_advisor` search (vector and BM25) is scoped to the organization,
    not a repository, so a merged lesson from one repository reaches agents in
    every other.
-7. **An engineer's correction of ctx| is recorded in Git.** A lesson that
-   corrects `ctx_advisor` carries `- **Corrects:** <what it advised>`. Ingestion
-   ranks units from that lesson with agent rules (0.82), appends "Corrects
-   earlier ctx| advice: …" to the unit summary (so search and the advisor see
-   it) and records `corrects` in the payload. The advisor prompt treats such an
-   instruction as overriding the advice it names, including its own earlier
-   answers. There is no server-side feedback store.
+7. **A correction of ctx| is an ordinary lesson.** It is recorded in Git and
+   ingested at tier 2 like any other lesson. There is no server-side feedback
+   store.
 8. **VS Code and OpenCode capture through hooks too.** VS Code agent hooks
    (`.github/hooks/ctxpipe-memory.json`, `~/.copilot/hooks/`) use the Claude
    shape, with Stop continuation in `hookSpecificOutput`. OpenCode has no Stop
@@ -94,8 +90,8 @@ is what the team reviews and merges.
 - A lesson scoped to one repository can surface in another; the extracted
   `applicability.scope` is carried in the payload but retrieval does not filter
   on it.
-- A correction outranks the lesson tier but does not lower the confidence of the
-  facts behind the wrong answer; the advisor weighs both.
+- A correction does not lower the confidence of the facts behind the wrong
+  answer; the advisor weighs both.
 - OpenCode's reminder is a visible message after the turn and can race shutdown
   in headless runs; VS Code hooks are in preview.
 - Not covered: demoting the facts behind a corrected answer (a feedback tool
@@ -121,3 +117,9 @@ is what the team reviews and merges.
 - **Server-side `ctx_feedback` tool** that demotes the facts behind a corrected
   answer — deferred: needs a schema, a way to tie an answer to the facts it
   used, and a judgement step; a product decision on its own.
+- **Rank corrections with agent rules** (a `Corrects:` line that raises the
+  lesson to 0.82 and tells the advisor it overrides the advice it names) —
+  deferred: agents write lessons and most pull requests here merge without
+  human review, so the least-reviewed input would get the highest rank. A rank
+  fixed at extraction also needs a reindex to change. Revisit with owner
+  sign-off for corrections.

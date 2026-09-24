@@ -61,7 +61,6 @@ entries.
 - **Category:** convention | correction | workflow
 - **Date:** YYYY-MM-DD
 - **Source:** session / user / PR
-- **Corrects:** what ctx| advised (only when this corrects \`ctx_advisor\`)
 \`\`\`
 
 ## Entries
@@ -149,7 +148,7 @@ rg -i "keyword" .ai/memory --glob '*.md' --glob '!events/**'
 - Implementation / this-PR polish belongs in the PR or an ADR, not \`lessons-learned.md\`.
 - Hook follow-ups are **not** user product requests; if they fail the bar, dismiss ids and end the turn — do not start a research turn.
 - Promote durable knowledge with capture skills (\`capture-adr\`, \`capture-lesson\`, \`capture-glossary\`, \`capture-decision\`).
-- When a lesson corrects advice from \`ctx_advisor\`, add a \`**Corrects:**\` line saying what it advised, so ctx| stops repeating it.- **Always update the relevant \`index.md\`** when adding or renaming durable entries.
+- **Always update the relevant \`index.md\`** when adding or renaming durable entries.
 - Never commit secrets into \`.ai/memory/\`.
 
 ## Commit and share
@@ -248,7 +247,8 @@ Use when an architectural or tooling decision should be durable.
 2. Write \`ADR-NNN-title-slug.md\` (Status, Date, Tags, Context, Decision, Consequences).
 3. **Update** \`.ai/memory/decisions/index.md\`.
 4. If needed, link from \`.ai/memory/index.md\` or product context.
-5. Do not invent decisions from noisy hook candidates — confirm with the user or clear session evidence.${LIFECYCLE_CLOSE}
+5. Do not invent decisions from noisy hook candidates — confirm with the user or clear session evidence.
+${LIFECYCLE_CLOSE}
 `,
 )
 
@@ -262,10 +262,8 @@ still apply months later (cross-session). Implementation / this-PR polish belong
 the PR or an ADR, not \`lessons-learned.md\`.
 
 1. Append a short entry to \`.ai/memory/lessons-learned.md\` (Rule / Category / Date / Source).
-2. If the lesson corrects advice \`ctx_advisor\` gave, add \`- **Corrects:** <what it advised>\`.
-   ctx| ranks these corrections alongside agent rules, above other lessons.
-3. Prefer lessons over duplicating the same rule in multiple files.
-4. Update root \`.ai/memory/index.md\` only if the lessons store itself changes role.
+2. Prefer lessons over duplicating the same rule in multiple files.
+3. Update root \`.ai/memory/index.md\` only if the lessons store itself changes role.
 
 ## Dismiss (do not promote)
 

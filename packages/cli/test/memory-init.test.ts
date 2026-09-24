@@ -28,9 +28,9 @@ describe("memory init (end-to-end)", () => {
 
     expect(existsSync(join(cwd, ".ai", "memory", "README.md"))).toBe(true)
     expect(existsSync(join(cwd, ".ai", "memory", "index.md"))).toBe(true)
-    expect(
-      readFileSync(join(cwd, ".ai", "memory", "lessons-learned.md"), "utf8"),
-    ).toContain("- **Corrects:**")
+    expect(existsSync(join(cwd, ".ai", "memory", "lessons-learned.md"))).toBe(
+      true,
+    )
     expect(existsSync(join(cwd, ".ai", "memory", "decisions", "index.md"))).toBe(
       true,
     )
@@ -551,7 +551,6 @@ enabled = true
       "utf8",
     )
     expect(captureLesson).toContain("memory capture promote")
-    expect(captureLesson).toContain("**Corrects:**")
     expect(captureLesson).toContain(
       "one short sentence naming only what was learned",
     )

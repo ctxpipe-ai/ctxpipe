@@ -10,10 +10,8 @@ still apply months later (cross-session). Implementation / this-PR polish belong
 the PR or an ADR, not `lessons-learned.md`.
 
 1. Append a short entry to `.ai/memory/lessons-learned.md` (Rule / Category / Date / Source).
-2. If the lesson corrects advice `ctx_advisor` gave, add `- **Corrects:** <what it advised>`.
-   ctx| ranks these corrections alongside agent rules, above other lessons.
-3. Prefer lessons over duplicating the same rule in multiple files.
-4. Update root `.ai/memory/index.md` only if the lessons store itself changes role.
+2. Prefer lessons over duplicating the same rule in multiple files.
+3. Update root `.ai/memory/index.md` only if the lessons store itself changes role.
 
 ## Dismiss (do not promote)
 
