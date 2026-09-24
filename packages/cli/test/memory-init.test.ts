@@ -180,6 +180,47 @@ describe("memory init (end-to-end)", () => {
     expect(settings.hooks?.Stop?.[0]?.hooks?.[0]?.command).toMatch(
       /memory capture finalize --host claude --event Stop/,
     )
+    expect(
+      readFileSync(join(home, ".claude", "rules", "ai-memory.md"), "utf8"),
+    ).toContain("## Commit and share")
+    expect(
+      existsSync(join(home, ".claude", "skills", "capture-lesson", "SKILL.md")),
+    ).toBe(true)
+    expect(existsSync(join(cwd, ".claude", "rules"))).toBe(false)
+  })
+
+  it("gives Claude Code the memory rule and skills without creating CLAUDE.md", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-claude-rule-"))
+    runMemoryInit(cwd, ["--agents", "claude", "--non-interactive"])
+
+    // Claude Code loads .claude/rules every session; a CLAUDE.md would stop it
+    // falling back to AGENTS.md.
+    const rule = readFileSync(
+      join(cwd, ".claude", "rules", "ai-memory.md"),
+      "utf8",
+    )
+    expect(rule.startsWith("# Local memory")).toBe(true)
+    expect(rule).toContain("## Commit and share")
+    for (const skill of [
+      "capture-adr",
+      "capture-lesson",
+      "capture-glossary",
+      "capture-decision",
+      "memory-search",
+    ]) {
+      expect(
+        existsSync(join(cwd, ".claude", "skills", skill, "SKILL.md")),
+        skill,
+      ).toBe(true)
+    }
+    expect(
+      readFileSync(
+        join(cwd, ".claude", "skills", "capture-lesson", "SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("Include the `.ai/memory/` change in the commit")
+    expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false)
+    expect(existsSync(join(cwd, ".claude", "CLAUDE.md"))).toBe(false)
   })
 
   it("installs Codex, OpenCode, and VS Code capture artifacts (not manual-only)", () => {
@@ -218,6 +259,20 @@ describe("memory init (end-to-end)", () => {
     )
     expect(existsSync(vscodeModular)).toBe(true)
     expect(readFileSync(vscodeModular, "utf8")).toMatch(/applyTo:\s*"\*\*"/)
+
+    const vscodeHooks = JSON.parse(
+      readFileSync(join(cwd, ".github", "hooks", "ctxpipe-memory.json"), "utf8"),
+    ) as { hooks: Record<string, Array<{ type: string; command: string }>> }
+    expect(vscodeHooks.hooks.UserPromptSubmit?.[0]?.command).toMatch(
+      /memory capture observe --host vscode --event UserPromptSubmit/,
+    )
+    expect(vscodeHooks.hooks.Stop?.[0]?.command).toMatch(
+      /memory capture finalize --host vscode --event Stop/,
+    )
+
+    expect(
+      readFileSync(join(cwd, ".opencode", "plugins", "ctxpipe-memory.js"), "utf8"),
+    ).toContain("session.idle")
   })
 
   it("installs discoverable VS Code / OpenCode user-scope instruction paths", () => {
@@ -254,6 +309,15 @@ describe("memory init (end-to-end)", () => {
       readFileSync(join(home, ".config", "opencode", "opencode.json"), "utf8"),
     ) as { instructions?: string[] }
     expect(opencode.instructions).toContain("memory-capture.md")
+    expect(
+      existsSync(join(home, ".copilot", "hooks", "ctxpipe-memory.json")),
+    ).toBe(true)
+    expect(
+      existsSync(
+        join(home, ".config", "opencode", "plugins", "ctxpipe-memory.js"),
+      ),
+    ).toBe(true)
+    expect(existsSync(join(cwd, ".github", "hooks"))).toBe(false)
   })
 
   it("creates memory config without orgSlug when no --org", () => {
@@ -499,6 +563,52 @@ enabled = true
     // Repo-scope init installs Codex hooks under the workspace, not only $HOME.
     const repoCodexToml = readFileSync(join(cwd, ".codex", "config.toml"), "utf8")
     expect(repoCodexToml).toContain("ctxpipe memory capture")
+  })
+
+  it("keeps a team README that names the memory-search skill and AgentMemory history", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-team-readme-"))
+    const readme =
+      "# Team memory\n\nWe moved off AgentMemory in August (see ADR-021).\nRecall with the memory-search skill.\n"
+    mkdirSync(join(cwd, ".ai", "memory"), { recursive: true })
+    writeFileSync(join(cwd, ".ai", "memory", "README.md"), readme)
+
+    runMemoryInit(cwd, ["--agents", "cursor", "--non-interactive"])
+
+    expect(readFileSync(join(cwd, ".ai", "memory", "README.md"), "utf8")).toBe(
+      readme,
+    )
+  })
+
+  it("memory doctor warns about uncommitted durable memory", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-doctor-"))
+    execFileSync("git", ["init", "-q"], { cwd })
+    mkdirSync(join(cwd, ".ai", "memory"), { recursive: true })
+    writeFileSync(join(cwd, ".ai", "memory", "lessons-learned.md"), "### A\n")
+
+    const out = JSON.parse(
+      execFileSync(process.execPath, [BIN, "memory", "doctor", "--json"], {
+        cwd,
+        encoding: "utf8",
+      }),
+    ) as { checks: Array<{ name: string; status: string; detail: string }> }
+
+    const check = out.checks.find((c) => c.name === "uncommitted")
+    expect(check?.status).toBe("warn")
+    expect(check?.detail).toContain(".ai/memory/lessons-learned.md")
+  })
+
+  it("memory status lists uncommitted memory files", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-status-"))
+    execFileSync("git", ["init", "-q", "-b", "feature/memory"], { cwd })
+    mkdirSync(join(cwd, ".ai", "memory"), { recursive: true })
+    writeFileSync(join(cwd, ".ai", "memory", "lessons-learned.md"), "### A\n")
+
+    const out = execFileSync(process.execPath, [BIN, "memory", "status"], {
+      cwd,
+      encoding: "utf8",
+    })
+
+    expect(out).toContain(".ai/memory/lessons-learned.md on feature/memory")
   })
 
   it("requires --agents in non-interactive mode", () => {

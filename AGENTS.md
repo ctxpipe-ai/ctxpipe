@@ -170,6 +170,7 @@ Durable agent memory is **Markdown-only** under **[.ai/memory/](.ai/memory/)**. 
 - **Setup**: `npx ctxpipe memory init --agents cursor,…` seeds layout, always-apply rule, capture skills, and host hooks (no remote ctxpipe MCP; no local memory MCP). Full init with memory: `npx ctxpipe init --memory`.
 - **CLI**: `ctxpipe memory init` · `ctxpipe memory capture observe|summary` (hooks) · `ctxpipe memory status|doctor`.
 - **Rules**: never commit secrets; never auto-write durable ADRs from hooks; prefer [`lessons-learned.md`](.ai/memory/lessons-learned.md) for confirmed conventions.
+- **Commit and share**: include `.ai/memory/` changes in the commit for the work they came from, on that branch; summarize the work in the PR description. Merged lessons become graph instructions ([ADR-037](.ai/memory/decisions/ADR-037-committed-memory-reaches-the-graph.md)).
 
 ## Code style
 
@@ -209,4 +210,7 @@ npx -y ctxpipe memory capture promote <candidateId>
 # or: npx -y ctxpipe memory capture dismiss <candidateId>
 npx -y ctxpipe memory capture summary
 ```
+
+Commit `.ai/memory/` changes with the work they came from, on that work's branch, and
+summarize the work in its pull request description (what changed, why, what was ruled out).
 <!-- END ctxpipe-memory-capture -->

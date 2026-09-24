@@ -1,8 +1,3 @@
----
-description: Local .ai/memory load order, indexes, and candidate-first capture
-alwaysApply: true
----
-
 # Local memory (`.ai/memory`)
 
 ## Read order (non-trivial tasks)

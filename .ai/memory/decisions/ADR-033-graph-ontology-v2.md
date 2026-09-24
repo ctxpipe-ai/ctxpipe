@@ -5,6 +5,9 @@
 Amends [ADR-032](ADR-032-path-located-graph-edges.md) §2 (predicates) and §4
 (connector nodes). Builds on [ADR-031](ADR-031-github-pr-scoped-mirror.md).
 
+**Amended by:** [ADR-037](ADR-037-committed-memory-reaches-the-graph.md) — §8:
+`.ai/memory/lessons-learned.md` is an instruction source (tier 2).
+
 ## Context
 
 Customer graphs sat at roughly one edge per node: `InstructionUnit` stars on a
