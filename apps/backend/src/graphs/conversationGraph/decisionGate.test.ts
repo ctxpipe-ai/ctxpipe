@@ -168,7 +168,11 @@ describe("formatDecisionGate", () => {
     )
     const block = formatDecisionGate(gate)
     expect(block.startsWith("**Human decision needed**")).toBe(true)
-    expect(block).toContain("Status: Proposed")
+    // Ask the person in the session; an ADR is one of their options, not a mandate.
+    expect(block).toContain("ask the user")
+    expect(block).toMatch(/1\. .*decide now/i)
+    expect(block).toMatch(/2\. .*Status: Proposed/)
+    expect(block).toMatch(/background run.*option 2/i)
     expect(formatDecisionGate(decisionGate("Rename the helper.", []))).toBe("")
   })
 })

@@ -40,12 +40,17 @@ reviewers click approve. Evidence gathered for this ADR:
    architecture, infrastructure) is not covered by an accepted decision or a
    human-maintained rule among the retrieved candidates; when the only on-topic
    decision is proposed; or when a correction meets an accepted decision.
-3. **Escalation stays in Git.** The block tells the agent to write a proposed ADR
-   (`Status: Proposed`) in the pull request and get the owner's acceptance.
-   With ADR-036, proposed decisions weigh less than accepted ones at read time;
-   the gate itself never lets a proposed decision count as cover. So an agent's
-   choice cannot become the org standard until a human accepts it. The local
-   memory rule and `capture-adr` skill carry the same instruction.
+3. **Escalation asks the person in the session first, and stays in Git.** The
+   block tells the agent to stop and ask the user, with its recommendation and
+   the options: the user decides now (recorded in the pull request description,
+   or as an ADR noting who decided if it is lasting); or hands it to the owner as
+   a proposed ADR (`Status: Proposed`) that nobody builds on yet; or explores
+   further. A background run with no one to ask writes the proposed ADR. An ADR
+   is one outcome, not a mandate: forcing one per escalation would breed
+   unreviewed proposals. With ADR-036, proposed decisions weigh less than
+   accepted ones at read time, and the gate never lets a proposed decision count
+   as cover, so an agent's choice cannot become the org standard until a human
+   accepts it. The local memory rule and `capture-adr` skill say the same.
 
 ## Evaluation (2026-09-24)
 

@@ -341,5 +341,12 @@ export function formatDecisionGate(gate: DecisionGate): string {
       : gate.reason === "correction-conflict"
         ? `an engineer's correction ("${gate.related}") may conflict with accepted decision "${gate.coveredBy}"; confirm which holds`
         : "no accepted decision in ctx| covers this"
-  return `**Human decision needed** (${gate.category}): ${why}. Do not build on a choice yet. Record your recommendation as a proposed decision (Status: Proposed) in the pull request and get the owning team's approval first.`
+  return [
+    `**Human decision needed** (${gate.category}): ${why}.`,
+    "Before building on a choice, stop and ask the user (use your question tool if you have one). Give your recommendation and the options, then do what they pick:",
+    "1. They decide now: follow it, and record the decision and why in the pull request description (as an ADR if it is lasting and cross-cutting, noting who decided).",
+    "2. Someone else owns it: write your recommendation as a proposed ADR (Status: Proposed) in the pull request for the owner, and do not build on it yet.",
+    "3. They want the options explored further first.",
+    "In a background run with no one to ask, take option 2.",
+  ].join("\n")
 }

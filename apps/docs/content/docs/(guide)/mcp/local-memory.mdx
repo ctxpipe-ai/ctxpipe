@@ -76,11 +76,19 @@ overrides an accepted decision; if the two conflict, ctx| asks for a human.
 
 For a high-stakes choice (security, personal data, data model, architecture,
 infrastructure, compliance, or payments) that no accepted decision covers,
-`ctx_advisor` ends its answer with **Human decision needed**. The agent then
-writes its recommendation as a proposed decision record (`Status: Proposed`) in
-the pull request and asks the owner to accept it. Until someone does, ctx| does
-not treat that choice as your standard, so one agent's pick cannot spread as if
-it were agreed.
+`ctx_advisor` ends its answer with **Human decision needed**. The agent stops
+and asks you, with its recommendation and the options:
+
+- **You decide now.** The agent follows your choice and records it, and why, in
+  the pull request description (or as a decision record if it is lasting).
+- **Someone else owns it.** The agent writes its recommendation as a proposed
+  decision record (`Status: Proposed`) in the pull request for the owner, and
+  does not build on it yet.
+- **Explore first.** The agent works through the options with you.
+
+With no one to ask, as in a background run, the agent writes the proposed
+record. Until an owner accepts a proposed decision, ctx| does not treat it as
+your standard, so one agent's pick cannot spread as if it were agreed.
 
 ## What each agent gets
 
