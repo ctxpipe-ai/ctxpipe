@@ -24,7 +24,8 @@ was by location only). Builds on
 ## Decision
 
 1. **Scope follows the narrowest signal the ADR gives.** Its package
-   (confidence 0.9); else the services whose paths it references, from
+   (confidence 0.9), which alone scopes it unless the package is the
+   repository root; else the services whose paths it references, from
    backticked repository paths and relative Markdown links resolved from the
    ADR's folder, URLs ignored (0.8); else every service in its repository
    (0.6). Only `Service` targets, per the allowed triples.

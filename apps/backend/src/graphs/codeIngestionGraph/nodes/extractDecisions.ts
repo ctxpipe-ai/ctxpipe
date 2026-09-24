@@ -188,7 +188,7 @@ export function parseDecisionMarkdown(
   // describes another ADR.
   const declared = [
     asString(data.status),
-    boldHeader?.[0],
+    /^.*\*\*Status:\*\*.*$/im.exec(split?.body ?? content)?.[0],
     statusLine?.[0],
     statusSection?.[0],
     ...((split?.body ?? content).match(
@@ -372,10 +372,14 @@ export async function extractDecisions(
     } else if (!pkg && hasRootService) {
       influences(rootServiceKey, "./", 0.9)
     }
-    for (const reference of parsed.references) {
-      const referenced = matchPackageForPath(reference, packages)
-      if (referenced?.kind === "Service") {
-        influences(referenced.deduplicationKey, referenced.root, 0.8)
+    // A package below the root is the narrowest scope; references narrow only
+    // an ADR that belongs to the repository root.
+    if (pkg?.kind !== "Service" || pkg.root === "./") {
+      for (const reference of parsed.references) {
+        const referenced = matchPackageForPath(reference, packages)
+        if (referenced?.kind === "Service") {
+          influences(referenced.deduplicationKey, referenced.root, 0.8)
+        }
       }
     }
     if (influenced.size === 0) {

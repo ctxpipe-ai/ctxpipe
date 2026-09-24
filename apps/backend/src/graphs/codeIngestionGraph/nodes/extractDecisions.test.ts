@@ -142,6 +142,12 @@ describe("parseDecisionMarkdown", () => {
 `),
     ).toMatchObject({ status: "superseded", supersededBy: ["ADR-15"] })
     expect(
+      parse(`# ADR-004: Local development with Docker Compose
+
+**Status:** Superseded | **Superseded by:** [ADR-015](ADR-015-compose-profiles.md)
+`),
+    ).toMatchObject({ status: "superseded", supersededBy: ["ADR-15"] })
+    expect(
       parse(`# ADR-024: Markdown-only local memory
 
 **Status:** Accepted | **Date:** 2026-08-11 | **Tags:** memory
@@ -282,7 +288,6 @@ describe("extractDecisions", () => {
         0.6,
       ],
       ["apps/backend/docs/adr/0002-bun.md", "svc:repo_api:apps/backend", 0.9],
-      ["apps/backend/docs/adr/0002-bun.md", "svc:repo_api:apps/ui", 0.8],
     ])
   })
 
