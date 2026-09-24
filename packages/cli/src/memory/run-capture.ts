@@ -7,9 +7,22 @@ import {
   observeCapture,
   parseHost,
   readStdinJson,
+  resolveRepoRoot,
   summarizeCapture,
   type CaptureHost,
 } from "./capture.js"
+import { resolveCaptureHost } from "./harness.js"
+
+function hostFor(
+  flag: string,
+  payload: Record<string, unknown>,
+): CaptureHost | null {
+  return resolveCaptureHost(
+    parseHost(flag),
+    payload,
+    resolveRepoRoot(extractWorkspaceCwd(payload)),
+  )
+}
 
 function writeStdoutJson(payload: unknown): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -72,8 +85,10 @@ export async function runMemoryCaptureObserve(opts: {
 }): Promise<void> {
   try {
     const payload = await readStdinJson()
+    const host = hostFor(opts.host, payload)
+    if (!host) return
     const result = observeCapture({
-      host: parseHost(opts.host),
+      host,
       eventType: opts.event || "unknown",
       payload,
     })
@@ -99,11 +114,19 @@ export async function runMemoryCaptureFinalize(opts: {
   host: string
   event: string
 }): Promise<void> {
-  const host = parseHost(opts.host)
-  let payload: Record<string, unknown> = {}
+  // Hooks always pipe JSON; still tolerate empty/TTY for local debugging.
+  const payload = await readOptionalStdinJson()
+  const host = hostFor(opts.host, payload)
+  if (!host) {
+    try {
+      await writeStdoutJson({})
+    } catch {
+      // fail-open
+    }
+    process.exitCode = 0
+    return
+  }
   try {
-    // Hooks always pipe JSON; still tolerate empty/TTY for local debugging.
-    payload = await readOptionalStdinJson()
     observeCapture({
       host,
       eventType: opts.event || "Stop",

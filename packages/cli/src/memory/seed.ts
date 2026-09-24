@@ -61,6 +61,7 @@ entries.
 - **Category:** convention | correction | workflow
 - **Date:** YYYY-MM-DD
 - **Source:** session / user / PR
+- **Corrects:** what ctx| advised (only when this corrects \`ctx_advisor\`)
 \`\`\`
 
 ## Entries
@@ -97,7 +98,7 @@ Naming: \`ADR-NNN-title-slug.md\`. Status | Date | Tags; Context; Decision; Cons
 export const SESSIONS_INDEX_SEED = `# Sessions
 
 Summaries of work that has no pull request (spikes, investigations). Work that
-ships as a PR is summarised in its description. Naming: \`YYYY-MM-DD-topic.md\`.
+ships as a PR is summarized in its description. Naming: \`YYYY-MM-DD-topic.md\`.
 
 ## Index
 
@@ -148,13 +149,14 @@ rg -i "keyword" .ai/memory --glob '*.md' --glob '!events/**'
 - Implementation / this-PR polish belongs in the PR or an ADR, not \`lessons-learned.md\`.
 - Hook follow-ups are **not** user product requests; if they fail the bar, dismiss ids and end the turn — do not start a research turn.
 - Promote durable knowledge with capture skills (\`capture-adr\`, \`capture-lesson\`, \`capture-glossary\`, \`capture-decision\`).
+- When a lesson corrects advice from \`ctx_advisor\`, add a \`**Corrects:**\` line saying what it advised, so ctx| stops repeating it.
 - **Always update the relevant \`index.md\`** when adding or renaming durable entries.
 - Never commit secrets into \`.ai/memory/\`.
 
 ## Commit and share
 
 - Memory is shared with teammates (and the ctx| graph) only once it merges. Include \`.ai/memory/\` changes in the commit for the work they came from, on that work's branch — not a separate memory branch.
-- Summarise the work in the pull request description: what changed, why, what was tried and ruled out, follow-ups. Use \`sessions/\` only for work with no PR.
+- Summarize the work in the pull request description: what changed, why, what was tried and ruled out, follow-ups. Use \`sessions/\` only for work with no PR.
 - Describe people by role, not by name or email address.
 
 ## User reply
@@ -262,8 +264,10 @@ still apply months later (cross-session). Implementation / this-PR polish belong
 the PR or an ADR, not \`lessons-learned.md\`.
 
 1. Append a short entry to \`.ai/memory/lessons-learned.md\` (Rule / Category / Date / Source).
-2. Prefer lessons over duplicating the same rule in multiple files.
-3. Update root \`.ai/memory/index.md\` only if the lessons store itself changes role.
+2. If the lesson corrects advice \`ctx_advisor\` gave, add \`- **Corrects:** <what it advised>\`.
+   ctx| ranks these corrections alongside agent rules, above other lessons.
+3. Prefer lessons over duplicating the same rule in multiple files.
+4. Update root \`.ai/memory/index.md\` only if the lessons store itself changes role.
 
 ## Dismiss (do not promote)
 

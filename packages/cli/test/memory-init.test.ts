@@ -28,9 +28,9 @@ describe("memory init (end-to-end)", () => {
 
     expect(existsSync(join(cwd, ".ai", "memory", "README.md"))).toBe(true)
     expect(existsSync(join(cwd, ".ai", "memory", "index.md"))).toBe(true)
-    expect(existsSync(join(cwd, ".ai", "memory", "lessons-learned.md"))).toBe(
-      true,
-    )
+    expect(
+      readFileSync(join(cwd, ".ai", "memory", "lessons-learned.md"), "utf8"),
+    ).toContain("- **Corrects:**")
     expect(existsSync(join(cwd, ".ai", "memory", "decisions", "index.md"))).toBe(
       true,
     )
@@ -259,6 +259,20 @@ describe("memory init (end-to-end)", () => {
     )
     expect(existsSync(vscodeModular)).toBe(true)
     expect(readFileSync(vscodeModular, "utf8")).toMatch(/applyTo:\s*"\*\*"/)
+
+    const vscodeHooks = JSON.parse(
+      readFileSync(join(cwd, ".github", "hooks", "ctxpipe-memory.json"), "utf8"),
+    ) as { hooks: Record<string, Array<{ type: string; command: string }>> }
+    expect(vscodeHooks.hooks.UserPromptSubmit?.[0]?.command).toMatch(
+      /memory capture observe --host vscode --event UserPromptSubmit/,
+    )
+    expect(vscodeHooks.hooks.Stop?.[0]?.command).toMatch(
+      /memory capture finalize --host vscode --event Stop/,
+    )
+
+    expect(
+      readFileSync(join(cwd, ".opencode", "plugins", "ctxpipe-memory.js"), "utf8"),
+    ).toContain("session.idle")
   })
 
   it("installs discoverable VS Code / OpenCode user-scope instruction paths", () => {
@@ -295,6 +309,15 @@ describe("memory init (end-to-end)", () => {
       readFileSync(join(home, ".config", "opencode", "opencode.json"), "utf8"),
     ) as { instructions?: string[] }
     expect(opencode.instructions).toContain("memory-capture.md")
+    expect(
+      existsSync(join(home, ".copilot", "hooks", "ctxpipe-memory.json")),
+    ).toBe(true)
+    expect(
+      existsSync(
+        join(home, ".config", "opencode", "plugins", "ctxpipe-memory.js"),
+      ),
+    ).toBe(true)
+    expect(existsSync(join(cwd, ".github", "hooks"))).toBe(false)
   })
 
   it("creates memory config without orgSlug when no --org", () => {
@@ -528,6 +551,7 @@ enabled = true
       "utf8",
     )
     expect(captureLesson).toContain("memory capture promote")
+    expect(captureLesson).toContain("**Corrects:**")
     expect(captureLesson).toContain(
       "one short sentence naming only what was learned",
     )

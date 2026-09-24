@@ -56,6 +56,28 @@ is what the team reviews and merges.
    off, or in the first session after an upgrade; `.claude/rules/` loads in
    every session. Init never creates `CLAUDE.md`, which would switch the
    `AGENTS.md` fallback off.
+6. **Lessons are shared across repositories through the advisor**, with no new
+   store. `ctx_advisor` search (vector and BM25) is scoped to the organization,
+   not a repository, so a merged lesson from one repository reaches agents in
+   every other.
+7. **An engineer's correction of ctx| is recorded in Git.** A lesson that
+   corrects `ctx_advisor` carries `- **Corrects:** <what it advised>`. Ingestion
+   ranks units from that lesson with agent rules (0.82), appends "Corrects
+   earlier ctx| advice: …" to the unit summary (so search and the advisor see
+   it) and records `corrects` in the payload. The advisor prompt treats such an
+   instruction as overriding the advice it names, including its own earlier
+   answers. There is no server-side feedback store.
+8. **VS Code and OpenCode capture through hooks too.** VS Code agent hooks
+   (`.github/hooks/ctxpipe-memory.json`, `~/.copilot/hooks/`) use the Claude
+   shape, with Stop continuation in `hookSpecificOutput`. OpenCode has no Stop
+   hook, so a plugin (`.opencode/plugins/ctxpipe-memory.js`) observes
+   `chat.message` and, on `session.idle`, posts the follow-up as a new message,
+   as Cursor does with `followup_message`. Cursor and VS Code also run Claude
+   Code hooks from `.claude/settings.json`: a `--host claude` hook running inside
+   Cursor (`cursor_version` in the payload) or VS Code (`timestamp`, which Claude
+   Code never sends) stands aside when that tool has its own ctxpipe hook, and in
+   VS Code without one it answers in VS Code's format. This also stops Cursor
+   capturing twice in repositories set up for both Cursor and Claude Code.
 
 ## Consequences
 
@@ -69,10 +91,16 @@ is what the team reviews and merges.
 - Upgrade no longer treats a README mentioning `memory-search` (a current skill)
   as AgentMemory-era, and the glossary classifier no longer fires on the bare
   word "glossary".
-- Not covered: lessons that apply across repositories (an org-level learnings
-  repository proposed by pull request), and linking an engineer's correction to
-  the advisor answer it contradicts. Both are needed before "self-learning"
-  means learning from outcomes rather than from what is written down.
+- A lesson scoped to one repository can surface in another; the extracted
+  `applicability.scope` is carried in the payload but retrieval does not filter
+  on it.
+- A correction outranks the lesson tier but does not lower the confidence of the
+  facts behind the wrong answer; the advisor weighs both.
+- OpenCode's reminder is a visible message after the turn and can race shutdown
+  in headless runs; VS Code hooks are in preview.
+- Not covered: demoting the facts behind a corrected answer (a feedback tool
+  linking the correction to the advisor conversation). That is what would let
+  ctx| learn from outcomes rather than from what is written down.
 
 ## Alternatives considered
 
@@ -88,3 +116,8 @@ is what the team reviews and merges.
 - **Reach Claude Code through `AGENTS.md` or `CLAUDE.md`** — rejected: the
   `AGENTS.md` block is ignored wherever a `CLAUDE.md` exists, and writing
   `CLAUDE.md` would hide the rest of `AGENTS.md` from Claude.
+- **Org-level learnings repository** for cross-repository lessons — not needed
+  while advisor search is organization-wide.
+- **Server-side `ctx_feedback` tool** that demotes the facts behind a corrected
+  answer — deferred: needs a schema, a way to tie an answer to the facts it
+  used, and a judgement step; a product decision on its own.

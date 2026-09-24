@@ -11,6 +11,7 @@ import {
   isInstructionSourcePath,
   isRepoRootInstructionPath,
   LlmUnitsResponseSchema,
+  lessonCorrectionAt,
   looksEphemeral,
   resolveInstructionSubmissionRoot,
   SOURCE_EXCERPT_MAX_LENGTH,
@@ -85,6 +86,29 @@ describe("extractInstructionUnits helpers", () => {
     expect(instructionSourceTier("CONTRIBUTING.md")).toBe(2)
     expect(instructionSourceTier(".ai/memory/lessons-learned.md")).toBe(2)
     expect(instructionSourceTier("apps/ui/README.md")).toBe(3)
+  })
+
+  it("lessonCorrectionAt reads the Corrects line of the lesson containing an offset", () => {
+    const content = [
+      "# Lessons learned",
+      "",
+      "### Use pnpm, not npm",
+      "- **Rule:** Run package scripts with pnpm from the repo root.",
+      "- **Corrects:** ctx| advised `npm run` in apps/ui.",
+      "- **Date:** 2026-09-24",
+      "",
+      "### Keep Zod beside routes",
+      "- **Rule:** Colocate Zod schemas with their route.",
+      "",
+    ].join("\n")
+    const inFirst = content.indexOf("Run package scripts")
+    const inSecond = content.indexOf("Colocate Zod")
+
+    expect(lessonCorrectionAt(content, inFirst)).toBe(
+      "ctx| advised `npm run` in apps/ui.",
+    )
+    expect(lessonCorrectionAt(content, inSecond)).toBeNull()
+    expect(lessonCorrectionAt(content, -1)).toBeNull()
   })
 
   it("splitForExtraction keeps short files whole and splits long ones at headings", () => {

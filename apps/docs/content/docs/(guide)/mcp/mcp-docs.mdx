@@ -98,10 +98,10 @@ Supported CLI clients:
 
 ## Local memory (Markdown)
 
-The CLI can also seed **Markdown-only local memory** under `.ai/memory/` with
-host capture hooks and promote/recall skills. This is **not** a second MCP
-server — durable facts stay in Git-reviewed Markdown; hooks only write a
-gitignored candidate inbox.
+The CLI can also set up **local memory**: Markdown under `.ai/memory/` that
+coding agents read and add to as they learn how your team works. It is **not** a
+second MCP server. Hooks only save candidates to a gitignored inbox; agents keep
+what matters, you commit it with the work, and merged lessons reach ctx|.
 
 ```bash
 npx ctxpipe init

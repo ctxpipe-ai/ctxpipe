@@ -690,6 +690,15 @@ export function formatStopHookOutput(
       reason: result.message,
     }
   }
+  if (host === "vscode") {
+    return {
+      hookSpecificOutput: {
+        hookEventName: "Stop",
+        decision: "block",
+        reason: result.message,
+      },
+    }
+  }
   // Cursor (+ hosts that understand Cursor followup_message)
   return {
     followup_message: result.message,
@@ -972,7 +981,7 @@ function uncommittedNotice(
     message: [
       `Uncommitted memory (${count} on \`${state.branch}\`): ${files.slice(0, 5).join(", ")}${more}.`,
       "Memory is shared with teammates and the ctx| graph only once it merges: include these files in the commit for the work they came from, on that work's branch.",
-      "When you open or update that work's pull request, summarise the work in the pull request description: what changed, why, what was tried and ruled out, follow-ups.",
+      "When you open or update that work's pull request, summarize the work in the pull request description: what changed, why, what was tried and ruled out, follow-ups.",
       "If you are not committing now, tell the user in one sentence that memory is uncommitted.",
     ].join("\n"),
   }

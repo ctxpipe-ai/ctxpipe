@@ -52,6 +52,62 @@ const CLAUDE_HOOK_BLOCK = {
   ],
 }
 
+/** VS Code agent hooks (`.github/hooks/*.json`, `~/.copilot/hooks/`); Claude-compatible shape. */
+const VSCODE_HOOKS = {
+  hooks: {
+    UserPromptSubmit: [
+      { type: "command", command: OBSERVE("vscode", "UserPromptSubmit") },
+    ],
+    Stop: [{ type: "command", command: FINALIZE("vscode", "Stop") }],
+  },
+}
+
+/**
+ * OpenCode has no Stop hook: after the turn ends (`session.idle`) the plugin
+ * posts the follow-up as a new message, as Cursor does with followup_message.
+ * Observe is not awaited so npx start-up never delays a prompt.
+ */
+export const OPENCODE_PLUGIN = `// ctxpipe local memory capture. Managed by \`npx ctxpipe memory init\`; edits are overwritten.
+export const CtxpipeMemory = async ({ client, $, directory }) => {
+  const capture = async (command, event, payload) => {
+    const input = new Response(JSON.stringify({ cwd: directory, ...payload }))
+    const out = await $\`npx -y ctxpipe memory capture \${command} --host opencode --event \${event} < \${input}\`
+      .cwd(directory)
+      .quiet()
+      .nothrow()
+      .text()
+    try {
+      return JSON.parse(out)
+    } catch {
+      return {}
+    }
+  }
+
+  return {
+    "chat.message": async (input, output) => {
+      const prompt = output.parts
+        .filter((part) => part.type === "text" && typeof part.text === "string")
+        .map((part) => part.text)
+        .join("\\n")
+      if (!prompt.trim()) return
+      capture("observe", "UserPromptSubmit", { prompt, session_id: input.sessionID }).catch(() => {})
+    },
+    event: async ({ event }) => {
+      if (event.type !== "session.idle") return
+      const sessionID = event.properties?.sessionID
+      if (!sessionID) return
+      const out = await capture("finalize", "Stop", { session_id: sessionID })
+      const text = typeof out.followup_message === "string" ? out.followup_message.trim() : ""
+      if (!text) return
+      await client.session.prompt({
+        path: { id: sessionID },
+        body: { parts: [{ type: "text", text }] },
+      })
+    },
+  }
+}
+`
+
 const MEMORY_INSTRUCTION_MARKER_START = "<!-- BEGIN ctxpipe-memory-capture -->"
 const MEMORY_INSTRUCTION_MARKER_END = "<!-- END ctxpipe-memory-capture -->"
 
@@ -83,7 +139,8 @@ npx -y ctxpipe memory capture summary
 \`\`\`
 
 Commit \`.ai/memory/\` changes with the work they came from, on that work's branch, and
-summarise the work in its pull request description (what changed, why, what was ruled out).
+summarize the work in its pull request description (what changed, why, what was ruled out).
+If a lesson corrects \`ctx_advisor\` advice, add a \`**Corrects:**\` line saying what it advised.
 ${MEMORY_INSTRUCTION_MARKER_END}
 `
 }
@@ -306,6 +363,36 @@ function buildCodexHooksOperation({
   }
 }
 
+function buildVscodeHooksOperation({
+  path,
+  context,
+}: {
+  path: string
+  context: OperationContext
+}): WriteJsonOperation {
+  return {
+    type: "write-json",
+    path,
+    description: `install VS Code memory capture hooks at ${relativePath(path, context.cwd)}`,
+    content: () => VSCODE_HOOKS,
+  }
+}
+
+function buildOpenCodePluginOperation({
+  path,
+  context,
+}: {
+  path: string
+  context: OperationContext
+}): WriteTextOperation {
+  return {
+    type: "write-text",
+    path,
+    description: `install OpenCode memory capture plugin at ${relativePath(path, context.cwd)}`,
+    content: () => OPENCODE_PLUGIN,
+  }
+}
+
 function buildInstructionFileOperation({
   path,
   context,
@@ -473,6 +560,12 @@ export function buildMemoryHookOperations({
             host: "opencode",
           }),
         )
+        ops.push(
+          buildOpenCodePluginOperation({
+            path: resolve(context.cwd, ".opencode", "plugins", "ctxpipe-memory.js"),
+            context,
+          }),
+        )
       } else if (s === "user") {
         const instructionRel = "memory-capture.md"
         ops.push(
@@ -501,6 +594,18 @@ export function buildMemoryHookOperations({
             path: join(context.homeDir, ".config", "opencode", "opencode.json"),
             context,
             instructionPath: instructionRel,
+          }),
+        )
+        ops.push(
+          buildOpenCodePluginOperation({
+            path: join(
+              context.homeDir,
+              ".config",
+              "opencode",
+              "plugins",
+              "ctxpipe-memory.js",
+            ),
+            context,
           }),
         )
       }
@@ -532,6 +637,12 @@ export function buildMemoryHookOperations({
             copilotInstructionsMd: true,
           }),
         )
+        ops.push(
+          buildVscodeHooksOperation({
+            path: resolve(context.cwd, ".github", "hooks", "ctxpipe-memory.json"),
+            context,
+          }),
+        )
       } else if (s === "user") {
         ops.push(
           buildInstructionFileOperation({
@@ -553,6 +664,12 @@ export function buildMemoryHookOperations({
             label: "VS Code Copilot user modular",
             host: "vscode",
             copilotInstructionsMd: true,
+          }),
+        )
+        ops.push(
+          buildVscodeHooksOperation({
+            path: join(context.homeDir, ".copilot", "hooks", "ctxpipe-memory.json"),
+            context,
           }),
         )
       }

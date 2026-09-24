@@ -143,6 +143,21 @@ function isMemoryLessonsPath(p: string): boolean {
   )
 }
 
+/** The `**Corrects:**` line of the lesson (`###` section) containing `offset`. */
+export function lessonCorrectionAt(
+  content: string,
+  offset: number,
+): string | null {
+  if (offset < 0) return null
+  const start = content.lastIndexOf("\n### ", offset)
+  const end = content.indexOf("\n#", offset)
+  const lesson = content.slice(Math.max(start, 0), end < 0 ? undefined : end)
+  const corrects = /^\s*-\s*\*\*Corrects:\*\*\s*(.+)$/m
+    .exec(lesson)?.[1]
+    ?.trim()
+  return corrects ? corrects.slice(0, 300) : null
+}
+
 export function instructionSourceTier(path: string): 1 | 2 | 3 {
   const p = path.toLowerCase().replace(/\\/g, "/")
   if (
@@ -664,14 +679,21 @@ export async function extractInstructionUnits(
       })
 
       const svcKey = `svc:${repositoryId}:${root}`
-      const confidence = tierBaseConfidence(tier)
+      // An engineer correcting ctx| ranks with agent rules (ADR-037).
+      const corrects = isMemoryLessonsPath(path.toLowerCase())
+        ? lessonCorrectionAt(content, idx)
+        : null
+      const confidence = tierBaseConfidence(corrects ? 1 : tier)
 
       extractedObjects.push({
         kind: "InstructionUnit",
         deduplicationKey: dedupKey,
         name: u.name,
-        summary: u.summary,
+        summary: corrects
+          ? `${u.summary} Corrects earlier ctx| advice: ${corrects}`
+          : u.summary,
         payload: {
+          ...(corrects ? { corrects } : {}),
           source_excerpt: u.source_excerpt,
           path,
           root,

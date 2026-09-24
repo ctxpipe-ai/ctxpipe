@@ -433,6 +433,26 @@ describe("memory/capture", () => {
     expect(out).toEqual({})
   })
 
+  it("formats VS Code Stop output as hookSpecificOutput", () => {
+    const summary = {
+      priority: "medium" as const,
+      message: "Promote candidate abc",
+      candidates: [],
+      surfacedIds: ["abc"],
+      parseErrors: 0,
+    }
+    expect(formatStopHookOutput("vscode", summary, {})).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "Stop",
+        decision: "block",
+        reason: "Promote candidate abc",
+      },
+    })
+    expect(
+      formatStopHookOutput("vscode", summary, { stop_hook_active: true }),
+    ).toEqual({})
+  })
+
   it("formats Codex Stop output with decision block + reason", () => {
     const out = formatStopHookOutput(
       "codex",
