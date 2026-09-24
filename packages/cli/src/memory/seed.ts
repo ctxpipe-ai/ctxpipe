@@ -149,9 +149,7 @@ rg -i "keyword" .ai/memory --glob '*.md' --glob '!events/**'
 - Implementation / this-PR polish belongs in the PR or an ADR, not \`lessons-learned.md\`.
 - Hook follow-ups are **not** user product requests; if they fail the bar, dismiss ids and end the turn — do not start a research turn.
 - Promote durable knowledge with capture skills (\`capture-adr\`, \`capture-lesson\`, \`capture-glossary\`, \`capture-decision\`).
-- When a lesson corrects advice from \`ctx_advisor\`, add a \`**Corrects:**\` line saying what it advised, so ctx| stops repeating it.
-- When \`ctx_advisor\` answers **Human decision needed**, stop before building on a choice and ask the user, with your recommendation and the options. They decide now (record it in the pull request description, or as an ADR if lasting), hand it to its owner (a proposed ADR, \`Status: Proposed\`, via \`capture-adr\`; do not build on it yet), or explore further. In a background run with no one to ask, write the proposed ADR.
-- **Always update the relevant \`index.md\`** when adding or renaming durable entries.
+- When a lesson corrects advice from \`ctx_advisor\`, add a \`**Corrects:**\` line saying what it advised, so ctx| stops repeating it.- **Always update the relevant \`index.md\`** when adding or renaming durable entries.
 - Never commit secrets into \`.ai/memory/\`.
 
 ## Commit and share
@@ -250,9 +248,7 @@ Use when an architectural or tooling decision should be durable.
 2. Write \`ADR-NNN-title-slug.md\` (Status, Date, Tags, Context, Decision, Consequences).
 3. **Update** \`.ai/memory/decisions/index.md\`.
 4. If needed, link from \`.ai/memory/index.md\` or product context.
-5. Do not invent decisions from noisy hook candidates — confirm with the user or clear session evidence.
-6. After **Human decision needed** from \`ctx_advisor\`, the user chooses. If they hand the choice to its owner (or no one can answer), write the ADR with \`Status: Proposed\`: your recommendation, the options, and the trade-offs; only the owner changes it to Accepted, and until then ctx| does not treat it as settled. If the user decides it themselves and it is lasting, write it with \`Status: Accepted\` and note who decided.
-${LIFECYCLE_CLOSE}
+5. Do not invent decisions from noisy hook candidates — confirm with the user or clear session evidence.${LIFECYCLE_CLOSE}
 `,
 )
 

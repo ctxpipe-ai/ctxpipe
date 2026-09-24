@@ -50,7 +50,8 @@ reviewers click approve. Evidence gathered for this ADR:
    unreviewed proposals. With ADR-036, proposed decisions weigh less than
    accepted ones at read time, and the gate never lets a proposed decision count
    as cover, so an agent's choice cannot become the org standard until a human
-   accepts it. The local memory rule and `capture-adr` skill say the same.
+   accepts it. The block carries its own instructions; agent rules and skills do
+   not repeat them.
 
 ## Evaluation (2026-09-24)
 
