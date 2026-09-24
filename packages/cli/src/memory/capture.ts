@@ -47,7 +47,7 @@ const CLASSIFIERS: Array<{
     destination: ".ai/memory/decisions/",
     action: "Capture via capture-adr or capture-decision skill; update decisions/index.md",
     patterns: [
-      /\b(we (decided|chose|picked)|decision:|out of scope|approved)\b/i,
+      /\b(we (decided|chose|picked)|decision:|out of scope)\b/i,
       /\b(going with|will use|won't use)\b/i,
     ],
   },
@@ -503,6 +503,8 @@ export function observeCapture(opts: {
   }
   if (
     FOLLOWUP_PROMPT_RE.test(promptRaw) ||
+    // Claude Code submits subagent reports as prompts, framed as not from the user.
+    /^<agent-message\b/m.test(promptRaw) ||
     FOLLOWUP_PROMPT_RE.test(assistantRaw) ||
     FOLLOWUP_PROMPT_RE.test(payloadBlob)
   ) {

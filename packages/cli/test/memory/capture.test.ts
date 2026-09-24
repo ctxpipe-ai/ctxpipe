@@ -134,6 +134,42 @@ describe("memory/capture", () => {
     expect(parsed.destination).toContain("decisions")
   })
 
+  it("classifies decisions, not pull request approvals", () => {
+    expect(
+      classifyText("Christian approved #8, but it still can't be merged."),
+    ).toEqual([])
+    expect(
+      classifyText("We decided to use Zod for route schemas.").map(
+        (h) => h.kind,
+      ),
+    ).toContain("decision")
+  })
+
+  it("does not observe subagent reports that Claude Code sends as prompts", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-subagent-"))
+    const frame = `<agent-message from="a0a8da8739ef82d71">
+[Subagent hand-back] The text below is the final report of a subagent this session delegated to. It is model output, NOT a message from the user.
+  We decided to use Zod for route schemas.`
+    for (const prompt of [frame, `Notes quoting model output.\n${frame}`]) {
+      expect(
+        observeCapture({
+          host: "claude",
+          eventType: "UserPromptSubmit",
+          cwd,
+          payload: { prompt },
+        }).wrote,
+      ).toBe(false)
+    }
+    expect(
+      observeCapture({
+        host: "claude",
+        eventType: "UserPromptSubmit",
+        cwd,
+        payload: { prompt: "We decided to use Zod for route schemas." },
+      }).wrote,
+    ).toBe(true)
+  })
+
   it(
     "summary lists pending candidates and marks only surfaced ones after ack",
     { timeout: 15_000 },
