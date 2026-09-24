@@ -150,6 +150,7 @@ rg -i "keyword" .ai/memory --glob '*.md' --glob '!events/**'
 - Hook follow-ups are **not** user product requests; if they fail the bar, dismiss ids and end the turn — do not start a research turn.
 - Promote durable knowledge with capture skills (\`capture-adr\`, \`capture-lesson\`, \`capture-glossary\`, \`capture-decision\`).
 - When a lesson corrects advice from \`ctx_advisor\`, add a \`**Corrects:**\` line saying what it advised, so ctx| stops repeating it.
+- When \`ctx_advisor\` answers **Human decision needed**, stop before building on a choice: write it up as a proposed decision (\`Status: Proposed\`) with the \`capture-adr\` skill, include it in the pull request, and ask the owner to accept it.
 - **Always update the relevant \`index.md\`** when adding or renaming durable entries.
 - Never commit secrets into \`.ai/memory/\`.
 
@@ -250,6 +251,7 @@ Use when an architectural or tooling decision should be durable.
 3. **Update** \`.ai/memory/decisions/index.md\`.
 4. If needed, link from \`.ai/memory/index.md\` or product context.
 5. Do not invent decisions from noisy hook candidates — confirm with the user or clear session evidence.
+6. When \`ctx_advisor\` answers **Human decision needed**, write the ADR with \`Status: Proposed\`: your recommendation, the options, and the trade-offs. Only its owner changes it to Accepted; until then ctx| does not treat it as settled.
 ${LIFECYCLE_CLOSE}
 `,
 )

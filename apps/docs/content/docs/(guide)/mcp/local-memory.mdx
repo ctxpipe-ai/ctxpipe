@@ -69,7 +69,18 @@ lesson says so with a `Corrects:` line:
 ```
 
 Once merged, ctx| ranks the correction alongside your agent rules, and
-`ctx_advisor` treats it as overriding the advice it names.
+`ctx_advisor` treats it as overriding the advice it names. A correction never
+overrides an accepted decision; if the two conflict, ctx| asks for a human.
+
+### When ctx| says a human must decide
+
+For a high-stakes choice (security, personal data, data model, architecture,
+infrastructure, compliance, or payments) that no accepted decision covers,
+`ctx_advisor` ends its answer with **Human decision needed**. The agent then
+writes its recommendation as a proposed decision record (`Status: Proposed`) in
+the pull request and asks the owner to accept it. Until someone does, ctx| does
+not treat that choice as your standard, so one agent's pick cannot spread as if
+it were agreed.
 
 ## What each agent gets
 

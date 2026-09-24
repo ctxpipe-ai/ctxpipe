@@ -49,9 +49,13 @@ describe("memory init (end-to-end)", () => {
     expect(memoryRule).toContain(
       "one short sentence naming only what was learned",
     )
+    expect(memoryRule).toContain("**Human decision needed**")
     expect(
-      existsSync(join(cwd, ".cursor", "skills", "capture-adr", "SKILL.md")),
-    ).toBe(true)
+      readFileSync(
+        join(cwd, ".cursor", "skills", "capture-adr", "SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("Status: Proposed")
     expect(
       existsSync(join(cwd, ".cursor", "skills", "memory-search", "SKILL.md")),
     ).toBe(true)

@@ -46,3 +46,4 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-033](ADR-033-graph-ontology-v2.md) | Graph ontology v2: relation families, shared identity, deterministic connector extraction | Accepted (amended by ADR-037) |
 | [ADR-034](ADR-034-pagerduty-connector-git-native-mirror.md) | PagerDuty connector Git-native mirror | Accepted |
 | [ADR-037](ADR-037-committed-memory-reaches-the-graph.md) | Committed memory reaches the graph | Accepted |
+| [ADR-038](ADR-038-decision-gates-and-containment.md) | Decision gates and containment for AI decisions | Proposed |

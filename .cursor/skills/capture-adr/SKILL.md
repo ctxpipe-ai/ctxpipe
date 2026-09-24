@@ -12,6 +12,7 @@ Use when an architectural or tooling decision should be durable.
 3. **Update** `.ai/memory/decisions/index.md`.
 4. If needed, link from `.ai/memory/index.md` or product context.
 5. Do not invent decisions from noisy hook candidates — confirm with the user or clear session evidence.
+6. When `ctx_advisor` answers **Human decision needed**, write the ADR with `Status: Proposed`: your recommendation, the options, and the trade-offs. Only its owner changes it to Accepted; until then ctx| does not treat it as settled.
 
 ## Close the candidate lifecycle
 

@@ -141,6 +141,7 @@ npx -y ctxpipe memory capture summary
 Commit \`.ai/memory/\` changes with the work they came from, on that work's branch, and
 summarize the work in its pull request description (what changed, why, what was ruled out).
 If a lesson corrects \`ctx_advisor\` advice, add a \`**Corrects:**\` line saying what it advised.
+When \`ctx_advisor\` answers **Human decision needed**, write a proposed ADR (\`Status: Proposed\`) in the pull request and ask the owner before building on it.
 ${MEMORY_INSTRUCTION_MARKER_END}
 `
 }
