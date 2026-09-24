@@ -10,7 +10,7 @@ See [ADR-031](../../.ai/memory/decisions/ADR-031-self-hosted-clickstack-langfuse
 | --- | --- | --- |
 | ClickHouse | GitHub `ops/observability/clickhouse` | 1 GiB RAM cap, volume, DBs `otel` + `langfuse`, 14-day TTL |
 | Collector | GitHub `ops/observability/collector` | Built-in ClickHouse APM + custom LLM allowlist → Langfuse. Public hostname `telemetry.ctxpipe.ai` |
-| HyperDX | `hyperdx/hyperdx:2` | UI; Railway Serverless OK |
+| HyperDX | `hyperdx/hyperdx:2` | UI at `hyperdx.ctxpipe.ai`; Railway Serverless OK |
 | Mongo | `mongo:7` | HyperDX metadata only |
 | Langfuse web | `langfuse/langfuse:3` | Public UI + `/api/public/otel` |
 | Langfuse worker | `langfuse/langfuse-worker:3` | ClickHouse + Neon + bucket |
@@ -31,7 +31,7 @@ Infrastructure lives in [`terraform/`](./terraform/). ClickHouse and the collect
 3. Create Railway bucket `langfuse-events` (region `iad`) so `${{langfuse-events.BUCKET}}` and sibling references resolve.
 4. Copy [`terraform/terraform.tfvars.example`](./terraform/terraform.tfvars.example) → `terraform.tfvars`. Generate ClickHouse / HyperDX / Langfuse init secrets. `LANGFUSE_INIT_PROJECT_*` keys must match `langfuse_auth_string` so the collector can fan out on first boot.
 5. `terraform apply` (use this PR branch for `github_repo_branch` until merge, then `main`).
-6. Create a DNS CNAME for `telemetry.ctxpipe.ai` to the value in `terraform output collector_dns_record`. Until that is live, use the Railway service domain `ctxpipe-telemetry.up.railway.app`.
+6. Create DNS CNAMEs for `telemetry.ctxpipe.ai` and `hyperdx.ctxpipe.ai` to `terraform output collector_dns_record` / `hyperdx_dns_record`. Until those are live, use the Railway service domains `ctxpipe-telemetry.up.railway.app` / `ctxpipe-hyperdx.up.railway.app`.
 7. Point product Terraform `otel_otlp_endpoint` / `otel_otlp_headers` (and PR vars `OBSERVABILITY_OTLP_ENDPOINT` / `OBSERVABILITY_OTLP_HEADERS`) at `https://telemetry.ctxpipe.ai` with `authorization=<HYPERDX_API_KEY>`. Until those are set, production still uses the in-project `otelcollector`.
 
 [`deploy.sh`](./deploy.sh) is an optional CLI escape hatch (`railway up`) if the GitHub integration is unavailable.

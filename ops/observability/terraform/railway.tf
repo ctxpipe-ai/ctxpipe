@@ -206,13 +206,19 @@ resource "railway_variable_collection" "hyperdx" {
     },
     {
       name  = "FRONTEND_URL"
-      value = "https://$${{RAILWAY_PUBLIC_DOMAIN}}"
+      value = "https://${var.hyperdx_custom_domain}"
     },
     {
       name  = "PORT"
       value = "8080"
     },
   ]
+}
+
+resource "railway_custom_domain" "hyperdx" {
+  domain         = var.hyperdx_custom_domain
+  environment_id = var.railway_environment_id
+  service_id     = railway_service.hyperdx.id
 }
 
 resource "railway_service_domain" "hyperdx" {

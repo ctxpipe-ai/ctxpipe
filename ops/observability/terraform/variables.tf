@@ -45,6 +45,12 @@ variable "collector_custom_domain" {
   default     = "telemetry.ctxpipe.ai"
 }
 
+variable "hyperdx_custom_domain" {
+  type        = string
+  description = "Public HyperDX dashboard hostname."
+  default     = "hyperdx.ctxpipe.ai"
+}
+
 variable "clickhouse_otel_password" {
   type        = string
   description = "ClickHouse password for the otel user (HyperDX + collector)."

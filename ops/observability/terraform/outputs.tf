@@ -18,6 +18,16 @@ output "collector_service_domain" {
   value       = railway_service_domain.collector.domain
 }
 
+output "hyperdx_custom_domain" {
+  description = "Public HyperDX dashboard hostname."
+  value       = var.hyperdx_custom_domain
+}
+
+output "hyperdx_dns_record" {
+  description = "CNAME target Railway assigned for hyperdx.ctxpipe.ai."
+  value       = railway_custom_domain.hyperdx.dns_record_value
+}
+
 output "hyperdx_service_domain" {
   description = "Railway-generated HyperDX hostname."
   value       = railway_service_domain.hyperdx.domain

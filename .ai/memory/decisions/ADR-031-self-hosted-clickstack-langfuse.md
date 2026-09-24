@@ -20,7 +20,7 @@ Hosted observability was Langfuse Cloud (paid) plus unused Better Stack / Amplit
 
 6. **Browser:** `@hyperdx/browser` with `url` = same-origin `/.otel` (or operator collector). `disableReplay: true`. SPA `page_view` via `HyperDX.addAction`. [ADR-017](ADR-017-amplitude-analytics.md) is superseded.
 
-7. **Deploy path:** Terraform in [`ops/observability/terraform/`](../../../ops/observability/terraform/) targets the existing Railway project `305aa114-c6f3-4aca-b883-0faa9c331aa2` (does not create it). ClickHouse and the collector use the **Railway GitHub integration** (`source_repo` + `root_directory`); image services pull public images. No static `OBSERVABILITY_RAILWAY_TOKEN`. [`.github/workflows/observability.yaml`](../../../.github/workflows/observability.yaml) only validates Terraform. Apply is manual. Public collector hostname is `telemetry.ctxpipe.ai`. Product Terraform `otel_otlp_endpoint` / `otel_otlp_headers` stay optional until cutover. `LANGFUSE_INIT_*` pre-creates the Langfuse project + API keys so the collector can fan out on first boot.
+7. **Deploy path:** Terraform in [`ops/observability/terraform/`](../../../ops/observability/terraform/) targets the existing Railway project `305aa114-c6f3-4aca-b883-0faa9c331aa2` (does not create it). ClickHouse and the collector use the **Railway GitHub integration** (`source_repo` + `root_directory`); image services pull public images. No static `OBSERVABILITY_RAILWAY_TOKEN`. [`.github/workflows/observability.yaml`](../../../.github/workflows/observability.yaml) only validates Terraform. Apply is manual. Public collector hostname is `telemetry.ctxpipe.ai`. Public HyperDX dashboard hostname is `hyperdx.ctxpipe.ai`. Product Terraform `otel_otlp_endpoint` / `otel_otlp_headers` stay optional until cutover. `LANGFUSE_INIT_*` pre-creates the Langfuse project + API keys so the collector can fan out on first boot.
 
 ### Consequences
 
@@ -34,7 +34,7 @@ Hosted observability was Langfuse Cloud (paid) plus unused Better Stack / Amplit
 
 - Single-node ClickHouse: crash loses ingest until restart; 14-day TTL is the retention story.
 - Cross-project OTLP is public + token (private networking does not cross Railway projects/environments).
-- First apply is manual `terraform apply` plus one Railway bucket (`langfuse-events`) the 0.6.1 provider cannot create. DNS for `telemetry.ctxpipe.ai` is operator-owned.
+- First apply is manual `terraform apply` plus one Railway bucket (`langfuse-events`) the 0.6.1 provider cannot create. DNS for `telemetry.ctxpipe.ai` and `hyperdx.ctxpipe.ai` is operator-owned.
 - Langfuse isolation is a second database on the existing Neon project, not a schema.
 
 ### Alternatives Considered
