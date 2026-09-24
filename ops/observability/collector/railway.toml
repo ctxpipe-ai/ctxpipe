@@ -5,4 +5,4 @@ watchPatterns = ["**"]
 
 [deploy]
 restartPolicyType = "ON_FAILURE"
-sleepApplication = false
+sleepApplication = true

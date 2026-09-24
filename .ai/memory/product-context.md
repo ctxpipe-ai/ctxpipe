@@ -28,8 +28,9 @@ CLI and Confluence Forge app declare their own licenses.
 - **`apps/docs`** — Fumadocs on Next.js 15. Documentation routes use the
   `/docs` base path; local docs run separately on port 3003.
 - **`ops/observability`** — internal ClickStack + Langfuse stack (not a product
-  runtime). Public collector is `telemetry.ctxpipe.ai`; HyperDX dashboard is
-  `hyperdx.ctxpipe.ai`. See [ADR-031](decisions/ADR-031-self-hosted-clickstack-langfuse.md).
+  runtime). Public collector is `telemetry.ctxpipe.ai`; HyperDX is
+  `hyperdx.ctxpipe.ai`; Langfuse is `langfuse.ctxpipe.ai`. See
+  [ADR-031](decisions/ADR-031-self-hosted-clickstack-langfuse.md).
 - **`apps/otel-collector`** — laptop / contrib OpenTelemetry collector (reference allowlist). Hosted ingest is [`ops/observability`](../../ops/observability/).
 - **`apps/forge-ctxpipe-agent`** — Atlassian Forge app for Confluence.
 - **`packages/cli`** — the `ctxpipe` CLI, including `npx ctxpipe init` and local

@@ -7,4 +7,4 @@ watchPatterns = ["**"]
 healthcheckPath = "/ping"
 healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"
-sleepApplication = false
+sleepApplication = true

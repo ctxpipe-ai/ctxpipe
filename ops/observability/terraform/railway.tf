@@ -246,7 +246,7 @@ resource "railway_variable_collection" "langfuse_web" {
   variables = concat(local.langfuse_shared_env, [
     {
       name  = "NEXTAUTH_URL"
-      value = "https://$${{RAILWAY_PUBLIC_DOMAIN}}"
+      value = "https://${var.langfuse_custom_domain}"
     },
     {
       name  = "NEXTAUTH_SECRET"
@@ -293,6 +293,12 @@ resource "railway_variable_collection" "langfuse_web" {
       value = "3000"
     },
   ])
+}
+
+resource "railway_custom_domain" "langfuse_web" {
+  domain         = var.langfuse_custom_domain
+  environment_id = var.railway_environment_id
+  service_id     = railway_service.langfuse_web.id
 }
 
 resource "railway_service_domain" "langfuse_web" {

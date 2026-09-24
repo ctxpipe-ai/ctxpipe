@@ -33,6 +33,16 @@ output "hyperdx_service_domain" {
   value       = railway_service_domain.hyperdx.domain
 }
 
+output "langfuse_custom_domain" {
+  description = "Public Langfuse hostname."
+  value       = var.langfuse_custom_domain
+}
+
+output "langfuse_dns_record" {
+  description = "CNAME target Railway assigned for langfuse.ctxpipe.ai."
+  value       = railway_custom_domain.langfuse_web.dns_record_value
+}
+
 output "langfuse_service_domain" {
   description = "Railway-generated Langfuse hostname."
   value       = railway_service_domain.langfuse_web.domain

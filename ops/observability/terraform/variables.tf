@@ -51,6 +51,12 @@ variable "hyperdx_custom_domain" {
   default     = "hyperdx.ctxpipe.ai"
 }
 
+variable "langfuse_custom_domain" {
+  type        = string
+  description = "Public Langfuse hostname."
+  default     = "langfuse.ctxpipe.ai"
+}
+
 variable "clickhouse_otel_password" {
   type        = string
   description = "ClickHouse password for the otel user (HyperDX + collector)."
