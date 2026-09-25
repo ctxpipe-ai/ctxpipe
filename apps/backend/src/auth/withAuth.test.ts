@@ -54,6 +54,7 @@ vi.mock("../observability/logger.js", () => ({
     error: vi.fn(),
     warn: vi.fn(),
     info: vi.fn(),
+    set: vi.fn(),
   }),
 }))
 
@@ -68,6 +69,7 @@ import {
   withMcpBearerAuth,
   withNetworkOrgContext,
   withOrgApiKeyAuth,
+  withSharedCookieSession,
 } from "./withAuth.js"
 
 function createMockDb(input: {
@@ -288,6 +290,67 @@ describe("auth middleware composition", () => {
     const firstCall = getSessionMock.mock.calls[0]
     const headers = firstCall?.[0]?.headers as Headers | undefined
     expect(headers?.get("x-api-key")).toBe("ctxp_test_api_key")
+  })
+
+  it("reads the cookie session once for the shared middleware and withCookieAuth", async () => {
+    getSessionMock.mockResolvedValue({
+      user: { id: "user_once", email: "once@example.com" },
+      session: { id: "sess_once", userId: "user_once" },
+    })
+
+    const app = createBaseApp()
+    app.use("*", withSharedCookieSession)
+    app.use("/mcp", withCookieAuth)
+    app.post("/mcp", (c) =>
+      c.json({
+        user: c.get("user"),
+        session: c.get("session"),
+        personalApiKeyId: c.get("personalApiKeyId"),
+      }),
+    )
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { "x-api-key": "ctxp_test_api_key" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: { id: "user_once", email: "once@example.com" },
+      session: { id: "sess_once", userId: "user_once" },
+      personalApiKeyId: "sess_once",
+    })
+    expect(getSessionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("returns 401 for an invalid shared session without a second read", async () => {
+    getSessionMock.mockResolvedValue({
+      user: { id: "user_bad" },
+      session: null,
+    })
+
+    const app = createBaseApp()
+    app.use("*", withSharedCookieSession)
+    app.use("/mcp", withCookieAuth)
+    app.post("/mcp", (c) => c.json({ ok: true }))
+
+    const response = await app.request("/mcp", { method: "POST" })
+
+    expect(response.status).toBe(401)
+    expect(getSessionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("skips the shared session read on status and webhook paths", async () => {
+    const app = createBaseApp()
+    app.use("*", withSharedCookieSession)
+    app.get("/.status", (c) => c.text("ok"))
+    app.post("/api/v1/webhook/github", (c) => c.text("ok"))
+
+    expect((await app.request("/.status")).status).toBe(200)
+    expect(
+      (await app.request("/api/v1/webhook/github", { method: "POST" })).status,
+    ).toBe(200)
+    expect(getSessionMock).not.toHaveBeenCalled()
   })
 
   it("withBearerAuth sets user and session from bearer token", async () => {

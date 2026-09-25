@@ -251,8 +251,22 @@ async function resolveOpaqueAccessToken(token: string): Promise<{
     : null
 }
 
-export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
-  if (c.get("user") || c.get("session") || c.get("orgApiKey")) return next()
+const cookieSessionLookups = new WeakMap<Request, "absent" | "invalid" | "ok">()
+
+/**
+ * One Better Auth session read per request. `withCookieAuth` and the app
+ * middleware both call this; the second call reuses the first.
+ */
+export async function resolveCookieSession(c: Context<AppEnv>): Promise<void> {
+  if (
+    cookieSessionLookups.has(c.req.raw) ||
+    c.get("user") ||
+    c.get("session") ||
+    c.get("orgApiKey")
+  ) {
+    return
+  }
+  const started = performance.now()
   const auth = getAuth()
   const apiKeyHeader = c.req.header("x-api-key")?.trim()
   let authSession: Awaited<ReturnType<typeof auth.api.getSession>> = null
@@ -266,16 +280,18 @@ export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     if (!apiKeyHeader) throw err
     authSession = null
   }
-
-  if (!authSession) return next()
-  if (!authSession.user || !authSession.session) {
-    return c.json(
-      { error: "Unauthorized" },
-      401,
-      wwwAuthenticateForMcpRoute(c, "Session invalid or missing"),
-    )
+  const resolvedIn = Math.round(performance.now() - started)
+  if (!authSession) {
+    cookieSessionLookups.set(c.req.raw, "absent")
+    tryGetLogger()?.set({ auth: { resolvedIn, identified: false } })
+    return
   }
-
+  if (!authSession.user || !authSession.session) {
+    cookieSessionLookups.set(c.req.raw, "invalid")
+    tryGetLogger()?.set({ auth: { resolvedIn, identified: false } })
+    return
+  }
+  cookieSessionLookups.set(c.req.raw, "ok")
   // @better-auth/api-key 1.6.23 sets this mocked session id to the key id
   // inside getSession, after validateApiKey has already counted the request.
   const personalApiKeyId = apiKeyHeader ? authSession.session.id : undefined
@@ -283,7 +299,44 @@ export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   c.set("user", authSession.user)
   c.set("session", authSession.session)
   applyPrincipalAttribution(c)
+  tryGetLogger()?.set({
+    user: { id: authSession.user.id },
+    auth: { resolvedIn, identified: true },
+  })
+}
+
+export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
+  if (c.get("user") || c.get("session") || c.get("orgApiKey")) return next()
+  await resolveCookieSession(c)
+  if (cookieSessionLookups.get(c.req.raw) === "invalid") {
+    return c.json(
+      { error: "Unauthorized" },
+      401,
+      wwwAuthenticateForMcpRoute(c, "Session invalid or missing"),
+    )
+  }
   return next()
+}
+
+/** Paths that must not pay for a session read (webhooks, auth, health). */
+export function shouldResolveSharedCookieSession(path: string): boolean {
+  if (path.startsWith("/.auth/api/v1/auth")) return false
+  if (path.startsWith("/.auth/api/config")) return false
+  if (path.startsWith("/.auth/api/v1/public")) return false
+  if (path.startsWith("/.well-known")) return false
+  if (path.startsWith("/.status")) return false
+  if (path.startsWith("/api/v1/webhook")) return false
+  return true
+}
+
+export const withSharedCookieSession: MiddlewareHandler<AppEnv> = async (
+  c,
+  next,
+) => {
+  if (shouldResolveSharedCookieSession(c.req.path)) {
+    await resolveCookieSession(c)
+  }
+  await next()
 }
 
 function applyPrincipalAttribution(c: Context<AppEnv>): void {

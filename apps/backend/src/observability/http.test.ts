@@ -11,7 +11,15 @@ import {
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { Hono } from "hono"
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 import { applyAttribution } from "./attribution.js"
 import { backendOtelMiddleware, isUiProxyPath } from "./http.js"
 
@@ -251,5 +259,98 @@ describe("backendOtelMiddleware", () => {
     })
     expect(span?.attributes["ctxpipe.repository.id"]).toBeUndefined()
     expect(span?.attributes["ctxpipe.conversation.id"]).toBeUndefined()
+  })
+
+  it("records handler.end and response.ready on the server span", async () => {
+    const app = new Hono()
+    app.use("*", backendOtelMiddleware())
+    app.get("/orgs/:orgSlug/api/v1/repositories", (c) => c.json({ ok: true }))
+
+    const res = await app.request(
+      "http://backend.test/orgs/acme/api/v1/repositories",
+    )
+    expect(res.status).toBe(200)
+    const span = exporter
+      .getFinishedSpans()
+      .find((item) => item.kind === SpanKind.SERVER)
+    const events = span?.events.map((event) => event.name)
+    expect(events).toEqual(["handler.end", "response.ready"])
+    const handlerEnd = span?.events[0]?.time
+    const responseReady = span?.events[1]?.time
+    expect(handlerEnd).toBeDefined()
+    expect(responseReady).toBeDefined()
+    if (!handlerEnd || !responseReady) return
+    const toMs = (time: [number, number]) => time[0] * 1e3 + time[1] / 1e6
+    expect(toMs(responseReady)).toBeGreaterThanOrEqual(toMs(handlerEnd))
+  })
+
+  it("schedules the PR otel flush only after the server span has ended", async () => {
+    const previous = process.env.RAILWAY_ENVIRONMENT_NAME
+    process.env.RAILWAY_ENVIRONMENT_NAME = "pr-343"
+    const original = globalThis.setTimeout
+    const spanEndedBeforeFlush: boolean[] = []
+    const spy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      fn: TimerHandler,
+      delay?: number,
+      ...args: unknown[]
+    ) => {
+      if (
+        typeof fn === "function" &&
+        delay === 0 &&
+        String(fn).includes("forceFlushOtel")
+      ) {
+        spanEndedBeforeFlush.push(
+          exporter
+            .getFinishedSpans()
+            .some((span) => span.kind === SpanKind.SERVER),
+        )
+      }
+      return original(fn as never, delay as never, ...(args as []))
+    }) as unknown as typeof setTimeout)
+    try {
+      const app = new Hono()
+      app.use("*", backendOtelMiddleware())
+      app.get("/.status", (c) => c.text("ok"))
+      const res = await app.request("http://backend.test/.status")
+      expect(res.status).toBe(200)
+      expect(spanEndedBeforeFlush).toEqual([true])
+    } finally {
+      spy.mockRestore()
+      if (previous === undefined) delete process.env.RAILWAY_ENVIRONMENT_NAME
+      else process.env.RAILWAY_ENVIRONMENT_NAME = previous
+    }
+  })
+
+  it("does not schedule an otel flush outside PR environments", async () => {
+    const previous = process.env.RAILWAY_ENVIRONMENT_NAME
+    process.env.RAILWAY_ENVIRONMENT_NAME = "production"
+    const original = globalThis.setTimeout
+    let scheduled = 0
+    const spy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      fn: TimerHandler,
+      delay?: number,
+      ...args: unknown[]
+    ) => {
+      if (
+        typeof fn === "function" &&
+        delay === 0 &&
+        String(fn).includes("forceFlushOtel")
+      ) {
+        scheduled += 1
+      }
+      return original(fn as never, delay as never, ...(args as []))
+    }) as unknown as typeof setTimeout)
+    try {
+      const app = new Hono()
+      app.use("*", backendOtelMiddleware())
+      app.get("/.status", (c) => c.text("ok"))
+      const res = await app.request("http://backend.test/.status")
+      expect(res.status).toBe(200)
+      expect(scheduled).toBe(0)
+    } finally {
+      spy.mockRestore()
+      if (previous === undefined) delete process.env.RAILWAY_ENVIRONMENT_NAME
+      else process.env.RAILWAY_ENVIRONMENT_NAME = previous
+    }
   })
 })

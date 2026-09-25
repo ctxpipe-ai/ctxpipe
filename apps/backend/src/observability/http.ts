@@ -14,6 +14,7 @@ import {
   stripUntrustedAttributionBaggage,
 } from "./attribution.js"
 import { logFieldsFromActiveSpan } from "./logContract.js"
+import { forceFlushOtel, isRailwayPrEnvironment } from "./otel.js"
 import { redactSecretPath } from "./secretPath.js"
 
 const TRACER_NAME = "ctxpipe-backend"
@@ -102,8 +103,8 @@ export function backendOtelMiddleware(): MiddlewareHandler {
 
     try {
       await context.with(withBag, async () => {
+        applyAttribution({ "request.id": requestId.id }, requestLogger(c))
         try {
-          applyAttribution({ "request.id": requestId.id }, requestLogger(c))
           await next()
           const route = c.req.routePath
           if (route) {
@@ -111,6 +112,7 @@ export function backendOtelMiddleware(): MiddlewareHandler {
             span.setAttribute("http.route", route)
           }
         } finally {
+          span.addEvent("handler.end")
           copyAttributionToSpan(span, context.active())
           requestLogger(c)?.set(logFieldsFromActiveSpan())
         }
@@ -127,7 +129,16 @@ export function backendOtelMiddleware(): MiddlewareHandler {
       span.setAttribute("http.response.status_code", 500)
       throw error
     } finally {
+      span.addEvent("response.ready")
       span.end()
+      // A microtask queued by inner middleware runs before this function
+      // resumes, so flushing there holds the response inside the span.
+      // The timer runs after span.end and after the response is returned.
+      if (isRailwayPrEnvironment() && !isUiProxyPath(c.req.path)) {
+        setTimeout(() => {
+          void forceFlushOtel()
+        }, 0)
+      }
       c.header("x-request-id", requestId.id)
     }
   }

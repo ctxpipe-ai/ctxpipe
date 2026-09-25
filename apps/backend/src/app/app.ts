@@ -1,23 +1,15 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { parseError } from "evlog"
-import {
-  type BetterAuthInstance,
-  createAuthMiddleware,
-} from "evlog/better-auth"
 import { evlog } from "evlog/hono"
 import { contextStorage } from "hono/context-storage"
 import { cors } from "hono/cors"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
-import { getAuth } from "../auth/config.js"
+import { withSharedCookieSession } from "../auth/withAuth.js"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
-import { backendOtelMiddleware, isUiProxyPath } from "../observability/http.js"
+import { backendOtelMiddleware } from "../observability/http.js"
 import { applyLogContract } from "../observability/logContract.js"
 import { createEvlogDrain, log } from "../observability/logger.js"
-import {
-  forceFlushOtel,
-  isRailwayPrEnvironment,
-} from "../observability/otel.js"
 import { registerAuthRoutes } from "../routes/auth.js"
 import { registerLangsmithRoutes } from "../routes/langsmith.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
@@ -40,26 +32,6 @@ export function createApp() {
       step: "backfill.github_connection_secrets",
     })
   })
-
-  /** Evlog only: enriches `c.var.log` wide events; does not set `c.var.user` or gate routes. */
-  const identifyBetterAuthUser = createAuthMiddleware(
-    getAuth() as unknown as BetterAuthInstance,
-    {
-      exclude: [
-        "/.auth/api/v1/auth/**",
-        "/.auth/api/config",
-        "/.auth/api/v1/public/**",
-        "/.well-known/**",
-        "/.status",
-        "/api/v1/webhook/**",
-      ],
-      // evlog prints the wide event before enrich, so email, name, and
-      // session ip/user-agent must never be copied onto the request log.
-      maskEmail: true,
-      session: false,
-      fields: ["id"],
-    },
-  )
 
   const app = new OpenAPIHono<AppEnv>()
 
@@ -86,10 +58,6 @@ export function createApp() {
   )
   app.use("*", backendOtelMiddleware())
   app.use("*", async (c, next) => {
-    await identifyBetterAuthUser(c.get("log"), c.req.raw.headers, c.req.path)
-    await next()
-  })
-  app.use("*", async (c, next) => {
     c.set("env", env)
     c.set("user", null)
     c.set("session", null)
@@ -99,19 +67,7 @@ export function createApp() {
     c.set("orgId", null)
     await next()
   })
-  app.use("*", async (c, next) => {
-    try {
-      await next()
-    } finally {
-      if (isRailwayPrEnvironment() && !isUiProxyPath(c.req.path)) {
-        // After this middleware returns, the server span ends. Flush on the
-        // next turn so that span is in the batch and the response is not held.
-        queueMicrotask(() => {
-          void forceFlushOtel()
-        })
-      }
-    }
-  })
+  app.use("*", withSharedCookieSession)
 
   app.onError((error, c) => {
     // Dev: UI is proxied to Vite; clients often abort in-flight module/CSS streams
