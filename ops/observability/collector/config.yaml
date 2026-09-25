@@ -80,6 +80,24 @@ processors:
           - delete_matching_keys(spanevent.attributes, "^gen_ai\\.completion")
           - delete_matching_keys(spanevent.attributes, "^gen_ai\\.input\\.messages")
           - delete_matching_keys(spanevent.attributes, "^gen_ai\\.output\\.messages")
+  # ClickHouse traces only. traces/llm is unchanged.
+  # hyperdx and langfuse set service.namespace=ctxpipe, same as product, so
+  # the gate is deployment.environment=observability plus the three service
+  # names. Span drop keeps the shared pipeline stateless: tail sampling would
+  # buffer pr-343 traces for decision_wait. periodic-runner.* is a root
+  # (startNewTrace). middleware and router - /health are children, so the
+  # HTTP route span stays. Heartbeat commands are leaves.
+  filter/ops_self_noise:
+    error_mode: ignore
+    traces:
+      span:
+        - 'resource.attributes["deployment.environment"] == "observability" and (resource.attributes["service.name"] == "hyperdx" or resource.attributes["service.name"] == "langfuse-worker" or resource.attributes["service.name"] == "langfuse-web") and status.code != STATUS_CODE_ERROR and IsMatch(name, "^middleware - ")'
+        - 'resource.attributes["deployment.environment"] == "observability" and (resource.attributes["service.name"] == "hyperdx" or resource.attributes["service.name"] == "langfuse-worker" or resource.attributes["service.name"] == "langfuse-web") and status.code != STATUS_CODE_ERROR and name == "router - /health"'
+        - 'resource.attributes["deployment.environment"] == "observability" and (resource.attributes["service.name"] == "hyperdx" or resource.attributes["service.name"] == "langfuse-worker" or resource.attributes["service.name"] == "langfuse-web") and status.code != STATUS_CODE_ERROR and IsMatch(name, "(?i)^mongodb[.](hello|ismaster|ping)$")'
+        - 'resource.attributes["deployment.environment"] == "observability" and (resource.attributes["service.name"] == "hyperdx" or resource.attributes["service.name"] == "langfuse-worker" or resource.attributes["service.name"] == "langfuse-web") and status.code != STATUS_CODE_ERROR and IsMatch(name, "(?i)^mongoose[.](hello|ismaster|ping)$")'
+        - 'resource.attributes["deployment.environment"] == "observability" and (resource.attributes["service.name"] == "hyperdx" or resource.attributes["service.name"] == "langfuse-worker" or resource.attributes["service.name"] == "langfuse-web") and status.code != STATUS_CODE_ERROR and (attributes["db.system"] == "mongodb" or attributes["db.system"] == "mongoose") and IsMatch(attributes["db.operation"], "(?i)^(hello|ismaster|ping)$")'
+        - 'resource.attributes["deployment.environment"] == "observability" and (resource.attributes["service.name"] == "hyperdx" or resource.attributes["service.name"] == "langfuse-worker" or resource.attributes["service.name"] == "langfuse-web") and status.code != STATUS_CODE_ERROR and (attributes["db.system"] == "mongodb" or attributes["db.system"] == "mongoose") and IsMatch(attributes["db.operation.name"], "(?i)^(hello|ismaster|ping)$")'
+        - 'resource.attributes["deployment.environment"] == "observability" and (resource.attributes["service.name"] == "hyperdx" or resource.attributes["service.name"] == "langfuse-worker" or resource.attributes["service.name"] == "langfuse-web") and status.code != STATUS_CODE_ERROR and IsRootSpan() and (IsMatch(name, "^periodic-runner[.]") or IsMatch(name, "queue-metrics"))'
   # Prometheus receiver sets service.name from the job label. This processor
   # only adds the shared ops-stack resource attributes.
   resource/self:
@@ -100,10 +118,11 @@ exporters:
 
 service:
   pipelines:
-    # Restated from clickstack-otel-collector:2.39.1, plus redaction before batch.
+    # Restated from clickstack-otel-collector:2.39.1, plus self-noise drop
+    # and redaction before batch. memory_limiter then batch stay in that order.
     traces:
       receivers: [otlp/hyperdx]
-      processors: [memory_limiter, transform/redact_llm_content, batch]
+      processors: [memory_limiter, filter/ops_self_noise, transform/redact_llm_content, batch]
       exporters: [clickhouse]
     traces/llm:
       receivers: [otlp/hyperdx]
