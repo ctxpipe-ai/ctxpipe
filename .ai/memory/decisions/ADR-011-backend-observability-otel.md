@@ -1,6 +1,6 @@
 # ADR-011: Backend Observability via OpenTelemetry and evlog
 
-**Status:** Accepted | **Date:** 2026-03-12 | **Tags:** backend, observability, opentelemetry, evlog
+**Status:** Accepted | **Date:** 2026-03-12 | **Updated:** 2026-09-25 | **Tags:** backend, observability, opentelemetry, evlog
 
 ### Context
 
@@ -16,6 +16,33 @@ We need observability for the backend: APM (traces), LLM observability, and stru
 
 4. **Initialization order**: `parseEnv` → `initOtel` → `initEvlog` → `createApp`. OTEL must register before any code that creates spans.
 
+5. **Register-first on Bun.** [`apps/backend/src/server.ts`](../../../apps/backend/src/server.ts) imports [`observability/register.ts`](../../../apps/backend/src/observability/register.ts) before the app, so `initOtel` runs before `createApp`. The Hono middleware [`backendOtelMiddleware`](../../../apps/backend/src/observability/http.ts) is the server span: it continues `traceparent` / `baggage`, names the span from the matched route, and returns `x-request-id` on every response including 5xx. Proxied UI assets (Vite modules and hashed files) skip that span and still set the header. A `fetch` wrapper creates the client span and injects W3C `traceparent` and baggage, because Bun's `fetch` is not undici. OTLP `/v1/{traces,metrics,logs}` URLs are left uninstrumented. Codesearch does not use `NodeSDK`. [`tracerProvider.register()`](../../../apps/codesearch/src/observability/otel.ts) runs before the app, then the same kind of Hono server span and fetch wrapper. `@opentelemetry/sdk-node` auto-instrumentations do not patch `Bun.serve` or Bun's global `fetch`.
+
+6. **Attribution** ([`attribution.ts`](../../../apps/backend/src/observability/attribution.ts)). One set, ids only. Logs drop email, name, image, IP, and user-agent (`stripLogPii`). The server span may still carry `user_agent.original`.
+
+   | Key | Meaning |
+   | --- | --- |
+   | `request.id` | Incoming `x-request-id` when it matches `^[A-Za-z0-9._:-]{1,128}$`; otherwise a new UUID. Echoed as the `x-request-id` response header. |
+   | `traceId` / `spanId` | Active span, copied onto the evlog event as top-level fields. The OTLP drain maps those onto the log record. Nested-only attributes leave HyperDX `TraceId` empty. |
+   | `enduser.id` | User id. Omitted for actor `org_api_key`. |
+   | `ctxpipe.org.id` / `ctxpipe.org.slug` | Org id and slug. |
+   | `ctxpipe.actor.type` | `user` \| `org_api_key` \| `oauth_client` \| `webhook` \| `job`. |
+   | `ctxpipe.api_key.id` | Key id. The secret is not an attribute. |
+   | `ctxpipe.oauth.client_id` | OAuth client id when that actor applies. |
+   | `ctxpipe.mcp.tool` | MCP tool name when the request dispatches one. |
+   | `ctxpipe.conversation.id` | Conversation or thread id. |
+   | `ctxpipe.repository.id` / `ctxpipe.connection.id` | Set when the request or job input has them. |
+
+   `applyAttribution` writes the active span, the request logger, and an in-process bag. A span processor copies that bag onto child spans. Outbound `fetch` puts the same keys on W3C baggage. Codesearch reads those baggage keys onto its spans and evlog events.
+
+   **Jobs.** Enqueue adds a `telemetry` object on the job input: `traceparent`, `request.id`, `enduser.id`, `ctxpipe.org.id`, `ctxpipe.org.slug`. `restoreJobTelemetry` starts an `openworkflow.job` consumer span, sets `ctxpipe.actor.type=job`, and adds a span link to the `traceparent` context. If the input has `connectionId` and no actor yet, `fillAttributionFromJobInput` sets `ctxpipe.actor.type=webhook` plus org, connection, and repository ids.
+
+   **Langfuse.** `runWithLangfuseContext` passes `userId` (`enduser.id`, omitted for `org_api_key`), `sessionId` (`ctxpipe.conversation.id`), tags `org:<slug>` and `env:<deployment.environment>`, and trace metadata `orgId`, `orgSlug`, `requestId`, `otelTraceId`, `environment`.
+
+   **Metrics stay low-cardinality.** `ctxpipe.org.id` is an attribute only on `ctxpipe.advisor.calls`, `ctxpipe.ingestion.jobs`, and `ctxpipe.connector.syncs` (that counter also has `ctxpipe.connector.type`). It is not on per-request series.
+
+7. **PR flush-on-demand.** `RAILWAY_ENVIRONMENT_NAME` matching `pr-<digits>` uses `FlushOnDemandMetricReader` (no interval). Production uses `PeriodicExportingMetricReader` at 60s. `forceFlushOtel()` runs after the Hono handler on PR and at the end of `withLogger`. `onForceFlush` exports whatever scope metrics `collect()` returned even when one observable callback threw (Bun `v8.getHeapSpaceStatistics` inside runtime-node). An empty collect that only has errors still throws. Codesearch uses the same reader. See [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md).
+
 ### Consequences
 
 **Positive**
@@ -27,7 +54,7 @@ We need observability for the backend: APM (traces), LLM observability, and stru
 **Negative / trade-offs**
 
 - Requires a collector for multi-backend setups (hosted: ClickStack ClickHouse + Langfuse allowlist).
-- evlog drain adds a dependency; no new log calls yet—setup only.
+- evlog drain adds a dependency. **Superseded:** "no new log calls yet—setup only." Request logs now carry the attribution keys and `traceId` / `spanId`.
 
 ### Alternatives Considered
 
@@ -36,7 +63,7 @@ We need observability for the backend: APM (traces), LLM observability, and stru
 
 ### Notes
 
-- See `apps/backend/src/observability/otel.ts`, `evlog.ts`, `langfuse.ts`, [`ops/observability/collector/config.yaml`](../../../ops/observability/collector/config.yaml) (hosted), and `apps/otel-collector/config.yaml` (laptop reference).
+- See `apps/backend/src/observability/otel.ts`, `register.ts`, `http.ts`, `attribution.ts`, `jobTelemetry.ts`, `businessMetrics.ts`, `evlog.ts`, `langfuse.ts`, [`ops/observability/collector/config.yaml`](../../../ops/observability/collector/config.yaml) (hosted), and `apps/otel-collector/config.yaml` (laptop reference).
 - Env vars: `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_SERVICE_NAME`.
 - LangFuse integration: `runWithLangfuseContext` wraps graph invocations and adds `env:<deployment>` tags; nodes call `getLangfuseHandler()` in callbacks.
 - PR vs prod metric readers: [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md).
