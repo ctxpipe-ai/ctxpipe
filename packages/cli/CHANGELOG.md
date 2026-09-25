@@ -1,5 +1,11 @@
 # ctxpipe
 
+## 0.5.1
+
+### Patch Changes
+
+- d8d5ca7: Local memory capture no longer raises candidates for subagent reports, which Claude Code sends to the main agent as prompts, or for pull request approvals: "approved" on its own no longer marks a decision. Each of these forced an extra agent turn to dismiss.
+
 ## 0.5.0
 
 ### Minor Changes
