@@ -1,45 +1,23 @@
 import { createServer } from "node:http"
-import { createRequire } from "node:module"
 import type { AddressInfo } from "node:net"
-import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentations-node"
-import { NodeSDK } from "@opentelemetry/sdk-node"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base"
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 
 const exporter = new InMemorySpanExporter()
-const sdk = new NodeSDK({
+const provider = new NodeTracerProvider({
   spanProcessors: [new SimpleSpanProcessor(exporter)],
-  instrumentations: [
-    getNodeAutoInstrumentations({
-      "@opentelemetry/instrumentation-fs": { enabled: false },
-      "@opentelemetry/instrumentation-dns": { enabled: false },
-      "@opentelemetry/instrumentation-net": { enabled: false },
-      "@opentelemetry/instrumentation-http": { enabled: false },
-      "@opentelemetry/instrumentation-undici": { enabled: false },
-    }),
-  ],
 })
-sdk.start()
+provider.register()
 
-const require = createRequire(import.meta.url)
-const OpenAI = require("openai") as new (options: {
-  apiKey: string
-  baseURL: string
-}) => {
-  chat: {
-    completions: {
-      create(
-        body: unknown,
-      ): Promise<{ choices: { message: { content: string } }[] }>
-    }
-  }
-}
+const { installChatOpenAiGenAiSpans } = await import("./genAiChat.js")
+installChatOpenAiGenAiSpans()
+const { ChatOpenAI } = await import("@langchain/openai")
 
 const server = createServer((req, res) => {
-  const chunks: Buffer[] = []
-  req.on("data", (chunk) => chunks.push(chunk as Buffer))
+  req.on("data", () => {})
   req.on("end", () => {
     res.writeHead(200, { "content-type": "application/json" })
     res.end(
@@ -55,7 +33,7 @@ const server = createServer((req, res) => {
             finish_reason: "stop",
           },
         ],
-        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
       }),
     )
   })
@@ -65,35 +43,28 @@ await new Promise<void>((resolve) => {
   server.listen(0, "127.0.0.1", resolve)
 })
 const port = (server.address() as AddressInfo).port
-const client = new OpenAI({
-  apiKey: "test-not-a-real-key",
-  baseURL: `http://127.0.0.1:${port}/v1`,
-})
-await client.chat.completions.create({
+const chat = new ChatOpenAI({
   model: "gpt-test",
-  messages: [{ role: "user", content: "hi" }],
+  apiKey: "test-not-a-real-key",
+  streaming: false,
+  configuration: { baseURL: `http://127.0.0.1:${port}/v1` },
 })
+await chat.invoke("hi")
 await new Promise((resolve) => setTimeout(resolve, 30))
 const spans = exporter.getFinishedSpans().map((span) => ({
   name: span.name,
   attributes: span.attributes,
 }))
-await sdk.shutdown()
+await provider.shutdown()
 await new Promise<void>((resolve, reject) => {
   server.close((err) => (err ? reject(err) : resolve()))
 })
-if (spans.length === 0) {
-  console.error(JSON.stringify({ ok: false, spans }, null, 2))
-  process.exit(1)
-}
-const genAi = spans.filter(
-  (span) =>
-    span.name.toLowerCase().includes("chat") ||
-    Object.keys(span.attributes).some((key) => key.startsWith("gen_ai")),
+
+const genAi = spans.filter((span) =>
+  Object.keys(span.attributes).some((key) => key.startsWith("gen_ai")),
 )
 if (genAi.length === 0) {
   console.error(JSON.stringify({ ok: false, spans }, null, 2))
   process.exit(1)
 }
-const payload = { ok: true, genAi }
-console.log(JSON.stringify(payload, null, 2))
+console.log(JSON.stringify({ ok: true, genAi }, null, 2))

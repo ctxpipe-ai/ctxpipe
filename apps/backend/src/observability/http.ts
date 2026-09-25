@@ -26,24 +26,28 @@ function requestLogger(
   }
 }
 
-/**
- * UI catch-all proxies Vite modules and hashed assets. One server span per
- * file drowns API traces; document navigations (no static suffix) still
- * continue traceparent so a browser action can join the API span.
- */
-function isProxiedUiAsset(path: string): boolean {
-  if (
-    path.startsWith("/@") ||
-    path.startsWith("/src/") ||
-    path.startsWith("/node_modules/") ||
-    path.startsWith("/assets/") ||
-    path.startsWith("/__vite")
-  ) {
-    return true
-  }
-  return /\.(?:js|mjs|css|map|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|txt)$/i.test(
-    path,
+/** Backend routes that must keep a server span, including wildcard mounts. */
+function isBackendSpanPath(path: string): boolean {
+  return (
+    path.startsWith("/.auth/api") ||
+    path.startsWith("/.otel") ||
+    path === "/mcp" ||
+    path.startsWith("/mcp/") ||
+    path.includes("/api/") ||
+    path.startsWith("/.status") ||
+    path.startsWith("/.docs") ||
+    path.startsWith("/.well-known") ||
+    path.startsWith("/langsmith")
   )
+}
+
+/**
+ * The UI catch-all proxies documents and static files (`/assets`, `/fonts`,
+ * `/onboarding`, `/:slug/knowledge-graph`). Those are not API traces.
+ * API, `/mcp`, `/.auth/api`, and `/.otel` still get spans.
+ */
+function isUiProxyPath(path: string): boolean {
+  return !isBackendSpanPath(path)
 }
 
 export function backendOtelMiddleware(): MiddlewareHandler {
@@ -60,7 +64,7 @@ export function backendOtelMiddleware(): MiddlewareHandler {
     if (baggageHeader) carrier.baggage = baggageHeader
     const parent = propagation.extract(context.active(), carrier)
 
-    if (isProxiedUiAsset(c.req.path)) {
+    if (isUiProxyPath(c.req.path)) {
       const { context: withBag } = contextWithAttributionBag(parent)
       await context.with(withBag, async () => {
         applyAttribution({ "request.id": requestId.id }, requestLogger(c))
@@ -95,7 +99,7 @@ export function backendOtelMiddleware(): MiddlewareHandler {
           applyAttribution({ "request.id": requestId.id }, requestLogger(c))
           await next()
           const route = c.req.routePath
-          if (route && !route.includes("*")) {
+          if (route) {
             span.updateName(`${c.req.method} ${route}`)
             span.setAttribute("http.route", route)
           }

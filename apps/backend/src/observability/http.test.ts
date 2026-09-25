@@ -65,9 +65,9 @@ describe("backendOtelMiddleware", () => {
   it("marks 5xx responses as errors and still returns x-request-id", async () => {
     const app = new Hono()
     app.use("*", backendOtelMiddleware())
-    app.get("/boom", (c) => c.text("nope", 503))
+    app.get("/.status", (c) => c.text("nope", 503))
 
-    const res = await app.request("http://backend.test/boom")
+    const res = await app.request("http://backend.test/.status")
     expect(res.status).toBe(503)
     expect(res.headers.get("x-request-id")).toMatch(/^[0-9a-f-]{36}$/)
     const span = exporter.getFinishedSpans().at(-1)
@@ -75,16 +75,56 @@ describe("backendOtelMiddleware", () => {
     expect(span?.attributes["http.response.status_code"]).toBe(503)
   })
 
-  it("does not create a span for proxied static assets", async () => {
+  it("does not create a span for proxied static assets or SPA documents", async () => {
     const app = new Hono()
     app.use("*", backendOtelMiddleware())
     app.get("/assets/app.js", (c) => c.text("js"))
+    app.get("/onboarding", (c) => c.text("page"))
+    app.get("/obs-e2e-343/knowledge-graph", (c) => c.text("page"))
 
-    const res = await app.request("http://backend.test/assets/app.js", {
-      headers: { "x-request-id": "asset_1" },
-    })
-    expect(res.status).toBe(200)
-    expect(res.headers.get("x-request-id")).toBe("asset_1")
+    for (const path of [
+      "/assets/app.js",
+      "/onboarding",
+      "/obs-e2e-343/knowledge-graph",
+    ]) {
+      const res = await app.request(`http://backend.test${path}`, {
+        headers: { "x-request-id": "asset_1" },
+      })
+      expect(res.status).toBe(200)
+      expect(res.headers.get("x-request-id")).toBe("asset_1")
+    }
     expect(exporter.getFinishedSpans()).toHaveLength(0)
+  })
+
+  it("sets http.route to the template for wildcard routes", async () => {
+    const app = new Hono()
+    app.use("*", backendOtelMiddleware())
+    app.all("/.auth/api/*", (c) => c.json({ ok: true }))
+
+    const res = await app.request(
+      "http://backend.test/.auth/api/v1/auth/get-session",
+    )
+    expect(res.status).toBe(200)
+    const span = exporter
+      .getFinishedSpans()
+      .find((item) => item.kind === SpanKind.SERVER)
+    expect(span?.name).toBe("GET /.auth/api/*")
+    expect(span?.attributes["http.route"]).toBe("/.auth/api/*")
+    expect(span?.attributes["url.path"]).toBe("/.auth/api/v1/auth/get-session")
+  })
+
+  it("keeps spans for mcp and the otel proxy", async () => {
+    const app = new Hono()
+    app.use("*", backendOtelMiddleware())
+    app.post("/mcp", (c) => c.json({ ok: true }))
+    app.post("/.otel/v1/traces", (c) => c.json({ ok: true }))
+
+    await app.request("http://backend.test/mcp", { method: "POST" })
+    await app.request("http://backend.test/.otel/v1/traces", { method: "POST" })
+    const names = exporter.getFinishedSpans().map((span) => span.name)
+    expect(names).toEqual(["POST /mcp", "POST /.otel/v1/traces"])
+    expect(
+      exporter.getFinishedSpans().map((span) => span.attributes["http.route"]),
+    ).toEqual(["/mcp", "/.otel/v1/traces"])
   })
 })

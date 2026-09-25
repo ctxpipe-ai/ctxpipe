@@ -47,7 +47,7 @@ describe("local attribution proof", () => {
       }),
     )
     app.use("*", backendOtelMiddleware())
-    app.get("/probe", (c) => {
+    app.get("/.auth/api/config", (c) => {
       c.get("log").set({
         user: { id: "user_1", email: "ada@example.com", name: "Ada" },
         session: {
@@ -79,7 +79,7 @@ describe("local attribution proof", () => {
     })
     const port = (server.address() as AddressInfo).port
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/probe`, {
+      const res = await fetch(`http://127.0.0.1:${port}/.auth/api/config`, {
         headers: {
           traceparent:
             "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
