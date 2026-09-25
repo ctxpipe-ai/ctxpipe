@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -9,6 +8,7 @@ import {
 } from "../../models/confluence-sync-target.js"
 import { syncConfluenceConfigYaml } from "../../services/confluence/sync.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { confluenceSyncContent } from "./confluence-sync-content.js"
 
 const confluenceSyncConfigInputSchema = z.object({

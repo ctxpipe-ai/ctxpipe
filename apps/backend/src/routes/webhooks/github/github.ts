@@ -12,7 +12,7 @@ import {
   registerInstallationOnConnection,
 } from "../../../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
-import { ow } from "../../../openworkflow/client.js"
+import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
 import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-github-repositories.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
@@ -263,15 +263,13 @@ async function processRepositoryEvent(
       continue
     }
 
-    void ow
-      .runWorkflow(syncGithubRepositories.spec, {
-        orgId: installationRow.orgId,
-        githubConnectionId: installationRow.id,
-        reposToSync: [{ name: repo.full_name, gitUrl: repo.clone_url }],
-      })
-      .catch((err: unknown) => {
-        log.error(err instanceof Error ? err : new Error(String(err)))
-      })
+    void runWorkflowWithWorkerWake(syncGithubRepositories.spec, {
+      orgId: installationRow.orgId,
+      githubConnectionId: installationRow.id,
+      reposToSync: [{ name: repo.full_name, gitUrl: repo.clone_url }],
+    }).catch((err: unknown) => {
+      log.error(err instanceof Error ? err : new Error(String(err)))
+    })
   }
 }
 

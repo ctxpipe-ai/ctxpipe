@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
@@ -26,6 +25,8 @@ import {
   markRepositoryIndexingRunning,
   setRepositoryIndexingStep,
 } from "../../models/repositories.js"
+import { readAttribution } from "../../observability/attribution.js"
+import { attachJobTelemetry } from "../../observability/jobTelemetry.js"
 import {
   runWithLangfuseContext,
   withLangfuseObservation,
@@ -40,6 +41,7 @@ import {
   applyIngestionRetractionGraphEffects,
   retractUnobservedRepositoryEvidencePg,
 } from "../../retrieval/services/ingestionRetraction.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueFollowUpIfTipAhead } from "../enqueue-follow-up-if-tip-ahead.js"
 import { withLoggedStepAttempt } from "../withLoggedStepAttempt.js"
 import { repositoryIndex } from "./repository-index.js"
@@ -232,13 +234,13 @@ export const repositoryIngestion = defineWorkflow(
             // Durable codesearch phases via child workflow (no org DB txn across HTTP).
             const reindexState = await step.runWorkflow(
               repositoryIndex.spec,
-              {
+              attachJobTelemetry({
                 repositoryId: input.repositoryId,
                 orgId: input.orgId,
                 targetHash: resolved.hash,
                 ...(fromHash ? { fromHash } : {}),
                 ...(githubConnectionId ? { githubConnectionId } : {}),
-              },
+              }),
               { name: "repository-index" },
             )
 
@@ -332,8 +334,10 @@ export const repositoryIngestion = defineWorkflow(
               rootId: null,
               root: null,
             }
+            const actorUserId = readAttribution()["enduser.id"]
             const langfuseAttrs = {
               sessionId: ingestionRunId,
+              ...(actorUserId ? { userId: actorUserId } : {}),
               tags: ["repository-ingestion"],
               traceMetadata: baseLangfuseMetadata,
             }

@@ -10,11 +10,13 @@ import {
   ensureConversation,
   touchConversationLastMessage,
 } from "../models/conversations.js"
+import { applyAttribution } from "../observability/attribution.js"
+import { recordAdvisorCall } from "../observability/businessMetrics.js"
 import {
   getLangfuseHandler,
   runWithLangfuseContext,
 } from "../observability/langfuse.js"
-import { log } from "../observability/logger.js"
+import { getLogger, log } from "../observability/logger.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -107,9 +109,27 @@ export function registerMcpTools(server: McpServer): void {
         },
       }
       try {
+        let requestLogger: ReturnType<typeof getLogger> | undefined
+        try {
+          requestLogger = getLogger()
+        } catch {
+          requestLogger = undefined
+        }
+        applyAttribution(
+          {
+            "ctxpipe.mcp.tool": "ctx_advisor",
+            "ctxpipe.conversation.id": threadId,
+            "ctxpipe.actor.type":
+              actor.type === "org-service" ? "org_api_key" : "user",
+            ...(actor.type === "user" ? { "enduser.id": actor.userId } : {}),
+          },
+          requestLogger,
+        )
+        recordAdvisorCall(orgId)
         return await runWithLangfuseContext(
           {
             sessionId: threadId,
+            ...(actor.type === "user" ? { userId: actor.userId } : {}),
             tags:
               actor.type === "org-service" ? ["mcp", "mcp-org-key"] : ["mcp"],
           },

@@ -5,7 +5,10 @@ import { cors } from "hono/cors"
 import { verifyCodesearchJwt } from "../auth/jwt.js"
 import type { Env } from "../config/env.js"
 import { createDb } from "../db/client.js"
-import { createEvlogDrain } from "../observability/logger.js"
+import {
+  applyCodesearchLogContract,
+  createEvlogDrain,
+} from "../observability/logger.js"
 import { codesearchOtelMiddleware } from "../observability/otel.js"
 import { registerGraphRoutes } from "../routes/graph.js"
 import { registerOpenapiRoutes } from "../routes/openapi.js"
@@ -23,7 +26,14 @@ export function createApp(env: Env) {
   app.use("*", codesearchOtelMiddleware())
   app.use("*", cors())
   app.use(contextStorage())
-  app.use(evlog({ drain: createEvlogDrain() }))
+  app.use(
+    evlog({
+      drain: createEvlogDrain(),
+      enrich: (ctx) => {
+        applyCodesearchLogContract(ctx.event as Record<string, unknown>)
+      },
+    }),
+  )
   app.use("*", async (c, next) => {
     c.set("db", db)
     c.set("env", env)

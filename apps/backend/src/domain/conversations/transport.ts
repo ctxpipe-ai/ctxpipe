@@ -10,12 +10,16 @@ import {
   type UIMessage,
   type UIMessageChunk,
 } from "ai"
+import { requireCurrentOrgId } from "../../auth/context.js"
 import { conversationGraph } from "../../graphs/index.js"
 import { generateObjectId } from "../../lib/id.js"
+import { applyAttribution } from "../../observability/attribution.js"
+import { recordAdvisorCall } from "../../observability/businessMetrics.js"
 import {
   getLangfuseHandler,
   runWithLangfuseContext,
 } from "../../observability/langfuse.js"
+import { getLogger } from "../../observability/logger.js"
 import type { StreamEnhancer } from "./renameStream.js"
 import { createTextStartRepairTransform } from "./uiMessageStreamTextStartRepair.js"
 import { createToolInvocationRepairTransform } from "./uiMessageStreamToolInvocationRepair.js"
@@ -25,6 +29,7 @@ export type StreamInput = {
   checkpointNamespace: string
   prompt: string
   source?: string | null
+  userId?: string
   onFinish?: () => Promise<void> | void
   streamEnhancers?: StreamEnhancer[]
 }
@@ -39,9 +44,29 @@ export function createDataStreamConversationTransport(): ConversationTransportAd
 
 class DataStreamConversationTransport implements ConversationTransportAdapter {
   async toResponse(input: StreamInput): Promise<Response> {
+    let requestLogger: ReturnType<typeof getLogger> | undefined
+    try {
+      requestLogger = getLogger()
+    } catch {
+      requestLogger = undefined
+    }
+    applyAttribution(
+      {
+        "ctxpipe.conversation.id": input.conversationId,
+        "ctxpipe.actor.type": "user",
+        ...(input.userId ? { "enduser.id": input.userId } : {}),
+      },
+      requestLogger,
+    )
+    try {
+      recordAdvisorCall(requireCurrentOrgId())
+    } catch {
+      // Advisor metric is org-scoped; skip when the route has no org context.
+    }
     return runWithLangfuseContext(
       {
         sessionId: input.conversationId,
+        ...(input.userId ? { userId: input.userId } : {}),
         tags: input.source ? [input.source] : undefined,
       },
       async () => {

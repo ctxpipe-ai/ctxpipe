@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
@@ -16,6 +15,7 @@ import {
   withLogger,
 } from "../../observability/logger.js"
 import { withGraphClient } from "../../platform/graph/client.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { withLoggedStepAttempt } from "../withLoggedStepAttempt.js"
 
 const repositoryDeletionInputSchema = z.object({

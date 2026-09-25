@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -6,6 +5,7 @@ import { getForgeInstallationByConnectionId } from "../../models/atlassian-conne
 import { getConfluenceSyncTargetByConnectionId } from "../../models/confluence-sync-target.js"
 import { getLogger } from "../../observability/logger.js"
 import { syncConfluenceContent } from "../../services/confluence/sync.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 
 const confluenceSyncSpaceInputSchema = z.object({

@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -9,6 +8,7 @@ import {
 } from "../../models/notion-connector.js"
 import { getLogger } from "../../observability/logger.js"
 import { syncNotionContent } from "../../services/notion/sync.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 import { parsedNotionRepoScopeSchema } from "../notion-scope-repo-schema.js"
 

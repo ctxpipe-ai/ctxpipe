@@ -1,15 +1,26 @@
-import { metrics, trace } from "@opentelemetry/api"
+import {
+  context,
+  metrics,
+  SpanKind,
+  SpanStatusCode,
+  trace,
+} from "@opentelemetry/api"
 import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentations-node"
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http"
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
 import { resourceFromAttributes } from "@opentelemetry/resources"
 import { PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics"
 import { NodeSDK } from "@opentelemetry/sdk-node"
+import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base"
 import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions"
 import type { Env } from "../config/env.js"
+import { copyAttributionToSpan, propagationHeaders } from "./attribution.js"
 import { FlushOnDemandMetricReader } from "./flushOnDemandMetricReader.js"
+import { LangfuseContextSpanProcessor } from "./langfuseContextProcessor.js"
 
 let sdk: NodeSDK | undefined
+let started = false
+let outgoingFetchInstrumented = false
 
 const PR_ENVIRONMENT_RE = /^pr-\d+$/
 const FORCE_FLUSH_TIMEOUT_MS = 2_000
@@ -41,7 +52,7 @@ export function isRailwayPrEnvironment(
  */
 export function initOtel(env: Env): void {
   const tracesEndpoint = env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
-  if (!tracesEndpoint) return
+  if (!tracesEndpoint || started) return
 
   const headers = parseOtelHeaders(env.OTEL_EXPORTER_OTLP_HEADERS)
   const serviceName = env.OTEL_SERVICE_NAME ?? "ctxpipe-backend"
@@ -72,7 +83,22 @@ export function initOtel(env: Env): void {
 
   sdk = new NodeSDK({
     resource,
-    traceExporter,
+    spanProcessors: [
+      {
+        onStart(span, parentContext) {
+          copyAttributionToSpan(span, parentContext)
+        },
+        onEnd() {},
+        shutdown() {
+          return Promise.resolve()
+        },
+        forceFlush() {
+          return Promise.resolve()
+        },
+      },
+      new LangfuseContextSpanProcessor(),
+      new BatchSpanProcessor(traceExporter),
+    ],
     instrumentations: [
       getNodeAutoInstrumentations({
         // Already in the default set (not default-excluded). Explicit so
@@ -85,6 +111,72 @@ export function initOtel(env: Env): void {
     ...(metricReaders && { metricReaders }),
   })
   sdk.start()
+  installOutgoingFetchInstrumentation()
+  started = true
+}
+
+const TRACER_NAME = "ctxpipe-backend"
+
+/**
+ * Child spans for outgoing fetch, plus W3C traceparent and baggage injection.
+ * Bun's fetch is not undici, so `@opentelemetry/instrumentation-undici` does not see it.
+ * OTLP export URLs are left uninstrumented so export does not trace itself.
+ */
+export function installOutgoingFetchInstrumentation(): void {
+  if (outgoingFetchInstrumented) return
+  outgoingFetchInstrumented = true
+  const original = globalThis.fetch.bind(globalThis)
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = requestUrl(input)
+    if (isOtlpExportUrl(url)) return original(input, init)
+
+    const method =
+      init?.method ?? (input instanceof Request ? input.method : "GET")
+    const tracer = trace.getTracer(TRACER_NAME)
+    const span = tracer.startSpan(`HTTP ${method}`, {
+      kind: SpanKind.CLIENT,
+      attributes: {
+        "http.request.method": method,
+        "url.full": url,
+      },
+    })
+    copyAttributionToSpan(span, context.active())
+    return context.with(trace.setSpan(context.active(), span), async () => {
+      const headers = new Headers(
+        init?.headers ?? (input instanceof Request ? input.headers : undefined),
+      )
+      propagationHeaders(headers)
+      const request = new Request(input, { ...init, headers })
+      try {
+        const response = await original(request)
+        span.setAttribute("http.response.status_code", response.status)
+        if (response.status >= 500) {
+          span.setStatus({ code: SpanStatusCode.ERROR })
+        }
+        return response
+      } catch (error) {
+        if (error instanceof Error) span.recordException(error)
+        span.setStatus({ code: SpanStatusCode.ERROR })
+        throw error
+      } finally {
+        span.end()
+      }
+    })
+  }) as typeof fetch
+}
+
+function requestUrl(input: RequestInfo | URL): string {
+  if (typeof input === "string") return input
+  if (input instanceof URL) return input.toString()
+  return input.url
+}
+
+function isOtlpExportUrl(url: string): boolean {
+  try {
+    return /\/v1\/(traces|metrics|logs)\/?$/.test(new URL(url).pathname)
+  } catch {
+    return false
+  }
 }
 
 function createMetricReader(
@@ -162,5 +254,6 @@ export async function shutdownOtel(): Promise<void> {
   if (sdk) {
     await sdk.shutdown()
     sdk = undefined
+    started = false
   }
 }

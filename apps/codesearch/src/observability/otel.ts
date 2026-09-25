@@ -14,7 +14,12 @@ import {
   type MetricReader,
   PeriodicExportingMetricReader,
 } from "@opentelemetry/sdk-metrics"
-import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base"
+import {
+  BatchSpanProcessor,
+  type ReadableSpan,
+  type Span,
+  type SpanProcessor,
+} from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions"
 import type { MiddlewareHandler } from "hono"
@@ -30,6 +35,50 @@ let outgoingFetchInstrumented = false
 const PR_ENVIRONMENT_RE = /^pr-\d+$/
 const FORCE_FLUSH_TIMEOUT_MS = 2_000
 const TRACER_NAME = "ctxpipe-codesearch"
+
+const ATTRIBUTION_KEYS = [
+  "request.id",
+  "enduser.id",
+  "ctxpipe.org.id",
+  "ctxpipe.org.slug",
+  "ctxpipe.actor.type",
+  "ctxpipe.api_key.id",
+  "ctxpipe.oauth.client_id",
+  "ctxpipe.mcp.tool",
+  "ctxpipe.conversation.id",
+  "ctxpipe.repository.id",
+  "ctxpipe.connection.id",
+] as const
+
+export function attributesFromBaggage(
+  parent: ReturnType<typeof context.active>,
+): Record<string, string> {
+  const baggage = propagation.getBaggage(parent)
+  if (!baggage) return {}
+  const attributes: Record<string, string> = {}
+  for (const key of ATTRIBUTION_KEYS) {
+    const value = baggage.getEntry(key)?.value
+    if (value) attributes[key] = value
+  }
+  return attributes
+}
+
+class BaggageAttributeSpanProcessor implements SpanProcessor {
+  onStart(span: Span, parentContext: ReturnType<typeof context.active>): void {
+    const attributes = attributesFromBaggage(parentContext)
+    if (Object.keys(attributes).length > 0) span.setAttributes(attributes)
+  }
+
+  onEnd(_span: ReadableSpan): void {}
+
+  shutdown(): Promise<void> {
+    return Promise.resolve()
+  }
+
+  forceFlush(): Promise<void> {
+    return Promise.resolve()
+  }
+}
 
 /**
  * Railway sets `RAILWAY_ENVIRONMENT_NAME` (`production` or `pr-N`).
@@ -90,7 +139,10 @@ export function initOtel(env: Env): void {
 
   tracerProvider = new NodeTracerProvider({
     resource,
-    spanProcessors: [new BatchSpanProcessor(traceExporter)],
+    spanProcessors: [
+      new BaggageAttributeSpanProcessor(),
+      new BatchSpanProcessor(traceExporter),
+    ],
   })
   // Registers W3C tracecontext + baggage and an AsyncLocalStorage context manager.
   tracerProvider.register()
@@ -178,6 +230,7 @@ export function codesearchOtelMiddleware(): MiddlewareHandler {
         attributes: {
           "http.request.method": c.req.method,
           "url.path": c.req.path,
+          ...attributesFromBaggage(parent),
         },
       },
       parent,
@@ -232,6 +285,7 @@ export function installOutgoingFetchInstrumentation(): void {
       attributes: {
         "http.request.method": method,
         "url.full": url,
+        ...attributesFromBaggage(context.active()),
       },
     })
     return context.with(trace.setSpan(context.active(), span), async () => {

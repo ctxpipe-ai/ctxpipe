@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -8,6 +7,7 @@ import {
 } from "../../models/notion-connector.js"
 import { syncNotionConfigYaml } from "../../services/notion/sync.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { notionSyncContent } from "./notion-sync-content.js"
 
 const notionSyncConfigInputSchema = z.object({

@@ -1,15 +1,15 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
-  getLinearConnectionByConnectionId,
   getLinearBindingWithRepoByConnectionId,
+  getLinearConnectionByConnectionId,
   transitionLinearBindingState,
 } from "../../models/linear-connector.js"
 import { closePullRequest } from "../../services/github/installation-write-client.js"
 import { syncLinearConfigYaml } from "../../services/linear/sync.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { linearSyncContent } from "./linear-sync-content.js"
 
 const LinearSyncConfigInputSchema = z.object({

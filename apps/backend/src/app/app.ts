@@ -11,6 +11,8 @@ import type { ContentfulStatusCode } from "hono/utils/http-status"
 import { getAuth } from "../auth/config.js"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
+import { backendOtelMiddleware } from "../observability/http.js"
+import { applyLogContract } from "../observability/logContract.js"
 import { createEvlogDrain, log } from "../observability/logger.js"
 import {
   forceFlushOtel,
@@ -51,7 +53,11 @@ export function createApp() {
         "/.status",
         "/api/v1/webhook/**",
       ],
-      maskEmail: env.NODE_ENV === "production",
+      // evlog prints the wide event before enrich, so email, name, and
+      // session ip/user-agent must never be copied onto the request log.
+      maskEmail: true,
+      session: false,
+      fields: ["id"],
     },
   )
 
@@ -70,7 +76,15 @@ export function createApp() {
     }),
   )
   app.use(contextStorage())
-  app.use(evlog({ drain: createEvlogDrain() }))
+  app.use(
+    evlog({
+      drain: createEvlogDrain(),
+      enrich: (ctx) => {
+        applyLogContract(ctx.event as Record<string, unknown>)
+      },
+    }),
+  )
+  app.use("*", backendOtelMiddleware())
   app.use("*", async (c, next) => {
     await identifyBetterAuthUser(c.get("log"), c.req.raw.headers, c.req.path)
     await next()

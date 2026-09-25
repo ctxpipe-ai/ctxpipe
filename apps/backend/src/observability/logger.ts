@@ -11,7 +11,12 @@ import { createDrainPipeline, type PipelineDrainFn } from "evlog/pipeline"
 import { getContext } from "hono/context-storage"
 import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
-import { forceFlushOtel, isRailwayPrEnvironment } from "./otel.js"
+import { logFieldsFromActiveSpan } from "./logContract.js"
+import {
+  forceFlushOtel,
+  isRailwayPrEnvironment,
+  otelDeploymentEnvironment,
+} from "./otel.js"
 
 /**
  * Initialize evlog. Call early in app bootstrap.
@@ -23,7 +28,7 @@ export function initEvlog(): void {
   initLogger({
     env: {
       service: serviceName,
-      environment: env.NODE_ENV,
+      environment: otelDeploymentEnvironment(),
     },
     pretty: env.NODE_ENV === "development",
     drain: createEvlogDrain(),
@@ -52,6 +57,7 @@ export function createEvlogDrain() {
     endpoint: baseEndpoint,
     serviceName: env.OTEL_SERVICE_NAME ?? "ctxpipe-backend",
     headers: parseOtelHeaders(env.OTEL_EXPORTER_OTLP_HEADERS),
+    resourceAttributes: { "service.namespace": "ctxpipe" },
   })
 
   const pipeline = createDrainPipeline<DrainContext>({
@@ -132,6 +138,7 @@ export async function withLogger<T>(
         return await handler()
       } finally {
         const current = loggerStorage.getStore()
+        if (current) current.set(logFieldsFromActiveSpan())
         if (current && workflowLoggerHasMilestoneContent(current)) {
           current.emit()
         }
@@ -156,6 +163,7 @@ export function flushWorkflowLog(): void {
   const current = loggerStorage.getStore()
   const base = workflowBaseContext.getStore()
   if (!current) return
+  current.set(logFieldsFromActiveSpan())
   current.emit()
   if (base) {
     loggerStorage.enterWith(createLogger({ ...base }))

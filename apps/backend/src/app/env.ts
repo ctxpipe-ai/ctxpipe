@@ -15,6 +15,7 @@ export type AppEnv = EvlogVariables & {
     user: AuthUser | null
     session: AuthSession | null
     oauthOrganizationId: string | null
+    oauthClientId?: string | null
     orgApiKey: OrgApiKeyPrincipal | null
     orgSlug: string | null
     orgId: string | null

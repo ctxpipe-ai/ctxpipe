@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks"
+import { context, propagation, trace } from "@opentelemetry/api"
 import {
   createLogger,
   type DrainContext,
@@ -11,7 +12,11 @@ import { createDrainPipeline, type PipelineDrainFn } from "evlog/pipeline"
 import { getContext } from "hono/context-storage"
 import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
-import { forceFlushOtel, isRailwayPrEnvironment } from "./otel.js"
+import {
+  forceFlushOtel,
+  isRailwayPrEnvironment,
+  otelDeploymentEnvironment,
+} from "./otel.js"
 
 /**
  * Initialize evlog. Call early in app bootstrap.
@@ -23,7 +28,7 @@ export function initEvlog(): void {
   initLogger({
     env: {
       service: serviceName,
-      environment: env.NODE_ENV,
+      environment: otelDeploymentEnvironment(),
     },
     pretty: env.NODE_ENV === "development",
     drain: createEvlogDrain(),
@@ -52,6 +57,7 @@ export function createEvlogDrain() {
     endpoint: baseEndpoint,
     serviceName: env.OTEL_SERVICE_NAME ?? "ctxpipe-codesearch",
     headers: parseOtelHeaders(env.OTEL_EXPORTER_OTLP_HEADERS),
+    resourceAttributes: { "service.namespace": "ctxpipe" },
   })
 
   const pipeline = createDrainPipeline<DrainContext>({
@@ -103,6 +109,66 @@ function parseOtelHeaders(
   return out
 }
 
+const CODESEARCH_ATTRIBUTION_KEYS = [
+  "request.id",
+  "enduser.id",
+  "ctxpipe.org.id",
+  "ctxpipe.org.slug",
+  "ctxpipe.actor.type",
+  "ctxpipe.api_key.id",
+  "ctxpipe.oauth.client_id",
+  "ctxpipe.mcp.tool",
+  "ctxpipe.conversation.id",
+  "ctxpipe.repository.id",
+  "ctxpipe.connection.id",
+] as const
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/** Top-level traceId/spanId become the OTLP log record TraceId/SpanId. */
+export function applyCodesearchLogContract(
+  event: Record<string, unknown>,
+): void {
+  if (isRecord(event.user)) {
+    delete event.user.email
+    delete event.user.name
+    delete event.user.image
+  }
+  if (isRecord(event.session)) {
+    delete event.session.ipAddress
+    delete event.session.userAgent
+  }
+  delete event.userAgent
+  delete event.email
+  delete event.ipAddress
+
+  if (typeof event.requestId === "string" && event["request.id"] == null) {
+    event["request.id"] = event.requestId
+  }
+  delete event.requestId
+  if (typeof event.userId === "string" && event["enduser.id"] == null) {
+    event["enduser.id"] = event.userId
+  }
+  delete event.userId
+
+  const spanContext = trace.getActiveSpan()?.spanContext()
+  if (spanContext?.traceId && typeof event.traceId !== "string") {
+    event.traceId = spanContext.traceId
+    event.spanId = spanContext.spanId
+  }
+  const baggage = propagation.getBaggage(context.active())
+  if (baggage) {
+    for (const key of CODESEARCH_ATTRIBUTION_KEYS) {
+      const value = baggage.getEntry(key)?.value
+      if (value && event[key] == null) event[key] = value
+    }
+  }
+  event.environment = otelDeploymentEnvironment()
+  event["service.namespace"] = "ctxpipe"
+}
+
 // --- Logger context (AsyncLocalStorage + getLogger) ---
 
 export const loggerStorage = new AsyncLocalStorage<RequestLogger>()
@@ -132,6 +198,17 @@ export async function withLogger<T>(
         return await handler()
       } finally {
         const current = loggerStorage.getStore()
+        if (current) {
+          const spanContext = trace.getActiveSpan()?.spanContext()
+          if (spanContext?.traceId) {
+            current.set({
+              traceId: spanContext.traceId,
+              spanId: spanContext.spanId,
+              environment: otelDeploymentEnvironment(),
+              "service.namespace": "ctxpipe",
+            })
+          }
+        }
         if (current && workflowLoggerHasMilestoneContent(current)) {
           current.emit()
         }

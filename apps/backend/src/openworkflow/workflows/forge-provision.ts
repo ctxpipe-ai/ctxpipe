@@ -3,7 +3,6 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -20,6 +19,7 @@ import {
   patchForgeConnectionTypedConfig,
 } from "../../models/atlassian-connector.js"
 import { log } from "../../observability/logger.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 
 /** Enough for Forge `--verbose`: last GraphQL + error lines usually matter; full stderr also stored on connection (provisionStderr ~8KB). */
 const STDERR_LOG_PREVIEW_CHARS = 4_096
@@ -111,7 +111,9 @@ function readForgeCliVersionForGatewayHeaders(): string {
       "cli",
       "package.json",
     )
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { version?: string }
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as {
+      version?: string
+    }
     return pkg.version ?? "12.17.0"
   } catch {
     return "12.17.0"
@@ -142,10 +144,7 @@ async function forgeDevSpaceGraphql<D>(
   const res = await fetch(FORGE_ECOSYSTEM_GRAPHQL, {
     method: "POST",
     headers: {
-      authorization: forgeEcosystemBasicAuthorization(
-        operatorEmail,
-        apiToken,
-      ),
+      authorization: forgeEcosystemBasicAuthorization(operatorEmail, apiToken),
       "content-type": "application/json",
       "user-agent": `@forge/cli/${cliVersion}`,
       "atl-client-name": "@forge/cli",
@@ -262,7 +261,10 @@ async function createForgeDeveloperSpace(
     return { id: block.devSpace.id, name: block.devSpace.name }
   }
   const gqlErr =
-    block?.errors?.map((e) => e.message ?? "").filter(Boolean).join("; ") ?? ""
+    block?.errors
+      ?.map((e) => e.message ?? "")
+      .filter(Boolean)
+      .join("; ") ?? ""
   throw new Error(
     gqlErr || "Forge createDeveloperSpace: success=false or missing devSpace",
   )
@@ -278,10 +280,7 @@ export async function ensureCtxpipeForgeDeveloperSpaceId(opts: {
     opts.spaceName?.trim() || CTXPIPE_FORGE_AUTO_DEVELOPER_SPACE_NAME
   const email = opts.operatorEmail.trim()
 
-  let spaces = await listForgeDeveloperSpacesAccessible(
-    email,
-    opts.apiToken,
-  )
+  let spaces = await listForgeDeveloperSpacesAccessible(email, opts.apiToken)
   const existing = pickForgeDevSpaceByName(spaces, spaceName)
   if (existing) return existing.id
 
@@ -293,10 +292,7 @@ export async function ensureCtxpipeForgeDeveloperSpaceId(opts: {
     )
     return created.id
   } catch (eFirst) {
-    spaces = await listForgeDeveloperSpacesAccessible(
-      email,
-      opts.apiToken,
-    )
+    spaces = await listForgeDeveloperSpacesAccessible(email, opts.apiToken)
     const again = pickForgeDevSpaceByName(spaces, spaceName)
     if (again) return again.id
     throw eFirst instanceof Error ? eFirst : new Error(String(eFirst))
@@ -511,9 +507,7 @@ export const forgeProvision = defineWorkflow(
     )
 
     if (ensureDevSpaceResult.status === "failed") {
-      const message = userMessageForProvisionError(
-        ensureDevSpaceResult.code,
-      )
+      const message = userMessageForProvisionError(ensureDevSpaceResult.code)
       log.error({
         step: "forge-provision.failed",
         message:
@@ -651,7 +645,8 @@ export const forgeProvision = defineWorkflow(
       provisionErrorCode: code,
       userMessage: message,
       forgeOperatorEmail: operatorEmail,
-      forgeScopedApiTokenLengthChars: typeof token === "string" ? token.length : 0,
+      forgeScopedApiTokenLengthChars:
+        typeof token === "string" ? token.length : 0,
       cliExitCode: result.exit,
       cliElapsedMs: result.elapsedMs,
       stderrPreview: result.out.slice(0, STDERR_LOG_PREVIEW_CHARS),

@@ -2,6 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { randomUUID } from "node:crypto"
 import type { Serialized } from "@langchain/core/load/serializable"
 import { CallbackHandler } from "@langfuse/langchain"
+import { trace } from "@opentelemetry/api"
+import { readAttribution } from "./attribution.js"
 import { otelDeploymentEnvironment } from "./otel.js"
 
 export type LangfuseContext = {
@@ -48,20 +50,140 @@ export function tryGetLangfuseParentRunId(): string | undefined {
   return langfuseStorage.getStore()?.parentRunId
 }
 
+export function collapseRepeatedModelName(name: string): string {
+  const trimmed = name.trim()
+  if (trimmed.length < 2) return name
+  for (let size = 1; size <= trimmed.length / 2; size++) {
+    if (trimmed.length % size !== 0) continue
+    const unit = trimmed.slice(0, size)
+    const repeats = trimmed.length / size
+    if (repeats > 1 && unit.repeat(repeats) === trimmed) return unit
+  }
+  return name
+}
+
+function collapseGenerationModelNames(output: unknown): void {
+  if (!output || typeof output !== "object") return
+  const generations = (output as { generations?: unknown }).generations
+  if (!Array.isArray(generations)) return
+  for (const group of generations) {
+    if (!Array.isArray(group)) continue
+    for (const generation of group) {
+      if (!generation || typeof generation !== "object") continue
+      const message = (
+        generation as {
+          message?: { response_metadata?: Record<string, unknown> }
+        }
+      ).message
+      const modelName = message?.response_metadata?.model_name
+      if (typeof modelName === "string" && message?.response_metadata) {
+        message.response_metadata.model_name =
+          collapseRepeatedModelName(modelName)
+      }
+    }
+  }
+}
+
+function instrumentHandler(handler: CallbackHandler): CallbackHandler {
+  const marked = handler as CallbackHandler & { ctxpipeModelFix?: boolean }
+  if (marked.ctxpipeModelFix) return handler
+  marked.ctxpipeModelFix = true
+  const llmEnd = handler.handleLLMEnd.bind(handler)
+  handler.handleLLMEnd = async (output, runId, parentRunId) => {
+    collapseGenerationModelNames(output)
+    return llmEnd(output, runId, parentRunId)
+  }
+  const generationStart = handler.handleGenerationStart.bind(handler)
+  handler.handleGenerationStart = async (
+    llm,
+    messages,
+    runId,
+    parentRunId,
+    extraParams,
+    tags,
+    metadata,
+    name,
+  ) => {
+    const invocation = extraParams?.invocation_params
+    if (
+      invocation &&
+      typeof invocation === "object" &&
+      "model" in invocation &&
+      typeof invocation.model === "string"
+    ) {
+      invocation.model = collapseRepeatedModelName(invocation.model)
+    }
+    return generationStart(
+      llm,
+      messages,
+      runId,
+      parentRunId,
+      extraParams,
+      tags,
+      metadata,
+      name,
+    )
+  }
+  return handler
+}
+
+function stringMetadata(
+  metadata: Record<string, unknown> | undefined,
+): Record<string, string> | undefined {
+  if (!metadata) return undefined
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(metadata)) {
+    if (value == null) continue
+    out[key] = typeof value === "string" ? value : JSON.stringify(value)
+  }
+  return out
+}
+
 export function runWithLangfuseContext<T>(
   attrs: LangfuseContextAttrs,
   fn: () => T | Promise<T>,
 ): Promise<T> {
   const current = langfuseStorage.getStore()
+  const bag = readAttribution()
+  const actor = bag["ctxpipe.actor.type"]
+  const userId =
+    actor === "org_api_key" ? undefined : (attrs.userId ?? bag["enduser.id"])
+  const sessionId = attrs.sessionId ?? bag["ctxpipe.conversation.id"]
+  const orgSlug = bag["ctxpipe.org.slug"]
   const envTag = `env:${otelDeploymentEnvironment()}`
-  const tags = uniqueTags([...(attrs.tags ?? current?.tags ?? []), envTag])
-  const handler = current?.handler ?? new CallbackHandler({ ...attrs, tags })
+  const orgTag = orgSlug ? `org:${orgSlug}` : ""
+  const tags = uniqueTags([
+    ...(attrs.tags ?? current?.tags ?? []),
+    orgTag,
+    envTag,
+  ])
+  const traceMetadata = {
+    ...stringMetadata(current?.metadata),
+    ...stringMetadata(attrs.traceMetadata),
+    ...(bag["ctxpipe.org.id"] ? { orgId: bag["ctxpipe.org.id"] } : {}),
+    ...(orgSlug ? { orgSlug } : {}),
+    ...(bag["request.id"] ? { requestId: bag["request.id"] } : {}),
+    ...(trace.getActiveSpan()?.spanContext().traceId
+      ? { otelTraceId: trace.getActiveSpan()?.spanContext().traceId }
+      : {}),
+    environment: otelDeploymentEnvironment(),
+  }
+  const handler =
+    current?.handler ??
+    instrumentHandler(
+      new CallbackHandler({
+        ...(userId ? { userId } : {}),
+        ...(sessionId ? { sessionId } : {}),
+        tags,
+        traceMetadata,
+      }),
+    )
   return langfuseStorage.run(
     {
       handler,
       parentRunId: current?.parentRunId,
       tags,
-      metadata: attrs.traceMetadata ?? current?.metadata,
+      metadata: traceMetadata,
     },
     fn,
   ) as Promise<T>

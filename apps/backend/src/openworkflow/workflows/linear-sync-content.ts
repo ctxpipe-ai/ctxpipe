@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -16,6 +15,7 @@ import {
 } from "../../services/linear/client.js"
 import { loadLinearScopeFromRepo } from "../../services/linear/config-from-repo.js"
 import { syncLinearContentToGit } from "../../services/linear/sync.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 
 const LinearSyncContentInputSchema = z.object({
@@ -94,10 +94,7 @@ export const linearSyncContent = defineWorkflow(
                 expectedRefreshToken,
                 expectedAccessToken,
                 refresh: async (refreshToken) => {
-                  const creds = getLinearOauthAppCreds(
-                    context.connection,
-                    env,
-                  )
+                  const creds = getLinearOauthAppCreds(context.connection, env)
                   if (!creds) {
                     throw new Error("Linear OAuth is not configured")
                   }

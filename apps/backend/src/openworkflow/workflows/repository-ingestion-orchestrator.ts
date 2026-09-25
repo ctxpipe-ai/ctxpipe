@@ -1,13 +1,14 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { withOrgDbContext } from "../../db/client.js"
 import { markRepositoryIndexingFailed } from "../../models/repositories.js"
+import { attachJobTelemetry } from "../../observability/jobTelemetry.js"
 import {
   createLogger,
   flushWorkflowLog,
   getLogger,
   withLogger,
 } from "../../observability/logger.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueFollowUpIfTipAhead } from "../enqueue-follow-up-if-tip-ahead.js"
 import { isWorkflowControlSignal } from "../isSleepSignal.js"
 import { repositoryIngestion } from "./repository-ingestion.js"
@@ -37,7 +38,7 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
         try {
           return await step.runWorkflow(
             repositoryIngestion.spec,
-            {
+            attachJobTelemetry({
               repositoryId: input.repositoryId,
               orgId: input.orgId,
               ...(input.targetBranch !== undefined
@@ -52,7 +53,7 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
               ...(input.fullReingest !== undefined
                 ? { fullReingest: input.fullReingest }
                 : {}),
-            },
+            }),
             { name: "repository-ingestion-child" },
           )
         } catch (err: unknown) {

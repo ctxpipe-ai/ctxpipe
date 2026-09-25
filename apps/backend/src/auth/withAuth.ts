@@ -17,6 +17,7 @@ import {
   sessions,
   users,
 } from "../db/schema/auth.js"
+import { applyAttribution } from "../observability/attribution.js"
 import { getLogger } from "../observability/logger.js"
 import { type AuthSession, type AuthUser, getAuth } from "./config.js"
 import { OAUTH_ORGANIZATION_CLAIM } from "./oauth-organization.js"
@@ -220,6 +221,7 @@ async function resolveOpaqueAccessToken(token: string): Promise<{
   session: AuthSession | null
   user: AuthUser
   oauthOrganizationId: string | null
+  oauthClientId: string | null
 } | null> {
   const db = getSystemDb()
   const hashed = hashOpaqueAccessToken(token)
@@ -240,6 +242,7 @@ async function resolveOpaqueAccessToken(token: string): Promise<{
     ? {
         ...principal,
         oauthOrganizationId: record.referenceId ?? null,
+        oauthClientId: record.clientId ?? null,
       }
     : null
 }
@@ -386,6 +389,7 @@ async function authenticateBearer(
       c.set("session", resolved.session)
       c.set("user", resolved.user)
       c.set("oauthOrganizationId", resolved.oauthOrganizationId)
+      c.set("oauthClientId", resolved.oauthClientId)
       return next()
     }
 
@@ -555,6 +559,10 @@ async function authenticateBearer(
     c.set("session", tokenSessionContext.session)
     c.set("user", tokenSessionContext.user)
     c.set("oauthOrganizationId", oauthOrganizationClaim ?? null)
+    const clientIdClaim = payload.client_id ?? payload.azp
+    if (typeof clientIdClaim === "string" && clientIdClaim.length > 0) {
+      c.set("oauthClientId", clientIdClaim)
+    }
     return next()
   }
 
@@ -729,6 +737,32 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
   if (!resolved) return c.json({ error: "Not found" }, 404)
   c.set("orgSlug", resolved.slug)
   c.set("orgId", resolved.id)
+  const orgApiKeyPrincipal = c.get("orgApiKey")
+  const oauthClientId = c.get("oauthClientId")
+  const actorType = orgApiKeyPrincipal
+    ? "org_api_key"
+    : oauthClientId || oauthOrganizationId
+      ? "oauth_client"
+      : "user"
+  let requestLogger: ReturnType<typeof getLogger> | undefined
+  try {
+    requestLogger = getLogger()
+  } catch {
+    requestLogger = undefined
+  }
+  applyAttribution(
+    {
+      "ctxpipe.actor.type": actorType,
+      "ctxpipe.org.id": resolved.id,
+      "ctxpipe.org.slug": resolved.slug,
+      ...(actorType === "org_api_key" ? {} : { "enduser.id": userId }),
+      ...(orgApiKeyPrincipal
+        ? { "ctxpipe.api_key.id": orgApiKeyPrincipal.id }
+        : {}),
+      ...(oauthClientId ? { "ctxpipe.oauth.client_id": oauthClientId } : {}),
+    },
+    requestLogger,
+  )
   return withOrgIdContext(
     { id: resolved.id, slug: resolved.slug },
     async () => {
