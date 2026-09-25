@@ -1,6 +1,5 @@
 import { gunzipSync } from "node:zlib"
 import { getHyperDxRuntimeConfig } from "@/lib/hyperdxRuntimeConfig"
-import { scrubBrowserOtlpJson } from "@/lib/otelBrowserScrub"
 import {
   OTEL_PROXY_MAX_BODY_BYTES,
   otelCollectorBaseUrl,
@@ -8,6 +7,7 @@ import {
   otelProxyUpstreamUrl,
   parseOtelHeaders,
 } from "@/lib/otelBrowserConfig"
+import { scrubBrowserOtlpJson } from "@/lib/otelBrowserScrub"
 
 async function readBodyCapped(
   request: Request,
@@ -93,6 +93,7 @@ function decodeOtlpBody(
   contentType: string,
   encoding: string | null,
 ): unknown | "empty" | "malformed" | "unsupported" {
+  if (!contentType.toLowerCase().includes("json")) return "unsupported"
   if (body.byteLength === 0) return "empty"
   let bytes = body
   if (encoding?.toLowerCase().includes("gzip")) {
@@ -103,10 +104,6 @@ function decodeOtlpBody(
     }
   }
   const text = new TextDecoder().decode(bytes)
-  const type = contentType.toLowerCase()
-  const looksJson = type.includes("json") || text.trimStart().startsWith("{")
-  if (type.includes("protobuf") && !looksJson) return "unsupported"
-  if (!looksJson) return "unsupported"
   try {
     return JSON.parse(text) as unknown
   } catch {

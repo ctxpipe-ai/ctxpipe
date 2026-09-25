@@ -3,6 +3,7 @@ import {
   clearedHyperDxGlobalAttributes,
   type HyperDxGlobalAttributes,
 } from "@/lib/hyperdxAttributes"
+import { noteHyperDxSessionIdentity } from "@/lib/hyperdxQueryErrors"
 
 /** No-ops until `HyperDX.init` has run (`@hyperdx/otel-web` checks `inited`). */
 export function recordHyperDxAction(
@@ -23,8 +24,10 @@ export function setHyperDxGlobalAttributes(
   attributes: HyperDxGlobalAttributes,
 ): void {
   HyperDX.setGlobalAttributes(attributes)
+  noteHyperDxSessionIdentity("signed-in")
 }
 
 export function clearHyperDxGlobalAttributes(): void {
   HyperDX.setGlobalAttributes(clearedHyperDxGlobalAttributes())
+  noteHyperDxSessionIdentity("signed-out")
 }

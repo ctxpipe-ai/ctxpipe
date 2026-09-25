@@ -3,14 +3,44 @@ import { recordHyperDxException } from "@/lib/hyperdxBrowser"
 
 let exceptionRecordingEnabled = false
 
+type DeferredQueryError = {
+  error: unknown
+  attributes: Record<string, string>
+  recordedAt: number
+}
+
+let sessionIdentity: "pending" | "signed-in" | "signed-out" = "pending"
+const deferredQueryErrors: DeferredQueryError[] = []
+let deferredFlushTimer: ReturnType<typeof setTimeout> | undefined
+
 /** Browser RUM is off until the root loader's server config says it is on. */
 export function setHyperDxExceptionRecordingEnabled(enabled: boolean): void {
   exceptionRecordingEnabled = enabled
 }
 
+/**
+ * Session globals are applied in `setHyperDxGlobalAttributes` /
+ * `clearHyperDxGlobalAttributes`. Buffered failures flush at that moment.
+ */
+export function noteHyperDxSessionIdentity(
+  identity: "signed-in" | "signed-out",
+): void {
+  sessionIdentity = identity
+  flushDeferredQueryErrors()
+}
+
+/** Test isolation. Production session changes go through `noteHyperDxSessionIdentity`. */
+export function resetHyperDxDeferredQueryErrorsForTests(): void {
+  sessionIdentity = "pending"
+  deferredQueryErrors.length = 0
+  if (deferredFlushTimer !== undefined) {
+    clearTimeout(deferredFlushTimer)
+    deferredFlushTimer = undefined
+  }
+}
+
 const STATIC_KEY = /^[a-z][a-z0-9._:/-]{0,63}$/i
-const UUID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const ID_PREFIX = /^(?:conv|inv|user|org|con|tok|key|sk|pk)_/i
 
 /**
@@ -30,7 +60,8 @@ export function hyperDxQueryKeyName(
 
 export function hyperDxHttpStatus(error: unknown): string | undefined {
   if (!error || typeof error !== "object") return undefined
-  const direct = Reflect.get(error, "status") ?? Reflect.get(error, "statusCode")
+  const direct =
+    Reflect.get(error, "status") ?? Reflect.get(error, "statusCode")
   if (typeof direct === "number" && direct >= 100 && direct <= 599) {
     return String(direct)
   }
@@ -49,13 +80,11 @@ export function isHyperDxAbortError(error: unknown): boolean {
   return name === "AbortError" || name === "CancelledError"
 }
 
-export function recordHyperDxQueryError(input: {
+function queryErrorAttributes(input: {
   source: "query" | "mutation"
   error: unknown
   key: readonly unknown[] | undefined
-}): void {
-  if (!exceptionRecordingEnabled) return
-  if (isHyperDxAbortError(input.error)) return
+}): Record<string, string> {
   const attributes: Record<string, string> = {
     "ctxpipe.ui.source": input.source,
   }
@@ -63,7 +92,47 @@ export function recordHyperDxQueryError(input: {
   if (keyName) attributes["ctxpipe.ui.key"] = keyName
   const status = hyperDxHttpStatus(input.error)
   if (status) attributes["ctxpipe.ui.http_status"] = status
-  recordHyperDxException(input.error, attributes)
+  return attributes
+}
+
+function flushDeferredQueryErrors(): void {
+  if (deferredFlushTimer !== undefined) {
+    clearTimeout(deferredFlushTimer)
+    deferredFlushTimer = undefined
+  }
+  const pending = deferredQueryErrors.splice(0, deferredQueryErrors.length)
+  const flushedAt = Date.now()
+  for (const item of pending) {
+    recordHyperDxException(item.error, {
+      ...item.attributes,
+      "ctxpipe.ui.deferred_ms": String(flushedAt - item.recordedAt),
+    })
+  }
+}
+
+export function recordHyperDxQueryError(input: {
+  source: "query" | "mutation"
+  error: unknown
+  key: readonly unknown[] | undefined
+}): void {
+  if (!exceptionRecordingEnabled) return
+  if (isHyperDxAbortError(input.error)) return
+  const attributes = queryErrorAttributes(input)
+  if (sessionIdentity !== "pending") {
+    recordHyperDxException(input.error, attributes)
+    return
+  }
+  if (deferredQueryErrors.length === 20) deferredQueryErrors.shift()
+  deferredQueryErrors.push({
+    error: input.error,
+    attributes,
+    recordedAt: Date.now(),
+  })
+  if (deferredFlushTimer !== undefined) return
+  deferredFlushTimer = setTimeout(() => {
+    deferredFlushTimer = undefined
+    flushDeferredQueryErrors()
+  }, 10_000)
 }
 
 export function createHyperDxQueryClient(): QueryClient {

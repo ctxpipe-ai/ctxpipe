@@ -81,6 +81,7 @@ describe("proxyBrowserOtlp", () => {
     const response = await proxyBrowserOtlp(
       new Request("https://app.example/.otel/v1/logs", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: "{}",
       }),
     )
@@ -163,11 +164,24 @@ describe("proxyBrowserOtlp", () => {
     expect(headers.get("authorization")).toBe("test-ingest")
     expect(headers.get("Content-Type")).toBe("application/json")
     expect(headers.get("Authorization")).not.toBe("browser-should-not-forward")
-    const forwarded = JSON.parse(new TextDecoder().decode(init?.body as Uint8Array))
+    const forwarded = JSON.parse(
+      new TextDecoder().decode(init?.body as Uint8Array),
+    )
     expect(
       forwarded.resourceSpans[0].scopeSpans[0].spans[0].attributes[0].value
         .stringValue,
     ).toBe("https://app.example/.auth/device")
+  })
+
+  it("rejects an empty non-JSON body before it can be forwarded", async () => {
+    const response = await proxyBrowserOtlp(
+      new Request("https://app.example/.otel/v1/traces", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-protobuf" },
+      }),
+    )
+    expect(response.status).toBe(415)
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it("rejects protobuf so an unscrubbed body is not forwarded", async () => {
