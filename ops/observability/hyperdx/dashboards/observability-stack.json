@@ -300,7 +300,7 @@
       }
     },
     {
-      "name": "Redis clients per interval",
+      "name": "Redis clients",
       "x": 0,
       "y": 40,
       "w": 12,
@@ -312,18 +312,18 @@
         "groupBy": "ServiceName",
         "select": [
           {
-            "aggFn": "increase",
+            "aggFn": "avg",
             "alias": "connected",
             "metricName": "redis.clients.connected",
-            "metricType": "sum",
+            "metricType": "gauge",
             "where": "",
             "whereLanguage": "sql"
           },
           {
-            "aggFn": "increase",
+            "aggFn": "avg",
             "alias": "blocked",
             "metricName": "redis.clients.blocked",
-            "metricType": "sum",
+            "metricType": "gauge",
             "where": "",
             "whereLanguage": "sql"
           }
@@ -408,7 +408,7 @@
       }
     },
     {
-      "name": "Redis uptime per interval",
+      "name": "Redis uptime (s)",
       "x": 0,
       "y": 56,
       "w": 12,
@@ -420,10 +420,10 @@
         "groupBy": "ServiceName",
         "select": [
           {
-            "aggFn": "increase",
+            "aggFn": "max",
             "alias": "uptime s",
             "metricName": "redis.uptime",
-            "metricType": "sum",
+            "metricType": "gauge",
             "where": "",
             "whereLanguage": "sql"
           }

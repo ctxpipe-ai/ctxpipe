@@ -688,3 +688,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** reliability
 - **Date:** 2026-09-17
 - **Source:** Preview idle-exit while `repository-ingestion` runs sat unclaimed in a non-default namespace
+
+### HyperDX charts every OTLP Sum as a counter
+- **Rule:** HyperDX (ClickStack) renders every `Sum` metric as a counter (`greatest(Value - previous, 0)` per bucket), including non-monotonic sums. Emit current-level values (connected clients, uptime, queue depth, in-flight counts) as **gauges**; keep only true cumulative counters as monotonic sums and chart them with `increase`. A current count sent as a Sum charts as ~0 on HyperDX dashboards.
+- **Category:** convention
+- **Date:** 2026-09-25
+- **Source:** PR-343 Opus review of the Observability Stack dashboard (Redis clients tile)
