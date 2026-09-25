@@ -361,7 +361,7 @@ async function forwardToUpstream(
   getLogger().info("request completed", {
     step: "openai-proxy",
     target,
-    status: upstream.status,
+    "upstream.status_code": upstream.status,
     latencyMs,
     orgId: c.get("orgId"),
     userId: c.get("user")?.id,

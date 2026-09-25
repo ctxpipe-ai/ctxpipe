@@ -232,7 +232,9 @@ describe("scrubBrowserOtlpJson", () => {
     expect(span?.attributes.map((attribute) => attribute.key)).toEqual([
       "http.request.method",
     ])
-    expect(span?.events[0]?.attributes).toEqual([])
+    expect(
+      span && "events" in span ? span.events[0]?.attributes : undefined,
+    ).toEqual([])
     expect(payload.resourceSpans[0]?.scopeSpans[1]?.scope.name).toBe("ui")
   })
 })
