@@ -1,6 +1,10 @@
 import { z } from "zod"
 import { withOrgDbContext } from "../../db/client.js"
-import { markRepositoryIndexingFailed } from "../../models/repositories.js"
+import { isRepositoryGoneError } from "../../domain/codeIngestion/repositoryGone.js"
+import {
+  markRepositoryIndexingFailed,
+  repositoryIngestionBlockedByDeletion,
+} from "../../models/repositories.js"
 import { attachJobTelemetry } from "../../observability/jobTelemetry.js"
 import {
   createLogger,
@@ -62,6 +66,26 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
           }
 
           const normalized = err instanceof Error ? err : new Error(String(err))
+          const deleted =
+            isRepositoryGoneError(err) ||
+            (await repositoryIngestionBlockedByDeletion({
+              orgId: input.orgId,
+              repositoryId: input.repositoryId,
+            }))
+          if (deleted) {
+            getLogger().info("repository-ingestion-orchestrator.stopped", {
+              step: "repository-ingestion-orchestrator.stopped",
+              workflow: "repository-ingestion-orchestrator",
+              repositoryId: input.repositoryId,
+              orgId: input.orgId,
+              reason: "repository_deleted",
+            })
+            flushWorkflowLog()
+            return {
+              aborted: "repository_deleted" as const,
+              repositoryId: input.repositoryId,
+            }
+          }
 
           getLogger().error(normalized, {
             step: "repository-ingestion-orchestrator.child-failed",

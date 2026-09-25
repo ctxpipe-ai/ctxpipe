@@ -7,6 +7,10 @@ const markRepositoryIndexingFailedMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 )
 const getLoggerErrorMock = vi.hoisted(() => vi.fn())
+const getLoggerInfoMock = vi.hoisted(() => vi.fn())
+const repositoryIngestionBlockedByDeletionMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(false),
+)
 const flushWorkflowLogMock = vi.hoisted(() => vi.fn())
 const enqueueFollowUpIfTipAheadMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ enqueued: false }),
@@ -18,12 +22,14 @@ vi.mock("../../db/client.js", () => ({
 
 vi.mock("../../models/repositories.js", () => ({
   markRepositoryIndexingFailed: markRepositoryIndexingFailedMock,
+  repositoryIngestionBlockedByDeletion:
+    repositoryIngestionBlockedByDeletionMock,
 }))
 
 vi.mock("../../observability/logger.js", () => ({
   createLogger: () => ({}),
   withLogger: (_logger: unknown, fn: () => unknown) => fn(),
-  getLogger: () => ({ error: getLoggerErrorMock }),
+  getLogger: () => ({ error: getLoggerErrorMock, info: getLoggerInfoMock }),
   flushWorkflowLog: flushWorkflowLogMock,
 }))
 
@@ -44,6 +50,7 @@ describe("repositoryIngestionOrchestrator workflow", () => {
       (_orgId: string, fn: () => unknown) => Promise.resolve(fn()),
     )
     markRepositoryIndexingFailedMock.mockResolvedValue(undefined)
+    repositoryIngestionBlockedByDeletionMock.mockResolvedValue(false)
     enqueueFollowUpIfTipAheadMock.mockResolvedValue({ enqueued: false })
   })
 
@@ -173,6 +180,39 @@ describe("repositoryIngestionOrchestrator workflow", () => {
 
     expect(step.run).not.toHaveBeenCalled()
     expect(markRepositoryIndexingFailedMock).not.toHaveBeenCalled()
+  })
+
+  it("stops cleanly when the repository was deleted", async () => {
+    repositoryIngestionBlockedByDeletionMock.mockResolvedValue(true)
+    const childError = new Error(
+      'Workflow step "repository-ingestion-child" failed because child workflow run "run_1" was canceled',
+    )
+    const step = {
+      runWorkflow: vi.fn().mockRejectedValue(childError),
+      run: vi.fn(),
+    }
+
+    await expect(
+      repositoryIngestionOrchestrator.fn({
+        input: { repositoryId: "repo_1", orgId: "org_1" },
+        step,
+      } as never),
+    ).resolves.toEqual({
+      aborted: "repository_deleted",
+      repositoryId: "repo_1",
+    })
+
+    expect(getLoggerErrorMock).not.toHaveBeenCalled()
+    expect(markRepositoryIndexingFailedMock).not.toHaveBeenCalled()
+    expect(enqueueFollowUpIfTipAheadMock).not.toHaveBeenCalled()
+    expect(getLoggerInfoMock).toHaveBeenCalledWith(
+      "repository-ingestion-orchestrator.stopped",
+      expect.objectContaining({
+        step: "repository-ingestion-orchestrator.stopped",
+        reason: "repository_deleted",
+        repositoryId: "repo_1",
+      }),
+    )
   })
 
   it("marks failed when child throws CancelSignal", async () => {

@@ -22,6 +22,15 @@ vi.mock("../domain/zoekt/warmup.js", async () => {
   }
 })
 
+vi.mock("../observability/logger.js", () => ({
+  getLogger: () => ({
+    warn: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+  }),
+  log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+}))
+
 vi.mock("../config/paths.js", () => ({
   ZOEKT_WEBSERVER_URL: "http://zoekt.test",
   ZOEKT_INDEX_DIR: "/cold",
@@ -217,5 +226,101 @@ describe("POST /search", () => {
         body: JSON.stringify({ Q: "needle", RepoIDs: [1, 2] }),
       }),
     )
+  })
+
+  it("returns 400 when Zoekt rejects the query", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response("parse error: unexpected token", { status: 400 }),
+        ),
+    )
+    const db = mockDb([
+      { orgId: "org_mock123", repoId: "repo_alpha", zoektRepoId: 1 },
+    ])
+    const app = createTestApp(db)
+
+    const res = await app.request("/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ Q: "file:((", RepoIDs: [1] }),
+    })
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({
+      error: "Zoekt rejected the query: parse error: unexpected token",
+    })
+  })
+
+  it("returns 400 with Zoekt's JSON error message", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: "query too complex" }), {
+          status: 422,
+        }),
+      ),
+    )
+    const db = mockDb([
+      { orgId: "org_mock123", repoId: "repo_alpha", zoektRepoId: 1 },
+    ])
+    const app = createTestApp(db)
+
+    const res = await app.request("/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ Q: "needle", RepoIDs: [1] }),
+    })
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({
+      error: "Zoekt rejected the query: query too complex",
+    })
+  })
+
+  it("returns 503 when Zoekt is unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("bad gateway", { status: 502 })),
+    )
+    const db = mockDb([
+      { orgId: "org_mock123", repoId: "repo_alpha", zoektRepoId: 1 },
+    ])
+    const app = createTestApp(db)
+
+    const res = await app.request("/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ Q: "needle", RepoIDs: [1] }),
+    })
+
+    expect(res.status).toBe(503)
+    await expect(res.json()).resolves.toEqual({
+      error: "Zoekt webserver is unavailable (HTTP 502)",
+    })
+  })
+
+  it("returns 503 when the Zoekt request fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new Error("connect ECONNREFUSED")),
+    )
+    const db = mockDb([
+      { orgId: "org_mock123", repoId: "repo_alpha", zoektRepoId: 1 },
+    ])
+    const app = createTestApp(db)
+
+    const res = await app.request("/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ Q: "needle", RepoIDs: [1] }),
+    })
+
+    expect(res.status).toBe(503)
+    await expect(res.json()).resolves.toEqual({
+      error: "Zoekt webserver is unavailable",
+    })
   })
 })

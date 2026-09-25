@@ -2,6 +2,7 @@ import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
+import { RepositoryGoneError } from "./repositoryGone.js"
 
 export type FileEntry = { name: string; path: string; type: "file" | "dir" }
 
@@ -48,6 +49,36 @@ async function fetchWithAuth(
   )
 }
 
+function codesearchErrorDetail(bodyText: string): string {
+  let detail = bodyText.trim()
+  try {
+    const parsed = JSON.parse(bodyText) as { error?: unknown }
+    if (typeof parsed.error === "string" && parsed.error.length > 0) {
+      detail = parsed.error
+    }
+  } catch {
+    // non-JSON body; use raw text
+  }
+  return detail
+}
+
+function raiseCodesearchFailure(
+  operation: string,
+  status: number,
+  bodyText: string,
+): never {
+  const detail = codesearchErrorDetail(bodyText)
+  if (
+    status === 404 &&
+    detail.includes("Repository not found or access denied")
+  ) {
+    throw new RepositoryGoneError(detail)
+  }
+  throw new Error(
+    `${operation} failed: ${status}${detail ? `: ${detail}` : ""}`,
+  )
+}
+
 /**
  * Lists files and directories at a path. Returns entries with name, path, type.
  */
@@ -64,17 +95,7 @@ export async function listFiles(
     orgId,
   )
   if (!res.ok) {
-    const bodyText = await res.text()
-    let detail = bodyText.trim()
-    try {
-      const parsed = JSON.parse(bodyText) as { error?: unknown }
-      if (typeof parsed.error === "string" && parsed.error.length > 0) {
-        detail = parsed.error
-      }
-    } catch {
-      // non-JSON body; use raw text
-    }
-    throw new Error(`listFiles failed: ${res.status}${detail ? `: ${detail}` : ""}`)
+    raiseCodesearchFailure("listFiles", res.status, await res.text())
   }
   const data = (await res.json()) as { entries: FileEntry[] }
   return data.entries
@@ -106,19 +127,7 @@ export async function globFiles(
     orgId,
   )
   if (!res.ok) {
-    const bodyText = await res.text()
-    let detail = bodyText.trim()
-    try {
-      const parsed = JSON.parse(bodyText) as { error?: unknown }
-      if (typeof parsed.error === "string" && parsed.error.length > 0) {
-        detail = parsed.error
-      }
-    } catch {
-      // non-JSON body; use raw text
-    }
-    throw new Error(
-      `globFiles failed: ${res.status}${detail ? `: ${detail}` : ""}`,
-    )
+    raiseCodesearchFailure("globFiles", res.status, await res.text())
   }
   return (await res.json()) as GlobFilesResponse
 }
@@ -143,7 +152,7 @@ export async function fetchFiles(
     orgId,
   )
   if (!res.ok) {
-    throw new Error(`fetchFiles failed: ${res.status}`)
+    raiseCodesearchFailure("fetchFiles", res.status, await res.text())
   }
   const encoded = (await res.json()) as Record<string, string>
   const result: Record<string, string> = {}

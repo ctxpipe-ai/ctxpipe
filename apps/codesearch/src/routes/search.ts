@@ -3,14 +3,15 @@ import { createRoute, z } from "@hono/zod-openapi"
 import { and, eq } from "drizzle-orm"
 import type { AppEnv } from "../app/env.js"
 import { ZOEKT_WEBSERVER_URL } from "../config/paths.js"
-import { DEFAULT_CHECKOUT_KEY } from "../domain/repositories/paths.js"
 import { repositories, repositoryCheckouts } from "../db/schema.js"
+import { DEFAULT_CHECKOUT_KEY } from "../domain/repositories/paths.js"
 import { pinRepos } from "../domain/zoekt/pinManager.js"
 import { zoektRepositoryName } from "../domain/zoekt/shardPrefix.js"
 import {
   waitUntilZoektReposLoaded,
   ZoektWarmupTimeoutError,
 } from "../domain/zoekt/warmup.js"
+import { getLogger } from "../observability/logger.js"
 
 const SearchRequestSchema = z
   .object({
@@ -43,6 +44,14 @@ export const searchRoute = createRoute({
       },
       description: "Zoekt search result",
     },
+    400: {
+      content: {
+        "application/json": {
+          schema: z.object({ error: z.string() }),
+        },
+      },
+      description: "Zoekt rejected the query",
+    },
     503: {
       content: {
         "application/json": {
@@ -53,6 +62,31 @@ export const searchRoute = createRoute({
     },
   },
 })
+
+/**
+ * Zoekt `/api/search` returns plain text (or occasionally JSON) for query
+ * errors. Surface that text so callers can tell a bad query from an outage.
+ */
+async function zoektClientErrorMessage(res: Response): Promise<string> {
+  const text = (await res.text()).trim().slice(0, 500)
+  if (!text) return `Zoekt rejected the query (HTTP ${res.status})`
+  let detail = text
+  try {
+    const parsed = JSON.parse(text) as {
+      error?: unknown
+      Error?: unknown
+      message?: unknown
+    }
+    const candidate = [parsed.error, parsed.Error, parsed.message].find(
+      (value) => typeof value === "string" && value.trim().length > 0,
+    )
+    if (typeof candidate === "string") detail = candidate.trim()
+  } catch {
+    // Zoekt uses http.Error, which writes a plain-text body.
+  }
+  const oneLine = detail.replace(/\s+/g, " ").slice(0, 300)
+  return `Zoekt rejected the query: ${oneLine}`
+}
 
 export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
   app.openapi(searchRoute, async (c) => {
@@ -125,8 +159,20 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       })
+      if (res.status >= 400 && res.status < 500) {
+        const error = await zoektClientErrorMessage(res)
+        getLogger().warn("codesearch.search.zoekt_rejected", {
+          step: "codesearch.search.zoekt_rejected",
+          status: res.status,
+          message: error,
+        })
+        return c.json({ error }, 400)
+      }
       if (!res.ok) {
-        return c.json({ error: `Zoekt returned status ${res.status}` }, 503)
+        return c.json(
+          { error: `Zoekt webserver is unavailable (HTTP ${res.status})` },
+          503,
+        )
       }
       const data = await res.json().catch(() => ({}))
       return c.json(data, 200)

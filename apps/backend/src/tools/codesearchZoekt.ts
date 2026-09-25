@@ -33,6 +33,21 @@ export function isZoektSearchClientFailure(
 
 const ZOEKT_FETCH_TIMEOUT_MS = 10_000
 
+/** Prefer codesearch's `{ error }` JSON so agents see the query message. */
+function codesearchClientErrorDetail(body: string, status: number): string {
+  const trimmed = body.trim()
+  if (!trimmed) return `client_error_${status}`
+  try {
+    const parsed = JSON.parse(trimmed) as { error?: unknown }
+    if (typeof parsed.error === "string" && parsed.error.trim().length > 0) {
+      return parsed.error.trim()
+    }
+  } catch {
+    // plain text
+  }
+  return trimmed
+}
+
 export async function zoektSearchRepository(
   repository: ZoektRepositoryRow,
   Q: string,
@@ -72,7 +87,7 @@ export async function zoektSearchRepository(
     return {
       ok: false,
       status: res.status,
-      error: body.trim() || `client_error_${res.status}`,
+      error: codesearchClientErrorDetail(body, res.status),
     }
   }
 

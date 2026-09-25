@@ -18,8 +18,16 @@ vi.mock("../models/repositories.js", () => ({
   markRepositoryUnindexing: markUnindexingMock,
 }))
 
+const cancelActiveRepositoryIngestionMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue([]),
+)
+
 vi.mock("./client.js", () => ({
   runWorkflowWithWorkerWake: runWorkflowWithWorkerWakeMock,
+}))
+
+vi.mock("./cancel-repository-ingestion.js", () => ({
+  cancelActiveRepositoryIngestion: cancelActiveRepositoryIngestionMock,
 }))
 
 vi.mock("./workflows/repository-deletion.js", () => ({
@@ -61,6 +69,10 @@ describe("enqueueRepositoryDeletionWorkflow", () => {
 
     expect(result).toEqual({ jobId: "run_abc", status: "queued" })
     expect(markUnindexingMock).toHaveBeenCalledWith({ repositoryId: "repo_1" })
+    expect(cancelActiveRepositoryIngestionMock).toHaveBeenCalledWith({
+      orgId: "org_1",
+      repositoryId: "repo_1",
+    })
     expect(runWorkflowWithWorkerWakeMock).toHaveBeenCalledWith(
       { name: "repository-deletion" },
       {
@@ -92,5 +104,6 @@ describe("enqueueRepositoryDeletionWorkflow", () => {
     ).resolves.toBeNull()
 
     expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
+    expect(cancelActiveRepositoryIngestionMock).not.toHaveBeenCalled()
   })
 })

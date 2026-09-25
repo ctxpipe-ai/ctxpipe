@@ -131,11 +131,17 @@ vi.mock("../../domain/codeIngestion/queue.js", () => ({
     .mockResolvedValue({ hash: "abc", branch: "main" }),
 }))
 
+const repositoryIngestionBlockedByDeletionMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(false),
+)
+
 vi.mock("../../models/repositories.js", () => ({
   markRepositoryIndexingRunning: vi.fn().mockResolvedValue(undefined),
   markRepositoryIndexingReady: vi.fn().mockResolvedValue(undefined),
   markRepositoryIndexingReadyWithIssues: vi.fn().mockResolvedValue(undefined),
   setRepositoryIndexingStep: vi.fn().mockResolvedValue(undefined),
+  repositoryIngestionBlockedByDeletion:
+    repositoryIngestionBlockedByDeletionMock,
 }))
 
 vi.mock("../../retrieval/services/ingestionRetraction.js", () => ({
@@ -184,6 +190,7 @@ vi.mock("openworkflow", () => ({
 import {
   markRepositoryIndexingReady,
   markRepositoryIndexingReadyWithIssues,
+  markRepositoryIndexingRunning,
 } from "../../models/repositories.js"
 import { repositoryIngestion } from "./repository-ingestion.js"
 
@@ -255,6 +262,7 @@ describe("repository-ingestion index workflow boundary", () => {
       graphClaimsRefreshed: 0,
       graphOrphanObjectsDeleted: 1,
     })
+    repositoryIngestionBlockedByDeletionMock.mockResolvedValue(false)
   })
 
   it("sweeps evidence a full ingest did not re-observe and syncs the graph", async () => {
@@ -585,5 +593,44 @@ describe("repository-ingestion index workflow boundary", () => {
     expect(markRepositoryIndexingReadyWithIssues).not.toHaveBeenCalled()
     expect(markRepositoryIndexingReady).not.toHaveBeenCalled()
     expect(enqueueFollowUpIfTipAheadMock).not.toHaveBeenCalled()
+  })
+
+  it("stops without error when codesearch says the repository is gone", async () => {
+    const { RepositoryGoneError } = await import(
+      "../../domain/codeIngestion/repositoryGone.js"
+    )
+    runIdentifyPhaseForRootMock.mockRejectedValue(
+      new RepositoryGoneError("Repository not found or access denied"),
+    )
+
+    await expect(
+      runWorkflow(
+        { repositoryId: "repo_1", orgId: "org_1" },
+        makeStep(repositoryIndexResult),
+      ),
+    ).resolves.toEqual({
+      aborted: "repository_deleted",
+      repositoryId: "repo_1",
+    })
+
+    expect(markRepositoryIndexingReady).not.toHaveBeenCalled()
+    expect(enqueueFollowUpIfTipAheadMock).not.toHaveBeenCalled()
+  })
+
+  it("stops before codesearch work when deletion has started", async () => {
+    repositoryIngestionBlockedByDeletionMock.mockResolvedValue(true)
+
+    await expect(
+      runWorkflow(
+        { repositoryId: "repo_1", orgId: "org_1" },
+        makeStep(repositoryIndexResult),
+      ),
+    ).resolves.toEqual({
+      aborted: "repository_deleted",
+      repositoryId: "repo_1",
+    })
+
+    expect(markRepositoryIndexingRunning).not.toHaveBeenCalled()
+    expect(markRepositoryIndexingReady).not.toHaveBeenCalled()
   })
 })
