@@ -694,3 +694,15 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** convention
 - **Date:** 2026-09-25
 - **Source:** PR-343 Opus review of the Observability Stack dashboard (Redis clients tile)
+
+### Telemetry attribution must come from auth, never from inbound headers
+- **Rule:** On public HTTP services, never copy user/org/actor/request attribution from inbound W3C `baggage` (or any client header) onto spans, logs, jobs, or Langfuse — derive it from the authenticated context only. Only private, internal-only services may read attribution from baggage set by our own callers. Span URLs must never include query strings, fragments, or credentials (tokens, device codes, OAuth `state` ride in query strings), and outgoing-fetch instrumentation should only create child spans under an existing server/job span.
+- **Category:** convention
+- **Date:** 2026-09-25
+- **Source:** PR-343 Opus review of the attribution step (live baggage spoof and reset-token leak into ClickHouse)
+
+### GitHub-sourced Railway services here do not auto-deploy on push
+- **Rule:** The Railway GitHub App is not installed on `ctxpipe-ai/ctxpipe` (Railway reports auto-deploy `NO_INSTALLATION`), so services built from this repo (observability collector, clickhouse, railway-telemetry) never rebuild on push. Deploy them explicitly (`serviceInstanceDeployV2` from the observability workflow, or Railway MCP/CLI). Also pin the service source `branch` explicitly: a variable change otherwise redeploys from the repo default branch (`main`), which fails for folders not merged yet.
+- **Category:** workflow
+- **Date:** 2026-09-25
+- **Source:** PR-343 railway-telemetry build from `main` after adding RAILWAY_API_TOKEN; Railway agent auto-deploy check

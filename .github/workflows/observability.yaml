@@ -10,6 +10,9 @@
 # If it does not exist, the first push creates it with no rules and apply
 # runs ungated.
 #
+# After apply, redeploy GitHub-built services whose folders changed. The
+# Railway GitHub App is not installed, so a push does not rebuild them.
+#
 # Security: terraform plan executes provider code with RAILWAY_TOKEN and the
 # R2 state credentials present. Service secret values stay on Railway.
 
@@ -26,6 +29,12 @@ on:
       - "ops/observability/**"
       - ".github/workflows/observability.yaml"
   workflow_dispatch:
+    inputs:
+      deploy_services:
+        description: "After apply, deploy these GitHub-built services: all, or collector,clickhouse,railway-telemetry"
+        required: false
+        default: all
+        type: string
 
 permissions:
   contents: read
@@ -191,6 +200,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@v1
+        with:
+          fetch-depth: 0
 
       - name: Require observability Terraform credentials
         id: credentials
@@ -220,3 +231,14 @@ jobs:
 
       - name: Terraform apply
         run: terraform apply -input=false -auto-approve -lock-timeout=10m terraform.plan
+
+      # The Railway GitHub App is not installed (NO_INSTALLATION), so a push
+      # does not rebuild these services. Deploy only the folders that changed.
+      # ClickHouse restarts in place; this does not copy the volume.
+      - name: Deploy changed GitHub-built services
+        working-directory: ${{ github.workspace }}
+        env:
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+          DEPLOY_SERVICES: ${{ inputs.deploy_services }}
+          RAILWAY_PROJECT_ID: 305aa114-c6f3-4aca-b883-0faa9c331aa2
+        run: bash ops/observability/deploy-github-services.sh
