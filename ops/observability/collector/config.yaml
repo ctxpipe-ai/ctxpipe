@@ -1,7 +1,38 @@
 # ClickStack collector custom merge (CUSTOM_OTELCOL_CONFIG_FILE).
-# Do not redefine otlp/hyperdx, memory_limiter, batch, or the clickhouse exporter.
+# Loaded last via `--config` (see the image entrypoint). Do not redefine
+# otlp/hyperdx, memory_limiter, batch, the clickhouse exporter, or the base
+# `transform` processor (logs pipeline). Confmap replaces arrays, so do not
+# set service.telemetry here: base config.yaml already exposes internal
+# metrics on 0.0.0.0:8888 (readers.pull.exporter.prometheus).
 # The base receiver name is otlp/hyperdx (not otlp). Hosted allowlist source of
 # truth; keep in sync with apps/otel-collector/config.yaml.
+#
+# otelcol-hyperdx 0.155.0 (clickhouse/clickstack-otel-collector) includes
+# prometheus, resource, and transform, but not the redis receiver. metrics/self
+# therefore scrapes the collector and ClickHouse only. Do not add a second
+# collector to cover Redis.
+
+receivers:
+  # job label becomes resource service.name (otel-collector, clickhouse).
+  prometheus/self:
+    config:
+      global:
+        scrape_interval: 60s
+        scrape_timeout: 10s
+      scrape_configs:
+        - job_name: otel-collector
+          static_configs:
+            - targets: ["127.0.0.1:8888"]
+          # The collector SDK publishes target_info{service_name="otelcol-hyperdx"},
+          # and the prometheus receiver copies that over the job label. Drop it so
+          # service.name stays otel-collector.
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: target_info
+              action: drop
+        - job_name: clickhouse
+          static_configs:
+            - targets: ["clickhouse.railway.internal:9363"]
 
 processors:
   filter/llm_only:
@@ -12,12 +43,23 @@ processors:
   batch/langfuse:
     timeout: 5s
     send_batch_size: 512
+  # Prometheus receiver sets service.name from the job label. This processor
+  # only adds the shared ops-stack resource attributes.
+  resource/self:
+    attributes:
+      - key: deployment.environment
+        value: observability
+        action: upsert
+      - key: service.namespace
+        value: ctxpipe
+        action: upsert
 
 exporters:
   otlphttp/langfuse:
     endpoint: "${env:LANGFUSE_OTLP_ENDPOINT}"
     headers:
       Authorization: "Basic ${env:LANGFUSE_AUTH_STRING}"
+      x-langfuse-ingestion-version: "4"
 
 service:
   pipelines:
@@ -25,3 +67,7 @@ service:
       receivers: [otlp/hyperdx]
       processors: [filter/llm_only, batch/langfuse]
       exporters: [otlphttp/langfuse]
+    metrics/self:
+      receivers: [prometheus/self]
+      processors: [memory_limiter, resource/self, batch]
+      exporters: [clickhouse]
