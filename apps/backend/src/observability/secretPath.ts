@@ -32,3 +32,28 @@ export function redactSecretPath(value: string): string {
   }
   return next
 }
+
+/** Redact secret path segments in every string of a wide event, including nested logs. */
+export function redactSecretPathsInTree(value: unknown): void {
+  const seen = new Set<object>()
+  const visit = (node: unknown): void => {
+    if (!node || typeof node !== "object") return
+    if (seen.has(node)) return
+    seen.add(node)
+    if (Array.isArray(node)) {
+      for (let index = 0; index < node.length; index++) {
+        const child = node[index]
+        if (typeof child === "string") node[index] = redactSecretPath(child)
+        else visit(child)
+      }
+      return
+    }
+    const record = node as Record<string, unknown>
+    for (const key of Object.keys(record)) {
+      const child = record[key]
+      if (typeof child === "string") record[key] = redactSecretPath(child)
+      else visit(child)
+    }
+  }
+  visit(value)
+}

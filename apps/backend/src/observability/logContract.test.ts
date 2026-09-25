@@ -159,4 +159,75 @@ describe("log contract", () => {
     expect(JSON.stringify(events)).not.toContain(token)
     expect(JSON.stringify(events)).not.toContain(invitationId)
   })
+
+  it("redacts secret paths nested in requestLogs", () => {
+    const token = "RVPATHPROBELIVE1790331095NOTASECRET"
+    const invitationId = "inv_liveprobe_notreal"
+    const event: Record<string, unknown> = {
+      path: `/.auth/api/v1/auth/reset-password/${token}`,
+      requestLogs: [
+        {
+          level: "warn",
+          message: {
+            step: "oauth.endpoint_error",
+            path: `/.auth/api/v1/auth/reset-password/${token}`,
+            url: `https://backend.example/.auth/api/v1/public/invitations/${invitationId}`,
+          },
+        },
+      ],
+    }
+    applyLogContract(event)
+    expect(event.path).toBe("/.auth/api/v1/auth/reset-password/{token}")
+    const nested = (
+      event.requestLogs as {
+        message: { path: string; url: string }
+      }[]
+    )[0]
+    expect(nested?.message.path).toBe(
+      "/.auth/api/v1/auth/reset-password/{token}",
+    )
+    expect(nested?.message.url).toBe(
+      "https://backend.example/.auth/api/v1/public/invitations/{invitation}",
+    )
+    expect(JSON.stringify(event)).not.toContain(token)
+    expect(JSON.stringify(event)).not.toContain(invitationId)
+  })
+
+  it("redacts a nested requestLogs path accumulated during the request", async () => {
+    initLogger({
+      env: { service: "ctxpipe-backend", environment: "test" },
+      pretty: false,
+    })
+    const events: Record<string, unknown>[] = []
+    const app = new Hono<AppEnv>()
+    app.use(
+      evlog({
+        enrich: (ctx) => {
+          applyLogContract(ctx.event as Record<string, unknown>)
+        },
+        drain: async (ctx) => {
+          const batch = Array.isArray(ctx) ? ctx : [ctx]
+          for (const item of batch) {
+            events.push(item.event as Record<string, unknown>)
+          }
+        },
+      }),
+    )
+    const token = "RVPATHPROBELIVE1790331095NOTASECRET"
+    app.get("/.auth/api/v1/auth/reset-password/:token", (c) => {
+      c.get("log").warn({
+        step: "oauth.endpoint_error",
+        message: "Better Auth endpoint returned an error response",
+        path: c.req.path,
+      })
+      return c.json({ ok: false }, 400)
+    })
+    const res = await app.request(
+      `http://backend.test/.auth/api/v1/auth/reset-password/${token}`,
+    )
+    expect(res.status).toBe(400)
+    expect(events).toHaveLength(1)
+    expect(events[0]?.path).toBe("/.auth/api/v1/auth/reset-password/{token}")
+    expect(JSON.stringify(events[0])).not.toContain(token)
+  })
 })

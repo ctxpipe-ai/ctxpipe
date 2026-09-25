@@ -1,6 +1,7 @@
+import { AsyncLocalStorage } from "node:async_hooks"
 import { BaseCallbackHandler } from "@langchain/core/callbacks/base"
-import { CallbackManager } from "@langchain/core/callbacks/manager"
 import type { LLMResult } from "@langchain/core/outputs"
+import { ensureConfig } from "@langchain/core/runnables"
 import { IterableReadableStream } from "@langchain/core/utils/stream"
 import { ChatOpenAI } from "@langchain/openai"
 import {
@@ -50,6 +51,7 @@ type CallbackOptions = {
 }
 
 const patched = Symbol.for("ctxpipe.genAiChat")
+const activeGenAiSpan = new AsyncLocalStorage<Span>()
 
 /**
  * `MODEL_PROVIDER` is how the backend selects the chat client
@@ -136,36 +138,75 @@ class GenAiChatCallback extends BaseCallbackHandler {
     super()
   }
 
+  handleLLMNewToken(
+    _token: string,
+    _idx: unknown,
+    _runId: string,
+    _parentRunId?: string,
+    _tags?: string[],
+    fields?: {
+      chunk?: {
+        generationInfo?: { finish_reason?: string; model_name?: string }
+        message?: GenMessage
+      }
+    },
+  ): void {
+    const info = fields?.chunk?.generationInfo
+    const message = fields?.chunk?.message
+    if (
+      typeof info?.finish_reason === "string" &&
+      info.finish_reason.length > 0
+    ) {
+      this.span.setAttribute(
+        "gen_ai.response.finish_reason",
+        info.finish_reason,
+      )
+    }
+    if (typeof info?.model_name === "string" && info.model_name.length > 0) {
+      this.span.setAttribute(
+        "gen_ai.response.model",
+        collapseRepeatedModelName(info.model_name),
+      )
+    }
+    const inputTokens = message?.usage_metadata?.input_tokens
+    const outputTokens = message?.usage_metadata?.output_tokens
+    if (typeof inputTokens === "number") {
+      this.span.setAttribute("gen_ai.usage.input_tokens", inputTokens)
+    }
+    if (typeof outputTokens === "number") {
+      this.span.setAttribute("gen_ai.usage.output_tokens", outputTokens)
+    }
+  }
+
   handleLLMEnd(output: LLMResult): void {
     recordResponse(this.span, output as ChatResult)
   }
 }
 
-function withGenAiCallback(
+/**
+ * `ensureConfig` replaces async-local callbacks when `options.callbacks` is set.
+ * Merge the caller's handlers (explicit or the LangGraph/Langfuse context)
+ * and then append ours, so a partial options object cannot drop them.
+ */
+function optionsWithGenAiHandler(
   options: CallbackOptions | undefined,
   handler: GenAiChatCallback,
 ): CallbackOptions {
-  const callbacks = options?.callbacks
-  if (
-    callbacks instanceof CallbackManager ||
-    (callbacks &&
-      typeof callbacks === "object" &&
-      "copy" in callbacks &&
-      typeof callbacks.copy === "function")
+  const callbacks = ensureConfig(options).callbacks
+  let merged: unknown
+  if (Array.isArray(callbacks)) merged = callbacks.concat(handler)
+  else if (
+    callbacks &&
+    typeof callbacks === "object" &&
+    "copy" in callbacks &&
+    typeof callbacks.copy === "function"
   ) {
-    return {
-      ...options,
-      callbacks: (
-        callbacks as { copy: (handlers: BaseCallbackHandler[]) => unknown }
-      ).copy([handler]),
-    }
-  }
-  const list = Array.isArray(callbacks)
-    ? callbacks
-    : callbacks
-      ? [callbacks]
-      : []
-  return { ...options, callbacks: [...list, handler] }
+    merged = (
+      callbacks as { copy: (handlers: BaseCallbackHandler[]) => unknown }
+    ).copy([handler])
+  } else if (callbacks) merged = [callbacks, handler]
+  else merged = [handler]
+  return { ...(options ?? {}), callbacks: merged }
 }
 
 async function* iterateUnderSpan(
@@ -176,7 +217,9 @@ async function* iterateUnderSpan(
   const iterator = source[Symbol.asyncIterator]()
   try {
     for (;;) {
-      const step = await context.with(ctx, () => iterator.next())
+      const step = await activeGenAiSpan.run(span, () =>
+        context.with(ctx, () => iterator.next()),
+      )
       if (step.done) return
       yield step.value
     }
@@ -204,11 +247,20 @@ export function installChatOpenAiGenAiSpans(): void {
 
   const originalInvoke = proto.invoke
   proto.invoke = async function invoke(input, options) {
+    if (activeGenAiSpan.getStore()) {
+      return originalInvoke.call(this, input, options)
+    }
     const span = startChatSpan(requestModel(this))
     const handler = new GenAiChatCallback(span)
     try {
-      return await context.with(trace.setSpan(context.active(), span), () =>
-        originalInvoke.call(this, input, withGenAiCallback(options, handler)),
+      return await activeGenAiSpan.run(span, () =>
+        context.with(trace.setSpan(context.active(), span), () =>
+          originalInvoke.call(
+            this,
+            input,
+            optionsWithGenAiHandler(options, handler),
+          ),
+        ),
       )
     } catch (error) {
       failSpan(span, error)
@@ -220,13 +272,19 @@ export function installChatOpenAiGenAiSpans(): void {
 
   const originalStream = proto.stream
   proto.stream = async function stream(input, options) {
+    if (activeGenAiSpan.getStore()) {
+      return originalStream.call(this, input, options)
+    }
     const span = startChatSpan(requestModel(this))
     const handler = new GenAiChatCallback(span)
+    ;(this as ChatInstance & { streamUsage?: boolean }).streamUsage = true
     try {
-      const iterable = await originalStream.call(
-        this,
-        input,
-        withGenAiCallback(options, handler),
+      const iterable = await activeGenAiSpan.run(span, () =>
+        originalStream.call(
+          this,
+          input,
+          optionsWithGenAiHandler(options, handler),
+        ),
       )
       return IterableReadableStream.fromAsyncGenerator(
         iterateUnderSpan(iterable, span),
