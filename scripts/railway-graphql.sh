@@ -10,12 +10,39 @@
 railway_graphql() {
   local query="$1"
   local variables="$2"
-  local raw http_code body
-  raw="$(curl -sS -w '\n%{http_code}' \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "$(jq -nc --arg q "$query" --argjson v "$variables" '{query:$q,variables:$v}')" \
-    https://backboard.railway.com/graphql/v2)" || return $?
+  local raw http_code body cfg status=0
+  if [[ -z "${TOKEN:-}" ]]; then
+    echo "railway_graphql: TOKEN is not set" >&2
+    return 1
+  fi
+  # curl config quotes the header. A quote, backslash, or newline would break
+  # the line or inject another option. Railway tokens do not contain these.
+  local unsafe="${TOKEN//[^$'\n'\"\\]/}"
+  if [[ -n "$unsafe" ]]; then
+    echo "railway_graphql: TOKEN has a newline, quote, or backslash; refusing to write a curl config" >&2
+    return 1
+  fi
+  cfg="$(mktemp)"
+  chmod 0600 "$cfg" || {
+    rm -f "$cfg"
+    return 1
+  }
+  # printf is a bash builtin, so TOKEN is not an external command's argv.
+  # curl reads it from this file via --config, not from -H on the command line.
+  builtin printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" >"$cfg"
+  builtin printf 'header = "Content-Type: application/json"\n' >>"$cfg"
+  # pipefail is local to this subshell. The body is stdin (--data-binary @-),
+  # not curl's argv.
+  raw="$(
+    set -o pipefail
+    jq -nc --arg q "$query" --argjson v "$variables" '{query:$q,variables:$v}' |
+      curl -sS --config "$cfg" -w '\n%{http_code}' --data-binary @- \
+        https://backboard.railway.com/graphql/v2
+  )" || status=$?
+  rm -f "$cfg"
+  if (( status != 0 )); then
+    return "$status"
+  fi
   http_code="$(printf '%s' "$raw" | tail -n1)"
   body="$(printf '%s' "$raw" | sed '$d')"
   if [[ "$http_code" != "200" ]]; then
