@@ -13,10 +13,12 @@ import {
   expect,
   it,
 } from "vitest"
+import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentations-node"
 import {
   isOtlpExportTarget,
   isRailwayPrEnvironment,
   isUiProxyFetchTarget,
+  nodeAutoInstrumentationConfig,
   otelDeploymentEnvironment,
   parseOtelHeaders,
   sanitizedClientUrlAttributes,
@@ -38,6 +40,30 @@ beforeEach(() => {
 
 afterAll(async () => {
   await provider.shutdown()
+})
+
+describe("nodeAutoInstrumentationConfig", () => {
+  it("leaves Postgres spans to dbTrace and omits instrumentation-pg", () => {
+    const config = nodeAutoInstrumentationConfig()
+    expect(config["@opentelemetry/instrumentation-pg"]).toEqual({
+      enabled: false,
+    })
+    const instrumentations = getNodeAutoInstrumentations(config)
+    expect(
+      instrumentations.some(
+        (instrumentation) =>
+          instrumentation.instrumentationName ===
+          "@opentelemetry/instrumentation-pg",
+      ),
+    ).toBe(false)
+    expect(
+      instrumentations.some(
+        (instrumentation) =>
+          instrumentation.instrumentationName ===
+          "@opentelemetry/instrumentation-http",
+      ),
+    ).toBe(true)
+  })
 })
 
 describe("otelDeploymentEnvironment", () => {

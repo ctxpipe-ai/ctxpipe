@@ -89,18 +89,9 @@ export function initOtel(env: Env): void {
       ]
     : undefined
 
-  const instrumentations = getNodeAutoInstrumentations({
-    "@opentelemetry/instrumentation-http": {
-      ignoreOutgoingRequestHook(request) {
-        return isOtlpExportTarget(httpClientRequestUrl(request))
-      },
-    },
-    "@opentelemetry/instrumentation-undici": {
-      ignoreRequestHook(request) {
-        return isOtlpExportTarget(`${request.origin}${request.path}`)
-      },
-    },
-  })
+  const instrumentations = getNodeAutoInstrumentations(
+    nodeAutoInstrumentationConfig(),
+  )
   try {
     if (!heapSpaceStatisticsAvailable()) {
       for (const instrumentation of instrumentations) {
@@ -154,6 +145,38 @@ export function initOtel(env: Env): void {
 }
 
 const TRACER_NAME = "ctxpipe-backend"
+
+/**
+ * Auto-instrumentations shared by the API (`bun src/server.ts`) and the
+ * OpenWorkflow worker. The worker supervisor is Bun, and it starts
+ * `bunx @openworkflow/cli worker start`. That CLI is `#!/usr/bin/env node`,
+ * and the worker image puts Node on PATH, so the config runs on Node.
+ * `openworkflow.config.ts` imports `register.ts` (which enables these
+ * instrumentations) before `pg` loads. On Node that hook patches `pg` and
+ * emits `pg.query:*` / `pg.connect` / `pg-pool.connect` beside the spans from
+ * `dbTrace`. On Bun the same hook does not patch `pg` once it is already
+ * loaded, which is why the API process did not double-count. Disable
+ * instrumentation-pg so `dbTrace` is the only Postgres span source on both
+ * runtimes. It also records `db.client.operation.duration` and
+ * `db.client.connection.*`; nothing in the HyperDX dashboards reads those.
+ */
+export function nodeAutoInstrumentationConfig() {
+  return {
+    "@opentelemetry/instrumentation-pg": { enabled: false },
+    "@opentelemetry/instrumentation-http": {
+      ignoreOutgoingRequestHook(
+        request: Parameters<typeof httpClientRequestUrl>[0],
+      ) {
+        return isOtlpExportTarget(httpClientRequestUrl(request))
+      },
+    },
+    "@opentelemetry/instrumentation-undici": {
+      ignoreRequestHook(request: { origin: string; path: string }) {
+        return isOtlpExportTarget(`${request.origin}${request.path}`)
+      },
+    },
+  }
+}
 
 /**
  * Child spans for outgoing fetch, plus W3C traceparent and baggage injection.

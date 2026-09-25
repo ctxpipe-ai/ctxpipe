@@ -10,10 +10,9 @@ import type { Pool, PoolClient } from "pg"
 import { dbErrorException, scrubDrizzleParams } from "./scrubDbError.js"
 
 /**
- * `@opentelemetry/instrumentation-pg` patches `pg` through require-in-the-middle.
- * On Bun that patch does not land (`Client.prototype.query` is unchanged after
- * `PgInstrumentation.enable()`), and the instrumentation also emits root spans
- * when nothing else is tracing. Wrap clients the pool checks out instead.
+ * `@opentelemetry/instrumentation-pg` is disabled in `nodeAutoInstrumentationConfig`.
+ * When its hook is installed before `pg` loads it emits `pg.query:*` spans beside
+ * these. This wrapper is the only Postgres span source.
  */
 
 type SqlBoundary =
