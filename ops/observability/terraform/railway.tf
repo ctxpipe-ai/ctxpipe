@@ -182,7 +182,7 @@ resource "railway_variable_collection" "hyperdx" {
   variables = [
     {
       name  = "MONGO_URI"
-      value = "mongodb://$${{mongo.RAILWAY_PRIVATE_DOMAIN}}:27017/hyperdx?maxIdleTimeMS=30000&minPoolSize=0&maxPoolSize=2"
+      value = "mongodb://$${{mongo.RAILWAY_PRIVATE_DOMAIN}}:27017/hyperdx?maxIdleTimeMS=30000&minPoolSize=0&maxPoolSize=2&heartbeatFrequencyMS=1200000"
     },
     {
       name  = "CLICKHOUSE_HOST"
@@ -235,6 +235,22 @@ resource "railway_variable_collection" "hyperdx" {
     {
       name  = "RUN_SCHEDULED_TASKS_EXTERNALLY"
       value = "true"
+    },
+    {
+      name  = "NEXT_TELEMETRY_DISABLED"
+      value = "1"
+    },
+    {
+      name  = "OTEL_TRACES_EXPORTER"
+      value = "none"
+    },
+    {
+      name  = "OTEL_METRICS_EXPORTER"
+      value = "none"
+    },
+    {
+      name  = "OTEL_LOGS_EXPORTER"
+      value = "none"
     },
   ]
 }

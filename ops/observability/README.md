@@ -13,7 +13,7 @@ See [ADR-031](../../.ai/memory/decisions/ADR-031-self-hosted-clickstack-langfuse
 | HyperDX | `hyperdx/hyperdx:2` | Sleeps when unused. UI at `hyperdx.ctxpipe.ai`. Mongo pool `maxIdleTimeMS=30000&minPoolSize=0`. Cloud OTEL + in-process alert cron off (`OTEL_SDK_DISABLED`, `RUN_SCHEDULED_TASKS_EXTERNALLY`) |
 | Mongo | `mongo:7` | Sleeps after HyperDX idles. HyperDX metadata only |
 | Langfuse web | `langfuse/langfuse:3` | Sleeps when unused. UI at `langfuse.ctxpipe.ai` + `/api/public/otel`. Wakes on dashboard or LLM OTLP |
-| Langfuse worker | `langfuse/langfuse-worker:3` | Cron every 5 min, `timeout 90s node worker/dist/index.js`, `restartPolicy=NEVER`. LLM ClickHouse rows can lag ~5 min |
+| Langfuse worker | `langfuse/langfuse-worker:3` | Cron every 5 min, `timeout -s KILL 90 node worker/dist/index.js`, `restartPolicy=NEVER`. LLM ClickHouse rows can lag ~5 min |
 | Redis | `redis:7-alpine` | Sleeps when web and worker are idle |
 
 Postgres for Langfuse is a **dedicated `langfuse` database** on the existing Neon `ctxpipe` project (same compute, not a new instance, not a schema on `neondb`). Event blobs: **Railway Bucket** `langfuse-events`, not MinIO.
@@ -54,4 +54,4 @@ If the ClickStack image cannot merge `otlphttp/langfuse`, run only the contrib c
 
 Single replica, no PR copies, ~$25–35/mo target. **Ingest stays awake** (collector + ClickHouse) because production exports metrics every 60s. **HyperDX, Mongo, Langfuse web, Langfuse worker, and Redis sleep** when unused. Uncapped ClickHouse or cloning this stack into `ctxpipe` preview envs is what blows the bill.
 
-The Railway 0.6.1 provider cannot set `sleepApplication` or cron. GitHub-built ingest services set `sleepApplication = false` in `railway.toml`. Image-service sleep, HyperDX `MONGO_URI` pool knobs, HyperDX `OTEL_SDK_DISABLED` / `RUN_SCHEDULED_TASKS_EXTERNALLY`, and the worker cron (`*/5 * * * *` + `timeout 90s node worker/dist/index.js` + restart `NEVER`) are set on the Railway service after apply. Neon `langfuse` uses `idle_session_timeout=60s` and Prisma `connection_limit=1&keepalives=0` so web can drop Postgres sockets. Langfuse `REDIS_SOCKET_TIMEOUT_MS=0` disables the 30s reconnect watchdog.
+The Railway 0.6.1 provider cannot set `sleepApplication` or cron. GitHub-built ingest services set `sleepApplication = false` in `railway.toml`. Image-service sleep, HyperDX `MONGO_URI` pool knobs, HyperDX `OTEL_SDK_DISABLED` / `RUN_SCHEDULED_TASKS_EXTERNALLY`, and the worker cron (`*/5 * * * *` + `timeout -s KILL 90 node worker/dist/index.js` + restart `NEVER`) are set on the Railway service after apply. Neon `langfuse` uses `idle_session_timeout=60s` and Prisma `connection_limit=1&keepalives=0` so web can drop Postgres sockets. Langfuse web start command wraps `node ./web/server.js` with a `setKeepAlive(false)` preload so the stock ioredis 10s keepalive cannot hold the replica up. Langfuse `REDIS_SOCKET_TIMEOUT_MS=0` disables the 30s reconnect watchdog.
