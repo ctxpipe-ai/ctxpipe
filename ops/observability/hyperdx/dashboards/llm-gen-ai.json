@@ -33,12 +33,12 @@
         "sourceName": "Traces",
         "fillNulls": true,
         "seriesLimit": 20,
-        "groupBy": "SpanAttributes['gen_ai.request.model']",
+        "groupBy": "coalesce(nullIf(SpanAttributes['langfuse.observation.model.name'], ''), nullIf(SpanAttributes['gen_ai.request.model'], ''))",
         "select": [
           {
             "aggFn": "count",
             "alias": "calls",
-            "where": "mapContains(SpanAttributes, 'gen_ai.request.model') OR mapContains(SpanAttributes, 'gen_ai.operation.name')",
+            "where": "SpanAttributes['langfuse.observation.type'] = 'generation' OR mapContains(SpanAttributes, 'gen_ai.request.model') OR mapContains(SpanAttributes, 'gen_ai.operation.name')",
             "whereLanguage": "sql"
           }
         ]
@@ -56,19 +56,19 @@
         "fillNulls": true,
         "asRatio": true,
         "seriesLimit": 20,
-        "groupBy": "SpanAttributes['gen_ai.request.model']",
+        "groupBy": "coalesce(nullIf(SpanAttributes['langfuse.observation.model.name'], ''), nullIf(SpanAttributes['gen_ai.request.model'], ''))",
         "numberFormat": { "output": "percent", "mantissa": 1 },
         "select": [
           {
             "aggFn": "count",
             "alias": "errors",
-            "where": "(mapContains(SpanAttributes, 'gen_ai.request.model') OR mapContains(SpanAttributes, 'gen_ai.operation.name')) AND StatusCode = 'Error'",
+            "where": "(SpanAttributes['langfuse.observation.type'] = 'generation' OR mapContains(SpanAttributes, 'gen_ai.request.model') OR mapContains(SpanAttributes, 'gen_ai.operation.name')) AND (StatusCode = 'Error' OR SpanAttributes['langfuse.observation.level'] = 'ERROR')",
             "whereLanguage": "sql"
           },
           {
             "aggFn": "count",
             "alias": "calls",
-            "where": "mapContains(SpanAttributes, 'gen_ai.request.model') OR mapContains(SpanAttributes, 'gen_ai.operation.name')",
+            "where": "SpanAttributes['langfuse.observation.type'] = 'generation' OR mapContains(SpanAttributes, 'gen_ai.request.model') OR mapContains(SpanAttributes, 'gen_ai.operation.name')",
             "whereLanguage": "sql"
           }
         ]
@@ -85,13 +85,13 @@
         "sourceName": "Traces",
         "fillNulls": true,
         "seriesLimit": 20,
-        "groupBy": "SpanAttributes['gen_ai.request.model']",
+        "groupBy": "coalesce(nullIf(SpanAttributes['langfuse.observation.model.name'], ''), nullIf(SpanAttributes['gen_ai.request.model'], ''))",
         "select": [
           {
             "aggFn": "sum",
             "alias": "input tokens",
-            "valueExpression": "toFloat64OrZero(SpanAttributes['gen_ai.usage.input_tokens'])",
-            "where": "mapContains(SpanAttributes, 'gen_ai.usage.input_tokens')",
+            "valueExpression": "if(mapContains(SpanAttributes, 'langfuse.observation.usage_details'), JSONExtractFloat(SpanAttributes['langfuse.observation.usage_details'], 'input'), toFloat64OrZero(SpanAttributes['gen_ai.usage.input_tokens']))",
+            "where": "SpanAttributes['langfuse.observation.type'] = 'generation' OR mapContains(SpanAttributes, 'gen_ai.usage.input_tokens')",
             "whereLanguage": "sql"
           }
         ]
@@ -108,13 +108,13 @@
         "sourceName": "Traces",
         "fillNulls": true,
         "seriesLimit": 20,
-        "groupBy": "SpanAttributes['gen_ai.request.model']",
+        "groupBy": "coalesce(nullIf(SpanAttributes['langfuse.observation.model.name'], ''), nullIf(SpanAttributes['gen_ai.request.model'], ''))",
         "select": [
           {
             "aggFn": "sum",
             "alias": "output tokens",
-            "valueExpression": "toFloat64OrZero(SpanAttributes['gen_ai.usage.output_tokens'])",
-            "where": "mapContains(SpanAttributes, 'gen_ai.usage.output_tokens')",
+            "valueExpression": "if(mapContains(SpanAttributes, 'langfuse.observation.usage_details'), JSONExtractFloat(SpanAttributes['langfuse.observation.usage_details'], 'output'), toFloat64OrZero(SpanAttributes['gen_ai.usage.output_tokens']))",
+            "where": "SpanAttributes['langfuse.observation.type'] = 'generation' OR mapContains(SpanAttributes, 'gen_ai.usage.output_tokens')",
             "whereLanguage": "sql"
           }
         ]
@@ -131,7 +131,7 @@
         "sourceName": "Traces",
         "fillNulls": true,
         "seriesLimit": 20,
-        "groupBy": "SpanAttributes['gen_ai.request.model']",
+        "groupBy": "coalesce(nullIf(SpanAttributes['langfuse.observation.model.name'], ''), nullIf(SpanAttributes['gen_ai.request.model'], ''))",
         "numberFormat": { "output": "number", "mantissa": 1, "unit": "ms" },
         "select": [
           {
@@ -139,7 +139,7 @@
             "level": 0.95,
             "alias": "p95 ms",
             "valueExpression": "Duration / 1000000",
-            "where": "mapContains(SpanAttributes, 'gen_ai.request.model')",
+            "where": "SpanAttributes['langfuse.observation.type'] = 'generation' OR mapContains(SpanAttributes, 'gen_ai.request.model')",
             "whereLanguage": "sql"
           }
         ]

@@ -10,28 +10,28 @@
     },
     {
       "type": "QUERY_EXPRESSION",
-      "name": "ctxpipe.org.slug",
+      "name": "Org slug (traces)",
       "expression": "SpanAttributes['ctxpipe.org.slug']",
       "sourceName": "Traces",
       "appliesToSourceNames": ["Traces"]
     },
     {
       "type": "QUERY_EXPRESSION",
-      "name": "ctxpipe.org.slug",
+      "name": "Org slug (logs)",
       "expression": "LogAttributes['ctxpipe.org.slug']",
       "sourceName": "Logs",
       "appliesToSourceNames": ["Logs"]
     },
     {
       "type": "QUERY_EXPRESSION",
-      "name": "enduser.id",
+      "name": "End user (traces)",
       "expression": "SpanAttributes['enduser.id']",
       "sourceName": "Traces",
       "appliesToSourceNames": ["Traces"]
     },
     {
       "type": "QUERY_EXPRESSION",
-      "name": "enduser.id",
+      "name": "End user (logs)",
       "expression": "LogAttributes['enduser.id']",
       "sourceName": "Logs",
       "appliesToSourceNames": ["Logs"]

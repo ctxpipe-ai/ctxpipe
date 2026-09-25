@@ -22,7 +22,7 @@
         "sourceName": "Metrics",
         "fillNulls": true,
         "seriesLimit": 20,
-        "groupBy": "ServiceName",
+        "groupBy": "ServiceName, ResourceAttributes['deployment.environment']",
         "numberFormat": { "output": "number", "mantissa": 2, "unit": "cores" },
         "select": [
           {
@@ -55,7 +55,7 @@
         "sourceName": "Metrics",
         "fillNulls": true,
         "seriesLimit": 20,
-        "groupBy": "ServiceName",
+        "groupBy": "ServiceName, ResourceAttributes['deployment.environment']",
         "numberFormat": { "output": "byte", "numericUnit": "bytes_iec" },
         "select": [
           {
@@ -88,7 +88,7 @@
         "sourceName": "Metrics",
         "fillNulls": true,
         "seriesLimit": 20,
-        "groupBy": "ServiceName",
+        "groupBy": "ServiceName, ResourceAttributes['deployment.environment']",
         "numberFormat": { "output": "byte", "numericUnit": "bytes_iec" },
         "select": [
           {
@@ -121,7 +121,7 @@
         "sourceName": "Metrics",
         "fillNulls": true,
         "seriesLimit": 20,
-        "groupBy": "ServiceName",
+        "groupBy": "ServiceName, ResourceAttributes['deployment.environment']",
         "numberFormat": { "output": "byte", "numericUnit": "bytes_iec" },
         "select": [
           {

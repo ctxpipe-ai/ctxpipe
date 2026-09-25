@@ -1,12 +1,14 @@
 /**
- * Idempotent upsert of HyperDX dashboards (and the "Request by id" saved search).
+ * Idempotent upsert of HyperDX dashboards and saved searches.
  *
  * Operator shell only — not Railway env:
- *   HYPERDX_API_URL    API base, no trailing path (e.g. http://hyperdx:8000)
+ *   HYPERDX_API_URL    https://hyperdx.ctxpipe.ai/api
  *   HYPERDX_ACCESS_KEY personal API access key
  *
+ * The public app proxies /api to the API server, so paths are /api/api/v2/...
  * Dashboard JSON references sources by name (`sourceName`, `appliesToSourceNames`).
  * This script resolves those to ids via GET /api/v2/sources before validate/write.
+ * Dashboards that exist live but are not in dashboards/ are left in place.
  */
 const apiUrl = process.env.HYPERDX_API_URL?.replace(/\/$/, "");
 const accessKey = process.env.HYPERDX_ACCESS_KEY;
@@ -99,12 +101,18 @@ function asDashboard(value: Json): Dashboard {
   return value as unknown as Dashboard;
 }
 
+function newId(): string {
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 function stampIds(next: Dashboard, prev: Dashboard | undefined): Dashboard {
   if (!prev) return next;
   const usedTiles = new Set<string>();
   const tiles = next.tiles.map((tile) => {
     const match = prev.tiles.find((existing) => existing.name === tile.name && existing.id && !usedTiles.has(existing.id));
-    if (!match?.id) return tile;
+    if (!match?.id) return { ...tile, id: tile.id ?? newId() };
     usedTiles.add(match.id);
     return { ...tile, id: match.id };
   });
@@ -117,7 +125,7 @@ function stampIds(next: Dashboard, prev: Dashboard | undefined): Dashboard {
         existing.name === filter.name &&
         existing.expression === filter.expression,
     );
-    if (!match?.id) return filter;
+    if (!match?.id) return { ...filter, id: filter.id ?? newId() };
     usedFilters.add(match.id);
     return { ...filter, id: match.id };
   });
@@ -158,24 +166,29 @@ for (const item of unwrapList(listDashboards.json)) {
   existingDashboards.set(dashboard.name, dashboard);
 }
 
+const repoDashboardNames = new Set<string>();
 for (const file of dashboardFiles) {
   const raw = JSON.parse(await Bun.file(`${dashboardsDir}/${file}`).text()) as Json;
   const resolved = asDashboard(resolveSources(raw, sourcesByName));
-  const validation = await api("POST", "/api/v2/dashboards/validate", resolved as unknown as Json);
-  if (validation.status !== 200) fail(`validate ${resolved.name}`, validation.status, validation.json);
+  repoDashboardNames.add(resolved.name);
+  const validation = await api("POST", "/api/v2/dashboards/validate", resolved);
+  if (validation.status !== 200) fail(`validate ${file}`, validation.status, validation.json);
   const validationBody = validation.json;
+  const errors =
+    validationBody && typeof validationBody === "object" && !Array.isArray(validationBody) && Array.isArray(validationBody.errors)
+      ? validationBody.errors
+      : [];
   const valid =
     validationBody &&
     typeof validationBody === "object" &&
     !Array.isArray(validationBody) &&
     validationBody.valid === true;
-  if (!valid) {
-    fail(`validate ${resolved.name}`, validation.status, validation.json);
-  }
+  console.log(`validate ${file} name=${JSON.stringify(resolved.name)} valid=${valid === true} errors=${errors.length}`);
+  if (!valid) fail(`validate ${file}`, validation.status, validation.json);
   const tileCount = resolved.tiles.length;
   const existing = existingDashboards.get(resolved.name);
   if (!existing?.id) {
-    const created = await api("POST", "/api/v2/dashboards", resolved as unknown as Json);
+    const created = await api("POST", "/api/v2/dashboards", resolved);
     if (created.status !== 200 && created.status !== 201) fail(`create ${resolved.name}`, created.status, created.json);
     const body = created.json;
     const data =
@@ -184,53 +197,60 @@ for (const file of dashboardFiles) {
     continue;
   }
   const updatedBody = stampIds(resolved, existing);
-  const updated = await api("PUT", `/api/v2/dashboards/${existing.id}`, updatedBody as unknown as Json);
+  const updated = await api("PUT", `/api/v2/dashboards/${existing.id}`, updatedBody);
   if (updated.status !== 200) fail(`update ${resolved.name}`, updated.status, updated.json);
   console.log(`updated dashboard ${resolved.name} id=${existing.id} tiles=${tileCount}`);
 }
+for (const name of existingDashboards.keys()) {
+  if (!repoDashboardNames.has(name)) console.log(`left dashboard not in repo: ${name}`);
+}
 
-const savedSearch = {
-  name: "Request by id",
-  sourceName: "Logs",
-  select: "Timestamp, ServiceName, SeverityText, Body, TraceId, LogAttributes['request.id']",
-  where: "LogAttributes['request.id'] != ''",
-  whereLanguage: "sql",
-  orderBy: "Timestamp DESC",
-  tags: ["ctxpipe"],
-};
-const savedSearchBody = resolveSources(savedSearch as unknown as Json, sourcesByName);
+const savedSearches: Json[] = [
+  {
+    name: "Request by id",
+    sourceName: "Logs",
+    select: "Timestamp, ServiceName, SeverityText, Body, TraceId, LogAttributes['request.id']",
+    where: "LogAttributes['request.id'] != ''",
+    whereLanguage: "sql",
+    orderBy: "Timestamp DESC",
+    tags: ["ctxpipe"],
+  },
+  {
+    name: "Request by id (traces)",
+    sourceName: "Traces",
+    select: "Timestamp, ServiceName, StatusCode, SpanName, TraceId, SpanAttributes['request.id']",
+    where: "SpanAttributes['request.id'] != ''",
+    whereLanguage: "sql",
+    orderBy: "Timestamp DESC",
+    tags: ["ctxpipe"],
+  },
+];
 
 const savedList = await api("GET", "/api/v2/saved-searches?limit=1000");
-if (savedList.status === 404 || savedList.status === 405) {
-  console.log("saved search API unsupported");
-  process.exit(0);
-}
 if (savedList.status !== 200) fail("GET /api/v2/saved-searches", savedList.status, savedList.json);
-
-let existingSaved: { id?: string; name?: string } | undefined;
+const savedByName = new Map<string, string>();
 for (const item of unwrapList(savedList.json)) {
   if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-  if (item.name === "Request by id" && typeof item.id === "string") {
-    existingSaved = { id: item.id, name: "Request by id" };
-  }
+  if (typeof item.name === "string" && typeof item.id === "string") savedByName.set(item.name, item.id);
 }
-if (!existingSaved?.id) {
-  const created = await api("POST", "/api/v2/saved-searches", savedSearchBody);
-  if (created.status !== 200 && created.status !== 201) {
-    fail("create saved search", created.status, created.json);
+
+for (const savedSearch of savedSearches) {
+  const savedSearchBody = resolveSources(savedSearch, sourcesByName);
+  const name = typeof savedSearchBody === "object" && savedSearchBody && !Array.isArray(savedSearchBody) ? savedSearchBody.name : "";
+  if (typeof name !== "string") fail("saved search", 0, savedSearchBody);
+  const existingId = savedByName.get(name);
+  if (!existingId) {
+    const created = await api("POST", "/api/v2/saved-searches", savedSearchBody);
+    if (created.status !== 200 && created.status !== 201) fail(`create saved search ${name}`, created.status, created.json);
+    const body = created.json;
+    const id =
+      body && typeof body === "object" && !Array.isArray(body) && body.data && typeof body.data === "object" && !Array.isArray(body.data) && typeof body.data.id === "string"
+        ? body.data.id
+        : "";
+    console.log(`created saved search ${name} id=${id}`);
+    continue;
   }
-  const body = created.json;
-  const id =
-    body && typeof body === "object" && !Array.isArray(body)
-      ? typeof body.id === "string"
-        ? body.id
-        : body.data && typeof body.data === "object" && !Array.isArray(body.data) && typeof body.data.id === "string"
-          ? body.data.id
-          : ""
-      : "";
-  console.log(`created saved search Request by id id=${id}`);
-} else {
-  const updated = await api("PUT", `/api/v2/saved-searches/${existingSaved.id}`, savedSearchBody);
-  if (updated.status !== 200) fail("update saved search", updated.status, updated.json);
-  console.log(`updated saved search Request by id id=${existingSaved.id}`);
+  const updated = await api("PUT", `/api/v2/saved-searches/${existingId}`, savedSearchBody);
+  if (updated.status !== 200) fail(`update saved search ${name}`, updated.status, updated.json);
+  console.log(`updated saved search ${name} id=${existingId}`);
 }
