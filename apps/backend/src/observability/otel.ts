@@ -1,5 +1,6 @@
 import {
   context,
+  isSpanContextValid,
   metrics,
   SpanKind,
   SpanStatusCode,
@@ -12,7 +13,11 @@ import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
 import { resourceFromAttributes } from "@opentelemetry/resources"
 import { PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics"
 import { NodeSDK } from "@opentelemetry/sdk-node"
-import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base"
+import {
+  BatchSpanProcessor,
+  type ReadableSpan,
+  type SpanProcessor,
+} from "@opentelemetry/sdk-trace-base"
 import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions"
 import type { Env } from "../config/env.js"
 import { copyAttributionToSpan, propagationHeaders } from "./attribution.js"
@@ -125,7 +130,14 @@ export function initOtel(env: Env): void {
         },
       },
       new LangfuseContextSpanProcessor(),
-      new BatchSpanProcessor(traceExporter),
+      // BetterAuthSpanFilter wraps the exporter only. Insert it here,
+      // inside this filter, around BatchSpanProcessor:
+      // new DropParentlessAutoInstrumentationSpans(
+      //   new BetterAuthSpanFilter(new BatchSpanProcessor(traceExporter)),
+      // )
+      new DropParentlessAutoInstrumentationSpans(
+        new BatchSpanProcessor(traceExporter),
+      ),
     ],
     instrumentations,
     ...(metricReaders && { metricReaders }),
@@ -149,21 +161,44 @@ const TRACER_NAME = "ctxpipe-backend"
 
 /**
  * Auto-instrumentations shared by the API (`bun src/server.ts`) and the
- * OpenWorkflow worker. The worker supervisor is Bun, and it starts
- * `bunx @openworkflow/cli worker start`. That CLI is `#!/usr/bin/env node`,
- * and the worker image puts Node on PATH, so the config runs on Node.
- * `openworkflow.config.ts` imports `register.ts` (which enables these
- * instrumentations) before `pg` loads. On Node that hook patches `pg` and
- * emits `pg.query:*` / `pg.connect` / `pg-pool.connect` beside the spans from
- * `dbTrace`. On Bun the same hook does not patch `pg` once it is already
- * loaded, which is why the API process did not double-count. Disable
- * instrumentation-pg so `dbTrace` is the only Postgres span source on both
- * runtimes. It also records `db.client.operation.duration` and
- * `db.client.connection.*`; nothing in the HyperDX dashboards reads those.
+ * OpenWorkflow worker. The worker CLI is Node (`bunx @openworkflow/cli
+ * worker`), and `openworkflow.config.ts` imports `register.ts` before `pg`
+ * loads. Codesearch does not load this config: it builds a
+ * `NodeTracerProvider` and its own server span and fetch wrapper.
+ *
+ * Disabled on both runtimes:
+ * - `instrumentation-pg` — `dbTrace` is the Postgres span. On Node the hook
+ *   also emits idle `pg-pool.connect` roots. It records
+ *   `db.client.operation.duration` and `db.client.connection.*`; nothing in
+ *   the HyperDX dashboards reads those.
+ * - `instrumentation-net` and `instrumentation-dns` — `tcp.connect`,
+ *   `tls.connect`, and `dns.lookup` when the Neon pool reconnects with no
+ *   active job or request. That is almost every worker root. The same net
+ *   and tls spans show up on the Bun API.
+ * - `instrumentation-fs` — already off by default. Explicit so an env
+ *   allowlist cannot span every file read during ingest.
+ * - `instrumentation-undici` — Node's `fetch` is undici. The instrumentation
+ *   starts its own client span and `propagation.inject`s that span id via
+ *   `request.addHeader`, so codesearch's parent becomes undici `POST`
+ *   beside the `HTTP POST` span from `tracedOutgoingFetch`. The wrapper
+ *   already injects `traceparent` and, for codesearch, baggage. Bun's fetch
+ *   is not undici, so this hook never covered the API.
+ *
+ * `instrumentation-http` stays. It patches `http.request` / `https.request`,
+ * not `fetch`, so it does not duplicate the wrapper or replace the
+ * codesearch parent. OTLP export URLs stay ignored.
+ * `instrumentation-runtime-node` stays for metrics. Other hooks (redis, and
+ * libraries we do not load) only emit when that module is required.
+ * Parentless client and internal spans from those scopes are dropped by
+ * `DropParentlessAutoInstrumentationSpans`.
  */
 export function nodeAutoInstrumentationConfig() {
   return {
+    "@opentelemetry/instrumentation-dns": { enabled: false },
+    "@opentelemetry/instrumentation-fs": { enabled: false },
+    "@opentelemetry/instrumentation-net": { enabled: false },
     "@opentelemetry/instrumentation-pg": { enabled: false },
+    "@opentelemetry/instrumentation-undici": { enabled: false },
     "@opentelemetry/instrumentation-http": {
       ignoreOutgoingRequestHook(
         request: Parameters<typeof httpClientRequestUrl>[0],
@@ -171,17 +206,77 @@ export function nodeAutoInstrumentationConfig() {
         return isOtlpExportTarget(httpClientRequestUrl(request))
       },
     },
-    "@opentelemetry/instrumentation-undici": {
-      ignoreRequestHook(request: { origin: string; path: string }) {
-        return isOtlpExportTarget(`${request.origin}${request.path}`)
-      },
-    },
   }
+}
+
+const AUTO_INSTRUMENTATION_SCOPE_PREFIX = "@opentelemetry/instrumentation-"
+
+/**
+ * Skips export of parentless CLIENT and INTERNAL spans from
+ * `@opentelemetry/instrumentation-*`.
+ *
+ * A ParentBased root sampler is the wrong tool. `shouldSample` receives the
+ * span name and kind, not the instrumentation scope, so it cannot tell an
+ * idle `tcp.connect` from an application client span. Dropping that root
+ * would also drop its children. Job roots (`openworkflow.job`, CONSUMER,
+ * scope `ctxpipe-backend`) and HTTP server roots have to stay.
+ *
+ * Parented auto-instrumentation spans still export. Spans we start use
+ * `ctxpipe-backend` (server, job, `dbTrace`, fetch), so a parentless one of
+ * those is kept. SERVER and CONSUMER spans from an auto-instrumentation are
+ * kept too: those are entry points, not idle sockets.
+ *
+ * Wraps the exporter processor so a dropped span never reaches
+ * `BatchSpanProcessor`. `BetterAuthSpanFilter` wraps `BatchSpanProcessor`
+ * only, inside this processor.
+ */
+export class DropParentlessAutoInstrumentationSpans implements SpanProcessor {
+  constructor(private readonly next: SpanProcessor) {}
+
+  onStart(
+    span: Parameters<SpanProcessor["onStart"]>[0],
+    parentContext: Parameters<SpanProcessor["onStart"]>[1],
+  ): void {
+    if (isParentlessAutoInstrumentationSpan(span as ReadableSpan)) return
+    this.next.onStart(span, parentContext)
+  }
+
+  onEnd(span: ReadableSpan): void {
+    if (isParentlessAutoInstrumentationSpan(span)) return
+    this.next.onEnd(span)
+  }
+
+  shutdown(): Promise<void> {
+    return this.next.shutdown()
+  }
+
+  forceFlush(): Promise<void> {
+    return this.next.forceFlush()
+  }
+}
+
+export function isParentlessAutoInstrumentationSpan(
+  span: ReadableSpan,
+): boolean {
+  if (span.kind !== SpanKind.CLIENT && span.kind !== SpanKind.INTERNAL) {
+    return false
+  }
+  if (
+    !span.instrumentationScope.name.startsWith(
+      AUTO_INSTRUMENTATION_SCOPE_PREFIX,
+    )
+  ) {
+    return false
+  }
+  const parent = span.parentSpanContext
+  return !parent || !isSpanContextValid(parent)
 }
 
 /**
  * Child spans for outgoing fetch, plus W3C traceparent and baggage injection.
- * Bun's fetch is not undici, so `@opentelemetry/instrumentation-undici` does not see it.
+ * This wrapper is the only fetch client span on both runtimes: Bun's fetch is
+ * not undici, and Node undici instrumentation is disabled so it cannot
+ * replace this span's id in `traceparent`. Codesearch continues that id.
  * OTLP export URLs are left uninstrumented so export does not trace itself.
  */
 export function installOutgoingFetchInstrumentation(): void {

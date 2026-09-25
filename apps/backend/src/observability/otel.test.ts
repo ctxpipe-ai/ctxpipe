@@ -14,11 +14,9 @@ import {
   expect,
   it,
 } from "vitest"
+import { applyAttribution, contextWithAttributionBag } from "./attribution.js"
 import {
-  applyAttribution,
-  contextWithAttributionBag,
-} from "./attribution.js"
-import {
+  DropParentlessAutoInstrumentationSpans,
   isOtlpExportTarget,
   isRailwayPrEnvironment,
   isUiProxyFetchTarget,
@@ -31,7 +29,11 @@ import {
 
 const exporter = new InMemorySpanExporter()
 const provider = new NodeTracerProvider({
-  spanProcessors: [new SimpleSpanProcessor(exporter)],
+  spanProcessors: [
+    new DropParentlessAutoInstrumentationSpans(
+      new SimpleSpanProcessor(exporter),
+    ),
+  ],
 })
 
 beforeAll(() => {
@@ -46,27 +48,28 @@ afterAll(async () => {
   await provider.shutdown()
 })
 
+const DISABLED_AUTO_INSTRUMENTATIONS = [
+  "@opentelemetry/instrumentation-dns",
+  "@opentelemetry/instrumentation-fs",
+  "@opentelemetry/instrumentation-net",
+  "@opentelemetry/instrumentation-pg",
+  "@opentelemetry/instrumentation-undici",
+] as const
+
 describe("nodeAutoInstrumentationConfig", () => {
-  it("leaves Postgres spans to dbTrace and omits instrumentation-pg", () => {
+  it("omits net, dns, fs, pg, and undici and keeps http", () => {
     const config = nodeAutoInstrumentationConfig()
-    expect(config["@opentelemetry/instrumentation-pg"]).toEqual({
-      enabled: false,
-    })
-    const instrumentations = getNodeAutoInstrumentations(config)
-    expect(
-      instrumentations.some(
-        (instrumentation) =>
-          instrumentation.instrumentationName ===
-          "@opentelemetry/instrumentation-pg",
-      ),
-    ).toBe(false)
-    expect(
-      instrumentations.some(
-        (instrumentation) =>
-          instrumentation.instrumentationName ===
-          "@opentelemetry/instrumentation-http",
-      ),
-    ).toBe(true)
+    for (const name of DISABLED_AUTO_INSTRUMENTATIONS) {
+      expect(config[name]).toEqual({ enabled: false })
+    }
+    const names = getNodeAutoInstrumentations(config).map(
+      (instrumentation) => instrumentation.instrumentationName,
+    )
+    for (const name of DISABLED_AUTO_INSTRUMENTATIONS) {
+      expect(names).not.toContain(name)
+    }
+    expect(names).toContain("@opentelemetry/instrumentation-http")
+    expect(names).toContain("@opentelemetry/instrumentation-runtime-node")
   })
 })
 
@@ -313,6 +316,24 @@ describe("outgoing fetch spans", () => {
       expect(internal?.baggage).toContain("enduser.id=user_1")
       expect(internal?.baggage).toContain("ctxpipe.org.slug=acme-corp")
     }
+
+    const codesearch = seen.find((entry) =>
+      entry.url.includes("codesearch.internal"),
+    )
+    const codesearchSpan = exporter
+      .getFinishedSpans()
+      .find(
+        (span) => span.attributes["server.address"] === "codesearch.internal",
+      )
+    expect(codesearchSpan?.instrumentationScope.name).toBe("ctxpipe-backend")
+    expect(codesearchSpan?.name).toBe("HTTP GET")
+    const spanContext = codesearchSpan?.spanContext()
+    expect(codesearch?.traceparent).toBe(
+      `00-${spanContext?.traceId}-${spanContext?.spanId}-01`,
+    )
+    expect(codesearchSpan?.parentSpanContext?.spanId).toBe(
+      parent.spanContext().spanId,
+    )
   })
 
   it("records a child client span without the query string", async () => {
@@ -333,5 +354,83 @@ describe("outgoing fetch spans", () => {
     expect(JSON.stringify(client?.attributes)).not.toContain("SECRET")
     expect(JSON.stringify(client?.attributes)).not.toContain("user:pass")
     expect(client?.parentSpanContext?.spanId).toBe(parent.spanContext().spanId)
+  })
+})
+
+describe("parentless auto-instrumentation spans", () => {
+  it("drops client and internal roots from auto-instrumentations", () => {
+    const dns = trace
+      .getTracer("@opentelemetry/instrumentation-dns")
+      .startSpan("dns.lookup", { kind: SpanKind.CLIENT })
+    const tcp = trace
+      .getTracer("@opentelemetry/instrumentation-net")
+      .startSpan("tcp.connect", { kind: SpanKind.INTERNAL })
+    const tls = trace
+      .getTracer("@opentelemetry/instrumentation-net")
+      .startSpan("tls.connect", { kind: SpanKind.INTERNAL })
+    const undici = trace
+      .getTracer("@opentelemetry/instrumentation-undici")
+      .startSpan("POST", { kind: SpanKind.CLIENT })
+    dns.end()
+    tcp.end()
+    tls.end()
+    undici.end()
+    expect(exporter.getFinishedSpans()).toHaveLength(0)
+  })
+
+  it("keeps a parented auto-instrumentation span and our own spans", () => {
+    const server = trace
+      .getTracer("ctxpipe-backend")
+      .startSpan("GET /:orgSlug/api/v1/repositories", {
+        kind: SpanKind.SERVER,
+      })
+    const job = trace
+      .getTracer("ctxpipe-backend")
+      .startSpan("openworkflow.job repository-index", {
+        kind: SpanKind.CONSUMER,
+      })
+    const db = trace
+      .getTracer("ctxpipe-backend")
+      .startSpan("SELECT users", { kind: SpanKind.CLIENT })
+    const fetchSpan = trace
+      .getTracer("ctxpipe-backend")
+      .startSpan("HTTP POST", {
+        kind: SpanKind.CLIENT,
+      })
+    const httpServer = trace
+      .getTracer("@opentelemetry/instrumentation-http")
+      .startSpan("GET", { kind: SpanKind.SERVER })
+    const auth = trace
+      .getTracer("better-auth")
+      .startSpan("GET /get-session", { kind: SpanKind.INTERNAL })
+
+    context.with(trace.setSpan(context.active(), job), () => {
+      const redis = trace
+        .getTracer("@opentelemetry/instrumentation-redis")
+        .startSpan("redis-GET", { kind: SpanKind.CLIENT })
+      redis.end()
+    })
+
+    server.end()
+    job.end()
+    db.end()
+    fetchSpan.end()
+    httpServer.end()
+    auth.end()
+
+    const finished = exporter.getFinishedSpans()
+    expect(finished.map((span) => span.name).sort()).toEqual(
+      [
+        "GET",
+        "GET /:orgSlug/api/v1/repositories",
+        "GET /get-session",
+        "HTTP POST",
+        "SELECT users",
+        "openworkflow.job repository-index",
+        "redis-GET",
+      ].sort(),
+    )
+    const redis = finished.find((span) => span.name === "redis-GET")
+    expect(redis?.parentSpanContext?.spanId).toBe(job.spanContext().spanId)
   })
 })
