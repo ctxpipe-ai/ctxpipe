@@ -499,6 +499,18 @@ resource "railway_variable_collection" "langfuse_web" {
       name  = "OTEL_TRACE_SAMPLING_RATIO"
       value = local.langfuse_web_trace_sampling_ratio
     },
+    # sdk-node 0.220 (langfuse 3.225.11) treats an unset metrics or logs
+    # exporter as otlp. That starts a PeriodicExportingMetricReader (60s)
+    # and a log batch processor aimed at the collector. Trace batches do
+    # not export an empty queue (5s timer only arms after a span ends).
+    {
+      name  = "OTEL_METRICS_EXPORTER"
+      value = "none"
+    },
+    {
+      name  = "OTEL_LOGS_EXPORTER"
+      value = "none"
+    },
   ])
 }
 
@@ -551,20 +563,17 @@ resource "railway_variable_collection" "langfuse_worker" {
       name  = "OTEL_RESOURCE_ATTRIBUTES"
       value = local.observability_resource_attributes
     },
-    # Not read by langfuse-worker (no sampler in its NodeSDK). Kept so the
-    # intended ratio is visible next to OTEL_TRACES_SAMPLER_ARG, which is
-    # what @opentelemetry/sdk-node applies.
     {
-      name  = "OTEL_TRACE_SAMPLING_RATIO"
-      value = local.langfuse_worker_trace_sampling_ratio
+      name  = "OTEL_METRICS_EXPORTER"
+      value = "none"
     },
     {
-      name  = "OTEL_TRACES_SAMPLER"
-      value = "parentbased_traceidratio"
+      name  = "OTEL_LOGS_EXPORTER"
+      value = "none"
     },
     {
-      name  = "OTEL_TRACES_SAMPLER_ARG"
-      value = local.langfuse_worker_trace_sampling_ratio
+      name  = "LANGFUSE_INGESTION_CLICKHOUSE_WRITE_INTERVAL_MS"
+      value = local.langfuse_worker_clickhouse_write_interval_ms
     },
   ])
 }

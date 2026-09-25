@@ -22,15 +22,12 @@ locals {
   observability_otlp_headers        = "authorization=${var.hyperdx_api_key}"
   observability_resource_attributes = "deployment.environment=observability,service.namespace=ctxpipe"
   # langfuse-web honors this (TraceIdRatioBasedSampler, must be > 0).
-  # langfuse-worker does not: its NodeSDK has no sampler argument (langfuse
-  # PR 3762), so the worker block sets OTEL_TRACES_SAMPLER instead.
   langfuse_web_trace_sampling_ratio = "1"
-  # ClickhouseWriter.flushAll starts a `write-to-clickhouse` span on every
-  # tick even when all queues are empty. Default interval is 1000ms, so
-  # ratio 1 is 60 root spans/minute (86,400/day) before BullMQ redis
-  # commands, which ioredis instrumentation also spans. 0.01 keeps that
-  # idle loop near 0.6 spans/minute.
-  langfuse_worker_trace_sampling_ratio = "0.01"
+  # ClickhouseWriter opens a write-to-clickhouse span on every tick, even with
+  # empty queues, inside one long-lived sampled trace, so samplers cannot thin
+  # it. Default 1000ms is 60 spans/min idle; 20000ms is 3/min. Sub-batch ingestion
+  # waits up to 20s; a full batch (1000 rows) still flushes immediately.
+  langfuse_worker_clickhouse_write_interval_ms = "20000"
 
   regions = [
     {
