@@ -6,6 +6,7 @@ import {
   createRepository,
   deriveRepositoryIndexingStatus,
   getRepository,
+  getRepositoryByGitUrl,
   listRepositories,
   type RepositoryWithSearch,
 } from "../../models/repositories.js"
@@ -264,6 +265,16 @@ export const reindexRepositoryRoute = createRoute({
   },
 })
 
+/** Drizzle wraps the pg error, so the SQLSTATE can sit on `cause`. */
+function isUniqueViolation(error: unknown): boolean {
+  const code = (e: unknown) =>
+    typeof e === "object" && e !== null && "code" in e ? e.code : undefined
+  return (
+    code(error) === "23505" ||
+    (error instanceof Error && code(error.cause) === "23505")
+  )
+}
+
 function serializeRepository(repository: RepositoryWithSearch) {
   const indexingStatus = deriveRepositoryIndexingStatus({
     indexReady: repository.indexReady,
@@ -332,6 +343,10 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
       )
       return c.json(serializeRepository(repository), 201)
     } catch (e) {
+      if (isUniqueViolation(e)) {
+        const existing = await getRepositoryByGitUrl(body.gitUrl)
+        if (existing) return c.json(serializeRepository(existing), 200)
+      }
       getLogger().error(e instanceof Error ? e : new Error(String(e)), {
         step: "repositories.create",
       })

@@ -265,6 +265,19 @@ export const getRepository = async (
   return selectRepositoryWithZoekt(db, orgId, repositoryId)
 }
 
+export const getRepositoryByGitUrl = async (
+  gitUrl: string,
+): Promise<RepositoryWithSearch | null> => {
+  const orgId = requireCurrentOrgId()
+  const db = getOrgDb()
+  const [row] = await db
+    .select({ id: repositories.id })
+    .from(repositories)
+    .where(and(eq(repositories.gitUrl, gitUrl), eq(repositories.orgId, orgId)))
+    .limit(1)
+  return row ? selectRepositoryWithZoekt(db, orgId, row.id) : null
+}
+
 /** For worker/ingestion paths: requires org DB context (`withOrgDbContext`). */
 export async function getGithubConnectionIdForRepository(input: {
   orgId: string
