@@ -73,7 +73,15 @@ export function initOtel(env: Env): void {
   sdk = new NodeSDK({
     resource,
     traceExporter,
-    instrumentations: [getNodeAutoInstrumentations()],
+    instrumentations: [
+      getNodeAutoInstrumentations({
+        // Already in the default set (not default-excluded). Explicit so
+        // event-loop, heap, and GC metrics stay on. Records into the
+        // MeterProvider only; export stays on the periodic or flush-on-demand
+        // reader, so pr-N does not gain an export timer.
+        "@opentelemetry/instrumentation-runtime-node": { enabled: true },
+      }),
+    ],
     ...(metricReaders && { metricReaders }),
   })
   sdk.start()

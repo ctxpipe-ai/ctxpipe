@@ -11,6 +11,7 @@ import { createDrainPipeline, type PipelineDrainFn } from "evlog/pipeline"
 import { getContext } from "hono/context-storage"
 import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
+import { forceFlushOtel, isRailwayPrEnvironment } from "./otel.js"
 
 /**
  * Initialize evlog. Call early in app bootstrap.
@@ -133,6 +134,9 @@ export async function withLogger<T>(
         const current = loggerStorage.getStore()
         if (current && workflowLoggerHasMilestoneContent(current)) {
           current.emit()
+        }
+        if (isRailwayPrEnvironment()) {
+          await forceFlushOtel()
         }
       }
     }),

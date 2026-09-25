@@ -1,3 +1,4 @@
+import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentations-node"
 import { describe, expect, it } from "vitest"
 import {
   isRailwayPrEnvironment,
@@ -28,6 +29,24 @@ describe("isRailwayPrEnvironment", () => {
     expect(isRailwayPrEnvironment("production")).toBe(false)
     expect(isRailwayPrEnvironment("pr-env")).toBe(false)
     expect(isRailwayPrEnvironment("")).toBe(false)
+  })
+})
+
+describe("runtime-node instrumentation", () => {
+  it("is included by default and stays enabled when asked explicitly", () => {
+    const defaults = getNodeAutoInstrumentations()
+    const explicit = getNodeAutoInstrumentations({
+      "@opentelemetry/instrumentation-runtime-node": { enabled: true },
+    })
+    const enabled = (items: ReturnType<typeof getNodeAutoInstrumentations>) =>
+      items.find(
+        (item) =>
+          item.instrumentationName ===
+          "@opentelemetry/instrumentation-runtime-node",
+      )
+    expect(enabled(defaults)?.getConfig().enabled ?? true).toBe(true)
+    expect(enabled(explicit)?.getConfig().enabled).toBe(true)
+    for (const item of [...defaults, ...explicit]) item.disable()
   })
 })
 
