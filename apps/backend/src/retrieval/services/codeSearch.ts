@@ -225,7 +225,7 @@ export async function codeSearch(
       // Codesearch's error string can echo the query. Keep it off the wide event.
       log.warn({
         step: "advisor.code_search.rejected",
-        status: rejected.status,
+        "http.response.status_code": rejected.status,
         error: "zoekt_query_rejected",
       })
       return []
