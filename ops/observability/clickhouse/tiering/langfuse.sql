@@ -6,8 +6,8 @@
 -- observations.start_time DateTime64(3), scores.timestamp DateTime64(3).
 -- None of them had a TTL. Langfuse v3 ClickHouse migrations create these
 -- with CREATE TABLE IF NOT EXISTS and do not set a TTL on them. The 7-day
--- and 30-day TTLs in upstream are on optional aggregating tables
--- (traces_7d_amt, traces_30d_amt), which this database does not have.
+-- and 30-day TTLs upstream were on aggregating tables (traces_7d_amt,
+-- traces_30d_amt) that migration 0029 dropped.
 -- A later migration that recreates one of these tables drops this rule;
 -- the rows stay hot, which is the previous behavior, and nothing is deleted.
 --

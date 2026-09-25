@@ -11,6 +11,10 @@
         <access_key_id from_env="CLICKHOUSE_COLD_ACCESS_KEY_ID"/>
         <secret_access_key from_env="CLICKHOUSE_COLD_SECRET_ACCESS_KEY"/>
         <region from_env="CLICKHOUSE_COLD_REGION"/>
+        <!-- Equal to the default, but the image entrypoint only creates and
+             chowns directories listed as path/metadata_path; without it a
+             fresh volume fails with Permission denied on disks/s3_cold. -->
+        <metadata_path>/var/lib/clickhouse/disks/s3_cold/</metadata_path>
         <!-- Fail the process if the bucket is unreachable at startup.
              skip_access_check=1 leaves the server up while tables that own
              cold parts stay failed (async_load_databases does not retry),
