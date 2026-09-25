@@ -1,7 +1,7 @@
 import { context, trace } from "@opentelemetry/api"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import type { MiddlewareHandler } from "hono"
-import { contextWithAttributionBag } from "./attribution.js"
+import { contextWithAttributionBag } from "../src/observability/attribution.js"
 
 let contextReady = false
 
@@ -9,7 +9,8 @@ function ensureAsyncContext(): void {
   if (contextReady) return
   contextReady = true
   // Registers the async-hooks context manager. Without it, context.with
-  // does not survive the first await inside Hono.
+  // does not survive the first await inside Hono. Tests call this; the
+  // module is outside `src` so production code does not import it.
   new NodeTracerProvider().register()
 }
 

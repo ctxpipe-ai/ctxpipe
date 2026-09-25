@@ -120,6 +120,48 @@ describe("backendOtelMiddleware", () => {
     expect(span?.attributes["url.path"]).toBe("/.auth/api/v1/auth/get-session")
   })
 
+  it("redacts secret path segments on the server span", async () => {
+    const app = new Hono()
+    app.use("*", backendOtelMiddleware())
+    app.all("/.auth/api/*", (c) => c.json({ ok: true }))
+    app.get("/.auth/api/v1/public/invitations/:invitationId", (c) =>
+      c.json({ ok: true }),
+    )
+
+    const token = "RVPATHPROBE1790327887NOTASECRET"
+    const invitationId = "inv_secret_capability"
+    await app.request(
+      `http://backend.test/.auth/api/v1/auth/reset-password/${token}`,
+    )
+    await app.request(
+      `http://backend.test/.auth/api/v1/public/invitations/${invitationId}`,
+    )
+
+    const spans = exporter
+      .getFinishedSpans()
+      .filter((item) => item.kind === SpanKind.SERVER)
+    const reset = spans.find((span) =>
+      String(span.attributes["url.path"]).includes("reset-password"),
+    )
+    const invitation = spans.find((span) =>
+      String(span.attributes["url.path"]).includes("invitations"),
+    )
+    expect(reset?.attributes["url.path"]).toBe(
+      "/.auth/api/v1/auth/reset-password/{token}",
+    )
+    expect(invitation?.attributes["url.path"]).toBe(
+      "/.auth/api/v1/public/invitations/{invitation}",
+    )
+    const serialized = JSON.stringify(
+      spans.map((span) => ({
+        name: span.name,
+        attributes: span.attributes,
+      })),
+    )
+    expect(serialized).not.toContain(token)
+    expect(serialized).not.toContain(invitationId)
+  })
+
   it("keeps spans for mcp and the otel proxy", async () => {
     const app = new Hono()
     app.use("*", backendOtelMiddleware())

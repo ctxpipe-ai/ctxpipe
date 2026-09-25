@@ -4,7 +4,7 @@ import type { MiddlewareHandler } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
-import { attributionRecorder } from "../../../observability/recordingSpan.js"
+import { attributionRecorder } from "../../../../test/recordingSpan.js"
 import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-github-repositories.js"
 
 const runWorkflowMock = vi.hoisted(() =>

@@ -1,6 +1,7 @@
 import { trace } from "@opentelemetry/api"
 import { ATTRIBUTION_KEYS, readAttribution } from "./attribution.js"
 import { otelDeploymentEnvironment } from "./otel.js"
+import { redactSecretPath } from "./secretPath.js"
 import { stripLogPii } from "./stripLogPii.js"
 
 export { stripLogPii }
@@ -19,6 +20,9 @@ export function applyLogContract(
   spanContext?: { traceId: string; spanId: string },
 ): void {
   stripLogPii(event)
+  if (typeof event.path === "string") {
+    event.path = redactSecretPath(event.path)
+  }
 
   if (typeof event.requestId === "string" && event["request.id"] == null) {
     event["request.id"] = event.requestId

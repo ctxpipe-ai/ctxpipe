@@ -2,9 +2,10 @@ import { createHmac } from "node:crypto"
 import { OpenAPIHono } from "@hono/zod-openapi"
 import type { MiddlewareHandler } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { attributionRecorder } from "../../../../test/recordingSpan.js"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
-import { attributionRecorder } from "../../../observability/recordingSpan.js"
+import { attachJobTelemetry } from "../../../observability/jobTelemetry.js"
 import {
   linearEntityTargetForPayload,
   registerLinearWebhookRoute,
@@ -357,6 +358,63 @@ describe("POST /api/v1/webhook/linear", () => {
       { name: "linear-sync-entity" },
       expect.objectContaining({ connectionId: "con_a", orgId: "org_1" }),
     )
+  })
+
+  it("enqueues one job per org when one workspace is connected twice", async () => {
+    const recorded = attributionRecorder()
+    mocks.listConnections.mockResolvedValueOnce([
+      {
+        id: "con_a",
+        orgId: "org_a",
+        status: "installed",
+        webhookSecret: secret,
+      },
+      {
+        id: "con_b",
+        orgId: "org_b",
+        status: "installed",
+        webhookSecret: secret,
+      },
+    ])
+    const enqueued: ReturnType<typeof attachJobTelemetry>[] = []
+    mocks.runWorkflow.mockImplementation((_spec, input) => {
+      enqueued.push(attachJobTelemetry(input as object))
+      return Promise.resolve({ workflowRun: { id: "run_1" } })
+    })
+    const request = signedRequest({
+      type: "Issue",
+      action: "update",
+      organizationId: "workspace-1",
+      webhookTimestamp: Date.now(),
+      data: { id: "issue-1" },
+    })
+    const response = await createTestApp(recorded.middleware).request(
+      "/api/v1/webhook/linear",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "linear-signature": request.signature,
+        },
+        body: request.body,
+      },
+    )
+
+    expect(response.status).toBe(200)
+    expect(enqueued).toHaveLength(2)
+    expect(enqueued[0]).toMatchObject({
+      orgId: "org_a",
+      connectionId: "con_a",
+      telemetry: { "ctxpipe.org.id": "org_a" },
+    })
+    expect(enqueued[0]?.telemetry).not.toHaveProperty("ctxpipe.org.id", "org_b")
+    expect(enqueued[1]).toMatchObject({
+      orgId: "org_b",
+      connectionId: "con_b",
+      telemetry: { "ctxpipe.org.id": "org_b" },
+    })
+    expect(recorded.attributes()["ctxpipe.org.id"]).toBeUndefined()
+    expect(recorded.attributes()["ctxpipe.connection.id"]).toBeUndefined()
   })
 
   it("does not apply an env-signed webhook to rows that have their own secret", async () => {

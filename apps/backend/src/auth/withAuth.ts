@@ -17,7 +17,10 @@ import {
   sessions,
   users,
 } from "../db/schema/auth.js"
-import { applyAttribution } from "../observability/attribution.js"
+import {
+  applyAttribution,
+  attributesForOrgApiKey,
+} from "../observability/attribution.js"
 import { getLogger } from "../observability/logger.js"
 import { tryGetLogger } from "../observability/requestLogger.js"
 import { type AuthSession, type AuthUser, getAuth } from "./config.js"
@@ -290,14 +293,7 @@ function applyPrincipalAttribution(c: Context<AppEnv>): void {
   const oauthClientId = c.get("oauthClientId")
   const personalApiKeyId = c.get("personalApiKeyId")
   if (orgApiKey) {
-    applyAttribution(
-      {
-        "ctxpipe.actor.type": "org_api_key",
-        "ctxpipe.api_key.id": orgApiKey.id,
-        "ctxpipe.org.id": orgApiKey.orgId,
-      },
-      logger,
-    )
+    applyAttribution(attributesForOrgApiKey(orgApiKey), logger)
     return
   }
   if (!userId && !oauthClientId) return
@@ -808,24 +804,23 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
   const orgApiKeyPrincipal = c.get("orgApiKey")
   const oauthClientId = c.get("oauthClientId")
   const personalApiKeyId = c.get("personalApiKeyId")
-  const actorType = orgApiKeyPrincipal
-    ? "org_api_key"
-    : oauthClientId || oauthOrganizationId
-      ? "oauth_client"
-      : "user"
+  const actorType =
+    oauthClientId || oauthOrganizationId ? "oauth_client" : "user"
   applyAttribution(
-    {
-      "ctxpipe.actor.type": actorType,
-      "ctxpipe.org.id": resolved.id,
-      "ctxpipe.org.slug": resolved.slug,
-      ...(actorType === "org_api_key" ? {} : { "enduser.id": userId }),
-      ...(orgApiKeyPrincipal
-        ? { "ctxpipe.api_key.id": orgApiKeyPrincipal.id }
-        : personalApiKeyId
-          ? { "ctxpipe.api_key.id": personalApiKeyId }
-          : {}),
-      ...(oauthClientId ? { "ctxpipe.oauth.client_id": oauthClientId } : {}),
-    },
+    orgApiKeyPrincipal
+      ? attributesForOrgApiKey(orgApiKeyPrincipal, resolved.slug)
+      : {
+          "ctxpipe.actor.type": actorType,
+          "ctxpipe.org.id": resolved.id,
+          "ctxpipe.org.slug": resolved.slug,
+          ...(userId ? { "enduser.id": userId } : {}),
+          ...(personalApiKeyId
+            ? { "ctxpipe.api_key.id": personalApiKeyId }
+            : {}),
+          ...(oauthClientId
+            ? { "ctxpipe.oauth.client_id": oauthClientId }
+            : {}),
+        },
     tryGetLogger(),
   )
   return withOrgIdContext(

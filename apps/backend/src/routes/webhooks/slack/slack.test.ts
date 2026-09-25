@@ -2,7 +2,7 @@ import type { MiddlewareHandler } from "hono"
 import { Hono } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
-import { attributionRecorder } from "../../../observability/recordingSpan.js"
+import { attributionRecorder } from "../../../../test/recordingSpan.js"
 
 const getConnectionMock = vi.hoisted(() => vi.fn())
 const getTargetMock = vi.hoisted(() => vi.fn())

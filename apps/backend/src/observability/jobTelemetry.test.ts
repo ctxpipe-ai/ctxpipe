@@ -107,7 +107,9 @@ describe("job telemetry", () => {
         connectionId: "con_second",
         orgId: "org_other",
       })
-      expect(first.telemetry?.["ctxpipe.org.id"]).toBe("org_caller")
+      expect(first.telemetry?.["ctxpipe.org.id"]).toBe("org_job")
+      expect(first.telemetry?.["ctxpipe.org.slug"]).toBeUndefined()
+      expect(second.telemetry?.["ctxpipe.org.id"]).toBe("org_other")
       expect(second.telemetry).not.toHaveProperty("ctxpipe.repository.id")
     })
     parent.end()
@@ -137,5 +139,68 @@ describe("job telemetry", () => {
       "ctxpipe.org.id": "org_bg",
       "ctxpipe.connection.id": "con_bg",
     })
+  })
+
+  it("lets each job's org and connection override a shared request bag", async () => {
+    const tracer = trace.getTracer("test")
+    const parent = tracer.startSpan("webhook")
+    const parentContext = trace.setSpan(context.active(), parent)
+    const { context: withBag } = contextWithAttributionBag(parentContext)
+    await context.with(withBag, async () => {
+      applyAttribution({
+        "request.id": "req_wh",
+        "ctxpipe.actor.type": "webhook",
+        "ctxpipe.org.id": "org_last",
+        "ctxpipe.org.slug": "last-org",
+        "ctxpipe.connection.id": "con_last",
+      })
+      const first = attachJobTelemetry({
+        orgId: "org_a",
+        connectionId: "con_a",
+      })
+      const second = attachJobTelemetry({
+        orgId: "org_b",
+        orgSlug: "org-b",
+        connectionId: "con_b",
+      })
+      expect(first.telemetry).toMatchObject({
+        "request.id": "req_wh",
+        "ctxpipe.org.id": "org_a",
+      })
+      expect(first.telemetry).not.toHaveProperty("ctxpipe.org.slug")
+      expect(second.telemetry).toMatchObject({
+        "ctxpipe.org.id": "org_b",
+        "ctxpipe.org.slug": "org-b",
+      })
+      await restoreJobTelemetry(first.telemetry, async () => undefined, {
+        orgId: "org_a",
+        connectionId: "con_a",
+      })
+      await restoreJobTelemetry(second.telemetry, async () => undefined, {
+        orgId: "org_b",
+        orgSlug: "org-b",
+        connectionId: "con_b",
+      })
+    })
+    parent.end()
+
+    const jobs = exporter
+      .getFinishedSpans()
+      .filter((span) => span.name === "openworkflow.job")
+    expect(jobs.map((span) => span.attributes["ctxpipe.org.id"])).toEqual([
+      "org_a",
+      "org_b",
+    ])
+    expect(
+      jobs.map((span) => span.attributes["ctxpipe.connection.id"]),
+    ).toEqual(["con_a", "con_b"])
+    expect(jobs[0]?.attributes["ctxpipe.org.slug"]).toBeUndefined()
+    expect(jobs[1]?.attributes["ctxpipe.org.slug"]).toBe("org-b")
+    expect(jobs[0]?.attributes["ctxpipe.actor.type"]).toBe("job")
+    const webhook = exporter
+      .getFinishedSpans()
+      .find((span) => span.name === "webhook")
+    expect(webhook?.attributes["ctxpipe.org.id"]).toBe("org_last")
+    expect(webhook?.attributes["ctxpipe.connection.id"]).toBe("con_last")
   })
 })

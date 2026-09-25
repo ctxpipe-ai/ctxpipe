@@ -35,6 +35,7 @@ import {
   omitUnimplementedHeapSpaceCollector,
   reportTelemetrySetupError,
 } from "./runtimeMetrics.js"
+import { redactSecretPath } from "./secretPath.js"
 
 let tracerProvider: NodeTracerProvider | undefined
 let meterProvider: MeterProvider | undefined
@@ -279,7 +280,7 @@ export function codesearchOtelMiddleware(): MiddlewareHandler {
         kind: SpanKind.SERVER,
         attributes: {
           "http.request.method": c.req.method,
-          "url.path": c.req.path,
+          "url.path": redactSecretPath(c.req.path),
           ...attributesFromBaggage(parent),
         },
       },
@@ -348,7 +349,7 @@ export function installOutgoingFetchInstrumentation(): void {
       kind: SpanKind.CLIENT,
       attributes: {
         "http.request.method": method,
-        "url.full": url,
+        ...sanitizedClientUrlAttributes(url),
         ...attributesFromBaggage(context.active()),
       },
     })
@@ -378,6 +379,20 @@ export function installOutgoingFetchInstrumentation(): void {
       }
     })
   }) as typeof fetch
+}
+
+function sanitizedClientUrlAttributes(raw: string): Record<string, string> {
+  try {
+    const parsed = new URL(raw)
+    const path = redactSecretPath(parsed.pathname || "/")
+    return {
+      "url.path": path,
+      "url.full": `${parsed.protocol}//${parsed.host}${path}`,
+    }
+  } catch {
+    const path = redactSecretPath(raw.split("#")[0]?.split("?")[0] ?? raw)
+    return { "url.path": path, "url.full": path }
+  }
 }
 
 function requestUrl(input: RequestInfo | URL): string {

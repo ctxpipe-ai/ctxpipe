@@ -1,6 +1,8 @@
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { ChatOpenAI } from "@langchain/openai"
+import { propagateAttributes } from "@langfuse/tracing"
+import { context, trace } from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
@@ -8,10 +10,14 @@ import {
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { genAiProviderName, installChatOpenAiGenAiSpans } from "./genAiChat.js"
+import { LangfuseContextSpanProcessor } from "./langfuseContextProcessor.js"
 
 const exporter = new InMemorySpanExporter()
 const provider = new NodeTracerProvider({
-  spanProcessors: [new SimpleSpanProcessor(exporter)],
+  spanProcessors: [
+    new LangfuseContextSpanProcessor(),
+    new SimpleSpanProcessor(exporter),
+  ],
 })
 
 beforeAll(() => {
@@ -77,13 +83,26 @@ describe("ChatOpenAI gen_ai spans", () => {
         streaming: false,
         configuration: { baseURL: `http://127.0.0.1:${port}/v1` },
       })
-      await chat.invoke("hi")
-      await new Promise((resolve) => setTimeout(resolve, 30))
-      const span = exporter
-        .getFinishedSpans()
-        .find((item) =>
-          Object.keys(item.attributes).some((key) => key.startsWith("gen_ai")),
+      const parent = trace.getTracer("test").startSpan("caller")
+      await context.with(trace.setSpan(context.active(), parent), async () => {
+        await propagateAttributes(
+          {
+            userId: "user_1",
+            sessionId: "thr_1",
+            tags: ["mcp"],
+            metadata: { orgId: "org_1" },
+          },
+          () => chat.invoke("SECRET_PROMPT_DO_NOT_RECORD"),
         )
+      })
+      parent.end()
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      const genAiSpans = exporter
+        .getFinishedSpans()
+        .filter((item) => item.instrumentationScope.name === "ctxpipe-genai")
+      expect(genAiSpans).toHaveLength(1)
+      const span = genAiSpans[0]
+      expect(span?.parentSpanContext?.spanId).toBe(parent.spanContext().spanId)
       expect(span?.instrumentationScope.name).toBe("ctxpipe-genai")
       expect(span?.attributes).toMatchObject({
         "gen_ai.system": "openrouter",
@@ -93,7 +112,19 @@ describe("ChatOpenAI gen_ai spans", () => {
         "gen_ai.response.model": "gpt-test",
         "gen_ai.usage.input_tokens": 3,
         "gen_ai.usage.output_tokens": 2,
+        "gen_ai.response.finish_reason": "stop",
+        "user.id": "user_1",
+        "langfuse.user.id": "user_1",
+        "session.id": "thr_1",
+        "langfuse.session.id": "thr_1",
       })
+      expect(span?.attributes["langfuse.trace.tags"]).toEqual(
+        expect.arrayContaining(["mcp"]),
+      )
+      expect(span?.attributes["langfuse.trace.metadata.orgId"]).toBe("org_1")
+      expect(JSON.stringify(span?.attributes)).not.toContain(
+        "SECRET_PROMPT_DO_NOT_RECORD",
+      )
     } finally {
       if (previous === undefined) delete process.env.MODEL_PROVIDER
       else process.env.MODEL_PROVIDER = previous

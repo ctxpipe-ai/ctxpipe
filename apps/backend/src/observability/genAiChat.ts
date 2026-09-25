@@ -1,3 +1,7 @@
+import { BaseCallbackHandler } from "@langchain/core/callbacks/base"
+import { CallbackManager } from "@langchain/core/callbacks/manager"
+import type { LLMResult } from "@langchain/core/outputs"
+import { IterableReadableStream } from "@langchain/core/utils/stream"
 import { ChatOpenAI } from "@langchain/openai"
 import {
   context,
@@ -18,11 +22,14 @@ type Usage = {
 
 type GenMessage = {
   usage_metadata?: Usage
-  response_metadata?: { model_name?: string }
+  response_metadata?: { model_name?: string; finish_reason?: string }
 }
 
 type ChatResult = {
-  generations?: { message?: GenMessage }[]
+  generations?: {
+    message?: GenMessage
+    generationInfo?: { finish_reason?: string }
+  }[][]
   llmOutput?: {
     tokenUsage?: { promptTokens?: number; completionTokens?: number }
     estimatedTokenUsage?: { promptTokens?: number; completionTokens?: number }
@@ -31,16 +38,15 @@ type ChatResult = {
 
 type ChatInstance = {
   model?: string
-  _generate: (
-    messages: unknown,
-    options: unknown,
-    runManager?: unknown,
-  ) => Promise<ChatResult>
-  _streamResponseChunks: (
-    messages: unknown,
-    options: unknown,
-    runManager?: unknown,
-  ) => AsyncGenerator<{ message?: GenMessage }>
+  invoke: (input: unknown, options?: CallbackOptions) => Promise<unknown>
+  stream: (
+    input: unknown,
+    options?: CallbackOptions,
+  ) => Promise<AsyncIterable<unknown>>
+}
+
+type CallbackOptions = {
+  callbacks?: unknown
 }
 
 const patched = Symbol.for("ctxpipe.genAiChat")
@@ -81,17 +87,21 @@ function startChatSpan(model: string): Span {
   })
 }
 
-function recordResponse(
-  span: Span,
-  message: GenMessage | undefined,
-  result?: ChatResult,
-): void {
+function recordResponse(span: Span, result?: ChatResult): void {
+  const generation = result?.generations?.[0]?.[0]
+  const message = generation?.message
   const modelName = message?.response_metadata?.model_name
   if (typeof modelName === "string" && modelName.length > 0) {
     span.setAttribute(
       "gen_ai.response.model",
       collapseRepeatedModelName(modelName),
     )
+  }
+  const finishReason =
+    generation?.generationInfo?.finish_reason ??
+    message?.response_metadata?.finish_reason
+  if (typeof finishReason === "string" && finishReason.length > 0) {
+    span.setAttribute("gen_ai.response.finish_reason", finishReason)
   }
   const tokenUsage =
     result?.llmOutput?.tokenUsage ?? result?.llmOutput?.estimatedTokenUsage
@@ -115,10 +125,75 @@ function failSpan(span: Span, error: unknown): void {
 }
 
 /**
+ * Records usage and finish reason. Does not copy prompts or completions onto
+ * the span. Langfuse user, session, tags, and metadata arrive from the active
+ * context via `LangfuseContextSpanProcessor` when the span starts.
+ */
+class GenAiChatCallback extends BaseCallbackHandler {
+  name = "ctxpipe-genai"
+
+  constructor(private readonly span: Span) {
+    super()
+  }
+
+  handleLLMEnd(output: LLMResult): void {
+    recordResponse(this.span, output as ChatResult)
+  }
+}
+
+function withGenAiCallback(
+  options: CallbackOptions | undefined,
+  handler: GenAiChatCallback,
+): CallbackOptions {
+  const callbacks = options?.callbacks
+  if (
+    callbacks instanceof CallbackManager ||
+    (callbacks &&
+      typeof callbacks === "object" &&
+      "copy" in callbacks &&
+      typeof callbacks.copy === "function")
+  ) {
+    return {
+      ...options,
+      callbacks: (
+        callbacks as { copy: (handlers: BaseCallbackHandler[]) => unknown }
+      ).copy([handler]),
+    }
+  }
+  const list = Array.isArray(callbacks)
+    ? callbacks
+    : callbacks
+      ? [callbacks]
+      : []
+  return { ...options, callbacks: [...list, handler] }
+}
+
+async function* iterateUnderSpan(
+  source: AsyncIterable<unknown>,
+  span: Span,
+): AsyncGenerator<unknown> {
+  const ctx = trace.setSpan(context.active(), span)
+  const iterator = source[Symbol.asyncIterator]()
+  try {
+    for (;;) {
+      const step = await context.with(ctx, () => iterator.next())
+      if (step.done) return
+      yield step.value
+    }
+  } catch (error) {
+    failSpan(span, error)
+    throw error
+  } finally {
+    span.end()
+  }
+}
+
+/**
  * `@opentelemetry/instrumentation-openai` patches `require("openai")`.
  * Bun ESM `import` of the client inside `@langchain/openai` is a different
- * instance, so ChatOpenAI calls never became gen_ai spans. Wrap the class
- * LangChain actually invokes.
+ * instance, so ChatOpenAI calls never became gen_ai spans. Install a public
+ * callback on the Runnable `invoke` and `stream` entry points instead of
+ * patching private `_generate` / `_streamResponseChunks`.
  */
 export function installChatOpenAiGenAiSpans(): void {
   const proto = ChatOpenAI.prototype as unknown as ChatInstance & {
@@ -127,16 +202,14 @@ export function installChatOpenAiGenAiSpans(): void {
   if (proto[patched]) return
   proto[patched] = true
 
-  const originalGenerate = proto._generate
-  proto._generate = async function generate(messages, options, runManager) {
+  const originalInvoke = proto.invoke
+  proto.invoke = async function invoke(input, options) {
     const span = startChatSpan(requestModel(this))
+    const handler = new GenAiChatCallback(span)
     try {
-      const result = await context.with(
-        trace.setSpan(context.active(), span),
-        () => originalGenerate.call(this, messages, options, runManager),
+      return await context.with(trace.setSpan(context.active(), span), () =>
+        originalInvoke.call(this, input, withGenAiCallback(options, handler)),
       )
-      recordResponse(span, result.generations?.[0]?.message, result)
-      return result
     } catch (error) {
       failSpan(span, error)
       throw error
@@ -145,30 +218,23 @@ export function installChatOpenAiGenAiSpans(): void {
     }
   }
 
-  const originalStream = proto._streamResponseChunks
-  proto._streamResponseChunks = async function* stream(
-    messages,
-    options,
-    runManager,
-  ) {
+  const originalStream = proto.stream
+  proto.stream = async function stream(input, options) {
     const span = startChatSpan(requestModel(this))
+    const handler = new GenAiChatCallback(span)
     try {
-      let last: GenMessage | undefined
-      for await (const chunk of originalStream.call(
+      const iterable = await originalStream.call(
         this,
-        messages,
-        options,
-        runManager,
-      )) {
-        if (chunk.message) last = chunk.message
-        yield chunk
-      }
-      recordResponse(span, last)
+        input,
+        withGenAiCallback(options, handler),
+      )
+      return IterableReadableStream.fromAsyncGenerator(
+        iterateUnderSpan(iterable, span),
+      )
     } catch (error) {
       failSpan(span, error)
-      throw error
-    } finally {
       span.end()
+      throw error
     }
   }
 }

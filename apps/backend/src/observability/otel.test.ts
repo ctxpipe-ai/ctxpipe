@@ -103,6 +103,23 @@ describe("outgoing fetch spans", () => {
         ),
       ),
     ).not.toContain("SECRET")
+    const token = "RVPATHPROBE1790327887NOTASECRET"
+    const invitationId = "inv_secret_capability"
+    const reset = sanitizedClientUrlAttributes(
+      `https://user:pass@example.com/.auth/api/v1/auth/reset-password/${token}?callbackURL=https://app.example/reset`,
+    )
+    const invitation = sanitizedClientUrlAttributes(
+      `https://example.com/.auth/api/v1/public/invitations/${invitationId}`,
+    )
+    expect(reset["url.path"]).toBe("/.auth/api/v1/auth/reset-password/{token}")
+    expect(reset["url.full"]).toBe(
+      "https://example.com/.auth/api/v1/auth/reset-password/{token}",
+    )
+    expect(invitation["url.path"]).toBe(
+      "/.auth/api/v1/public/invitations/{invitation}",
+    )
+    expect(JSON.stringify({ reset, invitation })).not.toContain(token)
+    expect(JSON.stringify({ reset, invitation })).not.toContain(invitationId)
   })
 
   it("does not create a root client span", async () => {

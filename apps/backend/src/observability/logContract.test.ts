@@ -115,4 +115,48 @@ describe("log contract", () => {
     expect(JSON.stringify(events[0])).not.toContain("ada@example.com")
     expect(JSON.stringify(events[0])).not.toContain("203.0.113.4")
   })
+
+  it("redacts secret segments in the request log path", async () => {
+    initLogger({
+      env: { service: "ctxpipe-backend", environment: "test" },
+      pretty: false,
+    })
+    const events: Record<string, unknown>[] = []
+    const app = new Hono<AppEnv>()
+    app.use(
+      evlog({
+        enrich: (ctx) => {
+          applyLogContract(ctx.event as Record<string, unknown>)
+        },
+        drain: async (ctx) => {
+          const batch = Array.isArray(ctx) ? ctx : [ctx]
+          for (const item of batch) {
+            events.push(item.event as Record<string, unknown>)
+          }
+        },
+      }),
+    )
+    app.get("/.auth/api/v1/auth/reset-password/:token", (c) =>
+      c.json({ ok: true }),
+    )
+    app.get("/.auth/api/v1/public/invitations/:invitationId", (c) =>
+      c.json({ ok: true }),
+    )
+
+    const token = "RVPATHPROBE1790327887NOTASECRET"
+    const invitationId = "inv_secret_capability"
+    await app.request(
+      `http://backend.test/.auth/api/v1/auth/reset-password/${token}`,
+    )
+    await app.request(
+      `http://backend.test/.auth/api/v1/public/invitations/${invitationId}`,
+    )
+
+    expect(events.map((event) => event.path)).toEqual([
+      "/.auth/api/v1/auth/reset-password/{token}",
+      "/.auth/api/v1/public/invitations/{invitation}",
+    ])
+    expect(JSON.stringify(events)).not.toContain(token)
+    expect(JSON.stringify(events)).not.toContain(invitationId)
+  })
 })

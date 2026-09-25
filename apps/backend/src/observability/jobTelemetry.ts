@@ -71,7 +71,6 @@ export function attributionPatchFromJobInput(
 ): Partial<Record<AttributionKey, string>> {
   if (!input || typeof input !== "object") return {}
   const record = input as Record<string, unknown>
-  const current = readAttribution()
   const patch: Partial<Record<AttributionKey, string>> = {}
   const orgId = stringField(record, "orgId")
   const orgSlug = stringField(record, "orgSlug")
@@ -79,15 +78,10 @@ export function attributionPatchFromJobInput(
     stringField(record, "connectionId") ??
     stringField(record, "githubConnectionId")
   const repositoryId = stringField(record, "repositoryId")
-  if (!current["ctxpipe.org.id"] && orgId) patch["ctxpipe.org.id"] = orgId
-  if (!current["ctxpipe.org.slug"] && orgSlug)
-    patch["ctxpipe.org.slug"] = orgSlug
-  if (!current["ctxpipe.connection.id"] && connectionId) {
-    patch["ctxpipe.connection.id"] = connectionId
-  }
-  if (!current["ctxpipe.repository.id"] && repositoryId) {
-    patch["ctxpipe.repository.id"] = repositoryId
-  }
+  if (orgId) patch["ctxpipe.org.id"] = orgId
+  if (orgSlug) patch["ctxpipe.org.slug"] = orgSlug
+  if (connectionId) patch["ctxpipe.connection.id"] = connectionId
+  if (repositoryId) patch["ctxpipe.repository.id"] = repositoryId
   return patch
 }
 
@@ -100,9 +94,11 @@ export function attachJobTelemetry<T extends object>(
   const telemetry: JobTelemetry = { ...(captureJobTelemetry() ?? {}) }
   const orgId = stringField(record, "orgId")
   const orgSlug = stringField(record, "orgSlug")
-  if (!telemetry["ctxpipe.org.id"] && orgId) telemetry["ctxpipe.org.id"] = orgId
-  if (!telemetry["ctxpipe.org.slug"] && orgSlug) {
-    telemetry["ctxpipe.org.slug"] = orgSlug
+  const capturedOrg = telemetry["ctxpipe.org.id"]
+  if (orgId) telemetry["ctxpipe.org.id"] = orgId
+  if (orgSlug) telemetry["ctxpipe.org.slug"] = orgSlug
+  else if (orgId && capturedOrg && orgId !== capturedOrg) {
+    delete telemetry["ctxpipe.org.slug"]
   }
   if (Object.keys(telemetry).length === 0) return input
   return { ...record, telemetry } as T & { telemetry: JobTelemetry }
@@ -135,6 +131,14 @@ export async function restoreJobTelemetry<T>(
     if (typeof value === "string") bagPatch[key] = value
   }
   bagPatch["ctxpipe.actor.type"] = "job"
+  const inputPatch = attributionPatchFromJobInput(input)
+  if (
+    inputPatch["ctxpipe.org.id"] &&
+    inputPatch["ctxpipe.org.id"] !== bagPatch["ctxpipe.org.id"] &&
+    !inputPatch["ctxpipe.org.slug"]
+  ) {
+    delete bagPatch["ctxpipe.org.slug"]
+  }
 
   const tracer = trace.getTracer("ctxpipe-backend")
   const span = tracer.startSpan(
@@ -148,7 +152,7 @@ export async function restoreJobTelemetry<T>(
   const spanContext = trace.setSpan(withBag, span)
   return context.with(spanContext, async () => {
     applyAttribution(bagPatch)
-    applyAttribution(attributionPatchFromJobInput(input))
+    applyAttribution(inputPatch)
     try {
       return await fn()
     } finally {

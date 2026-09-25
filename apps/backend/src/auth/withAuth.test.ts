@@ -57,7 +57,7 @@ vi.mock("../observability/logger.js", () => ({
   }),
 }))
 
-import { attributionRecorder } from "../observability/recordingSpan.js"
+import { attributionRecorder } from "../../test/recordingSpan.js"
 import { OAUTH_ORGANIZATION_CLAIM } from "./oauth-organization.js"
 import {
   mcpOAuthProtectedResourceMetadataUrl,

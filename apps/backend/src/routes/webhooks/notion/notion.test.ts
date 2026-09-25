@@ -2,10 +2,11 @@ import { createHmac } from "node:crypto"
 import type { MiddlewareHandler } from "hono"
 import { Hono } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { attributionRecorder } from "../../../../test/recordingSpan.js"
 import type { AppEnv } from "../../../app/env.js"
 import { parseNotionConnectionConfig } from "../../../lib/connection-config.js"
 import { encryptConnectionSecret } from "../../../lib/connection-secrets.js"
-import { attributionRecorder } from "../../../observability/recordingSpan.js"
+import { attachJobTelemetry } from "../../../observability/jobTelemetry.js"
 
 const connectionsMock = vi.hoisted(() => vi.fn())
 const getRowMock = vi.hoisted(() => vi.fn())
@@ -480,6 +481,48 @@ describe("Notion webhook", () => {
       "ctxpipe.org.id": "org_1",
       "ctxpipe.connection.id": "con_1",
     })
+  })
+
+  it("enqueues one job per org when one integration is connected twice", async () => {
+    connectionsMock.mockResolvedValue([
+      candidate({ id: "con_a", orgId: "org_a" }),
+      candidate({ id: "con_b", orgId: "org_b", repositoryId: "repo_2" }),
+    ])
+    const recorded = attributionRecorder()
+    const enqueued: ReturnType<typeof attachJobTelemetry>[] = []
+    runWorkflowMock.mockImplementation((_spec, input) => {
+      enqueued.push(attachJobTelemetry(input as object))
+      return Promise.resolve(undefined)
+    })
+    const body = JSON.stringify({
+      id: "event_two_orgs",
+      workspace_id: "workspace_1",
+      type: "page.content_updated",
+      entity: { id: "page_1", type: "page" },
+    })
+    const response = await testApp({
+      webhookSecret,
+      before: recorded.middleware,
+    }).request("/api/v1/webhook/notion", {
+      method: "POST",
+      headers: { "x-notion-signature": sign(body, webhookSecret) },
+      body,
+    })
+
+    expect(response.status).toBe(200)
+    expect(enqueued).toHaveLength(2)
+    expect(enqueued[0]).toMatchObject({
+      orgId: "org_a",
+      connectionId: "con_a",
+      telemetry: { "ctxpipe.org.id": "org_a" },
+    })
+    expect(enqueued[1]).toMatchObject({
+      orgId: "org_b",
+      connectionId: "con_b",
+      telemetry: { "ctxpipe.org.id": "org_b" },
+    })
+    expect(recorded.attributes()["ctxpipe.org.id"]).toBeUndefined()
+    expect(recorded.attributes()["ctxpipe.connection.id"]).toBeUndefined()
   })
 
   it("no longer exposes the legacy per-connection route", async () => {

@@ -23,6 +23,7 @@ import {
   omitUnimplementedHeapSpaceCollector,
   reportTelemetrySetupError,
 } from "./runtimeMetrics.js"
+import { redactSecretPath } from "./secretPath.js"
 
 let sdk: NodeSDK | undefined
 let started = false
@@ -120,6 +121,7 @@ export function initOtel(env: Env): void {
       {
         onStart(span, parentContext) {
           copyAttributionToSpan(span, parentContext)
+          redactSpanUrlAttributes(span)
         },
         onEnd() {},
         shutdown() {
@@ -228,13 +230,27 @@ export async function tracedOutgoingFetch(
   })
 }
 
+function redactSpanUrlAttributes(span: {
+  setAttribute(key: string, value: string): void
+}): void {
+  const attributes = (span as { attributes?: Record<string, unknown> })
+    .attributes
+  if (!attributes) return
+  for (const key of ["url.path", "url.full", "http.target", "http.url"]) {
+    const value = attributes[key]
+    if (typeof value !== "string") continue
+    const redacted = redactSecretPath(value)
+    if (redacted !== value) span.setAttribute(key, redacted)
+  }
+}
+
 /** scheme, host, and path. Query, fragment, and userinfo are omitted. */
 export function sanitizedClientUrlAttributes(
   raw: string,
 ): Record<string, string> {
   try {
     const parsed = new URL(raw)
-    const path = parsed.pathname || "/"
+    const path = redactSecretPath(parsed.pathname || "/")
     const scheme = parsed.protocol.replace(/:$/, "")
     return {
       "url.scheme": scheme,
@@ -243,7 +259,7 @@ export function sanitizedClientUrlAttributes(
       "url.full": `${parsed.protocol}//${parsed.host}${path}`,
     }
   } catch {
-    const path = raw.split("#")[0]?.split("?")[0] ?? raw
+    const path = redactSecretPath(raw.split("#")[0]?.split("?")[0] ?? raw)
     return { "url.path": path }
   }
 }

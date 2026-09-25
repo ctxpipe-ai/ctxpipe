@@ -18,6 +18,7 @@ import {
   isRailwayPrEnvironment,
   otelDeploymentEnvironment,
 } from "./otel.js"
+import { redactSecretPath } from "./secretPath.js"
 
 /**
  * Initialize evlog. Call early in app bootstrap.
@@ -115,6 +116,9 @@ export function applyCodesearchLogContract(
   event: Record<string, unknown>,
 ): void {
   stripLogPii(event)
+  if (typeof event.path === "string") {
+    event.path = redactSecretPath(event.path)
+  }
 
   if (typeof event.requestId === "string" && event["request.id"] == null) {
     event["request.id"] = event.requestId

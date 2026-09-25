@@ -155,5 +155,23 @@ describe("outgoing fetch", () => {
       .getFinishedSpans()
       .find((item) => item.name === "HTTP GET")
     expect(client?.spanContext().traceId).toBe(parent.spanContext().traceId)
+    const token = "RVPATHPROBE1790327887NOTASECRET"
+    await context.with(trace.setSpan(context.active(), parent), async () => {
+      const res = await fetch(
+        `http://127.0.0.1:${downstreamPort}/reset-password/${token}?token=${token}`,
+      )
+      expect(res.status).toBe(200)
+    })
+    const secretSpan = exporter
+      .getFinishedSpans()
+      .find(
+        (item) =>
+          String(item.attributes["url.full"] ?? "").includes(
+            "reset-password",
+          ) ||
+          String(item.attributes["url.path"] ?? "").includes("reset-password"),
+      )
+    expect(JSON.stringify(secretSpan?.attributes)).not.toContain(token)
+    expect(secretSpan?.attributes["url.path"]).toBe(`/reset-password/{token}`)
   })
 })

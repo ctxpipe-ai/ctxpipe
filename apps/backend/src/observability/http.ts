@@ -14,6 +14,7 @@ import {
   stripUntrustedAttributionBaggage,
 } from "./attribution.js"
 import { logFieldsFromActiveSpan } from "./logContract.js"
+import { redactSecretPath } from "./secretPath.js"
 
 const TRACER_NAME = "ctxpipe-backend"
 
@@ -67,6 +68,9 @@ export function backendOtelMiddleware(): MiddlewareHandler {
       propagation.extract(context.active(), carrier),
     )
 
+    const safePath = redactSecretPath(c.req.path)
+    requestLogger(c)?.set({ path: safePath })
+
     if (isUiProxyPath(c.req.path)) {
       const { context: withBag } = contextWithAttributionBag(parent)
       await context.with(withBag, async () => {
@@ -80,12 +84,12 @@ export function backendOtelMiddleware(): MiddlewareHandler {
     const tracer = trace.getTracer(TRACER_NAME)
     const userAgent = c.req.header("user-agent")
     const span = tracer.startSpan(
-      `${c.req.method} ${c.req.path}`,
+      `${c.req.method} ${safePath}`,
       {
         kind: SpanKind.SERVER,
         attributes: {
           "http.request.method": c.req.method,
-          "url.path": c.req.path,
+          "url.path": safePath,
           "request.id": requestId.id,
           ...(userAgent ? { "user_agent.original": userAgent } : {}),
         },

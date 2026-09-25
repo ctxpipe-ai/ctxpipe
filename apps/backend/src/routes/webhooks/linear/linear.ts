@@ -10,7 +10,7 @@ import {
   recordLinearOAuthRevocation,
 } from "../../../models/linear-connector.js"
 import { getLogger } from "../../../observability/logger.js"
-import { noteResolvedWebhookConnection } from "../../../observability/webhookAttribution.js"
+import { noteResolvedWebhookConnections } from "../../../observability/webhookAttribution.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { linearSyncEntity } from "../../../openworkflow/workflows/linear-sync-entity.js"
 
@@ -231,12 +231,12 @@ async function processVerifiedLinearWebhook(input: {
   payload: Record<string, unknown>
   connections: LinearWebhookConnection[]
 }): Promise<void> {
-  for (const connection of input.connections) {
-    noteResolvedWebhookConnection({
+  noteResolvedWebhookConnections(
+    input.connections.map((connection) => ({
       orgId: connection.orgId,
       connectionId: connection.id,
-    })
-  }
+    })),
+  )
   if (
     stringField(input.payload, "type") === "OAuthApp" &&
     stringField(input.payload, "action") === "revoked"

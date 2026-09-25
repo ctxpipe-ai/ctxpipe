@@ -4,7 +4,7 @@ import { contextStorage } from "hono/context-storage"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
-import { attributionRecorder } from "../../../observability/recordingSpan.js"
+import { attributionRecorder } from "../../../../test/recordingSpan.js"
 
 const jwtVerifyMock = vi.hoisted(() => vi.fn())
 const createRemoteJwkSetMock = vi.hoisted(() => vi.fn())
