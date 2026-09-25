@@ -215,9 +215,8 @@ describe("log contract", () => {
     )
     const token = "RVPATHPROBELIVE1790331095NOTASECRET"
     app.get("/.auth/api/v1/auth/reset-password/:token", (c) => {
-      c.get("log").warn({
+      c.get("log").warn("Better Auth endpoint returned an error response", {
         step: "oauth.endpoint_error",
-        message: "Better Auth endpoint returned an error response",
         path: c.req.path,
       })
       return c.json({ ok: false }, 400)

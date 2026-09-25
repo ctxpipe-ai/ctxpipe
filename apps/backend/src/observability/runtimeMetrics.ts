@@ -1,5 +1,7 @@
 import * as v8 from "node:v8"
 import type { Meter } from "@opentelemetry/api"
+// logger.ts imports otel.ts, which imports this module. Importing the logger
+// here would cycle. evlog is the same logger the logger module re-exports.
 import { log } from "evlog"
 
 const reportedSetupErrors = new Set<string>()
@@ -19,6 +21,16 @@ export function reportTelemetrySetupError(error: unknown): void {
   reportedSetupErrors.add(key)
   log.warn({
     step: "otel.setup",
+    message,
+    error: name,
+  })
+}
+
+export function reportTelemetryFlushError(error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error)
+  const name = error instanceof Error ? error.name : "Error"
+  log.error({
+    step: "otel.force_flush",
     message,
     error: name,
   })

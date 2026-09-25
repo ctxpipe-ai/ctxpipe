@@ -245,7 +245,7 @@ describe("ChatOpenAI callback preservation", () => {
         })
         await AsyncLocalStorageProviderSingleton.runWithConfig(
           { callbacks: [recorder] },
-          () => chat.invoke("hi", { maxTokens: 16 }),
+          () => chat.invoke("hi", { seed: 1 }),
         )
       },
     )
@@ -261,9 +261,10 @@ describe("ChatOpenAI callback preservation", () => {
 
   it("records one span and one caller callback for a streamed completion", async () => {
     const recorder = new RecordingCallback()
+    let requestBody = ""
     await withChatServer(
       async (req, res) => {
-        await readBody(req)
+        requestBody = await readBody(req)
         res.writeHead(200, { "content-type": "text/event-stream" })
         res.end(
           sse([
@@ -307,8 +308,10 @@ describe("ChatOpenAI callback preservation", () => {
           model: "gpt-test",
           apiKey: "test-not-a-real-key",
           streaming: true,
+          streamUsage: false,
           configuration: { baseURL },
         })
+        expect(chat.streamUsage).toBe(false)
         await AsyncLocalStorageProviderSingleton.runWithConfig(
           { callbacks: [recorder] },
           async () => {
@@ -318,6 +321,7 @@ describe("ChatOpenAI callback preservation", () => {
             }
           },
         )
+        expect(chat.streamUsage).toBe(false)
       },
     )
     expect(recorder.starts).toBe(1)
@@ -327,6 +331,9 @@ describe("ChatOpenAI callback preservation", () => {
       "gen_ai.usage.input_tokens": 7,
       "gen_ai.usage.output_tokens": 2,
       "gen_ai.response.finish_reason": "stop",
+    })
+    expect(JSON.parse(requestBody)).toMatchObject({
+      stream_options: { include_usage: true },
     })
   })
 

@@ -20,8 +20,13 @@ function hasExtend<T>(schema: T): schema is T & ExtendableSchema<T> {
   )
 }
 
-function withTelemetrySchema<T>(schema: T): T {
-  if (!hasExtend(schema)) return schema
+function withTelemetrySchema<T>(schema: T, workflowName: string): T {
+  if (schema == null) return schema
+  if (!hasExtend(schema)) {
+    throw new Error(
+      `Workflow ${workflowName} must use an object schema so job telemetry is kept on the input`,
+    )
+  }
   return schema.extend({
     telemetry: jobTelemetrySchema.optional(),
   })
@@ -46,13 +51,14 @@ export const defineWorkflow: typeof defineOpenWorkflow = ((
   return defineOpenWorkflow(
     {
       ...spec,
-      schema: withTelemetrySchema(spec.schema),
+      schema: withTelemetrySchema(spec.schema, spec.name),
     } as never,
     (async (ctx: ObservedCtx) => {
       return restoreJobTelemetry(
         ctx.input?.telemetry,
         async () => fn(ctx),
         ctx.input,
+        spec.name,
       )
     }) as never,
   )

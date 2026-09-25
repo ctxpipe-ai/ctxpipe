@@ -13,7 +13,7 @@ import {
 } from "@opentelemetry/api"
 import { collapseRepeatedModelName } from "./collapseRepeatedModelName.js"
 
-/** Lane B excludes this scope from the Langfuse fan-out. ClickHouse still stores it. */
+/** Excluded from the Langfuse exporter. ClickHouse still stores it. */
 const GEN_AI_TRACER = "ctxpipe-genai"
 
 type Usage = {
@@ -48,6 +48,7 @@ type ChatInstance = {
 
 type CallbackOptions = {
   callbacks?: unknown
+  stream_options?: { include_usage?: boolean }
 }
 
 const patched = Symbol.for("ctxpipe.genAiChat")
@@ -192,7 +193,9 @@ function optionsWithGenAiHandler(
   options: CallbackOptions | undefined,
   handler: GenAiChatCallback,
 ): CallbackOptions {
-  const callbacks = ensureConfig(options).callbacks
+  const callbacks = ensureConfig(
+    options as Parameters<typeof ensureConfig>[0],
+  ).callbacks
   let merged: unknown
   if (Array.isArray(callbacks)) merged = callbacks.concat(handler)
   else if (
@@ -207,6 +210,15 @@ function optionsWithGenAiHandler(
   } else if (callbacks) merged = [callbacks, handler]
   else merged = [handler]
   return { ...(options ?? {}), callbacks: merged }
+}
+
+function optionsWithStreamUsage(
+  options: CallbackOptions | undefined,
+  handler: GenAiChatCallback,
+): CallbackOptions {
+  const merged = optionsWithGenAiHandler(options, handler)
+  if (merged.stream_options) return merged
+  return { ...merged, stream_options: { include_usage: true } }
 }
 
 async function* iterateUnderSpan(
@@ -277,13 +289,12 @@ export function installChatOpenAiGenAiSpans(): void {
     }
     const span = startChatSpan(requestModel(this))
     const handler = new GenAiChatCallback(span)
-    ;(this as ChatInstance & { streamUsage?: boolean }).streamUsage = true
     try {
       const iterable = await activeGenAiSpan.run(span, () =>
         originalStream.call(
           this,
           input,
-          optionsWithGenAiHandler(options, handler),
+          optionsWithStreamUsage(options, handler),
         ),
       )
       return IterableReadableStream.fromAsyncGenerator(

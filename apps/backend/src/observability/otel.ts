@@ -21,6 +21,7 @@ import {
   heapSpaceStatisticsAvailable,
   installProcessHeapGauges,
   omitUnimplementedHeapSpaceCollector,
+  reportTelemetryFlushError,
   reportTelemetrySetupError,
 } from "./runtimeMetrics.js"
 import { redactSecretPath } from "./secretPath.js"
@@ -91,12 +92,12 @@ export function initOtel(env: Env): void {
   const instrumentations = getNodeAutoInstrumentations({
     "@opentelemetry/instrumentation-http": {
       ignoreOutgoingRequestHook(request) {
-        return isOtlpExportTarget(request.path)
+        return isOtlpExportTarget(httpClientRequestUrl(request))
       },
     },
     "@opentelemetry/instrumentation-undici": {
       ignoreRequestHook(request) {
-        return isOtlpExportTarget(request.path)
+        return isOtlpExportTarget(`${request.origin}${request.path}`)
       },
     },
   })
@@ -282,18 +283,70 @@ function requestUrl(input: RequestInfo | URL): string {
   return input.url
 }
 
+function signalExportUrl(
+  raw: string | undefined,
+  signalPath: string,
+): URL | undefined {
+  if (!raw) return undefined
+  try {
+    const parsed = new URL(raw)
+    const path = parsed.pathname.replace(/\/$/, "")
+    if (/\/v1\/(traces|metrics|logs)$/.test(path)) return parsed
+    return new URL(signalPath, raw.endsWith("/") ? raw : `${raw}/`)
+  } catch {
+    return undefined
+  }
+}
+
+function configuredOtlpExportUrls(): URL[] {
+  return [
+    signalExportUrl(
+      process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT,
+      "/v1/traces",
+    ),
+    signalExportUrl(
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT,
+      "/v1/metrics",
+    ),
+    signalExportUrl(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, "/v1/logs"),
+  ].filter((url): url is URL => url !== undefined)
+}
+
+function httpClientRequestUrl(request: {
+  protocol?: string | null
+  hostname?: string | null
+  host?: string | null
+  port?: string | number | null
+  path?: string | null
+}): string | undefined {
+  const path = request.path ?? "/"
+  if (path.startsWith("http://") || path.startsWith("https://")) return path
+  const hostname = request.hostname ?? request.host?.split(":")[0]
+  if (!hostname) return undefined
+  const protocol = (request.protocol || "https:").replace(/:$/, "")
+  const port = request.port == null ? "" : String(request.port)
+  const defaultPort =
+    (protocol === "https" && port === "443") ||
+    (protocol === "http" && port === "80")
+  const portSuffix = port && !defaultPort ? `:${port}` : ""
+  const pathname = path.startsWith("/") ? path : `/${path}`
+  return `${protocol}://${hostname}${portSuffix}${pathname}`
+}
+
+/** True only for this process's configured OTLP trace, metric, or log export URL. */
 export function isOtlpExportTarget(value: string | null | undefined): boolean {
   if (!value) return false
-  let path = value
-  if (value.startsWith("http://") || value.startsWith("https://")) {
-    try {
-      path = new URL(value).pathname
-    } catch {
-      path = value
-    }
+  let candidate: URL
+  try {
+    candidate = new URL(value)
+  } catch {
+    return false
   }
-  const pathname = path.split("?")[0] ?? path
-  return /\/v1\/(traces|metrics|logs)\/?$/.test(pathname)
+  const path = candidate.pathname.replace(/\/$/, "") || "/"
+  return configuredOtlpExportUrls().some((target) => {
+    const targetPath = target.pathname.replace(/\/$/, "") || "/"
+    return target.origin === candidate.origin && targetPath === path
+  })
 }
 
 function isOtlpExportUrl(url: string): boolean {
@@ -358,8 +411,8 @@ export async function forceFlushOtel(): Promise<void> {
         )
       }),
     ])
-  } catch {
-    /* collector slow or unreachable — do not fail the request/job */
+  } catch (error) {
+    reportTelemetryFlushError(error)
   }
 }
 

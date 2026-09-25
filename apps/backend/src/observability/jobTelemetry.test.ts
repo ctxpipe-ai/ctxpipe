@@ -1,11 +1,20 @@
-import { context, SpanKind, trace } from "@opentelemetry/api"
+import { context, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 import { applyAttribution, contextWithAttributionBag } from "./attribution.js"
+import * as businessMetrics from "./businessMetrics.js"
 import {
   attachJobTelemetry,
   captureJobTelemetry,
@@ -59,18 +68,25 @@ describe("job telemetry", () => {
       })
       expect(input.telemetry).toEqual(telemetry)
 
-      await restoreJobTelemetry(telemetry, async () => {
-        expect(trace.getActiveSpan()?.spanContext().spanId).not.toBe(
-          parent.spanContext().spanId,
-        )
-      })
+      await restoreJobTelemetry(
+        telemetry,
+        async () => {
+          expect(trace.getActiveSpan()?.spanContext().spanId).not.toBe(
+            parent.spanContext().spanId,
+          )
+        },
+        { repositoryId: "repo_1", orgId: "org_1" },
+        "widget-refresh",
+      )
     })
     parent.end()
 
     const job = exporter
       .getFinishedSpans()
-      .find((span) => span.name === "openworkflow.job")
+      .find((span) => span.name === "openworkflow.job widget-refresh")
     expect(job?.kind).toBe(SpanKind.CONSUMER)
+    expect(job?.spanContext().traceId).not.toBe(parent.spanContext().traceId)
+    expect(job?.parentSpanContext?.spanId).toBeUndefined()
     expect(job?.links[0]?.context.traceId).toBe(parent.spanContext().traceId)
     expect(job?.links[0]?.context.spanId).toBe(parent.spanContext().spanId)
     expect(job?.attributes).toMatchObject({
@@ -129,10 +145,11 @@ describe("job telemetry", () => {
         expect(trace.getActiveSpan()?.spanContext().spanId).toBeTruthy()
       },
       { orgId: "org_bg", connectionId: "con_bg" },
+      "background-refresh",
     )
     const job = exporter
       .getFinishedSpans()
-      .find((span) => span.name === "openworkflow.job")
+      .find((span) => span.name === "openworkflow.job background-refresh")
     expect(job?.kind).toBe(SpanKind.CONSUMER)
     expect(job?.attributes).toMatchObject({
       "ctxpipe.actor.type": "job",
@@ -172,21 +189,35 @@ describe("job telemetry", () => {
         "ctxpipe.org.id": "org_b",
         "ctxpipe.org.slug": "org-b",
       })
-      await restoreJobTelemetry(first.telemetry, async () => undefined, {
-        orgId: "org_a",
-        connectionId: "con_a",
-      })
-      await restoreJobTelemetry(second.telemetry, async () => undefined, {
-        orgId: "org_b",
-        orgSlug: "org-b",
-        connectionId: "con_b",
-      })
+      await restoreJobTelemetry(
+        first.telemetry,
+        async () => undefined,
+        {
+          orgId: "org_a",
+          connectionId: "con_a",
+        },
+        "alpha-run",
+      )
+      await restoreJobTelemetry(
+        second.telemetry,
+        async () => undefined,
+        {
+          orgId: "org_b",
+          orgSlug: "org-b",
+          connectionId: "con_b",
+        },
+        "beta-run",
+      )
     })
     parent.end()
 
     const jobs = exporter
       .getFinishedSpans()
-      .filter((span) => span.name === "openworkflow.job")
+      .filter((span) => span.name.startsWith("openworkflow.job "))
+    expect(jobs.map((span) => span.name)).toEqual([
+      "openworkflow.job alpha-run",
+      "openworkflow.job beta-run",
+    ])
     expect(jobs.map((span) => span.attributes["ctxpipe.org.id"])).toEqual([
       "org_a",
       "org_b",
@@ -202,5 +233,131 @@ describe("job telemetry", () => {
       .find((span) => span.name === "webhook")
     expect(webhook?.attributes["ctxpipe.org.id"]).toBe("org_last")
     expect(webhook?.attributes["ctxpipe.connection.id"]).toBe("con_last")
+  })
+
+  it("returns non-object enqueue input unchanged", () => {
+    expect(attachJobTelemetry(undefined)).toBeUndefined()
+    expect(attachJobTelemetry(null)).toBeNull()
+    expect(attachJobTelemetry("plain")).toBe("plain")
+    expect(attachJobTelemetry([1, 2])).toEqual([1, 2])
+  })
+
+  it("records a failure and leaves sleep and retry scheduling unmarked", async () => {
+    const failure = new Error("sync failed")
+    await expect(
+      restoreJobTelemetry(
+        undefined,
+        async () => {
+          throw failure
+        },
+        undefined,
+        "widget-refresh",
+      ),
+    ).rejects.toBe(failure)
+
+    const sleep = new Error("SleepSignal")
+    sleep.name = "SleepSignal"
+    await expect(
+      restoreJobTelemetry(
+        undefined,
+        async () => {
+          throw sleep
+        },
+        undefined,
+        "widget-refresh",
+      ),
+    ).rejects.toBe(sleep)
+
+    const retry = new Error("step failed")
+    retry.name = "StepError"
+    Object.assign(retry, {
+      stepFailedAttempts: 1,
+      retryPolicy: { maximumAttempts: 10 },
+      originalError: new Error("db down"),
+    })
+    await expect(
+      restoreJobTelemetry(
+        undefined,
+        async () => {
+          throw retry
+        },
+        undefined,
+        "widget-refresh",
+      ),
+    ).rejects.toBe(retry)
+
+    const exhausted = new Error("step failed")
+    exhausted.name = "StepError"
+    Object.assign(exhausted, {
+      stepFailedAttempts: 10,
+      retryPolicy: { maximumAttempts: 10 },
+      originalError: new Error("db down"),
+    })
+    await expect(
+      restoreJobTelemetry(
+        undefined,
+        async () => {
+          throw exhausted
+        },
+        undefined,
+        "widget-refresh",
+      ),
+    ).rejects.toBe(exhausted)
+
+    const jobs = exporter
+      .getFinishedSpans()
+      .filter((span) => span.name === "openworkflow.job widget-refresh")
+    expect(jobs).toHaveLength(4)
+    expect(jobs[0]?.status.code).toBe(SpanStatusCode.ERROR)
+    expect(jobs[0]?.events.map((event) => event.name)).toContain("exception")
+    expect(jobs[0]?.events[0]?.attributes?.["exception.message"]).toBe(
+      "sync failed",
+    )
+    expect(jobs[1]?.status.code).toBe(SpanStatusCode.UNSET)
+    expect(jobs[1]?.events).toHaveLength(0)
+    expect(jobs[2]?.status.code).toBe(SpanStatusCode.UNSET)
+    expect(jobs[2]?.events).toHaveLength(0)
+    expect(jobs[3]?.status.code).toBe(SpanStatusCode.ERROR)
+    expect(jobs[3]?.events[0]?.attributes?.["exception.message"]).toBe(
+      "db down",
+    )
+  })
+
+  it("marks fan-out enqueued from a job so that child is not a second sync", async () => {
+    const record = vi.spyOn(businessMetrics, "recordTerminalConnectorSync")
+    let nested: boolean | undefined
+    await restoreJobTelemetry(
+      undefined,
+      async () => {
+        const child = attachJobTelemetry({ orgId: "org_child" })
+        nested = child.telemetry?.nested
+        await restoreJobTelemetry(
+          child.telemetry,
+          async () => undefined,
+          { orgId: "org_child" },
+          "linear-sync-content",
+        )
+      },
+      { orgId: "org_root" },
+      "linear-sync-config",
+    )
+    expect(nested).toBe(true)
+    expect(record).toHaveBeenCalledTimes(1)
+    expect(record).toHaveBeenCalledWith(
+      "linear-sync-config",
+      { orgId: "org_root" },
+      "success",
+    )
+    record.mockRestore()
+    const child = exporter
+      .getFinishedSpans()
+      .find((span) => span.name === "openworkflow.job linear-sync-content")
+    const root = exporter
+      .getFinishedSpans()
+      .find((span) => span.name === "openworkflow.job linear-sync-config")
+    expect(child?.spanContext().traceId).not.toBe(root?.spanContext().traceId)
+    expect(child?.links[0]?.context.spanId).toBe(root?.spanContext().spanId)
+    expect(child?.attributes["request.id"]).toBeUndefined()
+    expect(root?.attributes["ctxpipe.org.id"]).toBe("org_root")
   })
 })

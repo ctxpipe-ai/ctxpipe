@@ -1,7 +1,19 @@
-import { metrics } from "@opentelemetry/api"
+import { type Counter, type MeterProvider, metrics } from "@opentelemetry/api"
 
-function counter(name: string) {
-  return metrics.getMeter("ctxpipe-backend").createCounter(name)
+let cachedProvider: MeterProvider | undefined
+const counters = new Map<string, Counter>()
+
+function counter(name: string): Counter {
+  const provider = metrics.getMeterProvider()
+  if (provider !== cachedProvider) {
+    counters.clear()
+    cachedProvider = provider
+  }
+  const existing = counters.get(name)
+  if (existing) return existing
+  const instrument = provider.getMeter("ctxpipe-backend").createCounter(name)
+  counters.set(name, instrument)
+  return instrument
 }
 
 export function recordAdvisorCall(orgId: string): void {
@@ -14,11 +26,16 @@ export function recordIngestionJob(orgId: string): void {
   counter("ctxpipe.ingestion.jobs").add(1, { "ctxpipe.org.id": orgId })
 }
 
-export function recordConnectorSync(orgId: string, connector: string): void {
+export function recordConnectorSync(
+  orgId: string,
+  connector: string,
+  outcome: "success" | "failure",
+): void {
   if (!orgId || !connector) return
   counter("ctxpipe.connector.syncs").add(1, {
     "ctxpipe.org.id": orgId,
     "ctxpipe.connector.type": connector,
+    outcome,
   })
 }
 
@@ -56,6 +73,21 @@ export function recordEnqueuedWorkflow(
   const orgId = (input as { orgId?: unknown }).orgId
   if (typeof orgId !== "string" || !orgId) return
   if (INGESTION_WORKFLOWS.has(workflowName)) recordIngestionJob(orgId)
+}
+
+/**
+ * One count per root sync workflow, after it finishes.
+ * Nested fan-out (config → content, enqueued from a job) is skipped by the caller.
+ */
+export function recordTerminalConnectorSync(
+  workflowName: string | undefined,
+  input: unknown,
+  outcome: "success" | "failure",
+): void {
+  if (!workflowName || !input || typeof input !== "object") return
+  const orgId = (input as { orgId?: unknown }).orgId
+  if (typeof orgId !== "string" || !orgId) return
   const connector = connectorSyncTypeForEnqueuedWorkflow(workflowName)
-  if (connector) recordConnectorSync(orgId, connector)
+  if (!connector) return
+  recordConnectorSync(orgId, connector, outcome)
 }

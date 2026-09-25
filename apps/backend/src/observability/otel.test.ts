@@ -4,7 +4,15 @@ import {
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest"
 import {
   isOtlpExportTarget,
   isRailwayPrEnvironment,
@@ -59,13 +67,49 @@ describe("isRailwayPrEnvironment", () => {
 })
 
 describe("isOtlpExportTarget", () => {
-  it("matches OTLP signal paths and ignores other URLs", () => {
-    expect(isOtlpExportTarget("/v1/logs")).toBe(true)
-    expect(isOtlpExportTarget("/v1/traces?timeout=1")).toBe(true)
+  const keys = [
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+  ] as const
+  const previous: Record<string, string | undefined> = {}
+
+  beforeEach(() => {
+    for (const key of keys) previous[key] = process.env[key]
+    process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT =
+      "https://telemetry.ctxpipe.ai/v1/traces"
+    process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT =
+      "https://telemetry.ctxpipe.ai"
+    process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT =
+      "https://telemetry.ctxpipe.ai/v1/logs"
+  })
+
+  afterEach(() => {
+    for (const key of keys) {
+      if (previous[key] === undefined) delete process.env[key]
+      else process.env[key] = previous[key]
+    }
+  })
+
+  it("matches only the configured exporter endpoints", () => {
+    expect(isOtlpExportTarget("https://telemetry.ctxpipe.ai/v1/traces")).toBe(
+      true,
+    )
+    expect(
+      isOtlpExportTarget("https://telemetry.ctxpipe.ai/v1/traces?timeout=1"),
+    ).toBe(true)
     expect(isOtlpExportTarget("https://telemetry.ctxpipe.ai/v1/metrics")).toBe(
       true,
     )
-    expect(isOtlpExportTarget("/search")).toBe(false)
+    expect(isOtlpExportTarget("https://telemetry.ctxpipe.ai/v1/logs")).toBe(
+      true,
+    )
+    expect(isOtlpExportTarget("https://example.com/v1/traces")).toBe(false)
+    expect(isOtlpExportTarget("https://logs.other.test/v1/logs")).toBe(false)
+    expect(isOtlpExportTarget("/v1/logs")).toBe(false)
+    expect(isOtlpExportTarget("https://telemetry.ctxpipe.ai/search")).toBe(
+      false,
+    )
     expect(isOtlpExportTarget(undefined)).toBe(false)
   })
 })

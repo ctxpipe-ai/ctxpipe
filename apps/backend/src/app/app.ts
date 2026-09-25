@@ -11,7 +11,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status"
 import { getAuth } from "../auth/config.js"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
-import { backendOtelMiddleware } from "../observability/http.js"
+import { backendOtelMiddleware, isUiProxyPath } from "../observability/http.js"
 import { applyLogContract } from "../observability/logContract.js"
 import { createEvlogDrain, log } from "../observability/logger.js"
 import {
@@ -99,12 +99,16 @@ export function createApp() {
     c.set("orgId", null)
     await next()
   })
-  app.use("*", async (_c, next) => {
+  app.use("*", async (c, next) => {
     try {
       await next()
     } finally {
-      if (isRailwayPrEnvironment()) {
-        await forceFlushOtel()
+      if (isRailwayPrEnvironment() && !isUiProxyPath(c.req.path)) {
+        // After this middleware returns, the server span ends. Flush on the
+        // next turn so that span is in the batch and the response is not held.
+        queueMicrotask(() => {
+          void forceFlushOtel()
+        })
       }
     }
   })

@@ -48,7 +48,7 @@ function isBackendSpanPath(path: string): boolean {
  * `/onboarding`, `/:slug/knowledge-graph`). Those are not API traces.
  * API, `/mcp`, `/.auth/api`, and `/.otel` still get spans.
  */
-function isUiProxyPath(path: string): boolean {
+export function isUiProxyPath(path: string): boolean {
   return !isBackendSpanPath(path)
 }
 

@@ -105,6 +105,14 @@ describe("Langfuse context attributes", () => {
     expect(advisor?.attributes["langfuse.trace.metadata.requestId"]).toBe(
       "req_lf",
     )
+    expect(advisor?.attributes["langfuse.environment"]).toBe(
+      process.env.RAILWAY_ENVIRONMENT_NAME?.trim() ||
+        (process.env.NODE_ENV === "production" ? "production" : "development"),
+    )
+    const http = exporter
+      .getFinishedSpans()
+      .find((span) => span.name === "http")
+    expect(http?.attributes["langfuse.environment"]).toBeUndefined()
   })
 
   it("omits userId for org api key actors", async () => {

@@ -13,7 +13,7 @@ import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { Hono } from "hono"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { applyAttribution } from "./attribution.js"
-import { backendOtelMiddleware } from "./http.js"
+import { backendOtelMiddleware, isUiProxyPath } from "./http.js"
 
 const exporter = new InMemorySpanExporter()
 const provider = new NodeTracerProvider({
@@ -30,6 +30,15 @@ beforeEach(() => {
 
 afterAll(async () => {
   await provider.shutdown()
+})
+
+describe("isUiProxyPath", () => {
+  it("skips UI documents and assets and keeps API routes", () => {
+    expect(isUiProxyPath("/assets/app.js")).toBe(true)
+    expect(isUiProxyPath("/onboarding")).toBe(true)
+    expect(isUiProxyPath("/mcp")).toBe(false)
+    expect(isUiProxyPath("/.auth/api/session")).toBe(false)
+  })
 })
 
 describe("backendOtelMiddleware", () => {
