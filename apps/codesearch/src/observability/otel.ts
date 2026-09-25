@@ -29,9 +29,10 @@ import type { MiddlewareHandler } from "hono"
 import type { Env } from "../config/env.js"
 import { FlushOnDemandMetricReader } from "./flushOnDemandMetricReader.js"
 import {
-  guardUnimplementedHeapSpaceStatistics,
   heapSpaceStatisticsAvailable,
   installProcessHeapGauges,
+  omitUnimplementedHeapSpaceCollector,
+  reportTelemetrySetupError,
 } from "./runtimeMetrics.js"
 
 let tracerProvider: NodeTracerProvider | undefined
@@ -180,12 +181,18 @@ export function initOtel(env: Env): void {
 export function attachCodesearchRuntimeMetrics(
   provider: MeterProvider,
 ): string {
-  const heapSpaces = heapSpaceStatisticsAvailable()
-  guardUnimplementedHeapSpaceStatistics()
-  runtimeInstrumentation = new RuntimeNodeInstrumentation()
-  runtimeInstrumentation.setMeterProvider(provider)
-  if (!heapSpaces) installProcessHeapGauges()
-  return runtimeInstrumentation.instrumentationName
+  try {
+    runtimeInstrumentation = new RuntimeNodeInstrumentation()
+    omitUnimplementedHeapSpaceCollector(runtimeInstrumentation)
+    runtimeInstrumentation.setMeterProvider(provider)
+    if (!heapSpaceStatisticsAvailable()) {
+      installProcessHeapGauges(provider.getMeter("ctxpipe-runtime"))
+    }
+    return runtimeInstrumentation.instrumentationName
+  } catch (error) {
+    reportTelemetrySetupError(error)
+    return ""
+  }
 }
 
 export function createMetricReader(

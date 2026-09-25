@@ -1,3 +1,4 @@
+import * as v8 from "node:v8"
 import { metrics } from "@opentelemetry/api"
 import {
   AggregationTemporality,
@@ -22,8 +23,10 @@ function metricNames(exporter: InMemoryMetricExporter): string[] {
 }
 
 describe("process heap gauges", () => {
-  it("reports whether heap-space statistics can be collected", () => {
-    expect(typeof heapSpaceStatisticsAvailable()).toBe("boolean")
+  it("does not assign over v8.getHeapSpaceStatistics", () => {
+    const before = v8.getHeapSpaceStatistics
+    heapSpaceStatisticsAvailable()
+    expect(v8.getHeapSpaceStatistics).toBe(before)
   })
 
   it("records used and limit from v8.getHeapStatistics", async () => {
@@ -34,7 +37,7 @@ describe("process heap gauges", () => {
       readers: [new FlushOnDemandMetricReader(exporter)],
     })
     metrics.setGlobalMeterProvider(provider)
-    installProcessHeapGauges()
+    installProcessHeapGauges(provider.getMeter("ctxpipe-runtime"))
     await provider.forceFlush()
     const names = metricNames(exporter)
     expect(names).toContain("v8js.memory.heap.used")

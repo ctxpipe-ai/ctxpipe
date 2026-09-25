@@ -18,9 +18,10 @@ import { copyAttributionToSpan, propagationHeaders } from "./attribution.js"
 import { FlushOnDemandMetricReader } from "./flushOnDemandMetricReader.js"
 import { LangfuseContextSpanProcessor } from "./langfuseContextProcessor.js"
 import {
-  guardUnimplementedHeapSpaceStatistics,
   heapSpaceStatisticsAvailable,
   installProcessHeapGauges,
+  omitUnimplementedHeapSpaceCollector,
+  reportTelemetrySetupError,
 } from "./runtimeMetrics.js"
 
 let sdk: NodeSDK | undefined
@@ -86,8 +87,32 @@ export function initOtel(env: Env): void {
       ]
     : undefined
 
-  const heapSpaces = heapSpaceStatisticsAvailable()
-  guardUnimplementedHeapSpaceStatistics()
+  const instrumentations = getNodeAutoInstrumentations({
+    "@opentelemetry/instrumentation-http": {
+      ignoreOutgoingRequestHook(request) {
+        return isOtlpExportTarget(request.path)
+      },
+    },
+    "@opentelemetry/instrumentation-undici": {
+      ignoreRequestHook(request) {
+        return isOtlpExportTarget(request.path)
+      },
+    },
+  })
+  try {
+    if (!heapSpaceStatisticsAvailable()) {
+      for (const instrumentation of instrumentations) {
+        if (
+          instrumentation.instrumentationName ===
+          "@opentelemetry/instrumentation-runtime-node"
+        ) {
+          omitUnimplementedHeapSpaceCollector(instrumentation)
+        }
+      }
+    }
+  } catch (error) {
+    reportTelemetrySetupError(error)
+  }
 
   sdk = new NodeSDK({
     resource,
@@ -107,25 +132,19 @@ export function initOtel(env: Env): void {
       new LangfuseContextSpanProcessor(),
       new BatchSpanProcessor(traceExporter),
     ],
-    instrumentations: [
-      getNodeAutoInstrumentations({
-        "@opentelemetry/instrumentation-http": {
-          ignoreOutgoingRequestHook(request) {
-            return isOtlpExportTarget(request.path)
-          },
-        },
-        "@opentelemetry/instrumentation-undici": {
-          ignoreRequestHook(request) {
-            return isOtlpExportTarget(request.path)
-          },
-        },
-      }),
-    ],
+    instrumentations,
     ...(metricReaders && { metricReaders }),
   })
   sdk.start()
-  if (!heapSpaces && env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT) {
-    installProcessHeapGauges()
+  try {
+    if (
+      !heapSpaceStatisticsAvailable() &&
+      env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
+    ) {
+      installProcessHeapGauges(metrics.getMeter("ctxpipe-runtime"))
+    }
+  } catch (error) {
+    reportTelemetrySetupError(error)
   }
   installOutgoingFetchInstrumentation()
   started = true
