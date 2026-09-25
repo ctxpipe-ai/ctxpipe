@@ -182,6 +182,66 @@ describe("outgoing fetch", () => {
     expect(JSON.stringify(client?.attributes)).not.toContain(query)
   })
 
+  it("sends baggage only to internal hosts and traceparent to third parties", async () => {
+    const tracer = trace.getTracer("ctxpipe-codesearch-test")
+    const parent = tracer.startSpan("caller")
+    const seen: {
+      url: string
+      baggage: string | null
+      traceparent: string | null
+    }[] = []
+    const capture = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const headers = new Headers(
+        input instanceof Request ? input.headers : init?.headers,
+      )
+      const raw =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url
+      seen.push({
+        url: raw,
+        baggage: headers.get("baggage"),
+        traceparent: headers.get("traceparent"),
+      })
+      return new Response(null, { status: 204 })
+    }
+    const withBaggage = propagation.setBaggage(
+      trace.setSpan(context.active(), parent),
+      propagation.createBaggage({
+        "enduser.id": { value: "user_1" },
+        "ctxpipe.org.slug": { value: "acme-corp" },
+        "ctxpipe.api_key.id": { value: "key_1" },
+        "ctxpipe.conversation.id": { value: "conv_1" },
+      }),
+    )
+    await context.with(withBaggage, async () => {
+      await tracedOutgoingFetch(capture, "https://api.github.com/repos/acme")
+      await tracedOutgoingFetch(capture, "http://127.0.0.1:9/search")
+      await tracedOutgoingFetch(
+        capture,
+        "http://codesearch.railway.internal:3001/search",
+      )
+    })
+    parent.end()
+
+    const external = seen.find((entry) => entry.url.includes("api.github.com"))
+    expect(external?.traceparent).toContain(parent.spanContext().traceId)
+    expect(external?.baggage ?? "").not.toContain("enduser.id")
+    expect(external?.baggage ?? "").not.toContain("acme-corp")
+    expect(external?.baggage ?? "").not.toContain("key_1")
+    expect(external?.baggage ?? "").not.toContain("conv_1")
+    for (const url of [
+      "http://127.0.0.1:9/search",
+      "http://codesearch.railway.internal:3001/search",
+    ]) {
+      const internal = seen.find((entry) => entry.url === url)
+      expect(internal?.baggage).toContain("ctxpipe.org.slug=acme-corp")
+      expect(internal?.traceparent).toContain(parent.spanContext().traceId)
+    }
+  })
+
   it("injects traceparent and baggage from the active context", async () => {
     const tracer = trace.getTracer("ctxpipe-codesearch-test")
     const parent = tracer.startSpan("caller")

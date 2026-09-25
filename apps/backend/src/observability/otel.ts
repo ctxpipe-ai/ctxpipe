@@ -3,6 +3,7 @@ import {
   metrics,
   SpanKind,
   SpanStatusCode,
+  TraceFlags,
   trace,
 } from "@opentelemetry/api"
 import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentations-node"
@@ -226,7 +227,13 @@ export async function tracedOutgoingFetch(
     const headers = new Headers(
       init?.headers ?? (input instanceof Request ? input.headers : undefined),
     )
-    propagationHeaders(headers)
+    if (isInternalAttributionTarget(url)) {
+      propagationHeaders(headers)
+    } else {
+      // traceparent is a trace id and span id, not user or org ids.
+      // Third parties that understand W3C can join the trace. Baggage stays internal.
+      injectTraceParentOnly(headers)
+    }
     let request: Request
     try {
       request = new Request(input, { ...init, headers })
@@ -252,6 +259,56 @@ export async function tracedOutgoingFetch(
       span.end()
     }
   })
+}
+
+/**
+ * Baggage carries user, org, api-key, and conversation ids.
+ * Those go to our own services only: the configured codesearch origin,
+ * Railway private DNS, and localhost in dev.
+ */
+export function isInternalAttributionTarget(raw: string): boolean {
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    return false
+  }
+  const host = parsed.hostname.toLowerCase()
+  if (host === "localhost" || host === "127.0.0.1" || host === "::1") {
+    return true
+  }
+  if (host === "railway.internal" || host.endsWith(".railway.internal")) {
+    return true
+  }
+  const configured = process.env.CODESEARCH_URL
+  if (!configured) return false
+  for (const entry of configured.split(",")) {
+    const trimmed = entry.trim()
+    if (!trimmed) continue
+    try {
+      if (parsed.origin === new URL(trimmed).origin) return true
+    } catch {
+      // Ignore a malformed codesearch URL entry.
+    }
+  }
+  return false
+}
+
+function injectTraceParentOnly(
+  headers: Headers,
+  active = context.active(),
+): void {
+  headers.delete("baggage")
+  const spanContext = trace.getSpan(active)?.spanContext()
+  if (!spanContext || !trace.isSpanContextValid(spanContext)) return
+  const sampled =
+    (spanContext.traceFlags & TraceFlags.SAMPLED) === TraceFlags.SAMPLED
+  headers.set(
+    "traceparent",
+    `00-${spanContext.traceId}-${spanContext.spanId}-${sampled ? "01" : "00"}`,
+  )
+  const traceState = spanContext.traceState?.serialize()
+  if (traceState) headers.set("tracestate", traceState)
 }
 
 function redactSpanUrlAttributes(span: {

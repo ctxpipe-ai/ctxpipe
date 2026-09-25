@@ -1,4 +1,5 @@
 import { context, SpanKind, trace } from "@opentelemetry/api"
+import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentations-node"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
@@ -13,7 +14,10 @@ import {
   expect,
   it,
 } from "vitest"
-import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentations-node"
+import {
+  applyAttribution,
+  contextWithAttributionBag,
+} from "./attribution.js"
 import {
   isOtlpExportTarget,
   isRailwayPrEnvironment,
@@ -230,6 +234,84 @@ describe("outgoing fetch spans", () => {
     } finally {
       if (previous === undefined) delete process.env.UI_PROXY_URL
       else process.env.UI_PROXY_URL = previous
+    }
+  })
+
+  it("sends attribution baggage only to internal services", async () => {
+    const previous = process.env.CODESEARCH_URL
+    process.env.CODESEARCH_URL = "http://codesearch.internal:3001"
+    const seen: {
+      url: string
+      baggage: string | null
+      traceparent: string | null
+    }[] = []
+    const capture = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const headers = new Headers(
+        input instanceof Request ? input.headers : init?.headers,
+      )
+      const raw =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url
+      seen.push({
+        url: raw,
+        baggage: headers.get("baggage"),
+        traceparent: headers.get("traceparent"),
+      })
+      return new Response(null, { status: 204 })
+    }
+    const parent = trace.getTracer("test").startSpan("request")
+    const { context: withBag } = contextWithAttributionBag(
+      trace.setSpan(context.active(), parent),
+    )
+    try {
+      await context.with(withBag, async () => {
+        applyAttribution({
+          "enduser.id": "user_1",
+          "ctxpipe.org.id": "org_1",
+          "ctxpipe.org.slug": "acme-corp",
+          "ctxpipe.api_key.id": "key_1",
+          "ctxpipe.conversation.id": "conv_1",
+        })
+        await tracedOutgoingFetch(
+          capture,
+          "https://api.openai.com/v1/chat/completions",
+          { method: "POST" },
+        )
+        await tracedOutgoingFetch(
+          capture,
+          "http://codesearch.internal:3001/search",
+        )
+        await tracedOutgoingFetch(
+          capture,
+          "http://api.railway.internal:8080/health",
+        )
+        await tracedOutgoingFetch(capture, "http://127.0.0.1:3001/health")
+      })
+    } finally {
+      parent.end()
+      if (previous === undefined) delete process.env.CODESEARCH_URL
+      else process.env.CODESEARCH_URL = previous
+    }
+
+    const external = seen.find((entry) => entry.url.includes("api.openai.com"))
+    expect(external?.traceparent).toContain(parent.spanContext().traceId)
+    expect(external?.baggage ?? "").not.toContain("enduser.id")
+    expect(external?.baggage ?? "").not.toContain("acme-corp")
+    expect(external?.baggage ?? "").not.toContain("key_1")
+    expect(external?.baggage ?? "").not.toContain("conv_1")
+
+    for (const url of [
+      "http://codesearch.internal:3001/search",
+      "http://api.railway.internal:8080/health",
+      "http://127.0.0.1:3001/health",
+    ]) {
+      const internal = seen.find((entry) => entry.url === url)
+      expect(internal?.traceparent).toContain(parent.spanContext().traceId)
+      expect(internal?.baggage).toContain("enduser.id=user_1")
+      expect(internal?.baggage).toContain("ctxpipe.org.slug=acme-corp")
     }
   })
 
