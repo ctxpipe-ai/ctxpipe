@@ -1,12 +1,10 @@
-import { readFileSync } from "node:fs"
-import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import { applyRedactedSecretPaths, redactSecretPath } from "./secretPath.js"
 
 /**
  * Same fixtures as `apps/backend/src/observability/logContract.test.ts`.
- * Codesearch keeps its own copy because no shared workspace package fits.
+ * `apps/backend/src/observability/secretPath.parity.test.ts` checks that this
+ * copy matches the backend one.
  */
 const token = "RVPATHPROBE1790327887NOTASECRET"
 const invitationId = "inv_secret_capability"
@@ -37,23 +35,7 @@ const pathFixtures = [
   },
 ]
 
-function implementation(source: string): string {
-  const start = source.indexOf("const SECRET_PATH_RULES")
-  if (start < 0) throw new Error("SECRET_PATH_RULES missing")
-  return source.slice(start).trim()
-}
-
-describe("secretPath parity with the backend copy", () => {
-  it("keeps the rule table and redaction functions identical", () => {
-    const here = dirname(fileURLToPath(import.meta.url))
-    const codesearch = readFileSync(resolve(here, "secretPath.ts"), "utf8")
-    const backend = readFileSync(
-      resolve(here, "../../../backend/src/observability/secretPath.ts"),
-      "utf8",
-    )
-    expect(implementation(codesearch)).toBe(implementation(backend))
-  })
-
+describe("secretPath", () => {
   it("redacts the same secret path fixtures as the backend log contract", () => {
     for (const fixture of pathFixtures) {
       expect(redactSecretPath(fixture.input)).toBe(fixture.expected)
