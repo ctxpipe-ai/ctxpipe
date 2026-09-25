@@ -8,6 +8,9 @@ import {
   mapSeverity,
   metricWindow,
   parseOtlpHeaders,
+  parseWatermark,
+  selectWindows,
+  watermarkToStore,
   plainLogAttributeValue,
   resolveLogSeverity,
   rfc3339ToUnixNano,
@@ -128,6 +131,168 @@ describe("window", () => {
     const next = metricWindow(Date.parse("2026-09-25T12:10:00.000Z"))
     expect(new Date(next.startUnix * 1000).toISOString()).toBe("2026-09-25T12:05:00.000Z")
     expect(new Date(next.endUnix * 1000).toISOString()).toBe("2026-09-25T12:10:00.000Z")
+  })
+})
+
+describe("watermark", () => {
+  const firstNow = Date.parse("2026-09-25T12:07:30.000Z")
+
+  test("first run (no watermark)", () => {
+    const selected = selectWindows(firstNow, { metrics: null, logs: null })
+    expect(selected.fallback).toBe(false)
+    expect(new Date(selected.metrics.endUnix * 1000).toISOString()).toBe("2026-09-25T12:06:00.000Z")
+    expect(new Date(selected.metrics.startUnix * 1000).toISOString()).toBe("2026-09-25T12:01:00.000Z")
+    expect(selected.logs).toEqual(selected.metrics)
+    expect(watermarkToStore(selected.metrics, null)).toBe(selected.metrics.endUnix - 1)
+
+    const samples = dedupeSamples(
+      [
+        { ts: selected.metrics.startUnix - 60, value: 1 },
+        { ts: selected.metrics.startUnix, value: 2 },
+        { ts: selected.metrics.endUnix - 60, value: 3 },
+        { ts: selected.metrics.endUnix, value: 4 },
+      ],
+      selected.metrics,
+    )
+    expect(samples).toEqual([
+      { ts: selected.metrics.startUnix, value: 2 },
+      { ts: selected.metrics.endUnix - 60, value: 3 },
+    ])
+  })
+
+  test("late run (gap filled)", () => {
+    const late = Date.parse("2026-09-25T12:17:30.000Z")
+    const fixed = metricWindow(late)
+    const watermark = Date.parse("2026-09-25T11:59:59.000Z") / 1000
+    const selected = selectWindows(late, { metrics: watermark, logs: watermark })
+    expect(new Date(fixed.startUnix * 1000).toISOString()).toBe("2026-09-25T12:10:00.000Z")
+    expect(new Date(fixed.endUnix * 1000).toISOString()).toBe("2026-09-25T12:15:00.000Z")
+    expect(new Date(selected.metrics.startUnix * 1000).toISOString()).toBe("2026-09-25T12:00:00.000Z")
+    expect(new Date(selected.metrics.endUnix * 1000).toISOString()).toBe("2026-09-25T12:16:00.000Z")
+
+    const samples = dedupeSamples(
+      [
+        { ts: watermark, value: 1 },
+        { ts: selected.metrics.startUnix, value: 2 },
+        { ts: fixed.startUnix - 60, value: 3 },
+        { ts: fixed.startUnix, value: 4 },
+        { ts: selected.metrics.endUnix, value: 5 },
+      ],
+      selected.metrics,
+    )
+    expect(samples).toEqual([
+      { ts: selected.metrics.startUnix, value: 2 },
+      { ts: fixed.startUnix - 60, value: 3 },
+      { ts: fixed.startUnix, value: 4 },
+    ])
+    expect(samples.every((sample) => sample.ts > watermark)).toBe(true)
+    expect(watermarkToStore(selected.metrics, watermark)).toBe(selected.metrics.endUnix - 1)
+
+    const logs = mapLogsToOtlp({
+      projectId: OBSERVABILITY_PROJECT_ID,
+      projectName: "ctxpipe-observability",
+      environmentId: "env-obs",
+      railwayEnvironmentName: "production",
+      serviceNames: { col: "collector" },
+      window: selected.logs,
+      skipServiceName: "railway-telemetry",
+      logs: [
+        {
+          timestamp: "2026-09-25T11:59:59.000Z",
+          message: "already exported",
+          severity: "info",
+          attributes: [],
+          serviceId: "col",
+          deploymentId: null,
+        },
+        {
+          timestamp: "2026-09-25T12:00:30.000Z",
+          message: "gap line",
+          severity: "info",
+          attributes: [],
+          serviceId: "col",
+          deploymentId: null,
+        },
+      ],
+    })
+    expect(logs.resourceLogs[0]?.scopeLogs[0]?.logRecords.map((record) => record.body.stringValue)).toEqual([
+      "gap line",
+    ])
+  })
+
+  test("overlapping run (no duplicates)", () => {
+    const first = selectWindows(firstNow, { metrics: null, logs: null })
+    const covered = watermarkToStore(first.metrics, null)
+    expect(covered).toBe(Date.parse("2026-09-25T12:05:59.000Z") / 1000)
+
+    const secondNow = Date.parse("2026-09-25T12:09:30.000Z")
+    const second = selectWindows(secondNow, { metrics: covered, logs: covered })
+    expect(second.metrics.startUnix).toBe(first.metrics.endUnix)
+    const samples = dedupeSamples(
+      [
+        { ts: first.metrics.startUnix, value: 1 },
+        { ts: first.metrics.endUnix - 60, value: 2 },
+        { ts: second.metrics.startUnix, value: 3 },
+      ],
+      second.metrics,
+    )
+    expect(samples).toEqual([{ ts: second.metrics.startUnix, value: 3 }])
+    expect(samples.every((sample) => covered !== null && sample.ts > covered)).toBe(true)
+
+    const sameSlot = selectWindows(Date.parse("2026-09-25T12:07:40.000Z"), { metrics: covered, logs: covered })
+    expect(sameSlot.metrics.startUnix).toBe(sameSlot.metrics.endUnix)
+    expect(
+      dedupeSamples(
+        [
+          { ts: first.metrics.startUnix, value: 1 },
+          { ts: first.metrics.endUnix - 60, value: 2 },
+        ],
+        sameSlot.metrics,
+      ),
+    ).toEqual([])
+    expect(watermarkToStore(sameSlot.metrics, covered)).toBe(null)
+  })
+
+  test("long outage (capped)", () => {
+    const selected = selectWindows(firstNow, {
+      metrics: Date.parse("2026-09-25T06:00:00.000Z") / 1000,
+      logs: Date.parse("2026-09-25T06:00:00.000Z") / 1000,
+    })
+    expect(new Date(selected.metrics.endUnix * 1000).toISOString()).toBe("2026-09-25T12:06:00.000Z")
+    expect(new Date(selected.metrics.startUnix * 1000).toISOString()).toBe("2026-09-25T11:06:00.000Z")
+    expect(selected.metrics.endUnix - selected.metrics.startUnix).toBe(60 * 60)
+
+    const ancient = Date.parse("2026-09-25T06:00:01.000Z") / 1000
+    const samples = dedupeSamples(
+      [
+        { ts: ancient, value: 1 },
+        { ts: selected.metrics.startUnix, value: 2 },
+        { ts: selected.metrics.startUnix + 60, value: 3 },
+      ],
+      selected.metrics,
+    )
+    expect(samples).toEqual([
+      { ts: selected.metrics.startUnix, value: 2 },
+      { ts: selected.metrics.startUnix + 60, value: 3 },
+    ])
+    expect(watermarkToStore(selected.metrics, ancient)).toBe(selected.metrics.endUnix - 1)
+  })
+
+  test("Redis down fallback", () => {
+    const selected = selectWindows(firstNow, "fallback")
+    expect(selected.fallback).toBe(true)
+    expect(selected.metrics).toEqual(metricWindow(firstNow))
+    expect(selected.logs).toEqual(metricWindow(firstNow))
+    expect(new Date(selected.metrics.startUnix * 1000).toISOString()).toBe("2026-09-25T12:00:00.000Z")
+    expect(new Date(selected.metrics.endUnix * 1000).toISOString()).toBe("2026-09-25T12:05:00.000Z")
+  })
+
+  test("parses a stored watermark and rejects non-integers", () => {
+    expect(parseWatermark(null)).toEqual({ ok: true, value: null })
+    expect(parseWatermark("1700000000")).toEqual({ ok: true, value: 1_700_000_000 })
+    expect(parseWatermark(" 1700000000 ")).toEqual({ ok: true, value: 1_700_000_000 })
+    expect(parseWatermark("")).toEqual({ ok: false })
+    expect(parseWatermark("12:00")).toEqual({ ok: false })
   })
 })
 

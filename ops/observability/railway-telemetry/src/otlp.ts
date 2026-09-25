@@ -3,6 +3,13 @@ import { deploymentEnvironment } from "./targets"
 const WINDOW_MS = 5 * 60 * 1000
 const SAMPLE_RATE_SECONDS = 60
 
+/** A long Redis outage must not turn one run into an unbounded Railway query. */
+export const MAX_LOOKBACK_SECONDS = 60 * 60
+
+// Railway stamps the 60s bucket at its start, and that bucket is still open
+// until the next minute. The query ends on the previous closed minute.
+export const METRICS_LAG_SECONDS = 60
+
 /** Railway's `_GB` measurements match the CLI's 1024-based MB conversion. */
 const BYTES_PER_GB = 1024 ** 3
 const USAGE_MEASUREMENTS = new Set(["CPU_USAGE", "MEMORY_USAGE_GB"])
@@ -17,7 +24,7 @@ export type MetricWindow = {
   sampleRateSeconds: number
 }
 
-/** Fixed [end-5m, end) with end floored to the 5-minute boundary. */
+/** Fixed [end-5m, end) with end floored to the 5-minute boundary. Used when Redis is unreachable. */
 export function metricWindow(nowMs: number): MetricWindow {
   const endMs = Math.floor(nowMs / WINDOW_MS) * WINDOW_MS
   return {
@@ -25,6 +32,68 @@ export function metricWindow(nowMs: number): MetricWindow {
     endUnix: Math.floor(endMs / 1000),
     sampleRateSeconds: SAMPLE_RATE_SECONDS,
   }
+}
+
+export type WatermarkMarks = {
+  metrics: number | null
+  logs: number | null
+}
+
+/** Last closed minute at least METRICS_LAG_SECONDS before now. */
+export function closedEndUnix(nowMs: number): number {
+  const lagged = Math.floor(nowMs / 1000) - METRICS_LAG_SECONDS
+  return Math.floor(lagged / SAMPLE_RATE_SECONDS) * SAMPLE_RATE_SECONDS
+}
+
+/**
+ * Half-open [start, end). Start is the second after the watermark, so samples
+ * in the window are strictly newer than the mark. A missing mark exports the
+ * usual 5 minutes. A mark older than the lookback cap is raised to end-60m.
+ */
+export function watermarkWindow(nowMs: number, watermarkUnix: number | null): MetricWindow {
+  const endUnix = closedEndUnix(nowMs)
+  const earliest = endUnix - MAX_LOOKBACK_SECONDS
+  const inclusiveStart = watermarkUnix === null ? endUnix - WINDOW_MS / 1000 : watermarkUnix + 1
+  const startUnix = Math.min(Math.max(inclusiveStart, earliest), endUnix)
+  return {
+    startUnix,
+    endUnix,
+    sampleRateSeconds: SAMPLE_RATE_SECONDS,
+  }
+}
+
+/** Redis down uses the fixed window for both signals and does not advance a mark. */
+export function selectWindows(
+  nowMs: number,
+  watermarks: WatermarkMarks | "fallback",
+): { metrics: MetricWindow; logs: MetricWindow; fallback: boolean } {
+  if (watermarks === "fallback") {
+    const fixed = metricWindow(nowMs)
+    return { metrics: fixed, logs: fixed, fallback: true }
+  }
+  return {
+    metrics: watermarkWindow(nowMs, watermarks.metrics),
+    logs: watermarkWindow(nowMs, watermarks.logs),
+    fallback: false,
+  }
+}
+
+/** Unix second to persist after a clean export. Null when the range is empty or already covered. */
+export function watermarkToStore(window: MetricWindow, previous: number | null): number | null {
+  if (window.startUnix >= window.endUnix) return null
+  const covered = window.endUnix - 1
+  if (previous !== null && covered <= previous) return null
+  return covered
+}
+
+/** Missing key → value null. Non-integer text → ok false, so the caller can ignore that key and replace it. */
+export function parseWatermark(raw: string | null): { ok: true; value: number | null } | { ok: false } {
+  if (raw === null) return { ok: true, value: null }
+  const trimmed = raw.trim()
+  if (!/^[0-9]+$/.test(trimmed)) return { ok: false }
+  const value = Number(trimmed)
+  if (!Number.isSafeInteger(value)) return { ok: false }
+  return { ok: true, value }
 }
 
 export function unixSecondsToIso(seconds: number): string {

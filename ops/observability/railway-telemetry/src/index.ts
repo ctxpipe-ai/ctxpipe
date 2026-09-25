@@ -5,17 +5,24 @@ import {
   mergeMetrics,
   mapLogsToOtlp,
   mapMetricsToOtlp,
-  metricWindow,
   otlpSignalUrl,
   parseOtlpHeaders,
   railwaySkipError,
+  selectWindows,
   selfHealthLog,
   unixSecondsToIso,
+  watermarkToStore,
   type MetricWindow,
   type OtlpLogsRequest,
   type OtlpMetricsRequest,
 } from "./otlp"
-import { collectRedisMetrics } from "./redis"
+import {
+  collectRedisMetrics,
+  LOGS_WATERMARK_KEY,
+  METRICS_WATERMARK_KEY,
+  readWatermarks,
+  writeWatermark,
+} from "./redis"
 import { LOG_LINE_CAP, RailwayClient } from "./railway"
 import { includeEnvironment, OWN_SERVICE_NAME, PROJECTS } from "./targets"
 
@@ -27,22 +34,36 @@ async function main(): Promise<void> {
   }
 
   const headers = parseOtlpHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS)
-  const window = metricWindow(Date.now())
-  const observedUnixNano = (BigInt(Date.now()) * 1_000_000n).toString()
+  const nowMs = Date.now()
+  const observedUnixNano = (BigInt(nowMs) * 1_000_000n).toString()
+  const redisUrl = process.env.REDIS_URL
+  const windows = await loadWatermarks(redisUrl, nowMs)
   const metricPayloads: OtlpMetricsRequest[] = []
   const logPayloads: OtlpLogsRequest[] = []
 
-  const redisWarning = await readRedis(observedUnixNano, metricPayloads)
+  const infoWarning = await readRedis(observedUnixNano, metricPayloads)
+  const redisWarning = joinWarnings(infoWarning, windows.warning)
 
   let environments = 0
   let logsCapped = false
   let environmentFailures = 0
+  let metricsFailures = 0
+  let logsFailures = 0
   let railwayError = railwaySkipError(process.env.RAILWAY_API_TOKEN)
+  const skippedRailway = railwayError !== null
   if (!railwayError) {
-    const collected = await collectRailway(process.env.RAILWAY_API_TOKEN ?? "", window, metricPayloads, logPayloads)
+    const collected = await collectRailway(
+      process.env.RAILWAY_API_TOKEN ?? "",
+      windows.metrics,
+      windows.logs,
+      metricPayloads,
+      logPayloads,
+    )
     environments = collected.environments
     logsCapped = collected.logsCapped
     environmentFailures = collected.failures.length
+    metricsFailures = collected.metricsFailures
+    logsFailures = collected.logsFailures
     if (environmentFailures > 0) railwayError = formatEnvFailures(collected.failures)
   }
 
@@ -61,17 +82,25 @@ async function main(): Promise<void> {
       environmentFailures,
       redisWarning,
       railwayError,
-      windowStartIso: unixSecondsToIso(window.startUnix),
-      windowEndIso: unixSecondsToIso(window.endUnix),
+      windowStartIso: unixSecondsToIso(Math.min(windows.metrics.startUnix, windows.logs.startUnix)),
+      windowEndIso: unixSecondsToIso(Math.max(windows.metrics.endUnix, windows.logs.endUnix)),
     }),
   ])
 
   if (metricPoints > 0) {
     await pushOtlp(otlpSignalUrl(endpoint, "metrics"), metrics, headers)
   }
+  // A failed signal keeps its mark so the next run retries that range. A Redis
+  // fallback does not write, or it would skip the gap the fixed window missed.
+  if (!skippedRailway && metricsFailures === 0) {
+    await storeWatermark(redisUrl, windows, METRICS_WATERMARK_KEY, windows.metrics, windows.metricsMark)
+  }
   await pushOtlp(otlpSignalUrl(endpoint, "logs"), logs, headers)
+  if (!skippedRailway && logsFailures === 0) {
+    await storeWatermark(redisUrl, windows, LOGS_WATERMARK_KEY, windows.logs, windows.logsMark)
+  }
   console.log(
-    `railway-telemetry exported metric_points=${metricPoints} log_records=${logRecords} environments=${environments} logs_capped=${logsCapped} environment_failures=${environmentFailures} redis=${redisWarning ? "warn" : "ok"} railway=${railwayError ? "error" : "ok"}`,
+    `railway-telemetry exported metric_points=${metricPoints} log_records=${logRecords} environments=${environments} logs_capped=${logsCapped} environment_failures=${environmentFailures} redis=${redisWarning ? "warn" : "ok"} railway=${railwayError ? "error" : "ok"} watermark=${windows.fallback ? "fallback" : "redis"} metrics_window=${unixSecondsToIso(windows.metrics.startUnix)}/${unixSecondsToIso(windows.metrics.endUnix)} logs_window=${unixSecondsToIso(windows.logs.startUnix)}/${unixSecondsToIso(windows.logs.endUnix)}`,
   )
   if (railwayError) {
     console.error(railwayError)
@@ -81,13 +110,22 @@ async function main(): Promise<void> {
 
 async function collectRailway(
   token: string,
-  window: MetricWindow,
+  metricsWindow: MetricWindow,
+  logsWindow: MetricWindow,
   metricPayloads: OtlpMetricsRequest[],
   logPayloads: OtlpLogsRequest[],
-): Promise<{ environments: number; logsCapped: boolean; failures: { environment: string; message: string }[] }> {
+): Promise<{
+  environments: number
+  logsCapped: boolean
+  failures: { environment: string; message: string }[]
+  metricsFailures: number
+  logsFailures: number
+}> {
   const client = new RailwayClient(token)
   let environments = 0
   let logsCapped = false
+  let metricsFailures = 0
+  let logsFailures = 0
   const failures: { environment: string; message: string }[] = []
   for (const project of PROJECTS) {
     let inventory: Awaited<ReturnType<RailwayClient["project"]>>
@@ -97,6 +135,8 @@ async function collectRailway(
       const message = errorMessage(err)
       console.warn(`railway-telemetry: ${project.fallbackName}: ${message}`)
       failures.push({ environment: project.fallbackName, message })
+      metricsFailures += 1
+      if (project.collectLogs) logsFailures += 1
       continue
     }
     const projectName = inventory.name || project.fallbackName
@@ -106,25 +146,28 @@ async function collectRailway(
       environments += 1
       const label = `${projectName}/${environment.name}`
       const notes: string[] = []
-      try {
-        const series = await client.metrics(environment.id, window)
-        metricPayloads.push(
-          mapMetricsToOtlp({
-            projectId: project.id,
-            projectName,
-            environmentId: environment.id,
-            railwayEnvironmentName: environment.name,
-            serviceNames,
-            series,
-            window,
-          }),
-        )
-      } catch (err: unknown) {
-        notes.push(`metrics: ${errorMessage(err)}`)
-      }
-      if (project.collectLogs) {
+      if (metricsWindow.startUnix < metricsWindow.endUnix) {
         try {
-          const fetched = await client.environmentLogs(environment.id, window, LOG_LINE_CAP)
+          const series = await client.metrics(environment.id, metricsWindow)
+          metricPayloads.push(
+            mapMetricsToOtlp({
+              projectId: project.id,
+              projectName,
+              environmentId: environment.id,
+              railwayEnvironmentName: environment.name,
+              serviceNames,
+              series,
+              window: metricsWindow,
+            }),
+          )
+        } catch (err: unknown) {
+          notes.push(`metrics: ${errorMessage(err)}`)
+          metricsFailures += 1
+        }
+      }
+      if (project.collectLogs && logsWindow.startUnix < logsWindow.endUnix) {
+        try {
+          const fetched = await client.environmentLogs(environment.id, logsWindow, LOG_LINE_CAP)
           if (fetched.capped) {
             logsCapped = true
             console.warn(`railway-telemetry: environment logs capped at ${LOG_LINE_CAP} for ${label} (${environment.id})`)
@@ -137,12 +180,13 @@ async function collectRailway(
               railwayEnvironmentName: environment.name,
               serviceNames,
               logs: fetched.logs,
-              window,
+              window: logsWindow,
               skipServiceName: OWN_SERVICE_NAME,
             }),
           )
         } catch (err: unknown) {
           notes.push(`logs: ${errorMessage(err)}`)
+          logsFailures += 1
         }
       }
       if (notes.length > 0) {
@@ -152,7 +196,63 @@ async function collectRailway(
       }
     }
   }
-  return { environments, logsCapped, failures }
+  return { environments, logsCapped, failures, metricsFailures, logsFailures }
+}
+
+type WatermarkLoad = {
+  metrics: MetricWindow
+  logs: MetricWindow
+  fallback: boolean
+  warning: string | null
+  metricsMark: number | null
+  logsMark: number | null
+}
+
+async function loadWatermarks(redisUrl: string | undefined, nowMs: number): Promise<WatermarkLoad> {
+  if (!redisUrl) {
+    const selected = selectWindows(nowMs, "fallback")
+    return { ...selected, warning: null, metricsMark: null, logsMark: null }
+  }
+  try {
+    const stored = await readWatermarks(redisUrl)
+    if (stored.invalidKeys.length > 0) {
+      console.warn(`railway-telemetry: ignoring invalid redis watermark: ${stored.invalidKeys.join(", ")}`)
+    }
+    const selected = selectWindows(nowMs, stored)
+    return {
+      ...selected,
+      warning: null,
+      metricsMark: stored.metrics,
+      logsMark: stored.logs,
+    }
+  } catch (err: unknown) {
+    const message = `redis watermark unavailable, using fixed window: ${errorMessage(err)}`
+    console.warn(`railway-telemetry: ${message}`)
+    const selected = selectWindows(nowMs, "fallback")
+    return { ...selected, warning: message, metricsMark: null, logsMark: null }
+  }
+}
+
+async function storeWatermark(
+  redisUrl: string | undefined,
+  loaded: WatermarkLoad,
+  key: string,
+  window: MetricWindow,
+  previous: number | null,
+): Promise<void> {
+  if (!redisUrl || loaded.fallback) return
+  const next = watermarkToStore(window, previous)
+  if (next === null) return
+  try {
+    await writeWatermark(redisUrl, key, next)
+  } catch (err: unknown) {
+    console.warn(`railway-telemetry: redis watermark write failed: ${errorMessage(err)}`)
+  }
+}
+
+function joinWarnings(left: string | null, right: string | null): string | null {
+  const parts = [left, right].filter((part): part is string => Boolean(part))
+  return parts.length > 0 ? parts.join("; ") : null
 }
 
 function formatEnvFailures(failures: { environment: string; message: string }[]): string {

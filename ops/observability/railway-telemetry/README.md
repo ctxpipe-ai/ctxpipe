@@ -5,16 +5,20 @@ Cron in `ctxpipe-observability`. Every 5 minutes it starts, exports, and exits (
 One run:
 
 - Railway GraphQL `metrics` for observability `production`, product `production`, and every product `pr-*` environment. Gauges: `railway.cpu.usage`, `railway.cpu.limit` (cores), `railway.memory.usage`, `railway.memory.limit`, `railway.network.rx`, `railway.network.tx`, `railway.disk.usage` (bytes). Network rx/tx is the public bytes in that 60s sample, not a cumulative counter and not private-network traffic. The API read does not start a service. One environment failing does not stop the others; the self log counts `railway.telemetry.environment_failures` and the process still exits 1.
-- Observability `environmentLogs` for the same window (runtime stdout, cap 5000 lines). Build logs are not requested. Lines for this service are skipped. Product project logs are not collected.
+- Observability `environmentLogs` for that signal's window (runtime stdout, cap 5000 lines). Build logs are not requested. Lines for this service are skipped. Product project logs are not collected.
 - Redis `INFO` on `REDIS_URL`. The ClickStack collector image has no redis receiver. Levels (memory, clients, uptime, db keys) are gauges. Commands, keyspace hits/misses, and connections received are monotonic sums.
 
 Project ids are in [`src/targets.ts`](./src/targets.ts). OTLP goes to the private collector.
 
 ## Window
 
-`metricWindow` floors the end to the last 5-minute boundary. The window is `[end-5m, end)`, sampled every 60s. Points outside that range are dropped. The last sample at a timestamp wins. The Railway query asks for one extra sample before `start`, because `startDate` can be exclusive.
+Each signal keeps a high-water mark in Redis on the same `REDIS_URL` as `INFO`: `railway-telemetry:watermark:metrics` and `railway-telemetry:watermark:logs`. The value is the last unix second already exported.
 
-A run exports only that one window. There is no backfill. A failed run drops its 5 minutes. If the container starts after the next boundary, it exports the newer window and the one before it is not exported. Fetching the previous window as well would duplicate points (ClickHouse keeps both), and this job does not record which window already landed.
+A run queries `(watermark, end)`. `end` is the last closed minute at least 60s before now, because Railway stamps a 60s bucket at its start and that bucket is still open until the next minute. The start is the second after the mark, and it is never older than 60 minutes before `end`, so a long outage cannot pull more than that. Samples and log lines in the half-open window are strictly newer than the mark. After a clean export of that signal, the mark advances to `end - 1`. A signal that failed to fetch keeps its mark so the next run retries it.
+
+The first run (no key) exports the 5 minutes before `end`. If Redis cannot be reached, the run uses the fixed `[end-5m, end)` window aligned to the 5-minute boundary, logs a warning, and does not write a mark.
+
+Points outside `[start, end)` are dropped. The last sample at a timestamp wins. The Railway query asks for one extra sample before `start`, because `startDate` can be exclusive.
 
 ## Series that are dropped
 
@@ -32,7 +36,7 @@ A measurement is kept only when its `serviceId` is in that project's service lis
 | --- | --- | --- |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | yes | Collector base URL (`http://collector.railway.internal:4318`). Process exits 1 if unset |
 | `OTEL_EXPORTER_OTLP_HEADERS` | with the collector | `authorization=<HYPERDX_API_KEY>` |
-| `REDIS_URL` | for Redis gauges | `redis://redis.railway.internal:6379`. Unset: Redis metrics are skipped, a warning is logged, the run continues |
+| `REDIS_URL` | for Redis gauges and the export watermarks | `redis://redis.railway.internal:6379`. Unset: Redis metrics are skipped, the run uses the fixed 5-minute window, a warning is logged, and the run continues |
 | `RAILWAY_API_TOKEN` | for Railway metrics and logs | Workspace token that can read both projects |
 
 Without `RAILWAY_API_TOKEN`, Redis `INFO` and a WARN self-log still export, Railway metrics and environment logs are skipped, and the process exits 1.
