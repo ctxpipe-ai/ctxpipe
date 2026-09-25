@@ -47,11 +47,66 @@ export function deepestRouteId(
   return matches[matches.length - 1]?.routeId ?? ""
 }
 
-/** First path segment when it is an org slug. Dot-routes (`/.auth`, `/.otel`) are not orgs. */
-export function orgSlugFromPathname(pathname: string): string {
-  const firstSegment = pathname.split("/").filter(Boolean)[0]
-  if (!firstSegment || firstSegment.startsWith(".")) return ""
-  return firstSegment
+export type HyperDxRouteMatch = {
+  routeId: string
+  params?: { orgSlug?: unknown }
+}
+
+/** Org slug from the `/$orgSlug` match param. `/onboarding` and `/.auth/*` are not orgs. */
+export function orgSlugFromMatches(
+  matches: readonly HyperDxRouteMatch[] | undefined,
+): string {
+  if (!matches) return ""
+  for (let index = matches.length - 1; index >= 0; index--) {
+    const slug = matches[index]?.params?.orgSlug
+    if (typeof slug === "string" && slug.length > 0) return slug
+  }
+  return ""
+}
+
+export function hyperdxPageViewFromMatches(input: {
+  pathname: string
+  matches: readonly HyperDxRouteMatch[] | undefined
+}): HyperDxPageViewAttributes {
+  return hyperdxPageViewAttributes({
+    path: input.pathname,
+    routeId: deepestRouteId(input.matches),
+    orgSlug: orgSlugFromMatches(input.matches),
+  })
+}
+
+export type HyperDxOrgRef = { id: string; slug: string }
+
+/**
+ * Prefer the org in the URL. If that slug is not in the list yet, still keep
+ * the slug. Otherwise use the session's active organization.
+ */
+export function resolveHyperDxTeam(input: {
+  orgSlugFromRoute: string
+  organizations: readonly HyperDxOrgRef[] | undefined
+  activeOrganizationId: string
+}): { teamId: string; teamName: string } {
+  const organizations = input.organizations ?? []
+  if (input.orgSlugFromRoute) {
+    const fromRoute = organizations.find(
+      (org) => org.slug === input.orgSlugFromRoute,
+    )
+    if (fromRoute) return { teamId: fromRoute.id, teamName: fromRoute.slug }
+    return { teamId: "", teamName: input.orgSlugFromRoute }
+  }
+  if (input.activeOrganizationId) {
+    const active = organizations.find(
+      (org) => org.id === input.activeOrganizationId,
+    )
+    if (active) return { teamId: active.id, teamName: active.slug }
+  }
+  return { teamId: "", teamName: "" }
+}
+
+export function readActiveOrganizationId(session: unknown): string {
+  if (!session || typeof session !== "object") return ""
+  const value = Reflect.get(session, "activeOrganizationId")
+  return typeof value === "string" ? value : ""
 }
 
 const HYPERDX_SIGN_IN_PATHS = new Set([
