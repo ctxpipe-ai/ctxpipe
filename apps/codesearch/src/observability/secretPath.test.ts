@@ -3,8 +3,8 @@ import { applyRedactedSecretPaths, redactSecretPath } from "./secretPath.js"
 
 /**
  * Same fixtures as `apps/backend/src/observability/logContract.test.ts`.
- * `apps/backend/src/observability/secretPath.parity.test.ts` checks that this
- * copy matches the backend one.
+ * `apps/backend/src/observability/codesearchCopies.parity.test.ts` checks that
+ * this copy matches the backend one.
  */
 const token = "RVPATHPROBE1790327887NOTASECRET"
 const invitationId = "inv_secret_capability"
