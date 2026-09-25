@@ -111,7 +111,9 @@ jobs:
 
       - name: Terraform plan
         id: plan
-        run: terraform plan -no-color -input=false -lock-timeout=10m -out=terraform.plan | tee plan.txt
+        run: |
+          set -o pipefail
+          terraform plan -no-color -input=false -lock-timeout=10m -out=terraform.plan | tee plan.txt
 
       - name: Refuse destructive observability plan
         id: guard

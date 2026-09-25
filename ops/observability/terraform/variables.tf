@@ -35,7 +35,7 @@ variable "github_repo" {
 
 variable "github_repo_branch" {
   type        = string
-  description = "Branch the Railway GitHub integration builds from. Use this PR branch for the first apply; switch to main after merge."
+  description = "Branch the Railway GitHub integration builds from. The observability workflow plans and applies with main."
   default     = "main"
 }
 
