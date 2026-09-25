@@ -21,6 +21,7 @@ import {
 import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions"
 import type { Env } from "../config/env.js"
 import { copyAttributionToSpan, propagationHeaders } from "./attribution.js"
+import { BetterAuthSpanFilter } from "./betterAuthSpanFilter.js"
 import { FlushOnDemandMetricReader } from "./flushOnDemandMetricReader.js"
 import { LangfuseContextSpanProcessor } from "./langfuseContextProcessor.js"
 import {
@@ -130,13 +131,8 @@ export function initOtel(env: Env): void {
         },
       },
       new LangfuseContextSpanProcessor(),
-      // BetterAuthSpanFilter wraps the exporter only. Insert it here,
-      // inside this filter, around BatchSpanProcessor:
-      // new DropParentlessAutoInstrumentationSpans(
-      //   new BetterAuthSpanFilter(new BatchSpanProcessor(traceExporter)),
-      // )
       new DropParentlessAutoInstrumentationSpans(
-        new BatchSpanProcessor(traceExporter),
+        new BetterAuthSpanFilter(new BatchSpanProcessor(traceExporter)),
       ),
     ],
     instrumentations,

@@ -1,10 +1,9 @@
-import {
-  type Context,
-  isSpanContextValid,
-  type Span,
-  SpanKind,
-} from "@opentelemetry/api"
-import type { ReadableSpan, SpanProcessor } from "@opentelemetry/sdk-trace-base"
+import { type Context, isSpanContextValid, SpanKind } from "@opentelemetry/api"
+import type {
+  ReadableSpan,
+  Span,
+  SpanProcessor,
+} from "@opentelemetry/sdk-trace-base"
 
 /**
  * better-auth 1.6.23 starts every auth operation on tracer scope `better-auth`
@@ -32,8 +31,7 @@ export class BetterAuthSpanFilter implements SpanProcessor {
   constructor(private readonly next: SpanProcessor) {}
 
   onStart(span: Span, parentContext: Context): void {
-    const readable = span as Span & ReadableSpan
-    if (isAuthHttpServerSpan(readable)) {
+    if (isAuthHttpServerSpan(span)) {
       this.authServerSpanIds.add(span.spanContext().spanId)
     }
     this.next.onStart(span, parentContext)
