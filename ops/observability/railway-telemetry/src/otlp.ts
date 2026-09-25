@@ -5,6 +5,7 @@ const SAMPLE_RATE_SECONDS = 60
 
 /** Railway's `_GB` measurements match the CLI's 1024-based MB conversion. */
 const BYTES_PER_GB = 1024 ** 3
+const USAGE_MEASUREMENTS = new Set(["CPU_USAGE", "MEMORY_USAGE_GB"])
 
 export function gbToBytes(gb: number): number {
   return gb * BYTES_PER_GB
@@ -159,6 +160,55 @@ export function dedupeSamples(
     .map(([ts, value]) => ({ ts, value }))
 }
 
+const LEVEL_TOKENS = new Set(["warn", "warning", "error", "err", "fatal", "panic", "critical"])
+
+/** Railway stores structured attribute values as JSON text (`"info"`, objects). Strings become plain text; objects stay JSON. */
+export function plainLogAttributeValue(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) return value
+  try {
+    const parsed: unknown = JSON.parse(trimmed)
+    if (typeof parsed === "string" || typeof parsed === "number" || typeof parsed === "boolean") return String(parsed)
+  } catch {
+    return value
+  }
+  return value
+}
+
+function severityFromMessage(message: string): { severityNumber: number; severityText: string } | null {
+  const trimmed = message.trim()
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed)
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const record = parsed as Record<string, unknown>
+        const level = record.level ?? record.severity
+        if (typeof level === "string") return mapSeverity(level)
+      }
+    } catch {
+      // Not a JSON line. Fall through to a prefixed level token.
+    }
+  }
+  const fields = trimmed.includes("\t") ? trimmed.split("\t") : trimmed.split(/\s+/).slice(0, 1)
+  for (const field of fields) {
+    const token = field.trim().toLowerCase().replace(/:$/, "")
+    if (LEVEL_TOKENS.has(token)) return mapSeverity(token)
+  }
+  return null
+}
+
+/** Railway often labels collector lines info. A JSON level or a warn/error field overrides that. */
+export function resolveLogSeverity(
+  railwaySeverity: string | null | undefined,
+  message: string,
+): { severityNumber: number; severityText: string } {
+  const fromRailway = mapSeverity(railwaySeverity)
+  if (fromRailway.severityText !== "INFO") return fromRailway
+  const fromMessage = severityFromMessage(message)
+  if (!fromMessage || fromMessage.severityText === "INFO") return fromRailway
+  return fromMessage
+}
+
 export function mapSeverity(severity: string | null | undefined): {
   severityNumber: number
   severityText: string
@@ -215,17 +265,26 @@ export function mapMetricsToOtlp(input: {
     gauges: Map<string, { unit: string; points: Map<number, number> }>
   }
   const buckets = new Map<string, Bucket>()
+  const liveRegions = new Map<string, Set<string> | null>()
 
   for (const series of input.series) {
     const spec = MEASUREMENTS[series.measurement]
     if (!spec || !series.serviceId) continue
+    const serviceName = input.serviceNames[series.serviceId]
+    if (!serviceName) continue
     const region = series.region || null
+    let live = liveRegions.get(series.serviceId)
+    if (live === undefined) {
+      live = usageRegions(input.series, series.serviceId, input.window)
+      liveRegions.set(series.serviceId, live)
+    }
+    if (live && !live.has(region ?? "")) continue
     const key = `${series.serviceId}\0${region ?? ""}`
     let bucket = buckets.get(key)
     if (!bucket) {
       bucket = {
         serviceId: series.serviceId,
-        serviceName: input.serviceNames[series.serviceId] ?? series.serviceId,
+        serviceName,
         region,
         gauges: new Map(),
       }
@@ -276,6 +335,22 @@ export function mapMetricsToOtlp(input: {
   return { resourceMetrics }
 }
 
+/** Regions with in-window CPU or memory usage. Null means there is no usage signal, so other measurements are kept. */
+function usageRegions(
+  series: MetricSeries[],
+  serviceId: string,
+  window: Pick<MetricWindow, "startUnix" | "endUnix">,
+): Set<string> | null {
+  const regions = new Set<string>()
+  for (const item of series) {
+    if (item.serviceId !== serviceId || !item.measurement || !USAGE_MEASUREMENTS.has(item.measurement)) continue
+    if (dedupeSamples(item.values, window).length === 0) continue
+    if (!item.region) return null
+    regions.add(item.region)
+  }
+  return regions.size > 0 ? regions : null
+}
+
 export function mapLogsToOtlp(input: {
   projectId: string
   projectName: string
@@ -299,13 +374,13 @@ export function mapLogsToOtlp(input: {
     if (!timeUnixNano) continue
     const nanos = BigInt(timeUnixNano)
     if (nanos < startNano || nanos >= endNano) continue
-    const severity = mapSeverity(log.severity)
+    const severity = resolveLogSeverity(log.severity, log.message)
     const attributes: OtlpAttribute[] = []
     const seen = new Set<string>()
     for (const attribute of log.attributes) {
       if (!attribute.key || seen.has(attribute.key)) continue
       seen.add(attribute.key)
-      attributes.push(stringAttr(attribute.key, attribute.value))
+      attributes.push(stringAttr(attribute.key, plainLogAttributeValue(attribute.value)))
     }
     if (log.deploymentId && !seen.has("railway.deployment.id")) {
       attributes.push(stringAttr("railway.deployment.id", log.deploymentId))
@@ -363,18 +438,20 @@ export function selfHealthLog(input: {
   logRecords: number
   environments: number
   logsCapped: boolean
+  environmentFailures: number
   redisWarning: string | null
   railwayError: string | null
   windowStartIso: string
   windowEndIso: string
 }): OtlpLogsRequest {
   const redisOk = input.redisWarning === null
-  const railwayOk = input.railwayError === null
+  const railwayOk = input.railwayError === null && input.environmentFailures === 0
   const attributes: OtlpAttribute[] = [
     { key: "railway.telemetry.metric_points", value: { intValue: String(input.metricPoints) } },
     { key: "railway.telemetry.log_records", value: { intValue: String(input.logRecords) } },
     { key: "railway.telemetry.environments", value: { intValue: String(input.environments) } },
     { key: "railway.telemetry.logs_capped", value: { boolValue: input.logsCapped } },
+    { key: "railway.telemetry.environment_failures", value: { intValue: String(input.environmentFailures) } },
     { key: "railway.telemetry.redis_ok", value: { boolValue: redisOk } },
     stringAttr("railway.telemetry.window_start", input.windowStartIso),
     stringAttr("railway.telemetry.window_end", input.windowEndIso),
@@ -382,7 +459,7 @@ export function selfHealthLog(input: {
   if (input.redisWarning) attributes.push(stringAttr("railway.telemetry.redis_error", input.redisWarning))
   if (input.railwayError) attributes.push(stringAttr("railway.telemetry.railway_error", input.railwayError))
   const redisStatus = redisOk ? "redis=ok" : `redis_error=${input.redisWarning}`
-  const railwayStatus = railwayOk ? "railway=ok" : `railway_error=${input.railwayError}`
+  const railwayStatus = railwayOk ? "railway=ok" : `railway_error=${input.railwayError ?? "environment failures"}`
   const healthy = redisOk && railwayOk
   return {
     resourceLogs: [
@@ -402,7 +479,7 @@ export function selfHealthLog(input: {
                 severityNumber: healthy ? 9 : 13,
                 severityText: healthy ? "INFO" : "WARN",
                 body: {
-                  stringValue: `railway-telemetry window ${input.windowStartIso}/${input.windowEndIso} metric_points=${input.metricPoints} log_records=${input.logRecords} environments=${input.environments} logs_capped=${input.logsCapped} ${redisStatus} ${railwayStatus}`,
+                  stringValue: `railway-telemetry window ${input.windowStartIso}/${input.windowEndIso} metric_points=${input.metricPoints} log_records=${input.logRecords} environments=${input.environments} logs_capped=${input.logsCapped} environment_failures=${input.environmentFailures} ${redisStatus} ${railwayStatus}`,
                 },
                 attributes,
               },

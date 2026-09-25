@@ -8,6 +8,8 @@ import {
   mapSeverity,
   metricWindow,
   parseOtlpHeaders,
+  plainLogAttributeValue,
+  resolveLogSeverity,
   rfc3339ToUnixNano,
   railwaySkipError,
   RAILWAY_TOKEN_REQUIRED,
@@ -69,7 +71,7 @@ describe("units", () => {
       unit: "{cpu}",
       gauge: { dataPoints: [{ asDouble: 0.5, timeUnixNano: `${WINDOW.startUnix}000000000` }] },
     })
-    expect(metrics.find((metric) => metric.name === "railway.memory.usage")?.gauge.dataPoints[0]?.asDouble).toBe(
+    expect(metrics.find((metric) => metric.name === "railway.memory.usage")?.gauge?.dataPoints[0]?.asDouble).toBe(
       gbToBytes(0.25),
     )
     expect(metrics.find((metric) => metric.name === "railway.memory.usage")?.unit).toBe("By")
@@ -168,7 +170,7 @@ describe("sample timestamps", () => {
       window: WINDOW,
       series: [series],
     })
-    const points = payload.resourceMetrics[0]?.scopeMetrics[0]?.metrics[0]?.gauge.dataPoints ?? []
+    const points = payload.resourceMetrics[0]?.scopeMetrics[0]?.metrics[0]?.gauge?.dataPoints ?? []
     expect(points.map((point) => point.asDouble)).toEqual([gbToBytes(1), gbToBytes(3), gbToBytes(6)])
     expect(countMetricPoints(payload)).toBe(3)
   })
@@ -276,6 +278,70 @@ describe("resource attributes", () => {
       "europe-west4-drams3a": 2,
     })
   })
+
+  test("drops unknown services and regions that have no cpu or memory in the window", () => {
+    const payload = mapMetricsToOtlp({
+      projectId: OBSERVABILITY_PROJECT_ID,
+      projectName: "ctxpipe-observability",
+      environmentId: "env-obs",
+      railwayEnvironmentName: "production",
+      serviceNames: { ch: "clickhouse" },
+      window: WINDOW,
+      series: [
+        {
+          measurement: "CPU_USAGE",
+          serviceId: "ch",
+          region: "us-east4-eqdc16a",
+          values: [{ ts: WINDOW.startUnix, value: 0.1 }],
+        },
+        {
+          measurement: "DISK_USAGE_GB",
+          serviceId: "ch",
+          region: "us-east4-eqdc16a",
+          values: [{ ts: WINDOW.startUnix, value: 1 }],
+        },
+        {
+          measurement: "DISK_USAGE_GB",
+          serviceId: "ch",
+          region: "asia-southeast1-eqsg3a",
+          values: [{ ts: WINDOW.startUnix, value: 2 }],
+        },
+        {
+          measurement: "DISK_USAGE_GB",
+          serviceId: "00000000-0000-0000-0000-000000000000",
+          region: "asia-southeast1-eqsg3a",
+          values: [{ ts: WINDOW.startUnix, value: 0.01 }],
+        },
+      ],
+    })
+    expect(payload.resourceMetrics).toHaveLength(1)
+    const resource = payload.resourceMetrics[0]
+    expect(attr(resource?.resource.attributes ?? [], "service.name")).toEqual({ stringValue: "clickhouse" })
+    expect(attr(resource?.resource.attributes ?? [], "railway.region")).toEqual({ stringValue: "us-east4-eqdc16a" })
+    const disk = resource?.scopeMetrics[0]?.metrics.find((metric) => metric.name === "railway.disk.usage")
+    expect(disk?.gauge?.dataPoints[0]?.asDouble).toBe(gbToBytes(1))
+  })
+
+  test("keeps a disk series when the service has no cpu or memory samples", () => {
+    const payload = mapMetricsToOtlp({
+      projectId: OBSERVABILITY_PROJECT_ID,
+      projectName: "ctxpipe-observability",
+      environmentId: "env-obs",
+      railwayEnvironmentName: "production",
+      serviceNames: { vol: "clickhouse" },
+      window: WINDOW,
+      series: [
+        {
+          measurement: "DISK_USAGE_GB",
+          serviceId: "vol",
+          region: "asia-southeast1-eqsg3a",
+          values: [{ ts: WINDOW.startUnix, value: 3 }],
+        },
+      ],
+    })
+    expect(payload.resourceMetrics).toHaveLength(1)
+    expect(payload.resourceMetrics[0]?.scopeMetrics[0]?.metrics[0]?.gauge?.dataPoints[0]?.asDouble).toBe(gbToBytes(3))
+  })
 })
 
 describe("logs", () => {
@@ -350,6 +416,26 @@ describe("logs", () => {
     })
   })
 
+  test("decodes JSON-quoted attribute strings and keeps object values", () => {
+    expect(plainLogAttributeValue('"info"')).toBe("info")
+    expect(plainLogAttributeValue('{"$date":"2020-01-01T00:00:00Z"}')).toBe('{"$date":"2020-01-01T00:00:00Z"}')
+    expect(plainLogAttributeValue("plain")).toBe("plain")
+  })
+
+  test("uses a JSON level or a warn/error field when Railway says info", () => {
+    expect(resolveLogSeverity("info", '{"level":"warn","message":"slow"}')).toEqual({
+      severityNumber: 13,
+      severityText: "WARN",
+    })
+    expect(resolveLogSeverity("info", '{"severity":"error","message":"down"}').severityText).toBe("ERROR")
+    expect(
+      resolveLogSeverity("info", "2026-09-25T12:00:01Z\twarn\tottl@v0.155.0/parser.go:413 failed to execute statement")
+        .severityText,
+    ).toBe("WARN")
+    expect(resolveLogSeverity("error", "info everything is fine").severityText).toBe("ERROR")
+    expect(resolveLogSeverity("info", "ready").severityText).toBe("INFO")
+  })
+
   test("self log uses railway-telemetry in the observability environment", () => {
     const payload = selfHealthLog({
       timeUnixNano: "1000",
@@ -357,6 +443,7 @@ describe("logs", () => {
       logRecords: 2,
       environments: 3,
       logsCapped: true,
+      environmentFailures: 0,
       redisWarning: null,
       railwayError: null,
       windowStartIso: "2026-09-25T12:00:00.000Z",
@@ -385,6 +472,7 @@ describe("logs", () => {
       logRecords: 0,
       environments: 1,
       logsCapped: false,
+      environmentFailures: 0,
       redisWarning: "redis INFO failed: connection refused",
       railwayError: null,
       windowStartIso: "2026-09-25T12:00:00.000Z",
@@ -415,6 +503,7 @@ describe("logs", () => {
       logRecords: 0,
       environments: 0,
       logsCapped: false,
+      environmentFailures: 0,
       redisWarning: null,
       railwayError: railwaySkipError(undefined),
       windowStartIso: "2026-09-25T12:00:00.000Z",

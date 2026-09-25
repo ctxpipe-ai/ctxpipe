@@ -90,16 +90,7 @@ export class RailwayClient {
         measurements: MEASUREMENTS,
       },
     )
-    return (data.metrics ?? []).map((series) => ({
-      measurement: series.measurement ?? "",
-      serviceId: series.tags?.serviceId || null,
-      region: series.tags?.region || null,
-      values: (series.values ?? []).flatMap((sample) => {
-        const ts = unixSeconds(sample.ts)
-        if (ts === null || typeof sample.value !== "number" || !Number.isFinite(sample.value)) return []
-        return [{ ts, value: sample.value }]
-      }),
-    }))
+    return parseMetricsPayload(data.metrics)
   }
 
   // environmentLogs is anchored: beforeDate is the oldest instant and anchorDate
@@ -146,17 +137,7 @@ export class RailwayClient {
         beforeLimit: limit,
       },
     )
-    const logs = (data.environmentLogs ?? []).map((log) => ({
-      timestamp: log.timestamp ?? "",
-      message: log.message ?? "",
-      severity: log.severity ?? null,
-      attributes: (log.attributes ?? []).flatMap((attribute) =>
-        attribute.key ? [{ key: attribute.key, value: attribute.value ?? "" }] : [],
-      ),
-      serviceId: log.tags?.serviceId || null,
-      deploymentId: log.tags?.deploymentId || null,
-    }))
-    return { logs, capped: logs.length >= limit }
+    return parseEnvironmentLogsPayload(data.environmentLogs, limit)
   }
 
   private async pages<T extends { id: string; name: string }>(
@@ -232,6 +213,50 @@ export class RailwayClient {
     if (body.data === undefined) throw new Error("Railway GraphQL returned no data")
     return body.data
   }
+}
+
+export type RailwayMetricRow = {
+  measurement?: string | null
+  tags?: { serviceId?: string | null; region?: string | null } | null
+  values?: { ts?: unknown; value?: unknown }[] | null
+}
+
+export type RailwayLogRow = {
+  timestamp?: string | null
+  message?: string | null
+  severity?: string | null
+  attributes?: { key?: string | null; value?: string | null }[] | null
+  tags?: { serviceId?: string | null; deploymentId?: string | null } | null
+}
+
+export function parseMetricsPayload(metrics: RailwayMetricRow[] | null | undefined): MetricSeries[] {
+  return (metrics ?? []).map((series) => ({
+    measurement: series.measurement ?? "",
+    serviceId: series.tags?.serviceId || null,
+    region: series.tags?.region || null,
+    values: (series.values ?? []).flatMap((sample) => {
+      const ts = unixSeconds(sample.ts)
+      if (ts === null || typeof sample.value !== "number" || !Number.isFinite(sample.value)) return []
+      return [{ ts, value: sample.value }]
+    }),
+  }))
+}
+
+export function parseEnvironmentLogsPayload(
+  environmentLogs: RailwayLogRow[] | null | undefined,
+  limit: number,
+): { logs: RailwayLogLine[]; capped: boolean } {
+  const logs = (environmentLogs ?? []).map((log) => ({
+    timestamp: log.timestamp ?? "",
+    message: log.message ?? "",
+    severity: log.severity ?? null,
+    attributes: (log.attributes ?? []).flatMap((attribute) =>
+      attribute.key ? [{ key: attribute.key, value: attribute.value ?? "" }] : [],
+    ),
+    serviceId: log.tags?.serviceId || null,
+    deploymentId: log.tags?.deploymentId || null,
+  }))
+  return { logs, capped: logs.length >= limit }
 }
 
 function unixSeconds(ts: unknown): number | null {
