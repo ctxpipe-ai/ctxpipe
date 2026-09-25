@@ -2,27 +2,53 @@ import HyperDX from "@hyperdx/browser"
 import {
   clearedHyperDxGlobalAttributes,
   type HyperDxGlobalAttributes,
+  type HyperDxOrgRef,
 } from "@/lib/hyperdxAttributes"
 import { noteHyperDxSessionIdentity } from "@/lib/hyperdxQueryErrors"
 
 const IDENTITY_STORAGE_KEY = "ctxpipe.hyperdx.identity"
 const SESSION_MARKER_KEY = "ctxpipe.hd.session"
 
-type CachedIdentity = HyperDxGlobalAttributes & { sessionKey: string }
+type CachedIdentity = HyperDxGlobalAttributes & {
+  sessionKey: string
+  orgs: HyperDxOrgRef[]
+}
 
 function currentPathname(): string {
   if (typeof window === "undefined") return ""
   return window.location?.pathname ?? ""
 }
 
-function isAuthBoundaryPath(): boolean {
-  const pathname = currentPathname()
+function isAuthBoundaryPath(pathname: string): boolean {
   return (
     pathname === "/.auth/sign-in" ||
     pathname === "/.auth/sign-out" ||
     pathname.startsWith("/.auth/sign-in/") ||
     pathname.startsWith("/.auth/sign-out/")
   )
+}
+
+/** First segment of `/$orgSlug`, ignoring dot-routes and onboarding. */
+export function orgSlugFromPathname(pathname: string): string {
+  const segment =
+    pathname.split("?")[0]?.split("#")[0]?.split("/").filter(Boolean)[0] ?? ""
+  if (!segment || segment.startsWith(".") || segment === "onboarding") return ""
+  return segment
+}
+
+function readOrgList(value: unknown): HyperDxOrgRef[] {
+  if (!Array.isArray(value)) return []
+  const orgs: HyperDxOrgRef[] = []
+  for (const item of value) {
+    if (typeof item !== "object" || item === null) continue
+    const id = Reflect.get(item, "id")
+    const slug = Reflect.get(item, "slug")
+    if (typeof id !== "string" || typeof slug !== "string" || !id || !slug) {
+      continue
+    }
+    orgs.push({ id, slug })
+  }
+  return orgs
 }
 
 function readSessionMarker(): string | null {
@@ -73,24 +99,35 @@ function readIdentityCache(): CachedIdentity | null {
       teamId: parsed.teamId,
       teamName: parsed.teamName,
       sessionKey: parsed.sessionKey,
+      orgs: readOrgList(parsed.orgs),
     }
   } catch {
     return null
   }
 }
 
-function writeIdentityCache(attributes: HyperDxGlobalAttributes): void {
+function writeIdentityCache(
+  attributes: HyperDxGlobalAttributes,
+  organizations?: readonly HyperDxOrgRef[],
+): void {
   if (typeof sessionStorage === "undefined") return
   const cached = readIdentityCache()
   const marker = readSessionMarker()
-  const sessionKey =
-    marker &&
-    cached &&
+  const sameUser =
+    Boolean(marker) &&
+    cached !== null &&
     cached.userId === attributes.userId &&
     cached.sessionKey === marker
-      ? marker
-      : crypto.randomUUID()
+  const sessionKey = sameUser && marker ? marker : crypto.randomUUID()
   writeSessionMarker(sessionKey)
+  const orgs =
+    organizations === undefined
+      ? sameUser
+        ? (cached?.orgs ?? [])
+        : []
+      : organizations.flatMap((org) =>
+          org.id && org.slug ? [{ id: org.id, slug: org.slug }] : [],
+        )
   try {
     sessionStorage.setItem(
       IDENTITY_STORAGE_KEY,
@@ -99,6 +136,7 @@ function writeIdentityCache(attributes: HyperDxGlobalAttributes): void {
         teamId: attributes.teamId,
         teamName: attributes.teamName,
         sessionKey,
+        orgs,
       }),
     )
   } catch {
@@ -120,9 +158,8 @@ function clearIdentityCache(): void {
   clearSessionMarker()
 }
 
-/** Ids cached from the last signed-in page, applied before the session request returns. */
-export function readCachedHyperDxIdentity(): HyperDxGlobalAttributes | null {
-  if (isAuthBoundaryPath()) {
+function loadCachedIdentity(pathname: string): CachedIdentity | null {
+  if (isAuthBoundaryPath(pathname)) {
     clearIdentityCache()
     return null
   }
@@ -132,10 +169,59 @@ export function readCachedHyperDxIdentity(): HyperDxGlobalAttributes | null {
     clearIdentityStorage()
     return null
   }
+  return cached
+}
+
+/** Ids cached from the last signed-in page, applied before the session request returns. */
+export function readCachedHyperDxIdentity(
+  pathname = currentPathname(),
+): HyperDxGlobalAttributes | null {
+  const cached = loadCachedIdentity(pathname)
+  if (!cached) return null
   return {
     userId: cached.userId,
     teamId: cached.teamId,
     teamName: cached.teamName,
+  }
+}
+
+/**
+ * Same cache as `readCachedHyperDxIdentity`, with `teamId` / `teamName` taken
+ * from the org slug already in the URL when that slug is in the cached org list.
+ * A slug we have not cached does not keep the previous org's id.
+ */
+export function readEarlyHyperDxIdentity(
+  pathname = currentPathname(),
+): HyperDxGlobalAttributes | null {
+  const cached = loadCachedIdentity(pathname)
+  if (!cached) return null
+  const slug = orgSlugFromPathname(pathname)
+  if (!slug) {
+    return {
+      userId: cached.userId,
+      teamId: cached.teamId,
+      teamName: cached.teamName,
+    }
+  }
+  const fromList = cached.orgs.find((org) => org.slug === slug)
+  if (fromList) {
+    return {
+      userId: cached.userId,
+      teamId: fromList.id,
+      teamName: fromList.slug,
+    }
+  }
+  if (cached.teamName === slug) {
+    return {
+      userId: cached.userId,
+      teamId: cached.teamId,
+      teamName: slug,
+    }
+  }
+  return {
+    userId: cached.userId,
+    teamId: "",
+    teamName: "",
   }
 }
 
@@ -156,10 +242,13 @@ export function recordHyperDxException(
 
 export function setHyperDxGlobalAttributes(
   attributes: HyperDxGlobalAttributes,
-  options?: { activeOrganizationId?: string },
+  options?: {
+    activeOrganizationId?: string
+    organizations?: readonly HyperDxOrgRef[]
+  },
 ): void {
   HyperDX.setGlobalAttributes(attributes)
-  writeIdentityCache(attributes)
+  writeIdentityCache(attributes, options?.organizations)
   noteHyperDxSessionIdentity("signed-in", {
     teamId: attributes.teamId,
     activeOrganizationId: options?.activeOrganizationId ?? "",

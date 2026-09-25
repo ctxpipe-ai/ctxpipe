@@ -14,17 +14,23 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
-const { init, addAction, setGlobalAttributes, orgState } = vi.hoisted(() => ({
-  init: vi.fn(),
-  addAction: vi.fn(),
-  setGlobalAttributes: vi.fn(),
-  orgState: {
-    data: [{ id: "org_1", slug: "obs-e2e-343" }] as
-      | { id: string; slug: string }[]
-      | undefined,
-    isPending: false,
-  },
-}))
+const { init, addAction, setGlobalAttributes, orgState, sessionState } =
+  vi.hoisted(() => ({
+    init: vi.fn(),
+    addAction: vi.fn(),
+    setGlobalAttributes: vi.fn(),
+    orgState: {
+      data: [{ id: "org_1", slug: "obs-e2e-343" }] as
+        | { id: string; slug: string }[]
+        | undefined,
+      isPending: false,
+    },
+    sessionState: {
+      pending: false,
+      userId: "user_1" as string | undefined,
+      activeOrganizationId: "org_1",
+    },
+  }))
 
 vi.mock("@hyperdx/browser", () => ({
   default: {
@@ -37,20 +43,29 @@ vi.mock("@hyperdx/browser", () => ({
 
 vi.mock("@/lib/auth-client", () => ({
   useSession: () => ({
-    data: {
-      user: { id: "user_1" },
-      session: { activeOrganizationId: "org_1" },
-    },
-    isPending: false,
+    data: sessionState.userId
+      ? {
+          user: { id: sessionState.userId },
+          session: {
+            activeOrganizationId: sessionState.activeOrganizationId,
+          },
+        }
+      : null,
+    isPending: sessionState.pending,
   }),
   useListOrganizations: () => orgState,
 }))
 
+import { setHyperDxGlobalAttributes } from "@/lib/hyperdxBrowser"
 import {
   resetRetainedHyperDxRuntimeConfigForTests,
   retainServerHyperDxConfig,
 } from "@/lib/hyperdxRuntimeConfig"
-import { HyperDxPageView, HyperDxProvider } from "./HyperDxProvider"
+import {
+  HyperDxPageView,
+  HyperDxProvider,
+  resetHyperDxProviderForTests,
+} from "./HyperDxProvider"
 
 describe("HyperDxProvider client navigations", () => {
   let root: Root | undefined
@@ -65,9 +80,14 @@ describe("HyperDxProvider client navigations", () => {
     setGlobalAttributes.mockClear()
     init.mockClear()
     sessionStorage.clear()
+    localStorage.clear()
     resetRetainedHyperDxRuntimeConfigForTests()
+    resetHyperDxProviderForTests()
     orgState.data = [{ id: "org_1", slug: "obs-e2e-343" }]
     orgState.isPending = false
+    sessionState.pending = false
+    sessionState.userId = "user_1"
+    sessionState.activeOrganizationId = "org_1"
   })
 
   it("records one page_view per client navigation with the org slug and route id", async () => {
@@ -197,8 +217,20 @@ describe("HyperDxProvider client navigations", () => {
         apiKey: "proxy",
         disableIntercom: true,
         url: `${window.location.origin}/.otel`,
+        instrumentations: {
+          document: true,
+          postload: true,
+          webvitals: true,
+          errors: true,
+          interactions: false,
+          longtask: false,
+        },
       }),
     )
+    expect(init.mock.calls[0]?.[0]?.instrumentations).not.toHaveProperty(
+      "fetch",
+    )
+    expect(init.mock.calls[0]?.[0]?.instrumentations).not.toHaveProperty("xhr")
     const targets = init.mock.calls[0]?.[0]?.tracePropagationTargets as
       | RegExp[]
       | undefined
@@ -258,5 +290,62 @@ describe("HyperDxProvider client navigations", () => {
       .filter((call) => call[0] === "page_view")
       .map((call) => call[1]?.path)
     expect(paths).toEqual(["/", "/chat"])
+  })
+
+  it("applies cached teamId for the org slug before the session request returns", async () => {
+    sessionState.pending = true
+    orgState.data = undefined
+    setHyperDxGlobalAttributes(
+      { userId: "user_1", teamId: "org_a", teamName: "alpha" },
+      {
+        organizations: [
+          { id: "org_a", slug: "alpha" },
+          { id: "org_b", slug: "beta" },
+        ],
+      },
+    )
+    setGlobalAttributes.mockClear()
+
+    const runtimeConfig = { enabled: true as const, environment: "test" }
+    const rootRoute = createRootRoute({
+      component: () => (
+        <HyperDxProvider runtimeConfig={runtimeConfig}>
+          <HyperDxPageView runtimeConfig={runtimeConfig} />
+          <Outlet />
+        </HyperDxProvider>
+      ),
+    })
+    const orgRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: "/$orgSlug",
+      component: () => <Outlet />,
+    })
+    const indexRoute = createRoute({
+      getParentRoute: () => orgRoute,
+      path: "/",
+      component: () => <p>Home</p>,
+    })
+    const router = createRouter({
+      routeTree: rootRoute.addChildren([orgRoute.addChildren([indexRoute])]),
+      history: createMemoryHistory({ initialEntries: ["/beta"] }),
+    })
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    await act(async () => {
+      root?.render(<RouterProvider router={router} />)
+    })
+
+    expect(setGlobalAttributes).toHaveBeenCalledWith({
+      userId: "user_1",
+      teamId: "org_b",
+      teamName: "beta",
+    })
+    expect(
+      addAction.mock.calls.filter((call) => call[0] === "page_view"),
+    ).toEqual([])
+    const identityOrder = setGlobalAttributes.mock.invocationCallOrder[0] ?? 0
+    const initOrder = init.mock.invocationCallOrder[0] ?? 0
+    expect(initOrder).toBeLessThan(identityOrder)
   })
 })

@@ -15,6 +15,7 @@ vi.mock("@hyperdx/browser", () => ({
 import {
   clearHyperDxGlobalAttributes,
   readCachedHyperDxIdentity,
+  readEarlyHyperDxIdentity,
   setHyperDxGlobalAttributes,
 } from "./hyperdxBrowser"
 import {
@@ -161,5 +162,137 @@ describe("session identity flushes deferred query errors", () => {
     expect(readCachedHyperDxIdentity()).toBeNull()
     expect(store.has("ctxpipe.hyperdx.identity")).toBe(false)
     vi.unstubAllGlobals()
+  })
+})
+
+describe("early identity on org routes", () => {
+  afterEach(() => {
+    setGlobalAttributes.mockClear()
+    vi.unstubAllGlobals()
+  })
+
+  it("derives teamId from the route slug and the cached org list", () => {
+    const store = new Map<string, string>()
+    const markers = new Map<string, string>()
+    const storage = {
+      getItem: (key: string) =>
+        (key === "ctxpipe.hd.session" ? markers : store).get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        ;(key === "ctxpipe.hd.session" ? markers : store).set(key, value)
+      },
+      removeItem: (key: string) => {
+        ;(key === "ctxpipe.hd.session" ? markers : store).delete(key)
+      },
+    }
+    vi.stubGlobal("sessionStorage", storage)
+    vi.stubGlobal("localStorage", storage)
+    vi.stubGlobal("window", { location: { pathname: "/beta" } })
+
+    setHyperDxGlobalAttributes(
+      {
+        userId: "user_1",
+        teamId: "org_a",
+        teamName: "alpha",
+      },
+      {
+        organizations: [
+          { id: "org_a", slug: "alpha" },
+          { id: "org_b", slug: "beta" },
+        ],
+      },
+    )
+
+    expect(readEarlyHyperDxIdentity("/beta")).toEqual({
+      userId: "user_1",
+      teamId: "org_b",
+      teamName: "beta",
+    })
+    expect(readEarlyHyperDxIdentity("/beta/chat")).toEqual({
+      userId: "user_1",
+      teamId: "org_b",
+      teamName: "beta",
+    })
+    expect(readEarlyHyperDxIdentity("/alpha")).toEqual({
+      userId: "user_1",
+      teamId: "org_a",
+      teamName: "alpha",
+    })
+    expect(readEarlyHyperDxIdentity("/gamma")).toEqual({
+      userId: "user_1",
+      teamId: "",
+      teamName: "",
+    })
+    expect(readEarlyHyperDxIdentity("/.auth/sign-in")).toBeNull()
+    expect(store.has("ctxpipe.hyperdx.identity")).toBe(false)
+  })
+
+  it("keeps teamId when the cached team name is already the route slug", () => {
+    const store = new Map<string, string>()
+    const markers = new Map<string, string>()
+    const storage = {
+      getItem: (key: string) =>
+        (key === "ctxpipe.hd.session" ? markers : store).get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        ;(key === "ctxpipe.hd.session" ? markers : store).set(key, value)
+      },
+      removeItem: (key: string) => {
+        ;(key === "ctxpipe.hd.session" ? markers : store).delete(key)
+      },
+    }
+    vi.stubGlobal("sessionStorage", storage)
+    vi.stubGlobal("localStorage", storage)
+    vi.stubGlobal("window", { location: { pathname: "/alpha" } })
+    setHyperDxGlobalAttributes({
+      userId: "user_1",
+      teamId: "org_a",
+      teamName: "alpha",
+    })
+    expect(readEarlyHyperDxIdentity("/alpha")).toEqual({
+      userId: "user_1",
+      teamId: "org_a",
+      teamName: "alpha",
+    })
+    expect(readEarlyHyperDxIdentity("/onboarding")).toEqual({
+      userId: "user_1",
+      teamId: "org_a",
+      teamName: "alpha",
+    })
+  })
+
+  it("does not keep a previous user's orgs when the user id changes", () => {
+    const store = new Map<string, string>()
+    const markers = new Map<string, string>()
+    const storage = {
+      getItem: (key: string) =>
+        (key === "ctxpipe.hd.session" ? markers : store).get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        ;(key === "ctxpipe.hd.session" ? markers : store).set(key, value)
+      },
+      removeItem: (key: string) => {
+        ;(key === "ctxpipe.hd.session" ? markers : store).delete(key)
+      },
+    }
+    vi.stubGlobal("sessionStorage", storage)
+    vi.stubGlobal("localStorage", storage)
+    vi.stubGlobal("window", { location: { pathname: "/alpha" } })
+    setHyperDxGlobalAttributes(
+      { userId: "user_a", teamId: "org_a", teamName: "alpha" },
+      { organizations: [{ id: "org_a", slug: "alpha" }] },
+    )
+    setHyperDxGlobalAttributes({
+      userId: "user_b",
+      teamId: "org_b",
+      teamName: "beta",
+    })
+    expect(readEarlyHyperDxIdentity("/alpha")).toEqual({
+      userId: "user_b",
+      teamId: "",
+      teamName: "",
+    })
+    expect(readEarlyHyperDxIdentity("/beta")).toEqual({
+      userId: "user_b",
+      teamId: "org_b",
+      teamName: "beta",
+    })
   })
 })
