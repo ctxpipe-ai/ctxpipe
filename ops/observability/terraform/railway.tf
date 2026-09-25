@@ -216,6 +216,26 @@ resource "railway_variable_collection" "hyperdx" {
       name  = "PORT"
       value = "8080"
     },
+    {
+      name  = "OTEL_SDK_DISABLED"
+      value = "true"
+    },
+    {
+      name  = "USAGE_STATS_ENABLED"
+      value = "false"
+    },
+    {
+      name  = "HDX_EXPORTER_ENABLED"
+      value = "false"
+    },
+    {
+      name  = "HDX_STARTUP_LOGS"
+      value = "false"
+    },
+    {
+      name  = "RUN_SCHEDULED_TASKS_EXTERNALLY"
+      value = "true"
+    },
   ]
 }
 

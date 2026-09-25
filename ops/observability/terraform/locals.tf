@@ -1,11 +1,17 @@
 locals {
   # Prisma holds sockets for the process lifetime unless the URL caps the pool.
-  # connection_limit=1 + Neon idle_session_timeout lets langfuse-web drop outbound.
-  langfuse_database_url = strcontains(var.langfuse_database_url, "connection_limit=") ? var.langfuse_database_url : (
+  # connection_limit=1 + keepalives=0 + Neon idle_session_timeout lets web drop outbound.
+  langfuse_database_url_limited = strcontains(var.langfuse_database_url, "connection_limit=") ? var.langfuse_database_url : (
     strcontains(var.langfuse_database_url, "?") ? "${var.langfuse_database_url}&connection_limit=1" : "${var.langfuse_database_url}?connection_limit=1"
   )
-  langfuse_direct_url = strcontains(var.langfuse_direct_url, "connection_limit=") ? var.langfuse_direct_url : (
+  langfuse_direct_url_limited = strcontains(var.langfuse_direct_url, "connection_limit=") ? var.langfuse_direct_url : (
     strcontains(var.langfuse_direct_url, "?") ? "${var.langfuse_direct_url}&connection_limit=1" : "${var.langfuse_direct_url}?connection_limit=1"
+  )
+  langfuse_database_url = strcontains(local.langfuse_database_url_limited, "keepalives=") ? local.langfuse_database_url_limited : (
+    "${local.langfuse_database_url_limited}&keepalives=0"
+  )
+  langfuse_direct_url = strcontains(local.langfuse_direct_url_limited, "keepalives=") ? local.langfuse_direct_url_limited : (
+    "${local.langfuse_direct_url_limited}&keepalives=0"
   )
 
   regions = [
@@ -78,6 +84,10 @@ locals {
     {
       name  = "REDIS_CONNECTION_STRING"
       value = "redis://$${{redis.RAILWAY_PRIVATE_DOMAIN}}:6379"
+    },
+    {
+      name  = "REDIS_SOCKET_TIMEOUT_MS"
+      value = "0"
     },
     {
       name  = "SALT"
