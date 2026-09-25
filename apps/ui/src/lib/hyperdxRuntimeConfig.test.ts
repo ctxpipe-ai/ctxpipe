@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest"
-import { getHyperDxRuntimeConfig } from "./hyperdxRuntimeConfig"
+import {
+  getHyperDxRuntimeConfig,
+  retainServerHyperDxConfig,
+} from "./hyperdxRuntimeConfig"
 
 describe("getHyperDxRuntimeConfig", () => {
   beforeEach(() => {
@@ -35,5 +38,17 @@ describe("getHyperDxRuntimeConfig", () => {
       environment: "test",
       apiKey: "hdx_key",
     })
+  })
+})
+
+describe("retainServerHyperDxConfig", () => {
+  it("keeps an enabled SSR config when a later client read is disabled", () => {
+    const enabled = {
+      enabled: true as const,
+      url: "/.otel",
+      environment: "pr-343",
+    }
+    expect(retainServerHyperDxConfig(enabled)).toEqual(enabled)
+    expect(retainServerHyperDxConfig({ enabled: false })).toEqual(enabled)
   })
 })

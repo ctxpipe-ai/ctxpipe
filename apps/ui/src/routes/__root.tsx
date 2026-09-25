@@ -18,6 +18,9 @@ import { HyperDxPageView } from "@/providers/HyperDxProvider"
 import appCss from "../styles.css?url"
 
 export const Route = createRootRoute({
+  // The loader reads server-only OTEL env. Client navigations must keep that
+  // SSR result; re-running here sees no endpoint and disables browser RUM.
+  staleTime: Number.POSITIVE_INFINITY,
   loader: () => ({
     hyperdxRuntimeConfig: getHyperDxRuntimeConfig(),
     confluenceForgeRuntimeConfig: getConfluenceForgeRuntimeConfig(),

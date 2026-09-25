@@ -16,6 +16,7 @@ import {
   setHyperDxGlobalAttributes,
 } from "@/lib/hyperdxBrowser"
 import type { HyperDxRuntimeConfig } from "@/lib/hyperdxRuntimeConfig"
+import { retainServerHyperDxConfig } from "@/lib/hyperdxRuntimeConfig"
 
 let hyperdxInitialized = false
 
@@ -74,9 +75,10 @@ export const HyperDxProvider: FC<{
   children: ReactNode
   runtimeConfig: HyperDxRuntimeConfig
 }> = ({ children, runtimeConfig }) => {
+  const config = retainServerHyperDxConfig(runtimeConfig)
   useEffect(() => {
-    ensureHyperDxBrowser(runtimeConfig)
-  }, [runtimeConfig])
+    ensureHyperDxBrowser(config)
+  }, [config])
 
   return children
 }
@@ -90,6 +92,7 @@ export const HyperDxProvider: FC<{
 export const HyperDxPageView: FC<{
   runtimeConfig: HyperDxRuntimeConfig
 }> = ({ runtimeConfig }) => {
+  const config = retainServerHyperDxConfig(runtimeConfig)
   const router = useRouter({ warn: false }) as HyperDxRouter | undefined
   const navKey = useRouterState({
     select: (state) => {
@@ -120,8 +123,8 @@ export const HyperDxPageView: FC<{
 
   const publish = () => {
     const current = routerRef.current
-    if (!runtimeConfig.enabled || !current?.state) return
-    ensureHyperDxBrowser(runtimeConfig)
+    if (!config.enabled || !current?.state) return
+    ensureHyperDxBrowser(config)
     if (!hyperdxInitialized) return
     const pathname = current.state.location.pathname
     const matches = current.state.matches.map((match) => ({
@@ -160,7 +163,7 @@ export const HyperDxPageView: FC<{
   publishRef.current = publish
 
   useEffect(() => {
-    if (!runtimeConfig.enabled || !router || navKey.length === 0) return
+    if (!config.enabled || !router || navKey.length === 0) return
     identityRef.current = {
       sessionPending,
       orgsPending,
@@ -180,7 +183,7 @@ export const HyperDxPageView: FC<{
       unsubscribeLoad()
     }
   }, [
-    runtimeConfig,
+    config,
     router,
     navKey,
     sessionPending,

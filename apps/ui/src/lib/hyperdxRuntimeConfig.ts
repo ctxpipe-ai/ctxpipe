@@ -31,3 +31,19 @@ export function getHyperDxRuntimeConfig(): HyperDxRuntimeConfig {
     ...(apiKey ? { apiKey } : {}),
   }
 }
+
+let retainedEnabledConfig: Extract<
+  HyperDxRuntimeConfig,
+  { enabled: true }
+> | null = null
+
+/**
+ * Client navigations can re-run the root loader without server env and produce
+ * `{ enabled: false }`. Keep the SSR-enabled config for the rest of the page.
+ */
+export function retainServerHyperDxConfig(
+  config: HyperDxRuntimeConfig,
+): HyperDxRuntimeConfig {
+  if (config.enabled) retainedEnabledConfig = config
+  return retainedEnabledConfig ?? config
+}
