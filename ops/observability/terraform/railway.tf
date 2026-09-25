@@ -110,7 +110,7 @@ resource "railway_custom_domain" "collector" {
 }
 
 resource "railway_service_domain" "collector" {
-  subdomain      = "ctxpipe-telemetry"
+  subdomain      = "collector-production-5b4c"
   environment_id = var.railway_environment_id
   service_id     = railway_service.collector.id
 }
@@ -409,7 +409,7 @@ resource "railway_custom_domain" "hyperdx" {
 }
 
 resource "railway_service_domain" "hyperdx" {
-  subdomain      = "ctxpipe-hyperdx"
+  subdomain      = "hyperdx-production-1172"
   environment_id = var.railway_environment_id
   service_id     = railway_service.hyperdx.id
 }
@@ -521,7 +521,7 @@ resource "railway_custom_domain" "langfuse_web" {
 }
 
 resource "railway_service_domain" "langfuse_web" {
-  subdomain      = "ctxpipe-langfuse"
+  subdomain      = "langfuse-web-production-f475"
   environment_id = var.railway_environment_id
   service_id     = railway_service.langfuse_web.id
 }
@@ -574,6 +574,23 @@ resource "railway_variable_collection" "langfuse_worker" {
     {
       name  = "LANGFUSE_INGESTION_CLICKHOUSE_WRITE_INTERVAL_MS"
       value = local.langfuse_worker_clickhouse_write_interval_ms
+    },
+    # Idle spans on v3.225.11 come from PeriodicRunner (startNewTrace, so
+    # each tick is its own fully sampled trace). Queue metrics default to
+    # 1000ms and the gauges are not exported (OTEL_METRICS_EXPORTER=none).
+    # MonitorRunner is hardcoded to 30s with no interval env. Trace-delete
+    # stays on, polled every 2 min instead of 10s.
+    {
+      name  = "LANGFUSE_QUEUE_METRICS_ENABLED"
+      value = "false"
+    },
+    {
+      name  = "LANGFUSE_MONITOR_SCHEDULER_ENABLED"
+      value = "false"
+    },
+    {
+      name  = "LANGFUSE_TRACE_DELETE_BATCH_ACTION_RUNNER_INTERVAL_MS"
+      value = "120000"
     },
   ])
 }

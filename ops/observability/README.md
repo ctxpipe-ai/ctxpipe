@@ -60,16 +60,41 @@ Postgres for Langfuse is a **dedicated `langfuse` database** on the existing Neo
 
 Infrastructure lives in [`terraform/`](./terraform/). ClickHouse, the collector, and `railway-telemetry` rebuild when those folders change because Railway is connected to `ctxpipe-ai/ctxpipe` (GitHub integration). There is **no** static `OBSERVABILITY_RAILWAY_TOKEN`. `railway-telemetry` also needs `RAILWAY_API_TOKEN` (`var.railway_api_token`).
 
-[`.github/workflows/observability.yaml`](../../.github/workflows/observability.yaml) only **validates** the Terraform. Apply is manual (`terraform apply` from `terraform/`).
+[`.github/workflows/observability.yaml`](../../.github/workflows/observability.yaml) validates Terraform on changes under `ops/observability/**`. A same-repo pull request also runs `terraform plan` (GitHub Environment `terraform-plan`, never apply) and updates a comment headed `## Observability Terraform Plan`. `TF_VAR_github_repo_branch` is the PR head ref, because the live GitHub-backed services track that branch until merge. Push to `main`, and `workflow_dispatch`, init the R2 backend (`observability/terraform.tfstate`), pin `us-east4-eqdc4a`, plan, and apply in GitHub Environment `observability`. Required reviewers on `observability` are optional and recommended. Applies use concurrency group `observability-apply` and are not cancelled when a newer run is queued. Apply refuses a plan that would delete, replace, or change the volume of any `railway_service`, so the ClickHouse and Mongo volumes are not recreated or attached twice.
+
+GitHub secrets must be **the same values as the live Railway variables** (copy them from the Railway dashboard). A different value rotates ClickHouse passwords, Langfuse keys, or the HyperDX ingest key and breaks the product `authorization` OTLP header.
+
+| GitHub name | Kind | Terraform variable |
+| --- | --- | --- |
+| `OBSERVABILITY_CLICKHOUSE_OTEL_PASSWORD` | secret | `clickhouse_otel_password` |
+| `OBSERVABILITY_CLICKHOUSE_LANGFUSE_PASSWORD` | secret | `clickhouse_langfuse_password` |
+| `OBSERVABILITY_HYPERDX_API_KEY` | secret | `hyperdx_api_key` |
+| `OBSERVABILITY_LANGFUSE_DATABASE_URL` | secret | `langfuse_database_url` |
+| `OBSERVABILITY_LANGFUSE_DIRECT_URL` | secret | `langfuse_direct_url` |
+| `OBSERVABILITY_LANGFUSE_NEXTAUTH_SECRET` | secret | `langfuse_nextauth_secret` |
+| `OBSERVABILITY_LANGFUSE_SALT` | secret | `langfuse_salt` |
+| `OBSERVABILITY_LANGFUSE_ENCRYPTION_KEY` | secret | `langfuse_encryption_key` |
+| `OBSERVABILITY_LANGFUSE_AUTH_STRING` | secret | `langfuse_auth_string` |
+| `OBSERVABILITY_LANGFUSE_INIT_PROJECT_PUBLIC_KEY` | secret | `langfuse_init_project_public_key` |
+| `OBSERVABILITY_LANGFUSE_INIT_PROJECT_SECRET_KEY` | secret | `langfuse_init_project_secret_key` |
+| `OBSERVABILITY_LANGFUSE_INIT_USER_PASSWORD` | secret | `langfuse_init_user_password` |
+| `OBSERVABILITY_LANGFUSE_INIT_USER_EMAIL` | repository variable | `langfuse_init_user_email` |
+| `OBSERVABILITY_RAILWAY_API_TOKEN` | secret, optional | `railway_api_token` when set; otherwise `RAILWAY_TOKEN` |
+| `RAILWAY_TOKEN` | secret (existing) | Railway provider, region pin, and the `railway_api_token` fallback |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | secrets (existing) | R2 state backend |
+
+Those secrets need to be available to environments `terraform-plan` and `observability`. `LANGFUSE_INIT_PROJECT_*` must match `langfuse_auth_string` so the collector can fan out.
+
+**First plan:** R2 state is empty or partial because these services were created through the Railway API. [`terraform/imports.tf`](./terraform/imports.tf) adopts them. The first PR plan must show **imports and in-place updates only** — not creates of the existing services, and not a destroy or replace of `clickhouse` or `mongo`. Review that plan before merge. Import blocks do nothing once the address is in state. Service domains stay on the live hostnames (`collector-production-5b4c.up.railway.app`, `hyperdx-production-1172.up.railway.app`, `langfuse-web-production-f475.up.railway.app`); the first plan should not change them. The apply guard also refuses a `railway_service` update whose `volume` changes, including null to set, so a missed volume read cannot attach a second volume. Custom domains stay `telemetry.ctxpipe.ai`, `hyperdx.ctxpipe.ai`, and `langfuse.ctxpipe.ai`. `railway_variable_collection` deletes a variable only when that name is in state and absent from config. The langfuse-web import id omits live-only `NODE_OPTIONS`, so apply does not delete it.
 
 **Once:**
 
 1. Railway project `ctxpipe-observability` already exists (`305aa114-c6f3-4aca-b883-0faa9c331aa2`). `has_pr_deploys = false`.
 2. Create Neon database `langfuse` owned by role `langfuse` on the existing `ctxpipe` project (production branch). Do not put Langfuse tables in `neondb.public`.
-3. Create Railway bucket `langfuse-events` (region `iad`) so `${{langfuse-events.BUCKET}}` and sibling references resolve.
-4. Copy [`terraform/terraform.tfvars.example`](./terraform/terraform.tfvars.example) → `terraform.tfvars`. Generate ClickHouse / HyperDX / Langfuse init secrets. `LANGFUSE_INIT_PROJECT_*` keys must match `langfuse_auth_string` so the collector can fan out on first boot. Set `railway_api_token` (workspace token that can read the observability and product projects). Without it, `railway-telemetry` exports Redis only and exits 1.
-5. `terraform apply` (use this PR branch for `github_repo_branch` until merge, then `main`).
-6. Pin every service to **`us-east4-eqdc4a`** (same as product). Terraform cannot Update regions (provider issue #77 + `ignore_changes`). Railway create/MCP uses the workspace preferred region (Singapore) unless this runs:
+3. Create Railway bucket `langfuse-events` (region `iad`) so `${{langfuse-events.BUCKET}}` and sibling references resolve. Provider 0.6.1 has no bucket resource, so this is not imported.
+4. Create the GitHub secrets and the email variable in the table above. Copy live Railway values; do not generate new ones for services that are already running. Set `railway_api_token` to a workspace token that can read the observability and product projects (`OBSERVABILITY_RAILWAY_API_TOKEN`, or leave it unset to reuse `RAILWAY_TOKEN`). Without it, `railway-telemetry` exports Redis only and exits 1.
+5. Open a pull request that touches `ops/observability/**` and review the plan comment. Merge only when it is imports plus in-place updates.
+6. Merge to `main`. The workflow pins the region, then applies. Terraform cannot Update regions (provider issue #77 + `ignore_changes`). Manual pin, if CI has not run:
 
    ```bash
    RAILWAY_PROJECT_ID=305aa114-c6f3-4aca-b883-0faa9c331aa2 \

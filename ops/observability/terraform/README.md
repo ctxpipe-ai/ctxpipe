@@ -12,24 +12,33 @@ The Railway bucket `langfuse-events` is created once outside this provider (0.6.
 
 ## Apply
 
+Supported path: [`.github/workflows/observability.yaml`](../../../.github/workflows/observability.yaml). A same-repo pull request plans only (GitHub Environment `terraform-plan`). Push to `main` and `workflow_dispatch` pin the region, plan, and apply (GitHub Environment `observability`; required reviewers can be turned on). See the secret table in [`../README.md`](../README.md).
+
+GitHub secret values must match the live Railway variables. A mismatch rotates ClickHouse passwords, Langfuse keys, or the HyperDX ingest key and breaks the product OTLP header.
+
+`TF_VAR_github_repo_branch` on a pull request is the PR head ref. On `main` it is `main`.
+
+Local apply uses the same import blocks and the same R2 key (`observability/terraform.tfstate`):
+
 ```bash
 cd ops/observability/terraform
-cp terraform.tfvars.example terraform.tfvars   # fill secrets
+cp terraform.tfvars.example terraform.tfvars   # copy live Railway values; do not mint new ones
 terraform init \
   -backend-config="access_key=$R2_ACCESS_KEY_ID" \
   -backend-config="secret_key=$R2_SECRET_ACCESS_KEY"
+terraform plan    # first plan: imports + in-place updates only
 terraform apply
 ```
 
-First apply from this PR, before merge:
+## Imports
 
-```bash
-terraform apply -var='github_repo_branch=cursor/clickstack-langfuse-observability-8fbc'
-```
+[`imports.tf`](./imports.tf) adopts the API-created services. The first plan against empty state must show imports and in-place updates, not new `railway_service` creates and not a destroy or replace of `clickhouse` or `mongo`. Import blocks are no-ops once that address is in state.
 
-After merge, apply again with `github_repo_branch=main`.
+`railway_variable_collection` import ids are `service_id:production:NAME:NAME:...` and list only names this module manages. Update deletes a name that is in state and missing from config. Live-only langfuse-web `NODE_OPTIONS` is not in the import id, so it is not deleted. Volumes are inline on `railway_service`: importing the service reads `clickhouse-data` and `mongo-data` in the project default environment (this project has only `production`). Provider Update creates a volume when state has none and config has one. The workflow guard rejects that update. Service domain subdomains are the live host labels (`collector-production-5b4c`, `hyperdx-production-1172`, `langfuse-web-production-f475`), which with suffix `up.railway.app` are the imported hostnames, so the first plan does not rename them. `ops-probe` and the `langfuse-events` bucket are not imported.
 
-Then pin services to **`us-east4-eqdc4a`**. Terraform create can land in the workspace preferred region (Singapore); `ignore_changes` plus provider issue #77 never fix it on apply:
+The workflow fails the plan and the apply when `terraform show -json` reports a `delete` action on any `railway_service` (a replace is `delete` then `create`) or an `update` whose `volume` before and after differ, including null to set. Computed volume `id` and `size` that are still unknown in `after` are not treated as a change.
+
+Pin services to **`us-east4-eqdc4a`**. The apply job runs this before plan. Terraform create can land in the workspace preferred region (Singapore); `ignore_changes` plus provider issue #77 never fix it on apply:
 
 ```bash
 RAILWAY_PROJECT_ID=305aa114-c6f3-4aca-b883-0faa9c331aa2 \
