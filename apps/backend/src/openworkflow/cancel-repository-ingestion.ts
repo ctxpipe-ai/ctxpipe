@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm"
 import { getSystemDb } from "../db/client.js"
 import { log } from "../observability/logger.js"
 import { ow } from "./client.js"
+import { isWorkflowControlSignal } from "./isSleepSignal.js"
 import { openWorkflowNamespaceId } from "./namespace.js"
 
 const INGESTION_WORKFLOW_NAMES = [
@@ -24,11 +25,11 @@ function rowsOf(result: unknown): Array<Record<string, unknown>> {
 }
 
 /**
- * Cancels in-flight ingestion for a repository so a delete does not leave
- * OpenWorkflow retrying codesearch calls. Terminal runs are ignored.
- * Returns the workflow run ids that were canceled.
+ * OpenWorkflow 0.8's client cancels only by id (`ow.cancelWorkflowRun`).
+ * `listWorkflowRuns` is pagination-only — no workflow name or input filter —
+ * so discovering those ids has to read the backend `workflow_runs` table.
  */
-export async function cancelActiveRepositoryIngestion(input: {
+async function activeIngestionRunIds(input: {
   orgId: string
   repositoryId: string
 }): Promise<string[]> {
@@ -49,9 +50,21 @@ export async function cancelActiveRepositoryIngestion(input: {
       AND input->>'repositoryId' = ${input.repositoryId}
       AND input->>'orgId' = ${input.orgId}
   `)
-  const ids = rowsOf(result)
+  return rowsOf(result)
     .map((row) => row.id)
     .filter((id): id is string => typeof id === "string" && id.length > 0)
+}
+
+/**
+ * Cancels in-flight ingestion for a repository so a delete does not leave
+ * OpenWorkflow retrying codesearch calls. Terminal runs are ignored.
+ * Returns the workflow run ids that were canceled.
+ */
+export async function cancelActiveRepositoryIngestion(input: {
+  orgId: string
+  repositoryId: string
+}): Promise<string[]> {
+  const ids = await activeIngestionRunIds(input)
 
   const canceled: string[] = []
   for (const id of ids) {
@@ -59,6 +72,8 @@ export async function cancelActiveRepositoryIngestion(input: {
       await ow.cancelWorkflowRun(id)
       canceled.push(id)
     } catch (err: unknown) {
+      if (isWorkflowControlSignal(err)) throw err
+      // Client errors for a missing run and for succeeded/completed/failed.
       const message = err instanceof Error ? err.message : String(err)
       if (
         message.includes("Cannot cancel") ||

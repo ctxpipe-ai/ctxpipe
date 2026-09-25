@@ -180,6 +180,8 @@ describe("repositoryIngestionOrchestrator workflow", () => {
 
     expect(step.run).not.toHaveBeenCalled()
     expect(markRepositoryIndexingFailedMock).not.toHaveBeenCalled()
+    expect(repositoryIngestionBlockedByDeletionMock).not.toHaveBeenCalled()
+    expect(getLoggerErrorMock).not.toHaveBeenCalled()
   })
 
   it("stops cleanly when the repository was deleted", async () => {

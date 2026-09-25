@@ -63,7 +63,7 @@ vi.mock("../../observability/logger.js", () => ({
   getLogger: () => ({
     set: vi.fn(),
     info: vi.fn(),
-    error: vi.fn(),
+    error: getLoggerErrorMock,
     warn: vi.fn(),
   }),
   flushWorkflowLog: vi.fn(),
@@ -152,6 +152,7 @@ vi.mock("../../retrieval/services/ingestionRetraction.js", () => ({
 const enqueueFollowUpIfTipAheadMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ enqueued: false, tipHash: "abc" }),
 )
+const getLoggerErrorMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../enqueue-follow-up-if-tip-ahead.js", () => ({
   enqueueFollowUpIfTipAhead: enqueueFollowUpIfTipAheadMock,
@@ -187,6 +188,7 @@ vi.mock("openworkflow", () => ({
   }),
 }))
 
+import { resolveRepositoryRef } from "../../domain/codeIngestion/queue.js"
 import {
   markRepositoryIndexingReady,
   markRepositoryIndexingReadyWithIssues,
@@ -615,6 +617,7 @@ describe("repository-ingestion index workflow boundary", () => {
 
     expect(markRepositoryIndexingReady).not.toHaveBeenCalled()
     expect(enqueueFollowUpIfTipAheadMock).not.toHaveBeenCalled()
+    expect(getLoggerErrorMock).not.toHaveBeenCalled()
   })
 
   it("stops before codesearch work when deletion has started", async () => {
@@ -632,5 +635,95 @@ describe("repository-ingestion index workflow boundary", () => {
 
     expect(markRepositoryIndexingRunning).not.toHaveBeenCalled()
     expect(markRepositoryIndexingReady).not.toHaveBeenCalled()
+    expect(getLoggerErrorMock).not.toHaveBeenCalled()
+  })
+
+  it("stops at the next step when deletion starts mid-run", async () => {
+    repositoryIngestionBlockedByDeletionMock
+      .mockResolvedValueOnce(false)
+      .mockResolvedValue(true)
+    let indexed = false
+    const step = makeStep(repositoryIndexResult)
+    const runIndex = step.runWorkflow
+    step.runWorkflow = async (...args: Parameters<typeof runIndex>) => {
+      indexed = true
+      return runIndex(...args)
+    }
+
+    await expect(
+      runWorkflow({ repositoryId: "repo_1", orgId: "org_1" }, step),
+    ).resolves.toEqual({
+      aborted: "repository_deleted",
+      repositoryId: "repo_1",
+    })
+
+    expect(markRepositoryIndexingRunning).toHaveBeenCalledTimes(1)
+    expect(resolveRepositoryRef).not.toHaveBeenCalled()
+    expect(indexed).toBe(false)
+    expect(markRepositoryIndexingReady).not.toHaveBeenCalled()
+    expect(getLoggerErrorMock).not.toHaveBeenCalled()
+  })
+
+  it("rethrows OpenWorkflow control signals from a step", async () => {
+    const signal = new Error("park")
+    signal.name = "SleepSignal"
+    vi.mocked(markRepositoryIndexingRunning).mockRejectedValueOnce(signal)
+
+    await expect(
+      runWorkflow(
+        { repositoryId: "repo_1", orgId: "org_1" },
+        makeStep(repositoryIndexResult),
+      ),
+    ).rejects.toBe(signal)
+
+    expect(getLoggerErrorMock).not.toHaveBeenCalled()
+  })
+
+  it("rethrows a stale execution branch before another deletion check", async () => {
+    const signal = new Error("stale")
+    signal.name = "StaleExecutionBranchError"
+    const step = makeStep(repositoryIndexResult)
+    step.runWorkflow = async () => {
+      throw signal
+    }
+
+    await expect(
+      runWorkflow({ repositoryId: "repo_1", orgId: "org_1" }, step),
+    ).rejects.toBe(signal)
+
+    // Four completed steps plus the check before the child. The catch must
+    // not read deletion again once it sees a control signal.
+    expect(repositoryIngestionBlockedByDeletionMock).toHaveBeenCalledTimes(5)
+    expect(getLoggerErrorMock).not.toHaveBeenCalled()
+  })
+
+  it("stops without error spam when the index child is canceled after the step check", async () => {
+    repositoryIngestionBlockedByDeletionMock
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValue(true)
+    let indexed = false
+    const step = makeStep(repositoryIndexResult)
+    step.runWorkflow = async () => {
+      indexed = true
+      throw new Error(
+        'Workflow step "repository-index" failed because child workflow run "run_1" was canceled',
+      )
+    }
+
+    await expect(
+      runWorkflow({ repositoryId: "repo_1", orgId: "org_1" }, step),
+    ).resolves.toEqual({
+      aborted: "repository_deleted",
+      repositoryId: "repo_1",
+    })
+
+    expect(indexed).toBe(true)
+    expect(repositoryIngestionBlockedByDeletionMock).toHaveBeenCalledTimes(6)
+    expect(markRepositoryIndexingReady).not.toHaveBeenCalled()
+    expect(getLoggerErrorMock).not.toHaveBeenCalled()
   })
 })

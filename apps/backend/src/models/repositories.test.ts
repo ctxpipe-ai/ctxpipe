@@ -52,11 +52,29 @@ import {
   listRepositoriesForOrg,
   markRepositoryIndexingFailed,
   markRepositoryIndexingReadyWithIssues,
+  markRepositoryIndexingRunning,
   pruneGithubConnectionRepositoriesNotInGitUrls,
   repositoryIngestionBlockedByDeletion,
   setRepositoryIndexingStep,
   tryClaimRepositoryIndexingEnqueue,
 } from "./repositories.js"
+
+function sqlText(query: unknown, seen = new Set<unknown>()): string {
+  if (query == null || typeof query !== "object") {
+    return query == null ? "" : String(query)
+  }
+  if (seen.has(query)) return ""
+  seen.add(query)
+  if (Array.isArray(query)) {
+    return query.map((item) => sqlText(item, seen)).join("")
+  }
+  const record = query as { queryChunks?: unknown[]; value?: unknown }
+  if (Array.isArray(record.queryChunks)) {
+    return record.queryChunks.map((chunk) => sqlText(chunk, seen)).join("")
+  }
+  if ("value" in record) return sqlText(record.value, seen)
+  return ""
+}
 
 const orgId = "org_1"
 const githubConnectionId = "con_github"
@@ -548,6 +566,27 @@ describe("tryClaimRepositoryIndexingEnqueue", () => {
     ).resolves.toBe(false)
     expect(update).toHaveBeenCalledTimes(2)
     expect(select).toHaveBeenCalledTimes(1)
+    expect(sqlText(claimWhere.mock.calls[0]?.[0])).toContain("unindexing")
+  })
+})
+
+describe("ingestion status writes while unindexing", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("refuses a running-status write while the repository is unindexing", async () => {
+    const where = vi.fn().mockResolvedValue(undefined)
+    const set = vi.fn().mockReturnValue({ where })
+    const update = vi.fn().mockReturnValue({ set })
+    getOrgDbMock.mockReturnValue({ update })
+
+    await markRepositoryIndexingRunning({ repositoryId })
+
+    expect(sqlText(where.mock.calls[0]?.[0])).toContain("unindexing")
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({ indexingStatus: "running" }),
+    )
   })
 })
 

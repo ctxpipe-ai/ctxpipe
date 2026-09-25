@@ -5,6 +5,7 @@ import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
 import { getInstallationToken } from "../../models/github-installation.js"
 import { getLogger } from "../../observability/logger.js"
+import { isWorkflowControlSignal } from "../../openworkflow/isSleepSignal.js"
 
 type ResolveRefResponse = {
   branch: string
@@ -56,6 +57,7 @@ export async function resolveRepositoryRef(input: {
       { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
     )
   } catch (error: unknown) {
+    if (isWorkflowControlSignal(error)) throw error
     const err = error instanceof Error ? error : new Error(String(error))
     log.set({
       NODE_TLS_REJECT_UNAUTHORIZED: process.env.NODE_TLS_REJECT_UNAUTHORIZED,

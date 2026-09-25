@@ -10,6 +10,7 @@ import {
 } from "../../lib/memoryFitError.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
 import { log } from "../../observability/logger.js"
+import { isWorkflowControlSignal } from "../../openworkflow/isSleepSignal.js"
 
 const renameSchema = z.object({
   from: z.string(),
@@ -82,6 +83,7 @@ async function codesearchPhaseFetch(
       { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
     )
   } catch (error) {
+    if (isWorkflowControlSignal(error)) throw error
     if (isMemoryFitFailure(error) || isCodesearchTaskDeath(error)) {
       log.info({
         step: "repository-index.memory_exceeded",

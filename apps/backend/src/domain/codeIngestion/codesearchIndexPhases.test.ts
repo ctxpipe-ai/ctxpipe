@@ -95,6 +95,16 @@ describe("codesearchIndexZoekt", () => {
     ).rejects.toBeInstanceOf(CodesearchAdmissionBusyError)
     vi.unstubAllGlobals()
   })
+
+  it("rethrows OpenWorkflow control signals", async () => {
+    const signal = new Error("park")
+    signal.name = "SleepSignal"
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(signal))
+    await expect(
+      codesearchIndexZoekt({ repositoryId: "repo_1", orgId: "org_1" }),
+    ).rejects.toBe(signal)
+    vi.unstubAllGlobals()
+  })
 })
 
 describe("codesearchIndexScipLang", () => {

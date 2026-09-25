@@ -106,4 +106,31 @@ describe("enqueueRepositoryDeletionWorkflow", () => {
     expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
     expect(cancelActiveRepositoryIngestionMock).not.toHaveBeenCalled()
   })
+
+  it("rethrows OpenWorkflow control signals from cancel and enqueue", async () => {
+    const signal = new Error("park")
+    signal.name = "SleepSignal"
+    const log = { error: vi.fn() }
+    cancelActiveRepositoryIngestionMock.mockRejectedValueOnce(signal)
+
+    await expect(
+      enqueueRepositoryDeletionWorkflow(
+        { repositoryId: "repo_1", orgId: "org_1" },
+        log,
+      ),
+    ).rejects.toBe(signal)
+
+    expect(log.error).not.toHaveBeenCalled()
+    expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
+
+    cancelActiveRepositoryIngestionMock.mockResolvedValue([])
+    runWorkflowWithWorkerWakeMock.mockRejectedValueOnce(signal)
+    await expect(
+      enqueueRepositoryDeletionWorkflow(
+        { repositoryId: "repo_1", orgId: "org_1" },
+        log,
+      ),
+    ).rejects.toBe(signal)
+    expect(log.error).not.toHaveBeenCalled()
+  })
 })

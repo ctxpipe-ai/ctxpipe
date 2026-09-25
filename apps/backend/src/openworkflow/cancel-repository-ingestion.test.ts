@@ -69,4 +69,20 @@ describe("cancelActiveRepositoryIngestion", () => {
     expect(logErrorMock).not.toHaveBeenCalled()
     expect(logInfoMock).not.toHaveBeenCalled()
   })
+
+  it("rethrows OpenWorkflow control signals", async () => {
+    executeMock.mockResolvedValue({ rows: [{ id: "run_1" }] })
+    const signal = new Error("park")
+    signal.name = "SleepSignal"
+    cancelWorkflowRunMock.mockRejectedValue(signal)
+
+    await expect(
+      cancelActiveRepositoryIngestion({
+        orgId: "org_1",
+        repositoryId: "repo_1",
+      }),
+    ).rejects.toBe(signal)
+
+    expect(logErrorMock).not.toHaveBeenCalled()
+  })
 })
