@@ -1,10 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { proxyBrowserOtlp } from "@/lib/otelBrowserProxy"
 
-const handle = ({ request }: { request: Request }) => proxyBrowserOtlp(request)
+const handle = ({
+  request,
+  pathname,
+}: {
+  request: Request
+  pathname: string
+}) => proxyBrowserOtlp(request, pathname)
 
 export const Route = createFileRoute("/.otel/$")({
-  component: () => null,
   server: {
     handlers: {
       GET: handle,

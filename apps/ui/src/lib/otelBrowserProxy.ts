@@ -45,27 +45,57 @@ function declaredBodyBytes(request: Request): number | null {
   return n
 }
 
-export async function proxyBrowserOtlp(request: Request): Promise<Response> {
+function admissionUrl(request: Request, pathname?: string): string {
+  if (!pathname) return request.url
+  const search = new URL(request.url).search
+  return new URL(`${pathname}${search}`, "https://browser.local").href
+}
+
+async function releaseRequestBody(request: Request): Promise<void> {
+  if (!request.body) return
+  try {
+    await request.body.cancel()
+  } catch {
+    // Already consumed, or the runtime has no cancel.
+  }
+}
+
+async function reject(
+  request: Request,
+  status: 404 | 405 | 413,
+): Promise<Response> {
+  await releaseRequestBody(request)
+  return new Response(null, {
+    status,
+    headers: status === 405 ? { Allow: "POST" } : undefined,
+  })
+}
+
+/**
+ * `pathname` is the router pathname (`/.otel/...`). Admission uses it instead
+ * of `request.url`, which a proxy can rewrite before this handler runs.
+ */
+export async function proxyBrowserOtlp(
+  request: Request,
+  pathname?: string,
+): Promise<Response> {
   if (!getHyperDxRuntimeConfig().enabled) {
-    return new Response(null, { status: 404 })
+    return reject(request, 404)
   }
 
   const traces = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT?.trim()
   if (!traces) {
-    return new Response(null, { status: 404 })
+    return reject(request, 404)
   }
 
   const declared = declaredBodyBytes(request)
   const admission = otelProxyAdmission(
     request.method,
-    request.url,
+    admissionUrl(request, pathname),
     declared ?? 0,
   )
   if (!admission.allow) {
-    return new Response(null, {
-      status: admission.status,
-      headers: admission.status === 405 ? { Allow: "POST" } : undefined,
-    })
+    return reject(request, admission.status)
   }
 
   const body = await readBodyCapped(request, OTEL_PROXY_MAX_BODY_BYTES)
@@ -74,7 +104,10 @@ export async function proxyBrowserOtlp(request: Request): Promise<Response> {
   }
 
   const collectorBase = otelCollectorBaseUrl(traces)
-  const upstreamUrl = otelProxyUpstreamUrl(collectorBase, request.url)
+  const upstreamUrl = otelProxyUpstreamUrl(
+    collectorBase,
+    admissionUrl(request, pathname),
+  )
   const otelHeaders = parseOtelHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS)
   const headers: Record<string, string> = {
     ...otelHeaders,
@@ -85,11 +118,16 @@ export async function proxyBrowserOtlp(request: Request): Promise<Response> {
     headers["Content-Encoding"] = contentEncoding
   }
 
-  const response = await fetch(upstreamUrl, {
-    method: "POST",
-    headers,
-    body: new Uint8Array(body),
-  })
+  let response: Response
+  try {
+    response = await fetch(upstreamUrl, {
+      method: "POST",
+      headers,
+      body: new Uint8Array(body),
+    })
+  } catch {
+    return new Response(null, { status: 502 })
+  }
 
   return new Response(await response.arrayBuffer(), {
     status: response.status,

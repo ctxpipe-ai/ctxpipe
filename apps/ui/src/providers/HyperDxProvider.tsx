@@ -1,10 +1,9 @@
 import HyperDX from "@hyperdx/browser"
-import { useRouter } from "@tanstack/react-router"
+import { useRouter, useRouterState } from "@tanstack/react-router"
 import type { FC, ReactNode } from "react"
 import { useEffect, useRef } from "react"
 import { useListOrganizations, useSession } from "@/lib/auth-client"
 import {
-  type HyperDxPageViewAttributes,
   hyperdxExporterIgnoreUrls,
   hyperdxGlobalAttributes,
   hyperdxPageViewFromMatches,
@@ -20,55 +19,110 @@ import type { HyperDxRuntimeConfig } from "@/lib/hyperdxRuntimeConfig"
 
 let hyperdxInitialized = false
 
-type RouterWithStore = {
+type HyperDxRouter = {
   state: {
-    location: { pathname: string }
+    location: { pathname: string; href: string }
     matches: readonly {
       routeId: string
       pathname: string
       params: { orgSlug?: unknown }
     }[]
   }
-  __store: {
-    subscribe: (listener: () => void) => { unsubscribe: () => void }
-  }
+  subscribe: (
+    eventType: "onRendered" | "onLoad",
+    fn: (event: { toLocation?: { pathname?: string } }) => void,
+  ) => () => void
+}
+
+function ensureHyperDxBrowser(runtimeConfig: HyperDxRuntimeConfig): void {
+  if (hyperdxInitialized || typeof window === "undefined") return
+  if (!runtimeConfig.enabled) return
+  const origin = window.location.origin
+  const url = runtimeConfig.url.startsWith("http")
+    ? runtimeConfig.url
+    : `${origin}${runtimeConfig.url}`
+  HyperDX.init({
+    url,
+    apiKey: runtimeConfig.apiKey ?? "",
+    service: "ui",
+    tracePropagationTargets: [window.location.origin],
+    ignoreUrls: hyperdxExporterIgnoreUrls,
+    consoleCapture: true,
+    advancedNetworkCapture: false,
+    disableReplay: true,
+    instrumentations: {
+      document: true,
+      postload: true,
+      webvitals: true,
+      errors: true,
+    },
+    otelResourceAttributes: {
+      "deployment.environment": runtimeConfig.environment,
+      "service.namespace": "ctxpipe",
+    },
+  })
+  hyperdxInitialized = true
 }
 
 /**
  * Runtime config comes from the root route loader (SSR), not client fetch.
- * `useEffect` syncs the HyperDX OTEL SDK (external system) — not data loading.
- *
- * The provider lives in the root shell. Client navigations update the router
- * store without re-rendering that shell, so `useRouterState` in render never
- * sees them. Subscribe to the store directly.
+ * Init syncs the HyperDX SDK (external system). Page views are recorded by
+ * `HyperDxPageView`, which is mounted on the root route component so it
+ * re-renders on client navigations. The root shell does not.
  */
 export const HyperDxProvider: FC<{
   children: ReactNode
   runtimeConfig: HyperDxRuntimeConfig
 }> = ({ children, runtimeConfig }) => {
-  const router = useRouter({ warn: false }) as RouterWithStore | undefined
+  useEffect(() => {
+    ensureHyperDxBrowser(runtimeConfig)
+  }, [runtimeConfig])
+
+  return children
+}
+
+/**
+ * Mount this under the root route `component` (inside `Outlet`'s parent),
+ * not the document shell. `useRouterState` re-renders on every location
+ * change, and `onRendered` is the public event TanStack emits after the
+ * new match has rendered.
+ */
+export const HyperDxPageView: FC<{
+  runtimeConfig: HyperDxRuntimeConfig
+}> = ({ runtimeConfig }) => {
+  const router = useRouter({ warn: false }) as HyperDxRouter | undefined
+  const navKey = useRouterState({
+    select: (state) => {
+      const leaf = state.matches[state.matches.length - 1]
+      return `${state.location.pathname}\n${leaf?.pathname ?? ""}\n${leaf?.routeId ?? ""}`
+    },
+  })
   const { data: session, isPending: sessionPending } = useSession()
-  const { data: organizations } = useListOrganizations()
+  const { data: organizations, isPending: orgsPending } = useListOrganizations()
   const userId = session?.user?.id
-  const lastPath = useRef<string | undefined>(undefined)
+  const lastKey = useRef<string | undefined>(undefined)
+  const routerRef = useRef(router)
+  routerRef.current = router
   const identityRef = useRef({
     sessionPending: true,
+    orgsPending: true,
     userId: undefined as string | undefined,
     organizations: undefined as { id: string; slug: string }[] | undefined,
     activeOrganizationId: "",
   })
   identityRef.current = {
     sessionPending,
+    orgsPending,
     userId,
     organizations,
     activeOrganizationId: readActiveOrganizationId(session?.session),
   }
-  const routerRef = useRef(router)
-  routerRef.current = router
 
   const publish = () => {
     const current = routerRef.current
-    if (!runtimeConfig.enabled || !current?.state || !hyperdxInitialized) return
+    if (!runtimeConfig.enabled || !current?.state) return
+    ensureHyperDxBrowser(runtimeConfig)
+    if (!hyperdxInitialized) return
     const pathname = current.state.location.pathname
     const matches = current.state.matches.map((match) => ({
       routeId: match.routeId,
@@ -76,90 +130,67 @@ export const HyperDxProvider: FC<{
       params: match.params,
     }))
     if (!routerLocationMatchesResolved(pathname, matches)) return
-    const attrs: HyperDxPageViewAttributes = hyperdxPageViewFromMatches({
-      pathname,
-      matches,
-    })
+    const view = hyperdxPageViewFromMatches({ pathname, matches })
     const identity = identityRef.current
-    if (!identity.sessionPending) {
-      if (!identity.userId) {
-        clearHyperDxGlobalAttributes()
-      } else {
-        const team = resolveHyperDxTeam({
-          orgSlugFromRoute: attrs["ctxpipe.org.slug"],
+    if (identity.sessionPending) return
+    if (!identity.userId) {
+      clearHyperDxGlobalAttributes()
+    } else if (view["ctxpipe.org.slug"] && identity.orgsPending) {
+      return
+    }
+    const team = identity.userId
+      ? resolveHyperDxTeam({
+          orgSlugFromRoute: view["ctxpipe.org.slug"],
           organizations: identity.organizations,
           activeOrganizationId: identity.activeOrganizationId,
         })
-        setHyperDxGlobalAttributes(
-          hyperdxGlobalAttributes({
-            userId: identity.userId,
-            teamId: team.teamId,
-            teamName: team.teamName,
-          }),
-        )
-      }
+      : { teamId: "", teamName: "" }
+    const globals = hyperdxGlobalAttributes({
+      userId: identity.userId,
+      teamId: team.teamId,
+      teamName: team.teamName,
+    })
+    if (identity.userId) {
+      setHyperDxGlobalAttributes(globals)
     }
-    if (lastPath.current === attrs.path) return
-    lastPath.current = attrs.path
-    HyperDX.addAction("page_view", attrs)
+    const dedupe = `${view.path}\n${globals.userId}\n${globals.teamId}\n${globals.teamName}`
+    if (lastKey.current === dedupe) return
+    lastKey.current = dedupe
+    HyperDX.addAction("page_view", { ...view, ...globals })
   }
   const publishRef = useRef(publish)
   publishRef.current = publish
 
   useEffect(() => {
-    if (typeof window === "undefined") return
-    if (!runtimeConfig.enabled || !router?.__store) return
-
-    if (!hyperdxInitialized) {
-      const origin = window.location.origin
-      const url = runtimeConfig.url.startsWith("http")
-        ? runtimeConfig.url
-        : `${origin}${runtimeConfig.url}`
-      HyperDX.init({
-        url,
-        apiKey: runtimeConfig.apiKey ?? "",
-        service: "ui",
-        tracePropagationTargets: [window.location.origin],
-        // SDK does not exclude its own OTLP url; keep exporter requests untraced.
-        ignoreUrls: hyperdxExporterIgnoreUrls,
-        consoleCapture: true,
-        advancedNetworkCapture: false,
-        disableReplay: true,
-        // document-load, post-load resource timing, and web vitals are SDK
-        // defaults (disable: false / webvitals !== false). Set explicitly.
-        instrumentations: {
-          document: true,
-          postload: true,
-          webvitals: true,
-          errors: true,
-        },
-        otelResourceAttributes: {
-          "deployment.environment": runtimeConfig.environment,
-          "service.namespace": "ctxpipe",
-        },
-      })
-      hyperdxInitialized = true
-    }
-
-    const run = () => {
-      publishRef.current()
-    }
-    run()
-    const subscription = router.__store.subscribe(run)
-    return () => {
-      subscription.unsubscribe()
-    }
-  }, [runtimeConfig, router])
-
-  useEffect(() => {
+    if (!runtimeConfig.enabled || !router || navKey.length === 0) return
     identityRef.current = {
       sessionPending,
+      orgsPending,
       userId,
       organizations,
       activeOrganizationId: readActiveOrganizationId(session?.session),
     }
     publishRef.current()
-  }, [sessionPending, userId, organizations, session])
+    const unsubscribeRendered = router.subscribe("onRendered", () => {
+      publishRef.current()
+    })
+    const unsubscribeLoad = router.subscribe("onLoad", () => {
+      publishRef.current()
+    })
+    return () => {
+      unsubscribeRendered()
+      unsubscribeLoad()
+    }
+  }, [
+    runtimeConfig,
+    router,
+    navKey,
+    sessionPending,
+    userId,
+    organizations,
+    orgsPending,
+    session,
+  ])
 
-  return children
+  return null
 }

@@ -43,7 +43,7 @@ vi.mock("@/lib/auth-client", () => ({
   }),
 }))
 
-import { HyperDxProvider } from "./HyperDxProvider"
+import { HyperDxPageView, HyperDxProvider } from "./HyperDxProvider"
 
 describe("HyperDxProvider client navigations", () => {
   let root: Root | undefined
@@ -59,19 +59,23 @@ describe("HyperDxProvider client navigations", () => {
   })
 
   it("records one page_view per client navigation with the org slug and route id", async () => {
+    const runtimeConfig = {
+      enabled: true,
+      url: "/.otel",
+      environment: "test",
+    }
     const rootRoute = createRootRoute({
       shellComponent: ({ children }) => (
-        <HyperDxProvider
-          runtimeConfig={{
-            enabled: true,
-            url: "/.otel",
-            environment: "test",
-          }}
-        >
+        <HyperDxProvider runtimeConfig={runtimeConfig}>
           {children}
         </HyperDxProvider>
       ),
-      component: () => <Outlet />,
+      component: () => (
+        <>
+          <HyperDxPageView runtimeConfig={runtimeConfig} />
+          <Outlet />
+        </>
+      ),
     })
     const signInRoute = createRoute({
       getParentRoute: () => rootRoute,
@@ -119,11 +123,17 @@ describe("HyperDxProvider client navigations", () => {
     const pageViews = () =>
       addAction.mock.calls.filter((call) => call[0] === "page_view")
 
+    const identity = {
+      userId: "user_1",
+      teamId: "org_1",
+      teamName: "obs-e2e-343",
+    }
     expect(pageViews().map((call) => call[1])).toEqual([
       {
         path: "/.auth/sign-in",
         route: "/.auth/sign-in",
         "ctxpipe.org.slug": "",
+        ...identity,
       },
     ])
 
@@ -142,28 +152,34 @@ describe("HyperDxProvider client navigations", () => {
         path: "/.auth/sign-in",
         route: "/.auth/sign-in",
         "ctxpipe.org.slug": "",
+        ...identity,
       },
       {
         path: "/obs-e2e-343",
         route: "/$orgSlug/",
         "ctxpipe.org.slug": "obs-e2e-343",
+        ...identity,
       },
       {
         path: "/obs-e2e-343/chat",
         route: "/$orgSlug/chat",
         "ctxpipe.org.slug": "obs-e2e-343",
+        ...identity,
       },
       {
         path: "/obs-e2e-343/repositories",
         route: "/$orgSlug/repositories",
         "ctxpipe.org.slug": "obs-e2e-343",
+        ...identity,
       },
     ])
 
-    expect(setGlobalAttributes).toHaveBeenCalledWith({
-      userId: "user_1",
-      teamId: "org_1",
-      teamName: "obs-e2e-343",
-    })
+    const firstViewIndex = addAction.mock.calls.findIndex(
+      (call) => call[0] === "page_view",
+    )
+    expect(setGlobalAttributes.mock.invocationCallOrder[0]).toBeLessThan(
+      addAction.mock.invocationCallOrder[firstViewIndex] ?? 0,
+    )
+    expect(setGlobalAttributes).toHaveBeenCalledWith(identity)
   })
 })

@@ -3,6 +3,7 @@ import {
   createRootRoute,
   type ErrorComponentProps,
   HeadContent,
+  Outlet,
   Scripts,
 } from "@tanstack/react-router"
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
@@ -12,6 +13,7 @@ import { getConfluenceForgeRuntimeConfig } from "@/lib/confluenceForgeRuntimeCon
 import { recordHyperDxException } from "@/lib/hyperdxBrowser"
 import { getHyperDxRuntimeConfig } from "@/lib/hyperdxRuntimeConfig"
 import { Providers } from "@/providers"
+import { HyperDxPageView } from "@/providers/HyperDxProvider"
 
 import appCss from "../styles.css?url"
 
@@ -47,6 +49,7 @@ export const Route = createRootRoute({
       },
     ],
   }),
+  component: RootComponent,
   shellComponent: RootDocument,
   errorComponent: RootErrorComponent,
   notFoundComponent: () => (
@@ -57,6 +60,16 @@ export const Route = createRootRoute({
     </main>
   ),
 })
+
+function RootComponent() {
+  const { hyperdxRuntimeConfig } = Route.useLoaderData()
+  return (
+    <>
+      <HyperDxPageView runtimeConfig={hyperdxRuntimeConfig} />
+      <Outlet />
+    </>
+  )
+}
 
 function RootErrorComponent({ error, reset }: ErrorComponentProps) {
   useEffect(() => {

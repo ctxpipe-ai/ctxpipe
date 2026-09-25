@@ -48,6 +48,45 @@ describe("proxyBrowserOtlp", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  it("404s from the router pathname when request.url is an allowed signal", async () => {
+    const response = await proxyBrowserOtlp(
+      new Request("https://collector.internal/v1/traces", {
+        method: "POST",
+        body: "{}",
+      }),
+      "/.otel/v1/other",
+    )
+    expect(response.status).toBe(404)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("404s bare /.otel and other non-signal paths from the router pathname", async () => {
+    for (const pathname of ["/.otel", "/.otel/not-a-signal"]) {
+      const response = await proxyBrowserOtlp(
+        new Request("https://collector.internal/v1/traces", {
+          method: "POST",
+          body: "{}",
+        }),
+        pathname,
+      )
+      expect(response.status).toBe(404)
+    }
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("returns 502 when the collector closes the socket", async () => {
+    vi.mocked(fetch).mockRejectedValueOnce(
+      new Error("The socket connection was closed unexpectedly."),
+    )
+    const response = await proxyBrowserOtlp(
+      new Request("https://app.example/.otel/v1/logs", {
+        method: "POST",
+        body: "{}",
+      }),
+    )
+    expect(response.status).toBe(502)
+  })
+
   it("413s a body over 1 MiB from Content-Length without forwarding", async () => {
     const response = await proxyBrowserOtlp(
       new Request("https://app.example/.otel/v1/logs", {
