@@ -10,6 +10,7 @@ import {
   orgSlugFromMatches,
   readActiveOrganizationId,
   resolveHyperDxTeam,
+  routerLocationMatchesResolved,
 } from "./hyperdxAttributes"
 
 describe("hyperdxGlobalAttributes", () => {
@@ -86,6 +87,27 @@ describe("orgSlugFromMatches", () => {
     expect(
       orgSlugFromMatches([{ routeId: "/.auth/sign-in", params: {} }]),
     ).toBe("")
+  })
+})
+
+describe("routerLocationMatchesResolved", () => {
+  it("waits until the deepest match pathname is the location", () => {
+    expect(
+      routerLocationMatchesResolved("/obs-e2e-343/chat", [
+        { routeId: "/.auth/sign-in", pathname: "/.auth/sign-in" },
+      ]),
+    ).toBe(false)
+    expect(
+      routerLocationMatchesResolved("/obs-e2e-343/chat", [
+        { routeId: "/$orgSlug", pathname: "/obs-e2e-343" },
+        { routeId: "/$orgSlug/chat", pathname: "/obs-e2e-343/chat" },
+      ]),
+    ).toBe(true)
+    expect(
+      routerLocationMatchesResolved("/obs-e2e-343", [
+        { routeId: "/$orgSlug/", pathname: "/obs-e2e-343/" },
+      ]),
+    ).toBe(true)
   })
 })
 

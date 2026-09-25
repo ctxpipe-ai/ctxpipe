@@ -49,7 +49,29 @@ export function deepestRouteId(
 
 export type HyperDxRouteMatch = {
   routeId: string
+  pathname?: string
   params?: { orgSlug?: unknown }
+}
+
+function normalizePath(pathname: string): string {
+  if (pathname.length > 1 && pathname.endsWith("/")) {
+    return pathname.slice(0, -1)
+  }
+  return pathname
+}
+
+/**
+ * The router store emits the next pathname before `matches` catch up.
+ * A page view is ready when the deepest match covers that pathname.
+ */
+export function routerLocationMatchesResolved(
+  pathname: string,
+  matches: readonly HyperDxRouteMatch[] | undefined,
+): boolean {
+  if (!matches || matches.length === 0) return false
+  const leafPath = matches[matches.length - 1]?.pathname
+  if (!leafPath) return false
+  return normalizePath(leafPath) === normalizePath(pathname)
 }
 
 /** Org slug from the `/$orgSlug` match param. `/onboarding` and `/.auth/*` are not orgs. */
