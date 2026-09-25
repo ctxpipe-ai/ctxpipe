@@ -223,12 +223,16 @@ export function RepositoriesPageContent({ orgSlug }: { orgSlug: string }) {
           (err as { error?: string }).error ?? "Failed to create repository",
         )
       }
-      return res.json() as Promise<Repository>
+      return { created: res.status === 201 }
     },
-    onSuccess: () => {
-      recordHyperDxAction("repository_index_started")
+    onSuccess: ({ created }) => {
       queryClient.invalidateQueries({ queryKey: ["repositories", orgSlug] })
       setAddModalOpen(false)
+      if (!created) {
+        toast.info("Repository is already added")
+        return
+      }
+      recordHyperDxAction("repository_index_started")
       toast.success("Repository added and indexing started")
     },
     onError: (err: Error) => {
