@@ -14,10 +14,16 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
-const { init, addAction, setGlobalAttributes } = vi.hoisted(() => ({
+const { init, addAction, setGlobalAttributes, orgState } = vi.hoisted(() => ({
   init: vi.fn(),
   addAction: vi.fn(),
   setGlobalAttributes: vi.fn(),
+  orgState: {
+    data: [{ id: "org_1", slug: "obs-e2e-343" }] as
+      | { id: string; slug: string }[]
+      | undefined,
+    isPending: false,
+  },
 }))
 
 vi.mock("@hyperdx/browser", () => ({
@@ -37,10 +43,7 @@ vi.mock("@/lib/auth-client", () => ({
     },
     isPending: false,
   }),
-  useListOrganizations: () => ({
-    data: [{ id: "org_1", slug: "obs-e2e-343" }],
-    isPending: false,
-  }),
+  useListOrganizations: () => orgState,
 }))
 
 import { HyperDxPageView, HyperDxProvider } from "./HyperDxProvider"
@@ -56,6 +59,8 @@ describe("HyperDxProvider client navigations", () => {
     container?.remove()
     addAction.mockClear()
     setGlobalAttributes.mockClear()
+    orgState.data = [{ id: "org_1", slug: "obs-e2e-343" }]
+    orgState.isPending = false
   })
 
   it("records one page_view per client navigation with the org slug and route id", async () => {

@@ -153,14 +153,14 @@ describe("resolveHyperDxTeam", () => {
     ).toEqual({ teamId: "org_1", teamName: "obs-e2e-343" })
   })
 
-  it("keeps the route slug before the org list includes it", () => {
+  it("uses the active organization id before the org list includes the slug", () => {
     expect(
       resolveHyperDxTeam({
         orgSlugFromRoute: "obs-e2e-343",
         organizations: [],
         activeOrganizationId: "org_1",
       }),
-    ).toEqual({ teamId: "", teamName: "obs-e2e-343" })
+    ).toEqual({ teamId: "org_1", teamName: "obs-e2e-343" })
   })
 
   it("falls back to the session active organization off org routes", () => {

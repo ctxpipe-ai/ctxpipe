@@ -114,6 +114,12 @@ export function resolveHyperDxTeam(input: {
       (org) => org.slug === input.orgSlugFromRoute,
     )
     if (fromRoute) return { teamId: fromRoute.id, teamName: fromRoute.slug }
+    if (input.activeOrganizationId) {
+      return {
+        teamId: input.activeOrganizationId,
+        teamName: input.orgSlugFromRoute,
+      }
+    }
     return { teamId: "", teamName: input.orgSlugFromRoute }
   }
   if (input.activeOrganizationId) {

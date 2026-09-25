@@ -135,8 +135,6 @@ export const HyperDxPageView: FC<{
     if (identity.sessionPending) return
     if (!identity.userId) {
       clearHyperDxGlobalAttributes()
-    } else if (view["ctxpipe.org.slug"] && identity.orgsPending) {
-      return
     }
     const team = identity.userId
       ? resolveHyperDxTeam({

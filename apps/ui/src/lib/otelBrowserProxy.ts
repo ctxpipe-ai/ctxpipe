@@ -51,12 +51,27 @@ function admissionUrl(request: Request, pathname?: string): string {
   return new URL(`${pathname}${search}`, "https://browser.local").href
 }
 
-async function releaseRequestBody(request: Request): Promise<void> {
+/**
+ * Bun will not flush an error response while a POST body is still unread, and
+ * cancelling that stream makes the backend proxy see a socket close. Read the
+ * small reject body, then answer.
+ */
+async function drainRequestBody(request: Request): Promise<void> {
   if (!request.body) return
+  const reader = request.body.getReader()
+  let total = 0
   try {
-    await request.body.cancel()
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) return
+      total += value?.byteLength ?? 0
+      if (total > OTEL_PROXY_MAX_BODY_BYTES) {
+        await reader.cancel()
+        return
+      }
+    }
   } catch {
-    // Already consumed, or the runtime has no cancel.
+    // The sender already finished or aborted.
   }
 }
 
@@ -64,7 +79,7 @@ async function reject(
   request: Request,
   status: 404 | 405 | 413,
 ): Promise<Response> {
-  await releaseRequestBody(request)
+  if (status !== 413) await drainRequestBody(request)
   return new Response(null, {
     status,
     headers: status === 405 ? { Allow: "POST" } : undefined,
