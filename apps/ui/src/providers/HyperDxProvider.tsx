@@ -205,7 +205,9 @@ export const HyperDxPageView: FC<{
     : undefined
   const userId = session?.user?.id
   const activeOrganizationId = readActiveOrganizationId(session?.session)
-  const lastPath = useRef<string | undefined>(undefined)
+  const lastView = useRef<{ path: string; teamId: string } | undefined>(
+    undefined,
+  )
   const snapshotRef = useRef<IdentitySnapshot>({
     enabled: config.enabled,
     sessionPending: true,
@@ -236,17 +238,25 @@ export const HyperDxPageView: FC<{
       }))
       if (!routerLocationMatchesResolved(pathname, matches)) return
       const view = hyperdxPageViewFromMatches({ pathname, matches })
-      if (lastPath.current === view.path) return
-      lastPath.current = view.path
       const team = snapshot.userId
         ? teamForRoute({
             pathname,
-            slug: view["ctxpipe.org.slug"],
+            slug: view["ctxpipe.org.slug"] ?? "",
             userId: snapshot.userId,
             organizations: snapshot.organizations,
             activeOrganizationId: snapshot.activeOrganizationId,
           })
         : { teamId: "", teamName: "" }
+      const publishedTeamId = team.teamId
+      const previous = lastView.current
+      if (
+        previous?.path === view.path &&
+        (previous.teamId === publishedTeamId ||
+          (previous.teamId !== "" && publishedTeamId === ""))
+      ) {
+        return
+      }
+      lastView.current = { path: view.path, teamId: publishedTeamId }
       recordHyperDxAction("page_view", {
         ...hyperdxGlobalAttributes({
           userId: snapshot.userId,

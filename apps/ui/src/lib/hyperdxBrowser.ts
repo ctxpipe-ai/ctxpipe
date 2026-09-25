@@ -1,6 +1,5 @@
 import HyperDX from "@hyperdx/browser"
 import {
-  clearedHyperDxGlobalAttributes,
   type HyperDxOrgRef,
   type HyperDxSessionIdentity,
   hyperdxGlobalAttributes,
@@ -257,7 +256,8 @@ export function setHyperDxGlobalAttributes(
 }
 
 export function clearHyperDxGlobalAttributes(): void {
-  HyperDX.setGlobalAttributes(clearedHyperDxGlobalAttributes())
+  // The SDK merges into the existing bag. A falsy value deletes every key.
+  HyperDX.setGlobalAttributes(null as unknown as Record<string, string>)
   clearIdentityCache()
   noteHyperDxSessionIdentity("signed-out")
 }

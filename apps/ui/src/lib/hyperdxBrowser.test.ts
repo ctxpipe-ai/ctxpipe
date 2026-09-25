@@ -73,14 +73,7 @@ describe("session identity flushes deferred query errors", () => {
 
     clearHyperDxGlobalAttributes()
 
-    expect(setGlobalAttributes).toHaveBeenCalledWith({
-      userId: "",
-      teamId: "",
-      teamName: "",
-      "enduser.id": "",
-      "ctxpipe.org.id": "",
-      "ctxpipe.org.slug": "",
-    })
+    expect(setGlobalAttributes).toHaveBeenCalledWith(null)
     expect(recordException).toHaveBeenCalledTimes(1)
     expect(setGlobalAttributes.mock.invocationCallOrder[0]).toBeLessThan(
       recordException.mock.invocationCallOrder[0] ?? 0,

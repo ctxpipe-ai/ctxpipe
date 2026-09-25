@@ -8,7 +8,7 @@ import {
   Outlet,
   RouterProvider,
 } from "@tanstack/react-router"
-import { act } from "react"
+import { act, type ReactNode, useState } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -169,7 +169,6 @@ describe("HyperDxProvider client navigations", () => {
         path: "/.auth/sign-in",
         "url.path": "/.auth/sign-in",
         route: "/.auth/sign-in",
-        "ctxpipe.org.slug": "",
       },
     ])
 
@@ -189,7 +188,6 @@ describe("HyperDxProvider client navigations", () => {
         path: "/.auth/sign-in",
         "url.path": "/.auth/sign-in",
         route: "/.auth/sign-in",
-        "ctxpipe.org.slug": "",
       },
       {
         ...identity,
@@ -402,6 +400,129 @@ describe("HyperDxProvider client navigations", () => {
     expect(
       container.querySelector('a[href="/obs-e2e-343/chat"]'),
     ).not.toBeNull()
-    expect(setGlobalAttributes).toHaveBeenCalled()
+    expect(setGlobalAttributes).toHaveBeenCalledWith({
+      userId: "user_1",
+      teamId: "org_1",
+      teamName: "obs-e2e-343",
+      "enduser.id": "user_1",
+      "ctxpipe.org.id": "org_1",
+      "ctxpipe.org.slug": "obs-e2e-343",
+    })
+  })
+
+  it("omits teamId until the org list arrives, then republishes it on page_view", async () => {
+    sessionState.activeOrganizationId = ""
+    orgState.data = null
+    let rerender = () => {}
+    function Harness({ children }: { children: ReactNode }) {
+      const [tick, setTick] = useState(0)
+      rerender = () => setTick((value) => value + 1)
+      return (
+        <HyperDxProvider runtimeConfig={runtimeConfig}>
+          <HyperDxPageView runtimeConfig={runtimeConfig} />
+          <span data-tick={tick} hidden />
+          {children}
+        </HyperDxProvider>
+      )
+    }
+    const runtimeConfig = { enabled: true as const, environment: "test" }
+    const rootRoute = createRootRoute({
+      component: () => (
+        <Harness>
+          <Outlet />
+        </Harness>
+      ),
+    })
+    const orgRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: "/$orgSlug",
+      component: () => <Outlet />,
+    })
+    const indexRoute = createRoute({
+      getParentRoute: () => orgRoute,
+      path: "/",
+      component: () => <p>Home</p>,
+    })
+    const chatRoute = createRoute({
+      getParentRoute: () => orgRoute,
+      path: "chat",
+      component: () => <p>Chat</p>,
+    })
+    const router = createRouter({
+      routeTree: rootRoute.addChildren([
+        orgRoute.addChildren([indexRoute, chatRoute]),
+      ]),
+      history: createMemoryHistory({ initialEntries: ["/obs-e2e-343"] }),
+    })
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    await act(async () => {
+      root?.render(<RouterProvider router={router} />)
+    })
+
+    const pageViews = () =>
+      addAction.mock.calls.filter((call) => call[0] === "page_view")
+    for (const call of setGlobalAttributes.mock.calls) {
+      expect(call[0]).not.toHaveProperty("teamId")
+      expect(call[0]).not.toHaveProperty("ctxpipe.org.id")
+      expect(Object.values(call[0] as Record<string, string>)).not.toContain("")
+    }
+    expect(setGlobalAttributes).toHaveBeenCalledWith({
+      userId: "user_1",
+      teamName: "obs-e2e-343",
+      "enduser.id": "user_1",
+      "ctxpipe.org.slug": "obs-e2e-343",
+    })
+    expect(pageViews()[0]?.[1]).not.toHaveProperty("teamId")
+    expect(pageViews()[0]?.[1]).not.toHaveProperty("ctxpipe.org.id")
+
+    sessionState.activeOrganizationId = "org_session"
+    await act(async () => {
+      rerender()
+    })
+    expect(setGlobalAttributes).toHaveBeenLastCalledWith({
+      userId: "user_1",
+      teamId: "org_session",
+      teamName: "obs-e2e-343",
+      "enduser.id": "user_1",
+      "ctxpipe.org.id": "org_session",
+      "ctxpipe.org.slug": "obs-e2e-343",
+    })
+
+    orgState.data = [{ id: "org_1", slug: "obs-e2e-343" }]
+    await act(async () => {
+      rerender()
+    })
+
+    expect(setGlobalAttributes).toHaveBeenLastCalledWith({
+      userId: "user_1",
+      teamId: "org_1",
+      teamName: "obs-e2e-343",
+      "enduser.id": "user_1",
+      "ctxpipe.org.id": "org_1",
+      "ctxpipe.org.slug": "obs-e2e-343",
+    })
+    const identifiedHome = pageViews().filter(
+      (call) => call[1]?.path === "/obs-e2e-343" && call[1]?.teamId === "org_1",
+    )
+    expect(identifiedHome.length).toBeGreaterThan(0)
+    expect(identifiedHome.at(-1)?.[1]).toMatchObject({
+      teamId: "org_1",
+      "ctxpipe.org.id": "org_1",
+      "ctxpipe.org.slug": "obs-e2e-343",
+    })
+
+    await act(async () => {
+      await router.navigate({ href: "/obs-e2e-343/chat" })
+    })
+    const chat = pageViews().find(
+      (call) => call[1]?.path === "/obs-e2e-343/chat",
+    )
+    expect(chat?.[1]).toMatchObject({
+      teamId: "org_1",
+      "ctxpipe.org.id": "org_1",
+      teamName: "obs-e2e-343",
+    })
   })
 })

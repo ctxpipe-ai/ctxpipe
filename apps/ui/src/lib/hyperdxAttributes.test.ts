@@ -31,23 +31,40 @@ describe("hyperdxGlobalAttributes", () => {
     })
   })
 
-  it("uses empty strings when session or org is absent", () => {
-    expect(hyperdxGlobalAttributes({})).toEqual({
-      userId: "",
-      teamId: "",
-      teamName: "",
-      "enduser.id": "",
-      "ctxpipe.org.id": "",
-      "ctxpipe.org.slug": "",
+  it("omits empty identity keys instead of publishing empty strings", () => {
+    expect(hyperdxGlobalAttributes({})).toEqual({})
+    expect(clearedHyperDxGlobalAttributes()).toEqual({})
+    expect(
+      hyperdxGlobalAttributes({
+        userId: "user_1",
+        teamId: "",
+        teamName: "obs-e2e-343",
+      }),
+    ).toEqual({
+      userId: "user_1",
+      teamName: "obs-e2e-343",
+      "enduser.id": "user_1",
+      "ctxpipe.org.slug": "obs-e2e-343",
     })
-    expect(clearedHyperDxGlobalAttributes()).toEqual({
-      userId: "",
-      teamId: "",
-      teamName: "",
-      "enduser.id": "",
-      "ctxpipe.org.id": "",
-      "ctxpipe.org.slug": "",
+    expect(
+      hyperdxGlobalAttributes({
+        userId: "user_1",
+        teamId: "org_1",
+        teamName: "obs-e2e-343",
+      }),
+    ).toEqual({
+      userId: "user_1",
+      teamId: "org_1",
+      teamName: "obs-e2e-343",
+      "enduser.id": "user_1",
+      "ctxpipe.org.id": "org_1",
+      "ctxpipe.org.slug": "obs-e2e-343",
     })
+    for (const value of Object.values(
+      hyperdxGlobalAttributes({ teamName: "obs-e2e-343" }),
+    )) {
+      expect(value).not.toBe("")
+    }
   })
 })
 
@@ -147,7 +164,6 @@ describe("hyperdxPageViewFromMatches", () => {
       path: "/onboarding",
       "url.path": "/onboarding",
       route: "/onboarding",
-      "ctxpipe.org.slug": "",
     })
   })
 })
