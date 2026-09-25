@@ -1,11 +1,15 @@
 <clickhouse>
-  <!-- Defaults reserve multi-GiB caches (mark cache 5 GiB, uncompressed cache 8 GiB).
-       On this node max_server_memory_usage is 1 GiB, so the caches must be smaller
-       than that cap. Primary-index marks use mark_cache_size; 26.8 has no separate
-       primary_index_cache setting. max_server_memory_usage_to_ram_ratio is left
-       at the image default. -->
+  <!-- Defaults reserve multi-GiB caches (mark cache 5 GiB, uncompressed cache 8 GiB,
+       primary_index_cache_size 5 GiB, text index caches 1–2 GiB).
+       On this node max_server_memory_usage is 1 GiB, so every cache cap is smaller
+       than that. max_server_memory_usage_to_ram_ratio is left at the image default.
+       use_primary_key_cache stays off; the size cap is set anyway. -->
   <mark_cache_size>134217728</mark_cache_size>
   <index_mark_cache_size>67108864</index_mark_cache_size>
+  <primary_index_cache_size>67108864</primary_index_cache_size>
+  <text_index_postings_cache_size>33554432</text_index_postings_cache_size>
+  <text_index_tokens_cache_size>33554432</text_index_tokens_cache_size>
+  <text_index_header_cache_size>33554432</text_index_header_cache_size>
   <uncompressed_cache_size>0</uncompressed_cache_size>
   <mmap_cache_size>256</mmap_cache_size>
   <compiled_expression_cache_size>16777216</compiled_expression_cache_size>

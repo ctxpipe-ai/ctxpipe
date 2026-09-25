@@ -2,8 +2,10 @@
   <!-- 26.8 enables these MergeTree logs with ~1M-row buffers and no useful TTL.
        asynchronous_metric_log alone reached billions of rows and merge memory
        past the 1 GiB cap. remove="1" stops the logger; existing tables on the
-       volume are not rewritten. Langfuse and ClickStack use their own databases,
-       not these system logs. crash_log stays (empty unless the server crashes). -->
+       volume are not rewritten. HyperDX's built-in ClickHouse page reads
+       system.metric_log for its infrastructure charts; that logger is removed
+       on purpose, and the Observability Stack dashboard replaces those charts.
+       query_log stays for that page's Query Log tab. crash_log stays. -->
   <asynchronous_metric_log remove="1"/>
   <metric_log remove="1"/>
   <query_metric_log remove="1"/>
@@ -37,6 +39,7 @@
     <reserved_size_rows>1024</reserved_size_rows>
     <buffer_size_rows_flush_threshold>4096</buffer_size_rows_flush_threshold>
     <flush_on_crash>false</flush_on_crash>
+    <!-- Skip system.user_query_log, a second copy of this log for per-user access. -->
     <enable_user_query_log>false</enable_user_query_log>
   </query_log>
 

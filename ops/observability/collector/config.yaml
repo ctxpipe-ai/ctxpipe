@@ -7,10 +7,10 @@
 # The base receiver name is otlp/hyperdx (not otlp). Hosted allowlist source of
 # truth; keep in sync with apps/otel-collector/config.yaml.
 #
-# otelcol-hyperdx 0.155.0 (clickhouse/clickstack-otel-collector) includes
-# prometheus, resource, and transform, but not the redis receiver. metrics/self
-# therefore scrapes the collector and ClickHouse only. Do not add a second
-# collector to cover Redis.
+# The pinned collector image includes prometheus, resource, and transform, but
+# not a redis receiver. metrics/self scrapes the collector and ClickHouse only.
+# Redis metrics come from the railway-telemetry cron
+# (ops/observability/railway-telemetry), which polls INFO every 5 minutes.
 
 receivers:
   # job label becomes resource service.name (otel-collector, clickhouse).

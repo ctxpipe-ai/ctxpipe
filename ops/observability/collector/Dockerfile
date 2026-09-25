@@ -1,4 +1,4 @@
-FROM clickhouse/clickstack-otel-collector:latest
+FROM clickhouse/clickstack-otel-collector:2.39.1
 
 COPY config.yaml /etc/otelcol-contrib/custom.config.yaml
 
