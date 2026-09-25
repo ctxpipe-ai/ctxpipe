@@ -13,7 +13,10 @@ resource "railway_service" "clickhouse" {
 
   lifecycle {
     prevent_destroy = true
-    ignore_changes  = [regions]
+    # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
+    # Desired region is us-east4-eqdc4a (ADR-029). Pin after apply with
+    # RAILWAY_SERVICE_SET=observability scripts/railway-set-regions.sh.
+    ignore_changes = [regions]
   }
 }
 

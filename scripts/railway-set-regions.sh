@@ -15,8 +15,18 @@
 #   RAILWAY_ENVIRONMENT  (default: production)
 #   RAILWAY_REGION       (default: us-east4-eqdc4a)
 #   RAILWAY_NUM_REPLICAS (default: 1)
+#   RAILWAY_SERVICE_SET  (default: product)
+#     product         — ctxpipe (backend, openworkflow, ui, otelcollector, codesearch, falkordb)
+#     observability   — ctxpipe-observability (collector, hyperdx, redis,
+#                       langfuse-web, langfuse-worker, clickhouse, mongo)
 #   STATELESS_WAIT_SECONDS (default: 600)
 #   VOLUME_WAIT_SECONDS    (default: 2700)  # 50GB volume copy
+#
+# Both hosted Railway projects use the same Virginia region as Neon
+# (ADR-029 / ADR-031). Terraform ignore_changes + provider issue #77
+# never correct a create that landed in the workspace preferred region
+# (Singapore). Run this after apply. Volume-backed services copy the
+# volume during the redeploy and go down for that copy.
 set -euo pipefail
 
 TOKEN="${RAILWAY_TOKEN:-${RAILWAY_API_TOKEN:-}}"
@@ -24,6 +34,7 @@ PROJECT_ID="${RAILWAY_PROJECT_ID:-}"
 ENVIRONMENT_NAME="${RAILWAY_ENVIRONMENT:-production}"
 REGION="${RAILWAY_REGION:-us-east4-eqdc4a}"
 NUM_REPLICAS="${RAILWAY_NUM_REPLICAS:-1}"
+SERVICE_SET="${RAILWAY_SERVICE_SET:-product}"
 STATELESS_WAIT_SECONDS="${STATELESS_WAIT_SECONDS:-600}"
 VOLUME_WAIT_SECONDS="${VOLUME_WAIT_SECONDS:-2700}"
 
@@ -41,8 +52,20 @@ if (( NUM_REPLICAS < 1 )); then
 fi
 
 # Terraform service names. Stateless first; volume-backed last (serial copy).
-STATELESS_NAMES=(backend openworkflow ui otelcollector)
-VOLUME_NAMES=(codesearch falkordb)
+case "$SERVICE_SET" in
+  product)
+    STATELESS_NAMES=(backend openworkflow ui otelcollector)
+    VOLUME_NAMES=(codesearch falkordb)
+    ;;
+  observability)
+    STATELESS_NAMES=(collector hyperdx redis langfuse-web langfuse-worker)
+    VOLUME_NAMES=(clickhouse mongo)
+    ;;
+  *)
+    echo "Unknown RAILWAY_SERVICE_SET=$SERVICE_SET (expected product or observability)" >&2
+    exit 1
+    ;;
+esac
 
 railway_graphql() {
   local query="$1"

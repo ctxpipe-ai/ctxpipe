@@ -31,8 +31,18 @@ Infrastructure lives in [`terraform/`](./terraform/). ClickHouse and the collect
 3. Create Railway bucket `langfuse-events` (region `iad`) so `${{langfuse-events.BUCKET}}` and sibling references resolve.
 4. Copy [`terraform/terraform.tfvars.example`](./terraform/terraform.tfvars.example) → `terraform.tfvars`. Generate ClickHouse / HyperDX / Langfuse init secrets. `LANGFUSE_INIT_PROJECT_*` keys must match `langfuse_auth_string` so the collector can fan out on first boot.
 5. `terraform apply` (use this PR branch for `github_repo_branch` until merge, then `main`).
-6. Create DNS CNAMEs for `telemetry.ctxpipe.ai`, `hyperdx.ctxpipe.ai`, and `langfuse.ctxpipe.ai` to `terraform output collector_dns_record` / `hyperdx_dns_record` / `langfuse_dns_record`. Until those are live, use the Railway service domains.
-7. Point product Terraform `otel_otlp_endpoint` / `otel_otlp_headers` (and PR vars `OBSERVABILITY_OTLP_ENDPOINT` / `OBSERVABILITY_OTLP_HEADERS`) at `https://telemetry.ctxpipe.ai` with `authorization=<HYPERDX_API_KEY>`. Until those are set, production still uses the in-project `otelcollector`.
+6. Pin every service to **`us-east4-eqdc4a`** (same as product). Terraform cannot Update regions (provider issue #77 + `ignore_changes`). Railway create/MCP uses the workspace preferred region (Singapore) unless this runs:
+
+   ```bash
+   RAILWAY_PROJECT_ID=305aa114-c6f3-4aca-b883-0faa9c331aa2 \
+   RAILWAY_SERVICE_SET=observability \
+   RAILWAY_ENVIRONMENT=production \
+   bash scripts/railway-set-regions.sh
+   ```
+
+   ClickHouse volume copy has downtime. Confirm both volumes are `us-east4-eqdc4a` before calling the stack done.
+7. Create DNS CNAMEs for `telemetry.ctxpipe.ai`, `hyperdx.ctxpipe.ai`, and `langfuse.ctxpipe.ai` to `terraform output collector_dns_record` / `hyperdx_dns_record` / `langfuse_dns_record`. Until those are live, use the Railway service domains.
+8. Point product Terraform `otel_otlp_endpoint` / `otel_otlp_headers` (and PR vars `OBSERVABILITY_OTLP_ENDPOINT` / `OBSERVABILITY_OTLP_HEADERS`) at `https://telemetry.ctxpipe.ai` with `authorization=<HYPERDX_API_KEY>`. Until those are set, production still uses the in-project `otelcollector`.
 
 [`deploy.sh`](./deploy.sh) is an optional CLI escape hatch (`railway up`) if the GitHub integration is unavailable.
 

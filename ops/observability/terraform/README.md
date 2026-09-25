@@ -25,6 +25,15 @@ terraform apply -var='github_repo_branch=cursor/clickstack-langfuse-observabilit
 
 After merge, apply again with `github_repo_branch=main`.
 
+Then pin services to **`us-east4-eqdc4a`**. Terraform create can land in the workspace preferred region (Singapore); `ignore_changes` plus provider issue #77 never fix it on apply:
+
+```bash
+RAILWAY_PROJECT_ID=305aa114-c6f3-4aca-b883-0faa9c331aa2 \
+RAILWAY_SERVICE_SET=observability \
+RAILWAY_ENVIRONMENT=production \
+bash scripts/railway-set-regions.sh
+```
+
 `RAILWAY_TOKEN` must be able to manage `ctxpipe-observability`. The product workspace token used by `infra/` is enough; do not mint a second project token.
 
 ## Neon

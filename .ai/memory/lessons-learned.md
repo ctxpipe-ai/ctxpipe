@@ -646,6 +646,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-31
 - **Source:** Claude Code 2.1.251 Stop hook validation failure after `npx ctxpipe init`; [anthropics/claude-code#50682](https://github.com/anthropics/claude-code/issues/50682)
 
+### ctxpipe-observability stays in us-east4-eqdc4a
+- **Rule:** Hosted observability uses the same Railway metal as product: **`us-east4-eqdc4a`** (Virginia, next to Neon `aws-us-east-1`). Terraform `regions` plus `ignore_changes` only documents the intent — provider 0.6.x never sends `multiRegionConfig` on Update, and Railway MCP `create-service` has no region field so new services inherit the workspace preferred region (Singapore). After create or apply, pin with `RAILWAY_SERVICE_SET=observability` on `scripts/railway-set-regions.sh`. Do not call the stack done while any service or volume still shows `asia-southeast1-eqsg3a`. Volume-backed ClickHouse copies 50GB and has downtime.
+- **Category:** convention
+- **Date:** 2026-09-25
+- **Source:** user correction on PR-343 (stack landed in Singapore again after image-service create / region pin)
+
 ### Distributed OAuth connectors require a clean external-workspace acceptance test
 - **Rule:** Never treat a provider workspace that already hosts the development app as proof that a new customer installation works. OAuth grants can be workspace-specific, additive, and contaminated by dashboard installs or earlier re-authorisations; Slack can also silently suppress Events API delivery when the installed token lacks an event scope. Before shipping a distributed connector, install it through the product OAuth flow into a fresh second workspace, inspect the returned and live token scopes, exercise the real webhook-to-durable-output path, and test re-authorisation after a required scope changes. Keep provider app configuration in a committed manifest and CI-check its scopes against the backend request.
 - **Category:** testing
