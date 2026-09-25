@@ -29,4 +29,6 @@ After merge, apply again with `github_repo_branch=main`.
 
 ## Neon
 
-Langfuse uses a dedicated database `langfuse` (role `langfuse`) on the existing `ctxpipe` Neon project. A schema on `neondb` is not supported — Langfuse Prisma migrations hardcode `public`.
+Langfuse uses a dedicated database `langfuse` (role `langfuse`) on the existing `ctxpipe` Neon project. A schema on `neondb` is not supported — Langfuse Prisma migrations hardcode `public`. Locals append `connection_limit=1` to `DATABASE_URL` / `DIRECT_URL`. Set `idle_session_timeout=60s` on that database/role in Neon so idle Prisma sessions drop.
+
+The provider cannot set Serverless or cron. After apply: collector and ClickHouse `sleepApplication=false`; HyperDX/Mongo/Langfuse web/Redis stay Serverless; Langfuse worker is `*/5 * * * *` with start command `timeout 90s node worker/dist/index.js` and restart `NEVER`.

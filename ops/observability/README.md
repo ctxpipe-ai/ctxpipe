@@ -8,13 +8,13 @@ See [ADR-031](../../.ai/memory/decisions/ADR-031-self-hosted-clickstack-langfuse
 
 | Service | Source | Notes |
 | --- | --- | --- |
-| ClickHouse | GitHub `ops/observability/clickhouse` | 1 GiB RAM cap, volume, DBs `otel` + `langfuse`, 14-day TTL |
-| Collector | GitHub `ops/observability/collector` | Built-in ClickHouse APM + custom LLM allowlist → Langfuse. Public hostname `telemetry.ctxpipe.ai` |
-| HyperDX | `hyperdx/hyperdx:2` | UI at `hyperdx.ctxpipe.ai`; Serverless flag on, Mongo pool keeps it warm |
-| Mongo | `mongo:7` | HyperDX metadata only |
-| Langfuse web | `langfuse/langfuse:3` | UI at `langfuse.ctxpipe.ai` + `/api/public/otel` |
-| Langfuse worker | `langfuse/langfuse-worker:3` | ClickHouse + Neon + bucket |
-| Redis | `redis:7-alpine` | Langfuse queue |
+| ClickHouse | GitHub `ops/observability/clickhouse` | Stay awake. 1 GiB RAM cap, volume, DBs `otel` + `langfuse`, 14-day TTL |
+| Collector | GitHub `ops/observability/collector` | Stay awake. Built-in ClickHouse APM + custom LLM allowlist → Langfuse. Public hostname `telemetry.ctxpipe.ai` |
+| HyperDX | `hyperdx/hyperdx:2` | Sleeps when unused. UI at `hyperdx.ctxpipe.ai`. Mongo pool `maxIdleTimeMS=30000&minPoolSize=0` |
+| Mongo | `mongo:7` | Sleeps after HyperDX idles. HyperDX metadata only |
+| Langfuse web | `langfuse/langfuse:3` | Sleeps when unused. UI at `langfuse.ctxpipe.ai` + `/api/public/otel`. Wakes on dashboard or LLM OTLP |
+| Langfuse worker | `langfuse/langfuse-worker:3` | Cron every 5 min, `timeout 90s node worker/dist/index.js`, `restartPolicy=NEVER`. LLM ClickHouse rows can lag ~5 min |
+| Redis | `redis:7-alpine` | Sleeps when web and worker are idle |
 
 Postgres for Langfuse is a **dedicated `langfuse` database** on the existing Neon `ctxpipe` project (same compute, not a new instance, not a schema on `neondb`). Event blobs: **Railway Bucket** `langfuse-events`, not MinIO.
 
@@ -52,4 +52,6 @@ If the ClickStack image cannot merge `otlphttp/langfuse`, run only the contrib c
 
 ## Cost target
 
-Single replica, no PR copies, Railway Serverless flagged on every service, ~$25–35/mo target. Uncapped ClickHouse or cloning this stack into `ctxpipe` preview envs is what blows the bill. The Railway 0.6.1 provider cannot set `sleepApplication`; GitHub-built services use `railway.toml`, image services are set on the Railway service. E2e (2026-09-24): no service reached `SLEEPING` while production/PR posted `/v1/metrics` every 60s and Langfuse worker flushed ClickHouse every 1s. Railway needs 5–10 minutes with zero outbound packets; connection pools and periodic export prevent that.
+Single replica, no PR copies, ~$25–35/mo target. **Ingest stays awake** (collector + ClickHouse) because production exports metrics every 60s. **HyperDX, Mongo, Langfuse web, Langfuse worker, and Redis sleep** when unused. Uncapped ClickHouse or cloning this stack into `ctxpipe` preview envs is what blows the bill.
+
+The Railway 0.6.1 provider cannot set `sleepApplication` or cron. GitHub-built ingest services set `sleepApplication = false` in `railway.toml`. Image-service sleep, HyperDX `MONGO_URI` pool knobs, and the worker cron (`*/5 * * * *` + `timeout 90s node worker/dist/index.js` + restart `NEVER`) are set on the Railway service after apply. Neon `langfuse` uses `idle_session_timeout=60s` and Prisma `connection_limit=1` so web can drop Postgres sockets.

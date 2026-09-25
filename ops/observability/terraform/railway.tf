@@ -182,7 +182,7 @@ resource "railway_variable_collection" "hyperdx" {
   variables = [
     {
       name  = "MONGO_URI"
-      value = "mongodb://$${{mongo.RAILWAY_PRIVATE_DOMAIN}}:27017/hyperdx"
+      value = "mongodb://$${{mongo.RAILWAY_PRIVATE_DOMAIN}}:27017/hyperdx?maxIdleTimeMS=30000&minPoolSize=0&maxPoolSize=2"
     },
     {
       name  = "CLICKHOUSE_HOST"

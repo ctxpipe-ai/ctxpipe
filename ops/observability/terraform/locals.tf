@@ -1,4 +1,13 @@
 locals {
+  # Prisma holds sockets for the process lifetime unless the URL caps the pool.
+  # connection_limit=1 + Neon idle_session_timeout lets langfuse-web drop outbound.
+  langfuse_database_url = strcontains(var.langfuse_database_url, "connection_limit=") ? var.langfuse_database_url : (
+    strcontains(var.langfuse_database_url, "?") ? "${var.langfuse_database_url}&connection_limit=1" : "${var.langfuse_database_url}?connection_limit=1"
+  )
+  langfuse_direct_url = strcontains(var.langfuse_direct_url, "connection_limit=") ? var.langfuse_direct_url : (
+    strcontains(var.langfuse_direct_url, "?") ? "${var.langfuse_direct_url}&connection_limit=1" : "${var.langfuse_direct_url}?connection_limit=1"
+  )
+
   regions = [
     {
       num_replicas = var.railway_regions[0].num_replicas
@@ -36,11 +45,11 @@ locals {
   langfuse_shared_env = concat([
     {
       name  = "DATABASE_URL"
-      value = var.langfuse_database_url
+      value = local.langfuse_database_url
     },
     {
       name  = "DIRECT_URL"
-      value = var.langfuse_direct_url
+      value = local.langfuse_direct_url
     },
     {
       name  = "CLICKHOUSE_URL"
