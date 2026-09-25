@@ -1,6 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { FalkorDB } from "falkordb"
 import neo4j, { type Driver } from "neo4j-driver"
+import {
+  serverAddressFromUrl,
+  traceGraphQuery,
+} from "../../observability/dbTrace.js"
 import { log } from "../../observability/logger.js"
 
 const DB_PER_TENANT = ["falkordb", "neo4j-enterprise", "memgraph"] as const
@@ -83,32 +87,52 @@ function normalizeBoltParamsForProvider(
   return next
 }
 
+function graphSystemName(provider: Provider): string {
+  if (provider === "falkordb") return "falkordb"
+  if (provider === "memgraph") return "memgraph"
+  if (provider === "neptune") return "neptune"
+  return "neo4j"
+}
+
 function createFalkorDbGraphClient(
   db: FalkorDBInstance,
   orgId: string,
+  uri: string,
 ): GraphClient {
+  const server = serverAddressFromUrl(uri)
   return {
     async executeQuery(query, params) {
-      const graph = db.selectGraph(orgId)
-      const serialized = params
-        ? Object.fromEntries(
-            Object.entries(params).map(([k, v]) => [
-              k,
-              v instanceof Date ? v.toISOString() : v,
-            ]),
+      return traceGraphQuery(
+        {
+          system: "falkordb",
+          query,
+          namespace: orgId,
+          serverAddress: server.address,
+          serverPort: server.port,
+        },
+        async () => {
+          const graph = db.selectGraph(orgId)
+          const serialized = params
+            ? Object.fromEntries(
+                Object.entries(params).map(([k, v]) => [
+                  k,
+                  v instanceof Date ? v.toISOString() : v,
+                ]),
+              )
+            : undefined
+          type QueryOpts = Parameters<
+            ReturnType<FalkorDBInstance["selectGraph"]>["query"]
+          >[1]
+          const reply = await graph.query(
+            query,
+            (serialized ? { params: serialized } : undefined) as QueryOpts,
           )
-        : undefined
-      type QueryOpts = Parameters<
-        ReturnType<FalkorDBInstance["selectGraph"]>["query"]
-      >[1]
-      const reply = await graph.query(
-        query,
-        (serialized ? { params: serialized } : undefined) as QueryOpts,
+          const records = falkorReplyToRecords(
+            reply.data as Array<Record<string, unknown>>,
+          )
+          return { records }
+        },
       )
-      const records = falkorReplyToRecords(
-        reply.data as Array<Record<string, unknown>>,
-      )
-      return { records }
     },
     async close() {
       // No-op: shared db is closed in closeGraphDb
@@ -119,19 +143,32 @@ function createFalkorDbGraphClient(
 function scopedBoltDriver(
   inner: Driver,
   provider: Provider,
+  uri: string,
   database?: string,
 ): GraphClient {
+  const server = serverAddressFromUrl(uri)
   return {
     async executeQuery(query, params) {
-      const normalizedParams = normalizeBoltParamsForProvider(
-        query,
-        params,
-        provider,
+      return traceGraphQuery(
+        {
+          system: graphSystemName(provider),
+          query,
+          namespace: database,
+          serverAddress: server.address,
+          serverPort: server.port,
+        },
+        async () => {
+          const normalizedParams = normalizeBoltParamsForProvider(
+            query,
+            params,
+            provider,
+          )
+          const result = database
+            ? await inner.executeQuery(query, normalizedParams, { database })
+            : await inner.executeQuery(query, normalizedParams)
+          return { records: result.records }
+        },
       )
-      const result = database
-        ? await inner.executeQuery(query, normalizedParams, { database })
-        : await inner.executeQuery(query, normalizedParams)
-      return { records: result.records }
     },
     async close() {
       // No-op: shared driver is closed in closeGraphDb
@@ -177,7 +214,7 @@ async function resolveFalkorDbClient(orgId: string): Promise<GraphClient> {
     attachFalkorDbLifecycle(db)
     databasePerTenantFalkorDb = db
   }
-  return createFalkorDbGraphClient(databasePerTenantFalkorDb, orgId)
+  return createFalkorDbGraphClient(databasePerTenantFalkorDb, orgId, uri)
 }
 
 async function resolveBoltClient(
@@ -190,7 +227,12 @@ async function resolveBoltClient(
     if (!databasePerTenantBoltClient) {
       databasePerTenantBoltClient = neo4j.driver(cfg.uri, auth)
     }
-    return scopedBoltDriver(databasePerTenantBoltClient, cfg.provider, orgId)
+    return scopedBoltDriver(
+      databasePerTenantBoltClient,
+      cfg.provider,
+      cfg.uri,
+      orgId,
+    )
   }
   const orgUri = process.env[`GRAPH_DB_URI_${orgSlug}`]
   if (!orgUri) {
@@ -201,7 +243,7 @@ async function resolveBoltClient(
     driver = neo4j.driver(orgUri, auth)
     instancePerTenantBoltClients.set(orgSlug, driver)
   }
-  return scopedBoltDriver(driver, cfg.provider)
+  return scopedBoltDriver(driver, cfg.provider, orgUri)
 }
 
 async function resolveClient(

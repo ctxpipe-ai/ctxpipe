@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool } from "pg"
 import type { Env } from "../config/env.js"
+import { instrumentPgPool } from "../observability/dbTrace.js"
 import * as schema from "./schema.js"
 
 /**
@@ -17,6 +18,7 @@ export function createDb(env: Env) {
     idleTimeoutMillis: 300_000,
     keepAlive: true,
   })
+  instrumentPgPool(client, { tracerName: "ctxpipe-codesearch" })
   return drizzle({ client, schema })
 }
 
