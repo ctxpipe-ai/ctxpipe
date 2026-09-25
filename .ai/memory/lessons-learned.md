@@ -503,7 +503,7 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### Browser OTEL / HyperDX:
-- **Rule:** Self-hosters should **not** need to **rebuild** the UI image — set **runtime** env on the UI server. Enable `@hyperdx/browser` when `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set; resolve config in the **root route loader** via **`getHyperDxRuntimeConfig()`** (server-side during SSR); pass config into the client as loader data — **no client `fetch`** for bootstrap. Default `url` is the same-origin proxy **`/.otel`** (ingest token stays on the server). Operators may set **`OTEL_BROWSER_OTLP_URL`** to their collector instead. SPA page views: **`HyperDX.addAction("page_view", { path })`**. Hosted default: **`disableReplay: true`**. See ADR-038 (supersedes ADR-017).
+- **Rule:** Self-hosters should **not** need to **rebuild** the UI image — set **runtime** env on the UI server. Enable `@hyperdx/browser` when `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set; resolve config in the **root route loader** via **`getHyperDxRuntimeConfig()`** (server-side during SSR); pass config into the client as loader data — **no client `fetch`** for bootstrap. The browser always posts to the same-origin proxy **`/.otel`**: the UI server holds the collector URL and ingest key, scrubs queries, fragments, and emails, and pins the resource to `service.name=ui` plus `deployment.environment` (keeping only a valid `rum.sessionId`). There is no browser-direct collector URL. SPA page views: **`HyperDX.addAction("page_view", { path })`**. Hosted default: **`disableReplay: true`**. See ADR-038 (supersedes ADR-017).
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
