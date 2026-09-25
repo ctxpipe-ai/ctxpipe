@@ -170,7 +170,7 @@ describe("shared cookie session spans", () => {
     expect(response.status).toBe(200)
     expect(getSessionMock).not.toHaveBeenCalled()
     const spans = exporter.getFinishedSpans()
-    expect(spans.map((span) => span.name)).toEqual(["POST /.otel/v1/traces"])
+    expect(spans.map((span) => span.name)).toEqual(["POST /.otel/v1/:signal"])
     expect(spans[0]?.kind).toBe(SpanKind.SERVER)
     expect(spans.some((span) => span.name === "session.resolve")).toBe(false)
   })

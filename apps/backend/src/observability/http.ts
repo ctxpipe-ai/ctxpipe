@@ -58,6 +58,15 @@ function requestLogger(
   }
 }
 
+/**
+ * `/.otel/v1/traces` is proxied by the UI catch-all (`/*`).
+ * Name that server span with a route template instead of `POST /*`.
+ */
+export function serverSpanRoute(path: string, routePath: string): string {
+  if (/^\/\.otel\/v1\/[^/]+$/.test(path)) return "/.otel/v1/:signal"
+  return routePath
+}
+
 /** Backend routes that must keep a server span, including wildcard mounts. */
 function isBackendSpanPath(path: string): boolean {
   return (
@@ -135,7 +144,7 @@ export function backendOtelMiddleware(): MiddlewareHandler {
         applyAttribution({ "request.id": requestId.id }, requestLogger(c))
         try {
           await next()
-          const route = c.req.routePath
+          const route = serverSpanRoute(c.req.path, c.req.routePath)
           if (route) {
             span.updateName(`${c.req.method} ${route}`)
             span.setAttribute("http.route", route)

@@ -21,7 +21,11 @@ import {
   vi,
 } from "vitest"
 import { applyAttribution } from "./attribution.js"
-import { backendOtelMiddleware, isUiProxyPath } from "./http.js"
+import {
+  backendOtelMiddleware,
+  isUiProxyPath,
+  serverSpanRoute,
+} from "./http.js"
 
 const exporter = new InMemorySpanExporter()
 const provider = new NodeTracerProvider({
@@ -38,6 +42,18 @@ beforeEach(() => {
 
 afterAll(async () => {
   await provider.shutdown()
+})
+
+describe("serverSpanRoute", () => {
+  it("names the otel relay with a signal template and leaves other routes", () => {
+    expect(serverSpanRoute("/.otel/v1/traces", "/*")).toBe("/.otel/v1/:signal")
+    expect(serverSpanRoute("/.otel/v1/logs", "/*")).toBe("/.otel/v1/:signal")
+    expect(serverSpanRoute("/.otel/v1/metrics", "/.otel/v1/:signal")).toBe(
+      "/.otel/v1/:signal",
+    )
+    expect(serverSpanRoute("/mcp", "/mcp")).toBe("/mcp")
+    expect(serverSpanRoute("/obs-e2e-343", "/*")).toBe("/*")
+  })
 })
 
 describe("isUiProxyPath", () => {
@@ -188,10 +204,44 @@ describe("backendOtelMiddleware", () => {
     await app.request("http://backend.test/mcp", { method: "POST" })
     await app.request("http://backend.test/.otel/v1/traces", { method: "POST" })
     const names = exporter.getFinishedSpans().map((span) => span.name)
-    expect(names).toEqual(["POST /mcp", "POST /.otel/v1/traces"])
+    expect(names).toEqual(["POST /mcp", "POST /.otel/v1/:signal"])
     expect(
       exporter.getFinishedSpans().map((span) => span.attributes["http.route"]),
+    ).toEqual(["/mcp", "/.otel/v1/:signal"])
+    expect(
+      exporter.getFinishedSpans().map((span) => span.attributes["url.path"]),
     ).toEqual(["/mcp", "/.otel/v1/traces"])
+  })
+
+  it("names a catch-all UI relay for /.otel/v1/:signal", async () => {
+    const app = new Hono()
+    app.use("*", backendOtelMiddleware())
+    app.all("/.otel/v1/:signal", (c) => c.text(c.req.routePath))
+    app.all("*", (c) => c.text(c.req.routePath))
+
+    const traces = await app.request("http://backend.test/.otel/v1/traces", {
+      method: "POST",
+    })
+    const logs = await app.request("http://backend.test/.otel/v1/logs", {
+      method: "POST",
+    })
+    expect(await traces.text()).toBe("/.otel/v1/:signal")
+    expect(await logs.text()).toBe("/.otel/v1/:signal")
+    const spans = exporter
+      .getFinishedSpans()
+      .filter((span) => span.kind === SpanKind.SERVER)
+    expect(spans.map((span) => span.name)).toEqual([
+      "POST /.otel/v1/:signal",
+      "POST /.otel/v1/:signal",
+    ])
+    expect(spans.map((span) => span.attributes["http.route"])).toEqual([
+      "/.otel/v1/:signal",
+      "/.otel/v1/:signal",
+    ])
+    expect(spans.map((span) => span.attributes["url.path"])).toEqual([
+      "/.otel/v1/traces",
+      "/.otel/v1/logs",
+    ])
   })
 
   it("ignores spoofed attribution baggage on an unauthenticated request", async () => {

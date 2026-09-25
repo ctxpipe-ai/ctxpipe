@@ -1,4 +1,4 @@
-import type { Hono } from "hono"
+import type { Context, Hono } from "hono"
 import { proxy } from "hono/proxy"
 import type { AppEnv } from "../app/env.js"
 import type { Env } from "../config/env.js"
@@ -53,24 +53,29 @@ export function uiProxyUpstreamHeaders(
   return headers
 }
 
-export function registerUiRoutes(app: Hono<AppEnv>, env: Env) {
-  app.all("*", async (c) => {
-    const sourceUrl = new URL(c.req.url)
-    const upstreamUrl = new URL(
-      `${sourceUrl.pathname}${sourceUrl.search}`,
-      env.UI_PROXY_URL,
-    )
-    const headers = uiProxyUpstreamHeaders(
-      sourceUrl,
-      c.req.raw.headers,
-      upstreamUrl.host,
-    )
-    return proxy(upstreamUrl, {
-      raw: c.req.raw,
-      headers: Object.fromEntries(headers),
-      redirect: "follow",
-    })
+async function proxyUiRequest(c: Context<AppEnv>, env: Env): Promise<Response> {
+  const sourceUrl = new URL(c.req.url)
+  const upstreamUrl = new URL(
+    `${sourceUrl.pathname}${sourceUrl.search}`,
+    env.UI_PROXY_URL,
+  )
+  const headers = uiProxyUpstreamHeaders(
+    sourceUrl,
+    c.req.raw.headers,
+    upstreamUrl.host,
+  )
+  return proxy(upstreamUrl, {
+    raw: c.req.raw,
+    headers: Object.fromEntries(headers),
+    redirect: "follow",
   })
+}
+
+export function registerUiRoutes(app: Hono<AppEnv>, env: Env) {
+  const handler = (c: Context<AppEnv>) => proxyUiRequest(c, env)
+  // Registered before the catch-all so Hono reports `/.otel/v1/:signal`.
+  app.all("/.otel/v1/:signal", handler)
+  app.all("*", handler)
   return app
 }
 
