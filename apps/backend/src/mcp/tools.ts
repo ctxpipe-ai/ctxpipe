@@ -1,6 +1,5 @@
 import { HumanMessage } from "@langchain/core/messages"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import slugify from "@sindresorhus/slugify"
 import { z } from "zod"
 import { currentMcpActor, requireCurrentOrgId } from "../auth/context.js"
 import { withOrgDbContext } from "../db/client.js"
@@ -18,6 +17,7 @@ import {
 } from "../observability/langfuse.js"
 import { log } from "../observability/logger.js"
 import { tryGetLogger } from "../observability/requestLogger.js"
+import { mcpAdvisorThreadId } from "./advisorThread.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -97,7 +97,12 @@ export function registerMcpTools(server: McpServer): void {
       const threadActorKey = actor.type === "org-service" ? "org" : actor.userId
       const threadId =
         conversationId != null
-          ? `${orgId}_${threadActorKey}_${slugify(currentProjectName ?? "default")}_${conversationId}`
+          ? mcpAdvisorThreadId({
+              orgId,
+              actorKey: threadActorKey,
+              currentProjectName,
+              conversationId,
+            })
           : generateObjectId("thr")
       await withOrgDbContext(orgId, () =>
         ensureConversation({ id: threadId, source: "mcp" }),

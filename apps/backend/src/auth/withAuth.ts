@@ -276,9 +276,9 @@ export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     )
   }
 
-  const personalApiKeyId = apiKeyHeader
-    ? await resolvePersonalApiKeyId(apiKeyHeader)
-    : undefined
+  // @better-auth/api-key 1.6.23 sets this mocked session id to the key id
+  // inside getSession, after validateApiKey has already counted the request.
+  const personalApiKeyId = apiKeyHeader ? authSession.session.id : undefined
   if (personalApiKeyId) c.set("personalApiKeyId", personalApiKeyId)
   c.set("user", authSession.user)
   c.set("session", authSession.session)
@@ -308,23 +308,6 @@ function applyPrincipalAttribution(c: Context<AppEnv>): void {
     },
     logger,
   )
-}
-
-async function resolvePersonalApiKeyId(
-  apiKey: string,
-): Promise<string | undefined> {
-  const verified = await getAuth()
-    .api.verifyApiKey({ body: { key: apiKey } })
-    .catch(() => null)
-  if (
-    !verified?.valid ||
-    !verified.key ||
-    verified.key.configId === "organization" ||
-    typeof verified.key.id !== "string"
-  ) {
-    return undefined
-  }
-  return verified.key.id
 }
 
 type BearerApiKeyAuthResult =
@@ -387,7 +370,7 @@ async function resolveBearerApiKeyAuth(
         kind: "user",
         user: authSession.user,
         session: authSession.session,
-        personalApiKeyId: await resolvePersonalApiKeyId(apiKey),
+        personalApiKeyId: authSession.session.id,
       }
     }
   } catch {

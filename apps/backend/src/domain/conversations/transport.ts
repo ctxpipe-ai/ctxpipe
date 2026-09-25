@@ -10,10 +10,15 @@ import {
   type UIMessage,
   type UIMessageChunk,
 } from "ai"
-import { requireCurrentOrgId } from "../../auth/context.js"
+import { getContext } from "hono/context-storage"
+import type { AppEnv } from "../../app/env.js"
+import { currentOrgApiKey, requireCurrentOrgId } from "../../auth/context.js"
 import { conversationGraph } from "../../graphs/index.js"
 import { generateObjectId } from "../../lib/id.js"
-import { applyAttribution } from "../../observability/attribution.js"
+import {
+  type ActorType,
+  applyAttribution,
+} from "../../observability/attribution.js"
 import { recordAdvisorCall } from "../../observability/businessMetrics.js"
 import {
   getLangfuseHandler,
@@ -38,6 +43,17 @@ export interface ConversationTransportAdapter {
   toResponse(input: StreamInput): Promise<Response>
 }
 
+function principalActorType(): ActorType {
+  try {
+    if (currentOrgApiKey()) return "org_api_key"
+    const vars = getContext<AppEnv>().var
+    if (vars.oauthClientId || vars.oauthOrganizationId) return "oauth_client"
+  } catch {
+    // Adapter calls outside a request have no principal.
+  }
+  return "user"
+}
+
 export function createDataStreamConversationTransport(): ConversationTransportAdapter {
   return new DataStreamConversationTransport()
 }
@@ -47,7 +63,7 @@ class DataStreamConversationTransport implements ConversationTransportAdapter {
     applyAttribution(
       {
         "ctxpipe.conversation.id": input.conversationId,
-        "ctxpipe.actor.type": "user",
+        "ctxpipe.actor.type": principalActorType(),
         ...(input.userId ? { "enduser.id": input.userId } : {}),
       },
       tryGetLogger(),

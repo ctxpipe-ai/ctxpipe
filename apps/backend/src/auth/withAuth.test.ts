@@ -1047,10 +1047,7 @@ describe("org API-key principal", () => {
       session: { id: "sess_api_key", userId: "user_api_key" },
       orgApiKey: null,
     })
-    expect(verifyApiKeyMock).toHaveBeenCalledTimes(1)
-    expect(verifyApiKeyMock.mock.calls[0]?.[0]).toEqual({
-      body: { key: "ctxp_user_key" },
-    })
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
   })
 
   it("org x-api-key sets orgApiKey, leaves user and session null, and requireAuth on /mcp passes", async () => {
@@ -1125,7 +1122,7 @@ describe("org API-key principal", () => {
       session: { id: "sess_api_key", userId: "user_api_key" },
       orgApiKey: null,
     })
-    expect(verifyApiKeyMock).toHaveBeenCalledTimes(1)
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
   })
 
   it("Bearer API keys do not authenticate REST routes", async () => {
@@ -1245,6 +1242,7 @@ describe("org API-key principal", () => {
       session: { id: "sess_api_key", userId: "user_api_key" },
       orgApiKey: null,
     })
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
   })
 
   it("Bearer org API key sets orgApiKey without a user session", async () => {
@@ -1493,7 +1491,7 @@ describe("org API-key tenant binding", () => {
         message: expect.stringContaining("not bound to an organization"),
       },
     })
-    expect(verifyApiKeyMock).toHaveBeenCalledTimes(1)
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
   })
 
   it("user x-api-key still authenticates MCP as that user when orgSlug matches membership", async () => {
@@ -1519,7 +1517,7 @@ describe("org API-key tenant binding", () => {
       orgSlug: "acme",
       orgId: "org_acme",
     })
-    expect(verifyApiKeyMock).toHaveBeenCalledTimes(1)
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
   })
 
   it("unbound OAuth grant without orgSlug still returns 400", async () => {
@@ -1589,22 +1587,14 @@ describe("request actor attribution", () => {
     expect(response.status).toBe(404)
     expect(attributes()["enduser.id"]).toBe("user_cookie")
     expect(attributes()["ctxpipe.actor.type"]).toBe("user")
+    expect(attributes()["ctxpipe.api_key.id"]).toBeUndefined()
     expect(attributes()["ctxpipe.org.id"]).toBeUndefined()
   })
 
   it("attributes a personal api key as the user plus the key id", async () => {
     getSessionMock.mockResolvedValueOnce({
       user: { id: "user_api_key", email: "api-key@example.com" },
-      session: { id: "sess_api_key", userId: "user_api_key" },
-    })
-    verifyApiKeyMock.mockResolvedValue({
-      valid: true,
-      error: null,
-      key: {
-        id: "key_user",
-        configId: "default",
-        referenceId: "user_api_key",
-      },
+      session: { id: "key_user", userId: "user_api_key" },
     })
     testState.db = createMockDb({
       orgRows: [{ id: "org_acme" }],
@@ -1691,5 +1681,39 @@ describe("request actor attribution", () => {
       "ctxpipe.oauth.client_id": "client_oauth",
       "ctxpipe.org.id": "org_acme",
     })
+  })
+
+  it("verifies a personal api key once per request", async () => {
+    // getSession stands in for the api-key plugin hook, which already
+    // calls validateApiKey (and counts the rate limit) before returning.
+    verifyApiKeyMock.mockResolvedValue({
+      valid: true,
+      error: null,
+      key: {
+        id: "key_user",
+        configId: "default",
+        referenceId: "user_api_key",
+      },
+    })
+    getSessionMock.mockImplementation(async () => {
+      await verifyApiKeyMock({ body: { key: "ctxp_user_key" } })
+      return {
+        user: { id: "user_api_key", email: "api-key@example.com" },
+        session: { id: "key_user", userId: "user_api_key" },
+      }
+    })
+    testState.db = createMockDb({
+      orgRows: [{ id: "org_acme" }],
+    })
+
+    const { app, attributes } = createAttributedMcpApp()
+    const response = await app.request("/mcp?orgSlug=acme", {
+      method: "POST",
+      headers: { "x-api-key": "ctxp_user_key" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(verifyApiKeyMock).toHaveBeenCalledTimes(1)
+    expect(attributes()["ctxpipe.api_key.id"]).toBe("key_user")
   })
 })

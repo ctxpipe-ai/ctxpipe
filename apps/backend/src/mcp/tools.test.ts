@@ -1,5 +1,7 @@
 import { HumanMessage } from "@langchain/core/messages"
+import { context, trace } from "@opentelemetry/api"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { attributionRecorder } from "../../test/recordingSpan.js"
 
 const {
   generateObjectIdMock,
@@ -492,6 +494,52 @@ describe("registerMcpTools", () => {
         tags: ["mcp", "mcp-org-key"],
       },
       expect.any(Function),
+    )
+  })
+
+  it("sets tool and conversation attributes on the active tool span", async () => {
+    attributionRecorder()
+    streamMock.mockResolvedValueOnce(
+      (async function* () {
+        yield { messages: [{ content: "Response" }] }
+      })(),
+    )
+
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: {
+          prompt: string
+          currentProjectName?: string
+          conversationId?: string
+        },
+        extra: { sendNotification: (n: unknown) => Promise<void> },
+      ) => Promise<unknown>,
+    ]
+
+    const span = trace.getTracer("ctxpipe-mcp-tool-test").startSpan("mcp.tool")
+    await context.with(trace.setSpan(context.active(), span), () =>
+      handler(
+        {
+          prompt: "Test",
+          currentProjectName: "my-backend",
+          conversationId: "conv-xyz",
+        },
+        { sendNotification: vi.fn(async () => {}) },
+      ),
+    )
+    const attributes = (
+      span as unknown as { attributes: Record<string, unknown> }
+    ).attributes
+    span.end()
+
+    expect(attributes["ctxpipe.mcp.tool"]).toBe("ctx_advisor")
+    expect(attributes["ctxpipe.conversation.id"]).toBe(
+      "org_test_user_test123_my-backend_conv-xyz",
     )
   })
 
