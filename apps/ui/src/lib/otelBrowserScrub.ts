@@ -159,7 +159,22 @@ function stringAttribute(key: string, value: string): JsonRecord {
   return { key, value: { stringValue: value } }
 }
 
-/** Replace caller resource attributes with the UI service identity. */
+/** HyperDX links trace and log rows to a browser session by this resource attribute. */
+function browserSessionId(resourceSpans: JsonRecord): string | null {
+  const resource = resourceSpans.resource as JsonRecord | undefined
+  if (!resource || !Array.isArray(resource.attributes)) return null
+  for (const attribute of resource.attributes) {
+    const record = attribute as JsonRecord | null
+    if (record?.key !== "rum.sessionId") continue
+    const value = (record.value as JsonRecord | undefined)?.stringValue
+    return typeof value === "string" && /^[a-f0-9]{32}$/.test(value)
+      ? value
+      : null
+  }
+  return null
+}
+
+/** Replace caller resource attributes with the UI service identity and session id. */
 export function restrictBrowserResourceAttributes(
   payload: unknown,
   environment: string | undefined,
@@ -177,6 +192,10 @@ export function restrictBrowserResourceAttributes(
       ]
       if (environment) {
         attributes.push(stringAttribute("deployment.environment", environment))
+      }
+      const sessionId = browserSessionId(resourceSpans as JsonRecord)
+      if (sessionId) {
+        attributes.push(stringAttribute("rum.sessionId", sessionId))
       }
       ;(resourceSpans as JsonRecord).resource = { attributes }
     }

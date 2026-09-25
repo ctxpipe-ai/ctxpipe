@@ -174,6 +174,10 @@ describe("proxyBrowserOtlp", () => {
                     key: "enduser.id",
                     value: { stringValue: "user_forged" },
                   },
+                  {
+                    key: "rum.sessionId",
+                    value: { stringValue: "5abd8152fd3ba7e4f4436f9750f5442d" },
+                  },
                 ],
               },
               scopeSpans: [
@@ -194,6 +198,17 @@ describe("proxyBrowserOtlp", () => {
                   ],
                 },
               ],
+            },
+            {
+              resource: {
+                attributes: [
+                  {
+                    key: "rum.sessionId",
+                    value: { stringValue: "alice@example.com" },
+                  },
+                ],
+              },
+              scopeSpans: [],
             },
           ],
         }),
@@ -216,6 +231,15 @@ describe("proxyBrowserOtlp", () => {
         .stringValue,
     ).toBe("https://app.example/.auth/device")
     expect(forwarded.resourceSpans[0].resource.attributes).toEqual([
+      { key: "service.name", value: { stringValue: "ui" } },
+      { key: "service.namespace", value: { stringValue: "ctxpipe" } },
+      { key: "deployment.environment", value: { stringValue: "pr-343" } },
+      {
+        key: "rum.sessionId",
+        value: { stringValue: "5abd8152fd3ba7e4f4436f9750f5442d" },
+      },
+    ])
+    expect(forwarded.resourceSpans[1].resource.attributes).toEqual([
       { key: "service.name", value: { stringValue: "ui" } },
       { key: "service.namespace", value: { stringValue: "ctxpipe" } },
       { key: "deployment.environment", value: { stringValue: "pr-343" } },
