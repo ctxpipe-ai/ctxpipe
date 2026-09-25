@@ -1,17 +1,26 @@
--- Langfuse migrations run on every langfuse-web and langfuse-worker boot
--- and own the CREATE/ALTER statements for these tables. This file does
--- not MODIFY TTL and does not rename the storage policy.
+-- Move-only TTL for the large Langfuse tables. No DELETE.
+-- Run as a user with ALTER on database langfuse (the langfuse user).
+-- Deploy config.d/ttl.xml first so this only rewrites ttl.txt.
 --
--- config.d/storage.xml redefines policy default (local disk, then cold).
--- Langfuse MergeTree tables already use that policy name, and a migration
--- that creates a new MergeTree without SETTINGS storage_policy picks it
--- up too. Parts move to cold only when the hot filesystem crosses
--- move_factor. Nothing in this tiering deletes Langfuse rows.
+-- Live tables (user langfuse): traces.timestamp DateTime64(3),
+-- observations.start_time DateTime64(3), scores.timestamp DateTime64(3).
+-- None of them had a TTL. Langfuse v3 ClickHouse migrations create these
+-- with CREATE TABLE IF NOT EXISTS and do not set a TTL on them. The 7-day
+-- and 30-day TTLs in upstream are on optional aggregating tables
+-- (traces_7d_amt, traces_30d_amt), which this database does not have.
+-- A later migration that recreates one of these tables drops this rule;
+-- the rows stay hot, which is the previous behavior, and nothing is deleted.
 --
--- Review output: every MergeTree in langfuse should show storage_policy
--- default after the new ClickHouse config is up.
+-- Partitions are monthly, so a part moves once its rows are past 30 days
+-- (about one to two months on the volume). Cold parts are not merged
+-- (prefer_not_to_merge), so ReplacingMergeTree versions stay until Langfuse
+-- reads them with FINAL.
 
-SELECT database, name, engine, storage_policy
-FROM system.tables
-WHERE database = 'langfuse' AND engine LIKE '%MergeTree%'
-ORDER BY name;
+ALTER TABLE langfuse.traces
+    MODIFY TTL toDateTime(timestamp) + INTERVAL 30 DAY TO VOLUME 'cold';
+
+ALTER TABLE langfuse.observations
+    MODIFY TTL toDateTime(start_time) + INTERVAL 30 DAY TO VOLUME 'cold';
+
+ALTER TABLE langfuse.scores
+    MODIFY TTL toDateTime(timestamp) + INTERVAL 30 DAY TO VOLUME 'cold';

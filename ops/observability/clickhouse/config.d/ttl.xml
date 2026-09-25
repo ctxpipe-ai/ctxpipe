@@ -1,8 +1,8 @@
 <clickhouse>
-  <!-- Whole-part TTL drops only. There is no server-wide TTL expression:
-       ClickStack sets one when it creates a table, and tiering/otel.sql
-       replaces that with move-to-cold plus a long delete. -->
   <merge_tree>
     <ttl_only_drop_parts>1</ttl_only_drop_parts>
+    <!-- MODIFY TTL rewrites ttl.txt only. Re-applying tiering SQL must not
+         download and re-upload cold parts. -->
+    <materialize_ttl_recalculate_only>1</materialize_ttl_recalculate_only>
   </merge_tree>
 </clickhouse>

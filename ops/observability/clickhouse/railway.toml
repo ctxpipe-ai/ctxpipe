@@ -8,4 +8,7 @@ watchPatterns = ["/ops/observability/clickhouse/**"]
 healthcheckPath = "/ping"
 healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"
+# Platform default is 10. A bucket outage at boot exits in about 10s;
+# 120 attempts covers a longer blip before the deployment is marked Crashed.
+restartPolicyMaxRetries = 120
 sleepApplication = false
