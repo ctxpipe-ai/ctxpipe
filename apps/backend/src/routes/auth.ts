@@ -3,6 +3,7 @@ import {
   oauthProviderOpenIdConfigMetadata,
 } from "@better-auth/oauth-provider"
 import { oauthProviderResourceClient } from "@better-auth/oauth-provider/resource-client"
+import { context } from "@opentelemetry/api"
 import { createAuthClient } from "better-auth/client"
 import { and, eq, gt } from "drizzle-orm"
 import type { Context, Hono } from "hono"
@@ -16,6 +17,9 @@ import {
 import { withOAuthConsentOrganizationId } from "../auth/oauth-organization.js"
 import { getSystemDb } from "../db/client.js"
 import { invitations, organizations } from "../db/schema/auth.js"
+import { applyAttribution } from "../observability/attribution.js"
+import { withSessionResolveSpan } from "../observability/http.js"
+import { tryGetLogger } from "../observability/requestLogger.js"
 
 function isNonEmptyStringArray(value: unknown): value is string[] {
   return (
@@ -67,6 +71,55 @@ async function getMcpProtectedResourceMetadata(
     merged.scopes_supported = authServerMeta.scopes_supported
   }
   return merged
+}
+
+function isGetSessionPath(path: string): boolean {
+  const pathname = (path.split("?")[0] ?? path).replace(/\/+$/, "")
+  return pathname.endsWith("/get-session")
+}
+
+function readStringField(value: unknown, key: string): string | undefined {
+  if (!value || typeof value !== "object") return undefined
+  const field = (value as Record<string, unknown>)[key]
+  if (typeof field !== "string") return undefined
+  const trimmed = field.trim()
+  return trimmed.length > 0 ? trimmed : undefined
+}
+
+/**
+ * Copy the user and active org off a get-session JSON body.
+ * The handler already loaded the session; this does not read the database.
+ */
+async function attributeAuthGetSessionResponse(
+  path: string,
+  response: Response,
+): Promise<void> {
+  if (!isGetSessionPath(path)) return
+  if (response.status < 200 || response.status >= 300) return
+  const contentType = response.headers.get("content-type") ?? ""
+  if (contentType && !contentType.includes("application/json")) return
+  const active = context.active()
+  let body: unknown
+  try {
+    body = await response.clone().json()
+  } catch {
+    return
+  }
+  if (!body || typeof body !== "object") return
+  const record = body as Record<string, unknown>
+  const userId = readStringField(record.user, "id")
+  if (!userId) return
+  const orgId = readStringField(record.session, "activeOrganizationId")
+  context.with(active, () => {
+    applyAttribution(
+      {
+        "ctxpipe.actor.type": "user",
+        "enduser.id": userId,
+        ...(orgId ? { "ctxpipe.org.id": orgId } : {}),
+      },
+      tryGetLogger(),
+    )
+  })
 }
 
 export function registerAuthRoutes(app: Hono<AppEnv>) {
@@ -122,7 +175,7 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
   })
 
   app.on(["GET", "POST"], "/.auth/api/v1/auth/callback/atlassian", (c) =>
-    atlassianLinkCallbackFirst(c),
+    withSessionResolveSpan(() => atlassianLinkCallbackFirst(c)),
   )
 
   app.on(["GET", "POST"], "/.auth/api/v1/auth/*", async (c) => {
@@ -130,11 +183,15 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
     const isOAuthConsent = c.req.path.endsWith("/oauth2/consent")
     const submittedOrganizationId =
       c.req.header("x-ctxpipe-oauth-organization")?.trim() || null
-    const response = isOAuthConsent
-      ? await withOAuthConsentOrganizationId(submittedOrganizationId, () =>
-          auth.handler(prepared.request),
-        )
-      : await auth.handler(prepared.request)
+    const response = await withSessionResolveSpan(async () => {
+      const handled = isOAuthConsent
+        ? await withOAuthConsentOrganizationId(submittedOrganizationId, () =>
+            auth.handler(prepared.request),
+          )
+        : await auth.handler(prepared.request)
+      await attributeAuthGetSessionResponse(c.req.path, handled)
+      return handled
+    })
     if (response.status >= 400) {
       await logOAuthError(prepared.request, response, prepared.oauthTokenHints)
     }
@@ -142,46 +199,61 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
   })
 
   app.get("/.well-known/oauth-authorization-server", (c) =>
-    oauthProviderAuthServerMetadata(auth)(c.req.raw),
+    withSessionResolveSpan(() =>
+      oauthProviderAuthServerMetadata(auth)(c.req.raw),
+    ),
   )
 
   app.get("/.well-known/openid-configuration", (c) =>
-    oauthProviderOpenIdConfigMetadata(auth)(c.req.raw),
+    withSessionResolveSpan(() =>
+      oauthProviderOpenIdConfigMetadata(auth)(c.req.raw),
+    ),
   )
 
   // RFC 8414 path-inserted discovery when clients treat the issuer as …/mcp
   app.get("/.well-known/oauth-authorization-server/mcp", (c) =>
-    oauthProviderAuthServerMetadata(auth)(c.req.raw),
+    withSessionResolveSpan(() =>
+      oauthProviderAuthServerMetadata(auth)(c.req.raw),
+    ),
   )
 
   app.get("/.well-known/openid-configuration/mcp", (c) =>
-    oauthProviderOpenIdConfigMetadata(auth)(c.req.raw),
+    withSessionResolveSpan(() =>
+      oauthProviderOpenIdConfigMetadata(auth)(c.req.raw),
+    ),
   )
 
   // RFC 8414 path-inserted discovery for issuer https://<host>/.auth/api/v1/auth
   app.get("/.well-known/oauth-authorization-server/.auth/api/v1/auth", (c) =>
-    oauthProviderAuthServerMetadata(auth)(c.req.raw),
+    withSessionResolveSpan(() =>
+      oauthProviderAuthServerMetadata(auth)(c.req.raw),
+    ),
   )
 
   app.get("/.well-known/openid-configuration/.auth/api/v1/auth", (c) =>
-    oauthProviderOpenIdConfigMetadata(auth)(c.req.raw),
+    withSessionResolveSpan(() =>
+      oauthProviderOpenIdConfigMetadata(auth)(c.req.raw),
+    ),
   )
 
   app.get("/mcp/.well-known/openid-configuration", (c) =>
-    oauthProviderOpenIdConfigMetadata(auth)(c.req.raw),
+    withSessionResolveSpan(() =>
+      oauthProviderOpenIdConfigMetadata(auth)(c.req.raw),
+    ),
   )
 
-  const serveMcpProtectedResourceMetadata = async (c: Context<AppEnv>) => {
-    const metadata = await getMcpProtectedResourceMetadata(
-      c,
-      auth,
-      serverClient,
-    )
-    return c.json(metadata, 200, {
-      "Cache-Control":
-        "public, max-age=15, stale-while-revalidate=15, stale-if-error=86400",
+  const serveMcpProtectedResourceMetadata = (c: Context<AppEnv>) =>
+    withSessionResolveSpan(async () => {
+      const metadata = await getMcpProtectedResourceMetadata(
+        c,
+        auth,
+        serverClient,
+      )
+      return c.json(metadata, 200, {
+        "Cache-Control":
+          "public, max-age=15, stale-while-revalidate=15, stale-if-error=86400",
+      })
     })
-  }
 
   // RFC 9728 default path; some MCP clients probe here before path-specific metadata.
   app.get(

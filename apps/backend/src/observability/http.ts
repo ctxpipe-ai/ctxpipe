@@ -19,6 +19,35 @@ import { redactSecretPath } from "./secretPath.js"
 
 const TRACER_NAME = "ctxpipe-backend"
 
+/**
+ * Parents Better Auth work when this request has no server span.
+ * API, `/mcp`, and `/.auth/api` already have one; this does not add a second.
+ */
+export async function withSessionResolveSpan<T>(
+  run: () => Promise<T>,
+): Promise<T> {
+  if (trace.getActiveSpan()) return run()
+  const tracer = trace.getTracer(TRACER_NAME)
+  return tracer.startActiveSpan(
+    "session.resolve",
+    { kind: SpanKind.INTERNAL },
+    async (span) => {
+      try {
+        return await run()
+      } catch (error) {
+        span.setStatus({ code: SpanStatusCode.ERROR })
+        if (error instanceof Error && error.name) {
+          span.setAttribute("error.type", error.name)
+        }
+        throw error
+      } finally {
+        copyAttributionToSpan(span, context.active())
+        span.end()
+      }
+    },
+  )
+}
+
 function requestLogger(
   c: Context,
 ): { set(data: Record<string, unknown>): void } | undefined {

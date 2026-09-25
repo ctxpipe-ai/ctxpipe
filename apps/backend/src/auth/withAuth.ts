@@ -21,7 +21,7 @@ import {
   applyAttribution,
   attributesForOrgApiKey,
 } from "../observability/attribution.js"
-import { isUiProxyPath } from "../observability/http.js"
+import { isUiProxyPath, withSessionResolveSpan } from "../observability/http.js"
 import { getLogger } from "../observability/logger.js"
 import { tryGetLogger } from "../observability/requestLogger.js"
 import { type AuthSession, type AuthUser, getAuth } from "./config.js"
@@ -154,14 +154,18 @@ async function resolveJwks(
   }
 
   const jwksUrl = new URL("/.auth/api/v1/auth/jwks", authBaseUrl)
-  let response = await auth.handler(new Request(jwksUrl)).catch((err) => {
+  let response = await withSessionResolveSpan(() =>
+    auth.handler(new Request(jwksUrl)),
+  ).catch((err) => {
     getLogger().error("Error fetching JWKS", { error: err })
     return new Response(null, { status: 500 })
   })
 
   if (!response.ok && response.status >= 500) {
     await new Promise((r) => setTimeout(r, 50))
-    response = await auth.handler(new Request(jwksUrl))
+    response = await withSessionResolveSpan(() =>
+      auth.handler(new Request(jwksUrl)),
+    )
   }
 
   if (!response.ok) {
@@ -267,6 +271,10 @@ export async function resolveCookieSession(c: Context<AppEnv>): Promise<void> {
   ) {
     return
   }
+  await withSessionResolveSpan(() => readCookieSession(c))
+}
+
+async function readCookieSession(c: Context<AppEnv>): Promise<void> {
   const started = performance.now()
   const auth = getAuth()
   const apiKeyHeader = c.req.header("x-api-key")?.trim()
@@ -396,15 +404,15 @@ type BearerApiKeyAuthResult =
 async function resolveOrgApiKey(
   apiKey: string,
 ): Promise<NonNullable<AppEnv["Variables"]["orgApiKey"]> | null> {
-  const verified = await getAuth()
-    .api.verifyApiKey({ body: { key: apiKey } })
-    .catch((err: unknown) => {
-      getLogger().error(
-        err instanceof Error ? err : new Error(String(err), { cause: err }),
-        { reason: "org_api_key_verify" },
-      )
-      return null
-    })
+  const verified = await withSessionResolveSpan(() =>
+    getAuth().api.verifyApiKey({ body: { key: apiKey } }),
+  ).catch((err: unknown) => {
+    getLogger().error(
+      err instanceof Error ? err : new Error(String(err), { cause: err }),
+      { reason: "org_api_key_verify" },
+    )
+    return null
+  })
 
   if (
     !verified?.valid ||
@@ -434,7 +442,9 @@ async function resolveBearerApiKeyAuth(
   const apiKeyHeaders = new Headers({ "x-api-key": apiKey })
 
   try {
-    const authSession = await auth.api.getSession({ headers: apiKeyHeaders })
+    const authSession = await withSessionResolveSpan(() =>
+      auth.api.getSession({ headers: apiKeyHeaders }),
+    )
     if (authSession?.user && authSession?.session) {
       return {
         kind: "user",
@@ -748,10 +758,12 @@ export async function hasOrgAdminOrOwnerRole(input: {
   orgId: string
 }): Promise<boolean> {
   try {
-    const result = await getAuth().api.getActiveMemberRole({
-      headers: input.headers,
-      query: { organizationId: input.orgId },
-    })
+    const result = await withSessionResolveSpan(() =>
+      getAuth().api.getActiveMemberRole({
+        headers: input.headers,
+        query: { organizationId: input.orgId },
+      }),
+    )
     return result.role === "admin" || result.role === "owner"
   } catch {
     return false

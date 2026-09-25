@@ -101,6 +101,7 @@ describe("UI fallback proxy for unmatched backend routes", () => {
 
     expect(res.status).toBe(200)
     expect(await res.text()).toBe("ui page")
+    expect(getSessionMock).not.toHaveBeenCalled()
     expect(fetchSpy).toHaveBeenCalledTimes(1)
 
     const [target] = fetchSpy.mock.calls[0] as [Request]
@@ -145,6 +146,7 @@ describe("UI fallback proxy for unmatched backend routes", () => {
     })
 
     expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(getSessionMock).not.toHaveBeenCalled()
     expect(res.status).toBe(201)
     expect(await res.text()).toBe("proxied")
     expect(seenRequest).toEqual({
@@ -181,6 +183,7 @@ describe("UI fallback proxy for unmatched backend routes", () => {
       },
     )
     expect(res.status).toBe(200)
+    expect(getSessionMock).not.toHaveBeenCalled()
     expect(forwardedHost).toBe("backend-pr-343.up.railway.app")
     expect(forwardedProto).toBe("https")
     expect(host).toBe("ui:3002")
