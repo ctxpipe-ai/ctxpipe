@@ -18,7 +18,7 @@ import {
   isRailwayPrEnvironment,
   otelDeploymentEnvironment,
 } from "./otel.js"
-import { redactSecretPathsInTree } from "./secretPath.js"
+import { applyRedactedSecretPaths } from "./secretPath.js"
 
 /**
  * Initialize evlog. Call early in app bootstrap.
@@ -116,7 +116,7 @@ export function applyCodesearchLogContract(
   event: Record<string, unknown>,
 ): void {
   stripLogPii(event)
-  redactSecretPathsInTree(event)
+  applyRedactedSecretPaths(event)
 
   if (typeof event.requestId === "string" && event["request.id"] == null) {
     event["request.id"] = event.requestId

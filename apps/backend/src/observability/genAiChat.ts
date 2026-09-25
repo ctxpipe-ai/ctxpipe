@@ -136,7 +136,7 @@ class GenAiChatCallback extends BaseCallbackHandler {
   name = "ctxpipe-genai"
 
   constructor(private readonly span: Span) {
-    super()
+    super({ _awaitHandler: true })
   }
 
   handleLLMNewToken(

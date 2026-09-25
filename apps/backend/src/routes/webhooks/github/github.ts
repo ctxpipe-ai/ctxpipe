@@ -12,7 +12,10 @@ import {
   registerInstallationOnConnection,
 } from "../../../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
-import { noteResolvedWebhookConnection } from "../../../observability/webhookAttribution.js"
+import {
+  noteResolvedWebhookConnection,
+  noteResolvedWebhookConnections,
+} from "../../../observability/webhookAttribution.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
 import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-github-repositories.js"
@@ -136,11 +139,14 @@ async function enqueueIngestionForInstallationRepos(
     return
   }
 
-  for (const installationRow of installationRows) {
-    noteResolvedWebhookConnection({
+  noteResolvedWebhookConnections(
+    installationRows.map((installationRow) => ({
       orgId: installationRow.orgId,
       connectionId: installationRow.id,
-    })
+    })),
+  )
+
+  for (const installationRow of installationRows) {
     const repository = await withOrgDbContext(installationRow.orgId, () =>
       findRepositoryByGithubInstallation(
         installationRow.orgId,
@@ -269,11 +275,14 @@ async function processRepositoryEvent(
       !githubConnectionId || installationRow.id === githubConnectionId,
   )
 
-  for (const installationRow of installationRows) {
-    noteResolvedWebhookConnection({
+  noteResolvedWebhookConnections(
+    installationRows.map((installationRow) => ({
       orgId: installationRow.orgId,
       connectionId: installationRow.id,
-    })
+    })),
+  )
+
+  for (const installationRow of installationRows) {
     if (
       !installationRow.includeFutureRepos ||
       !installationRow.ingestAllRepositories

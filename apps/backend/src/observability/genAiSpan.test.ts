@@ -6,6 +6,7 @@ import {
 } from "node:http"
 import type { AddressInfo } from "node:net"
 import { BaseCallbackHandler } from "@langchain/core/callbacks/base"
+import { consumeCallback } from "@langchain/core/callbacks/promises"
 import { AsyncLocalStorageProviderSingleton } from "@langchain/core/singletons"
 import { ChatOpenAI } from "@langchain/openai"
 import { propagateAttributes } from "@langfuse/tracing"
@@ -335,6 +336,79 @@ describe("ChatOpenAI callback preservation", () => {
     expect(JSON.parse(requestBody)).toMatchObject({
       stream_options: { include_usage: true },
     })
+  })
+
+  it("records usage before span end while the background callback queue is busy", async () => {
+    let release = () => {}
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    void consumeCallback(async () => {
+      await blocked
+    }, false)
+    try {
+      await withChatServer(
+        async (req, res) => {
+          await readBody(req)
+          res.writeHead(200, { "content-type": "text/event-stream" })
+          res.end(
+            sse([
+              JSON.stringify({
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                created: 0,
+                model: "gpt-test",
+                choices: [
+                  {
+                    index: 0,
+                    delta: { role: "assistant", content: "ok" },
+                    finish_reason: null,
+                  },
+                ],
+              }),
+              JSON.stringify({
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                created: 0,
+                model: "gpt-test",
+                choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+              }),
+              JSON.stringify({
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                created: 0,
+                model: "gpt-test",
+                choices: [],
+                usage: {
+                  prompt_tokens: 7,
+                  completion_tokens: 2,
+                  total_tokens: 9,
+                },
+              }),
+            ]),
+          )
+        },
+        async (baseURL) => {
+          const chat = new ChatOpenAI({
+            model: "gpt-test",
+            apiKey: "test-not-a-real-key",
+            streaming: true,
+            configuration: { baseURL },
+          })
+          const stream = await chat.stream("hi")
+          for await (const _chunk of stream) {
+            /* drain */
+          }
+        },
+      )
+      expect(genAiSpans()[0]?.attributes).toMatchObject({
+        "gen_ai.usage.input_tokens": 7,
+        "gen_ai.usage.output_tokens": 2,
+        "gen_ai.response.finish_reason": "stop",
+      })
+    } finally {
+      release()
+    }
   })
 
   it("records one span and one caller callback for structured output", async () => {

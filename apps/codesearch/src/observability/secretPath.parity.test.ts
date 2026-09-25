@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
-import { redactSecretPath, redactSecretPathsInTree } from "./secretPath.js"
+import { applyRedactedSecretPaths, redactSecretPath } from "./secretPath.js"
 
 /**
  * Same fixtures as `apps/backend/src/observability/logContract.test.ts`.
@@ -60,20 +60,22 @@ describe("secretPath parity with the backend copy", () => {
       expect(redactSecretPath(fixture.input)).not.toContain(fixture.secret)
     }
 
+    const message = {
+      step: "oauth.endpoint_error",
+      path: `/.auth/api/v1/auth/reset-password/${liveToken}`,
+      url: `https://backend.example/.auth/api/v1/public/invitations/${liveInvitation}`,
+    }
     const event: Record<string, unknown> = {
       path: `/.auth/api/v1/auth/reset-password/${liveToken}`,
       requestLogs: [
         {
           level: "warn",
-          message: {
-            step: "oauth.endpoint_error",
-            path: `/.auth/api/v1/auth/reset-password/${liveToken}`,
-            url: `https://backend.example/.auth/api/v1/public/invitations/${liveInvitation}`,
-          },
+          message,
         },
       ],
     }
-    redactSecretPathsInTree(event)
+    applyRedactedSecretPaths(event)
+    expect(message.path).toContain(liveToken)
     expect(event.path).toBe("/.auth/api/v1/auth/reset-password/{token}")
     const nested = (
       event.requestLogs as { message: { path: string; url: string } }[]
@@ -86,5 +88,31 @@ describe("secretPath parity with the backend copy", () => {
     )
     expect(JSON.stringify(event)).not.toContain(liveToken)
     expect(JSON.stringify(event)).not.toContain(liveInvitation)
+  })
+
+  it("copies frozen objects and skips typed arrays", () => {
+    const secretPath = `/.auth/api/v1/auth/reset-password/${liveToken}`
+    const frozen = Object.freeze({ path: secretPath })
+    const getterOnly = {}
+    Object.defineProperty(getterOnly, "path", {
+      enumerable: true,
+      get() {
+        return secretPath
+      },
+    })
+    const bytes = new Uint8Array(5 * 1024 * 1024)
+    const started = performance.now()
+    const event: Record<string, unknown> = { frozen, getterOnly, bytes }
+    applyRedactedSecretPaths(event)
+    expect(performance.now() - started).toBeLessThan(250)
+    expect(frozen.path).toBe(secretPath)
+    expect(event.frozen).not.toBe(frozen)
+    expect((event.frozen as { path: string }).path).toBe(
+      "/.auth/api/v1/auth/reset-password/{token}",
+    )
+    expect((event.getterOnly as { path: string }).path).toBe(
+      "/.auth/api/v1/auth/reset-password/{token}",
+    )
+    expect(event.bytes).toBe(bytes)
   })
 })

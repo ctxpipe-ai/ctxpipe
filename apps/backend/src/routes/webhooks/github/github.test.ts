@@ -2,9 +2,9 @@ import { OpenAPIHono } from "@hono/zod-openapi"
 import { Webhooks } from "@octokit/webhooks"
 import type { MiddlewareHandler } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { attributionRecorder } from "../../../../test/recordingSpan.js"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
-import { attributionRecorder } from "../../../../test/recordingSpan.js"
 import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-github-repositories.js"
 
 const runWorkflowMock = vi.hoisted(() =>
@@ -115,8 +115,9 @@ describe("POST /api/v1/webhook/github", () => {
     getWebhookSecretMock.mockReset()
   })
 
-  function createTestApp() {
+  function createTestApp(before?: MiddlewareHandler) {
     const app = new OpenAPIHono<AppEnv>()
+    if (before) app.use("*", before)
     app.use("*", async (c, next) => {
       c.set("env", env)
       c.set("log", {
@@ -383,6 +384,67 @@ describe("POST /api/v1/webhook/github", () => {
     )
   })
 
+  it("does not attribute the request to the last org when a push matches two orgs", async () => {
+    listInstallationsMock.mockResolvedValue([
+      {
+        id: "con_a",
+        orgId: "org_a",
+        ...baseInstallationRow,
+      },
+      {
+        id: "con_b",
+        orgId: "org_b",
+        ...baseInstallationRow,
+      },
+    ])
+    findRepoMock.mockImplementation(async (orgId: string) => ({
+      id: orgId === "org_a" ? "repo_a" : "repo_b",
+      orgId,
+      name: "acme/app",
+      gitUrl: "https://github.com/acme/app.git",
+      ...baseRepositoryIndexingRow,
+      lastIngestedHash: "a",
+      githubConnectionId: orgId === "org_a" ? "con_a" : "con_b",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }))
+    const recorded = attributionRecorder()
+    const payload = {
+      ref: "refs/heads/main",
+      repository: {
+        full_name: "acme/app",
+        default_branch: "main",
+      },
+      installation: { id: 999 },
+    }
+    const body = JSON.stringify(payload)
+    const signature = await new Webhooks({ secret: webhookSecret }).sign(body)
+    const response = await createTestApp(recorded.middleware).request(
+      "/api/v1/webhook/github",
+      {
+        method: "POST",
+        headers: {
+          "x-github-event": "push",
+          "x-hub-signature-256": signature,
+          "content-type": "application/json",
+        },
+        body,
+      },
+    )
+    expect(response.status).toBe(200)
+    expect(enqueueIngestionMock).toHaveBeenCalledTimes(2)
+    expect(enqueueIngestionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "org_a", repositoryId: "repo_a" }),
+      expect.any(Object),
+    )
+    expect(enqueueIngestionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "org_b", repositoryId: "repo_b" }),
+      expect.any(Object),
+    )
+    expect(recorded.attributes()["ctxpipe.org.id"]).toBeUndefined()
+    expect(recorded.attributes()["ctxpipe.connection.id"]).toBeUndefined()
+  })
+
   it("repository webhook skips sync when includeFutureRepos is false", async () => {
     listInstallationsMock.mockResolvedValue([
       {
@@ -486,7 +548,8 @@ describe("POST /api/v1/webhook/github", () => {
       },
     ])
 
-    const app = createTestApp()
+    const recorded = attributionRecorder()
+    const app = createTestApp(recorded.middleware)
     const payload = {
       action: "created" as const,
       repository: {
@@ -531,6 +594,8 @@ describe("POST /api/v1/webhook/github", () => {
         },
       ],
     })
+    expect(recorded.attributes()["ctxpipe.org.id"]).toBeUndefined()
+    expect(recorded.attributes()["ctxpipe.connection.id"]).toBeUndefined()
   })
 })
 
