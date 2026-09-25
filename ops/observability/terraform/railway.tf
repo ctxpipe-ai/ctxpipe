@@ -220,13 +220,12 @@ resource "railway_variable_collection" "hyperdx" {
       value = "8080"
     },
     {
-      name  = "OTEL_SDK_DISABLED"
-      value = "true"
-    },
-    {
       name  = "USAGE_STATS_ENABLED"
       value = "false"
     },
+    # Browser /api/config only. The Node SDK preload does not read this.
+    # false keeps the ingest key out of the browser; the private collector
+    # is not reachable from a user's browser.
     {
       name  = "HDX_EXPORTER_ENABLED"
       value = "false"
@@ -243,17 +242,36 @@ resource "railway_variable_collection" "hyperdx" {
       name  = "NEXT_TELEMETRY_DISABLED"
       value = "1"
     },
+    # @hyperdx/node-opentelemetry copies HYPERDX_API_KEY into
+    # OTEL_EXPORTER_OTLP_HEADERS as Authorization=<key> before it builds
+    # exporters. Setting the header here as well duplicates it. An unset
+    # endpoint defaults to https://in-otel.hyperdx.io.
+    # Metrics stay off: a PeriodicExportingMetricReader would export on a
+    # timer and stop this service from sleeping. Batch span/log processors
+    # export only when a queue is non-empty.
+    {
+      name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
+      value = local.observability_otlp_endpoint
+    },
     {
       name  = "OTEL_TRACES_EXPORTER"
-      value = "none"
+      value = "otlp"
+    },
+    {
+      name  = "OTEL_LOGS_EXPORTER"
+      value = "otlp"
     },
     {
       name  = "OTEL_METRICS_EXPORTER"
       value = "none"
     },
     {
-      name  = "OTEL_LOGS_EXPORTER"
-      value = "none"
+      name  = "OTEL_SERVICE_NAME"
+      value = "hyperdx"
+    },
+    {
+      name  = "OTEL_RESOURCE_ATTRIBUTES"
+      value = local.observability_resource_attributes
     },
     # setupTeamDefaults applies these only when a team is created and that team
     # has no connections yet (sources only when it has none). An existing team
@@ -461,6 +479,26 @@ resource "railway_variable_collection" "langfuse_web" {
       name  = "PORT"
       value = "3000"
     },
+    {
+      name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
+      value = local.observability_otlp_endpoint
+    },
+    {
+      name  = "OTEL_EXPORTER_OTLP_HEADERS"
+      value = local.observability_otlp_headers
+    },
+    {
+      name  = "OTEL_SERVICE_NAME"
+      value = "langfuse-web"
+    },
+    {
+      name  = "OTEL_RESOURCE_ATTRIBUTES"
+      value = local.observability_resource_attributes
+    },
+    {
+      name  = "OTEL_TRACE_SAMPLING_RATIO"
+      value = local.langfuse_web_trace_sampling_ratio
+    },
   ])
 }
 
@@ -496,6 +534,37 @@ resource "railway_variable_collection" "langfuse_worker" {
     {
       name  = "PORT"
       value = "3030"
+    },
+    {
+      name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
+      value = local.observability_otlp_endpoint
+    },
+    {
+      name  = "OTEL_EXPORTER_OTLP_HEADERS"
+      value = local.observability_otlp_headers
+    },
+    {
+      name  = "OTEL_SERVICE_NAME"
+      value = "langfuse-worker"
+    },
+    {
+      name  = "OTEL_RESOURCE_ATTRIBUTES"
+      value = local.observability_resource_attributes
+    },
+    # Not read by langfuse-worker (no sampler in its NodeSDK). Kept so the
+    # intended ratio is visible next to OTEL_TRACES_SAMPLER_ARG, which is
+    # what @opentelemetry/sdk-node applies.
+    {
+      name  = "OTEL_TRACE_SAMPLING_RATIO"
+      value = local.langfuse_worker_trace_sampling_ratio
+    },
+    {
+      name  = "OTEL_TRACES_SAMPLER"
+      value = "parentbased_traceidratio"
+    },
+    {
+      name  = "OTEL_TRACES_SAMPLER_ARG"
+      value = local.langfuse_worker_trace_sampling_ratio
     },
   ])
 }

@@ -437,9 +437,10 @@
       "w": 12,
       "h": 8,
       "config": {
-        "displayType": "line",
+        "displayType": "stacked_bar",
         "sourceName": "Logs",
         "fillNulls": true,
+        "groupBy": "SeverityText",
         "select": [
           {
             "aggFn": "count",

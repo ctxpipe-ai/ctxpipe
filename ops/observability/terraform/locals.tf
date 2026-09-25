@@ -14,6 +14,24 @@ locals {
     "${local.langfuse_direct_url_limited}&keepalives=0"
   )
 
+  # Ops-stack self-telemetry. The collector rejects OTLP without
+  # `authorization: <HYPERDX_API_KEY>`. Langfuse builds the trace URL in
+  # code (`${endpoint}/v1/traces`) and the OTLP exporter reads headers from
+  # the process environment, not the Langfuse env schema.
+  observability_otlp_endpoint       = "http://$${{collector.RAILWAY_PRIVATE_DOMAIN}}:4318"
+  observability_otlp_headers        = "authorization=${var.hyperdx_api_key}"
+  observability_resource_attributes = "deployment.environment=observability,service.namespace=ctxpipe"
+  # langfuse-web honors this (TraceIdRatioBasedSampler, must be > 0).
+  # langfuse-worker does not: its NodeSDK has no sampler argument (langfuse
+  # PR 3762), so the worker block sets OTEL_TRACES_SAMPLER instead.
+  langfuse_web_trace_sampling_ratio = "1"
+  # ClickhouseWriter.flushAll starts a `write-to-clickhouse` span on every
+  # tick even when all queues are empty. Default interval is 1000ms, so
+  # ratio 1 is 60 root spans/minute (86,400/day) before BullMQ redis
+  # commands, which ioredis instrumentation also spans. 0.01 keeps that
+  # idle loop near 0.6 spans/minute.
+  langfuse_worker_trace_sampling_ratio = "0.01"
+
   regions = [
     {
       num_replicas = var.railway_regions[0].num_replicas
