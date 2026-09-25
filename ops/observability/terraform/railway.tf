@@ -24,15 +24,8 @@ resource "railway_variable_collection" "clickhouse" {
   environment_id = var.railway_environment_id
   service_id     = railway_service.clickhouse.id
 
+  # CLICKHOUSE_OTEL_PASSWORD and CLICKHOUSE_LANGFUSE_PASSWORD stay on Railway.
   variables = [
-    {
-      name  = "CLICKHOUSE_OTEL_PASSWORD"
-      value = var.clickhouse_otel_password
-    },
-    {
-      name  = "CLICKHOUSE_LANGFUSE_PASSWORD"
-      value = var.clickhouse_langfuse_password
-    },
     {
       name  = "PORT"
       value = "8123"
@@ -70,7 +63,7 @@ resource "railway_variable_collection" "collector" {
     },
     {
       name  = "CLICKHOUSE_PASSWORD"
-      value = var.clickhouse_otel_password
+      value = "$${{clickhouse.CLICKHOUSE_OTEL_PASSWORD}}"
     },
     {
       name  = "HYPERDX_OTEL_EXPORTER_CLICKHOUSE_DATABASE"
@@ -81,16 +74,8 @@ resource "railway_variable_collection" "collector" {
       value = "otel"
     },
     {
-      name  = "HYPERDX_API_KEY"
-      value = var.hyperdx_api_key
-    },
-    {
       name  = "LANGFUSE_OTLP_ENDPOINT"
       value = "http://$${{langfuse-web.RAILWAY_PRIVATE_DOMAIN}}:3000/api/public/otel"
-    },
-    {
-      name  = "LANGFUSE_AUTH_STRING"
-      value = var.langfuse_auth_string
     },
     {
       name  = "CUSTOM_OTELCOL_CONFIG_FILE"
@@ -201,7 +186,7 @@ resource "railway_variable_collection" "hyperdx" {
     },
     {
       name  = "CLICKHOUSE_PASSWORD"
-      value = var.clickhouse_otel_password
+      value = "$${{clickhouse.CLICKHOUSE_OTEL_PASSWORD}}"
     },
     {
       name  = "CLICKHOUSE_DATABASE"
@@ -209,7 +194,7 @@ resource "railway_variable_collection" "hyperdx" {
     },
     {
       name  = "HYPERDX_API_KEY"
-      value = var.hyperdx_api_key
+      value = "$${{collector.HYPERDX_API_KEY}}"
     },
     {
       name  = "FRONTEND_URL"
@@ -283,7 +268,7 @@ resource "railway_variable_collection" "hyperdx" {
           name     = "ctxpipe ClickHouse"
           host     = "http://$${{clickhouse.RAILWAY_PRIVATE_DOMAIN}}:8123"
           username = "otel"
-          password = var.clickhouse_otel_password
+          password = "$${{clickhouse.CLICKHOUSE_OTEL_PASSWORD}}"
         }
       ])
     },
@@ -436,10 +421,6 @@ resource "railway_variable_collection" "langfuse_web" {
       value = "https://${var.langfuse_custom_domain}"
     },
     {
-      name  = "NEXTAUTH_SECRET"
-      value = var.langfuse_nextauth_secret
-    },
-    {
       name  = "LANGFUSE_INIT_ORG_ID"
       value = var.langfuse_init_org_id
     },
@@ -456,24 +437,8 @@ resource "railway_variable_collection" "langfuse_web" {
       value = "ctxpipe"
     },
     {
-      name  = "LANGFUSE_INIT_PROJECT_PUBLIC_KEY"
-      value = var.langfuse_init_project_public_key
-    },
-    {
-      name  = "LANGFUSE_INIT_PROJECT_SECRET_KEY"
-      value = var.langfuse_init_project_secret_key
-    },
-    {
-      name  = "LANGFUSE_INIT_USER_EMAIL"
-      value = var.langfuse_init_user_email
-    },
-    {
       name  = "LANGFUSE_INIT_USER_NAME"
       value = var.langfuse_init_user_name
-    },
-    {
-      name  = "LANGFUSE_INIT_USER_PASSWORD"
-      value = var.langfuse_init_user_password
     },
     {
       name  = "PORT"
@@ -542,7 +507,7 @@ resource "railway_variable_collection" "langfuse_worker" {
   environment_id = var.railway_environment_id
   service_id     = railway_service.langfuse_worker.id
 
-  variables = concat(local.langfuse_shared_env, [
+  variables = concat(local.langfuse_shared_env, local.langfuse_worker_secret_refs, [
     {
       name  = "PORT"
       value = "3030"

@@ -4,7 +4,7 @@ Provisions services, variables, `telemetry.ctxpipe.ai` (collector), `hyperdx.ctx
 
 ClickHouse, the collector, and `railway-telemetry` ([`railway-telemetry.tf`](./railway-telemetry.tf)) use the **Railway GitHub integration** (`source_repo` + `root_directory`). Image services (HyperDX, Langfuse, Redis, Mongo) pull public images. There is no `OBSERVABILITY_RAILWAY_TOKEN`.
 
-`var.railway_api_token` is the workspace token for the `railway-telemetry` cron (`RAILWAY_API_TOKEN`). It must be able to read the observability and product projects. API reads do not wake sleeping services. Without it the cron still exports Redis `INFO` and exits 1.
+`RAILWAY_API_TOKEN` on `railway-telemetry` is a Railway variable, not a Terraform variable. It must be able to read the observability and product projects. API reads do not wake sleeping services. Without it the cron still exports Redis `INFO` and exits 1.
 
 `DEFAULT_CONNECTIONS` / `DEFAULT_SOURCES` on the hyperdx service (connection **`ctxpipe ClickHouse`**, sources Logs / Traces / Metrics / Sessions) apply only when a team is created and that team has no connections yet (sources only when it has none). They do not update an existing team. Dashboards are not Terraform; see [`../hyperdx/README.md`](../hyperdx/README.md).
 
@@ -12,17 +12,17 @@ The Railway bucket `langfuse-events` is created once outside this provider (0.6.
 
 ## Apply
 
-Supported path: [`.github/workflows/observability.yaml`](../../../.github/workflows/observability.yaml). A same-repo pull request plans only (GitHub Environment `terraform-plan`). Push to `main` and `workflow_dispatch` pin the region, plan, and apply (GitHub Environment `observability`; required reviewers can be turned on). See the secret table in [`../README.md`](../README.md).
+Supported path: [`.github/workflows/observability.yaml`](../../../.github/workflows/observability.yaml). A same-repo pull request plans only (GitHub Environment `terraform-plan`, which currently has no protection rules). Push to `main` and `workflow_dispatch` from `main` pin the region, plan, and apply. **Create GitHub Environment `observability` with required reviewers and a `main`-only deployment branch policy before merging.** If it is missing, the first push creates it with no rules and apply is ungated. The workflow uses existing `RAILWAY_TOKEN`, `R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY` only.
 
-GitHub secret values must match the live Railway variables. A mismatch rotates ClickHouse passwords, Langfuse keys, or the HyperDX ingest key and breaks the product OTLP header.
+Railway holds secret values. Terraform holds wiring (references such as `${{clickhouse.CLICKHOUSE_OTEL_PASSWORD}}`) and does not list the secret names, so apply cannot delete them. See the ownership table in [`../README.md`](../README.md).
 
-`TF_VAR_github_repo_branch` on a pull request is the PR head ref. On `main` it is `main`.
+`TF_VAR_github_repo_branch` is `main` for the PR plan and for apply.
 
 Local apply uses the same import blocks and the same R2 key (`observability/terraform.tfstate`):
 
 ```bash
 cd ops/observability/terraform
-cp terraform.tfvars.example terraform.tfvars   # copy live Railway values; do not mint new ones
+cp terraform.tfvars.example terraform.tfvars   # branch override only; secrets stay on Railway
 terraform init \
   -backend-config="access_key=$R2_ACCESS_KEY_ID" \
   -backend-config="secret_key=$R2_SECRET_ACCESS_KEY"
@@ -34,9 +34,9 @@ terraform apply
 
 [`imports.tf`](./imports.tf) adopts the API-created services. The first plan against empty state must show imports and in-place updates, not new `railway_service` creates and not a destroy or replace of `clickhouse` or `mongo`. Import blocks are no-ops once that address is in state.
 
-`railway_variable_collection` import ids are `service_id:production:NAME:NAME:...` and list only names this module manages. Update deletes a name that is in state and missing from config. Live-only langfuse-web `NODE_OPTIONS` is not in the import id, so it is not deleted. Volumes are inline on `railway_service`: importing the service reads `clickhouse-data` and `mongo-data` in the project default environment (this project has only `production`). Provider Update creates a volume when state has none and config has one. The workflow guard rejects that update. Service domain subdomains are the live host labels (`collector-production-5b4c`, `hyperdx-production-1172`, `langfuse-web-production-f475`), which with suffix `up.railway.app` are the imported hostnames, so the first plan does not rename them. `ops-probe` and the `langfuse-events` bucket are not imported.
+`railway_variable_collection` import ids are `service_id:production:NAME:NAME:...` and list only names this module manages. Railway-owned secrets are not in those ids, so they never enter state and are not deleted. Live-only langfuse-web `NODE_OPTIONS` is omitted the same way. The first plan can still update a managed name from a literal to a Railway reference (same resolved value). Volumes are inline on `railway_service`: importing the service reads `clickhouse-data` and `mongo-data` in the project default environment (this project has only `production`). Provider Update creates a volume when state has none and config has one. The workflow guard rejects that update. Service domain subdomains are the live host labels (`collector-production-5b4c`, `hyperdx-production-1172`, `langfuse-web-production-f475`), which with suffix `up.railway.app` are the imported hostnames, so the first plan does not rename them. `ops-probe` and the `langfuse-events` bucket are not imported.
 
-The workflow fails the plan and the apply when `terraform show -json` reports a `delete` action on any `railway_service` (a replace is `delete` then `create`) or an `update` whose `volume` before and after differ, including null to set. Computed volume `id` and `size` that are still unknown in `after` are not treated as a change.
+[`plan-guard.sh`](./plan-guard.sh) fails the plan and the apply when `terraform show -json` reports a `delete` action on any `railway_service`, `railway_custom_domain`, or `railway_variable_collection` (a replace is `delete` then `create`) or a service `update` whose `volume` before and after differ, including null to set. Computed volume `id` and `size` that are still unknown in `after` are not treated as a change.
 
 Pin services to **`us-east4-eqdc4a`**. The apply job runs this before plan. Terraform create can land in the workspace preferred region (Singapore); `ignore_changes` plus provider issue #77 never fix it on apply:
 
@@ -51,11 +51,11 @@ bash scripts/railway-set-regions.sh
 
 ## Neon
 
-Langfuse uses a dedicated database `langfuse` (role `langfuse`) on the existing `ctxpipe` Neon project. A schema on `neondb` is not supported — Langfuse Prisma migrations hardcode `public`. Locals append `connection_limit=1&keepalives=0` to `DATABASE_URL` / `DIRECT_URL` and set `REDIS_SOCKET_TIMEOUT_MS=0`. Set `idle_session_timeout=60s` on that database/role in Neon so idle Prisma sessions drop.
+Langfuse uses a dedicated database `langfuse` (role `langfuse`) on the existing `ctxpipe` Neon project. A schema on `neondb` is not supported — Langfuse Prisma migrations hardcode `public`. The langfuse-web Railway variables `DATABASE_URL` and `DIRECT_URL` include `connection_limit=1&keepalives=0`. The worker references those variables. `REDIS_SOCKET_TIMEOUT_MS=0` is set in Terraform. Set `idle_session_timeout=60s` on that database/role in Neon so idle Prisma sessions drop.
 
-The provider cannot set Serverless. This module does not set a `cron_schedule` attribute. `sleepApplication` and the `railway-telemetry` schedule live in `railway.toml`, which the Railway deploy reads (`config_path`). They are not Terraform attributes:
+The provider cannot set Serverless. `sleepApplication` stays in `railway.toml` for the GitHub-built services and on the Railway service for images.
 
 - Collector and ClickHouse set `sleepApplication = false` in their `railway.toml`.
-- `railway-telemetry` sets `cronSchedule = "*/5 * * * *"` and `restartPolicyType = "NEVER"` in [`../railway-telemetry/railway.toml`](../railway-telemetry/railway.toml). Terraform only sets `config_path` to that file. Provider 0.6.1 has a `cron_schedule` attribute and does not read this file.
+- `railway_service.railway_telemetry` sets `cron_schedule = "*/5 * * * *"`. Provider 0.6.1 sends `cronSchedule` on every service update with no `omitempty`, so an unset attribute would clear the live cron. [`../railway-telemetry/railway.toml`](../railway-telemetry/railway.toml) uses the same schedule and `restartPolicyType = "NEVER"`. Keep those two strings equal. Terraform does not set `restartPolicyType`.
 - HyperDX, Mongo, and Langfuse web stay Serverless (set on the Railway service). Redis stays up because the Langfuse worker is always on; do not add a timer that polls the sleep set.
 - HyperDX needs `OTEL_METRICS_EXPORTER=none` and `RUN_SCHEDULED_TASKS_EXTERNALLY=true` (traces and logs go to the private collector; a metric timer would block sleep). **Superseded:** `OTEL_SDK_DISABLED=true`. Langfuse worker is the stock always-on image (`node worker/dist/index.js`).

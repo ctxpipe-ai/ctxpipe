@@ -1,25 +1,11 @@
 locals {
-  # Prisma holds sockets for the process lifetime unless the URL caps the pool.
-  # connection_limit=1 + keepalives=0 + Neon idle_session_timeout lets web drop outbound.
-  langfuse_database_url_limited = strcontains(var.langfuse_database_url, "connection_limit=") ? var.langfuse_database_url : (
-    strcontains(var.langfuse_database_url, "?") ? "${var.langfuse_database_url}&connection_limit=1" : "${var.langfuse_database_url}?connection_limit=1"
-  )
-  langfuse_direct_url_limited = strcontains(var.langfuse_direct_url, "connection_limit=") ? var.langfuse_direct_url : (
-    strcontains(var.langfuse_direct_url, "?") ? "${var.langfuse_direct_url}&connection_limit=1" : "${var.langfuse_direct_url}?connection_limit=1"
-  )
-  langfuse_database_url = strcontains(local.langfuse_database_url_limited, "keepalives=") ? local.langfuse_database_url_limited : (
-    "${local.langfuse_database_url_limited}&keepalives=0"
-  )
-  langfuse_direct_url = strcontains(local.langfuse_direct_url_limited, "keepalives=") ? local.langfuse_direct_url_limited : (
-    "${local.langfuse_direct_url_limited}&keepalives=0"
-  )
-
   # Ops-stack self-telemetry. The collector rejects OTLP without
-  # `authorization: <HYPERDX_API_KEY>`. Langfuse builds the trace URL in
-  # code (`${endpoint}/v1/traces`) and the OTLP exporter reads headers from
+  # `authorization: <HYPERDX_API_KEY>`. The key stays on the collector;
+  # consumers reference it. Langfuse builds the trace URL in code
+  # (`${endpoint}/v1/traces`) and the OTLP exporter reads headers from
   # the process environment, not the Langfuse env schema.
   observability_otlp_endpoint       = "http://$${{collector.RAILWAY_PRIVATE_DOMAIN}}:4318"
-  observability_otlp_headers        = "authorization=${var.hyperdx_api_key}"
+  observability_otlp_headers        = "authorization=$${{collector.HYPERDX_API_KEY}}"
   observability_resource_attributes = "deployment.environment=observability,service.namespace=ctxpipe"
   # langfuse-web honors this (TraceIdRatioBasedSampler, must be > 0).
   langfuse_web_trace_sampling_ratio = "1"
@@ -63,15 +49,11 @@ locals {
     },
   ]
 
+  # Non-secret wiring shared by langfuse-web and langfuse-worker.
+  # DATABASE_URL, DIRECT_URL, SALT, and ENCRYPTION_KEY are Railway-owned on
+  # langfuse-web (include connection_limit=1&keepalives=0 on the URLs).
+  # The worker references those variables; this module does not copy them.
   langfuse_shared_env = concat([
-    {
-      name  = "DATABASE_URL"
-      value = local.langfuse_database_url
-    },
-    {
-      name  = "DIRECT_URL"
-      value = local.langfuse_direct_url
-    },
     {
       name  = "CLICKHOUSE_URL"
       value = "http://$${{clickhouse.RAILWAY_PRIVATE_DOMAIN}}:8123"
@@ -82,7 +64,7 @@ locals {
     },
     {
       name  = "CLICKHOUSE_PASSWORD"
-      value = var.clickhouse_langfuse_password
+      value = "$${{clickhouse.CLICKHOUSE_LANGFUSE_PASSWORD}}"
     },
     {
       name  = "CLICKHOUSE_MIGRATION_URL"
@@ -105,16 +87,28 @@ locals {
       value = "0"
     },
     {
-      name  = "SALT"
-      value = var.langfuse_salt
-    },
-    {
-      name  = "ENCRYPTION_KEY"
-      value = var.langfuse_encryption_key
-    },
-    {
       name  = "TELEMETRY_ENABLED"
       value = "false"
     },
   ], local.langfuse_s3_env)
+
+  # Worker copies of secrets that live on langfuse-web.
+  langfuse_worker_secret_refs = [
+    {
+      name  = "DATABASE_URL"
+      value = "$${{langfuse-web.DATABASE_URL}}"
+    },
+    {
+      name  = "DIRECT_URL"
+      value = "$${{langfuse-web.DIRECT_URL}}"
+    },
+    {
+      name  = "SALT"
+      value = "$${{langfuse-web.SALT}}"
+    },
+    {
+      name  = "ENCRYPTION_KEY"
+      value = "$${{langfuse-web.ENCRYPTION_KEY}}"
+    },
+  ]
 }

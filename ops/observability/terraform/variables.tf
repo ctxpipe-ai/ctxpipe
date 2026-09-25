@@ -57,60 +57,6 @@ variable "langfuse_custom_domain" {
   default     = "langfuse.ctxpipe.ai"
 }
 
-variable "clickhouse_otel_password" {
-  type        = string
-  description = "ClickHouse password for the otel user (HyperDX + collector)."
-  sensitive   = true
-}
-
-variable "clickhouse_langfuse_password" {
-  type        = string
-  description = "ClickHouse password for the langfuse user."
-  sensitive   = true
-}
-
-variable "hyperdx_api_key" {
-  type        = string
-  description = "Shared ClickStack ingest token. Product apps send it as OTEL_EXPORTER_OTLP_HEADERS=authorization=<key>."
-  sensitive   = true
-}
-
-variable "langfuse_database_url" {
-  type        = string
-  description = "Pooled Neon URL for the dedicated langfuse database on the existing ctxpipe project (not neondb)."
-  sensitive   = true
-}
-
-variable "langfuse_direct_url" {
-  type        = string
-  description = "Direct (non-pooler) Neon URL for Langfuse Prisma DIRECT_URL."
-  sensitive   = true
-}
-
-variable "langfuse_nextauth_secret" {
-  type        = string
-  description = "Langfuse NEXTAUTH_SECRET."
-  sensitive   = true
-}
-
-variable "langfuse_salt" {
-  type        = string
-  description = "Langfuse SALT."
-  sensitive   = true
-}
-
-variable "langfuse_encryption_key" {
-  type        = string
-  description = "Langfuse ENCRYPTION_KEY (64 hex chars)."
-  sensitive   = true
-}
-
-variable "langfuse_auth_string" {
-  type        = string
-  description = "base64(pk-lf-…:sk-lf-…). Same values as LANGFUSE_INIT_PROJECT_* so the collector can fan out on first boot."
-  sensitive   = true
-}
-
 variable "langfuse_init_org_id" {
   type        = string
   description = "LANGFUSE_INIT_ORG_ID (enables first-boot project + API keys)."
@@ -123,37 +69,9 @@ variable "langfuse_init_project_id" {
   default     = "ctxpipe"
 }
 
-variable "langfuse_init_project_public_key" {
-  type        = string
-  description = "Pre-provisioned Langfuse public key (pk-lf-…)."
-  sensitive   = true
-}
-
-variable "langfuse_init_project_secret_key" {
-  type        = string
-  description = "Pre-provisioned Langfuse secret key (sk-lf-…)."
-  sensitive   = true
-}
-
-variable "langfuse_init_user_email" {
-  type        = string
-  description = "First Langfuse admin email."
-}
-
 variable "langfuse_init_user_name" {
   type        = string
   description = "First Langfuse admin display name."
   default     = "ctxpipe"
 }
 
-variable "langfuse_init_user_password" {
-  type        = string
-  description = "First Langfuse admin password."
-  sensitive   = true
-}
-
-variable "railway_api_token" {
-  type        = string
-  description = "Railway workspace token for the railway-telemetry cron. Must be able to read the observability and product projects. API reads do not wake sleeping services."
-  sensitive   = true
-}

@@ -1,11 +1,17 @@
 # Observability Terraform.
 #
-# pull_request (same repo only): fmt/validate plus a speculative plan.
-# Plan runs in GitHub Environment terraform-plan (required reviewers live there)
-# and never applies. push to main and workflow_dispatch apply in GitHub
-# Environment observability — turn on required reviewers there to gate apply.
+# pull_request (same repo only): fmt/validate plus a speculative plan against
+# github_repo_branch=main (the value apply uses). Plan never applies.
+# GitHub Environment terraform-plan currently has no protection rules.
 #
-# Security: terraform plan executes provider code with secrets present.
+# push to main and workflow_dispatch apply only when github.ref is
+# refs/heads/main. Create GitHub Environment observability with required
+# reviewers and a main-only deployment branch policy BEFORE merging.
+# If it does not exist, the first push creates it with no rules and apply
+# runs ungated.
+#
+# Security: terraform plan executes provider code with RAILWAY_TOKEN and the
+# R2 state credentials present. Service secret values stay on Railway.
 
 name: Observability
 
@@ -72,21 +78,7 @@ jobs:
         working-directory: ops/observability/terraform
     env:
       TF_IN_AUTOMATION: "true"
-      TF_VAR_github_repo_branch: ${{ github.event.pull_request.head.ref }}
-      TF_VAR_clickhouse_otel_password: ${{ secrets.OBSERVABILITY_CLICKHOUSE_OTEL_PASSWORD }}
-      TF_VAR_clickhouse_langfuse_password: ${{ secrets.OBSERVABILITY_CLICKHOUSE_LANGFUSE_PASSWORD }}
-      TF_VAR_hyperdx_api_key: ${{ secrets.OBSERVABILITY_HYPERDX_API_KEY }}
-      TF_VAR_langfuse_database_url: ${{ secrets.OBSERVABILITY_LANGFUSE_DATABASE_URL }}
-      TF_VAR_langfuse_direct_url: ${{ secrets.OBSERVABILITY_LANGFUSE_DIRECT_URL }}
-      TF_VAR_langfuse_nextauth_secret: ${{ secrets.OBSERVABILITY_LANGFUSE_NEXTAUTH_SECRET }}
-      TF_VAR_langfuse_salt: ${{ secrets.OBSERVABILITY_LANGFUSE_SALT }}
-      TF_VAR_langfuse_encryption_key: ${{ secrets.OBSERVABILITY_LANGFUSE_ENCRYPTION_KEY }}
-      TF_VAR_langfuse_auth_string: ${{ secrets.OBSERVABILITY_LANGFUSE_AUTH_STRING }}
-      TF_VAR_langfuse_init_project_public_key: ${{ secrets.OBSERVABILITY_LANGFUSE_INIT_PROJECT_PUBLIC_KEY }}
-      TF_VAR_langfuse_init_project_secret_key: ${{ secrets.OBSERVABILITY_LANGFUSE_INIT_PROJECT_SECRET_KEY }}
-      TF_VAR_langfuse_init_user_email: ${{ vars.OBSERVABILITY_LANGFUSE_INIT_USER_EMAIL }}
-      TF_VAR_langfuse_init_user_password: ${{ secrets.OBSERVABILITY_LANGFUSE_INIT_USER_PASSWORD }}
-      TF_VAR_railway_api_token: ${{ secrets.OBSERVABILITY_RAILWAY_API_TOKEN || secrets.RAILWAY_TOKEN }}
+      TF_VAR_github_repo_branch: main
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
@@ -95,41 +87,9 @@ jobs:
       - name: Checkout repository
         uses: useblacksmith/checkout@v1
 
-      - name: Require observability Terraform secrets
-        run: |
-          set -euo pipefail
-          missing=()
-          require() {
-            local github_name="$1"
-            local value="$2"
-            if [[ -z "$value" ]]; then
-              missing+=("$github_name")
-            fi
-          }
-          require OBSERVABILITY_CLICKHOUSE_OTEL_PASSWORD "$TF_VAR_clickhouse_otel_password"
-          require OBSERVABILITY_CLICKHOUSE_LANGFUSE_PASSWORD "$TF_VAR_clickhouse_langfuse_password"
-          require OBSERVABILITY_HYPERDX_API_KEY "$TF_VAR_hyperdx_api_key"
-          require OBSERVABILITY_LANGFUSE_DATABASE_URL "$TF_VAR_langfuse_database_url"
-          require OBSERVABILITY_LANGFUSE_DIRECT_URL "$TF_VAR_langfuse_direct_url"
-          require OBSERVABILITY_LANGFUSE_NEXTAUTH_SECRET "$TF_VAR_langfuse_nextauth_secret"
-          require OBSERVABILITY_LANGFUSE_SALT "$TF_VAR_langfuse_salt"
-          require OBSERVABILITY_LANGFUSE_ENCRYPTION_KEY "$TF_VAR_langfuse_encryption_key"
-          require OBSERVABILITY_LANGFUSE_AUTH_STRING "$TF_VAR_langfuse_auth_string"
-          require OBSERVABILITY_LANGFUSE_INIT_PROJECT_PUBLIC_KEY "$TF_VAR_langfuse_init_project_public_key"
-          require OBSERVABILITY_LANGFUSE_INIT_PROJECT_SECRET_KEY "$TF_VAR_langfuse_init_project_secret_key"
-          require "OBSERVABILITY_LANGFUSE_INIT_USER_EMAIL (repository variable)" "$TF_VAR_langfuse_init_user_email"
-          require OBSERVABILITY_LANGFUSE_INIT_USER_PASSWORD "$TF_VAR_langfuse_init_user_password"
-          require "OBSERVABILITY_RAILWAY_API_TOKEN or RAILWAY_TOKEN" "$TF_VAR_railway_api_token"
-          require R2_ACCESS_KEY_ID "$R2_ACCESS_KEY_ID"
-          require R2_SECRET_ACCESS_KEY "$R2_SECRET_ACCESS_KEY"
-          require "RAILWAY_TOKEN (Railway provider and region pin)" "$RAILWAY_TOKEN"
-          if (( ${#missing[@]} > 0 )); then
-            echo "Missing GitHub secrets or variables for observability Terraform:"
-            printf '  - %s\n' "${missing[@]}"
-            echo "Copy secret values from the live Railway service variables. A new value rotates ClickHouse passwords, Langfuse keys, or the HyperDX ingest key."
-            exit 1
-          fi
-          echo "Observability Terraform secrets and variables are set."
+      - name: Require observability Terraform credentials
+        id: credentials
+        run: bash require-credentials.sh
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -142,85 +102,51 @@ jobs:
 
       - name: Terraform plan
         id: plan
-        run: |
-          set +e
-          terraform plan -no-color -input=false -lock-timeout=10m -out=terraform.plan > "${GITHUB_WORKSPACE}/ops/observability/terraform/plan.txt"
-          code=$?
-          set -e
-          # 0 = no diff, 2 = diff saved, 1 = error. A diff must not fail the job.
-          if [[ "$code" -ne 0 && "$code" -ne 2 ]]; then
-            exit "$code"
-          fi
+        run: terraform plan -no-color -input=false -lock-timeout=10m -out=terraform.plan | tee plan.txt
 
-      - name: Refuse railway_service delete, replace, or volume change
-        run: |
-          set -euo pipefail
-          terraform show -json terraform.plan > "${RUNNER_TEMP}/observability-plan.json"
-          bad="$(jq -r '
-            def volume_changed:
-              . as $ch
-              | ($ch.before.volume // null) as $b
-              | ($ch.after.volume // null) as $a
-              | ($ch.after_unknown.volume // null) as $u
-              | if ($b == null) and ($a == null) then false
-                elif ($b == null) or ($a == null) then true
-                else
-                  ($a
-                    | if ($u.id == true) then .id = $b.id else . end
-                    | if ($u.size == true) then .size = $b.size else . end
-                  ) as $an
-                  | ($b != $an)
-                end;
-            [
-              .resource_changes[]?
-              | select(.type == "railway_service" or (.address | startswith("railway_service.")))
-              | . as $r
-              | select(
-                  any($r.change.actions[]?; . == "delete")
-                  or (
-                    any($r.change.actions[]?; . == "update")
-                    and ($r.change | volume_changed)
-                  )
-                )
-              | "\($r.address) actions=\($r.change.actions | join(","))"
-                + (if ($r.change | volume_changed) then " volume_changed" else "" end)
-            ] | .[]
-          ' "${RUNNER_TEMP}/observability-plan.json")"
-          if [[ -n "$bad" ]]; then
-            echo "Refusing this plan: it would delete, replace, or change the volume of a railway_service."
-            echo "ClickHouse and Mongo volumes must not be recreated by automation."
-            echo "$bad"
-            exit 1
-          fi
-          echo "No railway_service delete, replace, or volume change in this plan."
+      - name: Refuse destructive observability plan
+        id: guard
+        run: bash plan-guard.sh terraform.plan
 
       - name: Generate Observability Terraform Plan comment
         if: always()
+        env:
+          CREDENTIALS_OUTCOME: ${{ steps.credentials.outcome }}
+          PLAN_OUTCOME: ${{ steps.plan.outcome }}
+          GUARD_OUTCOME: ${{ steps.guard.outcome }}
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE}/ops/observability/terraform"
           max_bytes=65536
-          truncated_note=""
-          if [[ -f plan.txt ]]; then
-            size=$(wc -c < plan.txt | tr -d ' ')
-            if [[ "$size" -gt "$max_bytes" ]]; then
-              head -c "$max_bytes" plan.txt > plan.tmp && mv plan.tmp plan.txt
-              truncated_note=$'\n\n_Plan output truncated (first '"$max_bytes"' bytes); see the workflow run logs for the full plan._'
-            fi
-          else
-            truncated_note=$'\n\n_No plan.txt produced (Terraform plan failed or did not write output)._'
-          fi
           {
             echo "## Observability Terraform Plan"
             echo
-            echo "<details><summary>Show plan</summary>"
-            echo
-            echo '```hcl'
-            cat plan.txt 2>/dev/null || true
-            echo "$truncated_note"
-            echo '```'
-            echo
-            echo "</details>"
+            if [[ "$CREDENTIALS_OUTCOME" == "failure" ]]; then
+              echo "Credential check failed. Missing \`RAILWAY_TOKEN\`, \`R2_ACCESS_KEY_ID\`, or \`R2_SECRET_ACCESS_KEY\`. Terraform plan did not run."
+            elif [[ "$PLAN_OUTCOME" != "success" ]]; then
+              echo "Terraform plan did not succeed (outcome \`$PLAN_OUTCOME\`). No plan was produced to apply."
+            else
+              if [[ "$GUARD_OUTCOME" == "failure" ]]; then
+                echo "Plan guard refused this plan. It would delete or replace a service, custom domain, or variable collection, or change a service volume."
+                echo
+              fi
+              truncated_note=""
+              if [[ -f plan.txt ]]; then
+                size=$(wc -c < plan.txt | tr -d ' ')
+                if [[ "$size" -gt "$max_bytes" ]]; then
+                  head -c "$max_bytes" plan.txt > plan.tmp && mv plan.tmp plan.txt
+                  truncated_note=$'\n\n_Plan output truncated (first '"$max_bytes"' bytes); see the workflow run logs for the full plan._'
+                fi
+              fi
+              echo "<details><summary>Show plan</summary>"
+              echo
+              echo '```hcl'
+              cat plan.txt 2>/dev/null || true
+              echo "$truncated_note"
+              echo '```'
+              echo
+              echo "</details>"
+            fi
           } > plan-comment.md
 
       - name: Find existing Observability Terraform Plan comment
@@ -245,7 +171,7 @@ jobs:
   apply:
     name: Observability Terraform apply
     needs: validate
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.repository == 'ctxpipe-ai/ctxpipe'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.repository == 'ctxpipe-ai/ctxpipe'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 180
     concurrency:
@@ -257,21 +183,7 @@ jobs:
         working-directory: ops/observability/terraform
     env:
       TF_IN_AUTOMATION: "true"
-      TF_VAR_github_repo_branch: ${{ github.ref_name }}
-      TF_VAR_clickhouse_otel_password: ${{ secrets.OBSERVABILITY_CLICKHOUSE_OTEL_PASSWORD }}
-      TF_VAR_clickhouse_langfuse_password: ${{ secrets.OBSERVABILITY_CLICKHOUSE_LANGFUSE_PASSWORD }}
-      TF_VAR_hyperdx_api_key: ${{ secrets.OBSERVABILITY_HYPERDX_API_KEY }}
-      TF_VAR_langfuse_database_url: ${{ secrets.OBSERVABILITY_LANGFUSE_DATABASE_URL }}
-      TF_VAR_langfuse_direct_url: ${{ secrets.OBSERVABILITY_LANGFUSE_DIRECT_URL }}
-      TF_VAR_langfuse_nextauth_secret: ${{ secrets.OBSERVABILITY_LANGFUSE_NEXTAUTH_SECRET }}
-      TF_VAR_langfuse_salt: ${{ secrets.OBSERVABILITY_LANGFUSE_SALT }}
-      TF_VAR_langfuse_encryption_key: ${{ secrets.OBSERVABILITY_LANGFUSE_ENCRYPTION_KEY }}
-      TF_VAR_langfuse_auth_string: ${{ secrets.OBSERVABILITY_LANGFUSE_AUTH_STRING }}
-      TF_VAR_langfuse_init_project_public_key: ${{ secrets.OBSERVABILITY_LANGFUSE_INIT_PROJECT_PUBLIC_KEY }}
-      TF_VAR_langfuse_init_project_secret_key: ${{ secrets.OBSERVABILITY_LANGFUSE_INIT_PROJECT_SECRET_KEY }}
-      TF_VAR_langfuse_init_user_email: ${{ vars.OBSERVABILITY_LANGFUSE_INIT_USER_EMAIL }}
-      TF_VAR_langfuse_init_user_password: ${{ secrets.OBSERVABILITY_LANGFUSE_INIT_USER_PASSWORD }}
-      TF_VAR_railway_api_token: ${{ secrets.OBSERVABILITY_RAILWAY_API_TOKEN || secrets.RAILWAY_TOKEN }}
+      TF_VAR_github_repo_branch: main
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
@@ -280,41 +192,9 @@ jobs:
       - name: Checkout repository
         uses: useblacksmith/checkout@v1
 
-      - name: Require observability Terraform secrets
-        run: |
-          set -euo pipefail
-          missing=()
-          require() {
-            local github_name="$1"
-            local value="$2"
-            if [[ -z "$value" ]]; then
-              missing+=("$github_name")
-            fi
-          }
-          require OBSERVABILITY_CLICKHOUSE_OTEL_PASSWORD "$TF_VAR_clickhouse_otel_password"
-          require OBSERVABILITY_CLICKHOUSE_LANGFUSE_PASSWORD "$TF_VAR_clickhouse_langfuse_password"
-          require OBSERVABILITY_HYPERDX_API_KEY "$TF_VAR_hyperdx_api_key"
-          require OBSERVABILITY_LANGFUSE_DATABASE_URL "$TF_VAR_langfuse_database_url"
-          require OBSERVABILITY_LANGFUSE_DIRECT_URL "$TF_VAR_langfuse_direct_url"
-          require OBSERVABILITY_LANGFUSE_NEXTAUTH_SECRET "$TF_VAR_langfuse_nextauth_secret"
-          require OBSERVABILITY_LANGFUSE_SALT "$TF_VAR_langfuse_salt"
-          require OBSERVABILITY_LANGFUSE_ENCRYPTION_KEY "$TF_VAR_langfuse_encryption_key"
-          require OBSERVABILITY_LANGFUSE_AUTH_STRING "$TF_VAR_langfuse_auth_string"
-          require OBSERVABILITY_LANGFUSE_INIT_PROJECT_PUBLIC_KEY "$TF_VAR_langfuse_init_project_public_key"
-          require OBSERVABILITY_LANGFUSE_INIT_PROJECT_SECRET_KEY "$TF_VAR_langfuse_init_project_secret_key"
-          require "OBSERVABILITY_LANGFUSE_INIT_USER_EMAIL (repository variable)" "$TF_VAR_langfuse_init_user_email"
-          require OBSERVABILITY_LANGFUSE_INIT_USER_PASSWORD "$TF_VAR_langfuse_init_user_password"
-          require "OBSERVABILITY_RAILWAY_API_TOKEN or RAILWAY_TOKEN" "$TF_VAR_railway_api_token"
-          require R2_ACCESS_KEY_ID "$R2_ACCESS_KEY_ID"
-          require R2_SECRET_ACCESS_KEY "$R2_SECRET_ACCESS_KEY"
-          require "RAILWAY_TOKEN (Railway provider and region pin)" "$RAILWAY_TOKEN"
-          if (( ${#missing[@]} > 0 )); then
-            echo "Missing GitHub secrets or variables for observability Terraform:"
-            printf '  - %s\n' "${missing[@]}"
-            echo "Copy secret values from the live Railway service variables. A new value rotates ClickHouse passwords, Langfuse keys, or the HyperDX ingest key."
-            exit 1
-          fi
-          echo "Observability Terraform secrets and variables are set."
+      - name: Require observability Terraform credentials
+        id: credentials
+        run: bash require-credentials.sh
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -333,57 +213,10 @@ jobs:
         run: RAILWAY_SERVICE_SET=observability RAILWAY_PROJECT_ID=305aa114-c6f3-4aca-b883-0faa9c331aa2 bash scripts/railway-set-regions.sh
 
       - name: Terraform plan
-        run: |
-          set +e
-          terraform plan -input=false -lock-timeout=10m -out=terraform.plan
-          code=$?
-          set -e
-          # 0 = no diff, 2 = diff saved, 1 = error. A diff must not fail the job.
-          if [[ "$code" -ne 0 && "$code" -ne 2 ]]; then
-            exit "$code"
-          fi
+        run: terraform plan -input=false -lock-timeout=10m -out=terraform.plan
 
-      - name: Refuse railway_service delete, replace, or volume change
-        run: |
-          set -euo pipefail
-          terraform show -json terraform.plan > "${RUNNER_TEMP}/observability-plan.json"
-          bad="$(jq -r '
-            def volume_changed:
-              . as $ch
-              | ($ch.before.volume // null) as $b
-              | ($ch.after.volume // null) as $a
-              | ($ch.after_unknown.volume // null) as $u
-              | if ($b == null) and ($a == null) then false
-                elif ($b == null) or ($a == null) then true
-                else
-                  ($a
-                    | if ($u.id == true) then .id = $b.id else . end
-                    | if ($u.size == true) then .size = $b.size else . end
-                  ) as $an
-                  | ($b != $an)
-                end;
-            [
-              .resource_changes[]?
-              | select(.type == "railway_service" or (.address | startswith("railway_service.")))
-              | . as $r
-              | select(
-                  any($r.change.actions[]?; . == "delete")
-                  or (
-                    any($r.change.actions[]?; . == "update")
-                    and ($r.change | volume_changed)
-                  )
-                )
-              | "\($r.address) actions=\($r.change.actions | join(","))"
-                + (if ($r.change | volume_changed) then " volume_changed" else "" end)
-            ] | .[]
-          ' "${RUNNER_TEMP}/observability-plan.json")"
-          if [[ -n "$bad" ]]; then
-            echo "Refusing to apply: plan would delete, replace, or change the volume of a railway_service."
-            echo "ClickHouse and Mongo volumes must not be recreated by automation."
-            echo "$bad"
-            exit 1
-          fi
-          echo "No railway_service delete, replace, or volume change in this plan."
+      - name: Refuse destructive observability plan
+        run: bash plan-guard.sh terraform.plan
 
       - name: Terraform apply
         run: terraform apply -input=false -auto-approve -lock-timeout=10m terraform.plan
