@@ -443,6 +443,7 @@ describe("claimAndRunRepositoryIngestionChild", () => {
         orgId: "org_1",
         targetBranch: "main",
         indexingReason: "Syncing",
+        telemetry: { "ctxpipe.org.id": "org_1" },
       },
       { name: "ingest-repo_1" },
     )
@@ -558,6 +559,7 @@ describe("runConnectorRepositoryIngestionWorkflow", () => {
         targetBranch: "main",
         indexingReason: "Syncing connector content",
         githubConnectionId: "con_github",
+        telemetry: { "ctxpipe.org.id": "org_1" },
       },
       { name: "ingest-repo_1" },
     )

@@ -76,6 +76,7 @@ describe("repositoryIngestionOrchestrator workflow", () => {
         indexingReason: "manual",
         targetBranch: "connector-assets",
         githubConnectionId: "con_github",
+        telemetry: { "ctxpipe.org.id": "org_1" },
       },
       { name: "repository-ingestion-child" },
     )
