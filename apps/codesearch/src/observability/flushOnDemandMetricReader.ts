@@ -28,10 +28,13 @@ export class FlushOnDemandMetricReader extends MetricReader {
 
   protected override async onForceFlush(): Promise<void> {
     const { resourceMetrics, errors } = await this.collect()
-    if (errors.length > 0) {
-      throw errors[0]
+    // One observable callback can fail without invalidating the rest.
+    // Bun 1.3.11 throws from v8.getHeapSpaceStatistics inside runtime-node;
+    // throwing here dropped event-loop and HTTP metrics for the whole flush.
+    if (resourceMetrics.scopeMetrics.length === 0) {
+      if (errors.length > 0) throw errors[0]
+      return
     }
-    if (resourceMetrics.scopeMetrics.length === 0) return
     await new Promise<void>((resolve, reject) => {
       this.#exporter.export(resourceMetrics, (result) => {
         if (result.code === EXPORT_SUCCESS) {

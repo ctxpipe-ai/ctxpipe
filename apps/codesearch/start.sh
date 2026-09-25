@@ -16,8 +16,22 @@ echo "Starting zoekt-webserver on :6070 (hot index: $ZOEKT_HOT, cold: $ZOEKT_IND
 zoekt-webserver -index "$ZOEKT_HOT" -rpc -listen :6070 &
 ZOEKT_PID=$!
 
-# Forward SIGTERM/INT to both processes
-trap 'echo "Shutting down..."; kill $ZOEKT_PID 2>/dev/null; exit 0' TERM INT
-
 echo "Starting codesearch API on :${PORT:-3001}"
-bun run /app/apps/codesearch/src/server.ts
+bun run /app/apps/codesearch/src/server.ts &
+BUN_PID=$!
+
+# Railway stops the container with SIGTERM. The shell is PID 1 here, so forward
+# the signal and wait for bun to run shutdownOtel before exiting.
+shutdown() {
+  echo "Shutting down..."
+  kill -TERM "$ZOEKT_PID" 2>/dev/null || true
+  kill -TERM "$BUN_PID" 2>/dev/null || true
+  wait "$BUN_PID" 2>/dev/null || true
+  exit 0
+}
+trap shutdown TERM INT
+
+wait "$BUN_PID"
+STATUS=$?
+kill -TERM "$ZOEKT_PID" 2>/dev/null || true
+exit "$STATUS"
