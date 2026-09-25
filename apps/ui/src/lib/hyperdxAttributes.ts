@@ -127,6 +127,7 @@ export function resolveHyperDxTeam(input: {
       (org) => org.id === input.activeOrganizationId,
     )
     if (active) return { teamId: active.id, teamName: active.slug }
+    return { teamId: input.activeOrganizationId, teamName: "" }
   }
   return { teamId: "", teamName: "" }
 }

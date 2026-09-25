@@ -163,6 +163,16 @@ describe("resolveHyperDxTeam", () => {
     ).toEqual({ teamId: "org_1", teamName: "obs-e2e-343" })
   })
 
+  it("uses the active organization id on routes without an org slug before the list loads", () => {
+    expect(
+      resolveHyperDxTeam({
+        orgSlugFromRoute: "",
+        organizations: [],
+        activeOrganizationId: "org_1",
+      }),
+    ).toEqual({ teamId: "org_1", teamName: "" })
+  })
+
   it("falls back to the session active organization off org routes", () => {
     expect(
       resolveHyperDxTeam({

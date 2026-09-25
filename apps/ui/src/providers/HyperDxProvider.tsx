@@ -165,6 +165,44 @@ export const HyperDxPageView: FC<{
   publishRef.current = publish
 
   useEffect(() => {
+    if (!config.enabled || typeof window === "undefined" || navKey.length === 0) {
+      return
+    }
+    ensureHyperDxBrowser(config)
+    if (!hyperdxInitialized) return
+    if (sessionPending) return
+    if (!userId) {
+      clearHyperDxGlobalAttributes()
+      return
+    }
+    const current = routerRef.current
+    const pathname = current?.state.location.pathname ?? ""
+    const matches = current?.state.matches.map((match) => ({
+      routeId: match.routeId,
+      pathname: match.pathname,
+      params: match.params,
+    }))
+    const slug = routerLocationMatchesResolved(pathname, matches)
+      ? (matches ?? []).reduce((found, match) => {
+          const value = match.params?.orgSlug
+          return typeof value === "string" && value.length > 0 ? value : found
+        }, "")
+      : ""
+    const team = resolveHyperDxTeam({
+      orgSlugFromRoute: slug,
+      organizations,
+      activeOrganizationId: readActiveOrganizationId(session?.session),
+    })
+    setHyperDxGlobalAttributes(
+      hyperdxGlobalAttributes({
+        userId,
+        teamId: team.teamId,
+        teamName: team.teamName,
+      }),
+    )
+  }, [config, sessionPending, userId, organizations, session, navKey])
+
+  useEffect(() => {
     if (!config.enabled || !router || navKey.length === 0) return
     identityRef.current = {
       sessionPending,

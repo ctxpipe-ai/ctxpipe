@@ -1,4 +1,6 @@
+import { gunzipSync } from "node:zlib"
 import { getHyperDxRuntimeConfig } from "@/lib/hyperdxRuntimeConfig"
+import { scrubBrowserOtlpJson } from "@/lib/otelBrowserScrub"
 import {
   OTEL_PROXY_MAX_BODY_BYTES,
   otelCollectorBaseUrl,
@@ -86,6 +88,32 @@ async function reject(
   })
 }
 
+function decodeOtlpBody(
+  body: Uint8Array,
+  contentType: string,
+  encoding: string | null,
+): unknown | "empty" | "malformed" | "unsupported" {
+  if (body.byteLength === 0) return "empty"
+  let bytes = body
+  if (encoding?.toLowerCase().includes("gzip")) {
+    try {
+      bytes = gunzipSync(bytes)
+    } catch {
+      return "malformed"
+    }
+  }
+  const text = new TextDecoder().decode(bytes)
+  const type = contentType.toLowerCase()
+  const looksJson = type.includes("json") || text.trimStart().startsWith("{")
+  if (type.includes("protobuf") && !looksJson) return "unsupported"
+  if (!looksJson) return "unsupported"
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    return "malformed"
+  }
+}
+
 /**
  * `pathname` is the router pathname (`/.otel/...`). Admission uses it instead
  * of `request.url`, which a proxy can rewrite before this handler runs.
@@ -118,37 +146,56 @@ export async function proxyBrowserOtlp(
     return new Response(null, { status: 413 })
   }
 
-  const collectorBase = otelCollectorBaseUrl(traces)
-  const upstreamUrl = otelProxyUpstreamUrl(
-    collectorBase,
-    admissionUrl(request, pathname),
+  const contentType = request.headers.get("Content-Type") || "application/json"
+  const decoded = decodeOtlpBody(
+    body,
+    contentType,
+    request.headers.get("Content-Encoding"),
   )
-  const otelHeaders = parseOtelHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS)
-  const headers: Record<string, string> = {
-    ...otelHeaders,
-    "Content-Type": request.headers.get("Content-Type") || "application/json",
+  if (decoded === "empty") {
+    return forward(new Uint8Array(), contentType, null)
   }
-  const contentEncoding = request.headers.get("Content-Encoding")
-  if (contentEncoding) {
-    headers["Content-Encoding"] = contentEncoding
+  if (decoded === "malformed") {
+    return new Response(null, { status: 400 })
   }
+  if (decoded === "unsupported") {
+    return new Response(null, { status: 415 })
+  }
+  scrubBrowserOtlpJson(decoded)
+  const encoded = new TextEncoder().encode(JSON.stringify(decoded))
 
-  let response: Response
-  try {
-    response = await fetch(upstreamUrl, {
+  return forward(encoded, "application/json", null)
+
+  function forward(
+    payload: Uint8Array,
+    type: string,
+    encoding: string | null,
+  ): Promise<Response> {
+    const collectorBase = otelCollectorBaseUrl(traces)
+    const upstreamUrl = otelProxyUpstreamUrl(
+      collectorBase,
+      admissionUrl(request, pathname),
+    )
+    const otelHeaders = parseOtelHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS)
+    const headers: Record<string, string> = {
+      ...otelHeaders,
+      "Content-Type": type,
+    }
+    if (encoding) headers["Content-Encoding"] = encoding
+    return fetch(upstreamUrl, {
       method: "POST",
       headers,
-      body: new Uint8Array(body),
+      body: new Uint8Array(payload),
     })
-  } catch {
-    return new Response(null, { status: 502 })
+      .then(async (response) => {
+        return new Response(await response.arrayBuffer(), {
+          status: response.status,
+          headers: {
+            "Content-Type":
+              response.headers.get("Content-Type") || "application/json",
+          },
+        })
+      })
+      .catch(() => new Response(null, { status: 502 }))
   }
-
-  return new Response(await response.arrayBuffer(), {
-    status: response.status,
-    headers: {
-      "Content-Type":
-        response.headers.get("Content-Type") || "application/json",
-    },
-  })
 }
