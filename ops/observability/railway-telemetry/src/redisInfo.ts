@@ -95,9 +95,9 @@ function counterStart(timeUnixNano: string, uptimeSeconds: number | null): strin
   return start < 0n ? "0" : start.toString()
 }
 
-// Metric kinds match the OpenTelemetry redis receiver: memory and db.keys are
-// gauges; command, keyspace, connection, and uptime counters are monotonic
-// cumulative sums; client counts are non-monotonic cumulative sums.
+// HyperDX charts every Sum as a counter (greatest(Value - prev, 0)). Current
+// levels (clients, uptime) are gauges so they stay visible. Commands, keyspace,
+// and accepted connections are real counters and stay monotonic cumulative sums.
 export function redisSnapshotToOtlp(snapshot: RedisSnapshot, timeUnixNano: string): OtlpMetricsRequest {
   const start = counterStart(timeUnixNano, snapshot.uptimeSeconds)
   const metrics: OtlpMetric[] = []
@@ -105,14 +105,14 @@ export function redisSnapshotToOtlp(snapshot: RedisSnapshot, timeUnixNano: strin
     if (value === null) return
     metrics.push({ name, unit, gauge: { dataPoints: [point(value, timeUnixNano, undefined, attributes)] } })
   }
-  const sum = (name: string, unit: string, value: number | null, isMonotonic: boolean) => {
+  const sum = (name: string, unit: string, value: number | null) => {
     if (value === null) return
     metrics.push({
       name,
       unit,
       sum: {
         aggregationTemporality: 2,
-        isMonotonic,
+        isMonotonic: true,
         dataPoints: [point(value, timeUnixNano, start)],
       },
     })
@@ -120,13 +120,13 @@ export function redisSnapshotToOtlp(snapshot: RedisSnapshot, timeUnixNano: strin
 
   gauge("redis.memory.used", "By", snapshot.usedMemory)
   gauge("redis.memory.peak", "By", snapshot.usedMemoryPeak)
-  sum("redis.clients.connected", "{client}", snapshot.connectedClients, false)
-  sum("redis.clients.blocked", "{client}", snapshot.blockedClients, false)
-  sum("redis.commands.processed", "{command}", snapshot.totalCommandsProcessed, true)
-  sum("redis.keyspace.hits", "{hit}", snapshot.keyspaceHits, true)
-  sum("redis.keyspace.misses", "{miss}", snapshot.keyspaceMisses, true)
-  sum("redis.connections.received", "{connection}", snapshot.totalConnectionsReceived, true)
-  sum("redis.uptime", "s", snapshot.uptimeSeconds, true)
+  gauge("redis.clients.connected", "{client}", snapshot.connectedClients)
+  gauge("redis.clients.blocked", "{client}", snapshot.blockedClients)
+  sum("redis.commands.processed", "{command}", snapshot.totalCommandsProcessed)
+  sum("redis.keyspace.hits", "{hit}", snapshot.keyspaceHits)
+  sum("redis.keyspace.misses", "{miss}", snapshot.keyspaceMisses)
+  sum("redis.connections.received", "{connection}", snapshot.totalConnectionsReceived)
+  gauge("redis.uptime", "s", snapshot.uptimeSeconds)
 
   if (snapshot.databases.length > 0) {
     metrics.push({

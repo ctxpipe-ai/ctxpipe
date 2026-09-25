@@ -8,8 +8,10 @@ import {
   metricWindow,
   otlpSignalUrl,
   parseOtlpHeaders,
+  railwaySkipError,
   selfHealthLog,
   unixSecondsToIso,
+  type MetricWindow,
   type OtlpLogsRequest,
   type OtlpMetricsRequest,
 } from "./otlp"
@@ -18,13 +20,6 @@ import { LOG_LINE_CAP, RailwayClient } from "./railway"
 import { includeEnvironment, OWN_SERVICE_NAME, PROJECTS } from "./targets"
 
 async function main(): Promise<void> {
-  const token = process.env.RAILWAY_API_TOKEN
-  if (!token) {
-    console.error(
-      "RAILWAY_API_TOKEN is required (Railway workspace token that can read the observability and product projects)",
-    )
-    process.exit(1)
-  }
   const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT
   if (!endpoint) {
     console.error("OTEL_EXPORTER_OTLP_ENDPOINT is required")
@@ -33,12 +28,65 @@ async function main(): Promise<void> {
 
   const headers = parseOtlpHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS)
   const window = metricWindow(Date.now())
-  const client = new RailwayClient(token)
+  const observedUnixNano = (BigInt(Date.now()) * 1_000_000n).toString()
   const metricPayloads: OtlpMetricsRequest[] = []
   const logPayloads: OtlpLogsRequest[] = []
+
+  const redisWarning = await readRedis(observedUnixNano, metricPayloads)
+
   let environments = 0
   let logsCapped = false
+  let railwayError = railwaySkipError(process.env.RAILWAY_API_TOKEN)
+  if (!railwayError) {
+    try {
+      const collected = await collectRailway(process.env.RAILWAY_API_TOKEN ?? "", window, metricPayloads, logPayloads)
+      environments = collected.environments
+      logsCapped = collected.logsCapped
+    } catch (err: unknown) {
+      railwayError = errorMessage(err)
+    }
+  }
 
+  const metrics = mergeMetrics(metricPayloads)
+  const metricPoints = countMetricPoints(metrics)
+  const logRecords = countLogRecords(mergeLogs(logPayloads))
+  const logs = mergeLogs([
+    ...logPayloads,
+    selfHealthLog({
+      timeUnixNano: observedUnixNano,
+      metricPoints,
+      logRecords,
+      environments,
+      logsCapped,
+      redisWarning,
+      railwayError,
+      windowStartIso: unixSecondsToIso(window.startUnix),
+      windowEndIso: unixSecondsToIso(window.endUnix),
+    }),
+  ])
+
+  if (metricPoints > 0) {
+    await pushOtlp(otlpSignalUrl(endpoint, "metrics"), metrics, headers)
+  }
+  await pushOtlp(otlpSignalUrl(endpoint, "logs"), logs, headers)
+  console.log(
+    `railway-telemetry exported metric_points=${metricPoints} log_records=${logRecords} environments=${environments} logs_capped=${logsCapped} redis=${redisWarning ? "warn" : "ok"} railway=${railwayError ? "error" : "ok"}`,
+  )
+  if (railwayError) {
+    console.error(railwayError)
+    process.exit(1)
+  }
+}
+
+async function collectRailway(
+  token: string,
+  window: MetricWindow,
+  metricPayloads: OtlpMetricsRequest[],
+  logPayloads: OtlpLogsRequest[],
+): Promise<{ environments: number; logsCapped: boolean }> {
+  const client = new RailwayClient(token)
+  let environments = 0
+  let logsCapped = false
   for (const project of PROJECTS) {
     const inventory = await client.project(project.id)
     const projectName = inventory.name || project.fallbackName
@@ -84,33 +132,7 @@ async function main(): Promise<void> {
       )
     }
   }
-
-  const observedUnixNano = (BigInt(Date.now()) * 1_000_000n).toString()
-  const redisWarning = await readRedis(observedUnixNano, metricPayloads)
-  const metrics = mergeMetrics(metricPayloads)
-  const metricPoints = countMetricPoints(metrics)
-  const logRecords = countLogRecords(mergeLogs(logPayloads))
-  const logs = mergeLogs([
-    ...logPayloads,
-    selfHealthLog({
-      timeUnixNano: observedUnixNano,
-      metricPoints,
-      logRecords,
-      environments,
-      logsCapped,
-      redisWarning,
-      windowStartIso: unixSecondsToIso(window.startUnix),
-      windowEndIso: unixSecondsToIso(window.endUnix),
-    }),
-  ])
-
-  if (metricPoints > 0) {
-    await pushOtlp(otlpSignalUrl(endpoint, "metrics"), metrics, headers)
-  }
-  await pushOtlp(otlpSignalUrl(endpoint, "logs"), logs, headers)
-  console.log(
-    `railway-telemetry ok metric_points=${metricPoints} log_records=${logRecords} environments=${environments} logs_capped=${logsCapped} redis=${redisWarning ? "warn" : "ok"}`,
-  )
+  return { environments, logsCapped }
 }
 
 async function readRedis(timeUnixNano: string, metricPayloads: OtlpMetricsRequest[]): Promise<string | null> {

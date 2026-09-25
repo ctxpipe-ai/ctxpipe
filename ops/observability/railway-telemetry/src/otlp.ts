@@ -348,6 +348,15 @@ export function mapLogsToOtlp(input: {
   return { resourceLogs }
 }
 
+export const RAILWAY_TOKEN_REQUIRED =
+  "RAILWAY_API_TOKEN is required (Railway workspace token that can read the observability and product projects)"
+
+/** Missing token skips the Railway API read. Redis export and the self log still run. */
+export function railwaySkipError(token: string | undefined): string | null {
+  if (token?.trim()) return null
+  return RAILWAY_TOKEN_REQUIRED
+}
+
 export function selfHealthLog(input: {
   timeUnixNano: string
   metricPoints: number
@@ -355,10 +364,12 @@ export function selfHealthLog(input: {
   environments: number
   logsCapped: boolean
   redisWarning: string | null
+  railwayError: string | null
   windowStartIso: string
   windowEndIso: string
 }): OtlpLogsRequest {
   const redisOk = input.redisWarning === null
+  const railwayOk = input.railwayError === null
   const attributes: OtlpAttribute[] = [
     { key: "railway.telemetry.metric_points", value: { intValue: String(input.metricPoints) } },
     { key: "railway.telemetry.log_records", value: { intValue: String(input.logRecords) } },
@@ -369,7 +380,10 @@ export function selfHealthLog(input: {
     stringAttr("railway.telemetry.window_end", input.windowEndIso),
   ]
   if (input.redisWarning) attributes.push(stringAttr("railway.telemetry.redis_error", input.redisWarning))
+  if (input.railwayError) attributes.push(stringAttr("railway.telemetry.railway_error", input.railwayError))
   const redisStatus = redisOk ? "redis=ok" : `redis_error=${input.redisWarning}`
+  const railwayStatus = railwayOk ? "railway=ok" : `railway_error=${input.railwayError}`
+  const healthy = redisOk && railwayOk
   return {
     resourceLogs: [
       {
@@ -385,10 +399,10 @@ export function selfHealthLog(input: {
             logRecords: [
               {
                 timeUnixNano: input.timeUnixNano,
-                severityNumber: redisOk ? 9 : 13,
-                severityText: redisOk ? "INFO" : "WARN",
+                severityNumber: healthy ? 9 : 13,
+                severityText: healthy ? "INFO" : "WARN",
                 body: {
-                  stringValue: `railway-telemetry window ${input.windowStartIso}/${input.windowEndIso} metric_points=${input.metricPoints} log_records=${input.logRecords} environments=${input.environments} logs_capped=${input.logsCapped} ${redisStatus}`,
+                  stringValue: `railway-telemetry window ${input.windowStartIso}/${input.windowEndIso} metric_points=${input.metricPoints} log_records=${input.logRecords} environments=${input.environments} logs_capped=${input.logsCapped} ${redisStatus} ${railwayStatus}`,
                 },
                 attributes,
               },

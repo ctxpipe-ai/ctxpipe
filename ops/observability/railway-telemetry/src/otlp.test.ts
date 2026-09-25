@@ -9,6 +9,8 @@ import {
   metricWindow,
   parseOtlpHeaders,
   rfc3339ToUnixNano,
+  railwaySkipError,
+  RAILWAY_TOKEN_REQUIRED,
   selfHealthLog,
   type MetricSeries,
   type RailwayLogLine,
@@ -356,6 +358,7 @@ describe("logs", () => {
       environments: 3,
       logsCapped: true,
       redisWarning: null,
+      railwayError: null,
       windowStartIso: "2026-09-25T12:00:00.000Z",
       windowEndIso: "2026-09-25T12:05:00.000Z",
     })
@@ -371,6 +374,8 @@ describe("logs", () => {
     expect(record?.body.stringValue).toContain("metric_points=4")
     expect(record?.body.stringValue).toContain("logs_capped=true")
     expect(record?.body.stringValue).toContain("redis=ok")
+    expect(record?.body.stringValue).toContain("railway=ok")
+    expect(record?.attributes.some((attribute) => attribute.key === "railway.telemetry.railway_error")).toBe(false)
   })
 
   test("self log warns when Redis collection fails and still records the Railway counts", () => {
@@ -381,6 +386,7 @@ describe("logs", () => {
       environments: 1,
       logsCapped: false,
       redisWarning: "redis INFO failed: connection refused",
+      railwayError: null,
       windowStartIso: "2026-09-25T12:00:00.000Z",
       windowEndIso: "2026-09-25T12:05:00.000Z",
     })
@@ -394,6 +400,36 @@ describe("logs", () => {
     })
     expect(record?.body.stringValue).toContain("metric_points=4")
     expect(record?.body.stringValue).toContain("redis_error=redis INFO failed: connection refused")
+    expect(record?.body.stringValue).toContain("railway=ok")
+  })
+
+  test("missing Railway token is a WARN on the self log and does not drop Redis status", () => {
+    expect(railwaySkipError(undefined)).toBe(RAILWAY_TOKEN_REQUIRED)
+    expect(railwaySkipError("")).toBe(RAILWAY_TOKEN_REQUIRED)
+    expect(railwaySkipError("  ")).toBe(RAILWAY_TOKEN_REQUIRED)
+    expect(railwaySkipError("workspace-token")).toBeNull()
+
+    const payload = selfHealthLog({
+      timeUnixNano: "1000",
+      metricPoints: 9,
+      logRecords: 0,
+      environments: 0,
+      logsCapped: false,
+      redisWarning: null,
+      railwayError: railwaySkipError(undefined),
+      windowStartIso: "2026-09-25T12:00:00.000Z",
+      windowEndIso: "2026-09-25T12:05:00.000Z",
+    })
+    const record = payload.resourceLogs[0]?.scopeLogs[0]?.logRecords[0]
+    expect(record?.severityNumber).toBe(13)
+    expect(record?.severityText).toBe("WARN")
+    expect(record?.attributes).toContainEqual({ key: "railway.telemetry.redis_ok", value: { boolValue: true } })
+    expect(record?.attributes).toContainEqual({
+      key: "railway.telemetry.railway_error",
+      value: { stringValue: RAILWAY_TOKEN_REQUIRED },
+    })
+    expect(record?.body.stringValue).toContain("metric_points=9")
+    expect(record?.body.stringValue).toContain(`railway_error=${RAILWAY_TOKEN_REQUIRED}`)
   })
 })
 

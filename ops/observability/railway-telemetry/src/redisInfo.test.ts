@@ -76,9 +76,20 @@ describe("redisSnapshotToOtlp", () => {
     expect(byName["redis.keyspace.misses"]?.sum?.isMonotonic).toBe(true)
     expect(byName["redis.connections.received"]?.sum?.isMonotonic).toBe(true)
     expect(byName["redis.connections.received"]?.unit).toBe("{connection}")
-    expect(byName["redis.clients.connected"]?.sum).toMatchObject({ isMonotonic: false, aggregationTemporality: 2 })
-    expect(byName["redis.clients.blocked"]?.sum?.isMonotonic).toBe(false)
-    expect(byName["redis.uptime"]).toMatchObject({ unit: "s", sum: { isMonotonic: true } })
+    expect(byName["redis.clients.connected"]).toMatchObject({
+      unit: "{client}",
+      gauge: { dataPoints: [{ asInt: "4", timeUnixNano: observed }] },
+    })
+    expect(byName["redis.clients.connected"]?.sum).toBeUndefined()
+    expect(byName["redis.clients.blocked"]).toMatchObject({
+      unit: "{client}",
+      gauge: { dataPoints: [{ asInt: "1", timeUnixNano: observed }] },
+    })
+    expect(byName["redis.uptime"]).toMatchObject({
+      unit: "s",
+      gauge: { dataPoints: [{ asInt: "3600", timeUnixNano: observed }] },
+    })
+    expect(byName["redis.uptime"]?.sum).toBeUndefined()
     expect(byName["redis.db.keys"]).toMatchObject({
       unit: "{key}",
       gauge: {
