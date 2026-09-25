@@ -1,0 +1,9 @@
+{
+  "name": "railway-telemetry",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "start": "bun src/index.ts"
+  }
+}

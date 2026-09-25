@@ -17,3 +17,6 @@ langfuse_init_user_email = "ops@example.com"
 # (not a schema on neondb — Langfuse Prisma hardcodes public).
 # langfuse_database_url = "postgresql://langfuse:...@...-pooler.../langfuse?sslmode=require"
 # langfuse_direct_url   = "postgresql://langfuse:...@.../langfuse?sslmode=require"
+#
+# Railway workspace token (Account or Workspace → Tokens). Reads both projects.
+# railway_api_token = ""

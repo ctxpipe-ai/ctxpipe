@@ -151,3 +151,9 @@ variable "langfuse_init_user_password" {
   description = "First Langfuse admin password."
   sensitive   = true
 }
+
+variable "railway_api_token" {
+  type        = string
+  description = "Railway workspace token for the railway-telemetry cron. Must be able to read the observability and product projects. API reads do not wake sleeping services."
+  sensitive   = true
+}

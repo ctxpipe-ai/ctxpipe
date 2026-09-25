@@ -18,12 +18,13 @@
 #   RAILWAY_SERVICE_SET  (default: product)
 #     product         — ctxpipe (backend, openworkflow, ui, otelcollector, codesearch, falkordb)
 #     observability   — ctxpipe-observability (collector, hyperdx, redis,
-#                       langfuse-web, langfuse-worker, clickhouse, mongo)
+#                       langfuse-web, langfuse-worker, railway-telemetry,
+#                       clickhouse, mongo)
 #   STATELESS_WAIT_SECONDS (default: 600)
 #   VOLUME_WAIT_SECONDS    (default: 2700)  # 50GB volume copy
 #
 # Both hosted Railway projects use the same Virginia region as Neon
-# (ADR-029 / ADR-031). Terraform ignore_changes + provider issue #77
+# (ADR-029 / ADR-038). Terraform ignore_changes + provider issue #77
 # never correct a create that landed in the workspace preferred region
 # (Singapore). Run this after apply. Volume-backed services copy the
 # volume during the redeploy and go down for that copy.
@@ -58,7 +59,7 @@ case "$SERVICE_SET" in
     VOLUME_NAMES=(codesearch falkordb)
     ;;
   observability)
-    STATELESS_NAMES=(collector hyperdx redis langfuse-web langfuse-worker)
+    STATELESS_NAMES=(collector hyperdx redis langfuse-web langfuse-worker railway-telemetry)
     VOLUME_NAMES=(clickhouse mongo)
     ;;
   *)
