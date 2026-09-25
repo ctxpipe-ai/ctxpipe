@@ -1,6 +1,8 @@
+import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import { recordEnqueuedWorkflow } from "../observability/businessMetrics.js"
+import { dbErrorException } from "../observability/scrubDbError.js"
 import { attachJobTelemetry } from "../observability/jobTelemetry.js"
 import { openWorkflowNamespaceId } from "./namespace.js"
 import { scheduleEnsureWorkerRunning } from "./railway-wake.js"
@@ -27,9 +29,54 @@ export function runWorkflowWithWorkerWake(
       : ""
   recordEnqueuedWorkflow(workflowName, input)
   const nextInput = attachJobTelemetry(input)
-  const p = ow.runWorkflow(spec, nextInput as typeof input, options)
-  void p.then(() => {
-    scheduleEnsureWorkerRunning()
-  })
-  return p
+  const run = () => ow.runWorkflow(spec, nextInput as typeof input, options)
+  if (!trace.getActiveSpan()) {
+    const queued = run()
+    void queued.then(() => {
+      scheduleEnsureWorkerRunning()
+    })
+    return queued
+  }
+
+  const span = trace.getTracer("ctxpipe-backend").startSpan(
+    workflowName
+      ? `openworkflow.enqueue ${workflowName}`
+      : "openworkflow.enqueue",
+    {
+      kind: SpanKind.CLIENT,
+      attributes: {
+        "db.system.name": "postgresql",
+        "db.operation.name": "enqueue",
+      },
+    },
+  )
+  let queued: ReturnType<typeof ow.runWorkflow>
+  try {
+    queued = run()
+  } catch (error) {
+    const sanitized = dbErrorException(error)
+    span.recordException(sanitized)
+    span.setStatus({
+      code: SpanStatusCode.ERROR,
+      message: sanitized.message,
+    })
+    span.end()
+    throw error
+  }
+  void queued.then(
+    () => {
+      span.end()
+      scheduleEnsureWorkerRunning()
+    },
+    (error: unknown) => {
+      const sanitized = dbErrorException(error)
+      span.recordException(sanitized)
+      span.setStatus({
+        code: SpanStatusCode.ERROR,
+        message: sanitized.message,
+      })
+      span.end()
+    },
+  )
+  return queued
 }
