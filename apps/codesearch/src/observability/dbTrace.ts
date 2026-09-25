@@ -1,8 +1,8 @@
 import {
-  context,
   type Context,
-  SpanKind,
+  context,
   type Span,
+  SpanKind,
   SpanStatusCode,
   trace,
 } from "@opentelemetry/api"
@@ -42,8 +42,6 @@ export type TraceablePgClient = {
 const instrumentedPools = new WeakSet<object>()
 const instrumentedClients = new WeakSet<object>()
 const clientTxStacks = new WeakMap<object, Span[]>()
-const clientsByOwner = new WeakMap<Span, Set<object>>()
-const hookedOwnerSpans = new WeakSet<Span>()
 
 function txStackFor(client: object): Span[] {
   let stack = clientTxStacks.get(client)
@@ -58,28 +56,6 @@ function endOpenTransactions(client: object): void {
   const stack = clientTxStacks.get(client)
   if (!stack) return
   while (stack.length > 0) stack.pop()?.end()
-}
-
-function watchOwningSpan(client: object): void {
-  const owner = trace.getActiveSpan()
-  if (!owner) return
-  let clients = clientsByOwner.get(owner)
-  if (!clients) {
-    clients = new Set()
-    clientsByOwner.set(owner, clients)
-  }
-  clients.add(client)
-  if (hookedOwnerSpans.has(owner)) return
-  hookedOwnerSpans.add(owner)
-  const original = owner.end.bind(owner)
-  owner.end = ((...args: Parameters<Span["end"]>) => {
-    const held = clientsByOwner.get(owner)
-    if (held) {
-      for (const heldClient of held) endOpenTransactions(heldClient)
-      held.clear()
-    }
-    return original(...args)
-  }) as Span["end"]
 }
 
 function wrapClientRelease(client: TraceablePgClient): void {
@@ -162,7 +138,9 @@ function describeSql(text: string): {
   boundary: SqlBoundary
 } {
   const statement = stripLeadingSqlComments(text)
-  const operation = (statement.match(/^([A-Za-z]+)/)?.[1] ?? "QUERY").toUpperCase()
+  const operation = (
+    statement.match(/^([A-Za-z]+)/)?.[1] ?? "QUERY"
+  ).toUpperCase()
   const collection = collectionName(operation, statement)
   return {
     operation,
@@ -264,7 +242,10 @@ function recordDbFailure(span: Span, error: unknown): void {
   span.setStatus({ code: SpanStatusCode.ERROR, message: sanitized.message })
 }
 
-function querySpanName(operation: string, collection: string | undefined): string {
+function querySpanName(
+  operation: string,
+  collection: string | undefined,
+): string {
   return collection ? `${operation} ${collection}` : operation
 }
 
@@ -425,7 +406,6 @@ function tracePgQuery(
     const parent = parentContext(txStack)
     if (!parent) return original.apply(client, args)
     const txSpan = startTransactionSpan(client, boundary, parent, tracerName)
-    watchOwningSpan(client)
     txStack.push(txSpan)
     return runStatement(
       client,
@@ -447,12 +427,20 @@ function tracePgQuery(
     boundary === "release" ||
     boundary === "rollback" ||
     boundary === "rollback_to"
-  return runStatement(client, original, args, text, parent, tracerName, (error) => {
-    if (!closing) return
-    const failed =
-      error != null || boundary === "rollback" || boundary === "rollback_to"
-    endTransaction(txStack, error, failed)
-  })
+  return runStatement(
+    client,
+    original,
+    args,
+    text,
+    parent,
+    tracerName,
+    (error) => {
+      if (!closing) return
+      const failed =
+        error != null || boundary === "rollback" || boundary === "rollback_to"
+      endTransaction(txStack, error, failed)
+    },
+  )
 }
 
 /** One client span per query. Transaction boundaries parent the queries inside them. */
@@ -513,7 +501,9 @@ function describeCypher(query: string): {
   collection?: string
 } {
   const statement = query.trim()
-  const operation = (statement.match(/^([A-Za-z]+)/)?.[1] ?? "QUERY").toUpperCase()
+  const operation = (
+    statement.match(/^([A-Za-z]+)/)?.[1] ?? "QUERY"
+  ).toUpperCase()
   const label = statement.match(/\(\s*[A-Za-z0-9_]*\s*:\s*([A-Za-z_][\w]*)/)
   const collection = label?.[1]
   return {
@@ -548,7 +538,8 @@ export function traceGraphQuery<T>(
     attributes["db.namespace"] = input.namespace
   }
   if (input.serverAddress) attributes["server.address"] = input.serverAddress
-  if (input.serverPort !== undefined) attributes["server.port"] = input.serverPort
+  if (input.serverPort !== undefined)
+    attributes["server.port"] = input.serverPort
   const span = trace
     .getTracer(input.tracerName ?? "ctxpipe-backend")
     .startSpan(querySpanName(described.operation, described.collection), {

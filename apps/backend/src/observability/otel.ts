@@ -239,7 +239,9 @@ const AUTO_INSTRUMENTATION_SCOPE_PREFIX = "@opentelemetry/instrumentation-"
  * Parented auto-instrumentation spans still export. Spans we start use
  * `ctxpipe-backend` (server, job, `dbTrace`, fetch), so a parentless one of
  * those is kept. SERVER and CONSUMER spans from an auto-instrumentation are
- * kept too: those are entry points, not idle sockets.
+ * kept too: those are entry points, not idle sockets. A parentless
+ * CLIENT or INTERNAL auto-instrumentation span with ERROR status is kept:
+ * a Redis or `https.request` failure outside a job is still a failure.
  *
  * Wraps the exporter processor so a dropped span never reaches
  * `BatchSpanProcessor`. `BetterAuthSpanFilter` wraps `BatchSpanProcessor`
@@ -257,7 +259,12 @@ export class DropParentlessAutoInstrumentationSpans implements SpanProcessor {
   }
 
   onEnd(span: ReadableSpan): void {
-    if (isParentlessAutoInstrumentationSpan(span)) return
+    if (
+      span.status.code !== SpanStatusCode.ERROR &&
+      isParentlessAutoInstrumentationSpan(span)
+    ) {
+      return
+    }
     this.next.onEnd(span)
   }
 
@@ -384,7 +391,13 @@ export function isInternalAttributionTarget(raw: string): boolean {
     return false
   }
   const host = parsed.hostname.toLowerCase()
-  if (host === "localhost" || host === "127.0.0.1" || host === "::1") {
+  // WHATWG `URL.hostname` for IPv6 loopback is `[::1]`, not `::1`.
+  if (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host === "[::1]"
+  ) {
     return true
   }
   if (host === "railway.internal" || host.endsWith(".railway.internal")) {

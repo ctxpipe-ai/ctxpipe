@@ -148,11 +148,11 @@ export async function reindex(state: ReindexInput): Promise<ReindexStepResult> {
             failLogger.set({
               step: "codeIngestion.reindex.http.fail",
               durationMs,
-              status: res.status,
+              "upstream.status_code": res.status,
               error: detail,
             })
             failLogger.error("codesearch reindex failed", {
-              status: res.status,
+              "upstream.status_code": res.status,
               detail,
               body: bodyText,
             })
@@ -170,7 +170,7 @@ export async function reindex(state: ReindexInput): Promise<ReindexStepResult> {
             failLogger.set({
               step: "codeIngestion.reindex.http.fail",
               durationMs,
-              status: res.status,
+              "upstream.status_code": res.status,
               error: "response JSON did not match schema",
             })
             failLogger.error(
@@ -200,7 +200,7 @@ export async function reindex(state: ReindexInput): Promise<ReindexStepResult> {
           doneLogger.set({
             step: "codeIngestion.reindex.http.done",
             durationMs,
-            status: res.status,
+            "upstream.status_code": res.status,
             ingestMode: data.ingestMode,
             changedPathCount: data.changedPaths.length,
             deletedPathCount: data.deletedPaths.length,

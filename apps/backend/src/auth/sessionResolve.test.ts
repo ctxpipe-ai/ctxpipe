@@ -99,11 +99,11 @@ function createTracedSessionApp(): Hono<AppEnv> {
   return app
 }
 
-function createAuthApp(traced: boolean): Hono<AppEnv> {
+function createAuthApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
-  if (traced) app.use("*", backendOtelMiddleware())
+  app.use("*", backendOtelMiddleware())
   bindRequestContext(app)
-  if (traced) app.use("*", withSharedCookieSession)
+  app.use("*", withSharedCookieSession)
   registerAuthRoutes(app)
   return app
 }
@@ -205,33 +205,6 @@ describe("shared cookie session spans", () => {
     expect(spans.some((span) => span.name === "session.resolve")).toBe(false)
     expect(child?.parentSpanContext?.spanId).toBe(server?.spanContext().spanId)
   })
-
-  it("parents a session read that has no server span", async () => {
-    getSessionMock.mockImplementation(async () => {
-      startBetterAuthChild("GET /get-session")
-      return {
-        user: { id: "user_orphan", email: "orphan@example.com" },
-        session: { id: "sess_orphan", userId: "user_orphan" },
-      }
-    })
-    const app = new Hono<AppEnv>()
-    bindRequestContext(app)
-    app.use("*", withSharedCookieSession)
-    app.get("/acme/api/v1/repositories", (c) => c.text("ok"))
-
-    const response = await app.request(
-      "http://backend.test/acme/api/v1/repositories",
-    )
-    expect(response.status).toBe(200)
-    const spans = exporter.getFinishedSpans()
-    const parent = spans.find((span) => span.name === "session.resolve")
-    const child = spans.find((span) => span.name === "GET /get-session")
-    expect(parent?.kind).toBe(SpanKind.INTERNAL)
-    expect(parent?.parentSpanContext).toBeUndefined()
-    expect(parent?.attributes["enduser.id"]).toBe("user_orphan")
-    expect(child?.parentSpanContext?.spanId).toBe(parent?.spanContext().spanId)
-    expect(spans.some((span) => span.kind === SpanKind.SERVER)).toBe(false)
-  })
 })
 
 describe("auth get-session server span", () => {
@@ -240,7 +213,7 @@ describe("auth get-session server span", () => {
       startBetterAuthChild("GET /get-session")
       return sessionResponse("org_active")
     })
-    const app = createAuthApp(true)
+    const app = createAuthApp()
     const response = await app.request(
       "http://backend.test/.auth/api/v1/auth/get-session",
     )
@@ -273,7 +246,7 @@ describe("auth get-session server span", () => {
         headers: { "content-type": "application/json" },
       }),
     )
-    const app = createAuthApp(true)
+    const app = createAuthApp()
     const response = await app.request(
       "http://backend.test/.auth/api/v1/auth/get-session",
     )
@@ -289,7 +262,7 @@ describe("auth get-session server span", () => {
 
   it("does not copy a user off other auth responses", async () => {
     authHandlerMock.mockResolvedValue(sessionResponse("org_active"))
-    const app = createAuthApp(true)
+    const app = createAuthApp()
     const response = await app.request(
       "http://backend.test/.auth/api/v1/auth/sign-in/email",
       { method: "POST" },
@@ -300,29 +273,5 @@ describe("auth get-session server span", () => {
       .find((span) => span.kind === SpanKind.SERVER)
     expect(server?.attributes["enduser.id"]).toBeUndefined()
     expect(server?.attributes["ctxpipe.org.id"]).toBeUndefined()
-  })
-
-  it("parents get-session when the auth route has no server span", async () => {
-    authHandlerMock.mockImplementation(async () => {
-      startBetterAuthChild("GET /get-session")
-      return sessionResponse("org_fallback")
-    })
-    const app = createAuthApp(false)
-    const response = await app.request(
-      "http://backend.test/.auth/api/v1/auth/get-session",
-    )
-    expect(response.status).toBe(200)
-    expect(getSessionMock).not.toHaveBeenCalled()
-    const spans = exporter.getFinishedSpans()
-    const parent = spans.find((span) => span.name === "session.resolve")
-    const child = spans.find((span) => span.name === "GET /get-session")
-    expect(parent?.kind).toBe(SpanKind.INTERNAL)
-    expect(parent?.attributes).toMatchObject({
-      "enduser.id": "user_1",
-      "ctxpipe.org.id": "org_fallback",
-      "ctxpipe.actor.type": "user",
-    })
-    expect(child?.parentSpanContext?.spanId).toBe(parent?.spanContext().spanId)
-    expect(spans.some((span) => span.kind === SpanKind.SERVER)).toBe(false)
   })
 })

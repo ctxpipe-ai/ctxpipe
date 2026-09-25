@@ -68,11 +68,20 @@ export function createEvlogDrain() {
       events,
       otelResourceAttributes(serviceName, otelDeploymentEnvironment()),
     )
-    const response = await fetch(`${baseEndpoint}/v1/logs`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...headers },
-      body: JSON.stringify(payload),
-    })
+    // 5s matches evlog createOTLPDrain. The pipeline retries, then onDropped.
+    // A timeout or a down collector does not fail the request or shutdown.
+    let response: Response
+    try {
+      response = await fetch(`${baseEndpoint}/v1/logs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(5_000),
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(`OTLP logs export failed: ${message}`)
+    }
     if (!response.ok) {
       throw new Error(`OTLP logs HTTP ${response.status}`)
     }
@@ -102,8 +111,16 @@ export function createEvlogDrain() {
 
 /** Flush buffered evlog events. Call on server shutdown. */
 export async function flushEvlog(): Promise<void> {
-  if (evlogDrainInstance?.flush) {
+  if (!evlogDrainInstance?.flush) return
+  try {
     await evlogDrainInstance.flush()
+  } catch (error) {
+    log.error({
+      step: "evlog.pipeline",
+      message: "evlog flush failed",
+      error: error instanceof Error ? error.message : String(error),
+    })
+  } finally {
     evlogDrainInstance = undefined
   }
 }
@@ -140,14 +157,20 @@ export function applyCodesearchLogContract(
   moveAlias(event, "path", "url.path")
   moveAlias(event, "orgId", "ctxpipe.org.id")
   moveAlias(event, "orgSlug", "ctxpipe.org.slug")
-  const status = event.status
-  if (
-    (typeof status === "number" || typeof status === "string") &&
-    event["http.response.status_code"] == null
-  ) {
-    event["http.response.status_code"] = status
+  // `status` is this service's response only when the event is an access log.
+  // A downstream code uses `upstream.status_code` and stays off this key.
+  const recordsOwnResponse =
+    event["url.path"] != null || event["http.request.method"] != null
+  if (recordsOwnResponse) {
+    const status = event.status
+    if (
+      (typeof status === "number" || typeof status === "string") &&
+      event["http.response.status_code"] == null
+    ) {
+      event["http.response.status_code"] = status
+    }
+    delete event.status
   }
-  delete event.status
   if (isRecord(event.user) && typeof event.user.id === "string") {
     if (event["enduser.id"] == null) event["enduser.id"] = event.user.id
     delete event.user.id

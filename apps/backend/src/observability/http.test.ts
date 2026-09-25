@@ -311,29 +311,6 @@ describe("backendOtelMiddleware", () => {
     expect(span?.attributes["ctxpipe.conversation.id"]).toBeUndefined()
   })
 
-  it("records handler.end and response.ready on the server span", async () => {
-    const app = new Hono()
-    app.use("*", backendOtelMiddleware())
-    app.get("/orgs/:orgSlug/api/v1/repositories", (c) => c.json({ ok: true }))
-
-    const res = await app.request(
-      "http://backend.test/orgs/acme/api/v1/repositories",
-    )
-    expect(res.status).toBe(200)
-    const span = exporter
-      .getFinishedSpans()
-      .find((item) => item.kind === SpanKind.SERVER)
-    const events = span?.events.map((event) => event.name)
-    expect(events).toEqual(["handler.end", "response.ready"])
-    const handlerEnd = span?.events[0]?.time
-    const responseReady = span?.events[1]?.time
-    expect(handlerEnd).toBeDefined()
-    expect(responseReady).toBeDefined()
-    if (!handlerEnd || !responseReady) return
-    const toMs = (time: [number, number]) => time[0] * 1e3 + time[1] / 1e6
-    expect(toMs(responseReady)).toBeGreaterThanOrEqual(toMs(handlerEnd))
-  })
-
   it("schedules the PR otel flush only after the server span has ended", async () => {
     const previous = process.env.RAILWAY_ENVIRONMENT_NAME
     process.env.RAILWAY_ENVIRONMENT_NAME = "pr-343"

@@ -165,7 +165,7 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
         // the wide event gets status and a fixed class only.
         getLogger().warn("codesearch.search.zoekt_rejected", {
           step: "codesearch.search.zoekt_rejected",
-          status: res.status,
+          "upstream.status_code": res.status,
           error: "zoekt_query_rejected",
         })
         return c.json({ error }, 400)

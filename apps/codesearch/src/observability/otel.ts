@@ -442,7 +442,13 @@ function isInternalAttributionTarget(raw: string): boolean {
     return false
   }
   const host = parsed.hostname.toLowerCase()
-  if (host === "localhost" || host === "127.0.0.1" || host === "::1") {
+  // WHATWG `URL.hostname` for IPv6 loopback is `[::1]`, not `::1`.
+  if (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host === "[::1]"
+  ) {
     return true
   }
   if (host === "railway.internal" || host.endsWith(".railway.internal")) {

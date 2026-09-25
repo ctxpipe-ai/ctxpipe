@@ -1,4 +1,9 @@
-import { context, ROOT_CONTEXT, SpanStatusCode, trace } from "@opentelemetry/api"
+import {
+  context,
+  ROOT_CONTEXT,
+  SpanStatusCode,
+  trace,
+} from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
   type ReadableSpan,
@@ -6,14 +11,7 @@ import {
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import type { Pool } from "pg"
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-} from "vitest"
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import {
   instrumentPgClient,
   instrumentPgPool,
@@ -363,14 +361,20 @@ describe("postgres client spans", () => {
         await client.query(text)
         request.end()
       })
-    const query = exporter.getFinishedSpans().find((span) => span.name === "SELECT")
+    const query = exporter
+      .getFinishedSpans()
+      .find((span) => span.name === "SELECT")
     expect(String(query?.attributes["db.query.text"])).toHaveLength(2048)
   })
 
   it("instruments a client checked out of the pool once", async () => {
     const client: TraceablePgClient = {
       database: "ctxpipe",
-      connectionParameters: { host: "db.internal", port: 5432, database: "ctxpipe" },
+      connectionParameters: {
+        host: "db.internal",
+        port: 5432,
+        database: "ctxpipe",
+      },
       query: () => Promise.resolve({ rows: [] }),
     }
     const pool = {
@@ -430,34 +434,6 @@ describe("postgres client spans", () => {
     )
     expect(spans.some((span) => span.name === "postgresql transaction")).toBe(
       false,
-    )
-  })
-
-  it("ends an open transaction when the owning request ends", async () => {
-    const client = createClient(async () => ({ rows: [] }))
-    await trace
-      .getTracer("ctxpipe-backend")
-      .startActiveSpan("request-a", async (request) => {
-        await client.query("begin")
-        request.end()
-      })
-    const abandoned = exporter
-      .getFinishedSpans()
-      .find((span) => span.name === "postgresql transaction")
-    expect(abandoned).toBeDefined()
-
-    exporter.reset()
-    await trace
-      .getTracer("ctxpipe-backend")
-      .startActiveSpan("request-b", async (request) => {
-        await client.query("select 1")
-        request.end()
-      })
-    const spans = exporter.getFinishedSpans()
-    const select = spans.find((span) => span.name === "SELECT")
-    const request = spans.find((span) => span.name === "request-b")
-    expect(select?.parentSpanContext?.spanId).toBe(
-      request?.spanContext().spanId,
     )
   })
 })

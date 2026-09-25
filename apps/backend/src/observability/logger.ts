@@ -64,11 +64,20 @@ export function createEvlogDrain() {
       events,
       otelResourceAttributes(serviceName, otelDeploymentEnvironment()),
     )
-    const response = await fetch(`${baseEndpoint}/v1/logs`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...headers },
-      body: JSON.stringify(payload),
-    })
+    // 5s matches evlog createOTLPDrain. The pipeline retries, then onDropped.
+    // A timeout or a down collector does not fail the request or shutdown.
+    let response: Response
+    try {
+      response = await fetch(`${baseEndpoint}/v1/logs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(5_000),
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(`OTLP logs export failed: ${message}`)
+    }
     if (!response.ok) {
       throw new Error(`OTLP logs HTTP ${response.status}`)
     }
@@ -98,8 +107,16 @@ export function createEvlogDrain() {
 
 /** Flush buffered evlog events. Call on server shutdown. */
 export async function flushEvlog(): Promise<void> {
-  if (evlogDrainInstance?.flush) {
+  if (!evlogDrainInstance?.flush) return
+  try {
     await evlogDrainInstance.flush()
+  } catch (error) {
+    log.error({
+      step: "evlog.pipeline",
+      message: "evlog flush failed",
+      error: error instanceof Error ? error.message : String(error),
+    })
+  } finally {
     evlogDrainInstance = undefined
   }
 }

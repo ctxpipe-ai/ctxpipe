@@ -1,4 +1,4 @@
-import { context, SpanKind, trace } from "@opentelemetry/api"
+import { context, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentations-node"
 import {
   InMemorySpanExporter,
@@ -307,6 +307,7 @@ describe("outgoing fetch spans", () => {
           "http://api.railway.internal:8080/health",
         )
         await tracedOutgoingFetch(capture, "http://127.0.0.1:3001/health")
+        await tracedOutgoingFetch(capture, "http://[::1]:3001/health")
       })
     } finally {
       parent.end()
@@ -325,6 +326,7 @@ describe("outgoing fetch spans", () => {
       "http://codesearch.internal:3001/search",
       "http://api.railway.internal:8080/health",
       "http://127.0.0.1:3001/health",
+      "http://[::1]:3001/health",
     ]) {
       const internal = seen.find((entry) => entry.url === url)
       expect(internal?.traceparent).toContain(parent.spanContext().traceId)
@@ -447,5 +449,16 @@ describe("parentless auto-instrumentation spans", () => {
     )
     const redis = finished.find((span) => span.name === "redis-GET")
     expect(redis?.parentSpanContext?.spanId).toBe(job.spanContext().spanId)
+  })
+
+  it("keeps a parentless auto-instrumentation span that failed", () => {
+    const redis = trace
+      .getTracer("@opentelemetry/instrumentation-redis")
+      .startSpan("redis-GET", { kind: SpanKind.CLIENT })
+    redis.setStatus({ code: SpanStatusCode.ERROR })
+    redis.end()
+    const finished = exporter.getFinishedSpans()
+    expect(finished.map((span) => span.name)).toEqual(["redis-GET"])
+    expect(finished[0]?.status.code).toBe(SpanStatusCode.ERROR)
   })
 })

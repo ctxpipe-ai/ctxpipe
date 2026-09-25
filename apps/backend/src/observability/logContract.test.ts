@@ -107,6 +107,27 @@ describe("log contract", () => {
     expect(event).not.toHaveProperty("service")
   })
 
+  it("keeps a downstream status off the access-log key", () => {
+    const downstream: Record<string, unknown> = {
+      step: "repositoryDeletion.codesearch_purge",
+      status: 502,
+      "upstream.status_code": 502,
+    }
+    applyLogContract(downstream)
+    expect(downstream.status).toBe(502)
+    expect(downstream["upstream.status_code"]).toBe(502)
+    expect(downstream).not.toHaveProperty("http.response.status_code")
+
+    const access: Record<string, unknown> = {
+      method: "POST",
+      path: "/search",
+      status: 400,
+    }
+    applyLogContract(access)
+    expect(access["http.response.status_code"]).toBe(400)
+    expect(access).not.toHaveProperty("status")
+  })
+
   it("puts traceId on the OTLP log record, not only attributes", () => {
     const event = {
       timestamp: new Date().toISOString(),

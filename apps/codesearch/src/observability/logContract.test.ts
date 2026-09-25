@@ -33,6 +33,18 @@ describe("codesearch log contract", () => {
     expect(event).not.toHaveProperty("service.namespace")
   })
 
+  it("keeps a downstream status off the access-log key", () => {
+    const downstream: Record<string, unknown> = {
+      step: "codesearch.search.zoekt_rejected",
+      status: 422,
+      "upstream.status_code": 422,
+    }
+    applyCodesearchLogContract(downstream)
+    expect(downstream.status).toBe(422)
+    expect(downstream["upstream.status_code"]).toBe(422)
+    expect(downstream).not.toHaveProperty("http.response.status_code")
+  })
+
   it("drops environment and trace ids from the log body", () => {
     const event = {
       timestamp: new Date().toISOString(),

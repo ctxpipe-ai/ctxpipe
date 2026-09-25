@@ -139,7 +139,7 @@ describe("POST /search rejection privacy", () => {
     })
     expect(events).toHaveLength(1)
     expect(events[0]).toMatchObject({
-      status: 400,
+      "upstream.status_code": 400,
       error: "zoekt_query_rejected",
       step: "codesearch.search.zoekt_rejected",
     })

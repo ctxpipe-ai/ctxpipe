@@ -98,9 +98,7 @@ describe("reindex", () => {
       vi
         .fn()
         .mockResolvedValueOnce(new Response("warming", { status: 503 }))
-        .mockResolvedValueOnce(
-          new Response(successBody, { status: 200 }),
-        ),
+        .mockResolvedValueOnce(new Response(successBody, { status: 200 })),
     )
   })
 
@@ -183,7 +181,7 @@ describe("reindex", () => {
       expect.objectContaining({
         step: "codeIngestion.reindex.http.done",
         durationMs: expect.any(Number),
-        status: 200,
+        "upstream.status_code": 200,
         ingestMode: "partial",
         changedPathCount: 2,
         deletedPathCount: 1,
@@ -218,14 +216,14 @@ describe("reindex", () => {
       expect.objectContaining({
         step: "codeIngestion.reindex.http.fail",
         durationMs: expect.any(Number),
-        status: 500,
+        "upstream.status_code": 500,
         error: "index build failed",
       }),
     )
     expect(httpFailSetCalls()).toHaveLength(1)
     expect(logger.error).toHaveBeenCalledWith(
       "codesearch reindex failed",
-      expect.objectContaining({ status: 500 }),
+      expect.objectContaining({ "upstream.status_code": 500 }),
     )
   })
 
@@ -396,7 +394,9 @@ describe("reindex", () => {
       )
       vi.stubGlobal(
         "fetch",
-        vi.fn().mockResolvedValueOnce(new Response(successBody, { status: 200 })),
+        vi
+          .fn()
+          .mockResolvedValueOnce(new Response(successBody, { status: 200 })),
       )
 
       await reindex({

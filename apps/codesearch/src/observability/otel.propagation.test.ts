@@ -219,6 +219,7 @@ describe("outgoing fetch", () => {
     await context.with(withBaggage, async () => {
       await tracedOutgoingFetch(capture, "https://api.github.com/repos/acme")
       await tracedOutgoingFetch(capture, "http://127.0.0.1:9/search")
+      await tracedOutgoingFetch(capture, "http://[::1]:9/search")
       await tracedOutgoingFetch(
         capture,
         "http://codesearch.railway.internal:3001/search",
@@ -234,6 +235,7 @@ describe("outgoing fetch", () => {
     expect(external?.baggage ?? "").not.toContain("conv_1")
     for (const url of [
       "http://127.0.0.1:9/search",
+      "http://[::1]:9/search",
       "http://codesearch.railway.internal:3001/search",
     ]) {
       const internal = seen.find((entry) => entry.url === url)

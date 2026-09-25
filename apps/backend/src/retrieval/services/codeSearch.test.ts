@@ -109,7 +109,7 @@ describe("codeSearch Zoekt query rejection", () => {
     expect(warnMock).toHaveBeenCalledTimes(2)
     expect(warnMock).toHaveBeenLastCalledWith({
       step: "advisor.code_search.rejected",
-      "http.response.status_code": 400,
+      "upstream.status_code": 400,
       error: "zoekt_query_rejected",
     })
     expect(JSON.stringify(warnMock.mock.calls)).not.toContain("file:((")

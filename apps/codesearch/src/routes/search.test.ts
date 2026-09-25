@@ -255,7 +255,7 @@ describe("POST /search", () => {
     })
     expect(warnMock).toHaveBeenCalledWith("codesearch.search.zoekt_rejected", {
       step: "codesearch.search.zoekt_rejected",
-      status: 400,
+      "upstream.status_code": 400,
       error: "zoekt_query_rejected",
     })
     expect(JSON.stringify(warnMock.mock.calls)).not.toContain("file:((")
@@ -291,7 +291,10 @@ describe("POST /search", () => {
     )
     expect(warnMock).toHaveBeenCalledWith(
       "codesearch.search.zoekt_rejected",
-      expect.objectContaining({ error: "zoekt_query_rejected", status: 422 }),
+      expect.objectContaining({
+        error: "zoekt_query_rejected",
+        "upstream.status_code": 422,
+      }),
     )
   })
 

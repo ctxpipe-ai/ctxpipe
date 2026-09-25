@@ -19,35 +19,6 @@ import { redactSecretPath } from "./secretPath.js"
 
 const TRACER_NAME = "ctxpipe-backend"
 
-/**
- * Parents Better Auth work when this request has no server span.
- * API, `/mcp`, and `/.auth/api` already have one; this does not add a second.
- */
-export async function withSessionResolveSpan<T>(
-  run: () => Promise<T>,
-): Promise<T> {
-  if (trace.getActiveSpan()) return run()
-  const tracer = trace.getTracer(TRACER_NAME)
-  return tracer.startActiveSpan(
-    "session.resolve",
-    { kind: SpanKind.INTERNAL },
-    async (span) => {
-      try {
-        return await run()
-      } catch (error) {
-        span.setStatus({ code: SpanStatusCode.ERROR })
-        if (error instanceof Error && error.name) {
-          span.setAttribute("error.type", error.name)
-        }
-        throw error
-      } finally {
-        copyAttributionToSpan(span, context.active())
-        span.end()
-      }
-    },
-  )
-}
-
 function requestLogger(
   c: Context,
 ): { set(data: Record<string, unknown>): void } | undefined {
@@ -150,7 +121,6 @@ export function backendOtelMiddleware(): MiddlewareHandler {
             span.setAttribute("http.route", route)
           }
         } finally {
-          span.addEvent("handler.end")
           copyAttributionToSpan(span, context.active())
           requestLogger(c)?.set(logFieldsFromActiveSpan())
         }
@@ -167,7 +137,6 @@ export function backendOtelMiddleware(): MiddlewareHandler {
       span.setAttribute("http.response.status_code", 500)
       throw error
     } finally {
-      span.addEvent("response.ready")
       span.end()
       // A microtask queued by inner middleware runs before this function
       // resumes, so flushing there holds the response inside the span.
