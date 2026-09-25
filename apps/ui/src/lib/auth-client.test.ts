@@ -43,6 +43,9 @@ describe("authClient", () => {
     expect(createAuthClientMock).toHaveBeenCalledWith(
       expect.objectContaining({
         basePath: "/.auth/api/v1/auth",
+        fetchOptions: expect.objectContaining({
+          customFetchImpl: expect.any(Function),
+        }),
         plugins: [
           "apiKeyPlugin",
           "organizationPlugin",

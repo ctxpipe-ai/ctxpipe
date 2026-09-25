@@ -10,8 +10,11 @@ vi.mock("@/lib/hyperdxBrowser", () => ({
 
 import {
   createHyperDxQueryClient,
+  flushHyperDxDeferredExceptions,
   hyperDxQueryKeyName,
+  markHyperDxSdkReady,
   noteHyperDxSessionIdentity,
+  recordHyperDxBoundaryError,
   recordHyperDxQueryError,
   resetHyperDxDeferredQueryErrorsForTests,
   setHyperDxExceptionRecordingEnabled,
@@ -228,5 +231,52 @@ describe("recordHyperDxQueryError", () => {
     expect(recordHyperDxException.mock.calls.map((call) => call[0])).toContain(
       errors[20],
     )
+  })
+
+  it("holds a buffered error until the org id is known, then flushes", () => {
+    vi.useFakeTimers()
+    setHyperDxExceptionRecordingEnabled(true)
+    const error = new Error("Invalid or expired code")
+    recordHyperDxQueryError({
+      source: "query",
+      error,
+      key: ["device-code"],
+    })
+    noteHyperDxSessionIdentity("signed-in", {
+      teamId: "",
+      activeOrganizationId: "org_1",
+    })
+    vi.advanceTimersByTime(9_000)
+    expect(recordHyperDxException).not.toHaveBeenCalled()
+
+    noteHyperDxSessionIdentity("signed-in", {
+      teamId: "org_1",
+      activeOrganizationId: "org_1",
+    })
+    expect(recordHyperDxException).toHaveBeenCalledTimes(1)
+  })
+
+  it("flushes a buffered error on page hide", () => {
+    setHyperDxExceptionRecordingEnabled(true)
+    const error = new Error("Invalid or expired code")
+    recordHyperDxQueryError({
+      source: "query",
+      error,
+      key: ["device-code"],
+    })
+    flushHyperDxDeferredExceptions()
+    expect(recordHyperDxException).toHaveBeenCalledTimes(1)
+    expect(recordHyperDxException.mock.calls[0]?.[1]).toMatchObject({
+      "ctxpipe.ui.key": "device-code",
+    })
+  })
+
+  it("queues a root error until the SDK is ready", () => {
+    const error = new Error("render failed")
+    recordHyperDxBoundaryError(error)
+    expect(recordHyperDxException).not.toHaveBeenCalled()
+    setHyperDxExceptionRecordingEnabled(true)
+    markHyperDxSdkReady()
+    expect(recordHyperDxException).toHaveBeenCalledWith(error)
   })
 })

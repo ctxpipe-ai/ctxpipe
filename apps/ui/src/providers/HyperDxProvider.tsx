@@ -7,19 +7,27 @@ import {
   hyperdxExporterIgnoreUrls,
   hyperdxGlobalAttributes,
   hyperdxPageViewFromMatches,
+  orgSlugFromMatches,
   readActiveOrganizationId,
   resolveHyperDxTeam,
   routerLocationMatchesResolved,
 } from "@/lib/hyperdxAttributes"
 import {
   clearHyperDxGlobalAttributes,
+  readCachedHyperDxIdentity,
+  recordHyperDxAction,
   setHyperDxGlobalAttributes,
 } from "@/lib/hyperdxBrowser"
-import { setHyperDxExceptionRecordingEnabled } from "@/lib/hyperdxQueryErrors"
+import {
+  flushHyperDxDeferredExceptions,
+  markHyperDxSdkReady,
+  setHyperDxExceptionRecordingEnabled,
+} from "@/lib/hyperdxQueryErrors"
 import type { HyperDxRuntimeConfig } from "@/lib/hyperdxRuntimeConfig"
 import { retainServerHyperDxConfig } from "@/lib/hyperdxRuntimeConfig"
 
 let hyperdxInitialized = false
+let hideFlushRegistered = false
 
 type HyperDxRouter = {
   state: {
@@ -36,34 +44,62 @@ type HyperDxRouter = {
   ) => () => void
 }
 
+function sameOriginTraceTargets(origin: string): RegExp[] {
+  const escaped = origin.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  return [new RegExp(`^${escaped}(?:/|$)`), /^\//]
+}
+
 function ensureHyperDxBrowser(runtimeConfig: HyperDxRuntimeConfig): void {
   if (hyperdxInitialized || typeof window === "undefined") return
   if (!runtimeConfig.enabled) return
   const origin = window.location.origin
-  const url = runtimeConfig.url.startsWith("http")
-    ? runtimeConfig.url
-    : `${origin}${runtimeConfig.url}`
+  const otelResourceAttributes: Record<string, string> = {
+    "service.namespace": "ctxpipe",
+  }
+  if (runtimeConfig.environment) {
+    otelResourceAttributes["deployment.environment"] = runtimeConfig.environment
+  }
   HyperDX.init({
-    url,
-    apiKey: runtimeConfig.apiKey ?? "",
+    url: `${origin}/.otel`,
+    apiKey: "proxy",
     service: "ui",
-    tracePropagationTargets: [window.location.origin],
+    tracePropagationTargets: sameOriginTraceTargets(origin),
     ignoreUrls: hyperdxExporterIgnoreUrls,
     consoleCapture: true,
     advancedNetworkCapture: false,
     disableReplay: true,
+    disableIntercom: true,
     instrumentations: {
       document: true,
       postload: true,
       webvitals: true,
       errors: true,
     },
-    otelResourceAttributes: {
-      "deployment.environment": runtimeConfig.environment,
-      "service.namespace": "ctxpipe",
-    },
+    otelResourceAttributes,
   })
+  const cached = readCachedHyperDxIdentity()
+  if (cached) HyperDX.setGlobalAttributes(cached)
   hyperdxInitialized = true
+  markHyperDxSdkReady()
+  if (!hideFlushRegistered) {
+    hideFlushRegistered = true
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") {
+        flushHyperDxDeferredExceptions()
+      }
+    })
+    window.addEventListener("pagehide", () => {
+      flushHyperDxDeferredExceptions()
+    })
+  }
+}
+
+type IdentitySnapshot = {
+  enabled: boolean
+  sessionPending: boolean
+  userId: string | undefined
+  organizations: { id: string; slug: string }[] | undefined
+  activeOrganizationId: string
 }
 
 /**
@@ -77,8 +113,8 @@ export const HyperDxProvider: FC<{
   runtimeConfig: HyperDxRuntimeConfig
 }> = ({ children, runtimeConfig }) => {
   const config = retainServerHyperDxConfig(runtimeConfig)
-  setHyperDxExceptionRecordingEnabled(config.enabled)
   useEffect(() => {
+    setHyperDxExceptionRecordingEnabled(config.enabled)
     ensureHyperDxBrowser(config)
   }, [config])
 
@@ -103,125 +139,100 @@ export const HyperDxPageView: FC<{
     },
   })
   const { data: session, isPending: sessionPending } = useSession()
-  const { data: organizations, isPending: orgsPending } = useListOrganizations()
+  const { data: organizations } = useListOrganizations()
   const userId = session?.user?.id
-  const lastKey = useRef<string | undefined>(undefined)
-  const routerRef = useRef(router)
-  routerRef.current = router
-  const identityRef = useRef({
+  const activeOrganizationId = readActiveOrganizationId(session?.session)
+  const lastPath = useRef<string | undefined>(undefined)
+  const snapshotRef = useRef<IdentitySnapshot>({
+    enabled: config.enabled,
     sessionPending: true,
-    orgsPending: true,
-    userId: undefined as string | undefined,
-    organizations: undefined as { id: string; slug: string }[] | undefined,
+    userId: undefined,
+    organizations: undefined,
     activeOrganizationId: "",
   })
-  identityRef.current = {
-    sessionPending,
-    orgsPending,
-    userId,
-    organizations,
-    activeOrganizationId: readActiveOrganizationId(session?.session),
-  }
-
-  const publish = () => {
-    const current = routerRef.current
-    if (!config.enabled || !current?.state) return
-    ensureHyperDxBrowser(config)
-    if (!hyperdxInitialized) return
-    const pathname = current.state.location.pathname
-    const matches = current.state.matches.map((match) => ({
-      routeId: match.routeId,
-      pathname: match.pathname,
-      params: match.params,
-    }))
-    if (!routerLocationMatchesResolved(pathname, matches)) return
-    const view = hyperdxPageViewFromMatches({ pathname, matches })
-    const identity = identityRef.current
-    if (identity.sessionPending) return
-    if (!identity.userId) {
-      clearHyperDxGlobalAttributes()
-    }
-    const team = identity.userId
-      ? resolveHyperDxTeam({
-          orgSlugFromRoute: view["ctxpipe.org.slug"],
-          organizations: identity.organizations,
-          activeOrganizationId: identity.activeOrganizationId,
-        })
-      : { teamId: "", teamName: "" }
-    const globals = hyperdxGlobalAttributes({
-      userId: identity.userId,
-      teamId: team.teamId,
-      teamName: team.teamName,
-    })
-    if (identity.userId) {
-      setHyperDxGlobalAttributes(globals)
-    }
-    const dedupe = `${view.path}\n${globals.userId}\n${globals.teamId}\n${globals.teamName}`
-    if (lastKey.current === dedupe) return
-    lastKey.current = dedupe
-    HyperDX.addAction("page_view", { ...view, ...globals })
-  }
-  const publishRef = useRef(publish)
-  publishRef.current = publish
+  const publishRef = useRef<() => void>(() => {})
 
   useEffect(() => {
-    if (!config.enabled || typeof window === "undefined" || navKey.length === 0) {
-      return
+    snapshotRef.current = {
+      enabled: config.enabled,
+      sessionPending,
+      userId,
+      organizations,
+      activeOrganizationId,
     }
+    const current = router
+    publishRef.current = () => {
+      if (!current?.state || !hyperdxInitialized) return
+      const snapshot = snapshotRef.current
+      if (!snapshot.enabled || snapshot.sessionPending) return
+      const pathname = current.state.location.pathname
+      const matches = current.state.matches.map((match) => ({
+        routeId: match.routeId,
+        pathname: match.pathname,
+        params: match.params,
+      }))
+      if (!routerLocationMatchesResolved(pathname, matches)) return
+      const view = hyperdxPageViewFromMatches({ pathname, matches })
+      if (lastPath.current === view.path) return
+      lastPath.current = view.path
+      const team = snapshot.userId
+        ? resolveHyperDxTeam({
+            orgSlugFromRoute: view["ctxpipe.org.slug"],
+            organizations: snapshot.organizations,
+            activeOrganizationId: snapshot.activeOrganizationId,
+          })
+        : { teamId: "", teamName: "" }
+      recordHyperDxAction("page_view", {
+        ...view,
+        ...hyperdxGlobalAttributes({
+          userId: snapshot.userId,
+          teamId: team.teamId,
+          teamName: team.teamName,
+        }),
+      })
+    }
+  }, [
+    config.enabled,
+    router,
+    sessionPending,
+    userId,
+    organizations,
+    activeOrganizationId,
+  ])
+
+  useEffect(() => {
+    const current = router
+    if (!config.enabled || !current?.state || navKey.length === 0) return
     ensureHyperDxBrowser(config)
     if (!hyperdxInitialized) return
     if (sessionPending) return
     if (!userId) {
       clearHyperDxGlobalAttributes()
-      return
-    }
-    const current = routerRef.current
-    const pathname = current?.state.location.pathname ?? ""
-    const matches = current?.state.matches.map((match) => ({
-      routeId: match.routeId,
-      pathname: match.pathname,
-      params: match.params,
-    }))
-    const slug = routerLocationMatchesResolved(pathname, matches)
-      ? (matches ?? []).reduce((found, match) => {
-          const value = match.params?.orgSlug
-          return typeof value === "string" && value.length > 0 ? value : found
-        }, "")
-      : ""
-    const team = resolveHyperDxTeam({
-      orgSlugFromRoute: slug,
-      organizations,
-      activeOrganizationId: readActiveOrganizationId(session?.session),
-    })
-    setHyperDxGlobalAttributes(
-      hyperdxGlobalAttributes({
-        userId,
-        teamId: team.teamId,
-        teamName: team.teamName,
-      }),
-    )
-  }, [config, sessionPending, userId, organizations, session, navKey])
-
-  useEffect(() => {
-    if (!config.enabled || !router || navKey.length === 0) return
-    identityRef.current = {
-      sessionPending,
-      orgsPending,
-      userId,
-      organizations,
-      activeOrganizationId: readActiveOrganizationId(session?.session),
+    } else {
+      const pathname = current.state.location.pathname
+      const matches = current.state.matches.map((match) => ({
+        routeId: match.routeId,
+        pathname: match.pathname,
+        params: match.params,
+      }))
+      const slug = routerLocationMatchesResolved(pathname, matches)
+        ? orgSlugFromMatches(matches)
+        : ""
+      const team = resolveHyperDxTeam({
+        orgSlugFromRoute: slug,
+        organizations,
+        activeOrganizationId,
+      })
+      setHyperDxGlobalAttributes(
+        hyperdxGlobalAttributes({
+          userId,
+          teamId: team.teamId,
+          teamName: team.teamName,
+        }),
+        { activeOrganizationId },
+      )
     }
     publishRef.current()
-    const unsubscribeRendered = router.subscribe("onRendered", () => {
-      publishRef.current()
-    })
-    const unsubscribeLoad = router.subscribe("onLoad", () => {
-      publishRef.current()
-    })
-    return () => {
-      unsubscribeRendered()
-      unsubscribeLoad()
-    }
   }, [
     config,
     router,
@@ -229,9 +240,22 @@ export const HyperDxPageView: FC<{
     sessionPending,
     userId,
     organizations,
-    orgsPending,
-    session,
+    activeOrganizationId,
   ])
+
+  useEffect(() => {
+    const current = router
+    if (!config.enabled || !current) return
+    const publish = () => {
+      publishRef.current()
+    }
+    const unsubscribeRendered = current.subscribe("onRendered", publish)
+    const unsubscribeLoad = current.subscribe("onLoad", publish)
+    return () => {
+      unsubscribeRendered()
+      unsubscribeLoad()
+    }
+  }, [config.enabled, router])
 
   return null
 }

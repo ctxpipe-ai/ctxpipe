@@ -1,12 +1,24 @@
+import { gzipSync } from "node:zlib"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { OTEL_PROXY_MAX_BODY_BYTES } from "./otelBrowserConfig"
-import { proxyBrowserOtlp } from "./otelBrowserProxy"
+import {
+  proxyBrowserOtlp,
+  resetOtelBrowserProxyRateLimitForTests,
+} from "./otelBrowserProxy"
+
+function sameOriginRequest(url: string, init: RequestInit = {}): Request {
+  const headers = new Headers(init.headers)
+  if (!headers.has("origin")) headers.set("origin", new URL(url).origin)
+  return new Request(url, { ...init, headers })
+}
 
 describe("proxyBrowserOtlp", () => {
   beforeEach(() => {
     process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT =
       "http://127.0.0.1:9/v1/traces"
     process.env.OTEL_EXPORTER_OTLP_HEADERS = "authorization=test-ingest"
+    process.env.RAILWAY_ENVIRONMENT_NAME = "pr-343"
+    resetOtelBrowserProxyRateLimitForTests()
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("ok", { status: 200 })),
@@ -16,6 +28,7 @@ describe("proxyBrowserOtlp", () => {
   afterEach(() => {
     delete process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
     delete process.env.OTEL_EXPORTER_OTLP_HEADERS
+    delete process.env.RAILWAY_ENVIRONMENT_NAME
     vi.unstubAllGlobals()
   })
 
@@ -79,7 +92,7 @@ describe("proxyBrowserOtlp", () => {
       new Error("The socket connection was closed unexpectedly."),
     )
     const response = await proxyBrowserOtlp(
-      new Request("https://app.example/.otel/v1/logs", {
+      sameOriginRequest("https://app.example/.otel/v1/logs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: "{}",
@@ -111,7 +124,7 @@ describe("proxyBrowserOtlp", () => {
       },
     })
     const response = await proxyBrowserOtlp(
-      new Request("https://app.example/.otel/v1/metrics", {
+      sameOriginRequest("https://app.example/.otel/v1/traces", {
         method: "POST",
         body: stream,
         duplex: "half",
@@ -123,7 +136,7 @@ describe("proxyBrowserOtlp", () => {
 
   it("forwards scrubbed JSON and keeps the server ingest header", async () => {
     const response = await proxyBrowserOtlp(
-      new Request("https://app.example/.otel/v1/logs?x=1", {
+      sameOriginRequest("https://app.example/.otel/v1/logs?x=1", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -132,6 +145,22 @@ describe("proxyBrowserOtlp", () => {
         body: JSON.stringify({
           resourceSpans: [
             {
+              resource: {
+                attributes: [
+                  {
+                    key: "service.name",
+                    value: { stringValue: "backend" },
+                  },
+                  {
+                    key: "deployment.environment",
+                    value: { stringValue: "production" },
+                  },
+                  {
+                    key: "enduser.id",
+                    value: { stringValue: "user_forged" },
+                  },
+                ],
+              },
               scopeSpans: [
                 {
                   spans: [
@@ -158,7 +187,7 @@ describe("proxyBrowserOtlp", () => {
     expect(response.status).toBe(200)
     expect(fetch).toHaveBeenCalledTimes(1)
     const [url, init] = vi.mocked(fetch).mock.calls[0] ?? []
-    expect(url).toBe("http://127.0.0.1:9/v1/logs?x=1")
+    expect(url).toBe("http://127.0.0.1:9/v1/logs")
     const headers = new Headers(init?.headers)
     expect(init?.method).toBe("POST")
     expect(headers.get("authorization")).toBe("test-ingest")
@@ -171,11 +200,16 @@ describe("proxyBrowserOtlp", () => {
       forwarded.resourceSpans[0].scopeSpans[0].spans[0].attributes[0].value
         .stringValue,
     ).toBe("https://app.example/.auth/device")
+    expect(forwarded.resourceSpans[0].resource.attributes).toEqual([
+      { key: "service.name", value: { stringValue: "ui" } },
+      { key: "service.namespace", value: { stringValue: "ctxpipe" } },
+      { key: "deployment.environment", value: { stringValue: "pr-343" } },
+    ])
   })
 
   it("rejects an empty non-JSON body before it can be forwarded", async () => {
     const response = await proxyBrowserOtlp(
-      new Request("https://app.example/.otel/v1/traces", {
+      sameOriginRequest("https://app.example/.otel/v1/traces", {
         method: "POST",
         headers: { "Content-Type": "application/x-protobuf" },
       }),
@@ -186,7 +220,7 @@ describe("proxyBrowserOtlp", () => {
 
   it("rejects protobuf so an unscrubbed body is not forwarded", async () => {
     const response = await proxyBrowserOtlp(
-      new Request("https://app.example/.otel/v1/traces", {
+      sameOriginRequest("https://app.example/.otel/v1/traces", {
         method: "POST",
         headers: { "Content-Type": "application/x-protobuf" },
         body: new Uint8Array([1, 2, 3]),
@@ -198,10 +232,110 @@ describe("proxyBrowserOtlp", () => {
 
   it("rejects malformed JSON after the body is read", async () => {
     const response = await proxyBrowserOtlp(
-      new Request("https://app.example/.otel/v1/traces", {
+      sameOriginRequest("https://app.example/.otel/v1/traces", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: "{",
+      }),
+    )
+    expect(response.status).toBe(400)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("answers an empty JSON body locally", async () => {
+    const response = await proxyBrowserOtlp(
+      sameOriginRequest("https://app.example/.otel/v1/traces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      }),
+    )
+    expect(response.status).toBe(204)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("rejects gzip instead of decompressing it", async () => {
+    const body = gzipSync(Buffer.alloc(2 * 1024 * 1024, 0x20))
+    const response = await proxyBrowserOtlp(
+      sameOriginRequest("https://app.example/.otel/v1/traces", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Encoding": "gzip",
+        },
+        body,
+      }),
+    )
+    expect(response.status).toBe(415)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("rejects a cross-origin post", async () => {
+    const response = await proxyBrowserOtlp(
+      new Request("https://app.example/.otel/v1/traces", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://evil.example",
+        },
+        body: "{}",
+      }),
+    )
+    expect(response.status).toBe(403)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("returns 429 after the per-IP burst", async () => {
+    for (let index = 0; index < 60; index += 1) {
+      const response = await proxyBrowserOtlp(
+        sameOriginRequest("https://app.example/.otel/v1/traces", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Forwarded-For": "203.0.113.5",
+          },
+          body: "{}",
+        }),
+      )
+      expect(response.status).toBe(200)
+    }
+    const blocked = await proxyBrowserOtlp(
+      sameOriginRequest("https://app.example/.otel/v1/traces", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Forwarded-For": "203.0.113.5",
+        },
+        body: "{}",
+      }),
+    )
+    expect(blocked.status).toBe(429)
+  })
+
+  it("returns 400 when the JSON nesting exceeds the scrub depth", async () => {
+    let value: unknown = { stringValue: "https://app.example/a?token=1" }
+    for (let depth = 0; depth < 40; depth += 1) {
+      value = { arrayValue: { values: [value] } }
+    }
+    const response = await proxyBrowserOtlp(
+      sameOriginRequest("https://app.example/.otel/v1/traces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resourceSpans: [
+            {
+              scopeSpans: [
+                {
+                  spans: [
+                    {
+                      name: "page_view",
+                      attributes: [{ key: "location.href", value }],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
       }),
     )
     expect(response.status).toBe(400)

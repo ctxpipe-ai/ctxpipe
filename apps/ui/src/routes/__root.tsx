@@ -10,7 +10,7 @@ import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
 import { type ReactNode, useEffect } from "react"
 import { Toaster } from "sonner"
 import { getConfluenceForgeRuntimeConfig } from "@/lib/confluenceForgeRuntimeConfig"
-import { recordHyperDxException } from "@/lib/hyperdxBrowser"
+import { recordHyperDxBoundaryError } from "@/lib/hyperdxQueryErrors"
 import { getHyperDxRuntimeConfig } from "@/lib/hyperdxRuntimeConfig"
 import { Providers } from "@/providers"
 import { HyperDxPageView } from "@/providers/HyperDxProvider"
@@ -18,9 +18,6 @@ import { HyperDxPageView } from "@/providers/HyperDxProvider"
 import appCss from "../styles.css?url"
 
 export const Route = createRootRoute({
-  // The loader reads server-only OTEL env. Client navigations must keep that
-  // SSR result; re-running here sees no endpoint and disables browser RUM.
-  staleTime: Number.POSITIVE_INFINITY,
   loader: () => ({
     hyperdxRuntimeConfig: getHyperDxRuntimeConfig(),
     confluenceForgeRuntimeConfig: getConfluenceForgeRuntimeConfig(),
@@ -76,7 +73,7 @@ function RootComponent() {
 
 function RootErrorComponent({ error, reset }: ErrorComponentProps) {
   useEffect(() => {
-    recordHyperDxException(error)
+    recordHyperDxBoundaryError(error)
   }, [error])
 
   return (

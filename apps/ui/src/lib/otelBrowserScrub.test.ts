@@ -12,19 +12,17 @@ describe("scrubTelemetryUrl", () => {
       scrubTelemetryUrl(
         "https://user:pass@backend-pr-343.up.railway.app/.auth/accept-invitation?invitationId=inv_not_real#done",
       ),
-    ).toBe(
-      "https://backend-pr-343.up.railway.app/.auth/accept-invitation",
-    )
+    ).toBe("https://backend-pr-343.up.railway.app/.auth/accept-invitation")
   })
 
   it("drops query and fragment from paths and redacts reset-password tokens", () => {
     expect(
-      scrubTelemetryUrl("/.auth/reset-password/super-secret?callbackURL=https://app.example/reset#x"),
+      scrubTelemetryUrl(
+        "/.auth/reset-password/super-secret?callbackURL=https://app.example/reset#x",
+      ),
     ).toBe("/.auth/reset-password/{token}")
     expect(
-      redactBrowserSecretPath(
-        "/.auth/api/v1/public/invitations/inv_not_real",
-      ),
+      redactBrowserSecretPath("/.auth/api/v1/public/invitations/inv_not_real"),
     ).toBe("/.auth/api/v1/public/invitations/{invitation}")
   })
 
@@ -36,6 +34,14 @@ describe("scrubTelemetryUrl", () => {
 })
 
 describe("scrubTelemetrySpanName", () => {
+  it("scrubs a URL and an email embedded in a message", () => {
+    expect(
+      scrubTelemetrySpanName(
+        "Failed to fetch https://x.test/a?token=abc for alice@example.com",
+      ),
+    ).toBe("Failed to fetch https://x.test/a for {email}")
+  })
+
   it("scrubs a URL embedded in a span name", () => {
     expect(
       scrubTelemetrySpanName(
@@ -150,16 +156,16 @@ describe("scrubBrowserOtlpJson", () => {
     expect(span?.attributes[0]?.value.stringValue).toBe(
       "https://app.example/.auth/accept-invitation",
     )
-    expect(span?.attributes[1]?.value.arrayValue.values[0]?.stringValue).toBe(
+    expect(span?.attributes[1]?.value.arrayValue?.values[0]?.stringValue).toBe(
       "https://app.example/files",
     )
     expect(span?.attributes[2]?.value.stringValue).toBe("what?")
     expect(span?.events[0]?.attributes[0]?.value.stringValue).toBe(
       "Invitation not found or expired",
     )
-    expect(payload.resourceSpans[0]?.resource.attributes[0]?.value.stringValue).toBe(
-      "ui",
-    )
+    expect(
+      payload.resourceSpans[0]?.resource.attributes[0]?.value.stringValue,
+    ).toBe("ui")
     const log = payload.resourceLogs[0]?.scopeLogs[0]?.logRecords[0]
     expect(log?.body.stringValue).toBe("https://app.example/.auth/device")
     expect(

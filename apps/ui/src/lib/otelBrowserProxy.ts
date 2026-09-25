@@ -1,4 +1,3 @@
-import { gunzipSync } from "node:zlib"
 import { getHyperDxRuntimeConfig } from "@/lib/hyperdxRuntimeConfig"
 import {
   OTEL_PROXY_MAX_BODY_BYTES,
@@ -7,7 +6,69 @@ import {
   otelProxyUpstreamUrl,
   parseOtelHeaders,
 } from "@/lib/otelBrowserConfig"
-import { scrubBrowserOtlpJson } from "@/lib/otelBrowserScrub"
+import {
+  OtelScrubDepthError,
+  restrictBrowserResourceAttributes,
+  scrubBrowserOtlpJson,
+} from "@/lib/otelBrowserScrub"
+
+const RATE_CAPACITY = 60
+const RATE_WINDOW_MS = 60_000
+
+type RateBucket = { tokens: number; updatedAt: number }
+const rateBuckets = new Map<string, RateBucket>()
+
+export function resetOtelBrowserProxyRateLimitForTests(): void {
+  rateBuckets.clear()
+}
+
+function clientIp(request: Request): string {
+  const forwarded = request.headers.get("x-forwarded-for")
+  const first = forwarded?.split(",")[0]?.trim()
+  return first || "unknown"
+}
+
+function takeRateToken(ip: string): boolean {
+  const now = Date.now()
+  const bucket = rateBuckets.get(ip) ?? {
+    tokens: RATE_CAPACITY,
+    updatedAt: now,
+  }
+  const refilled =
+    bucket.tokens + ((now - bucket.updatedAt) * RATE_CAPACITY) / RATE_WINDOW_MS
+  bucket.tokens = Math.min(RATE_CAPACITY, refilled)
+  bucket.updatedAt = now
+  if (bucket.tokens < 1) {
+    rateBuckets.set(ip, bucket)
+    return false
+  }
+  bucket.tokens -= 1
+  rateBuckets.set(ip, bucket)
+  return true
+}
+
+function hostOf(value: string): string | null {
+  try {
+    return new URL(value).host
+  } catch {
+    return null
+  }
+}
+
+function isSameOrigin(request: Request): boolean {
+  const host = hostOf(request.url)
+  if (!host) return false
+  const origin = request.headers.get("origin")
+  if (origin) return hostOf(origin) === host
+  const referer = request.headers.get("referer")
+  if (referer) return hostOf(referer) === host
+  return false
+}
+
+function rejectedContentEncoding(request: Request): boolean {
+  const encoding = request.headers.get("content-encoding")?.trim().toLowerCase()
+  return Boolean(encoding && encoding !== "identity")
+}
 
 async function readBodyCapped(
   request: Request,
@@ -49,8 +110,7 @@ function declaredBodyBytes(request: Request): number | null {
 
 function admissionUrl(request: Request, pathname?: string): string {
   if (!pathname) return request.url
-  const search = new URL(request.url).search
-  return new URL(`${pathname}${search}`, "https://browser.local").href
+  return new URL(pathname, "https://browser.local").href
 }
 
 /**
@@ -79,7 +139,7 @@ async function drainRequestBody(request: Request): Promise<void> {
 
 async function reject(
   request: Request,
-  status: 404 | 405 | 413,
+  status: 403 | 404 | 405 | 413 | 415 | 429,
 ): Promise<Response> {
   if (status !== 413) await drainRequestBody(request)
   return new Response(null, {
@@ -91,19 +151,10 @@ async function reject(
 function decodeOtlpBody(
   body: Uint8Array,
   contentType: string,
-  encoding: string | null,
 ): unknown | "empty" | "malformed" | "unsupported" {
   if (!contentType.toLowerCase().includes("json")) return "unsupported"
   if (body.byteLength === 0) return "empty"
-  let bytes = body
-  if (encoding?.toLowerCase().includes("gzip")) {
-    try {
-      bytes = gunzipSync(bytes)
-    } catch {
-      return "malformed"
-    }
-  }
-  const text = new TextDecoder().decode(bytes)
+  const text = new TextDecoder().decode(body)
   try {
     return JSON.parse(text) as unknown
   } catch {
@@ -114,19 +165,24 @@ function decodeOtlpBody(
 /**
  * `pathname` is the router pathname (`/.otel/...`). Admission uses it instead
  * of `request.url`, which a proxy can rewrite before this handler runs.
+ * The browser SDK posts `application/json` with no Content-Encoding. The gzip
+ * header in the SDK bundle belongs to the disabled session-replay beacon.
  */
 export async function proxyBrowserOtlp(
   request: Request,
   pathname?: string,
 ): Promise<Response> {
-  if (!getHyperDxRuntimeConfig().enabled) {
+  const config = getHyperDxRuntimeConfig()
+  if (!config.enabled) {
     return reject(request, 404)
   }
 
-  const traces = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT?.trim()
-  if (!traces) {
+  const configuredTraces =
+    process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT?.trim()
+  if (!configuredTraces) {
     return reject(request, 404)
   }
+  const tracesEndpoint: string = configuredTraces
 
   const declared = declaredBodyBytes(request)
   const admission = otelProxyAdmission(
@@ -137,20 +193,25 @@ export async function proxyBrowserOtlp(
   if (!admission.allow) {
     return reject(request, admission.status)
   }
+  if (!isSameOrigin(request)) {
+    return reject(request, 403)
+  }
+  if (!takeRateToken(clientIp(request))) {
+    return reject(request, 429)
+  }
 
   const body = await readBodyCapped(request, OTEL_PROXY_MAX_BODY_BYTES)
   if (body === "too_large") {
     return new Response(null, { status: 413 })
   }
+  if (rejectedContentEncoding(request)) {
+    return new Response(null, { status: 415 })
+  }
 
   const contentType = request.headers.get("Content-Type") || "application/json"
-  const decoded = decodeOtlpBody(
-    body,
-    contentType,
-    request.headers.get("Content-Encoding"),
-  )
+  const decoded = decodeOtlpBody(body, contentType)
   if (decoded === "empty") {
-    return forward(new Uint8Array(), contentType, null)
+    return new Response(null, { status: 204 })
   }
   if (decoded === "malformed") {
     return new Response(null, { status: 400 })
@@ -158,30 +219,31 @@ export async function proxyBrowserOtlp(
   if (decoded === "unsupported") {
     return new Response(null, { status: 415 })
   }
-  scrubBrowserOtlpJson(decoded)
+  try {
+    scrubBrowserOtlpJson(decoded)
+    restrictBrowserResourceAttributes(decoded, config.environment)
+  } catch (error) {
+    if (error instanceof OtelScrubDepthError || error instanceof RangeError) {
+      return new Response(null, { status: 400 })
+    }
+    throw error
+  }
   const encoded = new TextEncoder().encode(JSON.stringify(decoded))
+  return forward(encoded)
 
-  return forward(encoded, "application/json", null)
-
-  function forward(
-    payload: Uint8Array,
-    type: string,
-    encoding: string | null,
-  ): Promise<Response> {
-    const collectorBase = otelCollectorBaseUrl(traces)
+  function forward(payload: Uint8Array): Promise<Response> {
+    const collectorBase = otelCollectorBaseUrl(tracesEndpoint)
     const upstreamUrl = otelProxyUpstreamUrl(
       collectorBase,
       admissionUrl(request, pathname),
     )
     const otelHeaders = parseOtelHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS)
-    const headers: Record<string, string> = {
-      ...otelHeaders,
-      "Content-Type": type,
-    }
-    if (encoding) headers["Content-Encoding"] = encoding
     return fetch(upstreamUrl, {
       method: "POST",
-      headers,
+      headers: {
+        ...otelHeaders,
+        "Content-Type": "application/json",
+      },
       body: new Uint8Array(payload),
     })
       .then(async (response) => {

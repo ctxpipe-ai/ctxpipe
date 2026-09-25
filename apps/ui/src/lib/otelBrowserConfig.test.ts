@@ -19,11 +19,11 @@ describe("otelCollectorBaseUrl", () => {
 })
 
 describe("otelProxyUpstreamUrl", () => {
-  it("forwards /.otel/v1/traces to the collector", () => {
+  it("forwards /.otel/v1/traces to the collector and drops the query", () => {
     expect(
       otelProxyUpstreamUrl(
         "http://c:4318",
-        "https://app.example/.otel/v1/traces",
+        "https://app.example/.otel/v1/traces?x=1",
       ),
     ).toBe("http://c:4318/v1/traces")
   })
@@ -45,12 +45,15 @@ describe("otelProxySignalPath", () => {
 })
 
 describe("otelProxyAdmission", () => {
-  it("allows POST to traces, logs, and metrics", () => {
-    for (const path of ["/v1/traces", "/v1/logs", "/v1/metrics"]) {
+  it("allows POST to traces and logs only", () => {
+    for (const path of ["/v1/traces", "/v1/logs"]) {
       expect(
         otelProxyAdmission("POST", `https://app.example/.otel${path}`, 12),
       ).toEqual({ allow: true })
     }
+    expect(
+      otelProxyAdmission("POST", "https://app.example/.otel/v1/metrics", 12),
+    ).toEqual({ allow: false, status: 404 })
   })
 
   it("404s unknown paths before method checks", () => {

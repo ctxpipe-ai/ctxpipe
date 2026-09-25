@@ -78,4 +78,30 @@ describe("session identity flushes deferred query errors", () => {
       recordException.mock.invocationCallOrder[0] ?? 0,
     )
   })
+
+  it("caches only userId, teamId, and teamName and clears them on sign-out", () => {
+    const store = new Map<string, string>()
+    vi.stubGlobal("sessionStorage", {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        store.set(key, value)
+      },
+      removeItem: (key: string) => {
+        store.delete(key)
+      },
+    })
+    setHyperDxGlobalAttributes({
+      userId: "user_1",
+      teamId: "org_1",
+      teamName: "obs-e2e-343",
+    })
+    expect(JSON.parse(store.get("ctxpipe.hyperdx.identity") ?? "{}")).toEqual({
+      userId: "user_1",
+      teamId: "org_1",
+      teamName: "obs-e2e-343",
+    })
+    clearHyperDxGlobalAttributes()
+    expect(store.has("ctxpipe.hyperdx.identity")).toBe(false)
+    vi.unstubAllGlobals()
+  })
 })

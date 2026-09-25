@@ -1,7 +1,7 @@
 /**
- * Browser OTLP must not leave this server with a query string, fragment, or
- * credential path segment. Mirrors the backend secret-path rules without
- * importing them.
+ * Browser OTLP must not leave this server with a query string, fragment,
+ * credential path segment, or email. Mirrors the backend secret-path rules
+ * without importing them.
  */
 const SECRET_PATH_RULES: { pattern: RegExp; replacement: string }[] = [
   {
@@ -13,6 +13,17 @@ const SECRET_PATH_RULES: { pattern: RegExp; replacement: string }[] = [
     replacement: "/public/invitations/{invitation}",
   },
 ]
+
+const EMBEDDED_URL = /https?:\/\/[^\s<>"']+|\/[^\s<>"']+/g
+const EMAIL = /[^\s@]+@[^\s@]+\.[^\s@]+/g
+const MAX_SCRUB_DEPTH = 32
+
+export class OtelScrubDepthError extends Error {
+  constructor() {
+    super("OTLP JSON exceeded nesting limit")
+    this.name = "OtelScrubDepthError"
+  }
+}
 
 export function redactBrowserSecretPath(value: string): string {
   let next = value
@@ -49,28 +60,32 @@ export function scrubTelemetryUrl(value: string): string {
   return redactBrowserSecretPath(cut)
 }
 
-export function scrubTelemetrySpanName(name: string): string {
-  if (!name.includes("?") && !name.includes("#") && !name.includes("reset-password/") && !name.includes("/public/invitations/")) {
-    return name
-  }
-  return name.replace(/https?:\/\/\S+|\/\S+/g, (part) =>
+/** Scrub every URL and email inside a string, including span names and messages. */
+export function scrubTelemetryString(value: string): string {
+  const withoutEmails = value.replace(EMAIL, "{email}")
+  return withoutEmails.replace(EMBEDDED_URL, (part) =>
     looksLikeTelemetryUrl(part) ? scrubTelemetryUrl(part) : part,
   )
 }
 
+export function scrubTelemetrySpanName(name: string): string {
+  return scrubTelemetryString(name)
+}
+
 type JsonRecord = Record<string, unknown>
 
-function scrubOtlpValue(value: unknown): void {
+function scrubOtlpValue(value: unknown, depth: number): void {
+  if (depth > MAX_SCRUB_DEPTH) throw new OtelScrubDepthError()
   if (!value || typeof value !== "object") return
   const record = value as JsonRecord
-  if (typeof record.stringValue === "string" && looksLikeTelemetryUrl(record.stringValue)) {
-    record.stringValue = scrubTelemetryUrl(record.stringValue)
+  if (typeof record.stringValue === "string") {
+    record.stringValue = scrubTelemetryString(record.stringValue)
   }
   const array = record.arrayValue
   if (array && typeof array === "object") {
     const values = (array as JsonRecord).values
     if (Array.isArray(values)) {
-      for (const item of values) scrubOtlpValue(item)
+      for (const item of values) scrubOtlpValue(item, depth + 1)
     }
   }
   const kv = record.kvlistValue
@@ -79,22 +94,22 @@ function scrubOtlpValue(value: unknown): void {
     if (Array.isArray(values)) {
       for (const item of values) {
         if (item && typeof item === "object") {
-          scrubOtlpValue((item as JsonRecord).value)
+          scrubOtlpValue((item as JsonRecord).value, depth + 1)
         }
       }
     }
   }
 }
 
-function scrubAttributes(attributes: unknown): void {
+function scrubAttributes(attributes: unknown, depth: number): void {
   if (!Array.isArray(attributes)) return
   for (const attribute of attributes) {
     if (!attribute || typeof attribute !== "object") continue
-    scrubOtlpValue((attribute as JsonRecord).value)
+    scrubOtlpValue((attribute as JsonRecord).value, depth + 1)
   }
 }
 
-function scrubScopeSpans(scopes: unknown): void {
+function scrubScopeSpans(scopes: unknown, depth: number): void {
   if (!Array.isArray(scopes)) return
   for (const scope of scopes) {
     if (!scope || typeof scope !== "object") continue
@@ -104,71 +119,96 @@ function scrubScopeSpans(scopes: unknown): void {
       if (!span || typeof span !== "object") continue
       const record = span as JsonRecord
       if (typeof record.name === "string") {
-        record.name = scrubTelemetrySpanName(record.name)
+        record.name = scrubTelemetryString(record.name)
       }
-      scrubAttributes(record.attributes)
+      scrubAttributes(record.attributes, depth)
       const events = record.events
       if (!Array.isArray(events)) continue
       for (const event of events) {
         if (!event || typeof event !== "object") continue
         const eventRecord = event as JsonRecord
         if (typeof eventRecord.name === "string") {
-          eventRecord.name = scrubTelemetrySpanName(eventRecord.name)
+          eventRecord.name = scrubTelemetryString(eventRecord.name)
         }
-        scrubAttributes(eventRecord.attributes)
+        scrubAttributes(eventRecord.attributes, depth)
       }
     }
   }
 }
 
-function scrubScopeLogs(scopes: unknown): void {
+function scrubScopeLogs(scopes: unknown, depth: number): void {
   if (!Array.isArray(scopes)) return
   for (const scope of scopes) {
     if (!scope || typeof scope !== "object") continue
-    const records =
-      (scope as JsonRecord).logRecords ?? (scope as JsonRecord).log_records
+    const records = (scope as JsonRecord).logRecords
     if (!Array.isArray(records)) continue
     for (const logRecord of records) {
       if (!logRecord || typeof logRecord !== "object") continue
       const record = logRecord as JsonRecord
-      scrubOtlpValue(record.body)
-      scrubAttributes(record.attributes)
+      if (typeof record.body === "string") {
+        record.body = scrubTelemetryString(record.body)
+      } else {
+        scrubOtlpValue(record.body, depth + 1)
+      }
+      scrubAttributes(record.attributes, depth)
     }
   }
 }
 
-function scrubResources(
-  resources: unknown,
-  scopeKey: "scopeSpans" | "scopeLogs",
-  altScopeKey: string,
-  scrubScopes: (scopes: unknown) => void,
+function stringAttribute(key: string, value: string): JsonRecord {
+  return { key, value: { stringValue: value } }
+}
+
+/** Replace caller resource attributes with the UI service identity. */
+export function restrictBrowserResourceAttributes(
+  payload: unknown,
+  environment: string | undefined,
 ): void {
-  if (!Array.isArray(resources)) return
-  for (const resourceSpans of resources) {
-    if (!resourceSpans || typeof resourceSpans !== "object") continue
-    const record = resourceSpans as JsonRecord
-    const resource = record.resource
-    if (resource && typeof resource === "object") {
-      scrubAttributes((resource as JsonRecord).attributes)
+  if (!payload || typeof payload !== "object") return
+  const record = payload as JsonRecord
+  for (const key of ["resourceSpans", "resourceLogs"] as const) {
+    const resources = record[key]
+    if (!Array.isArray(resources)) continue
+    for (const resourceSpans of resources) {
+      if (!resourceSpans || typeof resourceSpans !== "object") continue
+      const attributes = [
+        stringAttribute("service.name", "ui"),
+        stringAttribute("service.namespace", "ctxpipe"),
+      ]
+      if (environment) {
+        attributes.push(stringAttribute("deployment.environment", environment))
+      }
+      ;(resourceSpans as JsonRecord).resource = { attributes }
     }
-    scrubScopes(record[scopeKey] ?? record[altScopeKey])
   }
 }
 
-/** Mutates an OTLP JSON document. Non-URL strings are left as they are. */
+/** Mutates an OTLP/JSON document. Throws {@link OtelScrubDepthError} past the depth limit. */
 export function scrubBrowserOtlpJson(payload: unknown): void {
   if (!payload || typeof payload !== "object") return
   const record = payload as JsonRecord
-  scrubResources(
-    record.resourceSpans ?? record.resource_spans,
-    "scopeSpans",
-    "scope_spans",
-    scrubScopeSpans,
-  )
-  scrubResources(
-    record.resourceLogs ?? record.resource_logs,
-    "scopeLogs",
-    "scope_logs",
-    scrubScopeLogs,
-  )
+  const resources = record.resourceSpans
+  if (Array.isArray(resources)) {
+    for (const resourceSpans of resources) {
+      if (!resourceSpans || typeof resourceSpans !== "object") continue
+      const entry = resourceSpans as JsonRecord
+      const resource = entry.resource
+      if (resource && typeof resource === "object") {
+        scrubAttributes((resource as JsonRecord).attributes, 0)
+      }
+      scrubScopeSpans(entry.scopeSpans, 0)
+    }
+  }
+  const logs = record.resourceLogs
+  if (Array.isArray(logs)) {
+    for (const resourceLogs of logs) {
+      if (!resourceLogs || typeof resourceLogs !== "object") continue
+      const entry = resourceLogs as JsonRecord
+      const resource = entry.resource
+      if (resource && typeof resource === "object") {
+        scrubAttributes((resource as JsonRecord).attributes, 0)
+      }
+      scrubScopeLogs(entry.scopeLogs, 0)
+    }
+  }
 }

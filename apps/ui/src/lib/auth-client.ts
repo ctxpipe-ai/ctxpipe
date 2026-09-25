@@ -19,6 +19,11 @@ function authApiBaseUrl(): string {
 export const authClient = createAuthClient({
   baseURL: authApiBaseUrl(),
   basePath: "/.auth/api/v1/auth",
+  // Better Auth captures `fetch` at client creation, before HyperDX patches it.
+  // A wrapper calls the current global fetch so auth requests carry traceparent.
+  fetchOptions: {
+    customFetchImpl: (input, init) => globalThis.fetch(input, init),
+  },
   plugins: [
     apiKeyClient(),
     organizationClient(),

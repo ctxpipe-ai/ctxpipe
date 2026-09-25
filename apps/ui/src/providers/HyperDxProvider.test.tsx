@@ -46,6 +46,10 @@ vi.mock("@/lib/auth-client", () => ({
   useListOrganizations: () => orgState,
 }))
 
+import {
+  resetRetainedHyperDxRuntimeConfigForTests,
+  retainServerHyperDxConfig,
+} from "@/lib/hyperdxRuntimeConfig"
 import { HyperDxPageView, HyperDxProvider } from "./HyperDxProvider"
 
 describe("HyperDxProvider client navigations", () => {
@@ -59,14 +63,16 @@ describe("HyperDxProvider client navigations", () => {
     container?.remove()
     addAction.mockClear()
     setGlobalAttributes.mockClear()
+    init.mockClear()
+    sessionStorage.clear()
+    resetRetainedHyperDxRuntimeConfigForTests()
     orgState.data = [{ id: "org_1", slug: "obs-e2e-343" }]
     orgState.isPending = false
   })
 
   it("records one page_view per client navigation with the org slug and route id", async () => {
     const runtimeConfig = {
-      enabled: true,
-      url: "/.otel",
+      enabled: true as const,
       environment: "test",
     }
     const rootRoute = createRootRoute({
@@ -186,5 +192,71 @@ describe("HyperDxProvider client navigations", () => {
       addAction.mock.invocationCallOrder[firstViewIndex] ?? 0,
     )
     expect(setGlobalAttributes).toHaveBeenCalledWith(identity)
+    expect(init).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiKey: "proxy",
+        disableIntercom: true,
+        url: `${window.location.origin}/.otel`,
+      }),
+    )
+    const targets = init.mock.calls[0]?.[0]?.tracePropagationTargets as
+      | RegExp[]
+      | undefined
+    expect(
+      targets?.some((target) =>
+        target.test("/obs-e2e-343/api/v1/repositories"),
+      ),
+    ).toBe(true)
+    expect(
+      targets?.some((target) =>
+        target.test(`${window.location.origin}/.auth/api/v1/auth/get-session`),
+      ),
+    ).toBe(true)
+    expect(
+      targets?.some((target) => target.test("https://evil.example/api")),
+    ).toBe(false)
+  })
+
+  it("still records a client navigation when a later loader result is disabled", async () => {
+    retainServerHyperDxConfig({
+      enabled: true,
+      environment: "pr-343",
+    })
+    const runtimeConfig = { enabled: false as const }
+    const rootRoute = createRootRoute({
+      component: () => (
+        <HyperDxProvider runtimeConfig={runtimeConfig}>
+          <HyperDxPageView runtimeConfig={runtimeConfig} />
+          <Outlet />
+        </HyperDxProvider>
+      ),
+    })
+    const homeRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: "/",
+      component: () => <p>Home</p>,
+    })
+    const chatRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: "/chat",
+      component: () => <p>Chat</p>,
+    })
+    const router = createRouter({
+      routeTree: rootRoute.addChildren([homeRoute, chatRoute]),
+      history: createMemoryHistory({ initialEntries: ["/"] }),
+    })
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    await act(async () => {
+      root?.render(<RouterProvider router={router} />)
+    })
+    await act(async () => {
+      await router.navigate({ href: "/chat" })
+    })
+    const paths = addAction.mock.calls
+      .filter((call) => call[0] === "page_view")
+      .map((call) => call[1]?.path)
+    expect(paths).toEqual(["/", "/chat"])
   })
 })

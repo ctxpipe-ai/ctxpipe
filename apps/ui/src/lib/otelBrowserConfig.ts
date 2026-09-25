@@ -35,17 +35,11 @@ export function otelProxyUpstreamUrl(
   collectorBase: string,
   requestUrl: string,
 ): string {
-  const incoming = new URL(requestUrl)
-  const path = otelProxySignalPath(requestUrl)
-  return `${collectorBase}${path}${incoming.search}`
+  return `${collectorBase}${otelProxySignalPath(requestUrl)}`
 }
 
 /** OTLP signal paths the browser proxy will forward. */
-export const OTEL_PROXY_SIGNAL_PATHS = [
-  "/v1/traces",
-  "/v1/logs",
-  "/v1/metrics",
-] as const
+export const OTEL_PROXY_SIGNAL_PATHS = ["/v1/traces", "/v1/logs"] as const
 
 /** 1 MiB. Larger browser exports are rejected before they are proxied. */
 export const OTEL_PROXY_MAX_BODY_BYTES = 1024 * 1024
