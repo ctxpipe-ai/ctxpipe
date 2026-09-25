@@ -11,6 +11,7 @@ const {
   createLocalJWKSetMock,
   getSystemDbMock,
   withOrgDbContextMock,
+  warnMock,
   testState,
 } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
@@ -20,6 +21,7 @@ const {
   createLocalJWKSetMock: vi.fn(),
   getSystemDbMock: vi.fn(),
   withOrgDbContextMock: vi.fn(),
+  warnMock: vi.fn(),
   testState: {
     db: null as unknown,
   },
@@ -52,7 +54,7 @@ vi.mock("../db/client.js", () => ({
 vi.mock("../observability/logger.js", () => ({
   getLogger: () => ({
     error: vi.fn(),
-    warn: vi.fn(),
+    warn: warnMock,
     info: vi.fn(),
     set: vi.fn(),
   }),
@@ -338,6 +340,108 @@ describe("auth middleware composition", () => {
 
     expect(response.status).toBe(401)
     expect(getSessionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("lets an asset or SPA request proceed when the session read throws", async () => {
+    getSessionMock.mockRejectedValue(new Error("db blip for alice@example.com"))
+
+    const app = createBaseApp()
+    app.use("*", withSharedCookieSession)
+    app.get("/assets/app.js", (c) => c.text("js"))
+    app.get("/", (c) => c.text("spa"))
+    app.post("/.otel/v1/traces", (c) => c.text("otel"))
+
+    expect((await app.request("/assets/app.js")).status).toBe(200)
+    expect((await app.request("/")).status).toBe(200)
+    expect(
+      (await app.request("/.otel/v1/traces", { method: "POST" })).status,
+    ).toBe(200)
+    expect(getSessionMock).not.toHaveBeenCalled()
+  })
+
+  it("still fails an authenticated API route when the session read throws", async () => {
+    getSessionMock.mockRejectedValue(new Error("db blip for alice@example.com"))
+
+    const app = createBaseApp()
+    app.use("*", withSharedCookieSession)
+    app.use("/acme/api/v1/repositories", withCookieAuth)
+    app.get("/acme/api/v1/repositories", (c) => c.text("ok"))
+
+    const response = await app.request("/acme/api/v1/repositories")
+
+    expect(response.status).toBe(500)
+    expect(getSessionMock).toHaveBeenCalledTimes(2)
+    expect(JSON.stringify(warnMock.mock.calls)).not.toContain(
+      "alice@example.com",
+    )
+  })
+
+  it("still identifies a successful cookie session on an API route", async () => {
+    getSessionMock.mockResolvedValue({
+      user: { id: "user_ok", email: "ok@example.com" },
+      session: { id: "sess_ok", userId: "user_ok" },
+    })
+
+    const app = createBaseApp()
+    app.use("*", withSharedCookieSession)
+    app.use("/acme/api/v1/repositories", withCookieAuth)
+    app.get("/acme/api/v1/repositories", (c) =>
+      c.json({
+        user: c.get("user"),
+        personalApiKeyId: c.get("personalApiKeyId") ?? null,
+      }),
+    )
+
+    const response = await app.request("/acme/api/v1/repositories")
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: { id: "user_ok", email: "ok@example.com" },
+      personalApiKeyId: null,
+    })
+    expect(getSessionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("clears personalApiKeyId when a bearer token replaces the api-key user", async () => {
+    getSessionMock.mockResolvedValue({
+      user: { id: "user_key", email: "key@example.com" },
+      session: { id: "sess_key", userId: "user_key" },
+    })
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: { sub: "user_bearer", sid: "sess_bearer" },
+    })
+    testState.db = createMockDb({
+      tokenSessionRows: [
+        {
+          session: { id: "sess_bearer", userId: "user_bearer" },
+          user: { id: "user_bearer", email: "bearer@example.com" },
+        },
+      ],
+    })
+
+    const app = createBaseApp()
+    app.use("*", withSharedCookieSession)
+    app.use("/mcp", withBearerAuth)
+    app.post("/mcp", (c) =>
+      c.json({
+        user: c.get("user"),
+        personalApiKeyId: c.get("personalApiKeyId") ?? null,
+      }),
+    )
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: {
+        "x-api-key": "ctxp_test_api_key",
+        authorization: "Bearer header.payload.signature",
+      },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: { id: "user_bearer", email: "bearer@example.com" },
+      personalApiKeyId: null,
+    })
   })
 
   it("skips the shared session read on status and webhook paths", async () => {

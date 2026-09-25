@@ -21,6 +21,7 @@ import {
   applyAttribution,
   attributesForOrgApiKey,
 } from "../observability/attribution.js"
+import { isUiProxyPath } from "../observability/http.js"
 import { getLogger } from "../observability/logger.js"
 import { tryGetLogger } from "../observability/requestLogger.js"
 import { type AuthSession, type AuthUser, getAuth } from "./config.js"
@@ -318,7 +319,11 @@ export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   return next()
 }
 
-/** Paths that must not pay for a session read (webhooks, auth, health). */
+/**
+ * Paths that must not pay for a session read.
+ * The UI resolves its own session through `/.auth` (the auth client).
+ * The UI proxy and `/.otel` relay do not read `c.get("user")`.
+ */
 export function shouldResolveSharedCookieSession(path: string): boolean {
   if (path.startsWith("/.auth/api/v1/auth")) return false
   if (path.startsWith("/.auth/api/config")) return false
@@ -326,6 +331,8 @@ export function shouldResolveSharedCookieSession(path: string): boolean {
   if (path.startsWith("/.well-known")) return false
   if (path.startsWith("/.status")) return false
   if (path.startsWith("/api/v1/webhook")) return false
+  if (path.startsWith("/.otel")) return false
+  if (isUiProxyPath(path)) return false
   return true
 }
 
@@ -334,7 +341,17 @@ export const withSharedCookieSession: MiddlewareHandler<AppEnv> = async (
   next,
 ) => {
   if (shouldResolveSharedCookieSession(c.req.path)) {
-    await resolveCookieSession(c)
+    try {
+      await resolveCookieSession(c)
+    } catch (error) {
+      // Do not cache the failure. API routes call resolveCookieSession again
+      // and still throw there. The message can contain a query or a DSN.
+      const errorName = error instanceof Error ? error.name : "Error"
+      tryGetLogger()?.warn("cookie_session_read_failed", {
+        step: "auth.shared_session",
+        errorName,
+      })
+    }
   }
   await next()
 }
@@ -479,6 +496,7 @@ async function authenticateBearer(
   if (accessToken.split(".").length !== 3) {
     const resolved = await resolveOpaqueAccessToken(accessToken)
     if (resolved) {
+      c.set("personalApiKeyId", undefined)
       c.set("session", resolved.session)
       c.set("user", resolved.user)
       c.set("oauthOrganizationId", resolved.oauthOrganizationId)
@@ -492,13 +510,12 @@ async function authenticateBearer(
       if (apiKeyAuth.kind === "user") {
         c.set("user", apiKeyAuth.user)
         c.set("session", apiKeyAuth.session)
-        if (apiKeyAuth.personalApiKeyId) {
-          c.set("personalApiKeyId", apiKeyAuth.personalApiKeyId)
-        }
+        c.set("personalApiKeyId", apiKeyAuth.personalApiKeyId)
         applyPrincipalAttribution(c)
         return next()
       }
       if (apiKeyAuth.kind === "org") {
+        c.set("personalApiKeyId", undefined)
         c.set("orgApiKey", apiKeyAuth.orgApiKey)
         applyPrincipalAttribution(c)
         return next()
@@ -655,6 +672,7 @@ async function authenticateBearer(
   )
 
   if (tokenSessionContext) {
+    c.set("personalApiKeyId", undefined)
     c.set("session", tokenSessionContext.session)
     c.set("user", tokenSessionContext.user)
     c.set("oauthOrganizationId", oauthOrganizationClaim ?? null)
