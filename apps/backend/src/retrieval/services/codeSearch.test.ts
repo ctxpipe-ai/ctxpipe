@@ -110,9 +110,10 @@ describe("codeSearch Zoekt query rejection", () => {
     expect(warnMock).toHaveBeenLastCalledWith({
       step: "advisor.code_search.rejected",
       status: 400,
-      error: "Zoekt rejected the query: still invalid",
+      error: "zoekt_query_rejected",
     })
     expect(JSON.stringify(warnMock.mock.calls)).not.toContain("file:((")
+    expect(JSON.stringify(warnMock.mock.calls)).not.toContain("Zoekt rejected")
   })
 
   it("still throws when codesearch is unavailable", async () => {

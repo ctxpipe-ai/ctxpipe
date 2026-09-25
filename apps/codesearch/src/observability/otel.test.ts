@@ -1,9 +1,11 @@
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
+import { Hono } from "hono"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { type Env, parseEnv } from "../config/env.js"
 import { FlushOnDemandMetricReader } from "./flushOnDemandMetricReader.js"
 import {
+  codesearchOtelMiddleware,
   createMetricReader,
   forceFlushOtel,
   httpRouteTemplate,
@@ -158,6 +160,42 @@ describe("initOtel", () => {
     } finally {
       await shutdownOtel()
       await sink.close()
+    }
+  })
+
+  it("does not wait for forceFlush before the PR response", async () => {
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-9")
+    const delayed = createServer((req, res) => {
+      req.resume()
+      setTimeout(() => {
+        res.writeHead(200, { "content-type": "application/json" })
+        res.end("{}")
+      }, 1_500)
+    })
+    await new Promise<void>((resolve) => {
+      delayed.listen(0, "127.0.0.1", resolve)
+    })
+    const port = (delayed.address() as AddressInfo).port
+    try {
+      initOtel(
+        testEnv({
+          OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: `http://127.0.0.1:${port}/v1/traces`,
+          OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: `http://127.0.0.1:${port}/v1/metrics`,
+        }),
+      )
+      const app = new Hono()
+      app.use("*", codesearchOtelMiddleware())
+      app.get("/fast", (c) => c.text("ok"))
+      const started = performance.now()
+      const res = await app.request("http://codesearch.test/fast")
+      expect(res.status).toBe(200)
+      expect(await res.text()).toBe("ok")
+      expect(performance.now() - started).toBeLessThan(500)
+    } finally {
+      await shutdownOtel()
+      await new Promise<void>((resolve, reject) => {
+        delayed.close((err) => (err ? reject(err) : resolve()))
+      })
     }
   })
 })

@@ -17,6 +17,7 @@ import { FlushOnDemandMetricReader } from "./flushOnDemandMetricReader.js"
 import {
   codesearchOtelMiddleware,
   installOutgoingFetchInstrumentation,
+  tracedOutgoingFetch,
 } from "./otel.js"
 
 const exporter = new InMemorySpanExporter()
@@ -130,6 +131,57 @@ describe("route template", () => {
 })
 
 describe("outgoing fetch", () => {
+  it("does not create a root span when nothing is tracing", async () => {
+    const before = exporter.getFinishedSpans().length
+    const res = await fetch(`http://127.0.0.1:${downstreamPort}/background`)
+    expect(res.status).toBe(200)
+    const added = exporter.getFinishedSpans().slice(before)
+    expect(added.filter((span) => span.name.startsWith("HTTP"))).toHaveLength(0)
+  })
+
+  it("ends the client span when Request construction throws", async () => {
+    const tracer = trace.getTracer("ctxpipe-codesearch-test")
+    const parent = tracer.startSpan("caller")
+    await expect(
+      context.with(trace.setSpan(context.active(), parent), () =>
+        fetch(`http://127.0.0.1:${downstreamPort}/down`, {
+          method: "GET",
+          body: "not-allowed-on-get",
+        }),
+      ),
+    ).rejects.toThrow()
+    parent.end()
+    const client = exporter
+      .getFinishedSpans()
+      .find((item) => item.name === "HTTP GET")
+    expect(client?.parentSpanContext?.spanId).toBe(parent.spanContext().spanId)
+    expect(client?.status.message ?? "").toBe("")
+    expect(client?.events ?? []).toHaveLength(0)
+  })
+
+  it("does not copy a rejected response body onto the client span", async () => {
+    const query = "ZQPROBE_file_paren_secret"
+    const tracer = trace.getTracer("ctxpipe-codesearch-test")
+    const parent = tracer.startSpan("caller")
+    await context.with(trace.setSpan(context.active(), parent), async () => {
+      const response = await tracedOutgoingFetch(
+        async () => new Response(`parse error: ${query}`, { status: 400 }),
+        "http://zoekt.test/api/search",
+        { method: "POST", body: JSON.stringify({ Q: query }) },
+      )
+      expect(response.status).toBe(400)
+    })
+    parent.end()
+    const client = exporter
+      .getFinishedSpans()
+      .find((item) => item.name === "HTTP POST")
+    expect(client?.parentSpanContext?.spanId).toBe(parent.spanContext().spanId)
+    expect(client?.attributes["http.response.status_code"]).toBe(400)
+    expect(client?.status.message ?? "").toBe("")
+    expect(JSON.stringify(client?.events ?? [])).not.toContain(query)
+    expect(JSON.stringify(client?.attributes)).not.toContain(query)
+  })
+
   it("injects traceparent and baggage from the active context", async () => {
     const tracer = trace.getTracer("ctxpipe-codesearch-test")
     const parent = tracer.startSpan("caller")

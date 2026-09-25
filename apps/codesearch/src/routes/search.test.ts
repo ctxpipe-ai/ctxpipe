@@ -3,9 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../app/env.js"
 import { zoektRepositoryName } from "../domain/zoekt/shardPrefix.js"
 
-const { pinReposMock, waitUntilMock } = vi.hoisted(() => ({
+const { pinReposMock, waitUntilMock, warnMock } = vi.hoisted(() => ({
   pinReposMock: vi.fn(),
   waitUntilMock: vi.fn(),
+  warnMock: vi.fn(),
 }))
 
 vi.mock("../domain/zoekt/pinManager.js", () => ({
@@ -24,7 +25,7 @@ vi.mock("../domain/zoekt/warmup.js", async () => {
 
 vi.mock("../observability/logger.js", () => ({
   getLogger: () => ({
-    warn: vi.fn(),
+    warn: warnMock,
     error: vi.fn(),
     info: vi.fn(),
   }),
@@ -252,6 +253,13 @@ describe("POST /search", () => {
     await expect(res.json()).resolves.toEqual({
       error: "Zoekt rejected the query: parse error: unexpected token",
     })
+    expect(warnMock).toHaveBeenCalledWith("codesearch.search.zoekt_rejected", {
+      step: "codesearch.search.zoekt_rejected",
+      status: 400,
+      error: "zoekt_query_rejected",
+    })
+    expect(JSON.stringify(warnMock.mock.calls)).not.toContain("file:((")
+    expect(JSON.stringify(warnMock.mock.calls)).not.toContain("parse error")
   })
 
   it("returns 400 with Zoekt's JSON error message", async () => {
@@ -278,6 +286,13 @@ describe("POST /search", () => {
     await expect(res.json()).resolves.toEqual({
       error: "Zoekt rejected the query: query too complex",
     })
+    expect(JSON.stringify(warnMock.mock.calls)).not.toContain(
+      "query too complex",
+    )
+    expect(warnMock).toHaveBeenCalledWith(
+      "codesearch.search.zoekt_rejected",
+      expect.objectContaining({ error: "zoekt_query_rejected", status: 422 }),
+    )
   })
 
   it("returns 503 when Zoekt is unavailable", async () => {

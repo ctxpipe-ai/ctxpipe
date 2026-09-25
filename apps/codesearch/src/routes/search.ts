@@ -161,10 +161,12 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
       })
       if (res.status >= 400 && res.status < 500) {
         const error = await zoektClientErrorMessage(res)
+        // Zoekt's text can echo the query. The response keeps it for the caller;
+        // the wide event gets status and a fixed class only.
         getLogger().warn("codesearch.search.zoekt_rejected", {
           step: "codesearch.search.zoekt_rejected",
           status: res.status,
-          message: error,
+          error: "zoekt_query_rejected",
         })
         return c.json({ error }, 400)
       }

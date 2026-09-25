@@ -222,10 +222,11 @@ export async function codeSearch(
       rejected = await readCodesearchClientFailure(res)
     }
     if (rejected?.status === 400) {
+      // Codesearch's error string can echo the query. Keep it off the wide event.
       log.warn({
         step: "advisor.code_search.rejected",
         status: rejected.status,
-        error: rejected.error,
+        error: "zoekt_query_rejected",
       })
       return []
     }

@@ -226,13 +226,8 @@ export function parseOtelHeaders(
   return out
 }
 
-/**
- * Continue the caller's W3C trace and baggage, then record one server span.
- * PR environments flush after the response so metrics export without a 60s timer.
- */
 /** Route template for span names and metric attributes. Never a raw path with ids. */
 export function httpRouteTemplate(route: string | undefined): string {
-  if (route?.includes("*")) return route
   if (route) return route
   return "{unmatched}"
 }
@@ -323,7 +318,7 @@ export function codesearchOtelMiddleware(): MiddlewareHandler {
     } finally {
       span.end()
       if (isRailwayPrEnvironment()) {
-        await forceFlushOtel()
+        void forceFlushOtel()
       }
     }
   }
@@ -338,47 +333,75 @@ export function installOutgoingFetchInstrumentation(): void {
   if (outgoingFetchInstrumented) return
   outgoingFetchInstrumented = true
   const original = globalThis.fetch.bind(globalThis)
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = requestUrl(input)
-    if (isOtlpExportUrl(url)) return original(input, init)
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+    tracedOutgoingFetch(original, input, init)) as typeof fetch
+}
 
-    const method =
-      init?.method ?? (input instanceof Request ? input.method : "GET")
-    const tracer = trace.getTracer(TRACER_NAME)
-    const span = tracer.startSpan(`HTTP ${method}`, {
+/**
+ * Client span for one outgoing fetch, parented to the active span.
+ * No span when nothing is already tracing, so background loops stay quiet.
+ * OTLP export URLs are left uninstrumented so export does not trace itself.
+ */
+export async function tracedOutgoingFetch(
+  original: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  const url = requestUrl(input)
+  const parent = context.active()
+  if (isOtlpExportUrl(url) || !trace.getSpan(parent)) {
+    return original(input, init)
+  }
+
+  const method =
+    init?.method ?? (input instanceof Request ? input.method : "GET")
+  const tracer = trace.getTracer(TRACER_NAME)
+  const span = tracer.startSpan(
+    `HTTP ${method}`,
+    {
       kind: SpanKind.CLIENT,
       attributes: {
         "http.request.method": method,
         ...sanitizedClientUrlAttributes(url),
-        ...attributesFromBaggage(context.active()),
+        ...attributesFromBaggage(parent),
+      },
+    },
+    parent,
+  )
+  return context.with(trace.setSpan(parent, span), async () => {
+    const headers = new Headers(
+      init?.headers ?? (input instanceof Request ? input.headers : undefined),
+    )
+    propagation.inject(context.active(), headers, {
+      set(carrier, key, value) {
+        carrier.set(key, value)
       },
     })
-    return context.with(trace.setSpan(context.active(), span), async () => {
-      const headers = new Headers(
-        init?.headers ?? (input instanceof Request ? input.headers : undefined),
-      )
-      propagation.inject(context.active(), headers, {
-        set(carrier, key, value) {
-          carrier.set(key, value)
-        },
-      })
-      const request = new Request(input, { ...init, headers })
+    let request: Request
+    try {
+      request = new Request(input, { ...init, headers })
+    } catch {
       try {
-        const response = await original(request)
-        span.setAttribute("http.response.status_code", response.status)
-        if (response.status >= 500) {
-          span.setStatus({ code: SpanStatusCode.ERROR })
-        }
-        return response
-      } catch (error) {
-        if (error instanceof Error) span.recordException(error)
-        span.setStatus({ code: SpanStatusCode.ERROR })
-        throw error
+        return await original(input, init)
       } finally {
         span.end()
       }
-    })
-  }) as typeof fetch
+    }
+    try {
+      const response = await original(request)
+      span.setAttribute("http.response.status_code", response.status)
+      if (response.status >= 500) {
+        span.setStatus({ code: SpanStatusCode.ERROR })
+      }
+      return response
+    } catch (error) {
+      if (error instanceof Error) span.recordException(error)
+      span.setStatus({ code: SpanStatusCode.ERROR })
+      throw error
+    } finally {
+      span.end()
+    }
+  })
 }
 
 function sanitizedClientUrlAttributes(raw: string): Record<string, string> {
