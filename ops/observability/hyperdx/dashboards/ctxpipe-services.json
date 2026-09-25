@@ -1,0 +1,178 @@
+{
+  "name": "ctxpipe Services",
+  "tags": ["ctxpipe", "services"],
+  "filters": [
+    {
+      "type": "QUERY_EXPRESSION",
+      "name": "deployment.environment",
+      "expression": "ResourceAttributes['deployment.environment']",
+      "sourceName": "Traces"
+    },
+    {
+      "type": "QUERY_EXPRESSION",
+      "name": "ctxpipe.org.slug",
+      "expression": "SpanAttributes['ctxpipe.org.slug']",
+      "sourceName": "Traces",
+      "appliesToSourceNames": ["Traces"]
+    },
+    {
+      "type": "QUERY_EXPRESSION",
+      "name": "ctxpipe.org.slug",
+      "expression": "LogAttributes['ctxpipe.org.slug']",
+      "sourceName": "Logs",
+      "appliesToSourceNames": ["Logs"]
+    },
+    {
+      "type": "QUERY_EXPRESSION",
+      "name": "enduser.id",
+      "expression": "SpanAttributes['enduser.id']",
+      "sourceName": "Traces",
+      "appliesToSourceNames": ["Traces"]
+    },
+    {
+      "type": "QUERY_EXPRESSION",
+      "name": "enduser.id",
+      "expression": "LogAttributes['enduser.id']",
+      "sourceName": "Logs",
+      "appliesToSourceNames": ["Logs"]
+    }
+  ],
+  "tiles": [
+    {
+      "name": "Request rate",
+      "x": 0,
+      "y": 0,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "line",
+        "sourceName": "Traces",
+        "fillNulls": true,
+        "seriesLimit": 20,
+        "groupBy": "ServiceName",
+        "select": [
+          {
+            "aggFn": "count",
+            "alias": "requests",
+            "where": "SpanKind = 'Server'",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Error rate",
+      "x": 12,
+      "y": 0,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "line",
+        "sourceName": "Traces",
+        "fillNulls": true,
+        "asRatio": true,
+        "seriesLimit": 20,
+        "groupBy": "ServiceName",
+        "numberFormat": { "output": "percent", "mantissa": 1 },
+        "select": [
+          {
+            "aggFn": "count",
+            "alias": "errors",
+            "where": "SpanKind = 'Server' AND StatusCode = 'Error'",
+            "whereLanguage": "sql"
+          },
+          {
+            "aggFn": "count",
+            "alias": "requests",
+            "where": "SpanKind = 'Server'",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    },
+    {
+      "name": "p95 latency",
+      "x": 0,
+      "y": 8,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "line",
+        "sourceName": "Traces",
+        "fillNulls": true,
+        "seriesLimit": 20,
+        "groupBy": "ServiceName",
+        "numberFormat": { "output": "number", "mantissa": 1, "unit": "ms" },
+        "select": [
+          {
+            "aggFn": "quantile",
+            "level": 0.95,
+            "valueExpression": "Duration / 1000000",
+            "alias": "p95 ms",
+            "where": "SpanKind = 'Server'",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Slowest routes",
+      "x": 12,
+      "y": 8,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "table",
+        "sourceName": "Traces",
+        "groupBy": "SpanAttributes['http.route']",
+        "orderBy": "\"p95 ms\" DESC",
+        "numberFormat": { "output": "number", "mantissa": 1, "unit": "ms" },
+        "select": [
+          {
+            "aggFn": "quantile",
+            "level": 0.95,
+            "valueExpression": "Duration / 1000000",
+            "alias": "p95 ms",
+            "where": "SpanKind = 'Server' AND SpanAttributes['http.route'] != ''",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Log volume by severity",
+      "x": 0,
+      "y": 16,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "stacked_bar",
+        "sourceName": "Logs",
+        "fillNulls": true,
+        "groupBy": "SeverityText",
+        "select": [
+          {
+            "aggFn": "count",
+            "alias": "logs",
+            "where": "",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Recent error logs",
+      "x": 12,
+      "y": 16,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "search",
+        "sourceName": "Logs",
+        "select": "Timestamp, ServiceName, SeverityText, Body, TraceId",
+        "where": "SeverityText IN ('ERROR', 'FATAL', 'error', 'fatal')",
+        "whereLanguage": "sql"
+      }
+    }
+  ]
+}

@@ -255,6 +255,132 @@ resource "railway_variable_collection" "hyperdx" {
       name  = "OTEL_LOGS_EXPORTER"
       value = "none"
     },
+    # setupTeamDefaults applies these only when a team is created and that team
+    # has no connections yet (sources only when it has none). An existing team
+    # is left unchanged. This is not local-mode-only.
+    {
+      name = "DEFAULT_CONNECTIONS"
+      value = jsonencode([
+        {
+          name     = "ctxpipe ClickHouse"
+          host     = "http://$${{clickhouse.RAILWAY_PRIVATE_DOMAIN}}:8123"
+          username = "otel"
+          password = var.clickhouse_otel_password
+        }
+      ])
+    },
+    {
+      name = "DEFAULT_SOURCES"
+      value = jsonencode([
+        {
+          from = {
+            databaseName = "otel"
+            tableName    = "otel_logs"
+          }
+          kind                                 = "log"
+          timestampValueExpression             = "Timestamp"
+          name                                 = "Logs"
+          displayedTimestampValueExpression    = "Timestamp"
+          implicitColumnExpression             = "Body"
+          serviceNameExpression                = "ServiceName"
+          bodyExpression                       = "Body"
+          eventAttributesExpression            = "LogAttributes"
+          resourceAttributesExpression         = "ResourceAttributes"
+          defaultTableSelectExpression         = "Timestamp,ServiceName,SeverityText,Body"
+          severityTextExpression               = "SeverityText"
+          traceIdExpression                    = "TraceId"
+          spanIdExpression                     = "SpanId"
+          querySettings                        = []
+          highlightedTraceAttributeExpressions = []
+          highlightedRowAttributeExpressions   = []
+          materializedViews                    = []
+          metadataMaterializedViews = {
+            kvRollupTable = "otel_logs_kv_rollup_15m"
+            granularity   = "15 minute"
+          }
+          connection      = "ctxpipe ClickHouse"
+          traceSourceId   = "Traces"
+          sessionSourceId = "Sessions"
+          metricSourceId  = "Metrics"
+        },
+        {
+          from = {
+            databaseName = "otel"
+            tableName    = "otel_traces"
+          }
+          kind                                 = "trace"
+          timestampValueExpression             = "Timestamp"
+          name                                 = "Traces"
+          displayedTimestampValueExpression    = "Timestamp"
+          implicitColumnExpression             = "SpanName"
+          serviceNameExpression                = "ServiceName"
+          eventAttributesExpression            = "SpanAttributes"
+          resourceAttributesExpression         = "ResourceAttributes"
+          defaultTableSelectExpression         = "Timestamp,ServiceName,StatusCode,round(Duration/1e6),SpanName"
+          traceIdExpression                    = "TraceId"
+          spanIdExpression                     = "SpanId"
+          durationExpression                   = "Duration"
+          durationPrecision                    = 9
+          parentSpanIdExpression               = "ParentSpanId"
+          spanNameExpression                   = "SpanName"
+          spanKindExpression                   = "SpanKind"
+          statusCodeExpression                 = "StatusCode"
+          statusMessageExpression              = "StatusMessage"
+          spanEventsValueExpression            = "Events"
+          spanLinksValueExpression             = "Links"
+          querySettings                        = []
+          highlightedTraceAttributeExpressions = []
+          highlightedRowAttributeExpressions   = []
+          materializedViews                    = []
+          metadataMaterializedViews = {
+            kvRollupTable = "otel_traces_kv_rollup_15m"
+            granularity   = "15 minute"
+          }
+          connection      = "ctxpipe ClickHouse"
+          logSourceId     = "Logs"
+          sessionSourceId = "Sessions"
+          metricSourceId  = "Metrics"
+        },
+        {
+          from = {
+            databaseName = "otel"
+            tableName    = ""
+          }
+          kind                         = "metric"
+          timestampValueExpression     = "TimeUnix"
+          name                         = "Metrics"
+          resourceAttributesExpression = "ResourceAttributes"
+          serviceNameExpression        = "ServiceName"
+          querySettings                = []
+          metricTables = {
+            gauge                   = "otel_metrics_gauge"
+            histogram               = "otel_metrics_histogram"
+            sum                     = "otel_metrics_sum"
+            summary                 = "otel_metrics_summary"
+            "exponential histogram" = "otel_metrics_exponential_histogram"
+          }
+          connection      = "ctxpipe ClickHouse"
+          logSourceId     = "Logs"
+          traceSourceId   = "Traces"
+          sessionSourceId = "Sessions"
+        },
+        {
+          from = {
+            databaseName = "otel"
+            tableName    = "hyperdx_sessions"
+          }
+          kind                         = "session"
+          timestampValueExpression     = "TimestampTime"
+          name                         = "Sessions"
+          resourceAttributesExpression = "ResourceAttributes"
+          querySettings                = []
+          connection                   = "ctxpipe ClickHouse"
+          logSourceId                  = "Logs"
+          traceSourceId                = "Traces"
+          metricSourceId               = "Metrics"
+        }
+      ])
+    },
   ]
 }
 
