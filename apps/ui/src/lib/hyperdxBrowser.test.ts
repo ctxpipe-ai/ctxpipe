@@ -14,6 +14,7 @@ vi.mock("@hyperdx/browser", () => ({
 
 import {
   clearHyperDxGlobalAttributes,
+  readCachedHyperDxIdentity,
   setHyperDxGlobalAttributes,
 } from "./hyperdxBrowser"
 import {
@@ -95,12 +96,69 @@ describe("session identity flushes deferred query errors", () => {
       teamId: "org_1",
       teamName: "obs-e2e-343",
     })
-    expect(JSON.parse(store.get("ctxpipe.hyperdx.identity") ?? "{}")).toEqual({
+    expect(
+      JSON.parse(store.get("ctxpipe.hyperdx.identity") ?? "{}"),
+    ).toMatchObject({
       userId: "user_1",
       teamId: "org_1",
       teamName: "obs-e2e-343",
     })
     clearHyperDxGlobalAttributes()
+    expect(store.has("ctxpipe.hyperdx.identity")).toBe(false)
+    vi.unstubAllGlobals()
+  })
+
+  it("does not replay a previous user's identity after the session marker changes", () => {
+    const store = new Map<string, string>()
+    const markers = new Map<string, string>()
+    const storage = {
+      getItem: (key: string) =>
+        (key === "ctxpipe.hd.session" ? markers : store).get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        ;(key === "ctxpipe.hd.session" ? markers : store).set(key, value)
+      },
+      removeItem: (key: string) => {
+        ;(key === "ctxpipe.hd.session" ? markers : store).delete(key)
+      },
+    }
+    vi.stubGlobal("sessionStorage", storage)
+    vi.stubGlobal("localStorage", storage)
+    vi.stubGlobal("window", { location: { pathname: "/acme" } })
+
+    setHyperDxGlobalAttributes({
+      userId: "user_a",
+      teamId: "org_a",
+      teamName: "alpha",
+    })
+    const previous = store.get("ctxpipe.hyperdx.identity")
+    setHyperDxGlobalAttributes({
+      userId: "user_b",
+      teamId: "org_b",
+      teamName: "beta",
+    })
+    expect(readCachedHyperDxIdentity()).toEqual({
+      userId: "user_b",
+      teamId: "org_b",
+      teamName: "beta",
+    })
+    store.set("ctxpipe.hyperdx.identity", previous ?? "")
+    expect(readCachedHyperDxIdentity()).toBeNull()
+
+    setHyperDxGlobalAttributes({
+      userId: "user_b",
+      teamId: "org_b",
+      teamName: "beta",
+    })
+    clearHyperDxGlobalAttributes()
+    expect(readCachedHyperDxIdentity()).toBeNull()
+
+    setHyperDxGlobalAttributes({
+      userId: "user_a",
+      teamId: "org_a",
+      teamName: "alpha",
+    })
+    window.location.pathname = "/.auth/sign-in"
+    expect(readCachedHyperDxIdentity()).toBeNull()
     expect(store.has("ctxpipe.hyperdx.identity")).toBe(false)
     vi.unstubAllGlobals()
   })

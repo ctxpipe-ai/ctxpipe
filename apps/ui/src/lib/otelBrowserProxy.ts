@@ -22,14 +22,45 @@ export function resetOtelBrowserProxyRateLimitForTests(): void {
   rateBuckets.clear()
 }
 
+export function otelBrowserProxyRateBucketCountForTests(): number {
+  return rateBuckets.size
+}
+
+let rateBucketCapForTests = 10_000
+
+export function setOtelBrowserProxyRateBucketCapForTests(cap: number): void {
+  rateBucketCapForTests = cap
+}
+
 function clientIp(request: Request): string {
   const forwarded = request.headers.get("x-forwarded-for")
   const first = forwarded?.split(",")[0]?.trim()
   return first || "unknown"
 }
 
+function bucketIsIdle(bucket: RateBucket, now: number): boolean {
+  const refilled =
+    bucket.tokens + ((now - bucket.updatedAt) * RATE_CAPACITY) / RATE_WINDOW_MS
+  return refilled >= RATE_CAPACITY
+}
+
+function pruneRateBuckets(now: number): void {
+  for (const [ip, bucket] of rateBuckets) {
+    if (bucketIsIdle(bucket, now)) rateBuckets.delete(ip)
+  }
+  if (rateBuckets.size <= rateBucketCapForTests) return
+  const oldest = [...rateBuckets.entries()].sort(
+    (left, right) => left[1].updatedAt - right[1].updatedAt,
+  )
+  for (const [ip] of oldest) {
+    if (rateBuckets.size <= rateBucketCapForTests) break
+    rateBuckets.delete(ip)
+  }
+}
+
 function takeRateToken(ip: string): boolean {
   const now = Date.now()
+  pruneRateBuckets(now)
   const bucket = rateBuckets.get(ip) ?? {
     tokens: RATE_CAPACITY,
     updatedAt: now,
@@ -40,10 +71,12 @@ function takeRateToken(ip: string): boolean {
   bucket.updatedAt = now
   if (bucket.tokens < 1) {
     rateBuckets.set(ip, bucket)
+    if (rateBuckets.size > rateBucketCapForTests) pruneRateBuckets(now)
     return false
   }
   bucket.tokens -= 1
   rateBuckets.set(ip, bucket)
+  if (rateBuckets.size > rateBucketCapForTests) pruneRateBuckets(now)
   return true
 }
 

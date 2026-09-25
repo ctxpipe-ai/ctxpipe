@@ -28,6 +28,7 @@ type PgQuery = (...args: unknown[]) => unknown
 
 export type TraceablePgClient = {
   query: PgQuery
+  release?: (err?: unknown) => void
   database?: string
   connectionParameters?: {
     host?: string
@@ -40,6 +41,63 @@ export type TraceablePgClient = {
 
 const instrumentedPools = new WeakSet<object>()
 const instrumentedClients = new WeakSet<object>()
+const clientTxStacks = new WeakMap<object, Span[]>()
+const clientsByOwner = new WeakMap<Span, Set<object>>()
+const hookedOwnerSpans = new WeakSet<Span>()
+
+function txStackFor(client: object): Span[] {
+  let stack = clientTxStacks.get(client)
+  if (!stack) {
+    stack = []
+    clientTxStacks.set(client, stack)
+  }
+  return stack
+}
+
+function endOpenTransactions(client: object): void {
+  const stack = clientTxStacks.get(client)
+  if (!stack) return
+  while (stack.length > 0) stack.pop()?.end()
+}
+
+function watchOwningSpan(client: object): void {
+  const owner = trace.getActiveSpan()
+  if (!owner) return
+  let clients = clientsByOwner.get(owner)
+  if (!clients) {
+    clients = new Set()
+    clientsByOwner.set(owner, clients)
+  }
+  clients.add(client)
+  if (hookedOwnerSpans.has(owner)) return
+  hookedOwnerSpans.add(owner)
+  const original = owner.end.bind(owner)
+  owner.end = ((...args: Parameters<Span["end"]>) => {
+    const held = clientsByOwner.get(owner)
+    if (held) {
+      for (const heldClient of held) endOpenTransactions(heldClient)
+      held.clear()
+    }
+    return original(...args)
+  }) as Span["end"]
+}
+
+function wrapClientRelease(client: TraceablePgClient): void {
+  const release = client.release
+  if (typeof release !== "function") return
+  if (
+    (release as { __ctxpipeReleaseWrapped?: boolean }).__ctxpipeReleaseWrapped
+  ) {
+    return
+  }
+  const wrapped = function (this: TraceablePgClient, err?: unknown) {
+    endOpenTransactions(client)
+    return release.call(this, err)
+  }
+  ;(wrapped as { __ctxpipeReleaseWrapped?: boolean }).__ctxpipeReleaseWrapped =
+    true
+  client.release = wrapped
+}
 
 function capQueryText(text: string): string {
   const limit = 2048
@@ -367,6 +425,7 @@ function tracePgQuery(
     const parent = parentContext(txStack)
     if (!parent) return original.apply(client, args)
     const txSpan = startTransactionSpan(client, boundary, parent, tracerName)
+    watchOwningSpan(client)
     txStack.push(txSpan)
     return runStatement(
       client,
@@ -401,10 +460,11 @@ export function instrumentPgClient(
   client: TraceablePgClient,
   tracerName = "ctxpipe-backend",
 ): void {
+  wrapClientRelease(client)
   if (instrumentedClients.has(client)) return
   instrumentedClients.add(client)
   const original = client.query
-  const txStack: Span[] = []
+  const txStack = txStackFor(client)
   client.query = ((...args: unknown[]) =>
     tracePgQuery(client, original, txStack, args, tracerName)) as PgQuery
 }
@@ -432,13 +492,17 @@ export function instrumentPgPool(
     if (callback) {
       return originalConnect((err, client, done) => {
         if (client) {
-          instrumentPgClient(client as unknown as TraceablePgClient, tracerName)
+          const traced = client as unknown as TraceablePgClient
+          instrumentPgClient(traced, tracerName)
+          endOpenTransactions(traced)
         }
         callback(err, client, done)
       })
     }
     return originalConnect().then((client) => {
-      instrumentPgClient(client as unknown as TraceablePgClient, tracerName)
+      const traced = client as unknown as TraceablePgClient
+      instrumentPgClient(traced, tracerName)
+      endOpenTransactions(traced)
       return client
     })
   }) as Pool["connect"]

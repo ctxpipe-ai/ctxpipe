@@ -18,8 +18,8 @@ import {
   instrumentPgClient,
   instrumentPgPool,
   serverAddressFromUrl,
-  traceGraphQuery,
   type TraceablePgClient,
+  traceGraphQuery,
 } from "./dbTrace.js"
 
 const exporter = new InMemorySpanExporter()
@@ -388,6 +388,77 @@ describe("postgres client spans", () => {
     expect(
       exporter.getFinishedSpans().filter((span) => span.name === "SELECT"),
     ).toHaveLength(1)
+  })
+
+  it("ends an abandoned transaction when the client is released", async () => {
+    const client = createClient(async () => ({ rows: [] }))
+    let released = false
+    client.release = () => {
+      released = true
+    }
+    const pool = {
+      connect: () => Promise.resolve(client),
+    }
+    instrumentPgPool(pool as unknown as Pool)
+    const first = await pool.connect()
+    await trace
+      .getTracer("ctxpipe-backend")
+      .startActiveSpan("request-a", async (request) => {
+        await first.query("begin")
+        first.release?.()
+        request.end()
+      })
+    expect(released).toBe(true)
+    const abandoned = exporter
+      .getFinishedSpans()
+      .find((span) => span.name === "postgresql transaction")
+    expect(abandoned).toBeDefined()
+
+    exporter.reset()
+    const second = await pool.connect()
+    await trace
+      .getTracer("ctxpipe-backend")
+      .startActiveSpan("request-b", async (request) => {
+        await second.query("select 1")
+        request.end()
+      })
+    const spans = exporter.getFinishedSpans()
+    const select = spans.find((span) => span.name === "SELECT")
+    const request = spans.find((span) => span.name === "request-b")
+    expect(select?.parentSpanContext?.spanId).toBe(
+      request?.spanContext().spanId,
+    )
+    expect(spans.some((span) => span.name === "postgresql transaction")).toBe(
+      false,
+    )
+  })
+
+  it("ends an open transaction when the owning request ends", async () => {
+    const client = createClient(async () => ({ rows: [] }))
+    await trace
+      .getTracer("ctxpipe-backend")
+      .startActiveSpan("request-a", async (request) => {
+        await client.query("begin")
+        request.end()
+      })
+    const abandoned = exporter
+      .getFinishedSpans()
+      .find((span) => span.name === "postgresql transaction")
+    expect(abandoned).toBeDefined()
+
+    exporter.reset()
+    await trace
+      .getTracer("ctxpipe-backend")
+      .startActiveSpan("request-b", async (request) => {
+        await client.query("select 1")
+        request.end()
+      })
+    const spans = exporter.getFinishedSpans()
+    const select = spans.find((span) => span.name === "SELECT")
+    const request = spans.find((span) => span.name === "request-b")
+    expect(select?.parentSpanContext?.spanId).toBe(
+      request?.spanContext().spanId,
+    )
   })
 })
 

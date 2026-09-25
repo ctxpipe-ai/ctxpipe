@@ -2,8 +2,10 @@ import { gzipSync } from "node:zlib"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { OTEL_PROXY_MAX_BODY_BYTES } from "./otelBrowserConfig"
 import {
+  otelBrowserProxyRateBucketCountForTests,
   proxyBrowserOtlp,
   resetOtelBrowserProxyRateLimitForTests,
+  setOtelBrowserProxyRateBucketCapForTests,
 } from "./otelBrowserProxy"
 
 function sameOriginRequest(url: string, init: RequestInit = {}): Request {
@@ -348,6 +350,61 @@ describe("proxyBrowserOtlp", () => {
       }),
     )
     expect(blocked.status).toBe(429)
+  })
+
+  it("evicts idle rate buckets and caps the map", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-09-25T00:00:00Z"))
+    setOtelBrowserProxyRateBucketCapForTests(3)
+    try {
+      for (const ip of ["203.0.113.1", "203.0.113.2", "203.0.113.3"]) {
+        const response = await proxyBrowserOtlp(
+          sameOriginRequest("https://app.example/.otel/v1/traces", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Forwarded-For": ip,
+            },
+            body: "{}",
+          }),
+        )
+        expect(response.status).toBe(200)
+      }
+      expect(otelBrowserProxyRateBucketCountForTests()).toBe(3)
+
+      vi.setSystemTime(new Date("2026-09-25T00:01:01Z"))
+      const idle = await proxyBrowserOtlp(
+        sameOriginRequest("https://app.example/.otel/v1/traces", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Forwarded-For": "203.0.113.9",
+          },
+          body: "{}",
+        }),
+      )
+      expect(idle.status).toBe(200)
+      expect(otelBrowserProxyRateBucketCountForTests()).toBe(1)
+
+      vi.setSystemTime(new Date("2026-09-25T00:02:00Z"))
+      for (const ip of ["198.51.100.1", "198.51.100.2", "198.51.100.3"]) {
+        const response = await proxyBrowserOtlp(
+          sameOriginRequest("https://app.example/.otel/v1/traces", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Forwarded-For": ip,
+            },
+            body: "{}",
+          }),
+        )
+        expect(response.status).toBe(200)
+      }
+      expect(otelBrowserProxyRateBucketCountForTests()).toBeLessThanOrEqual(3)
+    } finally {
+      setOtelBrowserProxyRateBucketCapForTests(10_000)
+      vi.useRealTimers()
+    }
   })
 
   it("returns 400 when the JSON nesting exceeds the scrub depth", async () => {
