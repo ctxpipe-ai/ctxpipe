@@ -34,6 +34,8 @@
     <table>query_log</table>
     <partition_by>toYYYYMM(event_date)</partition_by>
     <ttl>event_date + INTERVAL 3 DAY DELETE</ttl>
+    <!-- Pinned to the local disk. The redefined default policy can move parts to S3. -->
+    <storage_policy>local_only</storage_policy>
     <flush_interval_milliseconds>7500</flush_interval_milliseconds>
     <max_size_rows>8192</max_size_rows>
     <reserved_size_rows>1024</reserved_size_rows>
@@ -48,6 +50,8 @@
     <table>error_log</table>
     <partition_by>toYYYYMM(event_date)</partition_by>
     <ttl>event_date + INTERVAL 3 DAY DELETE</ttl>
+    <!-- Same pin as query_log: 3-day system logs stay on the local volume. -->
+    <storage_policy>local_only</storage_policy>
     <flush_interval_milliseconds>7500</flush_interval_milliseconds>
     <max_size_rows>8192</max_size_rows>
     <reserved_size_rows>1024</reserved_size_rows>

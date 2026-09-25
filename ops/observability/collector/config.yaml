@@ -1,8 +1,9 @@
 # ClickStack collector custom merge (CUSTOM_OTELCOL_CONFIG_FILE).
 # Loaded last via `--config` (see the image entrypoint). Do not redefine
-# otlp/hyperdx, memory_limiter, batch, the clickhouse exporter, or the base
-# `transform` processor (logs pipeline). Confmap replaces arrays, so do not
-# set service.telemetry here: base config.yaml already exposes internal
+# otlp/hyperdx, memory_limiter, batch, or the base `transform` processor
+# (logs pipeline). The only clickhouse exporter key set below is `ttl`.
+# Confmap replaces arrays, so do not set service.telemetry here:
+# base config.yaml already exposes internal
 # metrics on 0.0.0.0:8888 (readers.pull.exporter.prometheus).
 # The traces pipeline below is restated for clickhouse/clickstack-otel-collector:2.39.1
 # (receivers otlp/hyperdx, processors memory_limiter then batch, exporter clickhouse).
@@ -91,6 +92,14 @@ processors:
         action: upsert
 
 exporters:
+  clickhouse:
+    # Delete horizon for tables this process creates. Confmap merges this
+    # scalar onto the image exporter; do not add endpoint, auth, or schema
+    # keys here. 9360h is 390 days. TO VOLUME is not expressible in this
+    # setting; clickhouse/tiering/otel.sql adds the hot window and uses
+    # a 13-month delete. Leave HYPERDX_OTEL_EXPORTER_RECONCILE_TABLE_TTL
+    # unset so a reconcile cannot rewrite that compound TTL.
+    ttl: 9360h
   otlphttp/langfuse:
     endpoint: "${env:LANGFUSE_OTLP_ENDPOINT}"
     headers:

@@ -1,5 +1,7 @@
 <clickhouse>
-  <!-- Default MergeTree TTL: 14 days. ClickStack / Langfuse tables inherit unless they set their own. -->
+  <!-- Whole-part TTL drops only. There is no server-wide TTL expression:
+       ClickStack sets one when it creates a table, and tiering/otel.sql
+       replaces that with move-to-cold plus a long delete. -->
   <merge_tree>
     <ttl_only_drop_parts>1</ttl_only_drop_parts>
   </merge_tree>

@@ -32,8 +32,8 @@
 # the config name and mount path, so Update does not create a second volume.
 # Update creates a volume only when state has none and config has one.
 #
-# Not imported: ops-probe (not in this configuration) and the langfuse-events
-# bucket (provider 0.6.1 has no bucket resource).
+# Not imported: ops-probe (not in this configuration) and the buckets
+# langfuse-events and clickhouse-cold (provider 0.6.1 has no bucket resource).
 
 import {
   to = railway_service.clickhouse
@@ -42,7 +42,7 @@ import {
 
 import {
   to = railway_variable_collection.clickhouse
-  id = "3b65fd5e-d05f-48dd-8395-ff75f250d2e5:production:PORT"
+  id = "3b65fd5e-d05f-48dd-8395-ff75f250d2e5:production:PORT:CLICKHOUSE_COLD_ENDPOINT:CLICKHOUSE_COLD_ACCESS_KEY_ID:CLICKHOUSE_COLD_SECRET_ACCESS_KEY:CLICKHOUSE_COLD_REGION"
 }
 
 import {

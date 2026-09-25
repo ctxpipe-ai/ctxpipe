@@ -25,10 +25,30 @@ resource "railway_variable_collection" "clickhouse" {
   service_id     = railway_service.clickhouse.id
 
   # CLICKHOUSE_OTEL_PASSWORD and CLICKHOUSE_LANGFUSE_PASSWORD stay on Railway.
+  # The clickhouse-cold bucket is Railway-owned (provider 0.6.1 has no bucket
+  # resource). These references resolve to that bucket's credentials.
+  # ENDPOINT has no trailing slash (https://t3.storageapi.dev); the value
+  # below is the path-style URL ClickHouse stores objects under.
   variables = [
     {
       name  = "PORT"
       value = "8123"
+    },
+    {
+      name  = "CLICKHOUSE_COLD_ENDPOINT"
+      value = "$${{clickhouse-cold.ENDPOINT}}/$${{clickhouse-cold.BUCKET}}/clickhouse/"
+    },
+    {
+      name  = "CLICKHOUSE_COLD_ACCESS_KEY_ID"
+      value = "$${{clickhouse-cold.ACCESS_KEY_ID}}"
+    },
+    {
+      name  = "CLICKHOUSE_COLD_SECRET_ACCESS_KEY"
+      value = "$${{clickhouse-cold.SECRET_ACCESS_KEY}}"
+    },
+    {
+      name  = "CLICKHOUSE_COLD_REGION"
+      value = "$${{clickhouse-cold.REGION}}"
     },
   ]
 }
