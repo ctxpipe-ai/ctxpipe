@@ -12,8 +12,11 @@ export function recordHyperDxAction(
   HyperDX.addAction(name, attributes)
 }
 
-export function recordHyperDxException(error: unknown): void {
-  HyperDX.recordException(error)
+export function recordHyperDxException(
+  error: unknown,
+  attributes?: Record<string, string>,
+): void {
+  HyperDX.recordException(error, attributes)
 }
 
 export function setHyperDxGlobalAttributes(

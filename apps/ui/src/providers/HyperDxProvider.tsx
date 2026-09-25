@@ -15,6 +15,7 @@ import {
   clearHyperDxGlobalAttributes,
   setHyperDxGlobalAttributes,
 } from "@/lib/hyperdxBrowser"
+import { setHyperDxExceptionRecordingEnabled } from "@/lib/hyperdxQueryErrors"
 import type { HyperDxRuntimeConfig } from "@/lib/hyperdxRuntimeConfig"
 import { retainServerHyperDxConfig } from "@/lib/hyperdxRuntimeConfig"
 
@@ -76,6 +77,7 @@ export const HyperDxProvider: FC<{
   runtimeConfig: HyperDxRuntimeConfig
 }> = ({ children, runtimeConfig }) => {
   const config = retainServerHyperDxConfig(runtimeConfig)
+  setHyperDxExceptionRecordingEnabled(config.enabled)
   useEffect(() => {
     ensureHyperDxBrowser(config)
   }, [config])
