@@ -7,6 +7,16 @@ import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
 import { DEFAULT_CHECKOUT_KEY } from "../../models/repositories.js"
+import { log } from "../../observability/logger.js"
+import { readCodesearchClientFailure } from "../../tools/codesearchZoekt.js"
+
+/**
+ * Zoekt treats unquoted text as a query (regex, filters, grouping). A user
+ * question is a substring: quote it and escape `\` and `"`.
+ */
+export function zoektLiteralQuery(text: string): string {
+  return `"${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
+}
 
 export type CodeSearchResult = {
   repositoryId: string
@@ -182,22 +192,44 @@ export async function codeSearch(
       principal: "service",
     },
   })
+  const repoIds = repos.map((r) => r.zoektRepoId)
 
-  const res = await withTransientHttpRetry(
-    async () =>
-      fetch(`${codesearchBaseUrl()}/search`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          Q: params.query,
-          RepoIDs: repos.map((r) => r.zoektRepoId),
+  const postSearch = (query: string) =>
+    withTransientHttpRetry(
+      async () =>
+        fetch(`${codesearchBaseUrl()}/search`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            Q: query,
+            RepoIDs: repoIds,
+          }),
         }),
-      }),
-    { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
-  )
+      { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
+    )
+
+  let query = params.query
+  let res = await postSearch(query)
+  let rejected = await readCodesearchClientFailure(res)
+  if (rejected?.status === 400) {
+    const literal = zoektLiteralQuery(params.query)
+    if (literal !== params.query) {
+      query = literal
+      res = await postSearch(literal)
+      rejected = await readCodesearchClientFailure(res)
+    }
+    if (rejected?.status === 400) {
+      log.warn({
+        step: "advisor.code_search.rejected",
+        status: rejected.status,
+        error: rejected.error,
+      })
+      return []
+    }
+  }
 
   if (!res.ok) {
     throw new Error(`codesearch failed with status ${res.status}`)
@@ -209,7 +241,7 @@ export async function codeSearch(
     repositoryId: r.id,
     repositoryName: r.name,
     zoektRepoId: r.zoektRepoId,
-    query: params.query,
+    query,
     response: searchResponse,
   }))
 }
