@@ -1,15 +1,16 @@
 import HyperDX from "@hyperdx/browser"
 import {
   clearedHyperDxGlobalAttributes,
-  type HyperDxGlobalAttributes,
   type HyperDxOrgRef,
+  type HyperDxSessionIdentity,
+  hyperdxGlobalAttributes,
 } from "@/lib/hyperdxAttributes"
 import { noteHyperDxSessionIdentity } from "@/lib/hyperdxQueryErrors"
 
 const IDENTITY_STORAGE_KEY = "ctxpipe.hyperdx.identity"
 const SESSION_MARKER_KEY = "ctxpipe.hd.session"
 
-type CachedIdentity = HyperDxGlobalAttributes & {
+type CachedIdentity = HyperDxSessionIdentity & {
   sessionKey: string
   orgs: HyperDxOrgRef[]
 }
@@ -107,7 +108,7 @@ function readIdentityCache(): CachedIdentity | null {
 }
 
 function writeIdentityCache(
-  attributes: HyperDxGlobalAttributes,
+  attributes: HyperDxSessionIdentity,
   organizations?: readonly HyperDxOrgRef[],
 ): void {
   if (typeof sessionStorage === "undefined") return
@@ -175,7 +176,7 @@ function loadCachedIdentity(pathname: string): CachedIdentity | null {
 /** Ids cached from the last signed-in page, applied before the session request returns. */
 export function readCachedHyperDxIdentity(
   pathname = currentPathname(),
-): HyperDxGlobalAttributes | null {
+): HyperDxSessionIdentity | null {
   const cached = loadCachedIdentity(pathname)
   if (!cached) return null
   return {
@@ -192,7 +193,7 @@ export function readCachedHyperDxIdentity(
  */
 export function readEarlyHyperDxIdentity(
   pathname = currentPathname(),
-): HyperDxGlobalAttributes | null {
+): HyperDxSessionIdentity | null {
   const cached = loadCachedIdentity(pathname)
   if (!cached) return null
   const slug = orgSlugFromPathname(pathname)
@@ -241,13 +242,13 @@ export function recordHyperDxException(
 }
 
 export function setHyperDxGlobalAttributes(
-  attributes: HyperDxGlobalAttributes,
+  attributes: HyperDxSessionIdentity,
   options?: {
     activeOrganizationId?: string
     organizations?: readonly HyperDxOrgRef[]
   },
 ): void {
-  HyperDX.setGlobalAttributes(attributes)
+  HyperDX.setGlobalAttributes(hyperdxGlobalAttributes(attributes))
   writeIdentityCache(attributes, options?.organizations)
   noteHyperDxSessionIdentity("signed-in", {
     teamId: attributes.teamId,

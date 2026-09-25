@@ -1,20 +1,37 @@
 /** Browser HyperDX attribute mapping. Ids and slugs only — no email or name. */
 
-export type HyperDxGlobalAttributes = {
+export type HyperDxSessionIdentity = {
   userId: string
   teamId: string
   teamName: string
 }
 
+export type HyperDxGlobalAttributes = HyperDxSessionIdentity & {
+  "enduser.id": string
+  "ctxpipe.org.id": string
+  "ctxpipe.org.slug": string
+}
+
+/**
+ * `userId` / `teamId` / `teamName` are what HyperDX session search reads.
+ * The dotted keys match backend spans so one filter works on browser and API.
+ * Empty strings clear the previous session on sign-out.
+ */
 export function hyperdxGlobalAttributes(input: {
   userId?: string | null
   teamId?: string | null
   teamName?: string | null
 }): HyperDxGlobalAttributes {
+  const userId = input.userId ?? ""
+  const teamId = input.teamId ?? ""
+  const teamName = input.teamName ?? ""
   return {
-    userId: input.userId ?? "",
-    teamId: input.teamId ?? "",
-    teamName: input.teamName ?? "",
+    userId,
+    teamId,
+    teamName,
+    "enduser.id": userId,
+    "ctxpipe.org.id": teamId,
+    "ctxpipe.org.slug": teamName,
   }
 }
 
@@ -24,6 +41,7 @@ export function clearedHyperDxGlobalAttributes(): HyperDxGlobalAttributes {
 
 export type HyperDxPageViewAttributes = {
   path: string
+  "url.path": string
   route: string
   "ctxpipe.org.slug": string
 }
@@ -35,6 +53,7 @@ export function hyperdxPageViewAttributes(input: {
 }): HyperDxPageViewAttributes {
   return {
     path: input.path,
+    "url.path": input.path,
     route: input.routeId ?? "",
     "ctxpipe.org.slug": input.orgSlug ?? "",
   }

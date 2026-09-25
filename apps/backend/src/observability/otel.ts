@@ -18,7 +18,6 @@ import {
   type ReadableSpan,
   type SpanProcessor,
 } from "@opentelemetry/sdk-trace-base"
-import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions"
 import type { Env } from "../config/env.js"
 import { copyAttributionToSpan, propagationHeaders } from "./attribution.js"
 import { BetterAuthSpanFilter } from "./betterAuthSpanFilter.js"
@@ -53,6 +52,28 @@ export function otelDeploymentEnvironment(
   return nodeEnv === "production" ? "production" : "development"
 }
 
+/**
+ * Resource `service.name`. Railway sets `OTEL_SERVICE_NAME` to the service
+ * (`backend`, `openworkflow`). The tracer scope stays `ctxpipe-backend`.
+ */
+export function otelServiceName(
+  configured = process.env.OTEL_SERVICE_NAME,
+): string {
+  const name = configured?.trim()
+  return name ? name : "backend"
+}
+
+export function otelResourceAttributes(
+  serviceName: string,
+  deploymentEnvironment: string,
+): Record<string, string> {
+  return {
+    "service.name": serviceName,
+    "service.namespace": "ctxpipe",
+    "deployment.environment": deploymentEnvironment,
+  }
+}
+
 export function isRailwayPrEnvironment(
   railwayEnvironmentName = process.env.RAILWAY_ENVIRONMENT_NAME,
 ): boolean {
@@ -70,7 +91,7 @@ export function initOtel(env: Env): void {
   if (!tracesEndpoint || started) return
 
   const headers = parseOtelHeaders(env.OTEL_EXPORTER_OTLP_HEADERS)
-  const serviceName = env.OTEL_SERVICE_NAME ?? "ctxpipe-backend"
+  const serviceName = otelServiceName(env.OTEL_SERVICE_NAME)
   const deploymentEnvironment = otelDeploymentEnvironment()
 
   const traceExporter = new OTLPTraceExporter({
@@ -80,11 +101,9 @@ export function initOtel(env: Env): void {
     headers,
   })
 
-  const resource = resourceFromAttributes({
-    [ATTR_SERVICE_NAME]: serviceName,
-    "service.namespace": "ctxpipe",
-    "deployment.environment": deploymentEnvironment,
-  })
+  const resource = resourceFromAttributes(
+    otelResourceAttributes(serviceName, deploymentEnvironment),
+  )
 
   const metricReaders = env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
     ? [

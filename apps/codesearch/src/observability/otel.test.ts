@@ -14,6 +14,8 @@ import {
   isRailwayPrEnvironment,
   otelDeploymentEnvironment,
   otelMetricReader,
+  otelResourceAttributes,
+  otelServiceName,
   parseOtelHeaders,
   shutdownOtel,
 } from "./otel.js"
@@ -50,6 +52,18 @@ async function listenSink(): Promise<{
       }),
   }
 }
+
+describe("otel resource attributes", () => {
+  it("uses service.name codesearch and deployment.environment", () => {
+    expect(otelServiceName(undefined)).toBe("codesearch")
+    expect(otelServiceName("codesearch")).toBe("codesearch")
+    expect(otelResourceAttributes("codesearch", "production")).toEqual({
+      "service.name": "codesearch",
+      "service.namespace": "ctxpipe",
+      "deployment.environment": "production",
+    })
+  })
+})
 
 describe("otelDeploymentEnvironment", () => {
   it("uses RAILWAY_ENVIRONMENT_NAME when set", () => {
@@ -152,7 +166,7 @@ describe("initOtel", () => {
         testEnv({
           OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: `http://127.0.0.1:${sink.port}/v1/traces`,
           OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: `http://127.0.0.1:${sink.port}/v1/metrics`,
-          OTEL_SERVICE_NAME: "ctxpipe-codesearch",
+          OTEL_SERVICE_NAME: "codesearch",
         }),
       )
       expect(isOtelStarted()).toBe(true)

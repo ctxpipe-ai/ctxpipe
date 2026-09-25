@@ -25,6 +25,9 @@ describe("hyperdxGlobalAttributes", () => {
       userId: "user_1",
       teamId: "org_1",
       teamName: "acme",
+      "enduser.id": "user_1",
+      "ctxpipe.org.id": "org_1",
+      "ctxpipe.org.slug": "acme",
     })
   })
 
@@ -33,11 +36,17 @@ describe("hyperdxGlobalAttributes", () => {
       userId: "",
       teamId: "",
       teamName: "",
+      "enduser.id": "",
+      "ctxpipe.org.id": "",
+      "ctxpipe.org.slug": "",
     })
     expect(clearedHyperDxGlobalAttributes()).toEqual({
       userId: "",
       teamId: "",
       teamName: "",
+      "enduser.id": "",
+      "ctxpipe.org.id": "",
+      "ctxpipe.org.slug": "",
     })
   })
 })
@@ -52,6 +61,7 @@ describe("hyperdxPageViewAttributes", () => {
       }),
     ).toEqual({
       path: "/acme/repositories",
+      "url.path": "/acme/repositories",
       route: "/$orgSlug/repositories/",
       "ctxpipe.org.slug": "acme",
     })
@@ -124,6 +134,7 @@ describe("hyperdxPageViewFromMatches", () => {
       }),
     ).toEqual({
       path: "/obs-e2e-343/chat",
+      "url.path": "/obs-e2e-343/chat",
       route: "/$orgSlug/chat",
       "ctxpipe.org.slug": "obs-e2e-343",
     })
@@ -134,6 +145,7 @@ describe("hyperdxPageViewFromMatches", () => {
       }),
     ).toEqual({
       path: "/onboarding",
+      "url.path": "/onboarding",
       route: "/onboarding",
       "ctxpipe.org.slug": "",
     })

@@ -4,7 +4,12 @@ import { toOTLPLogRecord } from "evlog/otlp"
 import { Hono } from "hono"
 import { describe, expect, it } from "vitest"
 import type { AppEnv } from "../app/env.js"
-import { applyLogContract, stripLogPii } from "./logContract.js"
+import {
+  applyLogContract,
+  otlpLogsPayload,
+  stripLogPii,
+} from "./logContract.js"
+import { otelResourceAttributes } from "./otel.js"
 import { applyRedactedSecretPaths } from "./secretPath.js"
 
 function drizzleDuplicateKeyError(): Error {
@@ -67,9 +72,39 @@ describe("log contract", () => {
     expect(keys).not.toContain("user-agent")
     expect(event["enduser.id"]).toBe("user_1")
     expect(event).not.toHaveProperty("userId")
+    expect(event).not.toHaveProperty("user")
+    expect(event).not.toHaveProperty("environment")
+    expect(event).not.toHaveProperty("service")
+    expect(event).not.toHaveProperty("service.namespace")
     expect(event.traceId).toBe("4bf92f3577b34da6a3ce929d0e0e4736")
     expect(event.spanId).toBe("00f067aa0ba902b7")
-    expect(event["service.namespace"]).toBe("ctxpipe")
+  })
+
+  it("renames evlog http fields onto semantic convention keys", () => {
+    const event: Record<string, unknown> = {
+      method: "GET",
+      path: "/health",
+      status: 204,
+      requestId: "req_alias",
+      orgId: "org_1",
+      orgSlug: "acme",
+      environment: "pr-343",
+      service: "backend",
+    }
+    applyLogContract(event)
+    expect(event["http.request.method"]).toBe("GET")
+    expect(event["url.path"]).toBe("/health")
+    expect(event["http.response.status_code"]).toBe(204)
+    expect(event["request.id"]).toBe("req_alias")
+    expect(event["ctxpipe.org.id"]).toBe("org_1")
+    expect(event["ctxpipe.org.slug"]).toBe("acme")
+    expect(event).not.toHaveProperty("method")
+    expect(event).not.toHaveProperty("path")
+    expect(event).not.toHaveProperty("status")
+    expect(event).not.toHaveProperty("requestId")
+    expect(event).not.toHaveProperty("orgId")
+    expect(event).not.toHaveProperty("environment")
+    expect(event).not.toHaveProperty("service")
   })
 
   it("puts traceId on the OTLP log record, not only attributes", () => {
@@ -90,6 +125,51 @@ describe("log contract", () => {
     expect(attributeKeys).toContain("request.id")
     expect(attributeKeys).toContain("enduser.id")
     expect(attributeKeys).not.toContain("traceId")
+  })
+
+  it("keeps TraceId on the record and deployment.environment on the resource", () => {
+    const event = {
+      timestamp: new Date().toISOString(),
+      level: "info" as const,
+      service: "backend",
+      environment: "pr-343",
+      traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
+      spanId: "00f067aa0ba902b7",
+      method: "GET",
+      path: "/health",
+      "request.id": "req_1",
+    }
+    applyLogContract(event)
+    const payload = otlpLogsPayload(
+      [event],
+      otelResourceAttributes("backend", "pr-343"),
+    )
+    const record = payload.resourceLogs[0]?.scopeLogs[0]?.logRecords[0]
+    const resourceKeys = payload.resourceLogs[0]?.resource.attributes.map(
+      (attribute) => [attribute.key, attribute.value.stringValue],
+    )
+    expect(record?.traceId).toBe("4bf92f3577b34da6a3ce929d0e0e4736")
+    expect(record?.spanId).toBe("00f067aa0ba902b7")
+    const body = JSON.parse(record?.body.stringValue ?? "{}") as Record<
+      string,
+      unknown
+    >
+    expect(body).not.toHaveProperty("environment")
+    expect(body).not.toHaveProperty("service")
+    expect(body).not.toHaveProperty("traceId")
+    expect(body).not.toHaveProperty("spanId")
+    expect(body["http.request.method"]).toBe("GET")
+    expect(body["url.path"]).toBe("/health")
+    expect(resourceKeys).toEqual(
+      expect.arrayContaining([
+        ["service.name", "backend"],
+        ["service.namespace", "ctxpipe"],
+        ["deployment.environment", "pr-343"],
+      ]),
+    )
+    expect(resourceKeys?.map(([key]) => key)).not.toContain(
+      "deployment.environment.name",
+    )
   })
 
   it("does not emit email or ip from a request log", async () => {
@@ -180,7 +260,7 @@ describe("log contract", () => {
       `http://backend.test/.auth/api/v1/public/invitations/${invitationId}`,
     )
 
-    expect(events.map((event) => event.path)).toEqual([
+    expect(events.map((event) => event["url.path"])).toEqual([
       "/.auth/api/v1/auth/reset-password/{token}",
       "/.auth/api/v1/public/invitations/{invitation}",
     ])
@@ -205,7 +285,7 @@ describe("log contract", () => {
       ],
     }
     applyLogContract(event)
-    expect(event.path).toBe("/.auth/api/v1/auth/reset-password/{token}")
+    expect(event["url.path"]).toBe("/.auth/api/v1/auth/reset-password/{token}")
     const nested = (
       event.requestLogs as {
         message: { path: string; url: string }
@@ -254,7 +334,9 @@ describe("log contract", () => {
     )
     expect(res.status).toBe(400)
     expect(events).toHaveLength(1)
-    expect(events[0]?.path).toBe("/.auth/api/v1/auth/reset-password/{token}")
+    expect(events[0]?.["url.path"]).toBe(
+      "/.auth/api/v1/auth/reset-password/{token}",
+    )
     expect(JSON.stringify(events[0])).not.toContain(token)
   })
 

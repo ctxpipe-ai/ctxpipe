@@ -83,6 +83,8 @@ The collector migrate binary runs `CREATE TABLE IF NOT EXISTS` and, only when `H
 
 `ADD COLUMN IF NOT EXISTS` is safe to repeat. `MATERIALIZE COLUMN` backfills parts written before the add. Run that statement once after the add. Running it again rewrites parts.
 
+Log and span attribute maps are not rewritten in place. Older rows keep `environment`, `method`, `path`, `status`, `requestId`, and `service.name=ctxpipe-codesearch` until the table TTL. New writes use the names in [ADR-011](../../../.ai/memory/decisions/ADR-011-backend-observability-otel.md).
+
 ## Apply
 
 After the image is up and `system.storage_policies` shows volume `cold`, run the SQL with any client as a user who can `ALTER` the database. The probe user `otel` can alter `otel`. The probe user `langfuse` can alter `langfuse`.

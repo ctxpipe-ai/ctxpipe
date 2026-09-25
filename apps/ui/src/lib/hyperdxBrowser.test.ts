@@ -52,6 +52,9 @@ describe("session identity flushes deferred query errors", () => {
       userId: "user_1",
       teamId: "org_1",
       teamName: "obs-e2e-343",
+      "enduser.id": "user_1",
+      "ctxpipe.org.id": "org_1",
+      "ctxpipe.org.slug": "obs-e2e-343",
     })
     expect(recordException).toHaveBeenCalledTimes(1)
     expect(setGlobalAttributes.mock.invocationCallOrder[0]).toBeLessThan(
@@ -74,6 +77,9 @@ describe("session identity flushes deferred query errors", () => {
       userId: "",
       teamId: "",
       teamName: "",
+      "enduser.id": "",
+      "ctxpipe.org.id": "",
+      "ctxpipe.org.slug": "",
     })
     expect(recordException).toHaveBeenCalledTimes(1)
     expect(setGlobalAttributes.mock.invocationCallOrder[0]).toBeLessThan(

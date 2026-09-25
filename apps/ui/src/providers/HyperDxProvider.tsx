@@ -4,7 +4,7 @@ import type { FC, ReactNode } from "react"
 import { useEffect, useRef } from "react"
 import { useListOrganizations, useSession } from "@/lib/auth-client"
 import {
-  type HyperDxGlobalAttributes,
+  type HyperDxSessionIdentity,
   hyperdxExporterIgnoreUrls,
   hyperdxGlobalAttributes,
   hyperdxPageViewFromMatches,
@@ -53,8 +53,8 @@ function sameOriginTraceTargets(origin: string): RegExp[] {
 
 function identityForInit(options?: {
   pathname?: string
-  identity?: HyperDxGlobalAttributes | null
-}): HyperDxGlobalAttributes | null {
+  identity?: HyperDxSessionIdentity | null
+}): HyperDxSessionIdentity | null {
   if (!options) return null
   if ("identity" in options) return options.identity ?? null
   return readEarlyHyperDxIdentity(options.pathname)
@@ -64,7 +64,7 @@ function ensureHyperDxBrowser(
   runtimeConfig: HyperDxRuntimeConfig,
   options?: {
     pathname?: string
-    identity?: HyperDxGlobalAttributes | null
+    identity?: HyperDxSessionIdentity | null
   },
 ): void {
   if (typeof window === "undefined" || !runtimeConfig.enabled) return
@@ -104,7 +104,7 @@ function ensureHyperDxBrowser(
       },
       otelResourceAttributes,
     })
-    if (identity) HyperDX.setGlobalAttributes(identity)
+    if (identity) HyperDX.setGlobalAttributes(hyperdxGlobalAttributes(identity))
     hyperdxInitialized = true
     markHyperDxSdkReady()
     if (!hideFlushRegistered) {
@@ -120,7 +120,7 @@ function ensureHyperDxBrowser(
     }
     return
   }
-  if (identity) HyperDX.setGlobalAttributes(identity)
+  if (identity) HyperDX.setGlobalAttributes(hyperdxGlobalAttributes(identity))
 }
 
 type IdentitySnapshot = {
@@ -197,6 +197,12 @@ export const HyperDxPageView: FC<{
   })
   const { data: session, isPending: sessionPending } = useSession()
   const { data: organizations } = useListOrganizations()
+  // Better Auth's org query starts as `null` (and stays `null` on 401).
+  // `null` is "not loaded", not an empty list — an empty membership is `[]`.
+  // Passing `null` into the identity cache calls `.flatMap` and crashes the route.
+  const organizationList = Array.isArray(organizations)
+    ? organizations
+    : undefined
   const userId = session?.user?.id
   const activeOrganizationId = readActiveOrganizationId(session?.session)
   const lastPath = useRef<string | undefined>(undefined)
@@ -214,7 +220,7 @@ export const HyperDxPageView: FC<{
       enabled: config.enabled,
       sessionPending,
       userId,
-      organizations,
+      organizations: organizationList,
       activeOrganizationId,
     }
     const current = router
@@ -242,12 +248,12 @@ export const HyperDxPageView: FC<{
           })
         : { teamId: "", teamName: "" }
       recordHyperDxAction("page_view", {
-        ...view,
         ...hyperdxGlobalAttributes({
           userId: snapshot.userId,
           teamId: team.teamId,
           teamName: team.teamName,
         }),
+        ...view,
       })
     }
 
@@ -273,7 +279,7 @@ export const HyperDxPageView: FC<{
         pathname,
         slug,
         userId,
-        organizations,
+        organizations: organizationList,
         activeOrganizationId,
       })
       const attributes = hyperdxGlobalAttributes({
@@ -284,7 +290,7 @@ export const HyperDxPageView: FC<{
       ensureHyperDxBrowser(config, { pathname, identity: attributes })
       setHyperDxGlobalAttributes(attributes, {
         activeOrganizationId,
-        organizations,
+        organizations: organizationList,
       })
     }
 
@@ -312,7 +318,7 @@ export const HyperDxPageView: FC<{
     navKey,
     sessionPending,
     userId,
-    organizations,
+    organizationList,
     activeOrganizationId,
   ])
 

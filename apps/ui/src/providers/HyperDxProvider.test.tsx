@@ -22,6 +22,7 @@ const { init, addAction, setGlobalAttributes, orgState, sessionState } =
     orgState: {
       data: [{ id: "org_1", slug: "obs-e2e-343" }] as
         | { id: string; slug: string }[]
+        | null
         | undefined,
       isPending: false,
     },
@@ -158,13 +159,17 @@ describe("HyperDxProvider client navigations", () => {
       userId: "user_1",
       teamId: "org_1",
       teamName: "obs-e2e-343",
+      "enduser.id": "user_1",
+      "ctxpipe.org.id": "org_1",
+      "ctxpipe.org.slug": "obs-e2e-343",
     }
     expect(pageViews().map((call) => call[1])).toEqual([
       {
+        ...identity,
         path: "/.auth/sign-in",
+        "url.path": "/.auth/sign-in",
         route: "/.auth/sign-in",
         "ctxpipe.org.slug": "",
-        ...identity,
       },
     ])
 
@@ -180,28 +185,32 @@ describe("HyperDxProvider client navigations", () => {
 
     expect(pageViews().map((call) => call[1])).toEqual([
       {
+        ...identity,
         path: "/.auth/sign-in",
+        "url.path": "/.auth/sign-in",
         route: "/.auth/sign-in",
         "ctxpipe.org.slug": "",
-        ...identity,
       },
       {
+        ...identity,
         path: "/obs-e2e-343",
+        "url.path": "/obs-e2e-343",
         route: "/$orgSlug/",
         "ctxpipe.org.slug": "obs-e2e-343",
-        ...identity,
       },
       {
+        ...identity,
         path: "/obs-e2e-343/chat",
+        "url.path": "/obs-e2e-343/chat",
         route: "/$orgSlug/chat",
         "ctxpipe.org.slug": "obs-e2e-343",
-        ...identity,
       },
       {
+        ...identity,
         path: "/obs-e2e-343/repositories",
+        "url.path": "/obs-e2e-343/repositories",
         route: "/$orgSlug/repositories",
         "ctxpipe.org.slug": "obs-e2e-343",
-        ...identity,
       },
     ])
 
@@ -340,6 +349,9 @@ describe("HyperDxProvider client navigations", () => {
       userId: "user_1",
       teamId: "org_b",
       teamName: "beta",
+      "enduser.id": "user_1",
+      "ctxpipe.org.id": "org_b",
+      "ctxpipe.org.slug": "beta",
     })
     expect(
       addAction.mock.calls.filter((call) => call[0] === "page_view"),
@@ -347,5 +359,49 @@ describe("HyperDxProvider client navigations", () => {
     const identityOrder = setGlobalAttributes.mock.invocationCallOrder[0] ?? 0
     const initOrder = init.mock.invocationCallOrder[0] ?? 0
     expect(initOrder).toBeLessThan(identityOrder)
+  })
+
+  it("keeps the org page mounted while the organization list is still null", async () => {
+    orgState.data = null
+    const runtimeConfig = { enabled: true as const, environment: "test" }
+    const rootRoute = createRootRoute({
+      component: () => (
+        <HyperDxProvider runtimeConfig={runtimeConfig}>
+          <HyperDxPageView runtimeConfig={runtimeConfig} />
+          <Outlet />
+        </HyperDxProvider>
+      ),
+    })
+    const orgRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: "/$orgSlug",
+      component: () => <Outlet />,
+    })
+    const indexRoute = createRoute({
+      getParentRoute: () => orgRoute,
+      path: "/",
+      component: () => (
+        <nav aria-label="Main navigation">
+          <a href="/obs-e2e-343">Home</a>
+          <a href="/obs-e2e-343/chat">Chat</a>
+        </nav>
+      ),
+    })
+    const router = createRouter({
+      routeTree: rootRoute.addChildren([orgRoute.addChildren([indexRoute])]),
+      history: createMemoryHistory({ initialEntries: ["/obs-e2e-343"] }),
+    })
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    await act(async () => {
+      root?.render(<RouterProvider router={router} />)
+    })
+
+    expect(container.querySelector("nav")?.textContent).toContain("Home")
+    expect(
+      container.querySelector('a[href="/obs-e2e-343/chat"]'),
+    ).not.toBeNull()
+    expect(setGlobalAttributes).toHaveBeenCalled()
   })
 })

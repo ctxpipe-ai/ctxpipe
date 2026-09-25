@@ -6,16 +6,17 @@ import {
   log,
   type RequestLogger,
 } from "evlog"
-import { createOTLPDrain } from "evlog/otlp"
 import { createDrainPipeline, type PipelineDrainFn } from "evlog/pipeline"
 import { getContext } from "hono/context-storage"
 import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
-import { logFieldsFromActiveSpan } from "./logContract.js"
+import { logFieldsFromActiveSpan, otlpLogsPayload } from "./logContract.js"
 import {
   forceFlushOtel,
   isRailwayPrEnvironment,
   otelDeploymentEnvironment,
+  otelResourceAttributes,
+  otelServiceName,
 } from "./otel.js"
 
 /**
@@ -24,7 +25,7 @@ import {
  */
 export function initEvlog(): void {
   const env = parseEnv(process.env as Record<string, string | undefined>)
-  const serviceName = env.OTEL_SERVICE_NAME ?? "ctxpipe-backend"
+  const serviceName = otelServiceName(env.OTEL_SERVICE_NAME)
   initLogger({
     env: {
       service: serviceName,
@@ -53,12 +54,25 @@ export function createEvlogDrain() {
     "",
   ).replace(/\/$/, "")
 
-  const baseDrain = createOTLPDrain({
-    endpoint: baseEndpoint,
-    serviceName: env.OTEL_SERVICE_NAME ?? "ctxpipe-backend",
-    headers: parseOtelHeaders(env.OTEL_EXPORTER_OTLP_HEADERS),
-    resourceAttributes: { "service.namespace": "ctxpipe" },
-  })
+  const headers = parseOtelHeaders(env.OTEL_EXPORTER_OTLP_HEADERS)
+  const serviceName = otelServiceName(env.OTEL_SERVICE_NAME)
+  const baseDrain = async (ctx: DrainContext | DrainContext[]) => {
+    const contexts = Array.isArray(ctx) ? ctx : [ctx]
+    const events = contexts.map((item) => item.event)
+    if (events.length === 0) return
+    const payload = otlpLogsPayload(
+      events,
+      otelResourceAttributes(serviceName, otelDeploymentEnvironment()),
+    )
+    const response = await fetch(`${baseEndpoint}/v1/logs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify(payload),
+    })
+    if (!response.ok) {
+      throw new Error(`OTLP logs HTTP ${response.status}`)
+    }
+  }
 
   const pipeline = createDrainPipeline<DrainContext>({
     batch: { size: 50, intervalMs: 5000 },

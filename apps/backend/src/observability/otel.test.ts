@@ -22,6 +22,8 @@ import {
   isUiProxyFetchTarget,
   nodeAutoInstrumentationConfig,
   otelDeploymentEnvironment,
+  otelResourceAttributes,
+  otelServiceName,
   parseOtelHeaders,
   sanitizedClientUrlAttributes,
   tracedOutgoingFetch,
@@ -70,6 +72,19 @@ describe("nodeAutoInstrumentationConfig", () => {
     }
     expect(names).toContain("@opentelemetry/instrumentation-http")
     expect(names).toContain("@opentelemetry/instrumentation-runtime-node")
+  })
+})
+
+describe("otel resource attributes", () => {
+  it("uses service.name backend and deployment.environment", () => {
+    expect(otelServiceName(undefined)).toBe("backend")
+    expect(otelServiceName("  ")).toBe("backend")
+    expect(otelServiceName("openworkflow")).toBe("openworkflow")
+    expect(otelResourceAttributes("backend", "pr-343")).toEqual({
+      "service.name": "backend",
+      "service.namespace": "ctxpipe",
+      "deployment.environment": "pr-343",
+    })
   })
 })
 

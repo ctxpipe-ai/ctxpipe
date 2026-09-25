@@ -7,7 +7,7 @@ import {
   log,
   type RequestLogger,
 } from "evlog"
-import { createOTLPDrain } from "evlog/otlp"
+import { type OTLPLogRecord, toOTLPLogRecord } from "evlog/otlp"
 import { createDrainPipeline, type PipelineDrainFn } from "evlog/pipeline"
 import { getContext } from "hono/context-storage"
 import type { AppEnv } from "../app/env.js"
@@ -17,6 +17,8 @@ import {
   forceFlushOtel,
   isRailwayPrEnvironment,
   otelDeploymentEnvironment,
+  otelResourceAttributes,
+  otelServiceName,
 } from "./otel.js"
 import { applyScrubDbErrors } from "./scrubDbError.js"
 import { applyRedactedSecretPaths } from "./secretPath.js"
@@ -27,7 +29,7 @@ import { applyRedactedSecretPaths } from "./secretPath.js"
  */
 export function initEvlog(): void {
   const env = parseEnv(process.env as Record<string, string | undefined>)
-  const serviceName = env.OTEL_SERVICE_NAME ?? "codesearch"
+  const serviceName = otelServiceName(env.OTEL_SERVICE_NAME)
   initLogger({
     env: {
       service: serviceName,
@@ -56,12 +58,25 @@ export function createEvlogDrain() {
     "",
   ).replace(/\/$/, "")
 
-  const baseDrain = createOTLPDrain({
-    endpoint: baseEndpoint,
-    serviceName: env.OTEL_SERVICE_NAME ?? "codesearch",
-    headers: parseOtelHeaders(env.OTEL_EXPORTER_OTLP_HEADERS),
-    resourceAttributes: { "service.namespace": "ctxpipe" },
-  })
+  const headers = parseOtelHeaders(env.OTEL_EXPORTER_OTLP_HEADERS)
+  const serviceName = otelServiceName(env.OTEL_SERVICE_NAME)
+  const baseDrain = async (ctx: DrainContext | DrainContext[]) => {
+    const contexts = Array.isArray(ctx) ? ctx : [ctx]
+    const events = contexts.map((item) => item.event)
+    if (events.length === 0) return
+    const payload = otlpLogsPayload(
+      events,
+      otelResourceAttributes(serviceName, otelDeploymentEnvironment()),
+    )
+    const response = await fetch(`${baseEndpoint}/v1/logs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify(payload),
+    })
+    if (!response.ok) {
+      throw new Error(`OTLP logs HTTP ${response.status}`)
+    }
+  }
 
   const pipeline = createDrainPipeline<DrainContext>({
     batch: { size: 50, intervalMs: 5000 },
@@ -120,14 +135,25 @@ export function applyCodesearchLogContract(
   applyRedactedSecretPaths(event)
   applyScrubDbErrors(event)
 
-  if (typeof event.requestId === "string" && event["request.id"] == null) {
-    event["request.id"] = event.requestId
+  moveAlias(event, "requestId", "request.id")
+  moveAlias(event, "method", "http.request.method")
+  moveAlias(event, "path", "url.path")
+  moveAlias(event, "orgId", "ctxpipe.org.id")
+  moveAlias(event, "orgSlug", "ctxpipe.org.slug")
+  const status = event.status
+  if (
+    (typeof status === "number" || typeof status === "string") &&
+    event["http.response.status_code"] == null
+  ) {
+    event["http.response.status_code"] = status
   }
-  delete event.requestId
-  if (typeof event.userId === "string" && event["enduser.id"] == null) {
-    event["enduser.id"] = event.userId
+  delete event.status
+  if (isRecord(event.user) && typeof event.user.id === "string") {
+    if (event["enduser.id"] == null) event["enduser.id"] = event.user.id
+    delete event.user.id
+    if (Object.keys(event.user).length === 0) delete event.user
   }
-  delete event.userId
+  moveAlias(event, "userId", "enduser.id")
 
   const spanContext = trace.getActiveSpan()?.spanContext()
   if (spanContext?.traceId && typeof event.traceId !== "string") {
@@ -141,8 +167,75 @@ export function applyCodesearchLogContract(
       if (value && event[key] == null) event[key] = value
     }
   }
-  event.environment = otelDeploymentEnvironment()
-  event["service.namespace"] = "ctxpipe"
+  delete event.environment
+  delete event.service
+  delete event["service.namespace"]
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function moveAlias(
+  event: Record<string, unknown>,
+  from: string,
+  to: string,
+): void {
+  if (typeof event[from] === "string" && event[to] == null)
+    event[to] = event[from]
+  delete event[from]
+}
+
+const BODY_KEYS_OWNED_ELSEWHERE = [
+  "environment",
+  "service",
+  "service.namespace",
+  "traceId",
+  "spanId",
+] as const
+
+/** Drop resource and trace-column fields from the JSON body evlog embeds. */
+export function canonicalizeOtlpLogRecord(
+  record: OTLPLogRecord,
+): OTLPLogRecord {
+  const raw = record.body?.stringValue
+  if (!raw.startsWith("{")) return record
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    for (const key of BODY_KEYS_OWNED_ELSEWHERE) delete parsed[key]
+    record.body = { stringValue: JSON.stringify(parsed) }
+  } catch {
+    return record
+  }
+  return record
+}
+
+function otlpLogsPayload(
+  events: Record<string, unknown>[],
+  resource: Record<string, string>,
+) {
+  return {
+    resourceLogs: [
+      {
+        resource: {
+          attributes: Object.entries(resource).map(([key, value]) => ({
+            key,
+            value: { stringValue: value },
+          })),
+        },
+        scopeLogs: [
+          {
+            scope: { name: "evlog", version: "1.0.0" },
+            logRecords: events.map((event) =>
+              canonicalizeOtlpLogRecord(
+                toOTLPLogRecord(event as Parameters<typeof toOTLPLogRecord>[0]),
+              ),
+            ),
+          },
+        ],
+      },
+    ],
+  }
 }
 
 // --- Logger context (AsyncLocalStorage + getLogger) ---
@@ -180,8 +273,6 @@ export async function withLogger<T>(
             current.set({
               traceId: spanContext.traceId,
               spanId: spanContext.spanId,
-              environment: otelDeploymentEnvironment(),
-              "service.namespace": "ctxpipe",
             })
           }
         }
