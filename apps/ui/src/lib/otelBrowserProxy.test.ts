@@ -12,6 +12,21 @@ function sameOriginRequest(url: string, init: RequestInit = {}): Request {
   return new Request(url, { ...init, headers })
 }
 
+/** Browser hit the public backend; the UI process sees its private host. */
+function proxiedUiRequest(init: RequestInit = {}): Request {
+  const headers = new Headers(init.headers)
+  headers.set("x-forwarded-host", "backend-pr-343.up.railway.app")
+  headers.set("x-forwarded-proto", "https")
+  if (!headers.has("origin")) {
+    headers.set("origin", "https://backend-pr-343.up.railway.app")
+  }
+  return new Request("http://ui.railway.internal:3002/.otel/v1/traces", {
+    method: "POST",
+    ...init,
+    headers,
+  })
+}
+
 describe("proxyBrowserOtlp", () => {
   beforeEach(() => {
     process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT =
@@ -340,5 +355,125 @@ describe("proxyBrowserOtlp", () => {
     )
     expect(response.status).toBe(400)
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("accepts the public origin when the request host is the private UI host", async () => {
+    const response = await proxyBrowserOtlp(
+      proxiedUiRequest({
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      }),
+    )
+    expect(response.status).toBe(200)
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects a foreign origin even when forwarded host is the public site", async () => {
+    const response = await proxyBrowserOtlp(
+      proxiedUiRequest({
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://evil.example",
+        },
+        body: "{}",
+      }),
+    )
+    expect(response.status).toBe(403)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("accepts Origin that matches the request host when no forwarded host is set", async () => {
+    const response = await proxyBrowserOtlp(
+      new Request("https://app.example/.otel/v1/traces", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://app.example",
+        },
+        body: "{}",
+      }),
+    )
+    expect(response.status).toBe(200)
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects gzip when the forwarded public origin is valid", async () => {
+    const body = gzipSync(Buffer.alloc(64, 0x20))
+    const response = await proxyBrowserOtlp(
+      proxiedUiRequest({
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Encoding": "gzip",
+        },
+        body,
+      }),
+    )
+    expect(response.status).toBe(415)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("answers an empty body locally when the forwarded public origin is valid", async () => {
+    const response = await proxyBrowserOtlp(
+      proxiedUiRequest({
+        headers: { "Content-Type": "application/json" },
+      }),
+    )
+    expect(response.status).toBe(204)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("returns 400 for deep JSON when the forwarded public origin is valid", async () => {
+    let value: unknown = { stringValue: "https://app.example/a?token=1" }
+    for (let depth = 0; depth < 40; depth += 1) {
+      value = { arrayValue: { values: [value] } }
+    }
+    const response = await proxyBrowserOtlp(
+      proxiedUiRequest({
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resourceSpans: [
+            {
+              scopeSpans: [
+                {
+                  spans: [
+                    {
+                      name: "page_view",
+                      attributes: [{ key: "location.href", value }],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    )
+    expect(response.status).toBe(400)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("returns 429 after the burst when the forwarded public origin is valid", async () => {
+    for (let index = 0; index < 60; index += 1) {
+      const response = await proxyBrowserOtlp(
+        proxiedUiRequest({
+          headers: {
+            "Content-Type": "application/json",
+            "X-Forwarded-For": "203.0.113.88",
+          },
+          body: "{}",
+        }),
+      )
+      expect(response.status).toBe(200)
+    }
+    const blocked = await proxyBrowserOtlp(
+      proxiedUiRequest({
+        headers: {
+          "Content-Type": "application/json",
+          "X-Forwarded-For": "203.0.113.88",
+        },
+        body: "{}",
+      }),
+    )
+    expect(blocked.status).toBe(429)
   })
 })

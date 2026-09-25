@@ -155,4 +155,34 @@ describe("UI fallback proxy for unmatched backend routes", () => {
       body,
     })
   })
+
+  it("tells the UI the public host instead of a client forwarded host", async () => {
+    let forwardedHost: string | null = null
+    let forwardedProto: string | null = null
+    let host: string | null = null
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const upstreamRequest = new Request(input, init)
+      forwardedHost = upstreamRequest.headers.get("x-forwarded-host")
+      forwardedProto = upstreamRequest.headers.get("x-forwarded-proto")
+      host = upstreamRequest.headers.get("host")
+      return new Response("ok", { status: 200 })
+    })
+    const app = createApp()
+    const res = await app.request(
+      "https://backend-pr-343.up.railway.app/.otel/v1/traces",
+      {
+        method: "POST",
+        headers: {
+          origin: "https://backend-pr-343.up.railway.app",
+          "content-type": "application/json",
+          "x-forwarded-host": "evil.example",
+        },
+        body: "{}",
+      },
+    )
+    expect(res.status).toBe(200)
+    expect(forwardedHost).toBe("backend-pr-343.up.railway.app")
+    expect(forwardedProto).toBe("https")
+    expect(host).toBe("ui:3002")
+  })
 })

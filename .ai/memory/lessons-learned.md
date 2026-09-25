@@ -706,3 +706,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** workflow
 - **Date:** 2026-09-25
 - **Source:** PR-343 railway-telemetry build from `main` after adding RAILWAY_API_TOKEN; Railway agent auto-deploy check
+
+### The UI is reached through the backend proxy, which rewrites Host
+- **Rule:** Browsers load the app from the backend origin; the backend proxies SPA and `/.otel` routes to `UI_PROXY_URL`, so inside `apps/ui` server handlers `request.url`/`Host` is the internal UI host, not the public origin. Any origin, CSRF, redirect, or absolute-URL logic in `apps/ui` must derive the public origin from the forwarded host/proto the backend proxy sets (or from the backend's configured public URL), and must be tested with a proxied request (internal Host + public Origin), not only with Origin == Host.
+- **Category:** convention
+- **Date:** 2026-09-25
+- **Source:** PR-343 `/.otel` same-origin check rejected every browser telemetry post on pr-343 (403) after deploy

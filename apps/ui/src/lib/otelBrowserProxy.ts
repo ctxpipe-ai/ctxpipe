@@ -47,22 +47,51 @@ function takeRateToken(ip: string): boolean {
   return true
 }
 
-function hostOf(value: string): string | null {
+function headerFirst(value: string | null): string {
+  return value?.split(",")[0]?.trim() ?? ""
+}
+
+/**
+ * Behind the backend SPA proxy, `request.url` is the private UI host.
+ * `X-Forwarded-Host` is set by that proxy from the public request URL.
+ * Direct UI access (local Vite) has no forwarded host, so the request host is used.
+ */
+export function browserFacingOrigin(request: Request): string | null {
+  const forwardedHost = headerFirst(request.headers.get("x-forwarded-host"))
+  if (forwardedHost) {
+    const proto =
+      headerFirst(request.headers.get("x-forwarded-proto")) || "https"
+    try {
+      return new URL(`${proto}://${forwardedHost}`).origin
+    } catch {
+      return null
+    }
+  }
   try {
-    return new URL(value).host
+    return new URL(request.url).origin
   } catch {
     return null
   }
 }
 
 function isSameOrigin(request: Request): boolean {
-  const host = hostOf(request.url)
-  if (!host) return false
+  const expected = browserFacingOrigin(request)
+  if (!expected) return false
   const origin = request.headers.get("origin")
-  if (origin) return hostOf(origin) === host
+  if (origin) {
+    try {
+      return new URL(origin).origin === expected
+    } catch {
+      return false
+    }
+  }
   const referer = request.headers.get("referer")
-  if (referer) return hostOf(referer) === host
-  return false
+  if (!referer) return false
+  try {
+    return new URL(referer).origin === expected
+  } catch {
+    return false
+  }
 }
 
 function rejectedContentEncoding(request: Request): boolean {

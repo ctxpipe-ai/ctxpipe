@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { isViteHmrWebSocketRequest } from "./ui.js"
+import { isViteHmrWebSocketRequest, uiProxyUpstreamHeaders } from "./ui.js"
 
 describe("UI websocket proxy helpers", () => {
   it("detects vite websocket upgrades in development", () => {
@@ -48,5 +48,37 @@ describe("UI websocket proxy helpers", () => {
     })
 
     expect(isViteHmrWebSocketRequest(request, "production")).toBe(false)
+  })
+})
+
+describe("uiProxyUpstreamHeaders", () => {
+  it("replaces a spoofed forwarded host with the request host", () => {
+    const headers = uiProxyUpstreamHeaders(
+      new URL("https://backend-pr-343.up.railway.app/.otel/v1/traces"),
+      new Headers({
+        origin: "https://backend-pr-343.up.railway.app",
+        "x-forwarded-host": "evil.example",
+        "x-forwarded-proto": "http",
+      }),
+      "ui.railway.internal:3002",
+    )
+    expect(headers.get("x-forwarded-host")).toBe(
+      "backend-pr-343.up.railway.app",
+    )
+    expect(headers.get("x-forwarded-proto")).toBe("https")
+    expect(headers.get("host")).toBe("ui.railway.internal:3002")
+    expect(headers.get("origin")).toBe("https://backend-pr-343.up.railway.app")
+  })
+
+  it("keeps https from the edge when the backend request URL is http", () => {
+    const headers = uiProxyUpstreamHeaders(
+      new URL("http://backend-pr-343.up.railway.app/.otel/v1/traces"),
+      new Headers({ "x-forwarded-proto": "https" }),
+      "ui.railway.internal:3002",
+    )
+    expect(headers.get("x-forwarded-host")).toBe(
+      "backend-pr-343.up.railway.app",
+    )
+    expect(headers.get("x-forwarded-proto")).toBe("https")
   })
 })
