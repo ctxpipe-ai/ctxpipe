@@ -11,6 +11,7 @@ import { client } from "@/lib/api"
 export const GITHUB_SETUP_RESULT_KEY = "github-setup-result"
 export const GITHUB_SETUP_ORG_HINT_KEY = "github-setup-org-hint"
 export const NOTION_SETUP_RESULT_KEY = "notion-setup-result"
+export const PAGERDUTY_SETUP_RESULT_KEY = "pagerduty-setup-result"
 /** Draft `con_*` id for wizard: popup callback merges install with this row. */
 export const GITHUB_DRAFT_CONNECTION_KEY = "github-draft-connection-id"
 export const GITHUB_POPUP_FLOW_KEY = "github-popup-flow"
@@ -32,9 +33,15 @@ export type NotionSetupPopupResult =
   | { status: "connected"; connectionId: string }
   | { status: "error"; error: string }
 
+export type PagerdutySetupPopupResult =
+  | { status: "no_result" }
+  | { status: "connected"; connectionId: string }
+  | { status: "error"; error: string }
+
 /** Window name used when opening the GitHub app install popup. */
 export const GITHUB_POPUP_NAME = "github-app-install"
 export const NOTION_POPUP_NAME = "ctxpipe-notion-connect"
+export const PAGERDUTY_POPUP_NAME = "ctxpipe-pagerduty-connect"
 export const GITHUB_SETUP_RESULT_MESSAGE = "ctxpipe-github-setup-result"
 
 function safeNowMs() {
@@ -365,6 +372,33 @@ export function consumeNotionSetupPopupResult(): NotionSetupPopupResult {
     }
   } catch {
     return { status: "error", error: "Failed to read Notion setup result" }
+  }
+
+  return { status: "no_result" }
+}
+
+export function consumePagerdutySetupPopupResult(): PagerdutySetupPopupResult {
+  const raw = localStorage.getItem(PAGERDUTY_SETUP_RESULT_KEY)
+  localStorage.removeItem(PAGERDUTY_SETUP_RESULT_KEY)
+  if (!raw) return { status: "no_result" }
+
+  try {
+    const parsed = JSON.parse(raw) as {
+      connectionId?: unknown
+      error?: unknown
+      type?: unknown
+    }
+    if (parsed.type === "pagerduty-oauth-error" && typeof parsed.error === "string") {
+      return { status: "error", error: parsed.error }
+    }
+    if (typeof parsed.connectionId === "string" && parsed.connectionId) {
+      return { status: "connected", connectionId: parsed.connectionId }
+    }
+    if (typeof parsed.error === "string" && parsed.error) {
+      return { status: "error", error: parsed.error }
+    }
+  } catch {
+    return { status: "error", error: "Failed to read PagerDuty setup result" }
   }
 
   return { status: "no_result" }

@@ -2,7 +2,7 @@
 
 Internal ops stack. **Not** part of the product Railway project or [`infra/module/ctxpipe`](../../infra/module/ctxpipe). Hosted as Railway project `ctxpipe-observability` (`305aa114-c6f3-4aca-b883-0faa9c331aa2`, `has_pr_deploys = false`, region `us-east4-eqdc4a`). Product apps (prod + every `pr-N`) send **OTLP HTTP** here.
 
-See [ADR-031](../../.ai/memory/decisions/ADR-031-self-hosted-clickstack-langfuse.md).
+See [ADR-038](../../.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md).
 
 ## What runs
 

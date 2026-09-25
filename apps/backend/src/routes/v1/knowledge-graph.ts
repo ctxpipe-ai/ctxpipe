@@ -4,6 +4,8 @@ import {
   requireCurrentOrgId,
   requireCurrentOrgSlug,
 } from "../../auth/context.js"
+import { withOrgDbContext } from "../../db/client.js"
+import { computeKnowledgeGraphQuality } from "../../domain/knowledgeGraphQuality.js"
 import { getKnowledgeGraphSnapshot } from "../../domain/knowledgeGraphSnapshot.js"
 import { getLogger } from "../../observability/logger.js"
 
@@ -90,9 +92,52 @@ export const getKnowledgeGraphRoute = createRoute({
   },
 })
 
-export const knowledgeGraphRoutes = new OpenAPIHono<AppEnv>().openapi(
-  getKnowledgeGraphRoute,
-  async (c) => {
+const KnowledgeGraphQualitySchema = z
+  .object({
+    totalObjects: z.number().int(),
+    totalClaims: z.number().int(),
+    multiSourceObjects: z.number().int(),
+    joinDensity: z.number(),
+    orphanObjects: z.number().int(),
+    orphanRate: z.number(),
+    evidenceRowsPerClaim: z.number(),
+    connectorInstructionUnits: z.number().int(),
+    kinds: z.record(z.string(), z.number().int()),
+    predicates: z.record(z.string(), z.number().int()),
+  })
+  .openapi("KnowledgeGraphQuality")
+
+export const getKnowledgeGraphQualityRoute = createRoute({
+  method: "get",
+  path: "/quality",
+  summary: "Graph health metrics (join density, orphans, evidence per claim)",
+  responses: {
+    200: {
+      content: { "application/json": { schema: KnowledgeGraphQualitySchema } },
+      description: "Postgres-derived graph quality metrics for the current org",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+  },
+})
+
+export const knowledgeGraphRoutes = new OpenAPIHono<AppEnv>()
+  .openapi(getKnowledgeGraphQualityRoute, async (c) => {
+    // Sessions and org API keys may read quality (the A/B harness uses a key).
+    const user = c.get("user")
+    const session = c.get("session")
+    if (!(user && session) && !c.get("orgApiKey")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = requireCurrentOrgId()
+    const quality = await withOrgDbContext(orgId, (db) =>
+      computeKnowledgeGraphQuality(db, orgId),
+    )
+    return c.json(quality, 200)
+  })
+  .openapi(getKnowledgeGraphRoute, async (c) => {
     const user = c.get("user")
     const session = c.get("session")
     if (!user || !session) {

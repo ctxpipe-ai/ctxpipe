@@ -1,4 +1,4 @@
-# ADR-031: Self-hosted ClickStack + Langfuse (ops observability)
+# ADR-038: Self-hosted ClickStack + Langfuse (ops observability)
 
 **Status:** Accepted | **Date:** 2026-09-21 | **Tags:** observability, railway, clickhouse, langfuse, hyperdx, otel
 

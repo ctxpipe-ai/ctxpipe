@@ -1,6 +1,6 @@
 {
   "name": "ctxpipe",
-  "version": "0.3.4",
+  "version": "0.5.1",
   "description": "Universal ctx| CLI for initializing repositories and agent integrations.",
   "type": "module",
   "bin": {

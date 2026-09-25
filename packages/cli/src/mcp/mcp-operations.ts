@@ -237,38 +237,31 @@ export function buildMemoryArtifactOperations({
       content: () => AI_MEMORY_RULE,
     },
     { type: "mkdir", path: skillsRoot, description: "create .cursor/skills" },
-    // Always refresh managed skills so upgrades pick up lifecycle/recall guidance.
-    {
-      type: "write-text",
-      path: resolve(skillsRoot, "capture-adr", "SKILL.md"),
-      description: "install capture-adr skill",
-      content: () => SKILL_CAPTURE_ADR,
-    },
-    {
-      type: "write-text",
-      path: resolve(skillsRoot, "capture-lesson", "SKILL.md"),
-      description: "install capture-lesson skill",
-      content: () => SKILL_CAPTURE_LESSON,
-    },
-    {
-      type: "write-text",
-      path: resolve(skillsRoot, "capture-glossary", "SKILL.md"),
-      description: "install capture-glossary skill",
-      content: () => SKILL_CAPTURE_GLOSSARY,
-    },
-    {
-      type: "write-text",
-      path: resolve(skillsRoot, "capture-decision", "SKILL.md"),
-      description: "install capture-decision skill",
-      content: () => SKILL_CAPTURE_DECISION,
-    },
-    {
-      type: "write-text",
-      path: resolve(skillsRoot, "memory-search", "SKILL.md"),
-      description: "install memory-search skill (Markdown + rg)",
-      content: () => SKILL_MEMORY_SEARCH,
-    },
+    ...buildMemorySkillOperations(skillsRoot, context),
   ]
+}
+
+/** Managed skills; always refreshed so upgrades pick up lifecycle/recall guidance. */
+export function buildMemorySkillOperations(
+  skillsRoot: string,
+  context: OperationContext,
+): WriteTextOperation[] {
+  const skills: Array<[string, string]> = [
+    ["capture-adr", SKILL_CAPTURE_ADR],
+    ["capture-lesson", SKILL_CAPTURE_LESSON],
+    ["capture-glossary", SKILL_CAPTURE_GLOSSARY],
+    ["capture-decision", SKILL_CAPTURE_DECISION],
+    ["memory-search", SKILL_MEMORY_SEARCH],
+  ]
+  return skills.map(([name, content]) => {
+    const path = resolve(skillsRoot, name, "SKILL.md")
+    return {
+      type: "write-text",
+      path,
+      description: `install ${name} skill at ${relativePath(path, context.cwd)}`,
+      content: () => content,
+    }
+  })
 }
 
 const API_KEY_ENV = "CTXPIPE_API_KEY"

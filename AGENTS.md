@@ -4,12 +4,12 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 - **Root** (this file): architecture, code style.
 - **apps/backend**: [apps/backend/AGENTS.md](apps/backend/AGENTS.md) — API, OpenAPI, MCP, Drizzle, TypeScript, etc. **[Source-connectors skill](.agents/skills/source-connectors/)** when designing, building, or reviewing a source connector (Linear, Notion, Slack, git-native mirror/capture, `connections.config`, self-host).
-- **apps/otel-collector**: OpenTelemetry Collector for laptop / contrib; hosted ingest is [`ops/observability`](ops/observability/) ([ADR-031](.ai/memory/decisions/ADR-031-self-hosted-clickstack-langfuse.md)).
+- **apps/otel-collector**: OpenTelemetry Collector for laptop / contrib; hosted ingest is [`ops/observability`](ops/observability/) ([ADR-038](.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md)).
 - **apps/codesearch**: [apps/codesearch/AGENTS.md](apps/codesearch/AGENTS.md) — Zoekt/SCIP orchestration, read-only DB, OpenAPI + Zod, and the manual Kubernetes ingest memory gate.
 - **apps/ui**: [apps/ui/AGENTS.md](apps/ui/AGENTS.md) — TanStack Start frontend, React Aria, Tailwind, Storybook, Vitest; **[React skill](.agents/skills/react/)** when building or editing components; **[product-ui skill](.agents/skills/product-ui/)** and [DESIGN.md](apps/ui/DESIGN.md) when building or restyling product screens.
 - **apps/docs**: [apps/docs/AGENTS.md](apps/docs/AGENTS.md) — Fumadocs documentation site (Next.js 15, Shiki, forced-dark, deploys to docs.ctxpipe.ai).
 - **examples/**: runnable consumer examples for ctxpipe packages (manual e2e tests against real infra). See [examples/README.md](examples/README.md); first entry is [examples/aws-cdk-self-host](examples/aws-cdk-self-host) for `@ctxpipe-ai/aws-cdk` on AWS.
-- **ops/observability**: internal ClickStack + Langfuse Railway project (not product deploy). See [ops/observability/README.md](ops/observability/README.md) and [ADR-031](.ai/memory/decisions/ADR-031-self-hosted-clickstack-langfuse.md).
+- **ops/observability**: internal ClickStack + Langfuse Railway project (not product deploy). See [ops/observability/README.md](ops/observability/README.md) and [ADR-038](.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md).
 - **plugins/ctxpipe**: Claude plugin for the hosted product MCP. See [ADR-026](.ai/memory/decisions/ADR-026-claude-plugin-mcp-distribution.md).
 
 **MCP (project-scoped):** Config lives at [`.cursor/mcp.json`](.cursor/mcp.json) (same file as [`.agents/mcp.json`](.agents/mcp.json) via the `.agents` → `.cursor` symlink). Two kinds of servers:
@@ -75,7 +75,7 @@ Every adversarial review of a diff is three Sol axes — **Standards**, **Spec**
 
 ## Local development
 
-- **Docker Compose**: Single [docker-compose.yml](docker-compose.yml) uses **profiles** (see [.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md](.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)). **`pnpm dev:infra`** runs `docker compose --profile infra up -d` (Postgres, FalkorDB, OTEL only). **`pnpm start`** runs `docker compose --profile deploy up -d` (production images: migrate, backend, worker, UI, codesearch). For day-to-day coding, **`pnpm dev`** runs backend + UI on the host (portless + Turbo) and **codesearch in Docker** ([`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh): `start.sh` = Zoekt + API, random host port → **`CODESEARCH_URL`**). Override host ports via **`CTXPIPE_*`** — [docker-compose.env.example](docker-compose.env.example). Hosted OTEL is [`ops/observability`](ops/observability/) ([ADR-031](.ai/memory/decisions/ADR-031-self-hosted-clickstack-langfuse.md)).
+- **Docker Compose**: Single [docker-compose.yml](docker-compose.yml) uses **profiles** (see [.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md](.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)). **`pnpm dev:infra`** runs `docker compose --profile infra up -d` (Postgres, FalkorDB, OTEL only). **`pnpm start`** runs `docker compose --profile deploy up -d` (production images: migrate, backend, worker, UI, codesearch). For day-to-day coding, **`pnpm dev`** runs backend + UI on the host (portless + Turbo) and **codesearch in Docker** ([`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh): `start.sh` = Zoekt + API, random host port → **`CODESEARCH_URL`**). Override host ports via **`CTXPIPE_*`** — [docker-compose.env.example](docker-compose.env.example). Hosted OTEL is [`ops/observability`](ops/observability/) ([ADR-038](.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md)).
 
 ### Cursor Cloud specific instructions
 
@@ -169,6 +169,7 @@ Durable agent memory is **Markdown-only** under **[.ai/memory/](.ai/memory/)**. 
 - **Setup**: `npx ctxpipe memory init --agents cursor,…` seeds layout, always-apply rule, capture skills, and host hooks (no remote ctxpipe MCP; no local memory MCP). Full init with memory: `npx ctxpipe init --memory`.
 - **CLI**: `ctxpipe memory init` · `ctxpipe memory capture observe|summary` (hooks) · `ctxpipe memory status|doctor`.
 - **Rules**: never commit secrets; never auto-write durable ADRs from hooks; prefer [`lessons-learned.md`](.ai/memory/lessons-learned.md) for confirmed conventions.
+- **Commit and share**: include `.ai/memory/` changes in the commit for the work they came from, on that branch; summarize the work in the PR description. Merged lessons become graph instructions ([ADR-037](.ai/memory/decisions/ADR-037-committed-memory-reaches-the-graph.md)).
 
 ## Code style
 
@@ -208,4 +209,7 @@ npx -y ctxpipe memory capture promote <candidateId>
 # or: npx -y ctxpipe memory capture dismiss <candidateId>
 npx -y ctxpipe memory capture summary
 ```
+
+Commit `.ai/memory/` changes with the work they came from, on that work's branch, and
+summarize the work in its pull request description (what changed, why, what was ruled out).
 <!-- END ctxpipe-memory-capture -->

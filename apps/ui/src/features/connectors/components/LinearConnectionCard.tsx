@@ -13,12 +13,13 @@ import {
 import {
   getLinearCardPrimaryCta,
   getLinearSetupCurrentIndex,
+  getLinearSetupSteps,
   getLinearStatusRefetchInterval,
-  LINEAR_SETUP_STEPS,
 } from "../linear-setup-model"
 import {
   deleteLinearConnector,
   fetchLinearConnectorStatus,
+  fetchLinearOauthApp,
   linearConnectorKeys,
 } from "../queries/linear-connector"
 import { orgConnectionsKeys } from "../queries/org-connections"
@@ -52,6 +53,10 @@ export function LinearConnectionCard({
         ? false
         : getLinearStatusRefetchInterval(query.state.data),
   })
+  const oauthQuery = useQuery({
+    queryKey: linearConnectorKeys.oauthApp(orgSlug, connectionId),
+    queryFn: () => fetchLinearOauthApp(orgSlug, connectionId),
+  })
   const removeMutation = useMutation({
     mutationFn: () => deleteLinearConnector(orgSlug, connectionId),
     onSuccess: async () => {
@@ -70,10 +75,12 @@ export function LinearConnectionCard({
   })
 
   const status = statusQuery.data
+  const oauthMeta = oauthQuery.data
   const complete = status
-    ? getLinearSetupCurrentIndex(status) >= LINEAR_SETUP_STEPS.length
+    ? getLinearSetupCurrentIndex(status, oauthMeta) >=
+      getLinearSetupSteps(oauthMeta).length
     : false
-  const primary = status ? getLinearCardPrimaryCta(status) : null
+  const primary = status ? getLinearCardPrimaryCta(status, oauthMeta) : null
   const health = resolveConnectorHealth({
     statusError: statusQuery.isError,
     checking: statusQuery.isPending || !status,

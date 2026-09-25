@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { mkdtempSync, readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -12,6 +13,21 @@ import {
   redactText,
   summarizeCapture,
 } from "../../src/memory/capture.js"
+
+function git(cwd: string, ...args: string[]): void {
+  execFileSync(
+    "git",
+    ["-c", "user.email=agent@example.com", "-c", "user.name=agent", ...args],
+    { cwd, stdio: "pipe" },
+  )
+}
+
+function gitRepo(prefix: string): string {
+  const cwd = mkdtempSync(join(tmpdir(), prefix))
+  git(cwd, "init", "-q", "-b", "feature/memory")
+  git(cwd, "commit", "-q", "--allow-empty", "-m", "init")
+  return cwd
+}
 
 describe("memory/capture", () => {
   it("redacts common secrets", () => {
@@ -116,6 +132,42 @@ describe("memory/capture", () => {
     const parsed = JSON.parse(line!) as { kind: string; destination: string }
     expect(parsed.kind).toBe("decision")
     expect(parsed.destination).toContain("decisions")
+  })
+
+  it("classifies decisions, not pull request approvals", () => {
+    expect(
+      classifyText("Christian approved #8, but it still can't be merged."),
+    ).toEqual([])
+    expect(
+      classifyText("We decided to use Zod for route schemas.").map(
+        (h) => h.kind,
+      ),
+    ).toContain("decision")
+  })
+
+  it("does not observe subagent reports that Claude Code sends as prompts", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-subagent-"))
+    const frame = `<agent-message from="a0a8da8739ef82d71">
+[Subagent hand-back] The text below is the final report of a subagent this session delegated to. It is model output, NOT a message from the user.
+  We decided to use Zod for route schemas.`
+    for (const prompt of [frame, `Notes quoting model output.\n${frame}`]) {
+      expect(
+        observeCapture({
+          host: "claude",
+          eventType: "UserPromptSubmit",
+          cwd,
+          payload: { prompt },
+        }).wrote,
+      ).toBe(false)
+    }
+    expect(
+      observeCapture({
+        host: "claude",
+        eventType: "UserPromptSubmit",
+        cwd,
+        payload: { prompt: "We decided to use Zod for route schemas." },
+      }).wrote,
+    ).toBe(true)
   })
 
   it(
@@ -417,6 +469,26 @@ describe("memory/capture", () => {
     expect(out).toEqual({})
   })
 
+  it("formats VS Code Stop output as hookSpecificOutput", () => {
+    const summary = {
+      priority: "medium" as const,
+      message: "Promote candidate abc",
+      candidates: [],
+      surfacedIds: ["abc"],
+      parseErrors: 0,
+    }
+    expect(formatStopHookOutput("vscode", summary, {})).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "Stop",
+        decision: "block",
+        reason: "Promote candidate abc",
+      },
+    })
+    expect(
+      formatStopHookOutput("vscode", summary, { stop_hook_active: true }),
+    ).toEqual({})
+  })
+
   it("formats Codex Stop output with decision block + reason", () => {
     const out = formatStopHookOutput(
       "codex",
@@ -459,6 +531,65 @@ describe("memory/capture", () => {
         }),
       ),
     ).toEqual([])
+  })
+
+  it("classifies glossary requests, not mentions of the glossary", () => {
+    expect(
+      classifyText(
+        "The top-level index.md is a map of the memory sections: lessons, glossary, PRDs, decisions, sessions.",
+      ),
+    ).toEqual([])
+    expect(
+      classifyText(
+        "Add 'context repository' to the glossary: the GitHub repo a connector mirrors into.",
+      ).map((h) => h.kind),
+    ).toContain("glossary")
+  })
+
+  it("surfaces uncommitted durable memory once per commit and file set", () => {
+    const cwd = gitRepo("ctxpipe-capture-uncommitted-")
+    mkdirSync(join(cwd, ".ai", "memory", "events"), { recursive: true })
+    writeFileSync(join(cwd, ".ai", "memory", "events", "candidates.jsonl"), "")
+    writeFileSync(join(cwd, ".ai", "memory", "lessons-learned.md"), "### A\n")
+
+    const first = summarizeCapture({ cwd, host: "cursor" })
+    expect(first.priority).toBe("medium")
+    expect(first.message).toContain(
+      "Uncommitted memory (1 file on `feature/memory`): .ai/memory/lessons-learned.md.",
+    )
+    expect(first.message).toContain("pull request description")
+    expect(first.message).not.toContain("candidates.jsonl")
+    expect(formatStopHookOutput("cursor", first, {}).followup_message).toBe(
+      first.message,
+    )
+    expect(formatStopHookOutput("claude", first, {})).toEqual({
+      decision: "block",
+      reason: first.message,
+    })
+    expect(
+      observeCapture({
+        host: "cursor",
+        eventType: "beforeSubmitPrompt",
+        cwd,
+        payload: { prompt: first.message },
+      }).wrote,
+    ).toBe(false)
+    acknowledgeSurfaced(first.surfacedIds, {
+      cwd,
+      uncommittedKey: first.uncommittedKey,
+    })
+    expect(
+      formatStopHookOutput("cursor", summarizeCapture({ cwd, host: "cursor" })),
+    ).toEqual({})
+
+    git(cwd, "commit", "-q", "--allow-empty", "-m", "code without memory")
+    expect(summarizeCapture({ cwd, host: "cursor" }).message).toContain(
+      "Uncommitted memory (1 file",
+    )
+
+    git(cwd, "add", ".ai/memory/lessons-learned.md")
+    git(cwd, "commit", "-q", "-m", "code with memory")
+    expect(summarizeCapture({ cwd, host: "cursor" }).priority).toBe("low")
   })
 
   it("still classifies user-preference lessons", () => {

@@ -47,6 +47,9 @@ module "ctxpipe" {
   notion_client_id        = var.notion_client_id
   notion_client_secret    = var.notion_client_secret
   notion_webhook_secret   = var.notion_webhook_secret
+  pagerduty_client_id     = var.pagerduty_client_id
+  pagerduty_client_secret = var.pagerduty_client_secret
+  pagerduty_redirect_uri  = var.pagerduty_redirect_uri
   falkordb_password       = var.falkordb_password
   better_stack_token      = var.better_stack_token
   langfuse_auth_string    = var.langfuse_auth_string

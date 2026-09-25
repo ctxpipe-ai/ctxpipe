@@ -2,8 +2,8 @@ import type { Hono } from "hono"
 import type { AppEnv } from "../app/env.js"
 import {
   requireAuth,
-  withBearerAuth,
   withCookieAuth,
+  withMcpBearerAuth,
   withNetworkOrgContext,
   withOrgApiKeyAuth,
 } from "../auth/withAuth.js"
@@ -17,9 +17,9 @@ export function registerMcpRoutes(app: Hono<AppEnv>) {
   app.all(
     "/mcp",
     (c, next) => rejectInvalidMcpOrigin(c) ?? next(),
+    withMcpBearerAuth,
     withCookieAuth,
     withOrgApiKeyAuth,
-    withBearerAuth,
     requireAuth,
     withNetworkOrgContext,
     (c) => handleMcpTransportRequest(c, registerMcpTools),

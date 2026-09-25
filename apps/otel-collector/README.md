@@ -1,6 +1,6 @@
 # OpenTelemetry Collector (laptop / contrib)
 
-Shared OpenTelemetry Collector for local docker compose (optional Better Stack + LangFuse). **Hosted ingest** is the ClickStack collector under [`ops/observability/collector`](../../ops/observability/collector) ([ADR-031](../../.ai/memory/decisions/ADR-031-self-hosted-clickstack-langfuse.md)). Keep the `filter/llm_only` allowlist in sync with that file.
+Shared OpenTelemetry Collector for local docker compose (optional Better Stack + LangFuse). **Hosted ingest** is the ClickStack collector under [`ops/observability/collector`](../../ops/observability/collector) ([ADR-038](../../.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md)). Keep the `filter/llm_only` allowlist in sync with that file.
 
 ## Trace pipelines
 

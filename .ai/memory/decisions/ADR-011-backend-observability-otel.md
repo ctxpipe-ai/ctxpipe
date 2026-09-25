@@ -4,7 +4,7 @@
 
 ### Context
 
-We need observability for the backend: APM (traces), LLM observability, and structured logs. Internal use targets **ClickStack / HyperDX** (logs, traces, metrics) and **self-hosted Langfuse** (LLM spans) in Railway project `ctxpipe-observability` ([ADR-031](ADR-031-self-hosted-clickstack-langfuse.md)). Self-hosting users may choose different tools (Jaeger, Grafana, Datadog, etc.). All configuration must be via environment variables.
+We need observability for the backend: APM (traces), LLM observability, and structured logs. Internal use targets **ClickStack / HyperDX** (logs, traces, metrics) and **self-hosted Langfuse** (LLM spans) in Railway project `ctxpipe-observability` ([ADR-038](ADR-038-self-hosted-clickstack-langfuse.md)). Self-hosting users may choose different tools (Jaeger, Grafana, Datadog, etc.). All configuration must be via environment variables.
 
 ### Decision
 
@@ -39,4 +39,4 @@ We need observability for the backend: APM (traces), LLM observability, and stru
 - See `apps/backend/src/observability/otel.ts`, `evlog.ts`, `langfuse.ts`, [`ops/observability/collector/config.yaml`](../../../ops/observability/collector/config.yaml) (hosted), and `apps/otel-collector/config.yaml` (laptop reference).
 - Env vars: `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_SERVICE_NAME`.
 - LangFuse integration: `runWithLangfuseContext` wraps graph invocations and adds `env:<deployment>` tags; nodes call `getLangfuseHandler()` in callbacks.
-- PR vs prod metric readers: [ADR-031](ADR-031-self-hosted-clickstack-langfuse.md).
+- PR vs prod metric readers: [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md).

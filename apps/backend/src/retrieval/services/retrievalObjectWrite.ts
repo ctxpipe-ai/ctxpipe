@@ -25,6 +25,9 @@ export function computeEmbeddingSearchContentForObject(
     summary?: string
     intent?: string
     source_excerpt?: string
+    identifier?: string
+    excerpt?: string
+    labels?: unknown[]
   }
   if (kind === "InstructionUnit") {
     const excerpt =
@@ -39,8 +42,29 @@ export function computeEmbeddingSearchContentForObject(
     ].filter((s): s is string => typeof s === "string" && s.length > 0)
     return parts.join("\n\n").trim()
   }
-  const parts = [p.name, p.summary].filter(Boolean) as string[]
-  return parts.join(" ").trim()
+  const base = ([p.name, p.summary].filter(Boolean) as string[])
+    .join(" ")
+    .trim()
+  const extra = [
+    typeof p.identifier === "string" ? p.identifier : "",
+    Array.isArray(p.labels)
+      ? p.labels.filter((l): l is string => typeof l === "string").join(" ")
+      : "",
+    typeof p.excerpt === "string" ? p.excerpt.slice(0, 2_000) : "",
+  ].filter((s) => s.length > 0)
+  if (extra.length === 0) return base
+  return [base, ...extra]
+    .filter((s) => s.length > 0)
+    .join("\n")
+    .trim()
+}
+
+/** Consumer-inferred API stubs and reference-inferred PR / Issue stubs. */
+function isStubPayload(payload: Record<string, unknown>): boolean {
+  return (
+    payload.inferredFromConsumer === true ||
+    payload.inferredFromReference === true
+  )
 }
 
 /**
@@ -51,11 +75,16 @@ export function mergeRetrievalObjectPayloads(
   existing: Record<string, unknown>,
   incoming: Record<string, unknown>,
 ): Record<string, unknown> {
-  if (incoming.inferredFromConsumer === true) {
+  if (isStubPayload(incoming)) {
     return { ...incoming, ...existing }
   }
-  if (existing.inferredFromConsumer === true) {
-    return { ...existing, ...incoming }
+  if (isStubPayload(existing)) {
+    const {
+      inferredFromConsumer: _c,
+      inferredFromReference: _r,
+      ...rest
+    } = existing
+    return { ...rest, ...incoming }
   }
   return { ...existing, ...incoming }
 }

@@ -8,12 +8,14 @@ import {
   envelopesCompatible,
   instructionSourceTier,
   isInstructionCandidatePath,
+  isInstructionSourcePath,
   isRepoRootInstructionPath,
   LlmUnitsResponseSchema,
   looksEphemeral,
   resolveInstructionSubmissionRoot,
-  sortInstructionCandidates,
   SOURCE_EXCERPT_MAX_LENGTH,
+  sortInstructionCandidates,
+  splitForExtraction,
 } from "./extractInstructionUnits.js"
 
 describe("extractInstructionUnits helpers", () => {
@@ -22,7 +24,45 @@ describe("extractInstructionUnits helpers", () => {
     expect(isRepoRootInstructionPath(".cursor/rules/x.md")).toBe(true)
     expect(isRepoRootInstructionPath(".agents/rules/x.mdc")).toBe(true)
     expect(isRepoRootInstructionPath("docs/README.md")).toBe(true)
+    expect(isRepoRootInstructionPath(".ai/memory/lessons-learned.md")).toBe(
+      true,
+    )
     expect(isRepoRootInstructionPath("apps/ui/README.md")).toBe(false)
+  })
+
+  it("isInstructionSourcePath keeps files whose purpose is to instruct and drops other Markdown", () => {
+    const roots = ["./", "apps/backend", "packages/shared"]
+    for (const keep of [
+      "AGENTS.md",
+      "apps/backend/AGENTS.md",
+      "CLAUDE.md",
+      ".cursor/rules/style.mdc",
+      ".agents/skills/deploy/SKILL.md",
+      "CONTRIBUTING.md",
+      "apps/backend/CONTRIBUTING.md",
+      "README.md",
+      "apps/backend/README.md",
+      "docs/engineering-standards.md",
+      "apps/backend/docs/coding-guidelines.md",
+      "docs/release-process.md",
+      ".ai/memory/lessons-learned.md",
+    ]) {
+      expect(isInstructionSourcePath(keep, roots), keep).toBe(true)
+    }
+    for (const drop of [
+      "src/components/Button/README.md",
+      "docs/architecture-overview.md",
+      "docs/blog/2026-01-launch.md",
+      "CHANGELOG.md",
+      "docs/adr/0007-domain-logic.md",
+      ".ai/memory/decisions/ADR-031-github-pr-scoped-mirror.md",
+      ".ai/memory/glossary.md",
+      ".ai/memory/sessions/2026-09-24-spike.md",
+      "apps/backend/src/graphs/codeIngestionGraph/nodes/README.md",
+      "notes/todo.md",
+    ]) {
+      expect(isInstructionSourcePath(drop, roots), drop).toBe(false)
+    }
   })
 
   it("isInstructionCandidatePath includes .agents rules, .mdc, and skills/SKILL.md", () => {
@@ -32,9 +72,9 @@ describe("extractInstructionUnits helpers", () => {
     expect(isInstructionCandidatePath(".cursor/rules/project-memory.mdc")).toBe(
       true,
     )
-    expect(isInstructionCandidatePath(".agents/skills/drizzle-migrations/SKILL.md")).toBe(
-      true,
-    )
+    expect(
+      isInstructionCandidatePath(".agents/skills/drizzle-migrations/SKILL.md"),
+    ).toBe(true)
     expect(isInstructionCandidatePath("apps/foo/README.md")).toBe(true)
     expect(isInstructionCandidatePath("apps/foo/SKILL.md")).toBe(false)
   })
@@ -43,7 +83,40 @@ describe("extractInstructionUnits helpers", () => {
     expect(instructionSourceTier(".agents/rules/a.mdc")).toBe(1)
     expect(instructionSourceTier(".agents/skills/x/SKILL.md")).toBe(1)
     expect(instructionSourceTier("CONTRIBUTING.md")).toBe(2)
+    expect(instructionSourceTier(".ai/memory/lessons-learned.md")).toBe(2)
     expect(instructionSourceTier("apps/ui/README.md")).toBe(3)
+  })
+
+  it("splitForExtraction keeps short files whole and splits long ones at headings", () => {
+    expect(
+      splitForExtraction("# Lessons\n\n### One\n- **Rule:** a\n", 100),
+    ).toEqual(["# Lessons\n\n### One\n- **Rule:** a\n"])
+
+    const lesson = (n: number) =>
+      `### Lesson ${n}\n- **Rule:** ${"x".repeat(40)}\n`
+    const content = `# Lessons\n\n${[1, 2, 3, 4].map(lesson).join("\n")}`
+    const chunks = splitForExtraction(content, 120)
+    expect(chunks.length).toBeGreaterThan(1)
+    for (const chunk of chunks) {
+      expect(chunk.length).toBeLessThanOrEqual(120)
+    }
+    expect(chunks.slice(1).every((c) => c.startsWith("### Lesson"))).toBe(true)
+    expect(chunks.join("")).toBe(content)
+  })
+
+  it("splitForExtraction splits a section over the limit at paragraphs, then at the limit", () => {
+    const paragraphs = [1, 2, 3, 4]
+      .map((n) => `Rule ${n}: ${"y".repeat(40)}`)
+      .join("\n\n")
+    const unbroken = "z".repeat(250)
+    for (const content of [paragraphs, `# Rules\n\n${paragraphs}`, unbroken]) {
+      const chunks = splitForExtraction(content, 100)
+      expect(chunks.length).toBeGreaterThan(1)
+      for (const chunk of chunks) {
+        expect(chunk.length).toBeLessThanOrEqual(100)
+      }
+      expect(chunks.join("")).toBe(content)
+    }
   })
 
   it("sortInstructionCandidates orders by tier then path", () => {
@@ -67,6 +140,11 @@ describe("extractInstructionUnits helpers", () => {
     expect(resolveInstructionSubmissionRoot("docs/README.md", [...roots])).toBe(
       "./",
     )
+    expect(
+      resolveInstructionSubmissionRoot(".ai/memory/lessons-learned.md", [
+        ...roots,
+      ]),
+    ).toBe("./")
     expect(
       resolveInstructionSubmissionRoot("apps/ui/README.md", [...roots]),
     ).toBeNull()

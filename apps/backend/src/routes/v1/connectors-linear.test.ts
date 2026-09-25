@@ -2,6 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
 import type { Env } from "../../config/env.js"
+import { encryptConnectionSecret } from "../../lib/connection-secrets.js"
 import { createLinearOAuthState } from "../../services/linear/oauth-state.js"
 import {
   linearConnectorRoutes,
@@ -20,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   resolveConnection: vi.fn(),
   runWorkflow: vi.fn(),
   loadConfig: vi.fn(),
+  transitionTarget: vi.fn(),
   updatePrState: vi.fn(),
   upsertConnection: vi.fn(),
 }))
@@ -35,17 +37,36 @@ vi.mock("../../db/client.js", () => ({
 vi.mock("../../models/github-installation.js", () => ({
   orgHasAnyGithubConnection: vi.fn().mockResolvedValue(true),
 }))
+const extraMocks = vi.hoisted(() => ({
+  upsertDraft: vi.fn(),
+  saveOauthApp: vi.fn(),
+}))
+
+vi.mock("../../openworkflow/workflows/github-ensure-pr-mirror.js", () => ({
+  enqueueGithubPrMirrorEnsureForOrg: vi.fn().mockResolvedValue(undefined),
+}))
 vi.mock("../../models/linear-connector.js", () => ({
   claimLinearContentSyncRetry: mocks.claimContentRetry,
   deleteLinearConnectionById: vi.fn(),
   getLinearBindingWithRepoByConnectionId: mocks.getTarget,
+  LinearWorkspaceCollisionError: class LinearWorkspaceCollisionError extends Error {
+    constructor() {
+      super(
+        "This Linear workspace is already connected. Close this window and use the existing connection.",
+      )
+      this.name = "LinearWorkspaceCollisionError"
+    }
+  },
   MULTIPLE_LINEAR_CONNECTIONS_MESSAGE: "multiple",
   patchLinearConnectorConfig: mocks.patchConfig,
   refreshLinearConnectionTokensWithLock: vi.fn(),
   releaseLinearConfigPrCreationClaim: mocks.releaseClaim,
   resolveLinearConnectionForOrgDetailed: mocks.resolveConnection,
+  saveLinearOauthAppOnConnection: extraMocks.saveOauthApp,
+  transitionLinearBindingState: mocks.transitionTarget,
   updateLinearBindingPrState: mocks.updatePrState,
   upsertLinearConnectionFromOAuth: mocks.upsertConnection,
+  upsertLinearDraftConnection: extraMocks.upsertDraft,
 }))
 vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
   enqueueRepositoryIngestionWorkflow: vi.fn(),
@@ -126,9 +147,19 @@ beforeEach(() => {
     actorUserId: "linear-user_1",
   })
   mocks.upsertConnection.mockResolvedValue({ id: "con_linear" })
+  extraMocks.upsertDraft.mockResolvedValue({
+    status: "ok",
+    connection: { id: "con_linear_draft" },
+  })
+  extraMocks.saveOauthApp.mockResolvedValue("ok")
   mocks.resolveConnection.mockResolvedValue({
     status: "ok",
-    connection: { id: "con_linear", status: "installed" },
+    connection: {
+      id: "con_linear",
+      status: "installed",
+      accessToken: "access-token",
+      workspaceId: "workspace_1",
+    },
   })
   mocks.getTarget.mockResolvedValue({
     repositoryId: "repo_1",
@@ -145,6 +176,7 @@ beforeEach(() => {
     scopes,
   })
   mocks.claimContentRetry.mockResolvedValue(true)
+  mocks.transitionTarget.mockResolvedValue(true)
   mocks.runWorkflow.mockResolvedValue({ workflowRun: { id: "run_1" } })
 })
 
@@ -162,6 +194,179 @@ describe("Linear connector routes", () => {
     const authorizationUrl = new URL(body.authorizationUrl)
     expect(authorizationUrl.searchParams.get("scope")).toBe("read")
     expect(authorizationUrl.searchParams.get("state")).toBeTruthy()
+  })
+
+  it("rejects draft creation when two empty-workspace drafts exist", async () => {
+    extraMocks.upsertDraft.mockResolvedValueOnce({ status: "ambiguous" })
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/linear",
+      linearConnectorRoutes,
+    )
+    const response = await app.request("/acme/api/v1/connectors/linear/draft", {
+      method: "POST",
+    })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: "multiple" })
+  })
+
+  it("creates a Linear draft connection", async () => {
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/linear",
+      linearConnectorRoutes,
+    )
+    const response = await app.request("/acme/api/v1/connectors/linear/draft", {
+      method: "POST",
+    })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ connectionId: "con_linear_draft" })
+    expect(extraMocks.upsertDraft).toHaveBeenCalledWith({
+      orgId: "org_1",
+      env,
+      ownerUserId: "user_1",
+    })
+  })
+
+  it("returns oauth-app metadata without secrets", async () => {
+    mocks.resolveConnection.mockResolvedValueOnce({
+      status: "ok",
+      connection: {
+        id: "con_linear",
+        status: "pending",
+        oauthClientId: "lin_client",
+        oauthClientSecretEnc: "ctxv1:cipher",
+        webhookSecretEnc: "ctxv1:hook",
+      },
+    })
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/linear",
+      linearConnectorRoutes,
+    )
+    const response = await app.request(
+      "/acme/api/v1/connectors/linear/oauth-app?connectionId=con_linear",
+    )
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as Record<string, unknown>
+    expect(body).toMatchObject({
+      oauthAppSaved: true,
+      oauthClientId: "lin_client",
+      globalLinearOauthConfigured: true,
+      linearOauthConfigured: true,
+      linearCreateUrl: "https://linear.app/settings/api/applications/new",
+    })
+    expect(body).not.toHaveProperty("clientSecret")
+    expect(body).not.toHaveProperty("oauthClientSecretEnc")
+    expect(body).not.toHaveProperty("webhookSecret")
+    expect(body).not.toHaveProperty("webhookSecretEnc")
+  })
+
+  it("does not treat a row without a webhook secret as a saved app", async () => {
+    mocks.resolveConnection.mockResolvedValueOnce({
+      status: "ok",
+      connection: {
+        id: "con_linear",
+        status: "pending",
+        oauthClientId: "lin_client",
+        oauthClientSecretEnc: "ctxv1:cipher",
+      },
+    })
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/linear",
+      linearConnectorRoutes,
+    )
+    const response = await app.request(
+      "/acme/api/v1/connectors/linear/oauth-app?connectionId=con_linear",
+    )
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ oauthAppSaved: false })
+  })
+
+  it("keeps the existing oauth-app secrets when PUT omits them", async () => {
+    extraMocks.saveOauthApp.mockResolvedValueOnce("ok")
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/linear",
+      linearConnectorRoutes,
+    )
+    const response = await app.request(
+      "/acme/api/v1/connectors/linear/oauth-app?connectionId=con_linear",
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ clientId: "lin_client" }),
+      },
+    )
+    expect(response.status).toBe(204)
+    expect(extraMocks.saveOauthApp).toHaveBeenCalledWith({
+      orgId: "org_1",
+      connectionId: "con_linear",
+      env,
+      clientId: "lin_client",
+      clientSecret: undefined,
+      webhookSecret: undefined,
+    })
+  })
+
+  it("starts OAuth with the row client id when env is empty", async () => {
+    const rowEnv = {
+      AUTH_BASE_URL: "https://ctxpipe.example",
+      AUTH_SECRET: "linear-route-test-secret-that-is-long-enough",
+    } as Env
+    mocks.resolveConnection.mockResolvedValueOnce({
+      status: "ok",
+      connection: {
+        id: "con_draft",
+        status: "pending",
+        oauthClientId: "row-client",
+        oauthClientSecretEnc: encryptConnectionSecret("row-secret", rowEnv),
+      },
+    })
+    const app = new OpenAPIHono<AppEnv>()
+      .use("*", async (c, next) => {
+        c.set("env", rowEnv)
+        c.set("user", {
+          id: "user_1",
+        } as unknown as AppEnv["Variables"]["user"])
+        c.set("session", {
+          id: "session_1",
+        } as unknown as AppEnv["Variables"]["session"])
+        c.set("orgId", "org_1")
+        c.set("orgSlug", "acme")
+        await next()
+      })
+      .route("/acme/api/v1/connectors/linear", linearConnectorRoutes)
+    const response = await app.request(
+      "/acme/api/v1/connectors/linear/oauth/start?connectionId=con_draft",
+    )
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { authorizationUrl: string }
+    const authorizationUrl = new URL(body.authorizationUrl)
+    expect(authorizationUrl.searchParams.get("client_id")).toBe("row-client")
+    const state = authorizationUrl.searchParams.get("state")
+    expect(state).toBeTruthy()
+  })
+
+  it("returns 503 from oauth/start when neither row nor env has an app", async () => {
+    const emptyEnv = {
+      AUTH_BASE_URL: "https://ctxpipe.example",
+      AUTH_SECRET: "linear-route-test-secret-that-is-long-enough",
+    } as Env
+    const app = new OpenAPIHono<AppEnv>()
+      .use("*", async (c, next) => {
+        c.set("env", emptyEnv)
+        c.set("user", {
+          id: "user_1",
+        } as unknown as AppEnv["Variables"]["user"])
+        c.set("session", {
+          id: "session_1",
+        } as unknown as AppEnv["Variables"]["session"])
+        c.set("orgId", "org_1")
+        c.set("orgSlug", "acme")
+        await next()
+      })
+      .route("/acme/api/v1/connectors/linear", linearConnectorRoutes)
+    const response = await app.request(
+      "/acme/api/v1/connectors/linear/oauth/start",
+    )
+    expect(response.status).toBe(503)
   })
 
   it("exchanges the callback and relays the connection id", async () => {
@@ -184,6 +389,10 @@ describe("Linear connector routes", () => {
     expect(mocks.exchangeCode).toHaveBeenCalledWith({
       env,
       code: "oauth-code",
+      creds: {
+        clientId: "linear-client",
+        clientSecret: "linear-secret",
+      },
     })
     expect(mocks.upsertConnection).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -357,6 +566,32 @@ describe("Linear connector routes", () => {
     expect(mocks.runWorkflow).not.toHaveBeenCalled()
   })
 
+  it("rejects changing the target and scopes in one patch", async () => {
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/linear",
+      linearConnectorRoutes,
+    )
+
+    const response = await app.request(
+      "/acme/api/v1/connectors/linear/config?connectionId=con_linear",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          scopes,
+          syncTarget: {
+            repositoryId: "repo_1",
+            branch: "main",
+            enabled: true,
+          },
+        }),
+      },
+    )
+
+    expect(response.status).toBe(400)
+    expect(mocks.patchConfig).not.toHaveBeenCalled()
+  })
+
   it("does not demote a live binding for unchanged scopes", async () => {
     mocks.getTarget.mockResolvedValueOnce({
       repositoryId: "repo_1",
@@ -397,6 +632,105 @@ describe("Linear connector routes", () => {
       claimConfigPrCreation: false,
     })
     expect(mocks.runWorkflow).not.toHaveBeenCalled()
+  })
+
+  it("continues a rebound draft when the target config already matches", async () => {
+    mocks.getTarget.mockResolvedValueOnce({
+      repositoryId: "repo_1",
+      repositoryName: "acme/context",
+      githubConnectionId: "con_github",
+      branch: "main",
+      enabled: true,
+      setupPhase: "draft",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+    })
+    mocks.patchConfig.mockResolvedValueOnce({
+      scopes,
+      configPrClaimed: false,
+    })
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/linear",
+      linearConnectorRoutes,
+    )
+
+    const response = await app.request(
+      "/acme/api/v1/connectors/linear/config?connectionId=con_linear",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scopes }),
+      },
+    )
+
+    expect(response.status).toBe(200)
+    expect(mocks.patchConfig).toHaveBeenCalledWith({
+      orgId: "org_1",
+      connectionId: "con_linear",
+      scopes,
+      claimConfigPrCreation: false,
+    })
+    expect(mocks.transitionTarget).toHaveBeenCalledWith({
+      connectionId: "con_linear",
+      expectedSetupPhase: "draft",
+      expectedPendingConfigPrCreating: false,
+      repositoryId: "repo_1",
+      branch: "main",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      setupPhase: "initial_sync",
+    })
+    expect(mocks.runWorkflow).toHaveBeenCalledWith(
+      { name: "linear-sync-content" },
+      {
+        orgId: "org_1",
+        connectionId: "con_linear",
+      },
+    )
+    expect(await response.json()).toMatchObject({ configPrEnqueued: false })
+  })
+
+  it("marks a rebound draft failed when initial sync cannot be enqueued", async () => {
+    mocks.getTarget.mockResolvedValueOnce({
+      repositoryId: "repo_1",
+      repositoryName: "acme/context",
+      githubConnectionId: "con_github",
+      branch: "main",
+      enabled: true,
+      setupPhase: "draft",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+    })
+    mocks.patchConfig.mockResolvedValueOnce({
+      scopes,
+      configPrClaimed: false,
+    })
+    mocks.runWorkflow.mockRejectedValueOnce(new Error("worker unavailable"))
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/linear",
+      linearConnectorRoutes,
+    )
+
+    const response = await app.request(
+      "/acme/api/v1/connectors/linear/config?connectionId=con_linear",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scopes }),
+      },
+    )
+
+    expect(response.status).toBe(503)
+    expect(mocks.transitionTarget).toHaveBeenLastCalledWith({
+      connectionId: "con_linear",
+      expectedSetupPhase: "initial_sync",
+      expectedPendingConfigPrCreating: false,
+      repositoryId: "repo_1",
+      branch: "main",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      setupPhase: "sync_failed",
+    })
   })
 
   it("retries failed configuration pull request creation", async () => {

@@ -214,6 +214,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-21
 - **Source:** user-confirmed cross-connector image/file capture policy
 
+### Scoped-mirror rebound with matching config.yaml starts content sync
+- **Rule:** After context-repo delete/recreate or rebind, a `draft` binding whose `<slug>/config.yaml` already matches the selected scope must start `initial_sync` (no config PR, `configPrEnqueued: false`, UI honours that). A matching live scope stays a no-op. Applies to Linear, Notion, PagerDuty, and Confluence (Confluence also starts content from the config workflow when yaml is unchanged). Slack has no yaml PR. Ingest after a connector git write goes through `runConnectorRepositoryIngestionWorkflow` (that helper owns logger context).
+- **Category:** convention
+- **Date:** 2026-09-22
+- **Source:** production Linear stall after ctxpipe-context recreate; copied to sibling scoped mirrors
+
 ### New source connectors follow Linear/Notion, not Confluence
 - **Rule:** do **not** copy Confluence’s control plane (`*_sync_targets` tables, config-PR columns, channel/space catalogues in Postgres, dirty-entity flush tables) when adding or simplifying a connector. Linear and Notion are the aligned pattern: identity and repo binding on `connections.config` jsonb ([ADR-022](decisions/ADR-022-linear-connector-git-native-mirror.md), [ADR-023](decisions/ADR-023-notion-connector-git-native-mirror.md)). A connector that is thinner than a git-native mirror (e.g. Slack intent capture) should stay thinner — omit `pendingConfig*`, `*/config.yaml`, and GitHub config-push remirror unless the product actually has a reviewed scope file. Keep `confluence_sync_targets` as legacy Confluence only.
 - **Category:** convention
@@ -497,7 +503,7 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### Browser OTEL / HyperDX:
-- **Rule:** Self-hosters should **not** need to **rebuild** the UI image — set **runtime** env on the UI server. Enable `@hyperdx/browser` when `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set; resolve config in the **root route loader** via **`getHyperDxRuntimeConfig()`** (server-side during SSR); pass config into the client as loader data — **no client `fetch`** for bootstrap. Default `url` is the same-origin proxy **`/.otel`** (ingest token stays on the server). Operators may set **`OTEL_BROWSER_OTLP_URL`** to their collector instead. SPA page views: **`HyperDX.addAction("page_view", { path })`**. Hosted default: **`disableReplay: true`**. See ADR-031 (supersedes ADR-017).
+- **Rule:** Self-hosters should **not** need to **rebuild** the UI image — set **runtime** env on the UI server. Enable `@hyperdx/browser` when `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set; resolve config in the **root route loader** via **`getHyperDxRuntimeConfig()`** (server-side during SSR); pass config into the client as loader data — **no client `fetch`** for bootstrap. Default `url` is the same-origin proxy **`/.otel`** (ingest token stays on the server). Operators may set **`OTEL_BROWSER_OTLP_URL`** to their collector instead. SPA page views: **`HyperDX.addAction("page_view", { path })`**. Hosted default: **`disableReplay: true`**. See ADR-038 (supersedes ADR-017).
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
@@ -658,3 +664,27 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-21
 - **Source:** user-confirmed Slack connector production incident (ctxpipe workspace passed because its historical grant masked the fresh Tru Rec installation path)
 
+
+### Claim evidence source ids must be `extractor:repositoryId:…:targetHash`
+- **Rule:** Every extractor's `sourceId` must contain `:${repositoryId}:` and end with `:${targetHash}`. `deriveLogicalSourceKey` only strips a *trailing* hash, so a hash placed mid-string makes every re-ingest append a new evidence row to the same claim; retraction and repository purge select evidence by the `:${repositoryId}:` needle plus a `(^|:)path(:|$)` segment regex, so an id without the repository id can never be retracted or purged. A claim extracted in one repository about another (e.g. context-repo PR mirror → source-repo File) must carry both repository ids and the warehouse file path as segments. Add a render→extract→dedup round-trip test for any new extractor.
+- **Category:** convention
+- **Date:** 2026-09-16
+- **Source:** `github-pr-mirror` branch review; PR extract and `linkLocatedPaths` ids embedded the hash mid-string and omitted repository ids (`logicalSourceKey.ts`, `ingestionRetraction.ts`)
+
+### FalkorDB dropped connections must reconnect instead of crashing the worker
+- **Rule:** When the FalkorDB client emits `error` (serverless sleep, socket close), log it, drop the shared connection, and reconnect on the next call (`platform/graph/client.ts`). Do not leave an unhandled `error` listener gap — that exits the OpenWorkflow worker. Keep that listener when touching the graph client.
+- **Category:** reliability
+- **Date:** 2026-09-17
+- **Source:** Railway FalkorDB sleep closed the socket mid-ingest; the worker exited and knowledge-graph reads hung until the client learned to reconnect
+
+### A re-index at an unchanged tip is a partial ingest with an empty diff, so nothing is ever retracted
+- **Rule:** `repository-ingestion` passes `fromHash = lastIngestedHash` to codesearch; when that commit is an ancestor of the target (including the same commit) the run is `partial`, and `retractIngestionForDiffPg` is a no-op without changed paths while the extractors still re-run over the whole repository. Non-deterministic (LLM) extractors then mint new dedup keys next to the old ones and the object count only grows. Treat "re-index" as `fullReingest: true` (no `fromHash`), have dedup touch every re-observed evidence row (`touchEvidenceBulk` bumps `observedAt`), and after a healthy full run sweep this repository's evidence observed before the index child's `indexedAt` (`retractUnobservedRepositoryEvidencePg`). Take the cutoff from an existing durable step result, not a new step: a new "started at" step executes late for runs already in flight when the worker is redeployed and would sweep the run's own evidence. Do not key the sweep on the commit hash: a re-index at an unchanged tip re-observes at the same hash as the stale rows. Never run the sweep on a degraded run (search/SCIP index failed). When judging a graph change, compare object counts across two runs at the same tip: growth means accumulation, not new knowledge.
+- **Category:** reliability
+- **Date:** 2026-09-17
+- **Source:** `apps/codesearch/src/domain/indexing/phases.ts` mode decision; unchanged-tip re-index accumulated LLM naming drift until the full-ingest sweep landed
+
+### The PR worker supervisor must count runs in its own OpenWorkflow namespace
+- **Rule:** `worker-supervisor.ts` decides idle-exit from `workflow_runs` / `step_attempts` rows. Preview workers claim runs from their own OpenWorkflow namespace (`preview-pr-N` via `openWorkflowNamespaceId`), so a query pinned to `default` sees an idle system while ingests are in flight and exits after `OPENWORKFLOW_IDLE_EXIT_SECONDS`. Nothing re-wakes it: the Railway wake fires only on new enqueues, and sleeping or unclaimed runs wait forever. Resolve the namespace the same way the worker does, and when a preview looks "paused" check `available_at` in the past with `worker_id` null before suspecting codesearch or FalkorDB.
+- **Category:** reliability
+- **Date:** 2026-09-17
+- **Source:** Preview idle-exit while `repository-ingestion` runs sat unclaimed in a non-default namespace

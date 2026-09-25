@@ -22,6 +22,10 @@ vi.mock("../enqueue-repository-ingestion.js", () => ({
   claimAndRunRepositoryIngestionChild: claimAndRunRepositoryIngestionChildMock,
 }))
 
+vi.mock("../../services/github/pull-request-mirror/ensure.js", () => ({
+  tryEnsureGithubPrMirror: vi.fn().mockResolvedValue({ status: "skipped_no_context" }),
+}))
+
 vi.mock("../../observability/logger.js", () => ({
   createLogger: () => ({}),
   getLogger: () => ({ error: vi.fn() }),

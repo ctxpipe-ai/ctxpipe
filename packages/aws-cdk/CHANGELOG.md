@@ -1,5 +1,35 @@
 # @ctxpipe/aws-cdk
 
+## 3.1.13
+
+### Patch Changes
+
+- 9ca0146: Get local memory into git and the graph. The Stop hook, `memory status` and `memory doctor` now report durable `.ai/memory` files left uncommitted, and the installed rule and skills tell agents to commit memory with the work it came from and to summarize that work in the pull request description. `memory init` now also installs the memory rule and skills for Claude Code (`.claude/rules/`, `.claude/skills/`), capture hooks for VS Code (`.github/hooks/ctxpipe-memory.json`) and a capture plugin for OpenCode (`.opencode/plugins/ctxpipe-memory.js`); a Claude Code hook that Cursor or VS Code also runs now stands aside when that tool has its own, so capture runs once. Ingestion reads `.ai/memory/lessons-learned.md` as an instruction source (below `AGENTS.md`), and extracts instruction files over 48,000 characters in chunks (split at headings, then paragraphs) instead of truncating them. Lessons already committed reach the graph the next time the file changes or the repository is re-indexed. `memory init` no longer replaces a team's `.ai/memory/README.md` because it mentions the current `memory-search` skill, and capture no longer proposes a glossary entry whenever a message mentions the glossary.
+
+## 3.1.12
+
+### Patch Changes
+
+- a745669: Start scoped-mirror sync when config.yaml already matches after a context-repo rebind, and keep connector ingest from dying without a logger.
+- a974425: Stop organisation invites from 403ing when the browser is signed in as a different email than the invitation.
+
+## 3.1.11
+
+### Patch Changes
+
+- 23b1ccf: Allow Bearer-only MCP hosts to present personal or organisation API keys after OAuth resolution fails, without enabling Bearer API-key authentication on REST. Keep organisation key minting in Organisation settings instead of the personal API keys dialog.
+- 0ffa523: Fix GitHub pull-request graph ingestion and retraction, and deduplicate PR mirror startup and content-sync workflows.
+- 8cbc8c8: Store Linear OAuth app credentials on the connection so self-host can register the Linear app in the product UI without `LINEAR_*` env. Hosted env remains the fallback.
+- b22e75e: Let self-hosters register a public Notion integration in the product UI so empty `NOTION_*` env still connects and receives signed webhooks. Hosted keeps the env-owned one-click path.
+- 3b7c44a: Add optional PagerDuty OAuth connector secrets for self-hosted deployments.
+
+## 3.1.10
+
+### Patch Changes
+
+- 9c9e889: Add API-key MCP auth as an OAuth alternative: `--auth api-key` writes a client-specific interpolation of `CTXPIPE_API_KEY` (never the secret) into repo or user MCP config. Mint organisation keys in Organisation settings; personal keys remain under User account. `doctor mcp` sends `x-api-key` when `CTXPIPE_API_KEY` is set in that process. Raise dashboard API-key rate limits so MCP is usable.
+- 8c1fbd2: Fix ctx_advisor on Neptune-backed AWS CDK deploys: graph traversal now uses openCypher `size()` list predicates instead of Neo4j `ALL()`, and advisor failures emit on the process logger so they survive a sealed request event.
+
 ## 3.1.9
 
 ### Patch Changes

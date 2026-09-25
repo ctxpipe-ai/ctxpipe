@@ -7,9 +7,22 @@ import {
   observeCapture,
   parseHost,
   readStdinJson,
+  resolveRepoRoot,
   summarizeCapture,
   type CaptureHost,
 } from "./capture.js"
+import { resolveCaptureHost } from "./harness.js"
+
+function hostFor(
+  flag: string,
+  payload: Record<string, unknown>,
+): CaptureHost | null {
+  return resolveCaptureHost(
+    parseHost(flag),
+    payload,
+    resolveRepoRoot(extractWorkspaceCwd(payload)),
+  )
+}
 
 function writeStdoutJson(payload: unknown): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -34,9 +47,15 @@ async function writeStopStdout(
     const output = formatStopHookOutput(host, result, payload)
     await writeStdoutJson(output)
     delivered = true
-    // Only after confirmed delivery, and only when the host received candidate text.
-    if (Object.keys(output).length > 0 && result.surfacedIds.length > 0) {
-      acknowledgeSurfaced(result.surfacedIds, { cwd })
+    // Only after confirmed delivery, and only when the host received the text.
+    if (
+      Object.keys(output).length > 0 &&
+      (result.surfacedIds.length > 0 || result.uncommittedKey)
+    ) {
+      acknowledgeSurfaced(result.surfacedIds, {
+        cwd,
+        uncommittedKey: result.uncommittedKey,
+      })
     }
   } catch {
     // Never emit a second JSON document after a successful write (hosts parse one object).
@@ -66,8 +85,10 @@ export async function runMemoryCaptureObserve(opts: {
 }): Promise<void> {
   try {
     const payload = await readStdinJson()
+    const host = hostFor(opts.host, payload)
+    if (!host) return
     const result = observeCapture({
-      host: parseHost(opts.host),
+      host,
       eventType: opts.event || "unknown",
       payload,
     })
@@ -93,11 +114,19 @@ export async function runMemoryCaptureFinalize(opts: {
   host: string
   event: string
 }): Promise<void> {
-  const host = parseHost(opts.host)
-  let payload: Record<string, unknown> = {}
+  // Hooks always pipe JSON; still tolerate empty/TTY for local debugging.
+  const payload = await readOptionalStdinJson()
+  const host = hostFor(opts.host, payload)
+  if (!host) {
+    try {
+      await writeStdoutJson({})
+    } catch {
+      // fail-open
+    }
+    process.exitCode = 0
+    return
+  }
   try {
-    // Hooks always pipe JSON; still tolerate empty/TTY for local debugging.
-    payload = await readOptionalStdinJson()
     observeCapture({
       host,
       eventType: opts.event || "Stop",

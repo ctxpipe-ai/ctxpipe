@@ -98,10 +98,10 @@ Supported CLI clients:
 
 ## Local memory (Markdown)
 
-The CLI can also seed **Markdown-only local memory** under `.ai/memory/` with
-host capture hooks and promote/recall skills. This is **not** a second MCP
-server — durable facts stay in Git-reviewed Markdown; hooks only write a
-gitignored candidate inbox.
+The CLI can also set up **local memory**: Markdown under `.ai/memory/` that
+coding agents read and add to as they learn how your team works. It is **not** a
+second MCP server. Hooks only save candidates to a gitignored inbox; agents keep
+what matters, you commit it with the work, and merged lessons reach ctx|.
 
 ```bash
 npx ctxpipe init
@@ -120,7 +120,7 @@ Read the full guide: [Local memory](/docs/mcp/local-memory).
 
 OAuth remains the default for a developer on a laptop — the CLI without `--auth`, and [Install MCPs via PR](/docs/git-repositories/install-mcps-via-pr). Use an API key only when a client cannot complete the browser OAuth flow (CI, headless agents, a shared GUI environment, or a host that accepts a static custom header).
 
-Keys authenticate MCP with the **`x-api-key`** header. Do not send the key as `Authorization: Bearer`; Bearer stays OAuth.
+Keys authenticate MCP with the **`x-api-key`** header, or as **`Authorization: Bearer <api-key>`** on `/mcp` when a host cannot set custom headers (for example CodeRabbit). Prefer `x-api-key` when the client supports it. OAuth access tokens continue to use Bearer as well; the server resolves OAuth first and tries API-key verification only when an opaque MCP Bearer is not an OAuth token. Bearer API keys do not authenticate REST routes.
 
 The CLI never mints keys. Create them in the product, then interpolate `CTXPIPE_API_KEY` in client config.
 
@@ -162,9 +162,9 @@ The CLI still writes `?orgSlug=` (personal keys need it; organization keys accep
 npx ctxpipe mcp add --org acme --client cursor --scope both --auth api-key --non-interactive
 ```
 
-Setting `CTXPIPE_API_KEY` in the environment is **not enough** on its own. ctx| MCP is a remote Streamable HTTP server, so the client must send `x-api-key` on HTTP requests. Cursor and Claude do not invent that mapping from a well-known env name. The interpolation in MCP config (or `claude mcp add --header`) is what tells the client to send the header.
+Setting `CTXPIPE_API_KEY` in the environment is **not enough** on its own. ctx| MCP is a remote Streamable HTTP server, so the client must send the key on HTTP requests (`x-api-key`, or `Authorization: Bearer` when that is all the host supports). Cursor and Claude do not invent that mapping from a well-known env name. The interpolation in MCP config (or `claude mcp add --header`) is what tells the client to send the header.
 
-If a host lets you attach a custom request header, send **`x-api-key`** interpolating `CTXPIPE_API_KEY`. Do not use Bearer for the API key, and do not put the secret in client or repository files.
+If a host lets you attach a custom request header, send **`x-api-key`** interpolating `CTXPIPE_API_KEY`. If the host only supports Bearer credentials, send `Authorization: Bearer` with the same key value to `/mcp`. Do not put the secret in client or repository files.
 
 ### Cursor
 

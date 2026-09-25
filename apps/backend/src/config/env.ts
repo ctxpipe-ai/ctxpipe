@@ -36,6 +36,9 @@ const envSchema = z.object({
   NOTION_CLIENT_ID: z.string().min(1).optional(),
   NOTION_CLIENT_SECRET: z.string().min(1).optional(),
   NOTION_REDIRECT_URI: z.string().url().optional(),
+  PAGERDUTY_CLIENT_ID: z.string().min(1).optional(),
+  PAGERDUTY_CLIENT_SECRET: z.string().min(1).optional(),
+  PAGERDUTY_REDIRECT_URI: z.string().url().optional(),
   /** HMAC signing secret for the deployment's single Notion webhook subscription (Notion "verification token"). Set from the Notion developer UI after the first delivery. */
   NOTION_WEBHOOK_SECRET: z.string().min(1).optional(),
   /** Optional fallback when a forge `connections.config` row has no `confluenceForgeInstallUrl` (capabilities / Install step). */

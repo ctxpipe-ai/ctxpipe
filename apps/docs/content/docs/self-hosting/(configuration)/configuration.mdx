@@ -161,14 +161,15 @@ intent-based thread capture.
 
 ## Linear
 
-Linear uses a deployment-owned OAuth application and signed application
-webhooks. Put the credentials on both backend and worker services.
+Linear can store the OAuth application and webhook signing secret on the
+connection (Register in the product UI). `LINEAR_*` is an optional
+deployment-wide fallback.
 
 | Variable | Description |
 |---|---|
-| `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET` | Linear OAuth application credentials. Both are required to enable the connector. |
+| `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET` | Optional shared Linear OAuth application credentials. When both are set, the wizard skips Register. |
 | `LINEAR_REDIRECT_URI` | Optional exact callback override. Defaults to `{AUTH_BASE_URL}/api/v1/integrations/linear/callback`. |
-| `LINEAR_WEBHOOK_SECRET` | Signing secret for requests delivered to `/api/v1/webhook/linear`. Required for incremental updates. |
+| `LINEAR_WEBHOOK_SECRET` | Optional shared signing secret for `/api/v1/webhook/linear`. Per-connection secrets are stored on the row. |
 
 See [Linear](/docs/self-hosting/linear) for application registration, webhook
 subscriptions, preview limitations, and troubleshooting.
@@ -187,6 +188,24 @@ subscription.
 Put the OAuth credentials on every service that performs token refresh or
 connector work, then register the single deployment webhook.
 See [Notion](/docs/self-hosting/notion) for provisioning and verification.
+
+## PagerDuty
+
+PagerDuty can use a deployment-owned OAuth application. After a user
+authorizes an account, ctx| creates the signed webhook subscription. These
+variables are an optional hosted-style shortcut; self-host can save the app
+on the connection in the setup wizard instead.
+
+| Variable | Description |
+|---|---|
+| `PAGERDUTY_CLIENT_ID`, `PAGERDUTY_CLIENT_SECRET` | Optional shared PagerDuty OAuth application. When unset, save client id and secret on the connection in the wizard. |
+| `PAGERDUTY_REDIRECT_URI` | Optional exact callback override. Defaults to `{AUTH_BASE_URL}/api/v1/integrations/pagerduty/callback`. |
+
+There is no `PAGERDUTY_WEBHOOK_SECRET`. Per-subscription signing secrets are
+stored encrypted on the connection.
+
+See [PagerDuty](/docs/self-hosting/pagerduty) for application registration and
+verification.
 
 ## Observability
 

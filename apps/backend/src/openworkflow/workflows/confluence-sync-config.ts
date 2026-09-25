@@ -4,10 +4,12 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
   getConfluenceSyncTargetByConnectionId,
-  markConfluenceSyncTargetLive,
+  markConfluenceSyncTargetInitialSync,
   updateConfluenceSyncTargetPrState,
 } from "../../models/confluence-sync-target.js"
 import { syncConfluenceConfigYaml } from "../../services/confluence/sync.js"
+import { runWorkflowWithWorkerWake } from "../client.js"
+import { confluenceSyncContent } from "./confluence-sync-content.js"
 
 const confluenceSyncConfigInputSchema = z.object({
   orgId: z.string().min(1),
@@ -41,10 +43,15 @@ export const confluenceSyncConfig = defineWorkflow(
       })
       if (!result.changed) {
         await withOrgDbContext(input.orgId, () =>
-          markConfluenceSyncTargetLive({
+          markConfluenceSyncTargetInitialSync({
             connectionId: input.connectionId,
           }),
         )
+        await runWorkflowWithWorkerWake(confluenceSyncContent.spec, {
+          orgId: input.orgId,
+          orgSlug: input.orgSlug,
+          connectionId: input.connectionId,
+        })
       } else {
         await withOrgDbContext(input.orgId, () =>
           updateConfluenceSyncTargetPrState({
