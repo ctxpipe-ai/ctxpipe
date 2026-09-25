@@ -33,6 +33,14 @@ receivers:
         - job_name: clickhouse
           static_configs:
             - targets: ["clickhouse.railway.internal:9363"]
+          # /metrics exposes thousands of series. A 1 GiB ClickHouse node OOMs
+          # inserting that every 60s. Keep the Observability Stack dashboard
+          # names plus a small unlabeled health set (no ZooKeeper, no per-error
+          # or per-interface series).
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: "ClickHouseMetrics_(Query|Merge|BackgroundMergesAndMutationsPoolTask|BackgroundFetchesPoolTask|BackgroundCommonPoolTask|BackgroundSchedulePoolTask|TCPConnection|HTTPConnection|InterserverConnection|Read|Write|QueryThread|MemoryTracking|DelayedInserts|GlobalThreadActive|PartsCommitted|PartsActive)|ClickHouseProfileEvents_(Query|SelectQuery|InsertQuery|FailedQuery|FailedSelectQuery|FailedInsertQuery|InsertedRows|InsertedBytes|SelectedRows|SelectedBytes|DelayedInserts|Merge|MergedRows|MergedUncompressedBytes|NetworkReceiveBytes|NetworkSendBytes|OSReadBytes|OSWriteBytes)|ClickHouseAsyncMetrics_(MemoryResident|jemalloc_resident|TotalPartsOfMergeTreeTables|MaxPartCountForPartition|Uptime|FilesystemMainPathUsedBytes|FilesystemMainPathTotalBytes)"
+              action: keep
 
 processors:
   filter/llm_only:
