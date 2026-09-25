@@ -1,6 +1,6 @@
 # HyperDX dashboards
 
-Repo-owned HyperDX sources are declared as `DEFAULT_CONNECTIONS` and `DEFAULT_SOURCES` on the hyperdx service in [`terraform/railway.tf`](../terraform/railway.tf). HyperDX applies those only when a team is created and that team has no connections yet (sources only when it has none). They do not update an existing team.
+Repo-owned HyperDX sources are declared as `DEFAULT_CONNECTIONS` and `DEFAULT_SOURCES` on the hyperdx service in [`terraform/railway.tf`](../terraform/railway.tf). HyperDX applies those only when a team is created and that team has no connections yet (sources only when it has none). They do not update an existing team. The Sessions source reads `otel.hyperdx_sessions`. That table stays empty while browser replay is off (`disableReplay: true`), so session charts have no rows.
 
 `provision.ts` upserts every `dashboards/*.json` by dashboard name through the HyperDX external API (`POST /api/v2/dashboards/validate`, then `POST` or `PUT /api/v2/dashboards`). JSON files name sources (`sourceName`, `appliesToSourceNames`). The script resolves names to ids with `GET /api/v2/sources`. Dashboards that exist in HyperDX but are not in `dashboards/` are left in place.
 
