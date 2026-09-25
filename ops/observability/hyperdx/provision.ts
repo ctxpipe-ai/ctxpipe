@@ -199,12 +199,14 @@ for (const source of sources) {
 // Team Shared Filters live at PUT /pinned-filters (session cookie). The
 // personal access key used for /api/v2 is rejected there. A 401 is expected
 // for this operator shell; the documents are applied separately.
+// Field only: a pinned value is shown even when the range has no such rows,
+// and it is the only option when the facet query does not return this column.
 const pinnedField = "DeploymentEnvironment";
 for (const [name, id] of sourcesByName) {
   const pinned = await api("PUT", "/pinned-filters", {
     source: id,
     fields: [pinnedField],
-    filters: { [pinnedField]: ["production"] },
+    filters: {},
   });
   if (pinned.status === 401 || pinned.status === 404) {
     console.log(`pinned filters for ${name} not writable with this key HTTP ${pinned.status}`);
