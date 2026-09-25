@@ -37,7 +37,7 @@ Parts on a `prefer_not_to_merge` volume still count toward `parts_to_delay_inser
 
 Langfuse base tables have no TTL of their own. Upstream 7-day and 30-day TTLs belong to optional aggregating tables (`traces_7d_amt`, `traces_30d_amt`) that are not in this database. `tiering/langfuse.sql` only moves. Monthly partitions mean about one to two months stays on the volume. Cold `ReplacingMergeTree` parts are not merged, so old versions remain; Langfuse reads with `FINAL`.
 
-On the next start, `query_log` and `error_log` are renamed if their `CREATE` changed (day partitions) and recreated on `local_only`.
+On the next start, `query_log` and `error_log` are renamed if their `CREATE` changed (day partitions) and recreated on `local_only`. The renamed copies (`query_log_N`, `error_log_N`) have no TTL and must be dropped by hand (`DROP TABLE system.query_log_0 SYNC`); the frozen tables of removed loggers were dropped on 2026-09-25.
 
 ## Bucket outage
 
