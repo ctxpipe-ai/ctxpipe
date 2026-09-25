@@ -7,6 +7,33 @@ import type { AppEnv } from "../app/env.js"
 import { applyLogContract, stripLogPii } from "./logContract.js"
 import { applyRedactedSecretPaths } from "./secretPath.js"
 
+function drizzleDuplicateKeyError(): Error {
+  const cause = Object.assign(
+    new Error(
+      'duplicate key value violates unique constraint "repositories_git_url_org_id_unique"',
+    ),
+    {
+      severity: "ERROR",
+      code: "23505",
+      detail:
+        "Key (git_url, org_id)=(https://github.com/octocat/Spoon-Knife.git, org_secret) already exists.",
+      hint: "Use the existing row",
+      where: "Key (git_url)=(https://github.com/octocat/Spoon-Knife.git)",
+      internalQuery:
+        "insert into repositories values ('https://github.com/octocat/Spoon-Knife.git')",
+      schema: "public",
+      table: "repositories",
+      constraint: "repositories_git_url_org_id_unique",
+      routine: "_bt_check_unique",
+      file: "nbtinsert.c",
+    },
+  )
+  return new Error(
+    'Failed query: insert into "repositories" ("git_url") values ($1)\nparams: https://github.com/octocat/Spoon-Knife.git',
+    { cause },
+  )
+}
+
 function walkKeys(value: unknown, keys: string[] = []): string[] {
   if (!value || typeof value !== "object") return keys
   if (Array.isArray(value)) {
@@ -323,5 +350,42 @@ describe("log contract", () => {
       "/.auth/api/v1/auth/reset-password/{token}",
     )
     expect(JSON.stringify(events[0])).not.toContain(token)
+  })
+
+  it("strips Drizzle params and pg detail from a copied error", () => {
+    const error = drizzleDuplicateKeyError()
+    const cause = error.cause as Error & { detail: string }
+    const event: Record<string, unknown> = {
+      step: "repositories.create",
+      hint: "read the docs",
+      error: {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+        cause,
+      },
+    }
+    applyLogContract(event)
+    expect(cause.detail).toContain("Spoon-Knife")
+    const emitted = event.error as {
+      message: string
+      cause: Record<string, unknown>
+    }
+    expect(emitted.message).toContain("Failed query:")
+    expect(emitted.message).not.toContain("params:")
+    expect(emitted.cause.code).toBe("23505")
+    expect(emitted.cause.severity).toBe("ERROR")
+    expect(emitted.cause.schema).toBe("public")
+    expect(emitted.cause.table).toBe("repositories")
+    expect(emitted.cause.constraint).toBe("repositories_git_url_org_id_unique")
+    expect(emitted.cause.routine).toBe("_bt_check_unique")
+    expect(emitted.cause.detail).toBeUndefined()
+    expect(emitted.cause.hint).toBeUndefined()
+    expect(emitted.cause.where).toBeUndefined()
+    expect(emitted.cause.internalQuery).toBeUndefined()
+    expect(event.hint).toBe("read the docs")
+    expect(JSON.stringify(event)).not.toContain("Spoon-Knife")
+    expect(JSON.stringify(event)).not.toContain("org_secret")
+    expect(JSON.stringify(event)).not.toContain("params:")
   })
 })
