@@ -21,7 +21,7 @@ See [ADR-038](../../.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse
 
 | Signal | From | Notes |
 | --- | --- | --- |
-| Traces, logs, metrics | Product backend, openworkflow, codesearch | Public OTLP when `OTEL_EXPORTER_OTLP_*` is set. Resource `service.name` is `backend`, `openworkflow`, or `codesearch`. `deployment.environment` is `production` or `pr-N` (not `deployment.environment.name`). Log HTTP fields use the same names as spans. PR uses flush-on-demand; production uses a 60s reader. Empty product `otel_otlp_endpoint` still uses the in-project `otelcollector` |
+| Traces, logs, metrics | Product backend, openworkflow, codesearch | Public OTLP when `OTEL_EXPORTER_OTLP_*` is set. Resource `service.name` is `backend`, `openworkflow`, or `codesearch`. `deployment.environment` is `production` or `pr-N` (not `deployment.environment.name`). Log HTTP fields use the same names as spans. PR uses flush-on-demand; production uses a 60s reader. Empty product `otel_otlp_endpoint` uses `https://telemetry.ctxpipe.ai`; `otel_otlp_headers` is required |
 | LLM spans | Same apps, `filter/llm_only` | Langfuse, header `x-langfuse-ingestion-version: 4`. Tags `env:production` / `env:pr-N` |
 | Browser | `@hyperdx/browser` via same-origin `/.otel` | `service.name=ui`. `disableReplay: true`. `consoleCapture` writes trace spans, not `otel_logs`. `hyperdx_sessions` stays empty (rrweb required) |
 | Collector + ClickHouse | `prometheus/self` every 60s | `service.name` `otel-collector` and `clickhouse`, `deployment.environment=observability`. ClickHouse series are keep-listed |
