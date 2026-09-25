@@ -71,6 +71,18 @@ Buckets are on the public network. Uploads count as service egress ($0.05/GB). B
 
 The new image does not start if these four variables are empty, and it does not start if the bucket is unreachable.
 
+## deployment.environment column
+
+`schema/deployment-environment.sql` adds `DeploymentEnvironment` on every `otel` table that has `ResourceAttributes`. The expression is `ResourceAttributes['deployment.environment']`.
+
+ClickStack 2.39.1 already materializes `ResourceAttributes['deployment.environment.name']` as `__hdx_materialized_deployment.environment.name` on `otel_logs` only. ctxpipe sets `deployment.environment`, so that seed column stays empty. A column named `__hdx_materialized_deployment.environment` cannot be added on `otel_logs`: ClickHouse treats that dot as a nested prefix of the seed column. `DeploymentEnvironment` avoids the prefix.
+
+HyperDX 2.39.1 (`renderChartConfig.ts`, `getMaterializedColumnsLookupTable`) rewrites a SELECT or WHERE expression to a `MATERIALIZED` or `DEFAULT` column when that expression is still in the SQL AST and `system.columns.default_expression` equals it. A search `IN` on `ResourceAttributes['deployment.environment']` is compiled to `has(ResourceAttributeItems, concat('deployment.environment', '=', '<value>'))` before that rewrite, which is the text index on the attribute array. Filtering the column itself (`DeploymentEnvironment IN ('production')`) uses the column. The sidebar pin is the column, so that is the facet at the top of search.
+
+The collector migrate binary runs `CREATE TABLE IF NOT EXISTS` and, only when `HYPERDX_OTEL_EXPORTER_RECONCILE_TABLE_TTL` is true, `MODIFY TTL`. It does not drop extra columns. A `MATERIALIZED` column is computed on insert and is not in the collector's named INSERT list, so inserts keep working.
+
+`ADD COLUMN IF NOT EXISTS` is safe to repeat. `MATERIALIZE COLUMN` backfills parts written before the add. Run that statement once after the add. Running it again rewrites parts.
+
 ## Apply
 
 After the image is up and `system.storage_policies` shows volume `cold`, run the SQL with any client as a user who can `ALTER` the database. The probe user `otel` can alter `otel`. The probe user `langfuse` can alter `langfuse`.
@@ -78,6 +90,7 @@ After the image is up and `system.storage_policies` shows volume `cold`, run the
 ```sql
 -- otel.sql, user otel
 -- langfuse.sql, user langfuse
+-- schema/deployment-environment.sql, user otel
 ```
 
 Run a new table's statement when the collector seed adds one. Do not re-apply the whole file unless `materialize_ttl_recalculate_only` is 1.

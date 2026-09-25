@@ -10,6 +10,7 @@
       "sourceMetricType": "gauge"
     }
   ],
+  "savedFilterValues": [],
   "tiles": [
     {
       "name": "CPU usage vs limit",

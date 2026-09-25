@@ -300,23 +300,33 @@ resource "railway_variable_collection" "hyperdx" {
             databaseName = "otel"
             tableName    = "otel_logs"
           }
-          kind                                 = "log"
-          timestampValueExpression             = "Timestamp"
-          name                                 = "Logs"
-          displayedTimestampValueExpression    = "Timestamp"
-          implicitColumnExpression             = "Body"
-          serviceNameExpression                = "ServiceName"
-          bodyExpression                       = "Body"
-          eventAttributesExpression            = "LogAttributes"
-          resourceAttributesExpression         = "ResourceAttributes"
-          defaultTableSelectExpression         = "Timestamp,ServiceName,SeverityText,Body"
-          severityTextExpression               = "SeverityText"
-          traceIdExpression                    = "TraceId"
-          spanIdExpression                     = "SpanId"
-          querySettings                        = []
-          highlightedTraceAttributeExpressions = []
-          highlightedRowAttributeExpressions   = []
-          materializedViews                    = []
+          kind                              = "log"
+          timestampValueExpression          = "Timestamp"
+          name                              = "Logs"
+          displayedTimestampValueExpression = "Timestamp"
+          implicitColumnExpression          = "Body"
+          serviceNameExpression             = "ServiceName"
+          bodyExpression                    = "Body"
+          eventAttributesExpression         = "LogAttributes"
+          resourceAttributesExpression      = "ResourceAttributes"
+          defaultTableSelectExpression      = "Timestamp,ServiceName,SeverityText,Body"
+          severityTextExpression            = "SeverityText"
+          traceIdExpression                 = "TraceId"
+          spanIdExpression                  = "SpanId"
+          querySettings                     = []
+          highlightedTraceAttributeExpressions = [
+            {
+              sqlExpression = "ResourceAttributes['deployment.environment']"
+              alias         = "deployment.environment"
+            }
+          ]
+          highlightedRowAttributeExpressions = [
+            {
+              sqlExpression = "ResourceAttributes['deployment.environment']"
+              alias         = "deployment.environment"
+            }
+          ]
+          materializedViews = []
           metadataMaterializedViews = {
             kvRollupTable = "otel_logs_kv_rollup_15m"
             granularity   = "15 minute"
@@ -331,30 +341,40 @@ resource "railway_variable_collection" "hyperdx" {
             databaseName = "otel"
             tableName    = "otel_traces"
           }
-          kind                                 = "trace"
-          timestampValueExpression             = "Timestamp"
-          name                                 = "Traces"
-          displayedTimestampValueExpression    = "Timestamp"
-          implicitColumnExpression             = "SpanName"
-          serviceNameExpression                = "ServiceName"
-          eventAttributesExpression            = "SpanAttributes"
-          resourceAttributesExpression         = "ResourceAttributes"
-          defaultTableSelectExpression         = "Timestamp,ServiceName,StatusCode,round(Duration/1e6),SpanName"
-          traceIdExpression                    = "TraceId"
-          spanIdExpression                     = "SpanId"
-          durationExpression                   = "Duration"
-          durationPrecision                    = 9
-          parentSpanIdExpression               = "ParentSpanId"
-          spanNameExpression                   = "SpanName"
-          spanKindExpression                   = "SpanKind"
-          statusCodeExpression                 = "StatusCode"
-          statusMessageExpression              = "StatusMessage"
-          spanEventsValueExpression            = "Events"
-          spanLinksValueExpression             = "Links"
-          querySettings                        = []
-          highlightedTraceAttributeExpressions = []
-          highlightedRowAttributeExpressions   = []
-          materializedViews                    = []
+          kind                              = "trace"
+          timestampValueExpression          = "Timestamp"
+          name                              = "Traces"
+          displayedTimestampValueExpression = "Timestamp"
+          implicitColumnExpression          = "SpanName"
+          serviceNameExpression             = "ServiceName"
+          eventAttributesExpression         = "SpanAttributes"
+          resourceAttributesExpression      = "ResourceAttributes"
+          defaultTableSelectExpression      = "Timestamp,ServiceName,StatusCode,round(Duration/1e6),SpanName"
+          traceIdExpression                 = "TraceId"
+          spanIdExpression                  = "SpanId"
+          durationExpression                = "Duration"
+          durationPrecision                 = 9
+          parentSpanIdExpression            = "ParentSpanId"
+          spanNameExpression                = "SpanName"
+          spanKindExpression                = "SpanKind"
+          statusCodeExpression              = "StatusCode"
+          statusMessageExpression           = "StatusMessage"
+          spanEventsValueExpression         = "Events"
+          spanLinksValueExpression          = "Links"
+          querySettings                     = []
+          highlightedTraceAttributeExpressions = [
+            {
+              sqlExpression = "ResourceAttributes['deployment.environment']"
+              alias         = "deployment.environment"
+            }
+          ]
+          highlightedRowAttributeExpressions = [
+            {
+              sqlExpression = "ResourceAttributes['deployment.environment']"
+              alias         = "deployment.environment"
+            }
+          ]
+          materializedViews = []
           metadataMaterializedViews = {
             kvRollupTable = "otel_traces_kv_rollup_15m"
             granularity   = "15 minute"
@@ -439,6 +459,14 @@ resource "railway_variable_collection" "langfuse_web" {
     {
       name  = "NEXTAUTH_URL"
       value = "https://${var.langfuse_custom_domain}"
+    },
+    # v3.225.11 has no invite-only mode. This blocks every new account
+    # (signup API and SSO createUser), including an invited email that
+    # has no user row yet. Existing users still sign in with email and
+    # password. Inviting an existing user writes the membership directly.
+    {
+      name  = "AUTH_DISABLE_SIGNUP"
+      value = "true"
     },
     {
       name  = "LANGFUSE_INIT_ORG_ID"

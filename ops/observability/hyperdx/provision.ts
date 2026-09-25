@@ -137,16 +137,82 @@ function fail(action: string, status: number, json: Json): never {
   process.exit(1);
 }
 
+const environmentExpression = "ResourceAttributes['deployment.environment']";
+const environmentAttribute = {
+  sqlExpression: environmentExpression,
+  alias: "deployment.environment",
+};
+
+function isRecord(value: Json): value is { [key: string]: Json } {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasSqlExpression(list: Json, sqlExpression: string): boolean {
+  return Array.isArray(list) && list.some((item) => isRecord(item) && item.sqlExpression === sqlExpression);
+}
+
+function withSqlExpression(list: Json, entry: { sqlExpression: string; alias: string }): Json[] {
+  const items = Array.isArray(list) ? [...list] : [];
+  if (hasSqlExpression(items, entry.sqlExpression)) return items;
+  return [...items, entry];
+}
+
 const sourcesResponse = await api("GET", "/api/v2/sources");
 if (sourcesResponse.status !== 200) fail("GET /api/v2/sources", sourcesResponse.status, sourcesResponse.json);
 const sourcesByName = new Map<string, string>();
+const sources: { [key: string]: Json }[] = [];
 for (const source of unwrapList(sourcesResponse.json)) {
-  if (!source || typeof source !== "object" || Array.isArray(source)) continue;
+  if (!isRecord(source)) continue;
+  sources.push(source);
   const name = source.name;
   const id = source.id;
   if (typeof name === "string" && typeof id === "string") sourcesByName.set(name, id);
 }
 console.log(`sources: ${[...sourcesByName.keys()].sort().join(", ") || "(none)"}`);
+
+for (const source of sources) {
+  // Logs also store sessionSourceId, which the external log schema omits.
+  // PUT replaces the document, so a log update would drop that link.
+  // Trace GET bodies round-trip. Log highlights are in DEFAULT_SOURCES.
+  if (source.kind !== "trace") continue;
+  if (typeof source.id !== "string" || typeof source.name !== "string") continue;
+  const nextRow = withSqlExpression(source.highlightedRowAttributeExpressions ?? null, environmentAttribute);
+  const nextTrace = withSqlExpression(source.highlightedTraceAttributeExpressions ?? null, environmentAttribute);
+  const rowChanged = JSON.stringify(nextRow) !== JSON.stringify(source.highlightedRowAttributeExpressions ?? []);
+  const traceChanged = JSON.stringify(nextTrace) !== JSON.stringify(source.highlightedTraceAttributeExpressions ?? []);
+  if (!rowChanged && !traceChanged) {
+    console.log(`source ${source.name} environment attribute already set`);
+    continue;
+  }
+  const body: { [key: string]: Json } = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (key === "id") continue;
+    body[key] = value;
+  }
+  body.highlightedRowAttributeExpressions = nextRow;
+  body.highlightedTraceAttributeExpressions = nextTrace;
+  const updated = await api("PUT", `/api/v2/sources/${source.id}`, body);
+  if (updated.status !== 200) fail(`update source ${source.name}`, updated.status, updated.json);
+  console.log(`updated source ${source.name} highlighted deployment.environment`);
+}
+
+// Team Shared Filters live at PUT /pinned-filters (session cookie). The
+// personal access key used for /api/v2 is rejected there. A 401 is expected
+// for this operator shell; the documents are applied separately.
+const pinnedField = "DeploymentEnvironment";
+for (const [name, id] of sourcesByName) {
+  const pinned = await api("PUT", "/pinned-filters", {
+    source: id,
+    fields: [pinnedField],
+    filters: { [pinnedField]: ["production"] },
+  });
+  if (pinned.status === 401 || pinned.status === 404) {
+    console.log(`pinned filters for ${name} not writable with this key HTTP ${pinned.status}`);
+    continue;
+  }
+  if (pinned.status !== 200) fail(`pin ${name}`, pinned.status, pinned.json);
+  console.log(`pinned deployment.environment on ${name}`);
+}
 
 const dashboardFiles = (await Array.fromAsync(new Bun.Glob("*.json").scan({ cwd: dashboardsDir }))).sort();
 if (dashboardFiles.length === 0) {
@@ -205,6 +271,7 @@ for (const name of existingDashboards.keys()) {
   if (!repoDashboardNames.has(name)) console.log(`left dashboard not in repo: ${name}`);
 }
 
+const productionEnvironment = `${environmentExpression} IN ('production')`;
 const savedSearches: Json[] = [
   {
     name: "Request by id",
@@ -223,6 +290,39 @@ const savedSearches: Json[] = [
     whereLanguage: "sql",
     orderBy: "Timestamp DESC",
     tags: ["ctxpipe"],
+  },
+  {
+    name: "Production logs",
+    sourceName: "Logs",
+    select: "Timestamp, ServiceName, SeverityText, Body, TraceId",
+    where: productionEnvironment,
+    whereLanguage: "sql",
+    orderBy: "Timestamp DESC",
+    filters: [{ type: "sql", condition: productionEnvironment }],
+    tags: ["ctxpipe", "production"],
+  },
+  {
+    name: "Production traces",
+    sourceName: "Traces",
+    select: "Timestamp, ServiceName, StatusCode, SpanName, TraceId",
+    where: productionEnvironment,
+    whereLanguage: "sql",
+    orderBy: "Timestamp DESC",
+    filters: [{ type: "sql", condition: productionEnvironment }],
+    tags: ["ctxpipe", "production"],
+  },
+  {
+    name: "Production errors",
+    sourceName: "Logs",
+    select: "Timestamp, ServiceName, SeverityText, Body, TraceId",
+    where: `${productionEnvironment} AND SeverityText IN ('error')`,
+    whereLanguage: "sql",
+    orderBy: "Timestamp DESC",
+    filters: [
+      { type: "sql", condition: productionEnvironment },
+      { type: "sql", condition: "SeverityText IN ('error')" },
+    ],
+    tags: ["ctxpipe", "production"],
   },
 ];
 

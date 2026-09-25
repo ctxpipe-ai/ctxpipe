@@ -21,6 +21,12 @@
       "sourceName": "Traces"
     }
   ],
+  "savedFilterValues": [
+    {
+      "type": "sql",
+      "condition": "ResourceAttributes['deployment.environment'] IN ('production')"
+    }
+  ],
   "tiles": [
     {
       "name": "Calls",

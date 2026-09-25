@@ -10,6 +10,12 @@
       "sourceMetricType": "gauge"
     }
   ],
+  "savedFilterValues": [
+    {
+      "type": "sql",
+      "condition": "ResourceAttributes['deployment.environment'] IN ('observability')"
+    }
+  ],
   "tiles": [
     {
       "name": "Collector spans per interval",
