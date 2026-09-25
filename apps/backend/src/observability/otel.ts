@@ -17,6 +17,11 @@ import type { Env } from "../config/env.js"
 import { copyAttributionToSpan, propagationHeaders } from "./attribution.js"
 import { FlushOnDemandMetricReader } from "./flushOnDemandMetricReader.js"
 import { LangfuseContextSpanProcessor } from "./langfuseContextProcessor.js"
+import {
+  guardUnimplementedHeapSpaceStatistics,
+  heapSpaceStatisticsAvailable,
+  installProcessHeapGauges,
+} from "./runtimeMetrics.js"
 
 let sdk: NodeSDK | undefined
 let started = false
@@ -81,6 +86,9 @@ export function initOtel(env: Env): void {
       ]
     : undefined
 
+  const heapSpaces = heapSpaceStatisticsAvailable()
+  guardUnimplementedHeapSpaceStatistics()
+
   sdk = new NodeSDK({
     resource,
     spanProcessors: [
@@ -101,16 +109,24 @@ export function initOtel(env: Env): void {
     ],
     instrumentations: [
       getNodeAutoInstrumentations({
-        // Already in the default set (not default-excluded). Explicit so
-        // event-loop, heap, and GC metrics stay on. Records into the
-        // MeterProvider only; export stays on the periodic or flush-on-demand
-        // reader, so pr-N does not gain an export timer.
-        "@opentelemetry/instrumentation-runtime-node": { enabled: true },
+        "@opentelemetry/instrumentation-http": {
+          ignoreOutgoingRequestHook(request) {
+            return isOtlpExportTarget(request.path)
+          },
+        },
+        "@opentelemetry/instrumentation-undici": {
+          ignoreRequestHook(request) {
+            return isOtlpExportTarget(request.path)
+          },
+        },
       }),
     ],
     ...(metricReaders && { metricReaders }),
   })
   sdk.start()
+  if (!heapSpaces && env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT) {
+    installProcessHeapGauges()
+  }
   installOutgoingFetchInstrumentation()
   started = true
 }
@@ -171,12 +187,22 @@ function requestUrl(input: RequestInfo | URL): string {
   return input.url
 }
 
-function isOtlpExportUrl(url: string): boolean {
-  try {
-    return /\/v1\/(traces|metrics|logs)\/?$/.test(new URL(url).pathname)
-  } catch {
-    return false
+export function isOtlpExportTarget(value: string | null | undefined): boolean {
+  if (!value) return false
+  let path = value
+  if (value.startsWith("http://") || value.startsWith("https://")) {
+    try {
+      path = new URL(value).pathname
+    } catch {
+      path = value
+    }
   }
+  const pathname = path.split("?")[0] ?? path
+  return /\/v1\/(traces|metrics|logs)\/?$/.test(pathname)
+}
+
+function isOtlpExportUrl(url: string): boolean {
+  return isOtlpExportTarget(url)
 }
 
 function createMetricReader(

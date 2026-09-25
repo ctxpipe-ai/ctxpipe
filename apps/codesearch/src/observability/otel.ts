@@ -1,5 +1,7 @@
 import {
   context,
+  type Histogram,
+  type Meter,
   metrics,
   propagation,
   SpanKind,
@@ -8,6 +10,7 @@ import {
 } from "@opentelemetry/api"
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http"
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
+import { RuntimeNodeInstrumentation } from "@opentelemetry/instrumentation-runtime-node"
 import { resourceFromAttributes } from "@opentelemetry/resources"
 import {
   MeterProvider,
@@ -25,10 +28,18 @@ import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions"
 import type { MiddlewareHandler } from "hono"
 import type { Env } from "../config/env.js"
 import { FlushOnDemandMetricReader } from "./flushOnDemandMetricReader.js"
+import {
+  guardUnimplementedHeapSpaceStatistics,
+  heapSpaceStatisticsAvailable,
+  installProcessHeapGauges,
+} from "./runtimeMetrics.js"
 
 let tracerProvider: NodeTracerProvider | undefined
 let meterProvider: MeterProvider | undefined
 let metricReader: MetricReader | undefined
+let runtimeInstrumentation: RuntimeNodeInstrumentation | undefined
+let serverRequestDuration: Histogram | undefined
+let serverRequestDurationMeter: Meter | undefined
 let started = false
 let outgoingFetchInstrumented = false
 
@@ -123,7 +134,7 @@ export function initOtel(env: Env): void {
   if (!tracesEndpoint || started) return
 
   const headers = parseOtelHeaders(env.OTEL_EXPORTER_OTLP_HEADERS)
-  const serviceName = env.OTEL_SERVICE_NAME ?? "ctxpipe-codesearch"
+  const serviceName = env.OTEL_SERVICE_NAME ?? "codesearch"
   const deploymentEnvironment = otelDeploymentEnvironment()
 
   const traceExporter = new OTLPTraceExporter({
@@ -158,10 +169,23 @@ export function initOtel(env: Env): void {
       readers: [metricReader],
     })
     metrics.setGlobalMeterProvider(meterProvider)
+    attachCodesearchRuntimeMetrics(meterProvider)
   }
 
   installOutgoingFetchInstrumentation()
   started = true
+}
+
+/** Event-loop metrics, plus process heap gauges when Bun lacks heap-space stats. */
+export function attachCodesearchRuntimeMetrics(
+  provider: MeterProvider,
+): string {
+  const heapSpaces = heapSpaceStatisticsAvailable()
+  guardUnimplementedHeapSpaceStatistics()
+  runtimeInstrumentation = new RuntimeNodeInstrumentation()
+  runtimeInstrumentation.setMeterProvider(provider)
+  if (!heapSpaces) installProcessHeapGauges()
+  return runtimeInstrumentation.instrumentationName
 }
 
 export function createMetricReader(
@@ -211,8 +235,40 @@ export function parseOtelHeaders(
  * Continue the caller's W3C trace and baggage, then record one server span.
  * PR environments flush after the response so metrics export without a 60s timer.
  */
+/** Route template for span names and metric attributes. Never a raw path with ids. */
+export function httpRouteTemplate(route: string | undefined): string {
+  if (route?.includes("*")) return route
+  if (route) return route
+  return "{unmatched}"
+}
+
+function recordServerRequest(
+  method: string,
+  route: string,
+  status: number,
+  durationMs: number,
+): void {
+  const meter = metrics.getMeter(TRACER_NAME)
+  if (serverRequestDurationMeter !== meter || !serverRequestDuration) {
+    serverRequestDurationMeter = meter
+    serverRequestDuration = meter.createHistogram(
+      "http.server.request.duration",
+      {
+        description: "Incoming HTTP request duration",
+        unit: "s",
+      },
+    )
+  }
+  serverRequestDuration.record(durationMs / 1000, {
+    "http.request.method": method,
+    "http.route": route,
+    "http.response.status_code": status,
+  })
+}
+
 export function codesearchOtelMiddleware(): MiddlewareHandler {
   return async (c, next) => {
+    const startedAt = performance.now()
     const carrier: Record<string, string> = {}
     const traceparent = c.req.header("traceparent")
     const tracestate = c.req.header("tracestate")
@@ -224,7 +280,7 @@ export function codesearchOtelMiddleware(): MiddlewareHandler {
     const parent = propagation.extract(context.active(), carrier)
     const tracer = trace.getTracer(TRACER_NAME)
     const span = tracer.startSpan(
-      `${c.req.method} ${c.req.path}`,
+      `HTTP ${c.req.method}`,
       {
         kind: SpanKind.SERVER,
         attributes: {
@@ -240,20 +296,34 @@ export function codesearchOtelMiddleware(): MiddlewareHandler {
       await context.with(trace.setSpan(parent, span), async () => {
         await next()
       })
-      const route = c.req.routePath
-      if (route && !route.includes("*")) {
-        span.updateName(`${c.req.method} ${route}`)
-        span.setAttribute("http.route", route)
-      }
+      const route = httpRouteTemplate(c.req.routePath)
+      span.updateName(`${c.req.method} ${route}`)
+      span.setAttribute("http.route", route)
       span.setAttribute("http.response.status_code", c.res.status)
+      recordServerRequest(
+        c.req.method,
+        route,
+        c.res.status,
+        performance.now() - startedAt,
+      )
       if (c.res.status >= 500) {
         span.setStatus({ code: SpanStatusCode.ERROR })
       }
     } catch (error) {
+      const route = httpRouteTemplate(c.req.routePath)
+      span.updateName(`${c.req.method} ${route}`)
+      span.setAttribute("http.route", route)
       span.recordException(
         error instanceof Error ? error : new Error(String(error)),
       )
       span.setStatus({ code: SpanStatusCode.ERROR })
+      span.setAttribute("http.response.status_code", 500)
+      recordServerRequest(
+        c.req.method,
+        route,
+        500,
+        performance.now() - startedAt,
+      )
       throw error
     } finally {
       span.end()

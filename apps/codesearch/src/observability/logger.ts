@@ -24,7 +24,7 @@ import {
  */
 export function initEvlog(): void {
   const env = parseEnv(process.env as Record<string, string | undefined>)
-  const serviceName = env.OTEL_SERVICE_NAME ?? "ctxpipe-codesearch"
+  const serviceName = env.OTEL_SERVICE_NAME ?? "codesearch"
   initLogger({
     env: {
       service: serviceName,
@@ -55,7 +55,7 @@ export function createEvlogDrain() {
 
   const baseDrain = createOTLPDrain({
     endpoint: baseEndpoint,
-    serviceName: env.OTEL_SERVICE_NAME ?? "ctxpipe-codesearch",
+    serviceName: env.OTEL_SERVICE_NAME ?? "codesearch",
     headers: parseOtelHeaders(env.OTEL_EXPORTER_OTLP_HEADERS),
     resourceAttributes: { "service.namespace": "ctxpipe" },
   })

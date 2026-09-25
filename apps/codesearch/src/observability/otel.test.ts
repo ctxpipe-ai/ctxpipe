@@ -6,6 +6,7 @@ import { FlushOnDemandMetricReader } from "./flushOnDemandMetricReader.js"
 import {
   createMetricReader,
   forceFlushOtel,
+  httpRouteTemplate,
   initOtel,
   isOtelStarted,
   isRailwayPrEnvironment,
@@ -101,6 +102,14 @@ describe("parseEnv otel endpoints", () => {
     expect(env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT).toBe(
       "http://127.0.0.1:4318/v1/metrics",
     )
+  })
+})
+
+describe("httpRouteTemplate", () => {
+  it("keeps matched templates and wildcards, never invents a raw path", () => {
+    expect(httpRouteTemplate("/:repoId/files")).toBe("/:repoId/files")
+    expect(httpRouteTemplate("/*")).toBe("/*")
+    expect(httpRouteTemplate(undefined)).toBe("{unmatched}")
   })
 })
 

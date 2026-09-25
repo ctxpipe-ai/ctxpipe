@@ -2,9 +2,26 @@ import {
   MetricReader,
   type PushMetricExporter,
 } from "@opentelemetry/sdk-metrics"
+import { log } from "evlog"
 
 /** Same value as `@opentelemetry/core` `ExportResultCode.SUCCESS`. */
 const EXPORT_SUCCESS = 0
+const reportedCollectionErrors = new Set<string>()
+
+function reportCollectionErrors(errors: unknown[]): void {
+  for (const error of errors) {
+    const name = error instanceof Error ? error.name : "Error"
+    const message = error instanceof Error ? error.message : String(error)
+    const key = `${name}:${message}`
+    if (reportedCollectionErrors.has(key)) continue
+    reportedCollectionErrors.add(key)
+    log.warn({
+      step: "otel.metrics.collect",
+      message,
+      error: name,
+    })
+  }
+}
 
 /**
  * Push metrics only on `forceFlush` / shutdown. No periodic timer.
@@ -31,6 +48,7 @@ export class FlushOnDemandMetricReader extends MetricReader {
     // One observable callback can fail without invalidating the rest.
     // Bun 1.3.11 throws from v8.getHeapSpaceStatistics inside runtime-node;
     // throwing here dropped event-loop and HTTP metrics for the whole flush.
+    if (errors.length > 0) reportCollectionErrors(errors)
     if (resourceMetrics.scopeMetrics.length === 0) {
       if (errors.length > 0) throw errors[0]
       return

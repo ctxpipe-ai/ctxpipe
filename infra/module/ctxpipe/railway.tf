@@ -352,6 +352,10 @@ resource "railway_variable_collection" "code_search_env" {
       value = "http://localhost:6070"
     },
     {
+      name  = "OTEL_SERVICE_NAME",
+      value = "codesearch"
+    },
+    {
       name  = "CODESEARCH_INDEXER_CONCURRENCY"
       value = var.codesearch_indexer_concurrency
     },

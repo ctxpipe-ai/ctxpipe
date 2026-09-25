@@ -1,6 +1,11 @@
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
-import { context, propagation, trace } from "@opentelemetry/api"
+import { context, metrics, propagation, trace } from "@opentelemetry/api"
+import {
+  AggregationTemporality,
+  InMemoryMetricExporter,
+  MeterProvider,
+} from "@opentelemetry/sdk-metrics"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
@@ -8,6 +13,7 @@ import {
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { Hono } from "hono"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import { FlushOnDemandMetricReader } from "./flushOnDemandMetricReader.js"
 import {
   codesearchOtelMiddleware,
   installOutgoingFetchInstrumentation,
@@ -79,6 +85,47 @@ describe("incoming W3C context", () => {
     expect(span?.spanContext().traceId).toBe("4bf92f3577b34da6a3ce929d0e0e4736")
     expect(span?.parentSpanContext?.spanId).toBe("00f067aa0ba902b7")
     expect(span?.attributes["ctxpipe.org.id"]).toBe("org_test")
+  })
+})
+
+describe("route template", () => {
+  it("does not put repository ids in the span name or http.route", async () => {
+    const metricExporter = new InMemoryMetricExporter(
+      AggregationTemporality.CUMULATIVE,
+    )
+    const meterProvider = new MeterProvider({
+      readers: [new FlushOnDemandMetricReader(metricExporter)],
+    })
+    metrics.setGlobalMeterProvider(meterProvider)
+    const app = new Hono()
+    app.use("*", codesearchOtelMiddleware())
+    app.use("*", async (c) => c.json({ error: "Unauthorized" }, 401))
+    app.get("/repo_abc123/files", (c) => c.text("no"))
+
+    const res = await app.request("http://codesearch.test/repo_abc123/files")
+    expect(res.status).toBe(401)
+
+    const span = exporter
+      .getFinishedSpans()
+      .find((item) => item.attributes["url.path"] === "/repo_abc123/files")
+    expect(span?.name.includes("repo_abc123")).toBe(false)
+    expect(String(span?.attributes["http.route"]).includes("repo_abc123")).toBe(
+      false,
+    )
+
+    await meterProvider.forceFlush()
+    const duration = metricExporter
+      .getMetrics()
+      .flatMap((resourceMetrics) =>
+        resourceMetrics.scopeMetrics.flatMap((scope) =>
+          scope.metrics.filter(
+            (metric) =>
+              metric.descriptor.name === "http.server.request.duration",
+          ),
+        ),
+      )
+    expect(duration.length).toBeGreaterThan(0)
+    await meterProvider.shutdown()
   })
 })
 

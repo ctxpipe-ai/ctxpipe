@@ -1,6 +1,6 @@
-import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentations-node"
 import { describe, expect, it } from "vitest"
 import {
+  isOtlpExportTarget,
   isRailwayPrEnvironment,
   otelDeploymentEnvironment,
   parseOtelHeaders,
@@ -32,21 +32,15 @@ describe("isRailwayPrEnvironment", () => {
   })
 })
 
-describe("runtime-node instrumentation", () => {
-  it("is included by default and stays enabled when asked explicitly", () => {
-    const defaults = getNodeAutoInstrumentations()
-    const explicit = getNodeAutoInstrumentations({
-      "@opentelemetry/instrumentation-runtime-node": { enabled: true },
-    })
-    const enabled = (items: ReturnType<typeof getNodeAutoInstrumentations>) =>
-      items.find(
-        (item) =>
-          item.instrumentationName ===
-          "@opentelemetry/instrumentation-runtime-node",
-      )
-    expect(enabled(defaults)?.getConfig().enabled ?? true).toBe(true)
-    expect(enabled(explicit)?.getConfig().enabled).toBe(true)
-    for (const item of [...defaults, ...explicit]) item.disable()
+describe("isOtlpExportTarget", () => {
+  it("matches OTLP signal paths and ignores other URLs", () => {
+    expect(isOtlpExportTarget("/v1/logs")).toBe(true)
+    expect(isOtlpExportTarget("/v1/traces?timeout=1")).toBe(true)
+    expect(isOtlpExportTarget("https://telemetry.ctxpipe.ai/v1/metrics")).toBe(
+      true,
+    )
+    expect(isOtlpExportTarget("/search")).toBe(false)
+    expect(isOtlpExportTarget(undefined)).toBe(false)
   })
 })
 

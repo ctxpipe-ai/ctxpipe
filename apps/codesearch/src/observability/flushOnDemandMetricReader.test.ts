@@ -8,6 +8,16 @@ import { log } from "evlog"
 import { describe, expect, it, vi } from "vitest"
 import { FlushOnDemandMetricReader } from "./flushOnDemandMetricReader.js"
 
+function metricNames(exporter: InMemoryMetricExporter): string[] {
+  return exporter
+    .getMetrics()
+    .flatMap((resourceMetrics) =>
+      resourceMetrics.scopeMetrics.flatMap((scope) =>
+        scope.metrics.map((metric) => metric.descriptor.name),
+      ),
+    )
+}
+
 describe("FlushOnDemandMetricReader", () => {
   it("exports metrics collected when another observable callback throws", async () => {
     const exporter = new InMemoryMetricExporter(
@@ -20,22 +30,13 @@ describe("FlushOnDemandMetricReader", () => {
     meter
       .createObservableGauge("broken.heap", { valueType: ValueType.INT })
       .addCallback(() => {
-        throw new Error(
-          "node:v8 getHeapSpaceStatistics is not yet implemented in Bun",
-        )
+        throw new Error("codesearch-heap-space")
       })
     meter.createCounter("good.requests").add(3)
 
     await provider.forceFlush()
 
-    const names = exporter
-      .getMetrics()
-      .flatMap((resourceMetrics) =>
-        resourceMetrics.scopeMetrics.flatMap((scope) =>
-          scope.metrics.map((metric) => metric.descriptor.name),
-        ),
-      )
-    expect(names).toContain("good.requests")
+    expect(metricNames(exporter)).toContain("good.requests")
     await provider.shutdown()
   })
 
@@ -51,17 +52,17 @@ describe("FlushOnDemandMetricReader", () => {
     meter
       .createObservableGauge("broken.once", { valueType: ValueType.INT })
       .addCallback(() => {
-        throw new Error("heap-space-once")
+        throw new Error("codesearch-callback-once")
       })
     meter.createCounter("still.exported").add(1)
 
     await provider.forceFlush()
     await provider.forceFlush()
 
-    const heapWarnings = warn.mock.calls.filter((call) =>
-      JSON.stringify(call[0]).includes("heap-space-once"),
+    const warnings = warn.mock.calls.filter((call) =>
+      JSON.stringify(call[0]).includes("codesearch-callback-once"),
     )
-    expect(heapWarnings).toHaveLength(1)
+    expect(warnings).toHaveLength(1)
     warn.mockRestore()
     await provider.shutdown()
   })
