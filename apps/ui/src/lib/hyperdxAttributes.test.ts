@@ -6,6 +6,7 @@ import {
   hyperdxGlobalAttributes,
   hyperdxPageViewAttributes,
   hyperdxPageViewFromMatches,
+  isHyperDxAuthPath,
   isHyperDxSignInPath,
   orgSlugFromMatches,
   readActiveOrganizationId,
@@ -181,14 +182,34 @@ describe("resolveHyperDxTeam", () => {
     ).toEqual({ teamId: "org_1", teamName: "obs-e2e-343" })
   })
 
-  it("uses the active organization id before the org list includes the slug", () => {
+  it("does not pair an active organization id with a different route slug", () => {
     expect(
       resolveHyperDxTeam({
         orgSlugFromRoute: "obs-e2e-343",
         organizations: [],
         activeOrganizationId: "org_1",
       }),
-    ).toEqual({ teamId: "org_1", teamName: "obs-e2e-343" })
+    ).toEqual({ teamId: "", teamName: "obs-e2e-343" })
+    expect(
+      resolveHyperDxTeam({
+        orgSlugFromRoute: "other",
+        organizations,
+        activeOrganizationId: "org_1",
+      }),
+    ).toEqual({ teamId: "", teamName: "other" })
+  })
+
+  it("uses the route org even when the active organization is a different record", () => {
+    expect(
+      resolveHyperDxTeam({
+        orgSlugFromRoute: "beta",
+        organizations: [
+          { id: "org_1", slug: "obs-e2e-343" },
+          { id: "org_b", slug: "beta" },
+        ],
+        activeOrganizationId: "org_1",
+      }),
+    ).toEqual({ teamId: "org_b", teamName: "beta" })
   })
 
   it("uses the active organization id on routes without an org slug before the list loads", () => {
@@ -229,6 +250,16 @@ describe("readActiveOrganizationId", () => {
     )
     expect(readActiveOrganizationId(null)).toBe("")
     expect(readActiveOrganizationId({ activeOrganizationId: 1 })).toBe("")
+  })
+})
+
+describe("isHyperDxAuthPath", () => {
+  it("matches auth pages and not org routes", () => {
+    expect(isHyperDxAuthPath("/.auth")).toBe(true)
+    expect(isHyperDxAuthPath("/.auth/device")).toBe(true)
+    expect(isHyperDxAuthPath("/.auth/sign-in")).toBe(true)
+    expect(isHyperDxAuthPath("/obs-e2e-343")).toBe(false)
+    expect(isHyperDxAuthPath("/onboarding")).toBe(false)
   })
 })
 

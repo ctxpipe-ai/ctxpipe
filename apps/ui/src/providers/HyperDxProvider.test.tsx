@@ -10,7 +10,7 @@ import {
 } from "@tanstack/react-router"
 import { act, type ReactNode, useState } from "react"
 import { createRoot, type Root } from "react-dom/client"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
@@ -71,6 +71,10 @@ import {
 describe("HyperDxProvider client navigations", () => {
   let root: Root | undefined
   let container: HTMLDivElement | undefined
+
+  beforeEach(() => {
+    resetHyperDxProviderForTests()
+  })
 
   afterEach(() => {
     act(() => {
@@ -155,17 +159,20 @@ describe("HyperDxProvider client navigations", () => {
     const pageViews = () =>
       addAction.mock.calls.filter((call) => call[0] === "page_view")
 
-    const identity = {
+    const userOnly = {
       userId: "user_1",
+      "enduser.id": "user_1",
+    }
+    const identity = {
+      ...userOnly,
       teamId: "org_1",
       teamName: "obs-e2e-343",
-      "enduser.id": "user_1",
       "ctxpipe.org.id": "org_1",
       "ctxpipe.org.slug": "obs-e2e-343",
     }
     expect(pageViews().map((call) => call[1])).toEqual([
       {
-        ...identity,
+        ...userOnly,
         path: "/.auth/sign-in",
         "url.path": "/.auth/sign-in",
         route: "/.auth/sign-in",
@@ -184,7 +191,7 @@ describe("HyperDxProvider client navigations", () => {
 
     expect(pageViews().map((call) => call[1])).toEqual([
       {
-        ...identity,
+        ...userOnly,
         path: "/.auth/sign-in",
         "url.path": "/.auth/sign-in",
         route: "/.auth/sign-in",
@@ -402,12 +409,14 @@ describe("HyperDxProvider client navigations", () => {
     ).not.toBeNull()
     expect(setGlobalAttributes).toHaveBeenCalledWith({
       userId: "user_1",
-      teamId: "org_1",
       teamName: "obs-e2e-343",
       "enduser.id": "user_1",
-      "ctxpipe.org.id": "org_1",
       "ctxpipe.org.slug": "obs-e2e-343",
     })
+    for (const call of setGlobalAttributes.mock.calls) {
+      expect(call[0]).not.toHaveProperty("teamId")
+      expect(call[0]).not.toHaveProperty("ctxpipe.org.id")
+    }
   })
 
   it("omits teamId until the org list arrives, then republishes it on page_view", async () => {
@@ -483,26 +492,30 @@ describe("HyperDxProvider client navigations", () => {
     })
     expect(setGlobalAttributes).toHaveBeenLastCalledWith({
       userId: "user_1",
-      teamId: "org_session",
       teamName: "obs-e2e-343",
       "enduser.id": "user_1",
-      "ctxpipe.org.id": "org_session",
       "ctxpipe.org.slug": "obs-e2e-343",
     })
+    for (const call of setGlobalAttributes.mock.calls) {
+      if (call[0] == null) continue
+      expect(call[0]).not.toHaveProperty("teamId")
+    }
 
     orgState.data = [{ id: "org_1", slug: "obs-e2e-343" }]
     await act(async () => {
       rerender()
     })
 
-    expect(setGlobalAttributes).toHaveBeenLastCalledWith({
+    const fullIdentity = {
       userId: "user_1",
       teamId: "org_1",
       teamName: "obs-e2e-343",
       "enduser.id": "user_1",
       "ctxpipe.org.id": "org_1",
       "ctxpipe.org.slug": "obs-e2e-343",
-    })
+    }
+    expect(setGlobalAttributes).toHaveBeenLastCalledWith(fullIdentity)
+    expect(setGlobalAttributes.mock.calls.at(-2)?.[0]).toBeNull()
     const identifiedHome = pageViews().filter(
       (call) => call[1]?.path === "/obs-e2e-343" && call[1]?.teamId === "org_1",
     )
@@ -524,5 +537,73 @@ describe("HyperDxProvider client navigations", () => {
       "ctxpipe.org.id": "org_1",
       teamName: "obs-e2e-343",
     })
+  })
+
+  it("omits org keys on auth pages after an org route", async () => {
+    const runtimeConfig = { enabled: true as const, environment: "test" }
+    const rootRoute = createRootRoute({
+      component: () => (
+        <HyperDxProvider runtimeConfig={runtimeConfig}>
+          <HyperDxPageView runtimeConfig={runtimeConfig} />
+          <Outlet />
+        </HyperDxProvider>
+      ),
+    })
+    const deviceRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: "/.auth/device",
+      component: () => <p>Device</p>,
+    })
+    const orgRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: "/$orgSlug",
+      component: () => <Outlet />,
+    })
+    const indexRoute = createRoute({
+      getParentRoute: () => orgRoute,
+      path: "/",
+      component: () => <p>Home</p>,
+    })
+    const router = createRouter({
+      routeTree: rootRoute.addChildren([
+        deviceRoute,
+        orgRoute.addChildren([indexRoute]),
+      ]),
+      history: createMemoryHistory({ initialEntries: ["/obs-e2e-343"] }),
+    })
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    await act(async () => {
+      root?.render(<RouterProvider router={router} />)
+    })
+
+    const before = setGlobalAttributes.mock.calls.length
+    await act(async () => {
+      await router.navigate({ href: "/.auth/device" })
+    })
+
+    expect(
+      setGlobalAttributes.mock.calls.slice(before).map((call) => call[0]),
+    ).toEqual([
+      null,
+      {
+        userId: "user_1",
+        "enduser.id": "user_1",
+      },
+    ])
+    const deviceView = addAction.mock.calls.find(
+      (call) => call[0] === "page_view" && call[1]?.path === "/.auth/device",
+    )
+    expect(deviceView?.[1]).toMatchObject({
+      userId: "user_1",
+      "enduser.id": "user_1",
+      path: "/.auth/device",
+      route: "/.auth/device",
+    })
+    expect(deviceView?.[1]).not.toHaveProperty("teamId")
+    expect(deviceView?.[1]).not.toHaveProperty("teamName")
+    expect(deviceView?.[1]).not.toHaveProperty("ctxpipe.org.id")
+    expect(deviceView?.[1]).not.toHaveProperty("ctxpipe.org.slug")
   })
 })

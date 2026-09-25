@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const { recordException, setGlobalAttributes } = vi.hoisted(() => ({
   recordException: vi.fn(),
@@ -16,6 +16,7 @@ import {
   clearHyperDxGlobalAttributes,
   readCachedHyperDxIdentity,
   readEarlyHyperDxIdentity,
+  resetHyperDxPublishedAttributesForTests,
   setHyperDxGlobalAttributes,
 } from "./hyperdxBrowser"
 import {
@@ -25,6 +26,10 @@ import {
 } from "./hyperdxQueryErrors"
 
 describe("session identity flushes deferred query errors", () => {
+  beforeEach(() => {
+    resetHyperDxPublishedAttributesForTests()
+  })
+
   afterEach(() => {
     recordException.mockClear()
     setGlobalAttributes.mockClear()
@@ -164,7 +169,125 @@ describe("session identity flushes deferred query errors", () => {
   })
 })
 
+describe("global attribute changes", () => {
+  beforeEach(() => {
+    resetHyperDxPublishedAttributesForTests()
+  })
+
+  afterEach(() => {
+    setGlobalAttributes.mockClear()
+    resetHyperDxPublishedAttributesForTests()
+  })
+
+  it("clears user A's org before publishing user B", () => {
+    setHyperDxGlobalAttributes({
+      userId: "user_a",
+      teamId: "org_a",
+      teamName: "alpha",
+    })
+    setGlobalAttributes.mockClear()
+
+    setHyperDxGlobalAttributes({
+      userId: "user_b",
+      teamId: "org_b",
+      teamName: "beta",
+    })
+
+    expect(setGlobalAttributes).toHaveBeenNthCalledWith(1, null)
+    expect(setGlobalAttributes).toHaveBeenNthCalledWith(2, {
+      userId: "user_b",
+      teamId: "org_b",
+      teamName: "beta",
+      "enduser.id": "user_b",
+      "ctxpipe.org.id": "org_b",
+      "ctxpipe.org.slug": "beta",
+    })
+    const published = setGlobalAttributes.mock.calls[1]?.[0] as Record<
+      string,
+      string
+    >
+    expect(published).not.toHaveProperty("ctxpipe.org.slug", "alpha")
+    expect(published.teamId).not.toBe("org_a")
+  })
+
+  it("clears org keys when the next identity has no org", () => {
+    setHyperDxGlobalAttributes({
+      userId: "user_1",
+      teamId: "org_1",
+      teamName: "obs-e2e-343",
+    })
+    setGlobalAttributes.mockClear()
+
+    setHyperDxGlobalAttributes({
+      userId: "user_1",
+      teamId: "",
+      teamName: "",
+    })
+
+    expect(setGlobalAttributes).toHaveBeenNthCalledWith(1, null)
+    expect(setGlobalAttributes).toHaveBeenNthCalledWith(2, {
+      userId: "user_1",
+      "enduser.id": "user_1",
+    })
+    const published = setGlobalAttributes.mock.calls[1]?.[0] as Record<
+      string,
+      string
+    >
+    expect(published).not.toHaveProperty("teamId")
+    expect(published).not.toHaveProperty("teamName")
+    expect(published).not.toHaveProperty("ctxpipe.org.id")
+    expect(published).not.toHaveProperty("ctxpipe.org.slug")
+  })
+
+  it("round-trips an empty teamId and skips a cache entry the reader rejects", () => {
+    const store = new Map<string, string>()
+    const markers = new Map<string, string>()
+    const storage = {
+      getItem: (key: string) =>
+        (key === "ctxpipe.hd.session" ? markers : store).get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        ;(key === "ctxpipe.hd.session" ? markers : store).set(key, value)
+      },
+      removeItem: (key: string) => {
+        ;(key === "ctxpipe.hd.session" ? markers : store).delete(key)
+      },
+    }
+    vi.stubGlobal("sessionStorage", storage)
+    vi.stubGlobal("localStorage", storage)
+    vi.stubGlobal("window", { location: { pathname: "/acme" } })
+
+    setHyperDxGlobalAttributes({
+      userId: "user_1",
+      teamId: "",
+      teamName: "",
+    })
+    expect(readCachedHyperDxIdentity()).toEqual({
+      userId: "user_1",
+      teamId: "",
+      teamName: "",
+    })
+    const written = store.get("ctxpipe.hyperdx.identity")
+
+    setHyperDxGlobalAttributes({
+      userId: "user_1",
+      teamId: undefined as unknown as string,
+      teamName: "acme",
+    })
+    expect(store.get("ctxpipe.hyperdx.identity")).toBe(written)
+    expect(readCachedHyperDxIdentity()).toEqual({
+      userId: "user_1",
+      teamId: "",
+      teamName: "",
+    })
+    vi.unstubAllGlobals()
+  })
+})
+
 describe("early identity on org routes", () => {
+  beforeEach(() => {
+    resetHyperDxPublishedAttributesForTests()
+  })
+
   afterEach(() => {
     setGlobalAttributes.mockClear()
     vi.unstubAllGlobals()

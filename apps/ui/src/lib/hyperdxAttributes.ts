@@ -15,8 +15,9 @@ export type HyperDxGlobalAttributes = HyperDxSessionIdentity & {
 /**
  * `userId` / `teamId` / `teamName` are what HyperDX session search reads.
  * The dotted keys match backend spans so one filter works on browser and API.
- * Missing ids are omitted. `@hyperdx/browser` merges attributes, so an empty
- * string would be exported; sign-out wipes the bag instead.
+ * Missing ids are omitted so an empty string is not exported.
+ * `@hyperdx/otel-web` merges the bag, so callers clear before publishing a
+ * smaller or different set. Sign-out wipes the bag.
  */
 export function hyperdxGlobalAttributes(input: {
   userId?: string | null
@@ -127,8 +128,10 @@ export function hyperdxPageViewFromMatches(input: {
 export type HyperDxOrgRef = { id: string; slug: string }
 
 /**
- * Prefer the org in the URL. If that slug is not in the list yet, still keep
- * the slug. Otherwise use the session's active organization.
+ * Id and slug come from the same org record (the list, or nothing).
+ * A route slug that is not in the list is emitted alone — never next to
+ * another org's id. Off an org route, the active organization is that
+ * record when the list contains it, or an id with no slug before the list loads.
  */
 export function resolveHyperDxTeam(input: {
   orgSlugFromRoute: string
@@ -141,12 +144,6 @@ export function resolveHyperDxTeam(input: {
       (org) => org.slug === input.orgSlugFromRoute,
     )
     if (fromRoute) return { teamId: fromRoute.id, teamName: fromRoute.slug }
-    if (input.activeOrganizationId) {
-      return {
-        teamId: input.activeOrganizationId,
-        teamName: input.orgSlugFromRoute,
-      }
-    }
     return { teamId: "", teamName: input.orgSlugFromRoute }
   }
   if (input.activeOrganizationId) {
@@ -170,6 +167,11 @@ const HYPERDX_SIGN_IN_PATHS = new Set([
   "/.auth/two-factor",
   "/.auth/callback",
 ])
+
+/** Auth pages have no org context, so spans there omit org keys. */
+export function isHyperDxAuthPath(pathname: string): boolean {
+  return pathname === "/.auth" || pathname.startsWith("/.auth/")
+}
 
 /** Paths where a session change is a completed sign-in (password, 2FA, or OAuth callback). */
 export function isHyperDxSignInPath(pathname: string): boolean {

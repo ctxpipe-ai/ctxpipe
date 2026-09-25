@@ -79,21 +79,35 @@ function clearSessionMarker(): void {
   }
 }
 
+function isStoredIdentity(value: {
+  userId?: unknown
+  teamId?: unknown
+  teamName?: unknown
+  sessionKey?: unknown
+  orgs?: unknown
+}): value is {
+  userId: string
+  teamId: string
+  teamName: string
+  sessionKey: string
+  orgs?: unknown
+} {
+  return (
+    typeof value.userId === "string" &&
+    typeof value.teamId === "string" &&
+    typeof value.teamName === "string" &&
+    typeof value.sessionKey === "string" &&
+    value.sessionKey.length > 0
+  )
+}
+
 function readIdentityCache(): CachedIdentity | null {
   if (typeof sessionStorage === "undefined") return null
   try {
     const raw = sessionStorage.getItem(IDENTITY_STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<CachedIdentity>
-    if (
-      typeof parsed.userId !== "string" ||
-      typeof parsed.teamId !== "string" ||
-      typeof parsed.teamName !== "string" ||
-      typeof parsed.sessionKey !== "string" ||
-      parsed.sessionKey.length === 0
-    ) {
-      return null
-    }
+    if (!isStoredIdentity(parsed)) return null
     return {
       userId: parsed.userId,
       teamId: parsed.teamId,
@@ -119,7 +133,6 @@ function writeIdentityCache(
     cached.userId === attributes.userId &&
     cached.sessionKey === marker
   const sessionKey = sameUser && marker ? marker : crypto.randomUUID()
-  writeSessionMarker(sessionKey)
   const orgs =
     organizations === undefined
       ? sameUser
@@ -128,17 +141,18 @@ function writeIdentityCache(
       : organizations.flatMap((org) =>
           org.id && org.slug ? [{ id: org.id, slug: org.slug }] : [],
         )
+  const entry = {
+    userId: attributes.userId,
+    teamId: attributes.teamId,
+    teamName: attributes.teamName,
+    sessionKey,
+    orgs,
+  }
+  // Same predicate as `readIdentityCache`. An omitted teamId must not be stored.
+  if (!isStoredIdentity(entry)) return
+  writeSessionMarker(sessionKey)
   try {
-    sessionStorage.setItem(
-      IDENTITY_STORAGE_KEY,
-      JSON.stringify({
-        userId: attributes.userId,
-        teamId: attributes.teamId,
-        teamName: attributes.teamName,
-        sessionKey,
-        orgs,
-      }),
-    )
+    sessionStorage.setItem(IDENTITY_STORAGE_KEY, JSON.stringify(entry))
   } catch {
     // Private mode can reject storage writes.
   }
@@ -225,6 +239,40 @@ export function readEarlyHyperDxIdentity(
   }
 }
 
+/**
+ * Last bag passed to the SDK. Empty means the processor has no identity keys.
+ * `@hyperdx/otel-web` 0.20.0 `dist/esm/SplunkSpanAttributesProcessor.js`
+ * `setGlobalAttributes` (lines 20-28) `Object.assign`s a truthy argument onto
+ * `_globalAttributes` and deletes every key when the argument is falsy.
+ * `@hyperdx/browser` 0.26.0 forwards that call (`Rum.setGlobalAttributes`).
+ * Init seeds the processor from `deploymentEnvironment`, `version`, and
+ * `globalAttributes` (`dist/esm/index.js`, `new SplunkSpanAttributesProcessor`).
+ * Our `HyperDX.init` passes none of those, so a clear removes only identity keys.
+ */
+let publishedGlobalAttributes = ""
+
+export function applyHyperDxGlobalAttributes(
+  attributes: HyperDxSessionIdentity,
+): void {
+  const next = hyperdxGlobalAttributes(attributes)
+  const serialized = JSON.stringify(next)
+  if (
+    publishedGlobalAttributes.length > 0 &&
+    publishedGlobalAttributes !== serialized
+  ) {
+    HyperDX.setGlobalAttributes(null as unknown as Record<string, string>)
+  }
+  if (publishedGlobalAttributes !== serialized) {
+    HyperDX.setGlobalAttributes(next)
+    publishedGlobalAttributes = serialized
+  }
+}
+
+/** Test isolation for the published-attribute guard. */
+export function resetHyperDxPublishedAttributesForTests(): void {
+  publishedGlobalAttributes = ""
+}
+
 /** No-ops until `HyperDX.init` has run (`@hyperdx/otel-web` checks `inited`). */
 export function recordHyperDxAction(
   name: string,
@@ -247,7 +295,7 @@ export function setHyperDxGlobalAttributes(
     organizations?: readonly HyperDxOrgRef[]
   },
 ): void {
-  HyperDX.setGlobalAttributes(hyperdxGlobalAttributes(attributes))
+  applyHyperDxGlobalAttributes(attributes)
   writeIdentityCache(attributes, options?.organizations)
   noteHyperDxSessionIdentity("signed-in", {
     teamId: attributes.teamId,
@@ -256,8 +304,9 @@ export function setHyperDxGlobalAttributes(
 }
 
 export function clearHyperDxGlobalAttributes(): void {
-  // The SDK merges into the existing bag. A falsy value deletes every key.
+  // Falsy deletes every key. See `applyHyperDxGlobalAttributes`.
   HyperDX.setGlobalAttributes(null as unknown as Record<string, string>)
+  publishedGlobalAttributes = ""
   clearIdentityCache()
   noteHyperDxSessionIdentity("signed-out")
 }
