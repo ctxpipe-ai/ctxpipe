@@ -1,7 +1,8 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
-watchPatterns = ["**"]
+# Watch paths are repo-root globs even when the service root directory is set.
+watchPatterns = ["/ops/observability/clickhouse/**"]
 
 [deploy]
 healthcheckPath = "/ping"

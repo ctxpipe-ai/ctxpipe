@@ -4,6 +4,9 @@
 # `transform` processor (logs pipeline). Confmap replaces arrays, so do not
 # set service.telemetry here: base config.yaml already exposes internal
 # metrics on 0.0.0.0:8888 (readers.pull.exporter.prometheus).
+# The traces pipeline below is restated for clickhouse/clickstack-otel-collector:2.39.1
+# (receivers otlp/hyperdx, processors memory_limiter then batch, exporter clickhouse).
+# Re-check that list when the image tag changes; a newer base processor would be dropped.
 # The base receiver name is otlp/hyperdx (not otlp). Hosted allowlist source of
 # truth; keep in sync with apps/otel-collector/config.yaml.
 #
@@ -47,10 +50,35 @@ processors:
     error_mode: ignore
     traces:
       span:
-        - 'not ((attributes["gen_ai.system"] != nil) or (attributes["gen_ai.operation.name"] != nil) or (attributes["gen_ai.request.model"] != nil) or (attributes["gen_ai.response.model"] != nil) or (attributes["gen_ai.provider.name"] != nil) or (attributes["gen_ai.usage.input_tokens"] != nil) or (attributes["gen_ai.usage.output_tokens"] != nil) or (attributes["gen_ai.response.id"] != nil) or (attributes["gen_ai.conversation.id"] != nil) or (attributes["gen_ai.tool.name"] != nil) or (attributes["gen_ai.tool.call.id"] != nil) or (attributes["gen_ai.tool.type"] != nil) or (attributes["gen_ai.data_source.id"] != nil) or (attributes["gen_ai.agent.name"] != nil) or (attributes["gen_ai.request.choice.count"] != nil) or (attributes["gen_ai.response.finish_reasons"] != nil) or IsMatch(instrumentation_scope.name, "(?i).*(langfuse|langchain|langgraph).*"))'
+        - 'instrumentation_scope.name == "ctxpipe-genai" or not ((attributes["gen_ai.system"] != nil) or (attributes["gen_ai.operation.name"] != nil) or (attributes["gen_ai.request.model"] != nil) or (attributes["gen_ai.response.model"] != nil) or (attributes["gen_ai.provider.name"] != nil) or (attributes["gen_ai.usage.input_tokens"] != nil) or (attributes["gen_ai.usage.output_tokens"] != nil) or (attributes["gen_ai.response.id"] != nil) or (attributes["gen_ai.conversation.id"] != nil) or (attributes["gen_ai.tool.name"] != nil) or (attributes["gen_ai.tool.call.id"] != nil) or (attributes["gen_ai.tool.type"] != nil) or (attributes["gen_ai.data_source.id"] != nil) or (attributes["gen_ai.agent.name"] != nil) or (attributes["gen_ai.request.choice.count"] != nil) or (attributes["gen_ai.response.finish_reasons"] != nil) or IsMatch(instrumentation_scope.name, "(?i).*(langfuse|langchain|langgraph).*"))'
   batch/langfuse:
     timeout: 5s
     send_batch_size: 512
+  # ClickHouse traces only. traces/llm does not use this processor, so Langfuse
+  # still receives prompt and completion text.
+  transform/redact_llm_content:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - delete_key(span.attributes, "langfuse.observation.input")
+          - delete_key(span.attributes, "langfuse.observation.output")
+          - delete_key(span.attributes, "gen_ai.input.messages")
+          - delete_key(span.attributes, "gen_ai.output.messages")
+          - delete_matching_keys(span.attributes, "^gen_ai\\.prompt")
+          - delete_matching_keys(span.attributes, "^gen_ai\\.completion")
+          - delete_matching_keys(span.attributes, "^gen_ai\\.input\\.messages")
+          - delete_matching_keys(span.attributes, "^gen_ai\\.output\\.messages")
+      - context: spanevent
+        statements:
+          - delete_key(spanevent.attributes, "langfuse.observation.input")
+          - delete_key(spanevent.attributes, "langfuse.observation.output")
+          - delete_key(spanevent.attributes, "gen_ai.input.messages")
+          - delete_key(spanevent.attributes, "gen_ai.output.messages")
+          - delete_matching_keys(spanevent.attributes, "^gen_ai\\.prompt")
+          - delete_matching_keys(spanevent.attributes, "^gen_ai\\.completion")
+          - delete_matching_keys(spanevent.attributes, "^gen_ai\\.input\\.messages")
+          - delete_matching_keys(spanevent.attributes, "^gen_ai\\.output\\.messages")
   # Prometheus receiver sets service.name from the job label. This processor
   # only adds the shared ops-stack resource attributes.
   resource/self:
@@ -71,6 +99,11 @@ exporters:
 
 service:
   pipelines:
+    # Restated from clickstack-otel-collector:2.39.1, plus redaction before batch.
+    traces:
+      receivers: [otlp/hyperdx]
+      processors: [memory_limiter, transform/redact_llm_content, batch]
+      exporters: [clickhouse]
     traces/llm:
       receivers: [otlp/hyperdx]
       processors: [filter/llm_only, batch/langfuse]
