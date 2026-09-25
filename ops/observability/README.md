@@ -17,8 +17,6 @@ See [ADR-038](../../.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse
 | Redis | `redis:7-alpine` | Stays up while the worker is running. Metrics come from `railway-telemetry` `INFO`, not a collector receiver |
 | railway-telemetry | GitHub `ops/observability/railway-telemetry` | Cron `*/5`, then exit. Railway CPU/memory/network/disk, observability environment logs, Redis `INFO`. Needs `RAILWAY_API_TOKEN` |
 
-`ops-probe` is **not** part of this stack. It is a temporary Railway service (not in Terraform) and will be deleted.
-
 ## Signals
 
 | Signal | From | Notes |

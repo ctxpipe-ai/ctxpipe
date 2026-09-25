@@ -32,8 +32,8 @@
 # the config name and mount path, so Update does not create a second volume.
 # Update creates a volume only when state has none and config has one.
 #
-# Not imported: ops-probe (not in this configuration) and the buckets
-# langfuse-events and clickhouse-cold (provider 0.6.1 has no bucket resource).
+# Not imported: the buckets langfuse-events and clickhouse-cold
+# (provider 0.6.1 has no bucket resource).
 
 import {
   to = railway_service.clickhouse
