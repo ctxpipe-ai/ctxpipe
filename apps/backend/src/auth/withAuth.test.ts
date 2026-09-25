@@ -57,6 +57,7 @@ vi.mock("../observability/logger.js", () => ({
   }),
 }))
 
+import { attributionRecorder } from "../observability/recordingSpan.js"
 import { OAUTH_ORGANIZATION_CLAIM } from "./oauth-organization.js"
 import {
   mcpOAuthProtectedResourceMetadataUrl,
@@ -1046,7 +1047,10 @@ describe("org API-key principal", () => {
       session: { id: "sess_api_key", userId: "user_api_key" },
       orgApiKey: null,
     })
-    expect(verifyApiKeyMock).not.toHaveBeenCalled()
+    expect(verifyApiKeyMock).toHaveBeenCalledTimes(1)
+    expect(verifyApiKeyMock.mock.calls[0]?.[0]).toEqual({
+      body: { key: "ctxp_user_key" },
+    })
   })
 
   it("org x-api-key sets orgApiKey, leaves user and session null, and requireAuth on /mcp passes", async () => {
@@ -1121,7 +1125,7 @@ describe("org API-key principal", () => {
       session: { id: "sess_api_key", userId: "user_api_key" },
       orgApiKey: null,
     })
-    expect(verifyApiKeyMock).not.toHaveBeenCalled()
+    expect(verifyApiKeyMock).toHaveBeenCalledTimes(1)
   })
 
   it("Bearer API keys do not authenticate REST routes", async () => {
@@ -1489,7 +1493,7 @@ describe("org API-key tenant binding", () => {
         message: expect.stringContaining("not bound to an organization"),
       },
     })
-    expect(verifyApiKeyMock).not.toHaveBeenCalled()
+    expect(verifyApiKeyMock).toHaveBeenCalledTimes(1)
   })
 
   it("user x-api-key still authenticates MCP as that user when orgSlug matches membership", async () => {
@@ -1515,7 +1519,7 @@ describe("org API-key tenant binding", () => {
       orgSlug: "acme",
       orgId: "org_acme",
     })
-    expect(verifyApiKeyMock).not.toHaveBeenCalled()
+    expect(verifyApiKeyMock).toHaveBeenCalledTimes(1)
   })
 
   it("unbound OAuth grant without orgSlug still returns 400", async () => {
@@ -1545,6 +1549,147 @@ describe("org API-key tenant binding", () => {
       error: {
         message: expect.stringContaining("not bound to an organization"),
       },
+    })
+  })
+})
+
+describe("request actor attribution", () => {
+  function createAttributedMcpApp() {
+    const recorded = attributionRecorder()
+    const app = createBaseApp()
+    app.use("*", recorded.middleware)
+    app.use(
+      "/mcp",
+      withMcpBearerAuth,
+      withCookieAuth,
+      withOrgApiKeyAuth,
+      requireAuth,
+      withNetworkOrgContext,
+    )
+    app.post("/mcp", (c) => c.json({ ok: true }))
+    return { app, attributes: recorded.attributes }
+  }
+
+  beforeEach(() => {
+    resetAuthMocks()
+  })
+
+  it("attributes a cookie user and keeps enduser.id when the org does not resolve", async () => {
+    getSessionMock.mockResolvedValueOnce({
+      user: { id: "user_cookie", email: "cookie@example.com" },
+      session: { id: "sess_cookie", userId: "user_cookie" },
+    })
+    testState.db = createMockDb({ membershipRows: [] })
+
+    const { app, attributes } = createAttributedMcpApp()
+    const response = await app.request("/mcp?orgSlug=missing", {
+      method: "POST",
+    })
+
+    expect(response.status).toBe(404)
+    expect(attributes()["enduser.id"]).toBe("user_cookie")
+    expect(attributes()["ctxpipe.actor.type"]).toBe("user")
+    expect(attributes()["ctxpipe.org.id"]).toBeUndefined()
+  })
+
+  it("attributes a personal api key as the user plus the key id", async () => {
+    getSessionMock.mockResolvedValueOnce({
+      user: { id: "user_api_key", email: "api-key@example.com" },
+      session: { id: "sess_api_key", userId: "user_api_key" },
+    })
+    verifyApiKeyMock.mockResolvedValue({
+      valid: true,
+      error: null,
+      key: {
+        id: "key_user",
+        configId: "default",
+        referenceId: "user_api_key",
+      },
+    })
+    testState.db = createMockDb({
+      orgRows: [{ id: "org_acme" }],
+    })
+
+    const { app, attributes } = createAttributedMcpApp()
+    const secret = "ctxp_user_key"
+    const response = await app.request("/mcp?orgSlug=acme", {
+      method: "POST",
+      headers: { "x-api-key": secret },
+    })
+
+    expect(response.status).toBe(200)
+    expect(attributes()).toMatchObject({
+      "ctxpipe.actor.type": "user",
+      "enduser.id": "user_api_key",
+      "ctxpipe.api_key.id": "key_user",
+      "ctxpipe.org.id": "org_acme",
+      "ctxpipe.org.slug": "acme",
+    })
+    expect(JSON.stringify(attributes())).not.toContain(secret)
+  })
+
+  it("attributes an org api key without an end user", async () => {
+    getSessionMock.mockResolvedValue(null)
+    verifyApiKeyMock.mockResolvedValue({
+      valid: true,
+      error: null,
+      key: {
+        id: "key_org",
+        configId: "organization",
+        referenceId: "org_acme",
+      },
+    })
+    testState.db = createMockDb({
+      orgRows: [{ id: "org_acme", slug: "acme" }],
+    })
+
+    const { app, attributes } = createAttributedMcpApp()
+    const response = await app.request("/mcp?orgSlug=acme", {
+      method: "POST",
+      headers: { "x-api-key": "ctxp_org_key" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(attributes()).toMatchObject({
+      "ctxpipe.actor.type": "org_api_key",
+      "ctxpipe.api_key.id": "key_org",
+      "ctxpipe.org.id": "org_acme",
+      "ctxpipe.org.slug": "acme",
+    })
+    expect(attributes()["enduser.id"]).toBeUndefined()
+  })
+
+  it("attributes an oauth client", async () => {
+    getSessionMock.mockResolvedValueOnce(null)
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: {
+        sub: "user_oauth",
+        sid: "sess_oauth",
+        client_id: "client_oauth",
+      },
+    })
+    testState.db = createMockDb({
+      tokenSessionRows: [
+        {
+          session: { id: "sess_oauth", userId: "user_oauth" },
+          user: { id: "user_oauth", email: "oauth@example.com" },
+        },
+      ],
+      orgRows: [{ id: "org_acme" }],
+    })
+
+    const { app, attributes } = createAttributedMcpApp()
+    const response = await app.request("/mcp?orgSlug=acme", {
+      method: "POST",
+      headers: { authorization: "Bearer header.payload.signature" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(attributes()).toMatchObject({
+      "ctxpipe.actor.type": "oauth_client",
+      "enduser.id": "user_oauth",
+      "ctxpipe.oauth.client_id": "client_oauth",
+      "ctxpipe.org.id": "org_acme",
     })
   })
 })

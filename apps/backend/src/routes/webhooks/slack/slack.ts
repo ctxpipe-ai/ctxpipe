@@ -7,6 +7,7 @@ import {
   revokeSlackConnectionByTeamId,
 } from "../../../models/slack-connector.js"
 import { getLogger } from "../../../observability/logger.js"
+import { noteResolvedWebhookConnection } from "../../../observability/webhookAttribution.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { slackMentionAgent } from "../../../openworkflow/workflows/slack-mention-agent.js"
 import {
@@ -124,6 +125,10 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
       getLogger().info("slack_webhook_unknown_team", { teamId })
       return c.json({ ok: true }, 200)
     }
+    noteResolvedWebhookConnection({
+      orgId: connection.orgId,
+      connectionId: connection.id,
+    })
 
     const target = await getSlackSyncTargetByConnectionId(connection.id)
     if (!target || target.orgId !== connection.orgId || !target.enabled) {

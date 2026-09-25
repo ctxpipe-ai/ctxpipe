@@ -11,6 +11,7 @@ import {
   contextWithAttributionBag,
   copyAttributionToSpan,
   resolveRequestId,
+  stripUntrustedAttributionBaggage,
 } from "./attribution.js"
 import { logFieldsFromActiveSpan } from "./logContract.js"
 
@@ -53,7 +54,7 @@ function isUiProxyPath(path: string): boolean {
 export function backendOtelMiddleware(): MiddlewareHandler {
   return async (c, next) => {
     const requestId = resolveRequestId(c.req.header("x-request-id"))
-    c.header("x-request-id", requestId)
+    c.header("x-request-id", requestId.id)
 
     const carrier: Record<string, string> = {}
     const traceparent = c.req.header("traceparent")
@@ -62,7 +63,9 @@ export function backendOtelMiddleware(): MiddlewareHandler {
     if (traceparent) carrier.traceparent = traceparent
     if (tracestate) carrier.tracestate = tracestate
     if (baggageHeader) carrier.baggage = baggageHeader
-    const parent = propagation.extract(context.active(), carrier)
+    const parent = stripUntrustedAttributionBaggage(
+      propagation.extract(context.active(), carrier),
+    )
 
     if (isUiProxyPath(c.req.path)) {
       const { context: withBag } = contextWithAttributionBag(parent)

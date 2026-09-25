@@ -27,6 +27,7 @@ import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions"
 import type { MiddlewareHandler } from "hono"
 import type { Env } from "../config/env.js"
+import { ATTRIBUTION_KEYS } from "./contract.js"
 import { FlushOnDemandMetricReader } from "./flushOnDemandMetricReader.js"
 import {
   heapSpaceStatisticsAvailable,
@@ -47,20 +48,6 @@ let outgoingFetchInstrumented = false
 const PR_ENVIRONMENT_RE = /^pr-\d+$/
 const FORCE_FLUSH_TIMEOUT_MS = 2_000
 const TRACER_NAME = "ctxpipe-codesearch"
-
-const ATTRIBUTION_KEYS = [
-  "request.id",
-  "enduser.id",
-  "ctxpipe.org.id",
-  "ctxpipe.org.slug",
-  "ctxpipe.actor.type",
-  "ctxpipe.api_key.id",
-  "ctxpipe.oauth.client_id",
-  "ctxpipe.mcp.tool",
-  "ctxpipe.conversation.id",
-  "ctxpipe.repository.id",
-  "ctxpipe.connection.id",
-] as const
 
 export function attributesFromBaggage(
   parent: ReturnType<typeof context.active>,

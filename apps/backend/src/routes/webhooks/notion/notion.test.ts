@@ -1,9 +1,11 @@
 import { createHmac } from "node:crypto"
+import type { MiddlewareHandler } from "hono"
 import { Hono } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 import { parseNotionConnectionConfig } from "../../../lib/connection-config.js"
 import { encryptConnectionSecret } from "../../../lib/connection-secrets.js"
+import { attributionRecorder } from "../../../observability/recordingSpan.js"
 
 const connectionsMock = vi.hoisted(() => vi.fn())
 const getRowMock = vi.hoisted(() => vi.fn())
@@ -67,9 +69,11 @@ function testApp(
   options: {
     webhookSecret?: string
     clientSecret?: string
+    before?: MiddlewareHandler
   } = { webhookSecret },
 ) {
   const app = new Hono<AppEnv>()
+  if (options.before) app.use("*", options.before)
   app.use("*", async (c, next) => {
     c.set("env", {
       ...envBase,
@@ -333,14 +337,13 @@ describe("Notion webhook", () => {
       entity: { id: "page_1", type: "page" },
     })
 
-    const response = await testApp({ webhookSecret: "hosted-env-secret" }).request(
-      "/api/v1/webhook/notion",
-      {
-        method: "POST",
-        headers: { "x-notion-signature": sign(body, "hosted-env-secret") },
-        body,
-      },
-    )
+    const response = await testApp({
+      webhookSecret: "hosted-env-secret",
+    }).request("/api/v1/webhook/notion", {
+      method: "POST",
+      headers: { "x-notion-signature": sign(body, "hosted-env-secret") },
+      body,
+    })
 
     expect(response.status).toBe(401)
     expect(runWorkflowMock).not.toHaveBeenCalled()
@@ -460,7 +463,11 @@ describe("Notion webhook", () => {
       entity: { id: "page_1", type: "page" },
     })
 
-    const response = await testApp().request("/api/v1/webhook/notion", {
+    const recorded = attributionRecorder()
+    const response = await testApp({
+      webhookSecret,
+      before: recorded.middleware,
+    }).request("/api/v1/webhook/notion", {
       method: "POST",
       headers: { "x-notion-signature": sign(body, webhookSecret) },
       body,
@@ -468,6 +475,11 @@ describe("Notion webhook", () => {
 
     expect(response.status).toBe(204)
     expect(runWorkflowMock).not.toHaveBeenCalled()
+    expect(recorded.attributes()).toMatchObject({
+      "ctxpipe.actor.type": "webhook",
+      "ctxpipe.org.id": "org_1",
+      "ctxpipe.connection.id": "con_1",
+    })
   })
 
   it("no longer exposes the legacy per-connection route", async () => {

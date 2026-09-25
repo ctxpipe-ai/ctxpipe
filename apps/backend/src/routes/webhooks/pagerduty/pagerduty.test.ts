@@ -1,9 +1,11 @@
 import { createHmac } from "node:crypto"
 import { OpenAPIHono } from "@hono/zod-openapi"
+import type { MiddlewareHandler } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
 import { encryptConnectionSecret } from "../../../lib/connection-secrets.js"
+import { attributionRecorder } from "../../../observability/recordingSpan.js"
 import { registerPagerdutyWebhookRoute } from "./pagerduty.js"
 
 const mocks = vi.hoisted(() => ({
@@ -36,8 +38,9 @@ const env = parseEnv({
 const webhookSecret = "pagerduty-subscription-secret"
 const webhookSecretEnc = encryptConnectionSecret(webhookSecret, env)
 
-function createTestApp() {
+function createTestApp(before?: MiddlewareHandler) {
   const app = new OpenAPIHono<AppEnv>()
+  if (before) app.use("*", before)
   app.use("*", async (c, next) => {
     c.set("env", env)
     await next()
@@ -178,7 +181,8 @@ describe("POST /api/v1/webhook/pagerduty", () => {
         data: { id: "PINCIDENT", service: { id: "PSERVICE" } },
       },
     })
-    const response = await createTestApp().request(
+    const recorded = attributionRecorder()
+    const response = await createTestApp(recorded.middleware).request(
       "/api/v1/webhook/pagerduty",
       {
         method: "POST",
@@ -192,6 +196,11 @@ describe("POST /api/v1/webhook/pagerduty", () => {
     )
     expect(response.status).toBe(200)
     expect(mocks.runWorkflow).not.toHaveBeenCalled()
+    expect(recorded.attributes()).toMatchObject({
+      "ctxpipe.actor.type": "webhook",
+      "ctxpipe.org.id": "org_1",
+      "ctxpipe.connection.id": "con_pd",
+    })
   })
 
   it("acks incidents with no service id without enqueue", async () => {

@@ -16,7 +16,8 @@ import {
   getLangfuseHandler,
   runWithLangfuseContext,
 } from "../observability/langfuse.js"
-import { getLogger, log } from "../observability/logger.js"
+import { log } from "../observability/logger.js"
+import { tryGetLogger } from "../observability/requestLogger.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -109,12 +110,6 @@ export function registerMcpTools(server: McpServer): void {
         },
       }
       try {
-        let requestLogger: ReturnType<typeof getLogger> | undefined
-        try {
-          requestLogger = getLogger()
-        } catch {
-          requestLogger = undefined
-        }
         applyAttribution(
           {
             "ctxpipe.mcp.tool": "ctx_advisor",
@@ -123,7 +118,7 @@ export function registerMcpTools(server: McpServer): void {
               actor.type === "org-service" ? "org_api_key" : "user",
             ...(actor.type === "user" ? { "enduser.id": actor.userId } : {}),
           },
-          requestLogger,
+          tryGetLogger(),
         )
         recordAdvisorCall(orgId)
         return await runWithLangfuseContext(

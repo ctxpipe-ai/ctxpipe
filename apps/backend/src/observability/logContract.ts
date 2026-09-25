@@ -1,6 +1,9 @@
 import { trace } from "@opentelemetry/api"
 import { ATTRIBUTION_KEYS, readAttribution } from "./attribution.js"
 import { otelDeploymentEnvironment } from "./otel.js"
+import { stripLogPii } from "./stripLogPii.js"
+
+export { stripLogPii }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -44,25 +47,6 @@ export function applyLogContract(
 
   event.environment = otelDeploymentEnvironment()
   event["service.namespace"] = "ctxpipe"
-}
-
-export function stripLogPii(event: Record<string, unknown>): void {
-  if (isRecord(event.user)) {
-    delete event.user.email
-    delete event.user.name
-    delete event.user.image
-  }
-  if (isRecord(event.session)) {
-    delete event.session.ipAddress
-    delete event.session.userAgent
-  }
-  delete event.userAgent
-  delete event.email
-  delete event.ipAddress
-  if (isRecord(event.headers)) {
-    delete event.headers["user-agent"]
-    delete event.headers["User-Agent"]
-  }
 }
 
 export function logFieldsFromActiveSpan(): Record<string, string> {

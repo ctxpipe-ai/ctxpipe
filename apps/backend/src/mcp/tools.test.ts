@@ -24,10 +24,16 @@ const {
   requireCurrentUserIdMock: vi.fn(() => "user_test123"),
   requireCurrentOrgIdMock: vi.fn(() => "org_test"),
   requireCurrentOrgSlugMock: vi.fn(() => "test-org"),
-  currentMcpActorMock: vi.fn(() => ({
-    type: "user" as const,
-    userId: "user_test123",
-  })),
+  currentMcpActorMock: vi.fn(
+    (): {
+      type: "user" | "org-service"
+      userId?: string
+      orgId?: string
+    } => ({
+      type: "user",
+      userId: "user_test123",
+    }),
+  ),
   runWithLangfuseContextMock: vi.fn(
     async (_attrs: unknown, fn: () => Promise<unknown>) => fn(),
   ),
@@ -506,9 +512,12 @@ describe("registerMcpTools", () => {
     ]
 
     await expect(
-      handler({ prompt: "What database should we use?" }, {
-        sendNotification: vi.fn(async () => {}),
-      }),
+      handler(
+        { prompt: "What database should we use?" },
+        {
+          sendNotification: vi.fn(async () => {}),
+        },
+      ),
     ).rejects.toThrow(failure)
 
     expect(logErrorMock).toHaveBeenCalledWith({

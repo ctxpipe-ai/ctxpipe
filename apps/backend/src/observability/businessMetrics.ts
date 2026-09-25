@@ -33,6 +33,21 @@ export function connectorTypeFromWorkflow(name: string): string | undefined {
   return undefined
 }
 
+const INGESTION_WORKFLOWS = new Set([
+  "repository-ingestion",
+  "repository-ingestion-orchestrator",
+  "repository-index",
+])
+
+/** Startup PR-mirror ensure is not a connector sync. */
+export function connectorSyncTypeForEnqueuedWorkflow(
+  workflowName: string,
+): string | undefined {
+  if (workflowName === "github-ensure-pr-mirror") return undefined
+  if (INGESTION_WORKFLOWS.has(workflowName)) return undefined
+  return connectorTypeFromWorkflow(workflowName)
+}
+
 export function recordEnqueuedWorkflow(
   workflowName: string,
   input: unknown,
@@ -40,17 +55,7 @@ export function recordEnqueuedWorkflow(
   if (!input || typeof input !== "object") return
   const orgId = (input as { orgId?: unknown }).orgId
   if (typeof orgId !== "string" || !orgId) return
-  if (
-    workflowName === "repository-ingestion" ||
-    workflowName === "repository-ingestion-orchestrator" ||
-    workflowName === "repository-index"
-  ) {
-    recordIngestionJob(orgId)
-  }
-  const connector = connectorTypeFromWorkflow(workflowName)
-  const ingestion =
-    workflowName === "repository-ingestion" ||
-    workflowName === "repository-ingestion-orchestrator" ||
-    workflowName === "repository-index"
-  if (connector && !ingestion) recordConnectorSync(orgId, connector)
+  if (INGESTION_WORKFLOWS.has(workflowName)) recordIngestionJob(orgId)
+  const connector = connectorSyncTypeForEnqueuedWorkflow(workflowName)
+  if (connector) recordConnectorSync(orgId, connector)
 }

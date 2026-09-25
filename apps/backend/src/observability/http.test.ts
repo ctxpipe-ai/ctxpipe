@@ -1,4 +1,10 @@
-import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
+import {
+  context,
+  propagation,
+  SpanKind,
+  SpanStatusCode,
+  trace,
+} from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
@@ -6,6 +12,7 @@ import {
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { Hono } from "hono"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import { applyAttribution } from "./attribution.js"
 import { backendOtelMiddleware } from "./http.js"
 
 const exporter = new InMemorySpanExporter()
@@ -126,5 +133,72 @@ describe("backendOtelMiddleware", () => {
     expect(
       exporter.getFinishedSpans().map((span) => span.attributes["http.route"]),
     ).toEqual(["/mcp", "/.otel/v1/traces"])
+  })
+
+  it("ignores spoofed attribution baggage on an unauthenticated request", async () => {
+    const app = new Hono()
+    app.use("*", backendOtelMiddleware())
+    app.get("/.auth/api/config", (c) => {
+      const baggage = propagation.getBaggage(context.active())
+      return c.json({
+        enduser: baggage?.getEntry("enduser.id")?.value ?? null,
+        org: baggage?.getEntry("ctxpipe.org.id")?.value ?? null,
+        actor: baggage?.getEntry("ctxpipe.actor.type")?.value ?? null,
+      })
+    })
+
+    const res = await app.request("http://backend.test/.auth/api/config", {
+      headers: {
+        baggage:
+          "enduser.id=user_SPOOFED_BY_REVIEW,ctxpipe.org.id=org_SPOOFED,ctxpipe.actor.type=job",
+      },
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      enduser: null,
+      org: null,
+      actor: null,
+    })
+    const span = exporter
+      .getFinishedSpans()
+      .find((item) => item.kind === SpanKind.SERVER)
+    expect(span?.attributes["enduser.id"]).toBeUndefined()
+    expect(span?.attributes["ctxpipe.org.id"]).toBeUndefined()
+    expect(span?.attributes["ctxpipe.actor.type"]).toBeUndefined()
+    expect(span?.attributes["request.id"]).toEqual(expect.any(String))
+  })
+
+  it("does not let spoofed repository or conversation baggage win over auth", async () => {
+    const app = new Hono()
+    app.use("*", backendOtelMiddleware())
+    app.get("/orgs/:orgSlug/api/v1/repositories", (c) => {
+      applyAttribution({
+        "enduser.id": "user_real",
+        "ctxpipe.org.id": "org_real",
+        "ctxpipe.actor.type": "user",
+      })
+      return c.json({ ok: true })
+    })
+
+    const res = await app.request(
+      "http://backend.test/orgs/acme/api/v1/repositories",
+      {
+        headers: {
+          baggage:
+            "ctxpipe.repository.id=repo_SPOOFED,ctxpipe.conversation.id=thr_SPOOFED,enduser.id=user_SPOOFED_BY_REVIEW",
+        },
+      },
+    )
+    expect(res.status).toBe(200)
+    const span = exporter
+      .getFinishedSpans()
+      .find((item) => item.kind === SpanKind.SERVER)
+    expect(span?.attributes).toMatchObject({
+      "enduser.id": "user_real",
+      "ctxpipe.org.id": "org_real",
+      "ctxpipe.actor.type": "user",
+    })
+    expect(span?.attributes["ctxpipe.repository.id"]).toBeUndefined()
+    expect(span?.attributes["ctxpipe.conversation.id"]).toBeUndefined()
   })
 })

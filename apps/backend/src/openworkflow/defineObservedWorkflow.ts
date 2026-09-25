@@ -1,35 +1,59 @@
 import { defineWorkflow as defineOpenWorkflow } from "openworkflow"
-import type { z } from "zod"
 import {
   type JobTelemetry,
   jobTelemetrySchema,
   restoreJobTelemetry,
 } from "../observability/jobTelemetry.js"
 
-function withTelemetrySchema<T>(schema: T): T {
-  if (
-    !schema ||
-    typeof schema !== "object" ||
-    !("extend" in schema) ||
-    typeof schema.extend !== "function"
-  ) {
-    return schema
-  }
-  return (schema as z.ZodObject<z.ZodRawShape>).extend({
-    telemetry: jobTelemetrySchema.optional(),
-  }) as T
+type ExtendableSchema<T> = {
+  extend: (shape: {
+    telemetry: ReturnType<typeof jobTelemetrySchema.optional>
+  }) => T
 }
 
-export const defineWorkflow: typeof defineOpenWorkflow = (spec, fn) => {
+function hasExtend<T>(schema: T): schema is T & ExtendableSchema<T> {
+  return (
+    typeof schema === "object" &&
+    schema !== null &&
+    "extend" in schema &&
+    typeof schema.extend === "function"
+  )
+}
+
+function withTelemetrySchema<T>(schema: T): T {
+  if (!hasExtend(schema)) return schema
+  return schema.extend({
+    telemetry: jobTelemetrySchema.optional(),
+  })
+}
+
+type ObservedCtx = {
+  input: { telemetry?: JobTelemetry }
+  step: unknown
+  version: string | null
+  run: unknown
+}
+
+export const defineWorkflow: typeof defineOpenWorkflow = ((
+  spec: {
+    name: string
+    version?: string
+    schema?: unknown
+    retryPolicy?: unknown
+  },
+  fn: (ctx: ObservedCtx) => unknown,
+) => {
   return defineOpenWorkflow(
     {
       ...spec,
       schema: withTelemetrySchema(spec.schema),
-    },
-    (async (ctx) => {
-      const telemetry = (ctx.input as { telemetry?: JobTelemetry } | undefined)
-        ?.telemetry
-      return restoreJobTelemetry(telemetry, () => fn(ctx))
-    }) as typeof fn,
+    } as never,
+    (async (ctx: ObservedCtx) => {
+      return restoreJobTelemetry(
+        ctx.input?.telemetry,
+        async () => fn(ctx),
+        ctx.input,
+      )
+    }) as never,
   )
-}
+}) as typeof defineOpenWorkflow

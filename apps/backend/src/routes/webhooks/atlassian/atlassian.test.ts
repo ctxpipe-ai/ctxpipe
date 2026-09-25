@@ -1,8 +1,10 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
+import type { MiddlewareHandler } from "hono"
 import { contextStorage } from "hono/context-storage"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
+import { attributionRecorder } from "../../../observability/recordingSpan.js"
 
 const jwtVerifyMock = vi.hoisted(() => vi.fn())
 const createRemoteJwkSetMock = vi.hoisted(() => vi.fn())
@@ -211,7 +213,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     runWorkflowMock.mockResolvedValue({ status: "completed" })
   })
 
-  function createApp() {
+  function createApp(before?: MiddlewareHandler) {
     const log = {
       error: vi.fn(),
       info: vi.fn(),
@@ -221,6 +223,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     } as unknown as AppEnv["Variables"]["log"]
     const app = new OpenAPIHono<AppEnv>()
     app.use(contextStorage())
+    if (before) app.use("*", before)
     app.use("*", async (c, next) => {
       c.set("env", env)
       c.set("log", log)
@@ -268,7 +271,8 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
   })
 
   it("upserts forge installation for known cloud id", async () => {
-    const { app } = createApp()
+    const recorded = attributionRecorder()
+    const { app } = createApp(recorded.middleware)
     const res = await app.request("/api/v1/webhook/atlassian/forge", {
       method: "POST",
       headers: {
@@ -289,6 +293,11 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
       }),
     })
     expect(res.status).toBe(204)
+    expect(recorded.attributes()).toMatchObject({
+      "ctxpipe.actor.type": "webhook",
+      "ctxpipe.org.id": "org_1",
+      "ctxpipe.connection.id": "fgi_1",
+    })
     expect(upsertForgeInstallationFromEventMock).toHaveBeenCalledWith(
       expect.objectContaining({
         orgId: "org_1",

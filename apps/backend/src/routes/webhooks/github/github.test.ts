@@ -1,8 +1,10 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { Webhooks } from "@octokit/webhooks"
+import type { MiddlewareHandler } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
+import { attributionRecorder } from "../../../observability/recordingSpan.js"
 import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-github-repositories.js"
 
 const runWorkflowMock = vi.hoisted(() =>
@@ -554,8 +556,9 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
     getWebhookSecretMock.mockResolvedValue(perConnectionSecret)
   })
 
-  function createTestApp() {
+  function createTestApp(before?: MiddlewareHandler) {
     const app = new OpenAPIHono<AppEnv>()
+    if (before) app.use("*", before)
     app.use("*", async (c, next) => {
       c.set("env", env)
       c.set("log", {
@@ -613,6 +616,48 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
       connectionId: "con_abc",
       installationId: 129_416_215,
       env,
+    })
+  })
+
+  it("attributes the connection when installation created does not enqueue a job", async () => {
+    getRowByConMock.mockResolvedValue({
+      id: "con_abc",
+      orgId: "org_1",
+      type: "github",
+      config: {
+        ingestAllRepositories: false,
+        includeFutureRepos: false,
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    registerInstallMock.mockResolvedValue(undefined)
+    const payload = {
+      action: "created",
+      installation: { id: 129_416_215 },
+    }
+    const body = JSON.stringify(payload)
+    const w = new Webhooks({ secret: perConnectionSecret })
+    const sig = await w.sign(body)
+    const recorded = attributionRecorder()
+    const result = await createTestApp(recorded.middleware).request(
+      "/api/v1/webhook/github/con_abc",
+      {
+        method: "POST",
+        headers: {
+          "x-github-event": "installation",
+          "x-hub-signature-256": sig,
+          "content-type": "application/json",
+        },
+        body,
+      },
+    )
+    expect(result.status).toBe(200)
+    expect(runWorkflowMock).not.toHaveBeenCalled()
+    expect(recorded.attributes()).toMatchObject({
+      "ctxpipe.actor.type": "webhook",
+      "ctxpipe.org.id": "org_1",
+      "ctxpipe.connection.id": "con_abc",
     })
   })
 

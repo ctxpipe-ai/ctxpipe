@@ -78,18 +78,35 @@ export function attributesForOrgApiKey(
   })
 }
 
+/** Public callers can set these. The backend derives them from auth, never baggage. */
+export function isUntrustedInboundBaggageKey(key: string): boolean {
+  return (
+    key === "enduser.id" ||
+    key === "request.id" ||
+    key.startsWith("ctxpipe.") ||
+    (ATTRIBUTION_KEYS as readonly string[]).includes(key)
+  )
+}
+
+/**
+ * Drop attribution keys from extracted W3C baggage before it becomes the
+ * request context. Otherwise a client can spoof org, user, and actor.
+ */
+export function stripUntrustedAttributionBaggage(parent: Context): Context {
+  const baggage = propagation.getBaggage(parent)
+  if (!baggage) return parent
+  let next = baggage
+  for (const [key] of baggage.getAllEntries()) {
+    if (isUntrustedInboundBaggageKey(key)) next = next.removeEntry(key)
+  }
+  return propagation.setBaggage(parent, next)
+}
+
 export function contextWithAttributionBag(parent: Context): {
   context: Context
   bag: Map<string, string>
 } {
   const bag = new Map<string, string>()
-  const baggage = propagation.getBaggage(parent)
-  if (baggage) {
-    for (const key of ATTRIBUTION_KEYS) {
-      const value = baggage.getEntry(key)?.value
-      if (value) bag.set(key, value)
-    }
-  }
   return { context: parent.setValue(ATTRIBUTION_BAG, bag), bag }
 }
 

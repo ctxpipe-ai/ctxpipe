@@ -19,6 +19,7 @@ import {
 } from "../db/schema/auth.js"
 import { applyAttribution } from "../observability/attribution.js"
 import { getLogger } from "../observability/logger.js"
+import { tryGetLogger } from "../observability/requestLogger.js"
 import { type AuthSession, type AuthUser, getAuth } from "./config.js"
 import { OAUTH_ORGANIZATION_CLAIM } from "./oauth-organization.js"
 
@@ -272,13 +273,71 @@ export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     )
   }
 
+  const personalApiKeyId = apiKeyHeader
+    ? await resolvePersonalApiKeyId(apiKeyHeader)
+    : undefined
+  if (personalApiKeyId) c.set("personalApiKeyId", personalApiKeyId)
   c.set("user", authSession.user)
   c.set("session", authSession.session)
+  applyPrincipalAttribution(c)
   return next()
 }
 
+function applyPrincipalAttribution(c: Context<AppEnv>): void {
+  const logger = tryGetLogger()
+  const orgApiKey = c.get("orgApiKey")
+  const userId = c.get("user")?.id
+  const oauthClientId = c.get("oauthClientId")
+  const personalApiKeyId = c.get("personalApiKeyId")
+  if (orgApiKey) {
+    applyAttribution(
+      {
+        "ctxpipe.actor.type": "org_api_key",
+        "ctxpipe.api_key.id": orgApiKey.id,
+        "ctxpipe.org.id": orgApiKey.orgId,
+      },
+      logger,
+    )
+    return
+  }
+  if (!userId && !oauthClientId) return
+  const actorType =
+    oauthClientId || c.get("oauthOrganizationId") ? "oauth_client" : "user"
+  applyAttribution(
+    {
+      "ctxpipe.actor.type": actorType,
+      ...(userId ? { "enduser.id": userId } : {}),
+      ...(personalApiKeyId ? { "ctxpipe.api_key.id": personalApiKeyId } : {}),
+      ...(oauthClientId ? { "ctxpipe.oauth.client_id": oauthClientId } : {}),
+    },
+    logger,
+  )
+}
+
+async function resolvePersonalApiKeyId(
+  apiKey: string,
+): Promise<string | undefined> {
+  const verified = await getAuth()
+    .api.verifyApiKey({ body: { key: apiKey } })
+    .catch(() => null)
+  if (
+    !verified?.valid ||
+    !verified.key ||
+    verified.key.configId === "organization" ||
+    typeof verified.key.id !== "string"
+  ) {
+    return undefined
+  }
+  return verified.key.id
+}
+
 type BearerApiKeyAuthResult =
-  | { kind: "user"; user: AuthUser; session: AuthSession }
+  | {
+      kind: "user"
+      user: AuthUser
+      session: AuthSession
+      personalApiKeyId?: string
+    }
   | {
       kind: "org"
       orgApiKey: NonNullable<AppEnv["Variables"]["orgApiKey"]>
@@ -332,6 +391,7 @@ async function resolveBearerApiKeyAuth(
         kind: "user",
         user: authSession.user,
         session: authSession.session,
+        personalApiKeyId: await resolvePersonalApiKeyId(apiKey),
       }
     }
   } catch {
@@ -364,6 +424,7 @@ export const withOrgApiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   }
 
   c.set("orgApiKey", orgApiKey)
+  applyPrincipalAttribution(c)
   return next()
 }
 
@@ -390,6 +451,7 @@ async function authenticateBearer(
       c.set("user", resolved.user)
       c.set("oauthOrganizationId", resolved.oauthOrganizationId)
       c.set("oauthClientId", resolved.oauthClientId)
+      applyPrincipalAttribution(c)
       return next()
     }
 
@@ -398,10 +460,15 @@ async function authenticateBearer(
       if (apiKeyAuth.kind === "user") {
         c.set("user", apiKeyAuth.user)
         c.set("session", apiKeyAuth.session)
+        if (apiKeyAuth.personalApiKeyId) {
+          c.set("personalApiKeyId", apiKeyAuth.personalApiKeyId)
+        }
+        applyPrincipalAttribution(c)
         return next()
       }
       if (apiKeyAuth.kind === "org") {
         c.set("orgApiKey", apiKeyAuth.orgApiKey)
+        applyPrincipalAttribution(c)
         return next()
       }
     }
@@ -563,6 +630,7 @@ async function authenticateBearer(
     if (typeof clientIdClaim === "string" && clientIdClaim.length > 0) {
       c.set("oauthClientId", clientIdClaim)
     }
+    applyPrincipalAttribution(c)
     return next()
   }
 
@@ -739,17 +807,12 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
   c.set("orgId", resolved.id)
   const orgApiKeyPrincipal = c.get("orgApiKey")
   const oauthClientId = c.get("oauthClientId")
+  const personalApiKeyId = c.get("personalApiKeyId")
   const actorType = orgApiKeyPrincipal
     ? "org_api_key"
     : oauthClientId || oauthOrganizationId
       ? "oauth_client"
       : "user"
-  let requestLogger: ReturnType<typeof getLogger> | undefined
-  try {
-    requestLogger = getLogger()
-  } catch {
-    requestLogger = undefined
-  }
   applyAttribution(
     {
       "ctxpipe.actor.type": actorType,
@@ -758,10 +821,12 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
       ...(actorType === "org_api_key" ? {} : { "enduser.id": userId }),
       ...(orgApiKeyPrincipal
         ? { "ctxpipe.api_key.id": orgApiKeyPrincipal.id }
-        : {}),
+        : personalApiKeyId
+          ? { "ctxpipe.api_key.id": personalApiKeyId }
+          : {}),
       ...(oauthClientId ? { "ctxpipe.oauth.client_id": oauthClientId } : {}),
     },
-    requestLogger,
+    tryGetLogger(),
   )
   return withOrgIdContext(
     { id: resolved.id, slug: resolved.slug },

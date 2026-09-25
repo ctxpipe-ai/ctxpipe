@@ -10,6 +10,7 @@ import { initLogger } from "evlog"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import type { AppEnv } from "../app/env.js"
 import { backendOtelMiddleware } from "./http.js"
 import { applyLogContract } from "./logContract.js"
 
@@ -33,7 +34,7 @@ afterAll(async () => {
 describe("local attribution proof", () => {
   it("serves a real HTTP request with a continued trace and a correlated log", async () => {
     const events: Record<string, unknown>[] = []
-    const app = new Hono()
+    const app = new Hono<AppEnv>()
     app.use(
       evlog({
         enrich: (ctx) => {

@@ -1,6 +1,8 @@
+import type { MiddlewareHandler } from "hono"
 import { Hono } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
+import { attributionRecorder } from "../../../observability/recordingSpan.js"
 
 const getConnectionMock = vi.hoisted(() => vi.fn())
 const getTargetMock = vi.hoisted(() => vi.fn())
@@ -38,8 +40,9 @@ vi.mock("../../../services/slack/client.js", () => ({
 
 import { registerSlackWebhookRoute } from "./slack.js"
 
-function testApp() {
+function testApp(before?: MiddlewareHandler) {
   const app = new Hono<AppEnv>()
+  if (before) app.use("*", before)
   app.use("*", async (c, next) => {
     c.set("env", {
       SLACK_SIGNING_SECRET: "signing-secret",
@@ -50,15 +53,18 @@ function testApp() {
   return app
 }
 
-function mentionRequest(overrides?: {
-  channel?: string
-  ts?: string
-  thread_ts?: string
-  text?: string
-  user?: string
-  channel_type?: string
-}) {
-  return testApp().request("/api/v1/webhook/slack", {
+function mentionRequest(
+  overrides?: {
+    channel?: string
+    ts?: string
+    thread_ts?: string
+    text?: string
+    user?: string
+    channel_type?: string
+  },
+  before?: MiddlewareHandler,
+) {
+  return testApp(before).request("/api/v1/webhook/slack", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -339,11 +345,17 @@ describe("Slack webhook", () => {
   it("ignores mentions when no capture binding exists", async () => {
     getTargetMock.mockResolvedValue(undefined)
 
-    const response = await mentionRequest()
+    const recorded = attributionRecorder()
+    const response = await mentionRequest(undefined, recorded.middleware)
 
     expect(response.status).toBe(200)
     expect(runWorkflowMock).not.toHaveBeenCalled()
     expect(postStatusMock).not.toHaveBeenCalled()
+    expect(recorded.attributes()).toMatchObject({
+      "ctxpipe.actor.type": "webhook",
+      "ctxpipe.org.id": "org_1",
+      "ctxpipe.connection.id": "con_1",
+    })
   })
 
   it("rejects invalid signatures before parsing the payload", async () => {

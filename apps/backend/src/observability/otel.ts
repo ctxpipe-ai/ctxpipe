@@ -161,43 +161,103 @@ export function installOutgoingFetchInstrumentation(): void {
   if (outgoingFetchInstrumented) return
   outgoingFetchInstrumented = true
   const original = globalThis.fetch.bind(globalThis)
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = requestUrl(input)
-    if (isOtlpExportUrl(url)) return original(input, init)
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+    tracedOutgoingFetch(original, input, init)) as typeof fetch
+}
 
-    const method =
-      init?.method ?? (input instanceof Request ? input.method : "GET")
-    const tracer = trace.getTracer(TRACER_NAME)
-    const span = tracer.startSpan(`HTTP ${method}`, {
-      kind: SpanKind.CLIENT,
-      attributes: {
-        "http.request.method": method,
-        "url.full": url,
-      },
-    })
-    copyAttributionToSpan(span, context.active())
-    return context.with(trace.setSpan(context.active(), span), async () => {
-      const headers = new Headers(
-        init?.headers ?? (input instanceof Request ? input.headers : undefined),
-      )
-      propagationHeaders(headers)
-      const request = new Request(input, { ...init, headers })
+/**
+ * Client span for one outgoing fetch.
+ * No span when nothing is already tracing (UI proxy documents and assets),
+ * when the target is the UI proxy, or when the URL is an OTLP export.
+ * Recorded URLs keep scheme, host, and path only.
+ */
+export async function tracedOutgoingFetch(
+  original: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  const url = requestUrl(input)
+  if (
+    isOtlpExportUrl(url) ||
+    isUiProxyFetchTarget(url) ||
+    !trace.getActiveSpan()
+  ) {
+    return original(input, init)
+  }
+
+  const method =
+    init?.method ?? (input instanceof Request ? input.method : "GET")
+  const tracer = trace.getTracer(TRACER_NAME)
+  const span = tracer.startSpan(`HTTP ${method}`, {
+    kind: SpanKind.CLIENT,
+    attributes: {
+      "http.request.method": method,
+      ...sanitizedClientUrlAttributes(url),
+    },
+  })
+  copyAttributionToSpan(span, context.active())
+  return context.with(trace.setSpan(context.active(), span), async () => {
+    const headers = new Headers(
+      init?.headers ?? (input instanceof Request ? input.headers : undefined),
+    )
+    propagationHeaders(headers)
+    let request: Request
+    try {
+      request = new Request(input, { ...init, headers })
+    } catch {
       try {
-        const response = await original(request)
-        span.setAttribute("http.response.status_code", response.status)
-        if (response.status >= 500) {
-          span.setStatus({ code: SpanStatusCode.ERROR })
-        }
-        return response
-      } catch (error) {
-        if (error instanceof Error) span.recordException(error)
-        span.setStatus({ code: SpanStatusCode.ERROR })
-        throw error
+        return await original(input, init)
       } finally {
         span.end()
       }
-    })
-  }) as typeof fetch
+    }
+    try {
+      const response = await original(request)
+      span.setAttribute("http.response.status_code", response.status)
+      if (response.status >= 500) {
+        span.setStatus({ code: SpanStatusCode.ERROR })
+      }
+      return response
+    } catch (error) {
+      if (error instanceof Error) span.recordException(error)
+      span.setStatus({ code: SpanStatusCode.ERROR })
+      throw error
+    } finally {
+      span.end()
+    }
+  })
+}
+
+/** scheme, host, and path. Query, fragment, and userinfo are omitted. */
+export function sanitizedClientUrlAttributes(
+  raw: string,
+): Record<string, string> {
+  try {
+    const parsed = new URL(raw)
+    const path = parsed.pathname || "/"
+    const scheme = parsed.protocol.replace(/:$/, "")
+    return {
+      "url.scheme": scheme,
+      "server.address": parsed.hostname,
+      "url.path": path,
+      "url.full": `${parsed.protocol}//${parsed.host}${path}`,
+    }
+  } catch {
+    const path = raw.split("#")[0]?.split("?")[0] ?? raw
+    return { "url.path": path }
+  }
+}
+
+export function isUiProxyFetchTarget(
+  raw: string,
+  proxyBase = process.env.UI_PROXY_URL,
+): boolean {
+  if (!proxyBase) return false
+  try {
+    return new URL(raw).origin === new URL(proxyBase).origin
+  } catch {
+    return false
+  }
 }
 
 function requestUrl(input: RequestInfo | URL): string {

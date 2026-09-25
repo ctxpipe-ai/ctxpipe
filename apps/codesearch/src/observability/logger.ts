@@ -12,6 +12,7 @@ import { createDrainPipeline, type PipelineDrainFn } from "evlog/pipeline"
 import { getContext } from "hono/context-storage"
 import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
+import { ATTRIBUTION_KEYS, stripLogPii } from "./contract.js"
 import {
   forceFlushOtel,
   isRailwayPrEnvironment,
@@ -109,40 +110,11 @@ function parseOtelHeaders(
   return out
 }
 
-const CODESEARCH_ATTRIBUTION_KEYS = [
-  "request.id",
-  "enduser.id",
-  "ctxpipe.org.id",
-  "ctxpipe.org.slug",
-  "ctxpipe.actor.type",
-  "ctxpipe.api_key.id",
-  "ctxpipe.oauth.client_id",
-  "ctxpipe.mcp.tool",
-  "ctxpipe.conversation.id",
-  "ctxpipe.repository.id",
-  "ctxpipe.connection.id",
-] as const
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
 /** Top-level traceId/spanId become the OTLP log record TraceId/SpanId. */
 export function applyCodesearchLogContract(
   event: Record<string, unknown>,
 ): void {
-  if (isRecord(event.user)) {
-    delete event.user.email
-    delete event.user.name
-    delete event.user.image
-  }
-  if (isRecord(event.session)) {
-    delete event.session.ipAddress
-    delete event.session.userAgent
-  }
-  delete event.userAgent
-  delete event.email
-  delete event.ipAddress
+  stripLogPii(event)
 
   if (typeof event.requestId === "string" && event["request.id"] == null) {
     event["request.id"] = event.requestId
@@ -160,7 +132,7 @@ export function applyCodesearchLogContract(
   }
   const baggage = propagation.getBaggage(context.active())
   if (baggage) {
-    for (const key of CODESEARCH_ATTRIBUTION_KEYS) {
+    for (const key of ATTRIBUTION_KEYS) {
       const value = baggage.getEntry(key)?.value
       if (value && event[key] == null) event[key] = value
     }

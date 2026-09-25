@@ -65,8 +65,11 @@ function stringField(
   return typeof value === "string" && value.trim() ? value : undefined
 }
 
-export function fillAttributionFromJobInput(input: unknown): void {
-  if (!input || typeof input !== "object") return
+/** Fields from the job payload. Does not write them onto the caller's span. */
+export function attributionPatchFromJobInput(
+  input: unknown,
+): Partial<Record<AttributionKey, string>> {
+  if (!input || typeof input !== "object") return {}
   const record = input as Record<string, unknown>
   const current = readAttribution()
   const patch: Partial<Record<AttributionKey, string>> = {}
@@ -85,30 +88,33 @@ export function fillAttributionFromJobInput(input: unknown): void {
   if (!current["ctxpipe.repository.id"] && repositoryId) {
     patch["ctxpipe.repository.id"] = repositoryId
   }
-  if (!current["ctxpipe.actor.type"] && connectionId) {
-    patch["ctxpipe.actor.type"] = "webhook"
-  }
-  applyAttribution(patch)
+  return patch
 }
 
-export function attachJobTelemetry<T>(input: T): T {
-  if (!input || typeof input !== "object" || Array.isArray(input)) return input
+export function attachJobTelemetry<T extends object>(
+  input: T,
+): T & { telemetry?: JobTelemetry } {
+  if (Array.isArray(input)) return input
   const record = input as Record<string, unknown>
   if (record.telemetry && typeof record.telemetry === "object") return input
-  fillAttributionFromJobInput(input)
-  const telemetry = captureJobTelemetry()
-  if (!telemetry) return input
-  return { ...record, telemetry } as T
+  const telemetry: JobTelemetry = { ...(captureJobTelemetry() ?? {}) }
+  const orgId = stringField(record, "orgId")
+  const orgSlug = stringField(record, "orgSlug")
+  if (!telemetry["ctxpipe.org.id"] && orgId) telemetry["ctxpipe.org.id"] = orgId
+  if (!telemetry["ctxpipe.org.slug"] && orgSlug) {
+    telemetry["ctxpipe.org.slug"] = orgSlug
+  }
+  if (Object.keys(telemetry).length === 0) return input
+  return { ...record, telemetry } as T & { telemetry: JobTelemetry }
 }
 
 export async function restoreJobTelemetry<T>(
   telemetry: JobTelemetry | undefined,
   fn: () => Promise<T>,
+  input?: unknown,
 ): Promise<T> {
-  if (!telemetry) return fn()
-  const parsed = jobTelemetrySchema.safeParse(telemetry)
-  if (!parsed.success) return fn()
-  const fields = parsed.data
+  const parsed = telemetry ? jobTelemetrySchema.safeParse(telemetry) : null
+  const fields = parsed?.success ? parsed.data : {}
 
   let parent = ROOT_CONTEXT
   const links: Link[] = []
@@ -128,6 +134,7 @@ export async function restoreJobTelemetry<T>(
     const value = fields[key as keyof JobTelemetry]
     if (typeof value === "string") bagPatch[key] = value
   }
+  bagPatch["ctxpipe.actor.type"] = "job"
 
   const tracer = trace.getTracer("ctxpipe-backend")
   const span = tracer.startSpan(
@@ -141,6 +148,7 @@ export async function restoreJobTelemetry<T>(
   const spanContext = trace.setSpan(withBag, span)
   return context.with(spanContext, async () => {
     applyAttribution(bagPatch)
+    applyAttribution(attributionPatchFromJobInput(input))
     try {
       return await fn()
     } finally {

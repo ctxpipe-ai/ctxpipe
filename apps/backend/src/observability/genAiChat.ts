@@ -6,6 +6,10 @@ import {
   SpanStatusCode,
   trace,
 } from "@opentelemetry/api"
+import { collapseRepeatedModelName } from "./collapseRepeatedModelName.js"
+
+/** Lane B excludes this scope from the Langfuse fan-out. ClickHouse still stores it. */
+const GEN_AI_TRACER = "ctxpipe-genai"
 
 type Usage = {
   input_tokens?: number
@@ -41,20 +45,21 @@ type ChatInstance = {
 
 const patched = Symbol.for("ctxpipe.genAiChat")
 
-function collapseRepeatedModelName(name: string): string {
-  const trimmed = name.trim()
-  if (trimmed.length < 2) return name
-  for (let size = 1; size <= trimmed.length / 2; size++) {
-    if (trimmed.length % size !== 0) continue
-    const unit = trimmed.slice(0, size)
-    if (
-      trimmed.length / size > 1 &&
-      unit.repeat(trimmed.length / size) === trimmed
-    ) {
-      return unit
-    }
+/**
+ * `MODEL_PROVIDER` is how the backend selects the chat client
+ * (`openrouter`, `azure`, `bedrock`, or the default `openai-like`).
+ * Model ids such as `openai/gpt-5.6-terra` name the upstream model, not the gateway.
+ */
+export function genAiProviderName(model: string): string {
+  const configured = process.env.MODEL_PROVIDER?.trim()
+  if (configured && configured !== "openai-like") return configured
+  const id = model.split("?")[0] ?? model
+  const slash = id.indexOf("/")
+  if (slash > 0) {
+    const prefix = id.slice(0, slash).trim()
+    if (prefix) return prefix
   }
-  return name
+  return "openai"
 }
 
 function requestModel(model: ChatInstance): string {
@@ -64,11 +69,12 @@ function requestModel(model: ChatInstance): string {
 }
 
 function startChatSpan(model: string): Span {
-  return trace.getTracer("ctxpipe-backend").startSpan(`chat ${model}`, {
+  const provider = genAiProviderName(model)
+  return trace.getTracer(GEN_AI_TRACER).startSpan(`chat ${model}`, {
     kind: SpanKind.CLIENT,
     attributes: {
-      "gen_ai.system": "openai",
-      "gen_ai.provider.name": "openai",
+      "gen_ai.system": provider,
+      "gen_ai.provider.name": provider,
       "gen_ai.operation.name": "chat",
       "gen_ai.request.model": model,
     },

@@ -7,10 +7,8 @@ import {
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { applyAttribution, contextWithAttributionBag } from "./attribution.js"
-import {
-  collapseRepeatedModelName,
-  runWithLangfuseContext,
-} from "./langfuse.js"
+import { collapseRepeatedModelName } from "./collapseRepeatedModelName.js"
+import { runWithLangfuseContext } from "./langfuse.js"
 import { LangfuseContextSpanProcessor } from "./langfuseContextProcessor.js"
 
 const exporter = new InMemorySpanExporter()

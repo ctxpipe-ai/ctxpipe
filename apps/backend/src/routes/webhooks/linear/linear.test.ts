@@ -1,8 +1,10 @@
 import { createHmac } from "node:crypto"
 import { OpenAPIHono } from "@hono/zod-openapi"
+import type { MiddlewareHandler } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
+import { attributionRecorder } from "../../../observability/recordingSpan.js"
 import {
   linearEntityTargetForPayload,
   registerLinearWebhookRoute,
@@ -42,8 +44,9 @@ const env = parseEnv({
   LINEAR_WEBHOOK_SECRET: secret,
 } as Record<string, string | undefined>)
 
-function createTestApp() {
+function createTestApp(before?: MiddlewareHandler) {
   const app = new OpenAPIHono<AppEnv>()
+  if (before) app.use("*", before)
   app.use("*", async (c, next) => {
     c.set("env", env)
     c.set("log", {
@@ -164,16 +167,25 @@ describe("POST /api/v1/webhook/linear", () => {
       webhookTimestamp: Date.now(),
     }
     const request = signedRequest(payload)
-    const response = await createTestApp().request("/api/v1/webhook/linear", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "linear-signature": request.signature,
+    const recorded = attributionRecorder()
+    const response = await createTestApp(recorded.middleware).request(
+      "/api/v1/webhook/linear",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "linear-signature": request.signature,
+        },
+        body: request.body,
       },
-      body: request.body,
-    })
+    )
 
     expect(response.status).toBe(200)
+    expect(recorded.attributes()).toMatchObject({
+      "ctxpipe.actor.type": "webhook",
+      "ctxpipe.org.id": "org_1",
+      "ctxpipe.connection.id": "con_linear",
+    })
     expect(mocks.recordRevocation).toHaveBeenCalledWith({
       connectionId: "con_linear",
       env,

@@ -3,6 +3,7 @@ import { evlog } from "evlog/hono"
 import { toOTLPLogRecord } from "evlog/otlp"
 import { Hono } from "hono"
 import { describe, expect, it } from "vitest"
+import type { AppEnv } from "../app/env.js"
 import { applyLogContract, stripLogPii } from "./logContract.js"
 
 function walkKeys(value: unknown, keys: string[] = []): string[] {
@@ -69,7 +70,7 @@ describe("log contract", () => {
       pretty: false,
     })
     const events: Record<string, unknown>[] = []
-    const app = new Hono()
+    const app = new Hono<AppEnv>()
     app.use(
       evlog({
         enrich: (ctx) => {

@@ -16,6 +16,7 @@ import {
   persistNotionWebhookSecret,
 } from "../../../models/notion-connector.js"
 import { getLogger } from "../../../observability/logger.js"
+import { noteResolvedWebhookConnection } from "../../../observability/webhookAttribution.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { notionSyncEntity } from "../../../openworkflow/workflows/notion-sync-entity.js"
 import type { NotionEntityChange } from "../../../services/notion/incremental.js"
@@ -82,7 +83,10 @@ async function enqueueNotionEntitySync(input: {
   )
 }
 
-async function handleProvisioning(c: Context<AppEnv>, verificationToken: string) {
+async function handleProvisioning(
+  c: Context<AppEnv>,
+  verificationToken: string,
+) {
   const env = c.var.env
   const connectionId = c.req.query("connectionId")
   const supplied = c.req.query("provisioningToken")
@@ -100,10 +104,7 @@ async function handleProvisioning(c: Context<AppEnv>, verificationToken: string)
       stored.oauthClientSecretEnc,
       env,
     )
-    if (
-      !supplied ||
-      !notionProvisioningTokenMatches(clientSecret, supplied)
-    ) {
+    if (!supplied || !notionProvisioningTokenMatches(clientSecret, supplied)) {
       return c.json({ error: "Unauthorized" }, 401)
     }
     const persisted = await persistNotionWebhookSecret({
@@ -197,6 +198,13 @@ async function handleNotionWebhook(c: Context<AppEnv>) {
       return c.json({ error: "Notion webhook secret not configured" }, 503)
     }
     return c.json({ error: "Unauthorized" }, 401)
+  }
+
+  for (const candidate of accepted) {
+    noteResolvedWebhookConnection({
+      orgId: candidate.connection.orgId,
+      connectionId: candidate.connection.id,
+    })
   }
 
   const eventType = parsed.data.type ?? ""

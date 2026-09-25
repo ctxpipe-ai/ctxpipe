@@ -4,6 +4,7 @@ import type { Serialized } from "@langchain/core/load/serializable"
 import { CallbackHandler } from "@langfuse/langchain"
 import { trace } from "@opentelemetry/api"
 import { readAttribution } from "./attribution.js"
+import { collapseRepeatedModelName } from "./collapseRepeatedModelName.js"
 import { otelDeploymentEnvironment } from "./otel.js"
 
 export type LangfuseContext = {
@@ -48,18 +49,6 @@ export function getLangfuseHandler(): CallbackHandler {
 
 export function tryGetLangfuseParentRunId(): string | undefined {
   return langfuseStorage.getStore()?.parentRunId
-}
-
-export function collapseRepeatedModelName(name: string): string {
-  const trimmed = name.trim()
-  if (trimmed.length < 2) return name
-  for (let size = 1; size <= trimmed.length / 2; size++) {
-    if (trimmed.length % size !== 0) continue
-    const unit = trimmed.slice(0, size)
-    const repeats = trimmed.length / size
-    if (repeats > 1 && unit.repeat(repeats) === trimmed) return unit
-  }
-  return name
 }
 
 function collapseGenerationModelNames(output: unknown): void {
