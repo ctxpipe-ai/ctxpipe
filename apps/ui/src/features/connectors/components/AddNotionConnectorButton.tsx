@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { toast } from "sonner"
 import { Spinner } from "@/components/ui/spinner"
+import { recordHyperDxAction } from "@/lib/hyperdxBrowser"
 import {
   consumeNotionSetupPopupResult,
   NOTION_POPUP_NAME,
@@ -54,6 +55,7 @@ export function AddNotionConnectorButton({
         queryFn: () => fetchOrgConnections(orgSlug),
       })
       if (result.status === "connected") {
+        recordHyperDxAction("connector_connect", { connector: "notion" })
         onFlowFinished?.({ connectionId: result.connectionId })
         return
       }

@@ -30,6 +30,7 @@ import { derivePendingGithubRepos } from "@/features/repositories/pendingGithubR
 import { getRepositoryIndexingSummary } from "@/features/repositories/useRepositoryIndexingSummary"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
+import { recordHyperDxAction } from "@/lib/hyperdxBrowser"
 
 export const Route = createFileRoute("/$orgSlug/repositories/")({
   component: RepositoriesPage,
@@ -225,6 +226,7 @@ export function RepositoriesPageContent({ orgSlug }: { orgSlug: string }) {
       return res.json() as Promise<Repository>
     },
     onSuccess: () => {
+      recordHyperDxAction("repository_index_started")
       queryClient.invalidateQueries({ queryKey: ["repositories", orgSlug] })
       setAddModalOpen(false)
       toast.success("Repository added and indexing started")
@@ -298,6 +300,7 @@ export function RepositoriesPageContent({ orgSlug }: { orgSlug: string }) {
       }
     },
     onSuccess: () => {
+      recordHyperDxAction("repository_index_started")
       queryClient.invalidateQueries({ queryKey: ["repositories", orgSlug] })
       toast.success("Retry indexing queued")
     },

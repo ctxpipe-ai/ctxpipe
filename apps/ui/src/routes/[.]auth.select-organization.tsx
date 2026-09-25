@@ -3,6 +3,7 @@ import { useState } from "react"
 import { OAuthOrganizationSelector } from "@/features/auth/OAuthOrganizationSelector"
 import { authClient, useListOrganizations } from "@/lib/auth-client"
 import { getOAuthRedirectUri } from "@/lib/auth-continuation"
+import { recordHyperDxAction } from "@/lib/hyperdxBrowser"
 
 export const Route = createFileRoute("/.auth/select-organization")({
   component: OAuthOrganizationSelectionRoutePage,
@@ -21,6 +22,7 @@ export function OAuthOrganizationSelectionRoutePage() {
         organizationId,
         fetchOptions: { throw: true },
       })
+      recordHyperDxAction("org_switch")
 
       const { data, error: continueError } = await authClient.oauth2.continue({
         postLogin: true,

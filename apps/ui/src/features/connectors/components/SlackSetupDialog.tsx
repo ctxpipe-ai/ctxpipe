@@ -13,6 +13,7 @@ import { ComboBox, ComboBoxItem } from "@/components/ui/ComboBox"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { client } from "@/lib/api"
+import { recordHyperDxAction } from "@/lib/hyperdxBrowser"
 import { searchGithubInstallationRepos } from "../queries/atlassian-connector"
 import {
   connectorSyncTargetKeys,
@@ -272,6 +273,7 @@ export function SlackSetupDialog({
         return
       }
       if (parsed.connectionId) {
+        recordHyperDxAction("connector_connect", { connector: "slack" })
         setConnectionId(parsed.connectionId)
         void queryClient.invalidateQueries({
           queryKey: orgConnectionsKeys.list(orgSlug),

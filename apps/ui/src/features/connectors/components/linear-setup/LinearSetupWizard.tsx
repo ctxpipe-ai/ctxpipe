@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
+import { recordHyperDxAction } from "@/lib/hyperdxBrowser"
 import {
   getLinearSetupCurrentIndex,
   getLinearStatusRefetchInterval,
@@ -81,6 +82,7 @@ export function LinearSetupWizard({
         return
       }
       onConnectionIdChange(data.connectionId)
+      recordHyperDxAction("connector_connect", { connector: "linear" })
       void queryClient.invalidateQueries({
         queryKey: linearConnectorKeys.allStatusForOrg(orgSlug),
       })

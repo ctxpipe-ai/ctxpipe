@@ -3,6 +3,17 @@ import { useRouter } from "@tanstack/react-router"
 import type { FC, ReactNode } from "react"
 import { useEffect, useRef } from "react"
 import { useListOrganizations, useSession } from "@/lib/auth-client"
+import {
+  deepestRouteId,
+  hyperdxExporterIgnoreUrls,
+  hyperdxGlobalAttributes,
+  hyperdxPageViewAttributes,
+  orgSlugFromPathname,
+} from "@/lib/hyperdxAttributes"
+import {
+  clearHyperDxGlobalAttributes,
+  setHyperDxGlobalAttributes,
+} from "@/lib/hyperdxBrowser"
 import type { HyperDxRuntimeConfig } from "@/lib/hyperdxRuntimeConfig"
 
 let hyperdxInitialized = false
@@ -16,15 +27,14 @@ export const HyperDxProvider: FC<{
   runtimeConfig: HyperDxRuntimeConfig
 }> = ({ children, runtimeConfig }) => {
   const router = useRouter({ warn: false })
-  const { data: session } = useSession()
-  const { data: organizations } = useListOrganizations()
+  const { data: session, isPending: sessionPending } = useSession()
+  const { data: organizations, isPending: organizationsPending } =
+    useListOrganizations()
   const userId = session?.user?.id
   const lastPath = useRef<string | undefined>(undefined)
 
   const pathname = router?.state?.location.pathname
-  const firstSegment = pathname?.split("/").filter(Boolean)[0]
-  const orgSlugFromPath =
-    firstSegment && !firstSegment.startsWith(".") ? firstSegment : undefined
+  const orgSlugFromPath = pathname ? orgSlugFromPathname(pathname) : ""
   const activeOrg =
     orgSlugFromPath && organizations
       ? organizations.find((o) => o.slug === orgSlugFromPath)
@@ -46,9 +56,19 @@ export const HyperDxProvider: FC<{
         apiKey: runtimeConfig.apiKey ?? "",
         service: "ui",
         tracePropagationTargets: [window.location.origin],
-        consoleCapture: false,
+        // SDK does not exclude its own OTLP url; keep exporter requests untraced.
+        ignoreUrls: hyperdxExporterIgnoreUrls,
+        consoleCapture: true,
         advancedNetworkCapture: false,
         disableReplay: true,
+        // document-load, post-load resource timing, and web vitals are SDK
+        // defaults (disable: false / webvitals !== false). Set explicitly.
+        instrumentations: {
+          document: true,
+          postload: true,
+          webvitals: true,
+          errors: true,
+        },
         otelResourceAttributes: {
           "deployment.environment": runtimeConfig.environment,
           "service.namespace": "ctxpipe",
@@ -60,7 +80,14 @@ export const HyperDxProvider: FC<{
     const trackPageView = (path: string) => {
       if (lastPath.current === path) return
       lastPath.current = path
-      HyperDX.addAction("page_view", { path })
+      HyperDX.addAction(
+        "page_view",
+        hyperdxPageViewAttributes({
+          path,
+          routeId: deepestRouteId(router.state.matches),
+          orgSlug: orgSlugFromPathname(path),
+        }),
+      )
     }
 
     trackPageView(router.state.location.pathname)
@@ -73,12 +100,29 @@ export const HyperDxProvider: FC<{
   }, [runtimeConfig, router])
 
   useEffect(() => {
+    if (typeof window === "undefined") return
     if (!runtimeConfig.enabled || !hyperdxInitialized) return
-    HyperDX.setGlobalAttributes({
-      userId: userId ?? "",
-      teamName: activeOrg?.slug ?? "",
-    })
-  }, [runtimeConfig.enabled, userId, activeOrg?.slug])
+    if (sessionPending) return
+    if (!userId) {
+      clearHyperDxGlobalAttributes()
+      return
+    }
+    if (organizationsPending) return
+    setHyperDxGlobalAttributes(
+      hyperdxGlobalAttributes({
+        userId,
+        teamId: activeOrg?.id,
+        teamName: activeOrg?.slug,
+      }),
+    )
+  }, [
+    runtimeConfig.enabled,
+    sessionPending,
+    organizationsPending,
+    userId,
+    activeOrg?.id,
+    activeOrg?.slug,
+  ])
 
   return children
 }

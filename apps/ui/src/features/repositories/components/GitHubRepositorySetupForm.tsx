@@ -11,6 +11,7 @@ import { SearchField } from "@/components/ui/SearchField"
 import { Select, SelectItem } from "@/components/ui/Select"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
+import { recordHyperDxAction } from "@/lib/hyperdxBrowser"
 import {
   buildSelectedRepositories,
   collectInstallationRepoPages,
@@ -222,6 +223,7 @@ export function GitHubRepositorySetupForm({
           queryKey: ["github-installation-repos-preview", orgSlug],
         }),
       ])
+      recordHyperDxAction("repository_index_started")
       toast.success("Repositories saved and queued for indexing.")
       onSaveSuccess()
     },

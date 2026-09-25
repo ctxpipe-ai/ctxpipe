@@ -13,6 +13,7 @@ import {
 import { orgConnectionsKeys } from "@/features/connectors/queries/org-connections"
 import { githubAppInstallUrl } from "@/lib/github-app-url"
 import { generateGithubWebhookSecret } from "@/lib/github-webhook-secret"
+import { recordHyperDxAction } from "@/lib/hyperdxBrowser"
 import {
   beginGithubPopupFlow,
   clearGithubPopupFlow,
@@ -22,8 +23,8 @@ import {
   handleGithubSetupPopupResult,
   openCenteredPopup,
   setGithubSetupOrgHint,
-  withGithubPopupState,
   useWatchPopupClose,
+  withGithubPopupState,
 } from "@/lib/popup"
 
 type GithubSelfHostedWizardModalProps = {
@@ -155,6 +156,7 @@ export function GithubSelfHostedWizardModal({
               queryClient,
             )
             if (status === "registered") {
+              recordHyperDxAction("connector_connect", { connector: "github" })
               toast.success("GitHub installation linked.")
             }
             onInstallPopupSettled?.({ status })

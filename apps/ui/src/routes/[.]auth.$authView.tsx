@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button"
 import { Spinner } from "@/components/ui/spinner"
 import { getAuthContinuationProps } from "@/lib/auth-continuation"
 import { authClient, useSession } from "@/lib/auth-client"
+import { clearHyperDxGlobalAttributes } from "@/lib/hyperdxBrowser"
 import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
 
 export const Route = createFileRoute("/.auth/$authView")({
@@ -295,6 +296,8 @@ function SignOutView() {
   useEffect(() => {
     if (startedRef.current) return
     startedRef.current = true
+
+    clearHyperDxGlobalAttributes()
 
     let finished = false
     const finish = () => {

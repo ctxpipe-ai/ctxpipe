@@ -16,6 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { recordHyperDxAction } from "@/lib/hyperdxBrowser"
 import { cn } from "@/lib/utils"
 import { SideNavOrganizationCreateDialog } from "./SideNavOrganizationCreateDialog"
 
@@ -120,7 +121,7 @@ export function SideNavOrganizationSwitcher({
   ])
 
   const switchOrganization = useCallback(
-    async (organization: Organization) => {
+    async (organization: Organization): Promise<boolean> => {
       setActiveOrganizationPending(true)
       try {
         onSetActive(organization)
@@ -129,6 +130,7 @@ export function SideNavOrganizationSwitcher({
           fetchOptions: { throw: true },
         })
         organizationRefetch?.()
+        return true
       } catch (error) {
         toast({
           variant: "error",
@@ -138,6 +140,7 @@ export function SideNavOrganizationSwitcher({
               : "Failed to switch organisation",
         })
         setActiveOrganizationPending(false)
+        return false
       }
     },
     [authClient, onSetActive, organizationRefetch, toast],
@@ -250,7 +253,9 @@ export function SideNavOrganizationSwitcher({
                   key={organization.id}
                   className={classNames.content.menuItem}
                   onClick={() => {
-                    void switchOrganization(organization)
+                    void switchOrganization(organization).then((switched) => {
+                      if (switched) recordHyperDxAction("org_switch")
+                    })
                   }}
                 >
                   <OrganizationCellView

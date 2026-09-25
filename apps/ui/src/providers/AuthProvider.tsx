@@ -3,6 +3,8 @@ import { AuthUIProviderTanstack } from "@daveyplate/better-auth-ui/tanstack"
 import { Link, useRouter } from "@tanstack/react-router"
 import { type ComponentProps, type FC, useEffect, useRef } from "react"
 import { authClient } from "@/lib/auth-client"
+import { isHyperDxSignInPath } from "@/lib/hyperdxAttributes"
+import { recordHyperDxAction } from "@/lib/hyperdxBrowser"
 import { useAuthEvlogIdentity } from "@/lib/useAuthEvlogIdentity"
 import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
 
@@ -118,6 +120,10 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
         }
         onSessionChange={() => {
           void router?.invalidate()
+          if (typeof window === "undefined") return
+          if (isHyperDxSignInPath(window.location.pathname)) {
+            recordHyperDxAction("sign_in")
+          }
         }}
         Link={
           router
