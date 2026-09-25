@@ -176,13 +176,22 @@ variable "langfuse_otlp_endpoint" {
 
 variable "otel_otlp_endpoint" {
   type        = string
-  description = "Public ClickStack collector OTLP HTTP base. Empty keeps the in-project otelcollector."
+  description = "Public ClickStack collector OTLP HTTP base (no /v1 suffix). Empty uses https://telemetry.ctxpipe.ai."
   default     = ""
+
+  validation {
+    condition     = length(trimspace(var.otel_otlp_endpoint)) == 0 || startswith(trimspace(var.otel_otlp_endpoint), "https://")
+    error_message = "otel_otlp_endpoint must be an https URL or empty (empty uses https://telemetry.ctxpipe.ai)."
+  }
 }
 
 variable "otel_otlp_headers" {
   type        = string
-  description = "OTEL_EXPORTER_OTLP_HEADERS for the public collector."
-  default     = ""
+  description = "OTEL_EXPORTER_OTLP_HEADERS for the public collector (authorization=<HYPERDX_API_KEY>). Same value as OBSERVABILITY_OTLP_HEADERS."
   sensitive   = true
+
+  validation {
+    condition     = length(trimspace(var.otel_otlp_headers)) > 0
+    error_message = "otel_otlp_headers is required so production OTLP includes the collector authorization header."
+  }
 }

@@ -23,43 +23,31 @@ locals {
       region       = var.railway_regions[0].region
     }
   ]
-  otel_endpoint_base = trimsuffix(var.otel_otlp_endpoint, "/")
-  use_public_otel    = length(trimspace(var.otel_otlp_endpoint)) > 0
-  otel_shared_env = concat(
-    local.use_public_otel ? [
-      {
-        name  = "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
-        value = "${local.otel_endpoint_base}/v1/traces"
-      },
-      {
-        name  = "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
-        value = "${local.otel_endpoint_base}/v1/logs"
-      },
-      {
-        name  = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
-        value = "${local.otel_endpoint_base}/v1/metrics"
-      },
-      ] : [
-      {
-        name  = "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
-        value = "http://$${{otelcollector.RAILWAY_PRIVATE_DOMAIN}}:4318/v1/traces"
-      },
-      {
-        name  = "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
-        value = "http://$${{otelcollector.RAILWAY_PRIVATE_DOMAIN}}:4318/v1/logs"
-      },
-      {
-        name  = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
-        value = "http://$${{otelcollector.RAILWAY_PRIVATE_DOMAIN}}:4318/v1/metrics"
-      },
-    ],
-    local.use_public_otel && length(var.otel_otlp_headers) > 0 ? [
-      {
-        name  = "OTEL_EXPORTER_OTLP_HEADERS"
-        value = var.otel_otlp_headers
-      },
-    ] : [],
+  # Empty TF_VAR_otel_otlp_endpoint (unset GitHub variable) must not fall
+  # back to the in-project otelcollector. That collector exports to Better
+  # Stack, not ClickHouse. Apps send to the public ClickStack collector.
+  otel_endpoint_base = trimsuffix(
+    length(trimspace(var.otel_otlp_endpoint)) > 0 ? trimspace(var.otel_otlp_endpoint) : "https://telemetry.ctxpipe.ai",
+    "/",
   )
+  otel_shared_env = [
+    {
+      name  = "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
+      value = "${local.otel_endpoint_base}/v1/traces"
+    },
+    {
+      name  = "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
+      value = "${local.otel_endpoint_base}/v1/logs"
+    },
+    {
+      name  = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
+      value = "${local.otel_endpoint_base}/v1/metrics"
+    },
+    {
+      name  = "OTEL_EXPORTER_OTLP_HEADERS"
+      value = var.otel_otlp_headers
+    },
+  ]
   # Omit when unset so parseEnv does not see empty strings for optional min(1) secrets.
   slack_shared_env = length(var.slack_client_id) > 0 && length(var.slack_client_secret) > 0 && length(var.slack_signing_secret) > 0 ? [
     {

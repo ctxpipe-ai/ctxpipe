@@ -62,7 +62,8 @@ jobs:
       TF_VAR_better_stack_token: ${{ secrets.BETTER_STACK_TOKEN }}
       TF_VAR_langfuse_auth_string: ${{ secrets.LANGFUSE_AUTH_STRING }}
       TF_VAR_langfuse_otlp_endpoint: ${{ secrets.LANGFUSE_OTLP_ENDPOINT }}
-      TF_VAR_otel_otlp_endpoint: ${{ vars.OBSERVABILITY_OTLP_ENDPOINT }}
+      # Empty OBSERVABILITY_OTLP_ENDPOINT must not select the in-project collector.
+      TF_VAR_otel_otlp_endpoint: ${{ vars.OBSERVABILITY_OTLP_ENDPOINT || 'https://telemetry.ctxpipe.ai' }}
       TF_VAR_otel_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
