@@ -86,7 +86,9 @@ processors:
   # names. Span drop keeps the shared pipeline stateless: tail sampling would
   # buffer pr-343 traces for decision_wait. periodic-runner.* is a root
   # (startNewTrace). middleware and router - /health are children, so the
-  # HTTP route span stays. Heartbeat commands are leaves.
+  # HTTP route span stays. Heartbeat commands are leaves. tcp.connect,
+  # tls.connect, and dns.lookup on those three services are dropped too.
+  # Error status is kept.
   filter/ops_self_noise:
     error_mode: ignore
     traces:
@@ -98,6 +100,7 @@ processors:
         - 'resource.attributes["deployment.environment"] == "observability" and (resource.attributes["service.name"] == "hyperdx" or resource.attributes["service.name"] == "langfuse-worker" or resource.attributes["service.name"] == "langfuse-web") and status.code != STATUS_CODE_ERROR and (attributes["db.system"] == "mongodb" or attributes["db.system"] == "mongoose") and IsMatch(attributes["db.operation"], "(?i)^(hello|ismaster|ping)$")'
         - 'resource.attributes["deployment.environment"] == "observability" and (resource.attributes["service.name"] == "hyperdx" or resource.attributes["service.name"] == "langfuse-worker" or resource.attributes["service.name"] == "langfuse-web") and status.code != STATUS_CODE_ERROR and (attributes["db.system"] == "mongodb" or attributes["db.system"] == "mongoose") and IsMatch(attributes["db.operation.name"], "(?i)^(hello|ismaster|ping)$")'
         - 'resource.attributes["deployment.environment"] == "observability" and (resource.attributes["service.name"] == "hyperdx" or resource.attributes["service.name"] == "langfuse-worker" or resource.attributes["service.name"] == "langfuse-web") and status.code != STATUS_CODE_ERROR and IsRootSpan() and (IsMatch(name, "^periodic-runner[.]") or IsMatch(name, "queue-metrics"))'
+        - 'resource.attributes["deployment.environment"] == "observability" and (resource.attributes["service.name"] == "hyperdx" or resource.attributes["service.name"] == "langfuse-worker" or resource.attributes["service.name"] == "langfuse-web") and status.code != STATUS_CODE_ERROR and (name == "tcp.connect" or name == "tls.connect" or name == "dns.lookup")'
   # Prometheus receiver sets service.name from the job label. This processor
   # only adds the shared ops-stack resource attributes.
   resource/self:
