@@ -18,11 +18,12 @@ processors:
     send_batch_size: 512
   # Allowlist (Tier 1 + 2): keep spans with Gen AI semconv attributes OR Langfuse/LangChain/LangGraph
   # instrumentation scope. Drops everything else from the LangFuse pipeline only (APM still gets full traces).
+  # Browser RUM is service.name=ui and is dropped here too.
   filter/llm_only:
     error_mode: ignore
     traces:
       span:
-        - 'not ((attributes["gen_ai.system"] != nil) or (attributes["gen_ai.operation.name"] != nil) or (attributes["gen_ai.request.model"] != nil) or (attributes["gen_ai.response.model"] != nil) or (attributes["gen_ai.provider.name"] != nil) or (attributes["gen_ai.usage.input_tokens"] != nil) or (attributes["gen_ai.usage.output_tokens"] != nil) or (attributes["gen_ai.response.id"] != nil) or (attributes["gen_ai.conversation.id"] != nil) or (attributes["gen_ai.tool.name"] != nil) or (attributes["gen_ai.tool.call.id"] != nil) or (attributes["gen_ai.tool.type"] != nil) or (attributes["gen_ai.data_source.id"] != nil) or (attributes["gen_ai.agent.name"] != nil) or (attributes["gen_ai.request.choice.count"] != nil) or (attributes["gen_ai.response.finish_reasons"] != nil) or IsMatch(instrumentation_scope.name, "(?i).*(langfuse|langchain|langgraph).*"))'
+        - 'resource.attributes["service.name"] == "ui" or not ((attributes["gen_ai.system"] != nil) or (attributes["gen_ai.operation.name"] != nil) or (attributes["gen_ai.request.model"] != nil) or (attributes["gen_ai.response.model"] != nil) or (attributes["gen_ai.provider.name"] != nil) or (attributes["gen_ai.usage.input_tokens"] != nil) or (attributes["gen_ai.usage.output_tokens"] != nil) or (attributes["gen_ai.response.id"] != nil) or (attributes["gen_ai.conversation.id"] != nil) or (attributes["gen_ai.tool.name"] != nil) or (attributes["gen_ai.tool.call.id"] != nil) or (attributes["gen_ai.tool.type"] != nil) or (attributes["gen_ai.data_source.id"] != nil) or (attributes["gen_ai.agent.name"] != nil) or (attributes["gen_ai.request.choice.count"] != nil) or (attributes["gen_ai.response.finish_reasons"] != nil) or IsMatch(instrumentation_scope.name, "(?i).*(langfuse|langchain|langgraph).*"))'
 
 exporters:
   otlp_http/betterstack:

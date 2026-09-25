@@ -14,6 +14,8 @@ const SECRET_PATH_RULES: { pattern: RegExp; replacement: string }[] = [
   },
 ]
 
+const LLM_ATTRIBUTE_KEY = /^(gen_ai|langfuse|llm)\./
+const LLM_SCOPE_NAME = /langfuse|langchain|langgraph/i
 const EMBEDDED_URL = /https?:\/\/[^\s<>"']+|\/[^\s<>"']+/g
 const EMAIL = /[^\s@]+@[^\s@]+\.[^\s@]+/g
 const MAX_SCRUB_DEPTH = 32
@@ -101,6 +103,34 @@ function scrubOtlpValue(value: unknown, depth: number): void {
   }
 }
 
+function stripLlmAttributes(attributes: unknown): void {
+  if (!Array.isArray(attributes)) return
+  let index = 0
+  while (index < attributes.length) {
+    const attribute = attributes[index]
+    const key =
+      attribute && typeof attribute === "object"
+        ? (attribute as JsonRecord).key
+        : undefined
+    if (typeof key === "string" && LLM_ATTRIBUTE_KEY.test(key)) {
+      attributes.splice(index, 1)
+      continue
+    }
+    index += 1
+  }
+}
+
+function neutralizeLlmScope(entry: JsonRecord): void {
+  for (const key of ["scope", "instrumentationLibrary"] as const) {
+    const scope = entry[key]
+    if (!scope || typeof scope !== "object") continue
+    const name = (scope as JsonRecord).name
+    if (typeof name === "string" && LLM_SCOPE_NAME.test(name)) {
+      ;(scope as JsonRecord).name = "ui"
+    }
+  }
+}
+
 function scrubAttributes(attributes: unknown, depth: number): void {
   if (!Array.isArray(attributes)) return
   for (const attribute of attributes) {
@@ -113,7 +143,9 @@ function scrubScopeSpans(scopes: unknown, depth: number): void {
   if (!Array.isArray(scopes)) return
   for (const scope of scopes) {
     if (!scope || typeof scope !== "object") continue
-    const spans = (scope as JsonRecord).spans
+    const entry = scope as JsonRecord
+    neutralizeLlmScope(entry)
+    const spans = entry.spans
     if (!Array.isArray(spans)) continue
     for (const span of spans) {
       if (!span || typeof span !== "object") continue
@@ -121,6 +153,7 @@ function scrubScopeSpans(scopes: unknown, depth: number): void {
       if (typeof record.name === "string") {
         record.name = scrubTelemetryString(record.name)
       }
+      stripLlmAttributes(record.attributes)
       scrubAttributes(record.attributes, depth)
       const events = record.events
       if (!Array.isArray(events)) continue
@@ -130,6 +163,7 @@ function scrubScopeSpans(scopes: unknown, depth: number): void {
         if (typeof eventRecord.name === "string") {
           eventRecord.name = scrubTelemetryString(eventRecord.name)
         }
+        stripLlmAttributes(eventRecord.attributes)
         scrubAttributes(eventRecord.attributes, depth)
       }
     }
@@ -140,7 +174,9 @@ function scrubScopeLogs(scopes: unknown, depth: number): void {
   if (!Array.isArray(scopes)) return
   for (const scope of scopes) {
     if (!scope || typeof scope !== "object") continue
-    const records = (scope as JsonRecord).logRecords
+    const entry = scope as JsonRecord
+    neutralizeLlmScope(entry)
+    const records = entry.logRecords
     if (!Array.isArray(records)) continue
     for (const logRecord of records) {
       if (!logRecord || typeof logRecord !== "object") continue
@@ -150,6 +186,7 @@ function scrubScopeLogs(scopes: unknown, depth: number): void {
       } else {
         scrubOtlpValue(record.body, depth + 1)
       }
+      stripLlmAttributes(record.attributes)
       scrubAttributes(record.attributes, depth)
     }
   }

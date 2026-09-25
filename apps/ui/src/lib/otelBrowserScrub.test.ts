@@ -172,4 +172,67 @@ describe("scrubBrowserOtlpJson", () => {
       log?.attributes[0]?.value.kvlistValue.values[0]?.value.stringValue,
     ).toBe("/obs-e2e-343/chat")
   })
+
+  it("strips LLM attributes and langfuse or langchain scope names", () => {
+    const payload = {
+      resourceSpans: [
+        {
+          scopeSpans: [
+            {
+              scope: { name: "Langfuse SDK" },
+              spans: [
+                {
+                  name: "chat",
+                  attributes: [
+                    {
+                      key: "gen_ai.request.model",
+                      value: { stringValue: "gpt-test" },
+                    },
+                    {
+                      key: "langfuse.observation.input",
+                      value: { stringValue: "secret prompt" },
+                    },
+                    {
+                      key: "llm.prompt",
+                      value: { stringValue: "secret prompt" },
+                    },
+                    {
+                      key: "http.request.method",
+                      value: { stringValue: "POST" },
+                    },
+                  ],
+                  events: [
+                    {
+                      name: "gen_ai.content.prompt",
+                      attributes: [
+                        {
+                          key: "gen_ai.prompt",
+                          value: { stringValue: "secret prompt" },
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+            {
+              scope: { name: "@langchain/core" },
+              spans: [{ name: "chain", attributes: [] }],
+            },
+          ],
+        },
+      ],
+    }
+
+    scrubBrowserOtlpJson(payload)
+
+    const langfuse = payload.resourceSpans[0]?.scopeSpans[0]
+    expect(langfuse?.scope.name).toBe("ui")
+    const span = langfuse?.spans[0]
+    expect(span?.attributes.map((attribute) => attribute.key)).toEqual([
+      "http.request.method",
+    ])
+    expect(span?.events[0]?.attributes).toEqual([])
+    expect(payload.resourceSpans[0]?.scopeSpans[1]?.scope.name).toBe("ui")
+  })
 })
