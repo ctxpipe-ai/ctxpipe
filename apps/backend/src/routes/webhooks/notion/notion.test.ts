@@ -1,12 +1,9 @@
 import { createHmac } from "node:crypto"
-import type { MiddlewareHandler } from "hono"
 import { Hono } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { attributionRecorder } from "../../../../test/recordingSpan.js"
 import type { AppEnv } from "../../../app/env.js"
 import { parseNotionConnectionConfig } from "../../../lib/connection-config.js"
 import { encryptConnectionSecret } from "../../../lib/connection-secrets.js"
-import { attachJobTelemetry } from "../../../observability/jobTelemetry.js"
 
 const connectionsMock = vi.hoisted(() => vi.fn())
 const getRowMock = vi.hoisted(() => vi.fn())
@@ -67,14 +64,11 @@ function candidate(
 }
 
 function testApp(
-  options: {
-    webhookSecret?: string
-    clientSecret?: string
-    before?: MiddlewareHandler
-  } = { webhookSecret },
+  options: { webhookSecret?: string; clientSecret?: string } = {
+    webhookSecret,
+  },
 ) {
   const app = new Hono<AppEnv>()
-  if (options.before) app.use("*", options.before)
   app.use("*", async (c, next) => {
     c.set("env", {
       ...envBase,
@@ -464,10 +458,8 @@ describe("Notion webhook", () => {
       entity: { id: "page_1", type: "page" },
     })
 
-    const recorded = attributionRecorder()
     const response = await testApp({
       webhookSecret,
-      before: recorded.middleware,
     }).request("/api/v1/webhook/notion", {
       method: "POST",
       headers: { "x-notion-signature": sign(body, webhookSecret) },
@@ -476,11 +468,6 @@ describe("Notion webhook", () => {
 
     expect(response.status).toBe(204)
     expect(runWorkflowMock).not.toHaveBeenCalled()
-    expect(recorded.attributes()).toMatchObject({
-      "ctxpipe.actor.type": "webhook",
-      "ctxpipe.org.id": "org_1",
-      "ctxpipe.connection.id": "con_1",
-    })
   })
 
   it("enqueues one job per org when one integration is connected twice", async () => {
@@ -488,41 +475,33 @@ describe("Notion webhook", () => {
       candidate({ id: "con_a", orgId: "org_a" }),
       candidate({ id: "con_b", orgId: "org_b", repositoryId: "repo_2" }),
     ])
-    const recorded = attributionRecorder()
-    const enqueued: ReturnType<typeof attachJobTelemetry>[] = []
-    runWorkflowMock.mockImplementation((_spec, input) => {
-      enqueued.push(attachJobTelemetry(input as object))
-      return Promise.resolve(undefined)
-    })
     const body = JSON.stringify({
       id: "event_two_orgs",
       workspace_id: "workspace_1",
       type: "page.content_updated",
       entity: { id: "page_1", type: "page" },
     })
-    const response = await testApp({
-      webhookSecret,
-      before: recorded.middleware,
-    }).request("/api/v1/webhook/notion", {
-      method: "POST",
-      headers: { "x-notion-signature": sign(body, webhookSecret) },
-      body,
-    })
+    const response = await testApp({ webhookSecret }).request(
+      "/api/v1/webhook/notion",
+      {
+        method: "POST",
+        headers: { "x-notion-signature": sign(body, webhookSecret) },
+        body,
+      },
+    )
 
     expect(response.status).toBe(200)
-    expect(enqueued).toHaveLength(2)
-    expect(enqueued[0]).toMatchObject({
-      orgId: "org_a",
-      connectionId: "con_a",
-      telemetry: { "ctxpipe.org.id": "org_a" },
-    })
-    expect(enqueued[1]).toMatchObject({
-      orgId: "org_b",
-      connectionId: "con_b",
-      telemetry: { "ctxpipe.org.id": "org_b" },
-    })
-    expect(recorded.attributes()["ctxpipe.org.id"]).toBeUndefined()
-    expect(recorded.attributes()["ctxpipe.connection.id"]).toBeUndefined()
+    expect(runWorkflowMock).toHaveBeenCalledTimes(2)
+    expect(runWorkflowMock).toHaveBeenCalledWith(
+      { name: "notion-sync-entity" },
+      expect.objectContaining({ orgId: "org_a", connectionId: "con_a" }),
+      { idempotencyKey: "notion:con_a:event_two_orgs" },
+    )
+    expect(runWorkflowMock).toHaveBeenCalledWith(
+      { name: "notion-sync-entity" },
+      expect.objectContaining({ orgId: "org_b", connectionId: "con_b" }),
+      { idempotencyKey: "notion:con_b:event_two_orgs" },
+    )
   })
 
   it("no longer exposes the legacy per-connection route", async () => {

@@ -1,15 +1,58 @@
 import { createHmac } from "node:crypto"
 import { OpenAPIHono } from "@hono/zod-openapi"
+import { context, trace } from "@opentelemetry/api"
+import {
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from "@opentelemetry/sdk-trace-base"
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import type { MiddlewareHandler } from "hono"
-import { beforeEach, describe, expect, it, vi } from "vitest"
-import { attributionRecorder } from "../../../../test/recordingSpan.js"
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
-import { attachJobTelemetry } from "../../../observability/jobTelemetry.js"
 import {
   linearEntityTargetForPayload,
   registerLinearWebhookRoute,
 } from "./linear.js"
+
+const exporter = new InMemorySpanExporter()
+const provider = new NodeTracerProvider({
+  spanProcessors: [new SimpleSpanProcessor(exporter)],
+})
+
+beforeAll(() => {
+  provider.register()
+})
+
+afterAll(async () => {
+  await provider.shutdown()
+})
+
+function withRequestSpan(): MiddlewareHandler {
+  return async (_c, next) => {
+    const span = trace.getTracer("ctxpipe-webhook-test").startSpan("request")
+    try {
+      await context.with(trace.setSpan(context.active(), span), () => next())
+    } finally {
+      span.end()
+    }
+  }
+}
+
+function requestSpanAttributes(): Record<string, unknown> {
+  const span = exporter
+    .getFinishedSpans()
+    .find((item) => item.name === "request")
+  return span ? { ...span.attributes } : {}
+}
 
 const mocks = vi.hoisted(() => ({
   listConnections: vi.fn(),
@@ -92,6 +135,7 @@ function createTestAppWithEnv(testEnv: typeof env) {
 }
 
 beforeEach(() => {
+  exporter.reset()
   vi.clearAllMocks()
   mocks.listConnections.mockResolvedValue([
     { id: "con_linear", orgId: "org_1", status: "installed" },
@@ -168,25 +212,16 @@ describe("POST /api/v1/webhook/linear", () => {
       webhookTimestamp: Date.now(),
     }
     const request = signedRequest(payload)
-    const recorded = attributionRecorder()
-    const response = await createTestApp(recorded.middleware).request(
-      "/api/v1/webhook/linear",
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "linear-signature": request.signature,
-        },
-        body: request.body,
+    const response = await createTestApp().request("/api/v1/webhook/linear", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "linear-signature": request.signature,
       },
-    )
+      body: request.body,
+    })
 
     expect(response.status).toBe(200)
-    expect(recorded.attributes()).toMatchObject({
-      "ctxpipe.actor.type": "webhook",
-      "ctxpipe.org.id": "org_1",
-      "ctxpipe.connection.id": "con_linear",
-    })
     expect(mocks.recordRevocation).toHaveBeenCalledWith({
       connectionId: "con_linear",
       env,
@@ -361,7 +396,6 @@ describe("POST /api/v1/webhook/linear", () => {
   })
 
   it("enqueues one job per org when one workspace is connected twice", async () => {
-    const recorded = attributionRecorder()
     mocks.listConnections.mockResolvedValueOnce([
       {
         id: "con_a",
@@ -376,11 +410,6 @@ describe("POST /api/v1/webhook/linear", () => {
         webhookSecret: secret,
       },
     ])
-    const enqueued: ReturnType<typeof attachJobTelemetry>[] = []
-    mocks.runWorkflow.mockImplementation((_spec, input) => {
-      enqueued.push(attachJobTelemetry(input as object))
-      return Promise.resolve({ workflowRun: { id: "run_1" } })
-    })
     const request = signedRequest({
       type: "Issue",
       action: "update",
@@ -388,7 +417,7 @@ describe("POST /api/v1/webhook/linear", () => {
       webhookTimestamp: Date.now(),
       data: { id: "issue-1" },
     })
-    const response = await createTestApp(recorded.middleware).request(
+    const response = await createTestApp(withRequestSpan()).request(
       "/api/v1/webhook/linear",
       {
         method: "POST",
@@ -401,20 +430,34 @@ describe("POST /api/v1/webhook/linear", () => {
     )
 
     expect(response.status).toBe(200)
-    expect(enqueued).toHaveLength(2)
-    expect(enqueued[0]).toMatchObject({
-      orgId: "org_a",
-      connectionId: "con_a",
-      telemetry: { "ctxpipe.org.id": "org_a" },
-    })
-    expect(enqueued[0]?.telemetry).not.toHaveProperty("ctxpipe.org.id", "org_b")
-    expect(enqueued[1]).toMatchObject({
-      orgId: "org_b",
-      connectionId: "con_b",
-      telemetry: { "ctxpipe.org.id": "org_b" },
-    })
-    expect(recorded.attributes()["ctxpipe.org.id"]).toBeUndefined()
-    expect(recorded.attributes()["ctxpipe.connection.id"]).toBeUndefined()
+    expect(mocks.runWorkflow).toHaveBeenCalledTimes(2)
+    expect(mocks.runWorkflow).toHaveBeenNthCalledWith(
+      1,
+      { name: "linear-sync-entity" },
+      {
+        orgId: "org_a",
+        connectionId: "con_a",
+        entityType: "issue",
+        externalId: "issue-1",
+        action: "upsert",
+      },
+    )
+    expect(mocks.runWorkflow).toHaveBeenNthCalledWith(
+      2,
+      { name: "linear-sync-entity" },
+      {
+        orgId: "org_b",
+        connectionId: "con_b",
+        entityType: "issue",
+        externalId: "issue-1",
+        action: "upsert",
+      },
+    )
+    expect(exporter.getFinishedSpans().map((span) => span.name)).toContain(
+      "request",
+    )
+    expect(requestSpanAttributes()["ctxpipe.org.id"]).toBeUndefined()
+    expect(requestSpanAttributes()["ctxpipe.connection.id"]).toBeUndefined()
   })
 
   it("does not apply an env-signed webhook to rows that have their own secret", async () => {

@@ -16,10 +16,10 @@ import {
   persistNotionWebhookSecret,
 } from "../../../models/notion-connector.js"
 import { getLogger } from "../../../observability/logger.js"
-import { noteResolvedWebhookConnections } from "../../../observability/webhookAttribution.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { notionSyncEntity } from "../../../openworkflow/workflows/notion-sync-entity.js"
 import type { NotionEntityChange } from "../../../services/notion/incremental.js"
+import { noteResolvedWebhookConnections } from "../../webhooks.js"
 
 const notionWebhookPayloadSchema = z.object({
   id: z.string().optional(),
@@ -200,12 +200,8 @@ async function handleNotionWebhook(c: Context<AppEnv>) {
     return c.json({ error: "Unauthorized" }, 401)
   }
 
-  noteResolvedWebhookConnections(
-    accepted.map((candidate) => ({
-      orgId: candidate.connection.orgId,
-      connectionId: candidate.connection.id,
-    })),
-  )
+  const connections = accepted.map((candidate) => candidate.connection)
+  noteResolvedWebhookConnections(connections)
 
   const eventType = parsed.data.type ?? ""
   const entityTarget = notionEntityTargetForEvent({
@@ -216,14 +212,12 @@ async function handleNotionWebhook(c: Context<AppEnv>) {
     return c.body(null, 204)
   }
 
-  const liveConnections = accepted
-    .map((candidate) => candidate.connection)
-    .filter(
-      (connection) =>
-        Boolean(connection.repositoryId) &&
-        connection.enabled &&
-        connection.setupPhase === "live",
-    )
+  const liveConnections = connections.filter(
+    (connection) =>
+      Boolean(connection.repositoryId) &&
+      connection.enabled &&
+      connection.setupPhase === "live",
+  )
   if (liveConnections.length === 0) return c.body(null, 204)
 
   try {

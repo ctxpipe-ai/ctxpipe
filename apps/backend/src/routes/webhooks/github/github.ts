@@ -12,13 +12,10 @@ import {
   registerInstallationOnConnection,
 } from "../../../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
-import {
-  noteResolvedWebhookConnection,
-  noteResolvedWebhookConnections,
-} from "../../../observability/webhookAttribution.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
 import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-github-repositories.js"
+import { noteResolvedWebhookConnections } from "../../webhooks.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
 import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
@@ -65,27 +62,18 @@ type ProcessGithubWebhookOpts = {
   connectionId?: string
 }
 
-async function attributeGithubConnection(connectionId: string) {
-  const row = await getGithubConnectionRowByConnectionId(connectionId)
-  if (!row) return undefined
-  noteResolvedWebhookConnection({
-    orgId: row.orgId,
-    connectionId: row.id,
-  })
-  return row
-}
-
 async function githubConnectionAllowsWebhookPayload(input: {
   connectionId: string
   eventName: string
   payload: unknown
 }): Promise<boolean> {
-  const row = await attributeGithubConnection(input.connectionId)
   const parsedInstallation = z
     .object({ installation: z.object({ id: z.number() }) })
     .safeParse(input.payload)
   if (!parsedInstallation.success) return true
+  const row = await getGithubConnectionRowByConnectionId(input.connectionId)
   if (!row) return false
+  noteResolvedWebhookConnections([row])
   const configuredInstallationId = parseGithubConnectionStored(
     row.config as Record<string, unknown>,
   ).installationId
@@ -139,12 +127,7 @@ async function enqueueIngestionForInstallationRepos(
     return
   }
 
-  noteResolvedWebhookConnections(
-    installationRows.map((installationRow) => ({
-      orgId: installationRow.orgId,
-      connectionId: installationRow.id,
-    })),
-  )
+  noteResolvedWebhookConnections(installationRows)
 
   for (const installationRow of installationRows) {
     const repository = await withOrgDbContext(installationRow.orgId, () =>
@@ -275,12 +258,7 @@ async function processRepositoryEvent(
       !githubConnectionId || installationRow.id === githubConnectionId,
   )
 
-  noteResolvedWebhookConnections(
-    installationRows.map((installationRow) => ({
-      orgId: installationRow.orgId,
-      connectionId: installationRow.id,
-    })),
-  )
+  noteResolvedWebhookConnections(installationRows)
 
   for (const installationRow of installationRows) {
     if (

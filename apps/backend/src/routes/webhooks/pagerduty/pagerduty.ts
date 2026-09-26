@@ -7,7 +7,6 @@ import {
   listPagerdutyConnectionsByWebhookSubscriptionId,
 } from "../../../models/pagerduty-connector.js"
 import { getLogger } from "../../../observability/logger.js"
-import { noteResolvedWebhookConnection } from "../../../observability/webhookAttribution.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { pagerdutySyncEntity } from "../../../openworkflow/workflows/pagerduty-sync-entity.js"
 import { loadPagerdutyScopeFromRepo } from "../../../services/pagerduty/config-from-repo.js"
@@ -15,6 +14,7 @@ import {
   pagerdutyEventIsStale,
   verifyPagerdutyWebhookSignature,
 } from "../../../services/pagerduty/signature.js"
+import { noteResolvedWebhookConnections } from "../../webhooks.js"
 
 export function pagerdutyIncidentEventFromPayload(payload: unknown):
   | {
@@ -36,8 +36,9 @@ export function pagerdutyIncidentEventFromPayload(payload: unknown):
     record.data && typeof record.data === "object"
       ? (record.data as Record<string, unknown>)
       : undefined
-  const incidentId = typeof data?.id === "string" ? data.id : undefined
-  if (!incidentId || !data) return undefined
+  if (!data) return undefined
+  const incidentId = typeof data.id === "string" ? data.id : undefined
+  if (!incidentId) return undefined
   const service =
     data.service && typeof data.service === "object"
       ? (data.service as Record<string, unknown>)
@@ -82,10 +83,7 @@ async function handlePagerdutyWebhook(c: Context<AppEnv>) {
   if (!connection) {
     return c.json({ error: "Unauthorized" }, 401)
   }
-  noteResolvedWebhookConnection({
-    orgId: connection.orgId,
-    connectionId: connection.id,
-  })
+  noteResolvedWebhookConnections([connection])
 
   let payload: unknown
   try {

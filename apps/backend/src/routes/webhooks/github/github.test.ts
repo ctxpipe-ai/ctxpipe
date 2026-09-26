@@ -1,11 +1,60 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { Webhooks } from "@octokit/webhooks"
+import { context, trace } from "@opentelemetry/api"
+import {
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from "@opentelemetry/sdk-trace-base"
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import type { MiddlewareHandler } from "hono"
-import { beforeEach, describe, expect, it, vi } from "vitest"
-import { attributionRecorder } from "../../../../test/recordingSpan.js"
+import { contextStorage } from "hono/context-storage"
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
 import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-github-repositories.js"
+
+const exporter = new InMemorySpanExporter()
+const provider = new NodeTracerProvider({
+  spanProcessors: [new SimpleSpanProcessor(exporter)],
+})
+
+beforeAll(() => {
+  provider.register()
+})
+
+beforeEach(() => {
+  exporter.reset()
+})
+
+afterAll(async () => {
+  await provider.shutdown()
+})
+
+function withRequestSpan(): MiddlewareHandler {
+  return async (_c, next) => {
+    const span = trace.getTracer("ctxpipe-webhook-test").startSpan("request")
+    try {
+      await context.with(trace.setSpan(context.active(), span), () => next())
+    } finally {
+      span.end()
+    }
+  }
+}
+
+function requestSpanAttributes(): Record<string, unknown> {
+  const span = exporter
+    .getFinishedSpans()
+    .find((item) => item.name === "request")
+  return span ? { ...span.attributes } : {}
+}
 
 const runWorkflowMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ workflowRun: { id: "wr_1" } }),
@@ -117,6 +166,7 @@ describe("POST /api/v1/webhook/github", () => {
 
   function createTestApp(before?: MiddlewareHandler) {
     const app = new OpenAPIHono<AppEnv>()
+    app.use(contextStorage())
     if (before) app.use("*", before)
     app.use("*", async (c, next) => {
       c.set("env", env)
@@ -408,7 +458,6 @@ describe("POST /api/v1/webhook/github", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     }))
-    const recorded = attributionRecorder()
     const payload = {
       ref: "refs/heads/main",
       repository: {
@@ -419,7 +468,7 @@ describe("POST /api/v1/webhook/github", () => {
     }
     const body = JSON.stringify(payload)
     const signature = await new Webhooks({ secret: webhookSecret }).sign(body)
-    const response = await createTestApp(recorded.middleware).request(
+    const response = await createTestApp(withRequestSpan()).request(
       "/api/v1/webhook/github",
       {
         method: "POST",
@@ -441,8 +490,11 @@ describe("POST /api/v1/webhook/github", () => {
       expect.objectContaining({ orgId: "org_b", repositoryId: "repo_b" }),
       expect.any(Object),
     )
-    expect(recorded.attributes()["ctxpipe.org.id"]).toBeUndefined()
-    expect(recorded.attributes()["ctxpipe.connection.id"]).toBeUndefined()
+    expect(exporter.getFinishedSpans().map((span) => span.name)).toContain(
+      "request",
+    )
+    expect(requestSpanAttributes()["ctxpipe.org.id"]).toBeUndefined()
+    expect(requestSpanAttributes()["ctxpipe.connection.id"]).toBeUndefined()
   })
 
   it("repository webhook skips sync when includeFutureRepos is false", async () => {
@@ -548,8 +600,7 @@ describe("POST /api/v1/webhook/github", () => {
       },
     ])
 
-    const recorded = attributionRecorder()
-    const app = createTestApp(recorded.middleware)
+    const app = createTestApp(withRequestSpan())
     const payload = {
       action: "created" as const,
       repository: {
@@ -594,8 +645,11 @@ describe("POST /api/v1/webhook/github", () => {
         },
       ],
     })
-    expect(recorded.attributes()["ctxpipe.org.id"]).toBeUndefined()
-    expect(recorded.attributes()["ctxpipe.connection.id"]).toBeUndefined()
+    expect(exporter.getFinishedSpans().map((span) => span.name)).toContain(
+      "request",
+    )
+    expect(requestSpanAttributes()["ctxpipe.org.id"]).toBeUndefined()
+    expect(requestSpanAttributes()["ctxpipe.connection.id"]).toBeUndefined()
   })
 })
 
@@ -623,6 +677,7 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
 
   function createTestApp(before?: MiddlewareHandler) {
     const app = new OpenAPIHono<AppEnv>()
+    app.use(contextStorage())
     if (before) app.use("*", before)
     app.use("*", async (c, next) => {
       c.set("env", env)
@@ -638,6 +693,25 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
     registerGithubWebhookRoute(app)
     return app
   }
+
+  it("does not read the connection row when the payload has no installation", async () => {
+    const body = JSON.stringify({ zen: "keep it logically awesome" })
+    const sig = await new Webhooks({ secret: perConnectionSecret }).sign(body)
+    const res = await createTestApp().request(
+      "/api/v1/webhook/github/con_abc",
+      {
+        method: "POST",
+        headers: {
+          "x-github-event": "ping",
+          "x-hub-signature-256": sig,
+          "content-type": "application/json",
+        },
+        body,
+      },
+    )
+    expect(res.status).toBe(200)
+    expect(getRowByConMock).not.toHaveBeenCalled()
+  })
 
   it("installation created links installation id on the connection row", async () => {
     getRowByConMock.mockResolvedValue({
@@ -704,8 +778,7 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
     const body = JSON.stringify(payload)
     const w = new Webhooks({ secret: perConnectionSecret })
     const sig = await w.sign(body)
-    const recorded = attributionRecorder()
-    const result = await createTestApp(recorded.middleware).request(
+    const result = await createTestApp(withRequestSpan()).request(
       "/api/v1/webhook/github/con_abc",
       {
         method: "POST",
@@ -719,11 +792,11 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
     )
     expect(result.status).toBe(200)
     expect(runWorkflowMock).not.toHaveBeenCalled()
-    expect(recorded.attributes()).toMatchObject({
-      "ctxpipe.actor.type": "webhook",
+    expect(requestSpanAttributes()).toMatchObject({
       "ctxpipe.org.id": "org_1",
       "ctxpipe.connection.id": "con_abc",
     })
+    expect(requestSpanAttributes()["ctxpipe.actor.type"]).toBeUndefined()
   })
 
   it("installation_repositories added links installation id on the connection row", async () => {
