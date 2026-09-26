@@ -55,14 +55,12 @@ describe("repositoryIngestionOrchestrator workflow", () => {
   })
 
   it("returns child result on success", async () => {
-    const step = {
-      runWorkflow: vi.fn().mockResolvedValue({
-        repositoryId: "repo_1",
-        targetHash: "abc123",
-        sourceBranch: "main",
-      }),
-      run: vi.fn(),
-    }
+    const runWorkflow = vi.fn().mockResolvedValue({
+      repositoryId: "repo_1",
+      targetHash: "abc123",
+      sourceBranch: "main",
+    })
+    const step = { runWorkflow, run: vi.fn() }
 
     const result = await repositoryIngestionOrchestrator.fn({
       input: {
@@ -75,7 +73,7 @@ describe("repositoryIngestionOrchestrator workflow", () => {
       step,
     } as never)
 
-    expect(step.runWorkflow).toHaveBeenCalledWith(
+    expect(runWorkflow).toHaveBeenCalledWith(
       { name: "repository-ingestion" },
       {
         repositoryId: "repo_1",

@@ -5,7 +5,6 @@ import {
   markRepositoryIndexingFailed,
   repositoryIngestionBlockedByDeletion,
 } from "../../models/repositories.js"
-import { attachJobTelemetry } from "../../observability/jobTelemetry.js"
 import {
   createLogger,
   flushWorkflowLog,
@@ -42,7 +41,7 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
         try {
           return await step.runWorkflow(
             repositoryIngestion.spec,
-            attachJobTelemetry({
+            {
               repositoryId: input.repositoryId,
               orgId: input.orgId,
               ...(input.targetBranch !== undefined
@@ -57,7 +56,7 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
               ...(input.fullReingest !== undefined
                 ? { fullReingest: input.fullReingest }
                 : {}),
-            }),
+            },
             { name: "repository-ingestion-child" },
           )
         } catch (err: unknown) {

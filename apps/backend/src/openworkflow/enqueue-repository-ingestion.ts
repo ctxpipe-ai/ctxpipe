@@ -7,7 +7,6 @@ import {
   markRepositoryIndexingReady,
   tryClaimRepositoryIndexingEnqueue,
 } from "../models/repositories.js"
-import { attachJobTelemetry } from "../observability/jobTelemetry.js"
 import { createLogger, withLogger } from "../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { enqueueFollowUpIfTipAhead } from "./enqueue-follow-up-if-tip-ahead.js"
@@ -288,13 +287,9 @@ export async function claimAndRunRepositoryIngestionChild(
   }
 
   try {
-    await step.runWorkflow(
-      repositoryIngestionOrchestrator.spec,
-      attachJobTelemetry(input),
-      {
-        name: `ingest-${input.repositoryId}`,
-      },
-    )
+    await step.runWorkflow(repositoryIngestionOrchestrator.spec, input, {
+      name: `ingest-${input.repositoryId}`,
+    })
   } catch (err: unknown) {
     if (isWorkflowControlSignal(err)) {
       throw err

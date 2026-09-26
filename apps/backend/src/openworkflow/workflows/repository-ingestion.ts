@@ -28,7 +28,6 @@ import {
   setRepositoryIndexingStep,
 } from "../../models/repositories.js"
 import { readAttribution } from "../../observability/attribution.js"
-import { attachJobTelemetry } from "../../observability/jobTelemetry.js"
 import {
   runWithLangfuseContext,
   withLangfuseObservation,
@@ -304,13 +303,13 @@ export const repositoryIngestion = defineWorkflow(
             // Durable codesearch phases via child workflow (no org DB txn across HTTP).
             const reindexState = await rawStep.runWorkflow(
               repositoryIndex.spec,
-              attachJobTelemetry({
+              {
                 repositoryId: input.repositoryId,
                 orgId: input.orgId,
                 targetHash: resolved.hash,
                 ...(fromHash ? { fromHash } : {}),
                 ...(githubConnectionId ? { githubConnectionId } : {}),
-              }),
+              },
               { name: "repository-index" },
             )
 

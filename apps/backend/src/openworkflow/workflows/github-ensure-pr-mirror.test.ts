@@ -39,6 +39,7 @@ describe("githubEnsurePrMirror", () => {
 
   it("ensures capture for the GitHub connection", async () => {
     await githubEnsurePrMirror.fn({
+      step: {},
       input: { orgId: "org_1", connectionId: "con_gh" },
     } as never)
     expect(ensureMock).toHaveBeenCalledWith({
