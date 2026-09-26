@@ -5,10 +5,10 @@ import { getOrgDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
+import { readCodesearchError } from "../../lib/codesearchError.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
 import { DEFAULT_CHECKOUT_KEY } from "../../models/repositories.js"
 import { log } from "../../observability/logger.js"
-import { readCodesearchClientFailure } from "../../tools/codesearchZoekt.js"
 
 /**
  * Zoekt treats unquoted text as a query (regex, filters, grouping). A user
@@ -211,17 +211,23 @@ export async function codeSearch(
       { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
     )
 
+  const readRejection = async (response: Response) => {
+    if (response.status !== 400) return null
+    const failure = await readCodesearchError(response)
+    return failure.code === "query_rejected" ? failure : null
+  }
+
   let query = params.query
   let res = await postSearch(query)
-  let rejected = await readCodesearchClientFailure(res)
-  if (rejected?.status === 400) {
+  let rejected = await readRejection(res)
+  if (rejected) {
     const literal = zoektLiteralQuery(params.query)
     if (literal !== params.query) {
       query = literal
       res = await postSearch(literal)
-      rejected = await readCodesearchClientFailure(res)
+      rejected = await readRejection(res)
     }
-    if (rejected?.status === 400) {
+    if (rejected) {
       // Codesearch's error string can echo the query. Keep it off the wide event.
       log.warn({
         step: "advisor.code_search.rejected",

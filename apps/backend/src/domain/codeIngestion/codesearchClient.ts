@@ -1,6 +1,7 @@
 import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
+import { readCodesearchError } from "../../lib/codesearchError.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
 import { RepositoryGoneError } from "./repositoryGone.js"
 
@@ -49,33 +50,18 @@ async function fetchWithAuth(
   )
 }
 
-function codesearchErrorDetail(bodyText: string): string {
-  let detail = bodyText.trim()
-  try {
-    const parsed = JSON.parse(bodyText) as { error?: unknown }
-    if (typeof parsed.error === "string" && parsed.error.length > 0) {
-      detail = parsed.error
-    }
-  } catch {
-    // non-JSON body; use raw text
-  }
-  return detail
-}
-
-function raiseCodesearchFailure(
+async function raiseCodesearchFailure(
   operation: string,
-  status: number,
-  bodyText: string,
-): never {
-  const detail = codesearchErrorDetail(bodyText)
-  if (
-    status === 404 &&
-    detail.includes("Repository not found or access denied")
-  ) {
-    throw new RepositoryGoneError(detail)
+  res: Response,
+): Promise<never> {
+  const failure = await readCodesearchError(res)
+  if (failure.code === "repository_not_found") {
+    throw new RepositoryGoneError(
+      failure.message || "Repository not found or access denied",
+    )
   }
   throw new Error(
-    `${operation} failed: ${status}${detail ? `: ${detail}` : ""}`,
+    `${operation} failed: ${failure.status}${failure.message ? `: ${failure.message}` : ""}`,
   )
 }
 
@@ -95,7 +81,7 @@ export async function listFiles(
     orgId,
   )
   if (!res.ok) {
-    raiseCodesearchFailure("listFiles", res.status, await res.text())
+    await raiseCodesearchFailure("listFiles", res)
   }
   const data = (await res.json()) as { entries: FileEntry[] }
   return data.entries
@@ -127,7 +113,7 @@ export async function globFiles(
     orgId,
   )
   if (!res.ok) {
-    raiseCodesearchFailure("globFiles", res.status, await res.text())
+    await raiseCodesearchFailure("globFiles", res)
   }
   return (await res.json()) as GlobFilesResponse
 }
@@ -152,7 +138,7 @@ export async function fetchFiles(
     orgId,
   )
   if (!res.ok) {
-    raiseCodesearchFailure("fetchFiles", res.status, await res.text())
+    await raiseCodesearchFailure("fetchFiles", res)
   }
   const encoded = (await res.json()) as Record<string, string>
   const result: Record<string, string> = {}

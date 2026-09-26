@@ -2,6 +2,7 @@ import { z } from "zod"
 import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
+import { readCodesearchError } from "../../lib/codesearchError.js"
 import {
   CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY,
   isCodesearchTaskDeath,
@@ -10,7 +11,7 @@ import {
 } from "../../lib/memoryFitError.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
 import { log } from "../../observability/logger.js"
-import { isWorkflowControlSignal } from "../../openworkflow/isSleepSignal.js"
+import { RepositoryGoneError } from "./repositoryGone.js"
 
 const renameSchema = z.object({
   from: z.string(),
@@ -83,7 +84,6 @@ async function codesearchPhaseFetch(
       { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
     )
   } catch (error) {
-    if (isWorkflowControlSignal(error)) throw error
     if (isMemoryFitFailure(error) || isCodesearchTaskDeath(error)) {
       log.info({
         step: "repository-index.memory_exceeded",
@@ -102,27 +102,24 @@ async function parseOrThrow<T>(
   schema: z.ZodType<T>,
   label: string,
 ): Promise<T> {
-  const bodyText = await res.text()
   if (!res.ok) {
-    let detail = bodyText.trim()
-    try {
-      const parsed = JSON.parse(bodyText) as { error?: unknown }
-      if (typeof parsed.error === "string" && parsed.error.length > 0) {
-        detail = parsed.error
-      }
-    } catch {
-      // non-JSON
+    const failure = await readCodesearchError(res)
+    if (failure.code === "repository_not_found") {
+      throw new RepositoryGoneError(
+        failure.message || "Repository not found or access denied",
+      )
     }
-    const combined = `${label} failed with status ${res.status}: ${detail}`
-    if (res.status === 429) {
+    const combined = `${label} failed with status ${failure.status}: ${failure.message}`
+    if (failure.status === 429) {
       throw new CodesearchAdmissionBusyError(combined)
     }
     throw new Error(
-      isMemoryFitFailure(combined) || isMemoryFitFailure(detail)
+      isMemoryFitFailure(combined) || isMemoryFitFailure(failure.message)
         ? CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY
         : combined,
     )
   }
+  const bodyText = await res.text()
   let json: unknown
   try {
     json = JSON.parse(bodyText) as unknown

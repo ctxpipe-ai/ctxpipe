@@ -1,25 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
-
-vi.mock("../auth/upstreamJwt.js", () => ({
-  signUpstreamJwt: vi.fn().mockResolvedValue("token"),
-}))
-
-vi.mock("../config/env.js", () => ({
-  parseEnv: () => ({ AUTH_TOKEN_AUDIENCE_CODESEARCH: "codesearch" }),
-}))
-
-vi.mock("../lib/agentToolRuntime.js", () => ({
-  codesearchBaseUrl: () => "http://codesearch.test",
-}))
-
-vi.mock("../lib/withTransientHttpRetry.js", () => ({
-  withTransientHttpRetry: (fn: () => Promise<unknown>) => fn(),
-}))
-
+import { HttpResponse, http } from "msw"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { useMswServer } from "../../test/msw.js"
 import {
   isZoektSearchClientFailure,
   zoektSearchRepository,
 } from "./codesearchZoekt.js"
+
+// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
+const server = useMswServer()
 
 const repository = {
   id: "repo_1",
@@ -28,19 +16,28 @@ const repository = {
   name: "linguist",
 }
 
-describe("zoektSearchRepository", () => {
-  beforeEach(() => {
-    vi.unstubAllGlobals()
-  })
+beforeEach(() => {
+  vi.stubEnv("AUTH_SECRET", "test-only-auth-secret-with-at-least-32-characters")
+  vi.stubEnv("CODESEARCH_URL", "http://codesearch.test")
+  vi.stubEnv(
+    "DATABASE_URL",
+    "postgresql://ctxpipe:ctxpipe@127.0.0.1:5433/ctxpipe",
+  )
+})
 
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
+
+describe("zoektSearchRepository", () => {
   it("reports a Zoekt query rejection as a client error", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
+    server.use(
+      http.post("http://codesearch.test/search", () =>
+        HttpResponse.json(
+          {
             error: "Zoekt rejected the query: parse error: unexpected token",
-          }),
+            code: "query_rejected",
+          },
           { status: 400 },
         ),
       ),
@@ -57,13 +54,14 @@ describe("zoektSearchRepository", () => {
   })
 
   it("throws when codesearch is unavailable", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(new Response("unavailable", { status: 503 })),
+    server.use(
+      http.post("http://codesearch.test/search", () =>
+        HttpResponse.text("unavailable", { status: 500 }),
+      ),
     )
 
     await expect(
       zoektSearchRepository(repository, "needle", {}),
-    ).rejects.toThrow("codesearch search failed with status 503")
+    ).rejects.toThrow("codesearch search failed with status 500: unavailable")
   })
 })

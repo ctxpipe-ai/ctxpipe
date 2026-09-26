@@ -11,6 +11,7 @@ import {
   scipIndexPath,
 } from "../domain/repositories/paths.js"
 import { getAccessibleRepository } from "../domain/repositories/service.js"
+import { repositoryNotFoundBody } from "./errorBody.js"
 
 const graphPrimitiveSchema = z.enum([
   "find_symbol",
@@ -120,8 +121,7 @@ export function registerGraphRoutes(app: OpenAPIHono<AppEnv>) {
     }
 
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
-    if (!repo)
-      return c.json({ error: "Repository not found or access denied" }, 404)
+    if (!repo) return c.json(repositoryNotFoundBody, 404)
 
     const [checkout] = await db
       .select({ id: repositoryCheckouts.id })

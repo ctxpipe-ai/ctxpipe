@@ -304,6 +304,7 @@ describe("POST /search", () => {
     expect(res.status).toBe(400)
     await expect(res.json()).resolves.toEqual({
       error: `Zoekt rejected the query: parse error: ${query}`,
+      code: "query_rejected",
     })
     expect(events).toEqual(
       expect.arrayContaining([
@@ -347,6 +348,7 @@ describe("POST /search", () => {
     expect(res.status).toBe(400)
     await expect(res.json()).resolves.toEqual({
       error: "Zoekt rejected the query: query too complex",
+      code: "query_rejected",
     })
     expect(JSON.stringify(events)).not.toContain("query too complex")
     expect(events).toEqual(

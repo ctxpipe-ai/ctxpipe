@@ -12,6 +12,7 @@ import {
   ZoektWarmupTimeoutError,
 } from "../domain/zoekt/warmup.js"
 import { getLogger } from "../observability/logger.js"
+import { queryRejectedCode } from "./errorBody.js"
 
 const SearchRequestSchema = z
   .object({
@@ -47,7 +48,10 @@ export const searchRoute = createRoute({
     400: {
       content: {
         "application/json": {
-          schema: z.object({ error: z.string() }),
+          schema: z.object({
+            error: z.string(),
+            code: z.literal(queryRejectedCode),
+          }),
         },
       },
       description: "Zoekt rejected the query",
@@ -154,7 +158,7 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
           "upstream.status_code": res.status,
           error: "zoekt_query_rejected",
         })
-        return c.json({ error }, 400)
+        return c.json({ error, code: queryRejectedCode }, 400)
       }
       if (!res.ok) {
         return c.json(

@@ -1,11 +1,10 @@
-import { lstat, readFile, readdir } from "node:fs/promises"
+import { lstat, readdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
 import { withRepositoryPurgeOperation } from "../domain/indexing/indexConcurrency.js"
 import { cloneAndIndexRepository } from "../domain/indexing/service.js"
-import { registerIndexPhaseRoutes } from "./indexPhases.js"
 import {
   GlobInvalidRequestError,
   GlobPathNotFoundError,
@@ -30,6 +29,8 @@ import {
   getLogger,
   withLogger,
 } from "../observability/logger.js"
+import { repositoryNotFoundBody } from "./errorBody.js"
+import { registerIndexPhaseRoutes } from "./indexPhases.js"
 
 const repoIdParam = z
   .string()
@@ -376,7 +377,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
         })
         return c.json({ ok: true as const }, 200)
       }
-      return c.json({ error: "Repository not found or access denied" }, 404)
+      return c.json(repositoryNotFoundBody, 404)
     })
   })
 
@@ -388,11 +389,10 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
-    if (!repo)
-      return c.json({ error: "Repository not found or access denied" }, 404)
+    if (!repo) return c.json(repositoryNotFoundBody, 404)
     const indexable = await getIndexableRepository(db, repoId, auth.orgId)
     if (!indexable) {
-      return c.json({ error: "Repository not found or access denied" }, 404)
+      return c.json(repositoryNotFoundBody, 404)
     }
 
     const startMs = Date.now()
@@ -494,7 +494,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const path = c.req.valid("query").path
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo) {
-      return c.json({ error: "Repository not found or access denied" }, 404)
+      return c.json(repositoryNotFoundBody, 404)
     }
     const basePath = repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY)
     let dirPath: string
@@ -529,7 +529,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const body = c.req.valid("json")
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo) {
-      return c.json({ error: "Repository not found or access denied" }, 404)
+      return c.json(repositoryNotFoundBody, 404)
     }
     const checkoutRoot = repoCheckoutPath(
       repo.orgId,
@@ -567,8 +567,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const { repoId } = c.req.valid("param")
     const { branch, githubToken } = c.req.valid("json")
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
-    if (!repo)
-      return c.json({ error: "Repository not found or access denied" }, 404)
+    if (!repo) return c.json(repositoryNotFoundBody, 404)
     try {
       const resolved = await resolveRepositoryRef({
         gitUrl: repo.gitUrl,
@@ -590,8 +589,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId, path: filePath } = c.req.valid("param")
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
-    if (!repo)
-      return c.json({ error: "Repository not found or access denied" }, 404)
+    if (!repo) return c.json(repositoryNotFoundBody, 404)
     const basePath = repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY)
     let fullPath: string
     try {
@@ -623,8 +621,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const { repoId } = c.req.valid("param")
     const { paths } = c.req.valid("json")
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
-    if (!repo)
-      return c.json({ error: "Repository not found or access denied" }, 404)
+    if (!repo) return c.json(repositoryNotFoundBody, 404)
     const basePath = repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY)
     const result: Record<string, string> = {}
     for (const p of paths) {

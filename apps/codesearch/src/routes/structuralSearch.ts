@@ -11,6 +11,7 @@ import {
   resolveStructuralSearchPaths,
   runStructuralSearch,
 } from "../domain/search/structuralSearch.js"
+import { repositoryNotFoundBody } from "./errorBody.js"
 
 const structuralSearchRequestSchema = z
   .object({
@@ -91,7 +92,7 @@ export function registerStructuralSearchRoutes(app: OpenAPIHono<AppEnv>) {
 
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo) {
-      return c.json({ error: "Repository not found or access denied" }, 404)
+      return c.json(repositoryNotFoundBody, 404)
     }
 
     const checkoutPath = repoCheckoutPath(

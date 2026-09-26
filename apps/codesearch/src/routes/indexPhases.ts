@@ -33,6 +33,7 @@ import {
   getLogger,
   withLogger,
 } from "../observability/logger.js"
+import { repositoryNotFoundBody } from "./errorBody.js"
 
 const repoIdParam = z
   .string()
@@ -246,23 +247,20 @@ async function resolvePhaseContext(
   options?: { githubToken?: string },
 ): Promise<
   | { ok: true; ctx: IndexPhaseRepoContext }
-  | { ok: false; status: 404; error: string }
+  | {
+      ok: false
+      status: 404
+      error: typeof repositoryNotFoundBody.error
+      code: typeof repositoryNotFoundBody.code
+    }
 > {
   const repo = await getAccessibleRepository(db, repoId, orgId)
   if (!repo) {
-    return {
-      ok: false,
-      status: 404,
-      error: "Repository not found or access denied",
-    }
+    return { ok: false, status: 404, ...repositoryNotFoundBody }
   }
   const indexable = await getIndexableRepository(db, repoId, orgId)
   if (!indexable) {
-    return {
-      ok: false,
-      status: 404,
-      error: "Repository not found or access denied",
-    }
+    return { ok: false, status: 404, ...repositoryNotFoundBody }
   }
   return {
     ok: true,
@@ -333,7 +331,10 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
             githubToken: body.githubToken,
           })
           if (!resolved.ok) {
-            return c.json({ error: resolved.error }, resolved.status)
+            return c.json(
+              { error: resolved.error, code: resolved.code },
+              resolved.status,
+            )
           }
           try {
             const result = await withLogger(
@@ -378,7 +379,10 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
       withRepositoryIndexOperation(repoId, async () => {
         const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
         if (!resolved.ok) {
-          return c.json({ error: resolved.error }, resolved.status)
+          return c.json(
+            { error: resolved.error, code: resolved.code },
+            resolved.status,
+          )
         }
         try {
           await withLogger(
@@ -418,7 +422,10 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
         withRepositoryIndexOperation(repoId, async () => {
           const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
           if (!resolved.ok) {
-            return c.json({ error: resolved.error }, resolved.status)
+            return c.json(
+              { error: resolved.error, code: resolved.code },
+              resolved.status,
+            )
           }
           try {
             const result = await withLogger(
@@ -459,7 +466,10 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
       withRepositoryIndexOperation(repoId, async () => {
         const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
         if (!resolved.ok) {
-          return c.json({ error: resolved.error }, resolved.status)
+          return c.json(
+            { error: resolved.error, code: resolved.code },
+            resolved.status,
+          )
         }
         try {
           await withLogger(
@@ -495,7 +505,10 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
         withRepositoryIndexOperation(repoId, async () => {
           const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
           if (!resolved.ok) {
-            return c.json({ error: resolved.error }, resolved.status)
+            return c.json(
+              { error: resolved.error, code: resolved.code },
+              resolved.status,
+            )
           }
           try {
             let shardCount = 0
