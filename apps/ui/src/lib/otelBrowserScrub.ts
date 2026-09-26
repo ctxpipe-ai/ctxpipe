@@ -65,7 +65,7 @@ function browserSessionId(resourceSpans: JsonRecord): string | null {
 /** Replace caller resource attributes with the UI service identity and session id. */
 export function restrictBrowserResourceAttributes(
   payload: unknown,
-  environment: string | undefined,
+  environment: string,
 ): void {
   if (!payload || typeof payload !== "object") return
   const record = payload as JsonRecord
@@ -77,10 +77,8 @@ export function restrictBrowserResourceAttributes(
       const attributes = [
         stringAttribute("service.name", "ui"),
         stringAttribute("service.namespace", "ctxpipe"),
+        stringAttribute("deployment.environment", environment),
       ]
-      if (environment) {
-        attributes.push(stringAttribute("deployment.environment", environment))
-      }
       const sessionId = browserSessionId(resourceSpans as JsonRecord)
       if (sessionId) {
         attributes.push(stringAttribute("rum.sessionId", sessionId))

@@ -11,15 +11,12 @@ import {
   vi,
 } from "vitest"
 import { Route } from "@/routes/[.]otel.v1.$signal"
-import {
-  OTEL_BROWSER_PROXY_RATE_LIMIT,
-  resetOtelBrowserProxyRateLimitForTests,
-} from "./otelBrowserProxy"
 
 type Captured = {
   url: string
   authorization: string | null
   contentType: string | null
+  token: string | null
   body: unknown
 }
 
@@ -33,6 +30,7 @@ const server = setupServer(
       url: request.url,
       authorization: request.headers.get("authorization"),
       contentType: request.headers.get("content-type"),
+      token: request.headers.get("x-token"),
       body: await request.json(),
     }
     return HttpResponse.json({ partialSuccess: {} })
@@ -113,21 +111,23 @@ describe("POST /.otel/v1/$signal", () => {
   })
 
   beforeEach(() => {
-    process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT =
-      "http://127.0.0.1:9/v1/traces"
-    delete process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
-    process.env.OTEL_EXPORTER_OTLP_HEADERS = "authorization=test-ingest"
-    process.env.RAILWAY_ENVIRONMENT_NAME = "pr-343"
+    vi.stubEnv(
+      "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+      "http://127.0.0.1:9/v1/traces",
+    )
+    vi.stubEnv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
+    vi.stubEnv(
+      "OTEL_EXPORTER_OTLP_HEADERS",
+      "authorization=Basic%20abc=,x-token=a=b",
+    )
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-343")
+    vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "")
     captured = null
     upstreamPosts = 0
-    resetOtelBrowserProxyRateLimitForTests()
   })
 
   afterEach(() => {
-    delete process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
-    delete process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
-    delete process.env.OTEL_EXPORTER_OTLP_HEADERS
-    delete process.env.RAILWAY_ENVIRONMENT_NAME
+    vi.unstubAllEnvs()
     server.resetHandlers()
   })
 
@@ -139,13 +139,19 @@ describe("POST /.otel/v1/$signal", () => {
     expect(Object.keys(serverHandlers)).toEqual(["POST"])
   })
 
-  it("returns 204 and does not call upstream when no exporter is configured", async () => {
-    delete process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
-    const response = await postSignal(
+  it("returns 204 when that signal's exporter endpoint is unset", async () => {
+    const logs = await postSignal(
       "logs",
       sameOriginRequest("https://app.example/.otel/v1/logs", { body: "{}" }),
     )
-    expect(response.status).toBe(204)
+    expect(logs.status).toBe(204)
+
+    vi.stubEnv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "")
+    const traces = await postSignal(
+      "traces",
+      sameOriginRequest("https://app.example/.otel/v1/traces", { body: "{}" }),
+    )
+    expect(traces.status).toBe(204)
     expect(upstreamPosts).toBe(0)
   })
 
@@ -236,7 +242,8 @@ describe("POST /.otel/v1/$signal", () => {
     expect(response.status).toBe(200)
     expect(upstreamPosts).toBe(1)
     expect(captured?.url).toBe("http://127.0.0.1:9/v1/traces")
-    expect(captured?.authorization).toBe("test-ingest")
+    expect(captured?.authorization).toBe("Basic abc=")
+    expect(captured?.token).toBe("a=b")
     expect(captured?.contentType).toBe("application/json")
     const body = captured?.body as {
       resourceSpans: Array<{
@@ -295,21 +302,16 @@ describe("POST /.otel/v1/$signal", () => {
     )
   })
 
-  it("posts logs to the logs endpoint, or derives it from the traces endpoint", async () => {
-    const derived = await postSignal(
+  it("posts logs to OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", async () => {
+    vi.stubEnv(
+      "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+      "http://127.0.0.1:9/otlp/v1/logs",
+    )
+    const response = await postSignal(
       "logs",
       sameOriginRequest("https://app.example/.otel/v1/logs", { body: "{}" }),
     )
-    expect(derived.status).toBe(200)
-    expect(captured?.url).toBe("http://127.0.0.1:9/v1/logs")
-
-    process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT =
-      "http://127.0.0.1:9/otlp/v1/logs"
-    const explicit = await postSignal(
-      "logs",
-      sameOriginRequest("https://app.example/.otel/v1/logs", { body: "{}" }),
-    )
-    expect(explicit.status).toBe(200)
+    expect(response.status).toBe(200)
     expect(captured?.url).toBe("http://127.0.0.1:9/otlp/v1/logs")
   })
 
@@ -322,22 +324,21 @@ describe("POST /.otel/v1/$signal", () => {
     expect(upstreamPosts).toBe(1)
   })
 
-  it("accepts a matching Referer when Origin is absent on a proxied request", async () => {
+  it("rejects a request with no Origin", async () => {
     const response = await postSignal(
       "traces",
-      new Request("http://ui.railway.internal:3002/.otel/v1/traces", {
+      new Request("https://app.example/.otel/v1/traces", {
         method: "POST",
         headers: {
           "content-type": "application/json",
           "content-length": "2",
-          "x-forwarded-host": "backend-pr-343.up.railway.app",
-          "x-forwarded-proto": "https",
-          referer: "https://backend-pr-343.up.railway.app/org/chat",
+          referer: "https://app.example/org/chat",
         },
         body: "{}",
       }),
     )
-    expect(response.status).toBe(200)
+    expect(response.status).toBe(403)
+    expect(upstreamPosts).toBe(0)
   })
 
   it("rejects a foreign origin even when the forwarded host is the public site", async () => {
@@ -454,31 +455,47 @@ describe("POST /.otel/v1/$signal", () => {
     expect(response.status).toBe(502)
   })
 
-  it("429s after the process cap even if X-Forwarded-For changes", async () => {
-    vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000)
-    resetOtelBrowserProxyRateLimitForTests()
-    try {
-      for (let index = 0; index < OTEL_BROWSER_PROXY_RATE_LIMIT; index += 1) {
-        const response = await postSignal(
-          "traces",
-          sameOriginRequest("https://app.example/.otel/v1/traces", {
-            headers: { "x-forwarded-for": `203.0.113.${index % 250}` },
-            body: "{}",
-          }),
-        )
-        expect(response.status).toBe(200)
-      }
-      const blocked = await postSignal(
+  it("prefers RAILWAY_ENVIRONMENT_NAME, then the resource attribute, then NODE_ENV", async () => {
+    const cases = [
+      ["pr-343", "deployment.environment=staging", "test", "pr-343"],
+      [
+        "",
+        "service.namespace=ctxpipe,deployment.environment=staging",
+        "test",
+        "staging",
+      ],
+      ["", "", "production", "production"],
+      ["", "", "test", "development"],
+    ] as const
+    for (const [railway, attributes, nodeEnv, want] of cases) {
+      vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", railway)
+      vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", attributes)
+      vi.stubEnv("NODE_ENV", nodeEnv)
+      const response = await postSignal(
         "traces",
         sameOriginRequest("https://app.example/.otel/v1/traces", {
-          headers: { "x-forwarded-for": "198.51.100.9, 203.0.113.1" },
-          body: "{}",
+          body: JSON.stringify({ resourceSpans: [{}] }),
         }),
       )
-      expect(blocked.status).toBe(429)
-      expect(upstreamPosts).toBe(OTEL_BROWSER_PROXY_RATE_LIMIT)
-    } finally {
-      vi.restoreAllMocks()
+      expect(response.status).toBe(200)
+      expect(deploymentOf(captured?.body)).toBe(want)
     }
-  }, 60_000)
+  })
 })
+
+function deploymentOf(body: unknown): string | undefined {
+  const attributes = (
+    body as {
+      resourceSpans?: Array<{
+        resource?: {
+          attributes?: Array<{
+            key: string
+            value?: { stringValue?: string }
+          }>
+        }
+      }>
+    }
+  ).resourceSpans?.[0]?.resource?.attributes
+  return attributes?.find((item) => item.key === "deployment.environment")
+    ?.value?.stringValue
+}
