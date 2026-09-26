@@ -700,3 +700,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** testing
 - **Date:** 2026-09-26
 - **Source:** Repository owner review of PR-343 ("tests abusing mocks"; e.g. six module mocks in `domain/codeIngestion/codesearchClient.test.ts`)
+
+### Every runtime import must be a direct `dependency` of its app
+- **Rule:** An app's production image installs only its own `dependencies`, so a package imported from non-test code must be listed there, not in `devDependencies` and not only reachable as another package's transitive dependency. pnpm hoisting makes the import resolve locally and in Vitest, so the break shows up only when the built image starts (`Cannot find module …`). When a change adds an import from a new package, add it to that app's `dependencies` in the same commit.
+- **Category:** convention
+- **Date:** 2026-09-26
+- **Source:** PR-343 backend image failed "Verify connector asset contracts" after `otel.ts` imported `@opentelemetry/resources`, which was only a devDependency
