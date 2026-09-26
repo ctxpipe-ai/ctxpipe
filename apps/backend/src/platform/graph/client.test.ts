@@ -1,5 +1,7 @@
 import { EventEmitter } from "node:events"
+import { SpanStatusCode } from "@opentelemetry/api"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { recordSpans } from "../../../test/spans.js"
 
 const mocks = vi.hoisted(() => ({
   connect: vi.fn(),
@@ -14,6 +16,8 @@ vi.mock("../../observability/logger.js", () => ({
 }))
 
 import { closeGraphDb, getGraphClient, withGraphClient } from "./client.js"
+
+const spans = recordSpans()
 
 class FakeFalkorDb extends EventEmitter {
   close = vi.fn(async () => undefined)
@@ -63,5 +67,15 @@ describe("FalkorDB shared client lifecycle", () => {
       getGraphClient().executeQuery("RETURN 1"),
     )
     expect(mocks.connect).toHaveBeenCalledTimes(2)
+  })
+
+  it("records an ERROR span when connect fails", async () => {
+    mocks.connect.mockRejectedValueOnce(new Error("connect ETIMEDOUT"))
+    await expect(withGraphClient(scope, async () => undefined)).rejects.toThrow(
+      "connect ETIMEDOUT",
+    )
+    const span = spans.spanNamed("falkordb.connect")
+    expect(span?.status.code).toBe(SpanStatusCode.ERROR)
+    expect(span?.events.map((event) => event.name)).toContain("exception")
   })
 })

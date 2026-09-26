@@ -10,10 +10,14 @@ import { contextStorage } from "hono/context-storage"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { applyAttribution, propagationHeaders } from "./attribution.js"
 import { backendOtelMiddleware } from "./http.js"
+import { AttributionUrlSpanProcessor } from "./otel.js"
 
 const exporter = new InMemorySpanExporter()
 const provider = new NodeTracerProvider({
-  spanProcessors: [new SimpleSpanProcessor(exporter)],
+  spanProcessors: [
+    new AttributionUrlSpanProcessor(),
+    new SimpleSpanProcessor(exporter),
+  ],
 })
 
 beforeAll(() => {

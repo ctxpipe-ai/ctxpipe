@@ -1,5 +1,5 @@
 import { httpInstrumentationMiddleware } from "@hono/otel"
-import { context, propagation, trace } from "@opentelemetry/api"
+import { context, trace } from "@opentelemetry/api"
 import type { Context, MiddlewareHandler } from "hono"
 import { matchedRoutes } from "hono/route"
 import {
@@ -34,14 +34,6 @@ function ensureRequestId(c: Context): string {
   return id
 }
 
-function urlWithoutQuery(rawUrl: string, safePath: string): string {
-  try {
-    return `${new URL(rawUrl).origin}${safePath}`
-  } catch {
-    return safePath
-  }
-}
-
 export function backendOtelMiddleware(): MiddlewareHandler {
   const instrument = httpInstrumentationMiddleware({
     captureActiveRequests: false,
@@ -49,8 +41,7 @@ export function backendOtelMiddleware(): MiddlewareHandler {
 
   return async (c, next) => {
     const requestId = ensureRequestId(c)
-    const extracted = propagation.extract(context.active(), c.req.header())
-    const { context: traced, bag } = contextWithAttributionBag(extracted)
+    const { context: traced, bag } = contextWithAttributionBag(context.active())
     bag.set("request.id", requestId)
     const uiProxy = isUiProxyRequest(c)
 
@@ -63,7 +54,6 @@ export function backendOtelMiddleware(): MiddlewareHandler {
         const span = trace.getActiveSpan()
         const safePath = redactSecretPath(c.req.path)
         span?.setAttribute("url.path", safePath)
-        span?.setAttribute("url.full", urlWithoutQuery(c.req.url, safePath))
         span?.setAttribute("request.id", requestId)
         const userAgent = c.req.header("user-agent")
         if (userAgent) span?.setAttribute("user_agent.original", userAgent)

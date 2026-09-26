@@ -53,7 +53,6 @@
     "@opentelemetry/exporter-metrics-otlp-http": "^0.213.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.213.0",
     "@opentelemetry/instrumentation-http": "^0.213.0",
-    "@opentelemetry/instrumentation-redis": "^0.61.0",
     "@opentelemetry/instrumentation-runtime-node": "^0.26.0",
     "@opentelemetry/sdk-metrics": "^2.6.0",
     "@opentelemetry/sdk-node": "^0.213.0",

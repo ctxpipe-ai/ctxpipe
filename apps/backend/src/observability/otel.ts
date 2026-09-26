@@ -1,8 +1,6 @@
-import type { RequestOptions } from "node:http"
 import {
   type Context,
   context,
-  isSpanContextValid,
   propagation,
   SpanKind,
   SpanStatusCode,
@@ -11,8 +9,15 @@ import {
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http"
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
 import { HttpInstrumentation } from "@opentelemetry/instrumentation-http"
-import { RedisInstrumentation } from "@opentelemetry/instrumentation-redis"
 import { RuntimeNodeInstrumentation } from "@opentelemetry/instrumentation-runtime-node"
+import {
+  defaultResource,
+  detectResources,
+  envDetector,
+  hostDetector,
+  processDetector,
+  resourceFromAttributes,
+} from "@opentelemetry/resources"
 import {
   type MetricReader,
   PeriodicExportingMetricReader,
@@ -38,7 +43,7 @@ let metricReader: MetricReader | undefined
 let started = false
 let outgoingFetchInstrumented = false
 
-/** evlog `service` name. NodeSDK reads `OTEL_SERVICE_NAME` on its own. */
+/** evlog `service` name. The tracer resource uses the same value. */
 export function otelServiceName(
   configured = process.env.OTEL_SERVICE_NAME,
 ): string {
@@ -47,17 +52,56 @@ export function otelServiceName(
 }
 
 /**
- * Railway sets `RAILWAY_ENVIRONMENT_NAME` (`production` or `pr-N`).
- * Local / unset falls back to NODE_ENV. The log drain still calls this.
- * The tracer resource comes from env (see `initOtel`).
+ * `RAILWAY_ENVIRONMENT_NAME`, else `deployment.environment` in
+ * `OTEL_RESOURCE_ATTRIBUTES`, else `production` when NODE_ENV is production,
+ * else `development`. Logs and the Langfuse `env:` tag call this.
  */
 export function otelDeploymentEnvironment(
   railwayEnvironmentName = process.env.RAILWAY_ENVIRONMENT_NAME,
   nodeEnv = process.env.NODE_ENV,
+  resourceAttributes = process.env.OTEL_RESOURCE_ATTRIBUTES,
 ): string {
-  const name = railwayEnvironmentName?.trim()
-  if (name) return name
+  const railway = railwayEnvironmentName?.trim()
+  if (railway) return railway
+  const fromAttributes = deploymentEnvironmentAttribute(resourceAttributes)
+  if (fromAttributes) return fromAttributes
   return nodeEnv === "production" ? "production" : "development"
+}
+
+/** Last `deployment.environment` entry. The env detector uses the same rule. */
+function deploymentEnvironmentAttribute(
+  raw: string | undefined,
+): string | undefined {
+  if (!raw) return undefined
+  let found: string | undefined
+  for (const entry of raw.split(",")) {
+    const eq = entry.indexOf("=")
+    if (eq <= 0) continue
+    if (entry.slice(0, eq).trim() !== "deployment.environment") continue
+    const value = entry.slice(eq + 1).trim()
+    if (!value) continue
+    try {
+      found = decodeURIComponent(value)
+    } catch {
+      found = value
+    }
+  }
+  return found
+}
+
+/**
+ * Tracer and meter resource. Env attributes merge in, then service name,
+ * namespace, and deployment environment are pinned to this process.
+ */
+export function backendResource() {
+  const attributes = {
+    "service.name": otelServiceName(),
+    "service.namespace": "ctxpipe",
+    "deployment.environment": otelDeploymentEnvironment(),
+  }
+  return defaultResource()
+    .merge(detectResources({ detectors: [envDetector] }))
+    .merge(resourceFromAttributes(attributes))
 }
 
 export function isRailwayPrEnvironment(
@@ -101,50 +145,13 @@ export class AttributionUrlSpanProcessor implements SpanProcessor {
 }
 
 /**
- * HTTP `requireParentforOutgoingSpans` records a non-recording span when there
- * is no parent, including on error. Redis `requireParentSpan` returns before
- * `startSpan`, including on error. Redis `connect` does not check that flag,
- * so drop parentless CLIENT/INTERNAL auto-instrumentation spans unless they
- * failed.
- */
-export class DropParentlessInstrumentationSpans implements SpanProcessor {
-  constructor(private readonly next: SpanProcessor) {}
-  onStart(span: Span, parentContext: Context): void {
-    this.next.onStart(span, parentContext)
-  }
-  onEnd(span: ReadableSpan): void {
-    const parent = span.parentSpanContext
-    const parentless = !parent || !isSpanContextValid(parent)
-    const noise =
-      parentless &&
-      span.status.code !== SpanStatusCode.ERROR &&
-      (span.kind === SpanKind.CLIENT || span.kind === SpanKind.INTERNAL) &&
-      span.instrumentationScope.name.startsWith(
-        "@opentelemetry/instrumentation-",
-      )
-    if (!noise) this.next.onEnd(span)
-  }
-  shutdown(): Promise<void> {
-    return this.next.shutdown()
-  }
-  forceFlush(): Promise<void> {
-    return this.next.forceFlush()
-  }
-}
-
-/**
  * Initialize OpenTelemetry tracing and metrics before other tracing imports.
- * `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` are read by NodeSDK.
- * `RAILWAY_ENVIRONMENT_NAME` is prepended as `deployment.environment` so an
- * explicit resource attribute still wins. PR (`pr-N`) metrics flush on demand.
+ * PR (`pr-N`) metrics flush on demand. Env detection lives in
+ * `backendResource`; process and host detectors still run here.
  */
 export function initOtel(env: Env): void {
   const tracesEndpoint = env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
   if (!tracesEndpoint || started) return
-
-  const railwayEnvironment = process.env.RAILWAY_ENVIRONMENT_NAME?.trim()
-  if (railwayEnvironment)
-    process.env.OTEL_RESOURCE_ATTRIBUTES = `deployment.environment=${railwayEnvironment}${process.env.OTEL_RESOURCE_ATTRIBUTES ? `,${process.env.OTEL_RESOURCE_ATTRIBUTES}` : ""}`
 
   const traceExporter = new OTLPTraceExporter({
     url: tracesEndpoint,
@@ -153,14 +160,14 @@ export function initOtel(env: Env): void {
   const batch = new BatchSpanProcessor(traceExporter, {
     exportTimeoutMillis: 2_000,
   })
-  spanProcessor = new DropParentlessInstrumentationSpans(
-    new BetterAuthSpanFilter(batch),
-  )
+  spanProcessor = new BetterAuthSpanFilter(batch)
   metricReader = env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
     ? metricReaderFor(env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT)
     : undefined
 
   sdk = new NodeSDK({
+    resource: backendResource(),
+    resourceDetectors: [processDetector, hostDetector],
     spanProcessors: [
       new AttributionUrlSpanProcessor(),
       new LangfuseContextSpanProcessor(),
@@ -170,12 +177,7 @@ export function initOtel(env: Env): void {
       new HttpInstrumentation({
         requireParentforOutgoingSpans: true,
         ignoreIncomingRequestHook: () => true,
-        ignoreOutgoingRequestHook(request) {
-          const url = httpRequestUrl(request)
-          return url !== undefined && isOtlpExportUrl(url)
-        },
       }),
-      new RedisInstrumentation({ requireParentSpan: true }),
       ...(typeof Bun === "undefined" ? [new RuntimeNodeInstrumentation()] : []),
     ],
     ...(metricReader ? { metricReaders: [metricReader] } : {}),
@@ -331,25 +333,6 @@ function isOtlpExportUrl(url: string): boolean {
     }
   }
   return false
-}
-
-function httpRequestUrl(request: RequestOptions): string | undefined {
-  const path = request.path ?? "/"
-  if (path.startsWith("http://") || path.startsWith("https://")) return path
-  const hostname = request.hostname || request.host?.split(":")[0]
-  if (!hostname) return undefined
-  const protocol = (request.protocol || "https:").replace(/:$/, "")
-  const port =
-    request.port == null || request.port === "" ? "" : String(request.port)
-  const suffix =
-    port &&
-    !(
-      (protocol === "https" && port === "443") ||
-      (protocol === "http" && port === "80")
-    )
-      ? `:${port}`
-      : ""
-  return `${protocol}://${hostname}${suffix}${path.startsWith("/") ? path : `/${path}`}`
 }
 
 /** Flush the span processor and metric reader created by `initOtel`. */

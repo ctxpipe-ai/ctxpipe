@@ -1,10 +1,4 @@
-import {
-  context,
-  propagation,
-  SpanKind,
-  SpanStatusCode,
-  trace,
-} from "@opentelemetry/api"
+import { context, propagation, SpanKind, trace } from "@opentelemetry/api"
 import {
   CompositePropagator,
   W3CBaggagePropagator,
@@ -15,12 +9,22 @@ import {
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 import { contextWithAttributionBag } from "./attribution.js"
 import {
   AttributionUrlSpanProcessor,
-  DropParentlessInstrumentationSpans,
+  backendResource,
   isRailwayPrEnvironment,
+  otelDeploymentEnvironment,
   tracedOutgoingFetch,
 } from "./otel.js"
 
@@ -28,7 +32,7 @@ const exporter = new InMemorySpanExporter()
 const provider = new NodeTracerProvider({
   spanProcessors: [
     new AttributionUrlSpanProcessor(),
-    new DropParentlessInstrumentationSpans(new SimpleSpanProcessor(exporter)),
+    new SimpleSpanProcessor(exporter),
   ],
 })
 
@@ -46,6 +50,10 @@ beforeAll(() => {
 
 beforeEach(() => {
   exporter.reset()
+})
+
+afterEach(() => {
+  vi.unstubAllEnvs()
 })
 
 afterAll(async () => {
@@ -77,9 +85,10 @@ describe("outgoing fetch spans", () => {
   })
 
   it("skips a configured OTLP export URL", async () => {
-    const previous = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
-    process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT =
-      "https://telemetry.ctxpipe.ai/v1/traces"
+    vi.stubEnv(
+      "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+      "https://telemetry.ctxpipe.ai/v1/traces",
+    )
     const parent = trace.getTracer("test").startSpan("request")
     try {
       await context.with(trace.setSpan(context.active(), parent), async () => {
@@ -94,9 +103,6 @@ describe("outgoing fetch spans", () => {
       })
     } finally {
       parent.end()
-      if (previous === undefined)
-        delete process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
-      else process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = previous
     }
     const clients = exporter
       .getFinishedSpans()
@@ -107,8 +113,7 @@ describe("outgoing fetch spans", () => {
   })
 
   it("sends traceparent everywhere and baggage only to internal origins", async () => {
-    const previous = process.env.CODESEARCH_URL
-    process.env.CODESEARCH_URL = "http://codesearch.internal:3001"
+    vi.stubEnv("CODESEARCH_URL", "http://codesearch.internal:3001")
     const seen: {
       url: string
       baggage: string | null
@@ -160,8 +165,6 @@ describe("outgoing fetch spans", () => {
       })
     } finally {
       parent.end()
-      if (previous === undefined) delete process.env.CODESEARCH_URL
-      else process.env.CODESEARCH_URL = previous
     }
 
     const external = seen.find((entry) => entry.url.includes("api.openai.com"))
@@ -251,35 +254,32 @@ describe("span URL attributes", () => {
   })
 })
 
-describe("parentless instrumentation spans", () => {
-  it("drops a parentless auto-instrumentation span and keeps an error", () => {
-    const redis = trace
-      .getTracer("@opentelemetry/instrumentation-redis")
-      .startSpan("redis-connect", { kind: SpanKind.CLIENT })
-    redis.end()
-    const failed = trace
-      .getTracer("@opentelemetry/instrumentation-redis")
-      .startSpan("redis-GET", { kind: SpanKind.CLIENT })
-    failed.setStatus({ code: SpanStatusCode.ERROR })
-    failed.end()
-    const finished = exporter.getFinishedSpans()
-    expect(finished.map((span) => span.name)).toEqual(["redis-GET"])
-    expect(finished[0]?.status.code).toBe(SpanStatusCode.ERROR)
+describe("backend resource", () => {
+  it("reads deployment.environment from OTEL_RESOURCE_ATTRIBUTES", () => {
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "")
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=staging")
+    expect(otelDeploymentEnvironment()).toBe("staging")
+    const localExporter = new InMemorySpanExporter()
+    const localProvider = new NodeTracerProvider({
+      resource: backendResource(),
+      spanProcessors: [new SimpleSpanProcessor(localExporter)],
+    })
+    const span = localProvider.getTracer("test").startSpan("resource-check")
+    span.end()
+    const finished = localExporter.getFinishedSpans()[0]
+    expect(finished?.resource.attributes["deployment.environment"]).toBe(
+      "staging",
+    )
+    expect(finished?.resource.attributes["service.namespace"]).toBe("ctxpipe")
   })
 
-  it("keeps a parented auto-instrumentation span and our own spans", () => {
-    const job = trace
-      .getTracer("ctxpipe-backend")
-      .startSpan("openworkflow.job", { kind: SpanKind.CONSUMER })
-    context.with(trace.setSpan(context.active(), job), () => {
-      trace
-        .getTracer("@opentelemetry/instrumentation-redis")
-        .startSpan("redis-GET", { kind: SpanKind.CLIENT })
-        .end()
-    })
-    job.end()
-    const names = exporter.getFinishedSpans().map((span) => span.name)
-    expect(names).toContain("openworkflow.job")
-    expect(names).toContain("redis-GET")
+  it("prefers RAILWAY_ENVIRONMENT_NAME over resource attributes", () => {
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-9")
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=staging")
+    expect(otelDeploymentEnvironment()).toBe("pr-9")
+    expect(backendResource().attributes["deployment.environment"]).toBe("pr-9")
+    expect(backendResource().attributes["service.namespace"]).toBe("ctxpipe")
   })
 })

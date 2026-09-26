@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks"
+import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import { FalkorDB } from "falkordb"
 import neo4j, { type Driver } from "neo4j-driver"
 import {
@@ -206,11 +207,31 @@ async function resolveFalkorDbClient(orgId: string): Promise<GraphClient> {
   const cfg = getConfig()
   const uri = cfg.uri
   if (!databasePerTenantFalkorDb) {
-    const db = await FalkorDB.connect({
-      url: uri,
-      username: cfg.user || undefined,
-      password: cfg.password || undefined,
-    })
+    const db = await trace.getTracer("ctxpipe-backend").startActiveSpan(
+      "falkordb.connect",
+      {
+        kind: SpanKind.CLIENT,
+        attributes: { "db.system.name": "falkordb" },
+      },
+      async (span) => {
+        try {
+          return await FalkorDB.connect({
+            url: uri,
+            username: cfg.user || undefined,
+            password: cfg.password || undefined,
+          })
+        } catch (error) {
+          if (error instanceof Error) span.recordException(error)
+          span.setStatus({
+            code: SpanStatusCode.ERROR,
+            message: error instanceof Error ? error.message : String(error),
+          })
+          throw error
+        } finally {
+          span.end()
+        }
+      },
+    )
     attachFalkorDbLifecycle(db)
     databasePerTenantFalkorDb = db
   }
