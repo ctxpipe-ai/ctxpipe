@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ESNext"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "types": ["bun"],
+    // Manual tool, not a workspace package. @types/bun is already installed for the backend.
+    "typeRoots": ["../../../apps/backend/node_modules/@types"]
+  },
+  "files": ["provision.ts"]
+}

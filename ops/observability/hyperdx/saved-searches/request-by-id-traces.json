@@ -1,0 +1,9 @@
+{
+  "name": "Request by id (traces)",
+  "sourceName": "Traces",
+  "select": "Timestamp, ServiceName, StatusCode, SpanName, TraceId, SpanAttributes['request.id']",
+  "where": "SpanAttributes['request.id'] != ''",
+  "whereLanguage": "sql",
+  "orderBy": "Timestamp DESC",
+  "tags": ["ctxpipe"]
+}
