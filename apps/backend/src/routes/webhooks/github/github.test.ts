@@ -1,60 +1,33 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { Webhooks } from "@octokit/webhooks"
-import { context, trace } from "@opentelemetry/api"
-import {
-  InMemorySpanExporter,
-  SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+import { trace } from "@opentelemetry/api"
 import { createLogger } from "evlog"
 import type { MiddlewareHandler } from "hono"
 import { contextStorage } from "hono/context-storage"
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { recordSpans } from "../../../../test/spans.js"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
 import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-github-repositories.js"
 
-const exporter = new InMemorySpanExporter()
-const provider = new NodeTracerProvider({
-  spanProcessors: [new SimpleSpanProcessor(exporter)],
-})
-
-beforeAll(() => {
-  provider.register()
-})
-
-beforeEach(() => {
-  exporter.reset()
-})
-
-afterAll(async () => {
-  await provider.shutdown()
-})
+const spans = recordSpans()
 
 function withRequestSpan(): MiddlewareHandler {
   return async (_c, next) => {
-    const span = trace.getTracer("ctxpipe-webhook-test").startSpan("request")
-    try {
-      await context.with(trace.setSpan(context.active(), span), () => next())
-    } finally {
-      span.end()
-    }
+    await trace
+      .getTracer("ctxpipe-webhook-test")
+      .startActiveSpan("request", async (span) => {
+        try {
+          await next()
+        } finally {
+          span.end()
+        }
+      })
   }
 }
 
 function requestSpanAttributes(): Record<string, unknown> {
-  const span = exporter
-    .getFinishedSpans()
-    .find((item) => item.name === "request")
-  return span ? { ...span.attributes } : {}
+  return { ...spans.attributes(spans.spanNamed("request")) }
 }
 
 const runWorkflowMock = vi.hoisted(() =>
@@ -486,9 +459,7 @@ describe("POST /api/v1/webhook/github", () => {
       expect.objectContaining({ orgId: "org_b", repositoryId: "repo_b" }),
       expect.any(Object),
     )
-    expect(exporter.getFinishedSpans().map((span) => span.name)).toContain(
-      "request",
-    )
+    expect(spans.finishedSpans().map((span) => span.name)).toContain("request")
     expect(requestSpanAttributes()["ctxpipe.org.id"]).toBeUndefined()
     expect(requestSpanAttributes()["ctxpipe.connection.id"]).toBeUndefined()
   })
@@ -641,9 +612,7 @@ describe("POST /api/v1/webhook/github", () => {
         },
       ],
     })
-    expect(exporter.getFinishedSpans().map((span) => span.name)).toContain(
-      "request",
-    )
+    expect(spans.finishedSpans().map((span) => span.name)).toContain("request")
     expect(requestSpanAttributes()["ctxpipe.org.id"]).toBeUndefined()
     expect(requestSpanAttributes()["ctxpipe.connection.id"]).toBeUndefined()
   })

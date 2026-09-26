@@ -22,6 +22,8 @@ export const jobTelemetrySchema = z.object({
   carrier: z.record(z.string(), z.string()).optional(),
   "request.id": z.string().optional(),
   "enduser.id": z.string().optional(),
+  "ctxpipe.org.id": z.string().optional(),
+  "ctxpipe.org.slug": z.string().optional(),
 })
 
 export type JobTelemetry = z.infer<typeof jobTelemetrySchema>
@@ -42,14 +44,21 @@ export function captureJobTelemetry(): JobTelemetry | undefined {
   const telemetry: JobTelemetry = {}
   const carrier = carrierFromActiveContext()
   if (carrier) telemetry.carrier = carrier
-  for (const key of ["request.id", "enduser.id"] as const) {
+  for (const key of [
+    "request.id",
+    "enduser.id",
+    "ctxpipe.org.id",
+    "ctxpipe.org.slug",
+  ] as const) {
     const value = bag[key]
     if (value) telemetry[key] = value
   }
   if (
     !telemetry.carrier &&
     !telemetry["request.id"] &&
-    !telemetry["enduser.id"]
+    !telemetry["enduser.id"] &&
+    !telemetry["ctxpipe.org.id"] &&
+    !telemetry["ctxpipe.org.slug"]
   ) {
     return undefined
   }
@@ -158,6 +167,22 @@ export async function restoreJobTelemetry<T>(
   }
   if (fields["request.id"]) bagPatch["request.id"] = fields["request.id"]
   if (fields["enduser.id"]) bagPatch["enduser.id"] = fields["enduser.id"]
+  const inputRecord =
+    input && typeof input === "object"
+      ? (input as Record<string, unknown>)
+      : undefined
+  const inputOrgId = inputRecord ? stringField(inputRecord, "orgId") : undefined
+  const inputOrgSlug = inputRecord
+    ? stringField(inputRecord, "orgSlug")
+    : undefined
+  if (
+    !inputOrgSlug &&
+    inputOrgId &&
+    inputOrgId === fields["ctxpipe.org.id"] &&
+    fields["ctxpipe.org.slug"]
+  ) {
+    bagPatch["ctxpipe.org.slug"] = fields["ctxpipe.org.slug"]
+  }
   const attribution = sanitizeAttribution({
     ...bagPatch,
     ...attributionPatchFromJobInput(input),

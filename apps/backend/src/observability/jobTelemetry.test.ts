@@ -34,11 +34,11 @@ describe("job telemetry", () => {
         /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/,
       )
       expect(telemetry).not.toHaveProperty("traceparent")
-      expect(telemetry).not.toHaveProperty("ctxpipe.org.id")
-      expect(telemetry).not.toHaveProperty("ctxpipe.org.slug")
       expect(telemetry).toMatchObject({
         "request.id": "req_job",
         "enduser.id": "user_1",
+        "ctxpipe.org.id": "org_1",
+        "ctxpipe.org.slug": "acme",
       })
       const attached = attachJobTelemetry({
         repositoryId: "repo_1",
@@ -76,7 +76,10 @@ describe("job telemetry", () => {
     expect(
       spans.spanNamed("request")?.attributes["ctxpipe.repository.id"],
     ).toBeUndefined()
-    expect(input.telemetry).not.toHaveProperty("ctxpipe.org.id")
+    expect(input.telemetry).toMatchObject({
+      "ctxpipe.org.id": "org_1",
+      "ctxpipe.org.slug": "acme",
+    })
   })
 
   it("does not copy the job repository or connection onto the caller span", async () => {
@@ -100,9 +103,9 @@ describe("job telemetry", () => {
         connectionId: "con_second",
         orgId: "org_other",
       })
-      expect(first.telemetry).not.toHaveProperty("ctxpipe.org.id")
+      expect(first.telemetry).toMatchObject({ "ctxpipe.org.id": "org_caller" })
       expect(first.telemetry).not.toHaveProperty("ctxpipe.org.slug")
-      expect(second.telemetry).not.toHaveProperty("ctxpipe.org.id")
+      expect(second.telemetry).toMatchObject({ "ctxpipe.org.id": "org_caller" })
       expect(second.telemetry).not.toHaveProperty("ctxpipe.repository.id")
     })
     parent.end()
@@ -143,30 +146,41 @@ describe("job telemetry", () => {
         "ctxpipe.org.slug": "last-org",
         "ctxpipe.connection.id": "con_last",
       })
-      const first = attachJobTelemetry({
-        orgId: "org_a",
+      const matching = attachJobTelemetry({
+        orgId: "org_last",
         connectionId: "con_a",
       })
-      const second = attachJobTelemetry({
+      const mismatched = attachJobTelemetry({
         orgId: "org_b",
-        orgSlug: "org-b",
         connectionId: "con_b",
       })
-      expect(first.telemetry).toMatchObject({
-        "request.id": "req_wh",
+      const explicit = attachJobTelemetry({
+        orgId: "org_c",
+        orgSlug: "from-input",
+        connectionId: "con_c",
       })
-      expect(first.telemetry).not.toHaveProperty("ctxpipe.org.id")
-      expect(first.telemetry).not.toHaveProperty("ctxpipe.org.slug")
-      expect(second.telemetry).not.toHaveProperty("ctxpipe.org.id")
-      expect(second.telemetry).not.toHaveProperty("ctxpipe.org.slug")
+      expect(matching.telemetry).toMatchObject({
+        "request.id": "req_wh",
+        "ctxpipe.org.id": "org_last",
+        "ctxpipe.org.slug": "last-org",
+      })
+      expect(mismatched.telemetry).toMatchObject({
+        "ctxpipe.org.id": "org_last",
+        "ctxpipe.org.slug": "last-org",
+      })
       await restoreJobTelemetry(
-        first,
+        matching,
         { name: "alpha-run" },
         async () => undefined,
       )
       await restoreJobTelemetry(
-        second,
+        mismatched,
         { name: "beta-run" },
+        async () => undefined,
+      )
+      await restoreJobTelemetry(
+        explicit,
+        { name: "gamma-run" },
         async () => undefined,
       )
     })
@@ -178,16 +192,21 @@ describe("job telemetry", () => {
     expect(jobs.map((span) => span.name)).toEqual([
       "openworkflow.job alpha-run",
       "openworkflow.job beta-run",
+      "openworkflow.job gamma-run",
     ])
     expect(jobs.map((span) => span.attributes["ctxpipe.org.id"])).toEqual([
-      "org_a",
+      "org_last",
       "org_b",
+      "org_c",
     ])
     expect(
       jobs.map((span) => span.attributes["ctxpipe.connection.id"]),
-    ).toEqual(["con_a", "con_b"])
-    expect(jobs[0]?.attributes["ctxpipe.org.slug"]).toBeUndefined()
-    expect(jobs[1]?.attributes["ctxpipe.org.slug"]).toBe("org-b")
+    ).toEqual(["con_a", "con_b", "con_c"])
+    expect(jobs.map((span) => span.attributes["ctxpipe.org.slug"])).toEqual([
+      "last-org",
+      undefined,
+      "from-input",
+    ])
     expect(jobs[0]?.attributes["ctxpipe.actor.type"]).toBe("job")
     const webhook = spans.spanNamed("webhook")
     expect(webhook?.attributes["ctxpipe.org.id"]).toBe("org_last")

@@ -99,4 +99,52 @@ describe("defineObservedWorkflow", () => {
       "request.id": "req_1",
     })
   }, 20_000)
+
+  it("restores org slug on a child whose schema has no orgSlug", async () => {
+    const child = defineWorkflow(
+      {
+        name: "child-no-slug",
+        schema: z.object({ orgId: z.string() }),
+      },
+      async () => readAttribution(),
+    )
+    const parent = defineWorkflow(
+      {
+        name: "parent-with-slug",
+        schema: z.object({ orgId: z.string(), orgSlug: z.string() }),
+      },
+      async ({ input, step }) =>
+        step.runWorkflow(child.spec, { orgId: input.orgId }, { name: "child" }),
+    )
+
+    const backend = BackendSqlite.connect(":memory:")
+    const ow = new OpenWorkflow({ backend })
+    ow.implementWorkflow(child.spec, child.fn)
+    ow.implementWorkflow(parent.spec, parent.fn)
+    const worker = ow.newWorker({ concurrency: 4 })
+    await worker.start()
+    try {
+      const handle = await ow.runWorkflow(parent.spec, {
+        orgId: "org_1",
+        orgSlug: "acme",
+      })
+      await expect(handle.result({ timeoutMs: 15_000 })).resolves.toMatchObject(
+        {
+          "ctxpipe.actor.type": "job",
+          "ctxpipe.org.id": "org_1",
+          "ctxpipe.org.slug": "acme",
+        },
+      )
+    } finally {
+      await worker.stop()
+      await backend.stop()
+    }
+
+    expect(
+      spans.spanNamed("openworkflow.job child-no-slug")?.attributes,
+    ).toMatchObject({
+      "ctxpipe.org.id": "org_1",
+      "ctxpipe.org.slug": "acme",
+    })
+  }, 20_000)
 })

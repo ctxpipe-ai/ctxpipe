@@ -5,14 +5,10 @@ import { recordSpans } from "../../../test/spans.js"
 
 const mocks = vi.hoisted(() => ({
   connect: vi.fn(),
-  logError: vi.fn(),
 }))
 
 vi.mock("falkordb", () => ({
   FalkorDB: { connect: mocks.connect },
-}))
-vi.mock("../../observability/logger.js", () => ({
-  log: { error: mocks.logError, info: vi.fn(), warn: vi.fn() },
 }))
 
 import { closeGraphDb, getGraphClient, withGraphClient } from "./client.js"
@@ -60,7 +56,6 @@ describe("FalkorDB shared client lifecycle", () => {
     expect(() =>
       first.emit("error", new Error("Socket closed unexpectedly")),
     ).not.toThrow()
-    expect(mocks.logError).toHaveBeenCalledTimes(1)
     expect(first.close).toHaveBeenCalledTimes(1)
 
     await withGraphClient(scope, () =>

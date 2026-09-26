@@ -57,10 +57,7 @@ describe("applyLogContract", () => {
       environment: "pr-343",
       service: "backend",
     }
-    applyLogContract(event, {
-      traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
-      spanId: "00f067aa0ba902b7",
-    })
+    applyLogContract(event)
     expect(event["http.request.method"]).toBe("GET")
     expect(event["url.path"]).toBe("/health")
     expect(event["http.response.status_code"]).toBe(204)
@@ -68,16 +65,14 @@ describe("applyLogContract", () => {
     expect(event["ctxpipe.org.id"]).toBe("org_1")
     expect(event["ctxpipe.org.slug"]).toBe("acme")
     expect(event["enduser.id"]).toBe("user_1")
-    expect(event.traceId).toBe("4bf92f3577b34da6a3ce929d0e0e4736")
-    expect(event.spanId).toBe("00f067aa0ba902b7")
+    expect(event.environment).toBe("pr-343")
+    expect(event.service).toBe("backend")
     expect(event).not.toHaveProperty("method")
     expect(event).not.toHaveProperty("path")
     expect(event).not.toHaveProperty("status")
     expect(event).not.toHaveProperty("requestId")
     expect(event).not.toHaveProperty("orgId")
     expect(event).not.toHaveProperty("userId")
-    expect(event).not.toHaveProperty("environment")
-    expect(event).not.toHaveProperty("service")
     expect(event).not.toHaveProperty("service.namespace")
   })
 
@@ -202,6 +197,14 @@ describe("evlog redact and OTLP drain", () => {
       expect(res.status).toBe(400)
       expect(bodies).toHaveLength(1)
       const printed = `${stdout.join("")}\n${stderr.join("")}`
+      const stdoutEvent = JSON.parse(
+        stdout
+          .join("")
+          .split("\n")
+          .find((line) => line.startsWith("{")) ?? "{}",
+      ) as Record<string, unknown>
+      expect(stdoutEvent.service).toBe("backend")
+      expect(stdoutEvent.environment).toBe("development")
       const payload = JSON.stringify(bodies[0])
       for (const secret of [
         token,
@@ -235,8 +238,8 @@ describe("evlog redact and OTLP drain", () => {
       const body = JSON.parse(
         record?.scopeLogs[0]?.logRecords[0]?.body.stringValue ?? "{}",
       ) as Record<string, unknown>
-      expect(body).not.toHaveProperty("environment")
-      expect(body).not.toHaveProperty("service")
+      expect(body.service).toBe("backend")
+      expect(body.environment).toBe("development")
       expect(body["url.path"]).toBe(
         `/.auth/api/v1/auth/reset-password/[REDACTED]`,
       )
@@ -275,13 +278,14 @@ describe("evlog redact and OTLP drain", () => {
     try {
       initEvlog()
       log.info({
-        message: "what is ctx?pipe",
+        message: "what is ctx?pipe GET /search?token=MSGSECRET",
         url: "https://backend.example/search?q=QUERYSECRET",
         "url.full": "http://backend.example/search?q=FULLSECRET",
         path: "/search?q=PATHSECRET",
       })
       const event = JSON.parse(stdout.join("")) as Record<string, unknown>
-      expect(event.message).toBe("what is ctx?pipe")
+      expect(event.message).toBe("what is ctx?pipe GET /search[REDACTED]")
+      expect(event.message).not.toContain("MSGSECRET")
       expect(event.url).toBe("https://backend.example/search[REDACTED]")
       expect(event["url.full"]).toBe("http://backend.example/search[REDACTED]")
       expect(event["url.path"]).toBe("/search[REDACTED]")

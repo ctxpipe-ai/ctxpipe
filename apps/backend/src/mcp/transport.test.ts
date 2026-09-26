@@ -113,5 +113,29 @@ describe("MCP request attribution", () => {
     await response.body?.cancel()
 
     expect(toolStarted).toBe(true)
+
+    const longName = `tool_${"n".repeat(120)}`
+    const longResponse = await app.request("http://backend.test/mcp", {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: longName,
+          arguments: { prompt: "hello" },
+        },
+      }),
+    })
+    const longSpan = spans.spanNamed("POST /mcp")
+    expect(longSpan?.attributes["ctxpipe.mcp.tool"]).toBe(
+      longName.slice(0, 100),
+    )
+    expect(JSON.stringify(longSpan?.attributes)).not.toContain(longName)
+    await longResponse.body?.cancel()
   })
 })

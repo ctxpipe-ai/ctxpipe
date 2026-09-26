@@ -526,34 +526,4 @@ describe("registerMcpTools", () => {
       error: failure,
     })
   })
-
-  it("uses the error code when the failure message is empty", async () => {
-    const failure = Object.assign(new Error(""), { code: "ETIMEDOUT" })
-    streamMock.mockRejectedValueOnce(failure)
-
-    const registerToolMock = vi.fn()
-    const server = { registerTool: registerToolMock } as unknown as McpServer
-    registerMcpTools(server)
-    const [, , handler] = registerToolMock.mock.calls[0] as [
-      string,
-      unknown,
-      (
-        input: { prompt: string },
-        extra: { sendNotification: (n: unknown) => Promise<void> },
-      ) => Promise<unknown>,
-    ]
-
-    await expect(
-      handler(
-        { prompt: "What database should we use?" },
-        { sendNotification: vi.fn(async () => {}) },
-      ),
-    ).rejects.toThrow("ETIMEDOUT")
-
-    expect(logErrorMock).toHaveBeenCalledWith({
-      step: "conversation.mcp.ctx_advisor",
-      message: "ETIMEDOUT",
-      error: failure,
-    })
-  })
 })

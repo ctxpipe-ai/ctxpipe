@@ -15,6 +15,7 @@ import {
   runWithLangfuseContext,
 } from "../observability/langfuse.js"
 import { log } from "../observability/logger.js"
+import { dbErrorException } from "../observability/scrubDbError.js"
 import { mcpAdvisorThreadId } from "./advisorThread.js"
 
 /**
@@ -231,9 +232,13 @@ export function registerMcpTools(server: McpServer): void {
               },
             )
           } catch (error) {
+            const exception = dbErrorException(error)
+            span.recordException(exception)
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: exception.message,
+            })
             const message = toolErrorText(error)
-            span.recordException(error instanceof Error ? error : message)
-            span.setStatus({ code: SpanStatusCode.ERROR, message })
             log.error({
               step: "conversation.mcp.ctx_advisor",
               message,

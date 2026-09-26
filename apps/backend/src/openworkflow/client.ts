@@ -23,10 +23,10 @@ export function runWorkflowWithWorkerWake(
   ...args: Parameters<typeof ow.runWorkflow>
 ): ReturnType<typeof ow.runWorkflow> {
   const [spec, input, options] = args
-  const nextInput = attachJobTelemetry(input)
-  const run = () => ow.runWorkflow(spec, nextInput as typeof input, options)
+  const enqueue = () =>
+    ow.runWorkflow(spec, attachJobTelemetry(input) as typeof input, options)
   if (!trace.getActiveSpan()) {
-    const queued = run()
+    const queued = enqueue()
     void queued.then(() => {
       scheduleEnsureWorkerRunning()
     })
@@ -45,7 +45,7 @@ export function runWorkflowWithWorkerWake(
     },
     async (span) => {
       try {
-        const queued = await run()
+        const queued = await enqueue()
         scheduleEnsureWorkerRunning()
         return queued
       } catch (error) {

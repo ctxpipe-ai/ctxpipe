@@ -162,7 +162,7 @@ function attributionFromToolsCall(
   for (const message of messages) {
     const parsed = CallToolRequestSchema.safeParse(message)
     if (!parsed.success) continue
-    const name = parsed.data.params.name
+    const name = parsed.data.params.name.slice(0, 100)
     const args = parsed.data.params.arguments ?? {}
     const rawConversationId = args.conversationId
     let conversationId: string | undefined

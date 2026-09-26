@@ -18,14 +18,12 @@ function moveAlias(
 
 /**
  * Canonical log keys (ADR-011). Redaction is `initLogger({ redact })`.
- * `environment` and `service` stay off the body; the OTLP resource carries them.
+ * `service` and `environment` stay on the event for stdout. The OTLP adapter
+ * strips them; the resource carries service name and deployment environment.
  * `http.response.status_code` is this service's response. A downstream status
  * uses `upstream.status_code` and is left on `status`.
  */
-export function applyLogContract(
-  event: Record<string, unknown>,
-  spanContext?: { traceId: string; spanId: string },
-): void {
+export function applyLogContract(event: Record<string, unknown>): void {
   flattenDbErrorCause(event)
   moveAlias(event, "requestId", "request.id")
   moveAlias(event, "method", "http.request.method")
@@ -49,9 +47,7 @@ export function applyLogContract(
   }
   moveAlias(event, "userId", "enduser.id")
   const current = trace.getActiveSpan()?.spanContext()
-  const active =
-    spanContext ??
-    (current && isSpanContextValid(current) ? current : undefined)
+  const active = current && isSpanContextValid(current) ? current : undefined
   if (active?.traceId && typeof event.traceId !== "string") {
     event.traceId = active.traceId
     event.spanId = active.spanId
@@ -61,7 +57,5 @@ export function applyLogContract(
     const value = bag[key]
     if (value && event[key] == null) event[key] = value
   }
-  delete event.environment
-  delete event.service
   delete event["service.namespace"]
 }

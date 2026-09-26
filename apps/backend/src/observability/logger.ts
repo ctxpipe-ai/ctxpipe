@@ -21,9 +21,9 @@ import {
 
 /**
  * Paths and token/params patterns are the review list. The query pattern is
- * extra and only matches `?…` after `http(s)://…` or a leading `/path`
- * (ADR-011). Built-ins stay off so ids are not partially masked; emails are
- * removed only on the paths below.
+ * extra and only matches `?…` after `http(s)://…` or a `/` at the start of
+ * the string or after whitespace (ADR-011). Built-ins stay off so ids are
+ * not partially masked; emails are removed only on the paths below.
  */
 const evlogRedact: RedactConfig = {
   builtins: false,
@@ -42,7 +42,7 @@ const evlogRedact: RedactConfig = {
     /(?<=\/reset-password\/)[^/?#]+/g,
     /(?<=\/public\/invitations\/)[^/?#]+/g,
     /\r?\nparams:[^\r\n]*/g,
-    /(?<=(?:https?:\/\/|^\/)[^\s?#]*)\?[^#\s]*/g,
+    /(?<=(?:https?:\/\/|(?:^|\s)\/)[^\s?#]*)\?[^#\s]*/g,
   ],
 }
 

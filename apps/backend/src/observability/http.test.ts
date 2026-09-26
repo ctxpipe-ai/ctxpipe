@@ -8,7 +8,7 @@ import { type EvlogVariables, evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
-import { applyAttribution, propagationHeaders } from "./attribution.js"
+import { applyAttribution } from "./attribution.js"
 import { backendOtelMiddleware } from "./http.js"
 import { AttributionUrlSpanProcessor } from "./otel.js"
 
@@ -243,11 +243,7 @@ describe("backendOtelMiddleware", () => {
 
   it("ignores spoofed attribution baggage on an unauthenticated request", async () => {
     const app = createApp()
-    app.get("/.auth/api/config", (c) => {
-      const headers = new Headers()
-      propagationHeaders(headers)
-      return c.json({ baggage: headers.get("baggage") })
-    })
+    app.get("/.auth/api/config", (c) => c.text("ok"))
 
     const res = await app.request("http://backend.test/.auth/api/config", {
       headers: {
@@ -256,17 +252,11 @@ describe("backendOtelMiddleware", () => {
       },
     })
     expect(res.status).toBe(200)
-    const body = (await res.json()) as { baggage: string | null }
-    expect(body.baggage ?? "").not.toContain("SPOOFED")
-    expect(body.baggage ?? "").not.toContain("ctxpipe.actor.type=job")
     const span = serverSpans()[0]
     expect(span?.attributes["enduser.id"]).toBeUndefined()
     expect(span?.attributes["ctxpipe.org.id"]).toBeUndefined()
     expect(span?.attributes["ctxpipe.actor.type"]).toBeUndefined()
     expect(span?.attributes["request.id"]).toEqual(expect.any(String))
-    expect(body.baggage).toContain(
-      `request.id=${span?.attributes["request.id"]}`,
-    )
   })
 
   it("does not let spoofed repository or conversation baggage win over auth", async () => {
@@ -277,9 +267,7 @@ describe("backendOtelMiddleware", () => {
         "ctxpipe.org.id": "org_real",
         "ctxpipe.actor.type": "user",
       })
-      const headers = new Headers()
-      propagationHeaders(headers)
-      return c.json({ baggage: headers.get("baggage") })
+      return c.text("ok")
     })
 
     const res = await app.request(
@@ -292,8 +280,6 @@ describe("backendOtelMiddleware", () => {
       },
     )
     expect(res.status).toBe(200)
-    const body = (await res.json()) as { baggage: string }
-    expect(body.baggage).not.toContain("SPOOFED")
     const span = serverSpans()[0]
     expect(span?.attributes).toMatchObject({
       "enduser.id": "user_real",

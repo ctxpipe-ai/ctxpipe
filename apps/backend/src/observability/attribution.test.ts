@@ -1,7 +1,10 @@
 import { propagation, ROOT_CONTEXT } from "@opentelemetry/api"
 import { W3CBaggagePropagator } from "@opentelemetry/core"
 import { beforeAll, describe, expect, it } from "vitest"
-import { contextWithAttributionBag, propagationHeaders } from "./attribution.js"
+import {
+  baggageWithAttribution,
+  contextWithAttributionBag,
+} from "./attribution.js"
 
 beforeAll(() => {
   propagation.setGlobalPropagator(new W3CBaggagePropagator())
@@ -18,7 +21,11 @@ describe("attribution attributes", () => {
     bag.set("ctxpipe.actor.type", "user")
 
     const headers = new Headers()
-    propagationHeaders(headers, withBag)
+    propagation.inject(baggageWithAttribution(withBag), headers, {
+      set(carrier, key, value) {
+        carrier.set(key, value)
+      },
+    })
     const baggage = headers.get("baggage") ?? ""
     expect(baggage).toContain("enduser.id=real")
     expect(baggage).toContain("ctxpipe.actor.type=user")

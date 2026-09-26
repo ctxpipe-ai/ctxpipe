@@ -116,14 +116,3 @@ export function baggageWithAttribution(parent: Context): Context {
   }
   return propagation.setBaggage(parent, baggage)
 }
-
-export function propagationHeaders(
-  headers: Headers,
-  active = context.active(),
-): void {
-  propagation.inject(baggageWithAttribution(active), headers, {
-    set(carrier, key, value) {
-      carrier.set(key, value)
-    },
-  })
-}
