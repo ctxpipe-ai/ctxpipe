@@ -10,7 +10,7 @@ Short note from the 2026-08-11 find-missing-skills pass. Do not invent placehold
 | `aws-cdk` | `npx skills find aws-cdk -y`, skills.sh | **Installed** `aws/agent-toolkit-for-aws@aws-cdk` (official AWS toolkit, Gen/Socket clean). |
 | `changeset` | `npx skills find changeset -y` | Only low-adoption / repo-specific skills (`oakoss/agent-skills@changesets` ~100 installs, Saleor/Astro/Clerk monorepo helpers). No Changesets-org or widely trusted general skill. |
 | `railway` | `npx skills find railway -y` | **Installed** `railwayapp/railway-skills@use-railway` (official). |
-| `logging` / `observability` | `npx skills find … -y` | Generic Azure/Google/Elastic skills; not a fit. Repo already has `analyze-logs` + `review-logging-patterns` (evlog). |
+| `logging` / `observability` | `npx skills find … -y` | Generic Azure/Google/Elastic skills; not a fit. Repo skill is `.cursor/skills/observability` (HyperDX, Langfuse, ClickHouse, localhost OTLP). `analyze-logs` is the evlog filesystem drain for other stacks. `review-logging-patterns` is evlog adoption. |
 
 ## Remaining gaps (not installed)
 

@@ -16,6 +16,13 @@
       "type": "streamable-http",
       "url": "https://mcp.railway.com"
     },
+    "hyperdx": {
+      "type": "streamable-http",
+      "url": "https://hyperdx.ctxpipe.ai/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${env:HYPERDX_ACCESS_KEY}"
+      }
+    },
     "langfuse": {
       "type": "streamable-http",
       "url": "${env:LANGFUSE_BASE_URL}/api/public/mcp",

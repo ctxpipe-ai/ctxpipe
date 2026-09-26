@@ -4,6 +4,10 @@ Internal ops stack. **Not** part of the product Railway project or [`infra/modul
 
 See [ADR-038](../../.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md).
 
+## Using the stack
+
+Dashboards, saved searches, accounts, MCP setup, and laptop OTLP: [USING.md](./USING.md).
+
 ## What runs
 
 | Service | Source | Notes |

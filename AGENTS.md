@@ -15,23 +15,24 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 **MCP (project-scoped):** Config lives at [`.cursor/mcp.json`](.cursor/mcp.json) (same file as [`.agents/mcp.json`](.agents/mcp.json) via the `.agents` → `.cursor` symlink). Two kinds of servers:
 
 1. **Product MCP (`ctxpipe`)** — hosted org MCP for the product itself (`https://app.ctxpipe.ai/mcp?orgSlug=ctx-tev`). This is the customer-facing ctxpipe tool surface agents use against the live org; do **not** point it at localhost.
-2. **Agent tooling MCPs** — editor/agent helpers for this repo (Storybook, Neon, Railway, Langfuse). Not the backend’s in-process Hono `/mcp` product server.
+2. **Agent tooling MCPs** — editor/agent helpers for this repo (Storybook, Neon, Railway, HyperDX, Langfuse). Not the backend’s in-process Hono `/mcp` product server.
 
 | Server | Purpose | Preconditions |
 | --- | --- | --- |
 | `ctxpipe` | Hosted product MCP (org `ctx-tev`) | OAuth / account access to that org in Cursor |
 | `ctxpipe-storybook` | Storybook MCP at `http://127.0.0.1:6006/mcp` | Storybook must be running: `pnpm --filter @ctxpipe/ui storybook` |
 | `neon` | Neon Lakebase Postgres via hosted MCP — **read-only** (`?readonly=true`) | OAuth in Cursor (uncheck Full access if prompted; URL param forces RO). Optional headless: Bearer `NEON_API_KEY` + same `readonly=true` URL ([Neon MCP docs](https://neon.com/docs/ai/neon-mcp-server)) |
-| `railway` | Railway status + logs / deploys | OAuth in Cursor (`type: streamable-http` → `https://mcp.railway.com`) |
-| `langfuse` | Langfuse **project** MCP (traces/prompts) | Cursor/env secrets: `LANGFUSE_BASE_URL` (self-host or cloud) and `LANGFUSE_AUTH_STRING` = base64(`pk:sk`); see [ops/observability](ops/observability/) |
+| `railway` | Railway status + deploy/runtime stdout | OAuth in Cursor (`type: streamable-http` → `https://mcp.railway.com`) |
+| `hyperdx` | ClickStack logs, traces, metrics, dashboards | `HYPERDX_ACCESS_KEY` = HyperDX personal access key (Bearer). UI `https://hyperdx.ctxpipe.ai`. Ingest token `HYPERDX_API_KEY` is a different secret |
+| `langfuse` | Langfuse **project** MCP (LLM traces / prompts) | `LANGFUSE_BASE_URL=https://langfuse.ctxpipe.ai` and `LANGFUSE_AUTH_STRING` = base64(`pk:sk`); see [ops/observability/USING.md](ops/observability/USING.md) |
 
-**Not wired** (intentionally): local Postgres MCP, GitHub MCP, codesearch MCP, Linear/Notion MCP, Amplitude, Better Stack.
+**Not wired** (intentionally): local Postgres MCP, GitHub MCP, codesearch MCP, Linear/Notion MCP, Amplitude, Better Stack, ClickHouse `mcp-clickhouse` (ClickHouse is only on `clickhouse.railway.internal`; query through `hyperdx`).
 
-**Ops debugging / logs (preference order):** When investigating deployed or production-like behavior, prefer MCP sources in this order — do **not** assume a local `.evlog/logs/` filesystem drain for product debugging (ctxpipe backend uses OTLP / stdout; see [`.agents/skills/analyze-logs`](.agents/skills/analyze-logs/SKILL.md)):
+**Ops debugging / logs (preference order):** Product logs and traces are OTLP. Follow [`.cursor/skills/observability/SKILL.md`](.cursor/skills/observability/SKILL.md) and [ops/observability/USING.md](ops/observability/USING.md). A local `.evlog/logs/` drain is not the product path ([`.cursor/skills/analyze-logs`](.cursor/skills/analyze-logs/SKILL.md) is that filesystem reader for other stacks).
 
-1. **Railway MCP** (`railway`) — service status + deploy/runtime logs (**primary**).
-2. **Langfuse MCP** (`langfuse`) — traces / LLM / advisor quality.
-3. **HyperDX** (ClickStack UI on `ctxpipe-observability`) — logs, traces, metrics, page views. Search `service:ui` / `deployment.environment`.
+1. **HyperDX MCP** (`hyperdx`) — logs, traces, metrics, page-view spans. Filter `DeploymentEnvironment` (`production`, `pr-N`, `observability`, `local-<name>`).
+2. **Langfuse MCP** (`langfuse`) — LLM traces and prompt text (HyperDX stores those spans with prompt attributes removed).
+3. **Railway MCP** (`railway`) — deploy status and runtime stdout when the process never exported.
 
 For Storybook conventions and tools, read [.agents/skills/storybook/SKILL.md](.agents/skills/storybook/SKILL.md) with [apps/ui/AGENTS.md](apps/ui/AGENTS.md).
 

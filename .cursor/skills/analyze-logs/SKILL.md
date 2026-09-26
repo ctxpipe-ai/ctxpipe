@@ -1,6 +1,6 @@
 ---
 name: analyze-logs
-description: Analyze application logs and ops signals. In this ctxpipe repo, prefer Railway → Langfuse → Better Stack MCPs (not .evlog/logs/). Upstream sections below cover optional/legacy evlog FS drain for other stacks.
+description: Read an evlog filesystem drain (.evlog/logs JSONL) for stacks that write one. In this repo, product logs and traces are OTLP — use the observability skill.
 license: MIT
 metadata:
   author: HugoRCD
@@ -11,19 +11,11 @@ metadata:
 
 ## When in this repo (ctxpipe)
 
-For **ctxpipe product / ops debugging**, do **not** start from (or require) a local `.evlog/logs/` filesystem drain. The backend uses **evlog → OTLP / stdout**, not the FS drain as the primary path.
-
-**Prefer MCP sources in this order:**
-
-1. **Railway MCP** (`railway`) — service status + deploy/runtime logs (**primary** for “what’s failing / what did the service log?”).
-2. **Langfuse MCP** (`langfuse`) — traces, LLM calls, advisor / conversation quality.
-3. **HyperDX** (ClickStack UI on `ctxpipe-observability`) — logs, traces, metrics, browser `page_view`. Not an MCP; search `service:ui` and `deployment.environment`.
-
-See also root [AGENTS.md](../../../AGENTS.md) (**Ops debugging / logs**). Use the **evlog FS drain** guidance in the sections below only as **optional / secondary** (legacy or other stacks that actually write `.evlog/logs/`), never as a prerequisite for debugging this repo’s backend.
+Product logs, traces, and metrics are OTLP. Use [observability](../observability/SKILL.md) and [ops/observability/USING.md](../../../ops/observability/USING.md). Missing `.evlog/logs/` is expected. The sections below apply to other stacks that write the evlog filesystem drain.
 
 ---
 
-Read and analyze structured wide-event logs from the local `.evlog/logs/` directory to debug errors, investigate performance issues, and understand application behavior (**optional/legacy path** — see **When in this repo** above for ctxpipe).
+Read and analyze structured wide-event logs from the local `.evlog/logs/` directory to debug errors, investigate performance issues, and understand application behavior (other stacks — ctxpipe uses the observability skill).
 
 ## When to Use
 
@@ -60,7 +52,7 @@ Files are named by date: `2026-03-14.jsonl`. Start with the most recent file.
 
 ## If no logs are found
 
-**In this repo (ctxpipe):** missing `.evlog/logs/` is expected. Use Railway → Langfuse → HyperDX (see **When in this repo** above). Do not treat FS-drain setup as required for product debugging.
+**In this repo (ctxpipe):** missing `.evlog/logs/` is expected. Use the [observability skill](../observability/SKILL.md). The filesystem drain below is for other stacks.
 
 For other stacks where the file system drain is intended but missing, guide the user to set it up:
 
