@@ -15,7 +15,7 @@ import {
   SLACK_MENTION_STATUS_NEEDS_THREAD,
 } from "../../../services/slack/mention-status.js"
 import { verifySlackRequestSignature } from "../../../services/slack/verify-signature.js"
-import { noteResolvedWebhookConnections } from "../../webhooks.js"
+import { noteResolvedWebhookConnections } from "../attribution.js"
 
 const SlackEventEnvelopeSchema = z.object({
   type: z.string(),

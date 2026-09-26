@@ -49,7 +49,7 @@ export function sanitizeAttribution(
 }
 
 export function attributesForOrgApiKey(
-  key: { id: string; orgId: string; secret?: string },
+  key: { id: string; orgId: string },
   orgSlug?: string,
 ): Partial<Record<AttributionKey, string>> {
   return sanitizeAttribution({
@@ -87,19 +87,7 @@ export function applyAttribution(
   const cleaned = sanitizeAttribution(input)
   if (Object.keys(cleaned).length === 0) return cleaned
   trace.getActiveSpan()?.setAttributes(cleaned)
-  try {
-    const logger = getLogger()
-    if (typeof logger.set === "function") logger.set(cleaned)
-  } catch (error) {
-    if (
-      !(
-        error instanceof Error &&
-        error.message.startsWith("getLogger: no logger in context")
-      )
-    ) {
-      throw error
-    }
-  }
+  getLogger().set(cleaned)
   const bag = attributionBagFromContext(context.active())
   if (bag) {
     for (const [key, value] of Object.entries(cleaned)) {

@@ -12,7 +12,7 @@ import {
 import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { linearSyncEntity } from "../../../openworkflow/workflows/linear-sync-entity.js"
-import { noteResolvedWebhookConnections } from "../../webhooks.js"
+import { noteResolvedWebhookConnections } from "../attribution.js"
 
 type EntityTarget = {
   entityType:

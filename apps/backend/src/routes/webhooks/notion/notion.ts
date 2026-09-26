@@ -19,7 +19,7 @@ import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { notionSyncEntity } from "../../../openworkflow/workflows/notion-sync-entity.js"
 import type { NotionEntityChange } from "../../../services/notion/incremental.js"
-import { noteResolvedWebhookConnections } from "../../webhooks.js"
+import { noteResolvedWebhookConnections } from "../attribution.js"
 
 const notionWebhookPayloadSchema = z.object({
   id: z.string().optional(),

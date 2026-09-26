@@ -1,5 +1,7 @@
 import { createHmac } from "node:crypto"
+import { createLogger } from "evlog"
 import { Hono } from "hono"
+import { contextStorage } from "hono/context-storage"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 import { parseNotionConnectionConfig } from "../../../lib/connection-config.js"
@@ -23,9 +25,6 @@ vi.mock("../../../models/notion-connector.js", () => ({
   listNotionConnectionsForWebhook: connectionsMock,
   getNotionConnectionRowById: getRowMock,
   persistNotionWebhookSecret: persistSecretMock,
-}))
-vi.mock("../../../observability/logger.js", () => ({
-  getLogger: () => ({ error: vi.fn(), info: vi.fn() }),
 }))
 vi.mock("../../../openworkflow/client.js", () => ({
   runWorkflowWithWorkerWake: runWorkflowMock,
@@ -69,12 +68,14 @@ function testApp(
   },
 ) {
   const app = new Hono<AppEnv>()
+  app.use(contextStorage())
   app.use("*", async (c, next) => {
     c.set("env", {
       ...envBase,
       NOTION_CLIENT_SECRET: options.clientSecret ?? notionClientSecret,
       NOTION_WEBHOOK_SECRET: options.webhookSecret,
     } as AppEnv["Variables"]["env"])
+    c.set("log", createLogger())
     await next()
   })
   registerNotionWebhookRoute(app as never)
@@ -458,9 +459,7 @@ describe("Notion webhook", () => {
       entity: { id: "page_1", type: "page" },
     })
 
-    const response = await testApp({
-      webhookSecret,
-    }).request("/api/v1/webhook/notion", {
+    const response = await testApp().request("/api/v1/webhook/notion", {
       method: "POST",
       headers: { "x-notion-signature": sign(body, webhookSecret) },
       body,

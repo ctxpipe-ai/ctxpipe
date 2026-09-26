@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto"
 import { OpenAPIHono } from "@hono/zod-openapi"
+import { createLogger } from "evlog"
 import { contextStorage } from "hono/context-storage"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
@@ -42,13 +43,7 @@ function createTestApp() {
   app.use(contextStorage())
   app.use("*", async (c, next) => {
     c.set("env", env)
-    c.set("log", {
-      error: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-      debug: vi.fn(),
-      child: vi.fn(),
-    } as unknown as AppEnv["Variables"]["log"])
+    c.set("log", createLogger())
     await next()
   })
   registerPagerdutyWebhookRoute(app)

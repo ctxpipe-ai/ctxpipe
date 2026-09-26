@@ -6,7 +6,9 @@ import {
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+import { createLogger } from "evlog"
 import type { MiddlewareHandler } from "hono"
+import { contextStorage } from "hono/context-storage"
 import {
   afterAll,
   beforeAll,
@@ -66,13 +68,6 @@ vi.mock("../../../models/linear-connector.js", () => ({
   listLinearWebhookConnectionsByWorkspaceId: mocks.listConnections,
   recordLinearOAuthRevocation: mocks.recordRevocation,
 }))
-vi.mock("../../../observability/logger.js", () => ({
-  getLogger: () => ({
-    error: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-  }),
-}))
 vi.mock("../../../openworkflow/client.js", () => ({
   runWorkflowWithWorkerWake: mocks.runWorkflow,
 }))
@@ -90,16 +85,11 @@ const env = parseEnv({
 
 function createTestApp(before?: MiddlewareHandler) {
   const app = new OpenAPIHono<AppEnv>()
+  app.use(contextStorage())
   if (before) app.use("*", before)
   app.use("*", async (c, next) => {
     c.set("env", env)
-    c.set("log", {
-      error: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-      debug: vi.fn(),
-      child: vi.fn(),
-    } as unknown as AppEnv["Variables"]["log"])
+    c.set("log", createLogger())
     await next()
   })
   registerLinearWebhookRoute(app)
@@ -119,15 +109,10 @@ function signedRequest(
 
 function createTestAppWithEnv(testEnv: typeof env) {
   const app = new OpenAPIHono<AppEnv>()
+  app.use(contextStorage())
   app.use("*", async (c, next) => {
     c.set("env", testEnv)
-    c.set("log", {
-      error: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-      debug: vi.fn(),
-      child: vi.fn(),
-    } as unknown as AppEnv["Variables"]["log"])
+    c.set("log", createLogger())
     await next()
   })
   registerLinearWebhookRoute(app)

@@ -14,7 +14,7 @@ import {
   pagerdutyEventIsStale,
   verifyPagerdutyWebhookSignature,
 } from "../../../services/pagerduty/signature.js"
-import { noteResolvedWebhookConnections } from "../../webhooks.js"
+import { noteResolvedWebhookConnections } from "../attribution.js"
 
 export function pagerdutyIncidentEventFromPayload(payload: unknown):
   | {

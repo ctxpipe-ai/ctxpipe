@@ -786,7 +786,6 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
   if (!resolved) return c.json({ error: "Not found" }, 404)
   c.set("orgSlug", resolved.slug)
   c.set("orgId", resolved.id)
-  applyPrincipalAttribution(c)
   applyAttribution({
     "ctxpipe.org.id": resolved.id,
     "ctxpipe.org.slug": resolved.slug,

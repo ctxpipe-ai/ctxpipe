@@ -1,4 +1,5 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
+import { createLogger } from "evlog"
 import { contextStorage } from "hono/context-storage"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
@@ -212,13 +213,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
   })
 
   function createApp() {
-    const log = {
-      error: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-      debug: vi.fn(),
-      child: vi.fn(),
-    } as unknown as AppEnv["Variables"]["log"]
+    const log = createLogger()
     const app = new OpenAPIHono<AppEnv>()
     app.use(contextStorage())
     app.use("*", async (c, next) => {
@@ -606,6 +601,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
 
   it("returns 501 and warns for unknown event type without upserting", async () => {
     const { app, log } = createApp()
+    const warn = vi.spyOn(log, "warn")
     const res = await app.request("/api/v1/webhook/atlassian/forge", {
       method: "POST",
       headers: {
@@ -622,7 +618,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     expect(body.error).toBe("Unhandled event type")
     expect(body.eventType).toBe("avi:confluence:viewed:page")
     expect(upsertForgeInstallationFromEventMock).not.toHaveBeenCalled()
-    expect(log.warn).toHaveBeenCalledWith("unhandled_forge_event_type", {
+    expect(warn).toHaveBeenCalledWith("unhandled_forge_event_type", {
       eventType: "avi:confluence:viewed:page",
     })
   })
@@ -655,13 +651,7 @@ describe("POST /api/v1/webhook/atlassian/forge/token-refresh", () => {
     app.use(contextStorage())
     app.use("*", async (c, next) => {
       c.set("env", env)
-      c.set("log", {
-        error: vi.fn(),
-        info: vi.fn(),
-        warn: vi.fn(),
-        debug: vi.fn(),
-        child: vi.fn(),
-      } as unknown as AppEnv["Variables"]["log"])
+      c.set("log", createLogger())
       await next()
     })
     registerAtlassianWebhookRoute(app)

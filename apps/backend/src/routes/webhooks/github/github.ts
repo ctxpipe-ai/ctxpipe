@@ -15,7 +15,7 @@ import { findRepositoryByGithubInstallation } from "../../../models/repositories
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
 import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-github-repositories.js"
-import { noteResolvedWebhookConnections } from "../../webhooks.js"
+import { noteResolvedWebhookConnections } from "../attribution.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
 import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"

@@ -6,6 +6,7 @@ import {
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+import { createLogger } from "evlog"
 import type { MiddlewareHandler } from "hono"
 import { contextStorage } from "hono/context-storage"
 import {
@@ -170,13 +171,7 @@ describe("POST /api/v1/webhook/github", () => {
     if (before) app.use("*", before)
     app.use("*", async (c, next) => {
       c.set("env", env)
-      c.set("log", {
-        error: vi.fn(),
-        info: vi.fn(),
-        warn: vi.fn(),
-        debug: vi.fn(),
-        child: vi.fn(),
-      } as unknown as AppEnv["Variables"]["log"])
+      c.set("log", createLogger())
       await next()
     })
     registerGithubWebhookRoute(app)
@@ -276,9 +271,10 @@ describe("POST /api/v1/webhook/github", () => {
     } as Record<string, string | undefined>)
 
     const app = new OpenAPIHono<AppEnv>()
+    app.use(contextStorage())
     app.use("*", async (c, next) => {
       c.set("env", envNoSecret)
-      c.set("log", { error: vi.fn() } as unknown as AppEnv["Variables"]["log"])
+      c.set("log", createLogger())
       await next()
     })
     registerGithubWebhookRoute(app)
@@ -681,13 +677,7 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
     if (before) app.use("*", before)
     app.use("*", async (c, next) => {
       c.set("env", env)
-      c.set("log", {
-        error: vi.fn(),
-        info: vi.fn(),
-        warn: vi.fn(),
-        debug: vi.fn(),
-        child: vi.fn(),
-      } as unknown as AppEnv["Variables"]["log"])
+      c.set("log", createLogger())
       await next()
     })
     registerGithubWebhookRoute(app)
