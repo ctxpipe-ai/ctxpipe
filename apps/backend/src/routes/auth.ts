@@ -3,7 +3,6 @@ import {
   oauthProviderOpenIdConfigMetadata,
 } from "@better-auth/oauth-provider"
 import { oauthProviderResourceClient } from "@better-auth/oauth-provider/resource-client"
-import { context } from "@opentelemetry/api"
 import { createAuthClient } from "better-auth/client"
 import { and, eq, gt } from "drizzle-orm"
 import type { Context, Hono } from "hono"
@@ -17,8 +16,6 @@ import {
 import { withOAuthConsentOrganizationId } from "../auth/oauth-organization.js"
 import { getSystemDb } from "../db/client.js"
 import { invitations, organizations } from "../db/schema/auth.js"
-import { applyAttribution } from "../observability/attribution.js"
-import { tryGetLogger } from "../observability/requestLogger.js"
 
 function isNonEmptyStringArray(value: unknown): value is string[] {
   return (
@@ -70,55 +67,6 @@ async function getMcpProtectedResourceMetadata(
     merged.scopes_supported = authServerMeta.scopes_supported
   }
   return merged
-}
-
-function isGetSessionPath(path: string): boolean {
-  const pathname = (path.split("?")[0] ?? path).replace(/\/+$/, "")
-  return pathname.endsWith("/get-session")
-}
-
-function readStringField(value: unknown, key: string): string | undefined {
-  if (!value || typeof value !== "object") return undefined
-  const field = (value as Record<string, unknown>)[key]
-  if (typeof field !== "string") return undefined
-  const trimmed = field.trim()
-  return trimmed.length > 0 ? trimmed : undefined
-}
-
-/**
- * Copy the user and active org off a get-session JSON body.
- * The handler already loaded the session; this does not read the database.
- */
-async function attributeAuthGetSessionResponse(
-  path: string,
-  response: Response,
-): Promise<void> {
-  if (!isGetSessionPath(path)) return
-  if (response.status < 200 || response.status >= 300) return
-  const contentType = response.headers.get("content-type") ?? ""
-  if (contentType && !contentType.includes("application/json")) return
-  const active = context.active()
-  let body: unknown
-  try {
-    body = await response.clone().json()
-  } catch {
-    return
-  }
-  if (!body || typeof body !== "object") return
-  const record = body as Record<string, unknown>
-  const userId = readStringField(record.user, "id")
-  if (!userId) return
-  const orgId = readStringField(record.session, "activeOrganizationId")
-  context.with(active, () => {
-    applyAttribution(
-      {
-        "ctxpipe.actor.type": "user",
-        "enduser.id": userId,
-        ...(orgId ? { "ctxpipe.org.id": orgId } : {}),
-      },
-      tryGetLogger(),
-    )
-  })
 }
 
 export function registerAuthRoutes(app: Hono<AppEnv>) {
@@ -187,7 +135,6 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
           auth.handler(prepared.request),
         )
       : await auth.handler(prepared.request)
-    await attributeAuthGetSessionResponse(c.req.path, handled)
     if (handled.status >= 400) {
       await logOAuthError(prepared.request, handled, prepared.oauthTokenHints)
     }

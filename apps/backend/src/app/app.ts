@@ -4,14 +4,12 @@ import { evlog } from "evlog/hono"
 import { contextStorage } from "hono/context-storage"
 import { cors } from "hono/cors"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
-import { withSharedCookieSession } from "../auth/withAuth.js"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
 import { backendOtelMiddleware } from "../observability/http.js"
 import { applyLogContract } from "../observability/logContract.js"
 import { createEvlogDrain, log } from "../observability/logger.js"
 import { registerAuthRoutes } from "../routes/auth.js"
-import { registerLangsmithRoutes } from "../routes/langsmith.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
 import { registerMcpBrandAssetRoute } from "../routes/mcp-brand-asset.js"
 import { registerOpenapiRoutes } from "../routes/openapi.js"
@@ -48,6 +46,7 @@ export function createApp() {
     }),
   )
   app.use(contextStorage())
+  app.use("*", backendOtelMiddleware())
   app.use(
     evlog({
       drain: createEvlogDrain(),
@@ -56,18 +55,18 @@ export function createApp() {
       },
     }),
   )
-  app.use("*", backendOtelMiddleware())
   app.use("*", async (c, next) => {
     c.set("env", env)
     c.set("user", null)
     c.set("session", null)
     c.set("oauthOrganizationId", null)
+    c.set("oauthClientId", null)
     c.set("orgApiKey", null)
+    c.set("personalApiKeyId", null)
     c.set("orgSlug", null)
     c.set("orgId", null)
     await next()
   })
-  app.use("*", withSharedCookieSession)
 
   app.onError((error, c) => {
     // Dev: UI is proxied to Vite; clients often abort in-flight module/CSS streams
@@ -106,8 +105,6 @@ export function createApp() {
   registerOpenapiRoutes(app, v1 as OpenAPIHono<AppEnv>)
   // /.status
   registerStatusRoutes(app)
-  // /langsmith mounted only when ENABLE_LANGSMITH=true
-  registerLangsmithRoutes(app)
   // Public MCP brand asset (before /mcp; no auth)
   registerMcpBrandAssetRoute(app)
   // /mcp

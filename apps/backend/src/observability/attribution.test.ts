@@ -1,28 +1,15 @@
-import { describe, expect, it } from "vitest"
+import { propagation, ROOT_CONTEXT } from "@opentelemetry/api"
+import { W3CBaggagePropagator } from "@opentelemetry/core"
+import { beforeAll, describe, expect, it } from "vitest"
 import {
-  ACTOR_TYPES,
   attributesForOrgApiKey,
-  resolveRequestId,
+  contextWithAttributionBag,
+  propagationHeaders,
   sanitizeAttribution,
 } from "./attribution.js"
 
-describe("resolveRequestId", () => {
-  it("reuses a sane incoming x-request-id", () => {
-    expect(resolveRequestId("req_abc-123")).toEqual({
-      id: "req_abc-123",
-      reused: true,
-    })
-  })
-
-  it("generates an id when the header is missing or unsafe", () => {
-    const missing = resolveRequestId(undefined)
-    expect(missing.reused).toBe(false)
-    expect(missing.id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-    )
-    expect(resolveRequestId("has spaces").reused).toBe(false)
-    expect(resolveRequestId("a".repeat(200)).reused).toBe(false)
-  })
+beforeAll(() => {
+  propagation.setGlobalPropagator(new W3CBaggagePropagator())
 })
 
 describe("attribution attributes", () => {
@@ -42,7 +29,14 @@ describe("attribution attributes", () => {
   })
 
   it("only emits contract keys for each actor type", () => {
-    for (const actorType of ACTOR_TYPES) {
+    const actorTypes = [
+      "user",
+      "org_api_key",
+      "oauth_client",
+      "webhook",
+      "job",
+    ] as const
+    for (const actorType of actorTypes) {
       const attrs = sanitizeAttribution({
         "ctxpipe.actor.type": actorType,
         "enduser.id": actorType === "org_api_key" ? undefined : "user_1",
@@ -51,5 +45,23 @@ describe("attribution attributes", () => {
       expect(attrs["ctxpipe.actor.type"]).toBe(actorType)
       expect(attrs).not.toHaveProperty("secret")
     }
+  })
+
+  it("sends outgoing baggage from the attribution bag only", () => {
+    let inbound = propagation.createBaggage()
+    inbound = inbound.setEntry("enduser.id", { value: "spoofed" })
+    inbound = inbound.setEntry("other", { value: "not-ours" })
+    const parent = propagation.setBaggage(ROOT_CONTEXT, inbound)
+    const { context: withBag, bag } = contextWithAttributionBag(parent)
+    bag.set("enduser.id", "real")
+    bag.set("ctxpipe.actor.type", "user")
+
+    const headers = new Headers()
+    propagationHeaders(headers, withBag)
+    const baggage = headers.get("baggage") ?? ""
+    expect(baggage).toContain("enduser.id=real")
+    expect(baggage).toContain("ctxpipe.actor.type=user")
+    expect(baggage).not.toContain("spoofed")
+    expect(baggage).not.toContain("not-ours")
   })
 })

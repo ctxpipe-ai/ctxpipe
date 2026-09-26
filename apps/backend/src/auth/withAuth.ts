@@ -21,9 +21,7 @@ import {
   applyAttribution,
   attributesForOrgApiKey,
 } from "../observability/attribution.js"
-import { isUiProxyPath } from "../observability/http.js"
 import { getLogger } from "../observability/logger.js"
-import { tryGetLogger } from "../observability/requestLogger.js"
 import { type AuthSession, type AuthUser, getAuth } from "./config.js"
 import { OAUTH_ORGANIZATION_CLAIM } from "./oauth-organization.js"
 
@@ -252,25 +250,8 @@ async function resolveOpaqueAccessToken(token: string): Promise<{
     : null
 }
 
-const cookieSessionLookups = new WeakMap<Request, "absent" | "invalid" | "ok">()
-
-/**
- * One Better Auth session read per request. `withCookieAuth` and the app
- * middleware both call this; the second call reuses the first.
- */
-export async function resolveCookieSession(c: Context<AppEnv>): Promise<void> {
-  if (
-    cookieSessionLookups.has(c.req.raw) ||
-    c.get("user") ||
-    c.get("session") ||
-    c.get("orgApiKey")
-  ) {
-    return
-  }
-  await readCookieSession(c)
-}
-
-async function readCookieSession(c: Context<AppEnv>): Promise<void> {
+export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
+  if (c.get("user") || c.get("session") || c.get("orgApiKey")) return next()
   const started = performance.now()
   const auth = getAuth()
   const apiKeyHeader = c.req.header("x-api-key")?.trim()
@@ -286,102 +267,48 @@ async function readCookieSession(c: Context<AppEnv>): Promise<void> {
     authSession = null
   }
   const resolvedIn = Math.round(performance.now() - started)
-  if (!authSession) {
-    cookieSessionLookups.set(c.req.raw, "absent")
-    tryGetLogger()?.set({ auth: { resolvedIn, identified: false } })
-    return
+  if (!authSession?.user || !authSession.session) {
+    getLogger().set({ auth: { resolvedIn, identified: false } })
+    if (authSession?.user && !authSession.session) {
+      return c.json(
+        { error: "Unauthorized" },
+        401,
+        wwwAuthenticateForMcpRoute(c, "Session invalid or missing"),
+      )
+    }
+    return next()
   }
-  if (!authSession.user || !authSession.session) {
-    cookieSessionLookups.set(c.req.raw, "invalid")
-    tryGetLogger()?.set({ auth: { resolvedIn, identified: false } })
-    return
-  }
-  cookieSessionLookups.set(c.req.raw, "ok")
   // @better-auth/api-key 1.6.23 sets this mocked session id to the key id
   // inside getSession, after validateApiKey has already counted the request.
-  const personalApiKeyId = apiKeyHeader ? authSession.session.id : undefined
-  if (personalApiKeyId) c.set("personalApiKeyId", personalApiKeyId)
+  if (apiKeyHeader) c.set("personalApiKeyId", authSession.session.id)
   c.set("user", authSession.user)
   c.set("session", authSession.session)
   applyPrincipalAttribution(c)
-  tryGetLogger()?.set({
+  getLogger().set({
     user: { id: authSession.user.id },
     auth: { resolvedIn, identified: true },
   })
-}
-
-export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
-  if (c.get("user") || c.get("session") || c.get("orgApiKey")) return next()
-  await resolveCookieSession(c)
-  if (cookieSessionLookups.get(c.req.raw) === "invalid") {
-    return c.json(
-      { error: "Unauthorized" },
-      401,
-      wwwAuthenticateForMcpRoute(c, "Session invalid or missing"),
-    )
-  }
   return next()
 }
 
-/**
- * Paths that must not pay for a session read.
- * The UI resolves its own session through `/.auth` (the auth client).
- * The UI proxy and `/.otel` relay do not read `c.get("user")`.
- */
-export function shouldResolveSharedCookieSession(path: string): boolean {
-  if (path.startsWith("/.auth/api/v1/auth")) return false
-  if (path.startsWith("/.auth/api/config")) return false
-  if (path.startsWith("/.auth/api/v1/public")) return false
-  if (path.startsWith("/.well-known")) return false
-  if (path.startsWith("/.status")) return false
-  if (path.startsWith("/api/v1/webhook")) return false
-  if (path.startsWith("/.otel")) return false
-  if (isUiProxyPath(path)) return false
-  return true
-}
-
-export const withSharedCookieSession: MiddlewareHandler<AppEnv> = async (
-  c,
-  next,
-) => {
-  if (shouldResolveSharedCookieSession(c.req.path)) {
-    try {
-      await resolveCookieSession(c)
-    } catch (error) {
-      // Do not cache the failure. API routes call resolveCookieSession again
-      // and still throw there. The message can contain a query or a DSN.
-      const errorName = error instanceof Error ? error.name : "Error"
-      tryGetLogger()?.warn("cookie_session_read_failed", {
-        step: "auth.shared_session",
-        errorName,
-      })
-    }
-  }
-  await next()
-}
-
 function applyPrincipalAttribution(c: Context<AppEnv>): void {
-  const logger = tryGetLogger()
   const orgApiKey = c.get("orgApiKey")
   const userId = c.get("user")?.id
   const oauthClientId = c.get("oauthClientId")
   const personalApiKeyId = c.get("personalApiKeyId")
   if (orgApiKey) {
-    applyAttribution(attributesForOrgApiKey(orgApiKey), logger)
+    applyAttribution(attributesForOrgApiKey(orgApiKey))
     return
   }
   if (!userId && !oauthClientId) return
   const actorType =
     oauthClientId || c.get("oauthOrganizationId") ? "oauth_client" : "user"
-  applyAttribution(
-    {
-      "ctxpipe.actor.type": actorType,
-      ...(userId ? { "enduser.id": userId } : {}),
-      ...(personalApiKeyId ? { "ctxpipe.api_key.id": personalApiKeyId } : {}),
-      ...(oauthClientId ? { "ctxpipe.oauth.client_id": oauthClientId } : {}),
-    },
-    logger,
-  )
+  applyAttribution({
+    "ctxpipe.actor.type": actorType,
+    ...(userId ? { "enduser.id": userId } : {}),
+    ...(personalApiKeyId ? { "ctxpipe.api_key.id": personalApiKeyId } : {}),
+    ...(oauthClientId ? { "ctxpipe.oauth.client_id": oauthClientId } : {}),
+  })
 }
 
 type BearerApiKeyAuthResult =
@@ -389,7 +316,7 @@ type BearerApiKeyAuthResult =
       kind: "user"
       user: AuthUser
       session: AuthSession
-      personalApiKeyId?: string
+      personalApiKeyId: string
     }
   | {
       kind: "org"
@@ -500,7 +427,7 @@ async function authenticateBearer(
   if (accessToken.split(".").length !== 3) {
     const resolved = await resolveOpaqueAccessToken(accessToken)
     if (resolved) {
-      c.set("personalApiKeyId", undefined)
+      c.set("personalApiKeyId", null)
       c.set("session", resolved.session)
       c.set("user", resolved.user)
       c.set("oauthOrganizationId", resolved.oauthOrganizationId)
@@ -519,7 +446,7 @@ async function authenticateBearer(
         return next()
       }
       if (apiKeyAuth.kind === "org") {
-        c.set("personalApiKeyId", undefined)
+        c.set("personalApiKeyId", null)
         c.set("orgApiKey", apiKeyAuth.orgApiKey)
         applyPrincipalAttribution(c)
         return next()
@@ -676,7 +603,7 @@ async function authenticateBearer(
   )
 
   if (tokenSessionContext) {
-    c.set("personalApiKeyId", undefined)
+    c.set("personalApiKeyId", null)
     c.set("session", tokenSessionContext.session)
     c.set("user", tokenSessionContext.user)
     c.set("oauthOrganizationId", oauthOrganizationClaim ?? null)
@@ -859,28 +786,11 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
   if (!resolved) return c.json({ error: "Not found" }, 404)
   c.set("orgSlug", resolved.slug)
   c.set("orgId", resolved.id)
-  const orgApiKeyPrincipal = c.get("orgApiKey")
-  const oauthClientId = c.get("oauthClientId")
-  const personalApiKeyId = c.get("personalApiKeyId")
-  const actorType =
-    oauthClientId || oauthOrganizationId ? "oauth_client" : "user"
-  applyAttribution(
-    orgApiKeyPrincipal
-      ? attributesForOrgApiKey(orgApiKeyPrincipal, resolved.slug)
-      : {
-          "ctxpipe.actor.type": actorType,
-          "ctxpipe.org.id": resolved.id,
-          "ctxpipe.org.slug": resolved.slug,
-          ...(userId ? { "enduser.id": userId } : {}),
-          ...(personalApiKeyId
-            ? { "ctxpipe.api_key.id": personalApiKeyId }
-            : {}),
-          ...(oauthClientId
-            ? { "ctxpipe.oauth.client_id": oauthClientId }
-            : {}),
-        },
-    tryGetLogger(),
-  )
+  applyPrincipalAttribution(c)
+  applyAttribution({
+    "ctxpipe.org.id": resolved.id,
+    "ctxpipe.org.slug": resolved.slug,
+  })
   return withOrgIdContext(
     { id: resolved.id, slug: resolved.slug },
     async () => {

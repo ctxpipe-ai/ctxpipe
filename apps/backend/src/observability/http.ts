@@ -1,152 +1,84 @@
-import {
-  context,
-  propagation,
-  SpanKind,
-  SpanStatusCode,
-  trace,
-} from "@opentelemetry/api"
+import { httpInstrumentationMiddleware } from "@hono/otel"
+import { context, propagation, trace } from "@opentelemetry/api"
 import type { Context, MiddlewareHandler } from "hono"
+import { matchedRoutes } from "hono/route"
 import {
-  applyAttribution,
   contextWithAttributionBag,
   copyAttributionToSpan,
-  resolveRequestId,
-  stripUntrustedAttributionBaggage,
 } from "./attribution.js"
-import { logFieldsFromActiveSpan } from "./logContract.js"
 import { forceFlushOtel, isRailwayPrEnvironment } from "./otel.js"
 import { redactSecretPath } from "./secretPath.js"
 
-const TRACER_NAME = "ctxpipe-backend"
+const REQUEST_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/
 
-function requestLogger(
-  c: Context,
-): { set(data: Record<string, unknown>): void } | undefined {
+/**
+ * Hono also matches the UI catch-all (`app.all("*")` in routes/ui.ts) on
+ * every request. The route that actually responds is the first matched
+ * handler that does not take `next`. That handler's path is `/*` only for
+ * documents and assets. A newly registered route is ahead of the catch-all
+ * and keeps a server span without a path allowlist.
+ */
+export function isUiProxyRequest(c: Context): boolean {
+  const responder = matchedRoutes(c).find((route) => route.handler.length < 2)
+  return responder?.path === "/*" || responder?.path === "*"
+}
+
+function ensureRequestId(c: Context): string {
+  const incoming = c.req.header("x-request-id")?.trim()
+  const id =
+    incoming && REQUEST_ID_RE.test(incoming) ? incoming : crypto.randomUUID()
+  if (c.req.header("x-request-id") !== id) {
+    c.req.raw.headers.set("x-request-id", id)
+  }
+  c.header("x-request-id", id)
+  return id
+}
+
+function urlWithoutQuery(rawUrl: string, safePath: string): string {
   try {
-    return c.get("log") as { set(data: Record<string, unknown>): void }
+    return `${new URL(rawUrl).origin}${safePath}`
   } catch {
-    return undefined
+    return safePath
   }
 }
 
-/**
- * `/.otel/v1/traces` is proxied by the UI catch-all (`/*`).
- * Name that server span with a route template instead of `POST /*`.
- */
-export function serverSpanRoute(path: string, routePath: string): string {
-  if (/^\/\.otel\/v1\/[^/]+$/.test(path)) return "/.otel/v1/:signal"
-  return routePath
-}
-
-/** Backend routes that must keep a server span, including wildcard mounts. */
-function isBackendSpanPath(path: string): boolean {
-  return (
-    path.startsWith("/.auth/api") ||
-    path.startsWith("/.otel") ||
-    path === "/mcp" ||
-    path.startsWith("/mcp/") ||
-    path.includes("/api/") ||
-    path.startsWith("/.status") ||
-    path.startsWith("/.docs") ||
-    path.startsWith("/.well-known") ||
-    path.startsWith("/langsmith")
-  )
-}
-
-/**
- * The UI catch-all proxies documents and static files (`/assets`, `/fonts`,
- * `/onboarding`, `/:slug/knowledge-graph`). Those are not API traces.
- * API, `/mcp`, `/.auth/api`, and `/.otel` still get spans.
- */
-export function isUiProxyPath(path: string): boolean {
-  return !isBackendSpanPath(path)
-}
-
 export function backendOtelMiddleware(): MiddlewareHandler {
+  const instrument = httpInstrumentationMiddleware({
+    captureActiveRequests: false,
+  })
+
   return async (c, next) => {
-    const requestId = resolveRequestId(c.req.header("x-request-id"))
-    c.header("x-request-id", requestId.id)
+    const requestId = ensureRequestId(c)
+    const extracted = propagation.extract(context.active(), c.req.header())
+    const { context: traced, bag } = contextWithAttributionBag(extracted)
+    bag.set("request.id", requestId)
+    const uiProxy = isUiProxyRequest(c)
 
-    const carrier: Record<string, string> = {}
-    const traceparent = c.req.header("traceparent")
-    const tracestate = c.req.header("tracestate")
-    const baggageHeader = c.req.header("baggage")
-    if (traceparent) carrier.traceparent = traceparent
-    if (tracestate) carrier.tracestate = tracestate
-    if (baggageHeader) carrier.baggage = baggageHeader
-    const parent = stripUntrustedAttributionBaggage(
-      propagation.extract(context.active(), carrier),
-    )
-
-    const safePath = redactSecretPath(c.req.path)
-    requestLogger(c)?.set({ path: safePath })
-
-    if (isUiProxyPath(c.req.path)) {
-      const { context: withBag } = contextWithAttributionBag(parent)
-      await context.with(withBag, async () => {
-        applyAttribution({ "request.id": requestId.id }, requestLogger(c))
+    await context.with(traced, async () => {
+      if (uiProxy) {
         await next()
-      })
-      c.header("x-request-id", requestId.id)
-      return
-    }
-
-    const tracer = trace.getTracer(TRACER_NAME)
-    const userAgent = c.req.header("user-agent")
-    const span = tracer.startSpan(
-      `${c.req.method} ${safePath}`,
-      {
-        kind: SpanKind.SERVER,
-        attributes: {
-          "http.request.method": c.req.method,
-          "url.path": safePath,
-          "request.id": requestId.id,
-          ...(userAgent ? { "user_agent.original": userAgent } : {}),
-        },
-      },
-      parent,
-    )
-    const { context: withBag } = contextWithAttributionBag(
-      trace.setSpan(parent, span),
-    )
-
-    try {
-      await context.with(withBag, async () => {
-        applyAttribution({ "request.id": requestId.id }, requestLogger(c))
+        return
+      }
+      await instrument(c, async () => {
+        const span = trace.getActiveSpan()
+        const safePath = redactSecretPath(c.req.path)
+        span?.setAttribute("url.path", safePath)
+        span?.setAttribute("url.full", urlWithoutQuery(c.req.url, safePath))
+        span?.setAttribute("request.id", requestId)
+        const userAgent = c.req.header("user-agent")
+        if (userAgent) span?.setAttribute("user_agent.original", userAgent)
         try {
           await next()
-          const route = serverSpanRoute(c.req.path, c.req.routePath)
-          if (route) {
-            span.updateName(`${c.req.method} ${route}`)
-            span.setAttribute("http.route", route)
-          }
         } finally {
-          copyAttributionToSpan(span, context.active())
-          requestLogger(c)?.set(logFieldsFromActiveSpan())
+          if (span) copyAttributionToSpan(span, context.active())
         }
       })
-      span.setAttribute("http.response.status_code", c.res.status)
-      if (c.res.status >= 500) {
-        span.setStatus({ code: SpanStatusCode.ERROR })
-      }
-    } catch (error) {
-      span.recordException(
-        error instanceof Error ? error : new Error(String(error)),
-      )
-      span.setStatus({ code: SpanStatusCode.ERROR })
-      span.setAttribute("http.response.status_code", 500)
-      throw error
-    } finally {
-      span.end()
-      // A microtask queued by inner middleware runs before this function
-      // resumes, so flushing there holds the response inside the span.
-      // The timer runs after span.end and after the response is returned.
-      if (isRailwayPrEnvironment() && !isUiProxyPath(c.req.path)) {
-        setTimeout(() => {
-          void forceFlushOtel()
-        }, 0)
-      }
-      c.header("x-request-id", requestId.id)
+    })
+
+    if (!uiProxy && isRailwayPrEnvironment()) {
+      setTimeout(() => {
+        void forceFlushOtel()
+      }, 0)
     }
   }
 }

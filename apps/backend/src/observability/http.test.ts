@@ -1,31 +1,15 @@
-import {
-  context,
-  propagation,
-  SpanKind,
-  SpanStatusCode,
-  trace,
-} from "@opentelemetry/api"
+import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+import { type EvlogVariables, evlog } from "evlog/hono"
 import { Hono } from "hono"
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest"
-import { applyAttribution } from "./attribution.js"
-import {
-  backendOtelMiddleware,
-  isUiProxyPath,
-  serverSpanRoute,
-} from "./http.js"
+import { contextStorage } from "hono/context-storage"
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import { applyAttribution, propagationHeaders } from "./attribution.js"
+import { backendOtelMiddleware } from "./http.js"
 
 const exporter = new InMemorySpanExporter()
 const provider = new NodeTracerProvider({
@@ -44,32 +28,27 @@ afterAll(async () => {
   await provider.shutdown()
 })
 
-describe("serverSpanRoute", () => {
-  it("names the otel relay with a signal template and leaves other routes", () => {
-    expect(serverSpanRoute("/.otel/v1/traces", "/*")).toBe("/.otel/v1/:signal")
-    expect(serverSpanRoute("/.otel/v1/logs", "/*")).toBe("/.otel/v1/:signal")
-    expect(serverSpanRoute("/.otel/v1/metrics", "/.otel/v1/:signal")).toBe(
-      "/.otel/v1/:signal",
-    )
-    expect(serverSpanRoute("/mcp", "/mcp")).toBe("/mcp")
-    expect(serverSpanRoute("/obs-e2e-343", "/*")).toBe("/*")
-  })
-})
+function createApp(): Hono<EvlogVariables> {
+  const app = new Hono<EvlogVariables>()
+  app.use(contextStorage())
+  app.use("*", backendOtelMiddleware())
+  app.use(evlog())
+  return app
+}
 
-describe("isUiProxyPath", () => {
-  it("skips UI documents and assets and keeps API routes", () => {
-    expect(isUiProxyPath("/assets/app.js")).toBe(true)
-    expect(isUiProxyPath("/onboarding")).toBe(true)
-    expect(isUiProxyPath("/mcp")).toBe(false)
-    expect(isUiProxyPath("/.auth/api/session")).toBe(false)
-  })
-})
+function serverSpans() {
+  return exporter
+    .getFinishedSpans()
+    .filter((span) => span.kind === SpanKind.SERVER)
+}
 
 describe("backendOtelMiddleware", () => {
-  it("continues traceparent, names the route, and returns x-request-id", async () => {
-    const app = new Hono()
-    app.use("*", backendOtelMiddleware())
-    app.get("/orgs/:orgSlug/api/v1/repositories", (c) => c.json({ ok: true }))
+  it("continues traceparent, names the route, and returns one x-request-id", async () => {
+    const app = createApp()
+    app.get("/orgs/:orgSlug/api/v1/repositories", (c) => {
+      const requestId = c.get("log").getContext().requestId
+      return c.json({ requestId })
+    })
 
     const res = await app.request(
       "http://backend.test/orgs/acme/api/v1/repositories",
@@ -85,9 +64,8 @@ describe("backendOtelMiddleware", () => {
 
     expect(res.status).toBe(200)
     expect(res.headers.get("x-request-id")).toBe("req_kept")
-    const span = exporter
-      .getFinishedSpans()
-      .find((item) => item.kind === SpanKind.SERVER)
+    expect(await res.json()).toEqual({ requestId: "req_kept" })
+    const span = serverSpans()[0]
     expect(span?.name).toBe("GET /orgs/:orgSlug/api/v1/repositories")
     expect(span?.spanContext().traceId).toBe("4bf92f3577b34da6a3ce929d0e0e4736")
     expect(span?.parentSpanContext?.spanId).toBe("00f067aa0ba902b7")
@@ -95,6 +73,7 @@ describe("backendOtelMiddleware", () => {
       "http.request.method": "GET",
       "http.route": "/orgs/:orgSlug/api/v1/repositories",
       "url.path": "/orgs/acme/api/v1/repositories",
+      "url.full": "http://backend.test/orgs/acme/api/v1/repositories",
       "http.response.status_code": 200,
       "request.id": "req_kept",
       "user_agent.original": "ctxpipe-test",
@@ -102,25 +81,40 @@ describe("backendOtelMiddleware", () => {
     expect(trace.getActiveSpan()).toBeUndefined()
   })
 
+  it("replaces an unsafe x-request-id once for the span and the log", async () => {
+    const app = createApp()
+    app.get("/.status", (c) =>
+      c.json({ requestId: c.get("log").getContext().requestId }),
+    )
+
+    const res = await app.request("http://backend.test/.status", {
+      headers: { "x-request-id": "has spaces" },
+    })
+    const body = (await res.json()) as { requestId: string }
+    expect(res.headers.get("x-request-id")).toBe(body.requestId)
+    expect(body.requestId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    )
+    expect(serverSpans()[0]?.attributes["request.id"]).toBe(body.requestId)
+  })
+
   it("marks 5xx responses as errors and still returns x-request-id", async () => {
-    const app = new Hono()
-    app.use("*", backendOtelMiddleware())
+    const app = createApp()
     app.get("/.status", (c) => c.text("nope", 503))
 
     const res = await app.request("http://backend.test/.status")
     expect(res.status).toBe(503)
     expect(res.headers.get("x-request-id")).toMatch(/^[0-9a-f-]{36}$/)
-    const span = exporter.getFinishedSpans().at(-1)
+    const span = serverSpans().at(-1)
     expect(span?.status.code).toBe(SpanStatusCode.ERROR)
     expect(span?.attributes["http.response.status_code"]).toBe(503)
   })
 
-  it("does not create a span for proxied static assets or SPA documents", async () => {
-    const app = new Hono()
-    app.use("*", backendOtelMiddleware())
-    app.get("/assets/app.js", (c) => c.text("js"))
-    app.get("/onboarding", (c) => c.text("page"))
-    app.get("/obs-e2e-343/knowledge-graph", (c) => c.text("page"))
+  it("does not create a span for the UI catch-all and does for a new route", async () => {
+    const app = createApp()
+    app.get("/future-product-route", (c) => c.text("new"))
+    app.all("/.otel/v1/:signal", (c) => c.text("otel"))
+    app.all("*", (c) => c.text("page"))
 
     for (const path of [
       "/assets/app.js",
@@ -131,31 +125,48 @@ describe("backendOtelMiddleware", () => {
         headers: { "x-request-id": "asset_1" },
       })
       expect(res.status).toBe(200)
+      expect(await res.text()).toBe("page")
       expect(res.headers.get("x-request-id")).toBe("asset_1")
     }
     expect(exporter.getFinishedSpans()).toHaveLength(0)
+
+    const created = await app.request(
+      "http://backend.test/future-product-route",
+    )
+    expect(created.status).toBe(200)
+    expect(serverSpans().map((span) => span.name)).toEqual([
+      "GET /future-product-route",
+    ])
+  })
+
+  it("strips the query string from url attributes", async () => {
+    const app = createApp()
+    app.get("/.status", (c) => c.text("ok"))
+
+    const secret = "query-token-not-a-secret"
+    await app.request(`http://backend.test/.status?token=${secret}`)
+    const span = serverSpans()[0]
+    expect(String(span?.attributes["url.full"])).not.toContain("?")
+    expect(String(span?.attributes["url.path"])).not.toContain("?")
+    expect(JSON.stringify(span?.attributes)).not.toContain(secret)
   })
 
   it("sets http.route to the template for wildcard routes", async () => {
-    const app = new Hono()
-    app.use("*", backendOtelMiddleware())
+    const app = createApp()
     app.all("/.auth/api/*", (c) => c.json({ ok: true }))
 
     const res = await app.request(
       "http://backend.test/.auth/api/v1/auth/get-session",
     )
     expect(res.status).toBe(200)
-    const span = exporter
-      .getFinishedSpans()
-      .find((item) => item.kind === SpanKind.SERVER)
+    const span = serverSpans()[0]
     expect(span?.name).toBe("GET /.auth/api/*")
     expect(span?.attributes["http.route"]).toBe("/.auth/api/*")
     expect(span?.attributes["url.path"]).toBe("/.auth/api/v1/auth/get-session")
   })
 
   it("redacts secret path segments on the server span", async () => {
-    const app = new Hono()
-    app.use("*", backendOtelMiddleware())
+    const app = createApp()
     app.all("/.auth/api/*", (c) => c.json({ ok: true }))
     app.get("/.auth/api/v1/public/invitations/:invitationId", (c) =>
       c.json({ ok: true }),
@@ -170,9 +181,7 @@ describe("backendOtelMiddleware", () => {
       `http://backend.test/.auth/api/v1/public/invitations/${invitationId}`,
     )
 
-    const spans = exporter
-      .getFinishedSpans()
-      .filter((item) => item.kind === SpanKind.SERVER)
+    const spans = serverSpans()
     const reset = spans.find((span) =>
       String(span.attributes["url.path"]).includes("reset-password"),
     )
@@ -195,65 +204,45 @@ describe("backendOtelMiddleware", () => {
     expect(serialized).not.toContain(invitationId)
   })
 
-  it("keeps spans for mcp and the otel proxy", async () => {
-    const app = new Hono()
-    app.use("*", backendOtelMiddleware())
+  it("names mcp and the registered otel relay from the route", async () => {
+    const app = createApp()
     app.post("/mcp", (c) => c.json({ ok: true }))
-    app.post("/.otel/v1/traces", (c) => c.json({ ok: true }))
+    app.all("/.otel/v1/:signal", (c) => c.text(c.req.path))
+    app.all("*", (c) => c.text("ui"))
 
     await app.request("http://backend.test/mcp", { method: "POST" })
-    await app.request("http://backend.test/.otel/v1/traces", { method: "POST" })
-    const names = exporter.getFinishedSpans().map((span) => span.name)
-    expect(names).toEqual(["POST /mcp", "POST /.otel/v1/:signal"])
-    expect(
-      exporter.getFinishedSpans().map((span) => span.attributes["http.route"]),
-    ).toEqual(["/mcp", "/.otel/v1/:signal"])
-    expect(
-      exporter.getFinishedSpans().map((span) => span.attributes["url.path"]),
-    ).toEqual(["/mcp", "/.otel/v1/traces"])
-  })
-
-  it("names a catch-all UI relay for /.otel/v1/:signal", async () => {
-    const app = new Hono()
-    app.use("*", backendOtelMiddleware())
-    app.all("/.otel/v1/:signal", (c) => c.text(c.req.routePath))
-    app.all("*", (c) => c.text(c.req.routePath))
-
     const traces = await app.request("http://backend.test/.otel/v1/traces", {
       method: "POST",
     })
     const logs = await app.request("http://backend.test/.otel/v1/logs", {
       method: "POST",
     })
-    expect(await traces.text()).toBe("/.otel/v1/:signal")
-    expect(await logs.text()).toBe("/.otel/v1/:signal")
-    const spans = exporter
-      .getFinishedSpans()
-      .filter((span) => span.kind === SpanKind.SERVER)
+    expect(await traces.text()).toBe("/.otel/v1/traces")
+    expect(await logs.text()).toBe("/.otel/v1/logs")
+    const spans = serverSpans()
     expect(spans.map((span) => span.name)).toEqual([
+      "POST /mcp",
       "POST /.otel/v1/:signal",
       "POST /.otel/v1/:signal",
     ])
     expect(spans.map((span) => span.attributes["http.route"])).toEqual([
+      "/mcp",
       "/.otel/v1/:signal",
       "/.otel/v1/:signal",
     ])
     expect(spans.map((span) => span.attributes["url.path"])).toEqual([
+      "/mcp",
       "/.otel/v1/traces",
       "/.otel/v1/logs",
     ])
   })
 
   it("ignores spoofed attribution baggage on an unauthenticated request", async () => {
-    const app = new Hono()
-    app.use("*", backendOtelMiddleware())
+    const app = createApp()
     app.get("/.auth/api/config", (c) => {
-      const baggage = propagation.getBaggage(context.active())
-      return c.json({
-        enduser: baggage?.getEntry("enduser.id")?.value ?? null,
-        org: baggage?.getEntry("ctxpipe.org.id")?.value ?? null,
-        actor: baggage?.getEntry("ctxpipe.actor.type")?.value ?? null,
-      })
+      const headers = new Headers()
+      propagationHeaders(headers)
+      return c.json({ baggage: headers.get("baggage") })
     })
 
     const res = await app.request("http://backend.test/.auth/api/config", {
@@ -263,30 +252,30 @@ describe("backendOtelMiddleware", () => {
       },
     })
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({
-      enduser: null,
-      org: null,
-      actor: null,
-    })
-    const span = exporter
-      .getFinishedSpans()
-      .find((item) => item.kind === SpanKind.SERVER)
+    const body = (await res.json()) as { baggage: string | null }
+    expect(body.baggage ?? "").not.toContain("SPOOFED")
+    expect(body.baggage ?? "").not.toContain("ctxpipe.actor.type=job")
+    const span = serverSpans()[0]
     expect(span?.attributes["enduser.id"]).toBeUndefined()
     expect(span?.attributes["ctxpipe.org.id"]).toBeUndefined()
     expect(span?.attributes["ctxpipe.actor.type"]).toBeUndefined()
     expect(span?.attributes["request.id"]).toEqual(expect.any(String))
+    expect(body.baggage).toContain(
+      `request.id=${span?.attributes["request.id"]}`,
+    )
   })
 
   it("does not let spoofed repository or conversation baggage win over auth", async () => {
-    const app = new Hono()
-    app.use("*", backendOtelMiddleware())
+    const app = createApp()
     app.get("/orgs/:orgSlug/api/v1/repositories", (c) => {
       applyAttribution({
         "enduser.id": "user_real",
         "ctxpipe.org.id": "org_real",
         "ctxpipe.actor.type": "user",
       })
-      return c.json({ ok: true })
+      const headers = new Headers()
+      propagationHeaders(headers)
+      return c.json({ baggage: headers.get("baggage") })
     })
 
     const res = await app.request(
@@ -299,9 +288,9 @@ describe("backendOtelMiddleware", () => {
       },
     )
     expect(res.status).toBe(200)
-    const span = exporter
-      .getFinishedSpans()
-      .find((item) => item.kind === SpanKind.SERVER)
+    const body = (await res.json()) as { baggage: string }
+    expect(body.baggage).not.toContain("SPOOFED")
+    const span = serverSpans()[0]
     expect(span?.attributes).toMatchObject({
       "enduser.id": "user_real",
       "ctxpipe.org.id": "org_real",
@@ -311,73 +300,22 @@ describe("backendOtelMiddleware", () => {
     expect(span?.attributes["ctxpipe.conversation.id"]).toBeUndefined()
   })
 
-  it("schedules the PR otel flush only after the server span has ended", async () => {
-    const previous = process.env.RAILWAY_ENVIRONMENT_NAME
-    process.env.RAILWAY_ENVIRONMENT_NAME = "pr-343"
-    const original = globalThis.setTimeout
-    const spanEndedBeforeFlush: boolean[] = []
-    const spy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
-      fn: TimerHandler,
-      delay?: number,
-      ...args: unknown[]
-    ) => {
-      if (
-        typeof fn === "function" &&
-        delay === 0 &&
-        String(fn).includes("forceFlushOtel")
-      ) {
-        spanEndedBeforeFlush.push(
-          exporter
-            .getFinishedSpans()
-            .some((span) => span.kind === SpanKind.SERVER),
-        )
-      }
-      return original(fn as never, delay as never, ...(args as []))
-    }) as unknown as typeof setTimeout)
-    try {
-      const app = new Hono()
-      app.use("*", backendOtelMiddleware())
-      app.get("/.status", (c) => c.text("ok"))
-      const res = await app.request("http://backend.test/.status")
-      expect(res.status).toBe(200)
-      expect(spanEndedBeforeFlush).toEqual([true])
-    } finally {
-      spy.mockRestore()
-      if (previous === undefined) delete process.env.RAILWAY_ENVIRONMENT_NAME
-      else process.env.RAILWAY_ENVIRONMENT_NAME = previous
-    }
-  })
+  it("leaves the server span active while evlog enriches the log", async () => {
+    let enrichTraceId: string | undefined
+    const app = new Hono<EvlogVariables>()
+    app.use(contextStorage())
+    app.use("*", backendOtelMiddleware())
+    app.use(
+      evlog({
+        enrich: () => {
+          enrichTraceId = trace.getActiveSpan()?.spanContext().traceId
+        },
+      }),
+    )
+    app.get("/.status", (c) => c.text("ok"))
 
-  it("does not schedule an otel flush outside PR environments", async () => {
-    const previous = process.env.RAILWAY_ENVIRONMENT_NAME
-    process.env.RAILWAY_ENVIRONMENT_NAME = "production"
-    const original = globalThis.setTimeout
-    let scheduled = 0
-    const spy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
-      fn: TimerHandler,
-      delay?: number,
-      ...args: unknown[]
-    ) => {
-      if (
-        typeof fn === "function" &&
-        delay === 0 &&
-        String(fn).includes("forceFlushOtel")
-      ) {
-        scheduled += 1
-      }
-      return original(fn as never, delay as never, ...(args as []))
-    }) as unknown as typeof setTimeout)
-    try {
-      const app = new Hono()
-      app.use("*", backendOtelMiddleware())
-      app.get("/.status", (c) => c.text("ok"))
-      const res = await app.request("http://backend.test/.status")
-      expect(res.status).toBe(200)
-      expect(scheduled).toBe(0)
-    } finally {
-      spy.mockRestore()
-      if (previous === undefined) delete process.env.RAILWAY_ENVIRONMENT_NAME
-      else process.env.RAILWAY_ENVIRONMENT_NAME = previous
-    }
+    const res = await app.request("http://backend.test/.status")
+    expect(res.status).toBe(200)
+    expect(enrichTraceId).toBe(serverSpans()[0]?.spanContext().traceId)
   })
 })

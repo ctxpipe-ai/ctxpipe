@@ -95,12 +95,6 @@ const envSchema = z.object({
   /** When unset, Bedrock IAM SigV4 resolves region from MODEL_PROVIDER_URL, AWS_REGION, or AWS_DEFAULT_REGION */
   MODEL_BEDROCK_AWS_REGION: z.string().optional(),
 
-  // LangGraph Studio (embedded LangGraph API for dev)
-  ENABLE_LANGSMITH: z
-    .string()
-    .optional()
-    .transform((v) => v === "true"),
-
   // OpenTelemetry (traces, logs, metrics)
   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: z.string().url().optional(),
   OTEL_EXPORTER_OTLP_HEADERS: z.string().min(1).optional(),

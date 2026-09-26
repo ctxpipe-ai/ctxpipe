@@ -6,6 +6,8 @@ import {
   trace,
 } from "@opentelemetry/api"
 
+import { getLogger } from "./logger.js"
+
 export const ATTRIBUTION_KEYS = [
   "request.id",
   "enduser.id",
@@ -22,37 +24,22 @@ export const ATTRIBUTION_KEYS = [
 
 export type AttributionKey = (typeof ATTRIBUTION_KEYS)[number]
 
-export const ACTOR_TYPES = [
-  "user",
-  "org_api_key",
-  "oauth_client",
-  "webhook",
-  "job",
-] as const
-
-export type ActorType = (typeof ACTOR_TYPES)[number]
+export type ActorType =
+  | "user"
+  | "org_api_key"
+  | "oauth_client"
+  | "webhook"
+  | "job"
 
 const ATTRIBUTION_BAG = createContextKey("ctxpipe.attribution.bag")
-
-const REQUEST_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/
 
 export type AttributionInput = Partial<
   Record<AttributionKey, string | undefined>
 >
 
-export type AttributionLogger = {
+/** @deprecated Second argument is ignored. Concurrent lanes still pass a logger. */
+type AttributionLogger = {
   set(data: Record<string, unknown>): void
-}
-
-export function resolveRequestId(incoming: string | undefined): {
-  id: string
-  reused: boolean
-} {
-  const trimmed = incoming?.trim()
-  if (trimmed && REQUEST_ID_RE.test(trimmed)) {
-    return { id: trimmed, reused: true }
-  }
-  return { id: crypto.randomUUID(), reused: false }
 }
 
 export function sanitizeAttribution(
@@ -78,30 +65,6 @@ export function attributesForOrgApiKey(
   })
 }
 
-/** Public callers can set these. The backend derives them from auth, never baggage. */
-export function isUntrustedInboundBaggageKey(key: string): boolean {
-  return (
-    key === "enduser.id" ||
-    key === "request.id" ||
-    key.startsWith("ctxpipe.") ||
-    (ATTRIBUTION_KEYS as readonly string[]).includes(key)
-  )
-}
-
-/**
- * Drop attribution keys from extracted W3C baggage before it becomes the
- * request context. Otherwise a client can spoof org, user, and actor.
- */
-export function stripUntrustedAttributionBaggage(parent: Context): Context {
-  const baggage = propagation.getBaggage(parent)
-  if (!baggage) return parent
-  let next = baggage
-  for (const [key] of baggage.getAllEntries()) {
-    if (isUntrustedInboundBaggageKey(key)) next = next.removeEntry(key)
-  }
-  return propagation.setBaggage(parent, next)
-}
-
 export function contextWithAttributionBag(parent: Context): {
   context: Context
   bag: Map<string, string>
@@ -110,7 +73,7 @@ export function contextWithAttributionBag(parent: Context): {
   return { context: parent.setValue(ATTRIBUTION_BAG, bag), bag }
 }
 
-export function attributionBagFromContext(
+function attributionBagFromContext(
   parent: Context,
 ): Map<string, string> | undefined {
   const value = parent.getValue(ATTRIBUTION_BAG)
@@ -125,12 +88,12 @@ export function readAttribution(): Partial<Record<AttributionKey, string>> {
 
 export function applyAttribution(
   input: AttributionInput,
-  logger?: AttributionLogger,
+  _logger?: AttributionLogger,
 ): Partial<Record<AttributionKey, string>> {
   const cleaned = sanitizeAttribution(input)
   if (Object.keys(cleaned).length === 0) return cleaned
   trace.getActiveSpan()?.setAttributes(cleaned)
-  if (typeof logger?.set === "function") logger.set(cleaned)
+  getLogger().set(cleaned)
   const bag = attributionBagFromContext(context.active())
   if (bag) {
     for (const [key, value] of Object.entries(cleaned)) {
@@ -150,7 +113,7 @@ export function copyAttributionToSpan(
 }
 
 export function baggageWithAttribution(parent: Context): Context {
-  let baggage = propagation.getBaggage(parent) ?? propagation.createBaggage()
+  let baggage = propagation.createBaggage()
   const bag = attributionBagFromContext(parent)
   if (bag) {
     for (const [key, value] of bag) {

@@ -1,4 +1,6 @@
+import type { RequestLogger } from "evlog"
 import { Hono } from "hono"
+import { contextStorage } from "hono/context-storage"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../app/env.js"
 import { oauthAccessTokens, organizations, users } from "../db/schema/auth.js"
@@ -60,7 +62,6 @@ vi.mock("../observability/logger.js", () => ({
   }),
 }))
 
-import { attributionRecorder } from "../../test/recordingSpan.js"
 import { OAUTH_ORGANIZATION_CLAIM } from "./oauth-organization.js"
 import {
   mcpOAuthProtectedResourceMetadataUrl,
@@ -71,7 +72,6 @@ import {
   withMcpBearerAuth,
   withNetworkOrgContext,
   withOrgApiKeyAuth,
-  withSharedCookieSession,
 } from "./withAuth.js"
 
 function createMockDb(input: {
@@ -169,7 +169,14 @@ function createMockDb(input: {
 
 function createBaseApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
+  app.use(contextStorage())
   app.use("*", async (c, next) => {
+    c.set("log", {
+      set() {},
+      error() {},
+      warn: warnMock,
+      info() {},
+    } as unknown as RequestLogger)
     c.set("env", {
       AUTH_BASE_URL: "https://backend.example.com",
       AUTH_ISSUER: "https://auth.example.com",
@@ -177,7 +184,9 @@ function createBaseApp(): Hono<AppEnv> {
     c.set("user", null)
     c.set("session", null)
     c.set("oauthOrganizationId", null)
+    c.set("oauthClientId", null)
     c.set("orgApiKey", null)
+    c.set("personalApiKeyId", null)
     c.set("orgSlug", null)
     c.set("orgId", null)
     await next()
@@ -294,112 +303,19 @@ describe("auth middleware composition", () => {
     expect(headers?.get("x-api-key")).toBe("ctxp_test_api_key")
   })
 
-  it("reads the cookie session once for the shared middleware and withCookieAuth", async () => {
-    getSessionMock.mockResolvedValue({
-      user: { id: "user_once", email: "once@example.com" },
-      session: { id: "sess_once", userId: "user_once" },
-    })
-
-    const app = createBaseApp()
-    app.use("*", withSharedCookieSession)
-    app.use("/mcp", withCookieAuth)
-    app.post("/mcp", (c) =>
-      c.json({
-        user: c.get("user"),
-        session: c.get("session"),
-        personalApiKeyId: c.get("personalApiKeyId"),
-      }),
-    )
-
-    const response = await app.request("/mcp", {
-      method: "POST",
-      headers: { "x-api-key": "ctxp_test_api_key" },
-    })
-
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({
-      user: { id: "user_once", email: "once@example.com" },
-      session: { id: "sess_once", userId: "user_once" },
-      personalApiKeyId: "sess_once",
-    })
-    expect(getSessionMock).toHaveBeenCalledTimes(1)
-  })
-
-  it("returns 401 for an invalid shared session without a second read", async () => {
+  it("returns 401 when the cookie session has a user and no session", async () => {
     getSessionMock.mockResolvedValue({
       user: { id: "user_bad" },
       session: null,
     })
 
     const app = createBaseApp()
-    app.use("*", withSharedCookieSession)
     app.use("/mcp", withCookieAuth)
     app.post("/mcp", (c) => c.json({ ok: true }))
 
     const response = await app.request("/mcp", { method: "POST" })
 
     expect(response.status).toBe(401)
-    expect(getSessionMock).toHaveBeenCalledTimes(1)
-  })
-
-  it("lets an asset or SPA request proceed when the session read throws", async () => {
-    getSessionMock.mockRejectedValue(new Error("db blip for alice@example.com"))
-
-    const app = createBaseApp()
-    app.use("*", withSharedCookieSession)
-    app.get("/assets/app.js", (c) => c.text("js"))
-    app.get("/", (c) => c.text("spa"))
-    app.post("/.otel/v1/traces", (c) => c.text("otel"))
-
-    expect((await app.request("/assets/app.js")).status).toBe(200)
-    expect((await app.request("/")).status).toBe(200)
-    expect(
-      (await app.request("/.otel/v1/traces", { method: "POST" })).status,
-    ).toBe(200)
-    expect(getSessionMock).not.toHaveBeenCalled()
-  })
-
-  it("still fails an authenticated API route when the session read throws", async () => {
-    getSessionMock.mockRejectedValue(new Error("db blip for alice@example.com"))
-
-    const app = createBaseApp()
-    app.use("*", withSharedCookieSession)
-    app.use("/acme/api/v1/repositories", withCookieAuth)
-    app.get("/acme/api/v1/repositories", (c) => c.text("ok"))
-
-    const response = await app.request("/acme/api/v1/repositories")
-
-    expect(response.status).toBe(500)
-    expect(getSessionMock).toHaveBeenCalledTimes(2)
-    expect(JSON.stringify(warnMock.mock.calls)).not.toContain(
-      "alice@example.com",
-    )
-  })
-
-  it("still identifies a successful cookie session on an API route", async () => {
-    getSessionMock.mockResolvedValue({
-      user: { id: "user_ok", email: "ok@example.com" },
-      session: { id: "sess_ok", userId: "user_ok" },
-    })
-
-    const app = createBaseApp()
-    app.use("*", withSharedCookieSession)
-    app.use("/acme/api/v1/repositories", withCookieAuth)
-    app.get("/acme/api/v1/repositories", (c) =>
-      c.json({
-        user: c.get("user"),
-        personalApiKeyId: c.get("personalApiKeyId") ?? null,
-      }),
-    )
-
-    const response = await app.request("/acme/api/v1/repositories")
-
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({
-      user: { id: "user_ok", email: "ok@example.com" },
-      personalApiKeyId: null,
-    })
-    expect(getSessionMock).toHaveBeenCalledTimes(1)
   })
 
   it("clears personalApiKeyId when a bearer token replaces the api-key user", async () => {
@@ -420,8 +336,7 @@ describe("auth middleware composition", () => {
     })
 
     const app = createBaseApp()
-    app.use("*", withSharedCookieSession)
-    app.use("/mcp", withBearerAuth)
+    app.use("/mcp", withCookieAuth, withBearerAuth)
     app.post("/mcp", (c) =>
       c.json({
         user: c.get("user"),
@@ -442,19 +357,6 @@ describe("auth middleware composition", () => {
       user: { id: "user_bearer", email: "bearer@example.com" },
       personalApiKeyId: null,
     })
-  })
-
-  it("skips the shared session read on status and webhook paths", async () => {
-    const app = createBaseApp()
-    app.use("*", withSharedCookieSession)
-    app.get("/.status", (c) => c.text("ok"))
-    app.post("/api/v1/webhook/github", (c) => c.text("ok"))
-
-    expect((await app.request("/.status")).status).toBe(200)
-    expect(
-      (await app.request("/api/v1/webhook/github", { method: "POST" })).status,
-    ).toBe(200)
-    expect(getSessionMock).not.toHaveBeenCalled()
   })
 
   it("withBearerAuth sets user and session from bearer token", async () => {
@@ -1715,172 +1617,5 @@ describe("org API-key tenant binding", () => {
         message: expect.stringContaining("not bound to an organization"),
       },
     })
-  })
-})
-
-describe("request actor attribution", () => {
-  function createAttributedMcpApp() {
-    const recorded = attributionRecorder()
-    const app = createBaseApp()
-    app.use("*", recorded.middleware)
-    app.use(
-      "/mcp",
-      withMcpBearerAuth,
-      withCookieAuth,
-      withOrgApiKeyAuth,
-      requireAuth,
-      withNetworkOrgContext,
-    )
-    app.post("/mcp", (c) => c.json({ ok: true }))
-    return { app, attributes: recorded.attributes }
-  }
-
-  beforeEach(() => {
-    resetAuthMocks()
-  })
-
-  it("attributes a cookie user and keeps enduser.id when the org does not resolve", async () => {
-    getSessionMock.mockResolvedValueOnce({
-      user: { id: "user_cookie", email: "cookie@example.com" },
-      session: { id: "sess_cookie", userId: "user_cookie" },
-    })
-    testState.db = createMockDb({ membershipRows: [] })
-
-    const { app, attributes } = createAttributedMcpApp()
-    const response = await app.request("/mcp?orgSlug=missing", {
-      method: "POST",
-    })
-
-    expect(response.status).toBe(404)
-    expect(attributes()["enduser.id"]).toBe("user_cookie")
-    expect(attributes()["ctxpipe.actor.type"]).toBe("user")
-    expect(attributes()["ctxpipe.api_key.id"]).toBeUndefined()
-    expect(attributes()["ctxpipe.org.id"]).toBeUndefined()
-  })
-
-  it("attributes a personal api key as the user plus the key id", async () => {
-    getSessionMock.mockResolvedValueOnce({
-      user: { id: "user_api_key", email: "api-key@example.com" },
-      session: { id: "key_user", userId: "user_api_key" },
-    })
-    testState.db = createMockDb({
-      orgRows: [{ id: "org_acme" }],
-    })
-
-    const { app, attributes } = createAttributedMcpApp()
-    const secret = "ctxp_user_key"
-    const response = await app.request("/mcp?orgSlug=acme", {
-      method: "POST",
-      headers: { "x-api-key": secret },
-    })
-
-    expect(response.status).toBe(200)
-    expect(attributes()).toMatchObject({
-      "ctxpipe.actor.type": "user",
-      "enduser.id": "user_api_key",
-      "ctxpipe.api_key.id": "key_user",
-      "ctxpipe.org.id": "org_acme",
-      "ctxpipe.org.slug": "acme",
-    })
-    expect(JSON.stringify(attributes())).not.toContain(secret)
-  })
-
-  it("attributes an org api key without an end user", async () => {
-    getSessionMock.mockResolvedValue(null)
-    verifyApiKeyMock.mockResolvedValue({
-      valid: true,
-      error: null,
-      key: {
-        id: "key_org",
-        configId: "organization",
-        referenceId: "org_acme",
-      },
-    })
-    testState.db = createMockDb({
-      orgRows: [{ id: "org_acme", slug: "acme" }],
-    })
-
-    const { app, attributes } = createAttributedMcpApp()
-    const response = await app.request("/mcp?orgSlug=acme", {
-      method: "POST",
-      headers: { "x-api-key": "ctxp_org_key" },
-    })
-
-    expect(response.status).toBe(200)
-    expect(attributes()).toMatchObject({
-      "ctxpipe.actor.type": "org_api_key",
-      "ctxpipe.api_key.id": "key_org",
-      "ctxpipe.org.id": "org_acme",
-      "ctxpipe.org.slug": "acme",
-    })
-    expect(attributes()["enduser.id"]).toBeUndefined()
-  })
-
-  it("attributes an oauth client", async () => {
-    getSessionMock.mockResolvedValueOnce(null)
-    jwtVerifyMock.mockResolvedValueOnce({
-      payload: {
-        sub: "user_oauth",
-        sid: "sess_oauth",
-        client_id: "client_oauth",
-      },
-    })
-    testState.db = createMockDb({
-      tokenSessionRows: [
-        {
-          session: { id: "sess_oauth", userId: "user_oauth" },
-          user: { id: "user_oauth", email: "oauth@example.com" },
-        },
-      ],
-      orgRows: [{ id: "org_acme" }],
-    })
-
-    const { app, attributes } = createAttributedMcpApp()
-    const response = await app.request("/mcp?orgSlug=acme", {
-      method: "POST",
-      headers: { authorization: "Bearer header.payload.signature" },
-    })
-
-    expect(response.status).toBe(200)
-    expect(attributes()).toMatchObject({
-      "ctxpipe.actor.type": "oauth_client",
-      "enduser.id": "user_oauth",
-      "ctxpipe.oauth.client_id": "client_oauth",
-      "ctxpipe.org.id": "org_acme",
-    })
-  })
-
-  it("verifies a personal api key once per request", async () => {
-    // getSession stands in for the api-key plugin hook, which already
-    // calls validateApiKey (and counts the rate limit) before returning.
-    verifyApiKeyMock.mockResolvedValue({
-      valid: true,
-      error: null,
-      key: {
-        id: "key_user",
-        configId: "default",
-        referenceId: "user_api_key",
-      },
-    })
-    getSessionMock.mockImplementation(async () => {
-      await verifyApiKeyMock({ body: { key: "ctxp_user_key" } })
-      return {
-        user: { id: "user_api_key", email: "api-key@example.com" },
-        session: { id: "key_user", userId: "user_api_key" },
-      }
-    })
-    testState.db = createMockDb({
-      orgRows: [{ id: "org_acme" }],
-    })
-
-    const { app, attributes } = createAttributedMcpApp()
-    const response = await app.request("/mcp?orgSlug=acme", {
-      method: "POST",
-      headers: { "x-api-key": "ctxp_user_key" },
-    })
-
-    expect(response.status).toBe(200)
-    expect(verifyApiKeyMock).toHaveBeenCalledTimes(1)
-    expect(attributes()["ctxpipe.api_key.id"]).toBe("key_user")
   })
 })
