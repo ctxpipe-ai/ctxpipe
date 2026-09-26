@@ -4,9 +4,11 @@
   "type": "module",
   "scripts": {
     "test": "bun test",
+    "typecheck": "tsc --noEmit",
     "start": "bun src/index.ts"
   },
   "devDependencies": {
-    "msw": "^2.13.6"
+    "@types/bun": "^1.3.9",
+    "typescript": "^5.9.3"
   }
 }
