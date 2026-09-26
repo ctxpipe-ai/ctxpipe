@@ -497,10 +497,10 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### Browser OTEL / HyperDX:
-- **Rule:** Self-hosters should **not** need to **rebuild** the UI image — set **runtime** env on the UI server. Enable `@hyperdx/browser` when `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set; resolve config in the **root route loader** via **`getHyperDxRuntimeConfig()`** (server-side during SSR); pass config into the client as loader data — **no client `fetch`** for bootstrap. The browser always posts to the same-origin proxy **`/.otel`**: the UI server holds the collector URL and ingest key, scrubs queries, fragments, and emails, and pins the resource to `service.name=ui` plus `deployment.environment` (keeping only a valid `rum.sessionId`). There is no browser-direct collector URL. SPA page views: **`HyperDX.addAction("page_view", { path })`**. Hosted default: **`disableReplay: true`**. See ADR-038 (supersedes ADR-017).
+- **Rule:** Self-hosters set runtime env on the UI server and do not rebuild the UI image for telemetry. Config is resolved in the root route loader. The browser posts only to same-origin `/.otel`. The UI server holds the collector URL and ingest key. See ADR-038 (supersedes ADR-017).
 - **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
+- **Date:** 2026-09-26
+- **Source:** PR-343: Amplitude replaced by HyperDX RUM
 
 ### Unmatched-route fallback
 - **Rule:** mount explicit backend routes first; final `app.all("*")` in `apps/backend/src/app/app.ts` proxies unknown paths to UI origin from `UI_PROXY_URL` via Hono `proxy()`. Auth middleware in `withAuth.ts`, applied in `src/routes/v1/index.ts` via `v1.use("*", withAuth)` (no path-prefix checks in global middleware)
@@ -647,7 +647,7 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** Claude Code 2.1.251 Stop hook validation failure after `npx ctxpipe init`; [anthropics/claude-code#50682](https://github.com/anthropics/claude-code/issues/50682)
 
 ### ctxpipe-observability stays in us-east4-eqdc4a
-- **Rule:** Hosted observability uses the same Railway metal as product: **`us-east4-eqdc4a`** (Virginia, next to Neon `aws-us-east-1`). Terraform `regions` plus `ignore_changes` only documents the intent — provider 0.6.x never sends `multiRegionConfig` on Update, and Railway MCP `create-service` has no region field so new services inherit the workspace preferred region (Singapore). After create or apply, pin with `RAILWAY_SERVICE_SET=observability` on `scripts/railway-set-regions.sh`. Do not call the stack done while any service or volume still shows `asia-southeast1-eqsg3a`. Volume-backed ClickHouse copies 50GB and has downtime.
+- **Rule:** Hosted observability uses the same Railway metal as product: `us-east4-eqdc4a` (Virginia, next to Neon `aws-us-east-1`). Pin with `RAILWAY_SERVICE_SET=observability scripts/railway-set-regions.sh`. The pin is unfinished while any service or volume still shows `asia-southeast1-eqsg3a`.
 - **Category:** convention
 - **Date:** 2026-09-25
 - **Source:** user correction on PR-343 (stack landed in Singapore again after image-service create / region pin)
@@ -683,23 +683,11 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-09-17
 - **Source:** Preview idle-exit while `repository-ingestion` runs sat unclaimed in a non-default namespace
 
-### HyperDX charts every OTLP Sum as a counter
-- **Rule:** HyperDX (ClickStack) renders every `Sum` metric as a counter (`greatest(Value - previous, 0)` per bucket), including non-monotonic sums. Emit current-level values (connected clients, uptime, queue depth, in-flight counts) as **gauges**; keep only true cumulative counters as monotonic sums and chart them with `increase`. A current count sent as a Sum charts as ~0 on HyperDX dashboards.
-- **Category:** convention
-- **Date:** 2026-09-25
-- **Source:** PR-343 Opus review of the Observability Stack dashboard (Redis clients tile)
-
 ### Telemetry attribution must come from auth, never from inbound headers
 - **Rule:** On public HTTP services, never copy user/org/actor/request attribution from inbound W3C `baggage` (or any client header) onto spans, logs, jobs, or Langfuse — derive it from the authenticated context only. Only private, internal-only services may read attribution from baggage set by our own callers. Span URLs must never include query strings, fragments, or credentials (tokens, device codes, OAuth `state` ride in query strings), and outgoing-fetch instrumentation should only create child spans under an existing server/job span.
 - **Category:** convention
 - **Date:** 2026-09-25
 - **Source:** PR-343 Opus review of the attribution step (live baggage spoof and reset-token leak into ClickHouse)
-
-### GitHub-sourced Railway services here do not auto-deploy on push
-- **Rule:** The Railway GitHub App is not installed on `ctxpipe-ai/ctxpipe` (Railway reports auto-deploy `NO_INSTALLATION`), so services built from this repo (observability collector, clickhouse, railway-telemetry) never rebuild on push. Deploy them explicitly (`serviceInstanceDeployV2` from the observability workflow, or Railway MCP/CLI). Also pin the service source `branch` explicitly: a variable change otherwise redeploys from the repo default branch (`main`), which fails for folders not merged yet.
-- **Category:** workflow
-- **Date:** 2026-09-25
-- **Source:** PR-343 railway-telemetry build from `main` after adding RAILWAY_API_TOKEN; Railway agent auto-deploy check
 
 ### The UI is reached through the backend proxy, which rewrites Host
 - **Rule:** Browsers load the app from the backend origin; the backend proxies SPA and `/.otel` routes to `UI_PROXY_URL`, so inside `apps/ui` server handlers `request.url`/`Host` is the internal UI host, not the public origin. Any origin, CSRF, redirect, or absolute-URL logic in `apps/ui` must derive the public origin from the forwarded host/proto the backend proxy sets (or from the backend's configured public URL), and must be tested with a proxied request (internal Host + public Origin), not only with Origin == Host.

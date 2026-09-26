@@ -2,7 +2,7 @@
 
 **Status:** Superseded | **Date:** 2026-02-14 | **Tags:** backend, langsmith, langgraph, dev
 
-**Note (2026-09-26):** LangSmith removed; no replacement.
+**Note:** Removed. LLM tracing is Langfuse ([ADR-011](ADR-011-backend-observability-otel.md)).
 
 ## Context
 
@@ -44,6 +44,5 @@ Requirements:
 
 ## Notes
 
-- See `src/routes/langsmith.ts` for embedded API assembly and initialization.
-- Studio UI: https://smith.langchain.com/studio/?baseUrl=https://localhost:3000/langsmith (when running with HTTPS in dev).
+- Removed. The `/langsmith` route, `ENABLE_LANGSMITH`, and `@langchain/langgraph-api` are gone. LLM tracing is Langfuse ([ADR-011](ADR-011-backend-observability-otel.md), [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md)).
 - Cloudflare Workers support was removed; see [ADR-007](ADR-007-remove-cloudflare-workers-runtime.md).

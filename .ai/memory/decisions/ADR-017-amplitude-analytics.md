@@ -2,7 +2,7 @@
 
 **Status:** Superseded by [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md) | **Date:** 2026-04-08 | **Tags:** analytics, amplitude, ui, backend, mcp, observability
 
-**Note (2026-09-26):** The SDK, `AMPLITUDE_*` env, and `/.amp` proxy described below were removed. Browser product analytics is HyperDX RUM ([ADR-038](ADR-038-self-hosted-clickstack-langfuse.md)). This record stays as history.
+**Note:** Removed; see [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md).
 
 ## Context
 

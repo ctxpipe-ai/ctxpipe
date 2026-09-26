@@ -2,8 +2,6 @@
 
 **Status:** Superseded | **Superseded by:** [ADR-015](ADR-015-docker-compose-profiles-and-small-scale-deploy.md) | **Date:** 2026-02-13 | **Tags:** dev, docker, compose
 
-**Note (2026-09-26):** The Better Stack and Langfuse fan-out on `otel-collector` in decision 1 is obsolete. The laptop collector is a debug sink with no tokens ([ADR-038](ADR-038-self-hosted-clickstack-langfuse.md)).
-
 ## Context
 
 The backend depends on PostgreSQL (Drizzle) and a graph store (FalkorDB / OpenCypher). Local development needs predictable data services without requiring every developer to install Postgres, FalkorDB, or Zoekt binaries on the host.

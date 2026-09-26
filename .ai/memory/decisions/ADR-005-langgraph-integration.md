@@ -2,12 +2,14 @@
 
 **Status:** Superseded | **Date:** 2026-02-13 | **Tags:** backend, langgraph, langchain
 
+**Note:** LangSmith Studio is removed. See [ADR-006](ADR-006-langsmith-studio-dev-routes.md).
+
 ## Context
 
 We need LangGraph/LangChain for agent orchestration in the backend. Requirements:
 
 - OpenRouter as default model provider; configurable for on-prem (fast/medium/high tiers).
-- LangSmith / LangGraph Studio must be able to connect and interact with our graph API.
+- LangSmith / LangGraph Studio was expected to connect to the graph API. That route is removed ([ADR-006](ADR-006-langsmith-studio-dev-routes.md)).
 - ADR-002 reserved LangGraph in `platform/`; we prefer in-process integration over a separate server.
 - All endpoints should live inside the Hono app (single entry point).
 
