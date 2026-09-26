@@ -205,6 +205,30 @@ describe("outgoing fetch spans", () => {
     )
   })
 
+  it("passes a Request through and sends trace headers in init", async () => {
+    let received: { input: RequestInfo | URL; init?: RequestInit } | undefined
+    const request = new Request(
+      "http://ui.railway.internal:3002/.otel/v1/traces",
+      {
+        method: "POST",
+        body: "{}",
+        headers: { "content-type": "application/json" },
+      },
+    )
+    const parent = trace.getTracer("test").startSpan("request")
+    await context.with(trace.setSpan(context.active(), parent), () =>
+      tracedOutgoingFetch(async (input, init) => {
+        received = { input, init }
+        return new Response(null, { status: 204 })
+      }, request),
+    )
+    parent.end()
+    expect(received?.input).toBe(request)
+    const headers = new Headers(received?.init?.headers)
+    expect(headers.get("content-type")).toBe("application/json")
+    expect(headers.get("traceparent")).toMatch(/^00-/)
+  })
+
   it("records a child client span without the query string", async () => {
     const parent = trace.getTracer("test").startSpan("request")
     await context.with(trace.setSpan(context.active(), parent), async () => {

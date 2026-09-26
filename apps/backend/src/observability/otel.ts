@@ -254,18 +254,10 @@ export async function tracedOutgoingFetch(
           },
         },
       )
-      let request: Request
       try {
-        request = new Request(input, { ...init, headers })
-      } catch {
-        try {
-          return await original(input, init)
-        } finally {
-          span.end()
-        }
-      }
-      try {
-        const response = await original(request)
+        // Bun 1.3 drops a streamed body from `new Request(request, init)`
+        // (hono/proxy passes a Request), so override headers on fetch instead.
+        const response = await original(input, { ...init, headers })
         span.setAttribute("http.response.status_code", response.status)
         if (response.status >= 500) {
           span.setStatus({ code: SpanStatusCode.ERROR })
