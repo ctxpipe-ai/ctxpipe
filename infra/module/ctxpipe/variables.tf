@@ -219,13 +219,8 @@ variable "falkordb_password" {
 
 variable "otel_otlp_endpoint" {
   type        = string
-  description = "Public ClickStack collector OTLP HTTP base (no /v1 suffix). Empty uses https://telemetry.ctxpipe.ai."
-  default     = ""
-
-  validation {
-    condition     = length(trimspace(var.otel_otlp_endpoint)) == 0 || startswith(trimspace(var.otel_otlp_endpoint), "https://")
-    error_message = "otel_otlp_endpoint must be an https URL or empty (empty uses https://telemetry.ctxpipe.ai)."
-  }
+  description = "Public ClickStack collector OTLP HTTP base (no /v1 suffix)."
+  default     = "https://telemetry.ctxpipe.ai"
 }
 
 variable "otel_otlp_headers" {

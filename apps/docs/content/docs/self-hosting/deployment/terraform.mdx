@@ -64,11 +64,11 @@ same workflow.
 ## Observability
 
 This stack is the hosted Railway layout. It does not deploy Langfuse or
-ClickStack. An empty `otel_otlp_endpoint` in the module is the hosted collector
-(`https://telemetry.ctxpipe.ai`), which is not a self-host default. If you reuse
-the module, set `otel_otlp_endpoint` and `otel_otlp_headers` to your own
-OTLP/HTTP endpoint, or clear the `OTEL_EXPORTER_OTLP_*` variables so the apps
-export nothing. See [Configuration](/docs/self-hosting/configuration).
+ClickStack. The module variable `otel_otlp_endpoint` defaults to
+`https://telemetry.ctxpipe.ai`. If you reuse the module, set
+`otel_otlp_endpoint` and `otel_otlp_headers` to your own OTLP/HTTP endpoint,
+or clear the `OTEL_EXPORTER_OTLP_*` variables so the apps export nothing. See
+[Configuration](/docs/self-hosting/configuration).
 
 ## When to customize
 

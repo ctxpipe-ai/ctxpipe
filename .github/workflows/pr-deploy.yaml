@@ -189,8 +189,6 @@ jobs:
       PR_ENV: pr-${{ needs.resolve_pr.outputs.pr_number }}
       IMAGE_TAG: pr-${{ needs.resolve_pr.outputs.pr_number }}-${{ needs.resolve_pr.outputs.head_sha }}
       PR_NUMBER: ${{ needs.resolve_pr.outputs.pr_number }}
-      OBSERVABILITY_OTLP_ENDPOINT: ${{ vars.OBSERVABILITY_OTLP_ENDPOINT }}
-      OBSERVABILITY_OTLP_HEADERS: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
     outputs:
       env_id: ${{ steps.railway_env.outputs.env_id }}
     steps:
@@ -471,63 +469,6 @@ jobs:
               echo "Updated DATABASE_URL for service $service_id with skipDeploys=true"
             }
 
-            # Preview-only: turn off LangSmith. OTEL goes to the shared ClickStack
-            # collector when OBSERVABILITY_OTLP_ENDPOINT is set (PR uses flush-on-demand
-            # metrics, so no 60s timer). When that var is empty, delete cloned exporter
-            # URLs.
-            delete_service_variable() {
-              local service_id="$1"
-              local name="$2"
-              railway_graphql \
-                'mutation variableDelete($input: VariableDeleteInput!) { variableDelete(input: $input) }' \
-                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" --arg name "$name" \
-                  '{input:{projectId:$project, environmentId:$env, serviceId:$service, name:$name}}')" >/dev/null 2>&1 || true
-            }
-
-            upsert_preview_otel_variables() {
-              local service_id="$1"
-              local base="${OBSERVABILITY_OTLP_ENDPOINT:-}"
-              if [[ -z "$base" ]]; then
-                delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
-                delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
-                delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
-                delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_HEADERS"
-                echo "OBSERVABILITY_OTLP_ENDPOINT unset; removed OTEL exporters on $service_id"
-                return 0
-              fi
-              base="${base%/}"
-              local traces="${base}/v1/traces"
-              local logs="${base}/v1/logs"
-              local metrics="${base}/v1/metrics"
-              local headers="${OBSERVABILITY_OTLP_HEADERS:-}"
-              railway_graphql \
-                'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
-                "$(jq -nc \
-                  --arg project "$RAILWAY_PROJECT_ID" \
-                  --arg env "$ENV_ID" \
-                  --arg service "$service_id" \
-                  --arg traces "$traces" \
-                  --arg logs "$logs" \
-                  --arg metrics "$metrics" \
-                  --arg headers "$headers" \
-                  '{
-                    input: {
-                      projectId: $project,
-                      environmentId: $env,
-                      serviceId: $service,
-                      skipDeploys: true,
-                      variables: (
-                        {
-                          OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: $traces,
-                          OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: $logs,
-                          OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: $metrics
-                        } + (if $headers == "" then {} else {OTEL_EXPORTER_OTLP_HEADERS: $headers} end)
-                      )
-                    }
-                  }')"
-              echo "Pointed OTEL exporters at shared collector for service $service_id"
-            }
-
             upsert_preview_service_variables() {
               local service_id="$1"
               railway_graphql \
@@ -545,8 +486,7 @@ jobs:
                       }
                     }
                   }')"
-              upsert_preview_otel_variables "$service_id"
-              echo "Updated preview namespace/telemetry variables for service $service_id"
+              echo "Updated preview namespace variables for service $service_id"
             }
 
             # Backend: allow waking the worker after enqueue (Railway GraphQL deploy).
@@ -623,8 +563,7 @@ jobs:
                       skipDeploys: true,
                       variables: {
                         CODESEARCH_INDEXER_CONCURRENCY: "1",
-                        CODESEARCH_INDEX_PIPELINE_CONCURRENCY: "1",
-                        OTEL_SERVICE_NAME: "codesearch"
+                        CODESEARCH_INDEX_PIPELINE_CONCURRENCY: "1"
                       }
                     }
                   }')"
@@ -738,25 +677,19 @@ jobs:
 
             upsert_database_url_without_deploy "$CODESEARCH_SERVICE_ID" >/dev/null
             upsert_preview_codesearch_capacity "$CODESEARCH_SERVICE_ID" >/dev/null
-            upsert_preview_otel_variables "$CODESEARCH_SERVICE_ID" >/dev/null
             update_source_image "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE" >/dev/null
             deploy_service "$CODESEARCH_SERVICE_ID" >/dev/null
 
-            # Preview copies created before the production collector was removed can
-            # still contain that service. Stop it and drop its old token variable.
-            # New previews cloned after the production destroy do not have it.
+            # Previews created before the production collector was removed can
+            # still contain otelcollector. Scale it to zero and stop it.
             load_service_ids_by_name
             OTELCOLLECTOR_SERVICE_ID="$(echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r '.otelcollector // empty')"
             FALKORDB_SERVICE_ID="$(echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r '.falkordb // empty')"
 
             if [[ -n "$OTELCOLLECTOR_SERVICE_ID" ]]; then
-              delete_service_variable "$OTELCOLLECTOR_SERVICE_ID" "BETTER_STACK_TOKEN"
-              delete_service_variable "$OTELCOLLECTOR_SERVICE_ID" "LANGFUSE_AUTH_STRING"
-              delete_service_variable "$OTELCOLLECTOR_SERVICE_ID" "LANGFUSE_OTLP_ENDPOINT"
               scale_service_to_zero "$OTELCOLLECTOR_SERVICE_ID" >/dev/null
               stop_active_deployments "$OTELCOLLECTOR_SERVICE_ID"
               echo "leftover otelcollector ($OTELCOLLECTOR_SERVICE_ID) scaled to 0 and active deployments stopped"
-              verify_sleep_application "otel-collector" "$OTELCOLLECTOR_SERVICE_ID"
             fi
 
             if [[ -n "$FALKORDB_SERVICE_ID" ]]; then

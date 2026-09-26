@@ -51,7 +51,6 @@ module "ctxpipe" {
   pagerduty_client_secret = var.pagerduty_client_secret
   pagerduty_redirect_uri  = var.pagerduty_redirect_uri
   falkordb_password       = var.falkordb_password
-  otel_otlp_endpoint      = var.otel_otlp_endpoint
   otel_otlp_headers       = var.otel_otlp_headers
 
   neon_project = {

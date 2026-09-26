@@ -23,24 +23,18 @@ locals {
       region       = var.railway_regions[0].region
     }
   ]
-  # Empty TF_VAR_otel_otlp_endpoint (unset GitHub variable) sends apps to
-  # the public ClickStack collector.
-  otel_endpoint_base = trimsuffix(
-    length(trimspace(var.otel_otlp_endpoint)) > 0 ? trimspace(var.otel_otlp_endpoint) : "https://telemetry.ctxpipe.ai",
-    "/",
-  )
   otel_shared_env = [
     {
       name  = "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
-      value = "${local.otel_endpoint_base}/v1/traces"
+      value = "${var.otel_otlp_endpoint}/v1/traces"
     },
     {
       name  = "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
-      value = "${local.otel_endpoint_base}/v1/logs"
+      value = "${var.otel_otlp_endpoint}/v1/logs"
     },
     {
       name  = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
-      value = "${local.otel_endpoint_base}/v1/metrics"
+      value = "${var.otel_otlp_endpoint}/v1/metrics"
     },
     {
       name  = "OTEL_EXPORTER_OTLP_HEADERS"
