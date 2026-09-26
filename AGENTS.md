@@ -24,9 +24,9 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 | `neon` | Neon Lakebase Postgres via hosted MCP — **read-only** (`?readonly=true`) | OAuth in Cursor (uncheck Full access if prompted; URL param forces RO). Optional headless: Bearer `NEON_API_KEY` + same `readonly=true` URL ([Neon MCP docs](https://neon.com/docs/ai/neon-mcp-server)) |
 | `railway` | Railway status + deploy/runtime stdout | OAuth in Cursor (`type: streamable-http` → `https://mcp.railway.com`) |
 | `hyperdx` | ClickStack logs, traces, metrics, dashboards | `HYPERDX_ACCESS_KEY` = HyperDX personal access key (Bearer). UI `https://hyperdx.ctxpipe.ai`. Ingest token `HYPERDX_API_KEY` is a different secret |
-| `langfuse` | Langfuse **project** MCP (LLM traces / prompts) | `LANGFUSE_BASE_URL=https://langfuse.ctxpipe.ai` and `LANGFUSE_AUTH_STRING` = base64(`pk:sk`); see [ops/observability/USING.md](ops/observability/USING.md) |
+| `langfuse` | Langfuse **project** MCP (LLM traces / prompts) | `LANGFUSE_AUTH_STRING` = base64(`pk:sk`). URL is `https://langfuse.ctxpipe.ai/api/public/mcp`. See [ops/observability/USING.md](ops/observability/USING.md) |
 
-**Not wired** (intentionally): local Postgres MCP, GitHub MCP, codesearch MCP, Linear/Notion MCP, ClickHouse `mcp-clickhouse` (ClickHouse is only on `clickhouse.railway.internal`; query through `hyperdx`).
+**Not wired** (intentionally): local Postgres MCP, GitHub MCP, codesearch MCP, Linear/Notion MCP, ClickHouse `mcp-clickhouse` (query through `hyperdx`).
 
 **Ops debugging / logs (preference order):** Product logs and traces are OTLP. Follow [`.cursor/skills/observability/SKILL.md`](.cursor/skills/observability/SKILL.md) and [ops/observability/USING.md](ops/observability/USING.md).
 

@@ -32,4 +32,4 @@ Someone who uses the app and MCP is one identity on every tile. MCP tiles use th
 
 ## Environment
 
-The dashboard filter is required and defaults to `ResourceAttributes['deployment.environment'] IN ('production')`, the same expression as the other dashboards and the team shared filter. Tiles apply it with `$__filters`. A map `IN` is compiled to the attribute text index before HyperDX can rewrite it to the `DeploymentEnvironment` column, so these tiles do not add a second predicate on that column. Ad-hoc SQL should filter `DeploymentEnvironment` directly.
+The dashboard filter is required and defaults to `production`. Hand-written SQL filters `DeploymentEnvironment`; dashboard chips use the map expression. Tiles apply the chip with `$__filters`.

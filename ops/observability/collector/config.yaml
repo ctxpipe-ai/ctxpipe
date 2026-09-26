@@ -1,6 +1,6 @@
 # ClickStack merge file, loaded last. Confmap replaces arrays: do not redefine otlp/hyperdx, memory_limiter, batch, the clickhouse exporter, the base logs transform, or service.telemetry (base already exposes :8888).
 # Traces pipeline is restated for clickstack-otel-collector:2.39.1 (receiver otlp/hyperdx). Re-check that list when the image tag changes.
-# Image has prometheus, resource, and transform, not a redis receiver. metrics/self scrapes the collector and ClickHouse; Redis metrics come from railway-telemetry.
+# metrics/self scrapes the collector and ClickHouse.
 
 receivers:
   # The prometheus receiver copies target_info{service_name} over the job label.

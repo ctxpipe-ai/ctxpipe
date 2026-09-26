@@ -27,9 +27,9 @@ If the `query_log` or `error_log` `CREATE` changes, ClickHouse renames the old t
 
 ## Bucket outage
 
-`skip_access_check` is 0 on `s3_cold` and `s3_cold_cache`. An unreachable bucket at start fails the disk check and the process exits. `railway.toml` sets `restartPolicyType = ON_FAILURE` and `restartPolicyMaxRetries = 120` (platform default is 10). Provider 0.6.1 does not set this, and Railway stops applying config-as-code on 2026-12-01, so the service has the same policy. After 120 failed boots the deployment stays Crashed until a restart.
+`skip_access_check` is 0 on `s3_cold` and `s3_cold_cache`. An unreachable bucket at start fails the disk check and the process exits. `railway.toml` sets `restartPolicyType = ON_FAILURE` and `restartPolicyMaxRetries = 120` (platform default is 10). Provider 0.6.1 does not set this; the service has the same policy. After 120 failed boots the deployment stays Crashed until a restart.
 
-While ClickHouse is down, `clickstack-otel-collector:2.39.1` retries export for 300s, then drops the batch. `memory_limiter` is 1500 MiB. The image sets no `sending_queue`; the exporter default is 1000 batches.
+While ClickHouse is down, `clickstack-otel-collector:2.39.1` retries export for 300s, then drops the batch. `memory_limiter` is 1500 MiB. The image sets no `sending_queue`; the exporter default is 1000 batches. `max_server_memory_usage` is 1 GiB (`config.d/memory.xml`).
 
 If the process is up and the bucket later fails, hot inserts still land locally. A cold-column read fails after the S3 timeout (10s, one retry) and inside `max_execution_time` 120s. `count()` over cold parts can be answered from local metadata.
 
@@ -48,10 +48,8 @@ If the process is up and the bucket later fails, hot inserts still land locally.
 
 `schema/deployment-environment.sql` adds `DeploymentEnvironment` (`ADD COLUMN IF NOT EXISTS`) on every `otel` table with `ResourceAttributes`. The expression is `ResourceAttributes['deployment.environment']`. Do not rename that attribute. Do not use the dotted `__hdx_materialized_deployment.environment` name on `otel_logs` (nested prefix of the seed column).
 
-`ADD` is safe to repeat. `MATERIALIZE COLUMN` already ran and is not in the file; repeating it rewrites parts. Hand-written SQL filters the column. A map `IN` on `ResourceAttributes['deployment.environment']` uses the attribute text index. The team shared filter uses that map expression.
+`ADD` is safe to repeat. `MATERIALIZE COLUMN` already ran and is not in the file; repeating it rewrites parts. Hand-written SQL filters this column. HyperDX chips and the shared filter: [../hyperdx/README.md](../hyperdx/README.md#environment-filter).
 
 Run `tiering/otel.sql` as `otel`, `tiering/langfuse.sql` as `langfuse`, and `schema/deployment-environment.sql` as `otel`, after `system.storage_policies` shows volume `cold`. Apply a new table's statement on its own.
 
 Do not deploy a config that drops disk `s3_cold` while parts sit on `s3_cold_cache`. Move those partitions to volume `default` first. A backup that omits `disks/s3_cold/` cannot read the bucket.
-
-`max_server_memory_usage` is 1 GiB (`config.d/memory.xml`).

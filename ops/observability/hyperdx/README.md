@@ -1,63 +1,34 @@
-# HyperDX dashboards
+# HyperDX
 
-Repo-owned HyperDX sources are declared as `DEFAULT_CONNECTIONS` and `DEFAULT_SOURCES` on the hyperdx service in [`terraform/railway.tf`](../terraform/railway.tf). HyperDX applies those only when a team is created and that team has no connections yet (sources only when it has none). They do not update an existing team. The Sessions source reads `otel.hyperdx_sessions`. That table stays empty while browser replay is off (`disableReplay: true`), so session charts have no rows.
+`DEFAULT_CONNECTIONS` and `DEFAULT_SOURCES` apply only when a new team has no connections (sources only when it has none). Sessions (`otel.hyperdx_sessions`) stay empty while browser replay is off.
 
-`provision.ts` upserts every `dashboards/*.json` by dashboard name through the HyperDX external API (`POST /api/v2/dashboards/validate`, then `POST` or `PUT /api/v2/dashboards`). JSON files name sources (`sourceName`, `appliesToSourceNames`) and, on raw SQL tiles, the ClickHouse connection (`connectionName`). The script resolves names to ids with `GET /api/v2/sources` and `GET /api/v2/connections`. Dashboards that exist in HyperDX but are not in `dashboards/` are left in place.
+## Provision
 
-Run it from the operator shell. `HYPERDX_ACCESS_KEY` is not Railway env. The API base is `https://hyperdx.ctxpipe.ai/api` (the public app proxies `/api`, and the script appends `/api/v2/...`):
+From the repo root. `HYPERDX_ACCESS_KEY` is a personal key (Team Settings → API Keys), not a Railway variable. API base: `https://hyperdx.ctxpipe.ai/api`.
 
 ```bash
 HYPERDX_ACCESS_KEY=... bun ops/observability/hyperdx/provision.ts
 ```
 
-Typecheck without calling the API:
+Typecheck: `pnpm exec tsc --noEmit -p ops/observability/hyperdx`.
 
-```bash
-pnpm exec tsc --noEmit -p ops/observability/hyperdx
-```
-
-Without a key, `GET https://hyperdx.ctxpipe.ai/api/api/v2/sources` returns 401. `GET https://hyperdx.ctxpipe.ai/api/v2/sources` is 404 (the proxy strips one `/api` and the API has no `/v2/sources`). A second run updates the same dashboards.
-
-The script also upserts every `saved-searches/*.json` (`GET/POST/PUT /api/v2/saved-searches`):
-
-- **Request by id** on Logs, `LogAttributes['request.id'] != ''`, selecting `TraceId`.
-- **Request by id (traces)** on Traces, `SpanAttributes['request.id'] != ''`.
-- **Production logs**, **Production traces**, and **Production errors** (logs, `SeverityText IN ('error')`). Each `where` is `ResourceAttributes['deployment.environment'] IN ('production')`, and `filters` is that predicate in the sidebar form HyperDX renders (`<column> IN (...)`).
-
-Each search is one source. To pin a single request, set the where clause to `LogAttributes['request.id'] = '<id>'` or `SpanAttributes['request.id'] = '<id>'`.
+The script upserts `dashboards/*.json` and `saved-searches/*.json` by name (`POST` or `PUT`). It resolves source and connection names to ids. Dashboards not in the repo are left in place. Saved searches: **Request by id**, **Request by id (traces)**, **Production logs**, **Production traces**, **Production errors**.
 
 ## Environment filter
 
-HyperDX `2.39.1` (image `hyperdx/hyperdx:2`, `/health` `version`) has no team or source setting that defaults the search page `where` to `production`.
+HyperDX 2.39.1 does not default every search to `production`. The shared filter field is `ResourceAttributes['deployment.environment']`, with no value pinned. `provision.ts` does not write pinned filters. Dashboard chips use that map expression. Hand-written SQL filters `DeploymentEnvironment`.
 
-What it does support, from that tag (`@hyperdx/api@2.39.1`, commit `6db385cdeeddd91c947940b855fd0d4810737fe9`):
-
-| Mechanism | Where | Effect |
-| --- | --- | --- |
-| Team Shared Filters | `PUT /pinned-filters`, model `packages/api/src/models/pinnedFilter.ts` | One document per team and source (`fields`, `filters`). The search sidebar renders those fields in a Shared Filters section (`DBSearchPageFilters.tsx`). A value in `filters` is always listed, and it is the only option when the facet query returns nothing for that field. An empty `filters` object lists the values the facet query returns. |
-| Personal pins | browser `localStorage` keys `hdx-pinned-fields` and `hdx-pinned-search-filters` (`packages/app/src/searchFilters.tsx`) | Per browser. The server cannot set them. |
-| Dashboard `savedFilterValues` | external API, `SqlSavedFilterValue` `{ type: "sql", condition }` | Restored when the dashboard loads. The condition must be the same expression as the filter, in `IN (...)` form, so the chip and the tile `WHERE` match. |
-| Saved search `where` + `filters` | `/api/v2/saved-searches` | Opening that search applies `where`. `filters` must be a renderable SQL facet or the API rejects them (`isRenderablePinnedFilter`). |
-| `tableFilterExpression` | log and trace source schemas | Deprecated. AND'd into every query. Not set: it would force `production` onto the observability dashboards. |
-| Highlighted attributes | `highlightedRowAttributeExpressions` / `highlightedTraceAttributeExpressions` | Row side panel and trace view, not the filter sidebar. |
-| Materialized column | `schema/deployment-environment.sql` | Column `DeploymentEnvironment` (`LowCardinality`). Hand-written SQL filters this column. The team shared filter field is the map expression `ResourceAttributes['deployment.environment']`. A map `IN` is compiled to `has(ResourceAttributeItems, …)` (text index) before the materialized-column rewrite. The dotted `__hdx_materialized_…environment` name collides with the seed column on `otel_logs`. |
-
-`DEFAULT_SOURCES` on the hyperdx service is applied only when a team has no sources. Logs and traces there include the highlighted attribute. An existing team is unchanged by editing that variable.
-
-`provision.ts` PUTS the Traces source so the trace and row panels show `deployment.environment`. It does not PUT Logs: the external log schema omits `sessionSourceId`, and PUT replaces the document. The existing Logs document keeps `sessionSourceId` and gets the same highlight by a field update, matching `DEFAULT_SOURCES`.
-
-The script also tries `PUT /pinned-filters` so `ResourceAttributes['deployment.environment']` is a team Shared Filter on every source. The payload is the field only (`fields: ["ResourceAttributes['deployment.environment']"]`, `filters: {}`). No value is pinned. The materialized column name `DeploymentEnvironment` does not populate that sidebar facet (`useFetchFacets` → `getAllKeyValues`; the traces metadata rollup does not select it). The map expression does. With `filters` empty, the checkboxes are the values present in the time range. A pinned value of only `production` would hide `pr-N` and `observability` even when those rows exist, so the script does not send one. The personal access key is not accepted on that route (session cookie only). A 401 is logged and the rest of the script continues. Those four documents (Logs, Traces, Metrics, Sessions) are stored in Mongo `pinnedfilters`. Terraform `DEFAULT_SOURCES` highlights the same attribute on a new team and does not write `pinnedfilters`.
-
-Dashboard defaults (`savedFilterValues`):
+| Mechanism | Effect |
+| --- | --- |
+| Shared Filters | Checkboxes are the values in the time range. Pinning only `production` hides `pr-N` and `observability`. |
+| Personal pins | Browser `localStorage`. The server does not set them. |
+| Dashboard `savedFilterValues` | Restored on load. Defaults below. |
+| Highlighted attribute | Row and trace panels. `DEFAULT_SOURCES` highlights the attribute on a new team. |
 
 | Dashboard | Default |
 | --- | --- |
-| ctxpipe Services | `production` |
-| LLM (gen_ai) | `production` |
+| ctxpipe Services, LLM (gen_ai), Product usage | `production` |
 | Observability Stack | `observability` |
-| Railway Infrastructure | none (the filter is there; all environments load, including `production`) |
-| Product usage | `production` (required; `ResourceAttributes['deployment.environment'] IN ('production')`) |
+| Railway Infrastructure | none |
 
-## Product usage
-
-`dashboards/product-usage.json` is raw SQL on the Traces source (`configType: "sql"`). Definitions are in [dashboards/product-usage.md](dashboards/product-usage.md). The environment chip matches the other dashboards and the team shared filter. Tile SQL applies it with `$__filters`. Hand-written queries should still filter the `DeploymentEnvironment` column.
+Product usage: [dashboards/product-usage.md](dashboards/product-usage.md).

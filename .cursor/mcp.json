@@ -25,7 +25,7 @@
     },
     "langfuse": {
       "type": "streamable-http",
-      "url": "${env:LANGFUSE_BASE_URL}/api/public/mcp",
+      "url": "https://langfuse.ctxpipe.ai/api/public/mcp",
       "headers": {
         "Authorization": "Basic ${env:LANGFUSE_AUTH_STRING}"
       }
