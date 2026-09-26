@@ -33,7 +33,10 @@ import {
   getLogger,
   withLogger,
 } from "../observability/logger.js"
-import { repositoryNotFoundBody } from "./errorBody.js"
+import {
+  repositoryNotFoundBody,
+  repositoryNotFoundResponse,
+} from "./errorBody.js"
 
 const repoIdParam = z
   .string()
@@ -137,7 +140,7 @@ const cloneCheckoutRoute = createRoute({
       },
       description: "Clone, checkout, and compute ingest diff",
     },
-    404: { description: "Repository not found" },
+    404: repositoryNotFoundResponse,
     429: { description: "Index pipeline capacity exceeded" },
     503: { description: "Database not available" },
     500: { description: "Clone/checkout failed" },
@@ -163,7 +166,7 @@ const zoektRoute = createRoute({
       content: { "application/json": { schema: okResponseSchema } },
       description: "Zoekt index built",
     },
-    404: { description: "Repository not found" },
+    404: repositoryNotFoundResponse,
     429: { description: "Index pipeline capacity exceeded" },
     503: { description: "Database not available" },
     500: { description: "Zoekt indexing failed" },
@@ -188,7 +191,7 @@ const detectLanguagesRoute = createRoute({
       },
       description: "Languages detected for SCIP indexing",
     },
-    404: { description: "Repository not found" },
+    404: repositoryNotFoundResponse,
     429: { description: "Index pipeline capacity exceeded" },
     503: { description: "Database not available" },
     500: { description: "Language detection failed" },
@@ -212,7 +215,7 @@ const scipLangRoute = createRoute({
       content: { "application/json": { schema: okResponseSchema } },
       description: "Per-language SCIP shard built",
     },
-    404: { description: "Repository not found" },
+    404: repositoryNotFoundResponse,
     429: { description: "Index pipeline capacity exceeded" },
     503: { description: "Database not available" },
     500: { description: "SCIP indexing failed" },
@@ -233,7 +236,7 @@ const mergeScipRoute = createRoute({
       content: { "application/json": { schema: mergeScipResponseSchema } },
       description: "SCIP shards merged",
     },
-    404: { description: "Repository not found" },
+    404: repositoryNotFoundResponse,
     429: { description: "Index pipeline capacity exceeded" },
     503: { description: "Database not available" },
     500: { description: "SCIP merge failed" },
@@ -247,20 +250,15 @@ async function resolvePhaseContext(
   options?: { githubToken?: string },
 ): Promise<
   | { ok: true; ctx: IndexPhaseRepoContext }
-  | {
-      ok: false
-      status: 404
-      error: typeof repositoryNotFoundBody.error
-      code: typeof repositoryNotFoundBody.code
-    }
+  | { ok: false; body: typeof repositoryNotFoundBody }
 > {
   const repo = await getAccessibleRepository(db, repoId, orgId)
   if (!repo) {
-    return { ok: false, status: 404, ...repositoryNotFoundBody }
+    return { ok: false, body: repositoryNotFoundBody }
   }
   const indexable = await getIndexableRepository(db, repoId, orgId)
   if (!indexable) {
-    return { ok: false, status: 404, ...repositoryNotFoundBody }
+    return { ok: false, body: repositoryNotFoundBody }
   }
   return {
     ok: true,
@@ -331,10 +329,7 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
             githubToken: body.githubToken,
           })
           if (!resolved.ok) {
-            return c.json(
-              { error: resolved.error, code: resolved.code },
-              resolved.status,
-            )
+            return c.json(resolved.body, 404)
           }
           try {
             const result = await withLogger(
@@ -379,10 +374,7 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
       withRepositoryIndexOperation(repoId, async () => {
         const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
         if (!resolved.ok) {
-          return c.json(
-            { error: resolved.error, code: resolved.code },
-            resolved.status,
-          )
+          return c.json(resolved.body, 404)
         }
         try {
           await withLogger(
@@ -422,10 +414,7 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
         withRepositoryIndexOperation(repoId, async () => {
           const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
           if (!resolved.ok) {
-            return c.json(
-              { error: resolved.error, code: resolved.code },
-              resolved.status,
-            )
+            return c.json(resolved.body, 404)
           }
           try {
             const result = await withLogger(
@@ -466,10 +455,7 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
       withRepositoryIndexOperation(repoId, async () => {
         const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
         if (!resolved.ok) {
-          return c.json(
-            { error: resolved.error, code: resolved.code },
-            resolved.status,
-          )
+          return c.json(resolved.body, 404)
         }
         try {
           await withLogger(
@@ -505,10 +491,7 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
         withRepositoryIndexOperation(repoId, async () => {
           const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
           if (!resolved.ok) {
-            return c.json(
-              { error: resolved.error, code: resolved.code },
-              resolved.status,
-            )
+            return c.json(resolved.body, 404)
           }
           try {
             let shardCount = 0

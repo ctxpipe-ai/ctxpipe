@@ -12,7 +12,7 @@ import {
   ZoektWarmupTimeoutError,
 } from "../domain/zoekt/warmup.js"
 import { getLogger } from "../observability/logger.js"
-import { queryRejectedCode } from "./errorBody.js"
+import { queryRejectedCode, queryRejectedSchema } from "./errorBody.js"
 
 const SearchRequestSchema = z
   .object({
@@ -48,10 +48,7 @@ export const searchRoute = createRoute({
     400: {
       content: {
         "application/json": {
-          schema: z.object({
-            error: z.string(),
-            code: z.literal(queryRejectedCode),
-          }),
+          schema: queryRejectedSchema,
         },
       },
       description: "Zoekt rejected the query",

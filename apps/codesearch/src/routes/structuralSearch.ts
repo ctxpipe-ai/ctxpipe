@@ -11,7 +11,10 @@ import {
   resolveStructuralSearchPaths,
   runStructuralSearch,
 } from "../domain/search/structuralSearch.js"
-import { repositoryNotFoundBody } from "./errorBody.js"
+import {
+  repositoryNotFoundBody,
+  repositoryNotFoundResponse,
+} from "./errorBody.js"
 
 const structuralSearchRequestSchema = z
   .object({
@@ -75,7 +78,7 @@ export const structuralSearchRoute = createRoute({
     },
     400: { description: "Invalid request or repository path" },
     401: { description: "Unauthorized" },
-    404: { description: "Repository not found or access denied" },
+    404: repositoryNotFoundResponse,
     500: { description: "ast-grep execution failed" },
     503: { description: "Database not available" },
   },

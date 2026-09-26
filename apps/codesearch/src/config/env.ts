@@ -10,12 +10,9 @@ const envSchema = z.object({
   AUTH_ISSUER: z.string().min(1).optional(),
   AUTH_TOKEN_AUDIENCE_CODESEARCH: z.string().min(1).optional(),
 
-  // OpenTelemetry (traces, logs, metrics)
-  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: z.string().url().optional(),
+  // Logs URL is the one parseEnv reads. Traces, metrics, and headers stay on
+  // process.env for the OpenTelemetry SDK and evlog's OTLP drain.
   OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: z.string().url().optional(),
-  OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: z.string().url().optional(),
-  OTEL_EXPORTER_OTLP_HEADERS: z.string().min(1).optional(),
-  OTEL_SERVICE_NAME: z.string().min(1).optional(),
 })
 
 export type Env = z.infer<typeof envSchema>

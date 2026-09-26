@@ -26,29 +26,17 @@ export const codesearchLogRedact: RedactConfig = {
   patterns: [/\r?\nparams:[^\r\n]*/gi],
 }
 
-function resourceString(
-  attributes: ReturnType<typeof codesearchResource>["attributes"],
-  key: string,
-  fallback: string,
-): string {
-  const value = attributes[key]
-  return typeof value === "string" && value.length > 0 ? value : fallback
-}
-
 /**
  * Initialize evlog. Call early in app bootstrap.
  * Reads env from process.env.
  */
 export function initEvlog(): void {
   const env = parseEnv(process.env as Record<string, string | undefined>)
-  const attributes = codesearchResource().attributes
   initLogger({
     env: {
       service: "codesearch",
-      environment: resourceString(
-        attributes,
-        "deployment.environment",
-        "development",
+      environment: String(
+        codesearchResource().attributes["deployment.environment"],
       ),
     },
     pretty: env.NODE_ENV === "development",
@@ -75,16 +63,11 @@ export function createEvlogDrain() {
     "",
   ).replace(/\/$/, "")
 
-  const attributes = codesearchResource().attributes
   const baseDrain = createOTLPDrain({
     endpoint: baseEndpoint,
     serviceName: "codesearch",
     resourceAttributes: {
-      "service.namespace": resourceString(
-        attributes,
-        "service.namespace",
-        "ctxpipe",
-      ),
+      "service.namespace": "ctxpipe",
     },
   })
 
@@ -135,18 +118,15 @@ export function applyCodesearchLogContract(
   moveAlias(event, "path", "url.path")
   moveAlias(event, "orgId", "ctxpipe.org.id")
   moveAlias(event, "orgSlug", "ctxpipe.org.slug")
-  // `status` is this service's response only when the event is an access log.
-  // A downstream code uses `upstream.status_code` and stays off this key.
+  // Same `status` move as applyLogContract in apps/backend/src/observability/logContract.ts.
   const recordsOwnResponse =
     event["url.path"] != null || event["http.request.method"] != null
-  if (recordsOwnResponse) {
-    const status = event.status
-    if (
-      (typeof status === "number" || typeof status === "string") &&
-      event["http.response.status_code"] == null
-    ) {
-      event["http.response.status_code"] = status
-    }
+  if (
+    recordsOwnResponse &&
+    (typeof event.status === "number" || typeof event.status === "string") &&
+    event["http.response.status_code"] == null
+  ) {
+    event["http.response.status_code"] = event.status
     delete event.status
   }
   if (isRecord(event.user) && typeof event.user.id === "string") {

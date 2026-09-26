@@ -10,7 +10,6 @@ import {
 } from "@opentelemetry/resources"
 import {
   MeterProvider,
-  type MetricReader,
   PeriodicExportingMetricReader,
 } from "@opentelemetry/sdk-metrics"
 import {
@@ -23,28 +22,28 @@ import { ATTRIBUTION_KEYS } from "./contract.js"
 
 let tracerProvider: NodeTracerProvider | undefined
 let meterProvider: MeterProvider | undefined
-let metricReader: MetricReader | undefined
 let runtimeInstrumentation: RuntimeNodeInstrumentation | undefined
 let started = false
 
-const URL_ATTRIBUTE_KEYS = [
-  "url.full",
-  "url.path",
-  "http.url",
-  "http.target",
-] as const
-
 /**
- * Railway sets `RAILWAY_ENVIRONMENT_NAME` (`production` or `pr-N`).
- * Local / unset falls back to NODE_ENV. `OTEL_RESOURCE_ATTRIBUTES` can
- * override this when merged in `codesearchResource`.
+ * `RAILWAY_ENVIRONMENT_NAME` if set, else `deployment.environment` from
+ * `OTEL_RESOURCE_ATTRIBUTES`, else `production` when NODE_ENV is production,
+ * else `development`.
  */
 export function codesearchDeploymentEnvironment(
   railwayEnvironmentName = process.env.RAILWAY_ENVIRONMENT_NAME,
+  resourceAttributes = process.env.OTEL_RESOURCE_ATTRIBUTES,
   nodeEnv = process.env.NODE_ENV,
 ): string {
-  const name = railwayEnvironmentName?.trim()
-  if (name) return name
+  const railway = railwayEnvironmentName?.trim()
+  if (railway) return railway
+  for (const part of resourceAttributes?.split(",") ?? []) {
+    const eq = part.indexOf("=")
+    if (eq < 0) continue
+    if (part.slice(0, eq).trim() !== "deployment.environment") continue
+    const value = part.slice(eq + 1).trim()
+    if (value) return value
+  }
   return nodeEnv === "production" ? "production" : "development"
 }
 
@@ -52,14 +51,13 @@ function railwayPrEnvironment(): boolean {
   return /^pr-\d+$/.test(process.env.RAILWAY_ENVIRONMENT_NAME?.trim() ?? "")
 }
 
-/** Drop query strings and fragments from URL span attributes. */
+/** `@hono/otel` sets `url.full` when the span starts. Drop its query and fragment. */
 class StripUrlQuerySpanProcessor implements SpanProcessor {
   onStart(span: Span): void {
-    this.strip(span)
-  }
-
-  onEnding(span: Span): void {
-    this.strip(span)
+    const value = span.attributes["url.full"]
+    if (typeof value !== "string") return
+    const cut = value.search(/[?#]/)
+    if (cut >= 0) span.setAttribute("url.full", value.slice(0, cut))
   }
 
   onEnd(): void {}
@@ -70,15 +68,6 @@ class StripUrlQuerySpanProcessor implements SpanProcessor {
 
   forceFlush(): Promise<void> {
     return Promise.resolve()
-  }
-
-  private strip(span: Span): void {
-    for (const key of URL_ATTRIBUTE_KEYS) {
-      const value = span.attributes[key]
-      if (typeof value !== "string") continue
-      const cut = value.search(/[?#]/)
-      if (cut >= 0) span.setAttribute(key, value.slice(0, cut))
-    }
   }
 }
 
@@ -95,19 +84,13 @@ export function codesearchResource() {
   return resourceFromAttributes({
     "service.name": "codesearch",
     "service.namespace": "ctxpipe",
-    "deployment.environment": codesearchDeploymentEnvironment(),
   })
     .merge(detectResources({ detectors: [envDetector] }))
-    .merge(resourceFromAttributes({ "service.name": "codesearch" }))
-}
-
-export function isOtelStarted(): boolean {
-  return started
-}
-
-/** Metric reader installed by the last `initOtel` call, if metrics export is on. */
-export function otelMetricReader(): MetricReader | undefined {
-  return metricReader
+    .merge(
+      resourceFromAttributes({
+        "deployment.environment": codesearchDeploymentEnvironment(),
+      }),
+    )
 }
 
 /**
@@ -133,13 +116,14 @@ export function initOtel(): void {
   const metricsEndpoint =
     process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT?.trim()
   if (metricsEndpoint && !railwayPrEnvironment()) {
-    metricReader = new PeriodicExportingMetricReader({
-      exporter: new OTLPMetricExporter(),
-      exportIntervalMillis: 60_000,
-    })
     meterProvider = new MeterProvider({
       resource,
-      readers: [metricReader],
+      readers: [
+        new PeriodicExportingMetricReader({
+          exporter: new OTLPMetricExporter(),
+          exportIntervalMillis: 60_000,
+        }),
+      ],
     })
     metrics.setGlobalMeterProvider(meterProvider)
     runtimeInstrumentation = new RuntimeNodeInstrumentation()
@@ -155,7 +139,6 @@ export async function shutdownOtel(): Promise<void> {
   const runtime = runtimeInstrumentation
   tracerProvider = undefined
   meterProvider = undefined
-  metricReader = undefined
   runtimeInstrumentation = undefined
   started = false
   runtime?.disable()

@@ -29,7 +29,11 @@ import {
   getLogger,
   withLogger,
 } from "../observability/logger.js"
-import { repositoryNotFoundBody } from "./errorBody.js"
+import {
+  repositoryNotFoundBody,
+  repositoryNotFoundResponse,
+  repositoryOrPathNotFoundResponse,
+} from "./errorBody.js"
 import { registerIndexPhaseRoutes } from "./indexPhases.js"
 
 const repoIdParam = z
@@ -119,7 +123,7 @@ export const indexRoute = createRoute({
       },
       description: "Index triggered",
     },
-    404: { description: "Repository not found" },
+    404: repositoryNotFoundResponse,
     403: { description: "Access denied" },
     503: { description: "Database not available" },
     500: { description: "Indexing failed" },
@@ -149,7 +153,7 @@ export const purgeRepositoryRoute = createRoute({
       description: "Disk and index data removed for the repository",
     },
     400: { description: "Invalid request" },
-    404: { description: "Repository not found" },
+    404: repositoryNotFoundResponse,
     403: { description: "Access denied" },
   },
 })
@@ -180,7 +184,7 @@ export const listFilesRoute = createRoute({
       },
       description: "List of file entries",
     },
-    404: { description: "Repository not found" },
+    404: repositoryOrPathNotFoundResponse,
     403: { description: "Access denied" },
   },
 })
@@ -232,7 +236,7 @@ export const globFilesRoute = createRoute({
       description: "Glob matches under the repository checkout",
     },
     400: { description: "Invalid path or glob pattern" },
-    404: { description: "Repository or path not found" },
+    404: repositoryOrPathNotFoundResponse,
     403: { description: "Access denied" },
     500: { description: "Glob scan failed" },
   },
@@ -270,7 +274,7 @@ export const resolveRefRoute = createRoute({
       },
       description: "Resolved branch and commit hash",
     },
-    404: { description: "Repository not found" },
+    404: repositoryNotFoundResponse,
     403: { description: "Access denied" },
     500: { description: "Ref resolution failed" },
   },
@@ -296,7 +300,7 @@ export const getFileRoute = createRoute({
       },
       description: "File content",
     },
-    404: { description: "Repository or file not found" },
+    404: repositoryOrPathNotFoundResponse,
     403: { description: "Access denied" },
   },
 })
@@ -330,7 +334,7 @@ export const filesQueryRoute = createRoute({
       },
       description: "Files by path",
     },
-    404: { description: "Repository not found" },
+    404: repositoryNotFoundResponse,
     403: { description: "Access denied" },
   },
 })
@@ -404,67 +408,64 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     }
 
     try {
-      const result = await withLogger(
-        createLogger(baseContext),
-        async () => {
-          const logger = getLogger()
-          logger.set({ step: "codesearch.index.http.start", ...baseContext })
-          logger.info("codesearch index http start")
+      const result = await withLogger(createLogger(baseContext), async () => {
+        const logger = getLogger()
+        logger.set({ step: "codesearch.index.http.start", ...baseContext })
+        logger.info("codesearch index http start")
+        flushWorkflowLog()
+
+        try {
+          const indexResult = await cloneAndIndexRepository({
+            db,
+            orgId: repo.orgId,
+            repoId: repo.id,
+            repoGitUrl: repo.gitUrl,
+            clonePath: repoCheckoutPath(
+              repo.orgId,
+              repo.id,
+              DEFAULT_CHECKOUT_KEY,
+            ),
+            scipIndexPath: scipIndexPath(
+              repo.orgId,
+              repo.id,
+              DEFAULT_CHECKOUT_KEY,
+            ),
+            githubToken: body.githubToken,
+            zoektRepoId: indexable.zoektRepoId,
+            repoName: indexable.name,
+            repoUrl: indexable.gitUrl,
+            targetHash: body.targetHash,
+            fromHash: body.fromHash,
+          })
+
+          const endLogger = getLogger()
+          endLogger.set({
+            step: "codesearch.index.http.end",
+            ...baseContext,
+            durationMs: Date.now() - startMs,
+            ingestMode: indexResult.ingestMode,
+            changedPathCount: indexResult.changedPaths.length,
+            deletedPathCount: indexResult.deletedPaths.length,
+            renameCount: indexResult.renames.length,
+            targetHash: indexResult.targetHash,
+          })
+          endLogger.info("codesearch index http end")
           flushWorkflowLog()
 
-          try {
-            const indexResult = await cloneAndIndexRepository({
-              db,
-              orgId: repo.orgId,
-              repoId: repo.id,
-              repoGitUrl: repo.gitUrl,
-              clonePath: repoCheckoutPath(
-                repo.orgId,
-                repo.id,
-                DEFAULT_CHECKOUT_KEY,
-              ),
-              scipIndexPath: scipIndexPath(
-                repo.orgId,
-                repo.id,
-                DEFAULT_CHECKOUT_KEY,
-              ),
-              githubToken: body.githubToken,
-              zoektRepoId: indexable.zoektRepoId,
-              repoName: indexable.name,
-              repoUrl: indexable.gitUrl,
-              targetHash: body.targetHash,
-              fromHash: body.fromHash,
-            })
-
-            const endLogger = getLogger()
-            endLogger.set({
-              step: "codesearch.index.http.end",
-              ...baseContext,
-              durationMs: Date.now() - startMs,
-              ingestMode: indexResult.ingestMode,
-              changedPathCount: indexResult.changedPaths.length,
-              deletedPathCount: indexResult.deletedPaths.length,
-              renameCount: indexResult.renames.length,
-              targetHash: indexResult.targetHash,
-            })
-            endLogger.info("codesearch index http end")
-            flushWorkflowLog()
-
-            return indexResult
-          } catch (error) {
-            const endLogger = getLogger()
-            endLogger.set({
-              step: "codesearch.index.http.end",
-              durationMs: Date.now() - startMs,
-              error: error instanceof Error ? error.message : String(error),
-              ...baseContext,
-            })
-            endLogger.info("codesearch index http end error")
-            flushWorkflowLog()
-            throw error
-          }
-        },
-      )
+          return indexResult
+        } catch (error) {
+          const endLogger = getLogger()
+          endLogger.set({
+            step: "codesearch.index.http.end",
+            durationMs: Date.now() - startMs,
+            error: error instanceof Error ? error.message : String(error),
+            ...baseContext,
+          })
+          endLogger.info("codesearch index http end error")
+          flushWorkflowLog()
+          throw error
+        }
+      })
 
       return c.json(
         {

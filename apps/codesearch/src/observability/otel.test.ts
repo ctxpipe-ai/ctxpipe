@@ -1,84 +1,91 @@
-import { RuntimeNodeInstrumentation } from "@opentelemetry/instrumentation-runtime-node"
-import {
-  AggregationTemporality,
-  InMemoryMetricExporter,
-  MeterProvider,
-  PeriodicExportingMetricReader,
-} from "@opentelemetry/sdk-metrics"
+import { metrics, ProxyTracerProvider, trace } from "@opentelemetry/api"
+import { MeterProvider } from "@opentelemetry/sdk-metrics"
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { parseEnv } from "../config/env.js"
 import {
+  codesearchDeploymentEnvironment,
   codesearchResource,
   initOtel,
-  isOtelStarted,
-  otelMetricReader,
   shutdownOtel,
 } from "./otel.js"
+
+function tracerIsRegistered(): boolean {
+  const provider = trace.getTracerProvider()
+  const delegate =
+    provider instanceof ProxyTracerProvider ? provider.getDelegate() : provider
+  return delegate instanceof NodeTracerProvider
+}
 
 describe("codesearch resource", () => {
   afterEach(() => {
     vi.unstubAllEnvs()
   })
 
-  it("forces service.name codesearch and a deployment.environment", () => {
+  it("defaults service.name and deployment.environment when unset", () => {
+    vi.stubEnv("OTEL_SERVICE_NAME", undefined)
     vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "")
     vi.stubEnv("NODE_ENV", "production")
-    vi.stubEnv("OTEL_SERVICE_NAME", "other")
     vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "")
     const attributes = codesearchResource().attributes
     expect(attributes["service.name"]).toBe("codesearch")
     expect(attributes["service.namespace"]).toBe("ctxpipe")
     expect(attributes["deployment.environment"]).toBe("production")
+    expect(codesearchDeploymentEnvironment()).toBe("production")
   })
 
-  it("uses RAILWAY_ENVIRONMENT_NAME when resource attributes are unset", () => {
-    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-12")
+  it("uses OTEL_SERVICE_NAME when a deploy sets it", () => {
+    vi.stubEnv("OTEL_SERVICE_NAME", "other")
     vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "")
+    expect(codesearchResource().attributes["service.name"]).toBe("other")
+  })
+
+  it("prefers RAILWAY_ENVIRONMENT_NAME over resource attributes", () => {
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-12")
+    vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=staging")
+    expect(codesearchDeploymentEnvironment()).toBe("pr-12")
     expect(codesearchResource().attributes["deployment.environment"]).toBe(
       "pr-12",
     )
   })
 
-  it("lets OTEL_RESOURCE_ATTRIBUTES override deployment.environment", () => {
-    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-12")
+  it("reads deployment.environment from OTEL_RESOURCE_ATTRIBUTES when Railway is unset", () => {
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "")
+    vi.stubEnv("NODE_ENV", "production")
     vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=staging")
-    const attributes = codesearchResource().attributes
-    expect(attributes["deployment.environment"]).toBe("staging")
-    expect(attributes["service.name"]).toBe("codesearch")
+    expect(codesearchDeploymentEnvironment()).toBe("staging")
+    expect(codesearchResource().attributes["deployment.environment"]).toBe(
+      "staging",
+    )
   })
-})
 
-describe("parseEnv otel endpoints", () => {
-  it("accepts traces and metrics endpoints", () => {
-    const env = parseEnv({
-      AUTH_SECRET: "0123456789abcdef0123456789abcdef",
-      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://127.0.0.1:4318/v1/traces",
-      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "http://127.0.0.1:4318/v1/metrics",
-    })
-    expect(env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT).toBe(
-      "http://127.0.0.1:4318/v1/traces",
-    )
-    expect(env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT).toBe(
-      "http://127.0.0.1:4318/v1/metrics",
-    )
+  it("uses development when Railway, resource attributes, and production are unset", () => {
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "")
+    vi.stubEnv("NODE_ENV", "test")
+    vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "")
+    expect(codesearchDeploymentEnvironment()).toBe("development")
   })
 })
 
 describe("initOtel", () => {
   afterEach(async () => {
     vi.unstubAllEnvs()
-    await shutdownOtel()
+    try {
+      await shutdownOtel()
+    } finally {
+      trace.disable()
+      metrics.disable()
+    }
   })
 
-  it("is a no-op without a traces endpoint", () => {
+  it("does not start tracing or metrics without a traces endpoint", () => {
     vi.stubEnv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "")
     vi.stubEnv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "")
     initOtel()
-    expect(isOtelStarted()).toBe(false)
-    expect(otelMetricReader()).toBeUndefined()
+    expect(tracerIsRegistered()).toBe(false)
+    expect(metrics.getMeterProvider()).not.toBeInstanceOf(MeterProvider)
   })
 
-  it("uses a periodic reader when metrics are configured", () => {
+  it("installs a meter provider when metrics are configured", () => {
     vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "production")
     vi.stubEnv(
       "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
@@ -89,8 +96,8 @@ describe("initOtel", () => {
       "http://127.0.0.1:9/v1/metrics",
     )
     initOtel()
-    expect(isOtelStarted()).toBe(true)
-    expect(otelMetricReader()).toBeInstanceOf(PeriodicExportingMetricReader)
+    expect(tracerIsRegistered()).toBe(true)
+    expect(metrics.getMeterProvider()).toBeInstanceOf(MeterProvider)
   })
 
   it("exports no metrics for Railway pr environments", () => {
@@ -104,38 +111,7 @@ describe("initOtel", () => {
       "http://127.0.0.1:9/v1/metrics",
     )
     initOtel()
-    expect(isOtelStarted()).toBe(true)
-    expect(otelMetricReader()).toBeUndefined()
-  })
-})
-
-describe("runtime metrics", () => {
-  it("registers runtime-node instruments through the public API", async () => {
-    const exporter = new InMemoryMetricExporter(
-      AggregationTemporality.CUMULATIVE,
-    )
-    const provider = new MeterProvider({
-      readers: [
-        new PeriodicExportingMetricReader({
-          exporter,
-          exportIntervalMillis: 60_000,
-        }),
-      ],
-    })
-    const runtime = new RuntimeNodeInstrumentation()
-    runtime.setMeterProvider(provider)
-    await provider.forceFlush()
-    const names = exporter
-      .getMetrics()
-      .flatMap((resourceMetrics) =>
-        resourceMetrics.scopeMetrics.flatMap((scope) =>
-          scope.metrics.map((metric) => metric.descriptor.name),
-        ),
-      )
-    expect(names.some((name) => name.startsWith("nodejs.eventloop."))).toBe(
-      true,
-    )
-    runtime.disable()
-    await provider.shutdown()
+    expect(tracerIsRegistered()).toBe(true)
+    expect(metrics.getMeterProvider()).not.toBeInstanceOf(MeterProvider)
   })
 })

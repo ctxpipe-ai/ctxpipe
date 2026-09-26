@@ -27,6 +27,19 @@ describe("codesearch log contract", () => {
     expect(event["service.namespace"]).toBe("ctxpipe")
     expect(event).not.toHaveProperty("method")
     expect(event).not.toHaveProperty("path")
+    expect(event).not.toHaveProperty("status")
+  })
+
+  it("keeps status when the access log already has http.response.status_code", () => {
+    const event: Record<string, unknown> = {
+      method: "GET",
+      path: "/files",
+      status: 200,
+      "http.response.status_code": 204,
+    }
+    applyCodesearchLogContract(event)
+    expect(event.status).toBe(200)
+    expect(event["http.response.status_code"]).toBe(204)
   })
 
   it("keeps a downstream status off the access-log key", () => {

@@ -31,7 +31,7 @@ afterAll(async () => {
 describe("incoming W3C context", () => {
   it("joins the caller trace and copies attribution baggage onto the span", async () => {
     const app = new Hono()
-    app.use("*", httpInstrumentationMiddleware({ serviceName: "codesearch" }))
+    app.use("*", httpInstrumentationMiddleware())
     app.get("/probe", (c) => c.text("ok"))
 
     const res = await app.request("http://codesearch.test/probe?token=SECRET", {
@@ -60,7 +60,7 @@ describe("incoming W3C context", () => {
 describe("route template", () => {
   it("names the span from the route template, not the repository id", async () => {
     const app = new Hono()
-    app.use("*", httpInstrumentationMiddleware({ serviceName: "codesearch" }))
+    app.use("*", httpInstrumentationMiddleware())
     app.get("/repo/:repoId/files", (c) => c.text("ok"))
 
     const res = await app.request(
