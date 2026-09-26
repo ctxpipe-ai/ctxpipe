@@ -1,39 +1,4 @@
-# Adopt API-created Railway objects into this configuration.
-#
-# These services were created through the Railway API, so R2 state is empty
-# or partial. An apply without these blocks would create a second copy.
-# Import blocks are ignored once the address is already in state.
-#
-# Provider 0.6.1 import id formats (tag v0.6.1):
-# - railway_service: service UUID
-#   https://github.com/terraform-community-providers/terraform-provider-railway/blob/v0.6.1/internal/provider/resource_service.go
-# - railway_variable_collection: service_id:environment_name:VAR:VAR:...
-#   environment_name is the Railway environment name (production), not the UUID.
-#   Only the listed names enter state. Update deletes a variable only when it
-#   is in state and absent from config, so a Railway-owned secret omitted here
-#   is left alone. Omitted on purpose: clickhouse passwords, collector
-#   HYPERDX_API_KEY and LANGFUSE_AUTH_STRING, langfuse-web DATABASE_URL /
-#   DIRECT_URL / SALT / ENCRYPTION_KEY / NEXTAUTH_SECRET / LANGFUSE_INIT_* keys,
-#   email, and password, langfuse-web NODE_OPTIONS, and railway-telemetry
-#   RAILWAY_API_TOKEN. Consumer copies are references and stay in the list.
-#   https://github.com/terraform-community-providers/terraform-provider-railway/blob/v0.6.1/internal/provider/resource_variable_collection.go
-# - railway_custom_domain: service_id:environment_name:hostname
-#   https://github.com/terraform-community-providers/terraform-provider-railway/blob/v0.6.1/internal/provider/resource_custom_domain.go
-# - railway_service_domain: service_id:environment_name:full-hostname
-#   The third field is the full domain (collector-production-5b4c.up.railway.app).
-#   Read sets subdomain to domain with ".{suffix}" removed. Suffix is
-#   up.railway.app, so subdomain is the host label (collector-production-5b4c).
-#   Config uses those live labels, so import + config describe the same hostname.
-#   https://github.com/terraform-community-providers/terraform-provider-railway/blob/v0.6.1/internal/provider/resource_service_domain.go
-#
-# Volumes are not their own resource. railway_service import is the service
-# UUID; Read loads the volume mounted in the project default environment
-# (this project has only production). clickhouse-data and mongo-data match
-# the config name and mount path, so Update does not create a second volume.
-# Update creates a volume only when state has none and config has one.
-#
-# Not imported: the buckets langfuse-events and clickhouse-cold
-# (provider 0.6.1 has no bucket resource).
+# Adopt existing Railway objects. Delete this file after the first successful apply on main.
 
 import {
   to = railway_service.clickhouse
@@ -71,18 +36,8 @@ import {
 }
 
 import {
-  to = railway_variable_collection.mongo
-  id = "7c517c94-675a-46d7-a687-b6dc59736348:production:PORT"
-}
-
-import {
   to = railway_service.redis
   id = "6439e551-5ba2-4742-8680-0c7f515d07fc"
-}
-
-import {
-  to = railway_variable_collection.redis
-  id = "6439e551-5ba2-4742-8680-0c7f515d07fc:production:PORT"
 }
 
 import {

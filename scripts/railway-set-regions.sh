@@ -55,6 +55,46 @@ fi
 # shellcheck disable=SC1091
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/railway-graphql.sh"
 
+deploy_service() {
+  local service_id="$1"
+  # shellcheck disable=SC2016
+  railway_graphql \
+    'mutation serviceInstanceDeployV2($serviceId: String!, $environmentId: String!) { serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId) }' \
+    "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')" >/dev/null
+}
+
+wait_deploy() {
+  local label="$1"
+  local service_id="$2"
+  local wait_seconds="$3"
+  local deadline=$(( $(date +%s) + wait_seconds ))
+  echo "Waiting for $label deploy (up to ${wait_seconds}s)"
+  while true; do
+    local response status
+    # shellcheck disable=SC2016
+    response="$(railway_graphql \
+      'query deployments($input: DeploymentListInput!) { deployments(input: $input) { edges { node { id status createdAt } } } }' \
+      "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{input:{environmentId:$env, serviceId:$service}}')")"
+    status="$(echo "$response" | jq -r '
+      [.data.deployments.edges[]?.node // empty]
+      | sort_by(.createdAt) | reverse | .[0].status // empty
+    ')"
+    echo "$label status=${status:-none}"
+    case "$status" in
+      SUCCESS|SLEEPING) return 0 ;;
+      FAILED|CRASHED|REMOVED)
+        echo "$response" | jq -c '.data.deployments.edges[0].node // .' >&2
+        return 1
+        ;;
+    esac
+    if (( $(date +%s) >= deadline )); then
+      echo "timeout waiting for $label" >&2
+      return 1
+    fi
+    sleep 10
+  done
+}
+
 # Terraform service names. Stateless first; volume-backed last (serial copy).
 case "$SERVICE_SET" in
   product)
@@ -126,13 +166,13 @@ pin_and_maybe_deploy() {
   wait_deploy "$label" "$service_id" "$wait_seconds"
 }
 
-railway_load_project
+load_project
 
 echo "Pinning Railway $ENVIRONMENT_NAME ($ENV_ID) to $REGION"
 
 resolve_id() {
   local name="$1"
-  # ids_by_name is set by railway_load_project.
+  # ids_by_name is set by load_project.
   # shellcheck disable=SC2154
   echo "$ids_by_name" | jq -r --arg name "$name" '.[$name] // empty'
 }

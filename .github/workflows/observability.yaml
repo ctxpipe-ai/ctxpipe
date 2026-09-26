@@ -1,45 +1,6 @@
-# Observability Terraform.
-#
-# pull_request only (never pull_request_target). The plan job runs only when
-# head.repo.full_name == github.repository, so a fork PR never receives
-# RAILWAY_TOKEN or the R2 state credentials. Permissions stay least
-# privilege: contents: read on every job, plus pull-requests: write only on
-# the plan job (the PR comment). Checkout does not persist the GitHub token.
-#
-# Provider railway 0.6.1 has one credential (RAILWAY_TOKEN or provider.token)
-# and no read-only token. terraform plan refreshes live resources, so a plan
-# cannot run without that token. R2 credentials are required to read state.
-# They are published as AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY for the S3
-# backend and are not passed on the terraform command line.
-#
-# PR plans use -lock=false. They do not write state; taking the lock would
-# block an apply for up to the 10m lock timeout. Apply plans and applies
-# keep the lock.
-#
-# Plan text redacts railway_variable_collection.variables.value (the provider
-# marks it Sensitive). The only TF_VAR is github_repo_branch=main, which is
-# not a secret, so no TF_VAR is marked sensitive. The comment step refuses
-# to post plan output if a credential value appears in it.
-#
-# USER ACTION: GitHub Environment terraform-plan has no protection rules.
-# Add required reviewers (Settings → Environments → terraform-plan) before
-# treating PR plans as gated. This file cannot create that rule. Until then,
-# any same-repo PR that touches these paths can plan with the token and the
-# R2 credentials.
-#
-# push to main and workflow_dispatch apply only when github.ref is
-# refs/heads/main. Create GitHub Environment observability with required
-# reviewers and a main-only deployment branch policy BEFORE merging.
-# If it does not exist, the first push creates it with no rules and apply
-# runs ungated.
-#
-# After a guarded apply, pin the region, then redeploy GitHub-built services
-# whose folders changed. The Railway GitHub App is not installed, so a push
-# does not rebuild them. Region pin is a live mutation (it can copy
-# clickhouse-data / mongo-data); it runs only after plan and plan-guard pass.
-#
-# Security: terraform plan executes provider code with RAILWAY_TOKEN and the
-# R2 state credentials present. Service secret values stay on Railway.
+# Observability Terraform for the ClickStack and Langfuse Railway project.
+# Pull requests plan; main applies. See ops/observability/README.md.
+# GitHub Environments terraform-plan and observability need required reviewers.
 
 name: Observability
 
@@ -54,17 +15,47 @@ on:
       - "ops/observability/**"
       - ".github/workflows/observability.yaml"
   workflow_dispatch:
-    inputs:
-      deploy_services:
-        description: "After apply, deploy these GitHub-built services: all, or collector,clickhouse,railway-telemetry"
-        required: false
-        default: all
-        type: string
+
+env:
+  RAILWAY_PROJECT_ID: 305aa114-c6f3-4aca-b883-0faa9c331aa2
 
 permissions:
   contents: read
 
 jobs:
+  test:
+    name: Test observability packages
+    if: github.event_name == 'pull_request' && github.repository == 'ctxpipe-ai/ctxpipe'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: useblacksmith/setup-node@v5
+        with:
+          node-version: "22"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.11"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test railway-telemetry
+        run: pnpm --filter railway-telemetry test
+
+      - name: Typecheck railway-telemetry
+        run: pnpm --filter railway-telemetry typecheck
+
+      - name: Typecheck HyperDX provision
+        run: pnpm exec tsc --noEmit -p ops/observability/hyperdx
+
   validate:
     name: Validate observability Terraform
     if: github.repository == 'ctxpipe-ai/ctxpipe'
@@ -76,8 +67,6 @@ jobs:
     defaults:
       run:
         working-directory: ops/observability/terraform
-    permissions:
-      contents: read
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
@@ -98,9 +87,59 @@ jobs:
       - name: Terraform validate
         run: terraform validate
 
+  images:
+    name: Build observability images
+    if: github.repository == 'ctxpipe-ai/ctxpipe' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [collector, clickhouse, railway-telemetry]
+    steps:
+      - name: Checkout repository
+        uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
+        with:
+          persist-credentials: false
+
+      - name: Setup Blacksmith Builder
+        uses: useblacksmith/setup-docker-builder@v1
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image tag
+        id: tag
+        run: echo "tag=$(git rev-parse "HEAD:ops/observability/${{ matrix.service }}")" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: ops/observability/${{ matrix.service }}
+          file: ops/observability/${{ matrix.service }}/Dockerfile
+          push: true
+          tags: ghcr.io/ctxpipe-ai/obs-${{ matrix.service }}:${{ steps.tag.outputs.tag }}
+
+      - name: Make GHCR package public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -fsS -X PATCH \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/orgs/ctxpipe-ai/packages/container/obs-${{ matrix.service }}" \
+            -d '{"visibility":"public"}'
+
   plan:
     name: Observability Terraform plan (PR)
-    needs: validate
+    needs: [validate, images]
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 20
@@ -116,20 +155,26 @@ jobs:
         working-directory: ops/observability/terraform
     env:
       TF_IN_AUTOMATION: "true"
-      TF_VAR_github_repo_branch: main
-      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
         with:
           persist-credentials: false
 
-      - name: Require observability Terraform credentials
-        id: credentials
-        run: bash require-credentials.sh
+      - name: Export observability image tags
+        working-directory: ${{ github.workspace }}
+        run: |
+          collector="$(git rev-parse "HEAD:ops/observability/collector")"
+          clickhouse="$(git rev-parse "HEAD:ops/observability/clickhouse")"
+          telemetry="$(git rev-parse "HEAD:ops/observability/railway-telemetry")"
+          {
+            echo "TF_VAR_collector_image=ghcr.io/ctxpipe-ai/obs-collector:${collector}"
+            echo "TF_VAR_clickhouse_image=ghcr.io/ctxpipe-ai/obs-clickhouse:${clickhouse}"
+            echo "TF_VAR_railway_telemetry_image=ghcr.io/ctxpipe-ai/obs-railway-telemetry:${telemetry}"
+          } >> "$GITHUB_ENV"
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
@@ -137,93 +182,43 @@ jobs:
           terraform_version: 1.14.7
           terraform_wrapper: false
 
-      # Keys come from AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (published by
-      # require-credentials.sh). Do not put them on the terraform argv.
       - name: Terraform init
-        run: terraform init -input=false -backend-config="key=observability/terraform.tfstate"
+        run: terraform init -input=false
 
-      # -lock=false: this plan is read-only. Locking would block observability-apply
-      # for up to the lock timeout. Apply keeps the default lock.
       - name: Terraform plan
-        id: plan
-        run: |
-          set -o pipefail
-          set +e
-          terraform plan -no-color -input=false -lock=false -out=terraform.plan | tee plan.txt
-          plan_status=$?
-          chmod 0600 terraform.plan plan.txt 2>/dev/null || true
-          exit "$plan_status"
+        run: terraform plan -no-color -input=false -lock=false -out=terraform.plan | tee plan.txt
 
-      - name: Refuse destructive observability plan
-        id: guard
-        run: bash plan-guard.sh terraform.plan
+      - name: Refuse plans that delete resources
+        run: |
+          umask 077
+          terraform show -json terraform.plan > plan.json
+          jq -e '[.resource_changes[] | select(.change.actions | index("delete"))] | length == 0' plan.json
 
       - name: Generate Observability Terraform Plan comment
         if: always()
-        env:
-          CREDENTIALS_OUTCOME: ${{ steps.credentials.outcome }}
-          PLAN_OUTCOME: ${{ steps.plan.outcome }}
-          GUARD_OUTCOME: ${{ steps.guard.outcome }}
         run: |
-          set -euo pipefail
-          cd "${GITHUB_WORKSPACE}/ops/observability/terraform"
-          secretfile=""
-          cleanup_secrets() {
-            if [[ -n "${secretfile}" ]]; then
-              rm -f "$secretfile"
-            fi
-          }
-          trap cleanup_secrets EXIT
-          # Fixed-string search from a 0600 file so credential values are not
-          # arguments to grep. Refuse to post the plan if one appears.
-          if [[ -f plan.txt ]]; then
-            secretfile="$(mktemp)"
-            chmod 0600 "$secretfile"
-            {
-              builtin printf '%s\n' "${RAILWAY_TOKEN:-}" "${R2_ACCESS_KEY_ID:-}" "${R2_SECRET_ACCESS_KEY:-}" "${AWS_ACCESS_KEY_ID:-}" "${AWS_SECRET_ACCESS_KEY:-}"
-            } | awk 'length($0) >= 8' >"$secretfile"
-            if [[ -s "$secretfile" ]] && grep -F -q -f "$secretfile" plan.txt; then
-              rm -f "$secretfile"
-              echo "Plan text contained a credential value; not posting it." >&2
-              {
-                echo "## Observability Terraform Plan"
-                echo
-                echo "Plan output was withheld because it contained a credential value."
-              } > plan-comment.md
-              exit 1
-            fi
-            rm -f "$secretfile"
-          fi
           max_bytes=65536
+          truncated_note=""
+          if [[ -f plan.txt ]]; then
+            size=$(wc -c < plan.txt | tr -d ' ')
+            if [[ "$size" -gt "$max_bytes" ]]; then
+              head -c "$max_bytes" plan.txt > plan.tmp && mv plan.tmp plan.txt
+              truncated_note=$'\n\n_Plan output truncated (first '"$max_bytes"' bytes); see the workflow run logs for the full plan._'
+            fi
+          else
+            truncated_note=$'\n\n_No plan.txt produced (Terraform plan failed or did not write output)._'
+          fi
           {
             echo "## Observability Terraform Plan"
             echo
-            if [[ "$CREDENTIALS_OUTCOME" == "failure" ]]; then
-              echo "Credential check failed. Missing \`RAILWAY_TOKEN\`, \`R2_ACCESS_KEY_ID\`, or \`R2_SECRET_ACCESS_KEY\`. Terraform plan did not run."
-            elif [[ "$PLAN_OUTCOME" != "success" ]]; then
-              echo "Terraform plan did not succeed (outcome \`$PLAN_OUTCOME\`). No plan was produced to apply."
-            else
-              if [[ "$GUARD_OUTCOME" == "failure" ]]; then
-                echo "Plan guard refused this plan. It would delete or replace a service, custom domain, generated service domain, or variable collection, or change a service volume."
-                echo
-              fi
-              truncated_note=""
-              if [[ -f plan.txt ]]; then
-                size=$(wc -c < plan.txt | tr -d ' ')
-                if [[ "$size" -gt "$max_bytes" ]]; then
-                  head -c "$max_bytes" plan.txt > plan.tmp && mv plan.tmp plan.txt
-                  truncated_note=$'\n\n_Plan output truncated (first '"$max_bytes"' bytes); see the workflow run logs for the full plan._'
-                fi
-              fi
-              echo "<details><summary>Show plan</summary>"
-              echo
-              echo '```hcl'
-              cat plan.txt 2>/dev/null || true
-              echo "$truncated_note"
-              echo '```'
-              echo
-              echo "</details>"
-            fi
+            echo "<details><summary>Show plan</summary>"
+            echo
+            echo '```hcl'
+            cat plan.txt 2>/dev/null || true
+            echo "$truncated_note"
+            echo '```'
+            echo
+            echo "</details>"
           } > plan-comment.md
 
       - name: Find existing Observability Terraform Plan comment
@@ -247,7 +242,7 @@ jobs:
 
   apply:
     name: Observability Terraform apply
-    needs: validate
+    needs: [validate, images]
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.repository == 'ctxpipe-ai/ctxpipe'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 180
@@ -255,28 +250,31 @@ jobs:
       group: observability-apply
       cancel-in-progress: false
     environment: observability
-    permissions:
-      contents: read
     defaults:
       run:
         working-directory: ops/observability/terraform
     env:
       TF_IN_AUTOMATION: "true"
-      TF_VAR_github_repo_branch: main
-      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
         with:
-          fetch-depth: 0
           persist-credentials: false
 
-      - name: Require observability Terraform credentials
-        id: credentials
-        run: bash require-credentials.sh
+      - name: Export observability image tags
+        working-directory: ${{ github.workspace }}
+        run: |
+          collector="$(git rev-parse "HEAD:ops/observability/collector")"
+          clickhouse="$(git rev-parse "HEAD:ops/observability/clickhouse")"
+          telemetry="$(git rev-parse "HEAD:ops/observability/railway-telemetry")"
+          {
+            echo "TF_VAR_collector_image=ghcr.io/ctxpipe-ai/obs-collector:${collector}"
+            echo "TF_VAR_clickhouse_image=ghcr.io/ctxpipe-ai/obs-clickhouse:${clickhouse}"
+            echo "TF_VAR_railway_telemetry_image=ghcr.io/ctxpipe-ai/obs-railway-telemetry:${telemetry}"
+          } >> "$GITHUB_ENV"
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
@@ -284,43 +282,22 @@ jobs:
           terraform_version: 1.14.7
           terraform_wrapper: false
 
-      # Keys come from AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (published by
-      # require-credentials.sh). Do not put them on the terraform argv.
       - name: Terraform init
-        run: terraform init -input=false -backend-config="key=observability/terraform.tfstate"
+        run: terraform init -input=false
 
-      # Default lock stays on. concurrency observability-apply serializes this
-      # job; the state lock also blocks a local apply. PR plans use -lock=false.
       - name: Terraform plan
-        run: |
-          set +e
-          terraform plan -input=false -lock-timeout=10m -out=terraform.plan
-          plan_status=$?
-          chmod 0600 terraform.plan 2>/dev/null || true
-          exit "$plan_status"
+        run: terraform plan -input=false -lock-timeout=10m -out=terraform.plan
 
-      - name: Refuse destructive observability plan
-        run: bash plan-guard.sh terraform.plan
+      - name: Refuse plans that delete resources
+        run: |
+          umask 077
+          terraform show -json terraform.plan > plan.json
+          jq -e '[.resource_changes[] | select(.change.actions | index("delete"))] | length == 0' plan.json
 
       - name: Terraform apply
         run: terraform apply -input=false -auto-approve -lock-timeout=10m terraform.plan
 
-      # Provider Update() never sends multiRegionConfig (issue #77). Pin only
-      # after plan-guard and apply. A region change copies clickhouse-data /
-      # mongo-data and takes those services down, so it must not run when the
-      # guard rejects the plan. regions is ignore_changes; Read() does not
-      # need the pin first.
+      # Provider Update() never sends multiRegionConfig (issue #77).
       - name: Pin Railway observability region
         working-directory: ${{ github.workspace }}
-        run: RAILWAY_SERVICE_SET=observability RAILWAY_PROJECT_ID=305aa114-c6f3-4aca-b883-0faa9c331aa2 bash scripts/railway-set-regions.sh
-
-      # The Railway GitHub App is not installed (NO_INSTALLATION), so a push
-      # does not rebuild these services. Deploy only the folders that changed.
-      # ClickHouse restarts in place; this does not copy the volume.
-      - name: Deploy changed GitHub-built services
-        working-directory: ${{ github.workspace }}
-        env:
-          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
-          DEPLOY_SERVICES: ${{ inputs.deploy_services }}
-          RAILWAY_PROJECT_ID: 305aa114-c6f3-4aca-b883-0faa9c331aa2
-        run: bash ops/observability/deploy-github-services.sh
+        run: RAILWAY_SERVICE_SET=observability bash scripts/railway-set-regions.sh

@@ -1,5 +1,0 @@
-# Copy to terraform.tfvars (gitignored) or pass TF_VAR_*.
-# railway_project_id and railway_environment_id default to ctxpipe-observability production.
-# Secret values are Railway variables, not Terraform variables. See README.md.
-
-github_repo_branch = "main"

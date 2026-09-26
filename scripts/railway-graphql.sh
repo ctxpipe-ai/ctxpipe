@@ -1,48 +1,22 @@
 # shellcheck shell=bash
 # Railway GraphQL helpers. Source this file; it defines functions only.
-# GraphQL documents are single-quoted on purpose (shellcheck SC2016).
+# GraphQL documents are single-quoted on purpose.
 # shellcheck disable=SC2016
-#
-# Caller sets TOKEN (Bearer) before railway_graphql, and PROJECT_ID plus
-# ENVIRONMENT_NAME before railway_load_project. railway_load_project sets
-# ENV_ID and ids_by_name.
 
 railway_graphql() {
   local query="$1"
   local variables="$2"
-  local raw http_code body cfg status=0
-  if [[ -z "${TOKEN:-}" ]]; then
-    echo "railway_graphql: TOKEN is not set" >&2
+  local token="${RAILWAY_TOKEN:-${RAILWAY_API_TOKEN:-${TOKEN:-}}}"
+  local raw http_code body
+  if [[ -z "$token" ]]; then
+    echo "railway_graphql: RAILWAY_TOKEN is not set" >&2
     return 1
   fi
-  # curl config quotes the header. A quote, backslash, or newline would break
-  # the line or inject another option. Railway tokens do not contain these.
-  local unsafe="${TOKEN//[^$'\n'\"\\]/}"
-  if [[ -n "$unsafe" ]]; then
-    echo "railway_graphql: TOKEN has a newline, quote, or backslash; refusing to write a curl config" >&2
-    return 1
-  fi
-  cfg="$(mktemp)"
-  chmod 0600 "$cfg" || {
-    rm -f "$cfg"
-    return 1
-  }
-  # printf is a bash builtin, so TOKEN is not an external command's argv.
-  # curl reads it from this file via --config, not from -H on the command line.
-  builtin printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" >"$cfg"
-  builtin printf 'header = "Content-Type: application/json"\n' >>"$cfg"
-  # pipefail is local to this subshell. The body is stdin (--data-binary @-),
-  # not curl's argv.
-  raw="$(
-    set -o pipefail
-    jq -nc --arg q "$query" --argjson v "$variables" '{query:$q,variables:$v}' |
-      curl -sS --config "$cfg" -w '\n%{http_code}' --data-binary @- \
-        https://backboard.railway.com/graphql/v2
-  )" || status=$?
-  rm -f "$cfg"
-  if (( status != 0 )); then
-    return "$status"
-  fi
+  raw="$(curl -sS -w '\n%{http_code}' \
+    -H "Authorization: Bearer $token" \
+    -H "Content-Type: application/json" \
+    -d "$(jq -nc --arg q "$query" --argjson v "$variables" '{query:$q,variables:$v}')" \
+    https://backboard.railway.com/graphql/v2)" || return $?
   http_code="$(printf '%s' "$raw" | tail -n1)"
   body="$(printf '%s' "$raw" | sed '$d')"
   if [[ "$http_code" != "200" ]]; then
@@ -58,12 +32,11 @@ railway_graphql() {
   printf '%s' "$body"
 }
 
-railway_load_project() {
+load_project() {
   local project_json
   project_json="$(railway_graphql \
     'query Project($id: String!) { project(id: $id) { environments { edges { node { id name } } } services { edges { node { id name } } } } }' \
     "$(jq -nc --arg id "$PROJECT_ID" '{id:$id}')")"
-  # Globals for scripts that source this file.
   # shellcheck disable=SC2034
   ENV_ID="$(echo "$project_json" | jq -r --arg n "$ENVIRONMENT_NAME" '
     .data.project.environments.edges[]?.node | select(.name == $n) | .id
@@ -77,70 +50,4 @@ railway_load_project() {
     [.data.project.services.edges[]?.node // empty | select(.name and .id) | {key: .name, value: .id}]
     | from_entries
   ')"
-}
-
-deploy_service() {
-  local service_id="$1"
-  railway_graphql \
-    'mutation serviceInstanceDeployV2($serviceId: String!, $environmentId: String!) { serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId) }' \
-    "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')" >/dev/null
-}
-
-railway_list_deployments() {
-  local service_id="$1"
-  railway_graphql \
-    'query deployments($input: DeploymentListInput!) { deployments(input: $input) { edges { node { id status createdAt } } } }' \
-    "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{input:{environmentId:$env, serviceId:$service}}')"
-}
-
-railway_latest_deployment_created_at() {
-  local service_id="$1"
-  local response
-  response="$(railway_list_deployments "$service_id")"
-  echo "$response" | jq -r '
-    [.data.deployments.edges[]?.node // empty]
-    | sort_by(.createdAt) | reverse | .[0].createdAt // empty
-  '
-}
-
-# wait_deploy LABEL SERVICE_ID SECONDS [NOT_BEFORE_CREATED_AT]
-# NOT_BEFORE skips a deployment that was already current, so a redeploy is
-# not reported done because the previous SUCCESS is still the latest row.
-wait_deploy() {
-  local label="$1"
-  local service_id="$2"
-  local wait_seconds="$3"
-  local not_before="${4:-}"
-  local deadline=$(( $(date +%s) + wait_seconds ))
-  echo "Waiting for $label deploy (up to ${wait_seconds}s)"
-  while true; do
-    local response status created
-    response="$(railway_list_deployments "$service_id")"
-    status="$(echo "$response" | jq -r '
-      [.data.deployments.edges[]?.node // empty]
-      | sort_by(.createdAt) | reverse | .[0].status // empty
-    ')"
-    created="$(echo "$response" | jq -r '
-      [.data.deployments.edges[]?.node // empty]
-      | sort_by(.createdAt) | reverse | .[0].createdAt // empty
-    ')"
-    if [[ -n "$not_before" && ( -z "$created" || "$created" < "$not_before" || "$created" == "$not_before" ) ]]; then
-      echo "$label waiting for a deployment newer than $not_before (latest ${created:-none}, status ${status:-none})"
-      status=""
-    else
-      echo "$label status=${status:-none}"
-    fi
-    case "$status" in
-      SUCCESS|SLEEPING) return 0 ;;
-      FAILED|CRASHED|REMOVED)
-        echo "$response" | jq -c '.data.deployments.edges[0].node // .' >&2
-        return 1
-        ;;
-    esac
-    if (( $(date +%s) >= deadline )); then
-      echo "timeout waiting for $label" >&2
-      return 1
-    fi
-    sleep 10
-  done
 }

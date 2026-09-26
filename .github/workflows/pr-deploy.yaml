@@ -357,31 +357,8 @@ jobs:
             require_var UI_SERVICE_ID
             require_var CODESEARCH_SERVICE_ID
 
-            railway_graphql() {
-              local query="$1"
-              local variables="$2"
-              local raw http_code body
-              # Capture body + status so GraphQL validation/400s are visible in logs
-              # (curl -f alone only prints "returned error: 400").
-              raw="$(curl -sS -w '\n%{http_code}' \
-                -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
-                -H "Content-Type: application/json" \
-                -d "$(jq -nc --arg q "$query" --argjson v "$variables" '{query:$q,variables:$v}')" \
-                https://backboard.railway.com/graphql/v2)" || return $?
-              http_code="$(printf '%s' "$raw" | tail -n1)"
-              body="$(printf '%s' "$raw" | sed '$d')"
-              if [[ "$http_code" != "200" ]]; then
-                echo "Railway GraphQL HTTP $http_code for query: ${query:0:120}…" >&2
-                echo "$body" >&2
-                return 22
-              fi
-              if echo "$body" | jq -e '.errors | type == "array" and length > 0' >/dev/null 2>&1; then
-                echo "Railway GraphQL errors for query: ${query:0:120}…" >&2
-                echo "$body" | jq -c '.errors' >&2
-                return 22
-              fi
-              printf '%s' "$body"
-            }
+            # shellcheck disable=SC1091
+            source "${GITHUB_WORKSPACE}/scripts/railway-graphql.sh"
 
             # Poll until Railway has a live instance in this environment.
             # Duplicate-from-production creates the env immediately; instances
