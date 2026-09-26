@@ -28,7 +28,7 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 **Not wired** (intentionally): local Postgres MCP, GitHub MCP, codesearch MCP, Linear/Notion MCP, ClickHouse `mcp-clickhouse` (ClickHouse is only on `clickhouse.railway.internal`; query through `hyperdx`).
 
-**Ops debugging / logs (preference order):** Product logs and traces are OTLP. Follow [`.cursor/skills/observability/SKILL.md`](.cursor/skills/observability/SKILL.md) and [ops/observability/USING.md](ops/observability/USING.md). A local `.evlog/logs/` drain is not the product path ([`.cursor/skills/analyze-logs`](.cursor/skills/analyze-logs/SKILL.md) is that filesystem reader for other stacks).
+**Ops debugging / logs (preference order):** Product logs and traces are OTLP. Follow [`.cursor/skills/observability/SKILL.md`](.cursor/skills/observability/SKILL.md) and [ops/observability/USING.md](ops/observability/USING.md).
 
 1. **HyperDX MCP** (`hyperdx`) — logs, traces, metrics, page-view spans. Filter `DeploymentEnvironment` (`production`, `pr-N`, `observability`, `local-<name>`).
 2. **Langfuse MCP** (`langfuse`) — LLM traces and prompt text (HyperDX stores those spans with prompt attributes removed).
@@ -177,6 +177,17 @@ Durable agent memory is **Markdown-only** under **[.ai/memory/](.ai/memory/)**. 
 - **Avoid pulling to globals**: Do not extract config or one-off values to module/global scope unless they are reused in more than one place. Inline them where they are used.
 - **Environment variables**: Use only for values that differ by **environment** or that **operators/customers must set** (secrets, base URLs, infra limits). Do not use env for **feature toggles** or **internal logic**; keep those in code or committed config. See [.ai/memory/lessons-learned.md](.ai/memory/lessons-learned.md). **Agents:** Do not add or document **new** environment variables unless they are **required** to complete the assigned task — prefer resolving paths or behavior in committed code rather than expanding operator surface area.
 - **Backend logging**: In `apps/backend`, use **evlog** (`getLogger()` or `log` from `src/observability/logger.ts`) — not `console.*`. See [apps/backend/AGENTS.md](apps/backend/AGENTS.md) (Logging).
+
+## Testing
+
+Test through the module's public interface with its real collaborators. Fake the **environment**, not our own modules:
+
+- **HTTP** (codesearch, GitHub, Railway, OTLP, model providers): `msw` — `setupServer` from `msw/node`, handlers beside the test. Already in `apps/ui`; add `msw` as a devDependency where a package lacks it.
+- **Postgres**: a real database. Name the file `*.integration.test.ts`, gate it with `describe.skipIf(!process.env.DATABASE_URL)`, call `initDb`, and suffix ids per run — pattern: `apps/backend/src/models/github-pr-mirror.integration.test.ts`. `pnpm dev:infra` + `pnpm db:migrate` provides the database.
+- **Config**: `vi.stubEnv` (modules read `parseEnv(process.env)`), or pass the value in.
+- **Time**: `vi.useFakeTimers()`. **Telemetry**: the SDK's `InMemorySpanExporter` / `InMemoryLogRecordExporter` / `InMemoryMetricExporter`.
+
+`vi.mock` of a repo module (`./…`, `../…`) is the last resort, for an import-time side effect you cannot configure; name that side effect in a one-line comment on the call. A file that needs more than two module mocks is testing the wrong seam — move the test to a seam where msw or the test database applies. Details: [tdd `mocking.md`](.cursor/skills/tdd/mocking.md).
 
 ## Package releases
 

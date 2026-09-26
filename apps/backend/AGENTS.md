@@ -21,6 +21,10 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 - **No request/workflow logger** (domain helpers, DB hooks, early bootstrap): use **`log`** from [`src/observability/logger.ts`](src/observability/logger.ts) (re-exported evlog `log`: `log.info({ step, message, ... })` / `log.error` — emits immediately). For workflow-scoped wide events that buffer until flush, use **`createLogger`** + **`withLogger`** / **`emit()`** as today. Call **`initEvlog()`** once at script entry if the process does not go through `server.ts`.
 - **Exception**: evlog’s internal pipeline may still write to stderr on unrecoverable drain failures; do not add new direct `console` usage for application logging.
 
+## Testing
+
+Testing: [root AGENTS.md → Testing](../../AGENTS.md#testing).
+
 ## Agent tools (ingestion + conversation)
 
 - Shared explorer tools live in [`src/tools/repoExplorerTools.ts`](src/tools/repoExplorerTools.ts): `glob_files`, `search`, `find_symbol_definitions` (Zoekt `sym:`), `find_symbol_references` (heuristic regexp), `structural_search` (ast-grep), SCIP-backed `graph_*` tools, and `get_file`. The production **codesearch** image installs the SCIP indexer matrix and ast-grep; see [`apps/codesearch/Dockerfile`](../codesearch/Dockerfile).

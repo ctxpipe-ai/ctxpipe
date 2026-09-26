@@ -8,3 +8,7 @@ When working in **`apps/ui`**, follow these instructions in addition to the root
 - **Storybook skill**: For Storybook conventions, colocated stories, MSW, and Storybook MCP, read and follow **[`.agents/skills/storybook/SKILL.md`](../../.agents/skills/storybook/SKILL.md)** (same path via [`.cursor/skills/storybook`](../../.cursor/skills/storybook/SKILL.md)).
 - **UI behaviour coverage**: Use **colocated Storybook stories with `play()`** (and MSW) for visual interactions. Storybook plays are not currently run in CI; keep security and request-contract regressions in focused Vitest tests at non-visual seams. Do not replace an entire component stack with mocks merely to exercise DOM wiring.
 - **Inline prose markup**: In user-facing copy inside components, use **plain JSX** for emphasis and code snippets (`<strong className="…">`, `<code className="…">`, etc.) in place. Do **not** add tiny helper functions or wrapper components whose only job is to wrap a string (e.g. `{lbl("Settings")}` or `ghStrong("Payload URL")`) — repeat the markup so the structure stays explicit at each call site.
+
+## Testing
+
+Testing: [root AGENTS.md → Testing](../../AGENTS.md#testing).

@@ -255,6 +255,9 @@ importers:
       drizzle-kit:
         specifier: beta
         version: 1.0.0-beta.22
+      msw:
+        specifier: ^2.13.6
+        version: 2.13.6(@types/node@25.3.0)(typescript@5.9.3)
       tsx:
         specifier: 4.21.0
         version: 4.21.0
@@ -331,6 +334,9 @@ importers:
       '@types/pg':
         specifier: ^8.16.0
         version: 8.16.0
+      msw:
+        specifier: ^2.13.6
+        version: 2.13.6(@types/node@25.3.0)(typescript@5.9.3)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -654,6 +660,12 @@ importers:
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
+
+  ops/observability/railway-telemetry:
+    devDependencies:
+      msw:
+        specifier: ^2.13.6
+        version: 2.13.6(@types/node@25.6.0)(typescript@5.9.3)
 
   packages/aws-cdk:
     dependencies:
@@ -16599,6 +16611,13 @@ snapshots:
     optionalDependencies:
       '@types/node': 25.3.0
 
+  '@inquirer/confirm@6.0.12(@types/node@25.6.0)':
+    dependencies:
+      '@inquirer/core': 11.1.9(@types/node@25.6.0)
+      '@inquirer/type': 4.0.5(@types/node@25.6.0)
+    optionalDependencies:
+      '@types/node': 25.6.0
+
   '@inquirer/core@11.1.9(@types/node@25.3.0)':
     dependencies:
       '@inquirer/ansi': 2.0.5
@@ -16610,6 +16629,18 @@ snapshots:
       signal-exit: 4.1.0
     optionalDependencies:
       '@types/node': 25.3.0
+
+  '@inquirer/core@11.1.9(@types/node@25.6.0)':
+    dependencies:
+      '@inquirer/ansi': 2.0.5
+      '@inquirer/figures': 2.0.5
+      '@inquirer/type': 4.0.5(@types/node@25.6.0)
+      cli-width: 4.1.0
+      fast-wrap-ansi: 0.2.0
+      mute-stream: 3.0.0
+      signal-exit: 4.1.0
+    optionalDependencies:
+      '@types/node': 25.6.0
 
   '@inquirer/external-editor@1.0.3(@types/node@25.3.0)':
     dependencies:
@@ -16630,6 +16661,10 @@ snapshots:
   '@inquirer/type@4.0.5(@types/node@25.3.0)':
     optionalDependencies:
       '@types/node': 25.3.0
+
+  '@inquirer/type@4.0.5(@types/node@25.6.0)':
+    optionalDependencies:
+      '@types/node': 25.6.0
 
   '@instantdb/core@0.22.142':
     dependencies:
@@ -27048,6 +27083,31 @@ snapshots:
   msw@2.13.6(@types/node@25.3.0)(typescript@5.9.3):
     dependencies:
       '@inquirer/confirm': 6.0.12(@types/node@25.3.0)
+      '@mswjs/interceptors': 0.41.3
+      '@open-draft/deferred-promise': 3.0.0
+      '@types/statuses': 2.0.6
+      cookie: 1.1.1
+      graphql: 16.13.2
+      headers-polyfill: 5.0.1
+      is-node-process: 1.2.0
+      outvariant: 1.4.3
+      path-to-regexp: 6.3.0
+      picocolors: 1.1.1
+      rettime: 0.11.8
+      statuses: 2.0.2
+      strict-event-emitter: 0.5.1
+      tough-cookie: 6.0.1
+      type-fest: 5.6.0
+      until-async: 3.0.2
+      yargs: 17.7.2
+    optionalDependencies:
+      typescript: 5.9.3
+    transitivePeerDependencies:
+      - '@types/node'
+
+  msw@2.13.6(@types/node@25.6.0)(typescript@5.9.3):
+    dependencies:
+      '@inquirer/confirm': 6.0.12(@types/node@25.6.0)
       '@mswjs/interceptors': 0.41.3
       '@open-draft/deferred-promise': 3.0.0
       '@types/statuses': 2.0.6

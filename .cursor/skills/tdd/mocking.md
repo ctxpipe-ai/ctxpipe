@@ -1,19 +1,20 @@
 # When to Mock
 
-Mock at **system boundaries** only:
+Fake the **environment** at system boundaries; keep every module we own real.
 
-- External APIs (payment, email, etc.)
-- Databases (sometimes - prefer test DB)
-- Time/randomness
-- File system (sometimes)
+| Boundary | Use |
+| --- | --- |
+| Outbound HTTP (our services, third-party APIs, OTLP, LLM providers) | `msw` (`setupServer` from `msw/node`) |
+| Postgres | Real test database — `*.integration.test.ts` gated on `DATABASE_URL` (see root AGENTS.md → Testing) |
+| Config | `vi.stubEnv`, or pass the value as an argument |
+| Time / randomness | `vi.useFakeTimers()`; inject the random source |
+| Telemetry output | OTel SDK in-memory exporters |
 
-Don't mock:
-
-- Your own classes/modules
-- Internal collaborators
-- Anything you control
+`vi.mock` of a repo module is reserved for an import-time side effect that cannot be configured, with a one-line comment naming it. Mocking our own env, db client, logger, or retry helper tests the mock: the test keeps passing when behavior breaks and fails when a refactor keeps it.
 
 ## Designing for Mockability
+
+These patterns shape the boundary adapters msw or the test database exercises; they are not a licence to inject fakes of our own modules.
 
 At system boundaries, design interfaces that are easy to mock:
 
