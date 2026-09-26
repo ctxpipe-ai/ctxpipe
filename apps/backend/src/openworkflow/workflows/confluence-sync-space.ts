@@ -20,7 +20,6 @@ export const confluenceSyncSpace = defineWorkflow(
   {
     name: "confluence-sync-space",
     schema: confluenceSyncSpaceInputSchema,
-    connectorType: "confluence",
   },
   async ({ input, step }) => {
     const forgeInstallation = await withOrgDbContext(input.orgId, (db) =>

@@ -337,7 +337,7 @@ function runProvisionCli(
 }
 
 export const forgeProvision = defineWorkflow(
-  { name: "forge-provision", schema: inputSchema, connectorType: "forge" },
+  { name: "forge-provision", schema: inputSchema },
   async ({ input, step }) => {
     const runLabel = `fp_${input.connectionId.slice(-8)}_${Date.now()}`
     const dryRun = process.env.FORGE_PROVISION_DRY_RUN === "1"

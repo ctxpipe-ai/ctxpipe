@@ -67,12 +67,8 @@ describe("withIngestAgentContext", () => {
             () =>
               withIngestAgentContext(
                 {
-                  sessionId: "repository-ingestion:wr_1",
+                  runName: "repository-ingestion.identify",
                   tags: ["repository-ingestion"],
-                  traceMetadata: {
-                    workflow: "repository-ingestion",
-                    workflowRunId: "wr_1",
-                  },
                   metadata: {
                     rootId: "src",
                     workflowStepName: "identify:src",

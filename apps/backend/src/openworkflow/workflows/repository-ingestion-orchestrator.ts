@@ -1,6 +1,5 @@
 import { z } from "zod"
 import { withOrgDbContext } from "../../db/client.js"
-import { isRepositoryGoneError } from "../../domain/codeIngestion/repositoryGone.js"
 import {
   markRepositoryIndexingFailed,
   repositoryIngestionBlockedByDeletion,
@@ -65,12 +64,10 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
           }
 
           const normalized = err instanceof Error ? err : new Error(String(err))
-          const deleted =
-            isRepositoryGoneError(err) ||
-            (await repositoryIngestionBlockedByDeletion({
-              orgId: input.orgId,
-              repositoryId: input.repositoryId,
-            }))
+          const deleted = await repositoryIngestionBlockedByDeletion({
+            orgId: input.orgId,
+            repositoryId: input.repositoryId,
+          })
           if (deleted) {
             getLogger().info("repository-ingestion-orchestrator.stopped", {
               step: "repository-ingestion-orchestrator.stopped",

@@ -24,7 +24,6 @@ export const notionSyncEntity = defineWorkflow(
   {
     name: "notion-sync-entity",
     schema: notionSyncEntityInputSchema,
-    connectorType: "notion",
   },
   async ({ input, step }) => {
     const env = parseEnv(process.env as Record<string, string | undefined>)

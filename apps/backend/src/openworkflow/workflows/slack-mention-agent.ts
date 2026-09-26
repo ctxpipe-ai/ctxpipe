@@ -33,7 +33,6 @@ export const slackMentionAgent = defineWorkflow(
   {
     name: "slack-mention-agent",
     schema: slackMentionAgentInputSchema,
-    connectorType: "slack",
   },
   async ({ input, step }) => {
     const target = await step.run(

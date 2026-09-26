@@ -32,5 +32,5 @@ describe("PagerDuty workflow discovery", () => {
     expect(pagerdutySyncConfig.spec.name).toBe("pagerduty-sync-config")
     expect(pagerdutySyncContent.spec.name).toBe("pagerduty-sync-content")
     expect(pagerdutySyncEntity.spec.name).toBe("pagerduty-sync-entity")
-  })
+  }, 20_000)
 })

@@ -38,7 +38,6 @@ export const githubSyncPullRequest = defineWorkflow(
   {
     name: "github-sync-pull-request",
     schema: GithubSyncPullRequestInputSchema,
-    connectorType: "github",
   },
   async ({ input, step }) => {
     const env = parseEnv(process.env as Record<string, string | undefined>)

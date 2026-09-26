@@ -28,7 +28,6 @@ export const pagerdutySyncConfig = defineWorkflow(
   {
     name: "pagerduty-sync-config",
     schema: pagerdutySyncConfigInputSchema,
-    connectorType: "pagerduty",
   },
   async ({ input, step }) => {
     const env = parseEnv(process.env as Record<string, string | undefined>)

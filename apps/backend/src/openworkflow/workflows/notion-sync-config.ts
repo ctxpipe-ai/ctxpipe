@@ -29,7 +29,6 @@ export const notionSyncConfig = defineWorkflow(
   {
     name: "notion-sync-config",
     schema: notionSyncConfigInputSchema,
-    connectorType: "notion",
   },
   async ({ input, step }) => {
     const binding = await step.run({ name: "load-notion-binding" }, () =>

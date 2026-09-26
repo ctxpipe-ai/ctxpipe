@@ -107,7 +107,6 @@ export function withLangfuseObservation<T>(
     name: string
     input?: Record<string, unknown>
     metadata?: Record<string, unknown>
-    tags?: string[]
   },
   fn: () => Promise<T>,
 ): Promise<T> {
@@ -118,7 +117,6 @@ export function withLangfuseObservation<T>(
         ...(attrs.input !== undefined ? { input: attrs.input } : {}),
         metadata: {
           ...attrs.metadata,
-          ...(attrs.tags ? { tags: attrs.tags } : {}),
         },
       })
       return fn()
@@ -133,7 +131,6 @@ export function withLangfuseGeneration<T>(
     model?: string
     input: Record<string, unknown>
     metadata?: Record<string, unknown>
-    tags?: string[]
     summarizeOutput?: (result: T) => Record<string, unknown>
   },
   fn: () => Promise<T>,
@@ -146,7 +143,6 @@ export function withLangfuseGeneration<T>(
         ...(attrs.model ? { model: attrs.model } : {}),
         metadata: {
           ...attrs.metadata,
-          ...(attrs.tags ? { tags: attrs.tags } : {}),
         },
       })
       try {

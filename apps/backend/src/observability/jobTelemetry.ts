@@ -1,6 +1,5 @@
 import {
   context,
-  createContextKey,
   type Link,
   propagation,
   ROOT_CONTEXT,
@@ -11,28 +10,18 @@ import {
 import { z } from "zod"
 import { isWorkflowControlSignal } from "../openworkflow/isSleepSignal.js"
 import {
-  ATTRIBUTION_KEYS,
   type AttributionKey,
   contextWithAttributionBag,
   readAttribution,
   sanitizeAttribution,
 } from "./attribution.js"
-import { recordTerminalConnectorSync } from "./businessMetrics.js"
 import { dbErrorException } from "./scrubDbError.js"
-
-const IN_OPENWORKFLOW_JOB = createContextKey("ctxpipe.openworkflow.job")
 
 export const jobTelemetrySchema = z.object({
   /** W3C carrier from `propagation.inject`. */
   carrier: z.record(z.string(), z.string()).optional(),
-  /** Older runs stored a hand-built traceparent. Still linked on restore. */
-  traceparent: z.string().optional(),
   "request.id": z.string().optional(),
   "enduser.id": z.string().optional(),
-  "ctxpipe.org.id": z.string().optional(),
-  "ctxpipe.org.slug": z.string().optional(),
-  /** Set when this run was enqueued from another job. Fan-out is not a second sync. */
-  nested: z.boolean().optional(),
 })
 
 export type JobTelemetry = z.infer<typeof jobTelemetrySchema>
@@ -53,24 +42,14 @@ export function captureJobTelemetry(): JobTelemetry | undefined {
   const telemetry: JobTelemetry = {}
   const carrier = carrierFromActiveContext()
   if (carrier) telemetry.carrier = carrier
-  if (context.active().getValue(IN_OPENWORKFLOW_JOB) === true) {
-    telemetry.nested = true
-  }
-  for (const key of [
-    "request.id",
-    "enduser.id",
-    "ctxpipe.org.id",
-    "ctxpipe.org.slug",
-  ] as const) {
+  for (const key of ["request.id", "enduser.id"] as const) {
     const value = bag[key]
     if (value) telemetry[key] = value
   }
   if (
     !telemetry.carrier &&
-    !telemetry.nested &&
     !telemetry["request.id"] &&
-    !telemetry["enduser.id"] &&
-    !telemetry["ctxpipe.org.id"]
+    !telemetry["enduser.id"]
   ) {
     return undefined
   }
@@ -115,18 +94,8 @@ export function attachJobTelemetry<T>(
   if (record.telemetry && typeof record.telemetry === "object") {
     return input as T & { telemetry?: JobTelemetry }
   }
-  const telemetry: JobTelemetry = { ...(captureJobTelemetry() ?? {}) }
-  const orgId = stringField(record, "orgId")
-  const orgSlug = stringField(record, "orgSlug")
-  const capturedOrg = telemetry["ctxpipe.org.id"]
-  if (orgId) telemetry["ctxpipe.org.id"] = orgId
-  if (orgSlug) telemetry["ctxpipe.org.slug"] = orgSlug
-  else if (orgId && capturedOrg && orgId !== capturedOrg) {
-    delete telemetry["ctxpipe.org.slug"]
-  }
-  if (Object.keys(telemetry).length === 0) {
-    return input as T & { telemetry?: JobTelemetry }
-  }
+  const telemetry = captureJobTelemetry()
+  if (!telemetry) return input as T & { telemetry?: JobTelemetry }
   return { ...record, telemetry } as T & { telemetry: JobTelemetry }
 }
 
@@ -160,25 +129,22 @@ function exceptionForSpan(err: unknown): Error {
   return dbErrorException(original === undefined ? err : original)
 }
 
-function linkCarrier(fields: JobTelemetry): Record<string, string> | undefined {
-  if (fields.carrier?.traceparent) return fields.carrier
-  if (fields.traceparent) return { traceparent: fields.traceparent }
-  return undefined
+function telemetryFromInput(input: unknown): JobTelemetry {
+  if (!input || typeof input !== "object") return {}
+  const raw = (input as { telemetry?: unknown }).telemetry
+  const parsed = jobTelemetrySchema.safeParse(raw)
+  return parsed.success ? parsed.data : {}
 }
 
 export async function restoreJobTelemetry<T>(
-  telemetry: JobTelemetry | undefined,
+  input: unknown,
+  spec: { name: string },
   fn: () => Promise<T>,
-  input?: unknown,
-  workflowName?: string,
-  connectorType?: string,
 ): Promise<T> {
-  const parsed = telemetry ? jobTelemetrySchema.safeParse(telemetry) : null
-  const fields = parsed?.success ? parsed.data : {}
-  const nested = fields.nested === true
+  const fields = telemetryFromInput(input)
 
   const links: Link[] = []
-  const carrier = linkCarrier(fields)
+  const carrier = fields.carrier?.traceparent ? fields.carrier : undefined
   if (carrier) {
     const linked = trace.getSpanContext(
       propagation.extract(ROOT_CONTEXT, carrier),
@@ -190,19 +156,12 @@ export async function restoreJobTelemetry<T>(
   const bagPatch: Partial<Record<AttributionKey, string>> = {
     "ctxpipe.actor.type": "job",
   }
-  for (const key of ATTRIBUTION_KEYS) {
-    if (key === "ctxpipe.actor.type") continue
-    const value = fields[key as keyof JobTelemetry]
-    if (typeof value === "string") bagPatch[key] = value
-  }
-  const inputPatch = attributionPatchFromJobInput(input)
-  if (
-    inputPatch["ctxpipe.org.id"] &&
-    inputPatch["ctxpipe.org.id"] !== bagPatch["ctxpipe.org.id"]
-  ) {
-    delete bagPatch["ctxpipe.org.slug"]
-  }
-  const attribution = sanitizeAttribution({ ...bagPatch, ...inputPatch })
+  if (fields["request.id"]) bagPatch["request.id"] = fields["request.id"]
+  if (fields["enduser.id"]) bagPatch["enduser.id"] = fields["enduser.id"]
+  const attribution = sanitizeAttribution({
+    ...bagPatch,
+    ...attributionPatchFromJobInput(input),
+  })
   for (const [key, value] of Object.entries(attribution)) {
     if (value) bag.set(key, value)
   }
@@ -210,36 +169,22 @@ export async function restoreJobTelemetry<T>(
   return trace
     .getTracer("ctxpipe-backend")
     .startActiveSpan(
-      jobSpanName(workflowName),
+      jobSpanName(spec.name),
       { kind: SpanKind.CONSUMER, links },
       withBag,
       async (span) => {
         span.setAttributes(attribution)
         try {
-          return await context.with(
-            context.active().setValue(IN_OPENWORKFLOW_JOB, true),
-            async () => {
-              try {
-                const result = await fn()
-                if (!nested) {
-                  recordTerminalConnectorSync(connectorType, input, "success")
-                }
-                return result
-              } catch (error) {
-                if (isJobControlFlow(error)) throw error
-                if (!nested) {
-                  recordTerminalConnectorSync(connectorType, input, "failure")
-                }
-                const exception = exceptionForSpan(error)
-                span.recordException(exception)
-                span.setStatus({
-                  code: SpanStatusCode.ERROR,
-                  message: exception.message,
-                })
-                throw error
-              }
-            },
-          )
+          return await fn()
+        } catch (error) {
+          if (isJobControlFlow(error)) throw error
+          const exception = exceptionForSpan(error)
+          span.recordException(exception)
+          span.setStatus({
+            code: SpanStatusCode.ERROR,
+            message: exception.message,
+          })
+          throw error
         } finally {
           span.end()
         }

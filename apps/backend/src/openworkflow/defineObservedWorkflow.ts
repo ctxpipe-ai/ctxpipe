@@ -10,15 +10,6 @@ import {
   restoreJobTelemetry,
 } from "../observability/jobTelemetry.js"
 
-export type ConnectorType =
-  | "github"
-  | "linear"
-  | "notion"
-  | "slack"
-  | "confluence"
-  | "forge"
-  | "pagerduty"
-
 type JobInput<S extends z.ZodType> = z.output<S> & { telemetry?: JobTelemetry }
 type JobRaw<S extends z.ZodType> = z.input<S> & { telemetry?: JobTelemetry }
 
@@ -30,7 +21,6 @@ type ObservedSpec<S extends z.ZodObject<z.ZodRawShape>> = Pick<
   "name" | "version" | "retryPolicy"
 > & {
   schema: S
-  connectorType?: ConnectorType
 }
 
 function attachChildTelemetry(step: Step): void {
@@ -66,13 +56,7 @@ export function defineWorkflow<S extends z.ZodObject<z.ZodRawShape>, Output>(
     },
     (ctx) => {
       attachChildTelemetry(ctx.step)
-      return restoreJobTelemetry(
-        ctx.input.telemetry,
-        () => fn(ctx),
-        ctx.input,
-        spec.name,
-        spec.connectorType,
-      )
+      return restoreJobTelemetry(ctx.input, { name: spec.name }, () => fn(ctx))
     },
   )
 }

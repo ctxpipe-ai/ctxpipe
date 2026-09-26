@@ -422,11 +422,7 @@ describe("repository-ingestion index workflow boundary", () => {
     )
     expect(withIngestAgentContextMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        sessionId: "repository-ingestion:wr_1",
-        traceMetadata: expect.objectContaining({
-          workflowRunId: "wr_1",
-          targetHash: "abc",
-        }),
+        runName: "repository-ingestion.identify",
         metadata: expect.objectContaining({
           workflowStepName: "identify:src",
           rootId: "src",

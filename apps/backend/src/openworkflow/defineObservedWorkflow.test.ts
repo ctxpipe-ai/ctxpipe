@@ -27,18 +27,27 @@ describe("defineObservedWorkflow", () => {
 
   it("gives a child run the parent attribution and a link to the parent span", async () => {
     const child = defineWorkflow(
-      { name: "child-sync", schema: z.object({ orgId: z.string() }) },
+      {
+        name: "child-sync",
+        schema: z.object({ orgId: z.string(), orgSlug: z.string() }),
+      },
       async () => readAttribution(),
     )
     const parent = defineWorkflow(
       {
         name: "parent-sync",
-        schema: z.object({ orgId: z.string() }),
-        connectorType: "linear",
+        schema: z.object({ orgId: z.string(), orgSlug: z.string() }),
       },
       async ({ input, step }) => {
-        const orgId = await step.run({ name: "read-org" }, () => input.orgId)
-        return step.runWorkflow(child.spec, { orgId }, { name: "child" })
+        const org = await step.run({ name: "read-org" }, () => ({
+          orgId: input.orgId,
+          orgSlug: input.orgSlug,
+        }))
+        return step.runWorkflow(
+          child.spec,
+          { orgId: org.orgId, orgSlug: org.orgSlug },
+          { name: "child" },
+        )
       },
     )
 
@@ -51,9 +60,8 @@ describe("defineObservedWorkflow", () => {
     try {
       const handle = await ow.runWorkflow(parent.spec, {
         orgId: "org_1",
+        orgSlug: "acme",
         telemetry: {
-          "ctxpipe.org.id": "org_1",
-          "ctxpipe.org.slug": "acme",
           "enduser.id": "user_9",
           "request.id": "req_1",
         },

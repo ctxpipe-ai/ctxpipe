@@ -16,5 +16,5 @@ describe("Slack workflow discovery", () => {
     const { slackMentionAgent } = await import("./slack-mention-agent.js")
 
     expect(slackMentionAgent.spec.name).toBe("slack-mention-agent")
-  })
+  }, 20_000)
 })

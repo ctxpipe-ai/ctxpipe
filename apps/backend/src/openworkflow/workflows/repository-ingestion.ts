@@ -44,7 +44,6 @@ import {
 } from "../../retrieval/services/ingestionRetraction.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueFollowUpIfTipAhead } from "../enqueue-follow-up-if-tip-ahead.js"
-import { isWorkflowControlSignal } from "../isSleepSignal.js"
 import { withLoggedStepAttempt } from "../withLoggedStepAttempt.js"
 import { repositoryIndex } from "./repository-index.js"
 
@@ -411,6 +410,48 @@ export const repositoryIngestion = defineWorkflow(
               traceMetadata: baseLangfuseMetadata,
             }
 
+            const tracedExtractStep = <T>(
+              name: string,
+              rootId: string | null,
+              root: string | null,
+              fn: () => Promise<T>,
+            ): Promise<T> => {
+              const localName = name.slice("repository-ingestion.".length)
+              const stepName =
+                rootId === null ? localName : `${localName}:${rootId}`
+              return withLangfuseObservation(
+                {
+                  name,
+                  input:
+                    rootId === null
+                      ? {
+                          repositoryId: input.repositoryId,
+                          targetHash: baseIngestState.targetHash,
+                        }
+                      : { rootId, root },
+                  metadata: {
+                    ...baseLangfuseMetadata,
+                    workflowStepName: stepName,
+                    rootId,
+                    root,
+                  },
+                },
+                () =>
+                  withIngestAgentContext(
+                    {
+                      runName: name,
+                      tags: langfuseAttrs.tags,
+                      metadata: {
+                        workflowStepName: stepName,
+                        rootId,
+                        root,
+                      },
+                    },
+                    fn,
+                  ),
+              )
+            }
+
             const extractResult = await runWithLangfuseContext(
               langfuseAttrs,
               async () => {
@@ -418,33 +459,11 @@ export const repositoryIngestion = defineWorkflow(
                   { name: "identify-roots", retryPolicy: extractRetryPolicy },
                   () =>
                     wls("identify-roots", () =>
-                      withLangfuseObservation(
-                        {
-                          name: "repository-ingestion.identify-roots",
-                          input: {
-                            repositoryId: input.repositoryId,
-                            targetHash: baseIngestState.targetHash,
-                          },
-                          metadata: {
-                            ...baseLangfuseMetadata,
-                            workflowStepName: "identify-roots",
-                            rootId: null,
-                            root: null,
-                          },
-                        },
-                        () =>
-                          withIngestAgentContext(
-                            {
-                              ...langfuseAttrs,
-                              runName: "repository-ingestion.identify-roots",
-                              metadata: {
-                                workflowStepName: "identify-roots",
-                                rootId: null,
-                                root: null,
-                              },
-                            },
-                            () => identifyRoots(baseIngestState),
-                          ),
+                      tracedExtractStep(
+                        "repository-ingestion.identify-roots",
+                        null,
+                        null,
+                        () => identifyRoots(baseIngestState),
                       ),
                     ),
                 )
@@ -469,31 +488,11 @@ export const repositoryIngestion = defineWorkflow(
                       },
                       () =>
                         wls(`extract-kind:${rootId}`, () =>
-                          withLangfuseObservation(
-                            {
-                              name: "repository-ingestion.extract-kind",
-                              input: { rootId, root },
-                              metadata: {
-                                ...baseLangfuseMetadata,
-                                workflowStepName: `extract-kind:${rootId}`,
-                                rootId,
-                                root,
-                              },
-                            },
-                            () =>
-                              withIngestAgentContext(
-                                {
-                                  ...langfuseAttrs,
-                                  runName: "repository-ingestion.extract-kind",
-                                  metadata: {
-                                    workflowStepName: `extract-kind:${rootId}`,
-                                    rootId,
-                                    root,
-                                  },
-                                },
-                                () =>
-                                  runExtractKindForRoot(baseIngestState, root),
-                              ),
+                          tracedExtractStep(
+                            "repository-ingestion.extract-kind",
+                            rootId,
+                            root,
+                            () => runExtractKindForRoot(baseIngestState, root),
                           ),
                         ),
                     )
@@ -509,34 +508,15 @@ export const repositoryIngestion = defineWorkflow(
                       },
                       () =>
                         wls(`identify:${rootId}`, () =>
-                          withLangfuseObservation(
-                            {
-                              name: "repository-ingestion.identify",
-                              input: { rootId, root },
-                              metadata: {
-                                ...baseLangfuseMetadata,
-                                workflowStepName: `identify:${rootId}`,
-                                rootId,
-                                root,
-                              },
-                            },
+                          tracedExtractStep(
+                            "repository-ingestion.identify",
+                            rootId,
+                            root,
                             () =>
-                              withIngestAgentContext(
-                                {
-                                  ...langfuseAttrs,
-                                  runName: "repository-ingestion.identify",
-                                  metadata: {
-                                    workflowStepName: `identify:${rootId}`,
-                                    rootId,
-                                    root,
-                                  },
-                                },
-                                () =>
-                                  runIdentifyPhaseForRoot(
-                                    baseIngestState,
-                                    root,
-                                    kindPartial,
-                                  ),
+                              runIdentifyPhaseForRoot(
+                                baseIngestState,
+                                root,
+                                kindPartial,
                               ),
                           ),
                         ),
@@ -857,7 +837,6 @@ export const repositoryIngestion = defineWorkflow(
             return result
           },
         ).catch((err: unknown) => {
-          if (isWorkflowControlSignal(err)) throw err
           if (!(err instanceof IngestionAborted)) throw err
           logWorkflowMilestone("repository-ingestion.stopped", {
             repositoryId: input.repositoryId,
