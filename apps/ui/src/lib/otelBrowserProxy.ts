@@ -1,82 +1,44 @@
-import { getHyperDxRuntimeConfig } from "@/lib/hyperdxRuntimeConfig"
 import {
-  OTEL_PROXY_MAX_BODY_BYTES,
-  otelCollectorBaseUrl,
-  otelProxyAdmission,
-  otelProxyUpstreamUrl,
-  parseOtelHeaders,
-} from "@/lib/otelBrowserConfig"
-import {
-  OtelScrubDepthError,
   restrictBrowserResourceAttributes,
-  scrubBrowserOtlpJson,
+  scrubOtlpJsonText,
 } from "@/lib/otelBrowserScrub"
 
-const RATE_CAPACITY = 60
+const MAX_BODY_BYTES = 1024 * 1024
+
+/**
+ * Flood brake for this process, not a per-user quota.
+ *
+ * The browser reaches this handler through the backend proxy, which forwards
+ * Railway's `X-Forwarded-For` and `X-Real-IP` unchanged. The first
+ * X-Forwarded-For entry is client-supplied when the edge appends, and
+ * Railway's own answers disagree on whether the client address is the
+ * leftmost or rightmost hop. `X-Real-IP` is the CDN edge address while
+ * Fastly is in front, so every browser would share it. The backend's TCP
+ * peer is that edge, not the browser, so a header stamped from those values
+ * is still not a per-client key. One bucket bounds how much this replica
+ * forwards; the 1 MiB cap and the collector memory limiter bound the rest.
+ */
+const RATE_CAPACITY = 1200
 const RATE_WINDOW_MS = 60_000
 
-type RateBucket = { tokens: number; updatedAt: number }
-const rateBuckets = new Map<string, RateBucket>()
+export const OTEL_BROWSER_PROXY_RATE_LIMIT = RATE_CAPACITY
+
+let rateTokens = RATE_CAPACITY
+let rateUpdatedAt = Date.now()
 
 export function resetOtelBrowserProxyRateLimitForTests(): void {
-  rateBuckets.clear()
+  rateTokens = RATE_CAPACITY
+  rateUpdatedAt = Date.now()
 }
 
-export function otelBrowserProxyRateBucketCountForTests(): number {
-  return rateBuckets.size
-}
-
-let rateBucketCapForTests = 10_000
-
-export function setOtelBrowserProxyRateBucketCapForTests(cap: number): void {
-  rateBucketCapForTests = cap
-}
-
-function clientIp(request: Request): string {
-  const forwarded = request.headers.get("x-forwarded-for")
-  const first = forwarded?.split(",")[0]?.trim()
-  return first || "unknown"
-}
-
-function bucketIsIdle(bucket: RateBucket, now: number): boolean {
-  const refilled =
-    bucket.tokens + ((now - bucket.updatedAt) * RATE_CAPACITY) / RATE_WINDOW_MS
-  return refilled >= RATE_CAPACITY
-}
-
-function pruneRateBuckets(now: number): void {
-  for (const [ip, bucket] of rateBuckets) {
-    if (bucketIsIdle(bucket, now)) rateBuckets.delete(ip)
-  }
-  if (rateBuckets.size <= rateBucketCapForTests) return
-  const oldest = [...rateBuckets.entries()].sort(
-    (left, right) => left[1].updatedAt - right[1].updatedAt,
-  )
-  for (const [ip] of oldest) {
-    if (rateBuckets.size <= rateBucketCapForTests) break
-    rateBuckets.delete(ip)
-  }
-}
-
-function takeRateToken(ip: string): boolean {
+function takeRateToken(): boolean {
   const now = Date.now()
-  pruneRateBuckets(now)
-  const bucket = rateBuckets.get(ip) ?? {
-    tokens: RATE_CAPACITY,
-    updatedAt: now,
-  }
   const refilled =
-    bucket.tokens + ((now - bucket.updatedAt) * RATE_CAPACITY) / RATE_WINDOW_MS
-  bucket.tokens = Math.min(RATE_CAPACITY, refilled)
-  bucket.updatedAt = now
-  if (bucket.tokens < 1) {
-    rateBuckets.set(ip, bucket)
-    if (rateBuckets.size > rateBucketCapForTests) pruneRateBuckets(now)
-    return false
-  }
-  bucket.tokens -= 1
-  rateBuckets.set(ip, bucket)
-  if (rateBuckets.size > rateBucketCapForTests) pruneRateBuckets(now)
+    rateTokens + ((now - rateUpdatedAt) * RATE_CAPACITY) / RATE_WINDOW_MS
+  rateTokens = Math.min(RATE_CAPACITY, refilled)
+  rateUpdatedAt = now
+  if (rateTokens < 1) return false
+  rateTokens -= 1
   return true
 }
 
@@ -86,10 +48,10 @@ function headerFirst(value: string | null): string {
 
 /**
  * Behind the backend SPA proxy, `request.url` is the private UI host.
- * `X-Forwarded-Host` is set by that proxy from the public request URL.
+ * `X-Forwarded-Host` is replaced by that proxy from the public request URL.
  * Direct UI access (local Vite) has no forwarded host, so the request host is used.
  */
-export function browserFacingOrigin(request: Request): string | null {
+function browserFacingOrigin(request: Request): string | null {
   const forwardedHost = headerFirst(request.headers.get("x-forwarded-host"))
   if (forwardedHost) {
     const proto =
@@ -132,56 +94,13 @@ function rejectedContentEncoding(request: Request): boolean {
   return Boolean(encoding && encoding !== "identity")
 }
 
-async function readBodyCapped(
-  request: Request,
-  maxBytes: number,
-): Promise<Uint8Array | "too_large"> {
-  const reader = request.body?.getReader()
-  if (!reader) return new Uint8Array()
-
-  const chunks: Uint8Array[] = []
-  let total = 0
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    if (!value) continue
-    total += value.byteLength
-    if (total > maxBytes) {
-      await reader.cancel()
-      return "too_large"
-    }
-    chunks.push(value)
-  }
-
-  const body = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    body.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return body
-}
-
-function declaredBodyBytes(request: Request): number | null {
-  const raw = request.headers.get("content-length")
-  if (raw == null || raw.trim() === "") return null
-  const n = Number(raw)
-  if (!Number.isFinite(n) || n < 0) return null
-  return n
-}
-
-function admissionUrl(request: Request, pathname?: string): string {
-  if (!pathname) return request.url
-  return new URL(pathname, "https://browser.local").href
-}
-
 /**
  * Bun will not flush an error response while a POST body is still unread, and
  * cancelling that stream makes the backend proxy see a socket close. Read the
  * small reject body, then answer.
  */
 async function drainRequestBody(request: Request): Promise<void> {
-  if (!request.body) return
+  if (!request.body || request.bodyUsed) return
   const reader = request.body.getReader()
   let total = 0
   try {
@@ -189,7 +108,7 @@ async function drainRequestBody(request: Request): Promise<void> {
       const { done, value } = await reader.read()
       if (done) return
       total += value?.byteLength ?? 0
-      if (total > OTEL_PROXY_MAX_BODY_BYTES) {
+      if (total > MAX_BODY_BYTES) {
         await reader.cancel()
         return
       }
@@ -199,130 +118,130 @@ async function drainRequestBody(request: Request): Promise<void> {
   }
 }
 
+function contentLength(request: Request): number | "missing" | "invalid" {
+  const raw = request.headers.get("content-length")
+  if (raw == null || raw.trim() === "") return "missing"
+  const n = Number(raw)
+  if (!Number.isInteger(n) || n < 0) return "invalid"
+  return n
+}
+
 async function reject(
   request: Request,
-  status: 403 | 404 | 405 | 413 | 415 | 429,
+  status: 400 | 403 | 411 | 413 | 415 | 429,
 ): Promise<Response> {
-  if (status !== 413) await drainRequestBody(request)
-  return new Response(null, {
-    status,
-    headers: status === 405 ? { Allow: "POST" } : undefined,
-  })
-}
-
-/** No collector configured. Swallow the body so the caller sees success, not an error. */
-async function otelDisabled(request: Request): Promise<Response> {
   await drainRequestBody(request)
-  return new Response(null, { status: 204 })
+  return new Response(null, { status })
 }
 
-function decodeOtlpBody(
-  body: Uint8Array,
-  contentType: string,
-): unknown | "empty" | "malformed" | "unsupported" {
-  if (!contentType.toLowerCase().includes("json")) return "unsupported"
-  if (body.byteLength === 0) return "empty"
-  const text = new TextDecoder().decode(body)
-  try {
-    return JSON.parse(text) as unknown
-  } catch {
-    return "malformed"
+function parseOtelHeaders(
+  headerStr: string | undefined,
+): Record<string, string> {
+  if (!headerStr?.trim()) return {}
+  const out: Record<string, string> = {}
+  for (const part of headerStr.split(",")) {
+    const eq = part.indexOf("=")
+    if (eq <= 0) continue
+    const key = part.slice(0, eq).trim()
+    const value = part
+      .slice(eq + 1)
+      .trim()
+      .replace(/^["']|["']$/g, "")
+    if (key && value) out[key] = decodeURIComponent(value)
   }
+  return out
+}
+
+/** Full OTLP URL for this signal, from the UI service's exporter env. */
+function signalEndpoint(signal: "traces" | "logs"): string | null {
+  const direct =
+    signal === "logs"
+      ? process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
+      : process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+  const trimmed = direct?.trim()
+  if (trimmed) return trimmed
+  if (signal === "traces") return null
+  const traces = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT?.trim()
+  if (!traces) return null
+  const base = traces
+    .replace(/\/v1\/(traces|logs|metrics)\/?$/i, "")
+    .replace(/\/$/, "")
+  return `${base}/v1/logs`
 }
 
 /**
- * `pathname` is the router pathname (`/.otel/...`). Admission uses it instead
- * of `request.url`, which a proxy can rewrite before this handler runs.
- * The browser SDK posts `application/json` with no Content-Encoding. The gzip
- * header in the SDK bundle belongs to the disabled session-replay beacon.
+ * `signal` is the route param. `null` is any other `/.otel/v1/$signal` value.
+ * No collector for this signal answers 204 so the browser SDK does not retry.
  */
 export async function proxyBrowserOtlp(
   request: Request,
-  pathname?: string,
+  signal: "traces" | "logs" | null,
 ): Promise<Response> {
-  const config = getHyperDxRuntimeConfig()
-  if (!config.enabled) {
-    return otelDisabled(request)
+  if (signal == null) {
+    await drainRequestBody(request)
+    return new Response(null, { status: 404 })
   }
 
-  const configuredTraces =
-    process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT?.trim()
-  if (!configuredTraces) {
-    return otelDisabled(request)
-  }
-  const tracesEndpoint: string = configuredTraces
-
-  const declared = declaredBodyBytes(request)
-  const admission = otelProxyAdmission(
-    request.method,
-    admissionUrl(request, pathname),
-    declared ?? 0,
-  )
-  if (!admission.allow) {
-    return reject(request, admission.status)
-  }
-  if (!isSameOrigin(request)) {
-    return reject(request, 403)
-  }
-  if (!takeRateToken(clientIp(request))) {
-    return reject(request, 429)
-  }
-
-  const body = await readBodyCapped(request, OTEL_PROXY_MAX_BODY_BYTES)
-  if (body === "too_large") {
-    return new Response(null, { status: 413 })
-  }
-  if (rejectedContentEncoding(request)) {
-    return new Response(null, { status: 415 })
-  }
-
-  const contentType = request.headers.get("Content-Type") || "application/json"
-  const decoded = decodeOtlpBody(body, contentType)
-  if (decoded === "empty") {
+  const upstream = signalEndpoint(signal)
+  if (!upstream) {
+    await drainRequestBody(request)
     return new Response(null, { status: 204 })
   }
-  if (decoded === "malformed") {
-    return new Response(null, { status: 400 })
+  if (!isSameOrigin(request)) return reject(request, 403)
+  if (rejectedContentEncoding(request)) return reject(request, 415)
+  if (!request.body) return new Response(null, { status: 204 })
+
+  const declared = contentLength(request)
+  if (declared === 0) {
+    await drainRequestBody(request)
+    return new Response(null, { status: 204 })
   }
-  if (decoded === "unsupported") {
+  if (declared === "missing" || declared === "invalid") {
+    return reject(request, 411)
+  }
+  if (declared > MAX_BODY_BYTES) return reject(request, 413)
+  if (!takeRateToken()) return reject(request, 429)
+
+  const text = await request.text()
+  if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) {
+    return new Response(null, { status: 413 })
+  }
+  const contentType = request.headers.get("content-type") || "application/json"
+  if (!contentType.toLowerCase().includes("json")) {
     return new Response(null, { status: 415 })
   }
-  try {
-    scrubBrowserOtlpJson(decoded)
-    restrictBrowserResourceAttributes(decoded, config.environment)
-  } catch (error) {
-    if (error instanceof OtelScrubDepthError || error instanceof RangeError) {
-      return new Response(null, { status: 400 })
-    }
-    throw error
-  }
-  const encoded = new TextEncoder().encode(JSON.stringify(decoded))
-  return forward(encoded)
+  if (text.length === 0) return new Response(null, { status: 204 })
 
-  function forward(payload: Uint8Array): Promise<Response> {
-    const collectorBase = otelCollectorBaseUrl(tracesEndpoint)
-    const upstreamUrl = otelProxyUpstreamUrl(
-      collectorBase,
-      admissionUrl(request, pathname),
-    )
-    const otelHeaders = parseOtelHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS)
-    return fetch(upstreamUrl, {
+  let decoded: unknown
+  try {
+    decoded = scrubOtlpJsonText(text)
+  } catch {
+    return new Response(null, { status: 400 })
+  }
+  const environment = process.env.RAILWAY_ENVIRONMENT_NAME?.trim()
+  restrictBrowserResourceAttributes(decoded, environment || undefined)
+  return forward(upstream, JSON.stringify(decoded))
+}
+
+async function forward(upstream: string, payload: string): Promise<Response> {
+  const headers = {
+    ...parseOtelHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS),
+    "Content-Type": "application/json",
+  }
+  try {
+    const response = await fetch(upstream, {
       method: "POST",
-      headers: {
-        ...otelHeaders,
-        "Content-Type": "application/json",
-      },
-      body: new Uint8Array(payload),
+      headers,
+      body: payload,
     })
-      .then(async (response) => {
-        return new Response(await response.arrayBuffer(), {
-          status: response.status,
-          headers: {
-            "Content-Type":
-              response.headers.get("Content-Type") || "application/json",
-          },
-        })
-      })
-      .catch(() => new Response(null, { status: 502 }))
+    return new Response(await response.arrayBuffer(), {
+      status: response.status,
+      headers: {
+        "Content-Type":
+          response.headers.get("Content-Type") || "application/json",
+      },
+    })
+  } catch {
+    return new Response(null, { status: 502 })
   }
 }

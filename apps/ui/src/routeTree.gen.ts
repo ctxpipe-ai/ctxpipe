@@ -14,7 +14,6 @@ import { Route as OrgSlugRouteImport } from './routes/$orgSlug'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OrgSlugIndexRouteImport } from './routes/$orgSlug.index'
 import { Route as DotslackSetupRouteImport } from './routes/[.]slack.setup'
-import { Route as DototelSplatRouteImport } from './routes/[.]otel.$'
 import { Route as DotnotionSetupRouteImport } from './routes/[.]notion.setup'
 import { Route as DotgithubSetupRouteImport } from './routes/[.]github.setup'
 import { Route as DotauthSignInRouteImport } from './routes/[.]auth.sign-in'
@@ -31,6 +30,7 @@ import { Route as OrgSlugConnectorsRouteImport } from './routes/$orgSlug.connect
 import { Route as OrgSlugChatRouteImport } from './routes/$orgSlug.chat'
 import { Route as OrgSlugRepositoriesIndexRouteImport } from './routes/$orgSlug.repositories.index'
 import { Route as OrgSlugChatIndexRouteImport } from './routes/$orgSlug.chat.index'
+import { Route as DototelV1SignalRouteImport } from './routes/[.]otel.v1.$signal'
 import { Route as DotauthOrganizationOrganizationViewRouteImport } from './routes/[.]auth.organization.$organizationView'
 import { Route as DotauthAccountAccountViewRouteImport } from './routes/[.]auth.account.$accountView'
 import { Route as OrgSlugOrganizationOrganizationViewRouteImport } from './routes/$orgSlug.organization.$organizationView'
@@ -60,11 +60,6 @@ const OrgSlugIndexRoute = OrgSlugIndexRouteImport.update({
 const DotslackSetupRoute = DotslackSetupRouteImport.update({
   id: '/.slack/setup',
   path: '/.slack/setup',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DototelSplatRoute = DototelSplatRouteImport.update({
-  id: '/.otel/$',
-  path: '/.otel/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DotnotionSetupRoute = DotnotionSetupRouteImport.update({
@@ -149,6 +144,11 @@ const OrgSlugChatIndexRoute = OrgSlugChatIndexRouteImport.update({
   path: '/',
   getParentRoute: () => OrgSlugChatRoute,
 } as any)
+const DototelV1SignalRoute = DototelV1SignalRouteImport.update({
+  id: '/.otel/v1/$signal',
+  path: '/.otel/v1/$signal',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DotauthOrganizationOrganizationViewRoute =
   DotauthOrganizationOrganizationViewRouteImport.update({
     id: '/.auth/organization/$organizationView',
@@ -198,13 +198,13 @@ export interface FileRoutesByFullPath {
   '/.auth/sign-in': typeof DotauthSignInRoute
   '/.github/setup': typeof DotgithubSetupRoute
   '/.notion/setup': typeof DotnotionSetupRoute
-  '/.otel/$': typeof DototelSplatRoute
   '/.slack/setup': typeof DotslackSetupRoute
   '/$orgSlug/': typeof OrgSlugIndexRoute
   '/$orgSlug/chat/$conversationId': typeof OrgSlugChatConversationIdRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
   '/.auth/organization/$organizationView': typeof DotauthOrganizationOrganizationViewRoute
+  '/.otel/v1/$signal': typeof DototelV1SignalRoute
   '/$orgSlug/chat/': typeof OrgSlugChatIndexRoute
   '/$orgSlug/repositories/': typeof OrgSlugRepositoriesIndexRoute
   '/$orgSlug/repositories/github/setup': typeof OrgSlugRepositoriesGithubSetupRoute
@@ -224,13 +224,13 @@ export interface FileRoutesByTo {
   '/.auth/sign-in': typeof DotauthSignInRoute
   '/.github/setup': typeof DotgithubSetupRoute
   '/.notion/setup': typeof DotnotionSetupRoute
-  '/.otel/$': typeof DototelSplatRoute
   '/.slack/setup': typeof DotslackSetupRoute
   '/$orgSlug': typeof OrgSlugIndexRoute
   '/$orgSlug/chat/$conversationId': typeof OrgSlugChatConversationIdRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
   '/.auth/organization/$organizationView': typeof DotauthOrganizationOrganizationViewRoute
+  '/.otel/v1/$signal': typeof DototelV1SignalRoute
   '/$orgSlug/chat': typeof OrgSlugChatIndexRoute
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesIndexRoute
   '/$orgSlug/repositories/github/setup': typeof OrgSlugRepositoriesGithubSetupRoute
@@ -254,13 +254,13 @@ export interface FileRoutesById {
   '/.auth/sign-in': typeof DotauthSignInRoute
   '/.github/setup': typeof DotgithubSetupRoute
   '/.notion/setup': typeof DotnotionSetupRoute
-  '/.otel/$': typeof DototelSplatRoute
   '/.slack/setup': typeof DotslackSetupRoute
   '/$orgSlug/': typeof OrgSlugIndexRoute
   '/$orgSlug/chat/$conversationId': typeof OrgSlugChatConversationIdRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
   '/.auth/organization/$organizationView': typeof DotauthOrganizationOrganizationViewRoute
+  '/.otel/v1/$signal': typeof DototelV1SignalRoute
   '/$orgSlug/chat/': typeof OrgSlugChatIndexRoute
   '/$orgSlug/repositories/': typeof OrgSlugRepositoriesIndexRoute
   '/$orgSlug/repositories/github/setup': typeof OrgSlugRepositoriesGithubSetupRoute
@@ -285,13 +285,13 @@ export interface FileRouteTypes {
     | '/.auth/sign-in'
     | '/.github/setup'
     | '/.notion/setup'
-    | '/.otel/$'
     | '/.slack/setup'
     | '/$orgSlug/'
     | '/$orgSlug/chat/$conversationId'
     | '/$orgSlug/organization/$organizationView'
     | '/.auth/account/$accountView'
     | '/.auth/organization/$organizationView'
+    | '/.otel/v1/$signal'
     | '/$orgSlug/chat/'
     | '/$orgSlug/repositories/'
     | '/$orgSlug/repositories/github/setup'
@@ -311,13 +311,13 @@ export interface FileRouteTypes {
     | '/.auth/sign-in'
     | '/.github/setup'
     | '/.notion/setup'
-    | '/.otel/$'
     | '/.slack/setup'
     | '/$orgSlug'
     | '/$orgSlug/chat/$conversationId'
     | '/$orgSlug/organization/$organizationView'
     | '/.auth/account/$accountView'
     | '/.auth/organization/$organizationView'
+    | '/.otel/v1/$signal'
     | '/$orgSlug/chat'
     | '/$orgSlug/repositories'
     | '/$orgSlug/repositories/github/setup'
@@ -340,13 +340,13 @@ export interface FileRouteTypes {
     | '/.auth/sign-in'
     | '/.github/setup'
     | '/.notion/setup'
-    | '/.otel/$'
     | '/.slack/setup'
     | '/$orgSlug/'
     | '/$orgSlug/chat/$conversationId'
     | '/$orgSlug/organization/$organizationView'
     | '/.auth/account/$accountView'
     | '/.auth/organization/$organizationView'
+    | '/.otel/v1/$signal'
     | '/$orgSlug/chat/'
     | '/$orgSlug/repositories/'
     | '/$orgSlug/repositories/github/setup'
@@ -365,9 +365,9 @@ export interface RootRouteChildren {
   DotauthSignInRoute: typeof DotauthSignInRoute
   DotgithubSetupRoute: typeof DotgithubSetupRoute
   DotnotionSetupRoute: typeof DotnotionSetupRoute
-  DototelSplatRoute: typeof DototelSplatRoute
   DotslackSetupRoute: typeof DotslackSetupRoute
   DotauthOrganizationOrganizationViewRoute: typeof DotauthOrganizationOrganizationViewRoute
+  DototelV1SignalRoute: typeof DototelV1SignalRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -405,13 +405,6 @@ declare module '@tanstack/react-router' {
       path: '/.slack/setup'
       fullPath: '/.slack/setup'
       preLoaderRoute: typeof DotslackSetupRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/.otel/$': {
-      id: '/.otel/$'
-      path: '/.otel/$'
-      fullPath: '/.otel/$'
-      preLoaderRoute: typeof DototelSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/.notion/setup': {
@@ -525,6 +518,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/$orgSlug/chat/'
       preLoaderRoute: typeof OrgSlugChatIndexRouteImport
       parentRoute: typeof OrgSlugChatRoute
+    }
+    '/.otel/v1/$signal': {
+      id: '/.otel/v1/$signal'
+      path: '/.otel/v1/$signal'
+      fullPath: '/.otel/v1/$signal'
+      preLoaderRoute: typeof DototelV1SignalRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/.auth/organization/$organizationView': {
       id: '/.auth/organization/$organizationView'
@@ -640,10 +640,10 @@ const rootRouteChildren: RootRouteChildren = {
   DotauthSignInRoute: DotauthSignInRoute,
   DotgithubSetupRoute: DotgithubSetupRoute,
   DotnotionSetupRoute: DotnotionSetupRoute,
-  DototelSplatRoute: DototelSplatRoute,
   DotslackSetupRoute: DotslackSetupRoute,
   DotauthOrganizationOrganizationViewRoute:
     DotauthOrganizationOrganizationViewRoute,
+  DototelV1SignalRoute: DototelV1SignalRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
