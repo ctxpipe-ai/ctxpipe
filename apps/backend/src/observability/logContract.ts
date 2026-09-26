@@ -1,4 +1,4 @@
-import { trace } from "@opentelemetry/api"
+import { isSpanContextValid, trace } from "@opentelemetry/api"
 import { ATTRIBUTION_KEYS, readAttribution } from "./attribution.js"
 import { flattenDbErrorCause } from "./scrubDbError.js"
 
@@ -48,7 +48,10 @@ export function applyLogContract(
     if (Object.keys(event.user).length === 0) delete event.user
   }
   moveAlias(event, "userId", "enduser.id")
-  const active = spanContext ?? trace.getActiveSpan()?.spanContext()
+  const current = trace.getActiveSpan()?.spanContext()
+  const active =
+    spanContext ??
+    (current && isSpanContextValid(current) ? current : undefined)
   if (active?.traceId && typeof event.traceId !== "string") {
     event.traceId = active.traceId
     event.spanId = active.spanId
@@ -61,19 +64,4 @@ export function applyLogContract(
   delete event.environment
   delete event.service
   delete event["service.namespace"]
-}
-
-export function logFieldsFromActiveSpan(): Record<string, string> {
-  const fields: Record<string, string> = {}
-  const spanContext = trace.getActiveSpan()?.spanContext()
-  if (spanContext?.traceId) {
-    fields.traceId = spanContext.traceId
-    fields.spanId = spanContext.spanId
-  }
-  const bag = readAttribution()
-  for (const key of ATTRIBUTION_KEYS) {
-    const value = bag[key]
-    if (value) fields[key] = value
-  }
-  return fields
 }

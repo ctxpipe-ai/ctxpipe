@@ -11,19 +11,19 @@ import { createOTLPDrain } from "evlog/otlp"
 import { getContext } from "hono/context-storage"
 import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
-import { logFieldsFromActiveSpan } from "./logContract.js"
+import { applyLogContract } from "./logContract.js"
 import {
   forceFlushOtel,
   isRailwayPrEnvironment,
   otelDeploymentEnvironment,
   otelServiceName,
 } from "./otel.js"
-import { flattenDbErrorCause } from "./scrubDbError.js"
 
 /**
  * Paths and token/params patterns are the review list. The query pattern is
- * extra: logs must not keep `?…` (ADR-011). Built-ins stay off so ids are
- * not partially masked; emails are removed only on the paths below.
+ * extra and only matches `?…` after `http(s)://…` or a leading `/path`
+ * (ADR-011). Built-ins stay off so ids are not partially masked; emails are
+ * removed only on the paths below.
  */
 const evlogRedact: RedactConfig = {
   builtins: false,
@@ -42,51 +42,8 @@ const evlogRedact: RedactConfig = {
     /(?<=\/reset-password\/)[^/?#]+/g,
     /(?<=\/public\/invitations\/)[^/?#]+/g,
     /\r?\nparams:[^\r\n]*/g,
-    /\?[^#\s]*/g,
+    /(?<=(?:https?:\/\/|^\/)[^\s?#]*)\?[^#\s]*/g,
   ],
-}
-
-const wrappedConsoles = new WeakSet<object>()
-
-function scrubLoggedArg(arg: unknown): unknown {
-  if (typeof arg !== "string" || !arg.startsWith("{")) return arg
-  try {
-    const parsed = JSON.parse(arg) as Record<string, unknown>
-    if (
-      typeof parsed.level !== "string" ||
-      typeof parsed.timestamp !== "string"
-    ) {
-      return arg
-    }
-    flattenDbErrorCause(parsed)
-    return JSON.stringify(parsed)
-  } catch {
-    return arg
-  }
-}
-
-/**
- * evlog writes stdout inside `emit`, before Hono `enrich`. Cause fields are
- * still a raw Error at that point, so scrub the JSON line on the way out.
- */
-function installEvlogStdoutScrub(): void {
-  for (const method of ["log", "info", "warn", "error", "debug"] as const) {
-    const current = console[method]
-    if (wrappedConsoles.has(current)) continue
-    const original = current.bind(console)
-    const wrapped = (...args: unknown[]) => {
-      original(...args.map(scrubLoggedArg))
-    }
-    wrappedConsoles.add(wrapped)
-    console[method] = wrapped as (typeof console)[typeof method]
-  }
-}
-
-function prepareOtlpEvent(event: Record<string, unknown>): void {
-  flattenDbErrorCause(event)
-  delete event.environment
-  delete event.service
-  delete event["service.namespace"]
 }
 
 /**
@@ -99,22 +56,12 @@ function otlpLogsEndpoint(): string | undefined {
   return raw.replace(/\/v1\/logs\/?$/i, "").replace(/\/$/, "")
 }
 
-type EvlogDrain = ((ctx: DrainContext | DrainContext[]) => Promise<void>) & {
-  flush?: () => Promise<void>
-}
-
-let evlogDrainInstance: EvlogDrain | undefined
 const inflightOtlp = new Set<Promise<void>>()
 
-/**
- * OTLP drain for Hono and `initLogger`. Unset logs endpoint → stdout only.
- * `createOTLPDrain` reads `OTEL_EXPORTER_OTLP_HEADERS` itself. Timeout is 5s.
- */
-export function createEvlogDrain(): EvlogDrain | undefined {
-  if (evlogDrainInstance) return evlogDrainInstance
+function otlpDrain(): ((ctx: DrainContext) => Promise<void>) | undefined {
   const endpoint = otlpLogsEndpoint()
   if (!endpoint) return undefined
-  const send = createOTLPDrain({
+  return createOTLPDrain({
     endpoint,
     serviceName: otelServiceName(),
     resourceAttributes: {
@@ -123,32 +70,17 @@ export function createEvlogDrain(): EvlogDrain | undefined {
     },
     timeout: 5_000,
   })
-  const drain: EvlogDrain = async (ctx) => {
-    const items = Array.isArray(ctx) ? ctx : [ctx]
-    for (const item of items) {
-      prepareOtlpEvent(item.event as Record<string, unknown>)
-    }
-    const run = send(ctx)
-    inflightOtlp.add(run)
-    try {
-      await run
-    } finally {
-      inflightOtlp.delete(run)
-    }
-  }
-  evlogDrainInstance = drain
-  return drain
 }
 
 /** Initialize evlog. Call early in app bootstrap. Reads env from process.env. */
 export function initEvlog(options?: { silent?: boolean }): void {
-  installEvlogStdoutScrub()
+  const envFields = {
+    service: otelServiceName(),
+    environment: otelDeploymentEnvironment(),
+  }
   if (options?.silent) {
     initLogger({
-      env: {
-        service: otelServiceName(),
-        environment: otelDeploymentEnvironment(),
-      },
+      env: envFields,
       pretty: false,
       silent: true,
       redact: evlogRedact,
@@ -157,21 +89,34 @@ export function initEvlog(options?: { silent?: boolean }): void {
     return
   }
   const env = parseEnv(process.env as Record<string, string | undefined>)
+  const pretty = env.NODE_ENV === "development"
+  const otlp = otlpDrain()
   initLogger({
     env: {
       service: otelServiceName(env.OTEL_SERVICE_NAME),
-      environment: otelDeploymentEnvironment(),
+      environment: envFields.environment,
     },
-    pretty: env.NODE_ENV === "development",
+    pretty,
+    silent: !pretty,
     redact: evlogRedact,
-    drain: createEvlogDrain(),
+    drain: async (ctx) => {
+      applyLogContract(ctx.event)
+      if (!pretty) process.stdout.write(`${JSON.stringify(ctx.event)}\n`)
+      if (!otlp) return
+      const run = otlp(ctx)
+      inflightOtlp.add(run)
+      try {
+        await run
+      } finally {
+        inflightOtlp.delete(run)
+      }
+    },
   })
 }
 
 /** Flush in-flight OTLP log exports. Call on server shutdown. */
 export async function flushEvlog(): Promise<void> {
   const waiting = [...inflightOtlp]
-  evlogDrainInstance = undefined
   if (waiting.length === 0) return
   try {
     await Promise.all(waiting)
@@ -213,7 +158,6 @@ export async function withLogger<T>(
         return await handler()
       } finally {
         const current = loggerStorage.getStore()
-        if (current) current.set(logFieldsFromActiveSpan())
         if (current && workflowLoggerHasMilestoneContent(current)) {
           current.emit()
         }
@@ -238,7 +182,6 @@ export function flushWorkflowLog(): void {
   const current = loggerStorage.getStore()
   const base = workflowBaseContext.getStore()
   if (!current) return
-  current.set(logFieldsFromActiveSpan())
   current.emit()
   if (base) {
     loggerStorage.enterWith(createLogger({ ...base }))

@@ -1,11 +1,21 @@
+import { context, trace } from "@opentelemetry/api"
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
-import { afterAll, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../app/env.js"
+import { contextWithAttributionBag } from "./attribution.js"
 import { applyLogContract } from "./logContract.js"
-import { createEvlogDrain, flushEvlog, initEvlog } from "./logger.js"
+import {
+  createLogger,
+  flushEvlog,
+  getLogger,
+  initEvlog,
+  log,
+  withLogger,
+} from "./logger.js"
 import { dbErrorException } from "./scrubDbError.js"
 import { redactSecretPath } from "./secretPath.js"
 
@@ -122,23 +132,20 @@ describe("span and db helpers kept for other lanes", () => {
 })
 
 describe("evlog redact and OTLP drain", () => {
-  const previous = {
-    NODE_ENV: process.env.NODE_ENV,
-    DATABASE_URL: process.env.DATABASE_URL,
-    AUTH_SECRET: process.env.AUTH_SECRET,
-    OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:
-      process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT,
-    OTEL_EXPORTER_OTLP_HEADERS: process.env.OTEL_EXPORTER_OTLP_HEADERS,
-  }
-
-  afterAll(async () => {
-    for (const [key, value] of Object.entries(previous)) {
-      if (value === undefined) delete process.env[key]
-      else process.env[key] = value
-    }
+  afterEach(async () => {
+    vi.unstubAllEnvs()
     await flushEvlog()
     initEvlog({ silent: true })
   })
+
+  function stubRuntimeEnv() {
+    vi.stubEnv("NODE_ENV", "test")
+    vi.stubEnv(
+      "DATABASE_URL",
+      "postgresql://ctxpipe:ctxpipe@127.0.0.1:5433/ctxpipe",
+    )
+    vi.stubEnv("AUTH_SECRET", "test-auth-secret-at-least-32-characters")
+  }
 
   it("redacts a Drizzle error, reset-password token, and query string in stdout and the drain", async () => {
     const token = "RESETTOKEN1790327887"
@@ -167,26 +174,18 @@ describe("evlog redact and OTLP drain", () => {
       return writeErr(chunk as never, ...(rest as []))
     }) as typeof process.stderr.write
 
-    process.env.NODE_ENV = "test"
-    process.env.DATABASE_URL =
-      "postgresql://ctxpipe:ctxpipe@127.0.0.1:5433/ctxpipe"
-    process.env.AUTH_SECRET = "test-auth-secret-at-least-32-characters"
-    process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT =
-      "http://127.0.0.1:4318/v1/logs"
-    process.env.OTEL_EXPORTER_OTLP_HEADERS = "x-test-otlp=probe-header"
+    stubRuntimeEnv()
+    vi.stubEnv(
+      "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+      "http://127.0.0.1:4318/v1/logs",
+    )
+    vi.stubEnv("OTEL_EXPORTER_OTLP_HEADERS", "x-test-otlp=probe-header")
     await flushEvlog()
 
     try {
       initEvlog()
       const app = new Hono<AppEnv>()
-      app.use(
-        evlog({
-          drain: createEvlogDrain(),
-          enrich: (ctx) => {
-            applyLogContract(ctx.event as Record<string, unknown>)
-          },
-        }),
-      )
+      app.use(evlog())
       app.get("/.auth/api/v1/auth/reset-password/:token", (c) => {
         c.get("log").set({
           url: c.req.url,
@@ -261,6 +260,135 @@ describe("evlog redact and OTLP drain", () => {
       process.stdout.write = writeOut
       process.stderr.write = writeErr
       server.close()
+    }
+  })
+
+  it("keeps a question mark in a message and strips queries from url and path values", async () => {
+    stubRuntimeEnv()
+    const stdout: string[] = []
+    const writeOut = process.stdout.write.bind(process.stdout)
+    process.stdout.write = ((chunk: unknown, ...rest: unknown[]) => {
+      stdout.push(typeof chunk === "string" ? chunk : String(chunk))
+      return writeOut(chunk as never, ...(rest as []))
+    }) as typeof process.stdout.write
+    await flushEvlog()
+    try {
+      initEvlog()
+      log.info({
+        message: "what is ctx?pipe",
+        url: "https://backend.example/search?q=QUERYSECRET",
+        "url.full": "http://backend.example/search?q=FULLSECRET",
+        path: "/search?q=PATHSECRET",
+      })
+      const event = JSON.parse(stdout.join("")) as Record<string, unknown>
+      expect(event.message).toBe("what is ctx?pipe")
+      expect(event.url).toBe("https://backend.example/search[REDACTED]")
+      expect(event["url.full"]).toBe("http://backend.example/search[REDACTED]")
+      expect(event["url.path"]).toBe("/search[REDACTED]")
+      expect(event).not.toHaveProperty("path")
+    } finally {
+      process.stdout.write = writeOut
+    }
+  })
+
+  it("stamps traceId and request.id on a withLogger event", async () => {
+    stubRuntimeEnv()
+    const stdout: string[] = []
+    const writeOut = process.stdout.write.bind(process.stdout)
+    process.stdout.write = ((chunk: unknown, ...rest: unknown[]) => {
+      stdout.push(typeof chunk === "string" ? chunk : String(chunk))
+      return writeOut(chunk as never, ...(rest as []))
+    }) as typeof process.stdout.write
+    await flushEvlog()
+    const provider = new NodeTracerProvider()
+    provider.register({ propagator: null })
+    const tracer = trace.getTracer("ctxpipe-test")
+    try {
+      initEvlog()
+      const { context: attributed, bag } = contextWithAttributionBag(
+        context.active(),
+      )
+      bag.set("request.id", "req_job")
+      await context.with(attributed, () =>
+        tracer.startActiveSpan("workflow", async (span) => {
+          await withLogger(createLogger({}), async () => {
+            getLogger().info("milestone")
+          })
+          const event = JSON.parse(
+            stdout
+              .join("")
+              .split("\n")
+              .find((line) => line.startsWith("{")) ?? "",
+          ) as Record<string, unknown>
+          expect(event.traceId).toBe(span.spanContext().traceId)
+          expect(event.spanId).toBe(span.spanContext().spanId)
+          expect(event["request.id"]).toBe("req_job")
+          span.end()
+        }),
+      )
+    } finally {
+      process.stdout.write = writeOut
+      context.disable()
+      trace.disable()
+      await provider.shutdown()
+    }
+  })
+
+  it("puts the active span on a standalone log.warn OTLP record", async () => {
+    stubRuntimeEnv()
+    vi.stubEnv(
+      "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+      "http://127.0.0.1:4318/v1/logs",
+    )
+    const bodies: unknown[] = []
+    const server = setupServer(
+      http.post("http://127.0.0.1:4318/v1/logs", async ({ request }) => {
+        bodies.push(await request.json())
+        return HttpResponse.json({})
+      }),
+    )
+    server.listen({ onUnhandledRequest: "bypass" })
+    await flushEvlog()
+    const provider = new NodeTracerProvider()
+    provider.register({ propagator: null })
+    const tracer = trace.getTracer("ctxpipe-test")
+    try {
+      initEvlog()
+      await tracer.startActiveSpan("advisor", async (span) => {
+        log.warn({
+          step: "advisor.code_search.rejected",
+          message: "what is ctx?pipe",
+        })
+        await flushEvlog()
+        expect(bodies).toHaveLength(1)
+        const record = (
+          bodies[0] as {
+            resourceLogs: Array<{
+              scopeLogs: Array<{
+                logRecords: Array<{
+                  traceId?: string
+                  spanId?: string
+                  body: { stringValue: string }
+                }>
+              }>
+            }>
+          }
+        ).resourceLogs[0]?.scopeLogs[0]?.logRecords[0]
+        expect(record?.traceId).toBe(span.spanContext().traceId)
+        expect(record?.spanId).toBe(span.spanContext().spanId)
+        const body = JSON.parse(record?.body.stringValue ?? "{}") as Record<
+          string,
+          unknown
+        >
+        expect(body.message).toBe("what is ctx?pipe")
+        expect(body.traceId).toBe(span.spanContext().traceId)
+        span.end()
+      })
+    } finally {
+      server.close()
+      context.disable()
+      trace.disable()
+      await provider.shutdown()
     }
   })
 })

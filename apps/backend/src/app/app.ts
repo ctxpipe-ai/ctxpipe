@@ -7,8 +7,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
 import { backendOtelMiddleware } from "../observability/http.js"
-import { applyLogContract } from "../observability/logContract.js"
-import { createEvlogDrain, log } from "../observability/logger.js"
+import { log } from "../observability/logger.js"
 import { registerAuthRoutes } from "../routes/auth.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
 import { registerMcpBrandAssetRoute } from "../routes/mcp-brand-asset.js"
@@ -47,14 +46,7 @@ export function createApp() {
   )
   app.use(contextStorage())
   app.use("*", backendOtelMiddleware())
-  app.use(
-    evlog({
-      drain: createEvlogDrain(),
-      enrich: (ctx) => {
-        applyLogContract(ctx.event as Record<string, unknown>)
-      },
-    }),
-  )
+  app.use(evlog())
   app.use("*", async (c, next) => {
     c.set("env", env)
     c.set("user", null)
