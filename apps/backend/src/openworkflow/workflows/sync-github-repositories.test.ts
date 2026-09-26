@@ -23,7 +23,9 @@ vi.mock("../enqueue-repository-ingestion.js", () => ({
 }))
 
 vi.mock("../../services/github/pull-request-mirror/ensure.js", () => ({
-  tryEnsureGithubPrMirror: vi.fn().mockResolvedValue({ status: "skipped_no_context" }),
+  tryEnsureGithubPrMirror: vi
+    .fn()
+    .mockResolvedValue({ status: "skipped_no_context" }),
 }))
 
 vi.mock("../../observability/logger.js", () => ({
@@ -66,8 +68,7 @@ describe("syncGithubRepositories workflow", () => {
 
   it("uses reposToSync when provided without listing all installation repos", async () => {
     const step = {
-      run: async (_opts: { name: string }, fn: () => Promise<unknown>) =>
-        fn(),
+      run: async (_opts: { name: string }, fn: () => Promise<unknown>) => fn(),
       runWorkflow: vi.fn(),
     }
 
@@ -100,8 +101,7 @@ describe("syncGithubRepositories workflow", () => {
 
   it("lists all repos when reposToSync is omitted", async () => {
     const step = {
-      run: async (_opts: { name: string }, fn: () => Promise<unknown>) =>
-        fn(),
+      run: async (_opts: { name: string }, fn: () => Promise<unknown>) => fn(),
       runWorkflow: vi.fn(),
     }
 

@@ -1,22 +1,10 @@
-import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
-import { config } from "dotenv"
-
-// Load env from config directory so worker has same vars as backend (bunx doesn't auto-load .env)
-const __dirname = dirname(fileURLToPath(import.meta.url))
-config({ path: resolve(__dirname, ".env.local") })
-config({ path: resolve(__dirname, ".env") })
-
+import "./src/observability/register.js"
 import { defineConfig } from "@openworkflow/cli"
 import { BackendPostgres } from "openworkflow/postgres"
 import { parseEnv } from "./src/config/env.js"
 import { initDb } from "./src/db/client.js"
-import {
-  createLogger,
-  flushEvlog,
-  initEvlog,
-} from "./src/observability/logger.js"
-import { initOtel, shutdownOtel } from "./src/observability/otel.js"
+import { createLogger, flushEvlog } from "./src/observability/logger.js"
+import { shutdownOtel } from "./src/observability/otel.js"
 import { parseOpenWorkflowConcurrency } from "./src/openworkflow/codesearchCapacity.js"
 import { openWorkflowNamespaceId } from "./src/openworkflow/namespace.js"
 import { backfillGithubAppSecretsFromEnv } from "./src/scripts/backfillGithubConnectionSecrets.js"
@@ -25,8 +13,6 @@ const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) throw new Error("DATABASE_URL is required for the worker")
 initDb(databaseUrl)
 const env = parseEnv(process.env as Record<string, string | undefined>)
-initOtel(env)
-initEvlog()
 await backfillGithubAppSecretsFromEnv(env)
 
 let shuttingDown = false

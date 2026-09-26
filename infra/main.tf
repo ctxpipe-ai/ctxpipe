@@ -28,7 +28,6 @@ module "ctxpipe" {
 
   image_tag               = var.image_tag
   better_auth_secret      = var.better_auth_secret
-  langsmith_api_key       = var.langsmith_api_key
   model_provider_api_key  = var.model_provider_api_key
   model_provider          = var.model_provider
   smtp_connection_url     = var.smtp_connection_url
@@ -51,11 +50,7 @@ module "ctxpipe" {
   pagerduty_client_secret = var.pagerduty_client_secret
   pagerduty_redirect_uri  = var.pagerduty_redirect_uri
   falkordb_password       = var.falkordb_password
-  better_stack_token      = var.better_stack_token
-  langfuse_auth_string    = var.langfuse_auth_string
-  langfuse_otlp_endpoint  = var.langfuse_otlp_endpoint
-  amplitude_api_key       = var.amplitude_api_key
-  amplitude_region        = var.amplitude_region
+  otel_otlp_headers       = var.otel_otlp_headers
 
   neon_project = {
     name                      = "ctxpipe"
@@ -79,5 +74,23 @@ module "ctxpipe" {
       autoscaling_limit_min_cu = 0.25
       autoscaling_limit_max_cu = 8
     }
+  }
+}
+
+# delete after the first production apply
+removed {
+  from = module.ctxpipe.railway_service.otelcollector
+
+  lifecycle {
+    destroy = true
+  }
+}
+
+# delete after the first production apply
+removed {
+  from = module.ctxpipe.railway_variable_collection.otelcollector_env
+
+  lifecycle {
+    destroy = true
   }
 }

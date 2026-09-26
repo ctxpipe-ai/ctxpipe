@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -9,6 +8,7 @@ import {
 } from "../../models/notion-connector.js"
 import { getLogger } from "../../observability/logger.js"
 import { syncNotionContent } from "../../services/notion/sync.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 import { parsedNotionRepoScopeSchema } from "../notion-scope-repo-schema.js"
 
@@ -20,7 +20,10 @@ const notionSyncContentInputSchema = z.object({
 })
 
 export const notionSyncContent = defineWorkflow(
-  { name: "notion-sync-content", schema: notionSyncContentInputSchema },
+  {
+    name: "notion-sync-content",
+    schema: notionSyncContentInputSchema,
+  },
   async ({ input, step }) => {
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const markSyncFailed = () =>

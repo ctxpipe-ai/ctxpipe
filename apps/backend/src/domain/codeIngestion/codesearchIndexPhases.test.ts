@@ -1,25 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
-
-const signUpstreamJwtMock = vi.hoisted(() => vi.fn())
-const parseEnvMock = vi.hoisted(() => vi.fn())
-const codesearchBaseUrlMock = vi.hoisted(() => vi.fn())
-
-vi.mock("../../auth/upstreamJwt.js", () => ({
-  signUpstreamJwt: signUpstreamJwtMock,
-}))
-vi.mock("../../config/env.js", () => ({
-  parseEnv: parseEnvMock,
-}))
-vi.mock("../../lib/agentToolRuntime.js", () => ({
-  codesearchBaseUrl: codesearchBaseUrlMock,
-}))
-vi.mock("../../lib/withTransientHttpRetry.js", () => ({
-  withTransientHttpRetry: async (run: () => Promise<unknown>) => run(),
-}))
-vi.mock("../../observability/logger.js", () => ({
-  log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
-}))
-
+import { HttpResponse, http } from "msw"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { useMswServer } from "../../../test/msw.js"
 import { CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY } from "../../lib/memoryFitError.js"
 import {
   CodesearchAdmissionBusyError,
@@ -27,47 +8,70 @@ import {
   codesearchIndexScipLang,
   codesearchIndexZoekt,
 } from "./codesearchIndexPhases.js"
+import { RepositoryGoneError } from "./repositoryGone.js"
+
+// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
+const server = useMswServer()
+const base = "http://codesearch.test"
+
+beforeEach(() => {
+  vi.stubEnv("AUTH_SECRET", "test-only-auth-secret-with-at-least-32-characters")
+  vi.stubEnv("CODESEARCH_URL", base)
+  vi.stubEnv(
+    "DATABASE_URL",
+    "postgresql://ctxpipe:ctxpipe@127.0.0.1:5433/ctxpipe",
+  )
+})
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+  vi.restoreAllMocks()
+})
+
+/**
+ * MSW forwards a thrown error to `fetch` when it has `code` and `errno`.
+ * `EIO` is not a transient retry code, so the real retry helper surfaces it
+ * on the first attempt and the phase catch can remap it.
+ */
+function nodeError(message: string, code: string): NodeJS.ErrnoException {
+  const error = new Error(message) as NodeJS.ErrnoException
+  error.code = code
+  error.errno = -5
+  return error
+}
 
 describe("codesearchIndexZoekt", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    signUpstreamJwtMock.mockResolvedValue("token")
-    parseEnvMock.mockReturnValue({})
-    codesearchBaseUrlMock.mockReturnValue("http://codesearch:3001")
-  })
-
-  it("rewrites exhausted fetch failed to the memory-fit message", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockRejectedValue(new TypeError("fetch failed")),
+  it("rewrites a fetch failure to the memory-fit message", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    server.use(
+      http.post(`${base}/:repositoryId/index/zoekt`, () => {
+        throw nodeError("fetch failed", "EIO")
+      }),
     )
     await expect(
       codesearchIndexZoekt({ repositoryId: "repo_1", orgId: "org_1" }),
     ).rejects.toThrow(CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY)
-    vi.unstubAllGlobals()
   })
 
-  it("rewrites exhausted ECONNRESET to the memory-fit message", async () => {
-    const cause = new Error("read ECONNRESET") as NodeJS.ErrnoException
-    cause.code = "ECONNRESET"
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockRejectedValue(new TypeError("fetch failed", { cause })),
+  it("rewrites an ECONNRESET cause to the memory-fit message", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    server.use(
+      http.post(`${base}/:repositoryId/index/zoekt`, () => {
+        const error = nodeError("upstream closed", "EIO")
+        error.cause = nodeError("read ECONNRESET", "ECONNRESET")
+        throw error
+      }),
     )
     await expect(
       codesearchIndexZoekt({ repositoryId: "repo_1", orgId: "org_1" }),
     ).rejects.toThrow(CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY)
-    vi.unstubAllGlobals()
   })
 
   it("rewrites HTTP 500 exit 137 bodies to the memory-fit message", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            error: "Command failed with exit code 137\nstderr: Killed",
-          }),
+    server.use(
+      http.post(`${base}/:repositoryId/index/zoekt`, () =>
+        HttpResponse.json(
+          { error: "Command failed with exit code 137\nstderr: Killed" },
           { status: 500 },
         ),
       ),
@@ -75,40 +79,47 @@ describe("codesearchIndexZoekt", () => {
     await expect(
       codesearchIndexZoekt({ repositoryId: "repo_1", orgId: "org_1" }),
     ).rejects.toThrow(CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY)
-    vi.unstubAllGlobals()
   })
 
   it("throws CodesearchAdmissionBusyError on HTTP 429 without mapping to memory-fit", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({ error: "Index pipeline capacity exceeded" }),
-          {
-            status: 429,
-          },
+    server.use(
+      http.post(`${base}/:repositoryId/index/zoekt`, () =>
+        HttpResponse.json(
+          { error: "Index pipeline capacity exceeded" },
+          { status: 429 },
         ),
       ),
     )
     await expect(
       codesearchIndexZoekt({ repositoryId: "repo_1", orgId: "org_1" }),
     ).rejects.toBeInstanceOf(CodesearchAdmissionBusyError)
-    vi.unstubAllGlobals()
+  })
+
+  it("throws RepositoryGoneError when codesearch says the repository is gone", async () => {
+    server.use(
+      http.post(`${base}/:repositoryId/index/zoekt`, () =>
+        HttpResponse.json(
+          {
+            error: "Repository not found or access denied",
+            code: "repository_not_found",
+          },
+          { status: 404 },
+        ),
+      ),
+    )
+    await expect(
+      codesearchIndexZoekt({ repositoryId: "repo_1", orgId: "org_1" }),
+    ).rejects.toBeInstanceOf(RepositoryGoneError)
   })
 })
 
 describe("codesearchIndexScipLang", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    signUpstreamJwtMock.mockResolvedValue("token")
-    parseEnvMock.mockReturnValue({})
-    codesearchBaseUrlMock.mockReturnValue("http://codesearch:3001")
-  })
-
-  it("rewrites exhausted fetch failed to the memory-fit message", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockRejectedValue(new TypeError("fetch failed")),
+  it("rewrites a fetch failure to the memory-fit message", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    server.use(
+      http.post(`${base}/:repositoryId/index/scip/:language`, () => {
+        throw nodeError("fetch failed", "EIO")
+      }),
     )
     await expect(
       codesearchIndexScipLang(
@@ -117,15 +128,16 @@ describe("codesearchIndexScipLang", () => {
         ["go"],
       ),
     ).rejects.toThrow(CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY)
-    vi.unstubAllGlobals()
   })
 
-  it("rewrites exhausted ECONNRESET to the memory-fit message", async () => {
-    const cause = new Error("read ECONNRESET") as NodeJS.ErrnoException
-    cause.code = "ECONNRESET"
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockRejectedValue(new TypeError("fetch failed", { cause })),
+  it("rewrites an ECONNRESET cause to the memory-fit message", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    server.use(
+      http.post(`${base}/:repositoryId/index/scip/:language`, () => {
+        const error = nodeError("upstream closed", "EIO")
+        error.cause = nodeError("read ECONNRESET", "ECONNRESET")
+        throw error
+      }),
     )
     await expect(
       codesearchIndexScipLang(
@@ -134,17 +146,13 @@ describe("codesearchIndexScipLang", () => {
         ["go"],
       ),
     ).rejects.toThrow(CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY)
-    vi.unstubAllGlobals()
   })
 
   it("rewrites HTTP 500 exit 137 bodies to the memory-fit message", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            error: "Command failed with exit code 137\nstderr: Killed",
-          }),
+    server.use(
+      http.post(`${base}/:repositoryId/index/scip/:language`, () =>
+        HttpResponse.json(
+          { error: "Command failed with exit code 137\nstderr: Killed" },
           { status: 500 },
         ),
       ),
@@ -156,25 +164,21 @@ describe("codesearchIndexScipLang", () => {
         ["go"],
       ),
     ).rejects.toThrow(CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY)
-    vi.unstubAllGlobals()
   })
 })
 
 describe("codesearchIndexMergeScip", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    signUpstreamJwtMock.mockResolvedValue("token")
-    parseEnvMock.mockReturnValue({})
-    codesearchBaseUrlMock.mockReturnValue("http://codesearch:3001")
-  })
-
   it("sends an empty languagesToMerge array so merge omits leftover shards", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ok: true, shardCount: 0 }), {
-        status: 200,
-      }),
+    let body: unknown
+    server.use(
+      http.post(
+        `${base}/:repositoryId/index/merge-scip`,
+        async ({ request }) => {
+          body = await request.json()
+          return HttpResponse.json({ ok: true, shardCount: 0 })
+        },
+      ),
     )
-    vi.stubGlobal("fetch", fetchMock)
 
     await expect(
       codesearchIndexMergeScip(
@@ -183,35 +187,29 @@ describe("codesearchIndexMergeScip", () => {
         [],
       ),
     ).resolves.toEqual({ ok: true, shardCount: 0 })
-
-    expect(fetchMock).toHaveBeenCalledOnce()
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(JSON.parse(String(init.body))).toEqual({
+    expect(body).toEqual({
       detectedLanguages: ["go", "typescript"],
       languagesToMerge: [],
     })
-    vi.unstubAllGlobals()
   })
 
   it("omits languagesToMerge when the caller does not override shards", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ok: true, shardCount: 1 }), {
-        status: 200,
-      }),
+    let body: unknown
+    server.use(
+      http.post(
+        `${base}/:repositoryId/index/merge-scip`,
+        async ({ request }) => {
+          body = await request.json()
+          return HttpResponse.json({ ok: true, shardCount: 1 })
+        },
+      ),
     )
-    vi.stubGlobal("fetch", fetchMock)
 
     await expect(
       codesearchIndexMergeScip({ repositoryId: "repo_1", orgId: "org_1" }, [
         "go",
       ]),
     ).resolves.toEqual({ ok: true, shardCount: 1 })
-
-    expect(fetchMock).toHaveBeenCalledOnce()
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(JSON.parse(String(init.body))).toEqual({
-      detectedLanguages: ["go"],
-    })
-    vi.unstubAllGlobals()
+    expect(body).toEqual({ detectedLanguages: ["go"] })
   })
 })

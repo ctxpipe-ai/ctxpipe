@@ -82,6 +82,7 @@ describe("linearSyncConfig", () => {
 
     await expect(
       linearSyncConfig.fn({
+        step: {},
         input: {
           orgId: "org_1",
           orgSlug: "acme",
@@ -98,6 +99,7 @@ describe("linearSyncConfig", () => {
     mocks.syncConfig.mockResolvedValue({ changed: false })
 
     await linearSyncConfig.fn({
+      step: {},
       input: {
         orgId: "org_1",
         orgSlug: "acme",
@@ -135,6 +137,7 @@ describe("linearSyncConfig", () => {
 
     await expect(
       linearSyncConfig.fn({
+        step: {},
         input: {
           orgId: "org_1",
           orgSlug: "acme",
@@ -159,6 +162,7 @@ describe("linearSyncConfig", () => {
 
     await expect(
       linearSyncConfig.fn({
+        step: {},
         input: {
           orgId: "org_1",
           orgSlug: "acme",
@@ -185,6 +189,7 @@ describe("linearSyncConfig", () => {
 
     await expect(
       linearSyncConfig.fn({
+        step: {},
         input: {
           orgId: "org_1",
           orgSlug: "acme",

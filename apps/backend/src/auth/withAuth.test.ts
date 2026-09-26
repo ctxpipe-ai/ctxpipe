@@ -1,4 +1,6 @@
+import type { RequestLogger } from "evlog"
 import { Hono } from "hono"
+import { contextStorage } from "hono/context-storage"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../app/env.js"
 import { oauthAccessTokens, organizations, users } from "../db/schema/auth.js"
@@ -11,6 +13,7 @@ const {
   createLocalJWKSetMock,
   getSystemDbMock,
   withOrgDbContextMock,
+  warnMock,
   testState,
 } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
@@ -20,6 +23,7 @@ const {
   createLocalJWKSetMock: vi.fn(),
   getSystemDbMock: vi.fn(),
   withOrgDbContextMock: vi.fn(),
+  warnMock: vi.fn(),
   testState: {
     db: null as unknown,
   },
@@ -52,8 +56,9 @@ vi.mock("../db/client.js", () => ({
 vi.mock("../observability/logger.js", () => ({
   getLogger: () => ({
     error: vi.fn(),
-    warn: vi.fn(),
+    warn: warnMock,
     info: vi.fn(),
+    set: vi.fn(),
   }),
 }))
 
@@ -164,7 +169,14 @@ function createMockDb(input: {
 
 function createBaseApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
+  app.use(contextStorage())
   app.use("*", async (c, next) => {
+    c.set("log", {
+      set() {},
+      error() {},
+      warn: warnMock,
+      info() {},
+    } as unknown as RequestLogger)
     c.set("env", {
       AUTH_BASE_URL: "https://backend.example.com",
       AUTH_ISSUER: "https://auth.example.com",
@@ -172,7 +184,9 @@ function createBaseApp(): Hono<AppEnv> {
     c.set("user", null)
     c.set("session", null)
     c.set("oauthOrganizationId", null)
+    c.set("oauthClientId", null)
     c.set("orgApiKey", null)
+    c.set("personalApiKeyId", null)
     c.set("orgSlug", null)
     c.set("orgId", null)
     await next()
@@ -287,6 +301,62 @@ describe("auth middleware composition", () => {
     const firstCall = getSessionMock.mock.calls[0]
     const headers = firstCall?.[0]?.headers as Headers | undefined
     expect(headers?.get("x-api-key")).toBe("ctxp_test_api_key")
+  })
+
+  it("returns 401 when the cookie session has a user and no session", async () => {
+    getSessionMock.mockResolvedValue({
+      user: { id: "user_bad" },
+      session: null,
+    })
+
+    const app = createBaseApp()
+    app.use("/mcp", withCookieAuth)
+    app.post("/mcp", (c) => c.json({ ok: true }))
+
+    const response = await app.request("/mcp", { method: "POST" })
+
+    expect(response.status).toBe(401)
+  })
+
+  it("clears personalApiKeyId when a bearer token replaces the api-key user", async () => {
+    getSessionMock.mockResolvedValue({
+      user: { id: "user_key", email: "key@example.com" },
+      session: { id: "sess_key", userId: "user_key" },
+    })
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: { sub: "user_bearer", sid: "sess_bearer" },
+    })
+    testState.db = createMockDb({
+      tokenSessionRows: [
+        {
+          session: { id: "sess_bearer", userId: "user_bearer" },
+          user: { id: "user_bearer", email: "bearer@example.com" },
+        },
+      ],
+    })
+
+    const app = createBaseApp()
+    app.use("/mcp", withCookieAuth, withBearerAuth)
+    app.post("/mcp", (c) =>
+      c.json({
+        user: c.get("user"),
+        personalApiKeyId: c.get("personalApiKeyId") ?? null,
+      }),
+    )
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: {
+        "x-api-key": "ctxp_test_api_key",
+        authorization: "Bearer header.payload.signature",
+      },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: { id: "user_bearer", email: "bearer@example.com" },
+      personalApiKeyId: null,
+    })
   })
 
   it("withBearerAuth sets user and session from bearer token", async () => {
@@ -1241,6 +1311,7 @@ describe("org API-key principal", () => {
       session: { id: "sess_api_key", userId: "user_api_key" },
       orgApiKey: null,
     })
+    expect(verifyApiKeyMock).not.toHaveBeenCalled()
   })
 
   it("Bearer org API key sets orgApiKey without a user session", async () => {

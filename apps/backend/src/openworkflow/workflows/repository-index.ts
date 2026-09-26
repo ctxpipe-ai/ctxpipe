@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import {
@@ -21,6 +20,7 @@ import {
   withLogger,
 } from "../../observability/logger.js"
 import { parseIndexerConcurrency } from "../codesearchCapacity.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { withLoggedStepAttempt } from "../withLoggedStepAttempt.js"
 
 const repositoryIndexInputSchema = z.object({

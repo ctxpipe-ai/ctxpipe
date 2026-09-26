@@ -1,0 +1,155 @@
+{
+  "name": "LLM (gen_ai)",
+  "tags": ["ctxpipe", "llm"],
+  "filters": [
+    {
+      "type": "QUERY_EXPRESSION",
+      "name": "deployment.environment",
+      "expression": "ResourceAttributes['deployment.environment']",
+      "sourceName": "Traces"
+    },
+    {
+      "type": "QUERY_EXPRESSION",
+      "name": "ctxpipe.org.slug",
+      "expression": "SpanAttributes['ctxpipe.org.slug']",
+      "sourceName": "Traces"
+    },
+    {
+      "type": "QUERY_EXPRESSION",
+      "name": "enduser.id",
+      "expression": "SpanAttributes['enduser.id']",
+      "sourceName": "Traces"
+    }
+  ],
+  "savedFilterValues": [
+    {
+      "type": "sql",
+      "condition": "ResourceAttributes['deployment.environment'] IN ('production')"
+    }
+  ],
+  "tiles": [
+    {
+      "name": "Calls",
+      "x": 0,
+      "y": 0,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "line",
+        "sourceName": "Traces",
+        "fillNulls": true,
+        "seriesLimit": 20,
+        "groupBy": "SpanAttributes['langfuse.observation.model.name']",
+        "select": [
+          {
+            "aggFn": "count",
+            "alias": "calls",
+            "where": "SpanAttributes['langfuse.observation.type'] = 'generation'",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Error rate",
+      "x": 12,
+      "y": 0,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "line",
+        "sourceName": "Traces",
+        "fillNulls": true,
+        "asRatio": true,
+        "seriesLimit": 20,
+        "groupBy": "SpanAttributes['langfuse.observation.model.name']",
+        "numberFormat": { "output": "percent", "mantissa": 1 },
+        "select": [
+          {
+            "aggFn": "count",
+            "alias": "errors",
+            "where": "SpanAttributes['langfuse.observation.type'] = 'generation' AND (StatusCode = 'Error' OR SpanAttributes['langfuse.observation.level'] = 'ERROR')",
+            "whereLanguage": "sql"
+          },
+          {
+            "aggFn": "count",
+            "alias": "calls",
+            "where": "SpanAttributes['langfuse.observation.type'] = 'generation'",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Input tokens",
+      "x": 0,
+      "y": 8,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "line",
+        "sourceName": "Traces",
+        "fillNulls": true,
+        "seriesLimit": 20,
+        "groupBy": "SpanAttributes['langfuse.observation.model.name']",
+        "select": [
+          {
+            "aggFn": "sum",
+            "alias": "input tokens",
+            "valueExpression": "JSONExtractFloat(SpanAttributes['langfuse.observation.usage_details'], 'input')",
+            "where": "SpanAttributes['langfuse.observation.type'] = 'generation'",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Output tokens",
+      "x": 12,
+      "y": 8,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "line",
+        "sourceName": "Traces",
+        "fillNulls": true,
+        "seriesLimit": 20,
+        "groupBy": "SpanAttributes['langfuse.observation.model.name']",
+        "select": [
+          {
+            "aggFn": "sum",
+            "alias": "output tokens",
+            "valueExpression": "JSONExtractFloat(SpanAttributes['langfuse.observation.usage_details'], 'output')",
+            "where": "SpanAttributes['langfuse.observation.type'] = 'generation'",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Latency by model",
+      "x": 0,
+      "y": 16,
+      "w": 24,
+      "h": 8,
+      "config": {
+        "displayType": "line",
+        "sourceName": "Traces",
+        "fillNulls": true,
+        "seriesLimit": 20,
+        "groupBy": "SpanAttributes['langfuse.observation.model.name']",
+        "numberFormat": { "output": "number", "mantissa": 1, "unit": "ms" },
+        "select": [
+          {
+            "aggFn": "quantile",
+            "level": 0.95,
+            "alias": "p95 ms",
+            "valueExpression": "Duration / 1000000",
+            "where": "SpanAttributes['langfuse.observation.type'] = 'generation'",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    }
+  ]
+}

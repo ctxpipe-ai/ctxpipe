@@ -62,8 +62,8 @@ credentials or allowing an API key to shadow a valid OAuth access token.
    `ctx_advisor` threads use `${orgId}_org_${slugify(project)}_${conversationId}`
    and insert conversations with **`userId` null**. No bot user row, no creator
    stamp. Product chat list stays per signed-in user; admin/owner may filter
-   **MCP service** (`source=mcp` AND `userId IS NULL`). Amplitude `user_id` is
-   `org:${orgId}` (never a member id); Langfuse tags include `mcp-org-key`.
+   **MCP service** (`source=mcp` AND `userId IS NULL`). Langfuse tags include
+   `mcp-org-key`.
 
 6. **Who mints.** Organization plugin access control: owner and **admin** get
    `apiKey: ["create","read","update","delete"]`; members get none. Keys are

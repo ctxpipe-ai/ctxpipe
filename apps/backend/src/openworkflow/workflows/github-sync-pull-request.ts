@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { getGithubPrMirrorBinding } from "../../models/github-pr-mirror.js"
@@ -13,6 +12,7 @@ import {
   shouldMirrorGithubPullRequest,
 } from "../../services/github/pull-request-mirror/policy.js"
 import { syncGithubPullRequestToGit } from "../../services/github/pull-request-mirror/sync.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 
 const GithubSyncPullRequestCandidateSchema = z.object({

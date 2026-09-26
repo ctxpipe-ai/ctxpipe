@@ -1,19 +1,36 @@
+import HyperDX from "@hyperdx/browser"
 import { TanStackDevtools } from "@tanstack/react-devtools"
-import { createRootRoute, HeadContent, Scripts } from "@tanstack/react-router"
+import {
+  createRootRoute,
+  type ErrorComponentProps,
+  HeadContent,
+  Scripts,
+} from "@tanstack/react-router"
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
 import type { ReactNode } from "react"
 import { Toaster } from "sonner"
-import { getAmplitudeRuntimeConfig } from "@/lib/amplitudeRuntimeConfig"
 import { getConfluenceForgeRuntimeConfig } from "@/lib/confluenceForgeRuntimeConfig"
+import { getHyperDxDocumentContext } from "@/lib/hyperdxRuntimeConfig"
 import { Providers } from "@/providers"
 
 import appCss from "../styles.css?url"
 
 export const Route = createRootRoute({
-  loader: () => ({
-    amplitudeRuntimeConfig: getAmplitudeRuntimeConfig(),
-    confluenceForgeRuntimeConfig: getConfluenceForgeRuntimeConfig(),
-  }),
+  // Client navigations keep the document identity. `router.invalidate()` still
+  // enters the loader; the client half returns undefined and the previous data stays.
+  shouldReload: false,
+  loader: async ({ location }) => {
+    const hyperdx = await getHyperDxDocumentContext(location.pathname)
+    if (!hyperdx) return undefined
+    return {
+      hyperdxRuntimeConfig: hyperdx.config,
+      hyperdxIdentity: hyperdx.identity,
+      confluenceForgeRuntimeConfig: getConfluenceForgeRuntimeConfig(),
+    }
+  },
+  onCatch: (error) => {
+    HyperDX.recordException(error)
+  },
   head: () => ({
     meta: [
       { charSet: "utf-8" },
@@ -42,6 +59,7 @@ export const Route = createRootRoute({
     ],
   }),
   shellComponent: RootDocument,
+  errorComponent: RootErrorComponent,
   notFoundComponent: () => (
     <main className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-3xl px-6 py-16">
@@ -51,9 +69,33 @@ export const Route = createRootRoute({
   ),
 })
 
+function RootErrorComponent({ reset }: ErrorComponentProps) {
+  return (
+    <main className="min-h-screen bg-background text-foreground">
+      <div className="mx-auto max-w-3xl px-6 py-16">
+        <p className="text-sm text-muted-foreground">Something went wrong</p>
+        <button
+          type="button"
+          className="mt-4 rounded-none border border-border px-3 py-1.5 text-sm"
+          onClick={() => reset()}
+        >
+          Try again
+        </button>
+      </div>
+    </main>
+  )
+}
+
 function RootDocument({ children }: { children: ReactNode }) {
-  const { amplitudeRuntimeConfig, confluenceForgeRuntimeConfig } =
-    Route.useLoaderData()
+  const loaderData = Route.useLoaderData()
+  const hyperdxRuntimeConfig = loaderData?.hyperdxRuntimeConfig ?? {
+    enabled: false,
+  }
+  const hyperdxIdentity = loaderData?.hyperdxIdentity ?? null
+  const confluenceForgeRuntimeConfig =
+    loaderData?.confluenceForgeRuntimeConfig ?? {
+      installUrlFallback: null,
+    }
   return (
     <html lang="en" className="dark">
       <head>
@@ -61,7 +103,8 @@ function RootDocument({ children }: { children: ReactNode }) {
       </head>
       <body>
         <Providers
-          amplitudeRuntimeConfig={amplitudeRuntimeConfig}
+          hyperdxRuntimeConfig={hyperdxRuntimeConfig}
+          hyperdxIdentity={hyperdxIdentity}
           confluenceForgeRuntimeConfig={confluenceForgeRuntimeConfig}
         >
           {children}

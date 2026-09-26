@@ -33,7 +33,10 @@ reason to expose other services.
 | `codesearch` | Private |
 | `postgres` | Private |
 | `falkordb` or graph database | Private |
-| `otel-collector` | Private or restricted to trusted producers |
+
+Telemetry export is outbound only. There is no collector to expose. Set
+`OTEL_EXPORTER_OTLP_*` to your own endpoint when you want traces, logs, or
+metrics to leave the app containers.
 
 ## Callback URLs
 

@@ -268,12 +268,6 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
 
-### LangSmith integration
-- **Rule:** mount LangGraph API in-process (no subprocess/proxy), gate with `ENABLE_LANGSMITH`, resolve graph specs from `./src/graphs/index.ts:{exportName}` (no generated `langgraph.json`)
-- **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
-
 ### Atlassian Forge install intent flow
 - **Rule:** use org-scoped `POST /:orgSlug/api/v1/atlassian/installation` to set `forge_installations.status='pending'` + `installed_by_user_id`, enforce one pending per user via partial unique index, resolve webhook first by `cloud_id` then by installer-account join; keep UI status focused on `isLinked`/`isInstalled` and remove linked-site fields
 - **Category:** convention
@@ -502,11 +496,11 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
 
-### Amplitude / product analytics:
-- **Rule:** Self-hosters should **not** need to **rebuild** the UI image — set **runtime** env on the UI server. Resolve **`AMPLITUDE_API_KEY`** / **`AMPLITUDE_REGION`** in the **root route loader** via **`getAmplitudeRuntimeConfig()`** (server-side during SSR); pass config into the client as loader data — **no client `fetch`** for bootstrap. Same JSON shape is also served at **`GET /api/v1/c/s`** for operators. Point the Browser SDK **`serverUrl`** at a **same-origin proxy** (`/.amp/events`). **Single** project key for browser + backend MCP. **Page views:** SDK **autocapture** defaults. See ADR-017.
+### Browser OTEL / HyperDX:
+- **Rule:** Self-hosters set runtime env on the UI server and do not rebuild the UI image for telemetry. Config is resolved in the root route loader. The browser posts only to same-origin `/.otel`. The UI server holds the collector URL and ingest key. See ADR-038 (supersedes ADR-017).
 - **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
+- **Date:** 2026-09-26
+- **Source:** PR-343: Amplitude replaced by HyperDX RUM
 
 ### Unmatched-route fallback
 - **Rule:** mount explicit backend routes first; final `app.all("*")` in `apps/backend/src/app/app.ts` proxies unknown paths to UI origin from `UI_PROXY_URL` via Hono `proxy()`. Auth middleware in `withAuth.ts`, applied in `src/routes/v1/index.ts` via `v1.use("*", withAuth)` (no path-prefix checks in global middleware)
@@ -652,6 +646,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-31
 - **Source:** Claude Code 2.1.251 Stop hook validation failure after `npx ctxpipe init`; [anthropics/claude-code#50682](https://github.com/anthropics/claude-code/issues/50682)
 
+### ctxpipe-observability stays in us-east4-eqdc4a
+- **Rule:** Hosted observability uses the same Railway metal as product: `us-east4-eqdc4a` (Virginia, next to Neon `aws-us-east-1`). Pin with `RAILWAY_SERVICE_SET=observability scripts/railway-set-regions.sh`. The pin is unfinished while any service or volume still shows `asia-southeast1-eqsg3a`.
+- **Category:** convention
+- **Date:** 2026-09-25
+- **Source:** user correction on PR-343 (stack landed in Singapore again after image-service create / region pin)
+
 ### Distributed OAuth connectors require a clean external-workspace acceptance test
 - **Rule:** Never treat a provider workspace that already hosts the development app as proof that a new customer installation works. OAuth grants can be workspace-specific, additive, and contaminated by dashboard installs or earlier re-authorisations; Slack can also silently suppress Events API delivery when the installed token lacks an event scope. Before shipping a distributed connector, install it through the product OAuth flow into a fresh second workspace, inspect the returned and live token scopes, exercise the real webhook-to-durable-output path, and test re-authorisation after a required scope changes. Keep provider app configuration in a committed manifest and CI-check its scopes against the backend request.
 - **Category:** testing
@@ -682,3 +682,27 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** reliability
 - **Date:** 2026-09-17
 - **Source:** Preview idle-exit while `repository-ingestion` runs sat unclaimed in a non-default namespace
+
+### Telemetry attribution must come from auth, never from inbound headers
+- **Rule:** On public HTTP services, never copy user/org/actor/request attribution from inbound W3C `baggage` (or any client header) onto spans, logs, jobs, or Langfuse — derive it from the authenticated context only. Only private, internal-only services may read attribution from baggage set by our own callers. Span URLs must never include query strings, fragments, or credentials (tokens, device codes, OAuth `state` ride in query strings), and outgoing-fetch instrumentation should only create child spans under an existing server/job span.
+- **Category:** convention
+- **Date:** 2026-09-25
+- **Source:** PR-343 Opus review of the attribution step (live baggage spoof and reset-token leak into ClickHouse)
+
+### The UI is reached through the backend proxy, which rewrites Host
+- **Rule:** Browsers load the app from the backend origin; the backend proxies SPA and `/.otel` routes to `UI_PROXY_URL`, so inside `apps/ui` server handlers `request.url`/`Host` is the internal UI host, not the public origin. Any origin, CSRF, redirect, or absolute-URL logic in `apps/ui` must derive the public origin from the forwarded host/proto the backend proxy sets (or from the backend's configured public URL), and must be tested with a proxied request (internal Host + public Origin), not only with Origin == Host.
+- **Category:** convention
+- **Date:** 2026-09-25
+- **Source:** PR-343 `/.otel` same-origin check rejected every browser telemetry post on pr-343 (403) after deploy
+
+### Tests fake the environment, not our modules
+- **Rule:** Use msw for outbound HTTP, a real Postgres for database paths (`*.integration.test.ts` gated on `DATABASE_URL`), `vi.stubEnv` for config, fake timers for time, and OTel in-memory exporters for telemetry. `vi.mock` of a repo module is only for an import-time side effect that cannot be configured, with a comment naming it. A test that mocks our env, db client, logger, and helpers together asserts the mocks, survives behavior breaks, and fails on harmless refactors.
+- **Category:** testing
+- **Date:** 2026-09-26
+- **Source:** Repository owner review of PR-343 ("tests abusing mocks"; `domain/codeIngestion/codesearchClient.test.ts` had six module mocks before PR-343)
+
+### Every runtime import must be a direct `dependency` of its app
+- **Rule:** An app's production image installs only its own `dependencies`, so a package imported from non-test code must be listed there, not in `devDependencies` and not only reachable as another package's transitive dependency. pnpm hoisting makes the import resolve locally and in Vitest, so the break shows up only when the built image starts (`Cannot find module …`). When a change adds an import from a new package, add it to that app's `dependencies` in the same commit.
+- **Category:** convention
+- **Date:** 2026-09-26
+- **Source:** PR-343 backend image failed "Verify connector asset contracts" after `otel.ts` imported `@opentelemetry/resources`, which was only a devDependency

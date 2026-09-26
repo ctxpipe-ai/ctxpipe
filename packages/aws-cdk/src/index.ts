@@ -6,6 +6,7 @@ export type {
   CtxPipeModelProviderProps,
   CtxPipeModelTiers,
   CtxPipeOpenAiLikeModelProviderProps,
+  CtxPipeOtelProps,
   CtxPipeProps,
   CtxPipeSize,
 } from "./types";

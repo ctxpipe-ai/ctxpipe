@@ -10,12 +10,6 @@ variable "better_auth_secret" {
   sensitive   = true
 }
 
-variable "langsmith_api_key" {
-  type        = string
-  description = "value for LANGSMITH_API_KEY"
-  sensitive   = true
-}
-
 variable "model_provider_api_key" {
   type        = string
   description = "value for MODEL_PROVIDER_API_KEY"
@@ -156,33 +150,8 @@ variable "falkordb_password" {
   sensitive   = true
 }
 
-variable "better_stack_token" {
+variable "otel_otlp_headers" {
   type        = string
-  description = "Better Stack OpenTelemetry source token for the collector."
+  description = "OTEL_EXPORTER_OTLP_HEADERS for the public collector (authorization=<HYPERDX_API_KEY>). Same value as OBSERVABILITY_OTLP_HEADERS."
   sensitive   = true
-}
-
-variable "langfuse_auth_string" {
-  type        = string
-  description = "LangFuse OTLP basic auth string (base64)."
-  sensitive   = true
-}
-
-variable "langfuse_otlp_endpoint" {
-  type        = string
-  description = "LangFuse OTLP HTTP endpoint."
-  sensitive   = true
-}
-
-variable "amplitude_api_key" {
-  type        = string
-  description = "Amplitude project API key; leave empty to disable analytics."
-  default     = ""
-  sensitive   = true
-}
-
-variable "amplitude_region" {
-  type        = string
-  description = "Amplitude data region: us or eu."
-  default     = "us"
 }

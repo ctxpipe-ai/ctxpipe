@@ -1,6 +1,11 @@
 "use client"
 
-import { keepPreviousData, useQuery } from "@tanstack/react-query"
+import HyperDX from "@hyperdx/browser"
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
@@ -52,6 +57,11 @@ export function ConfluenceSetupWizard({
   const [waitForInstall, setWaitForInstall] = useState(initialWaitForInstall)
   const [manualStepIndex, setManualStepIndex] = useState<number | null>(null)
   const prevServerStepIndexRef = useRef<number | null>(null)
+  const queryClient = useQueryClient()
+  const statusKey = atlassianConnectorKeys.status(
+    orgSlug,
+    atlassianConnectionId,
+  )
 
   const {
     data: status,
@@ -59,9 +69,24 @@ export function ConfluenceSetupWizard({
     isError: statusError,
     refetch: refetchStatus,
   } = useQuery({
-    queryKey: atlassianConnectorKeys.status(orgSlug, atlassianConnectionId),
-    queryFn: () =>
-      fetchAtlassianConnectorStatus(orgSlug, atlassianConnectionId),
+    queryKey: statusKey,
+    queryFn: async () => {
+      const previous =
+        queryClient.getQueryData<AtlassianConnectorStatus>(statusKey)
+      const next = await fetchAtlassianConnectorStatus(
+        orgSlug,
+        atlassianConnectionId,
+      )
+      if (
+        waitForInstall &&
+        previous &&
+        !previous.isInstalled &&
+        next.isInstalled
+      ) {
+        HyperDX.addAction("connector_connect", { connector: "forge" })
+      }
+      return next
+    },
     placeholderData: keepPreviousData,
     enabled: isOpen,
     staleTime: 0,

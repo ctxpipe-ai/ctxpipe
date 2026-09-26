@@ -1,3 +1,4 @@
+import HyperDX from "@hyperdx/browser"
 import { createFileRoute } from "@tanstack/react-router"
 import { useState } from "react"
 import { OAuthOrganizationSelector } from "@/features/auth/OAuthOrganizationSelector"
@@ -21,6 +22,7 @@ export function OAuthOrganizationSelectionRoutePage() {
         organizationId,
         fetchOptions: { throw: true },
       })
+      HyperDX.addAction("org_switch")
 
       const { data, error: continueError } = await authClient.oauth2.continue({
         postLogin: true,

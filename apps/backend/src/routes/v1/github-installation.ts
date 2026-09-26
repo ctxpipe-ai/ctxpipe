@@ -1432,7 +1432,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
               {
                 step: "github_installation.mcp_create_pr_repo",
                 repository,
-                status: detail.status,
+                "upstream.status_code": detail.status,
                 documentationUrl: detail.documentationUrl,
                 errors: detail.errors,
               },

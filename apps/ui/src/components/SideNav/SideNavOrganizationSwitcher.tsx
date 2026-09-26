@@ -6,6 +6,7 @@ import {
   OrganizationLogo,
   useCurrentOrganization,
 } from "@daveyplate/better-auth-ui"
+import HyperDX from "@hyperdx/browser"
 import type { Organization } from "better-auth/plugins/organization"
 import { ChevronsUpDown, PlusCircleIcon, SettingsIcon } from "lucide-react"
 import { useCallback, useContext, useEffect, useMemo, useState } from "react"
@@ -120,7 +121,7 @@ export function SideNavOrganizationSwitcher({
   ])
 
   const switchOrganization = useCallback(
-    async (organization: Organization) => {
+    async (organization: Organization): Promise<boolean> => {
       setActiveOrganizationPending(true)
       try {
         onSetActive(organization)
@@ -129,6 +130,7 @@ export function SideNavOrganizationSwitcher({
           fetchOptions: { throw: true },
         })
         organizationRefetch?.()
+        return true
       } catch (error) {
         toast({
           variant: "error",
@@ -138,6 +140,7 @@ export function SideNavOrganizationSwitcher({
               : "Failed to switch organisation",
         })
         setActiveOrganizationPending(false)
+        return false
       }
     },
     [authClient, onSetActive, organizationRefetch, toast],
@@ -250,7 +253,9 @@ export function SideNavOrganizationSwitcher({
                   key={organization.id}
                   className={classNames.content.menuItem}
                   onClick={() => {
-                    void switchOrganization(organization)
+                    void switchOrganization(organization).then((switched) => {
+                      if (switched) HyperDX.addAction("org_switch")
+                    })
                   }}
                 >
                   <OrganizationCellView

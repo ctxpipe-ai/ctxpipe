@@ -89,6 +89,33 @@ export interface CtxPipeConnectorSecretsProps {
   readonly pagerdutyRedirectUri?: cdk.SecretValue;
 }
 
+/**
+ * Optional OTLP export. Omit to leave telemetry off.
+ * The construct does not deploy a collector, Langfuse, or ClickStack.
+ *
+ * One base URL covers traces, logs, and metrics. A different URL per signal
+ * is not supported; point `endpoint` at a collector that fans out.
+ */
+export interface CtxPipeOtelProps {
+  /**
+   * OTLP/HTTP base URL, without a signal path and without a trailing slash.
+   * The construct sets `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to
+   * `${endpoint}/v1/traces`, and the same for logs and metrics.
+   * A blank value throws. Omit `otel` to leave export off.
+   */
+  readonly endpoint: string;
+  /**
+   * `OTEL_EXPORTER_OTLP_HEADERS`, for example `Authorization=Bearer xxx`.
+   * Stored in Secrets Manager and injected into the app tasks when export is on.
+   */
+  readonly headers?: cdk.SecretValue;
+  /**
+   * `OTEL_RESOURCE_ATTRIBUTES`, for example `deployment.environment=production`.
+   * Set on the app tasks when export is on.
+   */
+  readonly resourceAttributes?: string;
+}
+
 export interface CtxPipeProps {
   /**
    * Organization slug used by self-hosted deployment.
@@ -99,6 +126,11 @@ export interface CtxPipeProps {
   readonly modelProvider: CtxPipeModelProviderProps;
   readonly customDomain: CtxPipeCustomDomainProps;
   readonly connectorSecrets?: CtxPipeConnectorSecretsProps;
+  /**
+   * Optional OpenTelemetry export to the operator's OTLP endpoint.
+   * Omit to export nothing.
+   */
+  readonly otel?: CtxPipeOtelProps;
   /**
    * Capacity profile for single-tenant self-hosting.
    * Defaults to "small" when omitted.

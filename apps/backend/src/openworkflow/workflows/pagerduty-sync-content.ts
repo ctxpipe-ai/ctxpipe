@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -9,6 +8,7 @@ import {
 } from "../../models/pagerduty-connector.js"
 import { getLogger } from "../../observability/logger.js"
 import { syncPagerdutyContent } from "../../services/pagerduty/sync.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 
 const pagerdutySyncContentInputSchema = z.object({
@@ -17,7 +17,10 @@ const pagerdutySyncContentInputSchema = z.object({
 })
 
 export const pagerdutySyncContent = defineWorkflow(
-  { name: "pagerduty-sync-content", schema: pagerdutySyncContentInputSchema },
+  {
+    name: "pagerduty-sync-content",
+    schema: pagerdutySyncContentInputSchema,
+  },
   async ({ input, step }) => {
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const markSyncFailed = () =>

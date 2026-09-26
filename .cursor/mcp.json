@@ -12,24 +12,23 @@
       "type": "streamable-http",
       "url": "https://mcp.neon.tech/mcp?readonly=true"
     },
-    "amplitude": {
-      "type": "streamable-http",
-      "url": "https://mcp.amplitude.com/mcp"
-    },
     "railway": {
       "type": "streamable-http",
       "url": "https://mcp.railway.com"
     },
+    "hyperdx": {
+      "type": "streamable-http",
+      "url": "https://hyperdx.ctxpipe.ai/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${env:HYPERDX_ACCESS_KEY}"
+      }
+    },
     "langfuse": {
       "type": "streamable-http",
-      "url": "${env:LANGFUSE_BASE_URL}/api/public/mcp",
+      "url": "https://langfuse.ctxpipe.ai/api/public/mcp",
       "headers": {
         "Authorization": "Basic ${env:LANGFUSE_AUTH_STRING}"
       }
-    },
-    "betterstack": {
-      "type": "streamable-http",
-      "url": "https://mcp.betterstack.com"
     }
   }
 }

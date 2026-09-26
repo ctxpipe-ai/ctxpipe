@@ -3,14 +3,16 @@ import { createRoute, z } from "@hono/zod-openapi"
 import { and, eq } from "drizzle-orm"
 import type { AppEnv } from "../app/env.js"
 import { ZOEKT_WEBSERVER_URL } from "../config/paths.js"
-import { DEFAULT_CHECKOUT_KEY } from "../domain/repositories/paths.js"
 import { repositories, repositoryCheckouts } from "../db/schema.js"
+import { DEFAULT_CHECKOUT_KEY } from "../domain/repositories/paths.js"
 import { pinRepos } from "../domain/zoekt/pinManager.js"
 import { zoektRepositoryName } from "../domain/zoekt/shardPrefix.js"
 import {
   waitUntilZoektReposLoaded,
   ZoektWarmupTimeoutError,
 } from "../domain/zoekt/warmup.js"
+import { getLogger } from "../observability/logger.js"
+import { queryRejectedCode, queryRejectedSchema } from "./errorBody.js"
 
 const SearchRequestSchema = z
   .object({
@@ -43,6 +45,14 @@ export const searchRoute = createRoute({
       },
       description: "Zoekt search result",
     },
+    400: {
+      content: {
+        "application/json": {
+          schema: queryRejectedSchema,
+        },
+      },
+      description: "Zoekt rejected the query",
+    },
     503: {
       content: {
         "application/json": {
@@ -53,6 +63,17 @@ export const searchRoute = createRoute({
     },
   },
 })
+
+/**
+ * zoekt-webserver rejects a query with `http.Error`: plain text plus a
+ * trailing newline. Surface that text so callers can tell a bad query from
+ * an outage. The wide event does not include it — Zoekt echoes the query.
+ */
+async function zoektClientErrorMessage(res: Response): Promise<string> {
+  const text = (await res.text()).trim().replace(/\s+/g, " ").slice(0, 300)
+  if (!text) return `Zoekt rejected the query (HTTP ${res.status})`
+  return `Zoekt rejected the query: ${text}`
+}
 
 export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
   app.openapi(searchRoute, async (c) => {
@@ -125,8 +146,22 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       })
+      if (res.status >= 400 && res.status < 500) {
+        const error = await zoektClientErrorMessage(res)
+        // Zoekt's text can echo the query. The response keeps it for the caller;
+        // the wide event gets status and a fixed class only.
+        getLogger().warn("codesearch.search.zoekt_rejected", {
+          step: "codesearch.search.zoekt_rejected",
+          "upstream.status_code": res.status,
+          error: "zoekt_query_rejected",
+        })
+        return c.json({ error, code: queryRejectedCode }, 400)
+      }
       if (!res.ok) {
-        return c.json({ error: `Zoekt returned status ${res.status}` }, 503)
+        return c.json(
+          { error: `Zoekt webserver is unavailable (HTTP ${res.status})` },
+          503,
+        )
       }
       const data = await res.json().catch(() => ({}))
       return c.json(data, 200)

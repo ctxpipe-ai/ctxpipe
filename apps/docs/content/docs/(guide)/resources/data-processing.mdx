@@ -24,11 +24,9 @@ This page describes **data handling for the hosted SaaS product** (ctxpipe). It 
 
 | Provider    | Purpose                 |
 | ----------- | ----------------------- |
-| Railway     | Compute and hosting     |
+| Railway     | Compute, hosting, and our self-hosted observability (logs, traces, LLM traces) |
 | Neon        | Postgres database       |
 | OpenRouter  | LLM routing ([ZDR](https://openrouter.ai/docs/guides/features/zdr)-only models on hosted) |
-| Langfuse    | LLM observability       |
-| Better Stack | Logging and monitoring |
 
 ## LLM calls
 
@@ -43,7 +41,8 @@ We do **not** publish fixed customer-data retention periods in this documentatio
 
 ## What we don’t do
 
-- We **don’t** use your repository content to **train** ctx|’s own models (ctx| is not a model trainer; upstream providers have their own policies - see OpenRouter above).
+- We **don’t** use your repository content to **train** ctx|’s own models (ctx| is not a model trainer).
+- On the hosted product, every model call goes only to **[Zero Data Retention (ZDR)](https://openrouter.ai/docs/guides/features/zdr)** endpoints: ZDR is enforced in our OpenRouter account, so providers neither store your prompts and context nor train on them.
 - We **don’t** share data **across tenants** or sell it to third parties; sub-processors above are **service providers** for operating the product.
 - We **don’t** ingest sources you have **not** explicitly connected.
 

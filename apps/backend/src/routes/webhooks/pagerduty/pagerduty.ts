@@ -14,6 +14,7 @@ import {
   pagerdutyEventIsStale,
   verifyPagerdutyWebhookSignature,
 } from "../../../services/pagerduty/signature.js"
+import { noteResolvedWebhookConnections } from "../attribution.js"
 
 export function pagerdutyIncidentEventFromPayload(payload: unknown):
   | {
@@ -35,7 +36,8 @@ export function pagerdutyIncidentEventFromPayload(payload: unknown):
     record.data && typeof record.data === "object"
       ? (record.data as Record<string, unknown>)
       : undefined
-  const incidentId = typeof data?.id === "string" ? data.id : undefined
+  if (!data) return undefined
+  const incidentId = typeof data.id === "string" ? data.id : undefined
   if (!incidentId) return undefined
   const service =
     data.service && typeof data.service === "object"
@@ -81,6 +83,7 @@ async function handlePagerdutyWebhook(c: Context<AppEnv>) {
   if (!connection) {
     return c.json({ error: "Unauthorized" }, 401)
   }
+  noteResolvedWebhookConnections([connection])
 
   let payload: unknown
   try {

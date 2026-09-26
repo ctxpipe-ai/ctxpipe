@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -18,6 +17,7 @@ import {
   type SlackMentionAgentResult,
 } from "../../services/slack/mention-agent.js"
 import { publishSlackMentionStatus } from "../../services/slack/mention-status.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 
 const slackMentionAgentInputSchema = z.object({

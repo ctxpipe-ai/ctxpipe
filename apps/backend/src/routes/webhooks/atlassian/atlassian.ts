@@ -13,6 +13,7 @@ import {
 import { getLogger } from "../../../observability/logger.js"
 import { handleForgeConfluenceContentEvent } from "../../../services/confluence/forge-confluence-webhook.js"
 import { CONFLUENCE_DELETED_PAGE_EVENT } from "../../../services/confluence/sync.js"
+import { noteResolvedWebhookConnections } from "../attribution.js"
 import type { InstallationEvent } from "./atlassian-events.js"
 
 const FORGE_ECOSYSTEM_INSTALLATION_ARI_PREFIX =
@@ -179,6 +180,8 @@ async function handleForgeLifecyclePost(
     return c.body(null, 202)
   }
 
+  noteResolvedWebhookConnections([installation])
+
   if (installation.cloudId != null && installation.cloudId !== cloudId) {
     log.warn("forge_lifecycle_cloud_id_mismatch", {
       connectionId: installation.id,
@@ -308,6 +311,7 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
         })
         return c.body(null, 202)
       }
+      noteResolvedWebhookConnections([installation])
       if (
         installation.cloudId != null &&
         installation.cloudId !== cloudIdFromFit

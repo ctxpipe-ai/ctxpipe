@@ -4,7 +4,7 @@ Naming: `ADR-NNN-title-slug.md`. Status | Date | Tags; Context; Decision; Conseq
 
 Parent: [`.ai/memory/README.md`](../README.md).
 
-**Updated:** 2026-09-24
+**Updated:** 2026-09-26
 
 ## Index
 
@@ -14,9 +14,9 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-001](ADR-001-frontend-ui-app-stack.md) | Frontend UI app stack | Accepted |
 | [ADR-002](ADR-002-backend-service-stack-and-runtime.md) | Backend service stack and runtime | Accepted |
 | [ADR-003](ADR-003-drizzle-beta.md) | Drizzle ORM beta (v1.x) | Accepted |
-| [ADR-004](ADR-004-local-development-docker-compose.md) | Local development with Docker Compose | Superseded |
+| [ADR-004](ADR-004-local-development-docker-compose.md) | Local development with Docker Compose | Superseded by [ADR-015](ADR-015-docker-compose-profiles-and-small-scale-deploy.md) |
 | [ADR-005](ADR-005-langgraph-integration.md) | LangGraph + LangChain integration | Superseded |
-| [ADR-006](ADR-006-langsmith-studio-dev-routes.md) | LangSmith Studio dev routes | Accepted |
+| [ADR-006](ADR-006-langsmith-studio-dev-routes.md) | LangSmith Studio dev routes | Superseded — LangSmith removed; no replacement |
 | [ADR-007](ADR-007-remove-cloudflare-workers-runtime.md) | Remove Cloudflare Workers runtime | Accepted |
 | [ADR-008](ADR-008-codesearch-zoekt-orchestration.md) | Codesearch service and Zoekt orchestration | Accepted |
 | [ADR-009](ADR-009-ui-src-folder-structure.md) | UI src folder structure | Accepted |
@@ -27,7 +27,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-014](ADR-014-parallel-worktree-local-development.md) | Parallel worktree local development | Accepted |
 | [ADR-015](ADR-015-docker-compose-profiles-and-small-scale-deploy.md) | Docker Compose profiles and small-scale container deploy | Accepted |
 | [ADR-016](ADR-016-code-ingestion-react-agent-limits.md) | Code ingestion ReAct agents — recursion limits and context middleware | Accepted |
-| [ADR-017](ADR-017-amplitude-analytics.md) | Amplitude analytics (UI + backend) | Accepted |
+| [ADR-017](ADR-017-amplitude-analytics.md) | Amplitude analytics (UI + backend) | Superseded by [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md) |
 | [ADR-018](ADR-018-unified-connections-table.md) | Unified `connections` table | Accepted |
 | [ADR-019](ADR-019-confluence-forge-self-host-and-per-org-atlassian-3lo.md) | Confluence / Forge self-host, per-org Atlassian 3LO, and provision pipeline | Accepted |
 | [ADR-020](ADR-020-changeset-ci-guard-policy.md) | Changeset CI guard policy | Accepted |
@@ -46,3 +46,4 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-033](ADR-033-graph-ontology-v2.md) | Graph ontology v2: relation families, shared identity, deterministic connector extraction | Accepted (amended by ADR-037) |
 | [ADR-034](ADR-034-pagerduty-connector-git-native-mirror.md) | PagerDuty connector Git-native mirror | Accepted |
 | [ADR-037](ADR-037-committed-memory-reaches-the-graph.md) | Committed memory reaches the graph | Accepted |
+| [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md) | Self-hosted ClickStack + Langfuse (ops observability) | Accepted |

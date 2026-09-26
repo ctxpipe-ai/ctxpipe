@@ -61,6 +61,15 @@ terraform -chdir=infra apply -var="image_tag=<commit-sha>"
 This keeps infrastructure changes and application rollouts reviewable in the
 same workflow.
 
+## Observability
+
+This stack is the hosted Railway layout. It does not deploy Langfuse or
+ClickStack. The module always sets `OTEL_EXPORTER_OTLP_*` from
+`otel_otlp_endpoint`, which defaults to ctx|'s hosted collector
+`https://telemetry.ctxpipe.ai`, and requires `otel_otlp_headers`. If you reuse
+the module, override both; to disable export, remove `otel_shared_env` from
+the module. See [Configuration](/docs/self-hosting/configuration).
+
 ## When to customize
 
 Fork or extend the Terraform module when you need:

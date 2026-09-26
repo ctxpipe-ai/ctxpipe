@@ -4,35 +4,35 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 - **Root** (this file): architecture, code style.
 - **apps/backend**: [apps/backend/AGENTS.md](apps/backend/AGENTS.md) — API, OpenAPI, MCP, Drizzle, TypeScript, etc. **[Source-connectors skill](.agents/skills/source-connectors/)** when designing, building, or reviewing a source connector (Linear, Notion, Slack, git-native mirror/capture, `connections.config`, self-host).
-- **apps/otel-collector**: OpenTelemetry Collector for Better Stack + LangFuse; config + `.env` in `apps/otel-collector/`.
+- **apps/otel-collector**: laptop OTLP debug sink for `pnpm dev:infra` (stdout only). Hosted ingest is [`ops/observability`](ops/observability/) ([ADR-038](.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md)).
 - **apps/codesearch**: [apps/codesearch/AGENTS.md](apps/codesearch/AGENTS.md) — Zoekt/SCIP orchestration, read-only DB, OpenAPI + Zod, and the manual Kubernetes ingest memory gate.
 - **apps/ui**: [apps/ui/AGENTS.md](apps/ui/AGENTS.md) — TanStack Start frontend, React Aria, Tailwind, Storybook, Vitest; **[React skill](.agents/skills/react/)** when building or editing components; **[product-ui skill](.agents/skills/product-ui/)** and [DESIGN.md](apps/ui/DESIGN.md) when building or restyling product screens.
 - **apps/docs**: [apps/docs/AGENTS.md](apps/docs/AGENTS.md) — Fumadocs documentation site (Next.js 15, Shiki, forced-dark, deploys to docs.ctxpipe.ai).
 - **examples/**: runnable consumer examples for ctxpipe packages (manual e2e tests against real infra). See [examples/README.md](examples/README.md); first entry is [examples/aws-cdk-self-host](examples/aws-cdk-self-host) for `@ctxpipe-ai/aws-cdk` on AWS.
+- **ops/observability**: internal ClickStack + Langfuse Railway project (not product deploy). See [ops/observability/README.md](ops/observability/README.md) and [ADR-038](.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md).
 - **plugins/ctxpipe**: Claude plugin for the hosted product MCP. See [ADR-026](.ai/memory/decisions/ADR-026-claude-plugin-mcp-distribution.md).
 
 **MCP (project-scoped):** Config lives at [`.cursor/mcp.json`](.cursor/mcp.json) (same file as [`.agents/mcp.json`](.agents/mcp.json) via the `.agents` → `.cursor` symlink). Two kinds of servers:
 
 1. **Product MCP (`ctxpipe`)** — hosted org MCP for the product itself (`https://app.ctxpipe.ai/mcp?orgSlug=ctx-tev`). This is the customer-facing ctxpipe tool surface agents use against the live org; do **not** point it at localhost.
-2. **Agent tooling MCPs** — editor/agent helpers for this repo (Storybook, Neon, Amplitude, Railway, Langfuse, Better Stack). Not the backend’s in-process Hono `/mcp` product server.
+2. **Agent tooling MCPs** — editor/agent helpers for this repo (Storybook, Neon, Railway, HyperDX, Langfuse). Not the backend’s in-process Hono `/mcp` product server.
 
 | Server | Purpose | Preconditions |
 | --- | --- | --- |
 | `ctxpipe` | Hosted product MCP (org `ctx-tev`) | OAuth / account access to that org in Cursor |
 | `ctxpipe-storybook` | Storybook MCP at `http://127.0.0.1:6006/mcp` | Storybook must be running: `pnpm --filter @ctxpipe/ui storybook` |
 | `neon` | Neon Lakebase Postgres via hosted MCP — **read-only** (`?readonly=true`) | OAuth in Cursor (uncheck Full access if prompted; URL param forces RO). Optional headless: Bearer `NEON_API_KEY` + same `readonly=true` URL ([Neon MCP docs](https://neon.com/docs/ai/neon-mcp-server)) |
-| `amplitude` | Amplitude analytics MCP (US) | OAuth in Cursor ([Amplitude Cursor setup](https://amplitude.com/docs/amplitude-ai/amplitude-mcp/cursor)); EU → `https://mcp.eu.amplitude.com/mcp` |
-| `railway` | Railway status + logs / deploys | OAuth in Cursor (`type: streamable-http` → `https://mcp.railway.com`) |
-| `langfuse` | Langfuse **project** MCP (traces/prompts) | Cursor/env secrets: `LANGFUSE_BASE_URL` (e.g. `https://us.cloud.langfuse.com`) and `LANGFUSE_AUTH_STRING` = base64(`pk:sk`); see [apps/otel-collector/.env.example](apps/otel-collector/.env.example) |
-| `betterstack` | Better Stack uptime + telemetry | OAuth in Cursor (or Bearer API token via header if needed) |
+| `railway` | Railway status + deploy/runtime stdout | OAuth in Cursor (`type: streamable-http` → `https://mcp.railway.com`) |
+| `hyperdx` | ClickStack logs, traces, metrics, dashboards | `HYPERDX_ACCESS_KEY` = HyperDX personal access key (Bearer). UI `https://hyperdx.ctxpipe.ai`. Ingest token `HYPERDX_API_KEY` is a different secret |
+| `langfuse` | Langfuse **project** MCP (LLM traces / prompts) | `LANGFUSE_AUTH_STRING` = base64(`pk:sk`). URL is `https://langfuse.ctxpipe.ai/api/public/mcp`. See [ops/observability/USING.md](ops/observability/USING.md) |
 
-**Not wired** (intentionally): local Postgres MCP, GitHub MCP, codesearch MCP, Linear/Notion MCP.
+**Not wired** (intentionally): local Postgres MCP, GitHub MCP, codesearch MCP, Linear/Notion MCP, ClickHouse `mcp-clickhouse` (query through `hyperdx`).
 
-**Ops debugging / logs (preference order):** When investigating deployed or production-like behavior, prefer MCP sources in this order — do **not** assume a local `.evlog/logs/` filesystem drain for product debugging (ctxpipe backend uses OTLP / stdout; see [`.agents/skills/analyze-logs`](.agents/skills/analyze-logs/SKILL.md)):
+**Ops debugging / logs (preference order):** Product logs and traces are OTLP. Follow [`.cursor/skills/observability/SKILL.md`](.cursor/skills/observability/SKILL.md) and [ops/observability/USING.md](ops/observability/USING.md).
 
-1. **Railway MCP** (`railway`) — service status + deploy/runtime logs (**primary**).
-2. **Langfuse MCP** (`langfuse`) — traces / LLM / advisor quality.
-3. **Better Stack MCP** (`betterstack`) — only when uptime/telemetry data is present and needed for the question.
+1. **HyperDX MCP** (`hyperdx`) — logs, traces, metrics, page-view spans. Filter `DeploymentEnvironment` (`production`, `pr-N`, `observability`, `local-<name>`).
+2. **Langfuse MCP** (`langfuse`) — LLM traces and prompt text (HyperDX stores those spans with prompt attributes removed).
+3. **Railway MCP** (`railway`) — deploy status and runtime stdout when the process never exported.
 
 For Storybook conventions and tools, read [.agents/skills/storybook/SKILL.md](.agents/skills/storybook/SKILL.md) with [apps/ui/AGENTS.md](apps/ui/AGENTS.md).
 
@@ -76,7 +76,7 @@ Every adversarial review of a diff is three Sol axes — **Standards**, **Spec**
 
 ## Local development
 
-- **Docker Compose**: Single [docker-compose.yml](docker-compose.yml) uses **profiles** (see [.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md](.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)). **`pnpm dev:infra`** runs `docker compose --profile infra up -d` (Postgres, FalkorDB, OTEL only). **`pnpm start`** runs `docker compose --profile deploy up -d` (production images: migrate, backend, worker, UI, codesearch). For day-to-day coding, **`pnpm dev`** runs backend + UI on the host (portless + Turbo) and **codesearch in Docker** ([`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh): `start.sh` = Zoekt + API, random host port → **`CODESEARCH_URL`**). Override host ports via **`CTXPIPE_*`** — [docker-compose.env.example](docker-compose.env.example). Optional **Amplitude** analytics env (`AMPLITUDE_API_KEY`, `AMPLITUDE_REGION`) is documented there and in [apps/backend/.env.example](apps/backend/.env.example) (ADR-017).
+- **Docker Compose**: Single [docker-compose.yml](docker-compose.yml) uses **profiles** (see [.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md](.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)). **`pnpm dev:infra`** runs `docker compose --profile infra up -d` (Postgres, FalkorDB, OTEL only). **`pnpm start`** runs `docker compose --profile deploy up -d` (production images: migrate, backend, worker, UI, codesearch). For day-to-day coding, **`pnpm dev`** runs backend + UI on the host (portless + Turbo) and **codesearch in Docker** ([`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh): `start.sh` = Zoekt + API, random host port → **`CODESEARCH_URL`**). Override host ports via **`CTXPIPE_*`** — [docker-compose.env.example](docker-compose.env.example). Hosted OTEL is [`ops/observability`](ops/observability/) ([ADR-038](.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md)).
 
 ### Cursor Cloud specific instructions
 
@@ -177,6 +177,17 @@ Durable agent memory is **Markdown-only** under **[.ai/memory/](.ai/memory/)**. 
 - **Avoid pulling to globals**: Do not extract config or one-off values to module/global scope unless they are reused in more than one place. Inline them where they are used.
 - **Environment variables**: Use only for values that differ by **environment** or that **operators/customers must set** (secrets, base URLs, infra limits). Do not use env for **feature toggles** or **internal logic**; keep those in code or committed config. See [.ai/memory/lessons-learned.md](.ai/memory/lessons-learned.md). **Agents:** Do not add or document **new** environment variables unless they are **required** to complete the assigned task — prefer resolving paths or behavior in committed code rather than expanding operator surface area.
 - **Backend logging**: In `apps/backend`, use **evlog** (`getLogger()` or `log` from `src/observability/logger.ts`) — not `console.*`. See [apps/backend/AGENTS.md](apps/backend/AGENTS.md) (Logging).
+
+## Testing
+
+Test through the module's public interface with its real collaborators. Fake the **environment**, not our own modules:
+
+- **HTTP** (codesearch, GitHub, Railway, OTLP, model providers): `msw` — `setupServer` from `msw/node`, handlers beside the test. In `apps/ui`, `apps/backend`, and `apps/codesearch`.
+- **Postgres**: a real database. Name the file `*.integration.test.ts`, gate it with `describe.skipIf(!process.env.DATABASE_URL)`, call `initDb`, and suffix ids per run — pattern: `apps/backend/src/models/github-pr-mirror.integration.test.ts`. `pnpm dev:infra` + `pnpm db:migrate` provides the database.
+- **Config**: `vi.stubEnv` (modules read `parseEnv(process.env)`), or pass the value in.
+- **Time**: `vi.useFakeTimers()`. **Telemetry**: the SDK's `InMemorySpanExporter` / `InMemoryLogRecordExporter` / `InMemoryMetricExporter`.
+
+`vi.mock` of a repo module (`./…`, `../…`) is the last resort, for an import-time side effect you cannot configure; name that side effect in a one-line comment on the call. A file that needs more than two module mocks is testing the wrong seam — move the test to a seam where msw or the test database applies. Details: [tdd `mocking.md`](.cursor/skills/tdd/mocking.md).
 
 ## Package releases
 

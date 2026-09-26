@@ -1,0 +1,140 @@
+{
+  "name": "Railway Infrastructure",
+  "tags": ["ctxpipe", "railway"],
+  "filters": [
+    {
+      "type": "QUERY_EXPRESSION",
+      "name": "deployment.environment",
+      "expression": "ResourceAttributes['deployment.environment']",
+      "sourceName": "Metrics",
+      "sourceMetricType": "gauge"
+    }
+  ],
+  "savedFilterValues": [],
+  "tiles": [
+    {
+      "name": "CPU usage vs limit",
+      "x": 0,
+      "y": 0,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "line",
+        "sourceName": "Metrics",
+        "fillNulls": true,
+        "seriesLimit": 20,
+        "groupBy": "ServiceName, ResourceAttributes['deployment.environment']",
+        "numberFormat": { "output": "number", "mantissa": 2, "unit": "cores" },
+        "select": [
+          {
+            "aggFn": "avg",
+            "alias": "usage",
+            "metricName": "railway.cpu.usage",
+            "metricType": "gauge",
+            "where": "",
+            "whereLanguage": "sql"
+          },
+          {
+            "aggFn": "avg",
+            "alias": "limit",
+            "metricName": "railway.cpu.limit",
+            "metricType": "gauge",
+            "where": "",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Memory usage vs limit",
+      "x": 12,
+      "y": 0,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "line",
+        "sourceName": "Metrics",
+        "fillNulls": true,
+        "seriesLimit": 20,
+        "groupBy": "ServiceName, ResourceAttributes['deployment.environment']",
+        "numberFormat": { "output": "byte", "numericUnit": "bytes_iec" },
+        "select": [
+          {
+            "aggFn": "avg",
+            "alias": "usage",
+            "metricName": "railway.memory.usage",
+            "metricType": "gauge",
+            "where": "",
+            "whereLanguage": "sql"
+          },
+          {
+            "aggFn": "avg",
+            "alias": "limit",
+            "metricName": "railway.memory.limit",
+            "metricType": "gauge",
+            "where": "",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Network rx/tx",
+      "x": 0,
+      "y": 8,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "line",
+        "sourceName": "Metrics",
+        "fillNulls": true,
+        "seriesLimit": 20,
+        "groupBy": "ServiceName, ResourceAttributes['deployment.environment']",
+        "numberFormat": { "output": "byte", "numericUnit": "bytes_iec" },
+        "select": [
+          {
+            "aggFn": "avg",
+            "alias": "rx",
+            "metricName": "railway.network.rx",
+            "metricType": "gauge",
+            "where": "",
+            "whereLanguage": "sql"
+          },
+          {
+            "aggFn": "avg",
+            "alias": "tx",
+            "metricName": "railway.network.tx",
+            "metricType": "gauge",
+            "where": "",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Disk usage",
+      "x": 12,
+      "y": 8,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "line",
+        "sourceName": "Metrics",
+        "fillNulls": true,
+        "seriesLimit": 20,
+        "groupBy": "ServiceName, ResourceAttributes['deployment.environment']",
+        "numberFormat": { "output": "byte", "numericUnit": "bytes_iec" },
+        "select": [
+          {
+            "aggFn": "avg",
+            "alias": "disk",
+            "metricName": "railway.disk.usage",
+            "metricType": "gauge",
+            "where": "",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    }
+  ]
+}

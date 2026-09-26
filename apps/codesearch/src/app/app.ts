@@ -1,3 +1,4 @@
+import { httpInstrumentationMiddleware } from "@hono/otel"
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { evlog } from "evlog/hono"
 import { contextStorage } from "hono/context-storage"
@@ -5,7 +6,10 @@ import { cors } from "hono/cors"
 import { verifyCodesearchJwt } from "../auth/jwt.js"
 import type { Env } from "../config/env.js"
 import { createDb } from "../db/client.js"
-import { createEvlogDrain } from "../observability/logger.js"
+import {
+  applyCodesearchLogContract,
+  createEvlogDrain,
+} from "../observability/logger.js"
 import { registerGraphRoutes } from "../routes/graph.js"
 import { registerOpenapiRoutes } from "../routes/openapi.js"
 import { registerRepoRoutes } from "../routes/repo.js"
@@ -15,13 +19,25 @@ import type { AppEnv } from "./env.js"
 
 export type { AppEnv } from "./env.js"
 
+export function useObservability(app: OpenAPIHono<AppEnv>) {
+  app.use("*", httpInstrumentationMiddleware())
+  app.use("*", cors())
+  app.use(contextStorage())
+  app.use(
+    evlog({
+      drain: createEvlogDrain(),
+      enrich: (ctx) => {
+        applyCodesearchLogContract(ctx.event as Record<string, unknown>)
+      },
+    }),
+  )
+}
+
 export function createApp(env: Env) {
   const app = new OpenAPIHono<AppEnv>()
   const db = env.DATABASE_URL ? createDb(env) : null
 
-  app.use("*", cors())
-  app.use(contextStorage())
-  app.use(evlog({ drain: createEvlogDrain() }))
+  useObservability(app)
   app.use("*", async (c, next) => {
     c.set("db", db)
     c.set("env", env)

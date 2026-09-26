@@ -12,6 +12,8 @@ const envSchema = z.object({
   AUTH_BASE_URL: z.string().url().default("https://localhost:3000"),
   AUTH_ISSUER: z.string().min(1).optional(),
   AUTH_ALLOWED_ORIGINS: z.string().optional(),
+  /** Better Auth dashboard (`dash()`). Unset: the plugin is off and nothing is sent to dash.better-auth.com. */
+  BETTER_AUTH_API_KEY: z.string().min(1).optional(),
   AUTH_TOKEN_AUDIENCE_CODESEARCH: z.string().min(1).optional(),
   /** Optional 32-byte AES key as 64 hex chars. When unset, derived from AUTH_SECRET. */
   CONNECTION_SECRETS_ENCRYPTION_KEY: z.preprocess(
@@ -95,12 +97,6 @@ const envSchema = z.object({
   /** When unset, Bedrock IAM SigV4 resolves region from MODEL_PROVIDER_URL, AWS_REGION, or AWS_DEFAULT_REGION */
   MODEL_BEDROCK_AWS_REGION: z.string().optional(),
 
-  // LangGraph Studio (embedded LangGraph API for dev)
-  ENABLE_LANGSMITH: z
-    .string()
-    .optional()
-    .transform((v) => v === "true"),
-
   // OpenTelemetry (traces, logs, metrics)
   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: z.string().url().optional(),
   OTEL_EXPORTER_OTLP_HEADERS: z.string().min(1).optional(),
@@ -114,15 +110,6 @@ const envSchema = z.object({
   GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),
   /** Public GitHub App slug for install links (e.g. `ctxpipe-agent`). When unset but app id/key are set, defaults to `ctxpipe-agent` in bootstrap URLs only. */
   GITHUB_APP_SLUG: z.string().min(1).optional(),
-
-  /** If unset, Amplitude is off: no product analytics events are sent (see `observability/amplitude.ts`). */
-  AMPLITUDE_API_KEY: z.string().min(1).optional(),
-  AMPLITUDE_REGION: z
-    .string()
-    .optional()
-    .transform((v): "us" | "eu" =>
-      v?.trim().toLowerCase() === "eu" ? "eu" : "us",
-    ),
 })
 
 export type Env = z.infer<typeof envSchema>

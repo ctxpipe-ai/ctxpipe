@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -9,6 +8,7 @@ import {
 } from "../../models/pagerduty-connector.js"
 import { syncPagerdutyConfigYaml } from "../../services/pagerduty/sync.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { pagerdutySyncContent } from "./pagerduty-sync-content.js"
 
 const pagerdutySyncConfigInputSchema = z.object({
@@ -25,7 +25,10 @@ const pagerdutySyncConfigInputSchema = z.object({
 })
 
 export const pagerdutySyncConfig = defineWorkflow(
-  { name: "pagerduty-sync-config", schema: pagerdutySyncConfigInputSchema },
+  {
+    name: "pagerduty-sync-config",
+    schema: pagerdutySyncConfigInputSchema,
+  },
   async ({ input, step }) => {
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const binding = await step.run({ name: "load-pagerduty-binding" }, () =>

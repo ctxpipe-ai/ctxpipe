@@ -1,9 +1,11 @@
 import { AsyncLocalStorage } from "node:async_hooks"
+import { context, propagation, trace } from "@opentelemetry/api"
 import {
   createLogger,
   type DrainContext,
   initLogger,
   log,
+  type RedactConfig,
   type RequestLogger,
 } from "evlog"
 import { createOTLPDrain } from "evlog/otlp"
@@ -11,6 +13,18 @@ import { createDrainPipeline, type PipelineDrainFn } from "evlog/pipeline"
 import { getContext } from "hono/context-storage"
 import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
+import { ATTRIBUTION_KEYS } from "./contract.js"
+import { codesearchResource, codesearchServiceName } from "./otel.js"
+
+/**
+ * Drizzle `params:` lines and pg fields that can echo bound values.
+ * Codesearch logs errors as strings or plain objects, and it has no users,
+ * sessions, or reset-password routes.
+ */
+export const codesearchLogRedact: RedactConfig = {
+  paths: ["error.detail", "error.where", "error.hint", "error.internalQuery"],
+  patterns: [/\r?\nparams:[^\r\n]*/gi],
+}
 
 /**
  * Initialize evlog. Call early in app bootstrap.
@@ -18,13 +32,15 @@ import { parseEnv } from "../config/env.js"
  */
 export function initEvlog(): void {
   const env = parseEnv(process.env as Record<string, string | undefined>)
-  const serviceName = env.OTEL_SERVICE_NAME ?? "ctxpipe-codesearch"
   initLogger({
     env: {
-      service: serviceName,
-      environment: env.NODE_ENV,
+      service: codesearchServiceName(),
+      environment: String(
+        codesearchResource().attributes["deployment.environment"],
+      ),
     },
     pretty: env.NODE_ENV === "development",
+    redact: codesearchLogRedact,
     drain: createEvlogDrain(),
   })
 }
@@ -49,8 +65,10 @@ export function createEvlogDrain() {
 
   const baseDrain = createOTLPDrain({
     endpoint: baseEndpoint,
-    serviceName: env.OTEL_SERVICE_NAME ?? "ctxpipe-codesearch",
-    headers: parseOtelHeaders(env.OTEL_EXPORTER_OTLP_HEADERS),
+    serviceName: codesearchServiceName(),
+    resourceAttributes: {
+      "service.namespace": "ctxpipe",
+    },
   })
 
   const pipeline = createDrainPipeline<DrainContext>({
@@ -77,29 +95,73 @@ export function createEvlogDrain() {
 
 /** Flush buffered evlog events. Call on server shutdown. */
 export async function flushEvlog(): Promise<void> {
-  if (evlogDrainInstance?.flush) {
+  if (!evlogDrainInstance?.flush) return
+  try {
     await evlogDrainInstance.flush()
+  } catch (error) {
+    log.error({
+      step: "evlog.pipeline",
+      message: "evlog flush failed",
+      error: error instanceof Error ? error.message : String(error),
+    })
+  } finally {
     evlogDrainInstance = undefined
   }
 }
 
-function parseOtelHeaders(
-  headerStr: string | undefined,
-): Record<string, string> {
-  if (!headerStr?.trim()) return {}
-  const out: Record<string, string> = {}
-  for (const part of headerStr.split(",")) {
-    const eq = part.indexOf("=")
-    if (eq > 0) {
-      const key = part.slice(0, eq).trim()
-      const value = part
-        .slice(eq + 1)
-        .trim()
-        .replace(/^["']|["']$/g, "")
-      if (key && value) out[key] = decodeURIComponent(value)
+/** Alias request fields and copy attribution baggage onto the wide event. */
+export function applyCodesearchLogContract(
+  event: Record<string, unknown>,
+): void {
+  moveAlias(event, "requestId", "request.id")
+  moveAlias(event, "method", "http.request.method")
+  moveAlias(event, "path", "url.path")
+  moveAlias(event, "orgId", "ctxpipe.org.id")
+  moveAlias(event, "orgSlug", "ctxpipe.org.slug")
+  // Same `status` move as applyLogContract in apps/backend/src/observability/logContract.ts.
+  const recordsOwnResponse =
+    event["url.path"] != null || event["http.request.method"] != null
+  if (
+    recordsOwnResponse &&
+    (typeof event.status === "number" || typeof event.status === "string") &&
+    event["http.response.status_code"] == null
+  ) {
+    event["http.response.status_code"] = event.status
+    delete event.status
+  }
+  if (isRecord(event.user) && typeof event.user.id === "string") {
+    if (event["enduser.id"] == null) event["enduser.id"] = event.user.id
+    delete event.user.id
+    if (Object.keys(event.user).length === 0) delete event.user
+  }
+  moveAlias(event, "userId", "enduser.id")
+
+  const spanContext = trace.getActiveSpan()?.spanContext()
+  if (spanContext?.traceId && typeof event.traceId !== "string") {
+    event.traceId = spanContext.traceId
+    event.spanId = spanContext.spanId
+  }
+  const baggage = propagation.getBaggage(context.active())
+  if (baggage) {
+    for (const key of ATTRIBUTION_KEYS) {
+      const value = baggage.getEntry(key)?.value
+      if (value && event[key] == null) event[key] = value
     }
   }
-  return out
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function moveAlias(
+  event: Record<string, unknown>,
+  from: string,
+  to: string,
+): void {
+  if (typeof event[from] === "string" && event[to] == null)
+    event[to] = event[from]
+  delete event[from]
 }
 
 // --- Logger context (AsyncLocalStorage + getLogger) ---
@@ -131,6 +193,15 @@ export async function withLogger<T>(
         return await handler()
       } finally {
         const current = loggerStorage.getStore()
+        if (current) {
+          const spanContext = trace.getActiveSpan()?.spanContext()
+          if (spanContext?.traceId) {
+            current.set({
+              traceId: spanContext.traceId,
+              spanId: spanContext.spanId,
+            })
+          }
+        }
         if (current && workflowLoggerHasMilestoneContent(current)) {
           current.emit()
         }

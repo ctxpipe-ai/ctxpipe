@@ -1,4 +1,6 @@
+import { createLogger } from "evlog"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { withLogger } from "../../../observability/logger.js"
 
 const mocks = vi.hoisted(() => ({
   findRepository: vi.fn(),
@@ -22,9 +24,6 @@ vi.mock("../../../models/github-pr-mirror.js", () => ({
 }))
 vi.mock("../../../models/repositories.js", () => ({
   findRepositoryByGithubInstallation: mocks.findRepository,
-}))
-vi.mock("../../../observability/logger.js", () => ({
-  getLogger: () => ({ error: vi.fn() }),
 }))
 vi.mock("../../../openworkflow/client.js", () => ({
   runWorkflowWithWorkerWake: mocks.runWorkflow,
@@ -64,15 +63,17 @@ describe("maybeActivateGithubPrMirrorOnConfigPush", () => {
   })
 
   it("keys the content sync by the pushed config commit", async () => {
-    await maybeActivateGithubPrMirrorOnConfigPush({
-      installationId: 42,
-      githubConnectionId: "con_github",
-      repoFullName: "acme/context",
-      ref: "refs/heads/main",
-      commits: [{ modified: ["github/config.yaml"] }],
-      before: "sha_before",
-      after: "sha_config",
-    })
+    await withLogger(createLogger(), () =>
+      maybeActivateGithubPrMirrorOnConfigPush({
+        installationId: 42,
+        githubConnectionId: "con_github",
+        repoFullName: "acme/context",
+        ref: "refs/heads/main",
+        commits: [{ modified: ["github/config.yaml"] }],
+        before: "sha_before",
+        after: "sha_config",
+      }),
+    )
 
     expect(mocks.runWorkflow).toHaveBeenCalledWith(
       "github-sync-content",
@@ -84,13 +85,15 @@ describe("maybeActivateGithubPrMirrorOnConfigPush", () => {
   })
 
   it("skips a malformed config push without a commit identity", async () => {
-    await maybeActivateGithubPrMirrorOnConfigPush({
-      installationId: 42,
-      githubConnectionId: "con_github",
-      repoFullName: "acme/context",
-      ref: "refs/heads/main",
-      commits: [{ modified: ["github/config.yaml"] }],
-    })
+    await withLogger(createLogger(), () =>
+      maybeActivateGithubPrMirrorOnConfigPush({
+        installationId: 42,
+        githubConnectionId: "con_github",
+        repoFullName: "acme/context",
+        ref: "refs/heads/main",
+        commits: [{ modified: ["github/config.yaml"] }],
+      }),
+    )
 
     expect(mocks.runWorkflow).not.toHaveBeenCalled()
   })

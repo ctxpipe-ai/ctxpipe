@@ -230,4 +230,12 @@ describe("createBetterAuth", () => {
       "https://ctxpipe.ai/organization_id": "org_acme",
     })
   })
+
+  it("registers the dash plugin only when BETTER_AUTH_API_KEY is set", () => {
+    vi.stubEnv("BETTER_AUTH_API_KEY", "")
+    expect(getPlugin(createAuth(), "dash")).toBeUndefined()
+
+    vi.stubEnv("BETTER_AUTH_API_KEY", "test-dash-key")
+    expect(getPlugin(createAuth(), "dash")).toBeDefined()
+  })
 })

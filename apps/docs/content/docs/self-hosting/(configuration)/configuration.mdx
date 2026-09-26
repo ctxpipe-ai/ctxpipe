@@ -35,9 +35,9 @@ Edit `.env` with your values. The full production-style stack is the Compose
 pnpm start
 ```
 
-The `deploy` profile starts Postgres, FalkorDB, OTEL collector, migrator,
-backend, worker, UI, and codesearch. The backend listens on the public app port
-and proxies the UI.
+The `deploy` profile starts Postgres, FalkorDB, migrator, backend, worker, UI,
+and codesearch. It does not start an OpenTelemetry collector. The backend
+listens on the public app port and proxies the UI.
 
 ## Required variables
 
@@ -209,18 +209,57 @@ verification.
 
 ## Observability
 
-ctx| can export OpenTelemetry data when endpoints are configured.
+Telemetry is off until you set it. ctx| does not ship a collector, Langfuse, or
+ClickStack in the Compose `deploy` profile or in `@ctxpipe/aws-cdk`. Unset
+values keep logs on stdout and do not start trace or metric export. Empty
+values are treated as unset.
+
+Point the signal URLs at your own OTLP/HTTP backend. Export starts from these
+variables. Include the signal path on each URL.
+
+```bash
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://otel.example.com/v1/traces
+OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=https://otel.example.com/v1/logs
+OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=https://otel.example.com/v1/metrics
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer xxx
+```
 
 | Variable | Description |
 |---|---|
-| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | OTLP traces endpoint, for example `http://collector:4318/v1/traces`. |
-| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | OTLP logs endpoint for evlog drain. If unset, logs go to stdout only. |
-| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | OTLP metrics endpoint. |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Traces URL, including `/v1/traces`. Trace export stays off when this is unset. |
+| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | Logs URL, including `/v1/logs`. Unset keeps logs on stdout. |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | Metrics URL, including `/v1/metrics`. |
 | `OTEL_EXPORTER_OTLP_HEADERS` | Optional headers, for example `Authorization=Bearer xxx`. |
-| `OTEL_SERVICE_NAME` | Service name for resource attributes. |
+| `OTEL_SERVICE_NAME` | Resource `service.name`. Compose and CDK set `backend`, `openworkflow`, `ui`, and `codesearch` per container. Compose does not apply a shared name from the root `.env`. |
+| `OTEL_RESOURCE_ATTRIBUTES` | Extra resource attributes, for example `deployment.environment=production`. |
 
-The repo includes a reference OpenTelemetry Collector in `apps/otel-collector`
-that can fan out to APM and Langfuse-style trace backends.
+`deployment.environment` on backend traces, metrics, and logs, the Langfuse
+environment tag, codesearch, and the UI relay is `RAILWAY_ENVIRONMENT_NAME`
+when that is set, otherwise `deployment.environment` from
+`OTEL_RESOURCE_ATTRIBUTES`, otherwise `production` when `NODE_ENV=production`,
+otherwise `development`. Backend and codesearch also set
+`service.namespace=ctxpipe`. Codesearch always exports `service.name`
+`codesearch`.
+
+LLM spans are OpenTelemetry spans. The apps do not read `LANGFUSE_PUBLIC_KEY`,
+`LANGFUSE_SECRET_KEY`, or `LANGFUSE_HOST`. A Langfuse project accepts traces at
+`https://<your-langfuse>/api/public/otel/v1/traces` with
+`Authorization=Basic <base64(publicKey:secretKey)>` in
+`OTEL_EXPORTER_OTLP_HEADERS`. `@ctxpipe/aws-cdk` takes one base `otel.endpoint`
+and appends `/v1/traces`, `/v1/logs`, and `/v1/metrics`; see
+[AWS](/docs/self-hosting/deployment/aws).
+
+### Browser telemetry
+
+The UI enables browser telemetry only when
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set on the UI server. The browser posts
+traces to the same origin at `/.otel/v1/traces`. The relay also accepts
+`/.otel/v1/logs`, but the SDK does not use it: replay is off, and console
+capture is emitted as spans. The UI server forwards traces to
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and logs to
+`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, using `OTEL_EXPORTER_OTLP_HEADERS`. When
+the traces endpoint is unset, the browser SDK does not start. A signal whose
+endpoint is unset returns `204`.
 
 ## Advanced
 
@@ -232,11 +271,6 @@ that can fan out to APM and Langfuse-style trace backends.
 | `OPENWORKFLOW_CONCURRENCY` | In-flight OpenWorkflow runs per worker process. Default `4` when unset. CDK/Railway/Compose inject size-based values. |
 | `CODESEARCH_INDEXER_CONCURRENCY` | Max concurrent Zoekt/SCIP child processes on codesearch, and SCIP HTTP batch size on the worker. Default `2`. |
 | `CODESEARCH_INDEX_PIPELINE_CONCURRENCY` | Max distinct repos with in-flight OpenWorkflow index-phase HTTP (clone included). Default `2`. Codesearch returns 429 when full. |
-| `AMPLITUDE_API_KEY`, `AMPLITUDE_REGION` | Optional runtime product analytics configuration (`us` default or `eu`). Use the same values on backend and UI. |
-
-Amplitude configuration is read by the UI at runtime. Changing it does **not**
-require rebuilding the UI image. Leave `AMPLITUDE_API_KEY` unset to disable
-product analytics.
 
 ## Railway
 

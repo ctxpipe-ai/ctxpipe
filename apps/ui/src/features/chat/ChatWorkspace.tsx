@@ -1,4 +1,5 @@
 import { useChat } from "@ai-sdk/react"
+import HyperDX from "@hyperdx/browser"
 import { IconChevronRight } from "@tabler/icons-react"
 import {
   type InfiniteData,
@@ -125,6 +126,7 @@ export function ChatWorkspace(props: {
 
   const handleSendMessage = async (params: { text: string }) => {
     if (isOnIndexRoute && chatAvailability !== "ready") return
+    HyperDX.addAction("advisor_question_sent")
     if (isOnIndexRoute) {
       const optimisticItem: ConversationListItem = {
         id: conversationId,

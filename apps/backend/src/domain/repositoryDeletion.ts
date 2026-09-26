@@ -105,7 +105,7 @@ export async function notifyCodesearchRepositoryDeleted(params: {
         step: "repositoryDeletion.codesearch_purge",
         message: "repositoryDeletion: codesearch purge failed",
         repositoryId: params.repositoryId,
-        status: res.status,
+        "upstream.status_code": res.status,
         body: text.slice(0, 500),
       })
     } else {

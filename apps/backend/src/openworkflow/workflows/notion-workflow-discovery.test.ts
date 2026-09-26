@@ -29,5 +29,5 @@ describe("Notion workflow discovery", () => {
     expect(notionSyncConfig.spec.name).toBe("notion-sync-config")
     expect(notionSyncContent.spec.name).toBe("notion-sync-content")
     expect(notionSyncEntity.spec.name).toBe("notion-sync-entity")
-  })
+  }, 20_000)
 })

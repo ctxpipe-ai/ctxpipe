@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -9,6 +8,7 @@ import {
 import { getLogger } from "../../observability/logger.js"
 import { loadNotionScopeFromRepo } from "../../services/notion/config-from-repo.js"
 import { syncNotionIncrementalContent } from "../../services/notion/sync.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 
 const notionSyncEntityInputSchema = z.object({
@@ -21,7 +21,10 @@ const notionSyncEntityInputSchema = z.object({
 })
 
 export const notionSyncEntity = defineWorkflow(
-  { name: "notion-sync-entity", schema: notionSyncEntityInputSchema },
+  {
+    name: "notion-sync-entity",
+    schema: notionSyncEntityInputSchema,
+  },
   async ({ input, step }) => {
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const context = await step.run(

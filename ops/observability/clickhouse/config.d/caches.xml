@@ -1,0 +1,35 @@
+<clickhouse>
+  <!-- Defaults reserve multi-GiB caches (mark cache 5 GiB, uncompressed cache 8 GiB,
+       primary_index_cache_size 5 GiB, text index caches 1–2 GiB).
+       On this node max_server_memory_usage is 1 GiB, so every cache cap is smaller
+       than that. max_server_memory_usage_to_ram_ratio is left at the image default.
+       use_primary_key_cache stays off; the size cap is set anyway. -->
+  <mark_cache_size>134217728</mark_cache_size>
+  <index_mark_cache_size>67108864</index_mark_cache_size>
+  <primary_index_cache_size>67108864</primary_index_cache_size>
+  <text_index_postings_cache_size>33554432</text_index_postings_cache_size>
+  <text_index_tokens_cache_size>33554432</text_index_tokens_cache_size>
+  <text_index_header_cache_size>33554432</text_index_header_cache_size>
+  <uncompressed_cache_size>0</uncompressed_cache_size>
+  <mmap_cache_size>256</mmap_cache_size>
+  <compiled_expression_cache_size>16777216</compiled_expression_cache_size>
+  <query_condition_cache_size>16777216</query_condition_cache_size>
+  <query_cache>
+    <max_size_in_bytes>16777216</max_size_in_bytes>
+    <max_entries>128</max_entries>
+    <max_entry_size_in_bytes>1048576</max_entry_size_in_bytes>
+    <max_entry_size_in_rows>30000</max_entry_size_in_rows>
+  </query_cache>
+
+  <background_pool_size>4</background_pool_size>
+  <background_merges_mutations_concurrency_ratio>2</background_merges_mutations_concurrency_ratio>
+
+  <merge_tree>
+    <!-- Largest part-merge scheduled when the pool has room. Default is ~150 GiB. -->
+    <max_bytes_to_merge_at_max_space_in_pool>268435456</max_bytes_to_merge_at_max_space_in_pool>
+    <!-- Must be <= background_pool_size * background_merges_mutations_concurrency_ratio (8). -->
+    <number_of_free_entries_in_pool_to_execute_mutation>2</number_of_free_entries_in_pool_to_execute_mutation>
+    <number_of_free_entries_in_pool_to_lower_max_size_of_merge>2</number_of_free_entries_in_pool_to_lower_max_size_of_merge>
+    <number_of_free_entries_in_pool_to_execute_optimize_entire_partition>2</number_of_free_entries_in_pool_to_execute_optimize_entire_partition>
+  </merge_tree>
+</clickhouse>

@@ -54,11 +54,14 @@ endpoint, logs go to stdout.
 | `codesearch` | clone failures, indexing failures, Zoekt errors |
 | `postgres` | connection limits, slow queries, disk pressure |
 | `graph database` | connection failures, memory pressure, query errors |
-| `otel-collector` | exporter failures, quota/rate errors from downstream observability tools |
 
 Configure `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`,
 `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, and `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`
-when you want telemetry to leave stdout and reach your observability backend.
+on the app services when you want telemetry to leave stdout and reach your
+observability backend. See
+[Configuration](/docs/self-hosting/configuration) for headers, service names,
+and Langfuse. ctx| does not run a collector for you. Export failures are
+visible in your collector or vendor, not in a bundled collector container.
 
 ## Backups
 

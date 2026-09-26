@@ -5,6 +5,7 @@ import {
   inArray,
   isNull,
   lte,
+  ne,
   notInArray,
   or,
 } from "drizzle-orm"
@@ -33,6 +34,17 @@ import { withGraphClient } from "../platform/graph/client.js"
 
 export const DEFAULT_CHECKOUT_KEY = "default"
 const MAX_INDEXING_ERROR_CHARS = 500
+
+/** Ingestion status writes must not resurrect a repository that is being deleted. */
+function repositoryStillIngesting(repositoryId: string) {
+  return and(
+    eq(repositories.id, repositoryId),
+    or(
+      isNull(repositories.indexingStatus),
+      ne(repositories.indexingStatus, "unindexing"),
+    ),
+  )
+}
 
 export type RepositoryIndexingStatus = NonNullable<
   typeof repositories.$inferSelect.indexingStatus
@@ -372,7 +384,11 @@ export async function tryClaimRepositoryIndexingEnqueue(input: {
           eq(repositories.id, input.repositoryId),
           or(
             isNull(repositories.indexingStatus),
-            notInArray(repositories.indexingStatus, ["queued", "running"]),
+            notInArray(repositories.indexingStatus, [
+              "queued",
+              "running",
+              "unindexing",
+            ]),
           ),
         ),
       )
@@ -392,13 +408,43 @@ export async function tryClaimRepositoryIndexingEnqueue(input: {
     if (markedPending.length > 0) return false
 
     const [repository] = await db
-      .select({ id: repositories.id })
+      .select({
+        id: repositories.id,
+        indexingStatus: repositories.indexingStatus,
+      })
       .from(repositories)
       .where(eq(repositories.id, input.repositoryId))
       .limit(1)
     if (!repository) return false
+    // Deletion owns the row. Do not queue another ingest or spin on the status.
+    if (repository.indexingStatus === "unindexing") return false
     // The status changed between compare-and-set attempts; retry against it.
   }
+}
+
+/**
+ * True when ingestion must stop: the row is gone, or deletion has marked it
+ * `unindexing`. Callers use this to exit in-flight runs without treating the
+ * absence as a failure.
+ */
+export async function repositoryIngestionBlockedByDeletion(input: {
+  orgId: string
+  repositoryId: string
+}): Promise<boolean> {
+  return withOrgDbContext(input.orgId, async (db) => {
+    const [row] = await db
+      .select({ indexingStatus: repositories.indexingStatus })
+      .from(repositories)
+      .where(
+        and(
+          eq(repositories.id, input.repositoryId),
+          eq(repositories.orgId, input.orgId),
+        ),
+      )
+      .limit(1)
+    if (!row) return true
+    return row.indexingStatus === "unindexing"
+  })
 }
 
 /** Marks a repository as mid-unindex for UI before background cleanup runs. */
@@ -412,6 +458,7 @@ export async function markRepositoryUnindexing(input: {
     .set({
       indexReady: false,
       indexingStatus: "unindexing",
+      indexingFollowUpPending: false,
       indexingReason: null,
       indexingStep: null,
       indexingStepTotal: null,
@@ -437,7 +484,7 @@ export async function markRepositoryIndexingRunning(input: {
       indexingFailedAt: null,
       updatedAt: new Date(),
     })
-    .where(eq(repositories.id, input.repositoryId))
+    .where(repositoryStillIngesting(input.repositoryId))
 }
 
 /** Marks repository ingestion as terminally failed after retries are exhausted. */
@@ -458,7 +505,7 @@ export async function markRepositoryIndexingFailed(input: {
       indexingStepKey: null,
       updatedAt: new Date(),
     })
-    .where(eq(repositories.id, input.repositoryId))
+    .where(repositoryStillIngesting(input.repositoryId))
 }
 
 export async function markRepositoryIndexingReady(input: {
@@ -481,7 +528,7 @@ export async function markRepositoryIndexingReady(input: {
       lastIngestedAt: new Date(),
       updatedAt: new Date(),
     })
-    .where(eq(repositories.id, input.repositoryId))
+    .where(repositoryStillIngesting(input.repositoryId))
 }
 
 export async function markRepositoryIndexingReadyWithIssues(input: {
@@ -505,7 +552,7 @@ export async function markRepositoryIndexingReadyWithIssues(input: {
       lastIngestedAt: new Date(),
       updatedAt: new Date(),
     })
-    .where(eq(repositories.id, input.repositoryId))
+    .where(repositoryStillIngesting(input.repositoryId))
 }
 
 /**
@@ -527,7 +574,7 @@ export async function setRepositoryIndexingStep(input: {
   const resolution = resolveIndexingStep(input.key, input.scipLanguages)
   if (!resolution) return
   const db = getOrgDb()
-  const idCondition = eq(repositories.id, input.repositoryId)
+  const idCondition = repositoryStillIngesting(input.repositoryId)
   const where = input.monotonic
     ? and(
         idCondition,
@@ -595,43 +642,55 @@ export async function findRepositoryByGithubInstallation(
 export const createRepository = async (input: {
   name: string
   gitUrl: string
-}): Promise<RepositoryWithSearch> => {
+}): Promise<{ repository: RepositoryWithSearch; created: boolean }> => {
   const orgId = requireCurrentOrgId()
-  const id = generateObjectId("repo")
   const db = getOrgDb()
-  const checkoutId = generateObjectId("co")
-  const [row] = await db.transaction(async (tx) => {
-    const [repository] = await tx
+  return db.transaction(async (tx) => {
+    const [inserted] = await tx
       .insert(repositories)
       .values({
-        id,
-        orgId: orgId,
+        id: generateObjectId("repo"),
+        orgId,
         name: input.name,
         gitUrl: input.gitUrl,
       })
+      .onConflictDoNothing({
+        target: [repositories.gitUrl, repositories.orgId],
+      })
       .returning()
-    if (!repository) return []
-    const [checkout] = await tx
-      .insert(repositoryCheckouts)
-      .values({
-        id: checkoutId,
-        repositoryId: repository.id,
-        ref: "main",
-        checkoutKey: DEFAULT_CHECKOUT_KEY,
-      })
-      .returning({
-        zoektRepoId: repositoryCheckouts.zoektRepoId,
-      })
-    if (!checkout) return []
-    return [
-      {
-        ...withoutRepositoryControlState(repository),
-        zoektRepoId: checkout.zoektRepoId,
-      } satisfies RepositoryWithSearch,
-    ]
+    if (inserted) {
+      const [checkout] = await tx
+        .insert(repositoryCheckouts)
+        .values({
+          id: generateObjectId("co"),
+          repositoryId: inserted.id,
+          ref: "main",
+          checkoutKey: DEFAULT_CHECKOUT_KEY,
+        })
+        .returning({
+          zoektRepoId: repositoryCheckouts.zoektRepoId,
+        })
+      if (!checkout) throw new Error("Failed to create repository")
+      return {
+        created: true,
+        repository: {
+          ...withoutRepositoryControlState(inserted),
+          zoektRepoId: checkout.zoektRepoId,
+        },
+      }
+    }
+
+    const [existing] = await repositoryWithZoektJoin(tx)
+      .where(
+        and(
+          eq(repositories.gitUrl, input.gitUrl),
+          eq(repositories.orgId, orgId),
+        ),
+      )
+      .limit(1)
+    if (!existing) throw new Error("Failed to create repository")
+    return { created: false, repository: existing }
   })
-  if (row) return row
-  throw new Error("Failed to create repository")
 }
 
 /**

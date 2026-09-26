@@ -17,6 +17,10 @@ import {
   sessions,
   users,
 } from "../db/schema/auth.js"
+import {
+  applyAttribution,
+  attributesForOrgApiKey,
+} from "../observability/attribution.js"
 import { getLogger } from "../observability/logger.js"
 import { type AuthSession, type AuthUser, getAuth } from "./config.js"
 import { OAUTH_ORGANIZATION_CLAIM } from "./oauth-organization.js"
@@ -220,6 +224,7 @@ async function resolveOpaqueAccessToken(token: string): Promise<{
   session: AuthSession | null
   user: AuthUser
   oauthOrganizationId: string | null
+  oauthClientId: string | null
 } | null> {
   const db = getSystemDb()
   const hashed = hashOpaqueAccessToken(token)
@@ -240,12 +245,14 @@ async function resolveOpaqueAccessToken(token: string): Promise<{
     ? {
         ...principal,
         oauthOrganizationId: record.referenceId ?? null,
+        oauthClientId: record.clientId ?? null,
       }
     : null
 }
 
 export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (c.get("user") || c.get("session") || c.get("orgApiKey")) return next()
+  const started = performance.now()
   const auth = getAuth()
   const apiKeyHeader = c.req.header("x-api-key")?.trim()
   let authSession: Awaited<ReturnType<typeof auth.api.getSession>> = null
@@ -259,23 +266,58 @@ export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     if (!apiKeyHeader) throw err
     authSession = null
   }
-
-  if (!authSession) return next()
-  if (!authSession.user || !authSession.session) {
-    return c.json(
-      { error: "Unauthorized" },
-      401,
-      wwwAuthenticateForMcpRoute(c, "Session invalid or missing"),
-    )
+  const resolvedIn = Math.round(performance.now() - started)
+  if (!authSession?.user || !authSession.session) {
+    getLogger().set({ auth: { resolvedIn, identified: false } })
+    if (authSession?.user && !authSession.session) {
+      return c.json(
+        { error: "Unauthorized" },
+        401,
+        wwwAuthenticateForMcpRoute(c, "Session invalid or missing"),
+      )
+    }
+    return next()
   }
-
+  // @better-auth/api-key 1.6.23 sets this mocked session id to the key id
+  // inside getSession, after validateApiKey has already counted the request.
+  if (apiKeyHeader) c.set("personalApiKeyId", authSession.session.id)
   c.set("user", authSession.user)
   c.set("session", authSession.session)
+  applyPrincipalAttribution(c)
+  getLogger().set({
+    user: { id: authSession.user.id },
+    auth: { resolvedIn, identified: true },
+  })
   return next()
 }
 
+function applyPrincipalAttribution(c: Context<AppEnv>): void {
+  const orgApiKey = c.get("orgApiKey")
+  const userId = c.get("user")?.id
+  const oauthClientId = c.get("oauthClientId")
+  const personalApiKeyId = c.get("personalApiKeyId")
+  if (orgApiKey) {
+    applyAttribution(attributesForOrgApiKey(orgApiKey))
+    return
+  }
+  if (!userId && !oauthClientId) return
+  const actorType =
+    oauthClientId || c.get("oauthOrganizationId") ? "oauth_client" : "user"
+  applyAttribution({
+    "ctxpipe.actor.type": actorType,
+    ...(userId ? { "enduser.id": userId } : {}),
+    ...(personalApiKeyId ? { "ctxpipe.api_key.id": personalApiKeyId } : {}),
+    ...(oauthClientId ? { "ctxpipe.oauth.client_id": oauthClientId } : {}),
+  })
+}
+
 type BearerApiKeyAuthResult =
-  | { kind: "user"; user: AuthUser; session: AuthSession }
+  | {
+      kind: "user"
+      user: AuthUser
+      session: AuthSession
+      personalApiKeyId: string
+    }
   | {
       kind: "org"
       orgApiKey: NonNullable<AppEnv["Variables"]["orgApiKey"]>
@@ -329,6 +371,7 @@ async function resolveBearerApiKeyAuth(
         kind: "user",
         user: authSession.user,
         session: authSession.session,
+        personalApiKeyId: authSession.session.id,
       }
     }
   } catch {
@@ -361,6 +404,7 @@ export const withOrgApiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   }
 
   c.set("orgApiKey", orgApiKey)
+  applyPrincipalAttribution(c)
   return next()
 }
 
@@ -383,9 +427,12 @@ async function authenticateBearer(
   if (accessToken.split(".").length !== 3) {
     const resolved = await resolveOpaqueAccessToken(accessToken)
     if (resolved) {
+      c.set("personalApiKeyId", null)
       c.set("session", resolved.session)
       c.set("user", resolved.user)
       c.set("oauthOrganizationId", resolved.oauthOrganizationId)
+      c.set("oauthClientId", resolved.oauthClientId)
+      applyPrincipalAttribution(c)
       return next()
     }
 
@@ -394,10 +441,14 @@ async function authenticateBearer(
       if (apiKeyAuth.kind === "user") {
         c.set("user", apiKeyAuth.user)
         c.set("session", apiKeyAuth.session)
+        c.set("personalApiKeyId", apiKeyAuth.personalApiKeyId)
+        applyPrincipalAttribution(c)
         return next()
       }
       if (apiKeyAuth.kind === "org") {
+        c.set("personalApiKeyId", null)
         c.set("orgApiKey", apiKeyAuth.orgApiKey)
+        applyPrincipalAttribution(c)
         return next()
       }
     }
@@ -552,9 +603,15 @@ async function authenticateBearer(
   )
 
   if (tokenSessionContext) {
+    c.set("personalApiKeyId", null)
     c.set("session", tokenSessionContext.session)
     c.set("user", tokenSessionContext.user)
     c.set("oauthOrganizationId", oauthOrganizationClaim ?? null)
+    const clientIdClaim = payload.client_id ?? payload.azp
+    if (typeof clientIdClaim === "string" && clientIdClaim.length > 0) {
+      c.set("oauthClientId", clientIdClaim)
+    }
+    applyPrincipalAttribution(c)
     return next()
   }
 
@@ -729,6 +786,10 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
   if (!resolved) return c.json({ error: "Not found" }, 404)
   c.set("orgSlug", resolved.slug)
   c.set("orgId", resolved.id)
+  applyAttribution({
+    "ctxpipe.org.id": resolved.id,
+    "ctxpipe.org.slug": resolved.slug,
+  })
   return withOrgIdContext(
     { id: resolved.id, slug: resolved.slug },
     async () => {

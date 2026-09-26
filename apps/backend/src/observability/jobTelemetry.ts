@@ -1,0 +1,218 @@
+import {
+  context,
+  type Link,
+  propagation,
+  ROOT_CONTEXT,
+  SpanKind,
+  SpanStatusCode,
+  trace,
+} from "@opentelemetry/api"
+import { z } from "zod"
+import { isWorkflowControlSignal } from "../openworkflow/isSleepSignal.js"
+import {
+  type AttributionKey,
+  contextWithAttributionBag,
+  readAttribution,
+  sanitizeAttribution,
+} from "./attribution.js"
+import { dbErrorException } from "./scrubDbError.js"
+
+export const jobTelemetrySchema = z.object({
+  /** W3C carrier from `propagation.inject`. */
+  carrier: z.record(z.string(), z.string()).optional(),
+  "request.id": z.string().optional(),
+  "enduser.id": z.string().optional(),
+  "ctxpipe.org.id": z.string().optional(),
+  "ctxpipe.org.slug": z.string().optional(),
+})
+
+export type JobTelemetry = z.infer<typeof jobTelemetrySchema>
+
+function carrierFromActiveContext(): Record<string, string> | undefined {
+  const carrier: Record<string, string> = {}
+  propagation.inject(context.active(), carrier)
+  return carrier.traceparent ? carrier : undefined
+}
+
+export function jobSpanName(workflowName: string | undefined): string {
+  const name = workflowName?.trim()
+  return name ? `openworkflow.job ${name}` : "openworkflow.job"
+}
+
+export function captureJobTelemetry(): JobTelemetry | undefined {
+  const bag = readAttribution()
+  const telemetry: JobTelemetry = {}
+  const carrier = carrierFromActiveContext()
+  if (carrier) telemetry.carrier = carrier
+  for (const key of [
+    "request.id",
+    "enduser.id",
+    "ctxpipe.org.id",
+    "ctxpipe.org.slug",
+  ] as const) {
+    const value = bag[key]
+    if (value) telemetry[key] = value
+  }
+  if (
+    !telemetry.carrier &&
+    !telemetry["request.id"] &&
+    !telemetry["enduser.id"] &&
+    !telemetry["ctxpipe.org.id"] &&
+    !telemetry["ctxpipe.org.slug"]
+  ) {
+    return undefined
+  }
+  return telemetry
+}
+
+function stringField(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = record[key]
+  return typeof value === "string" && value.trim() ? value : undefined
+}
+
+/** Fields from the job payload. Does not write them onto the caller's span. */
+export function attributionPatchFromJobInput(
+  input: unknown,
+): Partial<Record<AttributionKey, string>> {
+  if (!input || typeof input !== "object") return {}
+  const record = input as Record<string, unknown>
+  const patch: Partial<Record<AttributionKey, string>> = {}
+  const orgId = stringField(record, "orgId")
+  const orgSlug = stringField(record, "orgSlug")
+  const connectionId =
+    stringField(record, "connectionId") ??
+    stringField(record, "githubConnectionId")
+  const repositoryId = stringField(record, "repositoryId")
+  if (orgId) patch["ctxpipe.org.id"] = orgId
+  if (orgSlug) patch["ctxpipe.org.slug"] = orgSlug
+  if (connectionId) patch["ctxpipe.connection.id"] = connectionId
+  if (repositoryId) patch["ctxpipe.repository.id"] = repositoryId
+  return patch
+}
+
+export function attachJobTelemetry<T>(
+  input: T,
+): T & { telemetry?: JobTelemetry } {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    return input as T & { telemetry?: JobTelemetry }
+  }
+  const record = input as Record<string, unknown>
+  if (record.telemetry && typeof record.telemetry === "object") {
+    return input as T & { telemetry?: JobTelemetry }
+  }
+  const telemetry = captureJobTelemetry()
+  if (!telemetry) return input as T & { telemetry?: JobTelemetry }
+  return { ...record, telemetry } as T & { telemetry: JobTelemetry }
+}
+
+/**
+ * OpenWorkflow 0.8 parks with `SleepSignal` (`SleepSignalError` on 0.10+) and
+ * stops a stale parallel branch with `StaleExecutionBranchError` (also how a
+ * canceled run drops in-flight branches). `StepError` while attempts remain
+ * only schedules a retry. Those must reach the worker unmarked.
+ */
+function isJobControlFlow(err: unknown): boolean {
+  if (isWorkflowControlSignal(err)) return true
+  if (!(err instanceof Error) || err.name !== "StepError") return false
+  const step = err as Error & {
+    stepFailedAttempts?: number
+    retryPolicy?: { maximumAttempts?: number }
+  }
+  const maximumAttempts = step.retryPolicy?.maximumAttempts
+  const attempts = step.stepFailedAttempts
+  if (typeof maximumAttempts !== "number" || typeof attempts !== "number") {
+    return true
+  }
+  if (maximumAttempts === 0) return true
+  return attempts < maximumAttempts
+}
+
+function exceptionForSpan(err: unknown): Error {
+  const original =
+    err instanceof Error && err.name === "StepError"
+      ? (err as Error & { originalError?: unknown }).originalError
+      : undefined
+  return dbErrorException(original === undefined ? err : original)
+}
+
+function telemetryFromInput(input: unknown): JobTelemetry {
+  if (!input || typeof input !== "object") return {}
+  const raw = (input as { telemetry?: unknown }).telemetry
+  const parsed = jobTelemetrySchema.safeParse(raw)
+  return parsed.success ? parsed.data : {}
+}
+
+export async function restoreJobTelemetry<T>(
+  input: unknown,
+  spec: { name: string },
+  fn: () => Promise<T>,
+): Promise<T> {
+  const fields = telemetryFromInput(input)
+
+  const links: Link[] = []
+  const carrier = fields.carrier?.traceparent ? fields.carrier : undefined
+  if (carrier) {
+    const linked = trace.getSpanContext(
+      propagation.extract(ROOT_CONTEXT, carrier),
+    )
+    if (linked) links.push({ context: linked })
+  }
+
+  const { context: withBag, bag } = contextWithAttributionBag(ROOT_CONTEXT)
+  const bagPatch: Partial<Record<AttributionKey, string>> = {
+    "ctxpipe.actor.type": "job",
+  }
+  if (fields["request.id"]) bagPatch["request.id"] = fields["request.id"]
+  if (fields["enduser.id"]) bagPatch["enduser.id"] = fields["enduser.id"]
+  const inputRecord =
+    input && typeof input === "object"
+      ? (input as Record<string, unknown>)
+      : undefined
+  const inputOrgId = inputRecord ? stringField(inputRecord, "orgId") : undefined
+  const inputOrgSlug = inputRecord
+    ? stringField(inputRecord, "orgSlug")
+    : undefined
+  if (
+    !inputOrgSlug &&
+    inputOrgId &&
+    inputOrgId === fields["ctxpipe.org.id"] &&
+    fields["ctxpipe.org.slug"]
+  ) {
+    bagPatch["ctxpipe.org.slug"] = fields["ctxpipe.org.slug"]
+  }
+  const attribution = sanitizeAttribution({
+    ...bagPatch,
+    ...attributionPatchFromJobInput(input),
+  })
+  for (const [key, value] of Object.entries(attribution)) {
+    if (value) bag.set(key, value)
+  }
+
+  return trace
+    .getTracer("ctxpipe-backend")
+    .startActiveSpan(
+      jobSpanName(spec.name),
+      { kind: SpanKind.CONSUMER, links },
+      withBag,
+      async (span) => {
+        span.setAttributes(attribution)
+        try {
+          return await fn()
+        } catch (error) {
+          if (isJobControlFlow(error)) throw error
+          const exception = exceptionForSpan(error)
+          span.recordException(exception)
+          span.setStatus({
+            code: SpanStatusCode.ERROR,
+            message: exception.message,
+          })
+          throw error
+        } finally {
+          span.end()
+        }
+      },
+    )
+}

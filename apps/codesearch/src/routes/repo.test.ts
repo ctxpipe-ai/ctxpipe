@@ -47,14 +47,11 @@ function createTestApp() {
   app.use("*", async (c, next) => {
     c.set("db", {} as AppEnv["Variables"]["db"])
     c.set("env", { NODE_ENV: "test", PORT: 3001 } as AppEnv["Variables"]["env"])
-    c.set(
-      "auth",
-      {
-        sub: "user_test",
-        orgId: "org_mock123",
-        principal: "user",
-      } as AppEnv["Variables"]["auth"],
-    )
+    c.set("auth", {
+      sub: "user_test",
+      orgId: "org_mock123",
+      principal: "user",
+    } as AppEnv["Variables"]["auth"])
     await next()
   })
   registerRepoRoutes(app)
@@ -163,7 +160,10 @@ describe("GET /{repoId}/files/{path}", () => {
   it("follows symlinks to read file content", async () => {
     const websiteDir = join(checkoutDir, "operator", "website")
     await mkdir(join(websiteDir, "themes", "doks"), { recursive: true })
-    await writeFile(join(websiteDir, "themes", "doks", "config.toml"), "title = 'test'\n")
+    await writeFile(
+      join(websiteDir, "themes", "doks", "config.toml"),
+      "title = 'test'\n",
+    )
     await symlink("./themes/doks/config.toml", join(websiteDir, "linked.toml"))
 
     const app = createTestApp()
@@ -232,11 +232,15 @@ describe("POST /{repoId}/resolve-ref", () => {
     const app = new OpenAPIHono<AppEnv>()
     app.use("*", async (c, next) => {
       c.set("db", {} as AppEnv["Variables"]["db"])
-      c.set("env", { NODE_ENV: "test", PORT: 3001 } as AppEnv["Variables"]["env"])
-      c.set(
-        "auth",
-        { sub: "user_test", orgId: "org_mock123", principal: "user" } as AppEnv["Variables"]["auth"],
-      )
+      c.set("env", {
+        NODE_ENV: "test",
+        PORT: 3001,
+      } as AppEnv["Variables"]["env"])
+      c.set("auth", {
+        sub: "user_test",
+        orgId: "org_mock123",
+        principal: "user",
+      } as AppEnv["Variables"]["auth"])
       await next()
     })
     registerRepoRoutes(app)
@@ -270,11 +274,15 @@ describe("POST /{repoId}/resolve-ref", () => {
     const app = new OpenAPIHono<AppEnv>()
     app.use("*", async (c, next) => {
       c.set("db", {} as AppEnv["Variables"]["db"])
-      c.set("env", { NODE_ENV: "test", PORT: 3001 } as AppEnv["Variables"]["env"])
-      c.set(
-        "auth",
-        { sub: "user_test", orgId: "org_mock123", principal: "user" } as AppEnv["Variables"]["auth"],
-      )
+      c.set("env", {
+        NODE_ENV: "test",
+        PORT: 3001,
+      } as AppEnv["Variables"]["env"])
+      c.set("auth", {
+        sub: "user_test",
+        orgId: "org_mock123",
+        principal: "user",
+      } as AppEnv["Variables"]["auth"])
       await next()
     })
     registerRepoRoutes(app)
@@ -299,11 +307,15 @@ describe("POST /{repoId}/resolve-ref", () => {
     const app = new OpenAPIHono<AppEnv>()
     app.use("*", async (c, next) => {
       c.set("db", {} as AppEnv["Variables"]["db"])
-      c.set("env", { NODE_ENV: "test", PORT: 3001 } as AppEnv["Variables"]["env"])
-      c.set(
-        "auth",
-        { sub: "user_test", orgId: "org_mock123", principal: "user" } as AppEnv["Variables"]["auth"],
-      )
+      c.set("env", {
+        NODE_ENV: "test",
+        PORT: 3001,
+      } as AppEnv["Variables"]["env"])
+      c.set("auth", {
+        sub: "user_test",
+        orgId: "org_mock123",
+        principal: "user",
+      } as AppEnv["Variables"]["auth"])
       await next()
     })
     registerRepoRoutes(app)
@@ -315,6 +327,10 @@ describe("POST /{repoId}/resolve-ref", () => {
     })
 
     expect(res.status).toBe(404)
+    await expect(res.json()).resolves.toEqual({
+      error: "Repository not found or access denied",
+      code: "repository_not_found",
+    })
   })
 
   it("returns 500 when ref resolution fails", async () => {
@@ -328,11 +344,15 @@ describe("POST /{repoId}/resolve-ref", () => {
     const app = new OpenAPIHono<AppEnv>()
     app.use("*", async (c, next) => {
       c.set("db", {} as AppEnv["Variables"]["db"])
-      c.set("env", { NODE_ENV: "test", PORT: 3001 } as AppEnv["Variables"]["env"])
-      c.set(
-        "auth",
-        { sub: "user_test", orgId: "org_mock123", principal: "user" } as AppEnv["Variables"]["auth"],
-      )
+      c.set("env", {
+        NODE_ENV: "test",
+        PORT: 3001,
+      } as AppEnv["Variables"]["env"])
+      c.set("auth", {
+        sub: "user_test",
+        orgId: "org_mock123",
+        principal: "user",
+      } as AppEnv["Variables"]["auth"])
       await next()
     })
     registerRepoRoutes(app)
@@ -407,29 +427,26 @@ describe("POST /{repoId}/glob", () => {
     },
   )
 
-  it.skipIf(!hasBunGlob)(
-    "matches dotpaths with default dot true",
-    async () => {
-      await mkdir(join(checkoutDir, ".cursor", "rules"), { recursive: true })
-      await writeFile(join(checkoutDir, ".cursor", "rules", "x.mdc"), "rule\n")
+  it.skipIf(!hasBunGlob)("matches dotpaths with default dot true", async () => {
+    await mkdir(join(checkoutDir, ".cursor", "rules"), { recursive: true })
+    await writeFile(join(checkoutDir, ".cursor", "rules", "x.mdc"), "rule\n")
 
-      const app = createTestApp()
-      const res = await app.request("/repo_abcdef27/glob", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          pattern: "**/*.{md,mdc}",
-          onlyFiles: true,
-        }),
-      })
+    const app = createTestApp()
+    const res = await app.request("/repo_abcdef27/glob", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        pattern: "**/*.{md,mdc}",
+        onlyFiles: true,
+      }),
+    })
 
-      expect(res.status).toBe(200)
-      const body = (await res.json()) as {
-        entries: Array<{ path: string }>
-      }
-      expect(body.entries.map((e) => e.path)).toContain(".cursor/rules/x.mdc")
-    },
-  )
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      entries: Array<{ path: string }>
+    }
+    expect(body.entries.map((e) => e.path)).toContain(".cursor/rules/x.mdc")
+  })
 
   it("returns 404 for missing path", async () => {
     await mkdir(checkoutDir, { recursive: true })

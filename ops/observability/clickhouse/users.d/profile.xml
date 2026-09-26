@@ -1,0 +1,15 @@
+<clickhouse>
+  <profiles>
+    <default>
+      <!-- trace_log is removed. These periods are what samples into it. -->
+      <query_profiler_real_time_period_ns>0</query_profiler_real_time_period_ns>
+      <query_profiler_cpu_time_period_ns>0</query_profiler_cpu_time_period_ns>
+      <!-- otel, langfuse, and the default user share this profile.
+           Caps a query that is stuck on an unreachable cold disk.
+           S3 request_timeout_ms is 10s with one retry, so a cold read
+           fails well inside this. Dashboards and Langfuse queries on
+           this node finish in seconds. -->
+      <max_execution_time>120</max_execution_time>
+    </default>
+  </profiles>
+</clickhouse>

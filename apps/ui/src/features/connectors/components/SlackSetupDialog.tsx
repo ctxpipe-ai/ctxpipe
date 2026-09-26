@@ -1,5 +1,6 @@
 "use client"
 
+import HyperDX from "@hyperdx/browser"
 import {
   IconBrandSlack,
   IconCircleCheckFilled,
@@ -272,6 +273,7 @@ export function SlackSetupDialog({
         return
       }
       if (parsed.connectionId) {
+        HyperDX.addAction("connector_connect", { connector: "slack" })
         setConnectionId(parsed.connectionId)
         void queryClient.invalidateQueries({
           queryKey: orgConnectionsKeys.list(orgSlug),

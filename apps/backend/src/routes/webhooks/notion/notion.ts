@@ -19,6 +19,7 @@ import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { notionSyncEntity } from "../../../openworkflow/workflows/notion-sync-entity.js"
 import type { NotionEntityChange } from "../../../services/notion/incremental.js"
+import { noteResolvedWebhookConnections } from "../attribution.js"
 
 const notionWebhookPayloadSchema = z.object({
   id: z.string().optional(),
@@ -82,7 +83,10 @@ async function enqueueNotionEntitySync(input: {
   )
 }
 
-async function handleProvisioning(c: Context<AppEnv>, verificationToken: string) {
+async function handleProvisioning(
+  c: Context<AppEnv>,
+  verificationToken: string,
+) {
   const env = c.var.env
   const connectionId = c.req.query("connectionId")
   const supplied = c.req.query("provisioningToken")
@@ -100,10 +104,7 @@ async function handleProvisioning(c: Context<AppEnv>, verificationToken: string)
       stored.oauthClientSecretEnc,
       env,
     )
-    if (
-      !supplied ||
-      !notionProvisioningTokenMatches(clientSecret, supplied)
-    ) {
+    if (!supplied || !notionProvisioningTokenMatches(clientSecret, supplied)) {
       return c.json({ error: "Unauthorized" }, 401)
     }
     const persisted = await persistNotionWebhookSecret({
@@ -199,6 +200,9 @@ async function handleNotionWebhook(c: Context<AppEnv>) {
     return c.json({ error: "Unauthorized" }, 401)
   }
 
+  const connections = accepted.map((candidate) => candidate.connection)
+  noteResolvedWebhookConnections(connections)
+
   const eventType = parsed.data.type ?? ""
   const entityTarget = notionEntityTargetForEvent({
     type: eventType,
@@ -208,14 +212,12 @@ async function handleNotionWebhook(c: Context<AppEnv>) {
     return c.body(null, 204)
   }
 
-  const liveConnections = accepted
-    .map((candidate) => candidate.connection)
-    .filter(
-      (connection) =>
-        Boolean(connection.repositoryId) &&
-        connection.enabled &&
-        connection.setupPhase === "live",
-    )
+  const liveConnections = connections.filter(
+    (connection) =>
+      Boolean(connection.repositoryId) &&
+      connection.enabled &&
+      connection.setupPhase === "live",
+  )
   if (liveConnections.length === 0) return c.body(null, 204)
 
   try {

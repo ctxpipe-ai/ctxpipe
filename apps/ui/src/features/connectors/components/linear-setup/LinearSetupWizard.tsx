@@ -1,5 +1,6 @@
 "use client"
 
+import HyperDX from "@hyperdx/browser"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
@@ -90,6 +91,7 @@ export function LinearSetupWizard({
         return
       }
       onConnectionIdChange(data.connectionId)
+      HyperDX.addAction("connector_connect", { connector: "linear" })
       void queryClient.invalidateQueries({
         queryKey: linearConnectorKeys.allStatusForOrg(orgSlug),
       })
@@ -381,9 +383,7 @@ export function LinearSetupWizard({
                 </div>
               </div>
             ) : null}
-            {body !== "connect" &&
-            body !== "register" &&
-            !requireConnection ? (
+            {body !== "connect" && body !== "register" && !requireConnection ? (
               <p className="text-sm text-destructive">
                 The Linear connection identifier is missing. Close this dialog
                 and reopen setup from the connector card.

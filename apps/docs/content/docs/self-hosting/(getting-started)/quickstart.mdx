@@ -26,8 +26,8 @@ pnpm start
 ```
 
 `pnpm start` runs the Compose **`deploy`** profile, including migrations,
-backend, UI, worker, codesearch, Postgres, FalkorDB, and the optional telemetry
-collector.
+backend, UI, worker, codesearch, Postgres, and FalkorDB. Telemetry stays off
+until you set `OTEL_EXPORTER_OTLP_*` to your own collector.
 
 <Callout type="warn" title="Production needs one stable HTTPS origin">
   Browser traffic, auth, API, connector callbacks, and MCP should all use the

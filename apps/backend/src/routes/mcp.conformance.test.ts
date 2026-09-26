@@ -48,7 +48,6 @@ const previousEnv = {
   UI_PROXY_URL: process.env.UI_PROXY_URL,
   AUTH_SECRET: process.env.AUTH_SECRET,
   AUTH_BASE_URL: process.env.AUTH_BASE_URL,
-  ENABLE_LANGSMITH: process.env.ENABLE_LANGSMITH,
   MODEL_PROVIDER_API_KEY: process.env.MODEL_PROVIDER_API_KEY,
   MODEL_PROVIDER_URL: process.env.MODEL_PROVIDER_URL,
   MODEL_PROVIDER: process.env.MODEL_PROVIDER,
@@ -70,7 +69,6 @@ describe("MCP conformance (Vitest-integrated)", () => {
     process.env.AUTH_SECRET =
       process.env.AUTH_SECRET ?? "abcdefghijklmnopqrstuvwxyz123456"
     process.env.AUTH_BASE_URL = process.env.AUTH_BASE_URL ?? baseUrl
-    process.env.ENABLE_LANGSMITH = "false"
     process.env.MODEL_PROVIDER_API_KEY =
       process.env.MODEL_PROVIDER_API_KEY ?? "test-model-key"
     process.env.MODEL_PROVIDER_URL =
@@ -116,7 +114,6 @@ describe("MCP conformance (Vitest-integrated)", () => {
     process.env.UI_PROXY_URL = previousEnv.UI_PROXY_URL
     process.env.AUTH_SECRET = previousEnv.AUTH_SECRET
     process.env.AUTH_BASE_URL = previousEnv.AUTH_BASE_URL
-    process.env.ENABLE_LANGSMITH = previousEnv.ENABLE_LANGSMITH
     process.env.MODEL_PROVIDER_API_KEY = previousEnv.MODEL_PROVIDER_API_KEY
     process.env.MODEL_PROVIDER_URL = previousEnv.MODEL_PROVIDER_URL
     process.env.MODEL_PROVIDER = previousEnv.MODEL_PROVIDER

@@ -1,0 +1,295 @@
+# Observability Terraform for the ClickStack and Langfuse Railway project.
+# Pull requests plan; main applies. See ops/observability/README.md.
+# GitHub Environments terraform-plan and observability need required reviewers.
+
+name: Observability
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ops/observability/**"
+      - ".github/workflows/observability.yaml"
+  pull_request:
+    paths:
+      - "ops/observability/**"
+      - ".github/workflows/observability.yaml"
+  workflow_dispatch:
+
+env:
+  RAILWAY_PROJECT_ID: 305aa114-c6f3-4aca-b883-0faa9c331aa2
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test observability packages
+    if: github.event_name == 'pull_request' && github.repository == 'ctxpipe-ai/ctxpipe'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: useblacksmith/setup-node@v5
+        with:
+          node-version: "22"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.11"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test railway-telemetry
+        run: pnpm --filter railway-telemetry test
+
+      - name: Typecheck railway-telemetry
+        run: pnpm --filter railway-telemetry typecheck
+
+      - name: Typecheck HyperDX provision
+        run: pnpm --filter hyperdx typecheck
+
+  validate:
+    name: Validate observability Terraform
+    if: github.repository == 'ctxpipe-ai/ctxpipe'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
+    concurrency:
+      group: observability-validate-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    defaults:
+      run:
+        working-directory: ops/observability/terraform
+    steps:
+      - name: Checkout repository
+        uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
+        with:
+          persist-credentials: false
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: 1.14.7
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init
+        run: terraform init -backend=false
+
+      - name: Terraform validate
+        run: terraform validate
+
+  tags:
+    name: Observability image tags
+    if: github.repository == 'ctxpipe-ai/ctxpipe' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
+    outputs:
+      collector: ${{ steps.tags.outputs.collector }}
+      clickhouse: ${{ steps.tags.outputs.clickhouse }}
+      railway-telemetry: ${{ steps.tags.outputs['railway-telemetry'] }}
+    steps:
+      - name: Checkout repository
+        uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
+        with:
+          persist-credentials: false
+
+      - name: Image tags
+        id: tags
+        run: |
+          for service in collector clickhouse railway-telemetry; do
+            sha="$(git rev-parse "HEAD:ops/observability/${service}")"
+            echo "${service}=ghcr.io/ctxpipe-ai/obs-${service}:${sha}" >> "$GITHUB_OUTPUT"
+          done
+
+  images:
+    name: Build observability images
+    needs: tags
+    if: github.repository == 'ctxpipe-ai/ctxpipe' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [collector, clickhouse, railway-telemetry]
+    steps:
+      - name: Checkout repository
+        uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
+        with:
+          persist-credentials: false
+
+      - name: Setup Blacksmith Builder
+        uses: useblacksmith/setup-docker-builder@v1
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: ops/observability/${{ matrix.service }}
+          file: ops/observability/${{ matrix.service }}/Dockerfile
+          push: true
+          tags: ${{ needs.tags.outputs[matrix.service] }}
+
+  plan:
+    name: Observability Terraform plan (PR)
+    needs: [validate, images, tags]
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 20
+    concurrency:
+      group: observability-plan-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    environment: terraform-plan
+    permissions:
+      contents: read
+      pull-requests: write
+    defaults:
+      run:
+        working-directory: ops/observability/terraform
+    env:
+      TF_IN_AUTOMATION: "true"
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      TF_VAR_collector_image: ${{ needs.tags.outputs.collector }}
+      TF_VAR_clickhouse_image: ${{ needs.tags.outputs.clickhouse }}
+      TF_VAR_railway_telemetry_image: ${{ needs.tags.outputs['railway-telemetry'] }}
+    steps:
+      - name: Checkout repository
+        uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
+        with:
+          persist-credentials: false
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: 1.14.7
+          terraform_wrapper: false
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Terraform plan
+        run: terraform plan -no-color -input=false -lock=false -out=terraform.plan | tee plan.txt
+
+      - name: Refuse plans that delete resources
+        run: |
+          umask 077
+          terraform show -json terraform.plan > plan.json
+          jq -e '[.resource_changes[] | select(.change.actions | index("delete"))] | length == 0' plan.json
+
+      - name: Generate Observability Terraform Plan comment
+        if: always()
+        run: |
+          max_bytes=65536
+          truncated_note=""
+          if [[ -f plan.txt ]]; then
+            size=$(wc -c < plan.txt | tr -d ' ')
+            if [[ "$size" -gt "$max_bytes" ]]; then
+              head -c "$max_bytes" plan.txt > plan.tmp && mv plan.tmp plan.txt
+              truncated_note=$'\n\n_Plan output truncated (first '"$max_bytes"' bytes); see the workflow run logs for the full plan._'
+            fi
+          else
+            truncated_note=$'\n\n_No plan.txt produced (Terraform plan failed or did not write output)._'
+          fi
+          {
+            echo "## Observability Terraform Plan"
+            echo
+            echo "<details><summary>Show plan</summary>"
+            echo
+            echo '```hcl'
+            cat plan.txt 2>/dev/null || true
+            echo "$truncated_note"
+            echo '```'
+            echo
+            echo "</details>"
+          } > plan-comment.md
+
+      - name: Find existing Observability Terraform Plan comment
+        if: always()
+        id: find-plan-comment
+        uses: peter-evans/find-comment@3eae4d37986fb5a8592848f6a574fdf654e61f9e # v3
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: '## Observability Terraform Plan'
+
+      - name: Create or update Observability Terraform Plan comment
+        if: always()
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          comment-id: ${{ steps.find-plan-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path: ops/observability/terraform/plan-comment.md
+          edit-mode: replace
+
+  apply:
+    name: Observability Terraform apply
+    needs: [validate, images, tags]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.repository == 'ctxpipe-ai/ctxpipe'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 180
+    concurrency:
+      group: observability-apply
+      cancel-in-progress: false
+    environment: observability
+    defaults:
+      run:
+        working-directory: ops/observability/terraform
+    env:
+      TF_IN_AUTOMATION: "true"
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      TF_VAR_collector_image: ${{ needs.tags.outputs.collector }}
+      TF_VAR_clickhouse_image: ${{ needs.tags.outputs.clickhouse }}
+      TF_VAR_railway_telemetry_image: ${{ needs.tags.outputs['railway-telemetry'] }}
+    steps:
+      - name: Checkout repository
+        uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
+        with:
+          persist-credentials: false
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: 1.14.7
+          terraform_wrapper: false
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Terraform plan
+        run: terraform plan -input=false -lock-timeout=10m -out=terraform.plan
+
+      - name: Refuse plans that delete resources
+        run: |
+          umask 077
+          terraform show -json terraform.plan > plan.json
+          jq -e '[.resource_changes[] | select(.change.actions | index("delete"))] | length == 0' plan.json
+
+      - name: Terraform apply
+        run: terraform apply -input=false -auto-approve -lock-timeout=10m terraform.plan
+
+      # Provider Update() never sends multiRegionConfig (issue #77).
+      - name: Pin Railway observability region
+        working-directory: ${{ github.workspace }}
+        run: RAILWAY_SERVICE_SET=observability bash scripts/railway-set-regions.sh

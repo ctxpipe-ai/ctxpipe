@@ -35,6 +35,7 @@ These instructions supplement the repository-root `AGENTS.md`.
 
 ## Testing
 
+- Testing: [root AGENTS.md → Testing](../../AGENTS.md#testing).
 - Keep unit tests collocated with the code under `src/`.
 - The default `pnpm --filter @ctxpipe/codesearch test` builds and runs the
   Docker-based Vitest suite.

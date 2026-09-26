@@ -1,5 +1,7 @@
 import { createHmac } from "node:crypto"
+import { createLogger } from "evlog"
 import { Hono } from "hono"
+import { contextStorage } from "hono/context-storage"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 import { parseNotionConnectionConfig } from "../../../lib/connection-config.js"
@@ -23,9 +25,6 @@ vi.mock("../../../models/notion-connector.js", () => ({
   listNotionConnectionsForWebhook: connectionsMock,
   getNotionConnectionRowById: getRowMock,
   persistNotionWebhookSecret: persistSecretMock,
-}))
-vi.mock("../../../observability/logger.js", () => ({
-  getLogger: () => ({ error: vi.fn(), info: vi.fn() }),
 }))
 vi.mock("../../../openworkflow/client.js", () => ({
   runWorkflowWithWorkerWake: runWorkflowMock,
@@ -64,18 +63,19 @@ function candidate(
 }
 
 function testApp(
-  options: {
-    webhookSecret?: string
-    clientSecret?: string
-  } = { webhookSecret },
+  options: { webhookSecret?: string; clientSecret?: string } = {
+    webhookSecret,
+  },
 ) {
   const app = new Hono<AppEnv>()
+  app.use(contextStorage())
   app.use("*", async (c, next) => {
     c.set("env", {
       ...envBase,
       NOTION_CLIENT_SECRET: options.clientSecret ?? notionClientSecret,
       NOTION_WEBHOOK_SECRET: options.webhookSecret,
     } as AppEnv["Variables"]["env"])
+    c.set("log", createLogger())
     await next()
   })
   registerNotionWebhookRoute(app as never)
@@ -333,14 +333,13 @@ describe("Notion webhook", () => {
       entity: { id: "page_1", type: "page" },
     })
 
-    const response = await testApp({ webhookSecret: "hosted-env-secret" }).request(
-      "/api/v1/webhook/notion",
-      {
-        method: "POST",
-        headers: { "x-notion-signature": sign(body, "hosted-env-secret") },
-        body,
-      },
-    )
+    const response = await testApp({
+      webhookSecret: "hosted-env-secret",
+    }).request("/api/v1/webhook/notion", {
+      method: "POST",
+      headers: { "x-notion-signature": sign(body, "hosted-env-secret") },
+      body,
+    })
 
     expect(response.status).toBe(401)
     expect(runWorkflowMock).not.toHaveBeenCalled()
@@ -468,6 +467,40 @@ describe("Notion webhook", () => {
 
     expect(response.status).toBe(204)
     expect(runWorkflowMock).not.toHaveBeenCalled()
+  })
+
+  it("enqueues one job per org when one integration is connected twice", async () => {
+    connectionsMock.mockResolvedValue([
+      candidate({ id: "con_a", orgId: "org_a" }),
+      candidate({ id: "con_b", orgId: "org_b", repositoryId: "repo_2" }),
+    ])
+    const body = JSON.stringify({
+      id: "event_two_orgs",
+      workspace_id: "workspace_1",
+      type: "page.content_updated",
+      entity: { id: "page_1", type: "page" },
+    })
+    const response = await testApp({ webhookSecret }).request(
+      "/api/v1/webhook/notion",
+      {
+        method: "POST",
+        headers: { "x-notion-signature": sign(body, webhookSecret) },
+        body,
+      },
+    )
+
+    expect(response.status).toBe(200)
+    expect(runWorkflowMock).toHaveBeenCalledTimes(2)
+    expect(runWorkflowMock).toHaveBeenCalledWith(
+      { name: "notion-sync-entity" },
+      expect.objectContaining({ orgId: "org_a", connectionId: "con_a" }),
+      { idempotencyKey: "notion:con_a:event_two_orgs" },
+    )
+    expect(runWorkflowMock).toHaveBeenCalledWith(
+      { name: "notion-sync-entity" },
+      expect.objectContaining({ orgId: "org_b", connectionId: "con_b" }),
+      { idempotencyKey: "notion:con_b:event_two_orgs" },
+    )
   })
 
   it("no longer exposes the legacy per-connection route", async () => {

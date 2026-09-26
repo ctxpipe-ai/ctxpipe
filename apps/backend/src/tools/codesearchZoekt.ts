@@ -1,6 +1,7 @@
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"
 import { codesearchBaseUrl } from "../lib/agentToolRuntime.js"
+import { readCodesearchError } from "../lib/codesearchError.js"
 import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
 
 export type ZoektRepositoryRow = {
@@ -68,18 +69,18 @@ export async function zoektSearchRepository(
   )
 
   if (res.status >= 400 && res.status < 500) {
-    const body = await res.text().catch(() => "")
+    const failure = await readCodesearchError(res)
     return {
       ok: false,
-      status: res.status,
-      error: body.trim() || `client_error_${res.status}`,
+      status: failure.status,
+      error: failure.message || `client_error_${failure.status}`,
     }
   }
 
   if (!res.ok) {
-    const body = await res.text().catch(() => "")
+    const failure = await readCodesearchError(res)
     throw new Error(
-      `codesearch search failed with status ${res.status}: ${body}`,
+      `codesearch search failed with status ${failure.status}: ${failure.message}`,
     )
   }
 

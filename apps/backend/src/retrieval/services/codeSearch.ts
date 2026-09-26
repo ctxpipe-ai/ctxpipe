@@ -5,8 +5,18 @@ import { getOrgDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
+import { readCodesearchError } from "../../lib/codesearchError.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
 import { DEFAULT_CHECKOUT_KEY } from "../../models/repositories.js"
+import { log } from "../../observability/logger.js"
+
+/**
+ * Zoekt treats unquoted text as a query (regex, filters, grouping). A user
+ * question is a substring: quote it and escape `\` and `"`.
+ */
+export function zoektLiteralQuery(text: string): string {
+  return `"${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
+}
 
 export type CodeSearchResult = {
   repositoryId: string
@@ -182,22 +192,51 @@ export async function codeSearch(
       principal: "service",
     },
   })
+  const repoIds = repos.map((r) => r.zoektRepoId)
 
-  const res = await withTransientHttpRetry(
-    async () =>
-      fetch(`${codesearchBaseUrl()}/search`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          Q: params.query,
-          RepoIDs: repos.map((r) => r.zoektRepoId),
+  const postSearch = (query: string) =>
+    withTransientHttpRetry(
+      async () =>
+        fetch(`${codesearchBaseUrl()}/search`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            Q: query,
+            RepoIDs: repoIds,
+          }),
         }),
-      }),
-    { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
-  )
+      { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
+    )
+
+  const readRejection = async (response: Response) => {
+    if (response.status !== 400) return null
+    const failure = await readCodesearchError(response)
+    return failure.code === "query_rejected" ? failure : null
+  }
+
+  let query = params.query
+  let res = await postSearch(query)
+  let rejected = await readRejection(res)
+  if (rejected) {
+    const literal = zoektLiteralQuery(params.query)
+    if (literal !== params.query) {
+      query = literal
+      res = await postSearch(literal)
+      rejected = await readRejection(res)
+    }
+    if (rejected) {
+      // Codesearch's error string can echo the query. Keep it off the wide event.
+      log.warn({
+        step: "advisor.code_search.rejected",
+        "upstream.status_code": rejected.status,
+        error: "zoekt_query_rejected",
+      })
+      return []
+    }
+  }
 
   if (!res.ok) {
     throw new Error(`codesearch failed with status ${res.status}`)
@@ -209,7 +248,7 @@ export async function codeSearch(
     repositoryId: r.id,
     repositoryName: r.name,
     zoektRepoId: r.zoektRepoId,
-    query: params.query,
+    query,
     response: searchResponse,
   }))
 }

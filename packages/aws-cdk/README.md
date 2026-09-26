@@ -135,6 +135,30 @@ modelProvider: {
 
 - `connectorSecrets`: deployment-wide connector settings for GitHub, Atlassian, Slack, Linear, Notion, and PagerDuty. Omit for first boot if connectors are not configured yet. Linear uses `linearClientId`, `linearClientSecret`, optional `linearRedirectUri`, and `linearWebhookSecret`; Notion uses `notionClientId`, `notionClientSecret`, and `notionWebhookSecret`; Slack uses `slackClientId`, `slackClientSecret`, and `slackSigningSecret`; PagerDuty uses `pagerdutyClientId`, `pagerdutyClientSecret`, and optional `pagerdutyRedirectUri` (no shared webhook secret).
 - `size`: deployment capacity profile (`small`, `medium`, `large`). Defaults to `small` when omitted.
+- `otel`: optional OTLP export to your collector. Omit it and the tasks get no `OTEL_*` environment. The construct does not deploy a collector, Langfuse, or ClickStack.
+
+## Observability
+
+`otel.endpoint` is one OTLP/HTTP base URL. The construct trims it once and sets the per-signal variables the apps read: `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is `${endpoint}/v1/traces`, and logs and metrics follow the same pattern. Migrate does not receive them. Export stays off when `otel` is omitted. A blank `endpoint` throws. `OTEL_SERVICE_NAME` is `backend`, `openworkflow`, `ui`, or `codesearch` on that task.
+
+| Prop | Container env |
+| --- | --- |
+| `endpoint` | `OTEL_EXPORTER_OTLP_{TRACES,LOGS,METRICS}_ENDPOINT` (`/v1/traces`, `/v1/logs`, `/v1/metrics`) |
+| `headers` | `OTEL_EXPORTER_OTLP_HEADERS` (Secrets Manager, only when export is on) |
+| `resourceAttributes` | `OTEL_RESOURCE_ATTRIBUTES` |
+
+```ts
+new CtxPipe(stack, "CtxPipe", {
+  // ...orgSlug, customDomain, modelProvider
+  otel: {
+    endpoint: "https://otel.example.com",
+    headers: cdk.SecretValue.unsafePlainText("Authorization=Bearer replace-me"),
+    resourceAttributes: "deployment.environment=production",
+  },
+});
+```
+
+`endpoint` is one base URL for every signal. Browser telemetry and the env vars the apps read: [Configuration](https://docs.ctxpipe.ai/docs/self-hosting/configuration).
 
 
 
@@ -176,6 +200,7 @@ Networking note:
 - SES domain identity + DKIM records + SMTP credentials in Secrets Manager for backend email delivery.
 - Public ALB routing to backend only (UI/codesearch remain internal-only).
 - Outputs for app URL and key secret ARNs.
+- No OpenTelemetry collector, Langfuse, or ClickStack. Telemetry export is the optional `otel` prop.
 - Backup defaults enabled for Aurora, Neptune, and EFS.
 
 Runtime defaults injected by the construct include:

@@ -173,6 +173,7 @@ export class CtxPipe extends Construct {
       resolvedModel,
       defaultImageTag: defaults.defaultImageTag,
       sizeProfile,
+      otel: props.otel,
     });
 
     const migrateOnDeploy = new MigrateOnDeployConstruct(this, "MigrateOnDeploy", {

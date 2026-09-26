@@ -11,7 +11,6 @@ const {
   requireCurrentOrgIdMock,
   requireCurrentOrgSlugMock,
   currentMcpActorMock,
-  trackMcpToolInvocationMock,
   runWithLangfuseContextMock,
   getLangfuseHandlerMock,
   withOrgDbContextMock,
@@ -25,11 +24,16 @@ const {
   requireCurrentUserIdMock: vi.fn(() => "user_test123"),
   requireCurrentOrgIdMock: vi.fn(() => "org_test"),
   requireCurrentOrgSlugMock: vi.fn(() => "test-org"),
-  currentMcpActorMock: vi.fn(() => ({
-    type: "user" as const,
-    userId: "user_test123",
-  })),
-  trackMcpToolInvocationMock: vi.fn(),
+  currentMcpActorMock: vi.fn(
+    (): {
+      type: "user" | "org-service"
+      userId?: string
+      orgId?: string
+    } => ({
+      type: "user",
+      userId: "user_test123",
+    }),
+  ),
   runWithLangfuseContextMock: vi.fn(
     async (_attrs: unknown, fn: () => Promise<unknown>) => fn(),
   ),
@@ -63,10 +67,6 @@ vi.mock("../auth/context.js", () => ({
   currentMcpActor: currentMcpActorMock,
 }))
 
-vi.mock("../observability/amplitude.js", () => ({
-  trackMcpToolInvocation: trackMcpToolInvocationMock,
-}))
-
 vi.mock("../observability/langfuse.js", () => ({
   runWithLangfuseContext: runWithLangfuseContextMock,
   getLangfuseHandler: getLangfuseHandlerMock,
@@ -97,7 +97,6 @@ describe("registerMcpTools", () => {
       userId: "user_test123",
     })
     requireCurrentUserIdMock.mockReset().mockReturnValue("user_test123")
-    trackMcpToolInvocationMock.mockReset()
     runWithLangfuseContextMock
       .mockReset()
       .mockImplementation(async (_attrs: unknown, fn: () => Promise<unknown>) =>
@@ -475,12 +474,6 @@ describe("registerMcpTools", () => {
 
     expect(requireCurrentUserIdMock).not.toHaveBeenCalled()
     expect(generateObjectIdMock).not.toHaveBeenCalled()
-    expect(trackMcpToolInvocationMock).toHaveBeenCalledWith({
-      userId: "org:org_test",
-      orgId: "org_test",
-      orgSlug: "test-org",
-      toolName: "ctx_advisor",
-    })
 
     const callConfig = streamMock.mock.calls[0]?.[1] as {
       configurable?: { thread_id?: string }
@@ -519,9 +512,12 @@ describe("registerMcpTools", () => {
     ]
 
     await expect(
-      handler({ prompt: "What database should we use?" }, {
-        sendNotification: vi.fn(async () => {}),
-      }),
+      handler(
+        { prompt: "What database should we use?" },
+        {
+          sendNotification: vi.fn(async () => {}),
+        },
+      ),
     ).rejects.toThrow(failure)
 
     expect(logErrorMock).toHaveBeenCalledWith({

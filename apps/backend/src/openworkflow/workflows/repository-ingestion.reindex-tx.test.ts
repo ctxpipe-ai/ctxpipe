@@ -63,7 +63,7 @@ vi.mock("../../observability/logger.js", () => ({
   getLogger: () => ({
     set: vi.fn(),
     info: vi.fn(),
-    error: vi.fn(),
+    error: getLoggerErrorMock,
     warn: vi.fn(),
   }),
   flushWorkflowLog: vi.fn(),
@@ -131,11 +131,17 @@ vi.mock("../../domain/codeIngestion/queue.js", () => ({
     .mockResolvedValue({ hash: "abc", branch: "main" }),
 }))
 
+const repositoryIngestionBlockedByDeletionMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(false),
+)
+
 vi.mock("../../models/repositories.js", () => ({
   markRepositoryIndexingRunning: vi.fn().mockResolvedValue(undefined),
   markRepositoryIndexingReady: vi.fn().mockResolvedValue(undefined),
   markRepositoryIndexingReadyWithIssues: vi.fn().mockResolvedValue(undefined),
   setRepositoryIndexingStep: vi.fn().mockResolvedValue(undefined),
+  repositoryIngestionBlockedByDeletion:
+    repositoryIngestionBlockedByDeletionMock,
 }))
 
 vi.mock("../../retrieval/services/ingestionRetraction.js", () => ({
@@ -146,6 +152,7 @@ vi.mock("../../retrieval/services/ingestionRetraction.js", () => ({
 const enqueueFollowUpIfTipAheadMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ enqueued: false, tipHash: "abc" }),
 )
+const getLoggerErrorMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../enqueue-follow-up-if-tip-ahead.js", () => ({
   enqueueFollowUpIfTipAhead: enqueueFollowUpIfTipAheadMock,
@@ -255,6 +262,7 @@ describe("repository-ingestion index workflow boundary", () => {
       graphClaimsRefreshed: 0,
       graphOrphanObjectsDeleted: 1,
     })
+    repositoryIngestionBlockedByDeletionMock.mockResolvedValue(false)
   })
 
   it("sweeps evidence a full ingest did not re-observe and syncs the graph", async () => {
@@ -414,11 +422,7 @@ describe("repository-ingestion index workflow boundary", () => {
     )
     expect(withIngestAgentContextMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        sessionId: "repository-ingestion:wr_1",
-        traceMetadata: expect.objectContaining({
-          workflowRunId: "wr_1",
-          targetHash: "abc",
-        }),
+        runName: "repository-ingestion.identify",
         metadata: expect.objectContaining({
           workflowStepName: "identify:src",
           rootId: "src",
@@ -585,5 +589,50 @@ describe("repository-ingestion index workflow boundary", () => {
     expect(markRepositoryIndexingReadyWithIssues).not.toHaveBeenCalled()
     expect(markRepositoryIndexingReady).not.toHaveBeenCalled()
     expect(enqueueFollowUpIfTipAheadMock).not.toHaveBeenCalled()
+  })
+
+  it("stops without error when codesearch says the repository is gone", async () => {
+    const { RepositoryGoneError } = await import(
+      "../../domain/codeIngestion/repositoryGone.js"
+    )
+    runIdentifyPhaseForRootMock.mockRejectedValue(
+      new RepositoryGoneError("Repository not found or access denied"),
+    )
+
+    await expect(
+      runWorkflow(
+        { repositoryId: "repo_1", orgId: "org_1" },
+        makeStep(repositoryIndexResult),
+      ),
+    ).resolves.toEqual({
+      aborted: "repository_deleted",
+      repositoryId: "repo_1",
+    })
+
+    expect(markRepositoryIndexingReady).not.toHaveBeenCalled()
+    expect(enqueueFollowUpIfTipAheadMock).not.toHaveBeenCalled()
+    expect(getLoggerErrorMock).not.toHaveBeenCalled()
+  })
+
+  it("stops before codesearch work when deletion has started", async () => {
+    repositoryIngestionBlockedByDeletionMock.mockResolvedValue(true)
+    let indexed = false
+    const step = makeStep(repositoryIndexResult)
+    const runIndex = step.runWorkflow
+    step.runWorkflow = async (...args: Parameters<typeof runIndex>) => {
+      indexed = true
+      return runIndex(...args)
+    }
+
+    await expect(
+      runWorkflow({ repositoryId: "repo_1", orgId: "org_1" }, step),
+    ).resolves.toEqual({
+      aborted: "repository_deleted",
+      repositoryId: "repo_1",
+    })
+
+    expect(indexed).toBe(false)
+    expect(markRepositoryIndexingReady).not.toHaveBeenCalled()
+    expect(getLoggerErrorMock).not.toHaveBeenCalled()
   })
 })

@@ -78,7 +78,6 @@ jobs:
             dockerfile: apps/ui/Dockerfile
           - image: codesearch
             dockerfile: apps/codesearch/Dockerfile
-          # otel-collector is not built/deployed for PR envs (keeps previews asleep; no Better Stack quota burn).
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@v1
@@ -358,31 +357,8 @@ jobs:
             require_var UI_SERVICE_ID
             require_var CODESEARCH_SERVICE_ID
 
-            railway_graphql() {
-              local query="$1"
-              local variables="$2"
-              local raw http_code body
-              # Capture body + status so GraphQL validation/400s are visible in logs
-              # (curl -f alone only prints "returned error: 400").
-              raw="$(curl -sS -w '\n%{http_code}' \
-                -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
-                -H "Content-Type: application/json" \
-                -d "$(jq -nc --arg q "$query" --argjson v "$variables" '{query:$q,variables:$v}')" \
-                https://backboard.railway.com/graphql/v2)" || return $?
-              http_code="$(printf '%s' "$raw" | tail -n1)"
-              body="$(printf '%s' "$raw" | sed '$d')"
-              if [[ "$http_code" != "200" ]]; then
-                echo "Railway GraphQL HTTP $http_code for query: ${query:0:120}…" >&2
-                echo "$body" >&2
-                return 22
-              fi
-              if echo "$body" | jq -e '.errors | type == "array" and length > 0' >/dev/null 2>&1; then
-                echo "Railway GraphQL errors for query: ${query:0:120}…" >&2
-                echo "$body" | jq -c '.errors' >&2
-                return 22
-              fi
-              printf '%s' "$body"
-            }
+            # shellcheck disable=SC1091
+            source "${GITHUB_WORKSPACE}/scripts/railway-graphql.sh"
 
             # Poll until Railway has a live instance in this environment.
             # Duplicate-from-production creates the env immediately; instances
@@ -470,17 +446,6 @@ jobs:
               echo "Updated DATABASE_URL for service $service_id with skipDeploys=true"
             }
 
-            # Preview-only: turn off LangSmith and delete OTEL exporters so apps do not
-            # emit 60s metrics/logs (which keep Railway Serverless awake and wake otelcollector).
-            delete_service_variable() {
-              local service_id="$1"
-              local name="$2"
-              railway_graphql \
-                'mutation variableDelete($input: VariableDeleteInput!) { variableDelete(input: $input) }' \
-                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" --arg name "$name" \
-                  '{input:{projectId:$project, environmentId:$env, serviceId:$service, name:$name}}')" >/dev/null 2>&1 || true
-            }
-
             upsert_preview_service_variables() {
               local service_id="$1"
               railway_graphql \
@@ -493,16 +458,11 @@ jobs:
                       serviceId: $service,
                       skipDeploys: true,
                       variables: {
-                        ENABLE_LANGSMITH: "false",
                         OPENWORKFLOW_NAMESPACE_ID: $workflow_namespace
                       }
                     }
                   }')"
-              # Delete (not empty-string upsert) so Railway truly unsets OTEL endpoints.
-              delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
-              delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
-              delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
-              echo "Updated preview namespace/telemetry variables for service $service_id"
+              echo "Updated preview namespace variables for service $service_id"
             }
 
             # Backend: allow waking the worker after enqueue (Railway GraphQL deploy).
@@ -696,21 +656,16 @@ jobs:
             update_source_image "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE" >/dev/null
             deploy_service "$CODESEARCH_SERVICE_ID" >/dev/null
 
-            # Terraform service names: otelcollector, falkordb (resolved via GraphQL; no GitHub vars).
+            # Previews created before the production collector was removed can
+            # still contain otelcollector. Scale it to zero and stop it.
             load_service_ids_by_name
             OTELCOLLECTOR_SERVICE_ID="$(echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r '.otelcollector // empty')"
             FALKORDB_SERVICE_ID="$(echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r '.falkordb // empty')"
 
-            # Never deploy otelcollector in PR: scale to 0 and stop active deployments
-            # (no serviceInstanceDeployV2 — that was waking/starting containers).
             if [[ -n "$OTELCOLLECTOR_SERVICE_ID" ]]; then
-              delete_service_variable "$OTELCOLLECTOR_SERVICE_ID" "BETTER_STACK_TOKEN"
               scale_service_to_zero "$OTELCOLLECTOR_SERVICE_ID" >/dev/null
               stop_active_deployments "$OTELCOLLECTOR_SERVICE_ID"
-              echo "otel-collector ($OTELCOLLECTOR_SERVICE_ID) scaled to 0 and active deployments stopped (not deployed)"
-              verify_sleep_application "otel-collector" "$OTELCOLLECTOR_SERVICE_ID"
-            else
-              echo "Warning: no Railway service named otelcollector in project $RAILWAY_PROJECT_ID; skipping"
+              echo "leftover otelcollector ($OTELCOLLECTOR_SERVICE_ID) scaled to 0 and active deployments stopped"
             fi
 
             if [[ -n "$FALKORDB_SERVICE_ID" ]]; then
@@ -859,6 +814,6 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           owner: ctxpipe-ai
-          packages: backend,worker,ui,codesearch,otel-collector
+          packages: backend,worker,ui,codesearch
           delete-tags: '^pr-${{ github.event.number }}-'
           use-regex: true

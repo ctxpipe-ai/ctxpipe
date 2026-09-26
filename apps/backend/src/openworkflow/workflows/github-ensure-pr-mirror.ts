@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import {
@@ -8,6 +7,7 @@ import {
 import { getLogger, log } from "../../observability/logger.js"
 import { ensureGithubPrMirror } from "../../services/github/pull-request-mirror/ensure.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 
 const GithubEnsurePrMirrorInputSchema = z.object({
   orgId: z.string().min(1),

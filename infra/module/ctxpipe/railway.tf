@@ -23,16 +23,24 @@ locals {
       region       = var.railway_regions[0].region
     }
   ]
-  amplitude_shared_env = length(var.amplitude_api_key) > 0 ? [
+  otel_shared_env = [
     {
-      name  = "AMPLITUDE_API_KEY"
-      value = var.amplitude_api_key
+      name  = "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
+      value = "${var.otel_otlp_endpoint}/v1/traces"
     },
     {
-      name  = "AMPLITUDE_REGION"
-      value = var.amplitude_region
+      name  = "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
+      value = "${var.otel_otlp_endpoint}/v1/logs"
     },
-  ] : []
+    {
+      name  = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
+      value = "${var.otel_otlp_endpoint}/v1/metrics"
+    },
+    {
+      name  = "OTEL_EXPORTER_OTLP_HEADERS"
+      value = var.otel_otlp_headers
+    },
+  ]
   # Omit when unset so parseEnv does not see empty strings for optional min(1) secrets.
   slack_shared_env = length(var.slack_client_id) > 0 && length(var.slack_client_secret) > 0 && length(var.slack_signing_secret) > 0 ? [
     {
@@ -98,14 +106,6 @@ locals {
       value = "noreply@ctxpipe.ai"
     },
     {
-      name  = "ENABLE_LANGSMITH"
-      value = "TRUE"
-    },
-    {
-      name  = "LANGSMITH_API_KEY"
-      value = var.langsmith_api_key
-    },
-    {
       name  = "MODEL_PROVIDER_API_KEY",
       value = var.model_provider_api_key
     },
@@ -169,19 +169,7 @@ locals {
       name  = "GITHUB_WEBHOOK_SECRET",
       value = var.github_webhook_secret
     },
-    {
-      name  = "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
-      value = "http://$${{otelcollector.RAILWAY_PRIVATE_DOMAIN}}:4318/v1/traces"
-    },
-    {
-      name  = "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
-      value = "http://$${{otelcollector.RAILWAY_PRIVATE_DOMAIN}}:4318/v1/logs"
-    },
-    {
-      name  = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
-      value = "http://$${{otelcollector.RAILWAY_PRIVATE_DOMAIN}}:4318/v1/metrics"
-    }
-  ], local.amplitude_shared_env, local.slack_shared_env, local.linear_shared_env, local.pagerduty_shared_env)
+  ], local.otel_shared_env, local.slack_shared_env, local.linear_shared_env, local.pagerduty_shared_env)
 }
 
 resource "railway_service" "ui" {
@@ -211,39 +199,7 @@ resource "railway_variable_collection" "ui_env" {
       name  = "PORT"
       value = "3002"
     }
-  ], local.amplitude_shared_env)
-}
-
-resource "railway_service" "otelcollector" {
-  project_id   = railway_project.this.id
-  name         = "otelcollector"
-  regions      = local.regions
-  source_image = "${var.otel_collector_source_image}:${var.image_tag}"
-  lifecycle {
-    prevent_destroy = true
-    # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
-    ignore_changes = [regions]
-  }
-}
-
-resource "railway_variable_collection" "otelcollector_env" {
-  environment_id = railway_project.this.default_environment.id
-  service_id     = railway_service.otelcollector.id
-
-  variables = [
-    {
-      name  = "BETTER_STACK_TOKEN"
-      value = var.better_stack_token
-    },
-    {
-      name  = "LANGFUSE_AUTH_STRING"
-      value = var.langfuse_auth_string
-    },
-    {
-      name  = "LANGFUSE_OTLP_ENDPOINT"
-      value = var.langfuse_otlp_endpoint
-    },
-  ]
+  ], local.otel_shared_env)
 }
 
 resource "railway_service" "backend" {
@@ -251,7 +207,7 @@ resource "railway_service" "backend" {
   name         = "backend"
   regions      = local.regions
   source_image = "${var.backend_source_image}:${var.image_tag}"
-  depends_on   = [railway_service.falkordb, railway_service.ui, railway_service.code_search, railway_service.otelcollector]
+  depends_on   = [railway_service.falkordb, railway_service.ui, railway_service.code_search]
   lifecycle {
     prevent_destroy = true
     # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
@@ -311,7 +267,7 @@ resource "railway_variable_collection" "code_search_env" {
   environment_id = railway_project.this.default_environment.id
   service_id     = railway_service.code_search.id
 
-  variables = [
+  variables = concat([
     {
       name  = "AUTH_SECRET"
       value = var.better_auth_secret
@@ -337,6 +293,10 @@ resource "railway_variable_collection" "code_search_env" {
       value = "http://localhost:6070"
     },
     {
+      name  = "OTEL_SERVICE_NAME",
+      value = "codesearch"
+    },
+    {
       name  = "CODESEARCH_INDEXER_CONCURRENCY"
       value = var.codesearch_indexer_concurrency
     },
@@ -344,7 +304,7 @@ resource "railway_variable_collection" "code_search_env" {
       name  = "CODESEARCH_INDEX_PIPELINE_CONCURRENCY"
       value = var.codesearch_index_pipeline_concurrency
     }
-  ]
+  ], local.otel_shared_env)
 }
 
 resource "railway_service" "open_workflow" {
@@ -352,7 +312,7 @@ resource "railway_service" "open_workflow" {
   name         = "openworkflow"
   regions      = local.regions
   source_image = "${var.worker_source_image}:${var.image_tag}"
-  depends_on   = [railway_service.falkordb, railway_service.backend, railway_service.otelcollector]
+  depends_on   = [railway_service.falkordb, railway_service.backend]
   lifecycle {
     prevent_destroy = true
     # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).

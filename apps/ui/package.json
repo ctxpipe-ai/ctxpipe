@@ -20,7 +20,6 @@
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.107",
-    "@amplitude/analytics-browser": "^2.36.9",
     "@base-ui/react": "^1.2.0",
     "@better-auth/api-key": "^1.6.23",
     "@better-auth/oauth-provider": "^1.6.23",
@@ -28,6 +27,7 @@
     "@cosmograph/react": "2.2.1",
     "@daveyplate/better-auth-tanstack": "^1.3.6",
     "@daveyplate/better-auth-ui": "^3.4.0",
+    "@hyperdx/browser": "^0.26.0",
     "@scure/base": "^2.0.0",
     "@streamdown/cjk": "^1.0.2",
     "@streamdown/code": "^1.0.3",

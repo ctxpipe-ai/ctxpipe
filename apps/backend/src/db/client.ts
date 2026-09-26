@@ -3,6 +3,7 @@ import { setDefaultResultOrder } from "node:dns"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool } from "pg"
+import { instrumentPgPool } from "../observability/dbTrace.js"
 import { log } from "../observability/logger.js"
 import { relations, schema } from "./schema.js"
 import {
@@ -43,6 +44,8 @@ function createDrizzleDb(connectionString: string) {
           : undefined,
     })
   })
+  // Instrument first so a transient retry is its own query span.
+  instrumentPgPool(client)
   wrapPoolQueryWithTransientRetry(client)
   return drizzle({ client, schema, relations })
 }

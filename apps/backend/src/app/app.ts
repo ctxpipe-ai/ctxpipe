@@ -1,20 +1,14 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { parseError } from "evlog"
-import {
-  type BetterAuthInstance,
-  createAuthMiddleware,
-} from "evlog/better-auth"
 import { evlog } from "evlog/hono"
 import { contextStorage } from "hono/context-storage"
 import { cors } from "hono/cors"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
-import { getAuth } from "../auth/config.js"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
-import { initAmplitudeFromEnv } from "../observability/amplitude.js"
-import { createEvlogDrain, log } from "../observability/logger.js"
+import { backendOtelMiddleware } from "../observability/http.js"
+import { log } from "../observability/logger.js"
 import { registerAuthRoutes } from "../routes/auth.js"
-import { registerLangsmithRoutes } from "../routes/langsmith.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
 import { registerMcpBrandAssetRoute } from "../routes/mcp-brand-asset.js"
 import { registerOpenapiRoutes } from "../routes/openapi.js"
@@ -29,30 +23,12 @@ export type { AppEnv } from "./env.js"
 
 export function createApp() {
   const env = parseEnv(process.env as Record<string, string | undefined>)
-  // Amplitude: only initializes when `AMPLITUDE_API_KEY` is set (see `observability/amplitude.ts`).
-  initAmplitudeFromEnv(env)
   initDb(env.DATABASE_URL)
   void backfillGithubAppSecretsFromEnv(env).catch((err: unknown) => {
     log.error(err instanceof Error ? err : new Error(String(err)), {
       step: "backfill.github_connection_secrets",
     })
   })
-
-  /** Evlog only: enriches `c.var.log` wide events; does not set `c.var.user` or gate routes. */
-  const identifyBetterAuthUser = createAuthMiddleware(
-    getAuth() as unknown as BetterAuthInstance,
-    {
-      exclude: [
-        "/.auth/api/v1/auth/**",
-        "/.auth/api/config",
-        "/.auth/api/v1/public/**",
-        "/.well-known/**",
-        "/.status",
-        "/api/v1/webhook/**",
-      ],
-      maskEmail: env.NODE_ENV === "production",
-    },
-  )
 
   const app = new OpenAPIHono<AppEnv>()
 
@@ -69,17 +45,16 @@ export function createApp() {
     }),
   )
   app.use(contextStorage())
-  app.use(evlog({ drain: createEvlogDrain() }))
-  app.use("*", async (c, next) => {
-    await identifyBetterAuthUser(c.get("log"), c.req.raw.headers, c.req.path)
-    await next()
-  })
+  app.use("*", backendOtelMiddleware())
+  app.use(evlog())
   app.use("*", async (c, next) => {
     c.set("env", env)
     c.set("user", null)
     c.set("session", null)
     c.set("oauthOrganizationId", null)
+    c.set("oauthClientId", null)
     c.set("orgApiKey", null)
+    c.set("personalApiKeyId", null)
     c.set("orgSlug", null)
     c.set("orgId", null)
     await next()
@@ -122,8 +97,6 @@ export function createApp() {
   registerOpenapiRoutes(app, v1 as OpenAPIHono<AppEnv>)
   // /.status
   registerStatusRoutes(app)
-  // /langsmith mounted only when ENABLE_LANGSMITH=true
-  registerLangsmithRoutes(app)
   // Public MCP brand asset (before /mcp; no auth)
   registerMcpBrandAssetRoute(app)
   // /mcp

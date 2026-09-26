@@ -1,6 +1,8 @@
 # ADR-006: LangSmith Studio dev routes
 
-**Status:** Accepted | **Date:** 2026-02-14 | **Tags:** backend, langsmith, langgraph, dev
+**Status:** Superseded | **Date:** 2026-02-14 | **Tags:** backend, langsmith, langgraph, dev
+
+**Note:** Removed. LLM tracing is Langfuse ([ADR-011](ADR-011-backend-observability-otel.md)).
 
 ## Context
 
@@ -42,6 +44,4 @@ Requirements:
 
 ## Notes
 
-- See `src/routes/langsmith.ts` for embedded API assembly and initialization.
-- Studio UI: https://smith.langchain.com/studio/?baseUrl=https://localhost:3000/langsmith (when running with HTTPS in dev).
 - Cloudflare Workers support was removed; see [ADR-007](ADR-007-remove-cloudflare-workers-runtime.md).

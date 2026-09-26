@@ -1,8 +1,8 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { resolveRepositoryRef } from "../../domain/codeIngestion/queue.js"
+import { isRepositoryGoneError } from "../../domain/codeIngestion/repositoryGone.js"
 import { deduplicateAndStore } from "../../graphs/codeIngestionGraph/nodes/deduplicateAndStore.js"
 import { embed } from "../../graphs/codeIngestionGraph/nodes/embed.js"
 import { identifyRoots } from "../../graphs/codeIngestionGraph/nodes/identifyRoots.js"
@@ -24,8 +24,10 @@ import {
   markRepositoryIndexingReady,
   markRepositoryIndexingReadyWithIssues,
   markRepositoryIndexingRunning,
+  repositoryIngestionBlockedByDeletion,
   setRepositoryIndexingStep,
 } from "../../models/repositories.js"
+import { readAttribution } from "../../observability/attribution.js"
 import {
   runWithLangfuseContext,
   withLangfuseObservation,
@@ -40,6 +42,7 @@ import {
   applyIngestionRetractionGraphEffects,
   retractUnobservedRepositoryEvidencePg,
 } from "../../retrieval/services/ingestionRetraction.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueFollowUpIfTipAhead } from "../enqueue-follow-up-if-tip-ahead.js"
 import { withLoggedStepAttempt } from "../withLoggedStepAttempt.js"
 import { repositoryIndex } from "./repository-index.js"
@@ -55,6 +58,36 @@ const repositoryIngestionInputSchema = z.object({
   /** Ignore the last ingested commit: full codesearch mode plus the unobserved-evidence sweep. */
   fullReingest: z.boolean().optional(),
 })
+
+const REPOSITORY_INGESTION_STOPPED = {
+  repositoryIngestionStopped: true,
+} as const
+
+class IngestionAborted extends Error {
+  constructor() {
+    super("repository ingestion stopped because the repository was deleted")
+    this.name = "IngestionAborted"
+  }
+}
+
+function isIngestionStopped(
+  value: unknown,
+): value is typeof REPOSITORY_INGESTION_STOPPED {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "repositoryIngestionStopped" in value &&
+    (value as { repositoryIngestionStopped?: unknown })
+      .repositoryIngestionStopped === true
+  )
+}
+
+function continueIngestion<T>(
+  value: T,
+): Exclude<T, typeof REPOSITORY_INGESTION_STOPPED> {
+  if (isIngestionStopped(value)) throw new IngestionAborted()
+  return value as Exclude<T, typeof REPOSITORY_INGESTION_STOPPED>
+}
 
 const extractRetryPolicy = {
   maximumAttempts: 3,
@@ -82,7 +115,7 @@ function logWorkflowMilestone(
 
 export const repositoryIngestion = defineWorkflow(
   { name: "repository-ingestion", schema: repositoryIngestionInputSchema },
-  async ({ input, step, run }) =>
+  async ({ input, step: rawStep, run }) =>
     withLogger(
       createLogger({
         workflow: "repository-ingestion",
@@ -90,7 +123,12 @@ export const repositoryIngestion = defineWorkflow(
         orgId: input.orgId,
       }),
       async () => {
-        const wls = <T>(name: string, fn: () => Promise<T>): Promise<T> =>
+        // Codesearch 404 becomes a sentinel. Throwing inside `step.run` makes
+        // OpenWorkflow retry the step, so the stop is a return value.
+        const wls = async <T>(
+          name: string,
+          fn: () => Promise<T>,
+        ): Promise<T | typeof REPOSITORY_INGESTION_STOPPED> =>
           withLoggedStepAttempt(
             name,
             {
@@ -98,8 +136,28 @@ export const repositoryIngestion = defineWorkflow(
               repositoryId: input.repositoryId,
               orgId: input.orgId,
             },
-            fn,
+            async () => {
+              try {
+                return await fn()
+              } catch (err: unknown) {
+                if (!isRepositoryGoneError(err)) throw err
+                return REPOSITORY_INGESTION_STOPPED
+              }
+            },
           )
+
+        const step = {
+          run: async <T>(
+            config: Parameters<typeof rawStep.run>[0],
+            fn: () => Promise<T>,
+          ): Promise<Exclude<T, typeof REPOSITORY_INGESTION_STOPPED>> => {
+            const result = await rawStep.run(
+              config,
+              fn as Parameters<typeof rawStep.run>[1],
+            )
+            return continueIngestion(result as T)
+          },
+        }
 
         logWorkflowMilestone("repository-ingestion.workflow-handler-entered", {
           repositoryId: input.repositoryId,
@@ -229,8 +287,20 @@ export const repositoryIngestion = defineWorkflow(
               targetHash: resolved.hash,
             })
 
+            // Status writes already no-op while unindexing. One read here avoids
+            // starting the codesearch child after deletion. This throw is outside
+            // `step.run`, so OpenWorkflow does not retry it.
+            if (
+              await repositoryIngestionBlockedByDeletion({
+                orgId: input.orgId,
+                repositoryId: input.repositoryId,
+              })
+            ) {
+              throw new IngestionAborted()
+            }
+
             // Durable codesearch phases via child workflow (no org DB txn across HTTP).
-            const reindexState = await step.runWorkflow(
+            const reindexState = await rawStep.runWorkflow(
               repositoryIndex.spec,
               {
                 repositoryId: input.repositoryId,
@@ -332,10 +402,54 @@ export const repositoryIngestion = defineWorkflow(
               rootId: null,
               root: null,
             }
+            const actorUserId = readAttribution()["enduser.id"]
             const langfuseAttrs = {
               sessionId: ingestionRunId,
+              ...(actorUserId ? { userId: actorUserId } : {}),
               tags: ["repository-ingestion"],
               traceMetadata: baseLangfuseMetadata,
+            }
+
+            const tracedExtractStep = <T>(
+              name: string,
+              rootId: string | null,
+              root: string | null,
+              fn: () => Promise<T>,
+            ): Promise<T> => {
+              const localName = name.slice("repository-ingestion.".length)
+              const stepName =
+                rootId === null ? localName : `${localName}:${rootId}`
+              return withLangfuseObservation(
+                {
+                  name,
+                  input:
+                    rootId === null
+                      ? {
+                          repositoryId: input.repositoryId,
+                          targetHash: baseIngestState.targetHash,
+                        }
+                      : { rootId, root },
+                  metadata: {
+                    ...baseLangfuseMetadata,
+                    workflowStepName: stepName,
+                    rootId,
+                    root,
+                  },
+                },
+                () =>
+                  withIngestAgentContext(
+                    {
+                      runName: name,
+                      tags: langfuseAttrs.tags,
+                      metadata: {
+                        workflowStepName: stepName,
+                        rootId,
+                        root,
+                      },
+                    },
+                    fn,
+                  ),
+              )
             }
 
             const extractResult = await runWithLangfuseContext(
@@ -345,33 +459,11 @@ export const repositoryIngestion = defineWorkflow(
                   { name: "identify-roots", retryPolicy: extractRetryPolicy },
                   () =>
                     wls("identify-roots", () =>
-                      withLangfuseObservation(
-                        {
-                          name: "repository-ingestion.identify-roots",
-                          input: {
-                            repositoryId: input.repositoryId,
-                            targetHash: baseIngestState.targetHash,
-                          },
-                          metadata: {
-                            ...baseLangfuseMetadata,
-                            workflowStepName: "identify-roots",
-                            rootId: null,
-                            root: null,
-                          },
-                        },
-                        () =>
-                          withIngestAgentContext(
-                            {
-                              ...langfuseAttrs,
-                              runName: "repository-ingestion.identify-roots",
-                              metadata: {
-                                workflowStepName: "identify-roots",
-                                rootId: null,
-                                root: null,
-                              },
-                            },
-                            () => identifyRoots(baseIngestState),
-                          ),
+                      tracedExtractStep(
+                        "repository-ingestion.identify-roots",
+                        null,
+                        null,
+                        () => identifyRoots(baseIngestState),
                       ),
                     ),
                 )
@@ -396,31 +488,11 @@ export const repositoryIngestion = defineWorkflow(
                       },
                       () =>
                         wls(`extract-kind:${rootId}`, () =>
-                          withLangfuseObservation(
-                            {
-                              name: "repository-ingestion.extract-kind",
-                              input: { rootId, root },
-                              metadata: {
-                                ...baseLangfuseMetadata,
-                                workflowStepName: `extract-kind:${rootId}`,
-                                rootId,
-                                root,
-                              },
-                            },
-                            () =>
-                              withIngestAgentContext(
-                                {
-                                  ...langfuseAttrs,
-                                  runName: "repository-ingestion.extract-kind",
-                                  metadata: {
-                                    workflowStepName: `extract-kind:${rootId}`,
-                                    rootId,
-                                    root,
-                                  },
-                                },
-                                () =>
-                                  runExtractKindForRoot(baseIngestState, root),
-                              ),
+                          tracedExtractStep(
+                            "repository-ingestion.extract-kind",
+                            rootId,
+                            root,
+                            () => runExtractKindForRoot(baseIngestState, root),
                           ),
                         ),
                     )
@@ -436,34 +508,15 @@ export const repositoryIngestion = defineWorkflow(
                       },
                       () =>
                         wls(`identify:${rootId}`, () =>
-                          withLangfuseObservation(
-                            {
-                              name: "repository-ingestion.identify",
-                              input: { rootId, root },
-                              metadata: {
-                                ...baseLangfuseMetadata,
-                                workflowStepName: `identify:${rootId}`,
-                                rootId,
-                                root,
-                              },
-                            },
+                          tracedExtractStep(
+                            "repository-ingestion.identify",
+                            rootId,
+                            root,
                             () =>
-                              withIngestAgentContext(
-                                {
-                                  ...langfuseAttrs,
-                                  runName: "repository-ingestion.identify",
-                                  metadata: {
-                                    workflowStepName: `identify:${rootId}`,
-                                    rootId,
-                                    root,
-                                  },
-                                },
-                                () =>
-                                  runIdentifyPhaseForRoot(
-                                    baseIngestState,
-                                    root,
-                                    kindPartial,
-                                  ),
+                              runIdentifyPhaseForRoot(
+                                baseIngestState,
+                                root,
+                                kindPartial,
                               ),
                           ),
                         ),
@@ -655,7 +708,7 @@ export const repositoryIngestion = defineWorkflow(
             ) {
               // Falkor graph sync must not hold an org PG transaction (external I/O).
               await step.run({ name: "sync-retraction-graph" }, async () => {
-                await wls("sync-retraction-graph", async () => {
+                return wls("sync-retraction-graph", async () => {
                   await withOrgDbContext(input.orgId, () =>
                     setRepositoryIndexingStep({
                       repositoryId: input.repositoryId,
@@ -757,12 +810,13 @@ export const repositoryIngestion = defineWorkflow(
                       targetBranch: input.targetBranch ?? result.sourceBranch,
                     },
                     {
-                      error: (err) =>
+                      error: (err) => {
                         getLogger().error(err, {
                           step: "repository-ingestion.follow-up-tip",
                           repositoryId: input.repositoryId,
                           orgId: input.orgId,
-                        }),
+                        })
+                      },
                     },
                   ),
                 ),
@@ -782,7 +836,18 @@ export const repositoryIngestion = defineWorkflow(
 
             return result
           },
-        )
+        ).catch((err: unknown) => {
+          if (!(err instanceof IngestionAborted)) throw err
+          logWorkflowMilestone("repository-ingestion.stopped", {
+            repositoryId: input.repositoryId,
+            orgId: input.orgId,
+            reason: "repository_deleted",
+          })
+          return {
+            aborted: "repository_deleted" as const,
+            repositoryId: input.repositoryId,
+          }
+        })
       },
     ),
 )

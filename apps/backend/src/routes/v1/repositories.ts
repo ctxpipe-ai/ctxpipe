@@ -1,7 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { formatUnknownError } from "../../db/transientDbRetry.js"
-import { getLogger } from "../../observability/logger.js"
 import {
   createRepository,
   deriveRepositoryIndexingStatus,
@@ -9,6 +8,7 @@ import {
   listRepositories,
   type RepositoryWithSearch,
 } from "../../models/repositories.js"
+import { getLogger } from "../../observability/logger.js"
 import { enqueueRepositoryDeletionWorkflow } from "../../openworkflow/enqueue-repository-deletion.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 
@@ -172,6 +172,14 @@ export const createRepositoryRoute = createRoute({
       },
       description: "No active organization",
     },
+    409: {
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema,
+        },
+      },
+      description: "Repository is being deleted",
+    },
     503: {
       content: {
         "application/json": {
@@ -317,10 +325,16 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
     }
     const body = c.req.valid("json")
     try {
-      const repository = await createRepository({
+      const { repository, created } = await createRepository({
         name: body.name,
         gitUrl: body.gitUrl,
       })
+      if (!created) {
+        if (repository.indexingStatus === "unindexing") {
+          return c.json({ error: "Repository is being deleted" }, 409)
+        }
+        return c.json(serializeRepository(repository), 200)
+      }
       void enqueueRepositoryIngestionWorkflow(
         { repositoryId: repository.id, orgId: repository.orgId },
         {

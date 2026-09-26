@@ -12,9 +12,10 @@ import {
   registerInstallationOnConnection,
 } from "../../../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
-import { ow } from "../../../openworkflow/client.js"
+import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
 import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-github-repositories.js"
+import { noteResolvedWebhookConnections } from "../attribution.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
 import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
@@ -70,9 +71,9 @@ async function githubConnectionAllowsWebhookPayload(input: {
     .object({ installation: z.object({ id: z.number() }) })
     .safeParse(input.payload)
   if (!parsedInstallation.success) return true
-
   const row = await getGithubConnectionRowByConnectionId(input.connectionId)
   if (!row) return false
+  noteResolvedWebhookConnections([row])
   const configuredInstallationId = parseGithubConnectionStored(
     row.config as Record<string, unknown>,
   ).installationId
@@ -125,6 +126,8 @@ async function enqueueIngestionForInstallationRepos(
   if (installationRows.length === 0) {
     return
   }
+
+  noteResolvedWebhookConnections(installationRows)
 
   for (const installationRow of installationRows) {
     const repository = await withOrgDbContext(installationRow.orgId, () =>
@@ -255,6 +258,8 @@ async function processRepositoryEvent(
       !githubConnectionId || installationRow.id === githubConnectionId,
   )
 
+  noteResolvedWebhookConnections(installationRows)
+
   for (const installationRow of installationRows) {
     if (
       !installationRow.includeFutureRepos ||
@@ -263,15 +268,13 @@ async function processRepositoryEvent(
       continue
     }
 
-    void ow
-      .runWorkflow(syncGithubRepositories.spec, {
-        orgId: installationRow.orgId,
-        githubConnectionId: installationRow.id,
-        reposToSync: [{ name: repo.full_name, gitUrl: repo.clone_url }],
-      })
-      .catch((err: unknown) => {
-        log.error(err instanceof Error ? err : new Error(String(err)))
-      })
+    void runWorkflowWithWorkerWake(syncGithubRepositories.spec, {
+      orgId: installationRow.orgId,
+      githubConnectionId: installationRow.id,
+      reposToSync: [{ name: repo.full_name, gitUrl: repo.clone_url }],
+    }).catch((err: unknown) => {
+      log.error(err instanceof Error ? err : new Error(String(err)))
+    })
   }
 }
 

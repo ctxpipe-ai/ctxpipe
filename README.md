@@ -149,7 +149,7 @@ For backend API, OpenAPI, MCP, and package scripts, see
 | `apps/ui` | Product web app. |
 | `apps/docs` | Fumadocs documentation site. |
 | `apps/codesearch` | Zoekt-backed clone and code search service. |
-| `apps/otel-collector` | OpenTelemetry Collector configuration. |
+| `apps/otel-collector` | Contributor laptop OpenTelemetry Collector (Compose `infra` only). Self-host export is optional `OTEL_EXPORTER_OTLP_*`. |
 | `packages/aws-cdk` | AWS CDK construct for self-hosting ctx\| on AWS. |
 | `examples/aws-cdk-self-host` | Runnable AWS CDK self-hosting example. |
 | `infra` | Terraform for the managed Railway and Neon deployment path. |

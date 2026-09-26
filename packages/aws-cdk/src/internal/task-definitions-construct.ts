@@ -1,12 +1,27 @@
 import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as iam from "aws-cdk-lib/aws-iam";
-import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 import { buildModelContainerConfig } from "../model-provider";
 import type {
   TaskDefinitionsConstructProps,
   TaskDefinitionsResources,
 } from "./contracts";
+
+function otelExportEnvironment(
+  endpoint: string,
+  resourceAttributes: string | undefined,
+  serviceName: string,
+): Record<string, string> {
+  if (!endpoint) return {};
+  return {
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: `${endpoint}/v1/traces`,
+    OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: `${endpoint}/v1/logs`,
+    OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: `${endpoint}/v1/metrics`,
+    ...(resourceAttributes ? { OTEL_RESOURCE_ATTRIBUTES: resourceAttributes } : {}),
+    OTEL_SERVICE_NAME: serviceName,
+  };
+}
 
 export class TaskDefinitionsConstruct extends Construct {
   public readonly resources: TaskDefinitionsResources;
@@ -26,6 +41,28 @@ export class TaskDefinitionsConstruct extends Construct {
           }
         : {}),
     });
+
+    const otelEndpoint = props.otel?.endpoint.trim().replace(/\/+$/, "") ?? "";
+    if (props.otel && !otelEndpoint) {
+      throw new Error("otel.endpoint must be a non-blank OTLP/HTTP base URL");
+    }
+    const otelResourceAttributes = props.otel?.resourceAttributes?.trim() || undefined;
+    const otelHeadersSecret =
+      otelEndpoint && props.otel?.headers
+        ? new secretsmanager.Secret(this, "OtelHeadersSecret", {
+            secretObjectValue: {
+              OTEL_EXPORTER_OTLP_HEADERS: props.otel.headers,
+            },
+          })
+        : undefined;
+    const otelHeaderSecrets: Record<string, ecs.Secret> = otelHeadersSecret
+      ? {
+          OTEL_EXPORTER_OTLP_HEADERS: ecs.Secret.fromSecretsManager(
+            otelHeadersSecret,
+            "OTEL_EXPORTER_OTLP_HEADERS",
+          ),
+        }
+      : {};
 
     const backendTask = new ecs.FargateTaskDefinition(this, "BackendTask", {
       memoryLimitMiB: props.sizeProfile.tasks.backend.memoryLimitMiB,
@@ -83,13 +120,13 @@ export class TaskDefinitionsConstruct extends Construct {
         PORT: "3000",
         AUTH_BASE_URL: appUrl,
         AUTH_ALLOWED_ORIGINS: appUrl,
-        OTEL_SERVICE_NAME: "backend",
         GRAPH_DB_PROVIDER: "neptune",
         GRAPH_DB_URI: props.dataPlane.graphDbUri,
         [`GRAPH_DB_URI_${props.orgSlug}`]: props.dataPlane.graphDbUri,
         UI_PROXY_URL: "http://ui.ctxpipe.local:3002",
         CODESEARCH_URL: "http://codesearch.ctxpipe.local:3001",
         ...modelContainerConfig.environment,
+        ...otelExportEnvironment(otelEndpoint, otelResourceAttributes, "backend"),
       },
       secrets: {
         AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
@@ -107,6 +144,7 @@ export class TaskDefinitionsConstruct extends Construct {
         ),
         ...modelContainerConfig.secrets,
         ...props.secrets.connectorEnv,
+        ...otelHeaderSecrets,
       },
       portMappings: [{ containerPort: 3000 }],
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-backend" }),
@@ -132,6 +170,7 @@ export class TaskDefinitionsConstruct extends Construct {
           props.sizeProfile.concurrency.codesearchIndexerConcurrency,
         ),
         ...modelContainerConfig.environment,
+        ...otelExportEnvironment(otelEndpoint, otelResourceAttributes, "openworkflow"),
       },
       secrets: {
         AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
@@ -149,6 +188,7 @@ export class TaskDefinitionsConstruct extends Construct {
         ),
         ...modelContainerConfig.secrets,
         ...props.secrets.connectorEnv,
+        ...otelHeaderSecrets,
       },
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-worker" }),
     });
@@ -161,7 +201,9 @@ export class TaskDefinitionsConstruct extends Construct {
         NODE_ENV: "production",
         PORT: "3002",
         VITE_PUBLIC_API_URL: appUrl,
+        ...otelExportEnvironment(otelEndpoint, otelResourceAttributes, "ui"),
       },
+      ...(otelHeadersSecret ? { secrets: otelHeaderSecrets } : {}),
       portMappings: [{ containerPort: 3002 }],
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-ui" }),
     });
@@ -184,6 +226,7 @@ export class TaskDefinitionsConstruct extends Construct {
         CODESEARCH_INDEX_PIPELINE_CONCURRENCY: String(
           props.sizeProfile.concurrency.codesearchIndexPipelineConcurrency,
         ),
+        ...otelExportEnvironment(otelEndpoint, otelResourceAttributes, "codesearch"),
       },
       secrets: {
         AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
@@ -191,6 +234,7 @@ export class TaskDefinitionsConstruct extends Construct {
           props.secrets.databaseUrlSecret,
           "DATABASE_URL",
         ),
+        ...otelHeaderSecrets,
       },
       portMappings: [{ containerPort: 3001 }],
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-codesearch" }),
@@ -226,6 +270,7 @@ export class TaskDefinitionsConstruct extends Construct {
       props.secrets.modelProviderSecret,
       props.secrets.smtpSecret,
       props.secrets.connectorSecret,
+      otelHeadersSecret,
     ]);
     this.grantTaskSecrets(workerTask, [
       props.secrets.authSecret,
@@ -233,11 +278,14 @@ export class TaskDefinitionsConstruct extends Construct {
       props.secrets.modelProviderSecret,
       props.secrets.smtpSecret,
       props.secrets.connectorSecret,
+      otelHeadersSecret,
     ]);
     this.grantTaskSecrets(codesearchTask, [
       props.secrets.authSecret,
       props.secrets.databaseUrlSecret,
+      otelHeadersSecret,
     ]);
+    this.grantTaskSecrets(uiTask, [otelHeadersSecret]);
     this.grantTaskSecrets(migrateTask, [
       props.secrets.authSecret,
       props.secrets.databaseUrlSecret,

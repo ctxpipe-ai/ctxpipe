@@ -12,6 +12,7 @@ import {
 } from "ai"
 import { conversationGraph } from "../../graphs/index.js"
 import { generateObjectId } from "../../lib/id.js"
+import { applyAttribution } from "../../observability/attribution.js"
 import {
   getLangfuseHandler,
   runWithLangfuseContext,
@@ -25,6 +26,7 @@ export type StreamInput = {
   checkpointNamespace: string
   prompt: string
   source?: string | null
+  userId?: string
   onFinish?: () => Promise<void> | void
   streamEnhancers?: StreamEnhancer[]
 }
@@ -39,9 +41,11 @@ export function createDataStreamConversationTransport(): ConversationTransportAd
 
 class DataStreamConversationTransport implements ConversationTransportAdapter {
   async toResponse(input: StreamInput): Promise<Response> {
+    applyAttribution({ "ctxpipe.conversation.id": input.conversationId })
     return runWithLangfuseContext(
       {
         sessionId: input.conversationId,
+        ...(input.userId ? { userId: input.userId } : {}),
         tags: input.source ? [input.source] : undefined,
       },
       async () => {

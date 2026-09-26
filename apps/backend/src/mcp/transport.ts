@@ -1,8 +1,15 @@
 import { StreamableHTTPTransport } from "@hono/mcp"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import { CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js"
 import type { Context } from "hono"
 import type { AppEnv } from "../app/env.js"
+import { currentMcpActor, requireCurrentOrgId } from "../auth/context.js"
+import {
+  type AttributionInput,
+  applyAttribution,
+} from "../observability/attribution.js"
 import { getLogger } from "../observability/logger.js"
+import { mcpAdvisorThreadId } from "./advisorThread.js"
 import { getMcpServerImplementation } from "./mcp-server-info.js"
 
 function isLoopbackHostname(hostname: string): boolean {
@@ -104,6 +111,12 @@ export async function handleMcpTransportRequest(
     )
   }
 
+  // Streamable HTTP returns the Response before tools/call runs, so the
+  // server span and request log would otherwise close without these fields.
+  // SSE stays on: clients send progress notifications and accept event-stream.
+  const toolAttribution = attributionFromToolsCall(messages)
+  if (toolAttribution) applyAttribution(toolAttribution)
+
   const server = new McpServer(
     getMcpServerImplementation(c.get("env").AUTH_BASE_URL),
   )
@@ -112,10 +125,9 @@ export async function handleMcpTransportRequest(
   try {
     await server.connect(transport)
     const res = await transport.handleRequest(c, parsedBody)
-    const parsedMessages = Array.isArray(parsedBody) ? parsedBody : [parsedBody]
     const isNotificationOnly =
-      parsedMessages.length > 0 &&
-      parsedMessages.every(
+      messages.length > 0 &&
+      messages.every(
         (message) =>
           typeof message === "object" &&
           message !== null &&
@@ -142,4 +154,33 @@ export async function handleMcpTransportRequest(
     log.error(error instanceof Error ? error : new Error("MCP request failed"))
     throw error
   }
+}
+
+function attributionFromToolsCall(
+  messages: readonly unknown[],
+): AttributionInput | undefined {
+  for (const message of messages) {
+    const parsed = CallToolRequestSchema.safeParse(message)
+    if (!parsed.success) continue
+    const name = parsed.data.params.name.slice(0, 100)
+    const args = parsed.data.params.arguments ?? {}
+    const rawConversationId = args.conversationId
+    let conversationId: string | undefined
+    if (name === "ctx_advisor" && typeof rawConversationId === "string") {
+      conversationId = mcpAdvisorThreadId({
+        orgId: requireCurrentOrgId(),
+        actor: currentMcpActor(),
+        currentProjectName:
+          typeof args.currentProjectName === "string"
+            ? args.currentProjectName
+            : undefined,
+        conversationId: rawConversationId,
+      })
+    }
+    return {
+      "ctxpipe.mcp.tool": name,
+      ...(conversationId ? { "ctxpipe.conversation.id": conversationId } : {}),
+    }
+  }
+  return undefined
 }

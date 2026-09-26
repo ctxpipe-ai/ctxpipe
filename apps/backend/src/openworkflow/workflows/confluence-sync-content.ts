@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -10,6 +9,7 @@ import {
 import { getLogger } from "../../observability/logger.js"
 import { syncConfluenceContent } from "../../services/confluence/sync.js"
 import { parsedRepoScopeSchema } from "../confluence-scope-repo-schema.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 
 const confluenceSyncContentInputSchema = z.object({

@@ -4,7 +4,7 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 
 - **API routes**: Define versioned REST endpoints with `@hono/zod-openapi` (`createRoute` + Zod schemas). Public versioned API routes are org-scoped under **`/:orgSlug/api/v1`**.
 - **OpenAPI**: Use OpenAPI 3.1. Serve the **raw spec (JSON)** at **`/.docs/openapi`** and **Scalar API reference (UI)** at **`/.docs/api-reference`**. Use `getOpenAPI31Document` for the spec; point Scalar at `/.docs/openapi`.
-- **MCP (product)**: Integrate the **product** MCP into the Hono app via `@hono/mcp` (Streamable HTTP at `/mcp`). Do **not** run a separate process for that product MCP — it stays in-process with the API. This does **not** forbid Cursor **agent tooling** MCPs in [`.cursor/mcp.json`](../../.cursor/mcp.json) (Neon, Amplitude, Railway, Langfuse, Better Stack, Storybook, memory, etc.); those are editor-side helpers, not a second product `/mcp` server.
+- **MCP (product)**: Integrate the **product** MCP into the Hono app via `@hono/mcp` (Streamable HTTP at `/mcp`). Do **not** run a separate process for that product MCP — it stays in-process with the API. This does **not** forbid Cursor **agent tooling** MCPs in [`.cursor/mcp.json`](../../.cursor/mcp.json) (Storybook, Neon, Railway, HyperDX, Langfuse); those are editor-side helpers, not a second product `/mcp` server.
 - **Container runtime**: Use **Bun** for the container/on-prem entrypoint, not Node.
 - **Zod schemas**: Collocate schemas with the code they describe (routes, domain, DB). Do not introduce a central `src/schemas` folder.
 - **Drizzle**: Use the **`beta`** dist-tag for `drizzle-orm` and `drizzle-kit`; follow the v1 API. See [.ai/memory/decisions/ADR-003-drizzle-beta.md](../../.ai/memory/decisions/ADR-003-drizzle-beta.md).
@@ -20,6 +20,12 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 - **Code called only from workflows / graph nodes** (AsyncLocalStorage): also use `getLogger()` from the same module (workflow logger is stored in AsyncLocalStorage).
 - **No request/workflow logger** (domain helpers, DB hooks, early bootstrap): use **`log`** from [`src/observability/logger.ts`](src/observability/logger.ts) (re-exported evlog `log`: `log.info({ step, message, ... })` / `log.error` — emits immediately). For workflow-scoped wide events that buffer until flush, use **`createLogger`** + **`withLogger`** / **`emit()`** as today. Call **`initEvlog()`** once at script entry if the process does not go through `server.ts`.
 - **Exception**: evlog’s internal pipeline may still write to stderr on unrecoverable drain failures; do not add new direct `console` usage for application logging.
+
+## Testing
+
+What to fake: [root AGENTS.md → Testing](../../AGENTS.md#testing). Name Postgres tests `*.integration.test.ts`. CI's backend job ([`.github/workflows/claude-plugin-test.yaml`](../../.github/workflows/claude-plugin-test.yaml)) migrates Postgres, then runs `pnpm --filter @ctxpipe/backend test` (the full suite).
+
+[`test/msw.ts`](test/msw.ts): `useMswServer`, `codesearchNotFound`. [`test/spans.ts`](test/spans.ts): `recordSpans`. [`test/db.ts`](test/db.ts): `describeWithDatabase`, `seedOrg`, `cleanupSeededOrg`. evlog assertions: pattern in [`src/mcp/transport.test.ts`](src/mcp/transport.test.ts).
 
 ## Agent tools (ingestion + conversation)
 

@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -13,6 +12,7 @@ import {
 } from "../../observability/logger.js"
 import { loadGithubPrMirrorConfigFromRepo } from "../../services/github/pull-request-mirror/config-from-repo.js"
 import { syncGithubPullRequestsForConfig } from "../../services/github/pull-request-mirror/sync.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 import { isWorkflowControlSignal } from "../isSleepSignal.js"
 

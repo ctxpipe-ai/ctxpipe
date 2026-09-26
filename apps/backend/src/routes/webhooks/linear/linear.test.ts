@@ -1,12 +1,37 @@
 import { createHmac } from "node:crypto"
 import { OpenAPIHono } from "@hono/zod-openapi"
+import { trace } from "@opentelemetry/api"
+import { createLogger } from "evlog"
+import type { MiddlewareHandler } from "hono"
+import { contextStorage } from "hono/context-storage"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { recordSpans } from "../../../../test/spans.js"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
 import {
   linearEntityTargetForPayload,
   registerLinearWebhookRoute,
 } from "./linear.js"
+
+const spans = recordSpans()
+
+function withRequestSpan(): MiddlewareHandler {
+  return async (_c, next) => {
+    await trace
+      .getTracer("ctxpipe-webhook-test")
+      .startActiveSpan("request", async (span) => {
+        try {
+          await next()
+        } finally {
+          span.end()
+        }
+      })
+  }
+}
+
+function requestSpanAttributes(): Record<string, unknown> {
+  return { ...spans.attributes(spans.spanNamed("request")) }
+}
 
 const mocks = vi.hoisted(() => ({
   listConnections: vi.fn(),
@@ -19,13 +44,6 @@ vi.mock("../../../models/linear-connector.js", () => ({
   getLinearBindingByConnectionId: mocks.getSyncTarget,
   listLinearWebhookConnectionsByWorkspaceId: mocks.listConnections,
   recordLinearOAuthRevocation: mocks.recordRevocation,
-}))
-vi.mock("../../../observability/logger.js", () => ({
-  getLogger: () => ({
-    error: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-  }),
 }))
 vi.mock("../../../openworkflow/client.js", () => ({
   runWorkflowWithWorkerWake: mocks.runWorkflow,
@@ -42,17 +60,13 @@ const env = parseEnv({
   LINEAR_WEBHOOK_SECRET: secret,
 } as Record<string, string | undefined>)
 
-function createTestApp() {
+function createTestApp(before?: MiddlewareHandler) {
   const app = new OpenAPIHono<AppEnv>()
+  app.use(contextStorage())
+  if (before) app.use("*", before)
   app.use("*", async (c, next) => {
     c.set("env", env)
-    c.set("log", {
-      error: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-      debug: vi.fn(),
-      child: vi.fn(),
-    } as unknown as AppEnv["Variables"]["log"])
+    c.set("log", createLogger())
     await next()
   })
   registerLinearWebhookRoute(app)
@@ -72,15 +86,10 @@ function signedRequest(
 
 function createTestAppWithEnv(testEnv: typeof env) {
   const app = new OpenAPIHono<AppEnv>()
+  app.use(contextStorage())
   app.use("*", async (c, next) => {
     c.set("env", testEnv)
-    c.set("log", {
-      error: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-      debug: vi.fn(),
-      child: vi.fn(),
-    } as unknown as AppEnv["Variables"]["log"])
+    c.set("log", createLogger())
     await next()
   })
   registerLinearWebhookRoute(app)
@@ -345,6 +354,69 @@ describe("POST /api/v1/webhook/linear", () => {
       { name: "linear-sync-entity" },
       expect.objectContaining({ connectionId: "con_a", orgId: "org_1" }),
     )
+  })
+
+  it("enqueues one job per org when one workspace is connected twice", async () => {
+    mocks.listConnections.mockResolvedValueOnce([
+      {
+        id: "con_a",
+        orgId: "org_a",
+        status: "installed",
+        webhookSecret: secret,
+      },
+      {
+        id: "con_b",
+        orgId: "org_b",
+        status: "installed",
+        webhookSecret: secret,
+      },
+    ])
+    const request = signedRequest({
+      type: "Issue",
+      action: "update",
+      organizationId: "workspace-1",
+      webhookTimestamp: Date.now(),
+      data: { id: "issue-1" },
+    })
+    const response = await createTestApp(withRequestSpan()).request(
+      "/api/v1/webhook/linear",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "linear-signature": request.signature,
+        },
+        body: request.body,
+      },
+    )
+
+    expect(response.status).toBe(200)
+    expect(mocks.runWorkflow).toHaveBeenCalledTimes(2)
+    expect(mocks.runWorkflow).toHaveBeenNthCalledWith(
+      1,
+      { name: "linear-sync-entity" },
+      {
+        orgId: "org_a",
+        connectionId: "con_a",
+        entityType: "issue",
+        externalId: "issue-1",
+        action: "upsert",
+      },
+    )
+    expect(mocks.runWorkflow).toHaveBeenNthCalledWith(
+      2,
+      { name: "linear-sync-entity" },
+      {
+        orgId: "org_b",
+        connectionId: "con_b",
+        entityType: "issue",
+        externalId: "issue-1",
+        action: "upsert",
+      },
+    )
+    expect(spans.finishedSpans().map((span) => span.name)).toContain("request")
+    expect(requestSpanAttributes()["ctxpipe.org.id"]).toBeUndefined()
+    expect(requestSpanAttributes()["ctxpipe.connection.id"]).toBeUndefined()
   })
 
   it("does not apply an env-signed webhook to rows that have their own secret", async () => {

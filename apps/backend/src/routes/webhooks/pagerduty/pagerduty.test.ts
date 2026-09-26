@@ -1,5 +1,7 @@
 import { createHmac } from "node:crypto"
 import { OpenAPIHono } from "@hono/zod-openapi"
+import { createLogger } from "evlog"
+import { contextStorage } from "hono/context-storage"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
@@ -38,8 +40,10 @@ const webhookSecretEnc = encryptConnectionSecret(webhookSecret, env)
 
 function createTestApp() {
   const app = new OpenAPIHono<AppEnv>()
+  app.use(contextStorage())
   app.use("*", async (c, next) => {
     c.set("env", env)
+    c.set("log", createLogger())
     await next()
   })
   registerPagerdutyWebhookRoute(app)

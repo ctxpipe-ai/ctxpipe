@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -9,6 +8,7 @@ import {
 import { getLogger } from "../../observability/logger.js"
 import { loadPagerdutyScopeFromRepo } from "../../services/pagerduty/config-from-repo.js"
 import { syncPagerdutyIncrementalContent } from "../../services/pagerduty/sync.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 
 const pagerdutySyncEntityInputSchema = z.object({
@@ -18,7 +18,10 @@ const pagerdutySyncEntityInputSchema = z.object({
 })
 
 export const pagerdutySyncEntity = defineWorkflow(
-  { name: "pagerduty-sync-entity", schema: pagerdutySyncEntityInputSchema },
+  {
+    name: "pagerduty-sync-entity",
+    schema: pagerdutySyncEntityInputSchema,
+  },
   async ({ input, step }) => {
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const context = await step.run(

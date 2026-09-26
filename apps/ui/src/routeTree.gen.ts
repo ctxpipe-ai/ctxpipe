@@ -23,7 +23,6 @@ import { Route as DotauthDeviceRouteImport } from './routes/[.]auth.device'
 import { Route as DotauthConsentRouteImport } from './routes/[.]auth.consent'
 import { Route as DotauthAccountRouteImport } from './routes/[.]auth.account'
 import { Route as DotauthAuthViewRouteImport } from './routes/[.]auth.$authView'
-import { Route as DotampEventsRouteImport } from './routes/[.]amp.events'
 import { Route as OrgSlugSetupRouteImport } from './routes/$orgSlug.setup'
 import { Route as OrgSlugRepositoriesRouteImport } from './routes/$orgSlug.repositories'
 import { Route as OrgSlugKnowledgeGraphRouteImport } from './routes/$orgSlug.knowledge-graph'
@@ -31,6 +30,7 @@ import { Route as OrgSlugConnectorsRouteImport } from './routes/$orgSlug.connect
 import { Route as OrgSlugChatRouteImport } from './routes/$orgSlug.chat'
 import { Route as OrgSlugRepositoriesIndexRouteImport } from './routes/$orgSlug.repositories.index'
 import { Route as OrgSlugChatIndexRouteImport } from './routes/$orgSlug.chat.index'
+import { Route as DototelV1SignalRouteImport } from './routes/[.]otel.v1.$signal'
 import { Route as DotauthOrganizationOrganizationViewRouteImport } from './routes/[.]auth.organization.$organizationView'
 import { Route as DotauthAccountAccountViewRouteImport } from './routes/[.]auth.account.$accountView'
 import { Route as OrgSlugOrganizationOrganizationViewRouteImport } from './routes/$orgSlug.organization.$organizationView'
@@ -108,11 +108,6 @@ const DotauthAuthViewRoute = DotauthAuthViewRouteImport.update({
   path: '/.auth/$authView',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DotampEventsRoute = DotampEventsRouteImport.update({
-  id: '/.amp/events',
-  path: '/.amp/events',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const OrgSlugSetupRoute = OrgSlugSetupRouteImport.update({
   id: '/setup',
   path: '/setup',
@@ -148,6 +143,11 @@ const OrgSlugChatIndexRoute = OrgSlugChatIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => OrgSlugChatRoute,
+} as any)
+const DototelV1SignalRoute = DototelV1SignalRouteImport.update({
+  id: '/.otel/v1/$signal',
+  path: '/.otel/v1/$signal',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const DotauthOrganizationOrganizationViewRoute =
   DotauthOrganizationOrganizationViewRouteImport.update({
@@ -189,7 +189,6 @@ export interface FileRoutesByFullPath {
   '/$orgSlug/knowledge-graph': typeof OrgSlugKnowledgeGraphRoute
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRouteWithChildren
   '/$orgSlug/setup': typeof OrgSlugSetupRoute
-  '/.amp/events': typeof DotampEventsRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -205,6 +204,7 @@ export interface FileRoutesByFullPath {
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
   '/.auth/organization/$organizationView': typeof DotauthOrganizationOrganizationViewRoute
+  '/.otel/v1/$signal': typeof DototelV1SignalRoute
   '/$orgSlug/chat/': typeof OrgSlugChatIndexRoute
   '/$orgSlug/repositories/': typeof OrgSlugRepositoriesIndexRoute
   '/$orgSlug/repositories/github/setup': typeof OrgSlugRepositoriesGithubSetupRoute
@@ -215,7 +215,6 @@ export interface FileRoutesByTo {
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/knowledge-graph': typeof OrgSlugKnowledgeGraphRoute
   '/$orgSlug/setup': typeof OrgSlugSetupRoute
-  '/.amp/events': typeof DotampEventsRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -231,6 +230,7 @@ export interface FileRoutesByTo {
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
   '/.auth/organization/$organizationView': typeof DotauthOrganizationOrganizationViewRoute
+  '/.otel/v1/$signal': typeof DototelV1SignalRoute
   '/$orgSlug/chat': typeof OrgSlugChatIndexRoute
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesIndexRoute
   '/$orgSlug/repositories/github/setup': typeof OrgSlugRepositoriesGithubSetupRoute
@@ -245,7 +245,6 @@ export interface FileRoutesById {
   '/$orgSlug/knowledge-graph': typeof OrgSlugKnowledgeGraphRoute
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRouteWithChildren
   '/$orgSlug/setup': typeof OrgSlugSetupRoute
-  '/.amp/events': typeof DotampEventsRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -261,6 +260,7 @@ export interface FileRoutesById {
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
   '/.auth/organization/$organizationView': typeof DotauthOrganizationOrganizationViewRoute
+  '/.otel/v1/$signal': typeof DototelV1SignalRoute
   '/$orgSlug/chat/': typeof OrgSlugChatIndexRoute
   '/$orgSlug/repositories/': typeof OrgSlugRepositoriesIndexRoute
   '/$orgSlug/repositories/github/setup': typeof OrgSlugRepositoriesGithubSetupRoute
@@ -276,7 +276,6 @@ export interface FileRouteTypes {
     | '/$orgSlug/knowledge-graph'
     | '/$orgSlug/repositories'
     | '/$orgSlug/setup'
-    | '/.amp/events'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -292,6 +291,7 @@ export interface FileRouteTypes {
     | '/$orgSlug/organization/$organizationView'
     | '/.auth/account/$accountView'
     | '/.auth/organization/$organizationView'
+    | '/.otel/v1/$signal'
     | '/$orgSlug/chat/'
     | '/$orgSlug/repositories/'
     | '/$orgSlug/repositories/github/setup'
@@ -302,7 +302,6 @@ export interface FileRouteTypes {
     | '/$orgSlug/connectors'
     | '/$orgSlug/knowledge-graph'
     | '/$orgSlug/setup'
-    | '/.amp/events'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -318,6 +317,7 @@ export interface FileRouteTypes {
     | '/$orgSlug/organization/$organizationView'
     | '/.auth/account/$accountView'
     | '/.auth/organization/$organizationView'
+    | '/.otel/v1/$signal'
     | '/$orgSlug/chat'
     | '/$orgSlug/repositories'
     | '/$orgSlug/repositories/github/setup'
@@ -331,7 +331,6 @@ export interface FileRouteTypes {
     | '/$orgSlug/knowledge-graph'
     | '/$orgSlug/repositories'
     | '/$orgSlug/setup'
-    | '/.amp/events'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -347,6 +346,7 @@ export interface FileRouteTypes {
     | '/$orgSlug/organization/$organizationView'
     | '/.auth/account/$accountView'
     | '/.auth/organization/$organizationView'
+    | '/.otel/v1/$signal'
     | '/$orgSlug/chat/'
     | '/$orgSlug/repositories/'
     | '/$orgSlug/repositories/github/setup'
@@ -356,7 +356,6 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   OrgSlugRoute: typeof OrgSlugRouteWithChildren
   OnboardingRoute: typeof OnboardingRoute
-  DotampEventsRoute: typeof DotampEventsRoute
   DotauthAuthViewRoute: typeof DotauthAuthViewRoute
   DotauthAccountRoute: typeof DotauthAccountRouteWithChildren
   DotauthConsentRoute: typeof DotauthConsentRoute
@@ -368,6 +367,7 @@ export interface RootRouteChildren {
   DotnotionSetupRoute: typeof DotnotionSetupRoute
   DotslackSetupRoute: typeof DotslackSetupRoute
   DotauthOrganizationOrganizationViewRoute: typeof DotauthOrganizationOrganizationViewRoute
+  DototelV1SignalRoute: typeof DototelV1SignalRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -470,13 +470,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DotauthAuthViewRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/.amp/events': {
-      id: '/.amp/events'
-      path: '/.amp/events'
-      fullPath: '/.amp/events'
-      preLoaderRoute: typeof DotampEventsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/$orgSlug/setup': {
       id: '/$orgSlug/setup'
       path: '/setup'
@@ -525,6 +518,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/$orgSlug/chat/'
       preLoaderRoute: typeof OrgSlugChatIndexRouteImport
       parentRoute: typeof OrgSlugChatRoute
+    }
+    '/.otel/v1/$signal': {
+      id: '/.otel/v1/$signal'
+      path: '/.otel/v1/$signal'
+      fullPath: '/.otel/v1/$signal'
+      preLoaderRoute: typeof DototelV1SignalRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/.auth/organization/$organizationView': {
       id: '/.auth/organization/$organizationView'
@@ -631,7 +631,6 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   OrgSlugRoute: OrgSlugRouteWithChildren,
   OnboardingRoute: OnboardingRoute,
-  DotampEventsRoute: DotampEventsRoute,
   DotauthAuthViewRoute: DotauthAuthViewRoute,
   DotauthAccountRoute: DotauthAccountRouteWithChildren,
   DotauthConsentRoute: DotauthConsentRoute,
@@ -644,6 +643,7 @@ const rootRouteChildren: RootRouteChildren = {
   DotslackSetupRoute: DotslackSetupRoute,
   DotauthOrganizationOrganizationViewRoute:
     DotauthOrganizationOrganizationViewRoute,
+  DototelV1SignalRoute: DototelV1SignalRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

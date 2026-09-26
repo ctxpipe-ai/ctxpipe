@@ -1,0 +1,27 @@
+<clickhouse>
+  <users>
+    <otel>
+      <password from_env="CLICKHOUSE_OTEL_PASSWORD" />
+      <networks>
+        <ip>::/0</ip>
+      </networks>
+      <profile>default</profile>
+      <quota>default</quota>
+      <databases>
+        <otel />
+      </databases>
+    </otel>
+    <langfuse>
+      <password from_env="CLICKHOUSE_LANGFUSE_PASSWORD" />
+      <networks>
+        <ip>::/0</ip>
+      </networks>
+      <profile>default</profile>
+      <quota>default</quota>
+      <access_management>1</access_management>
+      <databases>
+        <langfuse />
+      </databases>
+    </langfuse>
+  </users>
+</clickhouse>

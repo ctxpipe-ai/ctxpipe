@@ -1,3 +1,4 @@
+import HyperDX from "@hyperdx/browser"
 import { IconDots, IconGitBranch } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
@@ -222,11 +223,16 @@ export function RepositoriesPageContent({ orgSlug }: { orgSlug: string }) {
           (err as { error?: string }).error ?? "Failed to create repository",
         )
       }
-      return res.json() as Promise<Repository>
+      return { created: res.status === 201 }
     },
-    onSuccess: () => {
+    onSuccess: ({ created }) => {
       queryClient.invalidateQueries({ queryKey: ["repositories", orgSlug] })
       setAddModalOpen(false)
+      if (!created) {
+        toast.info("Repository is already added")
+        return
+      }
+      HyperDX.addAction("repository_index_started")
       toast.success("Repository added and indexing started")
     },
     onError: (err: Error) => {
@@ -298,6 +304,7 @@ export function RepositoriesPageContent({ orgSlug }: { orgSlug: string }) {
       }
     },
     onSuccess: () => {
+      HyperDX.addAction("repository_index_started")
       queryClient.invalidateQueries({ queryKey: ["repositories", orgSlug] })
       toast.success("Retry indexing queued")
     },

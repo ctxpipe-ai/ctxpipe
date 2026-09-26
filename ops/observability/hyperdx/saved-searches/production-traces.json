@@ -1,0 +1,10 @@
+{
+  "name": "Production traces",
+  "sourceName": "Traces",
+  "select": "Timestamp, ServiceName, StatusCode, SpanName, TraceId",
+  "where": "ResourceAttributes['deployment.environment'] IN ('production')",
+  "whereLanguage": "sql",
+  "orderBy": "Timestamp DESC",
+  "filters": [{ "type": "sql", "condition": "ResourceAttributes['deployment.environment'] IN ('production')" }],
+  "tags": ["ctxpipe", "production"]
+}

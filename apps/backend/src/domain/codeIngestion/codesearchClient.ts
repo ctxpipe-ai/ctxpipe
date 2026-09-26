@@ -1,7 +1,9 @@
 import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
+import { readCodesearchError } from "../../lib/codesearchError.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
+import { RepositoryGoneError } from "./repositoryGone.js"
 
 export type FileEntry = { name: string; path: string; type: "file" | "dir" }
 
@@ -48,6 +50,19 @@ async function fetchWithAuth(
   )
 }
 
+async function raiseCodesearchFailure(
+  operation: string,
+  res: Response,
+): Promise<never> {
+  const failure = await readCodesearchError(res)
+  if (failure.code === "repository_not_found") {
+    throw new RepositoryGoneError(failure.message || undefined)
+  }
+  throw new Error(
+    `${operation} failed: ${failure.status}${failure.message ? `: ${failure.message}` : ""}`,
+  )
+}
+
 /**
  * Lists files and directories at a path. Returns entries with name, path, type.
  */
@@ -64,17 +79,7 @@ export async function listFiles(
     orgId,
   )
   if (!res.ok) {
-    const bodyText = await res.text()
-    let detail = bodyText.trim()
-    try {
-      const parsed = JSON.parse(bodyText) as { error?: unknown }
-      if (typeof parsed.error === "string" && parsed.error.length > 0) {
-        detail = parsed.error
-      }
-    } catch {
-      // non-JSON body; use raw text
-    }
-    throw new Error(`listFiles failed: ${res.status}${detail ? `: ${detail}` : ""}`)
+    await raiseCodesearchFailure("listFiles", res)
   }
   const data = (await res.json()) as { entries: FileEntry[] }
   return data.entries
@@ -106,19 +111,7 @@ export async function globFiles(
     orgId,
   )
   if (!res.ok) {
-    const bodyText = await res.text()
-    let detail = bodyText.trim()
-    try {
-      const parsed = JSON.parse(bodyText) as { error?: unknown }
-      if (typeof parsed.error === "string" && parsed.error.length > 0) {
-        detail = parsed.error
-      }
-    } catch {
-      // non-JSON body; use raw text
-    }
-    throw new Error(
-      `globFiles failed: ${res.status}${detail ? `: ${detail}` : ""}`,
-    )
+    await raiseCodesearchFailure("globFiles", res)
   }
   return (await res.json()) as GlobFilesResponse
 }
@@ -143,7 +136,7 @@ export async function fetchFiles(
     orgId,
   )
   if (!res.ok) {
-    throw new Error(`fetchFiles failed: ${res.status}`)
+    await raiseCodesearchFailure("fetchFiles", res)
   }
   const encoded = (await res.json()) as Record<string, string>
   const result: Record<string, string> = {}

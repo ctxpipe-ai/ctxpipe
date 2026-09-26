@@ -1,13 +1,16 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { withOrgDbContext } from "../../db/client.js"
-import { markRepositoryIndexingFailed } from "../../models/repositories.js"
+import {
+  markRepositoryIndexingFailed,
+  repositoryIngestionBlockedByDeletion,
+} from "../../models/repositories.js"
 import {
   createLogger,
   flushWorkflowLog,
   getLogger,
   withLogger,
 } from "../../observability/logger.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueFollowUpIfTipAhead } from "../enqueue-follow-up-if-tip-ahead.js"
 import { isWorkflowControlSignal } from "../isSleepSignal.js"
 import { repositoryIngestion } from "./repository-ingestion.js"
@@ -61,6 +64,24 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
           }
 
           const normalized = err instanceof Error ? err : new Error(String(err))
+          const deleted = await repositoryIngestionBlockedByDeletion({
+            orgId: input.orgId,
+            repositoryId: input.repositoryId,
+          })
+          if (deleted) {
+            getLogger().info("repository-ingestion-orchestrator.stopped", {
+              step: "repository-ingestion-orchestrator.stopped",
+              workflow: "repository-ingestion-orchestrator",
+              repositoryId: input.repositoryId,
+              orgId: input.orgId,
+              reason: "repository_deleted",
+            })
+            flushWorkflowLog()
+            return {
+              aborted: "repository_deleted" as const,
+              repositoryId: input.repositoryId,
+            }
+          }
 
           getLogger().error(normalized, {
             step: "repository-ingestion-orchestrator.child-failed",
@@ -111,12 +132,13 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
                   githubConnectionId: input.githubConnectionId,
                 },
                 {
-                  error: (followUpError) =>
+                  error: (followUpError) => {
                     getLogger().error(followUpError, {
                       step: "repository-ingestion-orchestrator.follow-up",
                       repositoryId: input.repositoryId,
                       orgId: input.orgId,
-                    }),
+                    })
+                  },
                 },
               ),
           )

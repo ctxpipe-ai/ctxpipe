@@ -371,6 +371,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       checkpointNamespace: "",
       prompt,
       source: body.source ?? null,
+      userId: c.get("user")?.id,
       streamEnhancers: [internalFilterEnhancer, renameEnhancer],
     })
   })

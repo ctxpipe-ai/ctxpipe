@@ -1,4 +1,4 @@
-import type { Hono } from "hono"
+import type { Context, Hono } from "hono"
 import { proxy } from "hono/proxy"
 import type { AppEnv } from "../app/env.js"
 import type { Env } from "../config/env.js"
@@ -26,21 +26,56 @@ type UiProxyServerSocket = {
 
 const VITE_WS_PROTOCOLS = new Set(["vite-hmr", "vite-ping"])
 
-export function registerUiRoutes(app: Hono<AppEnv>, env: Env) {
-  app.all("*", async (c) => {
-    const sourceUrl = new URL(c.req.url)
-    const upstreamUrl = new URL(
-      `${sourceUrl.pathname}${sourceUrl.search}`,
-      env.UI_PROXY_URL,
-    )
-    const headers = new Headers(c.req.raw.headers)
-    headers.set("Host", upstreamUrl.host)
-    return proxy(upstreamUrl, {
-      raw: c.req.raw,
-      headers: Object.fromEntries(headers),
-      redirect: "follow",
-    })
+/**
+ * The UI service is private. Tell it the host the browser used so `/.otel`
+ * can check Origin against the public site, not the internal UI host.
+ * `X-Forwarded-Host` is taken from this request's URL, not from a client
+ * supplied value.
+ */
+export function uiProxyUpstreamHeaders(
+  sourceUrl: URL,
+  incoming: Headers,
+  upstreamHost: string,
+): Headers {
+  const headers = new Headers(incoming)
+  const forwardedProtoHeader = headers
+    .get("x-forwarded-proto")
+    ?.split(",")[0]
+    ?.trim()
+    .toLowerCase()
+  const proto =
+    sourceUrl.protocol === "https:" || forwardedProtoHeader === "https"
+      ? "https"
+      : "http"
+  headers.set("x-forwarded-host", sourceUrl.host)
+  headers.set("x-forwarded-proto", proto)
+  headers.set("host", upstreamHost)
+  return headers
+}
+
+async function proxyUiRequest(c: Context<AppEnv>, env: Env): Promise<Response> {
+  const sourceUrl = new URL(c.req.url)
+  const upstreamUrl = new URL(
+    `${sourceUrl.pathname}${sourceUrl.search}`,
+    env.UI_PROXY_URL,
+  )
+  const headers = uiProxyUpstreamHeaders(
+    sourceUrl,
+    c.req.raw.headers,
+    upstreamUrl.host,
+  )
+  return proxy(upstreamUrl, {
+    raw: c.req.raw,
+    headers: Object.fromEntries(headers),
+    redirect: "follow",
   })
+}
+
+export function registerUiRoutes(app: Hono<AppEnv>, env: Env) {
+  const handler = (c: Context<AppEnv>) => proxyUiRequest(c, env)
+  // Registered before the catch-all so Hono reports `/.otel/v1/:signal`.
+  app.all("/.otel/v1/:signal", handler)
+  app.all("*", handler)
   return app
 }
 
