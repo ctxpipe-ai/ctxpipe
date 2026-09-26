@@ -1,6 +1,7 @@
 import { apiKeyClient } from "@better-auth/api-key/client"
 import { oauthProviderClient } from "@better-auth/oauth-provider/client"
 // import { passkeyClient } from "@better-auth/passkey/client"
+import HyperDX from "@hyperdx/browser"
 import {
   deviceAuthorizationClient,
   organizationClient,
@@ -23,6 +24,31 @@ export const authClient = createAuthClient({
   // A wrapper calls the current global fetch so auth requests carry traceparent.
   fetchOptions: {
     customFetchImpl: (input, init) => globalThis.fetch(input, init),
+    onSuccess(context) {
+      const requestUrl = context.request.url
+      const href =
+        requestUrl instanceof URL
+          ? requestUrl.href
+          : typeof requestUrl === "string"
+            ? requestUrl
+            : ""
+      let path = ""
+      try {
+        path = new URL(href).pathname
+      } catch {
+        return
+      }
+      const twoFactorRedirect =
+        !!context.data &&
+        typeof context.data === "object" &&
+        "twoFactorRedirect" in context.data &&
+        Boolean(context.data.twoFactorRedirect)
+      const completedSignIn =
+        (path.endsWith("/sign-in/email") && !twoFactorRedirect) ||
+        path.endsWith("/two-factor/verify-totp") ||
+        path.endsWith("/two-factor/verify-otp")
+      if (completedSignIn) HyperDX.addAction("sign_in")
+    },
   },
   plugins: [
     apiKeyClient(),

@@ -1,15 +1,14 @@
 import HyperDX from "@hyperdx/browser"
-import { useParams, useRouter, useRouterState } from "@tanstack/react-router"
+import { useRouter, useRouterState } from "@tanstack/react-router"
 import type { FC, ReactNode } from "react"
-import { useEffect, useRef } from "react"
+import { useEffect } from "react"
 import { useListOrganizations, useSession } from "@/lib/auth-client"
 import {
-  type HyperDxOrgRef,
   type HyperDxSessionIdentity,
+  hyperdxIdentity,
   hyperdxPageViewAction,
   isHyperDxAuthPath,
-  isHyperDxSignOutPath,
-  resolveHyperDxTeam,
+  orgSlugFromPathname,
 } from "@/lib/hyperdxAttributes"
 import {
   clearHyperDxGlobalAttributes,
@@ -20,24 +19,8 @@ import type { HyperDxRuntimeConfig } from "@/lib/hyperdxRuntimeConfig"
 
 let recordedInitialPageView = false
 
-function activeOrganizationId(
-  session: { activeOrganizationId?: string | null } | undefined,
-): string {
-  const id = session?.activeOrganizationId
-  return typeof id === "string" ? id : ""
-}
-
-function orgRefs(
-  organizations: readonly { id: string; slug: string }[] | null | undefined,
-): HyperDxOrgRef[] | undefined {
-  if (!Array.isArray(organizations)) return undefined
-  return organizations.flatMap((org) =>
-    org.id && org.slug ? [{ id: org.id, slug: org.slug }] : [],
-  )
-}
-
 /**
- * Runtime config and the first identity come from the root loader (server).
+ * Runtime config and the first identity come from the root loader (SSR).
  * Later session and org changes update the SDK. Page views follow resolved navigations.
  */
 export const HyperDxProvider: FC<{
@@ -46,75 +29,43 @@ export const HyperDxProvider: FC<{
   initialIdentity?: HyperDxSessionIdentity | null
 }> = ({ children, runtimeConfig, initialIdentity = null }) => {
   const enabled = runtimeConfig.enabled
-  const environment = runtimeConfig.enabled
-    ? runtimeConfig.environment
-    : undefined
-  const bootstrapRef = useRef(initialIdentity)
-  if (initialIdentity?.userId) bootstrapRef.current = initialIdentity
-
   const router = useRouter()
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   })
-  const params = useParams({ strict: false })
-  const orgSlug = typeof params.orgSlug === "string" ? params.orgSlug : ""
   const { data: session, isPending: sessionPending } = useSession()
   const { data: organizations } = useListOrganizations()
-  const userId = session?.user.id ?? ""
-  const organizationId = activeOrganizationId(session?.session)
 
   useEffect(() => {
-    initHyperDxBrowser(
-      enabled
-        ? environment
-          ? { enabled: true, environment }
-          : { enabled: true }
-        : { enabled: false },
-      bootstrapRef.current,
+    initHyperDxBrowser({ enabled }, initialIdentity)
+  }, [enabled, initialIdentity])
+
+  useEffect(() => {
+    if (!enabled || sessionPending) return
+    // The org list has not arrived. Keep the document identity unless the
+    // route already names a different org.
+    if (
+      session?.user?.id &&
+      organizations === undefined &&
+      !isHyperDxAuthPath(pathname)
+    ) {
+      const slug = orgSlugFromPathname(pathname)
+      if (!slug || slug === (initialIdentity?.teamName ?? "")) return
+    }
+    const identity = hyperdxIdentity(
+      session ?? null,
+      organizations ?? [],
+      pathname,
     )
-  }, [enabled, environment])
-
-  useEffect(() => {
-    if (!enabled) return
-    if (isHyperDxSignOutPath(pathname)) {
-      clearHyperDxGlobalAttributes()
-      return
-    }
-    if (sessionPending) return
-    if (!userId) {
-      clearHyperDxGlobalAttributes()
-      return
-    }
-    if (isHyperDxAuthPath(pathname)) {
-      setHyperDxGlobalAttributes({ userId, teamId: "", teamName: "" })
-      return
-    }
-    const list = orgRefs(organizations)
-    if (!list) {
-      const bootstrap = bootstrapRef.current
-      if (orgSlug && orgSlug !== (bootstrap?.teamName ?? "")) {
-        setHyperDxGlobalAttributes({ userId, teamId: "", teamName: orgSlug })
-      }
-      return
-    }
-    const team = resolveHyperDxTeam({
-      orgSlugFromRoute: orgSlug,
-      organizations: list,
-      activeOrganizationId: organizationId,
-    })
-    setHyperDxGlobalAttributes({
-      userId,
-      teamId: team.teamId,
-      teamName: team.teamName,
-    })
+    if (identity) setHyperDxGlobalAttributes(identity)
+    else clearHyperDxGlobalAttributes()
   }, [
     enabled,
     pathname,
     sessionPending,
-    userId,
+    session,
     organizations,
-    organizationId,
-    orgSlug,
+    initialIdentity,
   ])
 
   useEffect(() => {

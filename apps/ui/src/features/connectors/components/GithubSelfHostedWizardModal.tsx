@@ -1,5 +1,6 @@
 "use client"
 
+import HyperDX from "@hyperdx/browser"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
@@ -13,7 +14,6 @@ import {
 import { orgConnectionsKeys } from "@/features/connectors/queries/org-connections"
 import { githubAppInstallUrl } from "@/lib/github-app-url"
 import { generateGithubWebhookSecret } from "@/lib/github-webhook-secret"
-import { recordHyperDxAction } from "@/lib/hyperdxBrowser"
 import {
   beginGithubPopupFlow,
   clearGithubPopupFlow,
@@ -156,7 +156,7 @@ export function GithubSelfHostedWizardModal({
               queryClient,
             )
             if (status === "registered") {
-              recordHyperDxAction("connector_connect", { connector: "github" })
+              HyperDX.addAction("connector_connect", { connector: "github" })
               toast.success("GitHub installation linked.")
             }
             onInstallPopupSettled?.({ status })

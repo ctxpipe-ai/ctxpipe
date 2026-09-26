@@ -1,4 +1,5 @@
 import { useChat } from "@ai-sdk/react"
+import HyperDX from "@hyperdx/browser"
 import {
   IconFocusCentered,
   IconMessageCircle,
@@ -9,7 +10,6 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { ConversationThread } from "@/features/chat/ConversationThread"
 import { createTransport } from "@/features/chat/chatTransport"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
-import { recordHyperDxAction } from "@/lib/hyperdxBrowser"
 import { createObjectId } from "@/lib/id"
 import { cn } from "@/lib/utils"
 import { PanelLabel } from "./FloatingPanel"
@@ -353,7 +353,7 @@ export function KnowledgeGraphAskPanel(props: {
       streamFocusTimeoutRef.current = null
     }
     props.onClearFocus()
-    recordHyperDxAction("advisor_question_sent")
+    HyperDX.addAction("advisor_question_sent")
     void sendMessage({ text })
   }
 

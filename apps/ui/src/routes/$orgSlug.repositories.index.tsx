@@ -1,3 +1,4 @@
+import HyperDX from "@hyperdx/browser"
 import { IconDots, IconGitBranch } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
@@ -30,7 +31,6 @@ import { derivePendingGithubRepos } from "@/features/repositories/pendingGithubR
 import { getRepositoryIndexingSummary } from "@/features/repositories/useRepositoryIndexingSummary"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
-import { recordHyperDxAction } from "@/lib/hyperdxBrowser"
 
 export const Route = createFileRoute("/$orgSlug/repositories/")({
   component: RepositoriesPage,
@@ -232,7 +232,7 @@ export function RepositoriesPageContent({ orgSlug }: { orgSlug: string }) {
         toast.info("Repository is already added")
         return
       }
-      recordHyperDxAction("repository_index_started")
+      HyperDX.addAction("repository_index_started")
       toast.success("Repository added and indexing started")
     },
     onError: (err: Error) => {
@@ -304,7 +304,7 @@ export function RepositoriesPageContent({ orgSlug }: { orgSlug: string }) {
       }
     },
     onSuccess: () => {
-      recordHyperDxAction("repository_index_started")
+      HyperDX.addAction("repository_index_started")
       queryClient.invalidateQueries({ queryKey: ["repositories", orgSlug] })
       toast.success("Retry indexing queued")
     },

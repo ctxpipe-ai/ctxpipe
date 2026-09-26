@@ -6,6 +6,7 @@ import {
   OrganizationLogo,
   useCurrentOrganization,
 } from "@daveyplate/better-auth-ui"
+import HyperDX from "@hyperdx/browser"
 import type { Organization } from "better-auth/plugins/organization"
 import { ChevronsUpDown, PlusCircleIcon, SettingsIcon } from "lucide-react"
 import { useCallback, useContext, useEffect, useMemo, useState } from "react"
@@ -16,7 +17,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { recordHyperDxAction } from "@/lib/hyperdxBrowser"
 import { cn } from "@/lib/utils"
 import { SideNavOrganizationCreateDialog } from "./SideNavOrganizationCreateDialog"
 
@@ -254,7 +254,7 @@ export function SideNavOrganizationSwitcher({
                   className={classNames.content.menuItem}
                   onClick={() => {
                     void switchOrganization(organization).then((switched) => {
-                      if (switched) recordHyperDxAction("org_switch")
+                      if (switched) HyperDX.addAction("org_switch")
                     })
                   }}
                 >

@@ -1,7 +1,7 @@
+import HyperDX from "@hyperdx/browser"
 import { useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { toast } from "sonner"
-import { recordHyperDxAction } from "@/lib/hyperdxBrowser"
 import {
   consumeNotionSetupPopupResult,
   NOTION_POPUP_NAME,
@@ -37,7 +37,7 @@ export function useNotionOAuthConnect(orgSlug: string) {
       queryFn: () => fetchOrgConnections(orgSlug),
     })
     if (result.status === "connected") {
-      recordHyperDxAction("connector_connect", { connector: "notion" })
+      HyperDX.addAction("connector_connect", { connector: "notion" })
       return { connectionId: result.connectionId }
     }
     const latestNotion = items

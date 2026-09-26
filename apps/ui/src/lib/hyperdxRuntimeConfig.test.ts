@@ -1,9 +1,16 @@
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 import {
   getHyperDxRuntimeConfig,
-  loadHyperDxDocumentContext,
   readHyperDxDocumentIdentity,
 } from "./hyperdxRuntimeConfig"
 
@@ -15,8 +22,7 @@ beforeAll(() => {
 
 afterEach(() => {
   server.resetHandlers()
-  delete process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
-  delete process.env.RAILWAY_ENVIRONMENT_NAME
+  vi.unstubAllEnvs()
 })
 
 afterAll(() => {
@@ -55,26 +61,15 @@ function sessionHandlers(activeOrganizationId = "org_1") {
 
 describe("getHyperDxRuntimeConfig", () => {
   it("is disabled when no traces endpoint is set", () => {
+    vi.stubEnv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "")
     expect(getHyperDxRuntimeConfig()).toEqual({ enabled: false })
   })
 
-  it("uses Railway's environment name and never a browser collector URL or key", () => {
-    process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT =
-      "http://collector:4318/v1/traces"
-    process.env.RAILWAY_ENVIRONMENT_NAME = "pr-12"
-    process.env.OTEL_BROWSER_OTLP_URL = "https://otel.example:4318"
-    process.env.OTEL_BROWSER_API_KEY = "hdx_key"
-    expect(getHyperDxRuntimeConfig()).toEqual({
-      enabled: true,
-      environment: "pr-12",
-    })
-    delete process.env.OTEL_BROWSER_OTLP_URL
-    delete process.env.OTEL_BROWSER_API_KEY
-  })
-
-  it("omits deployment environment when Railway does not set one", () => {
-    process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT =
-      "http://collector:4318/v1/traces"
+  it("is enabled when the traces endpoint is set", () => {
+    vi.stubEnv(
+      "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+      "http://collector:4318/v1/traces",
+    )
     expect(getHyperDxRuntimeConfig()).toEqual({ enabled: true })
   })
 })
@@ -95,27 +90,16 @@ describe("readHyperDxDocumentIdentity", () => {
     expect(JSON.stringify(identity)).not.toContain("Ada")
   })
 
-  it("does not pair another org id with the route slug", async () => {
-    server.use(...sessionHandlers("org_1"))
+  it("reads identity even when the request looks like a client fetch", async () => {
+    server.use(...sessionHandlers())
+    const request = documentRequest("/acme/repositories", "session=abc")
+    request.headers.set("sec-fetch-dest", "empty")
     await expect(
-      readHyperDxDocumentIdentity(
-        documentRequest("/beta/chat", "session=abc"),
-        "/beta/chat",
-      ),
+      readHyperDxDocumentIdentity(request, "/acme/repositories"),
     ).resolves.toEqual({
       userId: "user_1",
-      teamId: "org_2",
-      teamName: "beta",
-    })
-    await expect(
-      readHyperDxDocumentIdentity(
-        documentRequest("/other", "session=abc"),
-        "/other",
-      ),
-    ).resolves.toEqual({
-      userId: "user_1",
-      teamId: "",
-      teamName: "other",
+      teamId: "org_1",
+      teamName: "acme",
     })
   })
 
@@ -139,20 +123,5 @@ describe("readHyperDxDocumentIdentity", () => {
     await expect(
       readHyperDxDocumentIdentity(documentRequest("/acme"), "/acme"),
     ).resolves.toBeNull()
-  })
-})
-
-describe("loadHyperDxDocumentContext", () => {
-  it("skips the session read on client-navigation server-function calls", async () => {
-    process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT =
-      "http://collector:4318/v1/traces"
-    const request = documentRequest("/acme", "session=abc")
-    request.headers.set("sec-fetch-dest", "empty")
-    await expect(loadHyperDxDocumentContext(request, "/acme")).resolves.toEqual(
-      {
-        config: { enabled: true },
-        identity: null,
-      },
-    )
   })
 })

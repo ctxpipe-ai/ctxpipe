@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest"
 import {
   hyperdxGlobalAttributes,
+  hyperdxIdentity,
   hyperdxPageViewAction,
   isHyperDxAuthPath,
-  isHyperDxSignInPath,
   isHyperDxSignOutPath,
   orgSlugFromPathname,
   resolveHyperDxTeam,
@@ -27,8 +27,15 @@ describe("hyperdxGlobalAttributes", () => {
     })
   })
 
-  it("omits empty identity keys instead of publishing empty strings", () => {
-    expect(hyperdxGlobalAttributes({})).toEqual({})
+  it("publishes empty strings for missing ids", () => {
+    expect(hyperdxGlobalAttributes({})).toEqual({
+      userId: "",
+      teamId: "",
+      teamName: "",
+      "enduser.id": "",
+      "ctxpipe.org.id": "",
+      "ctxpipe.org.slug": "",
+    })
     expect(
       hyperdxGlobalAttributes({
         userId: "user_1",
@@ -37,7 +44,11 @@ describe("hyperdxGlobalAttributes", () => {
       }),
     ).toEqual({
       userId: "user_1",
+      teamId: "",
+      teamName: "",
       "enduser.id": "user_1",
+      "ctxpipe.org.id": "",
+      "ctxpipe.org.slug": "",
     })
   })
 })
@@ -50,7 +61,6 @@ describe("hyperdxPageViewAction", () => {
         routeId: "/$orgSlug/repositories/",
       }),
     ).toEqual({
-      path: "/acme/repositories",
       "url.path": "/acme/repositories",
       route: "/$orgSlug/repositories/",
     })
@@ -147,12 +157,40 @@ describe("isHyperDxSignOutPath", () => {
   })
 })
 
-describe("isHyperDxSignInPath", () => {
-  it("matches completed sign-in views only", () => {
-    expect(isHyperDxSignInPath("/.auth/sign-in")).toBe(true)
-    expect(isHyperDxSignInPath("/.auth/two-factor")).toBe(true)
-    expect(isHyperDxSignInPath("/.auth/callback")).toBe(true)
-    expect(isHyperDxSignInPath("/.auth/sign-up")).toBe(false)
-    expect(isHyperDxSignInPath("/.auth/sign-out")).toBe(false)
+describe("hyperdxIdentity", () => {
+  const session = {
+    user: { id: "user_1" },
+    session: { activeOrganizationId: "org_1" },
+  }
+  const organizations = [
+    { id: "org_1", slug: "acme" },
+    { id: "org_2", slug: "beta" },
+  ]
+
+  it("uses the route org from the same record", () => {
+    expect(hyperdxIdentity(session, organizations, "/beta/chat")).toEqual({
+      userId: "user_1",
+      teamId: "org_2",
+      teamName: "beta",
+    })
+  })
+
+  it("does not pair another org id with an unknown route slug", () => {
+    expect(hyperdxIdentity(session, organizations, "/other")).toEqual({
+      userId: "user_1",
+      teamId: "",
+      teamName: "other",
+    })
+  })
+
+  it("omits org keys on auth pages and returns nothing on sign-out", () => {
+    expect(hyperdxIdentity(session, organizations, "/.auth/sign-in")).toEqual({
+      userId: "user_1",
+      teamId: "",
+      teamName: "",
+    })
+    expect(
+      hyperdxIdentity(session, organizations, "/.auth/sign-out"),
+    ).toBeNull()
   })
 })

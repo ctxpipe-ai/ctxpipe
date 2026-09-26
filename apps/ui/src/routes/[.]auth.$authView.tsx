@@ -15,7 +15,6 @@ import {
 } from "@/features/auth/invite-accept-decision"
 import { authClient, useSession } from "@/lib/auth-client"
 import { getAuthContinuationProps } from "@/lib/auth-continuation"
-import { clearHyperDxGlobalAttributes } from "@/lib/hyperdxBrowser"
 import { safeAuthRedirectPath } from "@/lib/safe-auth-redirect"
 import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
 
@@ -364,8 +363,6 @@ function SignOutView() {
   useEffect(() => {
     if (startedRef.current) return
     startedRef.current = true
-
-    clearHyperDxGlobalAttributes()
 
     let finished = false
     const finish = () => {

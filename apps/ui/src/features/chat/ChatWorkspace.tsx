@@ -1,4 +1,5 @@
 import { useChat } from "@ai-sdk/react"
+import HyperDX from "@hyperdx/browser"
 import { IconChevronRight } from "@tabler/icons-react"
 import {
   type InfiniteData,
@@ -11,7 +12,6 @@ import { ShimmerPlaceholder } from "@/components/ui/ShimmerPlaceholder"
 import { useRepositoryIndexingSummary } from "@/features/repositories"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
-import { recordHyperDxAction } from "@/lib/hyperdxBrowser"
 import { createObjectId } from "@/lib/id"
 import { ChatEmptyState, getChatAvailability } from "./ChatEmptyState"
 import { ConversationList } from "./ConversationList"
@@ -126,7 +126,7 @@ export function ChatWorkspace(props: {
 
   const handleSendMessage = async (params: { text: string }) => {
     if (isOnIndexRoute && chatAvailability !== "ready") return
-    recordHyperDxAction("advisor_question_sent")
+    HyperDX.addAction("advisor_question_sent")
     if (isOnIndexRoute) {
       const optimisticItem: ConversationListItem = {
         id: conversationId,

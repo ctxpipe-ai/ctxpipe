@@ -23,7 +23,7 @@ describe("HyperDX browser attributes", () => {
     vi.stubGlobal("window", { location: { origin: "https://app.example" } })
 
     initHyperDxBrowser(
-      { enabled: true, environment: "pr-1" },
+      { enabled: true },
       { userId: "user_1", teamId: "org_1", teamName: "acme" },
     )
 
@@ -34,12 +34,9 @@ describe("HyperDX browser attributes", () => {
       service: "ui",
       apiKey: "proxy",
       disableReplay: true,
-      otelResourceAttributes: {
-        "service.namespace": "ctxpipe",
-        "deployment.environment": "pr-1",
-      },
     })
     expect(options).not.toHaveProperty("tracePropagationTargets")
+    expect(options).not.toHaveProperty("otelResourceAttributes")
     expect(options?.ignoreUrls?.[0]).toBeInstanceOf(RegExp)
     expect(
       (options?.ignoreUrls?.[0] as RegExp).test(
@@ -61,57 +58,33 @@ describe("HyperDX browser attributes", () => {
     })
   })
 
-  it("clears with null before publishing a different set, and skips an unchanged set", () => {
+  it("publishes the full attribute bag, with empty strings for missing ids", () => {
     const setGlobalAttributes = vi.spyOn(HyperDX, "setGlobalAttributes")
     setHyperDxGlobalAttributes({
       userId: "user_1",
-      teamId: "org_1",
-      teamName: "acme",
+      teamId: "",
+      teamName: "",
     })
-    setGlobalAttributes.mockClear()
-
-    setHyperDxGlobalAttributes({
+    expect(setGlobalAttributes).toHaveBeenCalledWith({
       userId: "user_1",
-      teamId: "org_2",
-      teamName: "beta",
-    })
-    expect(setGlobalAttributes).toHaveBeenNthCalledWith(1, null)
-    expect(setGlobalAttributes).toHaveBeenNthCalledWith(2, {
-      userId: "user_1",
-      teamId: "org_2",
-      teamName: "beta",
+      teamId: "",
+      teamName: "",
       "enduser.id": "user_1",
-      "ctxpipe.org.id": "org_2",
-      "ctxpipe.org.slug": "beta",
+      "ctxpipe.org.id": "",
+      "ctxpipe.org.slug": "",
     })
-
-    setGlobalAttributes.mockClear()
-    setHyperDxGlobalAttributes({
-      userId: "user_1",
-      teamId: "org_2",
-      teamName: "beta",
-    })
-    expect(setGlobalAttributes).not.toHaveBeenCalled()
   })
 
-  it("omits org keys for an auth-page identity and sign-out clears", () => {
+  it("clears by publishing an empty bag", () => {
     const setGlobalAttributes = vi.spyOn(HyperDX, "setGlobalAttributes")
-    setHyperDxGlobalAttributes({
-      userId: "user_1",
-      teamId: "org_1",
-      teamName: "acme",
-    })
-    setGlobalAttributes.mockClear()
-
-    setHyperDxGlobalAttributes({ userId: "user_1", teamId: "", teamName: "" })
-    expect(setGlobalAttributes).toHaveBeenNthCalledWith(1, null)
-    expect(setGlobalAttributes).toHaveBeenNthCalledWith(2, {
-      userId: "user_1",
-      "enduser.id": "user_1",
-    })
-
-    setGlobalAttributes.mockClear()
     clearHyperDxGlobalAttributes()
-    expect(setGlobalAttributes).toHaveBeenCalledWith(null)
+    expect(setGlobalAttributes).toHaveBeenCalledWith({
+      userId: "",
+      teamId: "",
+      teamName: "",
+      "enduser.id": "",
+      "ctxpipe.org.id": "",
+      "ctxpipe.org.slug": "",
+    })
   })
 })

@@ -4,7 +4,6 @@ import {
   createRootRoute,
   type ErrorComponentProps,
   HeadContent,
-  Outlet,
   Scripts,
 } from "@tanstack/react-router"
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
@@ -17,10 +16,12 @@ import { Providers } from "@/providers"
 import appCss from "../styles.css?url"
 
 export const Route = createRootRoute({
+  // Client navigations keep the document identity. `router.invalidate()` still
+  // enters the loader; the client half returns undefined and the previous data stays.
+  shouldReload: false,
   loader: async ({ location }) => {
-    const hyperdx = await getHyperDxDocumentContext({
-      data: { pathname: location.pathname },
-    })
+    const hyperdx = await getHyperDxDocumentContext(location.pathname)
+    if (!hyperdx) return undefined
     return {
       hyperdxRuntimeConfig: hyperdx.config,
       hyperdxIdentity: hyperdx.identity,
@@ -57,7 +58,6 @@ export const Route = createRootRoute({
       },
     ],
   }),
-  component: RootComponent,
   shellComponent: RootDocument,
   errorComponent: RootErrorComponent,
   notFoundComponent: () => (
@@ -68,10 +68,6 @@ export const Route = createRootRoute({
     </main>
   ),
 })
-
-function RootComponent() {
-  return <Outlet />
-}
 
 function RootErrorComponent({ reset }: ErrorComponentProps) {
   return (
@@ -91,11 +87,15 @@ function RootErrorComponent({ reset }: ErrorComponentProps) {
 }
 
 function RootDocument({ children }: { children: ReactNode }) {
-  const {
-    hyperdxRuntimeConfig,
-    hyperdxIdentity,
-    confluenceForgeRuntimeConfig,
-  } = Route.useLoaderData()
+  const loaderData = Route.useLoaderData()
+  const hyperdxRuntimeConfig = loaderData?.hyperdxRuntimeConfig ?? {
+    enabled: false,
+  }
+  const hyperdxIdentity = loaderData?.hyperdxIdentity ?? null
+  const confluenceForgeRuntimeConfig =
+    loaderData?.confluenceForgeRuntimeConfig ?? {
+      installUrlFallback: null,
+    }
   return (
     <html lang="en" className="dark">
       <head>

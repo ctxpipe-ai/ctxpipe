@@ -8,11 +8,8 @@ import type { HyperDxRuntimeConfig } from "@/lib/hyperdxRuntimeConfig"
 /**
  * `@hyperdx/browser` init does not forward `globalAttributes` to otel-web.
  * Identity is applied with `setGlobalAttributes` in the same init call.
- * `setGlobalAttributes` Object.assigns, so a changed set is cleared with
- * `null` first (that deletes every key on the processor).
  */
 let hyperdxInitialized = false
-let publishedGlobalAttributes = ""
 
 export function initHyperDxBrowser(
   runtimeConfig: HyperDxRuntimeConfig,
@@ -20,13 +17,6 @@ export function initHyperDxBrowser(
 ): void {
   if (typeof window === "undefined" || !runtimeConfig.enabled) return
   if (!hyperdxInitialized) {
-    const otelResourceAttributes: Record<string, string> = {
-      "service.namespace": "ctxpipe",
-    }
-    if (runtimeConfig.environment) {
-      otelResourceAttributes["deployment.environment"] =
-        runtimeConfig.environment
-    }
     HyperDX.init({
       url: `${window.location.origin}/.otel`,
       apiKey: "proxy",
@@ -48,7 +38,6 @@ export function initHyperDxBrowser(
         interactions: false,
         longtask: false,
       },
-      otelResourceAttributes,
     })
     hyperdxInitialized = true
   }
@@ -58,25 +47,9 @@ export function initHyperDxBrowser(
 export function setHyperDxGlobalAttributes(
   attributes: HyperDxSessionIdentity,
 ): void {
-  const next = hyperdxGlobalAttributes(attributes)
-  const serialized = JSON.stringify(next)
-  if (publishedGlobalAttributes === serialized) return
-  if (publishedGlobalAttributes.length > 0) {
-    HyperDX.setGlobalAttributes(null as unknown as Record<string, string>)
-  }
-  HyperDX.setGlobalAttributes(next)
-  publishedGlobalAttributes = serialized
+  HyperDX.setGlobalAttributes(hyperdxGlobalAttributes(attributes))
 }
 
 export function clearHyperDxGlobalAttributes(): void {
-  HyperDX.setGlobalAttributes(null as unknown as Record<string, string>)
-  publishedGlobalAttributes = ""
-}
-
-/** No-ops until `HyperDX.init` has run (`@hyperdx/otel-web` checks `inited`). */
-export function recordHyperDxAction(
-  name: string,
-  attributes?: Record<string, string>,
-): void {
-  HyperDX.addAction(name, attributes)
+  setHyperDxGlobalAttributes({ userId: "", teamId: "", teamName: "" })
 }

@@ -15,34 +15,27 @@ export type HyperDxGlobalAttributes = HyperDxSessionIdentity & {
 /**
  * `userId` / `teamId` / `teamName` are what HyperDX session search reads.
  * The dotted keys match backend spans so one filter works on browser and API.
- * Missing ids are omitted so an empty string is not exported.
+ * Every key is always present. `""` means missing, so one assign replaces the previous bag.
  */
 export function hyperdxGlobalAttributes(input: {
   userId?: string | null
   teamId?: string | null
   teamName?: string | null
-}): Partial<HyperDxGlobalAttributes> {
+}): HyperDxGlobalAttributes {
   const userId = input.userId ?? ""
   const teamId = input.teamId ?? ""
   const teamName = input.teamName ?? ""
-  const attributes: Partial<HyperDxGlobalAttributes> = {}
-  if (userId) {
-    attributes.userId = userId
-    attributes["enduser.id"] = userId
+  return {
+    userId,
+    teamId,
+    teamName,
+    "enduser.id": userId,
+    "ctxpipe.org.id": teamId,
+    "ctxpipe.org.slug": teamName,
   }
-  if (teamId) {
-    attributes.teamId = teamId
-    attributes["ctxpipe.org.id"] = teamId
-  }
-  if (teamName) {
-    attributes.teamName = teamName
-    attributes["ctxpipe.org.slug"] = teamName
-  }
-  return attributes
 }
 
 export type HyperDxPageViewAttributes = {
-  path: string
   "url.path": string
   route: string
 }
@@ -53,7 +46,6 @@ export function hyperdxPageViewAction(input: {
   routeId: string
 }): HyperDxPageViewAttributes {
   return {
-    path: input.pathname,
     "url.path": input.pathname,
     route: input.routeId,
   }
@@ -98,7 +90,7 @@ export function orgSlugFromPathname(pathname: string): string {
   return segment
 }
 
-/** Auth pages have no org context, so spans there omit org keys. */
+/** Auth pages have no org context, so org ids on those spans are empty. */
 export function isHyperDxAuthPath(pathname: string): boolean {
   return pathname === "/.auth" || pathname.startsWith("/.auth/")
 }
@@ -109,13 +101,29 @@ export function isHyperDxSignOutPath(pathname: string): boolean {
   )
 }
 
-const HYPERDX_SIGN_IN_PATHS = new Set([
-  "/.auth/sign-in",
-  "/.auth/two-factor",
-  "/.auth/callback",
-])
-
-/** Paths where a session change is a completed sign-in (password, 2FA, or OAuth callback). */
-export function isHyperDxSignInPath(pathname: string): boolean {
-  return HYPERDX_SIGN_IN_PATHS.has(pathname)
+/**
+ * Session, org list, and URL → the attribute identity.
+ * Shared by the document SSR read and `HyperDxProvider`.
+ */
+export function hyperdxIdentity(
+  session: {
+    user?: { id?: string | null } | null
+    session?: { activeOrganizationId?: string | null } | null
+  } | null,
+  organizations: readonly HyperDxOrgRef[] | null | undefined,
+  pathname: string,
+): HyperDxSessionIdentity | null {
+  if (isHyperDxSignOutPath(pathname)) return null
+  const userId = session?.user?.id ?? ""
+  if (!userId) return null
+  if (isHyperDxAuthPath(pathname)) {
+    return { userId, teamId: "", teamName: "" }
+  }
+  const active = session?.session?.activeOrganizationId
+  const team = resolveHyperDxTeam({
+    orgSlugFromRoute: orgSlugFromPathname(pathname),
+    organizations: organizations ?? [],
+    activeOrganizationId: typeof active === "string" ? active : "",
+  })
+  return { userId, teamId: team.teamId, teamName: team.teamName }
 }

@@ -9,7 +9,7 @@ import {
 // the real singleton. The browser SDK has no in-memory transport.
 
 describe("hyperDxQueryKeyName", () => {
-  it("keeps a static first segment and drops ids and free text", () => {
+  it("returns the first segment when it is a string", () => {
     expect(
       hyperDxQueryKeyName([
         "public-invitation-details",
@@ -20,14 +20,6 @@ describe("hyperDxQueryKeyName", () => {
     expect(hyperDxQueryKeyName(["conversation", "org_1", "conv_abc"])).toBe(
       "conversation",
     )
-    expect(hyperDxQueryKeyName(["user@example.com"])).toBeUndefined()
-    expect(hyperDxQueryKeyName(["inv_not_real"])).toBeUndefined()
-    expect(
-      hyperDxQueryKeyName(["550e8400-e29b-41d4-a716-446655440000"]),
-    ).toBeUndefined()
-    expect(
-      hyperDxQueryKeyName(["Invitation not found or expired"]),
-    ).toBeUndefined()
     expect(hyperDxQueryKeyName([{ path: "/secret?token=1" }])).toBeUndefined()
     expect(hyperDxQueryKeyName([])).toBeUndefined()
   })
@@ -71,7 +63,7 @@ describe("createHyperDxQueryClient", () => {
     const client = createHyperDxQueryClient()
     let attempts = 0
     const error = Object.assign(new Error("Invalid or expired code"), {
-      response: { status: 400 },
+      status: 400,
     })
     const mutation = client.getMutationCache().build(client, {
       mutationKey: ["device-code", "BADCODE"],
@@ -93,7 +85,7 @@ describe("createHyperDxQueryClient", () => {
     })
   })
 
-  it("skips cancellations and unsafe key names", async () => {
+  it("skips cancellations and still records a string key", async () => {
     const recordException = vi.spyOn(HyperDX, "recordException")
     const client = createHyperDxQueryClient()
     const aborted = new DOMException("The operation was aborted", "AbortError")
@@ -120,20 +112,21 @@ describe("createHyperDxQueryClient", () => {
       }),
     ).rejects.toThrow(cancelled)
 
-    const unsafe = new Error("Invitation not found or expired")
+    const named = new Error("Invitation not found or expired")
     await expect(
       client.fetchQuery({
-        queryKey: ["user@example.com"],
+        queryKey: ["public-invitation-details"],
         retry: false,
         queryFn: () => {
-          throw unsafe
+          throw named
         },
       }),
-    ).rejects.toThrow(unsafe)
+    ).rejects.toThrow(named)
 
     expect(recordException).toHaveBeenCalledTimes(1)
-    expect(recordException).toHaveBeenCalledWith(unsafe, {
+    expect(recordException).toHaveBeenCalledWith(named, {
       "ctxpipe.ui.source": "query",
+      "ctxpipe.ui.key": "public-invitation-details",
     })
   })
 })

@@ -1,38 +1,18 @@
 import HyperDX from "@hyperdx/browser"
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query"
 
-const STATIC_KEY = /^[a-z][a-z0-9._:/-]{0,63}$/i
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const ID_PREFIX = /^(?:conv|inv|user|org|con|tok|key|sk|pk)_/i
-
-/**
- * First query/mutation key segment when it is a static name.
- * Drops ids, emails, tokens, and free text.
- */
+/** First query/mutation key segment when it is a string. */
 export function hyperDxQueryKeyName(
   key: readonly unknown[] | undefined,
 ): string | undefined {
   const first = key?.[0]
-  if (typeof first !== "string") return undefined
-  if (!STATIC_KEY.test(first)) return undefined
-  if (first.includes("@")) return undefined
-  if (UUID.test(first) || ID_PREFIX.test(first)) return undefined
-  return first
+  return typeof first === "string" ? first : undefined
 }
 
 function httpStatus(error: object): string | undefined {
-  const record = error as {
-    status?: unknown
-    statusCode?: unknown
-    response?: { status?: unknown }
-  }
-  const direct = record.status ?? record.statusCode
-  if (typeof direct === "number" && direct >= 100 && direct <= 599) {
-    return String(direct)
-  }
-  const nested = record.response?.status
-  if (typeof nested === "number" && nested >= 100 && nested <= 599) {
-    return String(nested)
+  const status = (error as { status?: unknown }).status
+  if (typeof status === "number" && status >= 100 && status <= 599) {
+    return String(status)
   }
   return undefined
 }

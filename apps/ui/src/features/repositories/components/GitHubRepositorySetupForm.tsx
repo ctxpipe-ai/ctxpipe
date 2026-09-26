@@ -1,5 +1,6 @@
 "use client"
 
+import HyperDX from "@hyperdx/browser"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { type FormEvent, useMemo, useState } from "react"
 import { toast } from "sonner"
@@ -22,7 +23,6 @@ import {
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
 import { githubGrantAccessUrls } from "@/lib/github-app-url"
-import { recordHyperDxAction } from "@/lib/hyperdxBrowser"
 import {
   buildSelectedRepositories,
   collectInstallationRepoPages,
@@ -273,7 +273,7 @@ export function GitHubRepositorySetupForm({
           queryKey: ["github-installation-repos-preview", orgSlug],
         }),
       ])
-      recordHyperDxAction("repository_index_started")
+      HyperDX.addAction("repository_index_started")
       toast.success("Repositories saved and queued for indexing.")
       onSaveSuccess()
     },
