@@ -18,7 +18,7 @@ Railway holds secret values. Terraform holds references. Ownership: [../README.m
 
 Buckets `langfuse-events` and `clickhouse-cold` (region `iad`) are created outside this provider (0.6.1 has no bucket resource). Variables reference `${{langfuse-events.*}}` and `${{clickhouse-cold.*}}`.
 
-`railway_service.railway_telemetry` sets `cron_schedule = "*/5 * * * *"`; provider 0.6.1 sends `cronSchedule` on every update with no `omitempty`, so an unset attribute would clear the live cron. Provider 0.6.1 cannot set restart policy, healthcheck path, or Serverless; the apply job sets them after `terraform apply` with [`scripts/railway-observability-service-settings.sh`](../../../scripts/railway-observability-service-settings.sh), then provisions HyperDX. Sleep policy: [../README.md](../README.md#awake-vs-sleep).
+`railway_service.railway_telemetry` sets `cron_schedule = "*/5 * * * *"`; provider 0.6.1 sends `cronSchedule` on every update with no `omitempty`, so an unset attribute would clear the live cron. Restart policy, healthcheck, and Serverless are omitted on update (`omitempty`), so a value set on the service sticks and apply does not clear it. `railway-telemetry` is `NEVER` on the service. ClickHouse and the collector use the platform default, `ON_FAILURE` with 10 retries. Sleep policy: [../README.md](../README.md#awake-vs-sleep).
 
 ## Apply
 

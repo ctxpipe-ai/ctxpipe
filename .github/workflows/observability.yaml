@@ -1,6 +1,6 @@
 # Observability Terraform for the ClickStack and Langfuse Railway project.
-# Pull requests plan; main applies, sets Railway service settings and provisions
-# HyperDX. See ops/observability/README.md.
+# Pull requests plan; main applies and provisions HyperDX.
+# See ops/observability/README.md.
 
 name: Observability
 
@@ -295,10 +295,6 @@ jobs:
       - name: Pin Railway observability region
         working-directory: ${{ github.workspace }}
         run: RAILWAY_SERVICE_SET=observability bash scripts/railway-set-regions.sh
-
-      - name: Apply Railway service settings
-        working-directory: ${{ github.workspace }}
-        run: bash scripts/railway-observability-service-settings.sh
 
       - uses: oven-sh/setup-bun@v2
         with:

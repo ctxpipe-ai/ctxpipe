@@ -19,7 +19,8 @@
              skip_access_check=1 leaves the server up while tables that own
              cold parts stay failed (async_load_databases does not retry),
              so inserts and hot reads on those tables fail until a manual
-             restart. Railway ON_FAILURE restarts until this check passes. -->
+             restart. Railway's default ON_FAILURE restarts a failed boot
+             up to 10 times. -->
         <skip_access_check>0</skip_access_check>
         <request_timeout_ms>10000</request_timeout_ms>
         <retry_attempts>1</retry_attempts>

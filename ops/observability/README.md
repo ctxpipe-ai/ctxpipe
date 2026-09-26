@@ -26,7 +26,7 @@ Querying: [USING.md](./USING.md). Deploy: [terraform/README.md](./terraform/READ
 
 Sleep is a missing `railway.cpu` sample, not a zero. Nothing polls HyperDX, Mongo, or Langfuse web. The collector scrapes only itself and ClickHouse. Redis stays up because the worker does.
 
-Langfuse web stays up on the stock image: the Prisma client and ioredis send keepalives. No `LANGFUSE_*` variable turns those off. Mongo stays Online with Serverless on; the volume is billed either way. The provider cannot set Serverless; the observability workflow turns it off on collector and clickhouse with [`scripts/railway-observability-service-settings.sh`](../../scripts/railway-observability-service-settings.sh).
+Langfuse web stays up on the stock image: the Prisma client and ioredis send keepalives. No `LANGFUSE_*` variable turns those off. Mongo stays Online with Serverless on; the volume is billed either way. Collector and ClickHouse have Serverless off. Provider 0.6.1 omits `sleepApplication` on update, so apply does not turn it back on.
 
 Langfuse Postgres is database `langfuse` on the existing Neon `ctxpipe` project. Event blobs are Railway bucket `langfuse-events`.
 
