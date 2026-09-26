@@ -5,7 +5,7 @@
     {
       "type": "QUERY_EXPRESSION",
       "name": "deployment.environment",
-      "expression": "DeploymentEnvironment",
+      "expression": "ResourceAttributes['deployment.environment']",
       "sourceName": "Traces",
       "appliesToSourceNames": ["Traces"],
       "minSelections": 1
@@ -14,25 +14,14 @@
   "savedFilterValues": [
     {
       "type": "sql",
-      "condition": "DeploymentEnvironment IN ('production')"
+      "condition": "ResourceAttributes['deployment.environment'] IN ('production')"
     }
   ],
   "tiles": [
     {
-      "name": "How these numbers are defined",
-      "x": 0,
-      "y": 0,
-      "w": 24,
-      "h": 8,
-      "config": {
-        "displayType": "markdown",
-        "markdown": "**People, not browser spans.** DAU, WAU, and MAU count `enduser.id` on backend server spans (`ServiceName = 'backend'`, `SpanKind = 'Server'`). The UI calls that API, so a person who only uses the app is included. Browser `ui` spans are left out: `uniqExact(enduser.id)` would not double-count them, and a page view with no API call is not treated as use. Webhook and job actors are excluded. An org API key has no `enduser.id`, so it is not a product user.\n\n**One chart, three lines.** DAU is distinct `enduser.id` that UTC day. WAU is distinct users in the 7 UTC days ending that day. MAU is the 30 UTC days ending that day. Each point is one day. The chart does not follow the dashboard granularity control. The scan starts 30 days before the selected range so the first MAU point is a full window. The number tiles are those three values on the last day of the range (today, when the range includes now).\n\n**MCP is a separate identity.** A backend server span named `POST /mcp`, or any backend server span with `ctxpipe.mcp.tool`. Actors are `user`, `oauth_client`, and `org_api_key`. The id is `enduser.id` when it is set, otherwise `ctxpipe.api_key.id`, so an org API key counts as its own MCP actor and a person with both ids is counted once.\n\n**Stickiness** counts how many actors were active on exactly N distinct UTC days in the 7 days (or 30 days) ending on the last day of the dashboard range. Bar height is the number of actors. HyperDX 2.39.1 sorts raw-SQL bars by height, so the axis is not locked to 1..N left to right. Labels are zero-padded day counts.\n\n**Environment.** The filter is required and defaults to production. It is the `DeploymentEnvironment` column (materialized `deployment.environment`), applied with `$__filters`. Clearing it is blocked so PR and observability traffic cannot mix in."
-      }
-    },
-    {
       "name": "DAU",
       "x": 0,
-      "y": 8,
+      "y": 0,
       "w": 8,
       "h": 4,
       "config": {
@@ -41,13 +30,13 @@
         "connectionName": "ctxpipe ClickHouse",
         "sourceName": "Traces",
         "numberFormat": { "output": "number", "mantissa": 0, "thousandSeparated": true },
-        "sqlTemplate": "SELECT toUInt32(uniqExact(SpanAttributes['enduser.id'])) AS DAU\nFROM otel.otel_traces\nWHERE Timestamp >= toDateTime64(toDate($__toTime), 3)\n  AND Timestamp <= $__toTime_ms\n  AND $__filters\n  AND ServiceName = 'backend'\n  AND SpanKind = 'Server'\n  AND SpanAttributes['enduser.id'] != ''\n  AND SpanAttributes['ctxpipe.actor.type'] NOT IN ('webhook', 'job')"
+        "sqlTemplate": "SELECT toUInt32(uniqExact(if(SpanAttributes['enduser.id'] != '', SpanAttributes['enduser.id'], if(SpanAttributes['ctxpipe.actor.type'] = 'org_api_key', SpanAttributes['ctxpipe.api_key.id'], '')))) AS DAU\nFROM otel.otel_traces\nWHERE Timestamp >= toDateTime64(toDate($__toTime), 3)\n  AND Timestamp <= $__toTime_ms\n  AND $__filters\n  AND ServiceName = 'backend'\n  AND SpanKind = 'Server'\n  AND SpanAttributes['ctxpipe.actor.type'] NOT IN ('webhook', 'job')\n  AND (SpanAttributes['enduser.id'] != '' OR (SpanAttributes['ctxpipe.actor.type'] = 'org_api_key' AND SpanAttributes['ctxpipe.api_key.id'] != ''))"
       }
     },
     {
       "name": "WAU",
       "x": 8,
-      "y": 8,
+      "y": 0,
       "w": 8,
       "h": 4,
       "config": {
@@ -56,13 +45,13 @@
         "connectionName": "ctxpipe ClickHouse",
         "sourceName": "Traces",
         "numberFormat": { "output": "number", "mantissa": 0, "thousandSeparated": true },
-        "sqlTemplate": "SELECT toUInt32(uniqExact(SpanAttributes['enduser.id'])) AS WAU\nFROM otel.otel_traces\nWHERE Timestamp >= toDateTime64(toDate($__toTime) - 6, 3)\n  AND Timestamp <= $__toTime_ms\n  AND $__filters\n  AND ServiceName = 'backend'\n  AND SpanKind = 'Server'\n  AND SpanAttributes['enduser.id'] != ''\n  AND SpanAttributes['ctxpipe.actor.type'] NOT IN ('webhook', 'job')"
+        "sqlTemplate": "SELECT toUInt32(uniqExact(if(SpanAttributes['enduser.id'] != '', SpanAttributes['enduser.id'], if(SpanAttributes['ctxpipe.actor.type'] = 'org_api_key', SpanAttributes['ctxpipe.api_key.id'], '')))) AS WAU\nFROM otel.otel_traces\nWHERE Timestamp >= toDateTime64(toDate($__toTime) - 6, 3)\n  AND Timestamp <= $__toTime_ms\n  AND $__filters\n  AND ServiceName = 'backend'\n  AND SpanKind = 'Server'\n  AND SpanAttributes['ctxpipe.actor.type'] NOT IN ('webhook', 'job')\n  AND (SpanAttributes['enduser.id'] != '' OR (SpanAttributes['ctxpipe.actor.type'] = 'org_api_key' AND SpanAttributes['ctxpipe.api_key.id'] != ''))"
       }
     },
     {
       "name": "MAU",
       "x": 16,
-      "y": 8,
+      "y": 0,
       "w": 8,
       "h": 4,
       "config": {
@@ -71,11 +60,28 @@
         "connectionName": "ctxpipe ClickHouse",
         "sourceName": "Traces",
         "numberFormat": { "output": "number", "mantissa": 0, "thousandSeparated": true },
-        "sqlTemplate": "SELECT toUInt32(uniqExact(SpanAttributes['enduser.id'])) AS MAU\nFROM otel.otel_traces\nWHERE Timestamp >= toDateTime64(toDate($__toTime) - 29, 3)\n  AND Timestamp <= $__toTime_ms\n  AND $__filters\n  AND ServiceName = 'backend'\n  AND SpanKind = 'Server'\n  AND SpanAttributes['enduser.id'] != ''\n  AND SpanAttributes['ctxpipe.actor.type'] NOT IN ('webhook', 'job')"
+        "sqlTemplate": "SELECT toUInt32(uniqExact(if(SpanAttributes['enduser.id'] != '', SpanAttributes['enduser.id'], if(SpanAttributes['ctxpipe.actor.type'] = 'org_api_key', SpanAttributes['ctxpipe.api_key.id'], '')))) AS MAU\nFROM otel.otel_traces\nWHERE Timestamp >= toDateTime64(toDate($__toTime) - 29, 3)\n  AND Timestamp <= $__toTime_ms\n  AND $__filters\n  AND ServiceName = 'backend'\n  AND SpanKind = 'Server'\n  AND SpanAttributes['ctxpipe.actor.type'] NOT IN ('webhook', 'job')\n  AND (SpanAttributes['enduser.id'] != '' OR (SpanAttributes['ctxpipe.actor.type'] = 'org_api_key' AND SpanAttributes['ctxpipe.api_key.id'] != ''))"
       }
     },
     {
       "name": "DAU, WAU, and MAU",
+      "x": 0,
+      "y": 4,
+      "w": 24,
+      "h": 8,
+      "config": {
+        "configType": "sql",
+        "displayType": "line",
+        "connectionName": "ctxpipe ClickHouse",
+        "sourceName": "Traces",
+        "fillNulls": false,
+        "alignDateRangeToGranularity": false,
+        "numberFormat": { "output": "number", "mantissa": 0, "thousandSeparated": true },
+        "sqlTemplate": "WITH\n  $__fromTime AS range_start,\n  $__toTime AS range_end,\n  toDate(range_start) AS chart_start,\n  toDate(range_end) AS chart_end,\n  chart_start - 30 AS lookback_start,\n  (\n    SELECT uniqExactState(actor_id)\n    FROM (SELECT '' AS actor_id WHERE 0)\n  ) AS empty_state\nSELECT ts, DAU, WAU, MAU\nFROM (\n  SELECT\n    toDateTime(day) AS ts,\n    day,\n    toUInt32(finalizeAggregation(user_state)) AS DAU,\n    toUInt32(uniqExactMerge(user_state) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)) AS WAU,\n    toUInt32(uniqExactMerge(user_state) OVER (ORDER BY day ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)) AS MAU\n  FROM (\n    SELECT\n      calendar.day AS day,\n      if(isNull(active.day), empty_state, active.user_state) AS user_state\n    FROM (\n      SELECT lookback_start + number AS day\n      FROM numbers(421)\n      WHERE number <= toUInt64(greatest(dateDiff('day', lookback_start, chart_end), 0))\n    ) AS calendar\n    LEFT JOIN (\n      SELECT\n        toDate(Timestamp) AS day,\n        uniqExactState(if(SpanAttributes['enduser.id'] != '', SpanAttributes['enduser.id'], if(SpanAttributes['ctxpipe.actor.type'] = 'org_api_key', SpanAttributes['ctxpipe.api_key.id'], ''))) AS user_state\n      FROM otel.otel_traces\n      WHERE Timestamp >= toDateTime64(lookback_start, 3)\n        AND Timestamp <= $__toTime_ms\n        AND $__filters\n        AND ServiceName = 'backend'\n        AND SpanKind = 'Server'\n        AND SpanAttributes['ctxpipe.actor.type'] NOT IN ('webhook', 'job')\n        AND (SpanAttributes['enduser.id'] != '' OR (SpanAttributes['ctxpipe.actor.type'] = 'org_api_key' AND SpanAttributes['ctxpipe.api_key.id'] != ''))\n      GROUP BY day\n    ) AS active ON active.day = calendar.day\n  )\n)\nWHERE day >= chart_start AND day <= chart_end\nORDER BY ts"
+      }
+    },
+    {
+      "name": "MCP DAU, WAU, and MAU",
       "x": 0,
       "y": 12,
       "w": 24,
@@ -88,84 +94,22 @@
         "fillNulls": false,
         "alignDateRangeToGranularity": false,
         "numberFormat": { "output": "number", "mantissa": 0, "thousandSeparated": true },
-        "sqlTemplate": "WITH\n  $__fromTime AS range_start,\n  $__toTime AS range_end,\n  toDate(range_start) AS chart_start,\n  toDate(range_end) AS chart_end,\n  chart_start - 30 AS lookback_start,\n  (\n    SELECT uniqExactState(actor_id)\n    FROM\n    (\n      SELECT '' AS actor_id\n      WHERE 0\n    )\n  ) AS empty_state\nSELECT ts, DAU, WAU, MAU\nFROM\n(\n  SELECT\n    toDateTime(day) AS ts,\n    day,\n    toUInt32(finalizeAggregation(user_state)) AS DAU,\n    toUInt32(uniqExactMerge(user_state) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)) AS WAU,\n    toUInt32(uniqExactMerge(user_state) OVER (ORDER BY day ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)) AS MAU\n  FROM\n  (\n    SELECT\n      calendar.day AS day,\n      if(isNull(active.day), empty_state, active.user_state) AS user_state\n    FROM\n    (\n      SELECT lookback_start + number AS day\n      FROM numbers(421)\n      WHERE number <= toUInt64(greatest(dateDiff('day', lookback_start, chart_end), 0))\n    ) AS calendar\n    LEFT JOIN\n    (\n      SELECT\n        toDate(Timestamp) AS day,\n        uniqExactState(SpanAttributes['enduser.id']) AS user_state\n      FROM otel.otel_traces\n      WHERE Timestamp >= toDateTime64(lookback_start, 3)\n        AND Timestamp <= $__toTime_ms\n        AND $__filters\n        AND ServiceName = 'backend'\n        AND SpanKind = 'Server'\n        AND SpanAttributes['enduser.id'] != ''\n        AND SpanAttributes['ctxpipe.actor.type'] NOT IN ('webhook', 'job')\n      GROUP BY day\n    ) AS active ON active.day = calendar.day\n  )\n)\nWHERE day >= chart_start AND day <= chart_end\nORDER BY ts"
+        "sqlTemplate": "WITH\n  $__fromTime AS range_start,\n  $__toTime AS range_end,\n  toDate(range_start) AS chart_start,\n  toDate(range_end) AS chart_end,\n  chart_start - 30 AS lookback_start,\n  (\n    SELECT uniqExactState(actor_id)\n    FROM (SELECT '' AS actor_id WHERE 0)\n  ) AS empty_state\nSELECT ts, DAU, WAU, MAU\nFROM (\n  SELECT\n    toDateTime(day) AS ts,\n    day,\n    toUInt32(finalizeAggregation(user_state)) AS DAU,\n    toUInt32(uniqExactMerge(user_state) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)) AS WAU,\n    toUInt32(uniqExactMerge(user_state) OVER (ORDER BY day ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)) AS MAU\n  FROM (\n    SELECT\n      calendar.day AS day,\n      if(isNull(active.day), empty_state, active.user_state) AS user_state\n    FROM (\n      SELECT lookback_start + number AS day\n      FROM numbers(421)\n      WHERE number <= toUInt64(greatest(dateDiff('day', lookback_start, chart_end), 0))\n    ) AS calendar\n    LEFT JOIN (\n      SELECT\n        toDate(Timestamp) AS day,\n        uniqExactState(if(SpanAttributes['enduser.id'] != '', SpanAttributes['enduser.id'], if(SpanAttributes['ctxpipe.actor.type'] = 'org_api_key', SpanAttributes['ctxpipe.api_key.id'], ''))) AS user_state\n      FROM otel.otel_traces\n      WHERE Timestamp >= toDateTime64(lookback_start, 3)\n        AND Timestamp <= $__toTime_ms\n        AND $__filters\n        AND ServiceName = 'backend'\n        AND SpanKind = 'Server'\n        AND (SpanName = 'POST /mcp' OR SpanAttributes['ctxpipe.mcp.tool'] != '')\n        AND SpanAttributes['ctxpipe.actor.type'] NOT IN ('webhook', 'job')\n        AND (SpanAttributes['enduser.id'] != '' OR (SpanAttributes['ctxpipe.actor.type'] = 'org_api_key' AND SpanAttributes['ctxpipe.api_key.id'] != ''))\n      GROUP BY day\n    ) AS active ON active.day = calendar.day\n  )\n)\nWHERE day >= chart_start AND day <= chart_end\nORDER BY ts"
       }
     },
     {
-      "name": "MCP DAU, WAU, and MAU",
+      "name": "Stickiness",
       "x": 0,
       "y": 20,
       "w": 24,
       "h": 8,
       "config": {
         "configType": "sql",
-        "displayType": "line",
-        "connectionName": "ctxpipe ClickHouse",
-        "sourceName": "Traces",
-        "fillNulls": false,
-        "alignDateRangeToGranularity": false,
-        "numberFormat": { "output": "number", "mantissa": 0, "thousandSeparated": true },
-        "sqlTemplate": "WITH\n  $__fromTime AS range_start,\n  $__toTime AS range_end,\n  toDate(range_start) AS chart_start,\n  toDate(range_end) AS chart_end,\n  chart_start - 30 AS lookback_start,\n  (\n    SELECT uniqExactState(actor_id)\n    FROM\n    (\n      SELECT '' AS actor_id\n      WHERE 0\n    )\n  ) AS empty_state\nSELECT ts, DAU, WAU, MAU\nFROM\n(\n  SELECT\n    toDateTime(day) AS ts,\n    day,\n    toUInt32(finalizeAggregation(user_state)) AS DAU,\n    toUInt32(uniqExactMerge(user_state) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)) AS WAU,\n    toUInt32(uniqExactMerge(user_state) OVER (ORDER BY day ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)) AS MAU\n  FROM\n  (\n    SELECT\n      calendar.day AS day,\n      if(isNull(active.day), empty_state, active.user_state) AS user_state\n    FROM\n    (\n      SELECT lookback_start + number AS day\n      FROM numbers(421)\n      WHERE number <= toUInt64(greatest(dateDiff('day', lookback_start, chart_end), 0))\n    ) AS calendar\n    LEFT JOIN\n    (\n      SELECT\n        toDate(Timestamp) AS day,\n        uniqExactState(if(SpanAttributes['enduser.id'] != '', SpanAttributes['enduser.id'], SpanAttributes['ctxpipe.api_key.id'])) AS user_state\n      FROM otel.otel_traces\n      WHERE Timestamp >= toDateTime64(lookback_start, 3)\n        AND Timestamp <= $__toTime_ms\n        AND $__filters\n        AND ServiceName = 'backend'\n        AND SpanKind = 'Server'\n        AND (SpanName = 'POST /mcp' OR SpanAttributes['ctxpipe.mcp.tool'] != '')\n        AND SpanAttributes['ctxpipe.actor.type'] IN ('user', 'oauth_client', 'org_api_key')\n        AND (SpanAttributes['enduser.id'] != '' OR SpanAttributes['ctxpipe.api_key.id'] != '')\n      GROUP BY day\n    ) AS active ON active.day = calendar.day\n  )\n)\nWHERE day >= chart_start AND day <= chart_end\nORDER BY ts"
-      }
-    },
-    {
-      "name": "Weekly stickiness",
-      "x": 0,
-      "y": 28,
-      "w": 12,
-      "h": 8,
-      "config": {
-        "configType": "sql",
         "displayType": "bar",
         "connectionName": "ctxpipe ClickHouse",
         "sourceName": "Traces",
         "numberFormat": { "output": "number", "mantissa": 0, "thousandSeparated": true },
-        "sqlTemplate": "WITH\n  toDate($__toTime) AS end_day,\n  end_day - 6 AS start_day\nSELECT\n  concat(leftPad(toString(buckets.bucket), 2, '0'), if(buckets.bucket = 1, ' day', ' days')) AS active_days,\n  toUInt32(ifNull(counts.users, 0)) AS users\nFROM\n(\n  SELECT toUInt8(number + 1) AS bucket\n  FROM numbers(7)\n) AS buckets\nLEFT JOIN\n(\n  SELECT active_days, toUInt32(count()) AS users\n  FROM\n  (\n    SELECT uniqExact(toDate(Timestamp)) AS active_days\n    FROM otel.otel_traces\n    WHERE Timestamp >= toDateTime64(start_day, 3)\n      AND Timestamp <= $__toTime_ms\n      AND $__filters\n      AND ServiceName = 'backend'\n      AND SpanKind = 'Server'\n      AND SpanAttributes['enduser.id'] != ''\n      AND SpanAttributes['ctxpipe.actor.type'] NOT IN ('webhook', 'job')\n    GROUP BY SpanAttributes['enduser.id']\n  )\n  GROUP BY active_days\n) AS counts ON counts.active_days = buckets.bucket\nORDER BY buckets.bucket"
-      }
-    },
-    {
-      "name": "Monthly stickiness",
-      "x": 12,
-      "y": 28,
-      "w": 12,
-      "h": 8,
-      "config": {
-        "configType": "sql",
-        "displayType": "bar",
-        "connectionName": "ctxpipe ClickHouse",
-        "sourceName": "Traces",
-        "numberFormat": { "output": "number", "mantissa": 0, "thousandSeparated": true },
-        "sqlTemplate": "WITH\n  toDate($__toTime) AS end_day,\n  end_day - 29 AS start_day\nSELECT\n  concat(leftPad(toString(buckets.bucket), 2, '0'), if(buckets.bucket = 1, ' day', ' days')) AS active_days,\n  toUInt32(ifNull(counts.users, 0)) AS users\nFROM\n(\n  SELECT toUInt8(number + 1) AS bucket\n  FROM numbers(30)\n) AS buckets\nLEFT JOIN\n(\n  SELECT active_days, toUInt32(count()) AS users\n  FROM\n  (\n    SELECT uniqExact(toDate(Timestamp)) AS active_days\n    FROM otel.otel_traces\n    WHERE Timestamp >= toDateTime64(start_day, 3)\n      AND Timestamp <= $__toTime_ms\n      AND $__filters\n      AND ServiceName = 'backend'\n      AND SpanKind = 'Server'\n      AND SpanAttributes['enduser.id'] != ''\n      AND SpanAttributes['ctxpipe.actor.type'] NOT IN ('webhook', 'job')\n    GROUP BY SpanAttributes['enduser.id']\n  )\n  GROUP BY active_days\n) AS counts ON counts.active_days = buckets.bucket\nORDER BY buckets.bucket"
-      }
-    },
-    {
-      "name": "MCP weekly stickiness",
-      "x": 0,
-      "y": 36,
-      "w": 12,
-      "h": 8,
-      "config": {
-        "configType": "sql",
-        "displayType": "bar",
-        "connectionName": "ctxpipe ClickHouse",
-        "sourceName": "Traces",
-        "numberFormat": { "output": "number", "mantissa": 0, "thousandSeparated": true },
-        "sqlTemplate": "WITH\n  toDate($__toTime) AS end_day,\n  end_day - 6 AS start_day\nSELECT\n  concat(leftPad(toString(buckets.bucket), 2, '0'), if(buckets.bucket = 1, ' day', ' days')) AS active_days,\n  toUInt32(ifNull(counts.users, 0)) AS users\nFROM\n(\n  SELECT toUInt8(number + 1) AS bucket\n  FROM numbers(7)\n) AS buckets\nLEFT JOIN\n(\n  SELECT active_days, toUInt32(count()) AS users\n  FROM\n  (\n    SELECT uniqExact(toDate(Timestamp)) AS active_days\n    FROM otel.otel_traces\n    WHERE Timestamp >= toDateTime64(start_day, 3)\n      AND Timestamp <= $__toTime_ms\n      AND $__filters\n      AND ServiceName = 'backend'\n      AND SpanKind = 'Server'\n      AND (SpanName = 'POST /mcp' OR SpanAttributes['ctxpipe.mcp.tool'] != '')\n      AND SpanAttributes['ctxpipe.actor.type'] IN ('user', 'oauth_client', 'org_api_key')\n      AND (SpanAttributes['enduser.id'] != '' OR SpanAttributes['ctxpipe.api_key.id'] != '')\n    GROUP BY if(SpanAttributes['enduser.id'] != '', SpanAttributes['enduser.id'], SpanAttributes['ctxpipe.api_key.id'])\n  )\n  GROUP BY active_days\n) AS counts ON counts.active_days = buckets.bucket\nORDER BY buckets.bucket"
-      }
-    },
-    {
-      "name": "MCP monthly stickiness",
-      "x": 12,
-      "y": 36,
-      "w": 12,
-      "h": 8,
-      "config": {
-        "configType": "sql",
-        "displayType": "bar",
-        "connectionName": "ctxpipe ClickHouse",
-        "sourceName": "Traces",
-        "numberFormat": { "output": "number", "mantissa": 0, "thousandSeparated": true },
-        "sqlTemplate": "WITH\n  toDate($__toTime) AS end_day,\n  end_day - 29 AS start_day\nSELECT\n  concat(leftPad(toString(buckets.bucket), 2, '0'), if(buckets.bucket = 1, ' day', ' days')) AS active_days,\n  toUInt32(ifNull(counts.users, 0)) AS users\nFROM\n(\n  SELECT toUInt8(number + 1) AS bucket\n  FROM numbers(30)\n) AS buckets\nLEFT JOIN\n(\n  SELECT active_days, toUInt32(count()) AS users\n  FROM\n  (\n    SELECT uniqExact(toDate(Timestamp)) AS active_days\n    FROM otel.otel_traces\n    WHERE Timestamp >= toDateTime64(start_day, 3)\n      AND Timestamp <= $__toTime_ms\n      AND $__filters\n      AND ServiceName = 'backend'\n      AND SpanKind = 'Server'\n      AND (SpanName = 'POST /mcp' OR SpanAttributes['ctxpipe.mcp.tool'] != '')\n      AND SpanAttributes['ctxpipe.actor.type'] IN ('user', 'oauth_client', 'org_api_key')\n      AND (SpanAttributes['enduser.id'] != '' OR SpanAttributes['ctxpipe.api_key.id'] != '')\n    GROUP BY if(SpanAttributes['enduser.id'] != '', SpanAttributes['enduser.id'], SpanAttributes['ctxpipe.api_key.id'])\n  )\n  GROUP BY active_days\n) AS counts ON counts.active_days = buckets.bucket\nORDER BY buckets.bucket"
+        "sqlTemplate": "WITH\n  toDate($__fromTime) AS range_start_day,\n  toDate($__toTime) AS end_day,\n  if(dateDiff('day', range_start_day, end_day) + 1 > 30, end_day - 29, range_start_day) AS start_day\nSELECT\n  concat(leftPad(toString(buckets.bucket), 2, '0'), if(buckets.bucket = 1, ' day', ' days')) AS active_days,\n  toUInt32(ifNull(counts.users, 0)) AS users\nFROM (\n  SELECT toUInt8(number + 1) AS bucket\n  FROM numbers(30)\n  WHERE number < toUInt64(dateDiff('day', start_day, end_day) + 1)\n) AS buckets\nLEFT JOIN (\n  SELECT active_days, toUInt32(count()) AS users\n  FROM (\n    SELECT uniqExact(toDate(Timestamp)) AS active_days\n    FROM otel.otel_traces\n    WHERE Timestamp >= toDateTime64(start_day, 3)\n      AND Timestamp <= $__toTime_ms\n      AND $__filters\n      AND ServiceName = 'backend'\n      AND SpanKind = 'Server'\n      AND SpanAttributes['ctxpipe.actor.type'] NOT IN ('webhook', 'job')\n      AND (SpanAttributes['enduser.id'] != '' OR (SpanAttributes['ctxpipe.actor.type'] = 'org_api_key' AND SpanAttributes['ctxpipe.api_key.id'] != ''))\n    GROUP BY if(SpanAttributes['enduser.id'] != '', SpanAttributes['enduser.id'], if(SpanAttributes['ctxpipe.actor.type'] = 'org_api_key', SpanAttributes['ctxpipe.api_key.id'], ''))\n  )\n  GROUP BY active_days\n) AS counts ON counts.active_days = buckets.bucket\nORDER BY buckets.bucket"
       }
     }
   ]

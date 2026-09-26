@@ -42,6 +42,7 @@ bun ops/observability/hyperdx/provision.ts
 | LLM (gen_ai) | Call count, error rate, input tokens, output tokens, latency by model. | `production` |
 | Observability Stack | Collector throughput and queue, ClickHouse queries, inserts, memory, MergeTree parts, Redis, railway-telemetry log count. | `observability` |
 | Railway Infrastructure | CPU and memory versus limit, network rx/tx, disk. Includes every environment. | no default |
+| Product usage | DAU/WAU/MAU, the same series for MCP, and stickiness across web and MCP. Definitions: [hyperdx/dashboards/product-usage.md](hyperdx/dashboards/product-usage.md). | `production` |
 
 Sessions charts stay empty while browser replay is off.
 
@@ -55,11 +56,11 @@ Sessions charts stay empty while browser replay is off.
 | Production traces | Traces, same |
 | Production errors | Logs, production and `SeverityText IN ('error')` |
 
-Sidebar field **DeploymentEnvironment** is the materialized column. SQL should filter the time range first (daily partitions), then `DeploymentEnvironment`, then `ServiceName` or `TraceId`. Filtering the map `ResourceAttributes['deployment.environment']` uses the attribute-array text index instead of that column.
+The team Shared Filter field is `ResourceAttributes['deployment.environment']`, with no value pinned. Hand-written SQL should still filter the time range first (daily partitions), then the materialized column `DeploymentEnvironment`, then `ServiceName` or `TraceId`. A map `IN` on `ResourceAttributes['deployment.environment']` uses the attribute-array text index instead of that column. Dashboard chips use the map expression so they match the shared filter.
 
 ## Environment filter
 
-HyperDX 2.39.1 has no team setting that defaults every search to `production`. The two product dashboards above restore `production` when they load. **Railway Infrastructure** does not. Shared Filters can list `DeploymentEnvironment` with no value pinned, so the checkboxes are whatever the time range contains. A pinned value of only `production` hides `pr-N` and `observability` rows. Personal pins live in the browser (`localStorage`) and are not set by the server.
+HyperDX 2.39.1 has no team setting that defaults every search to `production`. The product dashboards above restore `production` when they load. **Railway Infrastructure** does not. Shared Filters list `ResourceAttributes['deployment.environment']` with no value pinned, so the checkboxes are whatever the time range contains. A pinned value of only `production` hides `pr-N` and `observability` rows. Personal pins live in the browser (`localStorage`) and are not set by the server. Terraform `DEFAULT_SOURCES` highlights that attribute on a new team; it does not set the shared filter.
 
 ## MCP
 
