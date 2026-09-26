@@ -1,107 +1,50 @@
-import { createServer } from "node:http"
-import type { AddressInfo } from "node:net"
-import { Hono } from "hono"
-import { afterEach, describe, expect, it, vi } from "vitest"
-import { type Env, parseEnv } from "../config/env.js"
-import { FlushOnDemandMetricReader } from "./flushOnDemandMetricReader.js"
+import { RuntimeNodeInstrumentation } from "@opentelemetry/instrumentation-runtime-node"
 import {
-  codesearchOtelMiddleware,
-  createMetricReader,
-  forceFlushOtel,
-  httpRouteTemplate,
+  AggregationTemporality,
+  InMemoryMetricExporter,
+  MeterProvider,
+  PeriodicExportingMetricReader,
+} from "@opentelemetry/sdk-metrics"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { parseEnv } from "../config/env.js"
+import {
+  codesearchResource,
   initOtel,
   isOtelStarted,
-  isRailwayPrEnvironment,
-  otelDeploymentEnvironment,
   otelMetricReader,
-  otelResourceAttributes,
-  otelServiceName,
-  parseOtelHeaders,
   shutdownOtel,
 } from "./otel.js"
 
-function testEnv(overrides: Partial<Env> = {}): Env {
-  return {
-    NODE_ENV: "test",
-    PORT: 3001,
-    AUTH_SECRET: "0123456789abcdef0123456789abcdef",
-    ...overrides,
-  }
-}
-
-async function listenSink(): Promise<{
-  port: number
-  close: () => Promise<void>
-}> {
-  const server = createServer((req, res) => {
-    req.on("data", () => {})
-    req.on("end", () => {
-      res.writeHead(200, { "content-type": "application/json" })
-      res.end("{}")
-    })
+describe("codesearch resource", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
   })
-  await new Promise<void>((resolve) => {
-    server.listen(0, "127.0.0.1", resolve)
-  })
-  const address = server.address() as AddressInfo
-  return {
-    port: address.port,
-    close: () =>
-      new Promise((resolve, reject) => {
-        server.close((err) => (err ? reject(err) : resolve()))
-      }),
-  }
-}
 
-describe("otel resource attributes", () => {
-  it("uses service.name codesearch and deployment.environment", () => {
-    expect(otelServiceName(undefined)).toBe("codesearch")
-    expect(otelServiceName("codesearch")).toBe("codesearch")
-    expect(otelResourceAttributes("codesearch", "production")).toEqual({
-      "service.name": "codesearch",
-      "service.namespace": "ctxpipe",
-      "deployment.environment": "production",
-    })
+  it("forces service.name codesearch and a deployment.environment", () => {
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "")
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("OTEL_SERVICE_NAME", "other")
+    vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "")
+    const attributes = codesearchResource().attributes
+    expect(attributes["service.name"]).toBe("codesearch")
+    expect(attributes["service.namespace"]).toBe("ctxpipe")
+    expect(attributes["deployment.environment"]).toBe("production")
   })
-})
 
-describe("otelDeploymentEnvironment", () => {
-  it("uses RAILWAY_ENVIRONMENT_NAME when set", () => {
-    expect(otelDeploymentEnvironment("pr-12", "production")).toBe("pr-12")
-    expect(otelDeploymentEnvironment("production", "development")).toBe(
-      "production",
+  it("uses RAILWAY_ENVIRONMENT_NAME when resource attributes are unset", () => {
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-12")
+    vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "")
+    expect(codesearchResource().attributes["deployment.environment"]).toBe(
+      "pr-12",
     )
   })
 
-  it("falls back to NODE_ENV", () => {
-    expect(otelDeploymentEnvironment("", "production")).toBe("production")
-    expect(otelDeploymentEnvironment(undefined, "development")).toBe(
-      "development",
-    )
-  })
-})
-
-describe("isRailwayPrEnvironment", () => {
-  it("matches Railway preview names only", () => {
-    expect(isRailwayPrEnvironment("pr-1")).toBe(true)
-    expect(isRailwayPrEnvironment("pr-334")).toBe(true)
-    expect(isRailwayPrEnvironment("production")).toBe(false)
-    expect(isRailwayPrEnvironment("pr-env")).toBe(false)
-    expect(isRailwayPrEnvironment("")).toBe(false)
-  })
-})
-
-describe("parseOtelHeaders", () => {
-  it("parses comma-separated key=value pairs", () => {
-    expect(parseOtelHeaders("authorization=abc,x-foo=bar")).toEqual({
-      authorization: "abc",
-      "x-foo": "bar",
-    })
-  })
-
-  it("returns empty object when unset", () => {
-    expect(parseOtelHeaders(undefined)).toEqual({})
-    expect(parseOtelHeaders("")).toEqual({})
+  it("lets OTEL_RESOURCE_ATTRIBUTES override deployment.environment", () => {
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-12")
+    vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=staging")
+    const attributes = codesearchResource().attributes
+    expect(attributes["deployment.environment"]).toBe("staging")
+    expect(attributes["service.name"]).toBe("codesearch")
   })
 })
 
@@ -121,95 +64,78 @@ describe("parseEnv otel endpoints", () => {
   })
 })
 
-describe("httpRouteTemplate", () => {
-  it("keeps matched templates and wildcards, never invents a raw path", () => {
-    expect(httpRouteTemplate("/:repoId/files")).toBe("/:repoId/files")
-    expect(httpRouteTemplate("/*")).toBe("/*")
-    expect(httpRouteTemplate(undefined)).toBe("{unmatched}")
-  })
-})
-
-describe("createMetricReader", () => {
-  it("uses a periodic reader outside pr environments", () => {
-    const reader = createMetricReader(
-      "http://127.0.0.1:9/v1/metrics",
-      {},
-      false,
-    )
-    expect(reader.constructor.name).toBe("PeriodicExportingMetricReader")
-  })
-
-  it("uses flush-on-demand in pr environments", () => {
-    const reader = createMetricReader("http://127.0.0.1:9/v1/metrics", {}, true)
-    expect(reader).toBeInstanceOf(FlushOnDemandMetricReader)
-  })
-})
-
 describe("initOtel", () => {
   afterEach(async () => {
     vi.unstubAllEnvs()
     await shutdownOtel()
   })
 
-  it("is a no-op without a traces endpoint", async () => {
-    initOtel(testEnv())
+  it("is a no-op without a traces endpoint", () => {
+    vi.stubEnv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "")
+    vi.stubEnv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "")
+    initOtel()
     expect(isOtelStarted()).toBe(false)
     expect(otelMetricReader()).toBeUndefined()
-    await forceFlushOtel()
   })
 
-  it("installs a flush-on-demand reader for pr-N", async () => {
+  it("uses a periodic reader when metrics are configured", () => {
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "production")
+    vi.stubEnv(
+      "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+      "http://127.0.0.1:9/v1/traces",
+    )
+    vi.stubEnv(
+      "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+      "http://127.0.0.1:9/v1/metrics",
+    )
+    initOtel()
+    expect(isOtelStarted()).toBe(true)
+    expect(otelMetricReader()).toBeInstanceOf(PeriodicExportingMetricReader)
+  })
+
+  it("exports no metrics for Railway pr environments", () => {
     vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-4")
-    const sink = await listenSink()
-    try {
-      initOtel(
-        testEnv({
-          OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: `http://127.0.0.1:${sink.port}/v1/traces`,
-          OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: `http://127.0.0.1:${sink.port}/v1/metrics`,
-          OTEL_SERVICE_NAME: "codesearch",
-        }),
-      )
-      expect(isOtelStarted()).toBe(true)
-      expect(otelMetricReader()).toBeInstanceOf(FlushOnDemandMetricReader)
-    } finally {
-      await shutdownOtel()
-      await sink.close()
-    }
+    vi.stubEnv(
+      "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+      "http://127.0.0.1:9/v1/traces",
+    )
+    vi.stubEnv(
+      "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+      "http://127.0.0.1:9/v1/metrics",
+    )
+    initOtel()
+    expect(isOtelStarted()).toBe(true)
+    expect(otelMetricReader()).toBeUndefined()
   })
+})
 
-  it("does not wait for forceFlush before the PR response", async () => {
-    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-9")
-    const delayed = createServer((req, res) => {
-      req.resume()
-      setTimeout(() => {
-        res.writeHead(200, { "content-type": "application/json" })
-        res.end("{}")
-      }, 1_500)
-    })
-    await new Promise<void>((resolve) => {
-      delayed.listen(0, "127.0.0.1", resolve)
-    })
-    const port = (delayed.address() as AddressInfo).port
-    try {
-      initOtel(
-        testEnv({
-          OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: `http://127.0.0.1:${port}/v1/traces`,
-          OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: `http://127.0.0.1:${port}/v1/metrics`,
+describe("runtime metrics", () => {
+  it("registers runtime-node instruments through the public API", async () => {
+    const exporter = new InMemoryMetricExporter(
+      AggregationTemporality.CUMULATIVE,
+    )
+    const provider = new MeterProvider({
+      readers: [
+        new PeriodicExportingMetricReader({
+          exporter,
+          exportIntervalMillis: 60_000,
         }),
+      ],
+    })
+    const runtime = new RuntimeNodeInstrumentation()
+    runtime.setMeterProvider(provider)
+    await provider.forceFlush()
+    const names = exporter
+      .getMetrics()
+      .flatMap((resourceMetrics) =>
+        resourceMetrics.scopeMetrics.flatMap((scope) =>
+          scope.metrics.map((metric) => metric.descriptor.name),
+        ),
       )
-      const app = new Hono()
-      app.use("*", codesearchOtelMiddleware())
-      app.get("/fast", (c) => c.text("ok"))
-      const started = performance.now()
-      const res = await app.request("http://codesearch.test/fast")
-      expect(res.status).toBe(200)
-      expect(await res.text()).toBe("ok")
-      expect(performance.now() - started).toBeLessThan(500)
-    } finally {
-      await shutdownOtel()
-      await new Promise<void>((resolve, reject) => {
-        delayed.close((err) => (err ? reject(err) : resolve()))
-      })
-    }
+    expect(names.some((name) => name.startsWith("nodejs.eventloop."))).toBe(
+      true,
+    )
+    runtime.disable()
+    await provider.shutdown()
   })
 })

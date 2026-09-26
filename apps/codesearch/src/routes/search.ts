@@ -64,28 +64,14 @@ export const searchRoute = createRoute({
 })
 
 /**
- * Zoekt `/api/search` returns plain text (or occasionally JSON) for query
- * errors. Surface that text so callers can tell a bad query from an outage.
+ * zoekt-webserver rejects a query with `http.Error`: plain text plus a
+ * trailing newline. Surface that text so callers can tell a bad query from
+ * an outage. The wide event does not include it — Zoekt echoes the query.
  */
 async function zoektClientErrorMessage(res: Response): Promise<string> {
-  const text = (await res.text()).trim().slice(0, 500)
+  const text = (await res.text()).trim().replace(/\s+/g, " ").slice(0, 300)
   if (!text) return `Zoekt rejected the query (HTTP ${res.status})`
-  let detail = text
-  try {
-    const parsed = JSON.parse(text) as {
-      error?: unknown
-      Error?: unknown
-      message?: unknown
-    }
-    const candidate = [parsed.error, parsed.Error, parsed.message].find(
-      (value) => typeof value === "string" && value.trim().length > 0,
-    )
-    if (typeof candidate === "string") detail = candidate.trim()
-  } catch {
-    // Zoekt uses http.Error, which writes a plain-text body.
-  }
-  const oneLine = detail.replace(/\s+/g, " ").slice(0, 300)
-  return `Zoekt rejected the query: ${oneLine}`
+  return `Zoekt rejected the query: ${text}`
 }
 
 export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {

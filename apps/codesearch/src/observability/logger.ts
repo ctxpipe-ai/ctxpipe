@@ -5,23 +5,35 @@ import {
   type DrainContext,
   initLogger,
   log,
+  type RedactConfig,
   type RequestLogger,
 } from "evlog"
-import { type OTLPLogRecord, toOTLPLogRecord } from "evlog/otlp"
+import { createOTLPDrain } from "evlog/otlp"
 import { createDrainPipeline, type PipelineDrainFn } from "evlog/pipeline"
 import { getContext } from "hono/context-storage"
 import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
-import { ATTRIBUTION_KEYS, stripLogPii } from "./contract.js"
-import {
-  forceFlushOtel,
-  isRailwayPrEnvironment,
-  otelDeploymentEnvironment,
-  otelResourceAttributes,
-  otelServiceName,
-} from "./otel.js"
-import { applyScrubDbErrors } from "./scrubDbError.js"
-import { applyRedactedSecretPaths } from "./secretPath.js"
+import { ATTRIBUTION_KEYS } from "./contract.js"
+import { codesearchResource } from "./otel.js"
+
+/**
+ * Drizzle `params:` lines and pg fields that can echo bound values.
+ * Codesearch logs errors as strings or plain objects, and it has no users,
+ * sessions, or reset-password routes.
+ */
+export const codesearchLogRedact: RedactConfig = {
+  paths: ["error.detail", "error.where", "error.hint", "error.internalQuery"],
+  patterns: [/\r?\nparams:[^\r\n]*/gi],
+}
+
+function resourceString(
+  attributes: ReturnType<typeof codesearchResource>["attributes"],
+  key: string,
+  fallback: string,
+): string {
+  const value = attributes[key]
+  return typeof value === "string" && value.length > 0 ? value : fallback
+}
 
 /**
  * Initialize evlog. Call early in app bootstrap.
@@ -29,13 +41,18 @@ import { applyRedactedSecretPaths } from "./secretPath.js"
  */
 export function initEvlog(): void {
   const env = parseEnv(process.env as Record<string, string | undefined>)
-  const serviceName = otelServiceName(env.OTEL_SERVICE_NAME)
+  const attributes = codesearchResource().attributes
   initLogger({
     env: {
-      service: serviceName,
-      environment: otelDeploymentEnvironment(),
+      service: "codesearch",
+      environment: resourceString(
+        attributes,
+        "deployment.environment",
+        "development",
+      ),
     },
     pretty: env.NODE_ENV === "development",
+    redact: codesearchLogRedact,
     drain: createEvlogDrain(),
   })
 }
@@ -58,34 +75,18 @@ export function createEvlogDrain() {
     "",
   ).replace(/\/$/, "")
 
-  const headers = parseOtelHeaders(env.OTEL_EXPORTER_OTLP_HEADERS)
-  const serviceName = otelServiceName(env.OTEL_SERVICE_NAME)
-  const baseDrain = async (ctx: DrainContext | DrainContext[]) => {
-    const contexts = Array.isArray(ctx) ? ctx : [ctx]
-    const events = contexts.map((item) => item.event)
-    if (events.length === 0) return
-    const payload = otlpLogsPayload(
-      events,
-      otelResourceAttributes(serviceName, otelDeploymentEnvironment()),
-    )
-    // 5s matches evlog createOTLPDrain. The pipeline retries, then onDropped.
-    // A timeout or a down collector does not fail the request or shutdown.
-    let response: Response
-    try {
-      response = await fetch(`${baseEndpoint}/v1/logs`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...headers },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(5_000),
-      })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      throw new Error(`OTLP logs export failed: ${message}`)
-    }
-    if (!response.ok) {
-      throw new Error(`OTLP logs HTTP ${response.status}`)
-    }
-  }
+  const attributes = codesearchResource().attributes
+  const baseDrain = createOTLPDrain({
+    endpoint: baseEndpoint,
+    serviceName: "codesearch",
+    resourceAttributes: {
+      "service.namespace": resourceString(
+        attributes,
+        "service.namespace",
+        "ctxpipe",
+      ),
+    },
+  })
 
   const pipeline = createDrainPipeline<DrainContext>({
     batch: { size: 50, intervalMs: 5000 },
@@ -125,33 +126,10 @@ export async function flushEvlog(): Promise<void> {
   }
 }
 
-function parseOtelHeaders(
-  headerStr: string | undefined,
-): Record<string, string> {
-  if (!headerStr?.trim()) return {}
-  const out: Record<string, string> = {}
-  for (const part of headerStr.split(",")) {
-    const eq = part.indexOf("=")
-    if (eq > 0) {
-      const key = part.slice(0, eq).trim()
-      const value = part
-        .slice(eq + 1)
-        .trim()
-        .replace(/^["']|["']$/g, "")
-      if (key && value) out[key] = decodeURIComponent(value)
-    }
-  }
-  return out
-}
-
-/** Top-level traceId/spanId become the OTLP log record TraceId/SpanId. */
+/** Alias request fields and copy attribution baggage onto the wide event. */
 export function applyCodesearchLogContract(
   event: Record<string, unknown>,
 ): void {
-  stripLogPii(event)
-  applyRedactedSecretPaths(event)
-  applyScrubDbErrors(event)
-
   moveAlias(event, "requestId", "request.id")
   moveAlias(event, "method", "http.request.method")
   moveAlias(event, "path", "url.path")
@@ -190,9 +168,6 @@ export function applyCodesearchLogContract(
       if (value && event[key] == null) event[key] = value
     }
   }
-  delete event.environment
-  delete event.service
-  delete event["service.namespace"]
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -207,58 +182,6 @@ function moveAlias(
   if (typeof event[from] === "string" && event[to] == null)
     event[to] = event[from]
   delete event[from]
-}
-
-const BODY_KEYS_OWNED_ELSEWHERE = [
-  "environment",
-  "service",
-  "service.namespace",
-  "traceId",
-  "spanId",
-] as const
-
-/** Drop resource and trace-column fields from the JSON body evlog embeds. */
-export function canonicalizeOtlpLogRecord(
-  record: OTLPLogRecord,
-): OTLPLogRecord {
-  const raw = record.body?.stringValue
-  if (!raw.startsWith("{")) return record
-  try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>
-    for (const key of BODY_KEYS_OWNED_ELSEWHERE) delete parsed[key]
-    record.body = { stringValue: JSON.stringify(parsed) }
-  } catch {
-    return record
-  }
-  return record
-}
-
-function otlpLogsPayload(
-  events: Record<string, unknown>[],
-  resource: Record<string, string>,
-) {
-  return {
-    resourceLogs: [
-      {
-        resource: {
-          attributes: Object.entries(resource).map(([key, value]) => ({
-            key,
-            value: { stringValue: value },
-          })),
-        },
-        scopeLogs: [
-          {
-            scope: { name: "evlog", version: "1.0.0" },
-            logRecords: events.map((event) =>
-              canonicalizeOtlpLogRecord(
-                toOTLPLogRecord(event as Parameters<typeof toOTLPLogRecord>[0]),
-              ),
-            ),
-          },
-        ],
-      },
-    ],
-  }
 }
 
 // --- Logger context (AsyncLocalStorage + getLogger) ---
@@ -301,9 +224,6 @@ export async function withLogger<T>(
         }
         if (current && workflowLoggerHasMilestoneContent(current)) {
           current.emit()
-        }
-        if (isRailwayPrEnvironment()) {
-          await forceFlushOtel()
         }
       }
     }),

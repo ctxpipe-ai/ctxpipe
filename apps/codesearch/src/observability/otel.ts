@@ -1,18 +1,13 @@
-import {
-  context,
-  type Histogram,
-  type Meter,
-  metrics,
-  propagation,
-  SpanKind,
-  SpanStatusCode,
-  TraceFlags,
-  trace,
-} from "@opentelemetry/api"
+import { metrics } from "@opentelemetry/api"
+import { BaggageSpanProcessor } from "@opentelemetry/baggage-span-processor"
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http"
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
 import { RuntimeNodeInstrumentation } from "@opentelemetry/instrumentation-runtime-node"
-import { resourceFromAttributes } from "@opentelemetry/resources"
+import {
+  detectResources,
+  envDetector,
+  resourceFromAttributes,
+} from "@opentelemetry/resources"
 import {
   MeterProvider,
   type MetricReader,
@@ -20,71 +15,31 @@ import {
 } from "@opentelemetry/sdk-metrics"
 import {
   BatchSpanProcessor,
-  type ReadableSpan,
   type Span,
   type SpanProcessor,
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
-import type { MiddlewareHandler } from "hono"
-import type { Env } from "../config/env.js"
 import { ATTRIBUTION_KEYS } from "./contract.js"
-import { FlushOnDemandMetricReader } from "./flushOnDemandMetricReader.js"
-import {
-  heapSpaceStatisticsAvailable,
-  installProcessHeapGauges,
-  omitUnimplementedHeapSpaceCollector,
-  reportTelemetrySetupError,
-} from "./runtimeMetrics.js"
-import { redactSecretPath } from "./secretPath.js"
 
 let tracerProvider: NodeTracerProvider | undefined
 let meterProvider: MeterProvider | undefined
 let metricReader: MetricReader | undefined
 let runtimeInstrumentation: RuntimeNodeInstrumentation | undefined
-let serverRequestDuration: Histogram | undefined
-let serverRequestDurationMeter: Meter | undefined
 let started = false
-let outgoingFetchInstrumented = false
 
-const PR_ENVIRONMENT_RE = /^pr-\d+$/
-const FORCE_FLUSH_TIMEOUT_MS = 2_000
-const TRACER_NAME = "ctxpipe-codesearch"
-
-export function attributesFromBaggage(
-  parent: ReturnType<typeof context.active>,
-): Record<string, string> {
-  const baggage = propagation.getBaggage(parent)
-  if (!baggage) return {}
-  const attributes: Record<string, string> = {}
-  for (const key of ATTRIBUTION_KEYS) {
-    const value = baggage.getEntry(key)?.value
-    if (value) attributes[key] = value
-  }
-  return attributes
-}
-
-class BaggageAttributeSpanProcessor implements SpanProcessor {
-  onStart(span: Span, parentContext: ReturnType<typeof context.active>): void {
-    const attributes = attributesFromBaggage(parentContext)
-    if (Object.keys(attributes).length > 0) span.setAttributes(attributes)
-  }
-
-  onEnd(_span: ReadableSpan): void {}
-
-  shutdown(): Promise<void> {
-    return Promise.resolve()
-  }
-
-  forceFlush(): Promise<void> {
-    return Promise.resolve()
-  }
-}
+const URL_ATTRIBUTE_KEYS = [
+  "url.full",
+  "url.path",
+  "http.url",
+  "http.target",
+] as const
 
 /**
  * Railway sets `RAILWAY_ENVIRONMENT_NAME` (`production` or `pr-N`).
- * Local / unset falls back to NODE_ENV.
+ * Local / unset falls back to NODE_ENV. `OTEL_RESOURCE_ATTRIBUTES` can
+ * override this when merged in `codesearchResource`.
  */
-export function otelDeploymentEnvironment(
+export function codesearchDeploymentEnvironment(
   railwayEnvironmentName = process.env.RAILWAY_ENVIRONMENT_NAME,
   nodeEnv = process.env.NODE_ENV,
 ): string {
@@ -93,32 +48,57 @@ export function otelDeploymentEnvironment(
   return nodeEnv === "production" ? "production" : "development"
 }
 
-/**
- * Resource `service.name`. Railway sets `OTEL_SERVICE_NAME` to `codesearch`.
- * The tracer scope stays `ctxpipe-codesearch`.
- */
-export function otelServiceName(
-  configured = process.env.OTEL_SERVICE_NAME,
-): string {
-  const name = configured?.trim()
-  return name ? name : "codesearch"
+function railwayPrEnvironment(): boolean {
+  return /^pr-\d+$/.test(process.env.RAILWAY_ENVIRONMENT_NAME?.trim() ?? "")
 }
 
-export function otelResourceAttributes(
-  serviceName: string,
-  deploymentEnvironment: string,
-): Record<string, string> {
-  return {
-    "service.name": serviceName,
-    "service.namespace": "ctxpipe",
-    "deployment.environment": deploymentEnvironment,
+/** Drop query strings and fragments from URL span attributes. */
+class StripUrlQuerySpanProcessor implements SpanProcessor {
+  onStart(span: Span): void {
+    this.strip(span)
+  }
+
+  onEnding(span: Span): void {
+    this.strip(span)
+  }
+
+  onEnd(): void {}
+
+  shutdown(): Promise<void> {
+    return Promise.resolve()
+  }
+
+  forceFlush(): Promise<void> {
+    return Promise.resolve()
+  }
+
+  private strip(span: Span): void {
+    for (const key of URL_ATTRIBUTE_KEYS) {
+      const value = span.attributes[key]
+      if (typeof value !== "string") continue
+      const cut = value.search(/[?#]/)
+      if (cut >= 0) span.setAttribute(key, value.slice(0, cut))
+    }
   }
 }
 
-export function isRailwayPrEnvironment(
-  railwayEnvironmentName = process.env.RAILWAY_ENVIRONMENT_NAME,
-): boolean {
-  return PR_ENVIRONMENT_RE.test(railwayEnvironmentName?.trim() ?? "")
+export function codesearchSpanProcessors(): SpanProcessor[] {
+  return [
+    new BaggageSpanProcessor((key) =>
+      (ATTRIBUTION_KEYS as readonly string[]).includes(key),
+    ),
+    new StripUrlQuerySpanProcessor(),
+  ]
+}
+
+export function codesearchResource() {
+  return resourceFromAttributes({
+    "service.name": "codesearch",
+    "service.namespace": "ctxpipe",
+    "deployment.environment": codesearchDeploymentEnvironment(),
+  })
+    .merge(detectResources({ detectors: [envDetector] }))
+    .merge(resourceFromAttributes({ "service.name": "codesearch" }))
 }
 
 export function isOtelStarted(): boolean {
@@ -131,424 +111,53 @@ export function otelMetricReader(): MetricReader | undefined {
 }
 
 /**
- * Initialize OpenTelemetry tracing and metrics. Call before any other imports that use tracing.
- * When OTEL_EXPORTER_OTLP_TRACES_ENDPOINT is set, traces are exported via OTLP.
- * When OTEL_EXPORTER_OTLP_METRICS_ENDPOINT is set, metrics are exported via OTLP.
- * Production uses a 60s periodic metric reader. PR (`pr-N`) uses flush-on-demand only.
- *
- * Codesearch runs on Bun. `@opentelemetry/sdk-node` auto-instrumentations do not
- * patch Bun.serve or Bun's global fetch, so HTTP server spans and outgoing fetch
- * spans are created manually. Undici instrumentation is not used.
+ * Initialize tracing, and metrics outside Railway PR environments.
+ * Exporters read the standard `OTEL_EXPORTER_OTLP_*` env vars.
+ * PR (`pr-N`) exports traces only so the periodic metric timer does not
+ * keep a preview replica awake.
  */
-export function initOtel(env: Env): void {
-  const tracesEndpoint = env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+export function initOtel(): void {
+  const tracesEndpoint = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT?.trim()
   if (!tracesEndpoint || started) return
 
-  const headers = parseOtelHeaders(env.OTEL_EXPORTER_OTLP_HEADERS)
-  const serviceName = otelServiceName(env.OTEL_SERVICE_NAME)
-  const deploymentEnvironment = otelDeploymentEnvironment()
-
-  const traceExporter = new OTLPTraceExporter({
-    url: otlpSignalUrl(tracesEndpoint, "traces"),
-    headers,
-  })
-
-  const resource = resourceFromAttributes(
-    otelResourceAttributes(serviceName, deploymentEnvironment),
-  )
-
+  const resource = codesearchResource()
   tracerProvider = new NodeTracerProvider({
     resource,
     spanProcessors: [
-      new BaggageAttributeSpanProcessor(),
-      new BatchSpanProcessor(traceExporter),
+      ...codesearchSpanProcessors(),
+      new BatchSpanProcessor(new OTLPTraceExporter()),
     ],
   })
-  // Registers W3C tracecontext + baggage and an AsyncLocalStorage context manager.
   tracerProvider.register()
 
-  if (env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT) {
-    metricReader = createMetricReader(
-      env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT,
-      headers,
-      isRailwayPrEnvironment(),
-    )
+  const metricsEndpoint =
+    process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT?.trim()
+  if (metricsEndpoint && !railwayPrEnvironment()) {
+    metricReader = new PeriodicExportingMetricReader({
+      exporter: new OTLPMetricExporter(),
+      exportIntervalMillis: 60_000,
+    })
     meterProvider = new MeterProvider({
       resource,
       readers: [metricReader],
     })
     metrics.setGlobalMeterProvider(meterProvider)
-    attachCodesearchRuntimeMetrics(meterProvider)
+    runtimeInstrumentation = new RuntimeNodeInstrumentation()
+    runtimeInstrumentation.setMeterProvider(meterProvider)
   }
 
-  installOutgoingFetchInstrumentation()
   started = true
 }
 
-/** Event-loop metrics, plus process heap gauges when Bun lacks heap-space stats. */
-export function attachCodesearchRuntimeMetrics(
-  provider: MeterProvider,
-): string {
-  try {
-    runtimeInstrumentation = new RuntimeNodeInstrumentation()
-    omitUnimplementedHeapSpaceCollector(runtimeInstrumentation)
-    runtimeInstrumentation.setMeterProvider(provider)
-    if (!heapSpaceStatisticsAvailable()) {
-      installProcessHeapGauges(provider.getMeter("ctxpipe-runtime"))
-    }
-    return runtimeInstrumentation.instrumentationName
-  } catch (error) {
-    reportTelemetrySetupError(error)
-    return ""
-  }
-}
-
-export function createMetricReader(
-  metricsEndpoint: string,
-  headers: Record<string, string>,
-  prEnvironment: boolean,
-): MetricReader {
-  const exporter = new OTLPMetricExporter({
-    url: otlpSignalUrl(metricsEndpoint, "metrics"),
-    headers,
-  })
-  if (prEnvironment) {
-    return new FlushOnDemandMetricReader(exporter)
-  }
-  return new PeriodicExportingMetricReader({
-    exporter,
-    exportIntervalMillis: 60_000,
-  })
-}
-
-function otlpSignalUrl(endpoint: string, signal: "traces" | "metrics"): string {
-  const suffix = `/v1/${signal}`
-  if (endpoint.endsWith(suffix)) return endpoint
-  return `${endpoint.replace(/\/$/, "")}${suffix}`
-}
-
-export function parseOtelHeaders(
-  headerStr: string | undefined,
-): Record<string, string> {
-  if (!headerStr?.trim()) return {}
-  const out: Record<string, string> = {}
-  for (const part of headerStr.split(",")) {
-    const eq = part.indexOf("=")
-    if (eq > 0) {
-      const key = part.slice(0, eq).trim()
-      const value = part
-        .slice(eq + 1)
-        .trim()
-        .replace(/^["']|["']$/g, "")
-      if (key && value) out[key] = decodeURIComponent(value)
-    }
-  }
-  return out
-}
-
-/** Route template for span names and metric attributes. Never a raw path with ids. */
-export function httpRouteTemplate(route: string | undefined): string {
-  if (route) return route
-  return "{unmatched}"
-}
-
-function recordServerRequest(
-  method: string,
-  route: string,
-  status: number,
-  durationMs: number,
-): void {
-  const meter = metrics.getMeter(TRACER_NAME)
-  if (serverRequestDurationMeter !== meter || !serverRequestDuration) {
-    serverRequestDurationMeter = meter
-    serverRequestDuration = meter.createHistogram(
-      "http.server.request.duration",
-      {
-        description: "Incoming HTTP request duration",
-        unit: "s",
-      },
-    )
-  }
-  serverRequestDuration.record(durationMs / 1000, {
-    "http.request.method": method,
-    "http.route": route,
-    "http.response.status_code": status,
-  })
-}
-
-export function codesearchOtelMiddleware(): MiddlewareHandler {
-  return async (c, next) => {
-    const startedAt = performance.now()
-    const carrier: Record<string, string> = {}
-    const traceparent = c.req.header("traceparent")
-    const tracestate = c.req.header("tracestate")
-    const baggageHeader = c.req.header("baggage")
-    if (traceparent) carrier.traceparent = traceparent
-    if (tracestate) carrier.tracestate = tracestate
-    if (baggageHeader) carrier.baggage = baggageHeader
-
-    const parent = propagation.extract(context.active(), carrier)
-    const tracer = trace.getTracer(TRACER_NAME)
-    const span = tracer.startSpan(
-      `HTTP ${c.req.method}`,
-      {
-        kind: SpanKind.SERVER,
-        attributes: {
-          "http.request.method": c.req.method,
-          "url.path": redactSecretPath(c.req.path),
-          ...attributesFromBaggage(parent),
-        },
-      },
-      parent,
-    )
-
-    try {
-      await context.with(trace.setSpan(parent, span), async () => {
-        await next()
-      })
-      const route = httpRouteTemplate(c.req.routePath)
-      span.updateName(`${c.req.method} ${route}`)
-      span.setAttribute("http.route", route)
-      span.setAttribute("http.response.status_code", c.res.status)
-      recordServerRequest(
-        c.req.method,
-        route,
-        c.res.status,
-        performance.now() - startedAt,
-      )
-      if (c.res.status >= 500) {
-        span.setStatus({ code: SpanStatusCode.ERROR })
-      }
-    } catch (error) {
-      const route = httpRouteTemplate(c.req.routePath)
-      span.updateName(`${c.req.method} ${route}`)
-      span.setAttribute("http.route", route)
-      span.recordException(
-        error instanceof Error ? error : new Error(String(error)),
-      )
-      span.setStatus({ code: SpanStatusCode.ERROR })
-      span.setAttribute("http.response.status_code", 500)
-      recordServerRequest(
-        c.req.method,
-        route,
-        500,
-        performance.now() - startedAt,
-      )
-      throw error
-    } finally {
-      span.end()
-      if (isRailwayPrEnvironment()) {
-        void forceFlushOtel()
-      }
-    }
-  }
-}
-
-/**
- * Child spans for outgoing fetch, plus W3C traceparent and baggage injection.
- * Bun's fetch is not undici, so `@opentelemetry/instrumentation-undici` does not see it.
- * OTLP export URLs are left uninstrumented so export does not trace itself.
- */
-export function installOutgoingFetchInstrumentation(): void {
-  if (outgoingFetchInstrumented) return
-  outgoingFetchInstrumented = true
-  const original = globalThis.fetch.bind(globalThis)
-  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
-    tracedOutgoingFetch(original, input, init)) as typeof fetch
-}
-
-/**
- * Client span for one outgoing fetch, parented to the active span.
- * No span when nothing is already tracing, so background loops stay quiet.
- * OTLP export URLs are left uninstrumented so export does not trace itself.
- */
-export async function tracedOutgoingFetch(
-  original: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
-  input: RequestInfo | URL,
-  init?: RequestInit,
-): Promise<Response> {
-  const url = requestUrl(input)
-  const parent = context.active()
-  if (isOtlpExportUrl(url) || !trace.getSpan(parent)) {
-    return original(input, init)
-  }
-
-  const method =
-    init?.method ?? (input instanceof Request ? input.method : "GET")
-  const tracer = trace.getTracer(TRACER_NAME)
-  const span = tracer.startSpan(
-    `HTTP ${method}`,
-    {
-      kind: SpanKind.CLIENT,
-      attributes: {
-        "http.request.method": method,
-        ...sanitizedClientUrlAttributes(url),
-        ...attributesFromBaggage(parent),
-      },
-    },
-    parent,
-  )
-  return context.with(trace.setSpan(parent, span), async () => {
-    const headers = new Headers(
-      init?.headers ?? (input instanceof Request ? input.headers : undefined),
-    )
-    if (isInternalAttributionTarget(url)) {
-      propagation.inject(context.active(), headers, {
-        set(carrier, key, value) {
-          carrier.set(key, value)
-        },
-      })
-    } else {
-      // traceparent is a trace id and span id, not user or org ids.
-      injectTraceParentOnly(headers)
-    }
-    let request: Request
-    try {
-      request = new Request(input, { ...init, headers })
-    } catch {
-      try {
-        return await original(input, init)
-      } finally {
-        span.end()
-      }
-    }
-    try {
-      const response = await original(request)
-      span.setAttribute("http.response.status_code", response.status)
-      if (response.status >= 500) {
-        span.setStatus({ code: SpanStatusCode.ERROR })
-      }
-      return response
-    } catch (error) {
-      if (error instanceof Error) span.recordException(error)
-      span.setStatus({ code: SpanStatusCode.ERROR })
-      throw error
-    } finally {
-      span.end()
-    }
-  })
-}
-
-/**
- * Baggage carries user, org, api-key, and conversation ids.
- * Those go to our own services only: the configured codesearch origin,
- * Railway private DNS, and localhost in dev.
- */
-function isInternalAttributionTarget(raw: string): boolean {
-  let parsed: URL
-  try {
-    parsed = new URL(raw)
-  } catch {
-    return false
-  }
-  const host = parsed.hostname.toLowerCase()
-  // WHATWG `URL.hostname` for IPv6 loopback is `[::1]`, not `::1`.
-  if (
-    host === "localhost" ||
-    host === "127.0.0.1" ||
-    host === "::1" ||
-    host === "[::1]"
-  ) {
-    return true
-  }
-  if (host === "railway.internal" || host.endsWith(".railway.internal")) {
-    return true
-  }
-  const configured = process.env.CODESEARCH_URL
-  if (!configured) return false
-  for (const entry of configured.split(",")) {
-    const trimmed = entry.trim()
-    if (!trimmed) continue
-    try {
-      if (parsed.origin === new URL(trimmed).origin) return true
-    } catch {
-      // Ignore a malformed codesearch URL entry.
-    }
-  }
-  return false
-}
-
-function injectTraceParentOnly(
-  headers: Headers,
-  active = context.active(),
-): void {
-  headers.delete("baggage")
-  const spanContext = trace.getSpan(active)?.spanContext()
-  if (!spanContext || !trace.isSpanContextValid(spanContext)) return
-  const sampled =
-    (spanContext.traceFlags & TraceFlags.SAMPLED) === TraceFlags.SAMPLED
-  headers.set(
-    "traceparent",
-    `00-${spanContext.traceId}-${spanContext.spanId}-${sampled ? "01" : "00"}`,
-  )
-  const traceState = spanContext.traceState?.serialize()
-  if (traceState) headers.set("tracestate", traceState)
-}
-
-function sanitizedClientUrlAttributes(raw: string): Record<string, string> {
-  try {
-    const parsed = new URL(raw)
-    const path = redactSecretPath(parsed.pathname || "/")
-    return {
-      "url.path": path,
-      "url.full": `${parsed.protocol}//${parsed.host}${path}`,
-    }
-  } catch {
-    const path = redactSecretPath(raw.split("#")[0]?.split("?")[0] ?? raw)
-    return { "url.path": path, "url.full": path }
-  }
-}
-
-function requestUrl(input: RequestInfo | URL): string {
-  if (typeof input === "string") return input
-  if (input instanceof URL) return input.toString()
-  return input.url
-}
-
-function isOtlpExportUrl(url: string): boolean {
-  try {
-    return /\/v1\/(traces|metrics|logs)\/?$/.test(new URL(url).pathname)
-  } catch {
-    return false
-  }
-}
-
-/**
- * Flush traces and metrics. PR HTTP/job paths call this after work so metrics
- * export without a 60s timer. Failures are swallowed (non-fatal, short timeout).
- */
-export async function forceFlushOtel(): Promise<void> {
-  if (!tracerProvider && !meterProvider) return
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    await Promise.race([
-      Promise.all([
-        tracerProvider?.forceFlush() ?? Promise.resolve(),
-        meterProvider?.forceFlush() ?? Promise.resolve(),
-      ]),
-      new Promise<void>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error("otel forceFlush timeout")),
-          FORCE_FLUSH_TIMEOUT_MS,
-        )
-      }),
-    ])
-  } catch {
-    /* collector slow or unreachable — do not fail the request/job */
-  } finally {
-    if (timer) clearTimeout(timer)
-  }
-}
-
-/**
- * Shutdown the OTEL SDK. Call on process exit.
- */
 export async function shutdownOtel(): Promise<void> {
   const tracer = tracerProvider
   const meter = meterProvider
+  const runtime = runtimeInstrumentation
   tracerProvider = undefined
   meterProvider = undefined
   metricReader = undefined
+  runtimeInstrumentation = undefined
   started = false
+  runtime?.disable()
   await Promise.all([tracer?.shutdown(), meter?.shutdown()])
 }

@@ -3,27 +3,25 @@ import { createApp } from "./app/app.js"
 import { parseEnv } from "./config/env.js"
 import { flushEvlog, initEvlog } from "./observability/logger.js"
 import { initOtel, shutdownOtel } from "./observability/otel.js"
-import { shutdownAndExit } from "./observability/shutdownAndExit.js"
 
 const env = parseEnv(process.env as Record<string, string | undefined>)
-initOtel(env)
+initOtel()
 initEvlog()
 const app = createApp(env)
-let shuttingDown = false
 
 async function shutdownResources() {
-  if (shuttingDown) return
-  shuttingDown = true
-  await shutdownAndExit(async () => {
+  try {
     await Promise.all([flushEvlog(), shutdownOtel()])
-  })
+  } finally {
+    process.exit(0)
+  }
 }
 
-process.on("SIGINT", () => {
+process.once("SIGINT", () => {
   void shutdownResources()
 })
 
-process.on("SIGTERM", () => {
+process.once("SIGTERM", () => {
   void shutdownResources()
 })
 
