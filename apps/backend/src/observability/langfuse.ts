@@ -2,6 +2,7 @@ import type { LLMResult } from "@langchain/core/outputs"
 import { CallbackHandler } from "@langfuse/langchain"
 import { propagateAttributes, startActiveObservation } from "@langfuse/tracing"
 import { readAttribution } from "./attribution.js"
+import { otelDeploymentEnvironment } from "./otel.js"
 
 export type LangfuseContextAttrs = {
   sessionId?: string
@@ -75,7 +76,7 @@ export function runWithLangfuseContext<T>(
       : (attrs.userId ?? bag["enduser.id"])
   const sessionId = attrs.sessionId ?? bag["ctxpipe.conversation.id"]
   const orgSlug = bag["ctxpipe.org.slug"]
-  const environment = deploymentEnvironment()
+  const environment = otelDeploymentEnvironment()
   const tags = uniqueTags([
     ...(attrs.tags ?? []),
     orgSlug ? `org:${orgSlug}` : "",
