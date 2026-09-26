@@ -6,7 +6,7 @@ import {
   type OtlpMetricsRequest,
 } from "./otlp"
 import { LOG_LINE_CAP, RailwayClient } from "./railway"
-import { includeEnvironment, OBSERVABILITY_PROJECT_ID, PROJECT_IDS } from "./targets"
+import { includeEnvironment, isObservabilityProject, projectIds } from "./targets"
 
 async function main(): Promise<void> {
   const endpoint = requiredEnv("OTEL_EXPORTER_OTLP_ENDPOINT")
@@ -18,7 +18,7 @@ async function main(): Promise<void> {
   const failures: string[] = []
   let environments = 0
 
-  for (const projectId of PROJECT_IDS) {
+  for (const projectId of projectIds()) {
     let project: Awaited<ReturnType<RailwayClient["project"]>>
     try {
       project = await client.project(projectId)
@@ -44,7 +44,7 @@ async function main(): Promise<void> {
       } catch (err: unknown) {
         failures.push(`${label} metrics: ${errorMessage(err)}`)
       }
-      if (projectId !== OBSERVABILITY_PROJECT_ID) continue
+      if (!isObservabilityProject(projectId)) continue
       try {
         const fetched = await client.environmentLogs(environment.id, window)
         if (fetched.capped) failures.push(`${label} logs capped at ${LOG_LINE_CAP}`)

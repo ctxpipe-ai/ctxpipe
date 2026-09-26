@@ -9,9 +9,7 @@
     "skipLibCheck": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "types": ["bun"],
-    // Manual tool, not a workspace package. @types/bun is already installed for the backend.
-    "typeRoots": ["../../../apps/backend/node_modules/@types"]
+    "types": ["bun"]
   },
   "files": ["provision.ts"]
 }

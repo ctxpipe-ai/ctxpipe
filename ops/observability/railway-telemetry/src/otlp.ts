@@ -4,7 +4,7 @@ const BYTES_PER_GB = 1024 ** 3
 const USAGE = new Set(["CPU_USAGE", "MEMORY_USAGE_GB"])
 
 // NETWORK_*_GB is the public bytes in that 60s sample, not a cumulative counter.
-const MEASUREMENTS: Record<string, { name: string; unit: string; scale: number }> = {
+export const MEASUREMENTS: Record<string, { name: string; unit: string; scale: number }> = {
   CPU_USAGE: { name: "railway.cpu.usage", unit: "{cpu}", scale: 1 },
   CPU_LIMIT: { name: "railway.cpu.limit", unit: "{cpu}", scale: 1 },
   MEMORY_USAGE_GB: { name: "railway.memory.usage", unit: "By", scale: BYTES_PER_GB },

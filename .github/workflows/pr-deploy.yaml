@@ -814,6 +814,6 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           owner: ctxpipe-ai
-          packages: backend,worker,ui,codesearch,otel-collector
+          packages: backend,worker,ui,codesearch
           delete-tags: '^pr-${{ github.event.number }}-'
           use-regex: true

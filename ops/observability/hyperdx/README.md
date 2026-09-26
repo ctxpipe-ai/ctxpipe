@@ -10,7 +10,7 @@ From the repo root. `HYPERDX_ACCESS_KEY` is a personal key (Team Settings → AP
 HYPERDX_ACCESS_KEY=... bun ops/observability/hyperdx/provision.ts
 ```
 
-Typecheck: `pnpm exec tsc --noEmit -p ops/observability/hyperdx`.
+Typecheck: `pnpm --filter hyperdx typecheck`.
 
 The script upserts `dashboards/*.json` and `saved-searches/*.json` by name (`POST` or `PUT`). It resolves source and connection names to ids. Dashboards not in the repo are left in place. Saved searches: **Request by id**, **Request by id (traces)**, **Production logs**, **Production traces**, **Production errors**.
 

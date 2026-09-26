@@ -13,9 +13,7 @@ function otelExportEnvironment(
   resourceAttributes: string | undefined,
   serviceName: string,
 ): Record<string, string> {
-  if (!endpoint) {
-    return {};
-  }
+  if (!endpoint) return {};
   return {
     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: `${endpoint}/v1/traces`,
     OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: `${endpoint}/v1/logs`,
@@ -45,6 +43,9 @@ export class TaskDefinitionsConstruct extends Construct {
     });
 
     const otelEndpoint = props.otel?.endpoint.trim().replace(/\/+$/, "") ?? "";
+    if (props.otel && !otelEndpoint) {
+      throw new Error("otel.endpoint must be a non-blank OTLP/HTTP base URL");
+    }
     const otelResourceAttributes = props.otel?.resourceAttributes?.trim() || undefined;
     const otelHeadersSecret =
       otelEndpoint && props.otel?.headers

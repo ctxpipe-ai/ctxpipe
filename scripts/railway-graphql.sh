@@ -6,10 +6,10 @@
 railway_graphql() {
   local query="$1"
   local variables="$2"
-  local token="${RAILWAY_TOKEN:-${RAILWAY_API_TOKEN:-${TOKEN:-}}}"
+  local token="${RAILWAY_TOKEN:-${RAILWAY_API_TOKEN:-}}"
   local raw http_code body
   if [[ -z "$token" ]]; then
-    echo "railway_graphql: RAILWAY_TOKEN is not set" >&2
+    echo "railway_graphql: RAILWAY_TOKEN or RAILWAY_API_TOKEN is not set" >&2
     return 1
   fi
   raw="$(curl -sS -w '\n%{http_code}' \

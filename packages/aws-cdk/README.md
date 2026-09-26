@@ -139,7 +139,7 @@ modelProvider: {
 
 ## Observability
 
-`otel.endpoint` is one OTLP/HTTP base URL. The construct trims it once and sets the per-signal variables the apps read: `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is `${endpoint}/v1/traces`, and logs and metrics follow the same pattern. Migrate does not receive them. Export stays off when `otel` is omitted or when `endpoint` is blank after trim. `OTEL_SERVICE_NAME` is set only when export is on, to `backend`, `openworkflow`, `ui`, or `codesearch` on that task.
+`otel.endpoint` is one OTLP/HTTP base URL. The construct trims it once and sets the per-signal variables the apps read: `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is `${endpoint}/v1/traces`, and logs and metrics follow the same pattern. Migrate does not receive them. Export stays off when `otel` is omitted. A blank `endpoint` throws. `OTEL_SERVICE_NAME` is `backend`, `openworkflow`, `ui`, or `codesearch` on that task.
 
 | Prop | Container env |
 | --- | --- |

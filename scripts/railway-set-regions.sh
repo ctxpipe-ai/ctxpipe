@@ -17,9 +17,8 @@
 #   RAILWAY_NUM_REPLICAS (default: 1)
 #   RAILWAY_SERVICE_SET  (default: product)
 #     product         — ctxpipe (backend, openworkflow, ui, codesearch, falkordb)
-#     observability   — ctxpipe-observability (collector, hyperdx, redis,
-#                       langfuse-web, langfuse-worker, railway-telemetry,
-#                       clickhouse, mongo)
+#     observability   — every service in the project; clickhouse and mongo
+#                       are volume-backed
 #   STATELESS_WAIT_SECONDS (default: 600)
 #   VOLUME_WAIT_SECONDS    (default: 2700)  # 50GB volume copy
 #
@@ -96,13 +95,16 @@ wait_deploy() {
 }
 
 # Terraform service names. Stateless first; volume-backed last (serial copy).
+# The observability set is every service load_project returns. Only the
+# volume-backed names are listed here.
+STATELESS_NAMES=()
+VOLUME_NAMES=()
 case "$SERVICE_SET" in
   product)
     STATELESS_NAMES=(backend openworkflow ui)
     VOLUME_NAMES=(codesearch falkordb)
     ;;
   observability)
-    STATELESS_NAMES=(collector hyperdx redis langfuse-web langfuse-worker railway-telemetry)
     VOLUME_NAMES=(clickhouse mongo)
     ;;
   *)
@@ -167,6 +169,25 @@ pin_and_maybe_deploy() {
 }
 
 load_project
+
+if [[ "$SERVICE_SET" == "observability" ]]; then
+  # ids_by_name is set by load_project.
+  # shellcheck disable=SC2154
+  service_ids="$ids_by_name"
+  while IFS= read -r name; do
+    [[ -z "$name" ]] && continue
+    volume=0
+    for volume_name in "${VOLUME_NAMES[@]}"; do
+      if [[ "$name" == "$volume_name" ]]; then
+        volume=1
+        break
+      fi
+    done
+    if (( volume == 0 )); then
+      STATELESS_NAMES+=("$name")
+    fi
+  done < <(echo "$service_ids" | jq -r 'keys[]')
+fi
 
 echo "Pinning Railway $ENVIRONMENT_NAME ($ENV_ID) to $REGION"
 

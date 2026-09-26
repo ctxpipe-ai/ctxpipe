@@ -3,7 +3,7 @@ packages:
   - packages/*
   - examples/*
   - ops/observability/railway-telemetry
-  - ops/observability/railway-telemetry
+  - ops/observability/hyperdx
 
 patchedDependencies:
   '@asteasolutions/zod-to-openapi@8.4.1': patches/@asteasolutions__zod-to-openapi@8.4.1.patch

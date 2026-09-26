@@ -10,9 +10,7 @@
 -- does not drop this column. MATERIALIZED columns are computed on insert
 -- and are not part of the collector's named INSERT list.
 --
--- One-off, already applied 2026-09-25 — do not add it back:
---   ALTER TABLE <table> MATERIALIZE COLUMN DeploymentEnvironment;
--- Repeating MATERIALIZE COLUMN rewrites parts.
+-- Never run MATERIALIZE COLUMN here; it rewrites parts.
 
 ALTER TABLE otel.otel_logs
     ADD COLUMN IF NOT EXISTS DeploymentEnvironment LowCardinality(String)

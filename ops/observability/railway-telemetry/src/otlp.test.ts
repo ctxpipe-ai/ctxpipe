@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import { mapLogsToOtlp, mapMetricsToOtlp, queryWindow, type RailwayLogRow, type RailwayMetricRow } from "./otlp"
-import { includeEnvironment, OBSERVABILITY_PROJECT_ID, PRODUCT_PROJECT_ID } from "./targets"
+import { includeEnvironment, PRODUCT_PROJECT_ID } from "./targets"
+
+const OBSERVABILITY_PROJECT_ID = "obs-project"
+process.env.RAILWAY_PROJECT_ID = OBSERVABILITY_PROJECT_ID
 
 const START = Date.parse("2026-09-25T12:00:00.000Z") / 1000
 const WINDOW = { startUnix: START, endUnix: START + 360, sampleRateSeconds: 60 }

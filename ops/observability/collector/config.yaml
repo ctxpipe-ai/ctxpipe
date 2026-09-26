@@ -66,7 +66,7 @@ processors:
 
 exporters:
   otlphttp/langfuse:
-    endpoint: "${env:LANGFUSE_OTLP_ENDPOINT}"
+    endpoint: "http://langfuse-web.railway.internal:3000/api/public/otel"
     headers:
       Authorization: "Basic ${env:LANGFUSE_AUTH_STRING}"
       x-langfuse-ingestion-version: "4"

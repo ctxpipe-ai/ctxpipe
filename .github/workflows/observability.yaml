@@ -54,7 +54,7 @@ jobs:
         run: pnpm --filter railway-telemetry typecheck
 
       - name: Typecheck HyperDX provision
-        run: pnpm exec tsc --noEmit -p ops/observability/hyperdx
+        run: pnpm --filter hyperdx typecheck
 
   validate:
     name: Validate observability Terraform
@@ -87,8 +87,33 @@ jobs:
       - name: Terraform validate
         run: terraform validate
 
+  tags:
+    name: Observability image tags
+    if: github.repository == 'ctxpipe-ai/ctxpipe' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
+    outputs:
+      collector_image: ${{ steps.tags.outputs.collector_image }}
+      clickhouse_image: ${{ steps.tags.outputs.clickhouse_image }}
+      railway_telemetry_image: ${{ steps.tags.outputs.railway_telemetry_image }}
+    steps:
+      - name: Checkout repository
+        uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
+        with:
+          persist-credentials: false
+
+      - name: Image tags
+        id: tags
+        run: |
+          for service in collector clickhouse railway-telemetry; do
+            sha="$(git rev-parse "HEAD:ops/observability/${service}")"
+            key="${service//-/_}_image"
+            echo "${key}=ghcr.io/ctxpipe-ai/obs-${service}:${sha}" >> "$GITHUB_OUTPUT"
+          done
+
   images:
     name: Build observability images
+    needs: tags
     if: github.repository == 'ctxpipe-ai/ctxpipe' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 30
@@ -117,7 +142,14 @@ jobs:
 
       - name: Image tag
         id: tag
-        run: echo "tag=$(git rev-parse "HEAD:ops/observability/${{ matrix.service }}")" >> "$GITHUB_OUTPUT"
+        run: |
+          case "${{ matrix.service }}" in
+            collector) image="${{ needs.tags.outputs.collector_image }}" ;;
+            clickhouse) image="${{ needs.tags.outputs.clickhouse_image }}" ;;
+            railway-telemetry) image="${{ needs.tags.outputs.railway_telemetry_image }}" ;;
+            *) echo "unknown service ${{ matrix.service }}" >&2; exit 1 ;;
+          esac
+          echo "image=$image" >> "$GITHUB_OUTPUT"
 
       - name: Build and push image
         uses: useblacksmith/build-push-action@v2
@@ -125,11 +157,11 @@ jobs:
           context: ops/observability/${{ matrix.service }}
           file: ops/observability/${{ matrix.service }}/Dockerfile
           push: true
-          tags: ghcr.io/ctxpipe-ai/obs-${{ matrix.service }}:${{ steps.tag.outputs.tag }}
+          tags: ${{ steps.tag.outputs.image }}
 
   plan:
     name: Observability Terraform plan (PR)
-    needs: [validate, images]
+    needs: [validate, images, tags]
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 20
@@ -148,23 +180,14 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      TF_VAR_collector_image: ${{ needs.tags.outputs.collector_image }}
+      TF_VAR_clickhouse_image: ${{ needs.tags.outputs.clickhouse_image }}
+      TF_VAR_railway_telemetry_image: ${{ needs.tags.outputs.railway_telemetry_image }}
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
         with:
           persist-credentials: false
-
-      - name: Export observability image tags
-        working-directory: ${{ github.workspace }}
-        run: |
-          collector="$(git rev-parse "HEAD:ops/observability/collector")"
-          clickhouse="$(git rev-parse "HEAD:ops/observability/clickhouse")"
-          telemetry="$(git rev-parse "HEAD:ops/observability/railway-telemetry")"
-          {
-            echo "TF_VAR_collector_image=ghcr.io/ctxpipe-ai/obs-collector:${collector}"
-            echo "TF_VAR_clickhouse_image=ghcr.io/ctxpipe-ai/obs-clickhouse:${clickhouse}"
-            echo "TF_VAR_railway_telemetry_image=ghcr.io/ctxpipe-ai/obs-railway-telemetry:${telemetry}"
-          } >> "$GITHUB_ENV"
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
@@ -232,7 +255,7 @@ jobs:
 
   apply:
     name: Observability Terraform apply
-    needs: [validate, images]
+    needs: [validate, images, tags]
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.repository == 'ctxpipe-ai/ctxpipe'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 180
@@ -248,23 +271,14 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      TF_VAR_collector_image: ${{ needs.tags.outputs.collector_image }}
+      TF_VAR_clickhouse_image: ${{ needs.tags.outputs.clickhouse_image }}
+      TF_VAR_railway_telemetry_image: ${{ needs.tags.outputs.railway_telemetry_image }}
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
         with:
           persist-credentials: false
-
-      - name: Export observability image tags
-        working-directory: ${{ github.workspace }}
-        run: |
-          collector="$(git rev-parse "HEAD:ops/observability/collector")"
-          clickhouse="$(git rev-parse "HEAD:ops/observability/clickhouse")"
-          telemetry="$(git rev-parse "HEAD:ops/observability/railway-telemetry")"
-          {
-            echo "TF_VAR_collector_image=ghcr.io/ctxpipe-ai/obs-collector:${collector}"
-            echo "TF_VAR_clickhouse_image=ghcr.io/ctxpipe-ai/obs-clickhouse:${clickhouse}"
-            echo "TF_VAR_railway_telemetry_image=ghcr.io/ctxpipe-ai/obs-railway-telemetry:${telemetry}"
-          } >> "$GITHUB_ENV"
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3

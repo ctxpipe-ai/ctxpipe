@@ -1,7 +1,0 @@
-[deploy]
-healthcheckPath = "/ping"
-healthcheckTimeout = 120
-restartPolicyType = "ON_FAILURE"
-# A bucket outage at boot exits in about 10s. 120 attempts covers a longer blip.
-restartPolicyMaxRetries = 120
-sleepApplication = false

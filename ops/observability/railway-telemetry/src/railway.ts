@@ -1,16 +1,6 @@
-import type { MetricWindow, RailwayLogRow, RailwayMetricRow } from "./otlp"
+import { MEASUREMENTS, type MetricWindow, type RailwayLogRow, type RailwayMetricRow } from "./otlp"
 
 const ENDPOINT = "https://backboard.railway.com/graphql/v2"
-
-const MEASUREMENTS = [
-  "CPU_USAGE",
-  "CPU_LIMIT",
-  "MEMORY_USAGE_GB",
-  "MEMORY_LIMIT_GB",
-  "NETWORK_RX_GB",
-  "NETWORK_TX_GB",
-  "DISK_USAGE_GB",
-] as const
 
 export const LOG_LINE_CAP = 5000
 
@@ -81,7 +71,7 @@ export class RailwayClient {
         endDate: new Date(window.endUnix * 1000).toISOString(),
         sampleRateSeconds: window.sampleRateSeconds,
         groupBy: ["SERVICE_ID", "REGION"],
-        measurements: MEASUREMENTS,
+        measurements: Object.keys(MEASUREMENTS),
       },
     )
     return data.metrics ?? []

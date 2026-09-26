@@ -10,7 +10,7 @@ Querying: [USING.md](./USING.md). Deploy: [terraform/README.md](./terraform/READ
 | --- | --- | --- |
 | collector | `ghcr.io/ctxpipe-ai/obs-collector` | Public OTLP at `telemetry.ctxpipe.ai`. LLM spans go to Langfuse. Scrapes itself and ClickHouse |
 | clickhouse | `ghcr.io/ctxpipe-ai/obs-clickhouse` | 1 GiB, databases `otel` and `langfuse`, tiered. [clickhouse/README.md](./clickhouse/README.md) |
-| hyperdx | `hyperdx/hyperdx:2` | UI at `hyperdx.ctxpipe.ai`. [hyperdx/README.md](./hyperdx/README.md) |
+| hyperdx | `hyperdx/hyperdx:2.39.1` | UI at `hyperdx.ctxpipe.ai`. [hyperdx/README.md](./hyperdx/README.md) |
 | mongo | `mongo:7` | HyperDX metadata |
 | langfuse-web | `langfuse/langfuse:3` | UI at `langfuse.ctxpipe.ai` |
 | langfuse-worker | `langfuse/langfuse-worker:3` | Ingestion |
@@ -26,13 +26,13 @@ Querying: [USING.md](./USING.md). Deploy: [terraform/README.md](./terraform/READ
 
 Sleep is a missing `railway.cpu` sample, not a zero. Nothing polls HyperDX, Mongo, or Langfuse web. The collector scrapes only itself and ClickHouse. Redis stays up because the worker does.
 
-Langfuse web stays up on the stock image: the Prisma client and ioredis send keepalives. No `LANGFUSE_*` variable turns those off. Mongo stays Online with Serverless on; the volume is billed either way. The provider cannot set Serverless. Collector and ClickHouse set `sleepApplication = false` in `railway.toml`.
+Langfuse web stays up on the stock image: the Prisma client and ioredis send keepalives. No `LANGFUSE_*` variable turns those off. Mongo stays Online with Serverless on; the volume is billed either way. The provider cannot set Serverless. Set collector and clickhouse Serverless off once in the Railway dashboard.
 
 Langfuse Postgres is database `langfuse` on the existing Neon `ctxpipe` project. Event blobs are Railway bucket `langfuse-events`.
 
 ## Signals
 
-Product traces, logs, and metrics use public OTLP. `deployment.environment` is `production` or `pr-N`. `service.name` is `backend`, `openworkflow`, `codesearch`, or `ui`. LLM spans take the collector `filter/llm_only` path into Langfuse. The browser posts to same-origin `/.otel` with replay off. Collector and ClickHouse scrapes use `deployment.environment=observability`. Railway gauges and observability runtime logs come from `railway-telemetry`.
+Product traces, logs, and metrics use public OTLP. `service.name` is `backend`, `openworkflow`, `codesearch`, or `ui`. `deployment.environment`: [USING.md](./USING.md#localhost-telemetry). LLM spans take the collector `filter/llm_only` path into Langfuse. The browser posts traces to same-origin `/.otel/v1/traces` and logs to `/.otel/v1/logs`, with replay off. Collector and ClickHouse scrapes use `deployment.environment=observability`. Railway gauges and observability runtime logs come from `railway-telemetry`.
 
 ## Secrets
 

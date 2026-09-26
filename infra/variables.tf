@@ -154,9 +154,4 @@ variable "otel_otlp_headers" {
   type        = string
   description = "OTEL_EXPORTER_OTLP_HEADERS for the public collector (authorization=<HYPERDX_API_KEY>). Same value as OBSERVABILITY_OTLP_HEADERS."
   sensitive   = true
-
-  validation {
-    condition     = length(trimspace(var.otel_otlp_headers)) > 0
-    error_message = "otel_otlp_headers is required so production OTLP includes the collector authorization header."
-  }
 }

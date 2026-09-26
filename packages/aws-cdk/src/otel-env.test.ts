@@ -1,6 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
-import { describe, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { CtxPipe } from "./ctxpipe";
 
 function synth(otel?: ConstructorParameters<typeof CtxPipe>[2]["otel"]): Template {
@@ -87,14 +87,13 @@ describe("CtxPipe OpenTelemetry env", () => {
     expectNoOtelExport(synth());
   });
 
-  it("sets no OTEL env when endpoint is blank", () => {
-    expectNoOtelExport(
+  it("throws when endpoint is blank", () => {
+    expect(() =>
       synth({
         endpoint: "   ",
         headers: cdk.SecretValue.unsafePlainText("Authorization=Bearer collector"),
-        resourceAttributes: "deployment.environment=production",
       }),
-    );
+    ).toThrow(/otel\.endpoint/);
   });
 
   it("expands one endpoint base onto the app tasks", () => {

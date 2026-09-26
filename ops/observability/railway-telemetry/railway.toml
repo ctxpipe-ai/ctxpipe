@@ -1,3 +1,0 @@
-[deploy]
-cronSchedule = "*/5 * * * *"
-restartPolicyType = "NEVER"

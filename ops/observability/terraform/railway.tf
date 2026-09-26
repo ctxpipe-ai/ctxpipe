@@ -80,10 +80,6 @@ resource "railway_variable_collection" "collector" {
       value = "otel"
     },
     {
-      name  = "LANGFUSE_OTLP_ENDPOINT"
-      value = "http://$${{langfuse-web.RAILWAY_PRIVATE_DOMAIN}}:3000/api/public/otel"
-    },
-    {
       name  = "PORT"
       value = "4318"
     },
@@ -129,28 +125,10 @@ resource "railway_service" "redis" {
   }
 }
 
-# PORT-only collections. The images listen on 27017 and 6379, and consumers
-# hardcode those ports. Forget the collections without deleting the live PORT.
-removed {
-  from = railway_variable_collection.mongo
-
-  lifecycle {
-    destroy = false
-  }
-}
-
-removed {
-  from = railway_variable_collection.redis
-
-  lifecycle {
-    destroy = false
-  }
-}
-
 resource "railway_service" "hyperdx" {
   project_id   = local.railway_project_id
   name         = "hyperdx"
-  source_image = "hyperdx/hyperdx:2"
+  source_image = "hyperdx/hyperdx:2.39.1"
   regions      = local.regions
   depends_on   = [railway_service.clickhouse, railway_service.mongo]
 

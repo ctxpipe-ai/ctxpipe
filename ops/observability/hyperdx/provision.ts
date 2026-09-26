@@ -4,7 +4,7 @@
  * Manual, from the repo root (not Railway env):
  *   HYPERDX_ACCESS_KEY=... bun ops/observability/hyperdx/provision.ts
  *
- * Typecheck (no API calls): pnpm exec tsc --noEmit -p ops/observability/hyperdx
+ * Typecheck (no API calls): pnpm --filter hyperdx typecheck
  *
  * API base is https://hyperdx.ctxpipe.ai/api. The public app proxies /api to
  * the API server, so paths are /api/api/v2/...

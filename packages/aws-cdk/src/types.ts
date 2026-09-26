@@ -101,7 +101,7 @@ export interface CtxPipeOtelProps {
    * OTLP/HTTP base URL, without a signal path and without a trailing slash.
    * The construct sets `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to
    * `${endpoint}/v1/traces`, and the same for logs and metrics.
-   * Blank after trim leaves export off.
+   * A blank value throws. Omit `otel` to leave export off.
    */
   readonly endpoint: string;
   /**
