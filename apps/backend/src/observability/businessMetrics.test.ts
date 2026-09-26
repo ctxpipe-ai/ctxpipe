@@ -8,7 +8,6 @@ import {
 } from "@opentelemetry/sdk-metrics"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import {
-  connectorSyncTypeForEnqueuedWorkflow,
   recordEnqueuedWorkflow,
   recordTerminalConnectorSync,
 } from "./businessMetrics.js"
@@ -28,15 +27,14 @@ afterAll(async () => {
   await provider.shutdown()
 })
 
-async function syncCounts(): Promise<
-  { value: number; attributes: Record<string, string> }[]
-> {
-  await reader.forceFlush()
+async function pointsNamed(
+  name: string,
+): Promise<{ value: number; attributes: Record<string, string> }[]> {
   const points: { value: number; attributes: Record<string, string> }[] = []
   for (const resource of exporter.getMetrics()) {
     for (const scope of resource.scopeMetrics) {
       for (const metric of scope.metrics) {
-        if (metric.descriptor.name !== "ctxpipe.connector.syncs") continue
+        if (metric.descriptor.name !== name) continue
         if (metric.dataPointType !== DataPointType.SUM) continue
         for (const point of metric.dataPoints) {
           points.push({
@@ -56,35 +54,14 @@ async function syncCounts(): Promise<
 }
 
 describe("connector sync metrics", () => {
-  it("does not count the startup PR-mirror ensure sweep", () => {
-    expect(
-      connectorSyncTypeForEnqueuedWorkflow("github-ensure-pr-mirror"),
-    ).toBeUndefined()
-  })
-
-  it("still counts a github content sync and skips ingestion workflows", () => {
-    expect(connectorSyncTypeForEnqueuedWorkflow("github-sync-content")).toBe(
-      "github",
-    )
-    expect(
-      connectorSyncTypeForEnqueuedWorkflow("repository-ingestion"),
-    ).toBeUndefined()
-  })
-
-  it("counts a connector sync once when the root workflow finishes", async () => {
+  it("counts a connector sync from the definition's connector type", async () => {
     recordEnqueuedWorkflow("linear-sync-config", { orgId: "org_1" })
-    recordEnqueuedWorkflow("linear-sync-content", { orgId: "org_1" })
-    recordTerminalConnectorSync(
-      "linear-sync-content",
-      { orgId: "org_1" },
-      "success",
-    )
-    recordTerminalConnectorSync(
-      "linear-sync-config",
-      { orgId: "org_1" },
-      "failure",
-    )
-    const points = await syncCounts()
+    recordEnqueuedWorkflow("repository-ingestion", { orgId: "org_1" })
+    recordTerminalConnectorSync(undefined, { orgId: "org_1" }, "success")
+    recordTerminalConnectorSync("linear", { orgId: "org_1" }, "success")
+    recordTerminalConnectorSync("linear", { orgId: "org_1" }, "failure")
+    await reader.forceFlush()
+    const points = await pointsNamed("ctxpipe.connector.syncs")
     expect(points).toEqual(
       expect.arrayContaining([
         {
@@ -106,5 +83,9 @@ describe("connector sync metrics", () => {
       ]),
     )
     expect(points).toHaveLength(2)
+    const ingestion = await pointsNamed("ctxpipe.ingestion.jobs")
+    expect(ingestion).toEqual([
+      { value: 1, attributes: { "ctxpipe.org.id": "org_1" } },
+    ])
   })
 })

@@ -27,6 +27,7 @@ export const linearSyncContent = defineWorkflow(
   {
     name: "linear-sync-content",
     schema: LinearSyncContentInputSchema,
+    connectorType: "linear",
   },
   async ({ input, step }) => {
     const env = parseEnv(process.env as Record<string, string | undefined>)

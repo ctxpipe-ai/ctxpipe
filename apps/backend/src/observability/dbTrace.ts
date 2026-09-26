@@ -1,79 +1,34 @@
-import {
-  type Context,
-  context,
-  type Span,
-  SpanKind,
-  SpanStatusCode,
-  trace,
-} from "@opentelemetry/api"
+import { type Span, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import type { Pool, PoolClient } from "pg"
-import { dbErrorException, scrubDrizzleParams } from "./scrubDbError.js"
+import { dbErrorException } from "./scrubDbError.js"
 
 /**
- * `@opentelemetry/instrumentation-pg` is disabled in `nodeAutoInstrumentationConfig`.
- * When its hook is installed before `pg` loads it emits `pg.query:*` spans beside
- * these. This wrapper is the only Postgres span source.
+ * Per-query Postgres CLIENT spans for the Bun API and the Node worker.
+ * `@opentelemetry/instrumentation-pg` stays disabled: its module hook does not
+ * patch pg on Bun, so this wrapper is the only span source. A query is traced
+ * only while a request or job span is active. Text is parameterized.
  */
-
-type SqlBoundary =
-  | "begin"
-  | "commit"
-  | "rollback"
-  | "savepoint"
-  | "release"
-  | "rollback_to"
-  | "statement"
 
 type PgQuery = (...args: unknown[]) => unknown
 
 export type TraceablePgClient = {
   query: PgQuery
-  release?: (err?: unknown) => void
   database?: string
   connectionParameters?: {
     host?: string
     port?: number | string
     database?: string
-    password?: string
+  }
+  options?: {
+    host?: string
+    port?: number | string
+    database?: string
     connectionString?: string
   }
 }
 
 const instrumentedPools = new WeakSet<object>()
 const instrumentedClients = new WeakSet<object>()
-const clientTxStacks = new WeakMap<object, Span[]>()
-
-function txStackFor(client: object): Span[] {
-  let stack = clientTxStacks.get(client)
-  if (!stack) {
-    stack = []
-    clientTxStacks.set(client, stack)
-  }
-  return stack
-}
-
-function endOpenTransactions(client: object): void {
-  const stack = clientTxStacks.get(client)
-  if (!stack) return
-  while (stack.length > 0) stack.pop()?.end()
-}
-
-function wrapClientRelease(client: TraceablePgClient): void {
-  const release = client.release
-  if (typeof release !== "function") return
-  if (
-    (release as { __ctxpipeReleaseWrapped?: boolean }).__ctxpipeReleaseWrapped
-  ) {
-    return
-  }
-  const wrapped = function (this: TraceablePgClient, err?: unknown) {
-    endOpenTransactions(client)
-    return release.call(this, err)
-  }
-  ;(wrapped as { __ctxpipeReleaseWrapped?: boolean }).__ctxpipeReleaseWrapped =
-    true
-  client.release = wrapped
-}
 
 function capQueryText(text: string): string {
   const limit = 2048
@@ -96,19 +51,6 @@ function stripLeadingSqlComments(text: string): string {
     }
     return trimmed
   }
-}
-
-function sqlBoundary(text: string): SqlBoundary {
-  const statement = stripLeadingSqlComments(text).toLowerCase()
-  if (/^rollback\s+to\s+savepoint\b/.test(statement)) return "rollback_to"
-  if (/^rollback\b/.test(statement)) return "rollback"
-  if (/^release\s+savepoint\b/.test(statement)) return "release"
-  if (/^savepoint\b/.test(statement)) return "savepoint"
-  if (/^begin\b/.test(statement) || /^start\s+transaction\b/.test(statement)) {
-    return "begin"
-  }
-  if (/^commit\b/.test(statement)) return "commit"
-  return "statement"
 }
 
 const TABLE =
@@ -135,7 +77,7 @@ function collectionName(operation: string, text: string): string | undefined {
 function describeSql(text: string): {
   operation: string
   collection?: string
-  boundary: SqlBoundary
+  statement: string
 } {
   const statement = stripLeadingSqlComments(text)
   const operation = (
@@ -145,7 +87,7 @@ function describeSql(text: string): {
   return {
     operation,
     ...(collection ? { collection } : {}),
-    boundary: sqlBoundary(statement),
+    statement,
   }
 }
 
@@ -184,20 +126,6 @@ function numberPort(port: number | string | undefined): number | undefined {
   return parsed
 }
 
-function serverAttributes(
-  client: TraceablePgClient,
-): Record<string, string | number> {
-  const params = client.connectionParameters
-  const attributes: Record<string, string | number> = {}
-  const host = safeHost(params?.host)
-  if (host) attributes["server.address"] = host
-  const port = numberPort(params?.port)
-  if (port !== undefined) attributes["server.port"] = port
-  const database = safeDatabase(client.database ?? params?.database)
-  if (database) attributes["db.namespace"] = database
-  return attributes
-}
-
 export function serverAddressFromUrl(uri: string | undefined): {
   address?: string
   port?: number
@@ -215,6 +143,44 @@ export function serverAddressFromUrl(uri: string | undefined): {
   }
 }
 
+function endpoint(client: TraceablePgClient): {
+  host?: string
+  port?: number | string
+  database?: string
+} {
+  const params = client.connectionParameters
+  if (params?.host || params?.database) return params
+  const options = client.options
+  if (!options) return {}
+  if (options.host || options.database) return options
+  if (!options.connectionString) return {}
+  try {
+    const url = new URL(options.connectionString)
+    return {
+      host: url.hostname,
+      port: url.port,
+      database:
+        decodeURIComponent(url.pathname.replace(/^\//, "")) || undefined,
+    }
+  } catch {
+    return {}
+  }
+}
+
+function serverAttributes(
+  client: TraceablePgClient,
+): Record<string, string | number> {
+  const params = endpoint(client)
+  const attributes: Record<string, string | number> = {}
+  const host = safeHost(params.host)
+  if (host) attributes["server.address"] = host
+  const port = numberPort(params.port)
+  if (port !== undefined) attributes["server.port"] = port
+  const database = safeDatabase(client.database ?? params.database)
+  if (database) attributes["db.namespace"] = database
+  return attributes
+}
+
 function sqlState(error: unknown): string | undefined {
   if (!error || typeof error !== "object") return undefined
   const code = (error as { code?: unknown }).code
@@ -223,21 +189,13 @@ function sqlState(error: unknown): string | undefined {
   return undefined
 }
 
-function sanitizedDbError(error: unknown): Error {
-  const sanitized = dbErrorException(error)
-  if (sanitized.stack) {
-    sanitized.stack = scrubDrizzleParams(sanitized.stack)
-  }
-  return sanitized
-}
-
 function recordDbFailure(span: Span, error: unknown): void {
   const code = sqlState(error)
   if (code) {
     span.setAttribute("db.response.status_code", code)
     span.setAttribute("error.type", code)
   }
-  const sanitized = sanitizedDbError(error)
+  const sanitized = dbErrorException(error)
   span.recordException(sanitized)
   span.setStatus({ code: SpanStatusCode.ERROR, message: sanitized.message })
 }
@@ -249,218 +207,62 @@ function querySpanName(
   return collection ? `${operation} ${collection}` : operation
 }
 
-function isThenable(value: unknown): value is PromiseLike<unknown> {
-  return (
-    value != null &&
-    typeof value === "object" &&
-    "then" in value &&
-    typeof (value as { then?: unknown }).then === "function"
-  )
-}
-
-function parentContext(txStack: Span[]): Context | undefined {
-  const current = txStack[txStack.length - 1]
-  if (current) return trace.setSpan(context.active(), current)
-  if (trace.getActiveSpan()) return context.active()
-  return undefined
-}
-
-function endTransaction(
-  txStack: Span[],
-  error: unknown | undefined,
-  failed: boolean,
-): void {
-  const txSpan = txStack.pop()
-  if (!txSpan) return
-  try {
-    if (failed) {
-      if (error) recordDbFailure(txSpan, error)
-      else txSpan.setStatus({ code: SpanStatusCode.ERROR })
-    }
-  } finally {
-    txSpan.end()
-  }
-}
-
-function traceCall(
-  original: PgQuery,
-  client: TraceablePgClient,
-  args: unknown[],
-  onSettle: (error: unknown | undefined) => void,
-): unknown {
-  let settled = false
-  const settle = (error: unknown | undefined) => {
-    if (settled) return
-    settled = true
-    onSettle(error)
-  }
-  const last = args[args.length - 1]
-  if (typeof last === "function") {
-    const callback = last as (error: unknown, result?: unknown) => void
-    const next = args.slice(0, -1)
-    next.push((error: unknown, result?: unknown) => {
-      settle(error ?? undefined)
-      callback(error, result)
-    })
-    try {
-      return original.apply(client, next)
-    } catch (error) {
-      settle(error)
-      throw error
-    }
-  }
-  try {
-    const result = original.apply(client, args)
-    if (!isThenable(result)) {
-      settle(undefined)
-      return result
-    }
-    return result.then(
-      (value) => {
-        settle(undefined)
-        return value
-      },
-      (error: unknown) => {
-        settle(error)
-        throw error
-      },
-    )
-  } catch (error) {
-    settle(error)
-    throw error
-  }
-}
-
-function runStatement(
+function tracePromiseQuery(
   client: TraceablePgClient,
   original: PgQuery,
   args: unknown[],
-  text: string,
-  parent: Context,
-  tracerName: string,
-  after?: (error: unknown | undefined) => void,
-): unknown {
-  const described = describeSql(text)
-  const span = trace.getTracer(tracerName).startSpan(
-    querySpanName(described.operation, described.collection),
-    {
-      kind: SpanKind.CLIENT,
-      attributes: {
-        "db.system.name": "postgresql",
-        "db.operation.name": described.operation,
-        ...(described.collection
-          ? { "db.collection.name": described.collection }
-          : {}),
-        "db.query.text": capQueryText(text),
-        ...serverAttributes(client),
-      },
-    },
-    parent,
-  )
-  return traceCall(original, client, args, (error) => {
-    try {
-      if (error) recordDbFailure(span, error)
-    } finally {
-      span.end()
-      after?.(error)
-    }
-  })
-}
-
-function startTransactionSpan(
-  client: TraceablePgClient,
-  boundary: "begin" | "savepoint",
-  parent: Context,
-  tracerName: string,
-): Span {
-  const nested = boundary === "savepoint"
-  return trace.getTracer(tracerName).startSpan(
-    nested ? "postgresql savepoint" : "postgresql transaction",
-    {
-      kind: SpanKind.CLIENT,
-      attributes: {
-        "db.system.name": "postgresql",
-        "db.operation.name": nested ? "SAVEPOINT" : "BEGIN",
-        ...serverAttributes(client),
-      },
-    },
-    parent,
-  )
-}
-
-function tracePgQuery(
-  client: TraceablePgClient,
-  original: PgQuery,
-  txStack: Span[],
-  args: unknown[],
   tracerName: string,
 ): unknown {
+  if (args.some((arg) => typeof arg === "function")) {
+    return original.apply(client, args)
+  }
   const text = queryTextFromArgs(args)
-  if (text === undefined) return original.apply(client, args)
-  const boundary = sqlBoundary(text)
-
-  if (boundary === "begin" || boundary === "savepoint") {
-    if (boundary === "begin" && txStack.length > 0) {
-      while (txStack.length > 0) txStack.pop()?.end()
-    }
-    const parent = parentContext(txStack)
-    if (!parent) return original.apply(client, args)
-    const txSpan = startTransactionSpan(client, boundary, parent, tracerName)
-    txStack.push(txSpan)
-    return runStatement(
-      client,
-      original,
-      args,
-      text,
-      trace.setSpan(context.active(), txSpan),
-      tracerName,
-      (error) => {
-        if (error) endTransaction(txStack, error, true)
+  if (text === undefined || !trace.getActiveSpan()) {
+    return original.apply(client, args)
+  }
+  const described = describeSql(text)
+  const attributes: Record<string, string | number> = {
+    "db.system.name": "postgresql",
+    "db.operation.name": described.operation,
+    "db.query.text": capQueryText(described.statement),
+    ...serverAttributes(client),
+  }
+  if (described.collection) {
+    attributes["db.collection.name"] = described.collection
+  }
+  return trace
+    .getTracer(tracerName)
+    .startActiveSpan(
+      querySpanName(described.operation, described.collection),
+      { kind: SpanKind.CLIENT, attributes },
+      async (span) => {
+        try {
+          return await original.apply(client, args)
+        } catch (error) {
+          recordDbFailure(span, error)
+          throw error
+        } finally {
+          span.end()
+        }
       },
     )
-  }
-
-  const parent = parentContext(txStack)
-  if (!parent) return original.apply(client, args)
-  const closing =
-    boundary === "commit" ||
-    boundary === "release" ||
-    boundary === "rollback" ||
-    boundary === "rollback_to"
-  return runStatement(
-    client,
-    original,
-    args,
-    text,
-    parent,
-    tracerName,
-    (error) => {
-      if (!closing) return
-      const failed =
-        error != null || boundary === "rollback" || boundary === "rollback_to"
-      endTransaction(txStack, error, failed)
-    },
-  )
 }
 
-/** One client span per query. Transaction boundaries parent the queries inside them. */
+/** One CLIENT span per promise-API query, parented to the active span. */
 export function instrumentPgClient(
   client: TraceablePgClient,
   tracerName = "ctxpipe-backend",
 ): void {
-  wrapClientRelease(client)
   if (instrumentedClients.has(client)) return
   instrumentedClients.add(client)
   const original = client.query
-  const txStack = txStackFor(client)
   client.query = ((...args: unknown[]) =>
-    tracePgQuery(client, original, txStack, args, tracerName)) as PgQuery
+    tracePromiseQuery(client, original, args, tracerName)) as PgQuery
 }
 
 /**
- * Trace queries on clients this pool checks out.
- * No span is created unless a server or job span is already active, so idle
- * pool traffic cannot become a root trace.
+ * Trace `pool.query` and clients checked out with the promise API.
+ * Drizzle uses both. Callback queries are left alone.
  */
 export function instrumentPgPool(
   pool: Pool,
@@ -469,6 +271,7 @@ export function instrumentPgPool(
   if (instrumentedPools.has(pool)) return
   instrumentedPools.add(pool)
   const tracerName = options?.tracerName ?? "ctxpipe-backend"
+  instrumentPgClient(pool as unknown as TraceablePgClient, tracerName)
   const originalConnect = pool.connect.bind(pool) as Pool["connect"]
   pool.connect = ((
     callback?: (
@@ -477,20 +280,9 @@ export function instrumentPgPool(
       done: (release?: unknown) => void,
     ) => void,
   ) => {
-    if (callback) {
-      return originalConnect((err, client, done) => {
-        if (client) {
-          const traced = client as unknown as TraceablePgClient
-          instrumentPgClient(traced, tracerName)
-          endOpenTransactions(traced)
-        }
-        callback(err, client, done)
-      })
-    }
+    if (callback) return originalConnect(callback)
     return originalConnect().then((client) => {
-      const traced = client as unknown as TraceablePgClient
-      instrumentPgClient(traced, tracerName)
-      endOpenTransactions(traced)
+      instrumentPgClient(client as unknown as TraceablePgClient, tracerName)
       return client
     })
   }) as Pool["connect"]
@@ -512,7 +304,7 @@ function describeCypher(query: string): {
   }
 }
 
-/** Client span for one graph query. Skipped when no server or job span is active. */
+/** CLIENT span for one graph query. Skipped when no request or job span is active. */
 export function traceGraphQuery<T>(
   input: {
     system: string
@@ -538,23 +330,23 @@ export function traceGraphQuery<T>(
     attributes["db.namespace"] = input.namespace
   }
   if (input.serverAddress) attributes["server.address"] = input.serverAddress
-  if (input.serverPort !== undefined)
+  if (input.serverPort !== undefined) {
     attributes["server.port"] = input.serverPort
-  const span = trace
+  }
+  return trace
     .getTracer(input.tracerName ?? "ctxpipe-backend")
-    .startSpan(querySpanName(described.operation, described.collection), {
-      kind: SpanKind.CLIENT,
-      attributes,
-    })
-  return Promise.resolve()
-    .then(run)
-    .then((value) => {
-      span.end()
-      return value
-    })
-    .catch((error: unknown) => {
-      recordDbFailure(span, error)
-      span.end()
-      throw error
-    })
+    .startActiveSpan(
+      querySpanName(described.operation, described.collection),
+      { kind: SpanKind.CLIENT, attributes },
+      async (span) => {
+        try {
+          return await run()
+        } catch (error) {
+          recordDbFailure(span, error)
+          throw error
+        } finally {
+          span.end()
+        }
+      },
+    )
 }

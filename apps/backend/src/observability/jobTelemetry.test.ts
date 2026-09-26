@@ -1,41 +1,57 @@
-import { context, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
+import {
+  context,
+  metrics,
+  SpanKind,
+  SpanStatusCode,
+  trace,
+} from "@opentelemetry/api"
+import {
+  AggregationTemporality,
+  DataPointType,
+  InMemoryMetricExporter,
+  MeterProvider,
+  PeriodicExportingMetricReader,
+} from "@opentelemetry/sdk-metrics"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest"
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { applyAttribution, contextWithAttributionBag } from "./attribution.js"
-import * as businessMetrics from "./businessMetrics.js"
 import {
   attachJobTelemetry,
   captureJobTelemetry,
   restoreJobTelemetry,
 } from "./jobTelemetry.js"
+import { createLogger, loggerStorage } from "./logger.js"
 
 const exporter = new InMemorySpanExporter()
 const provider = new NodeTracerProvider({
   spanProcessors: [new SimpleSpanProcessor(exporter)],
 })
+const metricExporter = new InMemoryMetricExporter(
+  AggregationTemporality.CUMULATIVE,
+)
+const metricReader = new PeriodicExportingMetricReader({
+  exporter: metricExporter,
+  exportIntervalMillis: 60_000,
+})
+const meterProvider = new MeterProvider({ readers: [metricReader] })
 
 beforeAll(() => {
   provider.register()
+  metrics.setGlobalMeterProvider(meterProvider)
 })
 
 beforeEach(() => {
   exporter.reset()
+  loggerStorage.enterWith(createLogger({}))
 })
 
 afterAll(async () => {
   await provider.shutdown()
+  await meterProvider.shutdown()
 })
 
 describe("job telemetry", () => {
@@ -53,9 +69,10 @@ describe("job telemetry", () => {
         "ctxpipe.actor.type": "user",
       })
       const telemetry = captureJobTelemetry()
-      expect(telemetry?.traceparent).toMatch(
+      expect(telemetry?.carrier?.traceparent).toMatch(
         /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/,
       )
+      expect(telemetry).not.toHaveProperty("traceparent")
       expect(telemetry).toMatchObject({
         "request.id": "req_job",
         "enduser.id": "user_1",
@@ -324,7 +341,6 @@ describe("job telemetry", () => {
   })
 
   it("marks fan-out enqueued from a job so that child is not a second sync", async () => {
-    const record = vi.spyOn(businessMetrics, "recordTerminalConnectorSync")
     let nested: boolean | undefined
     await restoreJobTelemetry(
       undefined,
@@ -336,19 +352,33 @@ describe("job telemetry", () => {
           async () => undefined,
           { orgId: "org_child" },
           "linear-sync-content",
+          "linear",
         )
       },
       { orgId: "org_root" },
       "linear-sync-config",
+      "linear",
     )
     expect(nested).toBe(true)
-    expect(record).toHaveBeenCalledTimes(1)
-    expect(record).toHaveBeenCalledWith(
-      "linear-sync-config",
-      { orgId: "org_root" },
-      "success",
-    )
-    record.mockRestore()
+    await metricReader.forceFlush()
+    const syncs = metricExporter
+      .getMetrics()
+      .flatMap((resource) => resource.scopeMetrics)
+      .flatMap((scope) => scope.metrics)
+      .filter((metric) => metric.descriptor.name === "ctxpipe.connector.syncs")
+    expect(syncs).toHaveLength(1)
+    const data = syncs[0]?.dataPoints
+    expect(syncs[0]?.dataPointType).toBe(DataPointType.SUM)
+    expect(data).toEqual([
+      expect.objectContaining({
+        value: 1,
+        attributes: {
+          "ctxpipe.org.id": "org_root",
+          "ctxpipe.connector.type": "linear",
+          outcome: "success",
+        },
+      }),
+    ])
     const child = exporter
       .getFinishedSpans()
       .find((span) => span.name === "openworkflow.job linear-sync-content")

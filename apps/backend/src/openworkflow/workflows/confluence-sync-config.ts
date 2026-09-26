@@ -21,6 +21,7 @@ export const confluenceSyncConfig = defineWorkflow(
   {
     name: "confluence-sync-config",
     schema: confluenceSyncConfigInputSchema,
+    connectorType: "confluence",
   },
   async ({ input }) => {
     const target = await getConfluenceSyncTargetByConnectionId(

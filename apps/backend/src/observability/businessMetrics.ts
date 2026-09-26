@@ -9,8 +9,6 @@ function counter(name: string): Counter {
     counters.clear()
     cachedProvider = provider
   }
-  const existing = counters.get(name)
-  if (existing) return existing
   const instrument = provider.getMeter("ctxpipe-backend").createCounter(name)
   counters.set(name, instrument)
   return instrument
@@ -39,31 +37,11 @@ export function recordConnectorSync(
   })
 }
 
-export function connectorTypeFromWorkflow(name: string): string | undefined {
-  if (name.includes("pagerduty")) return "pagerduty"
-  if (name.includes("linear")) return "linear"
-  if (name.includes("notion")) return "notion"
-  if (name.includes("slack")) return "slack"
-  if (name.includes("confluence")) return "confluence"
-  if (name.includes("forge")) return "forge"
-  if (name.includes("github")) return "github"
-  return undefined
-}
-
 const INGESTION_WORKFLOWS = new Set([
   "repository-ingestion",
   "repository-ingestion-orchestrator",
   "repository-index",
 ])
-
-/** Startup PR-mirror ensure is not a connector sync. */
-export function connectorSyncTypeForEnqueuedWorkflow(
-  workflowName: string,
-): string | undefined {
-  if (workflowName === "github-ensure-pr-mirror") return undefined
-  if (INGESTION_WORKFLOWS.has(workflowName)) return undefined
-  return connectorTypeFromWorkflow(workflowName)
-}
 
 export function recordEnqueuedWorkflow(
   workflowName: string,
@@ -77,17 +55,16 @@ export function recordEnqueuedWorkflow(
 
 /**
  * One count per root sync workflow, after it finishes.
- * Nested fan-out (config → content, enqueued from a job) is skipped by the caller.
+ * Nested fan-out is skipped by the caller. `connectorType` comes from the
+ * workflow definition, not the workflow name.
  */
 export function recordTerminalConnectorSync(
-  workflowName: string | undefined,
+  connectorType: string | undefined,
   input: unknown,
   outcome: "success" | "failure",
 ): void {
-  if (!workflowName || !input || typeof input !== "object") return
+  if (!connectorType || !input || typeof input !== "object") return
   const orgId = (input as { orgId?: unknown }).orgId
   if (typeof orgId !== "string" || !orgId) return
-  const connector = connectorSyncTypeForEnqueuedWorkflow(workflowName)
-  if (!connector) return
-  recordConnectorSync(orgId, connector, outcome)
+  recordConnectorSync(orgId, connectorType, outcome)
 }

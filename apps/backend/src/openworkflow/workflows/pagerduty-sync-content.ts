@@ -17,7 +17,11 @@ const pagerdutySyncContentInputSchema = z.object({
 })
 
 export const pagerdutySyncContent = defineWorkflow(
-  { name: "pagerduty-sync-content", schema: pagerdutySyncContentInputSchema },
+  {
+    name: "pagerduty-sync-content",
+    schema: pagerdutySyncContentInputSchema,
+    connectorType: "pagerduty",
+  },
   async ({ input, step }) => {
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const markSyncFailed = () =>

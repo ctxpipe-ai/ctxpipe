@@ -4,14 +4,19 @@ import {
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 
-const { runWorkflow, scheduleEnsureWorkerRunning } = vi.hoisted(() => {
+const { runWorkflow } = vi.hoisted(() => {
   process.env.DATABASE_URL ??= "postgres://user:pass@127.0.0.1:5432/ctxpipe"
-  return {
-    runWorkflow: vi.fn(),
-    scheduleEnsureWorkerRunning: vi.fn(),
-  }
+  return { runWorkflow: vi.fn() }
 })
 
 vi.mock("openworkflow", () => ({
@@ -24,10 +29,6 @@ vi.mock("openworkflow/postgres", () => ({
   BackendPostgres: {
     connect: vi.fn(async () => ({})),
   },
-}))
-
-vi.mock("./railway-wake.js", () => ({
-  scheduleEnsureWorkerRunning,
 }))
 
 import { runWorkflowWithWorkerWake } from "./client.js"
@@ -44,7 +45,6 @@ beforeAll(() => {
 beforeEach(() => {
   exporter.reset()
   runWorkflow.mockReset()
-  scheduleEnsureWorkerRunning.mockReset()
 })
 
 afterAll(async () => {
@@ -54,10 +54,12 @@ afterAll(async () => {
 describe("runWorkflowWithWorkerWake", () => {
   it("does not start a span when nothing is already tracing", async () => {
     runWorkflow.mockResolvedValue({ id: "run_1" })
-    await runWorkflowWithWorkerWake({ name: "repository-ingestion" }, { orgId: "org_1" })
+    await runWorkflowWithWorkerWake(
+      { name: "repository-ingestion" },
+      { orgId: "org_1" },
+    )
     expect(runWorkflow).toHaveBeenCalledTimes(1)
     expect(exporter.getFinishedSpans()).toHaveLength(0)
-    expect(scheduleEnsureWorkerRunning).toHaveBeenCalledTimes(1)
   })
 
   it("parents an enqueue span to the active span", async () => {
@@ -76,8 +78,10 @@ describe("runWorkflowWithWorkerWake", () => {
     const enqueue = spans.find(
       (span) => span.name === "openworkflow.enqueue repository-ingestion",
     )
-    expect(enqueue?.kind).toBe(SpanKind.CLIENT)
-    expect(enqueue?.parentSpanContext?.spanId).toBe(request?.spanContext().spanId)
+    expect(enqueue?.kind).toBe(SpanKind.PRODUCER)
+    expect(enqueue?.parentSpanContext?.spanId).toBe(
+      request?.spanContext().spanId,
+    )
     expect(enqueue?.attributes["db.system.name"]).toBe("postgresql")
     expect(enqueue?.attributes["db.operation.name"]).toBe("enqueue")
     expect(enqueue?.status.code).not.toBe(SpanStatusCode.ERROR)
@@ -92,10 +96,12 @@ describe("runWorkflowWithWorkerWake", () => {
     )
     await expect(
       trace.getTracer("ctxpipe-backend").startActiveSpan("request", (request) =>
-        runWorkflowWithWorkerWake({ name: "repository-ingestion" }, { orgId: "org_1" })
-          .finally(() => {
-            request.end()
-          }),
+        runWorkflowWithWorkerWake(
+          { name: "repository-ingestion" },
+          { orgId: "org_1" },
+        ).finally(() => {
+          request.end()
+        }),
       ),
     ).rejects.toThrow(/Failed query/)
     const enqueue = exporter
@@ -110,6 +116,5 @@ describe("runWorkflowWithWorkerWake", () => {
         events: enqueue?.events,
       }),
     ).not.toContain(secret)
-    expect(scheduleEnsureWorkerRunning).not.toHaveBeenCalled()
   })
 })

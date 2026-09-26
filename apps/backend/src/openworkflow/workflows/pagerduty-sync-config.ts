@@ -25,7 +25,11 @@ const pagerdutySyncConfigInputSchema = z.object({
 })
 
 export const pagerdutySyncConfig = defineWorkflow(
-  { name: "pagerduty-sync-config", schema: pagerdutySyncConfigInputSchema },
+  {
+    name: "pagerduty-sync-config",
+    schema: pagerdutySyncConfigInputSchema,
+    connectorType: "pagerduty",
+  },
   async ({ input, step }) => {
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const binding = await step.run({ name: "load-pagerduty-binding" }, () =>

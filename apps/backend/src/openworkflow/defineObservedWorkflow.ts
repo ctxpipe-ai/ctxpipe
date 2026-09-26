@@ -1,28 +1,118 @@
-import { defineWorkflow as defineOpenWorkflow } from "openworkflow"
+import {
+  defineWorkflow as defineOpenWorkflow,
+  type RetryPolicy,
+  type Workflow,
+  type WorkflowRunMetadata,
+} from "openworkflow"
+import type { z } from "zod"
 import {
   type JobTelemetry,
   jobTelemetrySchema,
   restoreJobTelemetry,
 } from "../observability/jobTelemetry.js"
 
-type ExtendableSchema<T> = {
-  extend: (shape: {
-    telemetry: ReturnType<typeof jobTelemetrySchema.optional>
-  }) => T
+export const CONNECTOR_TYPES = [
+  "github",
+  "linear",
+  "notion",
+  "slack",
+  "confluence",
+  "forge",
+  "pagerduty",
+] as const
+
+export type ConnectorType = (typeof CONNECTOR_TYPES)[number]
+
+type WorkflowSpecOf<Input, Output, RawInput> = Workflow<
+  Input,
+  Output,
+  RawInput
+>["spec"]
+
+type DurationUnit =
+  | "years"
+  | "year"
+  | "yrs"
+  | "yr"
+  | "y"
+  | "months"
+  | "month"
+  | "mo"
+  | "weeks"
+  | "week"
+  | "w"
+  | "days"
+  | "day"
+  | "d"
+  | "hours"
+  | "hour"
+  | "hrs"
+  | "hr"
+  | "h"
+  | "minutes"
+  | "minute"
+  | "mins"
+  | "min"
+  | "m"
+  | "seconds"
+  | "second"
+  | "secs"
+  | "sec"
+  | "s"
+  | "milliseconds"
+  | "millisecond"
+  | "msecs"
+  | "msec"
+  | "ms"
+type DurationUnitAnyCase =
+  | Capitalize<DurationUnit>
+  | Uppercase<DurationUnit>
+  | Lowercase<DurationUnit>
+/** Same shape as openworkflow's `DurationString`, which is not exported. */
+type DurationString =
+  | `${number}`
+  | `${number}${DurationUnitAnyCase}`
+  | `${number} ${DurationUnitAnyCase}`
+
+type StepApi = {
+  run: <Output>(
+    config: {
+      readonly name: string
+      readonly retryPolicy?: Partial<RetryPolicy>
+    },
+    fn: () => Promise<Output | undefined> | Output | undefined,
+  ) => Promise<Output>
+  runWorkflow: <Input, Output, RawInput = Input>(
+    spec: WorkflowSpecOf<Input, Output, RawInput>,
+    input?: RawInput,
+    options?: {
+      readonly name?: string
+      readonly timeout?: number | string | Date
+    },
+  ) => Promise<Output>
+  sleep: (name: string, duration: DurationString) => Promise<void>
 }
 
-function hasExtend<T>(schema: T): schema is T & ExtendableSchema<T> {
-  return (
-    typeof schema === "object" &&
-    schema !== null &&
-    "extend" in schema &&
-    typeof schema.extend === "function"
-  )
+type ObservedCtx<Input> = {
+  readonly input: Input
+  readonly step: StepApi
+  readonly version: string | null
+  readonly run: WorkflowRunMetadata
 }
 
-function withTelemetrySchema<T>(schema: T, workflowName: string): T {
-  if (schema == null) return schema
-  if (!hasExtend(schema)) {
+type ObservedSpec<S extends z.ZodObject<z.ZodRawShape>> = {
+  name: string
+  version?: string
+  schema: S
+  retryPolicy?: Partial<RetryPolicy>
+  connectorType?: ConnectorType
+}
+
+function withTelemetrySchema<S extends z.ZodObject<z.ZodRawShape>>(
+  schema: S,
+  workflowName: string,
+) {
+  if (typeof schema?.extend !== "function") {
     throw new Error(
       `Workflow ${workflowName} must use an object schema so job telemetry is kept on the input`,
     )
@@ -32,34 +122,32 @@ function withTelemetrySchema<T>(schema: T, workflowName: string): T {
   })
 }
 
-type ObservedCtx = {
-  input: { telemetry?: JobTelemetry }
-  step: unknown
-  version: string | null
-  run: unknown
-}
-
-export const defineWorkflow: typeof defineOpenWorkflow = ((
-  spec: {
-    name: string
-    version?: string
-    schema?: unknown
-    retryPolicy?: unknown
-  },
-  fn: (ctx: ObservedCtx) => unknown,
-) => {
+export function defineWorkflow<
+  S extends z.ZodObject<z.ZodRawShape>,
+  Fn extends (ctx: ObservedCtx<z.output<S>>) => unknown,
+>(
+  spec: ObservedSpec<S>,
+  fn: Fn,
+): Workflow<z.output<S>, Awaited<ReturnType<Fn>>, z.input<S>> {
+  const schema = withTelemetrySchema(spec.schema, spec.name)
+  // Zod's standard-schema `validate` result is wider than `z.output` of a
+  // generic object schema, so the extended schema is asserted once here.
   return defineOpenWorkflow(
     {
-      ...spec,
-      schema: withTelemetrySchema(spec.schema, spec.name),
-    } as never,
-    (async (ctx: ObservedCtx) => {
+      name: spec.name,
+      version: spec.version,
+      retryPolicy: spec.retryPolicy,
+      schema,
+    } as Workflow<z.output<S>, Awaited<ReturnType<Fn>>, z.input<S>>["spec"],
+    async (ctx) => {
+      const input = ctx.input as z.output<S> & { telemetry?: JobTelemetry }
       return restoreJobTelemetry(
-        ctx.input?.telemetry,
-        async () => fn(ctx),
-        ctx.input,
+        input.telemetry,
+        async () => fn({ ...ctx, input }),
+        input,
         spec.name,
+        spec.connectorType,
       )
-    }) as never,
-  )
-}) as typeof defineOpenWorkflow
+    },
+  ) as Workflow<z.output<S>, Awaited<ReturnType<Fn>>, z.input<S>>
+}

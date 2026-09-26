@@ -24,6 +24,7 @@ export const confluenceSyncContent = defineWorkflow(
   {
     name: "confluence-sync-content",
     schema: confluenceSyncContentInputSchema,
+    connectorType: "confluence",
   },
   async ({ input, step }) => {
     const resolveSyncContextResult = await step.run(

@@ -26,7 +26,11 @@ const notionSyncConfigInputSchema = z.object({
 })
 
 export const notionSyncConfig = defineWorkflow(
-  { name: "notion-sync-config", schema: notionSyncConfigInputSchema },
+  {
+    name: "notion-sync-config",
+    schema: notionSyncConfigInputSchema,
+    connectorType: "notion",
+  },
   async ({ input, step }) => {
     const binding = await step.run({ name: "load-notion-binding" }, () =>
       getNotionBindingByConnectionId(input.connectionId),

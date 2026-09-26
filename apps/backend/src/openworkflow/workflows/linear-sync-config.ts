@@ -33,6 +33,7 @@ export const linearSyncConfig = defineWorkflow(
   {
     name: "linear-sync-config",
     schema: LinearSyncConfigInputSchema,
+    connectorType: "linear",
   },
   async ({ input }) => {
     const target = await getLinearBindingWithRepoByConnectionId(

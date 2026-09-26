@@ -44,8 +44,9 @@ function createDrizzleDb(connectionString: string) {
           : undefined,
     })
   })
-  wrapPoolQueryWithTransientRetry(client)
+  // Instrument first so a transient retry is its own query span.
   instrumentPgPool(client)
+  wrapPoolQueryWithTransientRetry(client)
   return drizzle({ client, schema, relations })
 }
 

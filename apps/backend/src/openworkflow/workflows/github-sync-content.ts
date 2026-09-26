@@ -32,6 +32,7 @@ export const githubSyncContent = defineWorkflow(
   {
     name: "github-sync-content",
     schema: GithubSyncContentInputSchema,
+    connectorType: "github",
   },
   async ({ input, step }) => {
     const env = parseEnv(process.env as Record<string, string | undefined>)

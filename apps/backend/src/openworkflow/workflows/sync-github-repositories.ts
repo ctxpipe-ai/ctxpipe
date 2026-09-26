@@ -29,6 +29,7 @@ export const syncGithubRepositories = defineWorkflow(
   {
     name: "sync-github-repositories",
     schema: syncGithubRepositoriesInputSchema,
+    connectorType: "github",
   },
   async ({ input, step }) =>
     withLogger(

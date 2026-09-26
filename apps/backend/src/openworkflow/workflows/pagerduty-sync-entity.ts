@@ -18,7 +18,11 @@ const pagerdutySyncEntityInputSchema = z.object({
 })
 
 export const pagerdutySyncEntity = defineWorkflow(
-  { name: "pagerduty-sync-entity", schema: pagerdutySyncEntityInputSchema },
+  {
+    name: "pagerduty-sync-entity",
+    schema: pagerdutySyncEntityInputSchema,
+    connectorType: "pagerduty",
+  },
   async ({ input, step }) => {
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const context = await step.run(
