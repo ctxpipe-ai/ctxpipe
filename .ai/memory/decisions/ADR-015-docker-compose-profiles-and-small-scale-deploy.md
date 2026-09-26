@@ -20,7 +20,9 @@ Legacy Compose had containerized dev commands and removed `Dockerfile.dev` files
 
    - **`deploy`** — Shared data services plus app containers: **`migrate`** (one-shot Drizzle migration via [`apps/backend/src/db/migrate.ts`](../../../apps/backend/src/db/migrate.ts)), **`backend`**, **`worker`**, **`ui`**, **`codesearch`**. Used by **`pnpm start`** → `docker compose --profile deploy up -d`.
 
-2. **Dual-tagging** — `postgres`, `falkordb`, and `otel-collector` use `profiles: [infra, deploy]` so they participate in both modes.
+2. **Dual-tagging** — `postgres` and `falkordb` use `profiles: [infra, deploy]` so they participate in both modes. **`otel-collector` is `infra` only** (contributor laptop collector). The **`deploy`** profile does not start it and does not set a collector URL. App containers export OTLP only when the operator sets `OTEL_EXPORTER_OTLP_*` (empty values are unset).
+
+**Update (2026-09-26):** Self-host deploy no longer bundles the collector. Earlier dual-tagging put `otel-collector` on `deploy` and hardcoded `http://otel-collector:4318` on the app services. That collector exports to Better Stack and Langfuse with contributor tokens, which is the wrong default for a self-hosted stack.
 
 3. **Zoekt** — The **deploy** `codesearch` service and **host dev** (`codesearch-docker-dev.sh`) use [`apps/codesearch/Dockerfile`](../../../apps/codesearch/Dockerfile) and [`start.sh`](../../../apps/codesearch/start.sh) (Zoekt webserver + Bun in one container). Set **`ZOEKT_WEBSERVER_URL=http://127.0.0.1:6070`** inside that container. There is no separate **`zoekt-webserver`** Compose service for local dev.
 

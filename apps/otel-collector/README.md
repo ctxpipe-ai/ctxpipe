@@ -1,6 +1,8 @@
 # OpenTelemetry Collector (laptop / contrib)
 
-Shared OpenTelemetry Collector for local docker compose (optional Better Stack + LangFuse). **Hosted ingest** is the ClickStack collector under [`ops/observability/collector`](../../ops/observability/collector) ([ADR-038](../../.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md)). Keep the `filter/llm_only` allowlist in sync with that file.
+Contributor collector for the Compose **`infra`** profile (`pnpm dev:infra`). It is **not** part of the self-host **`deploy`** profile or the AWS `CtxPipe` construct. Self-hosters set `OTEL_EXPORTER_OTLP_*` on the app services and point those at their own OTLP endpoint.
+
+This file can fan out to Better Stack and Langfuse when you fill in `apps/otel-collector/.env`. **Hosted ingest** is the ClickStack collector under [`ops/observability/collector`](../../ops/observability/collector) ([ADR-038](../../.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md)). Keep the `filter/llm_only` allowlist in sync with that file.
 
 ## Trace pipelines
 

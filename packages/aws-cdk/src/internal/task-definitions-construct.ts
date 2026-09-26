@@ -1,12 +1,39 @@
 import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as iam from "aws-cdk-lib/aws-iam";
-import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 import { buildModelContainerConfig } from "../model-provider";
+import type { CtxPipeOtelProps } from "../types";
 import type {
   TaskDefinitionsConstructProps,
   TaskDefinitionsResources,
 } from "./contracts";
+
+function otelExportEnvironment(
+  otel: CtxPipeOtelProps | undefined,
+  serviceName: string,
+): Record<string, string> {
+  const tracesEndpoint = otel?.tracesEndpoint?.trim();
+  const logsEndpoint = otel?.logsEndpoint?.trim();
+  const metricsEndpoint = otel?.metricsEndpoint?.trim();
+  if (!tracesEndpoint && !logsEndpoint && !metricsEndpoint) {
+    return {};
+  }
+  const resourceAttributes = otel?.resourceAttributes?.trim();
+  return {
+    ...(tracesEndpoint
+      ? { OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: tracesEndpoint }
+      : {}),
+    ...(logsEndpoint ? { OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: logsEndpoint } : {}),
+    ...(metricsEndpoint
+      ? { OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: metricsEndpoint }
+      : {}),
+    ...(resourceAttributes
+      ? { OTEL_RESOURCE_ATTRIBUTES: resourceAttributes }
+      : {}),
+    OTEL_SERVICE_NAME: serviceName,
+  };
+}
 
 export class TaskDefinitionsConstruct extends Construct {
   public readonly resources: TaskDefinitionsResources;
@@ -26,6 +53,25 @@ export class TaskDefinitionsConstruct extends Construct {
           }
         : {}),
     });
+
+    const otelExportEnabled =
+      Object.keys(otelExportEnvironment(props.otel, "backend")).length > 0;
+    const otelHeadersSecret =
+      otelExportEnabled && props.otel?.headers
+        ? new secretsmanager.Secret(this, "OtelHeadersSecret", {
+            secretObjectValue: {
+              OTEL_EXPORTER_OTLP_HEADERS: props.otel.headers,
+            },
+          })
+        : undefined;
+    const otelHeaderSecrets: Record<string, ecs.Secret> = otelHeadersSecret
+      ? {
+          OTEL_EXPORTER_OTLP_HEADERS: ecs.Secret.fromSecretsManager(
+            otelHeadersSecret,
+            "OTEL_EXPORTER_OTLP_HEADERS",
+          ),
+        }
+      : {};
 
     const backendTask = new ecs.FargateTaskDefinition(this, "BackendTask", {
       memoryLimitMiB: props.sizeProfile.tasks.backend.memoryLimitMiB,
@@ -83,13 +129,13 @@ export class TaskDefinitionsConstruct extends Construct {
         PORT: "3000",
         AUTH_BASE_URL: appUrl,
         AUTH_ALLOWED_ORIGINS: appUrl,
-        OTEL_SERVICE_NAME: "backend",
         GRAPH_DB_PROVIDER: "neptune",
         GRAPH_DB_URI: props.dataPlane.graphDbUri,
         [`GRAPH_DB_URI_${props.orgSlug}`]: props.dataPlane.graphDbUri,
         UI_PROXY_URL: "http://ui.ctxpipe.local:3002",
         CODESEARCH_URL: "http://codesearch.ctxpipe.local:3001",
         ...modelContainerConfig.environment,
+        ...otelExportEnvironment(props.otel, "backend"),
       },
       secrets: {
         AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
@@ -107,6 +153,7 @@ export class TaskDefinitionsConstruct extends Construct {
         ),
         ...modelContainerConfig.secrets,
         ...props.secrets.connectorEnv,
+        ...otelHeaderSecrets,
       },
       portMappings: [{ containerPort: 3000 }],
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-backend" }),
@@ -132,6 +179,7 @@ export class TaskDefinitionsConstruct extends Construct {
           props.sizeProfile.concurrency.codesearchIndexerConcurrency,
         ),
         ...modelContainerConfig.environment,
+        ...otelExportEnvironment(props.otel, "openworkflow"),
       },
       secrets: {
         AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
@@ -149,6 +197,7 @@ export class TaskDefinitionsConstruct extends Construct {
         ),
         ...modelContainerConfig.secrets,
         ...props.secrets.connectorEnv,
+        ...otelHeaderSecrets,
       },
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-worker" }),
     });
@@ -161,7 +210,9 @@ export class TaskDefinitionsConstruct extends Construct {
         NODE_ENV: "production",
         PORT: "3002",
         VITE_PUBLIC_API_URL: appUrl,
+        ...otelExportEnvironment(props.otel, "ui"),
       },
+      ...(otelHeadersSecret ? { secrets: otelHeaderSecrets } : {}),
       portMappings: [{ containerPort: 3002 }],
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-ui" }),
     });
@@ -184,6 +235,7 @@ export class TaskDefinitionsConstruct extends Construct {
         CODESEARCH_INDEX_PIPELINE_CONCURRENCY: String(
           props.sizeProfile.concurrency.codesearchIndexPipelineConcurrency,
         ),
+        ...otelExportEnvironment(props.otel, "codesearch"),
       },
       secrets: {
         AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
@@ -191,6 +243,7 @@ export class TaskDefinitionsConstruct extends Construct {
           props.secrets.databaseUrlSecret,
           "DATABASE_URL",
         ),
+        ...otelHeaderSecrets,
       },
       portMappings: [{ containerPort: 3001 }],
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-codesearch" }),
@@ -226,6 +279,7 @@ export class TaskDefinitionsConstruct extends Construct {
       props.secrets.modelProviderSecret,
       props.secrets.smtpSecret,
       props.secrets.connectorSecret,
+      otelHeadersSecret,
     ]);
     this.grantTaskSecrets(workerTask, [
       props.secrets.authSecret,
@@ -233,11 +287,14 @@ export class TaskDefinitionsConstruct extends Construct {
       props.secrets.modelProviderSecret,
       props.secrets.smtpSecret,
       props.secrets.connectorSecret,
+      otelHeadersSecret,
     ]);
     this.grantTaskSecrets(codesearchTask, [
       props.secrets.authSecret,
       props.secrets.databaseUrlSecret,
+      otelHeadersSecret,
     ]);
+    this.grantTaskSecrets(uiTask, [otelHeadersSecret]);
     this.grantTaskSecrets(migrateTask, [
       props.secrets.authSecret,
       props.secrets.databaseUrlSecret,

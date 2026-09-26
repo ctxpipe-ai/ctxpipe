@@ -49,6 +49,24 @@ Bedrock model specs use **dot** ids with optional **`reasoning.effort`** query p
 
 Do not commit secrets; pass any local overrides via `-c` only when needed.
 
+## Observability
+
+`CtxPipe` does not deploy a collector. The example leaves `otel` unset, so the tasks export nothing and do not call ctxpipe hosted endpoints.
+
+To send traces, logs, and metrics to your own OTLP/HTTP endpoint, pass `otel` on `CtxPipe` in [`bin/app.ts`](./bin/app.ts):
+
+```ts
+otel: {
+  tracesEndpoint: "https://otel.example.com/v1/traces",
+  logsEndpoint: "https://otel.example.com/v1/logs",
+  metricsEndpoint: "https://otel.example.com/v1/metrics",
+  headers: cdk.SecretValue.unsafePlainText("Authorization=Bearer replace-me"),
+  resourceAttributes: "deployment.environment=production",
+},
+```
+
+That sets `OTEL_EXPORTER_OTLP_{TRACES,LOGS,METRICS}_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_RESOURCE_ATTRIBUTES`, and a per-service `OTEL_SERVICE_NAME` (`backend`, `openworkflow`, `ui`, `codesearch`). LLM spans follow the traces endpoint. Point `tracesEndpoint` at `https://<your-langfuse>/api/public/otel` with `Authorization=Basic <base64(publicKey:secretKey)>` when you want those spans in your Langfuse project. See [packages/aws-cdk/README.md](../../packages/aws-cdk/README.md).
+
 ## Manual e2e
 
 Deploy → smoke (`/health`) → destroy:

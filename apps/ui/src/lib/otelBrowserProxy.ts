@@ -210,6 +210,12 @@ async function reject(
   })
 }
 
+/** No collector configured. Swallow the body so the caller sees success, not an error. */
+async function otelDisabled(request: Request): Promise<Response> {
+  await drainRequestBody(request)
+  return new Response(null, { status: 204 })
+}
+
 function decodeOtlpBody(
   body: Uint8Array,
   contentType: string,
@@ -236,13 +242,13 @@ export async function proxyBrowserOtlp(
 ): Promise<Response> {
   const config = getHyperDxRuntimeConfig()
   if (!config.enabled) {
-    return reject(request, 404)
+    return otelDisabled(request)
   }
 
   const configuredTraces =
     process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT?.trim()
   if (!configuredTraces) {
-    return reject(request, 404)
+    return otelDisabled(request)
   }
   const tracesEndpoint: string = configuredTraces
 

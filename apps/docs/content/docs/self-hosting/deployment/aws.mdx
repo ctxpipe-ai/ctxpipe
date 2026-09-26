@@ -192,6 +192,7 @@ product onboarding flow.
 | Prop | Behavior |
 |---|---|
 | `size` | Capacity profile for single-tenant deployments. Valid values: `small`, `medium`, `large`. Defaults to `small` when omitted. |
+| `otel` | Optional OTLP export. Omit it and the tasks export nothing. The construct does not deploy a collector, Langfuse, or ClickStack. |
 
 ### `modelProvider` union
 
@@ -242,6 +243,32 @@ Secrets Manager and injects them into the required ECS tasks. See
 [Self-host Slack](/docs/self-hosting/slack) and
 [Self-host PagerDuty](/docs/self-hosting/pagerduty) for callback and webhook
 settings.
+
+## Observability
+
+Leave `otel` unset unless you want traces, logs, or metrics sent to a collector you run. There is no bundled collector and no default endpoint.
+
+```ts
+otel: {
+  tracesEndpoint: "https://otel.example.com/v1/traces",
+  logsEndpoint: "https://otel.example.com/v1/logs",
+  metricsEndpoint: "https://otel.example.com/v1/metrics",
+  headers: cdk.SecretValue.unsafePlainText("Authorization=Bearer replace-me"),
+  resourceAttributes: "deployment.environment=production",
+},
+```
+
+| Prop | Env var on backend, worker, UI, and codesearch |
+|---|---|
+| `tracesEndpoint` | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` |
+| `logsEndpoint` | `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` |
+| `metricsEndpoint` | `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` |
+| `headers` | `OTEL_EXPORTER_OTLP_HEADERS` (Secrets Manager) |
+| `resourceAttributes` | `OTEL_RESOURCE_ATTRIBUTES` |
+
+`OTEL_SERVICE_NAME` is `backend`, `openworkflow`, `ui`, or `codesearch` on that task when any endpoint is set. LLM spans are OpenTelemetry spans. Point `tracesEndpoint` at `https://<your-langfuse>/api/public/otel` and set `headers` to `Authorization=Basic <base64(publicKey:secretKey)>` to land them in your Langfuse project. The apps do not read `LANGFUSE_*` variables.
+
+The browser SDK starts only when the UI task has a traces endpoint. It posts to `/.otel` on your app origin. With no traces endpoint, that route returns `204` and the SDK does not start.
 
 ## High-level architecture
 

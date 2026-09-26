@@ -2,8 +2,9 @@
 # Copy docker-compose.env.example → .env (Compose loads it from this directory).
 #
 # Profiles:
-#   infra  — Postgres, FalkorDB, OTEL (host dev: pnpm dev:infra)
-#   deploy — Full containerized stack (pnpm start): infra shared with deploy + apps
+#   infra  — Postgres, FalkorDB, contributor OTEL collector (host dev: pnpm dev:infra)
+#   deploy — App stack (pnpm start): postgres + falkordb + apps. No collector.
+#            Set OTEL_EXPORTER_OTLP_* in .env to export to your own endpoint.
 #
 # Local Zoekt + codesearch API: use `pnpm dev` — Docker image runs start.sh (zoekt-webserver + Bun) with a random host port.
 
@@ -36,7 +37,7 @@ services:
       - "${CTXPIPE_FALKOR_ADMIN_HOST_PORT:-3003}:3000"
 
   otel-collector:
-    profiles: [infra, deploy]
+    profiles: [infra]
     image: otel/opentelemetry-collector-contrib:0.149.0
     restart: unless-stopped
     env_file:
@@ -79,9 +80,12 @@ services:
       AUTH_SECRET: ${AUTH_SECRET:-}
       AUTH_BASE_URL: ${AUTH_BASE_URL:-http://localhost:3000}
       AUTH_ALLOWED_ORIGINS: ${AUTH_ALLOWED_ORIGINS:-}
-      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
-      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: http://otel-collector:4318/v1/logs
-      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://otel-collector:4318/v1/metrics
+      # Empty values are unset: no export, logs on stdout.
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: ${OTEL_EXPORTER_OTLP_METRICS_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-}
       OTEL_SERVICE_NAME: backend
       CONFLUENCE_FORGE_INSTALL_URL: ${CONFLUENCE_FORGE_INSTALL_URL:-}
       SLACK_CLIENT_ID: ${SLACK_CLIENT_ID:-}
@@ -109,8 +113,6 @@ services:
         condition: service_healthy
       falkordb:
         condition: service_started
-      otel-collector:
-        condition: service_started
       ui:
         condition: service_started
 
@@ -131,9 +133,11 @@ services:
       SLACK_CLIENT_ID: ${SLACK_CLIENT_ID:-}
       SLACK_CLIENT_SECRET: ${SLACK_CLIENT_SECRET:-}
       SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
-      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
-      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: http://otel-collector:4318/v1/logs
-      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://otel-collector:4318/v1/metrics
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: ${OTEL_EXPORTER_OTLP_METRICS_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-}
       OTEL_SERVICE_NAME: openworkflow
       OPENWORKFLOW_CONCURRENCY: "6"
       CODESEARCH_INDEXER_CONCURRENCY: "1"
@@ -166,9 +170,12 @@ services:
       NODE_ENV: production
       PORT: "3002"
       HOST: "0.0.0.0"
-      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
-      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: http://otel-collector:4318/v1/logs
-      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://otel-collector:4318/v1/metrics
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: ${OTEL_EXPORTER_OTLP_METRICS_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-}
+      OTEL_SERVICE_NAME: ui
       CONFLUENCE_FORGE_INSTALL_URL: ${CONFLUENCE_FORGE_INSTALL_URL:-}
     ports:
       - "${CTXPIPE_UI_HOST_PORT:-3002}:3002"
@@ -186,9 +193,11 @@ services:
       ZOEKT_WEBSERVER_URL: http://127.0.0.1:6070
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       PORT: "3001"
-      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
-      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: http://otel-collector:4318/v1/logs
-      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://otel-collector:4318/v1/metrics
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: ${OTEL_EXPORTER_OTLP_METRICS_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-}
       OTEL_SERVICE_NAME: codesearch
       CODESEARCH_INDEXER_CONCURRENCY: "1"
       CODESEARCH_INDEX_PIPELINE_CONCURRENCY: "1"
@@ -202,8 +211,6 @@ services:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
-      otel-collector:
-        condition: service_started
 
 volumes:
   zoekt_index_deploy:

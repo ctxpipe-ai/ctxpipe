@@ -135,6 +135,38 @@ modelProvider: {
 
 - `connectorSecrets`: deployment-wide connector settings for GitHub, Atlassian, Slack, Linear, Notion, and PagerDuty. Omit for first boot if connectors are not configured yet. Linear uses `linearClientId`, `linearClientSecret`, optional `linearRedirectUri`, and `linearWebhookSecret`; Notion uses `notionClientId`, `notionClientSecret`, and `notionWebhookSecret`; Slack uses `slackClientId`, `slackClientSecret`, and `slackSigningSecret`; PagerDuty uses `pagerdutyClientId`, `pagerdutyClientSecret`, and optional `pagerdutyRedirectUri` (no shared webhook secret).
 - `size`: deployment capacity profile (`small`, `medium`, `large`). Defaults to `small` when omitted.
+- `otel`: optional OTLP export to your collector. Omit it and the tasks get no `OTEL_*` environment. The construct does not deploy a collector, Langfuse, or ClickStack.
+
+## Observability
+
+`otel` passes the standard OpenTelemetry variables through to the backend, worker, UI, and codesearch tasks. Migrate does not receive them. Export stays off when `otel` is omitted or when every endpoint is blank.
+
+| Prop | Container env |
+| --- | --- |
+| `tracesEndpoint` | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` |
+| `logsEndpoint` | `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` |
+| `metricsEndpoint` | `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` |
+| `headers` | `OTEL_EXPORTER_OTLP_HEADERS` (Secrets Manager) |
+| `resourceAttributes` | `OTEL_RESOURCE_ATTRIBUTES` |
+
+When any endpoint is set, the construct also sets `OTEL_SERVICE_NAME` to `backend`, `openworkflow`, `ui`, or `codesearch` on that task.
+
+```ts
+new CtxPipe(stack, "CtxPipe", {
+  // ...orgSlug, customDomain, modelProvider
+  otel: {
+    tracesEndpoint: "https://otel.example.com/v1/traces",
+    logsEndpoint: "https://otel.example.com/v1/logs",
+    metricsEndpoint: "https://otel.example.com/v1/metrics",
+    headers: cdk.SecretValue.unsafePlainText("Authorization=Bearer replace-me"),
+    resourceAttributes: "deployment.environment=production",
+  },
+});
+```
+
+Use any OTLP/HTTP endpoint (Grafana, Honeycomb, Datadog OTLP, or your own collector). LLM spans are OpenTelemetry spans. To send them to your Langfuse project, set `tracesEndpoint` to `https://<your-langfuse>/api/public/otel` and `headers` to `Authorization=Basic <base64(publicKey:secretKey)>`. The app does not read `LANGFUSE_*`. For APM and Langfuse together, point these endpoints at your collector.
+
+The UI turns on browser telemetry only when `tracesEndpoint` is set. The browser posts to `/.otel` on the app origin, and the UI task forwards that to your traces endpoint. With no traces endpoint, the browser SDK does not start and `/.otel` returns 204.
 
 
 
@@ -176,6 +208,7 @@ Networking note:
 - SES domain identity + DKIM records + SMTP credentials in Secrets Manager for backend email delivery.
 - Public ALB routing to backend only (UI/codesearch remain internal-only).
 - Outputs for app URL and key secret ARNs.
+- No OpenTelemetry collector, Langfuse, or ClickStack. Telemetry export is the optional `otel` prop.
 - Backup defaults enabled for Aurora, Neptune, and EFS.
 
 Runtime defaults injected by the construct include:

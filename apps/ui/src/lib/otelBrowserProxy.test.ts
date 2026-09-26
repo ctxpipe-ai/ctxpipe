@@ -49,12 +49,15 @@ describe("proxyBrowserOtlp", () => {
     vi.unstubAllGlobals()
   })
 
-  it("404s when browser OTEL is disabled", async () => {
+  it("returns 204 when browser OTEL is disabled", async () => {
     delete process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
     const response = await proxyBrowserOtlp(
-      new Request("https://app.example/.otel/v1/logs", { method: "POST" }),
+      new Request("https://app.example/.otel/v1/logs", {
+        method: "POST",
+        body: "{}",
+      }),
     )
-    expect(response.status).toBe(404)
+    expect(response.status).toBe(204)
     expect(fetch).not.toHaveBeenCalled()
   })
 

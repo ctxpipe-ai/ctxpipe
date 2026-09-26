@@ -36,7 +36,9 @@ credentials.
   persistent storage.
 - **Postgres and a graph database** — store application state, workflow data,
   extracted claims, and relationships.
-- **OpenTelemetry collector** — optional fan-out for logs, traces, and metrics.
+- **Optional OpenTelemetry export** — off by default. Set `OTEL_EXPORTER_OTLP_*`
+  to your own OTLP endpoint when you want traces, logs, or metrics to leave
+  the process.
 
 See [Architecture](/docs/self-hosting/architecture) for the complete request
 flow, ports, public routes, and stateful data.

@@ -10,7 +10,11 @@ import type * as route53 from "aws-cdk-lib/aws-route53";
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import type { IDependable } from "constructs";
 import type { ResolvedModelProviderConfig } from "../model-provider";
-import type { CtxPipeConnectorSecretsProps, CtxPipeCustomDomainProps } from "../types";
+import type {
+  CtxPipeConnectorSecretsProps,
+  CtxPipeCustomDomainProps,
+  CtxPipeOtelProps,
+} from "../types";
 import type { CtxPipeSize } from "../types";
 
 export interface ResolvedCtxPipeCustomDomainProps extends CtxPipeCustomDomainProps {
@@ -150,6 +154,7 @@ export interface TaskDefinitionsConstructProps {
   readonly resolvedModel: ResolvedModelProviderConfig;
   readonly defaultImageTag: string;
   readonly sizeProfile: CtxPipeSizeProfile;
+  readonly otel?: CtxPipeOtelProps;
 }
 
 export interface ServicesConstructProps {
