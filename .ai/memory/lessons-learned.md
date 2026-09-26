@@ -706,3 +706,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** convention
 - **Date:** 2026-09-26
 - **Source:** PR-343 backend image failed "Verify connector asset contracts" after `otel.ts` imported `@opentelemetry/resources`, which was only a devDependency
+
+### CD applies ops changes; no manual follow-ups
+- **Rule:** Do not hand the owner runbook steps, scripts to run, or "after merge" to-dos. Provisioning and one-time cleanups go into the CD workflow, and leftovers from a migration are deleted as part of the work. A Railway setting the Terraform provider omits on update (restart policy, healthcheck, and sleep have `omitempty`) is set once on the service; do not add a workflow script to reapply it, and do not restate platform defaults. The only acceptable owner action is supplying a secret the agent cannot write, stated once with the exact name and location.
+- **Category:** convention
+- **Date:** 2026-09-26
+- **Source:** Repository owner after PR-343 ("I want CD to do these things... you are here to serve me")

@@ -212,18 +212,11 @@ jobs:
       - name: Terraform Plan
         run: terraform plan --out=terraform.plan
 
-      # Empty the allowlist after the first production apply.
-      - name: Refuse unexpected deletes
+      - name: Refuse plans that delete resources
         run: |
           umask 077
           terraform show -json terraform.plan > plan.json
-          jq -e --argjson allow '["module.ctxpipe.railway_service.otelcollector","module.ctxpipe.railway_variable_collection.otelcollector_env"]' '
-            [.resource_changes[]
-              | select(.change.actions | index("delete"))
-              | .address
-              | select(. as $address | $allow | index($address) | not)
-            ] | length == 0
-          ' plan.json
+          jq -e '[.resource_changes[] | select(.change.actions | index("delete"))] | length == 0' plan.json
 
       - name: Terraform Apply
         run: terraform apply -auto-approve terraform.plan

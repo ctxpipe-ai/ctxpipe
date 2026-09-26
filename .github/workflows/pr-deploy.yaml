@@ -562,52 +562,6 @@ jobs:
                 "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service, input:{sleepApplication:true}}')"
             }
 
-            # Scale a service to zero replicas in this environment (config only).
-            # Railway rejects numReplicas < 1, so do not send multiRegionConfig here.
-            # Non-fatal: deploymentStop below is what actually stops running containers.
-            scale_service_to_zero() {
-              local service_id="$1"
-              if railway_graphql \
-                'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
-                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{
-                  environmentId: $env,
-                  serviceId: $service,
-                  input: {
-                    sleepApplication: true
-                  }
-                }')" >/dev/null; then
-                echo "Enabled serverless sleep for service $service_id (config)"
-              else
-                echo "Warning: failed to enable serverless sleep for $service_id (continuing with deploymentStop)" >&2
-              fi
-            }
-
-            # Stop active deployments without creating a new one (no "Deploy" in UI).
-            stop_active_deployments() {
-              local service_id="$1"
-              local response dep_ids
-              response="$(railway_graphql \
-                'query deployments($input: DeploymentListInput!) { deployments(input: $input) { edges { node { id status } } } }' \
-                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{input:{environmentId:$env, serviceId:$service}}')")"
-              dep_ids="$(echo "$response" | jq -r '
-                .data.deployments.edges[]?
-                | .node
-                | select(.status == "SUCCESS" or .status == "DEPLOYING" or .status == "INITIALIZING" or .status == "BUILDING" or .status == "WAITING")
-                | .id
-              ' 2>/dev/null || true)"
-              if [[ -z "$dep_ids" ]]; then
-                echo "No active deployments to stop for service $service_id"
-                return 0
-              fi
-              while IFS= read -r dep_id; do
-                [[ -z "$dep_id" ]] && continue
-                railway_graphql \
-                  'mutation deploymentStop($id: String!) { deploymentStop(id: $id) }' \
-                  "$(jq -nc --arg id "$dep_id" '{id:$id}')" >/dev/null || true
-                echo "Stopped deployment $dep_id for service $service_id"
-              done <<< "$dep_ids"
-            }
-
             # Read back sleepApplication for deploy logs / debugging.
             verify_sleep_application() {
               local label="$1"
@@ -656,17 +610,8 @@ jobs:
             update_source_image "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE" >/dev/null
             deploy_service "$CODESEARCH_SERVICE_ID" >/dev/null
 
-            # Previews created before the production collector was removed can
-            # still contain otelcollector. Scale it to zero and stop it.
             load_service_ids_by_name
-            OTELCOLLECTOR_SERVICE_ID="$(echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r '.otelcollector // empty')"
             FALKORDB_SERVICE_ID="$(echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r '.falkordb // empty')"
-
-            if [[ -n "$OTELCOLLECTOR_SERVICE_ID" ]]; then
-              scale_service_to_zero "$OTELCOLLECTOR_SERVICE_ID" >/dev/null
-              stop_active_deployments "$OTELCOLLECTOR_SERVICE_ID"
-              echo "leftover otelcollector ($OTELCOLLECTOR_SERVICE_ID) scaled to 0 and active deployments stopped"
-            fi
 
             if [[ -n "$FALKORDB_SERVICE_ID" ]]; then
               enable_serverless "$FALKORDB_SERVICE_ID" >/dev/null

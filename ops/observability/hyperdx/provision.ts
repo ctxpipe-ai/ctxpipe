@@ -1,7 +1,7 @@
 /**
  * Idempotent upsert of HyperDX dashboards and saved searches.
  *
- * Manual, from the repo root (not Railway env):
+ * Runs in the observability workflow after every apply on main. Locally, from the repo root:
  *   HYPERDX_ACCESS_KEY=... bun ops/observability/hyperdx/provision.ts
  *
  * Typecheck (no API calls): pnpm --filter hyperdx typecheck

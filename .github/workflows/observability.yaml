@@ -1,6 +1,6 @@
 # Observability Terraform for the ClickStack and Langfuse Railway project.
-# Pull requests plan; main applies. See ops/observability/README.md.
-# GitHub Environments terraform-plan and observability need required reviewers.
+# Pull requests plan; main applies and provisions HyperDX.
+# See ops/observability/README.md.
 
 name: Observability
 
@@ -9,10 +9,12 @@ on:
     branches: [main]
     paths:
       - "ops/observability/**"
+      - "scripts/railway-*.sh"
       - ".github/workflows/observability.yaml"
   pull_request:
     paths:
       - "ops/observability/**"
+      - "scripts/railway-*.sh"
       - ".github/workflows/observability.yaml"
   workflow_dispatch:
 
@@ -293,3 +295,19 @@ jobs:
       - name: Pin Railway observability region
         working-directory: ${{ github.workspace }}
         run: RAILWAY_SERVICE_SET=observability bash scripts/railway-set-regions.sh
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.11"
+
+      # HyperDX sleeps; the first request wakes it.
+      - name: Provision HyperDX dashboards and saved searches
+        working-directory: ${{ github.workspace }}
+        env:
+          HYPERDX_ACCESS_KEY: ${{ secrets.HYPERDX_ACCESS_KEY }}
+        run: |
+          for _ in $(seq 1 36); do
+            curl -fsS -o /dev/null --max-time 10 https://hyperdx.ctxpipe.ai/ && break
+            sleep 5
+          done
+          bun ops/observability/hyperdx/provision.ts

@@ -4,7 +4,7 @@
 
 ## Provision
 
-From the repo root. `HYPERDX_ACCESS_KEY` is a personal key (Team Settings → API Keys), not a Railway variable. API base: `https://hyperdx.ctxpipe.ai/api`.
+The observability workflow runs `provision.ts` after every apply on `main`, with the `HYPERDX_ACCESS_KEY` secret of the `observability` GitHub Environment (a personal key from Team Settings → API Keys). To run it locally from the repo root:
 
 ```bash
 HYPERDX_ACCESS_KEY=... bun ops/observability/hyperdx/provision.ts
