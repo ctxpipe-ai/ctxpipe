@@ -20,6 +20,23 @@ jobs:
   backend:
     name: Backend tests
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5433/ctxpipe
+      AUTH_SECRET: test-only-auth-secret-with-at-least-32-characters
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: ctxpipe
+          POSTGRES_PASSWORD: ctxpipe
+          POSTGRES_DB: ctxpipe
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U ctxpipe"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
@@ -28,6 +45,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Migrate database
+        run: pnpm --filter @ctxpipe/backend db:migrate
       - name: Plugin auth, transport, and tool tests
         run: >-
           pnpm --filter @ctxpipe/backend test
@@ -39,6 +58,11 @@ jobs:
           src/routes/mcp.conformance.test.ts
           src/mcp/tools.test.ts
           src/graphs/conversationGraph/nodes/conversationNaming.test.ts
+      - name: Backend integration tests
+        working-directory: apps/backend
+        run: |
+          mapfile -t files < <(find src -name '*.integration.test.ts' | sort)
+          pnpm exec vitest run "${files[@]}"
 
   ui:
     name: UI tests

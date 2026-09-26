@@ -23,7 +23,70 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 
 ## Testing
 
-Testing: [root AGENTS.md → Testing](../../AGENTS.md#testing).
+What to fake: [root AGENTS.md → Testing](../../AGENTS.md#testing). Name Postgres tests `*.integration.test.ts`. `pnpm test` runs them and skips the suite when `DATABASE_URL` is unset. CI's backend job ([`.github/workflows/claude-plugin-test.yaml`](../../.github/workflows/claude-plugin-test.yaml)) starts `pgvector/pgvector:pg17` on port **5433**, sets `DATABASE_URL` and `AUTH_SECRET`, runs `pnpm db:migrate`, then runs `*.integration.test.ts`. Locally: `pnpm dev:infra` and `pnpm db:migrate` from the repo root.
+
+Helpers are in [`test/`](test/). Call each one at file scope.
+
+### MSW — codesearch and model providers
+
+[`test/msw.ts`](test/msw.ts) `useMswServer(...handlers)` listens with `onUnhandledRequest: "error"`, calls `resetHandlers` after each test, and `close` after the file. `codesearchNotFound(baseUrl)` answers any `{baseUrl}/:repositoryId/*` with `{ error, code: "repository_not_found" }` and status 404. `modelChatCompletion(baseUrl)` answers `POST {baseUrl}/chat/completions` (`baseUrl` includes `/v1` when the client does). Stub the matching env with `vi.stubEnv`.
+
+```ts
+import { http, HttpResponse } from "msw"
+import {
+  codesearchNotFound,
+  modelChatCompletion,
+  useMswServer,
+} from "../../test/msw.js"
+
+const server = useMswServer(
+  codesearchNotFound("http://codesearch.test"),
+  modelChatCompletion("http://model.test/v1"),
+)
+// one test: server.use(http.post("http://codesearch.test/:repositoryId/glob", () =>
+//   HttpResponse.json({ entries: [], truncated: false, matched: 0 })))
+```
+
+### In-memory spans
+
+[`test/spans.ts`](test/spans.ts) `recordSpans()` registers one `NodeTracerProvider` and `InMemorySpanExporter` for the file and resets finished spans in `beforeEach`. Read `finishedSpans()`, `spanNamed(name)`, `serverSpan()`, or `attributes()` — those are the exporter's public `ReadableSpan` attributes. [`test/recordingSpan.ts`](test/recordingSpan.ts) keeps `attributionRecorder()` on top of that exporter for existing importers.
+
+```ts
+import { recordSpans } from "../../test/spans.js"
+
+const spans = recordSpans()
+// after the request: spans.serverSpan()?.attributes["ctxpipe.org.id"]
+```
+
+### Real database, Better Auth, API keys
+
+[`test/db.ts`](test/db.ts) loads `apps/backend/.env.local` without overriding an existing `DATABASE_URL`. `describeWithDatabase` is `describe.skipIf(!DATABASE_URL)`, the same gate as [`github-pr-mirror.integration.test.ts`](src/models/github-pr-mirror.integration.test.ts). `seedOrg()` calls `signUpEmail({ asResponse: true })`, keeps the `set-cookie` header, `createOrganization`, then `createApiKey` for a personal key and an org key (`configId: "organization"`). `cleanupSeededOrg` deletes those rows and closes the pool. The row delete skips Better Auth's organization-delete hook, which opens the graph.
+
+```ts
+import { afterAll, beforeAll } from "vitest"
+import {
+  cleanupSeededOrg,
+  describeWithDatabase,
+  seedOrg,
+  type SeededOrg,
+} from "../../test/db.js"
+
+describeWithDatabase("repositories (Postgres)", () => {
+  let seed: SeededOrg
+  beforeAll(async () => {
+    seed = await seedOrg()
+  })
+  afterAll(async () => {
+    await cleanupSeededOrg(seed)
+  })
+  // cookie session: headers: { cookie: seed.cookie }
+  // keys: seed.personalApiKey, seed.orgApiKey
+})
+```
+
+### evlog drain
+
+[`test/setup.ts`](test/setup.ts) calls `initEvlog({ silent: true })` for every file. To assert a log, call `initLogger` again with an `evlog({ drain })` that pushes `item.event`. The pattern is [`src/mcp/transport.test.ts`](src/mcp/transport.test.ts). Assert a failure the collaborator can actually produce. A stand-in error that `fetch` or the database cannot throw (for example a fake `SleepSignal`) does not exercise that path.
 
 ## Agent tools (ingestion + conversation)
 
