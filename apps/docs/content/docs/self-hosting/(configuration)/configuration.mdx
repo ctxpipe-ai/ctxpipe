@@ -268,11 +268,6 @@ call.
 | `OPENWORKFLOW_CONCURRENCY` | In-flight OpenWorkflow runs per worker process. Default `4` when unset. CDK/Railway/Compose inject size-based values. |
 | `CODESEARCH_INDEXER_CONCURRENCY` | Max concurrent Zoekt/SCIP child processes on codesearch, and SCIP HTTP batch size on the worker. Default `2`. |
 | `CODESEARCH_INDEX_PIPELINE_CONCURRENCY` | Max distinct repos with in-flight OpenWorkflow index-phase HTTP (clone included). Default `2`. Codesearch returns 429 when full. |
-| `AMPLITUDE_API_KEY`, `AMPLITUDE_REGION` | Optional runtime product analytics configuration (`us` default or `eu`). Use the same values on backend and UI. |
-
-Amplitude configuration is read by the UI at runtime. Changing it does **not**
-require rebuilding the UI image. Leave `AMPLITUDE_API_KEY` unset to disable
-product analytics.
 
 ## Railway
 

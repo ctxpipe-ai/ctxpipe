@@ -1,6 +1,6 @@
 ---
 name: review-logging-patterns
-description: Review code for logging patterns and suggest evlog adoption. Guides setup on Nuxt, Next.js, SvelteKit, Nitro, TanStack Start, NestJS, Express, Hono, Fastify, Elysia, Cloudflare Workers, and standalone TypeScript. Detects console.log spam, unstructured errors, and missing context. Covers wide events, structured errors, drain adapters (Axiom, OTLP, PostHog, Sentry, Better Stack), sampling, and enrichers.
+description: Review code for logging patterns and suggest evlog adoption. Guides setup on Nuxt, Next.js, SvelteKit, Nitro, TanStack Start, NestJS, Express, Hono, Fastify, Elysia, Cloudflare Workers, and standalone TypeScript. Detects console.log spam, unstructured errors, and missing context. Covers wide events, structured errors, drain adapters (Axiom, OTLP, PostHog, Sentry), sampling, and enrichers.
 license: MIT
 metadata:
   author: HugoRCD
@@ -634,7 +634,6 @@ All options work in Nuxt (`evlog` key), Nitro (passed to `evlog()`), Next.js (`c
 | OTLP | `evlog/otlp` | `OTLP_ENDPOINT` (or `OTEL_EXPORTER_OTLP_ENDPOINT`) |
 | PostHog | `evlog/posthog` | `POSTHOG_API_KEY`, `POSTHOG_HOST` |
 | Sentry | `evlog/sentry` | `SENTRY_DSN` |
-| Better Stack | `evlog/better-stack` | `BETTER_STACK_SOURCE_TOKEN` |
 | File System | `evlog/fs` | None (local file system) |
 
 In Nuxt/Nitro, use the `NUXT_` prefix (e.g., `NUXT_AXIOM_TOKEN`) so values are available via `useRuntimeConfig()`. All adapters also read unprefixed variables as fallback.

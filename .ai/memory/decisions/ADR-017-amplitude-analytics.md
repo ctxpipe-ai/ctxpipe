@@ -2,6 +2,8 @@
 
 **Status:** Superseded by [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md) | **Date:** 2026-04-08 | **Tags:** analytics, amplitude, ui, backend, mcp, observability
 
+**Note (2026-09-26):** The SDK, `AMPLITUDE_*` env, and `/.amp` proxy described below were removed. Browser product analytics is HyperDX RUM ([ADR-038](ADR-038-self-hosted-clickstack-langfuse.md)). This record stays as history.
+
 ## Context
 
 We need product analytics with **user identity** on UI and backend, **resilience to ad blockers**, and **self-hosted** deployments where operators run **prebuilt** images without rebuilding for analytics keys. `VITE_PUBLIC_*` is inlined at UI build time and is a poor fit for optional operator-supplied Amplitude configuration.

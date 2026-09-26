@@ -114,7 +114,7 @@ Leave `OTEL_EXPORTER_OTLP_*` unset unless this run needs a backend. `pnpm dev` d
 
 **Laptop collector (no app secret).** `pnpm dev:infra` binds the contrib collector at `127.0.0.1:4318`. Point the app at `http://127.0.0.1:4318/v1/traces`, `/v1/logs`, and `/v1/metrics`. Omit `OTEL_EXPORTER_OTLP_HEADERS`. Set `OTEL_SERVICE_NAME` to `backend`, `openworkflow`, or `codesearch`.
 
-The collector process itself exports to Better Stack and Langfuse. It exits unless `apps/otel-collector/.env` defines `BETTER_STACK_TOKEN`, `LANGFUSE_AUTH_STRING`, and `LANGFUSE_OTLP_ENDPOINT` (see `apps/otel-collector/.env.example`). Those are collector credentials. There is no local HyperDX in that compose file, so the view is Better Stack plus Langfuse, not https://hyperdx.ctxpipe.ai.
+The collector process prints OTLP to its own logs (`debug` exporter). It needs no env file. There is no local HyperDX in that compose file. Hosted views stay at https://hyperdx.ctxpipe.ai and https://langfuse.ctxpipe.ai when the app exports to `https://telemetry.ctxpipe.ai`.
 
 **Shared collector (opt-in, never the default).** Use it when you want the hosted dashboards. The 1 GiB ClickHouse node and the Langfuse prompt store are the reason it stays opt-in.
 

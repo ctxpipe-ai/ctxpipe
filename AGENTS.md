@@ -4,7 +4,7 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 - **Root** (this file): architecture, code style.
 - **apps/backend**: [apps/backend/AGENTS.md](apps/backend/AGENTS.md) — API, OpenAPI, MCP, Drizzle, TypeScript, etc. **[Source-connectors skill](.agents/skills/source-connectors/)** when designing, building, or reviewing a source connector (Linear, Notion, Slack, git-native mirror/capture, `connections.config`, self-host).
-- **apps/otel-collector**: OpenTelemetry Collector for laptop / contrib; hosted ingest is [`ops/observability`](ops/observability/) ([ADR-038](.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md)).
+- **apps/otel-collector**: laptop OTLP debug sink for `pnpm dev:infra` (stdout only). Hosted ingest is [`ops/observability`](ops/observability/) ([ADR-038](.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md)).
 - **apps/codesearch**: [apps/codesearch/AGENTS.md](apps/codesearch/AGENTS.md) — Zoekt/SCIP orchestration, read-only DB, OpenAPI + Zod, and the manual Kubernetes ingest memory gate.
 - **apps/ui**: [apps/ui/AGENTS.md](apps/ui/AGENTS.md) — TanStack Start frontend, React Aria, Tailwind, Storybook, Vitest; **[React skill](.agents/skills/react/)** when building or editing components; **[product-ui skill](.agents/skills/product-ui/)** and [DESIGN.md](apps/ui/DESIGN.md) when building or restyling product screens.
 - **apps/docs**: [apps/docs/AGENTS.md](apps/docs/AGENTS.md) — Fumadocs documentation site (Next.js 15, Shiki, forced-dark, deploys to docs.ctxpipe.ai).
@@ -26,7 +26,7 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 | `hyperdx` | ClickStack logs, traces, metrics, dashboards | `HYPERDX_ACCESS_KEY` = HyperDX personal access key (Bearer). UI `https://hyperdx.ctxpipe.ai`. Ingest token `HYPERDX_API_KEY` is a different secret |
 | `langfuse` | Langfuse **project** MCP (LLM traces / prompts) | `LANGFUSE_BASE_URL=https://langfuse.ctxpipe.ai` and `LANGFUSE_AUTH_STRING` = base64(`pk:sk`); see [ops/observability/USING.md](ops/observability/USING.md) |
 
-**Not wired** (intentionally): local Postgres MCP, GitHub MCP, codesearch MCP, Linear/Notion MCP, Amplitude, Better Stack, ClickHouse `mcp-clickhouse` (ClickHouse is only on `clickhouse.railway.internal`; query through `hyperdx`).
+**Not wired** (intentionally): local Postgres MCP, GitHub MCP, codesearch MCP, Linear/Notion MCP, ClickHouse `mcp-clickhouse` (ClickHouse is only on `clickhouse.railway.internal`; query through `hyperdx`).
 
 **Ops debugging / logs (preference order):** Product logs and traces are OTLP. Follow [`.cursor/skills/observability/SKILL.md`](.cursor/skills/observability/SKILL.md) and [ops/observability/USING.md](ops/observability/USING.md). A local `.evlog/logs/` drain is not the product path ([`.cursor/skills/analyze-logs`](.cursor/skills/analyze-logs/SKILL.md) is that filesystem reader for other stacks).
 

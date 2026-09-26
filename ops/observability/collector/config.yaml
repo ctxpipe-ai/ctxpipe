@@ -7,8 +7,8 @@
 # The traces pipeline below is restated for clickhouse/clickstack-otel-collector:2.39.1
 # (receivers otlp/hyperdx, processors memory_limiter then batch, exporter clickhouse).
 # Re-check that list when the image tag changes; a newer base processor would be dropped.
-# The base receiver name is otlp/hyperdx (not otlp). Hosted allowlist source of
-# truth; keep in sync with apps/otel-collector/config.yaml.
+# The base receiver name is otlp/hyperdx (not otlp). This file is the allowlist
+# source of truth. The laptop collector (apps/otel-collector) is a debug sink.
 #
 # The pinned collector image includes prometheus, resource, and transform, but
 # not a redis receiver. metrics/self scrapes the collector and ClickHouse only.

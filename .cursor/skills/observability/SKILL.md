@@ -119,9 +119,9 @@ OTEL_SERVICE_NAME=backend
 
 `OTEL_SERVICE_NAME` is `backend`, `openworkflow`, or `codesearch` (the code default). An old example value `ctxpipe-backend` becomes `service.name` and misses the hosted dashboards.
 
-The collector container exports to Better Stack and Langfuse (`apps/otel-collector/config.yaml`). `${env:BETTER_STACK_TOKEN}`, `${env:LANGFUSE_AUTH_STRING}`, and `${env:LANGFUSE_OTLP_ENDPOINT}` must be set or the process exits on env substitution. Compose treats `apps/otel-collector/.env` as optional. Those tokens belong to the collector, not the app. This compose file has no HyperDX. Spans land in Better Stack (full traces, logs, metrics) and Langfuse (allowlisted LLM spans only).
+The collector container (`apps/otel-collector/config.yaml`) prints traces, logs, and metrics with the `debug` exporter. It needs no token and no env file. This compose file has no HyperDX. Hosted dashboards are the opt-in block below.
 
-Cloud VMs use the same `pnpm dev:infra` collector. It still needs that env file to stay up.
+Cloud VMs use the same `pnpm dev:infra` collector.
 
 ### Shared collector (opt-in)
 

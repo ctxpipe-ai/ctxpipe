@@ -120,7 +120,7 @@ Railway holds secret values. Terraform holds wiring and does not list those name
 
    ClickHouse volume copy has downtime. Confirm both volumes are `us-east4-eqdc4a` before calling the stack done.
 7. Create DNS CNAMEs for `telemetry.ctxpipe.ai`, `hyperdx.ctxpipe.ai`, and `langfuse.ctxpipe.ai` to `terraform output collector_dns_record` / `hyperdx_dns_record` / `langfuse_dns_record`. Until those are live, use the Railway service domains.
-8. Point product Terraform `otel_otlp_endpoint` / `otel_otlp_headers` (and PR vars `OBSERVABILITY_OTLP_ENDPOINT` / `OBSERVABILITY_OTLP_HEADERS`) at `https://telemetry.ctxpipe.ai` with `authorization=<HYPERDX_API_KEY>`. Until those are set, production still uses the in-project `otelcollector`.
+8. Point product Terraform `otel_otlp_endpoint` / `otel_otlp_headers` (and PR vars `OBSERVABILITY_OTLP_ENDPOINT` / `OBSERVABILITY_OTLP_HEADERS`) at `https://telemetry.ctxpipe.ai` with `authorization=<HYPERDX_API_KEY>`. An empty endpoint is that same host. Product Terraform does not deploy an in-project collector.
 
 [`deploy.sh`](./deploy.sh) is an optional CLI escape hatch (`railway up`) if the GitHub integration is unavailable.
 
@@ -132,11 +132,11 @@ cp ops/observability/.env.example ops/observability/.env
 docker compose -f ops/observability/docker-compose.yml up -d --build
 ```
 
-Product `pnpm dev:infra` still uses [`apps/otel-collector`](../../apps/otel-collector) for laptop leftovers. Hosted ingest is this collector.
+Product `pnpm dev:infra` uses [`apps/otel-collector`](../../apps/otel-collector) as a local debug sink (stdout). Hosted ingest is this collector.
 
 ## Fallback
 
-If the ClickStack image cannot merge `otlphttp/langfuse`, run only the contrib collector (`apps/otel-collector`) with a ClickHouse exporter. Never run two collectors.
+If the ClickStack image cannot merge `otlphttp/langfuse`, run one contrib collector that exports to ClickHouse and fans LLM spans out to Langfuse. The laptop `apps/otel-collector/config.yaml` is the debug sink, not that fallback. Never run two collectors.
 
 ## Cost target
 
