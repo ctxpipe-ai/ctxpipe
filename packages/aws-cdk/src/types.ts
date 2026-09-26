@@ -92,28 +92,26 @@ export interface CtxPipeConnectorSecretsProps {
 /**
  * Optional OTLP export. Omit to leave telemetry off.
  * The construct does not deploy a collector, Langfuse, or ClickStack.
+ *
+ * One base URL covers traces, logs, and metrics. A different URL per signal
+ * is not supported; point `endpoint` at a collector that fans out.
  */
 export interface CtxPipeOtelProps {
   /**
-   * `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`. OTLP/HTTP traces URL.
+   * OTLP/HTTP base URL, without a signal path and without a trailing slash.
+   * The construct sets `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to
+   * `${endpoint}/v1/traces`, and the same for logs and metrics.
+   * Blank after trim leaves export off.
    */
-  readonly tracesEndpoint?: string;
-  /**
-   * `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`. OTLP/HTTP logs URL.
-   */
-  readonly logsEndpoint?: string;
-  /**
-   * `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`. OTLP/HTTP metrics URL.
-   */
-  readonly metricsEndpoint?: string;
+  readonly endpoint: string;
   /**
    * `OTEL_EXPORTER_OTLP_HEADERS`, for example `Authorization=Bearer xxx`.
-   * Stored in Secrets Manager and injected into the app tasks.
+   * Stored in Secrets Manager and injected into the app tasks when export is on.
    */
   readonly headers?: cdk.SecretValue;
   /**
    * `OTEL_RESOURCE_ATTRIBUTES`, for example `deployment.environment=production`.
-   * Backend and worker merge these when trace export is on.
+   * Set on the app tasks when export is on.
    */
   readonly resourceAttributes?: string;
 }

@@ -1,6 +1,6 @@
 import * as cdk from "aws-cdk-lib";
-import { Template } from "aws-cdk-lib/assertions";
-import { describe, expect, it } from "vitest";
+import { Match, Template } from "aws-cdk-lib/assertions";
+import { describe, it } from "vitest";
 import { CtxPipe } from "./ctxpipe";
 
 function synth(otel?: ConstructorParameters<typeof CtxPipe>[2]["otel"]): Template {
@@ -23,104 +23,103 @@ function synth(otel?: ConstructorParameters<typeof CtxPipe>[2]["otel"]): Templat
   return Template.fromStack(stack);
 }
 
-function containerEnvironment(
-  template: Template,
-  containerName: string,
-): Record<string, string> {
-  const resources = template.findResources("AWS::ECS::TaskDefinition");
-  for (const resource of Object.values(resources)) {
-    const properties = resource.Properties as {
-      ContainerDefinitions?: Array<{
-        Name?: string;
-        Environment?: Array<{ Name: string; Value: string }>;
-        Secrets?: Array<{ Name: string }>;
-      }>;
-    };
-    const container = properties.ContainerDefinitions?.find(
-      (candidate) => candidate.Name === containerName,
-    );
-    if (container) {
-      return Object.fromEntries(
-        (container.Environment ?? []).map((entry) => [entry.Name, entry.Value]),
-      );
-    }
-  }
-  throw new Error(`${containerName} container not found`);
+function expectNoOtelExport(template: Template): void {
+  const noOtelName = Match.not(
+    Match.arrayWith([
+      Match.objectLike({
+        Environment: Match.arrayWith([
+          Match.objectLike({ Name: Match.stringLikeRegexp("^OTEL_") }),
+        ]),
+      }),
+    ]),
+  );
+  const noOtelHeader = Match.not(
+    Match.arrayWith([
+      Match.objectLike({
+        Secrets: Match.arrayWith([
+          Match.objectLike({ Name: "OTEL_EXPORTER_OTLP_HEADERS" }),
+        ]),
+      }),
+    ]),
+  );
+  template.allResourcesProperties("AWS::ECS::TaskDefinition", {
+    ContainerDefinitions: noOtelName,
+  });
+  template.allResourcesProperties("AWS::ECS::TaskDefinition", {
+    ContainerDefinitions: noOtelHeader,
+  });
 }
 
-function containerSecretNames(template: Template, containerName: string): string[] {
-  const resources = template.findResources("AWS::ECS::TaskDefinition");
-  for (const resource of Object.values(resources)) {
-    const properties = resource.Properties as {
-      ContainerDefinitions?: Array<{
-        Name?: string;
-        Secrets?: Array<{ Name: string }>;
-      }>;
-    };
-    const container = properties.ContainerDefinitions?.find(
-      (candidate) => candidate.Name === containerName,
-    );
-    if (container) {
-      return (container.Secrets ?? []).map((entry) => entry.Name);
-    }
-  }
-  throw new Error(`${containerName} container not found`);
+function expectOtelExport(template: Template, containerName: string, serviceName: string): void {
+  template.hasResourceProperties("AWS::ECS::TaskDefinition", {
+    ContainerDefinitions: Match.arrayWith([
+      Match.objectLike({
+        Name: containerName,
+        Environment: Match.arrayWith([
+          Match.objectLike({
+            Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+            Value: "https://otel.example.com/v1/traces",
+          }),
+          Match.objectLike({
+            Name: "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+            Value: "https://otel.example.com/v1/logs",
+          }),
+          Match.objectLike({
+            Name: "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+            Value: "https://otel.example.com/v1/metrics",
+          }),
+          Match.objectLike({
+            Name: "OTEL_RESOURCE_ATTRIBUTES",
+            Value: "deployment.environment=production",
+          }),
+          Match.objectLike({ Name: "OTEL_SERVICE_NAME", Value: serviceName }),
+        ]),
+        Secrets: Match.arrayWith([
+          Match.objectLike({ Name: "OTEL_EXPORTER_OTLP_HEADERS" }),
+        ]),
+      }),
+    ]),
+  });
 }
 
 describe("CtxPipe OpenTelemetry env", () => {
-  it("sets no OTEL env and no collector when otel is omitted", () => {
-    const template = synth();
-    const resources = template.findResources("AWS::ECS::TaskDefinition");
-    for (const resource of Object.values(resources)) {
-      const properties = resource.Properties as {
-        ContainerDefinitions?: Array<{
-          Environment?: Array<{ Name: string }>;
-        }>;
-      };
-      for (const container of properties.ContainerDefinitions ?? []) {
-        for (const entry of container.Environment ?? []) {
-          expect(entry.Name.startsWith("OTEL_")).toBe(false);
-        }
-      }
-    }
-    const descriptions = JSON.stringify(template.toJSON());
-    expect(descriptions).not.toContain("telemetry.ctxpipe.ai");
-    expect(descriptions).not.toContain("langfuse.ctxpipe.ai");
-    expect(descriptions).not.toContain("otel-collector");
+  it("sets no OTEL env when otel is omitted", () => {
+    expectNoOtelExport(synth());
   });
 
-  it("passes standard OTLP env to app tasks when otel is set", () => {
+  it("sets no OTEL env when endpoint is blank", () => {
+    expectNoOtelExport(
+      synth({
+        endpoint: "   ",
+        headers: cdk.SecretValue.unsafePlainText("Authorization=Bearer collector"),
+        resourceAttributes: "deployment.environment=production",
+      }),
+    );
+  });
+
+  it("expands one endpoint base onto the app tasks", () => {
     const template = synth({
-      tracesEndpoint: "https://otel.example.com/v1/traces",
-      logsEndpoint: "https://otel.example.com/v1/logs",
-      metricsEndpoint: "https://otel.example.com/v1/metrics",
+      endpoint: "https://otel.example.com/",
       headers: cdk.SecretValue.unsafePlainText("Authorization=Bearer collector"),
-      resourceAttributes: "deployment.environment=production",
+      resourceAttributes: "  deployment.environment=production  ",
     });
 
-    expect(containerEnvironment(template, "backend")).toMatchObject({
-      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://otel.example.com/v1/traces",
-      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "https://otel.example.com/v1/logs",
-      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "https://otel.example.com/v1/metrics",
-      OTEL_RESOURCE_ATTRIBUTES: "deployment.environment=production",
-      OTEL_SERVICE_NAME: "backend",
+    expectOtelExport(template, "backend", "backend");
+    expectOtelExport(template, "worker", "openworkflow");
+    expectOtelExport(template, "ui", "ui");
+    expectOtelExport(template, "codesearch", "codesearch");
+    template.hasResourceProperties("AWS::ECS::TaskDefinition", {
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Name: "migrate",
+          Environment: Match.absent(),
+          Secrets: Match.not(
+            Match.arrayWith([
+              Match.objectLike({ Name: "OTEL_EXPORTER_OTLP_HEADERS" }),
+            ]),
+          ),
+        }),
+      ]),
     });
-    expect(containerEnvironment(template, "worker").OTEL_SERVICE_NAME).toBe(
-      "openworkflow",
-    );
-    expect(containerEnvironment(template, "ui").OTEL_SERVICE_NAME).toBe("ui");
-    expect(containerEnvironment(template, "codesearch").OTEL_SERVICE_NAME).toBe(
-      "codesearch",
-    );
-    expect(containerSecretNames(template, "backend")).toContain(
-      "OTEL_EXPORTER_OTLP_HEADERS",
-    );
-    expect(containerSecretNames(template, "ui")).toContain(
-      "OTEL_EXPORTER_OTLP_HEADERS",
-    );
-    expect(containerSecretNames(template, "migrate")).not.toContain(
-      "OTEL_EXPORTER_OTLP_HEADERS",
-    );
-    expect(containerEnvironment(template, "migrate").OTEL_SERVICE_NAME).toBeUndefined();
   });
 });

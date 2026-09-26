@@ -4,7 +4,7 @@ Contributor collector for the Compose **`infra`** profile (`pnpm dev:infra`). It
 
 The process receives OTLP on port 4318 and prints it with the collector `debug` exporter. It starts with no tokens and no env file. **Hosted ingest** is the ClickStack collector under [`ops/observability/collector`](../../ops/observability/collector) ([ADR-038](../../.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md)). The LLM allowlist lives only in that file.
 
-Compose mounts this `config.yaml` into `otel/opentelemetry-collector-contrib:0.149.0`. The Dockerfile bakes the same file for a local image build. Product deploy does not publish or run that image.
+Compose mounts this `config.yaml` into `otel/opentelemetry-collector-contrib:0.149.0`. Product deploy does not publish or run a collector image.
 
 To watch local spans, set the app endpoints and follow the container logs:
 

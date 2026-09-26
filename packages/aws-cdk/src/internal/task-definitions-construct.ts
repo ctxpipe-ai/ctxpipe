@@ -3,34 +3,24 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 import { buildModelContainerConfig } from "../model-provider";
-import type { CtxPipeOtelProps } from "../types";
 import type {
   TaskDefinitionsConstructProps,
   TaskDefinitionsResources,
 } from "./contracts";
 
 function otelExportEnvironment(
-  otel: CtxPipeOtelProps | undefined,
+  endpoint: string,
+  resourceAttributes: string | undefined,
   serviceName: string,
 ): Record<string, string> {
-  const tracesEndpoint = otel?.tracesEndpoint?.trim();
-  const logsEndpoint = otel?.logsEndpoint?.trim();
-  const metricsEndpoint = otel?.metricsEndpoint?.trim();
-  if (!tracesEndpoint && !logsEndpoint && !metricsEndpoint) {
+  if (!endpoint) {
     return {};
   }
-  const resourceAttributes = otel?.resourceAttributes?.trim();
   return {
-    ...(tracesEndpoint
-      ? { OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: tracesEndpoint }
-      : {}),
-    ...(logsEndpoint ? { OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: logsEndpoint } : {}),
-    ...(metricsEndpoint
-      ? { OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: metricsEndpoint }
-      : {}),
-    ...(resourceAttributes
-      ? { OTEL_RESOURCE_ATTRIBUTES: resourceAttributes }
-      : {}),
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: `${endpoint}/v1/traces`,
+    OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: `${endpoint}/v1/logs`,
+    OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: `${endpoint}/v1/metrics`,
+    ...(resourceAttributes ? { OTEL_RESOURCE_ATTRIBUTES: resourceAttributes } : {}),
     OTEL_SERVICE_NAME: serviceName,
   };
 }
@@ -54,10 +44,10 @@ export class TaskDefinitionsConstruct extends Construct {
         : {}),
     });
 
-    const otelExportEnabled =
-      Object.keys(otelExportEnvironment(props.otel, "backend")).length > 0;
+    const otelEndpoint = props.otel?.endpoint.trim().replace(/\/+$/, "") ?? "";
+    const otelResourceAttributes = props.otel?.resourceAttributes?.trim() || undefined;
     const otelHeadersSecret =
-      otelExportEnabled && props.otel?.headers
+      otelEndpoint && props.otel?.headers
         ? new secretsmanager.Secret(this, "OtelHeadersSecret", {
             secretObjectValue: {
               OTEL_EXPORTER_OTLP_HEADERS: props.otel.headers,
@@ -135,7 +125,7 @@ export class TaskDefinitionsConstruct extends Construct {
         UI_PROXY_URL: "http://ui.ctxpipe.local:3002",
         CODESEARCH_URL: "http://codesearch.ctxpipe.local:3001",
         ...modelContainerConfig.environment,
-        ...otelExportEnvironment(props.otel, "backend"),
+        ...otelExportEnvironment(otelEndpoint, otelResourceAttributes, "backend"),
       },
       secrets: {
         AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
@@ -179,7 +169,7 @@ export class TaskDefinitionsConstruct extends Construct {
           props.sizeProfile.concurrency.codesearchIndexerConcurrency,
         ),
         ...modelContainerConfig.environment,
-        ...otelExportEnvironment(props.otel, "openworkflow"),
+        ...otelExportEnvironment(otelEndpoint, otelResourceAttributes, "openworkflow"),
       },
       secrets: {
         AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
@@ -210,7 +200,7 @@ export class TaskDefinitionsConstruct extends Construct {
         NODE_ENV: "production",
         PORT: "3002",
         VITE_PUBLIC_API_URL: appUrl,
-        ...otelExportEnvironment(props.otel, "ui"),
+        ...otelExportEnvironment(otelEndpoint, otelResourceAttributes, "ui"),
       },
       ...(otelHeadersSecret ? { secrets: otelHeaderSecrets } : {}),
       portMappings: [{ containerPort: 3002 }],
@@ -235,7 +225,7 @@ export class TaskDefinitionsConstruct extends Construct {
         CODESEARCH_INDEX_PIPELINE_CONCURRENCY: String(
           props.sizeProfile.concurrency.codesearchIndexPipelineConcurrency,
         ),
-        ...otelExportEnvironment(props.otel, "codesearch"),
+        ...otelExportEnvironment(otelEndpoint, otelResourceAttributes, "codesearch"),
       },
       secrets: {
         AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),

@@ -139,34 +139,28 @@ modelProvider: {
 
 ## Observability
 
-`otel` passes the standard OpenTelemetry variables through to the backend, worker, UI, and codesearch tasks. Migrate does not receive them. Export stays off when `otel` is omitted or when every endpoint is blank.
+`otel.endpoint` is one OTLP/HTTP base URL. The construct trims it once and sets the per-signal variables the apps read: `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is `${endpoint}/v1/traces`, and logs and metrics follow the same pattern. Migrate does not receive them. Export stays off when `otel` is omitted or when `endpoint` is blank after trim. `OTEL_SERVICE_NAME` is set only then, to `backend`, `openworkflow`, `ui`, or `codesearch` on that task.
 
 | Prop | Container env |
 | --- | --- |
-| `tracesEndpoint` | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` |
-| `logsEndpoint` | `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` |
-| `metricsEndpoint` | `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` |
-| `headers` | `OTEL_EXPORTER_OTLP_HEADERS` (Secrets Manager) |
+| `endpoint` | `OTEL_EXPORTER_OTLP_{TRACES,LOGS,METRICS}_ENDPOINT` (`/v1/traces`, `/v1/logs`, `/v1/metrics`) |
+| `headers` | `OTEL_EXPORTER_OTLP_HEADERS` (Secrets Manager, only when export is on) |
 | `resourceAttributes` | `OTEL_RESOURCE_ATTRIBUTES` |
-
-When any endpoint is set, the construct also sets `OTEL_SERVICE_NAME` to `backend`, `openworkflow`, `ui`, or `codesearch` on that task.
 
 ```ts
 new CtxPipe(stack, "CtxPipe", {
   // ...orgSlug, customDomain, modelProvider
   otel: {
-    tracesEndpoint: "https://otel.example.com/v1/traces",
-    logsEndpoint: "https://otel.example.com/v1/logs",
-    metricsEndpoint: "https://otel.example.com/v1/metrics",
+    endpoint: "https://otel.example.com",
     headers: cdk.SecretValue.unsafePlainText("Authorization=Bearer replace-me"),
     resourceAttributes: "deployment.environment=production",
   },
 });
 ```
 
-Use any OTLP/HTTP endpoint (Grafana, Honeycomb, Datadog OTLP, or your own collector). LLM spans are OpenTelemetry spans. To send them to your Langfuse project, set `tracesEndpoint` to `https://<your-langfuse>/api/public/otel` and `headers` to `Authorization=Basic <base64(publicKey:secretKey)>`. The app does not read `LANGFUSE_*`. For APM and Langfuse together, point these endpoints at your collector.
+Use any OTLP/HTTP base (Grafana, Honeycomb, Datadog OTLP, or your own collector). The construct does not take a different URL per signal. Point `endpoint` at a collector when traces, logs, and metrics must go to different vendors — for example traces to Langfuse and logs to an APM backend. The app does not read `LANGFUSE_*`.
 
-The UI turns on browser telemetry only when `tracesEndpoint` is set. The browser posts to `/.otel` on the app origin, and the UI task forwards that to your traces endpoint. With no traces endpoint, the browser SDK does not start and `/.otel` returns 204.
+The UI turns on browser telemetry when `endpoint` is set, because that sets the traces endpoint. The browser posts to `/.otel` on the app origin, and the UI task forwards that to the traces endpoint. With no endpoint, the browser SDK does not start and `/.otel` returns 204.
 
 
 
