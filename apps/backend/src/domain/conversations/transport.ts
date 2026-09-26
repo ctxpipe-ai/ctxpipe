@@ -10,21 +10,16 @@ import {
   type UIMessage,
   type UIMessageChunk,
 } from "ai"
-import { getContext } from "hono/context-storage"
-import type { AppEnv } from "../../app/env.js"
-import { currentOrgApiKey, requireCurrentOrgId } from "../../auth/context.js"
+import { requireCurrentOrgId } from "../../auth/context.js"
 import { conversationGraph } from "../../graphs/index.js"
 import { generateObjectId } from "../../lib/id.js"
-import {
-  type ActorType,
-  applyAttribution,
-} from "../../observability/attribution.js"
+import { applyAttribution } from "../../observability/attribution.js"
 import { recordAdvisorCall } from "../../observability/businessMetrics.js"
 import {
   getLangfuseHandler,
   runWithLangfuseContext,
 } from "../../observability/langfuse.js"
-import { tryGetLogger } from "../../observability/requestLogger.js"
+import { getLogger } from "../../observability/logger.js"
 import type { StreamEnhancer } from "./renameStream.js"
 import { createTextStartRepairTransform } from "./uiMessageStreamTextStartRepair.js"
 import { createToolInvocationRepairTransform } from "./uiMessageStreamToolInvocationRepair.js"
@@ -43,17 +38,6 @@ export interface ConversationTransportAdapter {
   toResponse(input: StreamInput): Promise<Response>
 }
 
-function principalActorType(): ActorType {
-  try {
-    if (currentOrgApiKey()) return "org_api_key"
-    const vars = getContext<AppEnv>().var
-    if (vars.oauthClientId || vars.oauthOrganizationId) return "oauth_client"
-  } catch {
-    // Adapter calls outside a request have no principal.
-  }
-  return "user"
-}
-
 export function createDataStreamConversationTransport(): ConversationTransportAdapter {
   return new DataStreamConversationTransport()
 }
@@ -61,18 +45,10 @@ export function createDataStreamConversationTransport(): ConversationTransportAd
 class DataStreamConversationTransport implements ConversationTransportAdapter {
   async toResponse(input: StreamInput): Promise<Response> {
     applyAttribution(
-      {
-        "ctxpipe.conversation.id": input.conversationId,
-        "ctxpipe.actor.type": principalActorType(),
-        ...(input.userId ? { "enduser.id": input.userId } : {}),
-      },
-      tryGetLogger(),
+      { "ctxpipe.conversation.id": input.conversationId },
+      getLogger(),
     )
-    try {
-      recordAdvisorCall(requireCurrentOrgId())
-    } catch {
-      // Advisor metric is org-scoped; skip when the route has no org context.
-    }
+    recordAdvisorCall(requireCurrentOrgId())
     return runWithLangfuseContext(
       {
         sessionId: input.conversationId,

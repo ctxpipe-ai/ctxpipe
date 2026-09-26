@@ -1,5 +1,6 @@
 import { StreamableHTTPTransport } from "@hono/mcp"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import { CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js"
 import type { Context } from "hono"
 import type { AppEnv } from "../app/env.js"
 import { currentMcpActor, requireCurrentOrgId } from "../auth/context.js"
@@ -156,52 +157,34 @@ export async function handleMcpTransportRequest(
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
 function attributionFromToolsCall(
   parsedBody: unknown,
 ): AttributionInput | undefined {
   const messages = Array.isArray(parsedBody) ? parsedBody : [parsedBody]
   for (const message of messages) {
-    if (!isRecord(message) || message.method !== "tools/call") continue
-    const params = message.params
-    if (!isRecord(params) || typeof params.name !== "string") continue
-    const name = params.name.trim().slice(0, 100)
+    const parsed = CallToolRequestSchema.safeParse(message)
+    if (!parsed.success) continue
+    const name = parsed.data.params.name.trim().slice(0, 100)
     if (!name) continue
-    const args = isRecord(params.arguments) ? params.arguments : {}
-    const conversationId = advisorConversationId(name, args)
+    const args = parsed.data.params.arguments ?? {}
+    const rawConversationId = args.conversationId
+    let conversationId: string | undefined
+    if (name === "ctx_advisor" && typeof rawConversationId === "string") {
+      const actor = currentMcpActor()
+      conversationId = mcpAdvisorThreadId({
+        orgId: requireCurrentOrgId(),
+        actorKey: actor.type === "org-service" ? "org" : actor.userId,
+        currentProjectName:
+          typeof args.currentProjectName === "string"
+            ? args.currentProjectName
+            : undefined,
+        conversationId: rawConversationId,
+      })
+    }
     return {
       "ctxpipe.mcp.tool": name,
       ...(conversationId ? { "ctxpipe.conversation.id": conversationId } : {}),
     }
   }
   return undefined
-}
-
-function advisorConversationId(
-  toolName: string,
-  args: Record<string, unknown>,
-): string | undefined {
-  if (toolName !== "ctx_advisor") return undefined
-  const conversationId = args.conversationId
-  if (typeof conversationId !== "string") return undefined
-  try {
-    const actor = currentMcpActor()
-    const orgId = requireCurrentOrgId()
-    const actorKey = actor.type === "org-service" ? "org" : actor.userId
-    const currentProjectName =
-      typeof args.currentProjectName === "string"
-        ? args.currentProjectName
-        : undefined
-    return mcpAdvisorThreadId({
-      orgId,
-      actorKey,
-      currentProjectName,
-      conversationId,
-    })
-  } catch {
-    return undefined
-  }
 }

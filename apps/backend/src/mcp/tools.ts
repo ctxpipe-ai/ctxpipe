@@ -9,14 +9,12 @@ import {
   ensureConversation,
   touchConversationLastMessage,
 } from "../models/conversations.js"
-import { applyAttribution } from "../observability/attribution.js"
 import { recordAdvisorCall } from "../observability/businessMetrics.js"
 import {
   getLangfuseHandler,
   runWithLangfuseContext,
 } from "../observability/langfuse.js"
 import { log } from "../observability/logger.js"
-import { tryGetLogger } from "../observability/requestLogger.js"
 import { mcpAdvisorThreadId } from "./advisorThread.js"
 
 /**
@@ -115,16 +113,6 @@ export function registerMcpTools(server: McpServer): void {
         },
       }
       try {
-        applyAttribution(
-          {
-            "ctxpipe.mcp.tool": "ctx_advisor",
-            "ctxpipe.conversation.id": threadId,
-            "ctxpipe.actor.type":
-              actor.type === "org-service" ? "org_api_key" : "user",
-            ...(actor.type === "user" ? { "enduser.id": actor.userId } : {}),
-          },
-          tryGetLogger(),
-        )
         recordAdvisorCall(orgId)
         return await runWithLangfuseContext(
           {
