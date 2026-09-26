@@ -324,7 +324,7 @@ export function createBetterAuth() {
         accessTokenExpiresIn: 14_400,
         silenceWarnings: { oauthAuthServerConfig: true },
       }),
-      dash(),
+      ...(env.BETTER_AUTH_API_KEY ? [dash()] : []),
     ],
   })
 }

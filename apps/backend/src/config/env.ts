@@ -12,6 +12,8 @@ const envSchema = z.object({
   AUTH_BASE_URL: z.string().url().default("https://localhost:3000"),
   AUTH_ISSUER: z.string().min(1).optional(),
   AUTH_ALLOWED_ORIGINS: z.string().optional(),
+  /** Better Auth dashboard (`dash()`). Unset: the plugin is off and nothing is sent to dash.better-auth.com. */
+  BETTER_AUTH_API_KEY: z.string().min(1).optional(),
   AUTH_TOKEN_AUDIENCE_CODESEARCH: z.string().min(1).optional(),
   /** Optional 32-byte AES key as 64 hex chars. When unset, derived from AUTH_SECRET. */
   CONNECTION_SECRETS_ENCRYPTION_KEY: z.preprocess(
