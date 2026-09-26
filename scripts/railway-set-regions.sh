@@ -16,7 +16,7 @@
 #   RAILWAY_REGION       (default: us-east4-eqdc4a)
 #   RAILWAY_NUM_REPLICAS (default: 1)
 #   RAILWAY_SERVICE_SET  (default: product)
-#     product         — ctxpipe (backend, openworkflow, ui, otelcollector, codesearch, falkordb)
+#     product         — ctxpipe (backend, openworkflow, ui, codesearch, falkordb)
 #     observability   — ctxpipe-observability (collector, hyperdx, redis,
 #                       langfuse-web, langfuse-worker, railway-telemetry,
 #                       clickhouse, mongo)
@@ -58,7 +58,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/railway-graphql.sh"
 # Terraform service names. Stateless first; volume-backed last (serial copy).
 case "$SERVICE_SET" in
   product)
-    STATELESS_NAMES=(backend openworkflow ui otelcollector)
+    STATELESS_NAMES=(backend openworkflow ui)
     VOLUME_NAMES=(codesearch falkordb)
     ;;
   observability)

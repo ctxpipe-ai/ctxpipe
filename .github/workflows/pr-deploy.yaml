@@ -78,7 +78,6 @@ jobs:
             dockerfile: apps/ui/Dockerfile
           - image: codesearch
             dockerfile: apps/codesearch/Dockerfile
-          # otel-collector is not built/deployed for PR envs (keeps previews asleep; no Better Stack quota burn).
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@v1
@@ -474,8 +473,8 @@ jobs:
 
             # Preview-only: turn off LangSmith. OTEL goes to the shared ClickStack
             # collector when OBSERVABILITY_OTLP_ENDPOINT is set (PR uses flush-on-demand
-            # metrics, so no 60s timer). Until that var exists, delete cloned in-project
-            # collector URLs so we do not talk to a scaled-to-0 otelcollector.
+            # metrics, so no 60s timer). When that var is empty, delete cloned exporter
+            # URLs.
             delete_service_variable() {
               local service_id="$1"
               local name="$2"
@@ -743,21 +742,21 @@ jobs:
             update_source_image "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE" >/dev/null
             deploy_service "$CODESEARCH_SERVICE_ID" >/dev/null
 
-            # Terraform service names: otelcollector, falkordb (resolved via GraphQL; no GitHub vars).
+            # Preview copies created before the production collector was removed can
+            # still contain that service. Stop it and drop its old token variable.
+            # New previews cloned after the production destroy do not have it.
             load_service_ids_by_name
             OTELCOLLECTOR_SERVICE_ID="$(echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r '.otelcollector // empty')"
             FALKORDB_SERVICE_ID="$(echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r '.falkordb // empty')"
 
-            # Never deploy otelcollector in PR: scale to 0 and stop active deployments
-            # (no serviceInstanceDeployV2 — that was waking/starting containers).
             if [[ -n "$OTELCOLLECTOR_SERVICE_ID" ]]; then
               delete_service_variable "$OTELCOLLECTOR_SERVICE_ID" "BETTER_STACK_TOKEN"
+              delete_service_variable "$OTELCOLLECTOR_SERVICE_ID" "LANGFUSE_AUTH_STRING"
+              delete_service_variable "$OTELCOLLECTOR_SERVICE_ID" "LANGFUSE_OTLP_ENDPOINT"
               scale_service_to_zero "$OTELCOLLECTOR_SERVICE_ID" >/dev/null
               stop_active_deployments "$OTELCOLLECTOR_SERVICE_ID"
-              echo "otel-collector ($OTELCOLLECTOR_SERVICE_ID) scaled to 0 and active deployments stopped (not deployed)"
+              echo "leftover otelcollector ($OTELCOLLECTOR_SERVICE_ID) scaled to 0 and active deployments stopped"
               verify_sleep_application "otel-collector" "$OTELCOLLECTOR_SERVICE_ID"
-            else
-              echo "Warning: no Railway service named otelcollector in project $RAILWAY_PROJECT_ID; skipping"
             fi
 
             if [[ -n "$FALKORDB_SERVICE_ID" ]]; then

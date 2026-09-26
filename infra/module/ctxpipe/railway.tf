@@ -23,9 +23,8 @@ locals {
       region       = var.railway_regions[0].region
     }
   ]
-  # Empty TF_VAR_otel_otlp_endpoint (unset GitHub variable) must not fall
-  # back to the in-project otelcollector. That collector exports to Better
-  # Stack, not ClickHouse. Apps send to the public ClickStack collector.
+  # Empty TF_VAR_otel_otlp_endpoint (unset GitHub variable) sends apps to
+  # the public ClickStack collector.
   otel_endpoint_base = trimsuffix(
     length(trimspace(var.otel_otlp_endpoint)) > 0 ? trimspace(var.otel_otlp_endpoint) : "https://telemetry.ctxpipe.ai",
     "/",
@@ -217,44 +216,12 @@ resource "railway_variable_collection" "ui_env" {
   ], local.otel_shared_env)
 }
 
-resource "railway_service" "otelcollector" {
-  project_id   = railway_project.this.id
-  name         = "otelcollector"
-  regions      = local.regions
-  source_image = "${var.otel_collector_source_image}:${var.image_tag}"
-  lifecycle {
-    prevent_destroy = true
-    # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
-    ignore_changes = [regions]
-  }
-}
-
-resource "railway_variable_collection" "otelcollector_env" {
-  environment_id = railway_project.this.default_environment.id
-  service_id     = railway_service.otelcollector.id
-
-  variables = [
-    {
-      name  = "BETTER_STACK_TOKEN"
-      value = var.better_stack_token
-    },
-    {
-      name  = "LANGFUSE_AUTH_STRING"
-      value = var.langfuse_auth_string
-    },
-    {
-      name  = "LANGFUSE_OTLP_ENDPOINT"
-      value = var.langfuse_otlp_endpoint
-    },
-  ]
-}
-
 resource "railway_service" "backend" {
   project_id   = railway_project.this.id
   name         = "backend"
   regions      = local.regions
   source_image = "${var.backend_source_image}:${var.image_tag}"
-  depends_on   = [railway_service.falkordb, railway_service.ui, railway_service.code_search, railway_service.otelcollector]
+  depends_on   = [railway_service.falkordb, railway_service.ui, railway_service.code_search]
   lifecycle {
     prevent_destroy = true
     # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
@@ -359,7 +326,7 @@ resource "railway_service" "open_workflow" {
   name         = "openworkflow"
   regions      = local.regions
   source_image = "${var.worker_source_image}:${var.image_tag}"
-  depends_on   = [railway_service.falkordb, railway_service.backend, railway_service.otelcollector]
+  depends_on   = [railway_service.falkordb, railway_service.backend]
   lifecycle {
     prevent_destroy = true
     # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).

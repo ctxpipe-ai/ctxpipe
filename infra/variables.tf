@@ -156,24 +156,6 @@ variable "falkordb_password" {
   sensitive   = true
 }
 
-variable "better_stack_token" {
-  type        = string
-  description = "Better Stack OpenTelemetry source token for the collector."
-  sensitive   = true
-}
-
-variable "langfuse_auth_string" {
-  type        = string
-  description = "LangFuse OTLP basic auth string (base64)."
-  sensitive   = true
-}
-
-variable "langfuse_otlp_endpoint" {
-  type        = string
-  description = "LangFuse OTLP HTTP endpoint."
-  sensitive   = true
-}
-
 variable "otel_otlp_endpoint" {
   type        = string
   description = "Public ClickStack collector OTLP HTTP base (no /v1 suffix). Empty uses https://telemetry.ctxpipe.ai."
