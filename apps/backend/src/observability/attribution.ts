@@ -37,11 +37,6 @@ export type AttributionInput = Partial<
   Record<AttributionKey, string | undefined>
 >
 
-/** @deprecated Second argument is ignored. Concurrent lanes still pass a logger. */
-type AttributionLogger = {
-  set(data: Record<string, unknown>): void
-}
-
 export function sanitizeAttribution(
   input: AttributionInput,
 ): Partial<Record<AttributionKey, string>> {
@@ -88,12 +83,23 @@ export function readAttribution(): Partial<Record<AttributionKey, string>> {
 
 export function applyAttribution(
   input: AttributionInput,
-  _logger?: AttributionLogger,
 ): Partial<Record<AttributionKey, string>> {
   const cleaned = sanitizeAttribution(input)
   if (Object.keys(cleaned).length === 0) return cleaned
   trace.getActiveSpan()?.setAttributes(cleaned)
-  getLogger().set(cleaned)
+  try {
+    const logger = getLogger()
+    if (typeof logger.set === "function") logger.set(cleaned)
+  } catch (error) {
+    if (
+      !(
+        error instanceof Error &&
+        error.message.startsWith("getLogger: no logger in context")
+      )
+    ) {
+      throw error
+    }
+  }
   const bag = attributionBagFromContext(context.active())
   if (bag) {
     for (const [key, value] of Object.entries(cleaned)) {

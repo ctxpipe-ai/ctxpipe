@@ -16,7 +16,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-003](ADR-003-drizzle-beta.md) | Drizzle ORM beta (v1.x) | Accepted |
 | [ADR-004](ADR-004-local-development-docker-compose.md) | Local development with Docker Compose | Superseded by [ADR-015](ADR-015-docker-compose-profiles-and-small-scale-deploy.md); collector fan-out obsolete ([ADR-038](ADR-038-self-hosted-clickstack-langfuse.md)) |
 | [ADR-005](ADR-005-langgraph-integration.md) | LangGraph + LangChain integration | Superseded |
-| [ADR-006](ADR-006-langsmith-studio-dev-routes.md) | LangSmith Studio dev routes | Accepted |
+| [ADR-006](ADR-006-langsmith-studio-dev-routes.md) | LangSmith Studio dev routes | Superseded — LangSmith removed; no replacement |
 | [ADR-007](ADR-007-remove-cloudflare-workers-runtime.md) | Remove Cloudflare Workers runtime | Accepted |
 | [ADR-008](ADR-008-codesearch-zoekt-orchestration.md) | Codesearch service and Zoekt orchestration | Accepted |
 | [ADR-009](ADR-009-ui-src-folder-structure.md) | UI src folder structure | Accepted |

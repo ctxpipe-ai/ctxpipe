@@ -115,7 +115,7 @@ export async function handleMcpTransportRequest(
   // server span and request log would otherwise close without these fields.
   // SSE stays on: clients send progress notifications and accept event-stream.
   const toolAttribution = attributionFromToolsCall(parsedBody)
-  if (toolAttribution) applyAttribution(toolAttribution, log)
+  if (toolAttribution) applyAttribution(toolAttribution)
 
   const server = new McpServer(
     getMcpServerImplementation(c.get("env").AUTH_BASE_URL),

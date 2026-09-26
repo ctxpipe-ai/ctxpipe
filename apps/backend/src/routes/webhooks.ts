@@ -1,7 +1,6 @@
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
 import { applyAttribution } from "../observability/attribution.js"
-import { getLogger } from "../observability/logger.js"
 import { registerAtlassianWebhookRoute } from "./webhooks/atlassian/atlassian.js"
 import { registerGithubWebhookRoute } from "./webhooks/github/github.js"
 import { registerLinearWebhookRoute } from "./webhooks/linear/linear.js"
@@ -23,18 +22,15 @@ export function noteResolvedWebhookConnections(
   const orgId = orgIds[0]
   if (!orgId) return
   const connectionId = connectionIds.length === 1 ? connectionIds[0] : undefined
-  applyAttribution(
-    {
-      "ctxpipe.org.id": orgId,
-      ...(connectionId ? { "ctxpipe.connection.id": connectionId } : {}),
-    },
-    getLogger(),
-  )
+  applyAttribution({
+    "ctxpipe.org.id": orgId,
+    ...(connectionId ? { "ctxpipe.connection.id": connectionId } : {}),
+  })
 }
 
 export function registerWebhookRoutes(app: OpenAPIHono<AppEnv>) {
   app.use("/api/v1/webhook/*", async (_c, next) => {
-    applyAttribution({ "ctxpipe.actor.type": "webhook" }, getLogger())
+    applyAttribution({ "ctxpipe.actor.type": "webhook" })
     await next()
   })
   registerGithubWebhookRoute(app)

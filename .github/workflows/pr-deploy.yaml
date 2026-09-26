@@ -458,7 +458,6 @@ jobs:
                       serviceId: $service,
                       skipDeploys: true,
                       variables: {
-                        ENABLE_LANGSMITH: "false",
                         OPENWORKFLOW_NAMESPACE_ID: $workflow_namespace
                       }
                     }

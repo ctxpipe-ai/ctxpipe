@@ -1,6 +1,8 @@
 # ADR-006: LangSmith Studio dev routes
 
-**Status:** Accepted | **Date:** 2026-02-14 | **Tags:** backend, langsmith, langgraph, dev
+**Status:** Superseded | **Date:** 2026-02-14 | **Tags:** backend, langsmith, langgraph, dev
+
+**Note (2026-09-26):** LangSmith removed; no replacement.
 
 ## Context
 

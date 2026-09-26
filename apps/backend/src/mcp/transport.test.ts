@@ -28,7 +28,6 @@ import { closeDb, getSystemDb, initDb } from "../db/client.js"
 import { conversations } from "../db/schema/conversations.js"
 import { applyAttribution } from "../observability/attribution.js"
 import { backendOtelMiddleware } from "../observability/http.js"
-import { getLogger } from "../observability/logger.js"
 import { AttributionUrlSpanProcessor } from "../observability/otel.js"
 import { mcpAdvisorThreadId } from "./advisorThread.js"
 import { handleMcpTransportRequest } from "./transport.js"
@@ -238,16 +237,13 @@ describe.skipIf(!databaseUrl)("MCP OAuth client actor", () => {
       c.set("personalApiKeyId", null)
       c.set("orgSlug", "acme")
       c.set("orgId", orgId)
-      applyAttribution(
-        {
-          "ctxpipe.actor.type": "oauth_client",
-          "ctxpipe.org.id": orgId,
-          "ctxpipe.org.slug": "acme",
-          "enduser.id": userId,
-          "ctxpipe.oauth.client_id": "client_oauth",
-        },
-        getLogger(),
-      )
+      applyAttribution({
+        "ctxpipe.actor.type": "oauth_client",
+        "ctxpipe.org.id": orgId,
+        "ctxpipe.org.slug": "acme",
+        "enduser.id": userId,
+        "ctxpipe.oauth.client_id": "client_oauth",
+      })
       await next()
     })
     app.post("/mcp", (c) => handleMcpTransportRequest(c, registerMcpTools))

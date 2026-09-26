@@ -106,14 +106,6 @@ locals {
       value = "noreply@ctxpipe.ai"
     },
     {
-      name  = "ENABLE_LANGSMITH"
-      value = "TRUE"
-    },
-    {
-      name  = "LANGSMITH_API_KEY"
-      value = var.langsmith_api_key
-    },
-    {
       name  = "MODEL_PROVIDER_API_KEY",
       value = var.model_provider_api_key
     },

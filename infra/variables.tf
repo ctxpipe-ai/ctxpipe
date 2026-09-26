@@ -10,12 +10,6 @@ variable "better_auth_secret" {
   sensitive   = true
 }
 
-variable "langsmith_api_key" {
-  type        = string
-  description = "value for LANGSMITH_API_KEY"
-  sensitive   = true
-}
-
 variable "model_provider_api_key" {
   type        = string
   description = "value for MODEL_PROVIDER_API_KEY"

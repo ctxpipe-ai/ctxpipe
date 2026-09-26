@@ -19,7 +19,6 @@ import {
   getLangfuseHandler,
   runWithLangfuseContext,
 } from "../../observability/langfuse.js"
-import { getLogger } from "../../observability/logger.js"
 import type { StreamEnhancer } from "./renameStream.js"
 import { createTextStartRepairTransform } from "./uiMessageStreamTextStartRepair.js"
 import { createToolInvocationRepairTransform } from "./uiMessageStreamToolInvocationRepair.js"
@@ -44,10 +43,7 @@ export function createDataStreamConversationTransport(): ConversationTransportAd
 
 class DataStreamConversationTransport implements ConversationTransportAdapter {
   async toResponse(input: StreamInput): Promise<Response> {
-    applyAttribution(
-      { "ctxpipe.conversation.id": input.conversationId },
-      getLogger(),
-    )
+    applyAttribution({ "ctxpipe.conversation.id": input.conversationId })
     recordAdvisorCall(requireCurrentOrgId())
     return runWithLangfuseContext(
       {

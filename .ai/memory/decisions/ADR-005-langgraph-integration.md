@@ -21,13 +21,13 @@ We need LangGraph/LangChain for agent orchestration in the backend. Requirements
 4. Storage: PostgreSQL via `DATABASE_URL` (or in-memory for dev). No SQLite.
 5. LangGraph is supported in Bun/container runtime.
 
-**Superseded**: `@langgraph-js/pure-graph` was removed due to bugs (missing GET /assistants/{id}, xray query param validation). LangChain/LangGraph, models, and graphs remain in place. Hono–LangGraph integration is now addressed by [ADR-006](ADR-006-langsmith-studio-dev-routes.md): dev-only routes under `/langsmith` implemented in-app.
+**Superseded**: `@langgraph-js/pure-graph` was removed due to bugs (missing GET /assistants/{id}, xray query param validation). LangChain/LangGraph, models, and graphs remain in place.
 
 ## Consequences
 
 - Single process, single port; no proxy or subprocess.
 - All endpoints in one Hono app; Studio uses `baseUrl=…/langgraph`.
-- Depends on community package `@langgraph-js/pure-graph` (not official LangChain Agent Server) — package since removed; see ADR-006 for current approach.
+- Depends on community package `@langgraph-js/pure-graph` (not official LangChain Agent Server) — package since removed.
 
 ## Alternatives Considered
 
