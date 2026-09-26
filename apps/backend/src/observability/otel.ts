@@ -1,47 +1,55 @@
+import type { RequestOptions } from "node:http"
 import {
+  type Context,
   context,
   isSpanContextValid,
-  metrics,
+  propagation,
   SpanKind,
   SpanStatusCode,
-  TraceFlags,
   trace,
 } from "@opentelemetry/api"
-import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentations-node"
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http"
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
-import { resourceFromAttributes } from "@opentelemetry/resources"
-import { PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics"
+import { HttpInstrumentation } from "@opentelemetry/instrumentation-http"
+import { RedisInstrumentation } from "@opentelemetry/instrumentation-redis"
+import { RuntimeNodeInstrumentation } from "@opentelemetry/instrumentation-runtime-node"
+import {
+  type MetricReader,
+  PeriodicExportingMetricReader,
+} from "@opentelemetry/sdk-metrics"
 import { NodeSDK } from "@opentelemetry/sdk-node"
 import {
   BatchSpanProcessor,
   type ReadableSpan,
+  type Span,
   type SpanProcessor,
 } from "@opentelemetry/sdk-trace-base"
+import { log } from "evlog"
 import type { Env } from "../config/env.js"
-import { copyAttributionToSpan, propagationHeaders } from "./attribution.js"
+import { baggageWithAttribution, copyAttributionToSpan } from "./attribution.js"
 import { BetterAuthSpanFilter } from "./betterAuthSpanFilter.js"
 import { FlushOnDemandMetricReader } from "./flushOnDemandMetricReader.js"
 import { LangfuseContextSpanProcessor } from "./langfuseContextProcessor.js"
-import {
-  heapSpaceStatisticsAvailable,
-  installProcessHeapGauges,
-  omitUnimplementedHeapSpaceCollector,
-  reportTelemetryFlushError,
-  reportTelemetrySetupError,
-} from "./runtimeMetrics.js"
 import { redactSecretPath } from "./secretPath.js"
 
 let sdk: NodeSDK | undefined
+let spanProcessor: SpanProcessor | undefined
+let metricReader: MetricReader | undefined
 let started = false
 let outgoingFetchInstrumented = false
 
-const PR_ENVIRONMENT_RE = /^pr-\d+$/
-const FORCE_FLUSH_TIMEOUT_MS = 2_000
+/** evlog `service` name. NodeSDK reads `OTEL_SERVICE_NAME` on its own. */
+export function otelServiceName(
+  configured = process.env.OTEL_SERVICE_NAME,
+): string {
+  const name = configured?.trim()
+  return name ? name : "backend"
+}
 
 /**
  * Railway sets `RAILWAY_ENVIRONMENT_NAME` (`production` or `pr-N`).
- * Local / unset falls back to NODE_ENV.
+ * Local / unset falls back to NODE_ENV. The log drain still calls this.
+ * The tracer resource comes from env (see `initOtel`).
  */
 export function otelDeploymentEnvironment(
   railwayEnvironmentName = process.env.RAILWAY_ENVIRONMENT_NAME,
@@ -52,255 +60,142 @@ export function otelDeploymentEnvironment(
   return nodeEnv === "production" ? "production" : "development"
 }
 
-/**
- * Resource `service.name`. Railway sets `OTEL_SERVICE_NAME` to the service
- * (`backend`, `openworkflow`). The tracer scope stays `ctxpipe-backend`.
- */
-export function otelServiceName(
-  configured = process.env.OTEL_SERVICE_NAME,
-): string {
-  const name = configured?.trim()
-  return name ? name : "backend"
-}
-
-export function otelResourceAttributes(
-  serviceName: string,
-  deploymentEnvironment: string,
-): Record<string, string> {
-  return {
-    "service.name": serviceName,
-    "service.namespace": "ctxpipe",
-    "deployment.environment": deploymentEnvironment,
-  }
-}
-
 export function isRailwayPrEnvironment(
   railwayEnvironmentName = process.env.RAILWAY_ENVIRONMENT_NAME,
 ): boolean {
-  return PR_ENVIRONMENT_RE.test(railwayEnvironmentName?.trim() ?? "")
+  return /^pr-\d+$/.test(railwayEnvironmentName?.trim() ?? "")
 }
 
-/**
- * Initialize OpenTelemetry tracing and metrics. Call before any other imports that use tracing.
- * When OTEL_EXPORTER_OTLP_TRACES_ENDPOINT is set, traces are exported via OTLP.
- * When OTEL_EXPORTER_OTLP_METRICS_ENDPOINT is set, metrics are exported via OTLP.
- * Production uses a 60s periodic metric reader. PR (`pr-N`) uses flush-on-demand only.
- */
-export function initOtel(env: Env): void {
-  const tracesEndpoint = env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
-  if (!tracesEndpoint || started) return
+const SPAN_URL_KEYS = [
+  "url.path",
+  "url.full",
+  "http.target",
+  "http.url",
+] as const
 
-  const headers = parseOtelHeaders(env.OTEL_EXPORTER_OTLP_HEADERS)
-  const serviceName = otelServiceName(env.OTEL_SERVICE_NAME)
-  const deploymentEnvironment = otelDeploymentEnvironment()
-
-  const traceExporter = new OTLPTraceExporter({
-    url: tracesEndpoint.endsWith("/v1/traces")
-      ? tracesEndpoint
-      : `${tracesEndpoint.replace(/\/$/, "")}/v1/traces`,
-    headers,
-  })
-
-  const resource = resourceFromAttributes(
-    otelResourceAttributes(serviceName, deploymentEnvironment),
-  )
-
-  const metricReaders = env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
-    ? [
-        createMetricReader(
-          env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT,
-          headers,
-          isRailwayPrEnvironment(),
-        ),
-      ]
-    : undefined
-
-  const instrumentations = getNodeAutoInstrumentations(
-    nodeAutoInstrumentationConfig(),
-  )
-  try {
-    if (!heapSpaceStatisticsAvailable()) {
-      for (const instrumentation of instrumentations) {
-        if (
-          instrumentation.instrumentationName ===
-          "@opentelemetry/instrumentation-runtime-node"
-        ) {
-          omitUnimplementedHeapSpaceCollector(instrumentation)
-        }
-      }
+/** Strip query, fragment, and userinfo. Secret path segments stay redacted. */
+export class AttributionUrlSpanProcessor implements SpanProcessor {
+  onStart(span: Span, parentContext: Context): void {
+    copyAttributionToSpan(span, parentContext)
+    const attributes = (span as { attributes?: Record<string, unknown> })
+      .attributes
+    if (!attributes) return
+    for (const key of SPAN_URL_KEYS) {
+      const value = attributes[key]
+      if (typeof value !== "string") continue
+      const absolute = key === "url.full" || key === "http.url"
+      const next = recordedUrl(value, absolute)
+      if (next !== value) span.setAttribute(key, next)
     }
-  } catch (error) {
-    reportTelemetrySetupError(error)
   }
 
-  sdk = new NodeSDK({
-    resource,
-    spanProcessors: [
-      {
-        onStart(span, parentContext) {
-          copyAttributionToSpan(span, parentContext)
-          redactSpanUrlAttributes(span)
-        },
-        onEnd() {},
-        shutdown() {
-          return Promise.resolve()
-        },
-        forceFlush() {
-          return Promise.resolve()
-        },
-      },
-      new LangfuseContextSpanProcessor(),
-      new DropParentlessAutoInstrumentationSpans(
-        new BetterAuthSpanFilter(new BatchSpanProcessor(traceExporter)),
-      ),
-    ],
-    instrumentations,
-    ...(metricReaders && { metricReaders }),
-  })
-  sdk.start()
-  try {
-    if (
-      !heapSpaceStatisticsAvailable() &&
-      env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
-    ) {
-      installProcessHeapGauges(metrics.getMeter("ctxpipe-runtime"))
-    }
-  } catch (error) {
-    reportTelemetrySetupError(error)
+  onEnd(_span: ReadableSpan): void {}
+
+  shutdown(): Promise<void> {
+    return Promise.resolve()
   }
-  installOutgoingFetchInstrumentation()
-  started = true
-}
 
-const TRACER_NAME = "ctxpipe-backend"
-
-/**
- * Auto-instrumentations shared by the API (`bun src/server.ts`) and the
- * OpenWorkflow worker. The worker CLI is Node (`bunx @openworkflow/cli
- * worker`), and `openworkflow.config.ts` imports `register.ts` before `pg`
- * loads. Codesearch does not load this config: it builds a
- * `NodeTracerProvider` and its own server span and fetch wrapper.
- *
- * Disabled on both runtimes:
- * - `instrumentation-pg` — `dbTrace` is the Postgres span. On Node the hook
- *   also emits idle `pg-pool.connect` roots. It records
- *   `db.client.operation.duration` and `db.client.connection.*`; nothing in
- *   the HyperDX dashboards reads those.
- * - `instrumentation-net` and `instrumentation-dns` — `tcp.connect`,
- *   `tls.connect`, and `dns.lookup` when the Neon pool reconnects with no
- *   active job or request. That is almost every worker root. The same net
- *   and tls spans show up on the Bun API.
- * - `instrumentation-fs` — already off by default. Explicit so an env
- *   allowlist cannot span every file read during ingest.
- * - `instrumentation-undici` — Node's `fetch` is undici. The instrumentation
- *   starts its own client span and `propagation.inject`s that span id via
- *   `request.addHeader`, so codesearch's parent becomes undici `POST`
- *   beside the `HTTP POST` span from `tracedOutgoingFetch`. The wrapper
- *   already injects `traceparent` and, for codesearch, baggage. Bun's fetch
- *   is not undici, so this hook never covered the API.
- *
- * `instrumentation-http` stays. It patches `http.request` / `https.request`,
- * not `fetch`, so it does not duplicate the wrapper or replace the
- * codesearch parent. OTLP export URLs stay ignored.
- * `instrumentation-runtime-node` stays for metrics. Other hooks (redis, and
- * libraries we do not load) only emit when that module is required.
- * Parentless client and internal spans from those scopes are dropped by
- * `DropParentlessAutoInstrumentationSpans`.
- */
-export function nodeAutoInstrumentationConfig() {
-  return {
-    "@opentelemetry/instrumentation-dns": { enabled: false },
-    "@opentelemetry/instrumentation-fs": { enabled: false },
-    "@opentelemetry/instrumentation-net": { enabled: false },
-    "@opentelemetry/instrumentation-pg": { enabled: false },
-    "@opentelemetry/instrumentation-undici": { enabled: false },
-    "@opentelemetry/instrumentation-http": {
-      ignoreOutgoingRequestHook(
-        request: Parameters<typeof httpClientRequestUrl>[0],
-      ) {
-        return isOtlpExportTarget(httpClientRequestUrl(request))
-      },
-    },
+  forceFlush(): Promise<void> {
+    return Promise.resolve()
   }
 }
 
-const AUTO_INSTRUMENTATION_SCOPE_PREFIX = "@opentelemetry/instrumentation-"
-
 /**
- * Skips export of parentless CLIENT and INTERNAL spans from
- * `@opentelemetry/instrumentation-*`.
- *
- * A ParentBased root sampler is the wrong tool. `shouldSample` receives the
- * span name and kind, not the instrumentation scope, so it cannot tell an
- * idle `tcp.connect` from an application client span. Dropping that root
- * would also drop its children. Job roots (`openworkflow.job`, CONSUMER,
- * scope `ctxpipe-backend`) and HTTP server roots have to stay.
- *
- * Parented auto-instrumentation spans still export. Spans we start use
- * `ctxpipe-backend` (server, job, `dbTrace`, fetch), so a parentless one of
- * those is kept. SERVER and CONSUMER spans from an auto-instrumentation are
- * kept too: those are entry points, not idle sockets. A parentless
- * CLIENT or INTERNAL auto-instrumentation span with ERROR status is kept:
- * a Redis or `https.request` failure outside a job is still a failure.
- *
- * Wraps the exporter processor so a dropped span never reaches
- * `BatchSpanProcessor`. `BetterAuthSpanFilter` wraps `BatchSpanProcessor`
- * only, inside this processor.
+ * HTTP `requireParentforOutgoingSpans` records a non-recording span when there
+ * is no parent, including on error. Redis `requireParentSpan` returns before
+ * `startSpan`, including on error. Redis `connect` does not check that flag,
+ * so drop parentless CLIENT/INTERNAL auto-instrumentation spans unless they
+ * failed.
  */
-export class DropParentlessAutoInstrumentationSpans implements SpanProcessor {
+export class DropParentlessInstrumentationSpans implements SpanProcessor {
   constructor(private readonly next: SpanProcessor) {}
-
-  onStart(
-    span: Parameters<SpanProcessor["onStart"]>[0],
-    parentContext: Parameters<SpanProcessor["onStart"]>[1],
-  ): void {
-    if (isParentlessAutoInstrumentationSpan(span as ReadableSpan)) return
+  onStart(span: Span, parentContext: Context): void {
     this.next.onStart(span, parentContext)
   }
-
   onEnd(span: ReadableSpan): void {
-    if (
+    const parent = span.parentSpanContext
+    const parentless = !parent || !isSpanContextValid(parent)
+    const noise =
+      parentless &&
       span.status.code !== SpanStatusCode.ERROR &&
-      isParentlessAutoInstrumentationSpan(span)
-    ) {
-      return
-    }
-    this.next.onEnd(span)
+      (span.kind === SpanKind.CLIENT || span.kind === SpanKind.INTERNAL) &&
+      span.instrumentationScope.name.startsWith(
+        "@opentelemetry/instrumentation-",
+      )
+    if (!noise) this.next.onEnd(span)
   }
-
   shutdown(): Promise<void> {
     return this.next.shutdown()
   }
-
   forceFlush(): Promise<void> {
     return this.next.forceFlush()
   }
 }
 
-export function isParentlessAutoInstrumentationSpan(
-  span: ReadableSpan,
-): boolean {
-  if (span.kind !== SpanKind.CLIENT && span.kind !== SpanKind.INTERNAL) {
-    return false
-  }
-  if (
-    !span.instrumentationScope.name.startsWith(
-      AUTO_INSTRUMENTATION_SCOPE_PREFIX,
-    )
-  ) {
-    return false
-  }
-  const parent = span.parentSpanContext
-  return !parent || !isSpanContextValid(parent)
+/**
+ * Initialize OpenTelemetry tracing and metrics before other tracing imports.
+ * `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` are read by NodeSDK.
+ * `RAILWAY_ENVIRONMENT_NAME` is prepended as `deployment.environment` so an
+ * explicit resource attribute still wins. PR (`pr-N`) metrics flush on demand.
+ */
+export function initOtel(env: Env): void {
+  const tracesEndpoint = env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+  if (!tracesEndpoint || started) return
+
+  const railwayEnvironment = process.env.RAILWAY_ENVIRONMENT_NAME?.trim()
+  if (railwayEnvironment)
+    process.env.OTEL_RESOURCE_ATTRIBUTES = `deployment.environment=${railwayEnvironment}${process.env.OTEL_RESOURCE_ATTRIBUTES ? `,${process.env.OTEL_RESOURCE_ATTRIBUTES}` : ""}`
+
+  const traceExporter = new OTLPTraceExporter({
+    url: tracesEndpoint,
+    timeoutMillis: 2_000,
+  })
+  const batch = new BatchSpanProcessor(traceExporter, {
+    exportTimeoutMillis: 2_000,
+  })
+  spanProcessor = new DropParentlessInstrumentationSpans(
+    new BetterAuthSpanFilter(batch),
+  )
+  metricReader = env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
+    ? metricReaderFor(env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT)
+    : undefined
+
+  sdk = new NodeSDK({
+    spanProcessors: [
+      new AttributionUrlSpanProcessor(),
+      new LangfuseContextSpanProcessor(),
+      spanProcessor,
+    ],
+    instrumentations: [
+      new HttpInstrumentation({
+        requireParentforOutgoingSpans: true,
+        ignoreIncomingRequestHook: () => true,
+        ignoreOutgoingRequestHook(request) {
+          const url = httpRequestUrl(request)
+          return url !== undefined && isOtlpExportUrl(url)
+        },
+      }),
+      new RedisInstrumentation({ requireParentSpan: true }),
+      ...(typeof Bun === "undefined" ? [new RuntimeNodeInstrumentation()] : []),
+    ],
+    ...(metricReader ? { metricReaders: [metricReader] } : {}),
+  })
+  sdk.start()
+  installOutgoingFetchInstrumentation()
+  started = true
 }
 
-/**
- * Child spans for outgoing fetch, plus W3C traceparent and baggage injection.
- * This wrapper is the only fetch client span on both runtimes: Bun's fetch is
- * not undici, and Node undici instrumentation is disabled so it cannot
- * replace this span's id in `traceparent`. Codesearch continues that id.
- * OTLP export URLs are left uninstrumented so export does not trace itself.
- */
+function metricReaderFor(url: string): MetricReader {
+  const exporter = new OTLPMetricExporter({ url, timeoutMillis: 2_000 })
+  if (isRailwayPrEnvironment()) return new FlushOnDemandMetricReader(exporter)
+  return new PeriodicExportingMetricReader({
+    exporter,
+    exportIntervalMillis: 60_000,
+  })
+}
+
+const TRACE_SCOPE = "ctxpipe-backend"
+
 export function installOutgoingFetchInstrumentation(): void {
   if (outgoingFetchInstrumented) return
   outgoingFetchInstrumented = true
@@ -309,328 +204,174 @@ export function installOutgoingFetchInstrumentation(): void {
     tracedOutgoingFetch(original, input, init)) as typeof fetch
 }
 
-/**
- * Client span for one outgoing fetch.
- * No span when nothing is already tracing (UI proxy documents and assets),
- * when the target is the UI proxy, or when the URL is an OTLP export.
- * Recorded URLs keep scheme, host, and path only.
- */
+/** Child span for outgoing fetch. Skips OTLP export URLs and parentless calls. */
 export async function tracedOutgoingFetch(
   original: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   input: RequestInfo | URL,
   init?: RequestInit,
 ): Promise<Response> {
-  const url = requestUrl(input)
-  if (
-    isOtlpExportUrl(url) ||
-    isUiProxyFetchTarget(url) ||
-    !trace.getActiveSpan()
-  ) {
+  const raw =
+    typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.href
+        : input.url
+  if (isOtlpExportUrl(raw) || !trace.getActiveSpan())
     return original(input, init)
-  }
-
-  const method =
-    init?.method ?? (input instanceof Request ? input.method : "GET")
-  const tracer = trace.getTracer(TRACER_NAME)
-  const span = tracer.startSpan(`HTTP ${method}`, {
-    kind: SpanKind.CLIENT,
-    attributes: {
-      "http.request.method": method,
-      ...sanitizedClientUrlAttributes(url),
-    },
-  })
-  copyAttributionToSpan(span, context.active())
-  return context.with(trace.setSpan(context.active(), span), async () => {
-    const headers = new Headers(
-      init?.headers ?? (input instanceof Request ? input.headers : undefined),
-    )
-    if (isInternalAttributionTarget(url)) {
-      propagationHeaders(headers)
-    } else {
-      // traceparent is a trace id and span id, not user or org ids.
-      // Third parties that understand W3C can join the trace. Baggage stays internal.
-      injectTraceParentOnly(headers)
-    }
-    let request: Request
-    try {
-      request = new Request(input, { ...init, headers })
-    } catch {
-      try {
-        return await original(input, init)
-      } finally {
-        span.end()
-      }
-    }
-    try {
-      const response = await original(request)
-      span.setAttribute("http.response.status_code", response.status)
-      if (response.status >= 500) {
-        span.setStatus({ code: SpanStatusCode.ERROR })
-      }
-      return response
-    } catch (error) {
-      if (error instanceof Error) span.recordException(error)
-      span.setStatus({ code: SpanStatusCode.ERROR })
-      throw error
-    } finally {
-      span.end()
-    }
-  })
-}
-
-/**
- * Baggage carries user, org, api-key, and conversation ids.
- * Those go to our own services only: the configured codesearch origin,
- * Railway private DNS, and localhost in dev.
- */
-export function isInternalAttributionTarget(raw: string): boolean {
   let parsed: URL
   try {
     parsed = new URL(raw)
   } catch {
-    return false
+    return original(input, init)
   }
-  const host = parsed.hostname.toLowerCase()
-  // WHATWG `URL.hostname` for IPv6 loopback is `[::1]`, not `::1`.
+  const method = (
+    init?.method ?? (input instanceof Request ? input.method : "GET")
+  ).toUpperCase()
+  const internal = internalOrigin(parsed)
+  return trace.getTracer(TRACE_SCOPE).startActiveSpan(
+    `HTTP ${method}`,
+    {
+      kind: SpanKind.CLIENT,
+      attributes: {
+        "http.request.method": method,
+        "url.full": recordedUrl(raw, true),
+        "url.path": recordedUrl(raw, false),
+      },
+    },
+    async (span) => {
+      const headers = new Headers(
+        init?.headers ?? (input instanceof Request ? input.headers : undefined),
+      )
+      propagation.inject(
+        internal ? baggageWithAttribution(context.active()) : context.active(),
+        headers,
+        {
+          set(carrier, key, value) {
+            if (key === "baggage" && !internal) return
+            carrier.set(key, value)
+          },
+        },
+      )
+      let request: Request
+      try {
+        request = new Request(input, { ...init, headers })
+      } catch {
+        try {
+          return await original(input, init)
+        } finally {
+          span.end()
+        }
+      }
+      try {
+        const response = await original(request)
+        span.setAttribute("http.response.status_code", response.status)
+        if (response.status >= 500) {
+          span.setStatus({ code: SpanStatusCode.ERROR })
+        }
+        return response
+      } catch (error) {
+        if (error instanceof Error) span.recordException(error)
+        span.setStatus({ code: SpanStatusCode.ERROR })
+        throw error
+      } finally {
+        span.end()
+      }
+    },
+  )
+}
+
+function recordedUrl(value: string, absolute: boolean): string {
+  try {
+    const parsed = new URL(value)
+    const path = redactSecretPath(parsed.pathname || "/")
+    return absolute ? `${parsed.origin}${path}` : path
+  } catch {
+    return redactSecretPath(value.split("#")[0]?.split("?")[0] ?? value)
+  }
+}
+
+function internalOrigin(url: URL): boolean {
+  const host = url.hostname.toLowerCase()
   if (
     host === "localhost" ||
     host === "127.0.0.1" ||
     host === "::1" ||
-    host === "[::1]"
+    host === "[::1]" ||
+    host === "railway.internal" ||
+    host.endsWith(".railway.internal")
   ) {
-    return true
-  }
-  if (host === "railway.internal" || host.endsWith(".railway.internal")) {
     return true
   }
   const configured = process.env.CODESEARCH_URL
   if (!configured) return false
-  for (const entry of configured.split(",")) {
-    const trimmed = entry.trim()
-    if (!trimmed) continue
+  return configured.split(",").some((entry) => {
     try {
-      if (parsed.origin === new URL(trimmed).origin) return true
+      return new URL(entry.trim()).origin === url.origin
     } catch {
-      // Ignore a malformed codesearch URL entry.
+      return false
+    }
+  })
+}
+
+function isOtlpExportUrl(url: string): boolean {
+  for (const endpoint of [
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
+    process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT,
+    process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT,
+    process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT,
+  ]) {
+    const base = endpoint?.trim().replace(/\/$/, "")
+    if (!base) continue
+    if (
+      url === base ||
+      url.startsWith(`${base}/`) ||
+      url.startsWith(`${base}?`)
+    ) {
+      return true
     }
   }
   return false
 }
 
-function injectTraceParentOnly(
-  headers: Headers,
-  active = context.active(),
-): void {
-  headers.delete("baggage")
-  const spanContext = trace.getSpan(active)?.spanContext()
-  if (!spanContext || !trace.isSpanContextValid(spanContext)) return
-  const sampled =
-    (spanContext.traceFlags & TraceFlags.SAMPLED) === TraceFlags.SAMPLED
-  headers.set(
-    "traceparent",
-    `00-${spanContext.traceId}-${spanContext.spanId}-${sampled ? "01" : "00"}`,
-  )
-  const traceState = spanContext.traceState?.serialize()
-  if (traceState) headers.set("tracestate", traceState)
-}
-
-function redactSpanUrlAttributes(span: {
-  setAttribute(key: string, value: string): void
-}): void {
-  const attributes = (span as { attributes?: Record<string, unknown> })
-    .attributes
-  if (!attributes) return
-  for (const key of ["url.path", "url.full", "http.target", "http.url"]) {
-    const value = attributes[key]
-    if (typeof value !== "string") continue
-    const redacted = redactSecretPath(value)
-    if (redacted !== value) span.setAttribute(key, redacted)
-  }
-}
-
-/** scheme, host, and path. Query, fragment, and userinfo are omitted. */
-export function sanitizedClientUrlAttributes(
-  raw: string,
-): Record<string, string> {
-  try {
-    const parsed = new URL(raw)
-    const path = redactSecretPath(parsed.pathname || "/")
-    const scheme = parsed.protocol.replace(/:$/, "")
-    return {
-      "url.scheme": scheme,
-      "server.address": parsed.hostname,
-      "url.path": path,
-      "url.full": `${parsed.protocol}//${parsed.host}${path}`,
-    }
-  } catch {
-    const path = redactSecretPath(raw.split("#")[0]?.split("?")[0] ?? raw)
-    return { "url.path": path }
-  }
-}
-
-export function isUiProxyFetchTarget(
-  raw: string,
-  proxyBase = process.env.UI_PROXY_URL,
-): boolean {
-  if (!proxyBase) return false
-  try {
-    return new URL(raw).origin === new URL(proxyBase).origin
-  } catch {
-    return false
-  }
-}
-
-function requestUrl(input: RequestInfo | URL): string {
-  if (typeof input === "string") return input
-  if (input instanceof URL) return input.toString()
-  return input.url
-}
-
-function signalExportUrl(
-  raw: string | undefined,
-  signalPath: string,
-): URL | undefined {
-  if (!raw) return undefined
-  try {
-    const parsed = new URL(raw)
-    const path = parsed.pathname.replace(/\/$/, "")
-    if (/\/v1\/(traces|metrics|logs)$/.test(path)) return parsed
-    return new URL(signalPath, raw.endsWith("/") ? raw : `${raw}/`)
-  } catch {
-    return undefined
-  }
-}
-
-function configuredOtlpExportUrls(): URL[] {
-  return [
-    signalExportUrl(
-      process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT,
-      "/v1/traces",
-    ),
-    signalExportUrl(
-      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT,
-      "/v1/metrics",
-    ),
-    signalExportUrl(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, "/v1/logs"),
-  ].filter((url): url is URL => url !== undefined)
-}
-
-function httpClientRequestUrl(request: {
-  protocol?: string | null
-  hostname?: string | null
-  host?: string | null
-  port?: string | number | null
-  path?: string | null
-}): string | undefined {
+function httpRequestUrl(request: RequestOptions): string | undefined {
   const path = request.path ?? "/"
   if (path.startsWith("http://") || path.startsWith("https://")) return path
-  const hostname = request.hostname ?? request.host?.split(":")[0]
+  const hostname = request.hostname || request.host?.split(":")[0]
   if (!hostname) return undefined
   const protocol = (request.protocol || "https:").replace(/:$/, "")
-  const port = request.port == null ? "" : String(request.port)
-  const defaultPort =
-    (protocol === "https" && port === "443") ||
-    (protocol === "http" && port === "80")
-  const portSuffix = port && !defaultPort ? `:${port}` : ""
-  const pathname = path.startsWith("/") ? path : `/${path}`
-  return `${protocol}://${hostname}${portSuffix}${pathname}`
+  const port =
+    request.port == null || request.port === "" ? "" : String(request.port)
+  const suffix =
+    port &&
+    !(
+      (protocol === "https" && port === "443") ||
+      (protocol === "http" && port === "80")
+    )
+      ? `:${port}`
+      : ""
+  return `${protocol}://${hostname}${suffix}${path.startsWith("/") ? path : `/${path}`}`
 }
 
-/** True only for this process's configured OTLP trace, metric, or log export URL. */
-export function isOtlpExportTarget(value: string | null | undefined): boolean {
-  if (!value) return false
-  let candidate: URL
-  try {
-    candidate = new URL(value)
-  } catch {
-    return false
-  }
-  const path = candidate.pathname.replace(/\/$/, "") || "/"
-  return configuredOtlpExportUrls().some((target) => {
-    const targetPath = target.pathname.replace(/\/$/, "") || "/"
-    return target.origin === candidate.origin && targetPath === path
-  })
-}
-
-function isOtlpExportUrl(url: string): boolean {
-  return isOtlpExportTarget(url)
-}
-
-function createMetricReader(
-  metricsEndpoint: string,
-  headers: Record<string, string>,
-  prEnvironment: boolean,
-) {
-  const exporter = new OTLPMetricExporter({
-    url: metricsEndpoint.endsWith("/v1/metrics")
-      ? metricsEndpoint
-      : `${metricsEndpoint.replace(/\/$/, "")}/v1/metrics`,
-    headers,
-  })
-  if (prEnvironment) {
-    return new FlushOnDemandMetricReader(exporter)
-  }
-  return new PeriodicExportingMetricReader({
-    exporter,
-    exportIntervalMillis: 60_000,
-  })
-}
-
-export function parseOtelHeaders(
-  headerStr: string | undefined,
-): Record<string, string> {
-  if (!headerStr?.trim()) return {}
-  const out: Record<string, string> = {}
-  for (const part of headerStr.split(",")) {
-    const eq = part.indexOf("=")
-    if (eq > 0) {
-      const key = part.slice(0, eq).trim()
-      const value = part
-        .slice(eq + 1)
-        .trim()
-        .replace(/^["']|["']$/g, "")
-      if (key && value) out[key] = decodeURIComponent(value)
-    }
-  }
-  return out
-}
-
-/**
- * Flush traces and metrics. PR HTTP/job paths call this after work so metrics
- * export without a 60s timer. Failures are swallowed (non-fatal, short timeout).
- */
+/** Flush the span processor and metric reader created by `initOtel`. */
 export async function forceFlushOtel(): Promise<void> {
-  if (!sdk) return
+  if (!spanProcessor && !metricReader) return
   try {
-    await Promise.race([
-      Promise.all([
-        flushOtelProvider(trace.getTracerProvider()),
-        flushOtelProvider(metrics.getMeterProvider()),
-      ]),
-      new Promise<void>((_, reject) => {
-        setTimeout(
-          () => reject(new Error("otel forceFlush timeout")),
-          FORCE_FLUSH_TIMEOUT_MS,
-        )
-      }),
-    ])
+    await Promise.all([spanProcessor?.forceFlush(), metricReader?.forceFlush()])
   } catch (error) {
-    reportTelemetryFlushError(error)
+    log.error({
+      step: "otel.flush",
+      message: error instanceof Error ? error.message : String(error),
+      error: error instanceof Error ? error.name : "Error",
+    })
   }
 }
 
-function flushOtelProvider(provider: object): Promise<void> {
-  const flushable = provider as { forceFlush?: () => Promise<void> }
-  return flushable.forceFlush?.() ?? Promise.resolve()
-}
-
-/**
- * Shutdown the OTEL SDK. Call on process exit.
- */
+/** Shutdown the OTEL SDK. Call on process exit. */
 export async function shutdownOtel(): Promise<void> {
-  if (sdk) {
-    await sdk.shutdown()
-    sdk = undefined
-    started = false
-  }
+  if (!sdk) return
+  await sdk.shutdown()
+  sdk = undefined
+  spanProcessor = undefined
+  metricReader = undefined
+  started = false
 }

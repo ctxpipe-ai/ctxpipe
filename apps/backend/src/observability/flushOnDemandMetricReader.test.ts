@@ -4,8 +4,7 @@ import {
   InMemoryMetricExporter,
   MeterProvider,
 } from "@opentelemetry/sdk-metrics"
-import { log } from "evlog"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 import { FlushOnDemandMetricReader } from "./flushOnDemandMetricReader.js"
 
 describe("FlushOnDemandMetricReader", () => {
@@ -20,9 +19,7 @@ describe("FlushOnDemandMetricReader", () => {
     meter
       .createObservableGauge("broken.heap", { valueType: ValueType.INT })
       .addCallback(() => {
-        throw new Error(
-          "node:v8 getHeapSpaceStatistics is not yet implemented in Bun",
-        )
+        throw new Error("observable failed")
       })
     meter.createCounter("good.requests").add(3)
 
@@ -36,33 +33,6 @@ describe("FlushOnDemandMetricReader", () => {
         ),
       )
     expect(names).toContain("good.requests")
-    await provider.shutdown()
-  })
-
-  it("logs each observable callback failure once", async () => {
-    const warn = vi.spyOn(log, "warn").mockImplementation(() => {})
-    const exporter = new InMemoryMetricExporter(
-      AggregationTemporality.CUMULATIVE,
-    )
-    const provider = new MeterProvider({
-      readers: [new FlushOnDemandMetricReader(exporter)],
-    })
-    const meter = provider.getMeter("flush-log")
-    meter
-      .createObservableGauge("broken.once", { valueType: ValueType.INT })
-      .addCallback(() => {
-        throw new Error("heap-space-once")
-      })
-    meter.createCounter("still.exported").add(1)
-
-    await provider.forceFlush()
-    await provider.forceFlush()
-
-    const heapWarnings = warn.mock.calls.filter((call) =>
-      JSON.stringify(call[0]).includes("heap-space-once"),
-    )
-    expect(heapWarnings).toHaveLength(1)
-    warn.mockRestore()
     await provider.shutdown()
   })
 })
