@@ -1,5 +1,11 @@
 # @ctxpipe/aws-cdk
 
+## 3.2.0
+
+### Minor Changes
+
+- ce5f396: Optional `otel` prop: one OTLP/HTTP base URL; the construct sets per-signal `OTEL_EXPORTER_OTLP_*_ENDPOINT`, headers (Secrets Manager), and `OTEL_SERVICE_NAME` on the backend, worker, UI, and codesearch tasks. No collector is deployed.
+
 ## 3.1.14
 
 ### Patch Changes
