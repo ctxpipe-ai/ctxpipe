@@ -1,420 +1,117 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-
-const { recordException, setGlobalAttributes } = vi.hoisted(() => ({
-  recordException: vi.fn(),
-  setGlobalAttributes: vi.fn(),
-}))
-
-vi.mock("@hyperdx/browser", () => ({
-  default: {
-    recordException,
-    setGlobalAttributes,
-  },
-}))
-
+import HyperDX from "@hyperdx/browser"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   clearHyperDxGlobalAttributes,
-  readCachedHyperDxIdentity,
-  readEarlyHyperDxIdentity,
-  resetHyperDxPublishedAttributesForTests,
+  initHyperDxBrowser,
   setHyperDxGlobalAttributes,
 } from "./hyperdxBrowser"
-import {
-  recordHyperDxQueryError,
-  resetHyperDxDeferredQueryErrorsForTests,
-  setHyperDxExceptionRecordingEnabled,
-} from "./hyperdxQueryErrors"
 
-describe("session identity flushes deferred query errors", () => {
-  beforeEach(() => {
-    resetHyperDxPublishedAttributesForTests()
-  })
+// `@hyperdx/browser` `init` registers global fetch/xhr instrumentation and does
+// not accept an in-memory span exporter. The spy replaces `init` only.
+// `setGlobalAttributes` is the real method (a no-op until init); the spy records it.
 
+describe("HyperDX browser attributes", () => {
   afterEach(() => {
-    recordException.mockClear()
-    setGlobalAttributes.mockClear()
-    resetHyperDxDeferredQueryErrorsForTests()
-    setHyperDxExceptionRecordingEnabled(false)
+    clearHyperDxGlobalAttributes()
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
-  it("records a buffered error only after signed-in globals are applied", () => {
-    setHyperDxExceptionRecordingEnabled(true)
-    const error = new Error("Invalid or expired code")
-    recordHyperDxQueryError({
-      source: "query",
-      error,
-      key: ["device-code"],
-    })
-    expect(recordException).not.toHaveBeenCalled()
+  it("inits without tracePropagationTargets and stamps the server identity", () => {
+    const init = vi.spyOn(HyperDX, "init").mockImplementation(() => {})
+    const setGlobalAttributes = vi.spyOn(HyperDX, "setGlobalAttributes")
+    vi.stubGlobal("window", { location: { origin: "https://app.example" } })
 
-    setHyperDxGlobalAttributes({
-      userId: "user_1",
-      teamId: "org_1",
-      teamName: "obs-e2e-343",
-    })
+    initHyperDxBrowser(
+      { enabled: true, environment: "pr-1" },
+      { userId: "user_1", teamId: "org_1", teamName: "acme" },
+    )
 
+    expect(init).toHaveBeenCalledTimes(1)
+    const options = init.mock.calls[0]?.[0]
+    expect(options).toMatchObject({
+      url: "https://app.example/.otel",
+      service: "ui",
+      apiKey: "proxy",
+      disableReplay: true,
+      otelResourceAttributes: {
+        "service.namespace": "ctxpipe",
+        "deployment.environment": "pr-1",
+      },
+    })
+    expect(options).not.toHaveProperty("tracePropagationTargets")
+    expect(options?.ignoreUrls?.[0]).toBeInstanceOf(RegExp)
+    expect(
+      (options?.ignoreUrls?.[0] as RegExp).test(
+        "https://app.example/.otel/v1/traces",
+      ),
+    ).toBe(true)
+    expect(
+      (options?.ignoreUrls?.[0] as RegExp).test(
+        "https://app.example/acme/api/v1/repositories",
+      ),
+    ).toBe(false)
     expect(setGlobalAttributes).toHaveBeenCalledWith({
       userId: "user_1",
       teamId: "org_1",
-      teamName: "obs-e2e-343",
+      teamName: "acme",
       "enduser.id": "user_1",
       "ctxpipe.org.id": "org_1",
-      "ctxpipe.org.slug": "obs-e2e-343",
+      "ctxpipe.org.slug": "acme",
     })
-    expect(recordException).toHaveBeenCalledTimes(1)
-    expect(setGlobalAttributes.mock.invocationCallOrder[0]).toBeLessThan(
-      recordException.mock.invocationCallOrder[0] ?? 0,
-    )
   })
 
-  it("records a buffered error after globals are cleared for a signed-out session", () => {
-    setHyperDxExceptionRecordingEnabled(true)
-    const error = new Error("Invalid or expired code")
-    recordHyperDxQueryError({
-      source: "query",
-      error,
-      key: ["device-code"],
-    })
-
-    clearHyperDxGlobalAttributes()
-
-    expect(setGlobalAttributes).toHaveBeenCalledWith(null)
-    expect(recordException).toHaveBeenCalledTimes(1)
-    expect(setGlobalAttributes.mock.invocationCallOrder[0]).toBeLessThan(
-      recordException.mock.invocationCallOrder[0] ?? 0,
-    )
-  })
-
-  it("caches only userId, teamId, and teamName and clears them on sign-out", () => {
-    const store = new Map<string, string>()
-    vi.stubGlobal("sessionStorage", {
-      getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => {
-        store.set(key, value)
-      },
-      removeItem: (key: string) => {
-        store.delete(key)
-      },
-    })
+  it("clears with null before publishing a different set, and skips an unchanged set", () => {
+    const setGlobalAttributes = vi.spyOn(HyperDX, "setGlobalAttributes")
     setHyperDxGlobalAttributes({
       userId: "user_1",
       teamId: "org_1",
-      teamName: "obs-e2e-343",
-    })
-    expect(
-      JSON.parse(store.get("ctxpipe.hyperdx.identity") ?? "{}"),
-    ).toMatchObject({
-      userId: "user_1",
-      teamId: "org_1",
-      teamName: "obs-e2e-343",
-    })
-    clearHyperDxGlobalAttributes()
-    expect(store.has("ctxpipe.hyperdx.identity")).toBe(false)
-    vi.unstubAllGlobals()
-  })
-
-  it("does not replay a previous user's identity after the session marker changes", () => {
-    const store = new Map<string, string>()
-    const markers = new Map<string, string>()
-    const storage = {
-      getItem: (key: string) =>
-        (key === "ctxpipe.hd.session" ? markers : store).get(key) ?? null,
-      setItem: (key: string, value: string) => {
-        ;(key === "ctxpipe.hd.session" ? markers : store).set(key, value)
-      },
-      removeItem: (key: string) => {
-        ;(key === "ctxpipe.hd.session" ? markers : store).delete(key)
-      },
-    }
-    vi.stubGlobal("sessionStorage", storage)
-    vi.stubGlobal("localStorage", storage)
-    vi.stubGlobal("window", { location: { pathname: "/acme" } })
-
-    setHyperDxGlobalAttributes({
-      userId: "user_a",
-      teamId: "org_a",
-      teamName: "alpha",
-    })
-    const previous = store.get("ctxpipe.hyperdx.identity")
-    setHyperDxGlobalAttributes({
-      userId: "user_b",
-      teamId: "org_b",
-      teamName: "beta",
-    })
-    expect(readCachedHyperDxIdentity()).toEqual({
-      userId: "user_b",
-      teamId: "org_b",
-      teamName: "beta",
-    })
-    store.set("ctxpipe.hyperdx.identity", previous ?? "")
-    expect(readCachedHyperDxIdentity()).toBeNull()
-
-    setHyperDxGlobalAttributes({
-      userId: "user_b",
-      teamId: "org_b",
-      teamName: "beta",
-    })
-    clearHyperDxGlobalAttributes()
-    expect(readCachedHyperDxIdentity()).toBeNull()
-
-    setHyperDxGlobalAttributes({
-      userId: "user_a",
-      teamId: "org_a",
-      teamName: "alpha",
-    })
-    window.location.pathname = "/.auth/sign-in"
-    expect(readCachedHyperDxIdentity()).toBeNull()
-    expect(store.has("ctxpipe.hyperdx.identity")).toBe(false)
-    vi.unstubAllGlobals()
-  })
-})
-
-describe("global attribute changes", () => {
-  beforeEach(() => {
-    resetHyperDxPublishedAttributesForTests()
-  })
-
-  afterEach(() => {
-    setGlobalAttributes.mockClear()
-    resetHyperDxPublishedAttributesForTests()
-  })
-
-  it("clears user A's org before publishing user B", () => {
-    setHyperDxGlobalAttributes({
-      userId: "user_a",
-      teamId: "org_a",
-      teamName: "alpha",
+      teamName: "acme",
     })
     setGlobalAttributes.mockClear()
 
     setHyperDxGlobalAttributes({
-      userId: "user_b",
-      teamId: "org_b",
+      userId: "user_1",
+      teamId: "org_2",
       teamName: "beta",
     })
-
     expect(setGlobalAttributes).toHaveBeenNthCalledWith(1, null)
     expect(setGlobalAttributes).toHaveBeenNthCalledWith(2, {
-      userId: "user_b",
-      teamId: "org_b",
+      userId: "user_1",
+      teamId: "org_2",
       teamName: "beta",
-      "enduser.id": "user_b",
-      "ctxpipe.org.id": "org_b",
+      "enduser.id": "user_1",
+      "ctxpipe.org.id": "org_2",
       "ctxpipe.org.slug": "beta",
     })
-    const published = setGlobalAttributes.mock.calls[1]?.[0] as Record<
-      string,
-      string
-    >
-    expect(published).not.toHaveProperty("ctxpipe.org.slug", "alpha")
-    expect(published.teamId).not.toBe("org_a")
+
+    setGlobalAttributes.mockClear()
+    setHyperDxGlobalAttributes({
+      userId: "user_1",
+      teamId: "org_2",
+      teamName: "beta",
+    })
+    expect(setGlobalAttributes).not.toHaveBeenCalled()
   })
 
-  it("clears org keys when the next identity has no org", () => {
+  it("omits org keys for an auth-page identity and sign-out clears", () => {
+    const setGlobalAttributes = vi.spyOn(HyperDX, "setGlobalAttributes")
     setHyperDxGlobalAttributes({
       userId: "user_1",
       teamId: "org_1",
-      teamName: "obs-e2e-343",
+      teamName: "acme",
     })
     setGlobalAttributes.mockClear()
 
-    setHyperDxGlobalAttributes({
-      userId: "user_1",
-      teamId: "",
-      teamName: "",
-    })
-
+    setHyperDxGlobalAttributes({ userId: "user_1", teamId: "", teamName: "" })
     expect(setGlobalAttributes).toHaveBeenNthCalledWith(1, null)
     expect(setGlobalAttributes).toHaveBeenNthCalledWith(2, {
       userId: "user_1",
       "enduser.id": "user_1",
     })
-    const published = setGlobalAttributes.mock.calls[1]?.[0] as Record<
-      string,
-      string
-    >
-    expect(published).not.toHaveProperty("teamId")
-    expect(published).not.toHaveProperty("teamName")
-    expect(published).not.toHaveProperty("ctxpipe.org.id")
-    expect(published).not.toHaveProperty("ctxpipe.org.slug")
-  })
 
-  it("round-trips an empty teamId and skips a cache entry the reader rejects", () => {
-    const store = new Map<string, string>()
-    const markers = new Map<string, string>()
-    const storage = {
-      getItem: (key: string) =>
-        (key === "ctxpipe.hd.session" ? markers : store).get(key) ?? null,
-      setItem: (key: string, value: string) => {
-        ;(key === "ctxpipe.hd.session" ? markers : store).set(key, value)
-      },
-      removeItem: (key: string) => {
-        ;(key === "ctxpipe.hd.session" ? markers : store).delete(key)
-      },
-    }
-    vi.stubGlobal("sessionStorage", storage)
-    vi.stubGlobal("localStorage", storage)
-    vi.stubGlobal("window", { location: { pathname: "/acme" } })
-
-    setHyperDxGlobalAttributes({
-      userId: "user_1",
-      teamId: "",
-      teamName: "",
-    })
-    expect(readCachedHyperDxIdentity()).toEqual({
-      userId: "user_1",
-      teamId: "",
-      teamName: "",
-    })
-    const written = store.get("ctxpipe.hyperdx.identity")
-
-    setHyperDxGlobalAttributes({
-      userId: "user_1",
-      teamId: undefined as unknown as string,
-      teamName: "acme",
-    })
-    expect(store.get("ctxpipe.hyperdx.identity")).toBe(written)
-    expect(readCachedHyperDxIdentity()).toEqual({
-      userId: "user_1",
-      teamId: "",
-      teamName: "",
-    })
-    vi.unstubAllGlobals()
-  })
-})
-
-describe("early identity on org routes", () => {
-  beforeEach(() => {
-    resetHyperDxPublishedAttributesForTests()
-  })
-
-  afterEach(() => {
     setGlobalAttributes.mockClear()
-    vi.unstubAllGlobals()
-  })
-
-  it("derives teamId from the route slug and the cached org list", () => {
-    const store = new Map<string, string>()
-    const markers = new Map<string, string>()
-    const storage = {
-      getItem: (key: string) =>
-        (key === "ctxpipe.hd.session" ? markers : store).get(key) ?? null,
-      setItem: (key: string, value: string) => {
-        ;(key === "ctxpipe.hd.session" ? markers : store).set(key, value)
-      },
-      removeItem: (key: string) => {
-        ;(key === "ctxpipe.hd.session" ? markers : store).delete(key)
-      },
-    }
-    vi.stubGlobal("sessionStorage", storage)
-    vi.stubGlobal("localStorage", storage)
-    vi.stubGlobal("window", { location: { pathname: "/beta" } })
-
-    setHyperDxGlobalAttributes(
-      {
-        userId: "user_1",
-        teamId: "org_a",
-        teamName: "alpha",
-      },
-      {
-        organizations: [
-          { id: "org_a", slug: "alpha" },
-          { id: "org_b", slug: "beta" },
-        ],
-      },
-    )
-
-    expect(readEarlyHyperDxIdentity("/beta")).toEqual({
-      userId: "user_1",
-      teamId: "org_b",
-      teamName: "beta",
-    })
-    expect(readEarlyHyperDxIdentity("/beta/chat")).toEqual({
-      userId: "user_1",
-      teamId: "org_b",
-      teamName: "beta",
-    })
-    expect(readEarlyHyperDxIdentity("/alpha")).toEqual({
-      userId: "user_1",
-      teamId: "org_a",
-      teamName: "alpha",
-    })
-    expect(readEarlyHyperDxIdentity("/gamma")).toEqual({
-      userId: "user_1",
-      teamId: "",
-      teamName: "",
-    })
-    expect(readEarlyHyperDxIdentity("/.auth/sign-in")).toBeNull()
-    expect(store.has("ctxpipe.hyperdx.identity")).toBe(false)
-  })
-
-  it("keeps teamId when the cached team name is already the route slug", () => {
-    const store = new Map<string, string>()
-    const markers = new Map<string, string>()
-    const storage = {
-      getItem: (key: string) =>
-        (key === "ctxpipe.hd.session" ? markers : store).get(key) ?? null,
-      setItem: (key: string, value: string) => {
-        ;(key === "ctxpipe.hd.session" ? markers : store).set(key, value)
-      },
-      removeItem: (key: string) => {
-        ;(key === "ctxpipe.hd.session" ? markers : store).delete(key)
-      },
-    }
-    vi.stubGlobal("sessionStorage", storage)
-    vi.stubGlobal("localStorage", storage)
-    vi.stubGlobal("window", { location: { pathname: "/alpha" } })
-    setHyperDxGlobalAttributes({
-      userId: "user_1",
-      teamId: "org_a",
-      teamName: "alpha",
-    })
-    expect(readEarlyHyperDxIdentity("/alpha")).toEqual({
-      userId: "user_1",
-      teamId: "org_a",
-      teamName: "alpha",
-    })
-    expect(readEarlyHyperDxIdentity("/onboarding")).toEqual({
-      userId: "user_1",
-      teamId: "org_a",
-      teamName: "alpha",
-    })
-  })
-
-  it("does not keep a previous user's orgs when the user id changes", () => {
-    const store = new Map<string, string>()
-    const markers = new Map<string, string>()
-    const storage = {
-      getItem: (key: string) =>
-        (key === "ctxpipe.hd.session" ? markers : store).get(key) ?? null,
-      setItem: (key: string, value: string) => {
-        ;(key === "ctxpipe.hd.session" ? markers : store).set(key, value)
-      },
-      removeItem: (key: string) => {
-        ;(key === "ctxpipe.hd.session" ? markers : store).delete(key)
-      },
-    }
-    vi.stubGlobal("sessionStorage", storage)
-    vi.stubGlobal("localStorage", storage)
-    vi.stubGlobal("window", { location: { pathname: "/alpha" } })
-    setHyperDxGlobalAttributes(
-      { userId: "user_a", teamId: "org_a", teamName: "alpha" },
-      { organizations: [{ id: "org_a", slug: "alpha" }] },
-    )
-    setHyperDxGlobalAttributes({
-      userId: "user_b",
-      teamId: "org_b",
-      teamName: "beta",
-    })
-    expect(readEarlyHyperDxIdentity("/alpha")).toEqual({
-      userId: "user_b",
-      teamId: "",
-      teamName: "",
-    })
-    expect(readEarlyHyperDxIdentity("/beta")).toEqual({
-      userId: "user_b",
-      teamId: "org_b",
-      teamName: "beta",
-    })
+    clearHyperDxGlobalAttributes()
+    expect(setGlobalAttributes).toHaveBeenCalledWith(null)
   })
 })

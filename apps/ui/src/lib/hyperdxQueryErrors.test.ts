@@ -1,24 +1,12 @@
+import HyperDX from "@hyperdx/browser"
 import { afterEach, describe, expect, it, vi } from "vitest"
-
-const { recordHyperDxException } = vi.hoisted(() => ({
-  recordHyperDxException: vi.fn(),
-}))
-
-vi.mock("@/lib/hyperdxBrowser", () => ({
-  recordHyperDxException,
-}))
-
 import {
   createHyperDxQueryClient,
-  flushHyperDxDeferredExceptions,
   hyperDxQueryKeyName,
-  markHyperDxSdkReady,
-  noteHyperDxSessionIdentity,
-  recordHyperDxBoundaryError,
-  recordHyperDxQueryError,
-  resetHyperDxDeferredQueryErrorsForTests,
-  setHyperDxExceptionRecordingEnabled,
 } from "./hyperdxQueryErrors"
+
+// Same SDK boundary as hyperdxBrowser.test.ts: `recordException` is spied on
+// the real singleton. The browser SDK has no in-memory transport.
 
 describe("hyperDxQueryKeyName", () => {
   it("keeps a static first segment and drops ids and free text", () => {
@@ -45,17 +33,13 @@ describe("hyperDxQueryKeyName", () => {
   })
 })
 
-describe("recordHyperDxQueryError", () => {
+describe("createHyperDxQueryClient", () => {
   afterEach(() => {
-    recordHyperDxException.mockClear()
-    resetHyperDxDeferredQueryErrorsForTests()
-    setHyperDxExceptionRecordingEnabled(false)
-    vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
   it("records a final query failure once and ignores retries", async () => {
-    setHyperDxExceptionRecordingEnabled(true)
-    noteHyperDxSessionIdentity("signed-in")
+    const recordException = vi.spyOn(HyperDX, "recordException")
     const client = createHyperDxQueryClient()
     let attempts = 0
     const error = Object.assign(new Error("Invitation not found or expired"), {
@@ -74,8 +58,8 @@ describe("recordHyperDxQueryError", () => {
     ).rejects.toThrow(error)
 
     expect(attempts).toBe(3)
-    expect(recordHyperDxException).toHaveBeenCalledTimes(1)
-    expect(recordHyperDxException).toHaveBeenCalledWith(error, {
+    expect(recordException).toHaveBeenCalledTimes(1)
+    expect(recordException).toHaveBeenCalledWith(error, {
       "ctxpipe.ui.source": "query",
       "ctxpipe.ui.key": "public-invitation-details",
       "ctxpipe.ui.http_status": "404",
@@ -83,8 +67,7 @@ describe("recordHyperDxQueryError", () => {
   })
 
   it("records a final mutation failure once", async () => {
-    setHyperDxExceptionRecordingEnabled(true)
-    noteHyperDxSessionIdentity("signed-in")
+    const recordException = vi.spyOn(HyperDX, "recordException")
     const client = createHyperDxQueryClient()
     let attempts = 0
     const error = Object.assign(new Error("Invalid or expired code"), {
@@ -102,181 +85,55 @@ describe("recordHyperDxQueryError", () => {
 
     await expect(mutation.execute(undefined)).rejects.toThrow(error)
     expect(attempts).toBe(2)
-    expect(recordHyperDxException).toHaveBeenCalledTimes(1)
-    expect(recordHyperDxException).toHaveBeenCalledWith(error, {
+    expect(recordException).toHaveBeenCalledTimes(1)
+    expect(recordException).toHaveBeenCalledWith(error, {
       "ctxpipe.ui.source": "mutation",
       "ctxpipe.ui.key": "device-code",
       "ctxpipe.ui.http_status": "400",
     })
   })
 
-  it("ignores abort and cancellation", () => {
-    setHyperDxExceptionRecordingEnabled(true)
-    recordHyperDxQueryError({
-      source: "query",
-      error: new DOMException("The operation was aborted", "AbortError"),
-      key: ["conversation", "conv_secret"],
-    })
-    recordHyperDxQueryError({
-      source: "mutation",
-      error: Object.assign(new Error("cancelled"), { name: "CancelledError" }),
-      key: ["accept-invitation"],
-    })
-    expect(recordHyperDxException).not.toHaveBeenCalled()
-  })
-
-  it("does nothing when browser RUM is disabled", async () => {
-    setHyperDxExceptionRecordingEnabled(false)
+  it("skips cancellations and unsafe key names", async () => {
+    const recordException = vi.spyOn(HyperDX, "recordException")
     const client = createHyperDxQueryClient()
+    const aborted = new DOMException("The operation was aborted", "AbortError")
     await expect(
       client.fetchQuery({
-        queryKey: ["public-invitation-details"],
+        queryKey: ["conversation", "conv_secret"],
         retry: false,
         queryFn: () => {
-          throw new Error("Invitation not found or expired")
+          throw aborted
         },
       }),
-    ).rejects.toThrow("Invitation not found or expired")
-    expect(recordHyperDxException).not.toHaveBeenCalled()
-  })
+    ).rejects.toThrow(aborted)
 
-  it("buffers until session globals are applied, then flushes with the wait", () => {
-    vi.useFakeTimers()
-    setHyperDxExceptionRecordingEnabled(true)
-    const error = new Error("Invalid or expired code")
-    recordHyperDxQueryError({
-      source: "query",
-      error,
-      key: ["device-code", "BADCODE"],
+    const cancelled = Object.assign(new Error("cancelled"), {
+      name: "CancelledError",
     })
-    expect(recordHyperDxException).not.toHaveBeenCalled()
+    await expect(
+      client.fetchQuery({
+        queryKey: ["accept-invitation"],
+        retry: false,
+        queryFn: () => {
+          throw cancelled
+        },
+      }),
+    ).rejects.toThrow(cancelled)
 
-    vi.advanceTimersByTime(40)
-    noteHyperDxSessionIdentity("signed-in")
+    const unsafe = new Error("Invitation not found or expired")
+    await expect(
+      client.fetchQuery({
+        queryKey: ["user@example.com"],
+        retry: false,
+        queryFn: () => {
+          throw unsafe
+        },
+      }),
+    ).rejects.toThrow(unsafe)
 
-    expect(recordHyperDxException).toHaveBeenCalledTimes(1)
-    expect(recordHyperDxException).toHaveBeenCalledWith(error, {
+    expect(recordException).toHaveBeenCalledTimes(1)
+    expect(recordException).toHaveBeenCalledWith(unsafe, {
       "ctxpipe.ui.source": "query",
-      "ctxpipe.ui.key": "device-code",
-      "ctxpipe.ui.deferred_ms": "40",
     })
-  })
-
-  it("flushes a buffered error without waiting once the session is signed out", () => {
-    vi.useFakeTimers()
-    setHyperDxExceptionRecordingEnabled(true)
-    const error = new Error("Invalid or expired code")
-    recordHyperDxQueryError({
-      source: "query",
-      error,
-      key: ["device-code"],
-    })
-    vi.advanceTimersByTime(15)
-    noteHyperDxSessionIdentity("signed-out")
-
-    expect(recordHyperDxException).toHaveBeenCalledTimes(1)
-    expect(recordHyperDxException).toHaveBeenCalledWith(error, {
-      "ctxpipe.ui.source": "query",
-      "ctxpipe.ui.key": "device-code",
-      "ctxpipe.ui.deferred_ms": "15",
-    })
-  })
-
-  it("flushes a buffered error after 10s when the session never resolves", () => {
-    vi.useFakeTimers()
-    setHyperDxExceptionRecordingEnabled(true)
-    const error = new Error("Invalid or expired code")
-    recordHyperDxQueryError({
-      source: "query",
-      error,
-      key: ["device-code"],
-    })
-    vi.advanceTimersByTime(9_999)
-    expect(recordHyperDxException).not.toHaveBeenCalled()
-    vi.advanceTimersByTime(1)
-    expect(recordHyperDxException).toHaveBeenCalledWith(error, {
-      "ctxpipe.ui.source": "query",
-      "ctxpipe.ui.key": "device-code",
-      "ctxpipe.ui.deferred_ms": "10000",
-    })
-
-    recordHyperDxException.mockClear()
-    recordHyperDxQueryError({
-      source: "query",
-      error: new Error("still pending"),
-      key: ["device-code"],
-    })
-    expect(recordHyperDxException).not.toHaveBeenCalled()
-  })
-
-  it("keeps the newest 20 buffered errors", () => {
-    setHyperDxExceptionRecordingEnabled(true)
-    const errors = Array.from(
-      { length: 21 },
-      (_, index) => new Error(`e${index}`),
-    )
-    for (const error of errors) {
-      recordHyperDxQueryError({
-        source: "query",
-        error,
-        key: ["device-code"],
-      })
-    }
-    noteHyperDxSessionIdentity("signed-in")
-
-    expect(recordHyperDxException).toHaveBeenCalledTimes(20)
-    expect(
-      recordHyperDxException.mock.calls.map((call) => call[0]),
-    ).not.toContain(errors[0])
-    expect(recordHyperDxException.mock.calls.map((call) => call[0])).toContain(
-      errors[20],
-    )
-  })
-
-  it("holds a buffered error until the org id is known, then flushes", () => {
-    vi.useFakeTimers()
-    setHyperDxExceptionRecordingEnabled(true)
-    const error = new Error("Invalid or expired code")
-    recordHyperDxQueryError({
-      source: "query",
-      error,
-      key: ["device-code"],
-    })
-    noteHyperDxSessionIdentity("signed-in", {
-      teamId: "",
-      activeOrganizationId: "org_1",
-    })
-    vi.advanceTimersByTime(9_000)
-    expect(recordHyperDxException).not.toHaveBeenCalled()
-
-    noteHyperDxSessionIdentity("signed-in", {
-      teamId: "org_1",
-      activeOrganizationId: "org_1",
-    })
-    expect(recordHyperDxException).toHaveBeenCalledTimes(1)
-  })
-
-  it("flushes a buffered error on page hide", () => {
-    setHyperDxExceptionRecordingEnabled(true)
-    const error = new Error("Invalid or expired code")
-    recordHyperDxQueryError({
-      source: "query",
-      error,
-      key: ["device-code"],
-    })
-    flushHyperDxDeferredExceptions()
-    expect(recordHyperDxException).toHaveBeenCalledTimes(1)
-    expect(recordHyperDxException.mock.calls[0]?.[1]).toMatchObject({
-      "ctxpipe.ui.key": "device-code",
-    })
-  })
-
-  it("queues a root error until the SDK is ready", () => {
-    const error = new Error("render failed")
-    recordHyperDxBoundaryError(error)
-    expect(recordHyperDxException).not.toHaveBeenCalled()
-    setHyperDxExceptionRecordingEnabled(true)
-    markHyperDxSdkReady()
-    expect(recordHyperDxException).toHaveBeenCalledWith(error)
   })
 })

@@ -1,3 +1,4 @@
+import HyperDX from "@hyperdx/browser"
 import { TanStackDevtools } from "@tanstack/react-devtools"
 import {
   createRootRoute,
@@ -7,21 +8,28 @@ import {
   Scripts,
 } from "@tanstack/react-router"
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
-import { type ReactNode, useEffect } from "react"
+import type { ReactNode } from "react"
 import { Toaster } from "sonner"
 import { getConfluenceForgeRuntimeConfig } from "@/lib/confluenceForgeRuntimeConfig"
-import { recordHyperDxBoundaryError } from "@/lib/hyperdxQueryErrors"
-import { getHyperDxRuntimeConfig } from "@/lib/hyperdxRuntimeConfig"
+import { getHyperDxDocumentContext } from "@/lib/hyperdxRuntimeConfig"
 import { Providers } from "@/providers"
-import { HyperDxPageView } from "@/providers/HyperDxProvider"
 
 import appCss from "../styles.css?url"
 
 export const Route = createRootRoute({
-  loader: () => ({
-    hyperdxRuntimeConfig: getHyperDxRuntimeConfig(),
-    confluenceForgeRuntimeConfig: getConfluenceForgeRuntimeConfig(),
-  }),
+  loader: async ({ location }) => {
+    const hyperdx = await getHyperDxDocumentContext({
+      data: { pathname: location.pathname },
+    })
+    return {
+      hyperdxRuntimeConfig: hyperdx.config,
+      hyperdxIdentity: hyperdx.identity,
+      confluenceForgeRuntimeConfig: getConfluenceForgeRuntimeConfig(),
+    }
+  },
+  onCatch: (error) => {
+    HyperDX.recordException(error)
+  },
   head: () => ({
     meta: [
       { charSet: "utf-8" },
@@ -62,20 +70,10 @@ export const Route = createRootRoute({
 })
 
 function RootComponent() {
-  const { hyperdxRuntimeConfig } = Route.useLoaderData()
-  return (
-    <>
-      <HyperDxPageView runtimeConfig={hyperdxRuntimeConfig} />
-      <Outlet />
-    </>
-  )
+  return <Outlet />
 }
 
-function RootErrorComponent({ error, reset }: ErrorComponentProps) {
-  useEffect(() => {
-    recordHyperDxBoundaryError(error)
-  }, [error])
-
+function RootErrorComponent({ reset }: ErrorComponentProps) {
   return (
     <main className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-3xl px-6 py-16">
@@ -93,8 +91,11 @@ function RootErrorComponent({ error, reset }: ErrorComponentProps) {
 }
 
 function RootDocument({ children }: { children: ReactNode }) {
-  const { hyperdxRuntimeConfig, confluenceForgeRuntimeConfig } =
-    Route.useLoaderData()
+  const {
+    hyperdxRuntimeConfig,
+    hyperdxIdentity,
+    confluenceForgeRuntimeConfig,
+  } = Route.useLoaderData()
   return (
     <html lang="en" className="dark">
       <head>
@@ -103,6 +104,7 @@ function RootDocument({ children }: { children: ReactNode }) {
       <body>
         <Providers
           hyperdxRuntimeConfig={hyperdxRuntimeConfig}
+          hyperdxIdentity={hyperdxIdentity}
           confluenceForgeRuntimeConfig={confluenceForgeRuntimeConfig}
         >
           {children}

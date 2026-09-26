@@ -16,8 +16,6 @@ export type HyperDxGlobalAttributes = HyperDxSessionIdentity & {
  * `userId` / `teamId` / `teamName` are what HyperDX session search reads.
  * The dotted keys match backend spans so one filter works on browser and API.
  * Missing ids are omitted so an empty string is not exported.
- * `@hyperdx/otel-web` merges the bag, so callers clear before publishing a
- * smaller or different set. Sign-out wipes the bag.
  */
 export function hyperdxGlobalAttributes(input: {
   userId?: string | null
@@ -43,86 +41,22 @@ export function hyperdxGlobalAttributes(input: {
   return attributes
 }
 
-export function clearedHyperDxGlobalAttributes(): Partial<HyperDxGlobalAttributes> {
-  return {}
-}
-
 export type HyperDxPageViewAttributes = {
   path: string
   "url.path": string
   route: string
-  "ctxpipe.org.slug"?: string
 }
 
-export function hyperdxPageViewAttributes(input: {
-  path: string
-  routeId?: string | null
-  orgSlug?: string | null
-}): HyperDxPageViewAttributes {
-  const slug = input.orgSlug ?? ""
-  return {
-    path: input.path,
-    "url.path": input.path,
-    route: input.routeId ?? "",
-    ...(slug ? { "ctxpipe.org.slug": slug } : {}),
-  }
-}
-
-export function deepestRouteId(
-  matches: readonly { routeId: string }[] | undefined,
-): string {
-  if (!matches || matches.length === 0) return ""
-  return matches[matches.length - 1]?.routeId ?? ""
-}
-
-export type HyperDxRouteMatch = {
-  routeId: string
-  pathname?: string
-  params?: { orgSlug?: unknown }
-}
-
-function normalizePath(pathname: string): string {
-  if (pathname.length > 1 && pathname.endsWith("/")) {
-    return pathname.slice(0, -1)
-  }
-  return pathname
-}
-
-/**
- * The router store emits the next pathname before `matches` catch up.
- * A page view is ready when the deepest match covers that pathname.
- */
-export function routerLocationMatchesResolved(
-  pathname: string,
-  matches: readonly HyperDxRouteMatch[] | undefined,
-): boolean {
-  if (!matches || matches.length === 0) return false
-  const leafPath = matches[matches.length - 1]?.pathname
-  if (!leafPath) return false
-  return normalizePath(leafPath) === normalizePath(pathname)
-}
-
-/** Org slug from the `/$orgSlug` match param. `/onboarding` and `/.auth/*` are not orgs. */
-export function orgSlugFromMatches(
-  matches: readonly HyperDxRouteMatch[] | undefined,
-): string {
-  if (!matches) return ""
-  for (let index = matches.length - 1; index >= 0; index--) {
-    const slug = matches[index]?.params?.orgSlug
-    if (typeof slug === "string" && slug.length > 0) return slug
-  }
-  return ""
-}
-
-export function hyperdxPageViewFromMatches(input: {
+/** One resolved navigation. `route` is the route template (`routeId`), not the URL. */
+export function hyperdxPageViewAction(input: {
   pathname: string
-  matches: readonly HyperDxRouteMatch[] | undefined
+  routeId: string
 }): HyperDxPageViewAttributes {
-  return hyperdxPageViewAttributes({
+  return {
     path: input.pathname,
-    routeId: deepestRouteId(input.matches),
-    orgSlug: orgSlugFromMatches(input.matches),
-  })
+    "url.path": input.pathname,
+    route: input.routeId,
+  }
 }
 
 export type HyperDxOrgRef = { id: string; slug: string }
@@ -156,10 +90,23 @@ export function resolveHyperDxTeam(input: {
   return { teamId: "", teamName: "" }
 }
 
-export function readActiveOrganizationId(session: unknown): string {
-  if (!session || typeof session !== "object") return ""
-  const value = Reflect.get(session, "activeOrganizationId")
-  return typeof value === "string" ? value : ""
+/** First segment of `/$orgSlug`, ignoring dot-routes and onboarding. */
+export function orgSlugFromPathname(pathname: string): string {
+  const segment =
+    pathname.split("?")[0]?.split("#")[0]?.split("/").filter(Boolean)[0] ?? ""
+  if (!segment || segment.startsWith(".") || segment === "onboarding") return ""
+  return segment
+}
+
+/** Auth pages have no org context, so spans there omit org keys. */
+export function isHyperDxAuthPath(pathname: string): boolean {
+  return pathname === "/.auth" || pathname.startsWith("/.auth/")
+}
+
+export function isHyperDxSignOutPath(pathname: string): boolean {
+  return (
+    pathname === "/.auth/sign-out" || pathname.startsWith("/.auth/sign-out/")
+  )
 }
 
 const HYPERDX_SIGN_IN_PATHS = new Set([
@@ -168,18 +115,7 @@ const HYPERDX_SIGN_IN_PATHS = new Set([
   "/.auth/callback",
 ])
 
-/** Auth pages have no org context, so spans there omit org keys. */
-export function isHyperDxAuthPath(pathname: string): boolean {
-  return pathname === "/.auth" || pathname.startsWith("/.auth/")
-}
-
 /** Paths where a session change is a completed sign-in (password, 2FA, or OAuth callback). */
 export function isHyperDxSignInPath(pathname: string): boolean {
   return HYPERDX_SIGN_IN_PATHS.has(pathname)
 }
-
-/**
- * `@hyperdx/browser` does not exclude its exporter URL.
- * Strings in `ignoreUrls` are exact matches; this regex covers `/.otel` and `/.otel/...`.
- */
-export const hyperdxExporterIgnoreUrls: RegExp[] = [/\/\.otel(?:\/|$)/]

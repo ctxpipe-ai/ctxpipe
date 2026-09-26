@@ -3,6 +3,7 @@ import { useRouter } from "@tanstack/react-router"
 import type { ReactNode } from "react"
 import { RouterProvider } from "react-aria-components"
 import type { ConfluenceForgeRuntimeConfig } from "@/lib/confluenceForgeRuntimeConfig"
+import type { HyperDxSessionIdentity } from "@/lib/hyperdxAttributes"
 import { createHyperDxQueryClient } from "@/lib/hyperdxQueryErrors"
 import type { HyperDxRuntimeConfig } from "@/lib/hyperdxRuntimeConfig"
 import { AuthProvider } from "./providers/AuthProvider"
@@ -14,10 +15,12 @@ const queryClient = createHyperDxQueryClient()
 export function Providers({
   children,
   hyperdxRuntimeConfig,
+  hyperdxIdentity,
   confluenceForgeRuntimeConfig,
 }: {
   children: ReactNode
   hyperdxRuntimeConfig: HyperDxRuntimeConfig
+  hyperdxIdentity: HyperDxSessionIdentity | null
   confluenceForgeRuntimeConfig: ConfluenceForgeRuntimeConfig
 }) {
   const router = useRouter()
@@ -25,7 +28,10 @@ export function Providers({
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <ConfluenceForgeRuntimeProvider value={confluenceForgeRuntimeConfig}>
-          <HyperDxProvider runtimeConfig={hyperdxRuntimeConfig}>
+          <HyperDxProvider
+            runtimeConfig={hyperdxRuntimeConfig}
+            initialIdentity={hyperdxIdentity}
+          >
             <RouterProvider
               navigate={(href) => {
                 void router.navigate({ href })
