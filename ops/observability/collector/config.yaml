@@ -1,22 +1,9 @@
-# ClickStack collector custom merge (CUSTOM_OTELCOL_CONFIG_FILE).
-# Loaded last via `--config` (see the image entrypoint). Do not redefine
-# otlp/hyperdx, memory_limiter, batch, the clickhouse exporter, or the base
-# `transform` processor (logs pipeline). Confmap replaces arrays, so do not
-# set service.telemetry here: base config.yaml already exposes internal
-# metrics on 0.0.0.0:8888 (readers.pull.exporter.prometheus).
-# The traces pipeline below is restated for clickhouse/clickstack-otel-collector:2.39.1
-# (receivers otlp/hyperdx, processors memory_limiter then batch, exporter clickhouse).
-# Re-check that list when the image tag changes; a newer base processor would be dropped.
-# The base receiver name is otlp/hyperdx (not otlp). This file is the allowlist
-# source of truth. The laptop collector (apps/otel-collector) is a debug sink.
-#
-# The pinned collector image includes prometheus, resource, and transform, but
-# not a redis receiver. metrics/self scrapes the collector and ClickHouse only.
-# Redis metrics come from the railway-telemetry cron
-# (ops/observability/railway-telemetry), which polls INFO every 5 minutes.
+# ClickStack merge file, loaded last. Confmap replaces arrays: do not redefine otlp/hyperdx, memory_limiter, batch, the clickhouse exporter, the base logs transform, or service.telemetry (base already exposes :8888).
+# Traces pipeline is restated for clickstack-otel-collector:2.39.1 (receiver otlp/hyperdx). Re-check that list when the image tag changes.
+# Image has prometheus, resource, and transform, not a redis receiver. metrics/self scrapes the collector and ClickHouse; Redis metrics come from railway-telemetry.
 
 receivers:
-  # job label becomes resource service.name (otel-collector, clickhouse).
+  # The prometheus receiver copies target_info{service_name} over the job label.
   prometheus/self:
     config:
       global:
@@ -26,9 +13,6 @@ receivers:
         - job_name: otel-collector
           static_configs:
             - targets: ["127.0.0.1:8888"]
-          # The collector SDK publishes target_info{service_name="otelcol-hyperdx"},
-          # and the prometheus receiver copies that over the job label. Drop it so
-          # service.name stays otel-collector.
           metric_relabel_configs:
             - source_labels: [__name__]
               regex: target_info
@@ -55,54 +39,22 @@ processors:
   batch/langfuse:
     timeout: 5s
     send_batch_size: 512
-  # ClickHouse traces only. traces/llm does not use this processor, so Langfuse
-  # still receives prompt and completion text.
+  # ClickHouse traces only. traces/llm does not use this processor.
   transform/redact_llm_content:
     error_mode: ignore
     trace_statements:
       - context: span
         statements:
-          - delete_key(span.attributes, "langfuse.observation.input")
-          - delete_key(span.attributes, "langfuse.observation.output")
-          - delete_key(span.attributes, "gen_ai.input.messages")
-          - delete_key(span.attributes, "gen_ai.output.messages")
-          - delete_matching_keys(span.attributes, "^gen_ai\\.prompt")
-          - delete_matching_keys(span.attributes, "^gen_ai\\.completion")
-          - delete_matching_keys(span.attributes, "^gen_ai\\.input\\.messages")
-          - delete_matching_keys(span.attributes, "^gen_ai\\.output\\.messages")
+          - 'delete_matching_keys(span.attributes, "^(langfuse\\.observation\\.(input|output)$|gen_ai\\.(prompt|completion|input\\.messages|output\\.messages))")'
       - context: spanevent
         statements:
-          - delete_key(spanevent.attributes, "langfuse.observation.input")
-          - delete_key(spanevent.attributes, "langfuse.observation.output")
-          - delete_key(spanevent.attributes, "gen_ai.input.messages")
-          - delete_key(spanevent.attributes, "gen_ai.output.messages")
-          - delete_matching_keys(spanevent.attributes, "^gen_ai\\.prompt")
-          - delete_matching_keys(spanevent.attributes, "^gen_ai\\.completion")
-          - delete_matching_keys(spanevent.attributes, "^gen_ai\\.input\\.messages")
-          - delete_matching_keys(spanevent.attributes, "^gen_ai\\.output\\.messages")
-  # ClickHouse traces only. traces/llm is unchanged.
-  # hyperdx and langfuse set service.namespace=ctxpipe, same as product, so
-  # the gate is deployment.environment=observability plus the three service
-  # names. Span drop keeps the shared pipeline stateless: tail sampling would
-  # buffer pr-343 traces for decision_wait. periodic-runner.* is a root
-  # (startNewTrace). middleware and router - /health are children, so the
-  # HTTP route span stays. Heartbeat commands are leaves. tcp.connect,
-  # tls.connect, and dns.lookup on those three services are dropped too.
-  # Error status is kept.
+          - 'delete_matching_keys(spanevent.attributes, "^(langfuse\\.observation\\.(input|output)$|gen_ai\\.(prompt|completion|input\\.messages|output\\.messages))")'
+  # Error spans stay. Stateless drop; tail sampling would buffer in-flight traces.
   filter/ops_self_noise:
     error_mode: ignore
     traces:
       span:
-        - 'resource.attributes["deployment.environment"] == "observability" and (resource.attributes["service.name"] == "hyperdx" or resource.attributes["service.name"] == "langfuse-worker" or resource.attributes["service.name"] == "langfuse-web") and status.code != STATUS_CODE_ERROR and IsMatch(name, "^middleware - ")'
-        - 'resource.attributes["deployment.environment"] == "observability" and (resource.attributes["service.name"] == "hyperdx" or resource.attributes["service.name"] == "langfuse-worker" or resource.attributes["service.name"] == "langfuse-web") and status.code != STATUS_CODE_ERROR and name == "router - /health"'
-        - 'resource.attributes["deployment.environment"] == "observability" and (resource.attributes["service.name"] == "hyperdx" or resource.attributes["service.name"] == "langfuse-worker" or resource.attributes["service.name"] == "langfuse-web") and status.code != STATUS_CODE_ERROR and IsMatch(name, "(?i)^mongodb[.](hello|ismaster|ping)$")'
-        - 'resource.attributes["deployment.environment"] == "observability" and (resource.attributes["service.name"] == "hyperdx" or resource.attributes["service.name"] == "langfuse-worker" or resource.attributes["service.name"] == "langfuse-web") and status.code != STATUS_CODE_ERROR and IsMatch(name, "(?i)^mongoose[.](hello|ismaster|ping)$")'
-        - 'resource.attributes["deployment.environment"] == "observability" and (resource.attributes["service.name"] == "hyperdx" or resource.attributes["service.name"] == "langfuse-worker" or resource.attributes["service.name"] == "langfuse-web") and status.code != STATUS_CODE_ERROR and (attributes["db.system"] == "mongodb" or attributes["db.system"] == "mongoose") and IsMatch(attributes["db.operation"], "(?i)^(hello|ismaster|ping)$")'
-        - 'resource.attributes["deployment.environment"] == "observability" and (resource.attributes["service.name"] == "hyperdx" or resource.attributes["service.name"] == "langfuse-worker" or resource.attributes["service.name"] == "langfuse-web") and status.code != STATUS_CODE_ERROR and (attributes["db.system"] == "mongodb" or attributes["db.system"] == "mongoose") and IsMatch(attributes["db.operation.name"], "(?i)^(hello|ismaster|ping)$")'
-        - 'resource.attributes["deployment.environment"] == "observability" and (resource.attributes["service.name"] == "hyperdx" or resource.attributes["service.name"] == "langfuse-worker" or resource.attributes["service.name"] == "langfuse-web") and status.code != STATUS_CODE_ERROR and IsRootSpan() and (IsMatch(name, "^periodic-runner[.]") or IsMatch(name, "queue-metrics"))'
-        - 'resource.attributes["deployment.environment"] == "observability" and (resource.attributes["service.name"] == "hyperdx" or resource.attributes["service.name"] == "langfuse-worker" or resource.attributes["service.name"] == "langfuse-web") and status.code != STATUS_CODE_ERROR and (name == "tcp.connect" or name == "tls.connect" or name == "dns.lookup")'
-  # Prometheus receiver sets service.name from the job label. This processor
-  # only adds the shared ops-stack resource attributes.
+        - 'resource.attributes["deployment.environment"] == "observability" and status.code != STATUS_CODE_ERROR and (IsMatch(name, "^middleware - ") or name == "router - /health" or IsMatch(name, "(?i)^(mongodb|mongoose)[.](hello|ismaster|ping)$") or ((attributes["db.system"] == "mongodb" or attributes["db.system"] == "mongoose") and (IsMatch(attributes["db.operation"], "(?i)^(hello|ismaster|ping)$") or IsMatch(attributes["db.operation.name"], "(?i)^(hello|ismaster|ping)$"))) or (IsRootSpan() and (IsMatch(name, "^periodic-runner[.]") or IsMatch(name, "queue-metrics"))) or name == "tcp.connect" or name == "tls.connect" or name == "dns.lookup")'
   resource/self:
     attributes:
       - key: deployment.environment
@@ -121,8 +73,7 @@ exporters:
 
 service:
   pipelines:
-    # Restated from clickstack-otel-collector:2.39.1, plus self-noise drop
-    # and redaction before batch. memory_limiter then batch stay in that order.
+    # memory_limiter then batch stay in that order.
     traces:
       receivers: [otlp/hyperdx]
       processors: [memory_limiter, filter/ops_self_noise, transform/redact_llm_content, batch]

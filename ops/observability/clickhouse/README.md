@@ -1,62 +1,37 @@
-# ClickHouse tiered storage
+# ClickHouse
 
-Hot data stays on the Railway volume `clickhouse-data` (`/var/lib/clickhouse`, 50 GiB cap, usage-billed, cannot shrink). Older parts move to Railway bucket `clickhouse-cold` (region `iad`). Provider 0.6.1 cannot create the bucket. Terraform stores unrendered references only.
+Hot data stays on the Railway volume `clickhouse-data` (`/var/lib/clickhouse`, 50 GiB cap). Older parts move to Railway bucket `clickhouse-cold` (region `iad`). Provider 0.6.1 cannot create the bucket.
 
 ## Disks and policy
 
-`config.d/storage.xml`:
+`config.d/storage.xml`: disk `default` (the volume), disk `s3_cold` (S3; endpoint, key, secret, and region from env; metadata under `/var/lib/clickhouse/disks/s3_cold/`), disk `s3_cold_cache` (cap 256 MiB and 10240 files). Policy `default` is volume `default`, then volume `cold` (`s3_cold_cache`, no merges). Inserts stay local (`perform_ttl_move_on_insert` 0). `move_factor` 0.2. Policy `local_only` is the local disk only (`query_log`, `error_log`).
 
-| Piece | What it is |
-| --- | --- |
-| Disk `default` | The Railway volume. |
-| Disk `s3_cold` | S3. Endpoint, key, secret, and region come from env. Object metadata is local, under the default path `/var/lib/clickhouse/disks/s3_cold/`. |
-| Disk `s3_cold_cache` | Cache in front of `s3_cold`, cap 256 MiB and 10240 files. |
-| Policy `default` | Volume `default` (local disk), then volume `cold` (`s3_cold_cache`). Cold does not merge. Inserts stay on the local disk (`perform_ttl_move_on_insert` 0). `move_factor` 0.2. |
-| Policy `local_only` | Local disk only. `query_log` and `error_log` use it. |
+Policy `default` is redefined, not renamed. Volume `default` still uses disk `default`, so existing parts load. Tables created without `storage_policy` inherit `cold`.
 
-Policy `default` is redefined, not renamed. The built-in policy was volume `default` on disk `default`. The new policy still has that volume and disk, then adds `cold`, so existing parts load. ClickStack and Langfuse create MergeTree tables without `SETTINGS storage_policy`, so they inherit `cold` with no storage-policy `ALTER`.
-
-`move_factor` 0.2 moves the oldest parts when free space on the hot filesystem drops below 20%. Live `system.disks` reports about 45.5 GiB, so that is about 36 GiB used. The usual move is the table TTL.
-
-Parts on a `prefer_not_to_merge` volume still count toward `parts_to_delay_insert` (1000) per partition. Daily partitions are merged while they are hot. A late insert into an old day can leave a tiny cold part.
+`move_factor` 0.2 moves the oldest parts when free space on the hot filesystem drops below 20%. Parts on a `prefer_not_to_merge` volume still count toward `parts_to_delay_insert` (1000).
 
 ## Retention
 
-`config.d/ttl.xml` sets `ttl_only_drop_parts` and `materialize_ttl_recalculate_only`. There is no server-wide TTL expression. `MODIFY TTL` rewrites `ttl.txt` only, so applying the SQL again does not download cold parts.
+`config.d/ttl.xml` sets `ttl_only_drop_parts` and `materialize_ttl_recalculate_only`. `MODIFY TTL` rewrites `ttl.txt` only.
 
 | Data | Hot | Then |
 | --- | --- | --- |
 | `otel` tables in `tiering/otel.sql` | 3 days | Volume `cold`, delete after 390 days |
-| Tables the collector seed creates later | Hot until `move_factor` or until `otel.sql` gains a statement | Delete after 390 days |
+| Tables the collector seed creates later | Hot until `move_factor` or `otel.sql` gains a statement | Delete after 390 days |
 | `langfuse.traces`, `observations`, `scores` | 30 days, then volume `cold` | Not deleted |
-| `system.query_log`, `system.error_log` | Local only, partitioned by `event_date`, delete after 3 days | Never moved |
+| `system.query_log`, `system.error_log` | Local only, delete after 3 days | Never moved |
 
-390 days is `9360h` (`13 * 30` days). The collector image sets `HYPERDX_OTEL_EXPORTER_TABLES_TTL=9360h`. ClickStack 2.39.1 does not use `exporters.clickhouse.ttl`. `/entrypoint.sh` runs `migrate /etc/otel/schema/seed`, which templates `${LOGS_TTL}` and the other signal TTLs from that env (default `720h` = 30 days) into `toIntervalDay(390)`. `HYPERDX_OTEL_EXPORTER_RECONCILE_TABLE_TTL` is unset. The migrate binary skips a multi-interval TTL (`TO VOLUME` plus `DELETE`) so a boot does not rewrite `tiering/otel.sql`.
+390 days is `9360h`. The collector image sets `HYPERDX_OTEL_EXPORTER_TABLES_TTL=9360h` (`toIntervalDay(390)`). Leave `HYPERDX_OTEL_EXPORTER_RECONCILE_TABLE_TTL` unset so boot does not rewrite `tiering/otel.sql`. `otel` tables are partitioned by day. Langfuse SQL only moves (`tiering/langfuse.sql`); reads use `FINAL`.
 
-`otel` tables are partitioned by day, so a delete drops a whole day part, including its S3 objects.
-
-Langfuse base tables have no TTL of their own. Upstream 7-day and 30-day TTLs belong to optional aggregating tables (`traces_7d_amt`, `traces_30d_amt`) that are not in this database. `tiering/langfuse.sql` only moves. Monthly partitions mean about one to two months stays on the volume. Cold `ReplacingMergeTree` parts are not merged, so old versions remain; Langfuse reads with `FINAL`.
-
-On the next start, `query_log` and `error_log` are renamed if their `CREATE` changed (day partitions) and recreated on `local_only`. The renamed copies (`query_log_N`, `error_log_N`) have no TTL and must be dropped by hand (`DROP TABLE system.query_log_0 SYNC`); the frozen tables of removed loggers were dropped on 2026-09-25.
+If the `query_log` or `error_log` `CREATE` changes, ClickHouse renames the old table (`query_log_N`, `error_log_N`). Those copies have no TTL; drop them by hand.
 
 ## Bucket outage
 
-`skip_access_check` is 0 on `s3_cold` and on `s3_cold_cache`. If the bucket is unreachable when the process starts, the disk check fails and the process exits. It does not stay up with tables that failed to load. ClickHouse 26.8 loads tables asynchronously (`async_load_databases=1`) and does not retry a failed load, so the old `skip_access_check=1` behavior left inserts and hot reads broken until a person restarted the server.
+`skip_access_check` is 0 on `s3_cold` and `s3_cold_cache`. An unreachable bucket at start fails the disk check and the process exits. `railway.toml` sets `restartPolicyType = ON_FAILURE` and `restartPolicyMaxRetries = 120` (platform default is 10). Provider 0.6.1 does not set this, and Railway stops applying config-as-code on 2026-12-01, so the service has the same policy. After 120 failed boots the deployment stays Crashed until a restart.
 
-`ops/observability/clickhouse/railway.toml` sets `restartPolicyType = "ON_FAILURE"` and `restartPolicyMaxRetries = 120`. The schema allows `ON_FAILURE`, `ALWAYS`, and `NEVER`. `ON_FAILURE` restarts a non-zero exit. `ALWAYS` would also restart a clean exit. Provider 0.6.1 `railway_service` does not set this, and Railway stops applying config-as-code files on 2026-12-01, so the same policy is also set on the service itself (ON_FAILURE, 120 retries, set 2026-09-25); keep both in sync. The platform default without the retries field is 10. After 120 failed boots the deployment is Crashed and stays down until someone restarts it once the bucket is back.
+While ClickHouse is down, `clickstack-otel-collector:2.39.1` retries export for 300s, then drops the batch. `memory_limiter` is 1500 MiB. The image sets no `sending_queue`; the exporter default is 1000 batches.
 
-While ClickHouse is down, the collector keeps running. Image `clickhouse/clickstack-otel-collector:2.39.1` (`/etc/otelcol-contrib/config.yaml` and `standalone-config.yaml`):
-
-- Batch processor: `send_batch_size` 10000, timeout 5s, no max size.
-- `memory_limiter`: 1500 MiB, spike 512 MiB.
-- ClickHouse exporter `retry_on_failure`: initial 5s, max interval 30s, `max_elapsed_time` 300s. A batch is dropped after five minutes of export failure.
-- No `sending_queue` in the image config. The exporter helper default is on: 1000 batches (`sizer: requests`), 10 consumers, overflow rejects rather than blocks.
-
-At the measured ~30 MiB/day, five minutes of telemetry is a fraction of a megabyte, so the queue does not fill during a short restart loop. An outage longer than five minutes drops batches that exhausted retries. An outage longer than the 120 restarts leaves ClickHouse Crashed until a restart.
-
-If the process is already up and the bucket then goes away, hot inserts still land on the local disk. A query that must read a cold column fails after the S3 request timeout (10s, one retry) and inside `max_execution_time` 120s on the default profile (`otel`, `langfuse`, and the default user). `count()` over cold parts can still be answered from local part metadata.
-
-Buckets are on the public network. Uploads count as service egress ($0.05/GB). Bucket storage is $0.015/GB-month. API calls and bucket egress are free.
+If the process is up and the bucket later fails, hot inserts still land locally. A cold-column read fails after the S3 timeout (10s, one retry) and inside `max_execution_time` 120s. `count()` over cold parts can be answered from local metadata.
 
 ## Credentials
 
@@ -67,42 +42,16 @@ Buckets are on the public network. Uploads count as service egress ($0.05/GB). B
 | `CLICKHOUSE_COLD_SECRET_ACCESS_KEY` | `${{clickhouse-cold.SECRET_ACCESS_KEY}}` |
 | `CLICKHOUSE_COLD_REGION` | `${{clickhouse-cold.REGION}}` |
 
-`ENDPOINT` has no trailing slash. This composition is path-style. If a move fails on path style, set the endpoint to `https://${{clickhouse-cold.BUCKET}}.<host>/clickhouse/` using the host from `ENDPOINT`.
+`ENDPOINT` has no trailing slash (path-style). The image does not start if these are empty or the bucket is unreachable.
 
-The new image does not start if these four variables are empty, and it does not start if the bucket is unreachable.
+## DeploymentEnvironment
 
-## deployment.environment column
+`schema/deployment-environment.sql` adds `DeploymentEnvironment` (`ADD COLUMN IF NOT EXISTS`) on every `otel` table with `ResourceAttributes`. The expression is `ResourceAttributes['deployment.environment']`. Do not rename that attribute. Do not use the dotted `__hdx_materialized_deployment.environment` name on `otel_logs` (nested prefix of the seed column).
 
-`schema/deployment-environment.sql` adds `DeploymentEnvironment` on every `otel` table that has `ResourceAttributes`. The expression is `ResourceAttributes['deployment.environment']`.
+`ADD` is safe to repeat. `MATERIALIZE COLUMN` already ran and is not in the file; repeating it rewrites parts. Hand-written SQL filters the column. A map `IN` on `ResourceAttributes['deployment.environment']` uses the attribute text index. The team shared filter uses that map expression.
 
-ClickStack 2.39.1 already materializes `ResourceAttributes['deployment.environment.name']` as `__hdx_materialized_deployment.environment.name` on `otel_logs` only. ctxpipe sets `deployment.environment`, so that seed column stays empty. A column named `__hdx_materialized_deployment.environment` cannot be added on `otel_logs`: ClickHouse treats that dot as a nested prefix of the seed column. `DeploymentEnvironment` avoids the prefix.
+Run `tiering/otel.sql` as `otel`, `tiering/langfuse.sql` as `langfuse`, and `schema/deployment-environment.sql` as `otel`, after `system.storage_policies` shows volume `cold`. Apply a new table's statement on its own.
 
-HyperDX 2.39.1 (`renderChartConfig.ts`, `getMaterializedColumnsLookupTable`) rewrites a SELECT or WHERE expression to a `MATERIALIZED` or `DEFAULT` column when that expression is still in the SQL AST and `system.columns.default_expression` equals it. A search `IN` on `ResourceAttributes['deployment.environment']` is compiled to `has(ResourceAttributeItems, concat('deployment.environment', '=', '<value>'))` before that rewrite, which is the text index on the attribute array. Filtering the column itself (`DeploymentEnvironment IN ('production')`) uses the column. The team Shared Filter field is `ResourceAttributes['deployment.environment']`, which is the facet the sidebar can list. Hand-written SQL should still filter the column.
+Do not deploy a config that drops disk `s3_cold` while parts sit on `s3_cold_cache`. Move those partitions to volume `default` first. A backup that omits `disks/s3_cold/` cannot read the bucket.
 
-The collector migrate binary runs `CREATE TABLE IF NOT EXISTS` and, only when `HYPERDX_OTEL_EXPORTER_RECONCILE_TABLE_TTL` is true, `MODIFY TTL`. It does not drop extra columns. A `MATERIALIZED` column is computed on insert and is not in the collector's named INSERT list, so inserts keep working.
-
-`ADD COLUMN IF NOT EXISTS` is safe to repeat. `MATERIALIZE COLUMN` backfills parts written before the add. Run that statement once after the add. Running it again rewrites parts.
-
-Log and span attribute maps are not rewritten in place. Older rows keep `environment`, `method`, `path`, `status`, `requestId`, and `service.name=ctxpipe-codesearch` until the table TTL. New writes use the names in [ADR-011](../../../.ai/memory/decisions/ADR-011-backend-observability-otel.md).
-
-## Apply
-
-After the image is up and `system.storage_policies` shows volume `cold`, run the SQL with any client as a user who can `ALTER` the database. The probe user `otel` can alter `otel`. The probe user `langfuse` can alter `langfuse`.
-
-```sql
--- otel.sql, user otel
--- langfuse.sql, user langfuse
--- schema/deployment-environment.sql, user otel
-```
-
-Run a new table's statement when the collector seed adds one. Do not re-apply the whole file unless `materialize_ttl_recalculate_only` is 1.
-
-## Backups and rollback
-
-The volume holds hot parts and the S3 disk's local metadata. A backup that omits `disks/s3_cold/` cannot read the bucket. A bucket listing is not a table. Railway bucket deletion is restorable for 52 hours.
-
-Do not deploy a config that drops disk `s3_cold` while parts still sit on `s3_cold_cache`. Move those partitions to volume `default` first, restore the previous TTL, deploy the previous image, then remove the four `CLICKHOUSE_COLD_*` variables.
-
-## Memory
-
-`max_server_memory_usage` is 1 GiB. The filesystem cache is disk, capped at 256 MiB. The volume cap cannot shrink.
+`max_server_memory_usage` is 1 GiB (`config.d/memory.xml`).
