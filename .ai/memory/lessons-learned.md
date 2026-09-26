@@ -699,7 +699,7 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Rule:** Use msw for outbound HTTP, a real Postgres for database paths (`*.integration.test.ts` gated on `DATABASE_URL`), `vi.stubEnv` for config, fake timers for time, and OTel in-memory exporters for telemetry. `vi.mock` of a repo module is only for an import-time side effect that cannot be configured, with a comment naming it. A test that mocks our env, db client, logger, and helpers together asserts the mocks, survives behavior breaks, and fails on harmless refactors.
 - **Category:** testing
 - **Date:** 2026-09-26
-- **Source:** Repository owner review of PR-343 ("tests abusing mocks"; e.g. six module mocks in `domain/codeIngestion/codesearchClient.test.ts`)
+- **Source:** Repository owner review of PR-343 ("tests abusing mocks"; `domain/codeIngestion/codesearchClient.test.ts` had six module mocks before PR-343)
 
 ### Every runtime import must be a direct `dependency` of its app
 - **Rule:** An app's production image installs only its own `dependencies`, so a package imported from non-test code must be listed there, not in `devDependencies` and not only reachable as another package's transitive dependency. pnpm hoisting makes the import resolve locally and in Vitest, so the break shows up only when the built image starts (`Cannot find module …`). When a change adds an import from a new package, add it to that app's `dependencies` in the same commit.

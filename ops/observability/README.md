@@ -32,7 +32,7 @@ Langfuse Postgres is database `langfuse` on the existing Neon `ctxpipe` project.
 
 ## Signals
 
-Product traces, logs, and metrics use public OTLP. `service.name` is `backend`, `openworkflow`, `codesearch`, or `ui`. `deployment.environment`: [USING.md](./USING.md#localhost-telemetry). LLM spans take the collector `filter/llm_only` path into Langfuse. The browser posts traces to same-origin `/.otel/v1/traces` and logs to `/.otel/v1/logs`, with replay off. Collector and ClickHouse scrapes use `deployment.environment=observability`. Railway gauges and observability runtime logs come from `railway-telemetry`.
+Product traces, logs, and metrics use public OTLP. `service.name` is `backend`, `openworkflow`, `codesearch`, or `ui`. `deployment.environment`: [USING.md](./USING.md#localhost-telemetry). LLM spans take the collector `filter/llm_only` path into Langfuse. The browser posts traces to same-origin `/.otel/v1/traces` (replay off; console capture is spans). The relay also accepts `/.otel/v1/logs`, but the SDK does not use it. Collector and ClickHouse scrapes use `deployment.environment=observability`. Railway gauges and observability runtime logs come from `railway-telemetry`.
 
 ## Secrets
 

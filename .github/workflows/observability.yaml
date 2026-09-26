@@ -93,9 +93,9 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
     outputs:
-      collector_image: ${{ steps.tags.outputs.collector_image }}
-      clickhouse_image: ${{ steps.tags.outputs.clickhouse_image }}
-      railway_telemetry_image: ${{ steps.tags.outputs.railway_telemetry_image }}
+      collector: ${{ steps.tags.outputs.collector }}
+      clickhouse: ${{ steps.tags.outputs.clickhouse }}
+      railway-telemetry: ${{ steps.tags.outputs['railway-telemetry'] }}
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
@@ -107,8 +107,7 @@ jobs:
         run: |
           for service in collector clickhouse railway-telemetry; do
             sha="$(git rev-parse "HEAD:ops/observability/${service}")"
-            key="${service//-/_}_image"
-            echo "${key}=ghcr.io/ctxpipe-ai/obs-${service}:${sha}" >> "$GITHUB_OUTPUT"
+            echo "${service}=ghcr.io/ctxpipe-ai/obs-${service}:${sha}" >> "$GITHUB_OUTPUT"
           done
 
   images:
@@ -140,24 +139,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Image tag
-        id: tag
-        run: |
-          case "${{ matrix.service }}" in
-            collector) image="${{ needs.tags.outputs.collector_image }}" ;;
-            clickhouse) image="${{ needs.tags.outputs.clickhouse_image }}" ;;
-            railway-telemetry) image="${{ needs.tags.outputs.railway_telemetry_image }}" ;;
-            *) echo "unknown service ${{ matrix.service }}" >&2; exit 1 ;;
-          esac
-          echo "image=$image" >> "$GITHUB_OUTPUT"
-
       - name: Build and push image
         uses: useblacksmith/build-push-action@v2
         with:
           context: ops/observability/${{ matrix.service }}
           file: ops/observability/${{ matrix.service }}/Dockerfile
           push: true
-          tags: ${{ steps.tag.outputs.image }}
+          tags: ${{ needs.tags.outputs[matrix.service] }}
 
   plan:
     name: Observability Terraform plan (PR)
@@ -180,9 +168,9 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-      TF_VAR_collector_image: ${{ needs.tags.outputs.collector_image }}
-      TF_VAR_clickhouse_image: ${{ needs.tags.outputs.clickhouse_image }}
-      TF_VAR_railway_telemetry_image: ${{ needs.tags.outputs.railway_telemetry_image }}
+      TF_VAR_collector_image: ${{ needs.tags.outputs.collector }}
+      TF_VAR_clickhouse_image: ${{ needs.tags.outputs.clickhouse }}
+      TF_VAR_railway_telemetry_image: ${{ needs.tags.outputs['railway-telemetry'] }}
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
@@ -271,9 +259,9 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-      TF_VAR_collector_image: ${{ needs.tags.outputs.collector_image }}
-      TF_VAR_clickhouse_image: ${{ needs.tags.outputs.clickhouse_image }}
-      TF_VAR_railway_telemetry_image: ${{ needs.tags.outputs.railway_telemetry_image }}
+      TF_VAR_collector_image: ${{ needs.tags.outputs.collector }}
+      TF_VAR_clickhouse_image: ${{ needs.tags.outputs.clickhouse }}
+      TF_VAR_railway_telemetry_image: ${{ needs.tags.outputs['railway-telemetry'] }}
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1

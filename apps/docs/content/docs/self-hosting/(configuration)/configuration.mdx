@@ -253,9 +253,11 @@ and appends `/v1/traces`, `/v1/logs`, and `/v1/metrics`; see
 
 The UI enables browser telemetry only when
 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set on the UI server. The browser posts
-traces to the same origin at `/.otel/v1/traces` and logs to `/.otel/v1/logs`.
-The UI server forwards traces to `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and logs
-to `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, using `OTEL_EXPORTER_OTLP_HEADERS`. When
+traces to the same origin at `/.otel/v1/traces`. The relay also accepts
+`/.otel/v1/logs`, but the SDK does not use it: replay is off, and console
+capture is emitted as spans. The UI server forwards traces to
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and logs to
+`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, using `OTEL_EXPORTER_OTLP_HEADERS`. When
 the traces endpoint is unset, the browser SDK does not start. A signal whose
 endpoint is unset returns `204`.
 
