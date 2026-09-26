@@ -127,16 +127,6 @@ jobs:
           push: true
           tags: ghcr.io/ctxpipe-ai/obs-${{ matrix.service }}:${{ steps.tag.outputs.tag }}
 
-      - name: Make GHCR package public
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          curl -fsS -X PATCH \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/orgs/ctxpipe-ai/packages/container/obs-${{ matrix.service }}" \
-            -d '{"visibility":"public"}'
-
   plan:
     name: Observability Terraform plan (PR)
     needs: [validate, images]
