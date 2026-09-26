@@ -4,7 +4,6 @@ import type { AppEnv } from "../../app/env.js"
 
 const createRepositoryMock = vi.hoisted(() => vi.fn())
 const getRepositoryMock = vi.hoisted(() => vi.fn())
-const getRepositoryByGitUrlMock = vi.hoisted(() => vi.fn())
 const enqueueIngestionMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 )
@@ -19,7 +18,6 @@ vi.mock("../../models/repositories.js", async (importOriginal) => {
     ...actual,
     createRepository: createRepositoryMock,
     getRepository: getRepositoryMock,
-    getRepositoryByGitUrl: getRepositoryByGitUrlMock,
   }
 })
 
@@ -42,23 +40,26 @@ describe("POST /api/v1/repositories", () => {
 
   it("creates repository and triggers ingestion workflow", async () => {
     createRepositoryMock.mockResolvedValue({
-      id: "repo_ABC",
-      orgId: "org_mock123",
-      zoektRepoId: 123,
-      name: "ctxpipe",
-      gitUrl: "https://github.com/appear/ctxpipe.git",
-      indexReady: false,
-      indexingStatus: "queued",
-      indexingError: null,
-      indexingFailedAt: null,
-      indexingReason: null,
-      indexingStep: null,
-      indexingStepTotal: null,
-      indexingStepKey: null,
-      lastIngestedHash: null,
-      lastIngestedAt: null,
-      createdAt: new Date("2026-02-21T10:00:00.000Z"),
-      updatedAt: new Date("2026-02-21T10:00:00.000Z"),
+      created: true,
+      repository: {
+        id: "repo_ABC",
+        orgId: "org_mock123",
+        zoektRepoId: 123,
+        name: "ctxpipe",
+        gitUrl: "https://github.com/appear/ctxpipe.git",
+        indexReady: false,
+        indexingStatus: "queued",
+        indexingError: null,
+        indexingFailedAt: null,
+        indexingReason: null,
+        indexingStep: null,
+        indexingStepTotal: null,
+        indexingStepKey: null,
+        lastIngestedHash: null,
+        lastIngestedAt: null,
+        createdAt: new Date("2026-02-21T10:00:00.000Z"),
+        updatedAt: new Date("2026-02-21T10:00:00.000Z"),
+      },
     })
 
     const app = new OpenAPIHono<AppEnv>()
@@ -105,23 +106,26 @@ describe("POST /api/v1/repositories", () => {
 
   it("returns indexingStep fields when set", async () => {
     createRepositoryMock.mockResolvedValue({
-      id: "repo_ABC",
-      orgId: "org_mock123",
-      zoektRepoId: 123,
-      name: "ctxpipe",
-      gitUrl: "https://github.com/appear/ctxpipe.git",
-      indexReady: false,
-      indexingStatus: "running",
-      indexingError: null,
-      indexingFailedAt: null,
-      indexingReason: null,
-      indexingStep: 7,
-      indexingStepTotal: 22,
-      indexingStepKey: "embedding",
-      lastIngestedHash: null,
-      lastIngestedAt: null,
-      createdAt: new Date("2026-02-21T10:00:00.000Z"),
-      updatedAt: new Date("2026-02-21T10:00:00.000Z"),
+      created: true,
+      repository: {
+        id: "repo_ABC",
+        orgId: "org_mock123",
+        zoektRepoId: 123,
+        name: "ctxpipe",
+        gitUrl: "https://github.com/appear/ctxpipe.git",
+        indexReady: false,
+        indexingStatus: "running",
+        indexingError: null,
+        indexingFailedAt: null,
+        indexingReason: null,
+        indexingStep: 7,
+        indexingStepTotal: 22,
+        indexingStepKey: "embedding",
+        lastIngestedHash: null,
+        lastIngestedAt: null,
+        createdAt: new Date("2026-02-21T10:00:00.000Z"),
+        updatedAt: new Date("2026-02-21T10:00:00.000Z"),
+      },
     })
 
     const app = new OpenAPIHono<AppEnv>()
@@ -187,29 +191,28 @@ describe("POST /api/v1/repositories", () => {
     expect(enqueueIngestionMock).not.toHaveBeenCalled()
   })
 
-  it("returns the existing repository when the git URL is already in the org", async () => {
-    const duplicate = new Error("Failed query: insert into repositories", {
-      cause: { code: "23505" },
-    })
-    createRepositoryMock.mockRejectedValue(duplicate)
-    getRepositoryByGitUrlMock.mockResolvedValue({
-      id: "repo_EXISTING",
-      orgId: "org_mock123",
-      zoektRepoId: 7,
-      name: "ctxpipe",
-      gitUrl: "https://github.com/appear/ctxpipe.git",
-      indexReady: false,
-      indexingStatus: "failed",
-      indexingError: "boom",
-      indexingFailedAt: null,
-      indexingReason: null,
-      indexingStep: null,
-      indexingStepTotal: null,
-      indexingStepKey: null,
-      lastIngestedHash: null,
-      lastIngestedAt: null,
-      createdAt: new Date("2026-02-21T10:00:00.000Z"),
-      updatedAt: new Date("2026-02-21T10:00:00.000Z"),
+  it("returns 200 without enqueueing when the repository already existed", async () => {
+    createRepositoryMock.mockResolvedValue({
+      created: false,
+      repository: {
+        id: "repo_EXISTING",
+        orgId: "org_mock123",
+        zoektRepoId: 7,
+        name: "ctxpipe",
+        gitUrl: "https://github.com/appear/ctxpipe.git",
+        indexReady: false,
+        indexingStatus: "failed",
+        indexingError: "boom",
+        indexingFailedAt: null,
+        indexingReason: null,
+        indexingStep: null,
+        indexingStepTotal: null,
+        indexingStepKey: null,
+        lastIngestedHash: null,
+        lastIngestedAt: null,
+        createdAt: new Date("2026-02-21T10:00:00.000Z"),
+        updatedAt: new Date("2026-02-21T10:00:00.000Z"),
+      },
     })
 
     const app = new OpenAPIHono<AppEnv>()
@@ -230,9 +233,6 @@ describe("POST /api/v1/repositories", () => {
 
     expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject({ id: "repo_EXISTING" })
-    expect(getRepositoryByGitUrlMock).toHaveBeenCalledWith(
-      "https://github.com/appear/ctxpipe.git",
-    )
     expect(enqueueIngestionMock).not.toHaveBeenCalled()
   })
 })

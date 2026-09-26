@@ -125,14 +125,8 @@ export const repositoryIngestion = defineWorkflow(
         orgId: input.orgId,
       }),
       async () => {
-        // One deletion read per step. Status writes are already refused while
-        // `unindexing`; this returns before the step body so the run stops cleanly.
-        const ingestionBlocked = () =>
-          repositoryIngestionBlockedByDeletion({
-            orgId: input.orgId,
-            repositoryId: input.repositoryId,
-          })
-
+        // Codesearch 404 becomes a sentinel. Throwing inside `step.run` makes
+        // OpenWorkflow retry the step, so the stop is a return value.
         const wls = async <T>(
           name: string,
           fn: () => Promise<T>,
@@ -145,13 +139,9 @@ export const repositoryIngestion = defineWorkflow(
               orgId: input.orgId,
             },
             async () => {
-              if (await ingestionBlocked()) return REPOSITORY_INGESTION_STOPPED
               try {
                 return await fn()
               } catch (err: unknown) {
-                if (isWorkflowControlSignal(err)) throw err
-                // The check above already passed. Codesearch can still 404
-                // while this step is in flight; that is a stop, not a retry.
                 if (!isRepositoryGoneError(err)) throw err
                 return REPOSITORY_INGESTION_STOPPED
               }
@@ -168,23 +158,6 @@ export const repositoryIngestion = defineWorkflow(
               fn as Parameters<typeof rawStep.run>[1],
             )
             return continueIngestion(result as T)
-          },
-          runWorkflow: async (
-            spec: Parameters<typeof rawStep.runWorkflow>[0],
-            workflowInput: Parameters<typeof rawStep.runWorkflow>[1],
-            options?: Parameters<typeof rawStep.runWorkflow>[2],
-          ) => {
-            if (await ingestionBlocked()) throw new IngestionAborted()
-            try {
-              return await rawStep.runWorkflow(spec, workflowInput, options)
-            } catch (err: unknown) {
-              if (isWorkflowControlSignal(err)) throw err
-              if (isRepositoryGoneError(err)) throw new IngestionAborted()
-              // The child was already past the check above (cancel does not
-              // throw RepositoryGoneError). Stop only when deletion owns the row.
-              if (await ingestionBlocked()) throw new IngestionAborted()
-              throw err
-            }
           },
         }
 
@@ -316,8 +289,20 @@ export const repositoryIngestion = defineWorkflow(
               targetHash: resolved.hash,
             })
 
+            // Status writes already no-op while unindexing. One read here avoids
+            // starting the codesearch child after deletion. This throw is outside
+            // `step.run`, so OpenWorkflow does not retry it.
+            if (
+              await repositoryIngestionBlockedByDeletion({
+                orgId: input.orgId,
+                repositoryId: input.repositoryId,
+              })
+            ) {
+              throw new IngestionAborted()
+            }
+
             // Durable codesearch phases via child workflow (no org DB txn across HTTP).
-            const reindexState = await step.runWorkflow(
+            const reindexState = await rawStep.runWorkflow(
               repositoryIndex.spec,
               attachJobTelemetry({
                 repositoryId: input.repositoryId,
@@ -847,7 +832,6 @@ export const repositoryIngestion = defineWorkflow(
                     },
                     {
                       error: (err) => {
-                        if (isWorkflowControlSignal(err)) throw err
                         getLogger().error(err, {
                           step: "repository-ingestion.follow-up-tip",
                           repositoryId: input.repositoryId,

@@ -1,9 +1,7 @@
 import { withOrgDbContext } from "../db/client.js"
 import { formatUnknownError } from "../db/transientDbRetry.js"
 import { markRepositoryUnindexing } from "../models/repositories.js"
-import { cancelActiveRepositoryIngestion } from "./cancel-repository-ingestion.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
-import { isWorkflowControlSignal } from "./isSleepSignal.js"
 import { repositoryDeletion } from "./workflows/repository-deletion.js"
 
 export type RepositoryDeletionEnqueueInput = {
@@ -51,18 +49,6 @@ export async function enqueueRepositoryDeletionWorkflow(
     return null
   }
 
-  try {
-    await cancelActiveRepositoryIngestion({
-      orgId: input.orgId,
-      repositoryId: input.repositoryId,
-    })
-  } catch (err: unknown) {
-    if (isWorkflowControlSignal(err)) throw err
-    const normalized =
-      err instanceof Error ? err : new Error(formatUnknownError(err))
-    log.error(normalized)
-  }
-
   const attemptId = marked.updatedAt.toISOString()
 
   try {
@@ -90,7 +76,6 @@ export async function enqueueRepositoryDeletionWorkflow(
       status: "queued",
     }
   } catch (err: unknown) {
-    if (isWorkflowControlSignal(err)) throw err
     const normalized =
       err instanceof Error ? err : new Error(formatUnknownError(err))
     log.error(normalized)

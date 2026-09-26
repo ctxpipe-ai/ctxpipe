@@ -137,9 +137,6 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
                 },
                 {
                   error: (followUpError) => {
-                    if (isWorkflowControlSignal(followUpError)) {
-                      throw followUpError
-                    }
                     getLogger().error(followUpError, {
                       step: "repository-ingestion-orchestrator.follow-up",
                       repositoryId: input.repositoryId,

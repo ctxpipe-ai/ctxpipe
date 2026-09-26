@@ -265,19 +265,6 @@ export const getRepository = async (
   return selectRepositoryWithZoekt(db, orgId, repositoryId)
 }
 
-export const getRepositoryByGitUrl = async (
-  gitUrl: string,
-): Promise<RepositoryWithSearch | null> => {
-  const orgId = requireCurrentOrgId()
-  const db = getOrgDb()
-  const [row] = await db
-    .select({ id: repositories.id })
-    .from(repositories)
-    .where(and(eq(repositories.gitUrl, gitUrl), eq(repositories.orgId, orgId)))
-    .limit(1)
-  return row ? selectRepositoryWithZoekt(db, orgId, row.id) : null
-}
-
 /** For worker/ingestion paths: requires org DB context (`withOrgDbContext`). */
 export async function getGithubConnectionIdForRepository(input: {
   orgId: string
@@ -655,43 +642,55 @@ export async function findRepositoryByGithubInstallation(
 export const createRepository = async (input: {
   name: string
   gitUrl: string
-}): Promise<RepositoryWithSearch> => {
+}): Promise<{ repository: RepositoryWithSearch; created: boolean }> => {
   const orgId = requireCurrentOrgId()
-  const id = generateObjectId("repo")
   const db = getOrgDb()
-  const checkoutId = generateObjectId("co")
-  const [row] = await db.transaction(async (tx) => {
-    const [repository] = await tx
+  return db.transaction(async (tx) => {
+    const [inserted] = await tx
       .insert(repositories)
       .values({
-        id,
-        orgId: orgId,
+        id: generateObjectId("repo"),
+        orgId,
         name: input.name,
         gitUrl: input.gitUrl,
       })
+      .onConflictDoNothing({
+        target: [repositories.gitUrl, repositories.orgId],
+      })
       .returning()
-    if (!repository) return []
-    const [checkout] = await tx
-      .insert(repositoryCheckouts)
-      .values({
-        id: checkoutId,
-        repositoryId: repository.id,
-        ref: "main",
-        checkoutKey: DEFAULT_CHECKOUT_KEY,
-      })
-      .returning({
-        zoektRepoId: repositoryCheckouts.zoektRepoId,
-      })
-    if (!checkout) return []
-    return [
-      {
-        ...withoutRepositoryControlState(repository),
-        zoektRepoId: checkout.zoektRepoId,
-      } satisfies RepositoryWithSearch,
-    ]
+    if (inserted) {
+      const [checkout] = await tx
+        .insert(repositoryCheckouts)
+        .values({
+          id: generateObjectId("co"),
+          repositoryId: inserted.id,
+          ref: "main",
+          checkoutKey: DEFAULT_CHECKOUT_KEY,
+        })
+        .returning({
+          zoektRepoId: repositoryCheckouts.zoektRepoId,
+        })
+      if (!checkout) throw new Error("Failed to create repository")
+      return {
+        created: true,
+        repository: {
+          ...withoutRepositoryControlState(inserted),
+          zoektRepoId: checkout.zoektRepoId,
+        },
+      }
+    }
+
+    const [existing] = await repositoryWithZoektJoin(tx)
+      .where(
+        and(
+          eq(repositories.gitUrl, input.gitUrl),
+          eq(repositories.orgId, orgId),
+        ),
+      )
+      .limit(1)
+    if (!existing) throw new Error("Failed to create repository")
+    return { created: false, repository: existing }
   })
-  if (row) return row
-  throw new Error("Failed to create repository")
 }
 
 /**

@@ -1,15 +1,14 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { formatUnknownError } from "../../db/transientDbRetry.js"
-import { getLogger } from "../../observability/logger.js"
 import {
   createRepository,
   deriveRepositoryIndexingStatus,
   getRepository,
-  getRepositoryByGitUrl,
   listRepositories,
   type RepositoryWithSearch,
 } from "../../models/repositories.js"
+import { getLogger } from "../../observability/logger.js"
 import { enqueueRepositoryDeletionWorkflow } from "../../openworkflow/enqueue-repository-deletion.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 
@@ -265,16 +264,6 @@ export const reindexRepositoryRoute = createRoute({
   },
 })
 
-/** Drizzle wraps the pg error, so the SQLSTATE can sit on `cause`. */
-function isUniqueViolation(error: unknown): boolean {
-  const code = (e: unknown) =>
-    typeof e === "object" && e !== null && "code" in e ? e.code : undefined
-  return (
-    code(error) === "23505" ||
-    (error instanceof Error && code(error.cause) === "23505")
-  )
-}
-
 function serializeRepository(repository: RepositoryWithSearch) {
   const indexingStatus = deriveRepositoryIndexingStatus({
     indexReady: repository.indexReady,
@@ -328,10 +317,11 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
     }
     const body = c.req.valid("json")
     try {
-      const repository = await createRepository({
+      const { repository, created } = await createRepository({
         name: body.name,
         gitUrl: body.gitUrl,
       })
+      if (!created) return c.json(serializeRepository(repository), 200)
       void enqueueRepositoryIngestionWorkflow(
         { repositoryId: repository.id, orgId: repository.orgId },
         {
@@ -343,10 +333,6 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
       )
       return c.json(serializeRepository(repository), 201)
     } catch (e) {
-      if (isUniqueViolation(e)) {
-        const existing = await getRepositoryByGitUrl(body.gitUrl)
-        if (existing) return c.json(serializeRepository(existing), 200)
-      }
       getLogger().error(e instanceof Error ? e : new Error(String(e)), {
         step: "repositories.create",
       })

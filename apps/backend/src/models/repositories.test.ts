@@ -52,29 +52,10 @@ import {
   listRepositoriesForOrg,
   markRepositoryIndexingFailed,
   markRepositoryIndexingReadyWithIssues,
-  markRepositoryIndexingRunning,
   pruneGithubConnectionRepositoriesNotInGitUrls,
-  repositoryIngestionBlockedByDeletion,
   setRepositoryIndexingStep,
   tryClaimRepositoryIndexingEnqueue,
 } from "./repositories.js"
-
-function sqlText(query: unknown, seen = new Set<unknown>()): string {
-  if (query == null || typeof query !== "object") {
-    return query == null ? "" : String(query)
-  }
-  if (seen.has(query)) return ""
-  seen.add(query)
-  if (Array.isArray(query)) {
-    return query.map((item) => sqlText(item, seen)).join("")
-  }
-  const record = query as { queryChunks?: unknown[]; value?: unknown }
-  if (Array.isArray(record.queryChunks)) {
-    return record.queryChunks.map((chunk) => sqlText(chunk, seen)).join("")
-  }
-  if ("value" in record) return sqlText(record.value, seen)
-  return ""
-}
 
 const orgId = "org_1"
 const githubConnectionId = "con_github"
@@ -535,98 +516,6 @@ describe("tryClaimRepositoryIndexingEnqueue", () => {
       indexingFollowUpPending: true,
     })
     expect(update).toHaveBeenCalledTimes(2)
-  })
-
-  it("returns false when the repository is being deleted", async () => {
-    const claimReturning = vi.fn().mockResolvedValue([])
-    const pendingReturning = vi.fn().mockResolvedValue([])
-    const claimWhere = vi.fn().mockReturnValue({ returning: claimReturning })
-    const pendingWhere = vi.fn().mockReturnValue({
-      returning: pendingReturning,
-    })
-    const claimSet = vi.fn().mockReturnValue({ where: claimWhere })
-    const pendingSet = vi.fn().mockReturnValue({ where: pendingWhere })
-    const update = vi
-      .fn()
-      .mockReturnValueOnce({ set: claimSet })
-      .mockReturnValueOnce({ set: pendingSet })
-    const limit = vi
-      .fn()
-      .mockResolvedValue([{ id: repositoryId, indexingStatus: "unindexing" }])
-    const selectWhere = vi.fn().mockReturnValue({ limit })
-    const from = vi.fn().mockReturnValue({ where: selectWhere })
-    const select = vi.fn().mockReturnValue({ from })
-    getOrgDbMock.mockReturnValue({ update, select })
-
-    await expect(
-      tryClaimRepositoryIndexingEnqueue({
-        repositoryId,
-        reason: "webhook",
-      }),
-    ).resolves.toBe(false)
-    expect(update).toHaveBeenCalledTimes(2)
-    expect(select).toHaveBeenCalledTimes(1)
-    expect(sqlText(claimWhere.mock.calls[0]?.[0])).toContain("unindexing")
-  })
-})
-
-describe("ingestion status writes while unindexing", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it("refuses a running-status write while the repository is unindexing", async () => {
-    const where = vi.fn().mockResolvedValue(undefined)
-    const set = vi.fn().mockReturnValue({ where })
-    const update = vi.fn().mockReturnValue({ set })
-    getOrgDbMock.mockReturnValue({ update })
-
-    await markRepositoryIndexingRunning({ repositoryId })
-
-    expect(sqlText(where.mock.calls[0]?.[0])).toContain("unindexing")
-    expect(set).toHaveBeenCalledWith(
-      expect.objectContaining({ indexingStatus: "running" }),
-    )
-  })
-})
-
-describe("repositoryIngestionBlockedByDeletion", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it("is true when the row is gone", async () => {
-    const limit = vi.fn().mockResolvedValue([])
-    const where = vi.fn().mockReturnValue({ limit })
-    const from = vi.fn().mockReturnValue({ where })
-    const select = vi.fn().mockReturnValue({ from })
-    withOrgDbContextMock.mockImplementation(
-      (_orgId: string, fn: (db: unknown) => unknown) => fn({ select }),
-    )
-
-    await expect(
-      repositoryIngestionBlockedByDeletion({
-        orgId,
-        repositoryId,
-      }),
-    ).resolves.toBe(true)
-  })
-
-  it("is true while the repository is unindexing", async () => {
-    const limit = vi.fn().mockResolvedValue([{ indexingStatus: "unindexing" }])
-    const where = vi.fn().mockReturnValue({ limit })
-    const from = vi.fn().mockReturnValue({ where })
-    const select = vi.fn().mockReturnValue({ from })
-    withOrgDbContextMock.mockImplementation(
-      (_orgId: string, fn: (db: unknown) => unknown) => fn({ select }),
-    )
-
-    await expect(
-      repositoryIngestionBlockedByDeletion({
-        orgId,
-        repositoryId,
-      }),
-    ).resolves.toBe(true)
   })
 })
 
