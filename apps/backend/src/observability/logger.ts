@@ -4,140 +4,184 @@ import {
   type DrainContext,
   initLogger,
   log,
+  type RedactConfig,
   type RequestLogger,
 } from "evlog"
-import { createDrainPipeline, type PipelineDrainFn } from "evlog/pipeline"
+import { createOTLPDrain } from "evlog/otlp"
 import { getContext } from "hono/context-storage"
 import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
-import { logFieldsFromActiveSpan, otlpLogsPayload } from "./logContract.js"
+import { logFieldsFromActiveSpan } from "./logContract.js"
 import {
   forceFlushOtel,
   isRailwayPrEnvironment,
   otelDeploymentEnvironment,
-  otelResourceAttributes,
   otelServiceName,
 } from "./otel.js"
+import { flattenDbErrorCause } from "./scrubDbError.js"
 
 /**
- * Initialize evlog. Call early in app bootstrap.
- * Reads env from process.env.
+ * Paths and token/params patterns are the review list. The query pattern is
+ * extra: logs must not keep `?…` (ADR-011). Built-ins stay off so ids are
+ * not partially masked; emails are removed only on the paths below.
  */
-export function initEvlog(): void {
+const evlogRedact: RedactConfig = {
+  builtins: false,
+  paths: [
+    "user.email",
+    "user.name",
+    "user.image",
+    "session.ipAddress",
+    "session.userAgent",
+    "userAgent",
+    "email",
+    "ipAddress",
+    "headers.user-agent",
+  ],
+  patterns: [
+    /(?<=\/reset-password\/)[^/?#]+/g,
+    /(?<=\/public\/invitations\/)[^/?#]+/g,
+    /\r?\nparams:[^\r\n]*/g,
+    /\?[^#\s]*/g,
+  ],
+}
+
+const wrappedConsoles = new WeakSet<object>()
+
+function scrubLoggedArg(arg: unknown): unknown {
+  if (typeof arg !== "string" || !arg.startsWith("{")) return arg
+  try {
+    const parsed = JSON.parse(arg) as Record<string, unknown>
+    if (
+      typeof parsed.level !== "string" ||
+      typeof parsed.timestamp !== "string"
+    ) {
+      return arg
+    }
+    flattenDbErrorCause(parsed)
+    return JSON.stringify(parsed)
+  } catch {
+    return arg
+  }
+}
+
+/**
+ * evlog writes stdout inside `emit`, before Hono `enrich`. Cause fields are
+ * still a raw Error at that point, so scrub the JSON line on the way out.
+ */
+function installEvlogStdoutScrub(): void {
+  for (const method of ["log", "info", "warn", "error", "debug"] as const) {
+    const current = console[method]
+    if (wrappedConsoles.has(current)) continue
+    const original = current.bind(console)
+    const wrapped = (...args: unknown[]) => {
+      original(...args.map(scrubLoggedArg))
+    }
+    wrappedConsoles.add(wrapped)
+    console[method] = wrapped as (typeof console)[typeof method]
+  }
+}
+
+function prepareOtlpEvent(event: Record<string, unknown>): void {
+  flattenDbErrorCause(event)
+  delete event.environment
+  delete event.service
+  delete event["service.namespace"]
+}
+
+/**
+ * evlog 2.14.1 reads `OTEL_EXPORTER_OTLP_ENDPOINT` and appends `/v1/logs`.
+ * This service sets `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` (often already suffixed).
+ */
+function otlpLogsEndpoint(): string | undefined {
+  const raw = process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT?.trim()
+  if (!raw) return undefined
+  return raw.replace(/\/v1\/logs\/?$/i, "").replace(/\/$/, "")
+}
+
+type EvlogDrain = ((ctx: DrainContext | DrainContext[]) => Promise<void>) & {
+  flush?: () => Promise<void>
+}
+
+let evlogDrainInstance: EvlogDrain | undefined
+const inflightOtlp = new Set<Promise<void>>()
+
+/**
+ * OTLP drain for Hono and `initLogger`. Unset logs endpoint → stdout only.
+ * `createOTLPDrain` reads `OTEL_EXPORTER_OTLP_HEADERS` itself. Timeout is 5s.
+ */
+export function createEvlogDrain(): EvlogDrain | undefined {
+  if (evlogDrainInstance) return evlogDrainInstance
+  const endpoint = otlpLogsEndpoint()
+  if (!endpoint) return undefined
+  const send = createOTLPDrain({
+    endpoint,
+    serviceName: otelServiceName(),
+    resourceAttributes: {
+      "service.namespace": "ctxpipe",
+      "deployment.environment": otelDeploymentEnvironment(),
+    },
+    timeout: 5_000,
+  })
+  const drain: EvlogDrain = async (ctx) => {
+    const items = Array.isArray(ctx) ? ctx : [ctx]
+    for (const item of items) {
+      prepareOtlpEvent(item.event as Record<string, unknown>)
+    }
+    const run = send(ctx)
+    inflightOtlp.add(run)
+    try {
+      await run
+    } finally {
+      inflightOtlp.delete(run)
+    }
+  }
+  evlogDrainInstance = drain
+  return drain
+}
+
+/** Initialize evlog. Call early in app bootstrap. Reads env from process.env. */
+export function initEvlog(options?: { silent?: boolean }): void {
+  installEvlogStdoutScrub()
+  if (options?.silent) {
+    initLogger({
+      env: {
+        service: otelServiceName(),
+        environment: otelDeploymentEnvironment(),
+      },
+      pretty: false,
+      silent: true,
+      redact: evlogRedact,
+      drain: async () => {},
+    })
+    return
+  }
   const env = parseEnv(process.env as Record<string, string | undefined>)
-  const serviceName = otelServiceName(env.OTEL_SERVICE_NAME)
   initLogger({
     env: {
-      service: serviceName,
+      service: otelServiceName(env.OTEL_SERVICE_NAME),
       environment: otelDeploymentEnvironment(),
     },
     pretty: env.NODE_ENV === "development",
+    redact: evlogRedact,
     drain: createEvlogDrain(),
   })
 }
 
-let evlogDrainInstance: PipelineDrainFn<DrainContext> | undefined
-
-/**
- * Create evlog drain for Hono. When OTEL_EXPORTER_OTLP_LOGS_ENDPOINT is set,
- * returns an OTLP drain with batching and retry. Otherwise returns undefined (stdout only).
- * Reads env from process.env. Caches and returns the same instance on repeated calls.
- */
-export function createEvlogDrain() {
-  if (evlogDrainInstance) return evlogDrainInstance
-  const env = parseEnv(process.env as Record<string, string | undefined>)
-  if (!env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT) return undefined
-
-  // evlog appends /v1/logs; strip it so OTEL_EXPORTER_OTLP_LOGS_ENDPOINT can use full URL
-  const baseEndpoint = env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT.replace(
-    /\/v1\/logs\/?$/i,
-    "",
-  ).replace(/\/$/, "")
-
-  const headers = parseOtelHeaders(env.OTEL_EXPORTER_OTLP_HEADERS)
-  const serviceName = otelServiceName(env.OTEL_SERVICE_NAME)
-  const baseDrain = async (ctx: DrainContext | DrainContext[]) => {
-    const contexts = Array.isArray(ctx) ? ctx : [ctx]
-    const events = contexts.map((item) => item.event)
-    if (events.length === 0) return
-    const payload = otlpLogsPayload(
-      events,
-      otelResourceAttributes(serviceName, otelDeploymentEnvironment()),
-    )
-    // 5s matches evlog createOTLPDrain. The pipeline retries, then onDropped.
-    // A timeout or a down collector does not fail the request or shutdown.
-    let response: Response
-    try {
-      response = await fetch(`${baseEndpoint}/v1/logs`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...headers },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(5_000),
-      })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      throw new Error(`OTLP logs export failed: ${message}`)
-    }
-    if (!response.ok) {
-      throw new Error(`OTLP logs HTTP ${response.status}`)
-    }
-  }
-
-  const pipeline = createDrainPipeline<DrainContext>({
-    batch: { size: 50, intervalMs: 5000 },
-    retry: { maxAttempts: 3, backoff: "exponential", initialDelayMs: 1000 },
-    onDropped: (events, error) => {
-      log.error({
-        step: "evlog.pipeline",
-        droppedEventCount: events.length,
-        message: `[evlog] Dropped ${events.length} events`,
-        error:
-          error instanceof Error
-            ? error.message
-            : error != null
-              ? String(error)
-              : undefined,
-      })
-    },
-  })
-
-  evlogDrainInstance = pipeline(baseDrain)
-  return evlogDrainInstance
-}
-
-/** Flush buffered evlog events. Call on server shutdown. */
+/** Flush in-flight OTLP log exports. Call on server shutdown. */
 export async function flushEvlog(): Promise<void> {
-  if (!evlogDrainInstance?.flush) return
+  const waiting = [...inflightOtlp]
+  evlogDrainInstance = undefined
+  if (waiting.length === 0) return
   try {
-    await evlogDrainInstance.flush()
+    await Promise.all(waiting)
   } catch (error) {
     log.error({
       step: "evlog.pipeline",
       message: "evlog flush failed",
       error: error instanceof Error ? error.message : String(error),
     })
-  } finally {
-    evlogDrainInstance = undefined
   }
-}
-
-function parseOtelHeaders(
-  headerStr: string | undefined,
-): Record<string, string> {
-  if (!headerStr?.trim()) return {}
-  const out: Record<string, string> = {}
-  for (const part of headerStr.split(",")) {
-    const eq = part.indexOf("=")
-    if (eq > 0) {
-      const key = part.slice(0, eq).trim()
-      const value = part
-        .slice(eq + 1)
-        .trim()
-        .replace(/^["']|["']$/g, "")
-      if (key && value) out[key] = decodeURIComponent(value)
-    }
-  }
-  return out
 }
 
 // --- Logger context (AsyncLocalStorage + getLogger) ---
