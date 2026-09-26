@@ -127,3 +127,33 @@ export function hyperdxIdentity(
   })
   return { userId, teamId: team.teamId, teamName: team.teamName }
 }
+
+/**
+ * Identity to publish once `useSession` has settled.
+ * `useAuthQuery` starts at `data: null`, so a null org list is "not loaded",
+ * same as `undefined`. While it is null, return the document identity so the
+ * SSR team id stays up. `undefined` means leave the current attributes alone.
+ * `null` means clear them.
+ */
+export function hyperdxIdentityAfterSession(input: {
+  session: Parameters<typeof hyperdxIdentity>[0]
+  organizations: readonly HyperDxOrgRef[] | null | undefined
+  pathname: string
+  documentIdentity: HyperDxSessionIdentity | null
+}): HyperDxSessionIdentity | null | undefined {
+  if (
+    input.session?.user?.id &&
+    input.organizations == null &&
+    !isHyperDxAuthPath(input.pathname)
+  ) {
+    const slug = orgSlugFromPathname(input.pathname)
+    if (!slug || slug === (input.documentIdentity?.teamName ?? "")) {
+      return input.documentIdentity ?? undefined
+    }
+  }
+  return hyperdxIdentity(
+    input.session,
+    input.organizations ?? [],
+    input.pathname,
+  )
+}

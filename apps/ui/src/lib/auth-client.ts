@@ -17,6 +17,9 @@ function authApiBaseUrl(): string {
   return "http://localhost:3000"
 }
 
+/** Session atom still has the pre-request value inside fetch `onSuccess`. */
+let signedInBeforeRequest = (): boolean => false
+
 export const authClient = createAuthClient({
   baseURL: authApiBaseUrl(),
   basePath: "/.auth/api/v1/auth",
@@ -38,15 +41,18 @@ export const authClient = createAuthClient({
       } catch {
         return
       }
+      if (signedInBeforeRequest()) return
       const twoFactorRedirect =
         !!context.data &&
         typeof context.data === "object" &&
         "twoFactorRedirect" in context.data &&
         Boolean(context.data.twoFactorRedirect)
+      // Social sign-in finishes on a redirect, not these JSON endpoints.
       const completedSignIn =
         (path.endsWith("/sign-in/email") && !twoFactorRedirect) ||
         path.endsWith("/two-factor/verify-totp") ||
-        path.endsWith("/two-factor/verify-otp")
+        path.endsWith("/two-factor/verify-otp") ||
+        path.endsWith("/two-factor/verify-backup-code")
       if (completedSignIn) HyperDX.addAction("sign_in")
     },
   },
@@ -59,6 +65,14 @@ export const authClient = createAuthClient({
     oauthProviderClient(),
   ],
 })
+
+signedInBeforeRequest = () => {
+  const data = authClient.$store.atoms.session.get()?.data as
+    | { user?: { id?: string | null } | null }
+    | null
+    | undefined
+  return Boolean(data?.user?.id)
+}
 
 export const {
   signIn,

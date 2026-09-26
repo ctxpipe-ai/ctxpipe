@@ -55,17 +55,42 @@ async function reject(
   return new Response(null, { status })
 }
 
-/** Railway name, else `deployment.environment` on the resource, else NODE_ENV. */
+/**
+ * `OTEL_*` lists are comma-separated `key=value` pairs. Split on the first `=`,
+ * trim, percent-decode. Same rules as the OTel SDK header parser. `+` stays `+`.
+ */
+function parseOtelKeyValueList(raw: string): Array<[string, string]> {
+  const pairs: Array<[string, string]> = []
+  for (const entry of raw.split(",")) {
+    const eq = entry.indexOf("=")
+    if (eq < 0) continue
+    const key = percentDecode(entry.slice(0, eq).trim())
+    if (!key) continue
+    pairs.push([key, percentDecode(entry.slice(eq + 1).trim())])
+  }
+  return pairs
+}
+
+function percentDecode(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+/** Railway name, else the last `deployment.environment`, else NODE_ENV. */
 function deploymentEnvironment(): string {
   const railway = process.env.RAILWAY_ENVIRONMENT_NAME?.trim()
   if (railway) return railway
   const raw = process.env.OTEL_RESOURCE_ATTRIBUTES?.trim()
-  const named = raw
-    ? new URLSearchParams(raw.replaceAll(",", "&"))
-        .get("deployment.environment")
-        ?.trim()
-    : undefined
-  if (named) return named
+  if (raw) {
+    let named: string | undefined
+    for (const [key, value] of parseOtelKeyValueList(raw)) {
+      if (key === "deployment.environment" && value) named = value
+    }
+    if (named) return named
+  }
   return process.env.NODE_ENV === "production" ? "production" : "development"
 }
 
@@ -109,12 +134,13 @@ export async function proxyBrowserOtlp(
 
 async function forward(upstream: string, payload: string): Promise<Response> {
   const rawHeaders = process.env.OTEL_EXPORTER_OTLP_HEADERS?.trim()
-  const headers = {
-    ...(rawHeaders
-      ? Object.fromEntries(new URLSearchParams(rawHeaders.replaceAll(",", "&")))
-      : {}),
-    "Content-Type": "application/json",
+  const headers: Record<string, string> = {}
+  if (rawHeaders) {
+    for (const [key, value] of parseOtelKeyValueList(rawHeaders)) {
+      headers[key] = value
+    }
   }
+  headers["Content-Type"] = "application/json"
   try {
     const response = await fetch(upstream, {
       method: "POST",

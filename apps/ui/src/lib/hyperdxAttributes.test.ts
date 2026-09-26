@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   hyperdxGlobalAttributes,
   hyperdxIdentity,
+  hyperdxIdentityAfterSession,
   hyperdxPageViewAction,
   isHyperDxAuthPath,
   isHyperDxSignOutPath,
@@ -192,5 +193,55 @@ describe("hyperdxIdentity", () => {
     expect(
       hyperdxIdentity(session, organizations, "/.auth/sign-out"),
     ).toBeNull()
+  })
+})
+
+describe("hyperdxIdentityAfterSession", () => {
+  const session = {
+    user: { id: "user_1" },
+    session: { activeOrganizationId: "org_1" },
+  }
+  const documentIdentity = {
+    userId: "user_1",
+    teamId: "org_1",
+    teamName: "acme",
+  }
+
+  it("keeps the SSR team id while the org list is still null", () => {
+    expect(
+      hyperdxIdentityAfterSession({
+        session,
+        organizations: null,
+        pathname: "/acme/repositories",
+        documentIdentity,
+      }),
+    ).toEqual(documentIdentity)
+    expect(
+      hyperdxIdentityAfterSession({
+        session,
+        organizations: undefined,
+        pathname: "/onboarding",
+        documentIdentity,
+      }),
+    ).toEqual(documentIdentity)
+  })
+
+  it("publishes the listed org, and a different route slug, once it can", () => {
+    expect(
+      hyperdxIdentityAfterSession({
+        session,
+        organizations: [{ id: "org_1", slug: "acme" }],
+        pathname: "/acme/repositories",
+        documentIdentity,
+      }),
+    ).toEqual(documentIdentity)
+    expect(
+      hyperdxIdentityAfterSession({
+        session,
+        organizations: null,
+        pathname: "/beta",
+        documentIdentity,
+      }),
+    ).toEqual({ userId: "user_1", teamId: "", teamName: "beta" })
   })
 })

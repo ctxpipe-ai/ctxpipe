@@ -5,10 +5,8 @@ import { useEffect } from "react"
 import { useListOrganizations, useSession } from "@/lib/auth-client"
 import {
   type HyperDxSessionIdentity,
-  hyperdxIdentity,
+  hyperdxIdentityAfterSession,
   hyperdxPageViewAction,
-  isHyperDxAuthPath,
-  orgSlugFromPathname,
 } from "@/lib/hyperdxAttributes"
 import {
   clearHyperDxGlobalAttributes,
@@ -42,21 +40,13 @@ export const HyperDxProvider: FC<{
 
   useEffect(() => {
     if (!enabled || sessionPending) return
-    // The org list has not arrived. Keep the document identity unless the
-    // route already names a different org.
-    if (
-      session?.user?.id &&
-      organizations === undefined &&
-      !isHyperDxAuthPath(pathname)
-    ) {
-      const slug = orgSlugFromPathname(pathname)
-      if (!slug || slug === (initialIdentity?.teamName ?? "")) return
-    }
-    const identity = hyperdxIdentity(
-      session ?? null,
-      organizations ?? [],
+    const identity = hyperdxIdentityAfterSession({
+      session: session ?? null,
+      organizations,
       pathname,
-    )
+      documentIdentity: initialIdentity,
+    })
+    if (identity === undefined) return
     if (identity) setHyperDxGlobalAttributes(identity)
     else clearHyperDxGlobalAttributes()
   }, [

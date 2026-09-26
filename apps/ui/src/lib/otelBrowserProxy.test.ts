@@ -446,6 +446,39 @@ describe("POST /.otel/v1/$signal", () => {
     expect(upstreamPosts).toBe(0)
   })
 
+  it("percent-decodes OTLP headers and trims names", async () => {
+    vi.stubEnv(
+      "OTEL_EXPORTER_OTLP_HEADERS",
+      "Authorization=Basic%20abc+def==, a=1, b=2",
+    )
+    let a: string | null = null
+    let b: string | null = null
+    server.use(
+      http.post("http://127.0.0.1:9/*", async ({ request }) => {
+        upstreamPosts += 1
+        a = request.headers.get("a")
+        b = request.headers.get("b")
+        captured = {
+          url: request.url,
+          authorization: request.headers.get("authorization"),
+          contentType: request.headers.get("content-type"),
+          token: request.headers.get("x-token"),
+          body: await request.json(),
+        }
+        return HttpResponse.json({ partialSuccess: {} })
+      }),
+    )
+    const response = await postSignal(
+      "traces",
+      sameOriginRequest("https://app.example/.otel/v1/traces", { body: "{}" }),
+    )
+    expect(response.status).toBe(200)
+    expect(captured?.authorization).toBe("Basic abc+def==")
+    expect(captured?.contentType).toBe("application/json")
+    expect(a).toBe("1")
+    expect(b).toBe("2")
+  })
+
   it("502s when the collector connection fails", async () => {
     server.use(http.post("http://127.0.0.1:9/*", () => HttpResponse.error()))
     const response = await postSignal(
@@ -466,6 +499,13 @@ describe("POST /.otel/v1/$signal", () => {
       ],
       ["", "", "production", "production"],
       ["", "", "test", "development"],
+      [
+        "",
+        "deployment.environment=first,deployment.environment=pr%2D9",
+        "test",
+        "pr-9",
+      ],
+      ["", "a=1, b=2,deployment.environment=staging", "test", "staging"],
     ] as const
     for (const [railway, attributes, nodeEnv, want] of cases) {
       vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", railway)

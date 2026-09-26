@@ -90,17 +90,47 @@ describe("readHyperDxDocumentIdentity", () => {
     expect(JSON.stringify(identity)).not.toContain("Ada")
   })
 
-  it("reads identity even when the request looks like a client fetch", async () => {
+  it("defaults a missing forwarded proto to https", async () => {
     server.use(...sessionHandlers())
-    const request = documentRequest("/acme/repositories", "session=abc")
-    request.headers.set("sec-fetch-dest", "empty")
+    const headers = new Headers({
+      cookie: "session=abc",
+      "x-forwarded-host": "App.Example",
+    })
     await expect(
-      readHyperDxDocumentIdentity(request, "/acme/repositories"),
+      readHyperDxDocumentIdentity(
+        new Request("http://ui.internal/acme/repositories", { headers }),
+        "/acme/repositories",
+      ),
     ).resolves.toEqual({
       userId: "user_1",
       teamId: "org_1",
       teamName: "acme",
     })
+  })
+
+  it("skips identity when the forwarded host or proto is not a plain hostname and http(s)", async () => {
+    const evil = new Headers({
+      cookie: "session=abc",
+      "x-forwarded-host": "app.example",
+      "x-forwarded-proto": "file",
+    })
+    await expect(
+      readHyperDxDocumentIdentity(
+        new Request("http://ui.internal/acme", { headers: evil }),
+        "/acme",
+      ),
+    ).resolves.toBeNull()
+    const metadata = new Headers({
+      cookie: "session=abc",
+      "x-forwarded-host": "169.254.169.254/latest/meta-data#",
+      "x-forwarded-proto": "http",
+    })
+    await expect(
+      readHyperDxDocumentIdentity(
+        new Request("http://ui.internal/acme", { headers: metadata }),
+        "/acme",
+      ),
+    ).resolves.toBeNull()
   })
 
   it("omits org keys on auth pages and returns nothing on sign-out", async () => {

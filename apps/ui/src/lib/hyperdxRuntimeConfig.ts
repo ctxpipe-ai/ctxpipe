@@ -41,18 +41,11 @@ export async function readHyperDxDocumentIdentity(
   if (isHyperDxSignOutPath(pathname)) return null
   const cookie = request.headers.get("cookie")
   if (!cookie) return null
-  const host = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim()
-  const proto =
-    request.headers
-      .get("x-forwarded-proto")
-      ?.split(",")[0]
-      ?.trim()
-      .toLowerCase() === "https"
-      ? "https"
-      : "http"
+  const baseURL = documentAuthBaseUrl(request)
+  if (baseURL === null) return null
   const fetchOptions = {
     headers: { cookie },
-    ...(host ? { baseURL: `${proto}://${host}/.auth/api/v1/auth` } : {}),
+    ...(baseURL ? { baseURL } : {}),
     signal: AbortSignal.timeout(1_000),
   }
   try {
@@ -70,6 +63,21 @@ export async function readHyperDxDocumentIdentity(
   } catch {
     return null
   }
+}
+
+/**
+ * `undefined` when the request has no forwarded host (use the auth client base URL).
+ * `null` when the forwarded host or proto is not a plain hostname / http(s), so a
+ * direct caller cannot point the identity read at an arbitrary URL path.
+ */
+function documentAuthBaseUrl(request: Request): string | null | undefined {
+  const host = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim()
+  if (!host) return undefined
+  if (!/^[a-z0-9.-]+(:\d+)?$/i.test(host)) return null
+  const proto =
+    request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() || "https"
+  if (proto !== "https" && proto !== "http") return null
+  return `${proto}://${host}/.auth/api/v1/auth`
 }
 
 /** SSR only. On the client this is replaced with a function that returns undefined. */

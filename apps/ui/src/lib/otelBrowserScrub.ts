@@ -90,7 +90,29 @@ export function restrictBrowserResourceAttributes(
 
 /** Parse OTLP/JSON and scrub every string. Throws SyntaxError on malformed JSON. */
 export function scrubOtlpJsonText(text: string): unknown {
-  return JSON.parse(text, (_key, value: unknown) =>
-    typeof value === "string" ? scrubTelemetryString(value) : value,
-  )
+  const emptyIdentityKeys = new Set([
+    "userId",
+    "teamId",
+    "teamName",
+    "enduser.id",
+    "ctxpipe.org.id",
+    "ctxpipe.org.slug",
+  ])
+  return JSON.parse(text, (key, value: unknown) => {
+    if (typeof value === "string") return scrubTelemetryString(value)
+    if (key !== "attributes" || !Array.isArray(value)) return value
+    return value.filter((attribute) => {
+      if (!attribute || typeof attribute !== "object") return true
+      const record = attribute as JsonRecord
+      if (
+        typeof record.key !== "string" ||
+        !emptyIdentityKeys.has(record.key)
+      ) {
+        return true
+      }
+      const nested = record.value
+      if (!nested || typeof nested !== "object") return true
+      return (nested as JsonRecord).stringValue !== ""
+    })
+  })
 }
