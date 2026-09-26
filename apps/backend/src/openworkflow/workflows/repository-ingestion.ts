@@ -57,6 +57,12 @@ const repositoryIngestionInputSchema = z.object({
   githubConnectionId: z.string().nullable().optional(),
   /** Ignore the last ingested commit: full codesearch mode plus the unobserved-evidence sweep. */
   fullReingest: z.boolean().optional(),
+  /**
+   * Re-read the whole repository with only the deterministic extractors
+   * (decisions, CODEOWNERS, connector files, path links): no LLM calls, and
+   * no unobserved-evidence sweep, which would retract what LLM extractors found.
+   */
+  deterministicOnly: z.boolean().optional(),
 })
 
 const REPOSITORY_INGESTION_STOPPED = {
@@ -231,9 +237,10 @@ export const repositoryIngestion = defineWorkflow(
               input.githubConnectionId ?? repository.githubConnectionId
             // A requested full re-ingest ignores the last ingested commit, so
             // codesearch runs in full mode and the unobserved-evidence sweep applies.
-            const fromHash = input.fullReingest
-              ? undefined
-              : (repository.lastIngestedHash ?? undefined)
+            const fromHash =
+              input.fullReingest || input.deterministicOnly
+                ? undefined
+                : (repository.lastIngestedHash ?? undefined)
             logWorkflowMilestone("repository-ingestion.repository-loaded", {
               repositoryId: input.repositoryId,
               lastIngestedHash: repository.lastIngestedHash,
@@ -517,6 +524,10 @@ export const repositoryIngestion = defineWorkflow(
                                 baseIngestState,
                                 root,
                                 kindPartial,
+                                {
+                                  deterministicOnly:
+                                    input.deterministicOnly === true,
+                                },
                               ),
                           ),
                         ),
@@ -641,6 +652,7 @@ export const repositoryIngestion = defineWorkflow(
             // An extractor that skipped files on LLM failure did not observe
             // everything; sweeping would retract those files' facts.
             const canSweepUnobserved =
+              !input.deterministicOnly &&
               reindexState.ingestMode === "full" &&
               reindexState.searchIndexOk !== false &&
               reindexState.scipIndexOk !== false &&
@@ -689,8 +701,9 @@ export const repositoryIngestion = defineWorkflow(
                 {
                   repositoryId: input.repositoryId,
                   targetHash: result.targetHash,
-                  reason:
-                    extractionSkippedFiles > 0
+                  reason: input.deterministicOnly
+                    ? "deterministic-only run"
+                    : extractionSkippedFiles > 0
                       ? "extraction skipped files"
                       : observedBefore
                         ? "index degraded"

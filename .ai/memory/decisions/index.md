@@ -20,7 +20,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-007](ADR-007-remove-cloudflare-workers-runtime.md) | Remove Cloudflare Workers runtime | Accepted |
 | [ADR-008](ADR-008-codesearch-zoekt-orchestration.md) | Codesearch service and Zoekt orchestration | Accepted |
 | [ADR-009](ADR-009-ui-src-folder-structure.md) | UI src folder structure | Accepted |
-| [ADR-010](ADR-010-opencypher-graph-db-falkordb-default.md) | OpenCypher Graph DB and FalkorDB as Default | Accepted |
+| [ADR-010](ADR-010-opencypher-graph-db-falkordb-default.md) | OpenCypher Graph DB and FalkorDB as Default | Accepted (amended by ADR-035) |
 | [ADR-011](ADR-011-backend-observability-otel.md) | Backend Observability via OpenTelemetry and evlog | Accepted |
 | [ADR-012](ADR-012-postgres-17-neon-compatibility.md) | PostgreSQL 17 for Neon Compatibility | Accepted |
 | [ADR-013](ADR-013-switch-infra-from-pulumi-to-terraform.md) | Terraform as our IAC | Accepted |
@@ -43,7 +43,9 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-030](ADR-030-organization-owned-mcp-api-keys.md) | Organization-owned MCP API keys | Accepted (amended 2026-09-22) |
 | [ADR-031](ADR-031-github-pr-scoped-mirror.md) | GitHub pull-request scoped mirror | Accepted |
 | [ADR-032](ADR-032-path-located-graph-edges.md) | Path-located graph edges | Accepted (amended by ADR-033) |
-| [ADR-033](ADR-033-graph-ontology-v2.md) | Graph ontology v2: relation families, shared identity, deterministic connector extraction | Accepted (amended by ADR-037) |
+| [ADR-033](ADR-033-graph-ontology-v2.md) | Graph ontology v2: relation families, shared identity, deterministic connector extraction | Accepted (amended by ADR-036, ADR-037) |
 | [ADR-034](ADR-034-pagerduty-connector-git-native-mirror.md) | PagerDuty connector Git-native mirror | Accepted |
+| [ADR-035](ADR-035-weighted-graph-traversal-and-node-id-indexes.md) | Weighted graph traversal and node id indexes | Accepted |
+| [ADR-036](ADR-036-decision-scope-and-status.md) | Decision scope and status in the graph | Accepted |
 | [ADR-037](ADR-037-committed-memory-reaches-the-graph.md) | Committed memory reaches the graph | Accepted |
 | [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md) | Self-hosted ClickStack + Langfuse (ops observability) | Accepted |
