@@ -31,7 +31,7 @@ CLI and Confluence Forge app declare their own licenses.
   runtime). Public collector is `telemetry.ctxpipe.ai`; HyperDX is
   `hyperdx.ctxpipe.ai`; Langfuse is `langfuse.ctxpipe.ai`. See
   [ADR-038](decisions/ADR-038-self-hosted-clickstack-langfuse.md).
-- **`apps/otel-collector`** — laptop / contrib OpenTelemetry collector (reference allowlist). Hosted ingest is [`ops/observability`](../../ops/observability/).
+- **`apps/otel-collector`** — laptop OTLP debug sink for `pnpm dev:infra` (stdout only). Hosted ingest is [`ops/observability`](../../ops/observability/).
 - **`apps/forge-ctxpipe-agent`** — Atlassian Forge app for Confluence.
 - **`packages/cli`** — the `ctxpipe` CLI, including `npx ctxpipe init` and local
   Markdown memory setup.

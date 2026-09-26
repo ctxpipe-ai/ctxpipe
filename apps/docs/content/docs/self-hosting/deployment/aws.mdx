@@ -246,16 +246,6 @@ settings.
 
 ## Observability
 
-Leave `otel` unset and the tasks export nothing. There is no bundled collector. Set one OTLP/HTTP base URL on `endpoint`; the construct appends `/v1/traces`, `/v1/logs`, and `/v1/metrics` and sets `OTEL_SERVICE_NAME` to `backend`, `openworkflow`, `ui`, or `codesearch` on that task.
-
-```ts
-otel: {
-  endpoint: "https://otel.example.com",
-  headers: cdk.SecretValue.unsafePlainText("Authorization=Bearer replace-me"),
-  resourceAttributes: "deployment.environment=production",
-},
-```
-
 | Prop | Env on backend, worker, UI, and codesearch |
 |---|---|
 | `endpoint` | `OTEL_EXPORTER_OTLP_{TRACES,LOGS,METRICS}_ENDPOINT` |

@@ -51,17 +51,7 @@ Do not commit secrets; pass any local overrides via `-c` only when needed.
 
 ## Observability
 
-`otel` is unset in [`bin/app.ts`](./bin/app.ts), so this example exports nothing. The construct does not deploy a collector. To export, add `otel` on `CtxPipe`:
-
-```ts
-otel: {
-  endpoint: "https://otel.example.com",
-  headers: cdk.SecretValue.unsafePlainText("Authorization=Bearer replace-me"),
-  resourceAttributes: "deployment.environment=production",
-},
-```
-
-`endpoint` is one OTLP/HTTP base URL. See [packages/aws-cdk/README.md](../../packages/aws-cdk/README.md#observability).
+`otel` is unset; to export, add `otel` in [`bin/app.ts`](./bin/app.ts) — see the [aws-cdk README](../../packages/aws-cdk/README.md#observability).
 
 ## Manual e2e
 

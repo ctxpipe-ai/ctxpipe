@@ -15,26 +15,22 @@ Langfuse: org `ctxpipe`, project `ctxpipe`. `AUTH_DISABLE_SIGNUP=true`. Existing
 1. Copy `x-request-id`, or the time, user, and org.
 2. Set the environment. Hosted apps use `production` or `pr-<digits>`. This stack uses `observability`. A laptop opt-in is `local-<name>`. Dashboards that default to `production` are listed below. Clear that chip to see a preview or a local run.
 3. Open saved search **Request by id** (logs) or **Request by id (traces)** and set the where clause to `LogAttributes['request.id'] = '<id>'` or `SpanAttributes['request.id'] = '<id>'`. Read `TraceId` and open the trace.
-4. LLM prompt text is in Langfuse, tagged `org:<slug>` and `env:<environment>`, metadata `requestId` and `otelTraceId`. HyperDX stores the gen_ai span with prompt and completion attributes removed.
+4. LLM prompt text is in Langfuse, tagged `org:<slug>` and `env:<environment>`, metadata `orgId`, `orgSlug`, `requestId`, and `environment`. HyperDX stores the gen_ai span with prompt and completion attributes removed.
 5. If the window is empty, check the environment chip and the service (`backend`, `openworkflow`, `codesearch`, `ui`). The first HyperDX load after idle wakes it. Process stdout that never exported is in Railway.
 
 ## Dashboards
 
-Connection **ctxpipe ClickHouse**. Upsert from an operator shell: [hyperdx/README.md](./hyperdx/README.md).
+Connection **ctxpipe ClickHouse**. Upsert, saved searches, and default chips: [hyperdx/README.md](./hyperdx/README.md).
 
-| Dashboard | What it answers | Opens on |
-| --- | --- | --- |
-| ctxpipe Services | Request rate, error rate, p95, slowest routes, log volume, recent errors | `production` |
-| LLM (gen_ai) | Call count, error rate, tokens, latency by model | `production` |
-| Observability Stack | Collector, ClickHouse, and railway-telemetry | `observability` |
-| Railway Infrastructure | CPU, memory, network, disk, every environment | no default |
-| Product usage | DAU/WAU/MAU, MCP, stickiness. [definitions](./hyperdx/dashboards/product-usage.md) | `production` |
+| Dashboard | What it answers |
+| --- | --- |
+| ctxpipe Services | Request rate, error rate, p95, slowest routes, log volume, recent errors |
+| LLM (gen_ai) | Call count, error rate, tokens, latency by model |
+| Observability Stack | Collector, ClickHouse, and railway-telemetry |
+| Railway Infrastructure | CPU, memory, network, disk, every environment |
+| Product usage | DAU/WAU/MAU, MCP, stickiness. [definitions](./hyperdx/dashboards/product-usage.md) |
 
 Sessions charts stay empty while browser replay is off.
-
-Saved searches: **Request by id** (logs, selects `TraceId`), **Request by id (traces)**, **Production logs**, **Production traces**, **Production errors** (`SeverityText IN ('error')`). Production searches filter `ResourceAttributes['deployment.environment'] IN ('production')`.
-
-Hand-written SQL filters `DeploymentEnvironment`. Dashboard chips use the map expression. Filter behavior: [hyperdx/README.md](./hyperdx/README.md#environment-filter).
 
 ## MCP
 
@@ -61,9 +57,9 @@ ClickHouse has no public hostname (`clickhouse.railway.internal:8123`). Query it
 
 ## Localhost telemetry
 
-Leave `OTEL_EXPORTER_OTLP_*` unset unless this run needs a backend. `pnpm dev` does not set them. `deployment.environment` follows `RAILWAY_ENVIRONMENT_NAME`, then `NODE_ENV`.
+Leave `OTEL_EXPORTER_OTLP_*` unset unless this run needs a backend. `pnpm dev` does not set them. `deployment.environment` is `RAILWAY_ENVIRONMENT_NAME` when that is set, otherwise `deployment.environment` from `OTEL_RESOURCE_ATTRIBUTES`, otherwise `production` when `NODE_ENV=production`, otherwise `development`. Backend and codesearch set `service.namespace=ctxpipe`.
 
-**Laptop collector.** `pnpm dev:infra` binds `127.0.0.1:4318`. Point the app at `http://127.0.0.1:4318/v1/traces`, `/v1/logs`, and `/v1/metrics`. Omit the headers. `OTEL_SERVICE_NAME` is `backend`, `openworkflow`, or `codesearch`. The collector prints OTLP to its own logs. There is no local HyperDX.
+**Laptop collector.** `pnpm dev:infra` publishes `${CTXPIPE_OTEL_COLLECTOR_HOST_PORT:-4318}:4318` on every interface. Point the app at `http://127.0.0.1:4318/v1/traces`, `/v1/logs`, and `/v1/metrics`. Omit the headers. `OTEL_SERVICE_NAME` is `backend`, `openworkflow`, or `codesearch`. The collector prints OTLP to its own logs. There is no local HyperDX.
 
 **Shared collector (opt-in).** Use it when the hosted dashboards should show this run. The 1 GiB ClickHouse node and the Langfuse prompt store are why it stays opt-in.
 

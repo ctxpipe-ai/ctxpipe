@@ -182,7 +182,7 @@ Durable agent memory is **Markdown-only** under **[.ai/memory/](.ai/memory/)**. 
 
 Test through the module's public interface with its real collaborators. Fake the **environment**, not our own modules:
 
-- **HTTP** (codesearch, GitHub, Railway, OTLP, model providers): `msw` — `setupServer` from `msw/node`, handlers beside the test. Already in `apps/ui`; add `msw` as a devDependency where a package lacks it.
+- **HTTP** (codesearch, GitHub, Railway, OTLP, model providers): `msw` — `setupServer` from `msw/node`, handlers beside the test. In `apps/ui`, `apps/backend`, and `apps/codesearch`.
 - **Postgres**: a real database. Name the file `*.integration.test.ts`, gate it with `describe.skipIf(!process.env.DATABASE_URL)`, call `initDb`, and suffix ids per run — pattern: `apps/backend/src/models/github-pr-mirror.integration.test.ts`. `pnpm dev:infra` + `pnpm db:migrate` provides the database.
 - **Config**: `vi.stubEnv` (modules read `parseEnv(process.env)`), or pass the value in.
 - **Time**: `vi.useFakeTimers()`. **Telemetry**: the SDK's `InMemorySpanExporter` / `InMemoryLogRecordExporter` / `InMemoryMetricExporter`.

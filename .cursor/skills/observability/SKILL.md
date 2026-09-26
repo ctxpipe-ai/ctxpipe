@@ -11,10 +11,10 @@ Hosted stack: Railway project `ctxpipe-observability`. URLs, accounts, dashboard
 
 1. Take the id you have: response header `x-request-id` (`request.id`), a W3C `traceId`, `enduser.id` plus a time window, `ctxpipe.org.slug` / `ctxpipe.org.id`, or an OpenWorkflow job (`SpanName = openworkflow.job`, `ctxpipe.actor.type = job`).
 2. Name the environment: `production`, `pr-<digits>`, `observability`, or `local-<name>`. Dashboards and the shared filter: [USING.md](../../../ops/observability/USING.md#dashboards).
-3. Read logs, traces, and metrics in HyperDX (MCP `hyperdx`). Read LLM prompt text in Langfuse (MCP `langfuse`). Read deploy status and stdout in Railway (MCP `railway`) when the process exited before export. `HYPERDX_ACCESS_KEY` (personal, MCP) is a different secret from `HYPERDX_API_KEY` (ingest). Langfuse MCP is `https://langfuse.ctxpipe.ai/api/public/mcp` with `LANGFUSE_AUTH_STRING`.
+3. Read logs, traces, and metrics in HyperDX (MCP `hyperdx`). Read LLM prompt text in Langfuse (MCP `langfuse`). Read deploy status and stdout in Railway (MCP `railway`) when the process exited before export. URLs and keys: [USING.md](../../../ops/observability/USING.md#mcp).
 4. Done when the failing span or log line is named, or the window is empty and the environment, service, and time range are written down.
 
-Hand-written SQL filters `DeploymentEnvironment`. Dashboard chips use `ResourceAttributes['deployment.environment']`. Stay inside a few hours. `otel` parts older than 3 days sit on the cold bucket; a cold read fails within 120s when the bucket is down. Langfuse `traces`, `observations`, and `scores` move after 30 days and are not deleted; read them with `FINAL`.
+Stay inside a few hours. `otel` parts older than 3 days sit on the cold bucket; a cold read fails within 120s when the bucket is down. Langfuse `traces`, `observations`, and `scores` move after 30 days and are not deleted; read them with `FINAL`.
 
 ```sql
 SELECT Timestamp, ServiceName, SpanName, StatusCode, Duration, TraceId
@@ -30,7 +30,9 @@ Time range first, then `DeploymentEnvironment`, then `ServiceName` or `TraceId`.
 
 ### Keys
 
-One key per concept. Resource attributes: `service.name` (`backend`, `openworkflow`, `codesearch`, `ui`), `service.namespace=ctxpipe`, `deployment.environment`. Scope names are not `service.name`.
+One key per concept. Resource attributes: `service.name` (`backend`, `openworkflow`, `codesearch`, `ui`), `service.namespace=ctxpipe` on backend, codesearch, and the UI relay, `deployment.environment`. Scope names are not `service.name`.
+
+`deployment.environment` on backend traces, metrics, and logs, the Langfuse environment tag, codesearch, and the UI relay is `RAILWAY_ENVIRONMENT_NAME` when that is set, otherwise `deployment.environment` from `OTEL_RESOURCE_ATTRIBUTES`, otherwise `production` when `NODE_ENV=production`, otherwise `development`.
 
 | Key | Where it is set |
 | --- | --- |
@@ -47,7 +49,7 @@ One key per concept. Resource attributes: `service.name` (`backend`, `openworkfl
 
 HTTP on logs matches spans: `http.request.method`, `url.path` (no query string), `http.response.status_code`. A call this service made uses `upstream.status_code`. Wide-event `duration` is milliseconds.
 
-Langfuse metadata uses `orgId`, `orgSlug`, `requestId`, `otelTraceId`, `environment`. Tags are `org:<slug>` and `env:<deployment.environment>`. Prompt text is on those observations. The ClickHouse pipeline deletes `gen_ai.prompt*`, `gen_ai.completion*`, `gen_ai.input.messages`, `gen_ai.output.messages`, and `langfuse.observation.input` / `output`.
+Langfuse metadata is `orgId`, `orgSlug`, `requestId`, and `environment`. Tags are `org:<slug>` and `env:<deployment.environment>`. Prompt text is on those observations. The ClickHouse pipeline deletes `gen_ai.prompt*`, `gen_ai.completion*`, `gen_ai.input.messages`, `gen_ai.output.messages`, and `langfuse.observation.input` / `output`.
 
 Rows already stored may still use `requestId`, `userId`, or `environment`. New writes use the table above.
 
@@ -61,9 +63,9 @@ Add a span for a new I/O boundary, external call, job, or CPU stretch that has n
 
 Name attributes from the key table, plus `ctxpipe.*` for a new product id of the same shape. Record `db.system.name`, `db.operation.name`, `db.collection.name`, `db.namespace`, and `db.query.text` (SQL text, capped at 2048 characters). Bound values stay off the span.
 
-Logs go through evlog (`getLogger()` or `log` from `observability/logger.ts`). Wide events carry `step` and the attribution keys, with `traceId` and `spanId` on the top level. Copy attribution from the authenticated context (lesson: telemetry attribution from auth). Codesearch reads baggage because the backend is the only caller, and forwards baggage only to internal origins. Third-party fetches get `traceparent` only. URLs on spans are `scheme://host/path`.
+Logs go through evlog (`getLogger()` or `log` from `observability/logger.ts`). Wide events carry `step` and the attribution keys, with `traceId` and `spanId` on the top level. Copy attribution from the authenticated context (lesson: telemetry attribution from auth). Codesearch reads inbound baggage because the backend is the only caller. The backend's `tracedOutgoingFetch` forwards baggage only to internal origins. Third-party fetches get `traceparent` only. URLs on spans are `scheme://host/path`.
 
-Metrics: a gauge for a current level, a counter for a cumulative count. HyperDX charts every OTLP Sum as `greatest(Value - previous, 0)`, so a level sent as a Sum draws as ~0. `ctxpipe.org.id` is a metric attribute only on `ctxpipe.advisor.calls`, `ctxpipe.ingestion.jobs`, and `ctxpipe.connector.syncs`.
+Metrics: a gauge for a current level, a counter for a cumulative count.
 
 `RAILWAY_ENVIRONMENT_NAME` matching `pr-<digits>` uses flush-on-demand and `forceFlushOtel()` after the response or job. Production uses a 60s reader.
 
@@ -73,5 +75,5 @@ Tests sit next to the module. Assert telemetry through the OTel SDK in-memory ex
 
 - `@opentelemetry/sdk-node` does not patch `Bun.serve` or Bun's `fetch`. The server span is `backendOtelMiddleware`. The client span is `tracedOutgoingFetch`. pg, undici, net, dns, and fs auto-instrumentation is off; Postgres spans come from `dbTrace`.
 - A PR flush exports after `span.end()`. An empty preview has no metric series until the next request or job.
-- Bun records `v8js.memory.heap.used` and `v8js.memory.heap.limit`. It does not emit `v8js.gc.duration`.
-- Langfuse generations around 2026-09-25 05:00–07:00Z can count the same call twice (`ChatOpenAI` and `chat openai/gpt-5.6-terra`). `collapseRepeatedModelName` is the current write path.
+- Under Bun there are no `v8js.*` runtime metrics.
+- `CtxpipeCallbackHandler` (`observability/langfuse.ts`) collapses a repeated `model_name` before Langfuse records the generation.

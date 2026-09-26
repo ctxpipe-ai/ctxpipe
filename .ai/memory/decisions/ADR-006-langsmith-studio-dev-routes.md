@@ -44,5 +44,4 @@ Requirements:
 
 ## Notes
 
-- Removed. The `/langsmith` route, `ENABLE_LANGSMITH`, and `@langchain/langgraph-api` are gone. LLM tracing is Langfuse ([ADR-011](ADR-011-backend-observability-otel.md), [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md)).
 - Cloudflare Workers support was removed; see [ADR-007](ADR-007-remove-cloudflare-workers-runtime.md).

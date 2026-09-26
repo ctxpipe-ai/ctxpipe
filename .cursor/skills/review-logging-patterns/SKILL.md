@@ -8,7 +8,7 @@ metadata:
 
 # Review logging patterns
 
-Backend and codesearch log with evlog on Hono (Bun). The UI browser logger is `evlog/client`. One wide event per request or job. Logs leave through the OTLP drain in `observability/logger.ts`.
+Backend and codesearch log with evlog on Hono (Bun). The UI browser logger is `evlog/client`. One wide event per request or job.
 
 ## When to use
 
@@ -32,49 +32,43 @@ App-local rules: [apps/backend/AGENTS.md](../../../apps/backend/AGENTS.md) (Logg
 
 ## Hono setup
 
-Both apps register one `evlog()` middleware from `evlog/hono`. Copy that shape.
+Both apps register one `evlog()` middleware from `evlog/hono`.
 
-Backend: [`apps/backend/src/app/app.ts`](../../../apps/backend/src/app/app.ts)
-
-```typescript
-app.use(
-  evlog({
-    drain: createEvlogDrain(),
-    enrich: (ctx) => {
-      applyLogContract(ctx.event as Record<string, unknown>)
-    },
-  }),
-)
-```
-
-Codesearch: [`apps/codesearch/src/app/app.ts`](../../../apps/codesearch/src/app/app.ts) — same `drain`; `enrich` calls `applyCodesearchLogContract`.
-
-`initLogger` in `observability/logger.ts` passes the same drain for non-HTTP `log` calls.
+- Backend: [`apps/backend/src/app/app.ts`](../../../apps/backend/src/app/app.ts) calls `evlog()` with no drain. The drain is `initLogger`.
+- Codesearch: [`apps/codesearch/src/app/app.ts`](../../../apps/codesearch/src/app/app.ts) passes `createEvlogDrain()` and runs `applyCodesearchLogContract` in `enrich`.
 
 ## Drain
 
-`createEvlogDrain()` is the only drain. It builds the OTLP body with `toOTLPLogRecord` from `evlog/otlp` and batches with `createDrainPipeline` from `evlog/pipeline`. When `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is unset, the drain is `undefined` and evlog writes stdout. A failed export retries, then drops; it does not fail the request. Call `flushEvlog()` on shutdown. Pipeline: [references/drain-pipeline.md](references/drain-pipeline.md).
+Backend `initLogger({ silent, redact, drain })` in [`logger.ts`](../../../apps/backend/src/observability/logger.ts) is the only backend drain. The drain calls `applyLogContract`, writes JSON to stdout in production, and sends OTLP with `createOTLPDrain` from `evlog/otlp` (5 s timeout, no retry). `flushEvlog()` awaits in-flight sends.
+
+Codesearch wraps `createOTLPDrain` in `createDrainPipeline` (batch 50 / 5 s, 3 retries, then `onDropped`). `flushEvlog()` calls `drain.flush()`.
+
+Unset `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` → stdout only.
 
 ## Log contract
 
-`enrich` runs before the drain:
+- Backend: `applyLogContract` in [`logContract.ts`](../../../apps/backend/src/observability/logContract.ts), called from the `initLogger` drain.
+- Codesearch: `applyCodesearchLogContract` in [`logger.ts`](../../../apps/codesearch/src/observability/logger.ts), called from the Hono `enrich`.
 
-- Backend: `applyLogContract` in [`logContract.ts`](../../../apps/backend/src/observability/logContract.ts)
-- Codesearch: `applyCodesearchLogContract` in [`logger.ts`](../../../apps/codesearch/src/observability/logger.ts)
-
-The contract strips email, name, and IP, copies the active span onto `traceId` / `spanId`, and aliases HTTP and org fields onto the canonical keys. Those keys live in [ADR-011](../../../.ai/memory/decisions/ADR-011-backend-observability-otel.md) (decision 6, Attribution). Put ids on the event; leave the key list to that ADR.
+The contract strips email, name, and IP, copies the active span onto `traceId` / `spanId`, and aliases HTTP and org fields onto the canonical keys. Those keys live in [ADR-011](../../../.ai/memory/decisions/ADR-011-backend-observability-otel.md). Put ids on the event; leave the key list to that ADR.
 
 ## Wide events
 
-Accumulate on the request logger with `getLogger().set({ step, … })`. evlog emits one event when the request ends. Failures: `getLogger().error(err, { step })`. A query or cache hit belongs on the parent event. Patterns: [references/wide-events.md](references/wide-events.md).
+Accumulate on the request logger with `getLogger().set({ step, … })`. evlog emits one event when the request ends. Failures: `getLogger().error(err, { step })`. A query, cache hit, or retry count is a field on the parent event.
+
+`withLogger` stores a `createLogger` in AsyncLocalStorage and calls `emit()` in `finally`. A long codesearch index phase calls `flushWorkflowLog()` after a milestone so the event leaves before the HTTP handler returns. After emit, the helper rotates a fresh logger with the same base context.
 
 ## Structured errors
 
 Throw `createError` from `evlog` when the caller needs what failed, why, and the HTTP status. The backend `onError` logs the error and returns `parseError` (`message`, `why`, `fix`, `link`). Shape: [references/structured-errors.md](references/structured-errors.md).
 
-## Anti-patterns
+## Review
 
-- Application logs go through `getLogger()` or `log`.
-- Logs leave through `createEvlogDrain()` only.
-- Events carry ids. The contract removes email, name, and IP.
-- Checklist: [references/code-review.md](references/code-review.md).
+On a backend or codesearch diff:
+
+1. New logs call `getLogger()` or `log` from `src/observability/logger.ts`.
+2. A request handler accumulates with `set` on the request logger and emits once (the middleware emits).
+3. Failures use `getLogger().error(err, { step })` or `log.error(err, { step })`, with the original error as `cause` when rethrown via `createError`.
+4. Logs leave through `initLogger` in `observability/logger.ts`. One `evlog()` middleware per app.
+5. Events carry ids. Email, name, IP, tokens, and query strings are absent. Keys match [ADR-011](../../../.ai/memory/decisions/ADR-011-backend-observability-otel.md).
+6. A UI change that logs in the browser goes through `evlog/client` (`useAuthEvlogIdentity`), not `console`.

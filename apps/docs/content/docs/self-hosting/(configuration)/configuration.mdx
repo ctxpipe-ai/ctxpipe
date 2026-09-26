@@ -233,9 +233,13 @@ OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer xxx
 | `OTEL_SERVICE_NAME` | Resource `service.name`. Compose and CDK set `backend`, `openworkflow`, `ui`, and `codesearch` per container. Compose does not apply a shared name from the root `.env`. |
 | `OTEL_RESOURCE_ATTRIBUTES` | Extra resource attributes, for example `deployment.environment=production`. |
 
-`deployment.environment` is `RAILWAY_ENVIRONMENT_NAME` when that is set,
-otherwise `production` or `development` from `NODE_ENV`. Codesearch always
-exports `service.name` `codesearch`.
+`deployment.environment` on backend traces, metrics, and logs, the Langfuse
+environment tag, codesearch, and the UI relay is `RAILWAY_ENVIRONMENT_NAME`
+when that is set, otherwise `deployment.environment` from
+`OTEL_RESOURCE_ATTRIBUTES`, otherwise `production` when `NODE_ENV=production`,
+otherwise `development`. Backend and codesearch also set
+`service.namespace=ctxpipe`. Codesearch always exports `service.name`
+`codesearch`.
 
 LLM spans are OpenTelemetry spans. The apps do not read `LANGFUSE_PUBLIC_KEY`,
 `LANGFUSE_SECRET_KEY`, or `LANGFUSE_HOST`. A Langfuse project accepts traces at
@@ -249,10 +253,11 @@ and appends `/v1/traces`, `/v1/logs`, and `/v1/metrics`; see
 
 The UI enables browser telemetry only when
 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set on the UI server. The browser posts
-to the same origin at `/.otel`, and the UI server forwards that to your traces
-endpoint using `OTEL_EXPORTER_OTLP_HEADERS`. When the traces endpoint is unset,
-the browser SDK does not start and `/.otel` returns `204` with no upstream
-call.
+traces to the same origin at `/.otel/v1/traces` and logs to `/.otel/v1/logs`.
+The UI server forwards traces to `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and logs
+to `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, using `OTEL_EXPORTER_OTLP_HEADERS`. When
+the traces endpoint is unset, the browser SDK does not start. A signal whose
+endpoint is unset returns `204`.
 
 ## Advanced
 

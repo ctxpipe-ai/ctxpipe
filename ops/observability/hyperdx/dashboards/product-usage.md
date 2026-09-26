@@ -28,8 +28,8 @@ Someone who uses the app and MCP is one identity on every tile. MCP tiles use th
 
 **MCP DAU, WAU, and MAU** is the same series restricted to MCP spans.
 
-**Stickiness** is one bar chart for web and MCP together. The x-axis is how many distinct UTC days an identity was active inside the dashboard range. The y-axis is how many identities had that count. `$__fromTime` and `$__toTime` size the buckets: N is the number of UTC dates in the range, and N is capped at 30. A longer range uses the 30 UTC days ending on the last day of the range, so bucket 30 still means 30 active days. HyperDX 2.39.1 sorts raw-SQL bars by height (`useCategoricalChart` keeps SQL `ORDER BY` only for builder charts). Labels are `01 day` … `30 days`.
+**Stickiness** is one bar chart for web and MCP together. The x-axis is how many distinct UTC days an identity was active inside the dashboard range. The y-axis is how many identities had that count. `$__fromTime` and `$__toTime` size the buckets: N is the number of UTC dates in the range, and N is capped at 30. A longer range uses the 30 UTC days ending on the last day of the range, so bucket 30 still means 30 active days. Labels are `01 day` … `30 days`.
 
 ## Environment
 
-The dashboard filter is required and defaults to `production`. Hand-written SQL filters `DeploymentEnvironment`; dashboard chips use the map expression. Tiles apply the chip with `$__filters`.
+The dashboard filter is required and defaults to `production`. Tiles apply the chip with `$__filters`. Filter behavior: [hyperdx/README.md](../README.md#environment-filter).
