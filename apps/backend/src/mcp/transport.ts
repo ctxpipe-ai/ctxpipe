@@ -114,7 +114,7 @@ export async function handleMcpTransportRequest(
   // Streamable HTTP returns the Response before tools/call runs, so the
   // server span and request log would otherwise close without these fields.
   // SSE stays on: clients send progress notifications and accept event-stream.
-  const toolAttribution = attributionFromToolsCall(parsedBody)
+  const toolAttribution = attributionFromToolsCall(messages)
   if (toolAttribution) applyAttribution(toolAttribution)
 
   const server = new McpServer(
@@ -125,10 +125,9 @@ export async function handleMcpTransportRequest(
   try {
     await server.connect(transport)
     const res = await transport.handleRequest(c, parsedBody)
-    const parsedMessages = Array.isArray(parsedBody) ? parsedBody : [parsedBody]
     const isNotificationOnly =
-      parsedMessages.length > 0 &&
-      parsedMessages.every(
+      messages.length > 0 &&
+      messages.every(
         (message) =>
           typeof message === "object" &&
           message !== null &&
@@ -158,22 +157,19 @@ export async function handleMcpTransportRequest(
 }
 
 function attributionFromToolsCall(
-  parsedBody: unknown,
+  messages: readonly unknown[],
 ): AttributionInput | undefined {
-  const messages = Array.isArray(parsedBody) ? parsedBody : [parsedBody]
   for (const message of messages) {
     const parsed = CallToolRequestSchema.safeParse(message)
     if (!parsed.success) continue
-    const name = parsed.data.params.name.trim().slice(0, 100)
-    if (!name) continue
+    const name = parsed.data.params.name
     const args = parsed.data.params.arguments ?? {}
     const rawConversationId = args.conversationId
     let conversationId: string | undefined
     if (name === "ctx_advisor" && typeof rawConversationId === "string") {
-      const actor = currentMcpActor()
       conversationId = mcpAdvisorThreadId({
         orgId: requireCurrentOrgId(),
-        actorKey: actor.type === "org-service" ? "org" : actor.userId,
+        actor: currentMcpActor(),
         currentProjectName:
           typeof args.currentProjectName === "string"
             ? args.currentProjectName

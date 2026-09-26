@@ -10,11 +10,9 @@ import {
   type UIMessage,
   type UIMessageChunk,
 } from "ai"
-import { requireCurrentOrgId } from "../../auth/context.js"
 import { conversationGraph } from "../../graphs/index.js"
 import { generateObjectId } from "../../lib/id.js"
 import { applyAttribution } from "../../observability/attribution.js"
-import { recordAdvisorCall } from "../../observability/businessMetrics.js"
 import {
   getLangfuseHandler,
   runWithLangfuseContext,
@@ -44,7 +42,6 @@ export function createDataStreamConversationTransport(): ConversationTransportAd
 class DataStreamConversationTransport implements ConversationTransportAdapter {
   async toResponse(input: StreamInput): Promise<Response> {
     applyAttribution({ "ctxpipe.conversation.id": input.conversationId })
-    recordAdvisorCall(requireCurrentOrgId())
     return runWithLangfuseContext(
       {
         sessionId: input.conversationId,
