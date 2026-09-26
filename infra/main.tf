@@ -77,20 +77,3 @@ module "ctxpipe" {
   }
 }
 
-# delete after the first production apply
-removed {
-  from = module.ctxpipe.railway_service.otelcollector
-
-  lifecycle {
-    destroy = true
-  }
-}
-
-# delete after the first production apply
-removed {
-  from = module.ctxpipe.railway_variable_collection.otelcollector_env
-
-  lifecycle {
-    destroy = true
-  }
-}

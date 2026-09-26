@@ -18,7 +18,7 @@ Railway holds secret values. Terraform holds references. Ownership: [../README.m
 
 Buckets `langfuse-events` and `clickhouse-cold` (region `iad`) are created outside this provider (0.6.1 has no bucket resource). Variables reference `${{langfuse-events.*}}` and `${{clickhouse-cold.*}}`.
 
-`railway_service.railway_telemetry` sets `cron_schedule = "*/5 * * * *"`; provider 0.6.1 sends `cronSchedule` on every update with no `omitempty`, so an unset attribute would clear the live cron. Provider 0.6.1 cannot set restart policy, healthcheck path, or Serverless. They live on the Railway service (the live services have them; set them again only on a recreated service): clickhouse restart ON_FAILURE with 120 retries and healthcheck `/ping`; collector and clickhouse Serverless off; railway-telemetry restart NEVER. Sleep policy: [../README.md](../README.md#awake-vs-sleep).
+`railway_service.railway_telemetry` sets `cron_schedule = "*/5 * * * *"`; provider 0.6.1 sends `cronSchedule` on every update with no `omitempty`, so an unset attribute would clear the live cron. Provider 0.6.1 cannot set restart policy, healthcheck path, or Serverless; the apply job sets them after `terraform apply` with [`scripts/railway-observability-service-settings.sh`](../../../scripts/railway-observability-service-settings.sh), then provisions HyperDX. Sleep policy: [../README.md](../README.md#awake-vs-sleep).
 
 ## Apply
 
@@ -37,16 +37,12 @@ bash scripts/railway-set-regions.sh
 
 Local apply uses the same backend. Export the three `TF_VAR_*_image` tags, `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (the R2 keys), and `RAILWAY_TOKEN`, then `terraform init`, `terraform plan`, and `terraform apply` from this directory.
 
-## Imports
-
-[`imports.tf`](./imports.tf) adopts the API-created services. It is a one-time import. Import blocks do nothing once that address is in state. Railway-owned secrets are omitted from the variable-collection import ids, so they never enter state.
-
 ## Fresh project
 
 1. Railway project `ctxpipe-observability` exists. `has_pr_deploys = false`.
 2. Create Neon database `langfuse`, role `langfuse`, on the existing `ctxpipe` project. Langfuse Prisma migrations use schema `public`. Set `idle_session_timeout=60s` on that database. `DATABASE_URL` and `DIRECT_URL` on langfuse-web include `connection_limit=1&keepalives=0`.
 3. Create Railway buckets `langfuse-events` and `clickhouse-cold` (region `iad`).
 4. Set the Railway-owned secrets in the [README table](../README.md#secrets). Collector `LANGFUSE_AUTH_STRING` is `base64(pk:sk)` of the Langfuse project keys. `RAILWAY_API_TOKEN` must read both projects.
-5. Delete `imports.tf` first. Open a pull request that touches `ops/observability/**` and review the plan comment. The plan should create only `railway.tf` resources.
+5. Open a pull request that touches `ops/observability/**` and review the plan comment. The plan should create only `railway.tf` resources.
 6. Merge to `main`. The workflow applies, then pins the region. A ClickHouse volume copy has downtime. Confirm both volumes are `us-east4-eqdc4a` before calling the stack done.
 7. Create DNS CNAMEs for `telemetry.ctxpipe.ai`, `hyperdx.ctxpipe.ai`, and `langfuse.ctxpipe.ai` from `terraform output collector_dns_record`, `hyperdx_dns_record`, and `langfuse_dns_record`.

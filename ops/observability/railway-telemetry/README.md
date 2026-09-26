@@ -1,6 +1,6 @@
 # railway-telemetry
 
-Five-minute cron (`cron_schedule` in Terraform). Restart policy NEVER is a one-time Railway dashboard setting. One run reads Railway GraphQL and posts OTLP/JSON with the original timestamps.
+Five-minute cron (`cron_schedule` in Terraform). Restart policy NEVER is set by the observability workflow ([`scripts/railway-observability-service-settings.sh`](../../../scripts/railway-observability-service-settings.sh)). One run reads Railway GraphQL and posts OTLP/JSON with the original timestamps.
 
 The window is the last 6 closed minutes: the 5-minute interval plus one minute of slack. The open minute is excluded. Samples are deduped inside the run.
 
