@@ -2,7 +2,7 @@
 
 Repo-owned HyperDX sources are declared as `DEFAULT_CONNECTIONS` and `DEFAULT_SOURCES` on the hyperdx service in [`terraform/railway.tf`](../terraform/railway.tf). HyperDX applies those only when a team is created and that team has no connections yet (sources only when it has none). They do not update an existing team. The Sessions source reads `otel.hyperdx_sessions`. That table stays empty while browser replay is off (`disableReplay: true`), so session charts have no rows.
 
-`provision.ts` upserts every `dashboards/*.json` by dashboard name through the HyperDX external API (`POST /api/v2/dashboards/validate`, then `POST` or `PUT /api/v2/dashboards`). JSON files name sources (`sourceName`, `appliesToSourceNames`). The script resolves names to ids with `GET /api/v2/sources`. Dashboards that exist in HyperDX but are not in `dashboards/` are left in place.
+`provision.ts` upserts every `dashboards/*.json` by dashboard name through the HyperDX external API (`POST /api/v2/dashboards/validate`, then `POST` or `PUT /api/v2/dashboards`). JSON files name sources (`sourceName`, `appliesToSourceNames`) and, on raw SQL tiles, the ClickHouse connection (`connectionName`). The script resolves names to ids with `GET /api/v2/sources` and `GET /api/v2/connections`. Dashboards that exist in HyperDX but are not in `dashboards/` are left in place.
 
 Run it from the operator shell. These two variables are not Railway env. The public app proxies `/api` to the API server, so the base URL includes that prefix and the script appends `/api/v2/...`:
 
@@ -52,3 +52,16 @@ Dashboard defaults (`savedFilterValues`):
 | LLM (gen_ai) | `production` |
 | Observability Stack | `observability` |
 | Railway Infrastructure | none (the filter is there; all environments load, including `production`) |
+| Product usage | `production` (required; the expression is the `DeploymentEnvironment` column) |
+
+## Product usage
+
+`dashboards/product-usage.json` is raw SQL on the Traces source (`configType: "sql"`). HyperDX 2.39.1 builder charts cannot express a trailing-window distinct count, so DAU/WAU/MAU and stickiness are SQL tiles. The external API persists `connectionId` and `sqlTemplate`; `provision.ts` maps `connectionName` via `GET /api/v2/connections`.
+
+Definitions, also on the dashboard markdown tile:
+
+- **DAU / WAU / MAU** are one line chart. DAU is `uniqExact(enduser.id)` per UTC day on backend server spans. WAU and MAU merge those daily `uniqExact` states over the 7 and 30 calendar days ending that day (`uniqExactMerge` … `ROWS BETWEEN 6 PRECEDING` and `29 PRECEDING`). Webhook and job actors are excluded. Browser `ui` spans are not included: the UI calls the API, and `uniqExact` would not double-count a person who appeared on both. An org API key has no `enduser.id`, so it is not a product user. Number tiles repeat the three values for the last day of the dashboard range.
+- **MCP DAU / WAU / MAU** use the same windows on backend server spans named `POST /mcp` or carrying `ctxpipe.mcp.tool`, for actors `user`, `oauth_client`, and `org_api_key`. Identity is `enduser.id` when set, otherwise `ctxpipe.api_key.id`. An org API key is its own MCP actor. A person who has both ids is counted once.
+- **Stickiness** is the Amplitude frequency chart: actors by how many distinct UTC days they were active in the 7 days, and in the 30 days, ending on the last day of the range. Product and MCP each have both windows. Raw SQL bars are sorted by height in the browser (`useCategoricalChart` only keeps SQL `ORDER BY` for builder charts), so the axis is not locked at 1 on the left. Labels are `01 day` … `30 days`.
+
+The environment filter is required (`minSelections: 1`) and defaults to `DeploymentEnvironment IN ('production')`. Tiles apply it with `$__filters`. That column is the materialized `deployment.environment`; a map `IN` would miss it. Time bounds use `$__fromTime` / `$__toTime` / `$__toTime_ms`. The line charts set `fillNulls: false` so a finer dashboard granularity does not draw zeros between the daily points. The calendar is capped at 421 days (`numbers(421)`), which covers retention plus the 30-day lookback. The line-chart external schema does not store `granularity`; the day bucket is in the SQL.

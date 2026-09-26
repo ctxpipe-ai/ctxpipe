@@ -6,8 +6,10 @@
  *   HYPERDX_ACCESS_KEY personal API access key
  *
  * The public app proxies /api to the API server, so paths are /api/api/v2/...
- * Dashboard JSON references sources by name (`sourceName`, `appliesToSourceNames`).
- * This script resolves those to ids via GET /api/v2/sources before validate/write.
+ * Dashboard JSON references sources by name (`sourceName`, `appliesToSourceNames`)
+ * and ClickHouse connections by name (`connectionName` on raw SQL tiles).
+ * This script resolves those to ids via GET /api/v2/sources and GET /api/v2/connections
+ * before validate/write.
  * Dashboards that exist live but are not in dashboards/ are left in place.
  */
 const apiUrl = process.env.HYPERDX_API_URL?.replace(/\/$/, "");
@@ -61,8 +63,8 @@ function unwrapList(payload: Json): Json[] {
   throw new Error(`Unexpected list payload: ${JSON.stringify(payload).slice(0, 400)}`);
 }
 
-function resolveSources(value: Json, byName: Map<string, string>): Json {
-  if (Array.isArray(value)) return value.map((item) => resolveSources(item, byName));
+function resolveSources(value: Json, byName: Map<string, string>, connectionsByName: Map<string, string>): Json {
+  if (Array.isArray(value)) return value.map((item) => resolveSources(item, byName, connectionsByName));
   if (value === null || typeof value !== "object") return value;
   const out: { [key: string]: Json } = {};
   for (const [key, child] of Object.entries(value)) {
@@ -71,6 +73,13 @@ function resolveSources(value: Json, byName: Map<string, string>): Json {
         throw new Error(`Unknown sourceName ${JSON.stringify(child)}`);
       }
       out.sourceId = byName.get(child) ?? null;
+      continue;
+    }
+    if (key === "connectionName") {
+      if (typeof child !== "string" || !connectionsByName.has(child)) {
+        throw new Error(`Unknown connectionName ${JSON.stringify(child)}`);
+      }
+      out.connectionId = connectionsByName.get(child) ?? null;
       continue;
     }
     if (key === "appliesToSourceNames") {
@@ -84,7 +93,7 @@ function resolveSources(value: Json, byName: Map<string, string>): Json {
       });
       continue;
     }
-    out[key] = resolveSources(child, byName);
+    out[key] = resolveSources(child, byName, connectionsByName);
   }
   return out;
 }
@@ -156,6 +165,17 @@ function withSqlExpression(list: Json, entry: { sqlExpression: string; alias: st
   if (hasSqlExpression(items, entry.sqlExpression)) return items;
   return [...items, entry];
 }
+
+const connectionsResponse = await api("GET", "/api/v2/connections");
+if (connectionsResponse.status !== 200) fail("GET /api/v2/connections", connectionsResponse.status, connectionsResponse.json);
+const connectionsByName = new Map<string, string>();
+for (const connection of unwrapList(connectionsResponse.json)) {
+  if (!isRecord(connection)) continue;
+  const name = connection.name;
+  const id = connection.id;
+  if (typeof name === "string" && typeof id === "string") connectionsByName.set(name, id);
+}
+console.log(`connections: ${[...connectionsByName.keys()].sort().join(", ") || "(none)"}`);
 
 const sourcesResponse = await api("GET", "/api/v2/sources");
 if (sourcesResponse.status !== 200) fail("GET /api/v2/sources", sourcesResponse.status, sourcesResponse.json);
@@ -237,7 +257,7 @@ for (const item of unwrapList(listDashboards.json)) {
 const repoDashboardNames = new Set<string>();
 for (const file of dashboardFiles) {
   const raw = JSON.parse(await Bun.file(`${dashboardsDir}/${file}`).text()) as Json;
-  const resolved = asDashboard(resolveSources(raw, sourcesByName));
+  const resolved = asDashboard(resolveSources(raw, sourcesByName, connectionsByName));
   repoDashboardNames.add(resolved.name);
   const validation = await api("POST", "/api/v2/dashboards/validate", resolved);
   if (validation.status !== 200) fail(`validate ${file}`, validation.status, validation.json);
@@ -337,7 +357,7 @@ for (const item of unwrapList(savedList.json)) {
 }
 
 for (const savedSearch of savedSearches) {
-  const savedSearchBody = resolveSources(savedSearch, sourcesByName);
+  const savedSearchBody = resolveSources(savedSearch, sourcesByName, connectionsByName);
   const name = typeof savedSearchBody === "object" && savedSearchBody && !Array.isArray(savedSearchBody) ? savedSearchBody.name : "";
   if (typeof name !== "string") fail("saved search", 0, savedSearchBody);
   const existingId = savedByName.get(name);
