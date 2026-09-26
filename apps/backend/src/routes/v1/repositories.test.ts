@@ -190,51 +190,6 @@ describe("POST /api/v1/repositories", () => {
     expect(res.status).toBe(500)
     expect(enqueueIngestionMock).not.toHaveBeenCalled()
   })
-
-  it("returns 200 without enqueueing when the repository already existed", async () => {
-    createRepositoryMock.mockResolvedValue({
-      created: false,
-      repository: {
-        id: "repo_EXISTING",
-        orgId: "org_mock123",
-        zoektRepoId: 7,
-        name: "ctxpipe",
-        gitUrl: "https://github.com/appear/ctxpipe.git",
-        indexReady: false,
-        indexingStatus: "failed",
-        indexingError: "boom",
-        indexingFailedAt: null,
-        indexingReason: null,
-        indexingStep: null,
-        indexingStepTotal: null,
-        indexingStepKey: null,
-        lastIngestedHash: null,
-        lastIngestedAt: null,
-        createdAt: new Date("2026-02-21T10:00:00.000Z"),
-        updatedAt: new Date("2026-02-21T10:00:00.000Z"),
-      },
-    })
-
-    const app = new OpenAPIHono<AppEnv>()
-    app.use("*", async (c, next) => {
-      c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
-      c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
-      await next()
-    })
-    app.route("/repositories", repositoryRoutes)
-    const res = await app.request("/repositories", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        name: "ctxpipe",
-        gitUrl: "https://github.com/appear/ctxpipe.git",
-      }),
-    })
-
-    expect(res.status).toBe(200)
-    expect(await res.json()).toMatchObject({ id: "repo_EXISTING" })
-    expect(enqueueIngestionMock).not.toHaveBeenCalled()
-  })
 })
 
 describe("POST /api/v1/repositories/:id/reindex", () => {

@@ -32,25 +32,3 @@ export function codesearchNotFound(baseUrl: string): RequestHandler {
     HttpResponse.json(repositoryGoneBody, { status: 404 }),
   )
 }
-
-/** OpenAI-compatible `POST {baseUrl}/chat/completions`. `baseUrl` includes `/v1` when the app does. */
-export function modelChatCompletion(
-  baseUrl: string,
-  content = "ok",
-): RequestHandler {
-  const root = baseUrl.replace(/\/$/, "")
-  return http.post(`${root}/chat/completions`, () =>
-    HttpResponse.json({
-      id: "chatcmpl_test",
-      object: "chat.completion",
-      model: "test",
-      choices: [
-        {
-          index: 0,
-          message: { role: "assistant", content },
-          finish_reason: "stop",
-        },
-      ],
-    }),
-  )
-}

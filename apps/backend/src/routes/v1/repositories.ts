@@ -172,6 +172,14 @@ export const createRepositoryRoute = createRoute({
       },
       description: "No active organization",
     },
+    409: {
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema,
+        },
+      },
+      description: "Repository is being deleted",
+    },
     503: {
       content: {
         "application/json": {
@@ -321,7 +329,12 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
         name: body.name,
         gitUrl: body.gitUrl,
       })
-      if (!created) return c.json(serializeRepository(repository), 200)
+      if (!created) {
+        if (repository.indexingStatus === "unindexing") {
+          return c.json({ error: "Repository is being deleted" }, 409)
+        }
+        return c.json(serializeRepository(repository), 200)
+      }
       void enqueueRepositoryIngestionWorkflow(
         { repositoryId: repository.id, orgId: repository.orgId },
         {

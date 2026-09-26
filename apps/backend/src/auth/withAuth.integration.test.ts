@@ -1,33 +1,22 @@
 import { createHash } from "node:crypto"
-import { resolve } from "node:path"
-import { fileURLToPath } from "node:url"
-import { SpanKind } from "@opentelemetry/api"
-import {
-  InMemorySpanExporter,
-  SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
-import { config } from "dotenv"
 import { eq } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, expect, it } from "vitest"
+import {
+  cleanupSeededOrg,
+  describeWithDatabase,
+  type SeededOrg,
+  seedOrg,
+} from "../../test/db.js"
+import { recordSpans } from "../../test/spans.js"
 import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
-import { closeDb, getSystemDb, initDb } from "../db/client.js"
-import {
-  apikeys,
-  members,
-  oauthAccessTokens,
-  oauthClients,
-  organizations,
-  sessions,
-  users,
-} from "../db/schema/auth.js"
+import { getSystemDb } from "../db/client.js"
+import { oauthAccessTokens, oauthClients, sessions } from "../db/schema/auth.js"
 import { generateObjectId } from "../lib/id.js"
 import { backendOtelMiddleware } from "../observability/http.js"
-import { resetBetterAuthForTests } from "./config.js"
 import {
   requireAuth,
   withBearerAuth,
@@ -37,110 +26,38 @@ import {
   withOrgApiKeyAuth,
 } from "./withAuth.js"
 
-const __dirname = fileURLToPath(new URL(".", import.meta.url))
-config({ path: resolve(__dirname, "../../.env.local") })
+const spans = recordSpans()
 
-const connectionString = process.env.DATABASE_URL
-const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-const email = `auth-http-${suffix}@example.com`
-const password = "integration-password-1"
-const orgSlug = `auth-http-${suffix}`
-
-const exporter = new InMemorySpanExporter()
-const provider = new NodeTracerProvider({
-  spanProcessors: [new SimpleSpanProcessor(exporter)],
-})
-
-function serverSpan() {
-  return exporter
-    .getFinishedSpans()
-    .find((span) => span.kind === SpanKind.SERVER)
-}
-
-function cookieHeader(response: Response): string {
-  const setCookies =
-    typeof response.headers.getSetCookie === "function"
-      ? response.headers.getSetCookie()
-      : []
-  const pairs = (
-    setCookies.length > 0
-      ? setCookies
-      : [response.headers.get("set-cookie") ?? ""]
-  )
-    .map((cookie) => cookie.split(";")[0]?.trim() ?? "")
-    .filter((cookie) => cookie.includes("="))
-  if (pairs.length === 0) {
-    throw new Error("sign-up did not set a session cookie")
-  }
-  return pairs.join("; ")
-}
-
-describe.skipIf(!connectionString)("auth attribution (Postgres)", () => {
+describeWithDatabase("auth attribution (Postgres)", () => {
+  let seeded: SeededOrg | undefined
   let cookie = ""
   let userId = ""
   let orgId = ""
+  let orgSlug = ""
   let personalKey = ""
   let orgKey = ""
   let opaqueToken = ""
+  let clientId = ""
 
   beforeAll(async () => {
-    if (!connectionString) return
-    provider.register()
-    process.env.AUTH_SECRET =
-      process.env.AUTH_SECRET ?? "abcdefghijklmnopqrstuvwxyz123456"
-    process.env.AUTH_BASE_URL =
-      process.env.AUTH_BASE_URL ?? "http://localhost:3000"
-    resetBetterAuthForTests()
-    initDb(connectionString)
-    const { getAuth } = await import("./config.js")
-    const auth = getAuth()
-    const signedUp = await auth.api.signUpEmail({
-      body: { email, password, name: "Ada Attribution" },
-      asResponse: true,
-    })
-    expect(signedUp.status).toBe(200)
-    cookie = cookieHeader(signedUp)
-    const body = (await signedUp.json()) as { user: { id: string } }
-    userId = body.user.id
+    const seed = await seedOrg()
+    seeded = seed
+    cookie = seed.cookie
+    userId = seed.userId
+    orgId = seed.orgId
+    orgSlug = seed.orgSlug
+    personalKey = seed.personalApiKey
+    orgKey = seed.orgApiKey
 
     const db = getSystemDb()
-    orgId = generateObjectId("org")
-    await db.insert(organizations).values({
-      id: orgId,
-      name: "Auth HTTP",
-      slug: orgSlug,
-      createdAt: new Date(),
-    })
-    await db.insert(members).values({
-      id: generateObjectId("mbr"),
-      organizationId: orgId,
-      userId,
-      role: "owner",
-      createdAt: new Date(),
-    })
-
-    const personal = await auth.api.createApiKey({
-      body: { configId: "default", userId, name: "personal" },
-    })
-    personalKey = personal.key
-    const org = await auth.api.createApiKey({
-      body: {
-        configId: "organization",
-        organizationId: orgId,
-        userId,
-        name: "org",
-      },
-    })
-    orgKey = org.key
-
     const [session] = await db
       .select({ id: sessions.id })
       .from(sessions)
       .where(eq(sessions.userId, userId))
       .limit(1)
     if (!session) throw new Error("sign-up did not store a session")
-    const clientId = `client_${suffix}`
-    opaqueToken = `opaque_${suffix}`
+    clientId = `client_${userId}`
+    opaqueToken = `opaque_${userId}`
     await db.insert(oauthClients).values({
       id: generateObjectId("oac"),
       clientId,
@@ -162,20 +79,8 @@ describe.skipIf(!connectionString)("auth attribution (Postgres)", () => {
     })
   })
 
-  beforeEach(() => {
-    exporter.reset()
-  })
-
   afterAll(async () => {
-    if (!connectionString) return
-    const db = getSystemDb()
-    await db.delete(apikeys).where(eq(apikeys.referenceId, userId))
-    await db.delete(apikeys).where(eq(apikeys.referenceId, orgId))
-    await db.delete(organizations).where(eq(organizations.id, orgId))
-    await db.delete(users).where(eq(users.id, userId))
-    resetBetterAuthForTests()
-    await closeDb()
-    await provider.shutdown()
+    if (seeded) await cleanupSeededOrg(seeded)
   })
 
   function createApp() {
@@ -225,13 +130,13 @@ describe.skipIf(!connectionString)("auth attribution (Postgres)", () => {
     )
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ userId, orgId })
-    expect(serverSpan()?.attributes).toMatchObject({
+    expect(spans.serverSpan()?.attributes).toMatchObject({
       "ctxpipe.actor.type": "user",
       "enduser.id": userId,
       "ctxpipe.org.id": orgId,
       "ctxpipe.org.slug": orgSlug,
     })
-    expect(serverSpan()?.attributes["ctxpipe.api_key.id"]).toBeUndefined()
+    expect(spans.serverSpan()?.attributes["ctxpipe.api_key.id"]).toBeUndefined()
   })
 
   it("attributes a personal api key without logging the secret", async () => {
@@ -241,7 +146,7 @@ describe.skipIf(!connectionString)("auth attribution (Postgres)", () => {
       { method: "POST", headers: { "x-api-key": personalKey } },
     )
     expect(response.status).toBe(200)
-    const attributes = serverSpan()?.attributes
+    const attributes = spans.serverSpan()?.attributes
     expect(attributes).toMatchObject({
       "ctxpipe.actor.type": "user",
       "enduser.id": userId,
@@ -259,7 +164,7 @@ describe.skipIf(!connectionString)("auth attribution (Postgres)", () => {
       { method: "POST", headers: { "x-api-key": orgKey } },
     )
     expect(response.status).toBe(200)
-    const attributes = serverSpan()?.attributes
+    const attributes = spans.serverSpan()?.attributes
     expect(attributes).toMatchObject({
       "ctxpipe.actor.type": "org_api_key",
       "ctxpipe.org.id": orgId,
@@ -280,13 +185,15 @@ describe.skipIf(!connectionString)("auth attribution (Postgres)", () => {
       },
     )
     expect(response.status).toBe(200)
-    expect(serverSpan()?.attributes).toMatchObject({
+    expect(spans.serverSpan()?.attributes).toMatchObject({
       "ctxpipe.actor.type": "oauth_client",
       "enduser.id": userId,
-      "ctxpipe.oauth.client_id": `client_${suffix}`,
+      "ctxpipe.oauth.client_id": clientId,
       "ctxpipe.org.id": orgId,
       "ctxpipe.org.slug": orgSlug,
     })
-    expect(JSON.stringify(serverSpan()?.attributes)).not.toContain(opaqueToken)
+    expect(JSON.stringify(spans.serverSpan()?.attributes)).not.toContain(
+      opaqueToken,
+    )
   })
 })

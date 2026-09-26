@@ -1,4 +1,4 @@
-import type { Attributes, Span } from "@opentelemetry/api"
+import type { Attributes } from "@opentelemetry/api"
 import { SpanKind, trace } from "@opentelemetry/api"
 import { resourceFromAttributes } from "@opentelemetry/resources"
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base"
@@ -86,16 +86,4 @@ export function recordSpans(): RecordedSpans {
       return target ? target.attributes : {}
     },
   }
-}
-
-/** Snapshot of a live span after it has been exported, looked up by span id. */
-export function exportedAttributes(
-  spans: RecordedSpans,
-  span: Span,
-): Attributes {
-  const spanId = span.spanContext().spanId
-  const finished = spans
-    .finishedSpans()
-    .find((item) => item.spanContext().spanId === spanId)
-  return finished ? finished.attributes : {}
 }

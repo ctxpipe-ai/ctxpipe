@@ -56,9 +56,7 @@ async function raiseCodesearchFailure(
 ): Promise<never> {
   const failure = await readCodesearchError(res)
   if (failure.code === "repository_not_found") {
-    throw new RepositoryGoneError(
-      failure.message || "Repository not found or access denied",
-    )
+    throw new RepositoryGoneError(failure.message || undefined)
   }
   throw new Error(
     `${operation} failed: ${failure.status}${failure.message ? `: ${failure.message}` : ""}`,

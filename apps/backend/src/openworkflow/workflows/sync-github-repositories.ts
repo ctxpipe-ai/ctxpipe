@@ -5,11 +5,7 @@ import {
   listAllReposForInstallation,
 } from "../../models/github-installation.js"
 import { bulkCreateRepositoriesForOrg } from "../../models/repositories.js"
-import {
-  createLogger,
-  getLogger,
-  withLogger,
-} from "../../observability/logger.js"
+import { createLogger, getLogger, withLogger } from "../../observability/logger.js"
 import { tryEnsureGithubPrMirror } from "../../services/github/pull-request-mirror/ensure.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { claimAndRunRepositoryIngestionChild } from "../enqueue-repository-ingestion.js"
@@ -39,44 +35,35 @@ export const syncGithubRepositories = defineWorkflow(
         githubConnectionId: input.githubConnectionId,
       }),
       async () => {
-        const installation = await step.run(
-          { name: "get-installation" },
-          async () => {
-            const row = await getGithubInstallationByConnectionId(
-              input.orgId,
-              input.githubConnectionId,
+        const installation = await step.run({ name: "get-installation" }, async () => {
+          const row = await getGithubInstallationByConnectionId(
+            input.orgId,
+            input.githubConnectionId,
+          )
+          if (!row) {
+            throw new Error(
+              `No GitHub connection ${input.githubConnectionId} for org ${input.orgId}`,
             )
-            if (!row) {
-              throw new Error(
-                `No GitHub connection ${input.githubConnectionId} for org ${input.orgId}`,
-              )
-            }
-            return row
-          },
-        )
+          }
+          return row
+        })
 
-        const resolvedRepos = await step.run(
-          { name: "resolve-repos" },
-          async () => {
-            if (input.reposToSync !== undefined) {
-              return input.reposToSync
-            }
-            if (installation.installationId == null) {
-              throw new Error(
-                `GitHub connection ${installation.id} has no installation_id yet; complete GitHub App installation first`,
-              )
-            }
-            const repos = await listAllReposForInstallation(
-              input.orgId,
-              input.githubConnectionId,
-              parseEnv(process.env as Record<string, string | undefined>),
+        const resolvedRepos = await step.run({ name: "resolve-repos" }, async () => {
+          if (input.reposToSync !== undefined) {
+            return input.reposToSync
+          }
+          if (installation.installationId == null) {
+            throw new Error(
+              `GitHub connection ${installation.id} has no installation_id yet; complete GitHub App installation first`,
             )
-            return repos.map((r) => ({
-              name: r.full_name,
-              gitUrl: r.clone_url,
-            }))
-          },
-        )
+          }
+          const repos = await listAllReposForInstallation(
+            input.orgId,
+            input.githubConnectionId,
+            parseEnv(process.env as Record<string, string | undefined>),
+          )
+          return repos.map((r) => ({ name: r.full_name, gitUrl: r.clone_url }))
+        })
 
         const created = await step.run({ name: "bulk-create" }, () =>
           bulkCreateRepositoriesForOrg(input.orgId, resolvedRepos, {
@@ -104,7 +91,9 @@ export const syncGithubRepositories = defineWorkflow(
           tryEnsureGithubPrMirror({
             orgId: input.orgId,
             connectionId: installation.id,
-            env: parseEnv(process.env as Record<string, string | undefined>),
+            env: parseEnv(
+              process.env as Record<string, string | undefined>,
+            ),
           }),
         )
 

@@ -105,9 +105,7 @@ async function parseOrThrow<T>(
   if (!res.ok) {
     const failure = await readCodesearchError(res)
     if (failure.code === "repository_not_found") {
-      throw new RepositoryGoneError(
-        failure.message || "Repository not found or access denied",
-      )
+      throw new RepositoryGoneError(failure.message || undefined)
     }
     const combined = `${label} failed with status ${failure.status}: ${failure.message}`
     if (failure.status === 429) {

@@ -6,12 +6,10 @@ export type CodesearchError = {
 
 /**
  * Reads a codesearch error body (`{ error, code? }` or plain text).
- * A successful response is returned without consuming the body.
  */
 export async function readCodesearchError(
   res: Response,
 ): Promise<CodesearchError> {
-  if (res.ok) return { status: res.status, message: "" }
   const bodyText = await res.text().catch(() => "")
   let message = bodyText.trim()
   let code: string | undefined
@@ -31,7 +29,5 @@ export async function readCodesearchError(
       // plain text
     }
   }
-  return code
-    ? { status: res.status, message, code }
-    : { status: res.status, message }
+  return { status: res.status, message, code }
 }

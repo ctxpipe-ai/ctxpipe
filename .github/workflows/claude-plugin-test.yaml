@@ -47,22 +47,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Migrate database
         run: pnpm --filter @ctxpipe/backend db:migrate
-      - name: Plugin auth, transport, and tool tests
-        run: >-
-          pnpm --filter @ctxpipe/backend test
-          src/auth/config.test.ts
-          src/auth/oauth-organization.test.ts
-          src/auth/withAuth.test.ts
-          src/routes/auth.test.ts
-          src/routes/mcp.test.ts
-          src/routes/mcp.conformance.test.ts
-          src/mcp/tools.test.ts
-          src/graphs/conversationGraph/nodes/conversationNaming.test.ts
-      - name: Backend integration tests
-        working-directory: apps/backend
-        run: |
-          mapfile -t files < <(find src -name '*.integration.test.ts' | sort)
-          pnpm exec vitest run "${files[@]}"
+      - name: Backend tests
+        run: pnpm --filter @ctxpipe/backend test
 
   ui:
     name: UI tests

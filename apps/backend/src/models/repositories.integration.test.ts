@@ -10,8 +10,10 @@ import { withOrgIdContext } from "../auth/withAuth.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { repositories } from "../db/schema/repositories.js"
+import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { generateObjectId } from "../lib/id.js"
 import {
+  DEFAULT_CHECKOUT_KEY,
   markRepositoryIndexingRunning,
   repositoryIngestionBlockedByDeletion,
   setRepositoryIndexingStep,
@@ -61,6 +63,12 @@ describe.skipIf(!connectionString)(
             indexReady: false,
           },
         ])
+        await db.insert(repositoryCheckouts).values({
+          id: generateObjectId("co"),
+          repositoryId: unindexingId,
+          ref: "main",
+          checkoutKey: DEFAULT_CHECKOUT_KEY,
+        })
       })
     })
 
@@ -182,6 +190,39 @@ describe.skipIf(!connectionString)(
       expect(again.status, againText).toBe(200)
       const againBody = JSON.parse(againText) as { id: string }
       expect(againBody.id).toBe(createdBody.id)
+    })
+
+    it("returns 409 when the existing repository is being deleted", async () => {
+      const { repositoryRoutes } = await import("../routes/v1/repositories.js")
+      const app = new OpenAPIHono<AppEnv>()
+      app.use(contextStorage())
+      app.use("*", async (c, next) => {
+        c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
+        c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
+        c.set("log", {
+          error: () => {},
+          info: () => {},
+          warn: () => {},
+          debug: () => {},
+          child: () => c.get("log"),
+        } as unknown as AppEnv["Variables"]["log"])
+        return withOrgIdContext({ id: orgId, slug: orgSlug }, () =>
+          withOrgDbContext(orgId, () => next()),
+        )
+      })
+      app.route("/repositories", repositoryRoutes)
+
+      const res = await app.request("/repositories", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: `acme/unindexing-${suffix}`,
+          gitUrl: `https://github.com/acme/unindexing-${suffix}.git`,
+        }),
+      })
+      const text = await res.text()
+      expect(res.status, text).toBe(409)
+      expect(JSON.parse(text)).toEqual({ error: "Repository is being deleted" })
     })
   },
 )
