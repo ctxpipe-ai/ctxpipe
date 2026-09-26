@@ -1,5 +1,6 @@
-# OpenTelemetry Collector — laptop / contrib (Better Stack + LangFuse).
-# Hosted allowlist: ops/observability/collector/config.yaml
+# Contributor laptop collector (Compose profile `infra` / `pnpm dev:infra`).
+# Prints OTLP to stdout. No upstream token. Hosted ingest is
+# ops/observability/collector/config.yaml (ADR-038).
 
 receivers:
   otlp:
@@ -8,48 +9,24 @@ receivers:
         endpoint: 0.0.0.0:4318
 
 processors:
-  # Default batch (200ms) is very chatty toward upstream exporters; larger batches reduce
-  # HTTP requests when Better Stack / LangFuse quotas are tight.
-  batch/betterstack:
-    timeout: 5s
-    send_batch_size: 512
-  batch/langfuse:
-    timeout: 5s
-    send_batch_size: 512
-  # Allowlist (Tier 1 + 2): keep spans with Gen AI semconv attributes OR Langfuse/LangChain/LangGraph
-  # instrumentation scope. Drops everything else from the LangFuse pipeline only (APM still gets full traces).
-  # Browser RUM is service.name=ui and is dropped here too.
-  filter/llm_only:
-    error_mode: ignore
-    traces:
-      span:
-        - 'resource.attributes["service.name"] == "ui" or not ((attributes["gen_ai.system"] != nil) or (attributes["gen_ai.operation.name"] != nil) or (attributes["gen_ai.request.model"] != nil) or (attributes["gen_ai.response.model"] != nil) or (attributes["gen_ai.provider.name"] != nil) or (attributes["gen_ai.usage.input_tokens"] != nil) or (attributes["gen_ai.usage.output_tokens"] != nil) or (attributes["gen_ai.response.id"] != nil) or (attributes["gen_ai.conversation.id"] != nil) or (attributes["gen_ai.tool.name"] != nil) or (attributes["gen_ai.tool.call.id"] != nil) or (attributes["gen_ai.tool.type"] != nil) or (attributes["gen_ai.data_source.id"] != nil) or (attributes["gen_ai.agent.name"] != nil) or (attributes["gen_ai.request.choice.count"] != nil) or (attributes["gen_ai.response.finish_reasons"] != nil) or IsMatch(instrumentation_scope.name, "(?i).*(langfuse|langchain|langgraph).*"))'
+  batch:
+    timeout: 1s
 
 exporters:
-  otlp_http/betterstack:
-    endpoint: "https://in-otel.logs.betterstack.com"
-    headers:
-      Authorization: "Bearer ${env:BETTER_STACK_TOKEN}"
-  otlp_http/langfuse:
-    endpoint: "${env:LANGFUSE_OTLP_ENDPOINT}"
-    headers:
-      Authorization: "Basic ${env:LANGFUSE_AUTH_STRING}"
+  debug:
+    verbosity: basic
 
 service:
   pipelines:
-    traces/apm:
+    traces:
       receivers: [otlp]
-      processors: [batch/betterstack]
-      exporters: [otlp_http/betterstack]
-    traces/llm:
-      receivers: [otlp]
-      processors: [filter/llm_only, batch/langfuse]
-      exporters: [otlp_http/langfuse]
+      processors: [batch]
+      exporters: [debug]
     logs:
       receivers: [otlp]
-      processors: [batch/betterstack]
-      exporters: [otlp_http/betterstack]
+      processors: [batch]
+      exporters: [debug]
     metrics:
       receivers: [otlp]
-      processors: [batch/betterstack]
-      exporters: [otlp_http/betterstack]
+      processors: [batch]
+      exporters: [debug]

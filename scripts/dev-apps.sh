@@ -25,10 +25,6 @@ export AUTH_ALLOWED_ORIGINS="$UI_PROXY_URL,$AUTH_BASE_URL"
 # shellcheck source=/dev/null
 source "$REPO_ROOT/scripts/codesearch-docker-dev.sh"
 
-# Optional Amplitude: backend reads `apps/backend/.env.local`; the UI dev server needs the same
-# `AMPLITUDE_API_KEY` and `AMPLITUDE_REGION` in the environment (e.g. `export` in your shell or
-# `apps/ui/.env.local`). See apps/backend/.env.example and ADR-017.
-
 # Do not use `exec` so EXIT trap in codesearch-docker-dev.sh can stop the container when turbo exits.
 # Default: backend + UI. Forge development needs an account-specific ngrok/Forge setup, so opt in with
 # `WITH_FORGE=1 pnpm dev` or run `pnpm --filter @ctxpipe/forge-ctxpipe-agent dev` separately.
