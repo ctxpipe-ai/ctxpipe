@@ -14,7 +14,7 @@ import { getContext } from "hono/context-storage"
 import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
 import { ATTRIBUTION_KEYS } from "./contract.js"
-import { codesearchResource } from "./otel.js"
+import { codesearchResource, codesearchServiceName } from "./otel.js"
 
 /**
  * Drizzle `params:` lines and pg fields that can echo bound values.
@@ -34,7 +34,7 @@ export function initEvlog(): void {
   const env = parseEnv(process.env as Record<string, string | undefined>)
   initLogger({
     env: {
-      service: "codesearch",
+      service: codesearchServiceName(),
       environment: String(
         codesearchResource().attributes["deployment.environment"],
       ),
@@ -65,7 +65,7 @@ export function createEvlogDrain() {
 
   const baseDrain = createOTLPDrain({
     endpoint: baseEndpoint,
-    serviceName: "codesearch",
+    serviceName: codesearchServiceName(),
     resourceAttributes: {
       "service.namespace": "ctxpipe",
     },

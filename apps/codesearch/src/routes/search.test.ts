@@ -25,12 +25,14 @@ import {
   zoektRepositoryName,
   zoektShardFilePrefix,
 } from "../domain/zoekt/shardPrefix.js"
+import { flushEvlog } from "../observability/logger.js"
 import { codesearchSpanProcessors } from "../observability/otel.js"
 
 const zoektBase = "http://zoekt.test"
 const zoektSearch = `${zoektBase}/api/search`
 const zoektList = `${zoektBase}/api/list`
-const events: Record<string, unknown>[] = []
+const otlpLogsUrl = "http://127.0.0.1:4318/v1/logs"
+const otlpBodies: unknown[] = []
 let lastSearchBody = ""
 let listCalls = 0
 let tmpDir = ""
@@ -65,16 +67,35 @@ function zoektJson() {
   })
 }
 
+function otlpLogEvents(): Record<string, unknown>[] {
+  const events: Record<string, unknown>[] = []
+  for (const body of otlpBodies) {
+    const resourceLogs =
+      (
+        body as {
+          resourceLogs?: Array<{
+            scopeLogs?: Array<{
+              logRecords?: Array<{ body?: { stringValue?: string } }>
+            }>
+          }>
+        }
+      ).resourceLogs ?? []
+    for (const resourceLog of resourceLogs) {
+      for (const scopeLog of resourceLog.scopeLogs ?? []) {
+        for (const record of scopeLog.logRecords ?? []) {
+          const raw = record.body?.stringValue
+          if (!raw) continue
+          events.push(JSON.parse(raw) as Record<string, unknown>)
+        }
+      }
+    }
+  }
+  return events
+}
+
 function createTestApp(db: { select: ReturnType<typeof vi.fn> }) {
   const app = new OpenAPIHono<AppEnv>()
-  useObservability(app, {
-    drain: (ctx) => {
-      const batch = Array.isArray(ctx) ? ctx : [ctx]
-      for (const item of batch) {
-        events.push(item.event as Record<string, unknown>)
-      }
-    },
-  })
+  useObservability(app)
   app.use("*", async (c, next) => {
     c.set("db", db as unknown as AppEnv["Variables"]["db"])
     c.set("env", { NODE_ENV: "test", PORT: 3001 } as AppEnv["Variables"]["env"])
@@ -112,6 +133,8 @@ describe("POST /search", () => {
     await mkdir(indexDir, { recursive: true })
     vi.stubEnv("ZOEKT_INDEX_DIR", indexDir)
     vi.stubEnv("ZOEKT_WEBSERVER_URL", zoektBase)
+    vi.stubEnv("AUTH_SECRET", "test-auth-secret-at-least-32-characters")
+    vi.stubEnv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", otlpLogsUrl)
     const appMod = await import("../app/app.js")
     const searchMod = await import("./search.js")
     const pinMod = await import("../domain/zoekt/pinManager.js")
@@ -139,11 +162,15 @@ describe("POST /search", () => {
     await rm(hotDir, { recursive: true, force: true })
     await mkdir(indexDir, { recursive: true })
     exporter.reset()
-    events.length = 0
+    otlpBodies.length = 0
     lastSearchBody = ""
     listCalls = 0
     server.resetHandlers()
     server.use(
+      http.post(otlpLogsUrl, async ({ request }) => {
+        otlpBodies.push(await request.json())
+        return HttpResponse.json({})
+      }),
       http.post(zoektList, () => {
         listCalls += 1
         return HttpResponse.json({
@@ -159,8 +186,9 @@ describe("POST /search", () => {
     )
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     resetPinManagerForTests()
+    await flushEvlog()
   })
 
   afterAll(async () => {
@@ -277,6 +305,8 @@ describe("POST /search", () => {
       error: `Zoekt rejected the query: parse error: ${query}`,
       code: "query_rejected",
     })
+    await flushEvlog()
+    const events = otlpLogEvents()
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -286,8 +316,8 @@ describe("POST /search", () => {
         }),
       ]),
     )
-    expect(JSON.stringify(events)).not.toContain(query)
-    expect(JSON.stringify(events)).not.toContain("parse error")
+    expect(JSON.stringify(otlpBodies)).not.toContain(query)
+    expect(JSON.stringify(otlpBodies)).not.toContain("parse error")
 
     const span = exporter
       .getFinishedSpans()
@@ -320,7 +350,9 @@ describe("POST /search", () => {
       error: "Zoekt rejected the query: query too complex",
       code: "query_rejected",
     })
-    expect(JSON.stringify(events)).not.toContain("query too complex")
+    await flushEvlog()
+    const events = otlpLogEvents()
+    expect(JSON.stringify(otlpBodies)).not.toContain("query too complex")
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

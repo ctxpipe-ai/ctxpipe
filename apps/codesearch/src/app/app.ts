@@ -1,6 +1,6 @@
 import { httpInstrumentationMiddleware } from "@hono/otel"
 import { OpenAPIHono } from "@hono/zod-openapi"
-import { type EvlogHonoOptions, evlog } from "evlog/hono"
+import { evlog } from "evlog/hono"
 import { contextStorage } from "hono/context-storage"
 import { cors } from "hono/cors"
 import { verifyCodesearchJwt } from "../auth/jwt.js"
@@ -19,16 +19,13 @@ import type { AppEnv } from "./env.js"
 
 export type { AppEnv } from "./env.js"
 
-export function useObservability(
-  app: OpenAPIHono<AppEnv>,
-  options?: { drain?: EvlogHonoOptions["drain"] },
-) {
+export function useObservability(app: OpenAPIHono<AppEnv>) {
   app.use("*", httpInstrumentationMiddleware())
   app.use("*", cors())
   app.use(contextStorage())
   app.use(
     evlog({
-      drain: options?.drain ?? createEvlogDrain(),
+      drain: createEvlogDrain(),
       enrich: (ctx) => {
         applyCodesearchLogContract(ctx.event as Record<string, unknown>)
       },

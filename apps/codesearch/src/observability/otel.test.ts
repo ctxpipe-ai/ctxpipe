@@ -58,6 +58,19 @@ describe("codesearch resource", () => {
     )
   })
 
+  it("uses the last percent-decoded deployment.environment entry", () => {
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "")
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv(
+      "OTEL_RESOURCE_ATTRIBUTES",
+      "deployment.environment=first,service.name=ignored,deployment.environment=pr%2D7",
+    )
+    expect(codesearchDeploymentEnvironment()).toBe("pr-7")
+    expect(codesearchResource().attributes["deployment.environment"]).toBe(
+      "pr-7",
+    )
+  })
+
   it("uses development when Railway, resource attributes, and production are unset", () => {
     vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "")
     vi.stubEnv("NODE_ENV", "test")

@@ -13,7 +13,7 @@ import {
 import { getAccessibleRepository } from "../domain/repositories/service.js"
 import {
   repositoryNotFoundBody,
-  repositoryNotFoundResponse,
+  repositoryOrPathNotFoundResponse,
 } from "./errorBody.js"
 
 const graphPrimitiveSchema = z.enum([
@@ -70,7 +70,7 @@ export const graphRoute = createRoute({
     },
     400: { description: "Bad request" },
     401: { description: "Unauthorized" },
-    404: repositoryNotFoundResponse,
+    404: repositoryOrPathNotFoundResponse,
     503: { description: "Service unavailable (e.g. database not configured)" },
   },
 })
@@ -138,7 +138,7 @@ export function registerGraphRoutes(app: OpenAPIHono<AppEnv>) {
       .limit(1)
 
     if (!checkout) {
-      return c.json(repositoryNotFoundBody, 404)
+      return c.json({ error: "Checkout not found" }, 404)
     }
 
     const checkoutPath = repoCheckoutPath(repo.orgId, repo.id, body.checkoutKey)

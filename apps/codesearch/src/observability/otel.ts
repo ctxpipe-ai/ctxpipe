@@ -37,14 +37,30 @@ export function codesearchDeploymentEnvironment(
 ): string {
   const railway = railwayEnvironmentName?.trim()
   if (railway) return railway
-  for (const part of resourceAttributes?.split(",") ?? []) {
-    const eq = part.indexOf("=")
-    if (eq < 0) continue
-    if (part.slice(0, eq).trim() !== "deployment.environment") continue
-    const value = part.slice(eq + 1).trim()
-    if (value) return value
-  }
+  const fromAttributes = deploymentEnvironmentAttribute(resourceAttributes)
+  if (fromAttributes) return fromAttributes
   return nodeEnv === "production" ? "production" : "development"
+}
+
+/** Last `deployment.environment` entry, percent-decoded. Same rule as envDetector. */
+function deploymentEnvironmentAttribute(
+  raw: string | undefined,
+): string | undefined {
+  if (!raw) return undefined
+  let found: string | undefined
+  for (const entry of raw.split(",")) {
+    const eq = entry.indexOf("=")
+    if (eq <= 0) continue
+    if (entry.slice(0, eq).trim() !== "deployment.environment") continue
+    const value = entry.slice(eq + 1).trim()
+    if (!value) continue
+    try {
+      found = decodeURIComponent(value)
+    } catch {
+      found = value
+    }
+  }
+  return found
 }
 
 function railwayPrEnvironment(): boolean {
@@ -91,6 +107,12 @@ export function codesearchResource() {
         "deployment.environment": codesearchDeploymentEnvironment(),
       }),
     )
+}
+
+/** `service.name` after env detection, so logs match traces (`OTEL_SERVICE_NAME`). */
+export function codesearchServiceName(): string {
+  const name = codesearchResource().attributes["service.name"]
+  return typeof name === "string" && name.length > 0 ? name : "codesearch"
 }
 
 /**
