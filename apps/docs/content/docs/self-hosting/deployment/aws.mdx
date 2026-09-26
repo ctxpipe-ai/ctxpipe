@@ -246,29 +246,23 @@ settings.
 
 ## Observability
 
-Leave `otel` unset unless you want traces, logs, or metrics sent to a collector you run. There is no bundled collector and no default endpoint.
+Leave `otel` unset and the tasks export nothing. There is no bundled collector. Set one OTLP/HTTP base URL on `endpoint`; the construct appends `/v1/traces`, `/v1/logs`, and `/v1/metrics` and sets `OTEL_SERVICE_NAME` to `backend`, `openworkflow`, `ui`, or `codesearch` on that task.
 
 ```ts
 otel: {
-  tracesEndpoint: "https://otel.example.com/v1/traces",
-  logsEndpoint: "https://otel.example.com/v1/logs",
-  metricsEndpoint: "https://otel.example.com/v1/metrics",
+  endpoint: "https://otel.example.com",
   headers: cdk.SecretValue.unsafePlainText("Authorization=Bearer replace-me"),
   resourceAttributes: "deployment.environment=production",
 },
 ```
 
-| Prop | Env var on backend, worker, UI, and codesearch |
+| Prop | Env on backend, worker, UI, and codesearch |
 |---|---|
-| `tracesEndpoint` | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` |
-| `logsEndpoint` | `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` |
-| `metricsEndpoint` | `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` |
+| `endpoint` | `OTEL_EXPORTER_OTLP_{TRACES,LOGS,METRICS}_ENDPOINT` |
 | `headers` | `OTEL_EXPORTER_OTLP_HEADERS` (Secrets Manager) |
 | `resourceAttributes` | `OTEL_RESOURCE_ATTRIBUTES` |
 
-`OTEL_SERVICE_NAME` is `backend`, `openworkflow`, `ui`, or `codesearch` on that task when any endpoint is set. LLM spans are OpenTelemetry spans. Point `tracesEndpoint` at `https://<your-langfuse>/api/public/otel` and set `headers` to `Authorization=Basic <base64(publicKey:secretKey)>` to land them in your Langfuse project. The apps do not read `LANGFUSE_*` variables.
-
-The browser SDK starts only when the UI task has a traces endpoint. It posts to `/.otel` on your app origin. With no traces endpoint, that route returns `204` and the SDK does not start.
+Browser telemetry and the signal URLs the apps read are in [Configuration](/docs/self-hosting/configuration). Prop reference: [package README](https://github.com/ctxpipe-ai/ctxpipe/blob/main/packages/aws-cdk/README.md#observability).
 
 ## High-level architecture
 

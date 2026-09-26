@@ -139,7 +139,7 @@ modelProvider: {
 
 ## Observability
 
-`otel.endpoint` is one OTLP/HTTP base URL. The construct trims it once and sets the per-signal variables the apps read: `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is `${endpoint}/v1/traces`, and logs and metrics follow the same pattern. Migrate does not receive them. Export stays off when `otel` is omitted or when `endpoint` is blank after trim. `OTEL_SERVICE_NAME` is set only then, to `backend`, `openworkflow`, `ui`, or `codesearch` on that task.
+`otel.endpoint` is one OTLP/HTTP base URL. The construct trims it once and sets the per-signal variables the apps read: `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is `${endpoint}/v1/traces`, and logs and metrics follow the same pattern. Migrate does not receive them. Export stays off when `otel` is omitted or when `endpoint` is blank after trim. `OTEL_SERVICE_NAME` is set only when export is on, to `backend`, `openworkflow`, `ui`, or `codesearch` on that task.
 
 | Prop | Container env |
 | --- | --- |
@@ -158,9 +158,7 @@ new CtxPipe(stack, "CtxPipe", {
 });
 ```
 
-Use any OTLP/HTTP base (Grafana, Honeycomb, Datadog OTLP, or your own collector). The construct does not take a different URL per signal. Point `endpoint` at a collector when traces, logs, and metrics must go to different vendors — for example traces to Langfuse and logs to an APM backend. The app does not read `LANGFUSE_*`.
-
-The UI turns on browser telemetry when `endpoint` is set, because that sets the traces endpoint. The browser posts to `/.otel` on the app origin, and the UI task forwards that to the traces endpoint. With no endpoint, the browser SDK does not start and `/.otel` returns 204.
+`endpoint` is one base URL for every signal. Browser telemetry and the env vars the apps read: [Configuration](https://docs.ctxpipe.ai/docs/self-hosting/configuration).
 
 
 

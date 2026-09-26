@@ -210,44 +210,40 @@ verification.
 ## Observability
 
 Telemetry is off until you set it. ctx| does not ship a collector, Langfuse, or
-ClickStack in the Compose `deploy` profile or in `@ctxpipe/aws-cdk`. When the
-variables below are unset, logs stay on stdout and trace and metric export does
-not start. Empty values are treated as unset and do not produce export errors.
+ClickStack in the Compose `deploy` profile or in `@ctxpipe/aws-cdk`. Unset
+values keep logs on stdout and do not start trace or metric export. Empty
+values are treated as unset.
 
-Point the endpoints at any OTLP/HTTP receiver you run: Grafana, Honeycomb,
-Datadog OTLP, or your own collector.
+Point the signal URLs at your own OTLP/HTTP backend. Export starts from these
+variables. Include the signal path on each URL.
+
+```bash
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://otel.example.com/v1/traces
+OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=https://otel.example.com/v1/logs
+OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=https://otel.example.com/v1/metrics
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer xxx
+```
 
 | Variable | Description |
 |---|---|
-| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | OTLP/HTTP traces URL, for example `https://otel.example.com/v1/traces`. A base URL without `/v1/traces` is accepted; the app appends the signal path. |
-| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | OTLP/HTTP logs URL for the evlog drain. Unset keeps logs on stdout. |
-| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | OTLP/HTTP metrics URL. |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Traces URL, including `/v1/traces`. Trace export stays off when this is unset. |
+| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | Logs URL, including `/v1/logs`. Unset keeps logs on stdout. |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | Metrics URL, including `/v1/metrics`. |
 | `OTEL_EXPORTER_OTLP_HEADERS` | Optional headers, for example `Authorization=Bearer xxx`. |
-| `OTEL_SERVICE_NAME` | Resource `service.name`. Compose and CDK set `backend`, `openworkflow`, `ui`, and `codesearch` per container. A single shared value would label every service the same, so Compose does not read this name from the root `.env`. |
-| `OTEL_RESOURCE_ATTRIBUTES` | Extra resource attributes, for example `deployment.environment=production`. Backend and worker merge these when trace export is on. Codesearch sets `service.name`, `service.namespace`, and `deployment.environment` in code. |
+| `OTEL_SERVICE_NAME` | Resource `service.name`. Compose and CDK set `backend`, `openworkflow`, `ui`, and `codesearch` per container. Compose does not apply a shared name from the root `.env`. |
+| `OTEL_RESOURCE_ATTRIBUTES` | Extra resource attributes, for example `deployment.environment=production`. |
 
-`deployment.environment` defaults to `RAILWAY_ENVIRONMENT_NAME` when that is
-set, otherwise `production` or `development` from `NODE_ENV`.
+`deployment.environment` is `RAILWAY_ENVIRONMENT_NAME` when that is set,
+otherwise `production` or `development` from `NODE_ENV`. Codesearch always
+exports `service.name` `codesearch`.
 
-### LLM traces (Langfuse or another backend)
-
-LangChain spans are OpenTelemetry spans (`gen_ai.*`). The backend does not read
-`LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, or `LANGFUSE_HOST`. To send those
-spans to Langfuse, point traces at your Langfuse OTLP endpoint:
-
-```bash
-OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://cloud.langfuse.com/api/public/otel
-OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic <base64(publicKey:secretKey)>
-```
-
-Use your own Langfuse base URL for a self-hosted Langfuse. The same header
-format works for any vendor that expects `Authorization` on OTLP/HTTP.
-
-Langfuse keeps LLM spans. If you also want APM traces and metrics in another
-backend, run your own OpenTelemetry Collector and point the three endpoints at
-that collector. The contributor collector under `apps/otel-collector` is for
-local `pnpm dev:infra` only. It is not started by `pnpm start` and it is not
-deployed by `CtxPipe`.
+LLM spans are OpenTelemetry spans. The apps do not read `LANGFUSE_PUBLIC_KEY`,
+`LANGFUSE_SECRET_KEY`, or `LANGFUSE_HOST`. A Langfuse project accepts traces at
+`https://<your-langfuse>/api/public/otel/v1/traces` with
+`Authorization=Basic <base64(publicKey:secretKey)>` in
+`OTEL_EXPORTER_OTLP_HEADERS`. `@ctxpipe/aws-cdk` takes one base `otel.endpoint`
+and appends `/v1/traces`, `/v1/logs`, and `/v1/metrics`; see
+[AWS](/docs/self-hosting/deployment/aws).
 
 ### Browser telemetry
 
