@@ -453,3 +453,82 @@ resource "railway_variable_collection" "railway_telemetry" {
     },
   ]
 }
+
+resource "railway_service" "cost_telemetry" {
+  project_id = local.railway_project_id
+  name       = "cost-telemetry"
+  # No source_image: provider 0.6.1 Create() calls connectService when
+  # that attribute is set, which can start a deploy at ON_FAILURE before
+  # NEVER is written. Image is connected after NEVER and variables.
+  # Provider 0.6.1 Update sends cronSchedule without omitempty. An unset
+  # attribute clears the live 17 * * * * schedule.
+  cron_schedule = "17 * * * *"
+  regions       = local.regions
+  depends_on    = [railway_service.collector]
+
+  lifecycle {
+    # Read() fills source_image from the live instance after GraphQL
+    # connect. Ignoring it keeps later applies from disconnecting.
+    ignore_changes = [regions, source_image]
+  }
+}
+
+# Provider 0.6.1 has no restartPolicyType attribute. Create() and Update()
+# omit it (omitempty). Sequence: empty service → NEVER (read back) →
+# OTLP variables → connect image + deploy. NEVER is creation-time only;
+# omitempty leaves it in place. Image changes re-run only the connect
+# resource.
+resource "terraform_data" "cost_telemetry_restart_never" {
+  triggers_replace = [railway_service.cost_telemetry.id]
+
+  provisioner "local-exec" {
+    when    = create
+    command = "bash ${path.module}/set-restart-policy-never.sh"
+
+    environment = {
+      ENVIRONMENT_ID = local.railway_environment_id
+      SERVICE_ID     = railway_service.cost_telemetry.id
+    }
+  }
+}
+
+resource "railway_variable_collection" "cost_telemetry" {
+  environment_id = local.railway_environment_id
+  service_id     = railway_service.cost_telemetry.id
+  depends_on     = [terraform_data.cost_telemetry_restart_never]
+
+  # Provider tokens stay on Railway.
+  variables = [
+    {
+      name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
+      value = local.observability_otlp_endpoint
+    },
+    {
+      name  = "OTEL_EXPORTER_OTLP_HEADERS"
+      value = local.observability_otlp_headers
+    },
+  ]
+}
+
+resource "terraform_data" "cost_telemetry_source_image" {
+  triggers_replace = {
+    service_id = railway_service.cost_telemetry.id
+    image      = var.cost_telemetry_image
+  }
+
+  depends_on = [
+    terraform_data.cost_telemetry_restart_never,
+    railway_variable_collection.cost_telemetry,
+  ]
+
+  provisioner "local-exec" {
+    when    = create
+    command = "bash ${path.module}/connect-source-image-and-deploy.sh"
+
+    environment = {
+      ENVIRONMENT_ID = local.railway_environment_id
+      SERVICE_ID     = railway_service.cost_telemetry.id
+      SOURCE_IMAGE   = var.cost_telemetry_image
+    }
+  }
+}

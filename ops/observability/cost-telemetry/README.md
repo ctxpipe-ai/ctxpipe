@@ -1,0 +1,19 @@
+# cost-telemetry
+
+Hourly cron at :17 (`cron_schedule` in Terraform). Restart policy on the service is `NEVER`: a failed run exits 1, and that cron slot gets one attempt. One run reads provider billing APIs and posts OTLP/JSON gauges.
+
+The shared window is the last 3 UTC days including today, except OpenRouter which lags by one day (it serves completed UTC days only) and covers today-3..today-1. Each run resends the window because providers finalise late. Latest-observation dedupe uses `billing.observed_at_unix_ms` on each OTLP point (not `max(Value)`).
+
+AWS Cost Explorer is billed at $0.01 per paginated `GetCostAndUsage` request and updates at least daily, so the hourly cron only calls it in the 12:17 UTC slot. Other hours emit no AWS rows (the last 12:17 payload stays in ClickHouse). A failed 12:17 slot retries the next day.
+
+Metrics: `billing.cost` (USD) and `billing.usage` (unit `1`; the row's unit is `billing.unit`), one point per line item at 00:00 UTC of that day. Attributes: `billing.provider`, `billing.sku`, `billing.scope`, `billing.source` (`reported` | `estimated`), `billing.unit`, `billing.observed_at_unix_ms`. `billing.fx_rate` (unit `1`, `billing.pair=USD/AUD`) is one point per successful FX fetch from Frankfurter v2 (`https://api.frankfurter.dev/v2/rates`, `providers=ecb`).
+
+Required env: `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`. Per provider: `OPENROUTER_MANAGEMENT_KEY` (OpenRouter management key; the activity endpoint returns 403 for normal keys), `GITHUB_BILLING_TOKEN` (org billing read), `BLACKSMITH_TOKEN` (Blacksmith org token), `RAILWAY_API_TOKEN` plus `RAILWAY_PROJECT_ID` (Railway injects the project id). A missing provider secret fails that provider only.
+`NEON_API_KEY` is an org-scoped Neon API key (read access is sufficient for consumption history).
+`NEON_ORG_ID` is the Neon org id.
+`CLOUDFLARE_API_TOKEN` needs Account Analytics: Read. `CLOUDFLARE_ACCOUNT_ID` is the Cloudflare account id.
+`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` (optional `AWS_SESSION_TOKEN`) are a read-only `ce:GetCostAndUsage` principal for sandbox account `007664619564`. The account id is hardcoded (LINKED_ACCOUNT filter) so another account cannot leak into this dashboard; there is no `AWS_ACCOUNT_ID` env var because the id is a fixed internal test account, not an operator-supplied per-environment value. Cost Explorer lives at `ce.us-east-1.amazonaws.com`. The client signs with the official SDK, sends over fetch (`maxAttempts: 1`) so retries do not multiply the $0.01-per-page charge, and so Bun/MSW see the HTTP call. Rows are `source=reported` (Cost Explorer estimate until the bill finalizes), `sku` = usage type, `scope` = `007664619564/{service}`. Credits and other negative amounts are kept. `NetUnblendedCost` is the documented metric; `UnblendedCost` is requested as fallback.
+
+Estimated rows are usage × the list prices in `src/rates.ts` (checked-date comments point at the pricing pages; update the constants when those pages change). Railway Pro's $20 minimum is not emitted because usage exceeds it; if usage ever drops below $20/month the dashboard understates Railway by the difference.
+
+Tests: `pnpm --filter cost-telemetry test`.

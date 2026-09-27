@@ -55,6 +55,12 @@ jobs:
       - name: Typecheck railway-telemetry
         run: pnpm --filter railway-telemetry typecheck
 
+      - name: Test cost-telemetry
+        run: pnpm --filter cost-telemetry test
+
+      - name: Typecheck cost-telemetry
+        run: pnpm --filter cost-telemetry typecheck
+
       - name: Typecheck HyperDX provision
         run: pnpm --filter hyperdx typecheck
 
@@ -98,6 +104,7 @@ jobs:
       collector: ${{ steps.tags.outputs.collector }}
       clickhouse: ${{ steps.tags.outputs.clickhouse }}
       railway-telemetry: ${{ steps.tags.outputs['railway-telemetry'] }}
+      cost-telemetry: ${{ steps.tags.outputs['cost-telemetry'] }}
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
@@ -107,7 +114,7 @@ jobs:
       - name: Image tags
         id: tags
         run: |
-          for service in collector clickhouse railway-telemetry; do
+          for service in collector clickhouse railway-telemetry cost-telemetry; do
             sha="$(git rev-parse "HEAD:ops/observability/${service}")"
             echo "${service}=ghcr.io/ctxpipe-ai/obs-${service}:${sha}" >> "$GITHUB_OUTPUT"
           done
@@ -124,7 +131,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [collector, clickhouse, railway-telemetry]
+        service: [collector, clickhouse, railway-telemetry, cost-telemetry]
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
@@ -173,6 +180,7 @@ jobs:
       TF_VAR_collector_image: ${{ needs.tags.outputs.collector }}
       TF_VAR_clickhouse_image: ${{ needs.tags.outputs.clickhouse }}
       TF_VAR_railway_telemetry_image: ${{ needs.tags.outputs['railway-telemetry'] }}
+      TF_VAR_cost_telemetry_image: ${{ needs.tags.outputs['cost-telemetry'] }}
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
@@ -195,7 +203,7 @@ jobs:
         run: |
           umask 077
           terraform show -json terraform.plan > plan.json
-          jq -e '[.resource_changes[] | select(.change.actions | index("delete"))] | length == 0' plan.json
+          jq -e '[.resource_changes[] | select((.change.actions | index("delete")) and (.address != "terraform_data.cost_telemetry_source_image" or (.change.actions | index("create") | not)))] | length == 0' plan.json
 
       - name: Generate Observability Terraform Plan comment
         if: always()
@@ -264,6 +272,7 @@ jobs:
       TF_VAR_collector_image: ${{ needs.tags.outputs.collector }}
       TF_VAR_clickhouse_image: ${{ needs.tags.outputs.clickhouse }}
       TF_VAR_railway_telemetry_image: ${{ needs.tags.outputs['railway-telemetry'] }}
+      TF_VAR_cost_telemetry_image: ${{ needs.tags.outputs['cost-telemetry'] }}
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
@@ -286,7 +295,7 @@ jobs:
         run: |
           umask 077
           terraform show -json terraform.plan > plan.json
-          jq -e '[.resource_changes[] | select(.change.actions | index("delete"))] | length == 0' plan.json
+          jq -e '[.resource_changes[] | select((.change.actions | index("delete")) and (.address != "terraform_data.cost_telemetry_source_image" or (.change.actions | index("create") | not)))] | length == 0' plan.json
 
       - name: Terraform apply
         run: terraform apply -input=false -auto-approve -lock-timeout=10m terraform.plan

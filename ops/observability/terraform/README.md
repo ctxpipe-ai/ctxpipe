@@ -2,23 +2,23 @@
 
 Provisions the existing Railway project `ctxpipe-observability` (`305aa114-c6f3-4aca-b883-0faa9c331aa2`). Does not create the project or the Neon project.
 
-ClickHouse, the collector, and `railway-telemetry` run CI images `ghcr.io/ctxpipe-ai/obs-<svc>:<git tree hash>`, where the tag is `git rev-parse HEAD:ops/observability/<svc>`. [`.github/workflows/observability.yaml`](../../../.github/workflows/observability.yaml) builds and pushes those images, then sets `TF_VAR_collector_image`, `TF_VAR_clickhouse_image`, and `TF_VAR_railway_telemetry_image`. Terraform `source_image` pins them. Railway pulls them without registry credentials, so the `obs-*` packages must be public; GitHub has no API for that, so set a new package public once in the org's package settings. HyperDX, Langfuse, Redis, and Mongo pull public images.
+ClickHouse, the collector, `railway-telemetry`, and `cost-telemetry` run CI images `ghcr.io/ctxpipe-ai/obs-<svc>:<git tree hash>`, where the tag is `git rev-parse HEAD:ops/observability/<svc>`. [`.github/workflows/observability.yaml`](../../../.github/workflows/observability.yaml) builds and pushes those images, then sets `TF_VAR_collector_image`, `TF_VAR_clickhouse_image`, `TF_VAR_railway_telemetry_image`, and `TF_VAR_cost_telemetry_image`. Terraform `source_image` pins ClickHouse, the collector, and `railway-telemetry`. `cost-telemetry` is created without a source; `terraform_data.cost_telemetry_source_image` connects `var.cost_telemetry_image` after `restartPolicyType=NEVER`. Railway pulls them without registry credentials, so the `obs-*` packages must be public; GitHub has no API for that, so set a new package public once in the org's package settings. HyperDX, Langfuse, Redis, and Mongo pull public images.
 
-`clickhouse`, `collector`, `mongo`, `langfuse-web`, and `langfuse-worker` set `lifecycle { prevent_destroy = true }`. Plan and apply both refuse a plan that contains a delete:
+`clickhouse`, `collector`, `mongo`, `langfuse-web`, and `langfuse-worker` set `lifecycle { prevent_destroy = true }`. Plan and apply both refuse a plan that contains a delete, except a replace of `terraform_data.cost_telemetry_source_image` (image updates recreate that helper). A bare delete of that resource still fails:
 
 ```bash
-jq -e '[.resource_changes[] | select(.change.actions | index("delete"))] | length == 0' plan.json
+jq -e '[.resource_changes[] | select((.change.actions | index("delete")) and (.address != "terraform_data.cost_telemetry_source_image" or (.change.actions | index("create") | not)))] | length == 0' plan.json
 ```
 
-A replace is a delete followed by a create, so it fails the same check. An intentional removal uses a `removed` block with `lifecycle { destroy = false }`.
+A replace is a delete followed by a create, so every other replace fails the same check. An intentional removal uses a `removed` block with `lifecycle { destroy = false }`.
 
-Railway holds secret values. Terraform holds references. Ownership: [../README.md](../README.md). `RAILWAY_API_TOKEN` on `railway-telemetry` is a Railway variable and must read the observability and product projects.
+Railway holds secret values. Terraform holds references. Ownership: [../README.md](../README.md). `RAILWAY_API_TOKEN` on `railway-telemetry` is a Railway variable and must read the observability and product projects. Provider tokens on `cost-telemetry` stay Railway-owned.
 
 `DEFAULT_CONNECTIONS` and `DEFAULT_SOURCES` seed a new HyperDX team that has none. They do not update an existing team. Dashboards: [../hyperdx/README.md](../hyperdx/README.md).
 
 Buckets `langfuse-events` and `clickhouse-cold` (region `iad`) are created outside this provider (0.6.1 has no bucket resource). Variables reference `${{langfuse-events.*}}` and `${{clickhouse-cold.*}}`.
 
-`railway_service.railway_telemetry` sets `cron_schedule = "*/5 * * * *"`; provider 0.6.1 sends `cronSchedule` on every update with no `omitempty`, so an unset attribute would clear the live cron. Restart policy, healthcheck, and Serverless are omitted on update (`omitempty`), so a value set on the service sticks and apply does not clear it. `railway-telemetry` is `NEVER` on the service. ClickHouse and the collector use the platform default, `ON_FAILURE` with 10 retries. Sleep policy: [../README.md](../README.md#awake-vs-sleep).
+`railway_service.railway_telemetry` sets `cron_schedule = "*/5 * * * *"`; `railway_service.cost_telemetry` sets `cron_schedule = "17 * * * *"` and omits `source_image`. Provider 0.6.1 sends `cronSchedule` on every update with no `omitempty`, so an unset attribute would clear the live cron. The provider has no `restartPolicyType` argument; Create and Update omit it (`omitempty`). Provider Create() calls `connectService` when `source_image` is set, which can start a deploy at the platform default `ON_FAILURE` before NEVER is written. Create order for `cost-telemetry`: empty service → `terraform_data.cost_telemetry_restart_never` ([`set-restart-policy-never.sh`](./set-restart-policy-never.sh): `serviceInstanceUpdate` `restartPolicyType: NEVER`, then a read-back) → `railway_variable_collection.cost_telemetry` (OTLP header) → `terraform_data.cost_telemetry_source_image` ([`connect-source-image-and-deploy.sh`](./connect-source-image-and-deploy.sh): `serviceInstanceUpdate` `source.image`, read-back, `serviceInstanceDeployV2` (String scalar id), then poll `deployments` until `SUCCESS`/`SLEEPING` or `FAILED`/`CRASHED`/timeout). The connect resource's trigger is the service id plus `var.cost_telemetry_image`, so an image change redeploys without rewriting NEVER. `lifecycle.ignore_changes` includes `source_image` so a later Read of the live image does not disconnect it. Later applies do not re-run the NEVER mutation; omitempty leaves the value in place. `railway-telemetry` is already `NEVER` on the live service. ClickHouse and the collector use the platform default, `ON_FAILURE` with 10 retries. Sleep policy: [../README.md](../README.md#awake-vs-sleep).
 
 ## Apply
 
@@ -35,7 +35,7 @@ bash scripts/railway-set-regions.sh
 
 `RAILWAY_TOKEN` must be able to manage this project. The product workspace token is enough.
 
-Local apply uses the same backend. Export the three `TF_VAR_*_image` tags, `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (the R2 keys), and `RAILWAY_TOKEN`, then `terraform init`, `terraform plan`, and `terraform apply` from this directory.
+Local apply uses the same backend. Export the four `TF_VAR_*_image` tags, `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (the R2 keys), and `RAILWAY_TOKEN`, then `terraform init`, `terraform plan`, and `terraform apply` from this directory. Creating or replacing `cost-telemetry`, or changing `TF_VAR_cost_telemetry_image`, runs the local-exec GraphQL helpers; those need the same `RAILWAY_TOKEN` plus `curl` and `jq`. The source-image helper waits up to 600s for a terminal Railway deploy status and fails the apply on `FAILED`, `CRASHED`, or timeout.
 
 ## Fresh project
 

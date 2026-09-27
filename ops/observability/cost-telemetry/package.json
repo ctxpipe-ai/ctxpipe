@@ -1,0 +1,19 @@
+{
+  "name": "cost-telemetry",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "start": "bun src/index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.9",
+    "msw": "^2.13.6",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cost-explorer": "3.1141.0",
+    "@smithy/fetch-http-handler": "5.8.0"
+  }
+}
