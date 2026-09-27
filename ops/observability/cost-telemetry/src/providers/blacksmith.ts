@@ -2,17 +2,11 @@ import { isRecord, requiredEnv } from "../http"
 import { sumRows, type CostRow } from "../rows"
 
 const ORG = "ctxpipe-ai"
-const BREAKDOWN = "day,runner_type,workflow"
 
 /**
- * Blacksmith CLI v0.4.61 `usage` JSON.
- *
- * Official docs list flags and minute/cost columns, not the JSON envelope.
- * Pinned-binary tags include `summary`, `days`, `breakdowns`, `day`,
- * `runner_type`, `workflow`, `repo`, `billable_minutes`, `estimated_cost_usd`.
- * This parser requires `breakdowns["day,runner_type,workflow"]` — the
- * `--breakdown-by` CSV we send. That keying is unverified against a live
- * authenticated run. A missing/wrong envelope throws instead of emitting $0.
+ * Blacksmith CLI v0.4.61 `usage` JSON, verified against an authenticated run.
+ * `daily` contains reported Actions cost and billable minutes. The separate
+ * runner/workflow breakdowns cannot be joined to a day, so use org-level rows.
  */
 export async function rows(days: string[]): Promise<CostRow[]> {
   const token = requiredEnv("BLACKSMITH_TOKEN")
@@ -34,8 +28,6 @@ export async function rows(days: string[]): Promise<CostRow[]> {
     start,
     "--end-time",
     end,
-    "--breakdown-by",
-    BREAKDOWN,
     "--format",
     "json",
     "--limit",
@@ -75,9 +67,8 @@ async function run(argv: string[], stdin?: string): Promise<string> {
 
 function mapUsage(body: unknown, wanted: Set<string>): CostRow[] {
   if (!isRecord(body)) throw new Error("blacksmith usage response was not an object")
-  if (!isRecord(body.breakdowns)) throw new Error("blacksmith usage response was missing breakdowns")
-  const items = body.breakdowns[BREAKDOWN]
-  if (!Array.isArray(items)) throw new Error(`blacksmith usage response was missing breakdowns[${BREAKDOWN}]`)
+  const items = body.daily
+  if (!Array.isArray(items)) throw new Error("blacksmith usage response was missing daily")
   const mapped: CostRow[] = []
   let mappable = 0
   for (const item of items) {
@@ -87,26 +78,23 @@ function mapUsage(body: unknown, wanted: Set<string>): CostRow[] {
     if (!wanted.has(row.day)) continue
     mapped.push(row)
   }
-  if (items.length > 0 && mappable === 0) throw new Error("blacksmith usage breakdown had no mappable rows")
+  if (items.length > 0 && mappable === 0) throw new Error("blacksmith usage daily had no mappable rows")
   return mapped
 }
 
 function usageRow(item: unknown): CostRow | undefined {
   if (!isRecord(item)) return undefined
-  if (typeof item.day !== "string" || !item.day) return undefined
-  if (typeof item.runner_type !== "string" || !item.runner_type) return undefined
+  if (typeof item.date !== "string" || !item.date) return undefined
   if (typeof item.billable_minutes !== "number" || !Number.isFinite(item.billable_minutes)) return undefined
-  if (typeof item.estimated_cost_usd !== "number" || !Number.isFinite(item.estimated_cost_usd)) return undefined
-  const day = item.day.slice(0, 10)
-  const scope = typeof item.workflow === "string" && item.workflow ? item.workflow : typeof item.repo === "string" && item.repo ? item.repo : "org"
+  if (typeof item.cost_usd !== "number" || !Number.isFinite(item.cost_usd)) return undefined
   return {
-    day,
+    day: item.date.slice(0, 10),
     provider: "blacksmith",
-    sku: item.runner_type,
-    scope,
+    sku: "actions",
+    scope: "org",
     usage: item.billable_minutes,
     unit: "minutes",
-    costUsd: item.estimated_cost_usd,
+    costUsd: item.cost_usd,
     source: "reported",
   }
 }

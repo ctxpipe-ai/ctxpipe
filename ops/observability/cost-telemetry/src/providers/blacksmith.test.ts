@@ -6,41 +6,20 @@ import { useEnv } from "../test-env"
 import { rows } from "./blacksmith"
 
 const DAY = "2026-09-25"
-// Envelope inferred from CLI v0.4.61 help + binary JSON tags, not a live authenticated run.
+// Matches a live authenticated Blacksmith CLI v0.4.61 usage response.
 const FIXTURE = {
   summary: {
     jobs: 4,
     billable_minutes: 12,
     billing_minutes: 11.25,
     runtime_minutes: 3.5,
-    estimated_cost_usd: 0.096,
+    cost_usd: 0.096,
   },
-  days: [{ day: DAY, jobs: 4, billable_minutes: 12, estimated_cost_usd: 0.096 }],
+  daily: [{ date: DAY, jobs: 4, billable_minutes: 12, billing_minutes: 11.25, runtime_minutes: 3.5, cost_usd: 0.096 }],
   breakdowns: {
-    "day,runner_type,workflow": [
-      {
-        day: DAY,
-        runner_type: "blacksmith-4vcpu-ubuntu-2404",
-        workflow: "CI",
-        repo: "ctxpipe-ai/ctxpipe",
-        jobs: 3,
-        billable_minutes: 10,
-        billing_minutes: 10,
-        runtime_minutes: 2.5,
-        estimated_cost_usd: 0.08,
-      },
-      {
-        day: DAY,
-        runner_type: "blacksmith-2vcpu-ubuntu-2404-arm",
-        workflow: "Deploy",
-        repo: "ctxpipe-ai/ctxpipe",
-        jobs: 1,
-        billable_minutes: 2,
-        billing_minutes: 1.25,
-        runtime_minutes: 1,
-        estimated_cost_usd: 0.016,
-      },
-    ],
+    day: [{ date: DAY, jobs: 4, billable_minutes: 12, billing_minutes: 11.25, runtime_minutes: 3.5, cost_usd: 0.096 }],
+    runner_type: [{ runner_type: "blacksmith-4vcpu-ubuntu-2404", jobs: 4, billable_minutes: 12, cost_usd: 0.096 }],
+    workflow: [{ workflow: "CI", jobs: 4, billable_minutes: 12, cost_usd: 0.096 }],
   },
 }
 
@@ -71,27 +50,17 @@ cat "${fixturePath}"
       {
         day: DAY,
         provider: "blacksmith",
-        sku: "blacksmith-4vcpu-ubuntu-2404",
-        scope: "CI",
-        usage: 10,
+        sku: "actions",
+        scope: "org",
+        usage: 12,
         unit: "minutes",
-        costUsd: 0.08,
-        source: "reported",
-      },
-      {
-        day: DAY,
-        provider: "blacksmith",
-        sku: "blacksmith-2vcpu-ubuntu-2404-arm",
-        scope: "Deploy",
-        usage: 2,
-        unit: "minutes",
-        costUsd: 0.016,
+        costUsd: 0.096,
         source: "reported",
       },
     ])
     const argv = await Bun.file(join(binDir, "argv.log")).text()
     expect(argv).toContain(
-      `usage --start-time ${DAY}T00:00:00Z --end-time ${DAY}T23:59:59Z --breakdown-by day,runner_type,workflow --format json --limit 1000 --org ctxpipe-ai`,
+      `usage --start-time ${DAY}T00:00:00Z --end-time ${DAY}T23:59:59Z --format json --limit 1000 --org ctxpipe-ai`,
     )
     expect(argv).toContain("auth login --api-token - --non-interactive --organization ctxpipe-ai")
   })
@@ -112,27 +81,22 @@ echo 'not-json'
     await expect(rows([DAY])).rejects.toThrow("blacksmith usage stdout was not JSON")
   })
 
-  test("throws when the requested breakdown array is missing", async () => {
+  test("throws when daily usage is missing", async () => {
     const fixturePath = join(binDir, "fixture.json")
-    writeFileSync(fixturePath, JSON.stringify({ summary: {}, days: [], breakdowns: { "day,runner_type,repo": [] } }))
+    writeFileSync(fixturePath, JSON.stringify({ summary: {}, breakdowns: {} }))
     installFake(`#!/bin/sh
 if [ "$1" != "usage" ]; then exit 0; fi
 cat "${fixturePath}"
 `)
-    await expect(rows([DAY])).rejects.toThrow("missing breakdowns[day,runner_type,workflow]")
+    await expect(rows([DAY])).rejects.toThrow("missing daily")
   })
 
-  test("throws when every breakdown row is unmappable", async () => {
+  test("throws when every daily row is unmappable", async () => {
     const fixturePath = join(binDir, "fixture.json")
     writeFileSync(
       fixturePath,
       JSON.stringify({
-        breakdowns: {
-          "day,runner_type,workflow": [
-            { day: DAY, runner_type: "blacksmith-4vcpu-ubuntu-2404", billable_minutes: "x", estimated_cost_usd: 0.01 },
-            null,
-          ],
-        },
+        daily: [{ date: DAY, billable_minutes: "x", cost_usd: 0.01 }, null],
       }),
     )
     installFake(`#!/bin/sh
@@ -147,14 +111,12 @@ cat "${fixturePath}"
     writeFileSync(
       fixturePath,
       JSON.stringify({
-        breakdowns: {
-          "day,runner_type,workflow": [
-            { day: DAY, runner_type: "blacksmith-4vcpu-ubuntu-2404", workflow: "CI", billable_minutes: 4, estimated_cost_usd: 0.032 },
-            { day: DAY, runner_type: "blacksmith-4vcpu-ubuntu-2404", workflow: "CI", billable_minutes: "x", estimated_cost_usd: 0.01 },
-            null,
-            { runner_type: "blacksmith-4vcpu-ubuntu-2404", billable_minutes: 1, estimated_cost_usd: 0.008 },
-          ],
-        },
+        daily: [
+          { date: DAY, billable_minutes: 4, cost_usd: 0.032 },
+          { date: DAY, billable_minutes: "x", cost_usd: 0.01 },
+          null,
+          { billable_minutes: 1, cost_usd: 0.008 },
+        ],
       }),
     )
     installFake(`#!/bin/sh
@@ -165,8 +127,8 @@ cat "${fixturePath}"
       {
         day: DAY,
         provider: "blacksmith",
-        sku: "blacksmith-4vcpu-ubuntu-2404",
-        scope: "CI",
+        sku: "actions",
+        scope: "org",
         usage: 4,
         unit: "minutes",
         costUsd: 0.032,
