@@ -1,6 +1,6 @@
 # ADR-038: Self-hosted ClickStack + Langfuse (ops observability)
 
-**Status:** Accepted | **Date:** 2026-09-21 | **Updated:** 2026-09-26 | **Tags:** observability, railway, clickhouse, langfuse, hyperdx, otel
+**Status:** Accepted | **Date:** 2026-09-21 | **Updated:** 2026-09-27 | **Tags:** observability, railway, clickhouse, langfuse, hyperdx, otel
 
 ### Context
 
@@ -26,6 +26,10 @@ Hosted observability was Langfuse Cloud plus unused Better Stack and Amplitude. 
 
 9. **Awake vs sleep.** Production metrics keep the collector and ClickHouse awake. HyperDX sleeps. Nothing polls sleepable services. `railway-telemetry` is a 5-minute cron. Detail: [ops/observability/README.md](../../../ops/observability/README.md) (Awake vs sleep).
 
+10. **Billing gauges.** Hourly `cost-telemetry` writes daily `billing.cost` and `billing.usage` points, plus `billing.fx_rate` (USD→AUD), into `otel.otel_metrics_gauge`. Each cost and usage point is stamped with `billing.observed_at_unix_ms`. The HyperDX **Cost** dashboard (`dashboards/cost.json`) reads those rows with raw SQL and `argMax(Value, toUInt64OrZero(Attributes['billing.observed_at_unix_ms']))` per day+provider+sku+scope so a later downward revision wins. Langfuse token cost stays in the `langfuse` database.
+
+11. **Cost credential delivery.** Provider credentials for the Terraform-managed cost collector have source copies in the protected GitHub `observability` Environment. The apply job writes them to Railway immediately before connecting the service image, and syncs them after apply for rotations. Terraform passes only service IDs to the sync script, so provider secret values stay out of plans and state. The isolated PR preview keeps its own Railway variables.
+
 ### Consequences
 
 - One internal APM and LLM stack. Self-host deploy does not ship it.
@@ -33,6 +37,7 @@ Hosted observability was Langfuse Cloud plus unused Better Stack and Amplitude. 
 - Cross-project OTLP is public, with an ingest token. Private networking does not cross Railway projects.
 - Single-node ClickHouse. A bucket outage at boot keeps it restarting until the bucket answers. Cold-part metadata stays on the volume.
 - Langfuse isolation is a second database on the existing Neon project, not a schema on `neondb`.
+- Provider spend history lives in the same `otel` gauge TTL (390 days). Tiles keep the latest observation per day (`argMax` on `billing.observed_at_unix_ms`), not `max(Value)`. Estimated rows are list price, not invoices. ≈ AUD always uses the latest stored FX rate.
 
 ### Alternatives Considered
 

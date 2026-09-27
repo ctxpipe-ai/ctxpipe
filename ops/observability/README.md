@@ -16,13 +16,14 @@ Querying: [USING.md](./USING.md). Deploy: [terraform/README.md](./terraform/READ
 | langfuse-worker | `langfuse/langfuse-worker:3` | Ingestion |
 | redis | `redis:7-alpine` | Langfuse queues |
 | railway-telemetry | `ghcr.io/ctxpipe-ai/obs-railway-telemetry` | Five-minute cron. [railway-telemetry/README.md](./railway-telemetry/README.md) |
+| cost-telemetry | `ghcr.io/ctxpipe-ai/obs-cost-telemetry` | Hourly cron at :17. [cost-telemetry/README.md](./cost-telemetry/README.md) |
 
 ## Awake vs sleep
 
 | Awake or scheduled | Sleeps when idle | Serverless on, stays up |
 | --- | --- | --- |
 | collector, clickhouse, langfuse-worker, redis | hyperdx | langfuse-web, mongo |
-| railway-telemetry (starts, exports, exits) | | |
+| railway-telemetry, cost-telemetry (starts, exports, exits) | | |
 
 Sleep is a missing `railway.cpu` sample, not a zero. Nothing polls HyperDX, Mongo, or Langfuse web. The collector scrapes only itself and ClickHouse. Redis stays up because the worker does.
 
@@ -36,7 +37,7 @@ Product traces, logs, and metrics use public OTLP. `service.name` is `backend`, 
 
 ## Secrets
 
-Railway holds the values. Terraform holds references and does not list the secret names, so apply cannot delete them.
+Railway holds runtime values. Terraform holds references and does not list provider secret names, so apply cannot delete them. For `cost-telemetry`, the protected GitHub `observability` Environment also holds source copies; apply syncs them directly to Railway before connecting the image, without placing their values in Terraform state.
 
 | Service | Railway-owned | Terraform wires |
 | --- | --- | --- |
@@ -46,6 +47,7 @@ Railway holds the values. Terraform holds references and does not list the secre
 | langfuse-web | `DATABASE_URL`, `DIRECT_URL`, `NEXTAUTH_SECRET`, `SALT`, `ENCRYPTION_KEY`, init user email/password, project public/secret keys | ClickHouse password and the collector OTLP header |
 | langfuse-worker | — | database, salt, and encryption key from langfuse-web |
 | railway-telemetry | `RAILWAY_API_TOKEN` | collector OTLP header |
+| cost-telemetry | `OPENROUTER_MANAGEMENT_KEY`, `GITHUB_BILLING_TOKEN`, `BLACKSMITH_TOKEN`, `NEON_API_KEY`, `NEON_ORG_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `RAILWAY_API_TOKEN`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optional `AWS_SESSION_TOKEN` (synced from GitHub Environment) | collector OTLP header |
 
 `LANGFUSE_AUTH_STRING` is `base64(pk:sk)` and must match the Langfuse project keys. `DATABASE_URL` and `DIRECT_URL` include `connection_limit=1&keepalives=0`.
 

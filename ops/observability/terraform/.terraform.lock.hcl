@@ -6,6 +6,7 @@ provider "registry.terraform.io/terraform-community-providers/railway" {
   constraints = "0.6.1"
   hashes = [
     "h1:8R6T7MSS3vFUwP1ONNXV5jEIOgwvR+kiguz5Di+Wl7I=",
+    "h1:CtReNYEv+OboVrtwumyRU6qrQ/JhAJdC0EFqzvSWan4=",
     "zh:1304557765650e3c0de01864b69b2e7bc76908dbaf9e95fd2d8ce8e01e4140f0",
     "zh:2a09fad69304ec85546ffda171d44f1802126c171516256e5385e1e879ed4b5b",
     "zh:2fefa095a4c2266cbc1409413120dc66dfdc0990801c8353a9fffad3b9149f92",
