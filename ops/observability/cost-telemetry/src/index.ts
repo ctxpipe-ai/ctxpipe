@@ -13,7 +13,7 @@ const PROVIDERS: { name: string; rows: (days: string[]) => Promise<CostRow[]> }[
   { name: "openrouter", rows: openRouterRows },
   { name: "github", rows: githubRows },
   { name: "railway", rows: railwayRows },
-  { name: "neon", rows: neonRows },
+  ...(process.env.NEON_API_KEY ? [{ name: "neon", rows: neonRows }] : []),
   { name: "blacksmith", rows: blacksmithRows },
   { name: "cloudflare", rows: cloudflareRows },
   { name: "aws", rows: awsRows },
