@@ -32,6 +32,11 @@ function databaseUrl(): string | undefined {
 /**
  * `describe.skipIf(!DATABASE_URL)` after `.env.local` is loaded.
  * Same gate as `github-pr-mirror.integration.test.ts`.
+ *
+ * CI Tests uses `ctxpipe_app` (ENABLE RLS, no BYPASSRLS). Tenant fixture
+ * INSERT/SELECT/DELETE must run inside `withOrgDbContext`. `getSystemDb()`
+ * is only for unRLS’d Better Auth / `organizations` rows. Without the org
+ * GUC, tenant INSERT fails the policy and SELECT returns no rows.
  */
 export function describeWithDatabase(name: string, fn: () => void): void {
   describe.skipIf(!databaseUrl())(name, fn)

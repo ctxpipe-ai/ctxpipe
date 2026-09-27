@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm"
 import type { Env } from "../../config/env.js"
-import { getOrgDb } from "../../db/client.js"
+import { getOrgDb, withOrgDbContext } from "../../db/client.js"
 import {
   CONNECTION_TYPE_NOTION,
   connections,
@@ -13,18 +13,20 @@ import {
 import type { NotionConnection } from "../../models/notion-connector.js"
 
 async function loadNotionConnectionRow(orgId: string, connectionId: string) {
-  const [row] = await getOrgDb()
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.id, connectionId),
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_NOTION),
-      ),
-    )
-    .limit(1)
-  return row
+  return withOrgDbContext(orgId, async () => {
+    const [row] = await getOrgDb()
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, connectionId),
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_NOTION),
+        ),
+      )
+      .limit(1)
+    return row
+  })
 }
 
 export async function loadNotionConnection(
@@ -59,31 +61,33 @@ export async function writeNotionConnectionTokens(input: {
   const stored = parseNotionConnectionConfig(
     row.config as Record<string, unknown>,
   )
-  const [updated] = await getOrgDb()
-    .update(connections)
-    .set({
-      config: {
-        ...notionShapeToConfig(
-          {
-            ...current,
-            accessToken: input.accessToken,
-            refreshToken: input.refreshToken,
-          },
-          input.env,
+  const [updated] = await withOrgDbContext(input.orgId, () =>
+    getOrgDb()
+      .update(connections)
+      .set({
+        config: {
+          ...notionShapeToConfig(
+            {
+              ...current,
+              accessToken: input.accessToken,
+              refreshToken: input.refreshToken,
+            },
+            input.env,
+          ),
+          oauthClientId: stored.oauthClientId,
+          oauthClientSecretEnc: stored.oauthClientSecretEnc,
+          webhookSecretEnc: stored.webhookSecretEnc,
+        },
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_NOTION),
         ),
-        oauthClientId: stored.oauthClientId,
-        oauthClientSecretEnc: stored.oauthClientSecretEnc,
-        webhookSecretEnc: stored.webhookSecretEnc,
-      },
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(connections.id, input.connectionId),
-        eq(connections.orgId, input.orgId),
-        eq(connections.type, CONNECTION_TYPE_NOTION),
-      ),
-    )
-    .returning()
+      )
+      .returning(),
+  )
   return updated ? notionConnectionToShape(updated, input.env) : undefined
 }

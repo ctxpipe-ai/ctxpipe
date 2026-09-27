@@ -238,13 +238,13 @@ it.each([
               "main",
             ),
           ).toBe(
-            "knowledge/owner.md\nslack/channels/engineering--C1/index.md\nslack/channels/engineering--C1/threads/2023/11/1700000000.000000/index.md",
+            "knowledge/owner.md\nslack/channels/engineering--C1/index.md\nslack/channels/engineering--C1/threads/2023/11/1700000000.000000/thread.md",
           )
           const markdown = f.git(
             "--git-dir",
             f.remote,
             "show",
-            "main:slack/channels/engineering--C1/threads/2023/11/1700000000.000000/index.md",
+            "main:slack/channels/engineering--C1/threads/2023/11/1700000000.000000/thread.md",
           )
           expect(markdown).toContain("Keep this engineering decision.")
           expect(markdown).not.toContain("ctx| agent working")

@@ -1,7 +1,7 @@
 import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
-import { attachJobTelemetry } from "../observability/jobTelemetry.js"
+import { attachJobTelemetryForSchema } from "../observability/jobTelemetry.js"
 import { dbErrorException } from "../observability/scrubDbError.js"
 import { openWorkflowNamespaceId } from "./namespace.js"
 import { scheduleEnsureWorkerRunning } from "./railway-wake.js"
@@ -41,7 +41,11 @@ export function runWorkflowWithWorkerWake(
   const [spec, input, options] = args
   const enqueue = () =>
     ow
-      .runWorkflow(spec, attachJobTelemetry(input) as typeof input, options)
+      .runWorkflow(
+        spec,
+        attachJobTelemetryForSchema(spec.schema, input) as typeof input,
+        options,
+      )
       .then((handle) => assertNativeWorkflowVersion(spec, handle))
   if (!trace.getActiveSpan()) {
     const queued = enqueue()

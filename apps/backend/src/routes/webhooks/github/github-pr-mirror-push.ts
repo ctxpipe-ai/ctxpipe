@@ -81,6 +81,7 @@ export async function maybeActivateGithubPrMirrorOnConfigPush(input: {
     if (!configTouched) continue
 
     const bindings = await listGithubPrMirrorBindingsForRepository(
+      installation.orgId,
       repository.id,
     )
     for (const binding of bindings) {

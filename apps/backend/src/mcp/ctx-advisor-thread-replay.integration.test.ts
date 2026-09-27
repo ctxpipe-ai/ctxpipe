@@ -1,6 +1,6 @@
 import { rm } from "node:fs/promises"
 import { eq } from "drizzle-orm"
-import { HttpResponse, http } from "msw"
+import { HttpResponse, http, passthrough } from "msw"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
 import {
   cleanupSeededOrg,
@@ -11,7 +11,7 @@ import {
 import { mcpToolResult, mcpToolText } from "../../test/mcp-tool-result.js"
 import { useMswServer } from "../../test/msw.js"
 import { withOrgIdContext } from "../auth/withAuth.js"
-import { getSystemDb, withOrgDbContext } from "../db/client.js"
+import { withOrgDbContext } from "../db/client.js"
 import {
   chatInterrupts,
   chatMetadata,
@@ -87,6 +87,7 @@ function openaiCompatibleChatResponse(input: {
 
 // biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 useMswServer(
+  http.all(/^http:\/\/127\.0\.0\.1:/, () => passthrough()),
   http.post("http://model.test/v1/chat/completions", async ({ request }) => {
     const body = (await request.json()) as Record<string, unknown>
     modelRequests.push(body)
@@ -116,17 +117,20 @@ describeWithDatabase("ctx_advisor persisted turn replay", () => {
     vi.stubEnv("MODEL_PROVIDER_URL", "http://model.test/v1")
     vi.stubEnv("MODEL_FAST_NAME", "openai/gpt-5.6-terra")
     vi.stubEnv("SANDBOX_PROVIDER", "unsandboxed")
-    vi.stubEnv("AUTH_BASE_URL", "http://127.0.0.1")
   })
 
   afterAll(async () => {
     if (!seed) return
-    await getSystemDb()
-      .delete(conversations)
-      .where(eq(conversations.orgId, seed.orgId))
-    await getSystemDb()
-      .delete(workspaces)
-      .where(eq(workspaces.orgId, seed.orgId))
+    await withOrgDbContext(seed.orgId, async (db) => {
+      await db
+        .delete(chatInterrupts)
+        .where(eq(chatInterrupts.orgId, seed.orgId))
+      await db.delete(chatRuns).where(eq(chatRuns.orgId, seed.orgId))
+      await db.delete(chatThreads).where(eq(chatThreads.orgId, seed.orgId))
+      await db.delete(chatMetadata).where(eq(chatMetadata.orgId, seed.orgId))
+      await db.delete(conversations).where(eq(conversations.orgId, seed.orgId))
+      await db.delete(workspaces).where(eq(workspaces.orgId, seed.orgId))
+    })
     await cleanupSeededOrg(seed)
   })
 
@@ -143,6 +147,15 @@ describeWithDatabase("ctx_advisor persisted turn replay", () => {
     const threadId = orgThreadId("session-persisted")
     const firstUser = `Project: ${PROJECT}\n\n${FIRST_USER}`
     const secondUser = `Project: ${PROJECT}\n\n${SECOND_USER}`
+    await withOrgDbContext(seed.orgId, (db) =>
+      db.insert(conversations).values({
+        id: threadId,
+        orgId: seed.orgId,
+        name: "Persisted advisor thread",
+        source: "mcp",
+        userId: null,
+      }),
+    )
     await withOrgIdContext({ id: seed.orgId, slug: seed.orgSlug }, async () => {
       const persistence = workspaceChatPersistence()
       await persistence.stores.messages.saveThread(threadId, [
@@ -169,6 +182,7 @@ describeWithDatabase("ctx_advisor persisted turn replay", () => {
         orgId: seed.orgId,
         orgSlug: seed.orgSlug,
       })
+      vi.stubEnv("AUTH_BASE_URL", chat.origin)
       modelRequests.length = 0
       workspaceChatDockerOwnership.reset()
       workspaceChatInstanceAccess.reset()
@@ -202,10 +216,10 @@ describeWithDatabase("ctx_advisor persisted turn replay", () => {
 
         const first = await callAdvisor(FIRST_USER)
         expect(first.status).toBe(200)
-        expect(first.result.isError).not.toBe(true)
+        expect(first.result.isError, mcpToolText(first.result)).not.toBe(true)
         expect(mcpToolText(first.result)).toContain(FIRST_ASSISTANT)
 
-        const created = await conversationRow(threadId)
+        const created = await conversationRow(seed.orgId, threadId)
         expect(created).toMatchObject({
           id: threadId,
           userId: null,
@@ -217,7 +231,7 @@ describeWithDatabase("ctx_advisor persisted turn replay", () => {
         expect(second.result.isError).not.toBe(true)
         expect(mcpToolText(second.result)).toContain(SECOND_ASSISTANT)
 
-        const resumed = await conversationRow(threadId)
+        const resumed = await conversationRow(seed.orgId, threadId)
         expect(resumed?.id).toBe(threadId)
         expect(resumed?.createdAt).toEqual(created?.createdAt)
 
@@ -285,17 +299,19 @@ describeWithDatabase("ctx_advisor persisted turn replay", () => {
   )
 })
 
-async function conversationRow(id: string) {
-  const [row] = await getSystemDb()
-    .select({
-      id: conversations.id,
-      userId: conversations.userId,
-      source: conversations.source,
-      createdAt: conversations.createdAt,
-    })
-    .from(conversations)
-    .where(eq(conversations.id, id))
-    .limit(1)
+async function conversationRow(orgId: string, id: string) {
+  const [row] = await withOrgDbContext(orgId, (db) =>
+    db
+      .select({
+        id: conversations.id,
+        userId: conversations.userId,
+        source: conversations.source,
+        createdAt: conversations.createdAt,
+      })
+      .from(conversations)
+      .where(eq(conversations.id, id))
+      .limit(1),
+  )
   return row
 }
 

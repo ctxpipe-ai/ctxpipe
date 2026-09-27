@@ -3,9 +3,9 @@ import {
   modelMessagesToUIMessages,
 } from "@tanstack/ai"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
-import { log } from "../../observability/logger.js"
 import { applyAttribution } from "../../observability/attribution.js"
 import { runWithLangfuseContext } from "../../observability/langfuse.js"
+import { log } from "../../observability/logger.js"
 import {
   runTanstackWorkspaceChat,
   streamTanstackWorkspaceChat,
@@ -126,11 +126,11 @@ function toChatInput(input: StreamInput): TanstackWorkspaceChatInput | null {
 
 class DataStreamConversationTransport implements ConversationTransportAdapter {
   async toResponse(input: StreamInput): Promise<Response> {
+    applyAttribution({ "ctxpipe.conversation.id": input.conversationId })
     const chatInput = toChatInput(input)
     if (!chatInput) {
       return Response.json({ error: "workspace_required" }, { status: 409 })
     }
-    applyAttribution({ "ctxpipe.conversation.id": input.conversationId })
     return runWithLangfuseContext(
       {
         sessionId: input.conversationId,

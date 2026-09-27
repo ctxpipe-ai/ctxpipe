@@ -32,7 +32,7 @@ export const pagerdutySyncConfig = defineWorkflow(
   async ({ input, step }) => {
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const binding = await step.run({ name: "load-pagerduty-binding" }, () =>
-      getPagerdutyBindingByConnectionId(input.connectionId),
+      getPagerdutyBindingByConnectionId(input.orgId, input.connectionId),
     )
     if (!binding) throw new Error("PagerDuty binding is not configured")
     if (binding.orgId !== input.orgId) {
@@ -76,6 +76,7 @@ export const pagerdutySyncConfig = defineWorkflow(
         () =>
           withOrgDbContext(input.orgId, () =>
             transitionPagerdutyBindingState({
+              orgId: input.orgId,
               connectionId: input.connectionId,
               expectedSetupPhase: "awaiting_merge",
               expectedPendingConfigPrCreating: true,
@@ -107,6 +108,7 @@ export const pagerdutySyncConfig = defineWorkflow(
       await step.run({ name: "mark-config-failed" }, () =>
         withOrgDbContext(input.orgId, () =>
           transitionPagerdutyBindingState({
+            orgId: input.orgId,
             connectionId: input.connectionId,
             expectedSetupPhase: expectedPhase,
             expectedPendingConfigPrCreating,

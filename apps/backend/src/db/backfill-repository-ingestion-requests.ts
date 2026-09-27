@@ -1,10 +1,12 @@
 import type { Pool } from "pg"
+import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 
 /** Upgrade-only current ownership metadata; never starts work or replaces a current request. */
 export async function backfillRepositoryIngestionRequests(
   pool: Pool,
 ): Promise<void> {
-  await pool.query(`
+  await pool.query(
+    `
     insert into repository_ingestion_requests
       (repository_id, org_id, request_id, target_branch, indexing_reason,
        repository_url, github_connection_id, workflow_run_id, created_at)
@@ -15,7 +17,7 @@ export async function backfillRepositoryIngestionRequests(
     from repositories repository
     cross join lateral (
       select id, input, created_at from openworkflow.workflow_runs
-      where namespace_id = 'default' and version is null and workflow_name = 'repository-ingestion-orchestrator'
+      where namespace_id = $1 and version is null and workflow_name = 'repository-ingestion-orchestrator'
         and input->>'orgId' = repository.org_id
         and input->>'repositoryId' = repository.id
       order by created_at desc, id desc limit 1
@@ -23,5 +25,7 @@ export async function backfillRepositoryIngestionRequests(
     where not exists (select 1 from repository_ingestion_requests request
       where request.repository_id = repository.id)
     on conflict (repository_id) do nothing
-  `)
+  `,
+    [openWorkflowNamespaceId()],
+  )
 }

@@ -21,6 +21,7 @@ import { log } from "../observability/logger.js"
 import {
   deleteConnectionDirectory,
   listConnectionDirectoryByGithubInstallationId,
+  listConnectionDirectoryByType,
   loadConnectionViaDirectory,
   upsertConnectionDirectory,
 } from "./connection-directory.js"
@@ -387,13 +388,15 @@ export async function listGithubConnectionsForOrg(
 export async function listGithubConnections(): Promise<
   GitHubInstallationShape[]
 > {
-  const db = getSystemDb()
-  const rows = await db
-    .select()
-    .from(connections)
-    .where(eq(connections.type, CONNECTION_TYPE_GITHUB))
-    .orderBy(connections.createdAt)
-  return rows.map(githubConnectionToShape)
+  const directoryRows = await listConnectionDirectoryByType(
+    CONNECTION_TYPE_GITHUB,
+  )
+  const rows = await Promise.all(
+    directoryRows.map((row) => loadConnectionViaDirectory(row.connectionId)),
+  )
+  return rows
+    .filter((row): row is ConnectionRow => row?.type === CONNECTION_TYPE_GITHUB)
+    .map(githubConnectionToShape)
 }
 
 export async function listGithubConnectionRowsForOrg(

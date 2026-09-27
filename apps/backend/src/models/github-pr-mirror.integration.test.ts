@@ -32,29 +32,36 @@ describe.skipIf(!connectionString)(
     beforeAll(async () => {
       if (!connectionString) return
       initDb(connectionString)
-      const db = getSystemDb()
-      await db.insert(organizations).values({
-        id: orgId,
-        name: "PR mirror integration",
-        slug: `pr-mirror-integration-${suffix}`,
-        createdAt: new Date(),
-      })
-      await db.insert(connections).values({
-        id: connectionId,
-        orgId,
-        type: CONNECTION_TYPE_GITHUB,
-        config: {
-          ingestAllRepositories: false,
-          includeFutureRepos: false,
-        },
-      })
+      await getSystemDb()
+        .insert(organizations)
+        .values({
+          id: orgId,
+          name: "PR mirror integration",
+          slug: `pr-mirror-integration-${suffix}`,
+          createdAt: new Date(),
+        })
+      await withOrgDbContext(orgId, (db) =>
+        db.insert(connections).values({
+          id: connectionId,
+          orgId,
+          type: CONNECTION_TYPE_GITHUB,
+          config: {
+            ingestAllRepositories: false,
+            includeFutureRepos: false,
+          },
+        }),
+      )
     })
 
     afterAll(async () => {
       if (!connectionString) return
-      const db = getSystemDb()
-      await db.delete(repositories).where(eq(repositories.orgId, orgId))
-      await db.delete(organizations).where(eq(organizations.id, orgId))
+      await withOrgDbContext(orgId, async (db) => {
+        await db.delete(repositories).where(eq(repositories.orgId, orgId))
+        await db.delete(connections).where(eq(connections.id, connectionId))
+      })
+      await getSystemDb()
+        .delete(organizations)
+        .where(eq(organizations.id, orgId))
       await closeDb()
     })
 

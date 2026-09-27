@@ -31,6 +31,30 @@ vi.mock("../db/client.js", async (importOriginal) => {
     ...actual,
     getOrgDb: dbMocks.getOrgDb,
     getSystemDb: dbMocks.getSystemDb,
+    withOrgDbContext: async (
+      _orgId: string,
+      handler: (db: Db) => Promise<unknown>,
+    ) => {
+      const system = dbMocks.getSystemDb() as
+        | {
+            transaction?: (
+              operation: (db: Db) => Promise<unknown>,
+            ) => Promise<unknown>
+          }
+        | undefined
+      if (system?.transaction) return system.transaction(handler)
+      // Real directory writes after the connector transaction. Empty current-row
+      // lets upsertConnectionDirectory return; directory is proven in Postgres.
+      return handler({
+        select: () => ({
+          from: () => ({
+            where: () => ({
+              for: async () => [],
+            }),
+          }),
+        }),
+      } as unknown as Db)
+    },
   }
 })
 
@@ -142,6 +166,8 @@ describe("planPagerdutySyncBindingUpdate", () => {
 describe("PagerDuty connector lifecycle", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    dbMocks.getOrgDb.mockReset()
+    dbMocks.getSystemDb.mockReset()
   })
 
   it.each([
@@ -154,6 +180,7 @@ describe("PagerDuty connector lifecycle", () => {
 
     await expect(
       claimPagerdutyBindingInitialSync({
+        orgId: "org_1",
         connectionId: "con_pagerduty",
         repositoryId: "repo_1",
         branch: "main",
@@ -171,6 +198,7 @@ describe("PagerDuty connector lifecycle", () => {
 
     await expect(
       claimPagerdutyBindingInitialSync({
+        orgId: "org_1",
         connectionId: "con_pagerduty",
         repositoryId: "repo_1",
         branch: "main",
@@ -184,6 +212,7 @@ describe("PagerDuty connector lifecycle", () => {
 
     await expect(
       claimPagerdutyBindingInitialSync({
+        orgId: "org_1",
         connectionId: "con_pagerduty",
         repositoryId: "repo_1",
         branch: "main",
@@ -196,6 +225,7 @@ describe("PagerDuty connector lifecycle", () => {
     dbMocks.getSystemDb.mockReturnValue(db)
 
     await finalizePagerdutyBindingAfterContentWorkflow({
+      orgId: "org_1",
       connectionId: "con_pagerduty",
       workflowStatus: "completed",
     })
@@ -212,6 +242,7 @@ describe("PagerDuty connector lifecycle", () => {
     dbMocks.getSystemDb.mockReturnValue(db)
 
     await finalizePagerdutyBindingAfterContentWorkflow({
+      orgId: "org_1",
       connectionId: "con_pagerduty",
       workflowStatus: "completed",
     })
@@ -227,6 +258,8 @@ describe("PagerDuty connector lifecycle", () => {
 describe("PagerDuty connection storage", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    dbMocks.getOrgDb.mockReset()
+    dbMocks.getSystemDb.mockReset()
   })
 
   it("locks OAuth upserts and preserves the latest binding", async () => {

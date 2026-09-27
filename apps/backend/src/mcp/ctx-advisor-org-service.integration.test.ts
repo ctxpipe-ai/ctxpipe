@@ -14,7 +14,7 @@ import { mcpToolResult, mcpToolText } from "../../test/mcp-tool-result.js"
 import { useMswServer } from "../../test/msw.js"
 import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
-import { getSystemDb, withOrgDbContext } from "../db/client.js"
+import { withOrgDbContext } from "../db/client.js"
 import { conversations } from "../db/schema/conversations.js"
 import { workspaces } from "../db/schema/workspaces.js"
 import { generateObjectId } from "../lib/id.js"
@@ -49,12 +49,10 @@ describeWithDatabase("org-service ctx_advisor", () => {
 
   afterAll(async () => {
     if (!seed) return
-    await getSystemDb()
-      .delete(conversations)
-      .where(eq(conversations.orgId, seed.orgId))
-    await getSystemDb()
-      .delete(workspaces)
-      .where(eq(workspaces.orgId, seed.orgId))
+    await withOrgDbContext(seed.orgId, async (db) => {
+      await db.delete(conversations).where(eq(conversations.orgId, seed.orgId))
+      await db.delete(workspaces).where(eq(workspaces.orgId, seed.orgId))
+    })
     await cleanupSeededOrg(seed)
   })
 
@@ -129,21 +127,23 @@ describeWithDatabase("org-service ctx_advisor", () => {
     const result = mcpToolResult(await response.text())
     expect(mcpToolText(result)).not.toContain("Missing user context")
 
-    const rows = await getSystemDb()
-      .select({
-        id: conversations.id,
-        userId: conversations.userId,
-        source: conversations.source,
-        workspaceId: conversations.workspaceId,
-      })
-      .from(conversations)
-      .where(
-        and(
-          eq(conversations.orgId, seed.orgId),
-          isNull(conversations.userId),
-          eq(conversations.source, "mcp"),
+    const rows = await withOrgDbContext(seed.orgId, (db) =>
+      db
+        .select({
+          id: conversations.id,
+          userId: conversations.userId,
+          source: conversations.source,
+          workspaceId: conversations.workspaceId,
+        })
+        .from(conversations)
+        .where(
+          and(
+            eq(conversations.orgId, seed.orgId),
+            isNull(conversations.userId),
+            eq(conversations.source, "mcp"),
+          ),
         ),
-      )
+    )
     expect(rows).toEqual([
       expect.objectContaining({
         userId: null,
@@ -163,20 +163,22 @@ describeWithDatabase("org-service ctx_advisor", () => {
     const result = mcpToolResult(await response.text())
     expect(mcpToolText(result)).not.toContain("Missing user context")
 
-    const rows = await getSystemDb()
-      .select({
-        userId: conversations.userId,
-        source: conversations.source,
-        workspaceId: conversations.workspaceId,
-      })
-      .from(conversations)
-      .where(
-        and(
-          eq(conversations.orgId, seed.orgId),
-          eq(conversations.userId, seed.userId),
-          eq(conversations.source, "mcp"),
+    const rows = await withOrgDbContext(seed.orgId, (db) =>
+      db
+        .select({
+          userId: conversations.userId,
+          source: conversations.source,
+          workspaceId: conversations.workspaceId,
+        })
+        .from(conversations)
+        .where(
+          and(
+            eq(conversations.orgId, seed.orgId),
+            eq(conversations.userId, seed.userId),
+            eq(conversations.source, "mcp"),
+          ),
         ),
-      )
+    )
     expect(rows.length).toBeGreaterThan(0)
     expect(rows).toEqual(
       expect.arrayContaining([

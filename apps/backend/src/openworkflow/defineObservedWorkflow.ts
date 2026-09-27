@@ -4,7 +4,7 @@ import {
 } from "openworkflow"
 import type { z } from "zod"
 import {
-  attachJobTelemetry,
+  attachJobTelemetryForSchema,
   type JobTelemetry,
   jobTelemetrySchema,
   restoreJobTelemetry,
@@ -29,7 +29,7 @@ function attachChildTelemetry(step: Step): void {
     runWorkflow.call(
       step,
       spec,
-      attachJobTelemetry(input),
+      attachJobTelemetryForSchema(spec.schema, input),
       options,
     )) as Step["runWorkflow"]
 }

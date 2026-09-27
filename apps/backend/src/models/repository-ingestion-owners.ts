@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm"
 import type { Db } from "../db/client.js"
 import { userFacingIndexingError } from "../lib/memoryFitError.js"
+import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 import type { RepositoryWithSearch } from "./repositories.js"
 
 /** Native execution is authoritative even when cancellation prevented a worker callback. */
@@ -10,6 +11,7 @@ export async function projectRepositoryIngestionOwners(
   repositories: RepositoryWithSearch[],
 ): Promise<RepositoryWithSearch[]> {
   if (!repositories.length) return repositories
+  const namespaceId = openWorkflowNamespaceId()
   const owners = await db.execute<{
     repositoryId: string
     status: string
@@ -22,8 +24,8 @@ export async function projectRepositoryIngestionOwners(
       and repository.git_url = request.repository_url
       and repository.github_connection_id is not distinct from request.github_connection_id
     join openworkflow.workflow_runs owner on owner.id = coalesce(request.workflow_run_id,
-      (select id from openworkflow.workflow_runs where namespace_id = 'default' and workflow_name = 'repository-ingestion-orchestrator' and version is null and idempotency_key = request.request_id limit 1))
-    where owner.namespace_id = 'default' and owner.version is null
+      (select id from openworkflow.workflow_runs where namespace_id = ${namespaceId} and workflow_name = 'repository-ingestion-orchestrator' and version is null and idempotency_key = request.request_id limit 1))
+    where owner.namespace_id = ${namespaceId} and owner.version is null
       and owner.workflow_name = 'repository-ingestion-orchestrator'
       and request.org_id = ${orgId} and owner.input->>'orgId' = ${orgId}
       and owner.input->>'repositoryId' = request.repository_id

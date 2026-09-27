@@ -94,6 +94,7 @@ describe("PagerDuty config push activation", () => {
     })
 
     expect(mocks.markInitialSync).toHaveBeenCalledWith({
+      orgId: "org_1",
       connectionId: "con_pd",
       repositoryId: "repo_1",
       branch: "main",

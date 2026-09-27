@@ -1,5 +1,5 @@
 import { and, eq, inArray, or, sql } from "drizzle-orm"
-import { getOrgDb } from "../../../db/client.js"
+import { getOrgDb, withOrgDbContext } from "../../../db/client.js"
 import { objects } from "../../../db/schema/objects.js"
 import { buildEvidenceSourceId } from "../../../domain/codeIngestion/evidenceSourceId.js"
 import {
@@ -96,36 +96,38 @@ export async function listPackageRootsForRepository(input: {
   repositoryId: string
 }): Promise<PackageRoot[]> {
   try {
-    const db = getOrgDb()
-    const rows = await db
-      .select({
-        kind: objects.kind,
-        deduplicationKey: objects.deduplicationKey,
-      })
-      .from(objects)
-      .where(
-        and(
-          eq(objects.orgId, input.orgId),
-          inArray(objects.kind, ["Service", "App", "Library"]),
-          or(
-            sql`starts_with(${objects.deduplicationKey}, ${`svc:${input.repositoryId}:`})`,
-            sql`starts_with(${objects.deduplicationKey}, ${`app:${input.repositoryId}:`})`,
-            sql`starts_with(${objects.deduplicationKey}, ${`lib:${input.repositoryId}:`})`,
+    return await withOrgDbContext(input.orgId, async () => {
+      const db = getOrgDb()
+      const rows = await db
+        .select({
+          kind: objects.kind,
+          deduplicationKey: objects.deduplicationKey,
+        })
+        .from(objects)
+        .where(
+          and(
+            eq(objects.orgId, input.orgId),
+            inArray(objects.kind, ["Service", "App", "Library"]),
+            or(
+              sql`starts_with(${objects.deduplicationKey}, ${`svc:${input.repositoryId}:`})`,
+              sql`starts_with(${objects.deduplicationKey}, ${`app:${input.repositoryId}:`})`,
+              sql`starts_with(${objects.deduplicationKey}, ${`lib:${input.repositoryId}:`})`,
+            ),
           ),
-        ),
-      )
-    const out: PackageRoot[] = []
-    for (const row of rows) {
-      if (!row.deduplicationKey) continue
-      if (!PACKAGE_KINDS.has(row.kind)) continue
-      const parsed = parsePackageDedupKey(row.deduplicationKey)
-      if (!parsed || parsed.repositoryId !== input.repositoryId) continue
-      out.push({
-        ...parsed,
-        kind: row.kind as PackageKind,
-      })
-    }
-    return out
+        )
+      const out: PackageRoot[] = []
+      for (const row of rows) {
+        if (!row.deduplicationKey) continue
+        if (!PACKAGE_KINDS.has(row.kind)) continue
+        const parsed = parsePackageDedupKey(row.deduplicationKey)
+        if (!parsed || parsed.repositoryId !== input.repositoryId) continue
+        out.push({
+          ...parsed,
+          kind: row.kind as PackageKind,
+        })
+      }
+      return out
+    })
   } catch {
     return []
   }
@@ -134,20 +136,24 @@ export async function listPackageRootsForRepository(input: {
 /** Linear team keys already on the graph (`team:linear:ENG` → `ENG`); bounds bare-identifier matching. */
 export async function listLinearTeamKeys(orgId: string): Promise<string[]> {
   try {
-    const db = getOrgDb()
-    const rows = await db
-      .select({ deduplicationKey: objects.deduplicationKey })
-      .from(objects)
-      .where(
-        and(
-          eq(objects.orgId, orgId),
-          eq(objects.kind, "Team"),
-          sql`starts_with(${objects.deduplicationKey}, ${LINEAR_TEAM_KEY_PREFIX})`,
-        ),
-      )
-    return rows
-      .map((row) => row.deduplicationKey?.slice(LINEAR_TEAM_KEY_PREFIX.length))
-      .filter((key): key is string => Boolean(key))
+    return await withOrgDbContext(orgId, async () => {
+      const db = getOrgDb()
+      const rows = await db
+        .select({ deduplicationKey: objects.deduplicationKey })
+        .from(objects)
+        .where(
+          and(
+            eq(objects.orgId, orgId),
+            eq(objects.kind, "Team"),
+            sql`starts_with(${objects.deduplicationKey}, ${LINEAR_TEAM_KEY_PREFIX})`,
+          ),
+        )
+      return rows
+        .map((row) =>
+          row.deduplicationKey?.slice(LINEAR_TEAM_KEY_PREFIX.length),
+        )
+        .filter((key): key is string => Boolean(key))
+    })
   } catch {
     return []
   }
@@ -401,23 +407,25 @@ export async function resolveReferenceClaims(input: {
 
   if (unknownRefs.size > 0) {
     try {
-      const db = getOrgDb()
-      const refs = [...unknownRefs]
-      for (let i = 0; i < refs.length; i += DEDUP_LOOKUP_CHUNK) {
-        const chunk = refs.slice(i, i + DEDUP_LOOKUP_CHUNK)
-        const rows = await db
-          .select({ deduplicationKey: objects.deduplicationKey })
-          .from(objects)
-          .where(
-            and(
-              eq(objects.orgId, input.orgId),
-              inArray(objects.deduplicationKey, chunk),
-            ),
-          )
-        for (const row of rows) {
-          if (row.deduplicationKey) known.add(row.deduplicationKey)
+      await withOrgDbContext(input.orgId, async () => {
+        const db = getOrgDb()
+        const refs = [...unknownRefs]
+        for (let i = 0; i < refs.length; i += DEDUP_LOOKUP_CHUNK) {
+          const chunk = refs.slice(i, i + DEDUP_LOOKUP_CHUNK)
+          const rows = await db
+            .select({ deduplicationKey: objects.deduplicationKey })
+            .from(objects)
+            .where(
+              and(
+                eq(objects.orgId, input.orgId),
+                inArray(objects.deduplicationKey, chunk),
+              ),
+            )
+          for (const row of rows) {
+            if (row.deduplicationKey) known.add(row.deduplicationKey)
+          }
         }
-      }
+      })
     } catch (error) {
       logLinkPass("warn", "resolveReferenceClaims: graph lookup failed", {
         orgId: input.orgId,

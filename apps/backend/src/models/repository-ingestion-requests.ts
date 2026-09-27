@@ -5,6 +5,7 @@ import {
   repositories,
   repositoryIngestionRequests,
 } from "../db/schema/repositories.js"
+import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 
 type Request = typeof repositoryIngestionRequests.$inferSelect
 export type RepositoryIngestionIntent = {
@@ -16,9 +17,10 @@ export type RepositoryIngestionIntent = {
 type Owner = { id: string; status: string; input: Record<string, unknown> }
 
 async function nativeOwner(db: Db, request: Request): Promise<Owner | null> {
+  const namespaceId = openWorkflowNamespaceId()
   const result = await db.execute<Owner>(sql`
     select id, status, input from openworkflow.workflow_runs
-    where namespace_id = 'default' and workflow_name = 'repository-ingestion-orchestrator' and version is null
+    where namespace_id = ${namespaceId} and workflow_name = 'repository-ingestion-orchestrator' and version is null
       and ${request.workflowRunId ? sql`id = ${request.workflowRunId}` : sql`idempotency_key = ${request.requestId}`}
       and input->>'orgId' = ${request.orgId} and input->>'repositoryId' = ${request.repositoryId}
     limit 1
@@ -124,8 +126,9 @@ export async function activateRepositoryIngestionRequest(
         current.targetBranch !== (input.targetBranch ?? null))
     )
       throw new Error("Repository ingestion binding changed")
+    const namespaceId = openWorkflowNamespaceId()
     const result = await db.execute<Owner>(
-      sql`select id, status, input from openworkflow.workflow_runs where id = ${workflowRunId} and input->>'orgId' = ${input.orgId} and input->>'repositoryId' = ${input.repositoryId} and workflow_name = 'repository-ingestion-orchestrator' and namespace_id = 'default' and version is null`,
+      sql`select id, status, input from openworkflow.workflow_runs where id = ${workflowRunId} and input->>'orgId' = ${input.orgId} and input->>'repositoryId' = ${input.repositoryId} and workflow_name = 'repository-ingestion-orchestrator' and namespace_id = ${namespaceId} and version is null`,
     )
     const owner = result.rows[0]
     if (
@@ -175,6 +178,7 @@ export async function activateRepositoryIngestionRequest(
 
 /** A superseded or rebound producer cannot overwrite progress from the current request. */
 export function repositoryIngestionWriteCondition(requestId?: string | null) {
+  const namespaceId = openWorkflowNamespaceId()
   return requestId
     ? sql`exists (select 1 from repository_ingestion_requests request
         where request.repository_id = ${repositories.id} and request.org_id = ${repositories.orgId}
@@ -182,7 +186,7 @@ export function repositoryIngestionWriteCondition(requestId?: string | null) {
           and request.github_connection_id is not distinct from ${repositories.githubConnectionId}
           and exists (select 1 from openworkflow.workflow_runs owner
             where owner.id = request.workflow_run_id
-              and owner.namespace_id = 'default' and owner.version is null
+              and owner.namespace_id = ${namespaceId} and owner.version is null
               and owner.workflow_name = 'repository-ingestion-orchestrator'
               and owner.input->>'orgId' = request.org_id
               and owner.input->>'repositoryId' = request.repository_id
@@ -208,15 +212,18 @@ export async function captureRepositoryIngestionRequest(
     }
     let requestId = input.requestId
     if (!requestId) {
+      const namespaceId = openWorkflowNamespaceId()
       const ancestors = await db.execute<{ id: string }>(sql`
         with recursive ancestry as (
           select id, parent_step_attempt_id, 0 as depth from openworkflow.workflow_runs
-          where id = ${workflowRunId} and input->>'orgId' = ${input.orgId}
+          where id = ${workflowRunId} and namespace_id = ${namespaceId} and input->>'orgId' = ${input.orgId}
             and input->>'repositoryId' = ${input.repositoryId}
           union all
           select parent.id, parent.parent_step_attempt_id, child.depth + 1 from ancestry child
           join openworkflow.step_attempts attempt on attempt.id = child.parent_step_attempt_id
+            and attempt.namespace_id = ${namespaceId}
           join openworkflow.workflow_runs parent on parent.id = attempt.workflow_run_id
+            and parent.namespace_id = ${namespaceId}
           where child.depth < 8 and parent.input->>'orgId' = ${input.orgId}
             and parent.input->>'repositoryId' = ${input.repositoryId}
         ) select id from ancestry where id = ${request.workflowRunId}

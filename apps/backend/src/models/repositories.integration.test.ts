@@ -75,22 +75,27 @@ describe.skipIf(!connectionString)(
 
     afterAll(async () => {
       if (!connectionString) return
-      const db = getSystemDb()
-      await db.delete(repositories).where(eq(repositories.orgId, orgId))
-      await db.delete(organizations).where(eq(organizations.id, orgId))
+      await withOrgDbContext(orgId, (db) =>
+        db.delete(repositories).where(eq(repositories.orgId, orgId)),
+      )
+      await getSystemDb()
+        .delete(organizations)
+        .where(eq(organizations.id, orgId))
       await closeDb()
     })
 
     async function readStatus(repositoryId: string) {
-      const [row] = await getSystemDb()
-        .select({
-          indexingStatus: repositories.indexingStatus,
-          indexingStep: repositories.indexingStep,
-          indexingStepKey: repositories.indexingStepKey,
-        })
-        .from(repositories)
-        .where(eq(repositories.id, repositoryId))
-        .limit(1)
+      const [row] = await withOrgDbContext(orgId, (db) =>
+        db
+          .select({
+            indexingStatus: repositories.indexingStatus,
+            indexingStep: repositories.indexingStep,
+            indexingStepKey: repositories.indexingStepKey,
+          })
+          .from(repositories)
+          .where(eq(repositories.id, repositoryId))
+          .limit(1),
+      )
       return row
     }
 
@@ -194,6 +199,26 @@ describe.skipIf(!connectionString)(
     })
 
     it("returns 409 when the existing repository is being deleted", async () => {
+      const deletingId = generateObjectId("repo")
+      const gitUrl = `https://github.com/acme/deleting-${suffix}.git`
+      await withOrgDbContext(orgId, async (db) => {
+        await db.insert(repositories).values({
+          id: deletingId,
+          orgId,
+          name: `acme/deleting-${suffix}`,
+          gitUrl,
+          indexReady: false,
+          indexingStatus: "unindexing",
+        })
+        await db.insert(repositoryCheckouts).values({
+          id: generateObjectId("co"),
+          orgId,
+          repositoryId: deletingId,
+          ref: "main",
+          checkoutKey: DEFAULT_CHECKOUT_KEY,
+        })
+      })
+
       const { repositoryRoutes } = await import("../routes/v1/repositories.js")
       const app = new OpenAPIHono<AppEnv>()
       app.use(contextStorage())
@@ -217,13 +242,16 @@ describe.skipIf(!connectionString)(
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          name: `acme/unindexing-${suffix}`,
-          gitUrl: `https://github.com/acme/unindexing-${suffix}.git`,
+          name: `acme/deleting-${suffix}`,
+          gitUrl,
         }),
       })
       const text = await res.text()
       expect(res.status, text).toBe(409)
       expect(JSON.parse(text)).toEqual({ error: "Repository is being deleted" })
+      await expect(readStatus(deletingId)).resolves.toMatchObject({
+        indexingStatus: "unindexing",
+      })
     })
   },
 )

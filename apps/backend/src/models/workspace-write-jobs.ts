@@ -19,6 +19,7 @@ import {
   WRITE_JOB_STATUSES,
 } from "../domain/workspaces/write-job-intent.js"
 import type { WorkspaceWriteKind } from "../domain/workspaces/write-jobs.js"
+import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 import type { GitFileChange } from "../services/git/file-change.js"
 import { orgSql } from "./workspace-sql.js"
 
@@ -431,6 +432,7 @@ export async function discardWriteJobPreparedCommit(
 
 /** Resolve only this command's accepted native owner, including a lost admission reply. */
 function nativeWriteJobOwnerId() {
+  const namespaceId = openWorkflowNamespaceId()
   return sql<
     string | null
   >`(select scheduled.id from openworkflow.workflow_runs scheduled
@@ -439,9 +441,10 @@ function nativeWriteJobOwnerId() {
       and scheduled.input->>'jobId' = workspace_write_jobs.id
       and scheduled.workflow_name = 'workspace-write-' || replace(workspace_write_jobs.kind, '_', '-')
       and scheduled.version is null
+      and scheduled.namespace_id = ${namespaceId}
       and (scheduled.id = workspace_write_jobs.payload->>'workflowRunId'
         or (workspace_write_jobs.payload->>'workflowRunId' is null
-          and scheduled.namespace_id = 'default' and scheduled.idempotency_key = workspace_write_jobs.id
+          and scheduled.idempotency_key = workspace_write_jobs.id
           and (scheduled.input->'revision' = workspace_write_jobs.payload->'revision'
             or (workspace_write_jobs.kind = 'bootstrap' and scheduled.input->'bootstrapBinding' = workspace_write_jobs.payload->'bootstrapBinding'))))
     order by scheduled.created_at, scheduled.id limit 1)`

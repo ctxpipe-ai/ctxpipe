@@ -9,10 +9,7 @@ import {
   applyAttribution,
 } from "../observability/attribution.js"
 import { getLogger } from "../observability/logger.js"
-import {
-  mcpAdvisorThreadId,
-  mcpClientConversationId,
-} from "./advisorThread.js"
+import { mcpAdvisorThreadId, mcpClientConversationId } from "./advisorThread.js"
 import { getMcpServerImplementation } from "./mcp-server-info.js"
 
 function isLoopbackHostname(hostname: string): boolean {

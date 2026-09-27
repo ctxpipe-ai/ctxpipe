@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm"
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { repositoryIngestionRequests } from "../../db/schema/repositories.js"
@@ -493,6 +493,84 @@ it.each(["version", "namespace", "name"] as const)(
         await getRepositoryForOrg(f.org.id, repository.id),
       ).not.toMatchObject({ indexingError: "Repository ingestion canceled" })
     })
+  },
+)
+
+it(
+  "admits a Railway preview-namespace owner and still rejects the production default",
+  { timeout: 20_000 },
+  async () => {
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-280")
+    await withNativeHydrationFixture(
+      { namespaceId: "preview-pr-280", github: true },
+      async (f) => {
+        const repository = await withOrgIdContext(f.org, () =>
+          ensureOrgRepositoryForGitUrl({
+            orgId: f.org.id,
+            gitUrl: f.workspaceUrl,
+            githubConnectionId: f.connectionId,
+          }),
+        )
+        if (!repository) throw new Error("Fixture repository missing")
+        const input = { orgId: f.org.id, repositoryId: repository.id }
+        const request = await prepareRepositoryIngestionRequest(input)
+        const owner = await f.runner.runWorkflow(
+          repositoryIngestionOrchestrator.spec,
+          { ...input, requestId: request.requestId },
+          { idempotencyKey: request.requestId },
+        )
+        await expect(
+          activateRepositoryIngestionRequest(
+            { ...input, requestId: request.requestId },
+            owner.workflowRun.id,
+          ),
+        ).resolves.toBe(request.requestId)
+        expect(
+          await findRepositoryIngestionOwner({
+            ...input,
+            requestId: request.requestId,
+          }),
+        ).toBe(owner.workflowRun.id)
+        const foreign = await ow.runWorkflow(
+          repositoryIngestionOrchestrator.spec,
+          { ...input, requestId: request.requestId },
+        )
+        await expect(
+          activateRepositoryIngestionRequest(
+            { ...input, requestId: request.requestId },
+            foreign.workflowRun.id,
+          ),
+        ).rejects.toThrow("native owner mismatch")
+        expect(
+          await getRepositoryForOrg(f.org.id, repository.id),
+        ).toMatchObject({
+          indexingStatus: "queued",
+          indexingError: null,
+        })
+        await withOrgDbContext(f.org.id, () =>
+          markRepositoryIndexingReady({
+            repositoryId: repository.id,
+            targetHash: f.sha,
+            requestId: request.requestId,
+          }),
+        )
+        expect(await getRepositoryForOrg(f.org.id, repository.id)).toMatchObject(
+          {
+            indexReady: true,
+            lastIngestedHash: f.sha,
+            indexingStatus: "queued",
+          },
+        )
+        await owner.cancel()
+        expect(await getRepositoryForOrg(f.org.id, repository.id)).toMatchObject(
+          {
+            indexingStatus: "failed",
+            indexingError: "Repository ingestion canceled",
+          },
+        )
+        await foreign.cancel()
+      },
+    )
   },
 )
 

@@ -174,39 +174,6 @@ function isEmptyGithubRepositoryError(error: unknown): boolean {
   )
 }
 
-async function getOrInitializeBaseBranch(input: {
-  octokit: InstallationContext["octokit"]
-  owner: string
-  repo: string
-  branch: string
-}) {
-  try {
-    return await getBranchHead(input)
-  } catch (error) {
-    if (!isEmptyGithubRepositoryError(error)) throw error
-  }
-
-  try {
-    await withTransientGitHubRetry(() =>
-      input.octokit.rest.repos.createOrUpdateFileContents({
-        owner: input.owner,
-        repo: input.repo,
-        path: ".gitkeep",
-        message: "Initialize repository for ctxpipe",
-        content: Buffer.from("\n").toString("base64"),
-      }),
-    )
-  } catch (error) {
-    try {
-      return await getBranchHead(input)
-    } catch {
-      throw error
-    }
-  }
-
-  return getBranchHead(input)
-}
-
 async function assertConfigBranch(
   context: Awaited<ReturnType<typeof getInstallationContext>>,
   branch: string,
@@ -536,7 +503,7 @@ export async function createPullRequestWithFiles(
     contents: "write",
     pull_requests: "write",
   })
-  const base = await getOrInitializeBaseBranch({
+  const base = await getBranchHead({
     octokit: context.octokit,
     owner: context.owner,
     repo: context.repo,

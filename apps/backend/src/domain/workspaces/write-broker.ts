@@ -109,7 +109,10 @@ export async function pushWorkspaceCommit(
     throw new WorkspaceTipAdvancedError()
   if (input.mirror) {
     await assertConnectorMirrorBinding(input.orgId, input.mirror, revision)
-    await assertConnectorMirrorScope(input.mirror, committed)
+    await assertConnectorMirrorScope(input.mirror, {
+      ...committed,
+      sha: revision.sha,
+    })
   }
   if (input.extraction)
     await assertExtractionSource(

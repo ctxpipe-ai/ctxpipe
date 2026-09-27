@@ -36,56 +36,65 @@ export const pagerdutySyncContent = defineWorkflow(
         const markSyncFailed = () =>
           withOrgDbContext(input.orgId, () =>
             finalizePagerdutyBindingAfterContentWorkflow({
+              orgId: input.orgId,
               connectionId: input.connectionId,
               workflowStatus: "failed",
             }),
           )
         const context = await step
-          .run({ name: "load-pagerduty-sync-context" }, async () => {
-            const [connection, binding] = await Promise.all([
-              withOrgDbContext(input.orgId, () =>
-                getPagerdutyConnectionByConnectionId(
+          .run(
+            {
+              name: "load-pagerduty-sync-context",
+              retryPolicy: { maximumAttempts: 1 },
+            },
+            async () => {
+              const [connection, binding] = await Promise.all([
+                withOrgDbContext(input.orgId, () =>
+                  getPagerdutyConnectionByConnectionId(
+                    input.orgId,
+                    input.connectionId,
+                    env,
+                  ),
+                ),
+                getPagerdutyBindingWithRepoByConnectionId(
                   input.orgId,
                   input.connectionId,
-                  env,
                 ),
-              ),
-              getPagerdutyBindingWithRepoByConnectionId(
-                input.orgId,
-                input.connectionId,
-              ),
-            ])
-            if (!connection) {
-              throw new Error("PagerDuty connection is not ready for sync")
-            }
-            if (!binding?.githubConnectionId) {
-              throw new Error("PagerDuty binding is not configured")
-            }
-            if (
-              binding.orgId !== input.orgId ||
-              !binding.enabled ||
-              binding.setupPhase !== "initial_sync"
-            ) {
-              throw new Error("PagerDuty binding is not ready for initial sync")
-            }
-            const captured = await captureConnectorMirrorTarget({
-              repositoryGitUrl: binding.repositoryGitUrl,
-              orgId: input.orgId,
-              env,
-              mirror: {
-                provider: "pagerduty",
-                connectionId: input.connectionId,
-                repositoryId: binding.repositoryId,
-              },
-            })
-            const config = parsePagerdutyConfigYamlContent(captured.config)
-            if (!config) {
-              throw new Error(
-                "PagerDuty scope configuration is missing from the repository; expected pagerduty/config.yaml",
-              )
-            }
-            return { connection, binding, captured, config }
-          })
+              ])
+              if (!connection) {
+                throw new Error("PagerDuty connection is not ready for sync")
+              }
+              if (!binding?.githubConnectionId) {
+                throw new Error("PagerDuty binding is not configured")
+              }
+              if (
+                binding.orgId !== input.orgId ||
+                !binding.enabled ||
+                binding.setupPhase !== "initial_sync"
+              ) {
+                throw new Error(
+                  "PagerDuty binding is not ready for initial sync",
+                )
+              }
+              const captured = await captureConnectorMirrorTarget({
+                repositoryGitUrl: binding.repositoryGitUrl,
+                orgId: input.orgId,
+                env,
+                mirror: {
+                  provider: "pagerduty",
+                  connectionId: input.connectionId,
+                  repositoryId: binding.repositoryId,
+                },
+              })
+              const config = parsePagerdutyConfigYamlContent(captured.config)
+              if (!config) {
+                throw new Error(
+                  "PagerDuty scope configuration is missing from the repository; expected pagerduty/config.yaml",
+                )
+              }
+              return { binding, captured, config }
+            },
+          )
           .catch(async (error) => {
             await markSyncFailed()
             throw error
@@ -94,14 +103,25 @@ export const pagerdutySyncContent = defineWorkflow(
         try {
           const captured = await step.run(
             { name: "capture-pagerduty-content" },
-            () =>
-              capturePagerdutyContent({
+            async () => {
+              const connection = await withOrgDbContext(input.orgId, () =>
+                getPagerdutyConnectionByConnectionId(
+                  input.orgId,
+                  input.connectionId,
+                  env,
+                ),
+              )
+              if (!connection || connection.status !== "installed") {
+                throw new Error("PagerDuty authorization changed")
+              }
+              return capturePagerdutyContent({
                 orgId: input.orgId,
                 env,
-                connection: context.connection,
+                connection,
                 config: context.config,
                 existingPaths: context.captured.paths,
-              }),
+              })
+            },
           )
           if (
             captured.status !== "failed" &&
@@ -125,6 +145,7 @@ export const pagerdutySyncContent = defineWorkflow(
           await step.run({ name: "finalize-setup-phase" }, () =>
             withOrgDbContext(input.orgId, () =>
               finalizePagerdutyBindingAfterContentWorkflow({
+                orgId: input.orgId,
                 connectionId: input.connectionId,
                 workflowStatus: captured.status,
               }),
@@ -133,6 +154,8 @@ export const pagerdutySyncContent = defineWorkflow(
 
           return {
             status: captured.status,
+            written: captured.files.length,
+            deleted: captured.deletePaths.length,
             resourcesProcessed: captured.resourcesProcessed,
             resourcesFailed: captured.resourcesFailed,
             commitShas: [],

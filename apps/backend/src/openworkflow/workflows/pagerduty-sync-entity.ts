@@ -33,7 +33,10 @@ export const pagerdutySyncEntity = defineWorkflow(
       async () => {
         const env = parseEnv(process.env as Record<string, string | undefined>)
         const context = await step.run(
-          { name: "load-pagerduty-entity-context" },
+          {
+            name: "load-pagerduty-entity-context",
+            retryPolicy: { maximumAttempts: 1 },
+          },
           async () => {
             const [connection, binding] = await Promise.all([
               withOrgDbContext(input.orgId, () =>
@@ -77,7 +80,7 @@ export const pagerdutySyncEntity = defineWorkflow(
                 "PagerDuty scope configuration is missing from the repository; expected pagerduty/config.yaml",
               )
             }
-            return { binding, connection, captured, config }
+            return { binding, captured, config }
           },
         )
         if (!context) {
@@ -95,10 +98,20 @@ export const pagerdutySyncEntity = defineWorkflow(
             },
           },
           async () => {
+            const connection = await withOrgDbContext(input.orgId, () =>
+              getPagerdutyConnectionByConnectionId(
+                input.orgId,
+                input.connectionId,
+                env,
+              ),
+            )
+            if (!connection || connection.status !== "installed") {
+              throw new Error("PagerDuty authorization changed")
+            }
             const syncResult = await capturePagerdutyIncrementalContent({
               orgId: input.orgId,
               env,
-              connection: context.connection,
+              connection,
               config: context.config,
               existingPaths: context.captured.paths,
               entity: {

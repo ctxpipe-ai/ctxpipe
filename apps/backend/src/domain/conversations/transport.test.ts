@@ -45,6 +45,7 @@ it("sets ctxpipe.conversation.id on the web chat request", async () => {
   const conversationId = "conv_web_1"
   const app = new Hono<AppEnv>()
   app.use(contextStorage())
+  app.use("*", backendOtelMiddleware())
   app.use(
     evlog({
       drain: async (ctx) => {
@@ -55,7 +56,6 @@ it("sets ctxpipe.conversation.id on the web chat request", async () => {
       },
     }),
   )
-  app.use("*", backendOtelMiddleware())
   app.use("*", async (c, next) => {
     c.set("env", {
       AUTH_BASE_URL: "https://localhost:3000",

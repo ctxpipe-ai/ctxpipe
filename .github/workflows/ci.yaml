@@ -149,6 +149,7 @@ jobs:
           pnpm exec drizzle-kit migrate
           pnpm exec tsx src/db/migrate-openworkflow.ts
           pnpm exec tsx src/db/migrate-checkpoints.ts
+          pnpm exec tsx src/db/backfill-pagerduty-connection-directory-cli.ts
           pnpm exec tsx src/db/provision-app-role-cli.ts
       - name: Backend tests
         env:

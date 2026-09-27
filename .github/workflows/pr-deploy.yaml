@@ -323,6 +323,7 @@ jobs:
           NO_COLOR=1 CI=true stdbuf -oL -eL pnpm exec drizzle-kit migrate
           pnpm exec tsx src/db/migrate-openworkflow.ts
           pnpm exec tsx src/db/migrate-checkpoints.ts
+          pnpm exec tsx src/db/backfill-pagerduty-connection-directory-cli.ts
         env:
           DATABASE_URL: ${{ steps.neon_branch.outputs.db_url }}
 
@@ -402,6 +403,7 @@ jobs:
           WORKER_IMAGE: ghcr.io/ctxpipe-ai/worker:${{ env.IMAGE_TAG }}
           UI_IMAGE: ghcr.io/ctxpipe-ai/ui:${{ env.IMAGE_TAG }}
           CODESEARCH_IMAGE: ghcr.io/ctxpipe-ai/codesearch:${{ env.IMAGE_TAG }}
+          OBSERVABILITY_OTLP_HEADERS: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
         # Single Railway roll. Do not wrap this script in nick-fields/retry —
         # a second attempt stacks serviceInstanceDeployV2 on a still-DEPLOYING
         # instance. GraphQL HTTP retries live in railway_graphql.
@@ -1010,6 +1012,12 @@ jobs:
             wait_for_service_instance "worker" "$WORKER_SERVICE_ID"
             wait_for_service_instance "ui" "$UI_SERVICE_ID"
             wait_for_service_instance "codesearch" "$CODESEARCH_SERVICE_ID"
+
+            # Long-lived PR envs cloned before ClickStack never received
+            # OTEL_EXPORTER_OTLP_*. Later rolls only upsert DB/image/capacity.
+            # shellcheck disable=SC1091
+            source "${GITHUB_WORKSPACE}/scripts/preview-otel-vars.sh"
+            sync_preview_otel_variables
 
             upsert_database_url_without_deploy "$BACKEND_SERVICE_ID" >/dev/null
             upsert_preview_service_variables "$BACKEND_SERVICE_ID" >/dev/null

@@ -18,6 +18,8 @@ vi.mock("../../../db/client.js", () => ({
       }
     },
   }),
+  withOrgDbContext: (_orgId: string, handler: () => Promise<unknown>) =>
+    handler(),
 }))
 
 import {

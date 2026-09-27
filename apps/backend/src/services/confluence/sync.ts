@@ -446,7 +446,18 @@ export async function captureConfluenceContent(input: {
     syncedSpaces: [] as ConfluenceSyncResult["syncedSpaces"],
   }
 
-  if (input.mode?.spaceKey && scopeRows.length === 0) return emptyCapture
+  if (input.mode?.spaceKey && scopeRows.length === 0) {
+    if (input.mode.pageId) return emptyCapture
+    const pruneRoot = `${getManagedConfluenceRootPath()}${input.mode.spaceKey}/`
+    return {
+      ...emptyCapture,
+      deletePaths: (
+        input.existingBlobs?.map((entry) => entry.path) ?? input.existingPaths
+      ).filter(
+        (path) => path.startsWith(pruneRoot) && path !== CONFLUENCE_CONFIG_PATH,
+      ),
+    }
+  }
 
   if (singlePageId) {
     for (const row of scopeRows) {

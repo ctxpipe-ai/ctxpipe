@@ -32,6 +32,7 @@ jobs:
       WORKER_IMAGE: ghcr.io/ctxpipe-ai/worker:pr-${{ inputs.pr_number }}-${{ inputs.head_sha }}
       UI_IMAGE: ghcr.io/ctxpipe-ai/ui:pr-${{ inputs.pr_number }}-${{ inputs.head_sha }}
       CODESEARCH_IMAGE: ghcr.io/ctxpipe-ai/codesearch:pr-${{ inputs.pr_number }}-${{ inputs.head_sha }}
+      OBSERVABILITY_OTLP_HEADERS: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
     steps:
       - uses: actions/checkout@v4
 
@@ -62,6 +63,8 @@ jobs:
           set -euo pipefail
           # shellcheck disable=SC1091
           source "${GITHUB_WORKSPACE}/scripts/railway-graphql.sh"
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/preview-otel-vars.sh"
 
           update_ui() {
             railway_graphql \
@@ -144,6 +147,8 @@ jobs:
           else
             echo "Warning: could not resolve a preview UI public domain; leaving UI_PROXY_URL unchanged" >&2
           fi
+
+          sync_preview_otel_variables
 
           update_img "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
           deploy "$BACKEND_SERVICE_ID"

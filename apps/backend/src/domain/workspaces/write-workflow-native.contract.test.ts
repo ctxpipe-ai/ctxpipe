@@ -357,7 +357,12 @@ it(
   { timeout: 60_000 },
   async () => {
     await withNativeHydrationFixture(
-      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      {
+        namespaceId: "default",
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+      },
       async (f) => {
         const spec = {
           ...workspaceBootstrap.spec,

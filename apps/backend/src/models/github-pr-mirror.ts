@@ -1,10 +1,5 @@
 import { and, eq, sql } from "drizzle-orm"
-import {
-  type Db,
-  getOrgDb,
-  getSystemDb,
-  withOrgDbContext,
-} from "../db/client.js"
+import { type Db, getOrgDb, withOrgDbContext } from "../db/client.js"
 import {
   CONNECTION_TYPE_GITHUB,
   connections,
@@ -503,22 +498,26 @@ export async function clearGithubPrMirrorBindingsForRepository(input: {
 }
 
 export async function listGithubPrMirrorBindingsForRepository(
+  orgId: string,
   repositoryId: string,
 ): Promise<GithubPrMirrorBinding[]> {
-  const db = getSystemDb()
-  const rows = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.type, CONNECTION_TYPE_GITHUB),
-        sql`${connections.config}->'prMirror'->>'repositoryId' = ${repositoryId}`,
-      ),
-    )
-  const bindings: GithubPrMirrorBinding[] = []
-  for (const row of rows) {
-    const binding = await getGithubPrMirrorBinding(row.orgId, row.id)
-    if (binding) bindings.push(binding)
-  }
-  return bindings
+  return withOrgDbContext(orgId, async () => {
+    const db = getOrgDb()
+    const rows = await db
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_GITHUB),
+          sql`${connections.config}->'prMirror'->>'repositoryId' = ${repositoryId}`,
+        ),
+      )
+    const bindings: GithubPrMirrorBinding[] = []
+    for (const row of rows) {
+      const binding = await getGithubPrMirrorBinding(row.orgId, row.id)
+      if (binding) bindings.push(binding)
+    }
+    return bindings
+  })
 }

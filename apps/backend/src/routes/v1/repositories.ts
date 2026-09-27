@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { formatUnknownError } from "../../db/transientDbRetry.js"
 import {
-  createRepository,
+  createOrGetRepository,
   deriveRepositoryIndexingStatus,
   getRepository,
   listRepositories,
@@ -325,10 +325,13 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
     }
     const body = c.req.valid("json")
     try {
-      const repository = await createRepository({
+      const { repository, created } = await createOrGetRepository({
         name: body.name,
         gitUrl: body.gitUrl,
       })
+      if (repository.indexingStatus === "unindexing") {
+        return c.json({ error: "Repository is being deleted" }, 409)
+      }
       try {
         await enqueueRepositoryIngestionWorkflow(
           { repositoryId: repository.id, orgId: repository.orgId },
@@ -350,7 +353,7 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
       }
       return c.json(
         serializeRepository((await getRepository(repository.id)) ?? repository),
-        201,
+        created ? 201 : 200,
       )
     } catch (e) {
       getLogger().error(e instanceof Error ? e : new Error(String(e)), {

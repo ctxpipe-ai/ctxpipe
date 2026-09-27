@@ -164,6 +164,15 @@ export async function listConnectionDirectoryByForgeCloudId(
     .where(eq(connectionDirectory.forgeCloudId, cloudId))
 }
 
+export async function listConnectionDirectoryByType(
+  type: ConnectionType,
+): Promise<ConnectionDirectoryRow[]> {
+  return getSystemDb()
+    .select()
+    .from(connectionDirectory)
+    .where(eq(connectionDirectory.type, type))
+}
+
 /** Load a tenant `connections` row after directory bootstrap. */
 export async function loadConnectionViaDirectory(
   connectionId: string,

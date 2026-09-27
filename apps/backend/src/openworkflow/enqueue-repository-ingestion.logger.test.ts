@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({
   getRepositoryForOrg: vi.fn(),
   getInstallationToken: vi.fn(),
+  getRepositoryReadCloneToken: vi.fn(),
   signUpstreamJwt: vi.fn(),
   tryClaim: vi.fn(),
 }))
@@ -28,6 +29,7 @@ vi.mock("../lib/withTransientHttpRetry.js", () => ({
 }))
 vi.mock("../models/github-installation.js", () => ({
   getInstallationToken: mocks.getInstallationToken,
+  getRepositoryReadCloneToken: mocks.getRepositoryReadCloneToken,
 }))
 vi.mock("../models/repositories.js", () => ({
   getRepositoryForOrg: mocks.getRepositoryForOrg,
@@ -65,6 +67,7 @@ describe("runConnectorRepositoryIngestionWorkflow logger contract", () => {
       lastIngestedHash: "sha_previous",
     })
     mocks.getInstallationToken.mockResolvedValue("github-token")
+    mocks.getRepositoryReadCloneToken.mockResolvedValue("github-token")
     mocks.signUpstreamJwt.mockResolvedValue("codesearch-token")
     mocks.tryClaim.mockResolvedValue(true)
     vi.stubGlobal(

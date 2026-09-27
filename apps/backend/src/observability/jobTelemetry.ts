@@ -108,6 +108,34 @@ export function attachJobTelemetry<T>(
   return { ...record, telemetry } as T & { telemetry: JobTelemetry }
 }
 
+type StandardSchema = {
+  readonly "~standard": {
+    readonly validate: (
+      value: unknown,
+    ) => { issues?: unknown } | Promise<{ issues?: unknown }>
+  }
+}
+
+function schemaAccepts(schema: StandardSchema, value: unknown): boolean {
+  const result = schema["~standard"].validate(value)
+  if (result instanceof Promise) {
+    void result.catch(() => {})
+    return false
+  }
+  return !result.issues
+}
+
+/** Attach telemetry only when the workflow's Standard Schema would accept it. */
+export function attachJobTelemetryForSchema<T>(
+  schema: StandardSchema | undefined,
+  input: T,
+): T {
+  const attached = attachJobTelemetry(input)
+  if (!schema || attached === input) return attached
+  if (schemaAccepts(schema, attached)) return attached
+  return input
+}
+
 /**
  * OpenWorkflow 0.8 parks with `SleepSignal` (`SleepSignalError` on 0.10+) and
  * stops a stale parallel branch with `StaleExecutionBranchError` (also how a

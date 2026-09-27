@@ -9,6 +9,7 @@ import { parseEnv } from "../config/env.js"
 import { initEvlog, log } from "../observability/logger.js"
 import { backfillGithubAppSecretsFromEnv } from "../scripts/backfillGithubConnectionSecrets.js"
 import { backfillKnowledgePathState } from "./backfill-knowledge-path-state.js"
+import { backfillMissingPagerdutyConnectionDirectory } from "./backfill-pagerduty-connection-directory.js"
 import { backfillRepositoryIngestionRequests } from "./backfill-repository-ingestion-requests.js"
 import { closeDb, initDb } from "./client.js"
 import { migrateLanggraphCheckpoints } from "./migrate-checkpoints.js"
@@ -49,13 +50,12 @@ try {
     error: error instanceof Error ? error.message : String(error),
   })
 }
-if (env) {
-  try {
-    initDb(connectionString)
-    await backfillGithubAppSecretsFromEnv(env)
-  } finally {
-    await closeDb()
-  }
+try {
+  initDb(connectionString)
+  await backfillMissingPagerdutyConnectionDirectory()
+  if (env) await backfillGithubAppSecretsFromEnv(env)
+} finally {
+  await closeDb()
 }
 
 if (appRolePassword) {

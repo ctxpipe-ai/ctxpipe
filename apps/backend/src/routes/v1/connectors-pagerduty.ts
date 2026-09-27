@@ -974,6 +974,7 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
 
     const previousConfigPrState = servicesChanged
       ? await claimPagerdutyConfigPrCreation({
+          orgId,
           connectionId: installed.connection.id,
         })
       : undefined
@@ -988,6 +989,7 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
         })
       } catch (err) {
         await releasePagerdutyConfigPrCreationClaim({
+          orgId,
           connectionId: installed.connection.id,
           previousState: previousConfigPrState,
         })
@@ -1004,6 +1006,7 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
 
     if (shouldStartInitialSync && binding) {
       const claimed = await transitionPagerdutyBindingState({
+        orgId,
         connectionId: installed.connection.id,
         expectedSetupPhase: "draft",
         expectedPendingConfigPrCreating: false,
@@ -1028,6 +1031,7 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
         })
       } catch (error) {
         await transitionPagerdutyBindingState({
+          orgId,
           connectionId: installed.connection.id,
           expectedSetupPhase: "initial_sync",
           expectedPendingConfigPrCreating: false,
@@ -1115,6 +1119,7 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
       )
     }
     const previousState = await claimPagerdutyConfigPrCreation({
+      orgId,
       connectionId: installed.connection.id,
     })
     if (!previousState) {
@@ -1135,6 +1140,7 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
       })
     } catch (error) {
       await releasePagerdutyConfigPrCreationClaim({
+        orgId,
         connectionId: installed.connection.id,
         previousState,
       })
@@ -1185,7 +1191,12 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
         400,
       )
     }
-    if (!(await claimPagerdutyContentSyncRetry(installed.connection.id))) {
+    if (
+      !(await claimPagerdutyContentSyncRetry({
+        orgId,
+        connectionId: installed.connection.id,
+      }))
+    ) {
       return c.json(
         { error: "PagerDuty content sync is already being retried" },
         409,
@@ -1198,6 +1209,7 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
       })
     } catch (error) {
       await transitionPagerdutyBindingState({
+        orgId,
         connectionId: installed.connection.id,
         expectedSetupPhase: "initial_sync",
         expectedPendingConfigPrCreating: false,

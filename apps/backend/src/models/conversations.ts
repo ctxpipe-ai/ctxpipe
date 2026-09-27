@@ -487,7 +487,6 @@ export async function updateConversation(
 ): Promise<ConversationRecord | null> {
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
-    const userId = requireCurrentUserId()
     const db = getOrgDb()
     const [updated] = await db
       .update(conversations)
@@ -496,7 +495,7 @@ export async function updateConversation(
         and(
           eq(conversations.id, conversationId),
           eq(conversations.orgId, orgId),
-          eq(conversations.userId, userId),
+          conversationActorWhere(),
         ),
       )
       .returning(conversationFieldsWithCurrentPr())

@@ -5,6 +5,7 @@ import {
   inArray,
   isNull,
   lte,
+  ne,
   notInArray,
   or,
   sql,
@@ -41,6 +42,14 @@ export const DEFAULT_CHECKOUT_KEY = "default"
 
 function orgSql<T>(fn: () => Promise<T>): Promise<T> {
   return withAmbientOrgDb(fn)
+}
+
+/** Ingestion progress writers must not overwrite a repository mid-deletion. */
+function repositoryNotUnindexingCondition() {
+  return or(
+    isNull(repositories.indexingStatus),
+    ne(repositories.indexingStatus, "unindexing"),
+  )
 }
 
 export async function ensureWorkspaceCheckout(input: {
@@ -424,7 +433,12 @@ export async function markRepositoryIndexingPending(input: {
         indexingReason: input.reason,
         updatedAt: new Date(),
       })
-      .where(eq(repositories.id, input.repositoryId))
+      .where(
+        and(
+          eq(repositories.id, input.repositoryId),
+          repositoryNotUnindexingCondition(),
+        ),
+      )
   })
 }
 
@@ -580,7 +594,12 @@ export async function markRepositoryIndexingFailed(input: {
         indexingStepKey: null,
         updatedAt: new Date(),
       })
-      .where(eq(repositories.id, input.repositoryId))
+      .where(
+        and(
+          eq(repositories.id, input.repositoryId),
+          repositoryNotUnindexingCondition(),
+        ),
+      )
   })
 }
 
@@ -628,6 +647,7 @@ export async function markRepositoryIndexingRunning(input: {
         and(
           eq(repositories.id, input.repositoryId),
           repositoryIngestionWriteCondition(input.requestId),
+          repositoryNotUnindexingCondition(),
         ),
       )
   })
@@ -659,6 +679,7 @@ export async function markRepositoryIndexingReady(input: {
         and(
           eq(repositories.id, input.repositoryId),
           repositoryIngestionWriteCondition(input.requestId),
+          repositoryNotUnindexingCondition(),
         ),
       )
   })
@@ -688,6 +709,7 @@ export async function markRepositoryIndexingIssues(input: {
         and(
           eq(repositories.id, input.repositoryId),
           repositoryIngestionWriteCondition(input.requestId),
+          repositoryNotUnindexingCondition(),
         ),
       )
   })
@@ -720,6 +742,7 @@ export async function markRepositoryIndexingReadyWithIssues(input: {
         and(
           eq(repositories.id, input.repositoryId),
           repositoryIngestionWriteCondition(input.requestId),
+          repositoryNotUnindexingCondition(),
         ),
       )
   })
@@ -749,6 +772,7 @@ export async function setRepositoryIndexingStep(input: {
     const idCondition = and(
       eq(repositories.id, input.repositoryId),
       repositoryIngestionWriteCondition(input.requestId),
+      repositoryNotUnindexingCondition(),
     )
     const where = input.monotonic
       ? and(
@@ -819,57 +843,76 @@ export async function findRepositoryByGithubInstallation(
   })
 }
 
-export const createRepository = async (input: {
+export async function createOrGetRepository(input: {
   name: string
   gitUrl: string
-}): Promise<RepositoryWithSearch> => {
+}): Promise<{ repository: RepositoryWithSearch; created: boolean }> {
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
     const id = generateObjectId("repo")
     const db = getOrgDb()
     const checkoutId = generateObjectId("co")
-    const [row] = await db.transaction(async (tx) => {
-      const [repository] = await tx
-        .insert(repositories)
-        .values({
-          id,
-          orgId: orgId,
-          name: input.name,
-          gitUrl: input.gitUrl,
-          repositoryKey: repositoryKeyFromGitUrl(input.gitUrl),
-        })
-        .onConflictDoNothing()
-        .returning()
-      if (!repository)
-        return repositoryWithZoektJoin(tx).where(
-          and(
-            eq(repositories.orgId, orgId),
-            eq(repositories.gitUrl, input.gitUrl),
-          ),
-        )
-      const [checkout] = await tx
-        .insert(repositoryCheckouts)
-        .values({
-          id: checkoutId,
-          orgId,
-          repositoryId: repository.id,
-          ref: "main",
-          checkoutKey: DEFAULT_CHECKOUT_KEY,
-        })
-        .returning({
-          zoektRepoId: repositoryCheckouts.zoektRepoId,
-        })
-      if (!checkout) return []
-      return [
-        {
-          ...repository,
-          zoektRepoId: checkout.zoektRepoId,
-        } satisfies RepositoryWithSearch,
-      ]
-    })
-    if (row) return row
+    const result = await db.transaction(
+      async (
+        tx,
+      ): Promise<{
+        repository: RepositoryWithSearch
+        created: boolean
+      } | null> => {
+        const [repository] = await tx
+          .insert(repositories)
+          .values({
+            id,
+            orgId: orgId,
+            name: input.name,
+            gitUrl: input.gitUrl,
+            repositoryKey: repositoryKeyFromGitUrl(input.gitUrl),
+          })
+          .onConflictDoNothing()
+          .returning()
+        if (!repository) {
+          const [existing] = await repositoryWithZoektJoin(tx)
+            .where(
+              and(
+                eq(repositories.orgId, orgId),
+                eq(repositories.gitUrl, input.gitUrl),
+              ),
+            )
+            .limit(1)
+          return existing ? { repository: existing, created: false } : null
+        }
+        const [checkout] = await tx
+          .insert(repositoryCheckouts)
+          .values({
+            id: checkoutId,
+            orgId,
+            repositoryId: repository.id,
+            ref: "main",
+            checkoutKey: DEFAULT_CHECKOUT_KEY,
+          })
+          .returning({
+            zoektRepoId: repositoryCheckouts.zoektRepoId,
+          })
+        if (!checkout) return null
+        return {
+          repository: {
+            ...repository,
+            zoektRepoId: checkout.zoektRepoId,
+          } satisfies RepositoryWithSearch,
+          created: true,
+        }
+      },
+    )
+    if (result) return result
     throw new Error("Failed to create repository")
   })
+}
+
+export const createRepository = async (input: {
+  name: string
+  gitUrl: string
+}): Promise<RepositoryWithSearch> => {
+  return (await createOrGetRepository(input)).repository
 }
 
 /**

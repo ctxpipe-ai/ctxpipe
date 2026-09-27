@@ -21,13 +21,13 @@ import {
 import {
   getConfluenceSyncTargetWithRepoByConnectionId,
   getConfluenceSyncTargetWithRepoByOrgId,
-  markAwaitingConfigMergeSetup,
   markConfluenceSyncTargetInitialSync,
   updateConfluenceSyncTargetPrState,
 } from "../../models/confluence-sync-target.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
+import { enqueueConnectorConfigSync } from "../../openworkflow/enqueue-connector-config-sync.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import { confluenceSyncConfig } from "../../openworkflow/workflows/confluence-sync-config.js"
 import { confluenceSyncContent } from "../../openworkflow/workflows/confluence-sync-content.js"
@@ -1041,6 +1041,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       spacesMatch && target?.enabled === true && target.setupPhase === "draft"
     const shouldOpenConfigPr =
       !spacesMatch &&
+      target?.enabled !== false &&
       (spacesPatch !== undefined ||
         (syncTarget !== undefined && saved.spaces.length > 0))
     if (shouldStartInitialSync) {
@@ -1077,15 +1078,30 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     }
     let configPrEnqueued = false
     if (shouldOpenConfigPr) {
-      await markAwaitingConfigMergeSetup({ connectionId: installation.id })
       try {
-        await runWorkflowWithWorkerWake(confluenceSyncConfig.spec, {
+        const admission = await enqueueConnectorConfigSync({
+          provider: "confluence",
           orgId,
-          orgSlug: c.get("orgSlug") ?? c.req.param("orgSlug"),
+          orgSlug,
           connectionId: installation.id,
+          spaces: requestedSpaces,
         })
-        configPrEnqueued = true
+        if (!admission.accepted)
+          return c.json(
+            {
+              error:
+                "Confluence configuration changed or a proposal is already in progress",
+            },
+            409,
+          )
+        configPrEnqueued = admission.started
       } catch (err: unknown) {
+        await updateConfluenceSyncTargetPrState({
+          connectionId: installation.id,
+          pendingConfigPullUrl: null,
+          pendingConfigPrCreating: false,
+          setupPhase: "draft",
+        })
         getLogger().error(err instanceof Error ? err : new Error(String(err)), {
           step: "confluenceSyncConfig.enqueue",
           connectionId: installation.id,

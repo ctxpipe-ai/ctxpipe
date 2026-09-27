@@ -13,7 +13,7 @@ import {
 import { useMswServer } from "../../test/msw.js"
 import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
-import { getSystemDb, withOrgDbContext } from "../db/client.js"
+import { withOrgDbContext } from "../db/client.js"
 import { conversations } from "../db/schema/conversations.js"
 import { workspaces } from "../db/schema/workspaces.js"
 import { generateObjectId } from "../lib/id.js"
@@ -63,12 +63,10 @@ describeWithDatabase("ctx_advisor conversation continuity", () => {
 
   afterAll(async () => {
     if (!seed) return
-    await getSystemDb()
-      .delete(conversations)
-      .where(eq(conversations.orgId, seed.orgId))
-    await getSystemDb()
-      .delete(workspaces)
-      .where(eq(workspaces.orgId, seed.orgId))
+    await withOrgDbContext(seed.orgId, async (db) => {
+      await db.delete(conversations).where(eq(conversations.orgId, seed.orgId))
+      await db.delete(workspaces).where(eq(workspaces.orgId, seed.orgId))
+    })
     await cleanupSeededOrg(seed)
   })
 
@@ -141,16 +139,18 @@ describeWithDatabase("ctx_advisor conversation continuity", () => {
   }
 
   async function conversationRow(id: string) {
-    const [row] = await getSystemDb()
-      .select({
-        id: conversations.id,
-        userId: conversations.userId,
-        source: conversations.source,
-        createdAt: conversations.createdAt,
-      })
-      .from(conversations)
-      .where(eq(conversations.id, id))
-      .limit(1)
+    const [row] = await withOrgDbContext(seed.orgId, (db) =>
+      db
+        .select({
+          id: conversations.id,
+          userId: conversations.userId,
+          source: conversations.source,
+          createdAt: conversations.createdAt,
+        })
+        .from(conversations)
+        .where(eq(conversations.id, id))
+        .limit(1),
+    )
     return row
   }
 
@@ -178,17 +178,19 @@ describeWithDatabase("ctx_advisor conversation continuity", () => {
     expect(resumed?.id).toBe(id)
     expect(resumed?.createdAt).toEqual(created?.createdAt)
 
-    const orgServiceRows = await getSystemDb()
-      .select({ id: conversations.id })
-      .from(conversations)
-      .where(
-        and(
-          eq(conversations.orgId, seed.orgId),
-          isNull(conversations.userId),
-          eq(conversations.source, "mcp"),
-          eq(conversations.id, id),
+    const orgServiceRows = await withOrgDbContext(seed.orgId, (db) =>
+      db
+        .select({ id: conversations.id })
+        .from(conversations)
+        .where(
+          and(
+            eq(conversations.orgId, seed.orgId),
+            isNull(conversations.userId),
+            eq(conversations.source, "mcp"),
+            eq(conversations.id, id),
+          ),
         ),
-      )
+    )
     expect(orgServiceRows).toHaveLength(1)
   }, 20_000)
 
@@ -256,16 +258,18 @@ describeWithDatabase("ctx_advisor conversation continuity", () => {
   it("creates a new random conversation when conversationId is omitted", async () => {
     await callAdvisor({ "x-api-key": seed.orgApiKey }, {})
     await callAdvisor({ "x-api-key": seed.orgApiKey }, {})
-    const rows = await getSystemDb()
-      .select({ id: conversations.id })
-      .from(conversations)
-      .where(
-        and(
-          eq(conversations.orgId, seed.orgId),
-          isNull(conversations.userId),
-          eq(conversations.source, "mcp"),
+    const rows = await withOrgDbContext(seed.orgId, (db) =>
+      db
+        .select({ id: conversations.id })
+        .from(conversations)
+        .where(
+          and(
+            eq(conversations.orgId, seed.orgId),
+            isNull(conversations.userId),
+            eq(conversations.source, "mcp"),
+          ),
         ),
-      )
+    )
     const randomIds = rows
       .map((row) => row.id)
       .filter((id) => id.startsWith("conv_"))
