@@ -190,18 +190,16 @@
       "h": 8,
       "config": {
         "configType": "sql",
-        "displayType": "stacked_bar",
+        "displayType": "bar",
         "connectionName": "ctxpipe ClickHouse",
         "sourceName": "Metrics",
-        "fillNulls": false,
-        "alignDateRangeToGranularity": false,
         "numberFormat": {
           "output": "currency",
           "mantissa": 2,
           "currencySymbol": "$",
           "thousandSeparated": true
         },
-        "sqlTemplate": "WITH\n  toStartOfMonth(addMonths(toDate($__toTime), -12)) AS start_month\nSELECT\n  toDateTime(month) AS ts,\n  provider,\n  sum(cost) AS cost\nFROM (\n  SELECT\n    toStartOfMonth(toDate(TimeUnix)) AS month,\n    toDate(TimeUnix) AS day,\n    Attributes['billing.provider'] AS provider,\n    Attributes['billing.sku'] AS sku,\n    Attributes['billing.scope'] AS scope,\n    argMax(Value, toUInt64OrZero(Attributes['billing.observed_at_unix_ms'])) AS cost\n  FROM otel.otel_metrics_gauge\n  WHERE MetricName = 'billing.cost'\n    AND ServiceName = 'cost-telemetry'\n    AND $__filters\n    AND toDate(TimeUnix) >= start_month\n    AND toDate(TimeUnix) <= toDate($__toTime)\n  GROUP BY month, day, provider, sku, scope\n)\nGROUP BY ts, provider\nORDER BY ts, provider\nLIMIT 200"
+        "sqlTemplate": "WITH\n  toDate($__toTime) AS as_of,\n  toStartOfMonth(as_of) AS month_start\nSELECT\n  provider,\n  sum(cost) AS cost\nFROM (\n  SELECT\n    toDate(TimeUnix) AS day,\n    Attributes['billing.provider'] AS provider,\n    Attributes['billing.sku'] AS sku,\n    Attributes['billing.scope'] AS scope,\n    argMax(Value, toUInt64OrZero(Attributes['billing.observed_at_unix_ms'])) AS cost\n  FROM otel.otel_metrics_gauge\n  WHERE MetricName = 'billing.cost'\n    AND ServiceName = 'cost-telemetry'\n    AND $__filters\n    AND TimeUnix >= toDateTime(month_start)\n    AND toDate(TimeUnix) <= as_of\n  GROUP BY day, provider, sku, scope\n)\nGROUP BY provider\nORDER BY cost DESC, provider\nLIMIT 50"
       }
     },
     {

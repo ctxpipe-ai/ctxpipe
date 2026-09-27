@@ -36,7 +36,7 @@ Number tiles that show money use `sumOrNull` after that dedupe so a window with 
 
 **Month to date**, **Projected month**, and **Last month** are anchored on `$__toTime`, not the selected range. Projected is MTD ÷ elapsed UTC days in that month × days in the month. The same three tiles repeat in ≈ AUD, plus **USD→AUD rate**.
 
-**Daily cost by provider** is a USD stacked bar over the dashboard range (calendar days that overlap `$__fromTime`..`$__toTime`). **Monthly cost by provider** is the last 13 calendar months ending at `$__toTime`, whatever the range. Charts stay in USD only.
+**Daily cost by provider** is a USD stacked bar over the dashboard range (calendar days that overlap `$__fromTime`..`$__toTime`). **Monthly cost by provider** is a USD bar chart with one bar per provider for the month to date ending at `$__toTime`, whatever the selected range. Charts stay in USD only.
 
 **By provider** is MTD and last month per provider (USD, ≈ AUD, Δ% = `(mtd − last) / last × 100`). **Top line items** is the top 50 `(provider, sku, scope)` in the dashboard range, with `source` and usage taken from the same latest observation via `argMax` on `billing.observed_at_unix_ms` (across days, `source` is `argMax(source, day)`). Usage is summed for invoice reconciliation. `unit` is `billing.unit` from the latest matching cost or usage observation; if that unit is not the same on every day in the range, the column is empty so a mixed-unit sum is not labelled. Plus cost USD and cost ≈ AUD.
 
