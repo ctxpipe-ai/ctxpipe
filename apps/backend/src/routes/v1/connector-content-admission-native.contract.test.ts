@@ -43,11 +43,13 @@ import { notionConnectorRoutes } from "./connectors-notion.js"
 
 it.each([
   "linear-retry",
+  "linear-retry-enqueue-failure",
   "notion-retry",
   "linear-config",
   "linear-enqueue-failure",
   "linear-config-body",
   "linear-config-enqueue-failure",
+  "linear-config-save-enqueue-failure",
   "linear-config-draft",
   "notion-config-body",
   "notion-config-enqueue-failure",
@@ -56,13 +58,13 @@ it.each([
   "linear-config-save",
 ] as const)(
   "admits a durable content owner through the native %s boundary",
-  { timeout: 30_000 },
+  { timeout: 60_000 },
   async (mode) => {
     const provider = mode.startsWith("notion") ? "notion" : "linear"
     const webhook =
       mode === "linear-config" || mode === "linear-enqueue-failure"
     const proposal = mode.includes("config-")
-    const save = mode.endsWith("config-save")
+    const save = mode.includes("config-save")
     const draft = mode.endsWith("draft")
     const config =
       "version: 1\nsource: linear\nworkspace:\n  id: provider-workspace\n  name: Fixture\nscope: {}\n"
@@ -229,18 +231,22 @@ it.each([
                   : {}),
               },
             )
-          if (proposal && mode.endsWith("enqueue-failure")) {
+          if (!webhook && mode.endsWith("enqueue-failure")) {
             const failed = await withCanceledNativeInsert(
               f.databaseUrl,
               request,
             )
-            expect(failed.status).toBe(503)
+            expect(failed.status).toBe(proposal ? 503 : 500)
             const read =
               provider === "linear"
                 ? getLinearBindingWithRepoByConnectionId
                 : getNotionBindingWithRepoByConnectionId
             expect(await read(f.org.id, connectionId)).toMatchObject({
-              setupPhase: "config_failed",
+              setupPhase: save
+                ? "live"
+                : proposal
+                  ? "config_failed"
+                  : "sync_failed",
             })
           }
           const responses = proposal

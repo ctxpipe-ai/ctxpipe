@@ -1,29 +1,40 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import type { hc } from "hono/client"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest"
+import { describeWithDatabase } from "../../test/db.js"
 import type { AppEnv } from "../app/env.js"
+import { closeDb, initDb } from "../db/client.js"
 import {
   contextStorage,
   withTestRequestLogger,
 } from "../test/hono-test-logger.js"
 
-// Import-time BackendPostgres.connect against DATABASE_URL.
-vi.mock("../openworkflow/client.js", () => ({
-  ow: { runWorkflow: vi.fn() },
-  runWorkflowWithWorkerWake: vi.fn(),
-}))
-
 import { registerOpenapiRoutes } from "./openapi.js"
-import { registerV1Routes } from "./v1/index.js"
+
+let registerV1Routes: typeof import("./v1/index.js").registerV1Routes
+let closeOpenWorkflowClient: typeof import("../openworkflow/client.js").closeOpenWorkflowClient
 
 function assertOrgScopedRpcClient(
-  client: ReturnType<typeof hc<ReturnType<typeof registerV1Routes>>>,
+  client: ReturnType<
+    typeof hc<ReturnType<typeof import("./v1/index.js").registerV1Routes>>
+  >,
 ) {
   return client[":orgSlug"].api.v1.workspaces.$get
 }
 void assertOrgScopedRpcClient
 
-describe("GET /.docs/openapi", () => {
+describeWithDatabase("GET /.docs/openapi", () => {
+  beforeAll(async () => {
+    initDb(process.env.DATABASE_URL as string)
+    ;({ registerV1Routes } = await import("./v1/index.js"))
+    ;({ closeOpenWorkflowClient } = await import("../openworkflow/client.js"))
+  })
+
+  afterAll(async () => {
+    await closeOpenWorkflowClient()
+    await closeDb()
+  })
+
   afterEach(() => {
     vi.unstubAllEnvs()
   })

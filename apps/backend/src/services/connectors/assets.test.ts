@@ -124,6 +124,7 @@ describe("connector asset boundary", () => {
     expect(network.request).toHaveBeenCalledWith(
       new URL("https://files.provider.example/diagram.png"),
       expect.objectContaining({
+        agent: false,
         headers: {
           "accept-encoding": "identity",
           authorization: "Bearer provider-secret",
@@ -534,6 +535,7 @@ describe("connector asset boundary", () => {
       family: 4,
     })
     expect(options).toMatchObject({
+      agent: false,
       rejectUnauthorized: true,
       servername: "files.example.com",
     })

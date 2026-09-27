@@ -24,7 +24,7 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 
 ## Testing
 
-What to fake: [root AGENTS.md → Testing](../../AGENTS.md#testing). Name Postgres tests `*.integration.test.ts`. CI's backend job ([`.github/workflows/claude-plugin-test.yaml`](../../.github/workflows/claude-plugin-test.yaml)) migrates Postgres, then runs `pnpm --filter @ctxpipe/backend test` (the full suite).
+What to fake: [root AGENTS.md → Testing](../../AGENTS.md#testing). Name Postgres tests `*.integration.test.ts`. The full backend suite runs in [CI](../../.github/workflows/ci.yaml) with Postgres and native tools; the [Claude plugin workflow](../../.github/workflows/claude-plugin-test.yaml) runs focused auth and MCP tests.
 
 [`test/msw.ts`](test/msw.ts): `useMswServer`, `codesearchNotFound`. [`test/spans.ts`](test/spans.ts): `recordSpans`. [`test/db.ts`](test/db.ts): `describeWithDatabase`, `seedOrg`, `cleanupSeededOrg`. evlog assertions: pattern in [`src/mcp/transport.test.ts`](src/mcp/transport.test.ts).
 

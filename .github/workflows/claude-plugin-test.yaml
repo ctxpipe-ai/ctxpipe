@@ -50,7 +50,14 @@ jobs:
       - name: Migrate database
         run: pnpm --filter @ctxpipe/backend db:migrate
       - name: Backend tests
-        run: pnpm --filter @ctxpipe/backend test
+        run: >-
+          pnpm --filter @ctxpipe/backend exec vitest run
+          src/auth/oauth-organization.test.ts
+          src/auth/withAuth.test.ts
+          src/routes/auth.test.ts
+          src/routes/mcp.test.ts
+          src/routes/mcp.conformance.test.ts
+          src/mcp/transport.test.ts
 
   ui:
     name: UI tests

@@ -384,6 +384,9 @@ export function connectorAssetPinnedTlsOptions(input: {
   family: 4 | 6
 }) {
   return {
+    // Bun 1.4.2 pools https.request sockets by hostname and skips lookup
+    // on reuse, so a later pin would silently dial the earlier address.
+    agent: false as const,
     lookup: createPinnedConnectorAssetLookup(input),
     rejectUnauthorized: true as const,
     servername: input.hostname,
