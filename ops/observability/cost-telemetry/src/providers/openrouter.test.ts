@@ -9,7 +9,7 @@ const DAY = "2025-08-24"
 const ITEM = {
   byok_usage_inference: 0.012,
   completion_tokens: 125,
-  date: DAY,
+  date: `${DAY} 00:00:00`,
   endpoint_id: "550e8400-e29b-41d4-a716-446655440000",
   model: "openai/gpt-4.1",
   model_permaslug: "openai/gpt-4.1-2025-04-14",

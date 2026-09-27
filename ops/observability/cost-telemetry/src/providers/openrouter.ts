@@ -26,7 +26,7 @@ async function fetchDay(day: string, key: string): Promise<CostRow[]> {
     if (typeof item.completion_tokens !== "number" || !Number.isFinite(item.completion_tokens)) continue
     if (typeof item.usage !== "number" || !Number.isFinite(item.usage)) continue
     mapped.push({
-      day: item.date,
+      day: item.date.slice(0, 10),
       provider: "openrouter",
       sku: item.model,
       scope: item.provider_name,

@@ -6,7 +6,7 @@ import { rows } from "./github"
 
 const DAY = "2025-01-15"
 const ITEM = {
-  date: DAY,
+  date: `${DAY}T02:51:08Z`,
   product: "GitHub Actions",
   sku: "actions-linux",
   quantity: 123,

@@ -32,7 +32,7 @@ async function fetchDay(day: string, token: string): Promise<CostRow[]> {
     if (typeof item.netAmount !== "number" || !Number.isFinite(item.netAmount)) continue
     const scope = typeof item.repositoryName === "string" && item.repositoryName ? item.repositoryName : "org"
     mapped.push({
-      day: item.date,
+      day: item.date.slice(0, 10),
       provider: "github",
       sku: `${item.product}/${item.sku}`,
       scope,
