@@ -157,11 +157,18 @@ if (result.status !== "downloaded" || result.bytes.byteLength === 0) {
   )
 }
 
+function echoedAuthorization(
+  headers: { authorization?: unknown; Authorization?: unknown } | undefined,
+): string | undefined {
+  const value = headers?.authorization ?? headers?.Authorization
+  return typeof value === "string" ? value : undefined
+}
+
 const authenticated = await downloadConnectorAsset({
-  url: "https://httpbingo.org/headers",
+  url: "https://postman-echo.com/headers",
   budget: createConnectorAssetBudget({ maxDurationMs: 20_000 }),
   headers: { authorization: "Bearer connector-runtime-smoke" },
-  authenticatedHosts: ["httpbingo.org"],
+  authenticatedHosts: ["postman-echo.com"],
 })
 if (authenticated.status !== "downloaded") {
   throw new Error(
@@ -170,9 +177,9 @@ if (authenticated.status !== "downloaded") {
 }
 const authenticatedHeaders = JSON.parse(
   authenticated.bytes.toString("utf8"),
-) as { headers?: { Authorization?: string[] } }
+) as { headers?: { authorization?: unknown; Authorization?: unknown } }
 if (
-  authenticatedHeaders.headers?.Authorization?.[0] !==
+  echoedAuthorization(authenticatedHeaders.headers) !==
   "Bearer connector-runtime-smoke"
 ) {
   throw new Error("Connector asset authentication header was not delivered")
@@ -181,7 +188,7 @@ if (
 const redirectBudget = createConnectorAssetBudget({ maxDurationMs: 20_000 })
 const redirected = await downloadConnectorAsset({
   url: `https://httpbin.org/redirect-to?url=${encodeURIComponent(
-    "https://httpbingo.org/headers",
+    "https://postman-echo.com/headers",
   )}`,
   budget: redirectBudget,
   headers: { authorization: "Bearer must-not-cross-hosts" },
@@ -193,9 +200,16 @@ if (redirected.status !== "downloaded") {
   )
 }
 const redirectedHeaders = JSON.parse(redirected.bytes.toString("utf8")) as {
-  headers?: { Authorization?: string[] }
+  headers?: { host?: unknown; authorization?: unknown; Authorization?: unknown }
 }
-if (redirectedHeaders.headers?.Authorization !== undefined) {
+if (redirectedHeaders.headers?.host !== "postman-echo.com") {
+  throw new Error("Redirect echo did not observe the destination request")
+}
+if (
+  Object.keys(redirectedHeaders.headers).some(
+    (header) => header.toLowerCase() === "authorization",
+  )
+) {
   throw new Error("Connector credential leaked across an asset redirect")
 }
 if (
