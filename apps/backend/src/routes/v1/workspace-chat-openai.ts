@@ -15,6 +15,8 @@ import {
   verifyWorkspaceChatToken,
   workspaceChatBearerToken,
 } from "../../domain/workspaces/workspace-chat-token.js"
+import { applyAttribution } from "../../observability/attribution.js"
+import { runWithLangfuseContext } from "../../observability/langfuse.js"
 import { getLogger } from "../../observability/logger.js"
 import { lowerOpenAiChatCompletionsParams } from "../../retrieval/services/providers/openAILikeModelProvider.js"
 import { handleBedrockChatCompletion } from "./bedrockOpenAiProxy.js"
@@ -189,6 +191,11 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
   .openapi(chatRoute, async (c) => {
     const token = await chatTokenFromRequest(c)
     if (!token) return c.json({ error: "Unauthorized" }, 401)
+    applyAttribution({
+      "ctxpipe.org.id": token.orgId,
+      "ctxpipe.conversation.id": token.conversationId,
+      ...(token.orgSlug ? { "ctxpipe.org.slug": token.orgSlug } : {}),
+    })
     const env = c.var.env
     if (!hasUpstreamAuth(env)) {
       return c.json(
@@ -213,48 +220,53 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
       ...extras,
       model: contract.modelBase,
     }
-    const turnId = workspaceChatTurnId(token)
-    beginWorkspaceChatProxyGeneration(turnId)
-    const startedAt = Date.now()
-    let ttfbMs: number | null = null
-    const observer = observeWorkspaceChatCompletionStream()
-    const markTtfb = () => {
-      if (ttfbMs == null) ttfbMs = Date.now() - startedAt
-    }
-    const record = (status: number) => {
-      recordWorkspaceChatProxyCompletion(turnId, {
-        ttfbMs: ttfbMs ?? Date.now() - startedAt,
-        durationMs: Date.now() - startedAt,
-        finishReason: observer.finishReason,
-        tools: observer.tools,
-        text: observer.text,
-        status,
-        model: contract.modelBase,
-      })
-    }
-    getLogger().info("workspace-chat-model-proxy.request", {
-      step: "workspace-chat-model-proxy.request",
-      method: "POST",
-      path: "/v1/chat/completions",
-      conversationId: token.conversationId,
-      orgId: token.orgId,
-    })
-    if (env.MODEL_PROVIDER === "bedrock") {
-      const response = await handleNativeBedrockResponse(
-        c,
-        handleBedrockChatCompletion(env, forwarded),
-      )
-      record(response.status)
-      return response
-    }
-    return forwardToUpstream(c, "/v1/chat/completions", forwarded, {
-      conversationId: token.conversationId,
-      step: "workspace-chat-model-proxy",
-      origin: contract.upstreamBaseUrl,
-      observe: (chunk) => {
-        markTtfb()
-        observer.push(chunk)
+    return runWithLangfuseContext(
+      { sessionId: token.conversationId },
+      async () => {
+        const turnId = workspaceChatTurnId(token)
+        beginWorkspaceChatProxyGeneration(turnId)
+        const startedAt = Date.now()
+        let ttfbMs: number | null = null
+        const observer = observeWorkspaceChatCompletionStream()
+        const markTtfb = () => {
+          if (ttfbMs == null) ttfbMs = Date.now() - startedAt
+        }
+        const record = (status: number) => {
+          recordWorkspaceChatProxyCompletion(turnId, {
+            ttfbMs: ttfbMs ?? Date.now() - startedAt,
+            durationMs: Date.now() - startedAt,
+            finishReason: observer.finishReason,
+            tools: observer.tools,
+            text: observer.text,
+            status,
+            model: contract.modelBase,
+          })
+        }
+        getLogger().info("workspace-chat-model-proxy.request", {
+          step: "workspace-chat-model-proxy.request",
+          method: "POST",
+          path: "/v1/chat/completions",
+          conversationId: token.conversationId,
+          orgId: token.orgId,
+        })
+        if (env.MODEL_PROVIDER === "bedrock") {
+          const response = await handleNativeBedrockResponse(
+            c,
+            handleBedrockChatCompletion(env, forwarded),
+          )
+          record(response.status)
+          return response
+        }
+        return forwardToUpstream(c, "/v1/chat/completions", forwarded, {
+          conversationId: token.conversationId,
+          step: "workspace-chat-model-proxy",
+          origin: contract.upstreamBaseUrl,
+          observe: (chunk) => {
+            markTtfb()
+            observer.push(chunk)
+          },
+          onObservedComplete: () => record(200),
+        })
       },
-      onObservedComplete: () => record(200),
-    })
+    )
   })

@@ -14,6 +14,7 @@ import {
   landingWorkspace,
   retryPrepareWorkspace,
   startWorkspaceConversation,
+  workspaceChatPrepareOptions,
   workspaceGitTreeOptions,
   workspaceGraphOptions,
   workspaceKeys,
@@ -337,5 +338,36 @@ describe("workspace query HTTP helpers", () => {
       }),
     ).resolves.toEqual({ conversationId: "conv_started" })
     expect(requestAborted).toBe(false)
+  })
+
+  it("treats a 204 chat prepare as Query success", async () => {
+    let hits = 0
+    let workspaceId: string | null = null
+    server.use(
+      http.post(
+        "http://localhost:3000/:orgSlug/api/v1/conversations/:conversationId/prepare",
+        async ({ request }) => {
+          hits += 1
+          const body = (await request.json()) as { workspaceId?: string }
+          workspaceId = body.workspaceId ?? null
+          return new HttpResponse(null, { status: 204 })
+        },
+      ),
+    )
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    await expect(
+      queryClient.fetchQuery(
+        workspaceChatPrepareOptions("acme", "conv_1", "ws_1"),
+      ),
+    ).resolves.toBeNull()
+    expect(
+      queryClient.getQueryState(
+        workspaceKeys.chatPrepare("acme", "conv_1", "ws_1"),
+      )?.status,
+    ).toBe("success")
+    expect(hits).toBe(1)
+    expect(workspaceId).toBe("ws_1")
   })
 })

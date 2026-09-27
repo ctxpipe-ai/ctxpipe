@@ -109,6 +109,7 @@ function chatToken(now = Date.now()): string {
   return mintWorkspaceChatToken({
     authSecret: AUTH_SECRET,
     orgId: "org_1",
+    orgSlug: "acme",
     conversationId: "conv_1",
     now,
   })

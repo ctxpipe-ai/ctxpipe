@@ -165,6 +165,7 @@ it(
               expectedOwner: owner,
               authSecret: process.env.AUTH_SECRET ?? "",
               orgId: f.orgId,
+              orgSlug: f.orgSlug,
               conversationId: f.conversationId,
               revision,
               purpose: "workspace-chat-git",

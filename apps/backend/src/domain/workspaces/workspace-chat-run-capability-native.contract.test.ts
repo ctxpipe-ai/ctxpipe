@@ -44,6 +44,7 @@ it(
         const token = await mintWorkspaceChatRunCapability({
           authSecret,
           orgId: fixture.orgId,
+          orgSlug: fixture.orgSlug,
           conversationId: fixture.conversationId,
           expectedOwner: acquisition.owner,
           revision,
@@ -105,6 +106,7 @@ it(
         mintWorkspaceChatRunCapability({
           authSecret,
           orgId: "org_other",
+          orgSlug: fixture.orgSlug,
           conversationId: fixture.conversationId,
           expectedOwner: firstLockOwner,
           revision,
@@ -130,6 +132,7 @@ it(
           mintWorkspaceChatRunCapability({
             authSecret,
             orgId: fixture.orgId,
+            orgSlug: fixture.orgSlug,
             conversationId: fixture.conversationId,
             expectedOwner: firstLockOwner,
             revision,
@@ -139,6 +142,7 @@ it(
         const replacement = await mintWorkspaceChatRunCapability({
           authSecret,
           orgId: fixture.orgId,
+          orgSlug: fixture.orgSlug,
           conversationId: fixture.conversationId,
           expectedOwner: replacementOwner,
           revision,

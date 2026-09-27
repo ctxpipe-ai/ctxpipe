@@ -739,6 +739,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
               expectedOwner: transcriptOwner,
               authSecret: process.env.AUTH_SECRET?.trim() ?? "",
               orgId: input.orgId,
+              orgSlug: session.orgSlug,
               conversationId: input.conversationId,
               revision: built.revision,
             }
@@ -812,6 +813,7 @@ async function resolveWorkspaceChatSession(
     runToken: mintWorkspaceChatToken({
       authSecret,
       orgId: input.orgId,
+      orgSlug,
       conversationId: input.conversationId,
       runId: input.runId,
     }),

@@ -109,7 +109,10 @@ export function workspaceChatPrepareOptions(
 ) {
   return queryOptions({
     queryKey: workspaceKeys.chatPrepare(orgSlug, conversationId, workspaceId),
-    queryFn: () => prepareWorkspaceChat(orgSlug, conversationId, workspaceId),
+    queryFn: async () => {
+      await prepareWorkspaceChat(orgSlug, conversationId, workspaceId)
+      return null
+    },
     staleTime: Number.POSITIVE_INFINITY,
     retry: false,
   })

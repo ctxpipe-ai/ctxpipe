@@ -60,6 +60,7 @@ import {
   getDesiredWorkspaceRevision,
   getWorkspaceById,
 } from "../../models/workspaces.js"
+import { applyAttribution } from "../../observability/attribution.js"
 import { getLogger } from "../../observability/logger.js"
 import {
   createPullRequestFromBranch,
@@ -672,6 +673,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       headers: c.req.raw.headers,
     })
     if (!conversation) return c.json({ error: "Not found" }, 404)
+    applyAttribution({ "ctxpipe.conversation.id": conversation.id })
 
     let messages: ConversationChatMessage[]
     try {
@@ -718,6 +720,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       headers: c.req.raw.headers,
     })
     if (!conversation) return c.json({ error: "Not found" }, 404)
+    applyAttribution({ "ctxpipe.conversation.id": conversation.id })
 
     const url = new URL(c.req.url)
     url.searchParams.set("threadId", conversationId)
@@ -823,6 +826,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       generateId: () => generateObjectId("conv"),
       idFromIdempotencyKey: conversationIdFromIdempotencyKey,
     })
+    applyAttribution({ "ctxpipe.conversation.id": conversationId })
     if (idempotencyKey && (await conversationHasStoredTurns(conversationId))) {
       return withConversationIdHeader(
         new Response("", { status: 200 }),
@@ -842,6 +846,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
 
     const conversationId = c.req.param("conversationId")
+    applyAttribution({ "ctxpipe.conversation.id": conversationId })
     let parsed: ConversationChatRequest
     try {
       parsed = await parseConversationChatRequest(await c.req.json())
@@ -868,6 +873,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
 
     const conversationId = c.req.param("conversationId")
+    applyAttribution({ "ctxpipe.conversation.id": conversationId })
     const body = PrepareConversationRequestSchema.parse(await c.req.json())
     const conversation = await ensureConversation({
       id: conversationId,

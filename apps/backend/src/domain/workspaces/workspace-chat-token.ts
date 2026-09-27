@@ -5,6 +5,7 @@ import { CHAT_SANDBOX_IDLE_MS } from "./chat-lifecycle.js"
 const WorkspaceChatTokenSchema = z.object({
   exp: z.number().int().positive(),
   orgId: z.string().min(1),
+  orgSlug: z.string().min(1).optional(),
   conversationId: z.string().min(1),
   runId: z.string().min(1).optional(),
   purpose: z.literal("workspace-chat-completions"),
@@ -19,15 +20,18 @@ function sign(encodedPayload: string, secret: string): string {
 export function mintWorkspaceChatToken(input: {
   authSecret: string
   orgId: string
+  orgSlug: string
   conversationId: string
   runId?: string
   now?: number
   ttlMs?: number
 }): string {
   const now = input.now ?? Date.now()
+  const orgSlug = input.orgSlug.trim()
   const payload: WorkspaceChatToken = {
     exp: now + (input.ttlMs ?? CHAT_SANDBOX_IDLE_MS),
     orgId: input.orgId,
+    orgSlug,
     conversationId: input.conversationId,
     ...(input.runId ? { runId: input.runId } : {}),
     purpose: "workspace-chat-completions",

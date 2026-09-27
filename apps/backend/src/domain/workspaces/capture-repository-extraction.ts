@@ -8,6 +8,7 @@ import type { WorkspaceExtraction } from "./extraction.js"
 import { captureExtractionSourceDeclaration } from "./extraction-source.js"
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 /** Bind the destination before extraction; no content projection is consulted. */
 export async function captureRepositoryExtractionTarget(input: {
@@ -47,6 +48,10 @@ export async function captureRepositoryExtractionTarget(input: {
     if (!declaration) return null
     sourceDeclaration = declaration
   }
+  const repositoryName = githubRepoFullNameFromWorkspaceUrl(
+    resolved.revision.remote.url,
+  )
+  if (!repositoryName || !resolved.revision.remote.connectionId) return null
   return {
     workspaceId: workspace.id,
     sourceDeclaration,
