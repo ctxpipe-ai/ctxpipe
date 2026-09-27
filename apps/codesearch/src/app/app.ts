@@ -20,13 +20,13 @@ import type { AppEnv } from "./env.js"
 
 export type { AppEnv } from "./env.js"
 
-export function useObservability(app: OpenAPIHono<AppEnv>) {
+export function useObservability(app: OpenAPIHono<AppEnv>, env?: Env) {
   app.use("*", httpInstrumentationMiddleware())
   app.use("*", cors())
   app.use(contextStorage())
   app.use(
     evlog({
-      drain: createEvlogDrain(),
+      drain: createEvlogDrain(env),
       enrich: (ctx) => {
         applyCodesearchLogContract(ctx.event as Record<string, unknown>)
         const message = httpWideEventMessage({
@@ -44,7 +44,7 @@ export function createApp(env: Env) {
   const app = new OpenAPIHono<AppEnv>()
   const db = env.DATABASE_URL ? createDb(env) : null
 
-  useObservability(app)
+  useObservability(app, env)
   app.use("*", async (c, next) => {
     c.set("db", db)
     c.set("env", env)

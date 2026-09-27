@@ -75,11 +75,12 @@ const pagerdutyConnectorScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
   .route("/", pagerdutyConnectorRoutes)
 
-export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
-  // For RPC client type inference to work, we need to chain the handlers
+function createOrgScopedV1<BasePath extends string>(
+  app: OpenAPIHono<AppEnv, Record<never, never>, BasePath>,
+) {
+  // Incremental `.route()` after `basePath` is what `hc` can infer.
   // https://hono.dev/docs/guides/rpc#using-rpc-with-larger-applications
-  const orgScopedV1 = new OpenAPIHono<AppEnv>()
-    .basePath("/:orgSlug/api/v1")
+  return app
     .use("*", withCookieAuth)
     .use("*", withBearerAuth)
     .use("*", requireAuth)
@@ -104,6 +105,22 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/onboarding", orgOnboardingRoutes)
     .route("/knowledge-graph", knowledgeGraphRoutes)
     .route("/openai", openaiRoutes)
+}
+
+/** UI `hc` surface: `client[":orgSlug"].api.v1.…` */
+export type OrgScopedV1Rpc = ReturnType<
+  typeof createOrgScopedV1<"/:orgSlug/api/v1">
+>
+
+export function registerV1Routes(app: OpenAPIHono<AppEnv>): OrgScopedV1Rpc {
+  const orgScopedV1 = createOrgScopedV1(new OpenAPIHono<AppEnv>())
+
+  // Do not chain `.use()` after `OpenAPIHono.basePath()` — that returns a
+  // plain Hono with no `getOpenAPI31Document`. One-shot
+  // `.basePath().route("/", inner)` also drops RPC inference (`hc` → unknown).
+  const orgScopedMounted = new OpenAPIHono<AppEnv>()
+    .basePath("/:orgSlug/api/v1")
+    .route("/", orgScopedV1)
 
   const workspaceChatOpenai = new OpenAPIHono<AppEnv>()
     .basePath("/:orgSlug/api/v1/workspace-chat/openai")
@@ -123,7 +140,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/onboarding", userOnboardingRoutes)
 
   app.route("/", workspaceChatOpenai)
-  app.route("/", orgScopedV1)
+  app.route("/", orgScopedMounted)
   app.route("/", nonOrgScopedV1)
-  return orgScopedV1
+  return orgScopedMounted as unknown as OrgScopedV1Rpc
 }

@@ -129,6 +129,15 @@ describe("Notion connection storage maintenance", () => {
           })),
         })),
       })
+      .mockReturnValue({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            orderBy: vi.fn(() => ({
+              limit: vi.fn().mockResolvedValue([latest]),
+            })),
+          })),
+        })),
+      })
     const tx = {
       execute: vi.fn(),
       select,
@@ -138,6 +147,7 @@ describe("Notion connection storage maintenance", () => {
       transaction: vi.fn((operation: (transaction: Db) => Promise<unknown>) =>
         operation(tx as unknown as Db),
       ),
+      select,
     } as unknown as Db
     dbMocks.getOrgDb.mockReturnValue(db)
 
@@ -206,6 +216,9 @@ describe("Notion connection storage maintenance", () => {
       .mockReturnValue({
         from: vi.fn(() => ({
           where: vi.fn(() => ({
+            orderBy: vi.fn(() => ({
+              limit: vi.fn().mockResolvedValue([matched]),
+            })),
             limit: vi.fn().mockResolvedValue([matched]),
           })),
         })),
@@ -220,6 +233,7 @@ describe("Notion connection storage maintenance", () => {
       transaction: vi.fn((operation: (transaction: Db) => Promise<unknown>) =>
         operation(tx as unknown as Db),
       ),
+      select,
     } as unknown as Db
     dbMocks.getOrgDb.mockReturnValue(db)
 
@@ -264,10 +278,16 @@ describe("Notion connection storage maintenance", () => {
         })),
       })),
     })
+    const execute = vi.fn()
+    const select = vi.fn(selectRow)
+    const update = vi.fn(() => ({ set }))
     const db = {
-      execute: vi.fn(),
-      select: vi.fn(selectRow),
-      update: vi.fn(() => ({ set })),
+      execute,
+      select,
+      update,
+      transaction: vi.fn((operation: (transaction: Db) => Promise<unknown>) =>
+        operation({ execute, select, update } as unknown as Db),
+      ),
     } as unknown as Db
     dbMocks.getOrgDb.mockReturnValue(db)
 

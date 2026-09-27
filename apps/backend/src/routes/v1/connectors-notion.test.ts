@@ -147,6 +147,7 @@ describe("Notion connector config", () => {
     patchNotionConnectorConfigMock.mockResolvedValue({
       bindingChanged: false,
     })
+    transitionNotionBindingStateMock.mockResolvedValue(true)
     runWorkflowMock.mockResolvedValue({ status: "running" })
   })
 

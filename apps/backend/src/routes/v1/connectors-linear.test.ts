@@ -26,8 +26,8 @@ const mocks = vi.hoisted(() => ({
   transitionTarget: vi.fn(),
   updatePrState: vi.fn(),
   upsertConnection: vi.fn(),
-  claimContentRetry: vi.fn(),
-  releaseClaim: vi.fn(),
+  enqueueConfigSync: vi.fn(),
+  enqueueContentSync: vi.fn(),
 }))
 
 vi.mock("../../auth/withAuth.js", () => ({
@@ -76,6 +76,12 @@ vi.mock("../../models/linear-connector.js", () => ({
 }))
 vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
   enqueueRepositoryIngestionWorkflow: vi.fn(),
+}))
+vi.mock("../../openworkflow/enqueue-connector-config-sync.js", () => ({
+  enqueueConnectorConfigSync: mocks.enqueueConfigSync,
+}))
+vi.mock("../../openworkflow/enqueue-connector-content-sync.js", () => ({
+  enqueueConnectorContentSync: mocks.enqueueContentSync,
 }))
 vi.mock("../../openworkflow/client.js", () => ({
   runWorkflowWithWorkerWake: mocks.runWorkflow,
@@ -181,7 +187,8 @@ beforeEach(() => {
     customerRequests: "limited",
     scopes,
   })
-  mocks.claimContentRetry.mockResolvedValue(true)
+  mocks.enqueueConfigSync.mockResolvedValue({ accepted: true, started: true })
+  mocks.enqueueContentSync.mockResolvedValue(true)
   mocks.transitionTarget.mockResolvedValue(true)
   mocks.runWorkflow.mockResolvedValue({ workflowRun: { id: "run_1" } })
 })
@@ -670,8 +677,8 @@ describe("Linear connector routes", () => {
       orgId: "org_1",
       connectionId: "con_linear",
       scopes,
-      claimConfigPrCreation: false,
     })
+    expect(mocks.enqueueConfigSync).not.toHaveBeenCalled()
     expect(mocks.transitionTarget).toHaveBeenCalledWith({
       connectionId: "con_linear",
       expectedSetupPhase: "draft",
@@ -762,21 +769,16 @@ describe("Linear connector routes", () => {
     )
 
     expect(response.status).toBe(202)
-    expect(mocks.runWorkflow).toHaveBeenCalledWith(
-      { name: "linear-sync-config" },
-      {
-        orgId: "org_1",
-        orgSlug: "acme",
-        connectionId: "con_linear",
-        scopes,
-      },
-    )
-    expect(mocks.patchConfig).toHaveBeenCalledWith({
+    expect(mocks.enqueueConfigSync).toHaveBeenCalledWith({
+      provider: "linear",
       orgId: "org_1",
+      orgSlug: "acme",
       connectionId: "con_linear",
+      repositoryId: "repo_1",
+      branch: "main",
       scopes,
-      claimConfigPrCreation: true,
     })
+    expect(mocks.patchConfig).not.toHaveBeenCalled()
   })
 
   it("retries config with submitted scopes when no git draft exists", async () => {
@@ -812,33 +814,22 @@ describe("Linear connector routes", () => {
     )
 
     expect(response.status).toBe(202)
-    expect(mocks.patchConfig).toHaveBeenCalledWith({
+    expect(mocks.enqueueConfigSync).toHaveBeenCalledWith({
+      provider: "linear",
       orgId: "org_1",
+      orgSlug: "acme",
       connectionId: "con_linear",
+      repositoryId: "repo_1",
+      branch: "main",
       scopes,
-      claimConfigPrCreation: true,
     })
-    expect(mocks.runWorkflow).toHaveBeenCalledWith(
-      { name: "linear-sync-config" },
-      {
-        orgId: "org_1",
-        orgSlug: "acme",
-        connectionId: "con_linear",
-        scopes,
-      },
-    )
+    expect(mocks.patchConfig).not.toHaveBeenCalled()
   })
 
-  it("restores the prior phase when configuration enqueue fails", async () => {
-    mocks.patchConfig.mockResolvedValueOnce({
-      scopes: [],
-      configPrClaimed: true,
-      previousConfigPrState: {
-        pendingConfigPullUrl: null,
-        setupPhase: "draft",
-      },
-    })
-    mocks.runWorkflow.mockRejectedValueOnce(new Error("worker unavailable"))
+  it("returns 503 when configuration enqueue fails", async () => {
+    mocks.enqueueConfigSync.mockRejectedValueOnce(
+      new Error("worker unavailable"),
+    )
     const app = appWithVariables().route(
       "/acme/api/v1/connectors/linear",
       linearConnectorRoutes,
@@ -853,12 +844,12 @@ describe("Linear connector routes", () => {
     )
 
     expect(response.status).toBe(503)
-    expect(mocks.releaseClaim).toHaveBeenCalledWith({
+    expect(mocks.enqueueConfigSync).toHaveBeenCalledWith({
+      provider: "linear",
+      orgId: "org_1",
+      orgSlug: "acme",
       connectionId: "con_linear",
-      previousState: {
-        pendingConfigPullUrl: null,
-        setupPhase: "draft",
-      },
+      scopes: [],
     })
     expect(mocks.updatePrState).not.toHaveBeenCalled()
   })
@@ -874,15 +865,23 @@ describe("Linear connector routes", () => {
     )
 
     expect(response.status).toBe(202)
-    expect(mocks.claimContentRetry).toHaveBeenCalledWith("con_linear")
-    expect(mocks.runWorkflow).toHaveBeenCalledWith(
-      { name: "linear-sync-content" },
-      { orgId: "org_1", connectionId: "con_linear" },
+    expect(mocks.enqueueContentSync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_1",
+        connectionId: "con_linear",
+        provider: "linear",
+        repositoryId: "repo_1",
+        branch: "main",
+      }),
     )
+    expect(mocks.enqueueConfigSync).not.toHaveBeenCalled()
+    expect(mocks.runWorkflow).not.toHaveBeenCalled()
   })
 
-  it("restores the failed state when retry enqueue fails", async () => {
-    mocks.runWorkflow.mockRejectedValueOnce(new Error("worker unavailable"))
+  it("returns 500 when content retry enqueue fails", async () => {
+    mocks.enqueueContentSync.mockRejectedValueOnce(
+      new Error("worker unavailable"),
+    )
     const app = appWithVariables().route(
       "/acme/api/v1/connectors/linear",
       linearConnectorRoutes,
@@ -893,12 +892,8 @@ describe("Linear connector routes", () => {
     )
 
     expect(response.status).toBe(500)
-    expect(mocks.updatePrState).toHaveBeenCalledWith({
-      connectionId: "con_linear",
-      pendingConfigPullUrl: null,
-      pendingConfigPrCreating: false,
-      setupPhase: "sync_failed",
-    })
+    expect(mocks.enqueueContentSync).toHaveBeenCalled()
+    expect(mocks.updatePrState).not.toHaveBeenCalled()
   })
 
   it("does not start a content retry outside the failed state", async () => {

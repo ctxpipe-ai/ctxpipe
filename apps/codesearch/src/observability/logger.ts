@@ -41,7 +41,7 @@ export function initEvlog(): void {
     },
     pretty: env.NODE_ENV === "development",
     redact: codesearchLogRedact,
-    drain: createEvlogDrain(),
+    drain: createEvlogDrain(env),
   })
 }
 
