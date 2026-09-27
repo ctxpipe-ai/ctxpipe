@@ -122,6 +122,8 @@ describe("POST /.otel/v1/$signal", () => {
     )
     vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-343")
     vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "")
+    vi.stubEnv("AUTH_BASE_URL", "https://app.example")
+    vi.stubEnv("AUTH_ALLOWED_ORIGINS", "https://backend-pr-343.up.railway.app")
     captured = null
     upstreamPosts = 0
   })
@@ -333,6 +335,46 @@ describe("POST /.otel/v1/$signal", () => {
           "content-type": "application/json",
           "content-length": "2",
           referer: "https://app.example/org/chat",
+        },
+        body: "{}",
+      }),
+    )
+    expect(response.status).toBe(403)
+    expect(upstreamPosts).toBe(0)
+  })
+
+  it("accepts the configured public origin when forwarded proto is the http edge hop", async () => {
+    vi.stubEnv("AUTH_BASE_URL", "https://backend-pr-280.up.railway.app")
+    const response = await postSignal(
+      "traces",
+      new Request("http://ui.railway.internal:3002/.otel/v1/traces", {
+        method: "POST",
+        headers: {
+          origin: "https://backend-pr-280.up.railway.app",
+          "content-type": "application/json",
+          "content-length": "2",
+          "x-forwarded-host": "backend-pr-280.up.railway.app",
+          "x-forwarded-proto": "http",
+        },
+        body: "{}",
+      }),
+    )
+    expect(response.status).toBe(200)
+    expect(upstreamPosts).toBe(1)
+  })
+
+  it("rejects a foreign origin even when forwarded host and proto match that origin", async () => {
+    vi.stubEnv("AUTH_BASE_URL", "https://backend-pr-280.up.railway.app")
+    const response = await postSignal(
+      "traces",
+      new Request("http://ui.railway.internal:3002/.otel/v1/traces", {
+        method: "POST",
+        headers: {
+          Origin: "https://evil.example",
+          "content-type": "application/json",
+          "content-length": "2",
+          "x-forwarded-host": "evil.example",
+          "x-forwarded-proto": "https",
         },
         body: "{}",
       }),

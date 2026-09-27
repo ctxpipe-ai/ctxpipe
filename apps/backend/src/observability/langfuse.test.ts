@@ -223,5 +223,39 @@ describe("Langfuse context attributes", () => {
     expect(gens[0]?.attributes["langfuse.observation.cost_details"]).toBe(
       undefined,
     )
+    expect(gens[0]?.attributes["langfuse.trace.tags"]).toEqual(
+      expect.arrayContaining([`env:${environment}`]),
+    )
+    expect(gens[0]?.attributes["langfuse.trace.metadata.environment"]).toBe(
+      environment,
+    )
+  })
+
+  it("copies org tags and metadata onto an embedding generation from the bag", async () => {
+    const { context: withBag, bag } = contextWithAttributionBag(ROOT_CONTEXT)
+    await context.with(withBag, async () => {
+      bag.set("ctxpipe.org.id", "org_1")
+      bag.set("ctxpipe.org.slug", "acme")
+      bag.set("request.id", "req_embed")
+      await withLangfuseGeneration(
+        {
+          name: "modelProvider.generateEmbeddings",
+          model: "openai/text-embedding-3-large",
+          input: { textCount: 1, totalCharacters: 1 },
+          summarizeOutput: () => ({ embeddingCount: 1 }),
+        },
+        async () => [0.1],
+      )
+    })
+    const gens = generations()
+    expect(gens).toHaveLength(1)
+    expect(gens[0]?.attributes["langfuse.trace.tags"]).toEqual(
+      expect.arrayContaining(["org:acme", `env:${environment}`]),
+    )
+    expect(gens[0]?.attributes["langfuse.trace.metadata.orgId"]).toBe("org_1")
+    expect(gens[0]?.attributes["langfuse.trace.metadata.orgSlug"]).toBe("acme")
+    expect(gens[0]?.attributes["langfuse.trace.metadata.requestId"]).toBe(
+      "req_embed",
+    )
   })
 })

@@ -86,10 +86,12 @@ export function attributionPatchFromJobInput(
     stringField(record, "connectionId") ??
     stringField(record, "githubConnectionId")
   const repositoryId = stringField(record, "repositoryId")
+  const workspaceId = stringField(record, "workspaceId")
   if (orgId) patch["ctxpipe.org.id"] = orgId
   if (orgSlug) patch["ctxpipe.org.slug"] = orgSlug
   if (connectionId) patch["ctxpipe.connection.id"] = connectionId
   if (repositoryId) patch["ctxpipe.repository.id"] = repositoryId
+  if (workspaceId) patch["ctxpipe.workspace.id"] = workspaceId
   return patch
 }
 

@@ -25,6 +25,7 @@ import { Route as DotauthAccountRouteImport } from './routes/[.]auth.account'
 import { Route as DotauthAuthViewRouteImport } from './routes/[.]auth.$authView'
 import { Route as OrgSlugSetupRouteImport } from './routes/$orgSlug.setup'
 import { Route as OrgSlugConnectorsRouteImport } from './routes/$orgSlug.connectors'
+import { Route as DotauthAccountIndexRouteImport } from './routes/[.]auth.account.index'
 import { Route as DototelV1SignalRouteImport } from './routes/[.]otel.v1.$signal'
 import { Route as DotauthOrganizationOrganizationViewRouteImport } from './routes/[.]auth.organization.$organizationView'
 import { Route as DotauthAccountAccountViewRouteImport } from './routes/[.]auth.account.$accountView'
@@ -116,6 +117,11 @@ const OrgSlugConnectorsRoute = OrgSlugConnectorsRouteImport.update({
   path: '/connectors',
   getParentRoute: () => OrgSlugRoute,
 } as any)
+const DotauthAccountIndexRoute = DotauthAccountIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => DotauthAccountRoute,
+} as any)
 const DototelV1SignalRoute = DototelV1SignalRouteImport.update({
   id: '/.otel/v1/$signal',
   path: '/.otel/v1/$signal',
@@ -191,6 +197,7 @@ export interface FileRoutesByFullPath {
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
   '/.auth/organization/$organizationView': typeof DotauthOrganizationOrganizationViewRoute
   '/.otel/v1/$signal': typeof DototelV1SignalRoute
+  '/.auth/account/': typeof DotauthAccountIndexRoute
   '/$orgSlug/ws/$workspaceSlug/$conversationId': typeof OrgSlugWsWorkspaceSlugConversationIdRoute
   '/$orgSlug/ws/$workspaceSlug/': typeof OrgSlugWsWorkspaceSlugIndexRoute
 }
@@ -200,7 +207,6 @@ export interface FileRoutesByTo {
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/setup': typeof OrgSlugSetupRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
-  '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
   '/.auth/device': typeof DotauthDeviceRoute
   '/.auth/reset-password': typeof DotauthResetPasswordRoute
@@ -216,6 +222,7 @@ export interface FileRoutesByTo {
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
   '/.auth/organization/$organizationView': typeof DotauthOrganizationOrganizationViewRoute
   '/.otel/v1/$signal': typeof DototelV1SignalRoute
+  '/.auth/account': typeof DotauthAccountIndexRoute
   '/$orgSlug/ws/$workspaceSlug/$conversationId': typeof OrgSlugWsWorkspaceSlugConversationIdRoute
   '/$orgSlug/ws/$workspaceSlug': typeof OrgSlugWsWorkspaceSlugIndexRoute
 }
@@ -244,6 +251,7 @@ export interface FileRoutesById {
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
   '/.auth/organization/$organizationView': typeof DotauthOrganizationOrganizationViewRoute
   '/.otel/v1/$signal': typeof DototelV1SignalRoute
+  '/.auth/account/': typeof DotauthAccountIndexRoute
   '/$orgSlug/ws/$workspaceSlug/$conversationId': typeof OrgSlugWsWorkspaceSlugConversationIdRoute
   '/$orgSlug/ws/$workspaceSlug/': typeof OrgSlugWsWorkspaceSlugIndexRoute
 }
@@ -273,6 +281,7 @@ export interface FileRouteTypes {
     | '/.auth/account/$accountView'
     | '/.auth/organization/$organizationView'
     | '/.otel/v1/$signal'
+    | '/.auth/account/'
     | '/$orgSlug/ws/$workspaceSlug/$conversationId'
     | '/$orgSlug/ws/$workspaceSlug/'
   fileRoutesByTo: FileRoutesByTo
@@ -282,7 +291,6 @@ export interface FileRouteTypes {
     | '/$orgSlug/connectors'
     | '/$orgSlug/setup'
     | '/.auth/$authView'
-    | '/.auth/account'
     | '/.auth/consent'
     | '/.auth/device'
     | '/.auth/reset-password'
@@ -298,6 +306,7 @@ export interface FileRouteTypes {
     | '/.auth/account/$accountView'
     | '/.auth/organization/$organizationView'
     | '/.otel/v1/$signal'
+    | '/.auth/account'
     | '/$orgSlug/ws/$workspaceSlug/$conversationId'
     | '/$orgSlug/ws/$workspaceSlug'
   id:
@@ -325,6 +334,7 @@ export interface FileRouteTypes {
     | '/.auth/account/$accountView'
     | '/.auth/organization/$organizationView'
     | '/.otel/v1/$signal'
+    | '/.auth/account/'
     | '/$orgSlug/ws/$workspaceSlug/$conversationId'
     | '/$orgSlug/ws/$workspaceSlug/'
   fileRoutesById: FileRoutesById
@@ -461,6 +471,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrgSlugConnectorsRouteImport
       parentRoute: typeof OrgSlugRoute
     }
+    '/.auth/account/': {
+      id: '/.auth/account/'
+      path: '/'
+      fullPath: '/.auth/account/'
+      preLoaderRoute: typeof DotauthAccountIndexRouteImport
+      parentRoute: typeof DotauthAccountRoute
+    }
     '/.otel/v1/$signal': {
       id: '/.otel/v1/$signal'
       path: '/.otel/v1/$signal'
@@ -570,10 +587,12 @@ const OrgSlugRouteWithChildren =
 
 interface DotauthAccountRouteChildren {
   DotauthAccountAccountViewRoute: typeof DotauthAccountAccountViewRoute
+  DotauthAccountIndexRoute: typeof DotauthAccountIndexRoute
 }
 
 const DotauthAccountRouteChildren: DotauthAccountRouteChildren = {
   DotauthAccountAccountViewRoute: DotauthAccountAccountViewRoute,
+  DotauthAccountIndexRoute: DotauthAccountIndexRoute,
 }
 
 const DotauthAccountRouteWithChildren = DotauthAccountRoute._addFileChildren(

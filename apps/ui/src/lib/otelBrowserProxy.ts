@@ -5,23 +5,36 @@ import {
 
 const MAX_BODY_BYTES = 1024 * 1024
 
-/**
- * Public origin the browser used. Behind the backend SPA proxy, `request.url`
- * is the private UI host and `X-Forwarded-Host` is the public host.
- */
-function browserOrigin(request: Request): string | null {
-  const forwardedHost = request.headers
-    .get("x-forwarded-host")
-    ?.split(",")[0]
-    ?.trim()
+function parseHttpOrigin(value: string): string | null {
   try {
-    if (!forwardedHost) return new URL(request.url).origin
-    const proto =
-      request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() || "https"
-    return new URL(`${proto}://${forwardedHost}`).origin
+    const url = new URL(value)
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null
+    return url.origin
   } catch {
     return null
   }
+}
+
+/** Operator-configured public origins, independent of client headers. */
+function configuredPublicOrigins(): string[] {
+  const origins: string[] = []
+  const configured = process.env.AUTH_BASE_URL?.trim()
+  if (configured) {
+    const origin = parseHttpOrigin(configured)
+    if (origin) origins.push(origin)
+  }
+  for (const part of (process.env.AUTH_ALLOWED_ORIGINS ?? "").split(",")) {
+    const origin = parseHttpOrigin(part.trim())
+    if (origin) origins.push(origin)
+  }
+  return origins
+}
+
+function allowedBrowserOrigin(request: Request): boolean {
+  const origin = request.headers.get("origin")
+  if (!origin) return false
+  const configured = configuredPublicOrigins()
+  return configured.includes(origin)
 }
 
 /**
@@ -98,8 +111,7 @@ export async function proxyBrowserOtlp(
   request: Request,
   upstream: string,
 ): Promise<Response> {
-  const origin = browserOrigin(request)
-  if (!origin || request.headers.get("origin") !== origin) {
+  if (!allowedBrowserOrigin(request)) {
     return reject(request, 403)
   }
   const encoding = request.headers.get("content-encoding")?.trim().toLowerCase()

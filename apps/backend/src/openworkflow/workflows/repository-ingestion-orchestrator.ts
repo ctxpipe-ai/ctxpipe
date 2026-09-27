@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { withOrgDbContext } from "../../db/client.js"
 import {
@@ -12,6 +11,7 @@ import {
   getLogger,
   withLogger,
 } from "../../observability/logger.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { isWorkflowControlSignal } from "../isSleepSignal.js"
 import { repositoryIngestion } from "./repository-ingestion.js"
 

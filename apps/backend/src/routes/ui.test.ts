@@ -58,6 +58,7 @@ describe("UI websocket proxy helpers", () => {
 })
 
 describe("UI HTTP proxy budget", () => {
+  const trust = { publicOrigin: "http://localhost:3000" }
   it("returns 504 when the upstream hangs past the abort budget", async () => {
     expect(UI_PROXY_TIMEOUT_MS).toBe(15_000)
 
@@ -79,6 +80,7 @@ describe("UI HTTP proxy budget", () => {
         new Request("http://localhost/ws/context"),
         `http://127.0.0.1:${address.port}`,
         50,
+        trust,
       )
       expect(response.status).toBe(504)
       expect(Date.now() - started).toBeLessThan(15_000)
@@ -94,6 +96,7 @@ describe("UI HTTP proxy budget", () => {
       new Request("http://localhost/ws/context"),
       "http://127.0.0.1:1",
       200,
+      trust,
     )
     expect(response.status).toBe(502)
     expect(await response.text()).toBe("Bad Gateway")
@@ -117,6 +120,7 @@ describe("UI HTTP proxy budget", () => {
         new Request("http://localhost/ws/context"),
         `http://127.0.0.1:${address.port}`,
         200,
+        trust,
       )
       expect(response.status).toBe(502)
       expect(await response.text()).toBe("Bad Gateway")
@@ -129,15 +133,15 @@ describe("UI HTTP proxy budget", () => {
 })
 
 describe("uiProxyUpstreamHeaders", () => {
-  it("replaces a spoofed forwarded host with the request host", () => {
+  it("replaces a spoofed forwarded host with the configured public host", () => {
     const headers = uiProxyUpstreamHeaders(
-      new URL("https://backend-pr-343.up.railway.app/.otel/v1/traces"),
       new Headers({
         origin: "https://backend-pr-343.up.railway.app",
         "x-forwarded-host": "evil.example",
         "x-forwarded-proto": "http",
       }),
       "ui.railway.internal:3002",
+      { publicOrigin: "https://backend-pr-343.up.railway.app" },
     )
     expect(headers.get("x-forwarded-host")).toBe(
       "backend-pr-343.up.railway.app",
@@ -147,15 +151,35 @@ describe("uiProxyUpstreamHeaders", () => {
     expect(headers.get("origin")).toBe("https://backend-pr-343.up.railway.app")
   })
 
-  it("keeps https from the edge when the backend request URL is http", () => {
+  it("uses the configured https origin without an Origin header", () => {
     const headers = uiProxyUpstreamHeaders(
-      new URL("http://backend-pr-343.up.railway.app/.otel/v1/traces"),
       new Headers({ "x-forwarded-proto": "https" }),
       "ui.railway.internal:3002",
+      { publicOrigin: "https://backend-pr-343.up.railway.app" },
     )
     expect(headers.get("x-forwarded-host")).toBe(
       "backend-pr-343.up.railway.app",
     )
+    expect(headers.get("x-forwarded-proto")).toBe("https")
+  })
+})
+
+describe("browser OTLP proxy headers", () => {
+  const publicOrigin = "https://backend-pr-280.up.railway.app"
+  const trust = { publicOrigin }
+
+  it("does not trust a forged origin or forwarded host", () => {
+    const headers = uiProxyUpstreamHeaders(
+      new Headers({
+        origin: "https://evil.example",
+        "x-forwarded-host": "evil.example",
+        "x-forwarded-proto": "http",
+      }),
+      "ui.railway.internal:3002",
+      trust,
+    )
+    expect(headers.get("origin")).toBe("https://evil.example")
+    expect(headers.get("x-forwarded-host")).toBe("backend-pr-280.up.railway.app")
     expect(headers.get("x-forwarded-proto")).toBe("https")
   })
 })

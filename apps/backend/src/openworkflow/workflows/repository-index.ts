@@ -24,6 +24,7 @@ import {
 import {
   ensureRepositoryRevisionCheckout,
   getRepositoryReadBinding,
+  repositoryIndexAlreadyPublished,
   setRepositoryIndexingStep,
 } from "../../models/repositories.js"
 import {
@@ -349,6 +350,32 @@ export const repositoryIndex = defineWorkflow(
           repositoryId: input.repositoryId,
           targetHash: input.targetHash,
         })
+
+        if (
+          await repositoryIndexAlreadyPublished(
+            input.orgId,
+            input.repositoryId,
+            input.targetHash,
+          )
+        ) {
+          logMilestone("repository-index.skipped", {
+            repositoryId: input.repositoryId,
+            targetHash: input.targetHash,
+            reason: "already_published",
+          })
+          return {
+            indexedAt: new Date().toISOString(),
+            targetHash: input.targetHash,
+            ingestMode: "full" as const,
+            changedPaths: [],
+            deletedPaths: [],
+            renames: [],
+            searchIndexOk: true,
+            searchIndexError: undefined,
+            scipIndexOk: true,
+            scipIndexError: undefined,
+          }
+        }
 
         const env = parseEnv(process.env as Record<string, string | undefined>)
         const githubToken = await wls("resolve-github-token", () =>

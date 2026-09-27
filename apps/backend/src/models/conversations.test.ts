@@ -23,7 +23,6 @@ vi.mock("../db/org-sql.js", () => ({
 }))
 
 import {
-  ensureConversation,
   listConversations,
   listConversationsPaginated,
 } from "./conversations.js"
@@ -42,96 +41,6 @@ function conversationRow(overrides: { id: string; userId: string }) {
     updatedAt: now,
   }
 }
-
-function mockEnsureDb(opts: {
-  existing: unknown[]
-  idTaken: unknown[]
-  created: unknown[]
-}) {
-  let selectCalls = 0
-  const limit = vi.fn(async () => {
-    selectCalls += 1
-    return selectCalls === 1 ? opts.existing : opts.idTaken
-  })
-  const where = vi.fn(() => ({ limit }))
-  const from = vi.fn(() => ({ where }))
-  const select = vi.fn(() => ({ from }))
-  const returning = vi.fn(async () => opts.created)
-  const values = vi.fn(() => ({ returning }))
-  const insert = vi.fn(() => ({ values }))
-  getOrgDbMock.mockReturnValue({ select, insert })
-  return { values, insert }
-}
-
-describe("ensureConversation", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    requireCurrentOrgIdMock.mockReturnValue("org_1")
-    requireCurrentUserIdMock.mockReturnValue("user_1")
-    currentOrgApiKeyMock.mockReturnValue(null)
-  })
-
-  it("creates user conversations with the signed-in userId", async () => {
-    const created = conversationRow({ id: "conv_user", userId: "user_1" })
-    const db = mockEnsureDb({ existing: [], idTaken: [], created: [created] })
-
-    await expect(
-      ensureConversation({ id: "conv_user", source: "mcp" }),
-    ).resolves.toEqual(created)
-
-    expect(db.values).toHaveBeenCalledWith({
-      id: "conv_user",
-      orgId: "org_1",
-      userId: "user_1",
-      workspaceId: null,
-      source: "mcp",
-      name: "New conversation",
-    })
-  })
-
-  it("returns 404 when the id is taken by another user", async () => {
-    const db = mockEnsureDb({
-      existing: [],
-      idTaken: [{ id: "shared_id" }],
-      created: [],
-    })
-
-    await expect(
-      ensureConversation({ id: "shared_id", source: "mcp" }),
-    ).rejects.toMatchObject({
-      status: 404,
-      message: "Conversation not found",
-    })
-    expect(db.insert).not.toHaveBeenCalled()
-  })
-
-  it("creates org-service conversations with a null userId", async () => {
-    currentOrgApiKeyMock.mockReturnValue({
-      id: "key_org",
-      orgId: "org_1",
-      configId: "organization",
-    })
-    const created = {
-      ...conversationRow({ id: "conv_org", userId: "user_1" }),
-      userId: null,
-    }
-    const db = mockEnsureDb({ existing: [], idTaken: [], created: [created] })
-
-    await expect(
-      ensureConversation({ id: "conv_org", source: "mcp" }),
-    ).resolves.toEqual(created)
-
-    expect(requireCurrentUserIdMock).not.toHaveBeenCalled()
-    expect(db.values).toHaveBeenCalledWith({
-      id: "conv_org",
-      orgId: "org_1",
-      userId: null,
-      workspaceId: null,
-      source: "mcp",
-      name: "New conversation",
-    })
-  })
-})
 
 describe("listConversations", () => {
   beforeEach(() => {

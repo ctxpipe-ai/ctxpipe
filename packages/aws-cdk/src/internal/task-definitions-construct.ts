@@ -201,6 +201,7 @@ export class TaskDefinitionsConstruct extends Construct {
         NODE_ENV: "production",
         PORT: "3002",
         VITE_PUBLIC_API_URL: appUrl,
+        AUTH_BASE_URL: appUrl,
         ...otelExportEnvironment(otelEndpoint, otelResourceAttributes, "ui"),
       },
       ...(otelHeadersSecret ? { secrets: otelHeaderSecrets } : {}),

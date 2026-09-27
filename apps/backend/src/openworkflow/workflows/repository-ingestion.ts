@@ -1,4 +1,4 @@
-import { defineWorkflow } from "openworkflow"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"

@@ -16,9 +16,9 @@ Reload `{BASE_URL}/{orgSlug}/` (or the post-login URL). Stay signed in; SideNav 
 
 ## 2. Account chrome
 
-Open `{BASE_URL}/.auth/account`. The bare path redirects to `/.auth/account/settings`. Settings chrome renders (heading **user account**). Leave 2FA and API keys untouched unless [mcp](../mcp/SKILL.md) later needs a key.
+Open `{BASE_URL}/.auth/account`. The bare path renders the Settings index (heading **user account**). Leave 2FA and API keys untouched unless [mcp](../mcp/SKILL.md) later needs a key.
 
-**Done when:** the URL ends with `/.auth/account/settings` and that chrome is visible, not an auth error.
+**Done when:** the URL is `/.auth/account` and that chrome is visible, not an auth error.
 
 ## 3. Device page
 

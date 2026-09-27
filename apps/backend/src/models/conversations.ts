@@ -150,22 +150,6 @@ export async function ensureConversation(input: {
       return existing
     }
 
-    const [idTaken] = await db
-      .select({ id: conversations.id })
-      .from(conversations)
-      .where(
-        and(eq(conversations.id, input.id), eq(conversations.orgId, orgId)),
-      )
-      .limit(1)
-
-    if (idTaken) {
-      throw createError({
-        message: "Conversation not found",
-        status: 404,
-        why: "Conversation id is not available for the current user",
-      })
-    }
-
     const [created] = await db
       .insert(conversations)
       .values({
@@ -176,10 +160,30 @@ export async function ensureConversation(input: {
         source: input.source ?? (userId == null ? "mcp" : null),
         name: "New conversation",
       })
+      .onConflictDoNothing()
       .returning(conversationFieldsWithCurrentPr())
 
-    if (!created) throw new Error("Failed to create conversation")
-    return created
+    if (created) return created
+
+    const [winner] = await db
+      .select(conversationFieldsWithCurrentPr())
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.id, input.id),
+          eq(conversations.orgId, orgId),
+          conversationActorWhere(),
+        ),
+      )
+      .limit(1)
+    if (!winner || (input.workspaceId && winner.workspaceId !== input.workspaceId)) {
+      throw createError({
+        message: "Conversation not found",
+        status: 404,
+        why: "Conversation id is not available for this Workspace and user",
+      })
+    }
+    return winner
   })
 }
 

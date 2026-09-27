@@ -25,6 +25,40 @@ describe("defineObservedWorkflow", () => {
     expect(spans.spanNamed("openworkflow.job widget-refresh")).toBeDefined()
   })
 
+  it("keeps a strict refined schema valid when enqueue adds telemetry", async () => {
+    const workflow = defineWorkflow(
+      {
+        name: "workspace-hydrate-strict",
+        schema: z
+          .object({
+            orgId: z.string(),
+            workspaceId: z.string(),
+          })
+          .strict()
+          .refine((input) => input.workspaceId.startsWith("ws_"), "workspace"),
+      },
+      async ({ input }) => input.workspaceId,
+    )
+    await expect(
+      workflow.fn({
+        input: {
+          orgId: "org_1",
+          workspaceId: "ws_1",
+          telemetry: { "request.id": "req_1" },
+        },
+        step: {} as never,
+        version: null,
+        run: {} as never,
+      }),
+    ).resolves.toBe("ws_1")
+    expect(
+      spans.spanNamed("openworkflow.job workspace-hydrate-strict")?.attributes,
+    ).toMatchObject({
+      "ctxpipe.workspace.id": "ws_1",
+      "request.id": "req_1",
+    })
+  })
+
   it("gives a child run the parent attribution and a link to the parent span", async () => {
     const child = defineWorkflow(
       {

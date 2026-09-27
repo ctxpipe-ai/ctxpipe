@@ -376,6 +376,27 @@ export async function getRepositoryReadBinding(
   })
 }
 
+/** A completed index for this exact SHA needs no second codesearch run. */
+export async function repositoryIndexAlreadyPublished(
+  orgId: string,
+  repositoryId: string,
+  targetHash: string,
+): Promise<boolean> {
+  return withOrgDbContext(orgId, async (db) => {
+    const [row] = await db
+      .select({
+        lastIngestedHash: repositories.lastIngestedHash,
+        indexingStatus: repositories.indexingStatus,
+      })
+      .from(repositories)
+      .where(
+        and(eq(repositories.orgId, orgId), eq(repositories.id, repositoryId)),
+      )
+      .limit(1)
+    return row?.indexingStatus === "ready" && row.lastIngestedHash === targetHash
+  })
+}
+
 /** Single repository for org via org DB (explicit orgId + repositoryId filter). */
 export const getRepositoryForOrg = async (
   orgId: string,

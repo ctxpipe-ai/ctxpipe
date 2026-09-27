@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
@@ -43,6 +42,7 @@ import {
 import { generateEmbeddings } from "../../retrieval/services/modelProvider.js"
 import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
 import { readGitPackFromRemote } from "../../services/git/pack.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueWorkspaceIndex } from "../enqueue-workspace-index.js"
 
 const workspaceHydrateInputSchema = z
@@ -91,7 +91,11 @@ export const workspaceHydrate = defineWorkflow(
   { name: "workspace-hydrate", schema: workspaceHydrateInputSchema },
   async ({ input: queuedInput, step }) => {
     // OpenWorkflow validates enqueue, but persisted pre-upgrade runs reach the worker directly.
-    const input = workspaceHydrateInputSchema.parse(queuedInput)
+    const input = workspaceHydrateInputSchema.parse({
+      orgId: queuedInput.orgId,
+      workspaceId: queuedInput.workspaceId,
+      revision: queuedInput.revision,
+    })
     return withLogger(
       createLogger({
         workflow: "workspace-hydrate",
