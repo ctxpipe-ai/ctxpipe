@@ -27,7 +27,11 @@ def graphql(query, variables, token):
     request = urllib.request.Request(
         "https://backboard.railway.com/graphql/v2",
         data=json.dumps({"query": query, "variables": variables}).encode(),
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": "ctxpipe-observability-ci/1.0",
+        },
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
