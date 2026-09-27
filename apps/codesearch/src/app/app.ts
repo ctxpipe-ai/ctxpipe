@@ -1,3 +1,4 @@
+import { httpInstrumentationMiddleware } from "@hono/otel"
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { evlog } from "evlog/hono"
 import { contextStorage } from "hono/context-storage"
@@ -6,7 +7,10 @@ import { verifyCodesearchJwt } from "../auth/jwt.js"
 import type { Env } from "../config/env.js"
 import { createDb } from "../db/client.js"
 import { httpWideEventMessage } from "../observability/http-wide-event-message.js"
-import { createEvlogDrain } from "../observability/logger.js"
+import {
+  applyCodesearchLogContract,
+  createEvlogDrain,
+} from "../observability/logger.js"
 import { registerGraphRoutes } from "../routes/graph.js"
 import { registerOpenapiRoutes } from "../routes/openapi.js"
 import { registerRepoRoutes } from "../routes/repo.js"
@@ -16,16 +20,15 @@ import type { AppEnv } from "./env.js"
 
 export type { AppEnv } from "./env.js"
 
-export function createApp(env: Env) {
-  const app = new OpenAPIHono<AppEnv>()
-  const db = env.DATABASE_URL ? createDb(env) : null
-
+export function useObservability(app: OpenAPIHono<AppEnv>) {
+  app.use("*", httpInstrumentationMiddleware())
   app.use("*", cors())
   app.use(contextStorage())
   app.use(
     evlog({
-      drain: createEvlogDrain(env),
+      drain: createEvlogDrain(),
       enrich: (ctx) => {
+        applyCodesearchLogContract(ctx.event as Record<string, unknown>)
         const message = httpWideEventMessage({
           method: ctx.event.method ?? ctx.request?.method,
           path: ctx.event.path ?? ctx.request?.path,
@@ -35,6 +38,13 @@ export function createApp(env: Env) {
       },
     }),
   )
+}
+
+export function createApp(env: Env) {
+  const app = new OpenAPIHono<AppEnv>()
+  const db = env.DATABASE_URL ? createDb(env) : null
+
+  useObservability(app)
   app.use("*", async (c, next) => {
     c.set("db", db)
     c.set("env", env)

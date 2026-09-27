@@ -44,11 +44,10 @@ Apply only after the plan matches the intended environment:
 terraform -chdir=infra apply
 ```
 
-Optional Slack support is enabled only when `slack_client_id`,
-`slack_client_secret`, and `slack_signing_secret` are all set. Keep them in the
-CI secret store used for Terraform inputs; see
-[Self-host Slack](/docs/self-hosting/slack) for the app-side OAuth and Events API
-configuration.
+Optional provider connectors are enabled when their complete credential set is
+supplied. Keep GitHub, Slack, Linear, Notion, and Atlassian values in the CI
+secret store used for Terraform inputs; each provider still requires its
+operator-side App, OAuth, callback, and webhook configuration.
 
 ## Image rollout
 
@@ -65,6 +64,15 @@ same workflow.
 Neon gets a `ctxpipe_app` role. Railway `DATABASE_URL` on backend, worker, and
 codesearch is the app-role pooler URL. Migrate / `PRODUCTION_DATABASE_URL` stays
 the owner. Do not collapse those two identities.
+
+## Observability
+
+This stack is the hosted Railway layout. It does not deploy Langfuse or
+ClickStack. The module always sets `OTEL_EXPORTER_OTLP_*` from
+`otel_otlp_endpoint`, which defaults to ctx|'s hosted collector
+`https://telemetry.ctxpipe.ai`, and requires `otel_otlp_headers`. If you reuse
+the module, override both; to disable export, remove `otel_shared_env` from
+the module. See [Configuration](/docs/self-hosting/configuration).
 
 ## When to customize
 

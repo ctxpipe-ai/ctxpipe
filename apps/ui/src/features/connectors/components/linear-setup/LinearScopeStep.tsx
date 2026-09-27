@@ -25,7 +25,7 @@ const scopeTypeLabels: Record<LinearScope["type"], string> = {
 type LinearScopeStepProps = {
   orgSlug: string
   connectionId: string
-  onSaved: () => Promise<unknown>
+  onSaved: (configPrEnqueued: boolean) => Promise<unknown>
   onScopesSubmitted: (scopes: LinearScope[]) => void
   onSubmissionFailed: () => void
   onBack?: () => void
@@ -85,15 +85,17 @@ export function LinearScopeStep({
     onMutate: () => {
       onScopesSubmitted(selectedScopes)
     },
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       toast.success(
-        "Linear scope saved. The configuration pull request is being prepared.",
+        result.configPrEnqueued
+          ? "Linear scope saved. The configuration pull request is being prepared."
+          : "Linear scope already matches the repository configuration.",
       )
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: linearConnectorKeys.config(orgSlug, connectionId),
         }),
-        onSaved(),
+        onSaved(result.configPrEnqueued),
       ])
     },
     onError: (error: Error) => {

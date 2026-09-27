@@ -6,6 +6,7 @@ import {
   listNotionBlockChildren,
   retrieveNotionPage,
 } from "./client.js"
+import { notionIdKey } from "./converter.js"
 
 type NotionTokenRefresh = Parameters<
   typeof listNotionBlockChildren
@@ -31,7 +32,7 @@ export async function listBlocksDeep(input: {
   })
   const result: NotionBlock[] = []
   for (const block of blocks) {
-    if (block.has_children) {
+    if (block.has_children && block.type !== "child_page") {
       result.push({
         ...block,
         children: await listBlocksDeep({
@@ -62,16 +63,24 @@ export async function listNotionPageTree(input: {
   connection: NotionConnection
   rootPageId: string
   onTokenRefresh: NotionTokenRefresh
+  onEntry?: (entry: NotionPageTreeEntry) => Promise<void>
+  skipPageIds?: ReadonlySet<string>
 }): Promise<NotionPageTreeEntry[]> {
   const entries: NotionPageTreeEntry[] = []
   const seen = new Set<string>()
+  const rootPageKey = notionIdKey(input.rootPageId)
+  const skipPageKeys = new Set(
+    [...(input.skipPageIds ?? [])].map((id) => notionIdKey(id)),
+  )
 
   async function visit(
     pageId: string,
     ancestors: Array<{ id: string; title: string }>,
   ): Promise<void> {
-    if (seen.has(pageId)) return
-    seen.add(pageId)
+    const pageKey = notionIdKey(pageId)
+    if (pageKey !== rootPageKey && skipPageKeys.has(pageKey)) return
+    if (seen.has(pageKey)) return
+    seen.add(pageKey)
     const page = await retrieveNotionPage({
       env: input.env,
       connection: input.connection,
@@ -84,7 +93,9 @@ export async function listNotionPageTree(input: {
       blockId: pageId,
       onTokenRefresh: input.onTokenRefresh,
     })
-    entries.push({ page, blocks, ancestors })
+    const entry = { page, blocks, ancestors }
+    entries.push(entry)
+    await input.onEntry?.(entry)
     const nextAncestors = [
       ...ancestors,
       { id: page.id, title: getNotionPageTitle(page) },

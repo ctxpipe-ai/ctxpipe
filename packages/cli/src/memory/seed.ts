@@ -23,11 +23,14 @@ gitignored [\`events/\`](./events/) and are promoted by agents using capture ski
 | Architecture decision | \`decisions/ADR-NNN-*.md\` + \`decisions/index.md\` |
 | Term | \`glossary.md\` |
 | Product/PRD fact | \`PRDs/\` + \`PRDs/index.md\` or \`product-context.md\` |
-| Session wrap-up | \`sessions/YYYY-MM-DD-*.md\` + \`sessions/index.md\` |
+| Work summary (what changed, why, what was ruled out) | The pull request description; \`sessions/YYYY-MM-DD-*.md\` + \`sessions/index.md\` only for work with no PR |
 
 Hooks never write durable ADRs. Promote from \`events/\` via capture skills.
 Recall with \`index.md\` routers and \`rg\` (see the \`memory-search\` skill) —
 no local memory search daemon.
+
+Commit memory changes with the work they came from, on that work's branch.
+Memory is shared with teammates only once it merges.
 `
 
 export const MEMORY_INDEX_SEED = `# Memory index
@@ -39,7 +42,7 @@ export const MEMORY_INDEX_SEED = `# Memory index
 | Product context | [product-context.md](./product-context.md) | Overview / architecture |
 | ADRs | [decisions/index.md](./decisions/index.md) | Architecture decisions |
 | PRDs | [PRDs/index.md](./PRDs/index.md) | Living product requirements |
-| Sessions | [sessions/index.md](./sessions/index.md) | Episodic summaries |
+| Sessions | [sessions/index.md](./sessions/index.md) | Summaries of work with no PR |
 | Events (local) | [events/](./events/) | Gitignored candidate inbox |
 
 Update this file when adding a new top-level durable store.
@@ -93,7 +96,8 @@ Naming: \`ADR-NNN-title-slug.md\`. Status | Date | Tags; Context; Decision; Cons
 
 export const SESSIONS_INDEX_SEED = `# Sessions
 
-Episodic session summaries. Naming: \`YYYY-MM-DD-topic.md\`.
+Summaries of work that has no pull request (spikes, investigations). Work that
+ships as a PR is summarized in its description. Naming: \`YYYY-MM-DD-topic.md\`.
 
 ## Index
 
@@ -111,12 +115,8 @@ Living product requirement documents for this repo.
 |-----|-------|--------|
 `
 
-export const AI_MEMORY_RULE = `---
-description: Local .ai/memory load order, indexes, and candidate-first capture
-alwaysApply: true
----
-
-# Local memory (\`.ai/memory\`)
+/** Rule text without host frontmatter (Claude Code `.claude/rules/`). */
+export const AI_MEMORY_RULE_BODY = `# Local memory (\`.ai/memory\`)
 
 ## Read order (non-trivial tasks)
 
@@ -151,12 +151,25 @@ rg -i "keyword" .ai/memory --glob '*.md' --glob '!events/**'
 - **Always update the relevant \`index.md\`** when adding or renaming durable entries.
 - Never commit secrets into \`.ai/memory/\`.
 
+## Commit and share
+
+- Memory is shared with teammates (and the ctx| graph) only once it merges. Include \`.ai/memory/\` changes in the commit for the work they came from, on that work's branch — not a separate memory branch.
+- Summarize the work in the pull request description: what changed, why, what was tried and ruled out, follow-ups. Use \`sessions/\` only for work with no PR.
+- Describe people by role, not by name or email address.
+
 ## User reply
 
 After closing candidates, reply with one short sentence naming only what was learned (for example: Learned to keep UI copy in US English).
 If nothing was promoted, say nothing about memory.
 Omit dismissals, candidate ids, and unchanged files or stores.
 `
+
+export const AI_MEMORY_RULE = `---
+description: Local .ai/memory load order, indexes, and candidate-first capture
+alwaysApply: true
+---
+
+${AI_MEMORY_RULE_BODY}`
 
 export function captureSkill(name: string, description: string, body: string): string {
   return `---
@@ -213,6 +226,8 @@ npx -y ctxpipe memory capture promote <candidateId>
 # or
 npx -y ctxpipe memory capture dismiss <candidateId>
 \`\`\`
+
+Include the \`.ai/memory/\` change in the commit for the work it came from.
 
 ## User reply
 

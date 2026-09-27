@@ -11,13 +11,13 @@ import {
 import {
   finalizeNotionBindingAfterContentWorkflow,
   getNotionBindingWithRepoByConnectionId,
-  getNotionConnectionByConnectionId,
 } from "../../models/notion-connector.js"
 import {
   createLogger,
   getLogger,
   withLogger,
 } from "../../observability/logger.js"
+import { loadNotionConnection } from "../../services/notion/connection-load.js"
 import { parseNotionConfigYamlContent } from "../../services/notion/config-yaml.js"
 import { captureNotionContent } from "../../services/notion/sync.js"
 import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
@@ -69,7 +69,7 @@ export const notionSyncContent = defineWorkflow(
               input.connectionId,
             )
             const connection = await withOrgDbContext(input.orgId, () =>
-              getNotionConnectionByConnectionId(
+              loadNotionConnection(
                 input.orgId,
                 input.connectionId,
                 env,
@@ -123,7 +123,7 @@ export const notionSyncContent = defineWorkflow(
           { name: "capture-notion-content" },
           async () => {
             const connection = await withOrgDbContext(input.orgId, () =>
-              getNotionConnectionByConnectionId(
+              loadNotionConnection(
                 input.orgId,
                 input.connectionId,
                 env,

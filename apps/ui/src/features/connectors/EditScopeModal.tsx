@@ -142,6 +142,12 @@ export function EditScopeModal({
               <Link
                 to="/$orgSlug/connectors"
                 params={{ orgSlug }}
+                search={{
+                  error: undefined,
+                  error_description: undefined,
+                  pendingAccountClaim: undefined,
+                  notionConnectionId: undefined,
+                }}
                 className="text-teal-500 underline-offset-2 hover:underline"
               >
                 Connectors

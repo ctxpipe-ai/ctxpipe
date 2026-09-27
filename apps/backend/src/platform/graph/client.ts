@@ -1,8 +1,13 @@
-import { log } from "../../observability/logger.js"
 import { AsyncLocalStorage } from "node:async_hooks"
-import neo4j, { type Driver } from "neo4j-driver"
+import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import { FalkorDB } from "falkordb"
+import neo4j, { type Driver } from "neo4j-driver"
 import { assertNotInOrgDbContext } from "../../db/client.js"
+import {
+  serverAddressFromUrl,
+  traceGraphQuery,
+} from "../../observability/dbTrace.js"
+import { log } from "../../observability/logger.js"
 
 const DB_PER_TENANT = ["falkordb", "neo4j-enterprise", "memgraph"] as const
 type Provider = (typeof DB_PER_TENANT)[number] | "neo4j-community" | "neptune"
@@ -84,33 +89,53 @@ function normalizeBoltParamsForProvider(
   return next
 }
 
+function graphSystemName(provider: Provider): string {
+  if (provider === "falkordb") return "falkordb"
+  if (provider === "memgraph") return "memgraph"
+  if (provider === "neptune") return "neptune"
+  return "neo4j"
+}
+
 function createFalkorDbGraphClient(
   db: FalkorDBInstance,
   orgId: string,
+  uri: string,
 ): GraphClient {
+  const server = serverAddressFromUrl(uri)
   return {
     async executeQuery(query, params) {
       assertNotInOrgDbContext()
-      const graph = db.selectGraph(orgId)
-      const serialized = params
-        ? Object.fromEntries(
-            Object.entries(params).map(([k, v]) => [
-              k,
-              v instanceof Date ? v.toISOString() : v,
-            ]),
+      return traceGraphQuery(
+        {
+          system: "falkordb",
+          query,
+          namespace: orgId,
+          serverAddress: server.address,
+          serverPort: server.port,
+        },
+        async () => {
+          const graph = db.selectGraph(orgId)
+          const serialized = params
+            ? Object.fromEntries(
+                Object.entries(params).map(([k, v]) => [
+                  k,
+                  v instanceof Date ? v.toISOString() : v,
+                ]),
+              )
+            : undefined
+          type QueryOpts = Parameters<
+            ReturnType<FalkorDBInstance["selectGraph"]>["query"]
+          >[1]
+          const reply = await graph.query(
+            query,
+            (serialized ? { params: serialized } : undefined) as QueryOpts,
           )
-        : undefined
-      type QueryOpts = Parameters<
-        ReturnType<FalkorDBInstance["selectGraph"]>["query"]
-      >[1]
-      const reply = await graph.query(
-        query,
-        (serialized ? { params: serialized } : undefined) as QueryOpts,
+          const records = falkorReplyToRecords(
+            reply.data as Array<Record<string, unknown>>,
+          )
+          return { records }
+        },
       )
-      const records = falkorReplyToRecords(
-        reply.data as Array<Record<string, unknown>>,
-      )
-      return { records }
     },
     async close() {
       // No-op: shared db is closed in closeGraphDb
@@ -121,20 +146,33 @@ function createFalkorDbGraphClient(
 function scopedBoltDriver(
   inner: Driver,
   provider: Provider,
+  uri: string,
   database?: string,
 ): GraphClient {
+  const server = serverAddressFromUrl(uri)
   return {
     async executeQuery(query, params) {
       assertNotInOrgDbContext()
-      const normalizedParams = normalizeBoltParamsForProvider(
-        query,
-        params,
-        provider,
+      return traceGraphQuery(
+        {
+          system: graphSystemName(provider),
+          query,
+          namespace: database,
+          serverAddress: server.address,
+          serverPort: server.port,
+        },
+        async () => {
+          const normalizedParams = normalizeBoltParamsForProvider(
+            query,
+            params,
+            provider,
+          )
+          const result = database
+            ? await inner.executeQuery(query, normalizedParams, { database })
+            : await inner.executeQuery(query, normalizedParams)
+          return { records: result.records }
+        },
       )
-      const result = database
-        ? await inner.executeQuery(query, normalizedParams, { database })
-        : await inner.executeQuery(query, normalizedParams)
-      return { records: result.records }
     },
     async close() {
       // No-op: shared driver is closed in closeGraphDb
@@ -146,31 +184,76 @@ let databasePerTenantBoltClient: Driver | null = null
 let databasePerTenantFalkorDb: Promise<FalkorDBInstance> | null = null
 const instancePerTenantBoltClients = new Map<string, Driver>()
 
+/**
+ * FalkorDB extends EventEmitter and re-emits socket errors. Without a listener
+ * a sleeping or restarted database (Railway serverless previews, restarts) is
+ * an unhandled 'error' event that kills the worker and leaves the backend with
+ * a dead connection. Log it, drop the shared client, and let the next call
+ * reconnect (which also wakes a sleeping service).
+ */
+function attachFalkorDbLifecycle(
+  db: FalkorDBInstance,
+  pending: Promise<FalkorDBInstance>,
+): void {
+  db.on("error", (error: unknown) => {
+    log.error({
+      step: "graph.falkordb.connection",
+      message:
+        "FalkorDB connection error; dropping the shared client so the next call reconnects",
+      error: error instanceof Error ? error.message : String(error),
+    })
+    if (databasePerTenantFalkorDb === pending) {
+      databasePerTenantFalkorDb = null
+    }
+    void db.close().catch(() => undefined)
+  })
+}
+
 async function resolveFalkorDbClient(orgId: string): Promise<GraphClient> {
   const cfg = getConfig()
   const uri = cfg.uri
   if (!databasePerTenantFalkorDb) {
     const socket = { connectTimeout: 5_000, reconnectStrategy: false as const }
-    const pending = FalkorDB.connect({
-      url: uri,
-      username: cfg.user || undefined,
-      password: cfg.password || undefined,
-      socket,
-    }).then((db) => {
-      db.on("error", (error: Error) => {
-        if (databasePerTenantFalkorDb === pending)
-          databasePerTenantFalkorDb = null
-        log.error({ action: "graph.connection.error", error: error.message })
+    let pending!: Promise<FalkorDBInstance>
+    pending = trace
+      .getTracer("ctxpipe-backend")
+      .startActiveSpan(
+        "falkordb.connect",
+        {
+          kind: SpanKind.CLIENT,
+          attributes: { "db.system.name": "falkordb" },
+        },
+        async (span) => {
+          try {
+            return await FalkorDB.connect({
+              url: uri,
+              username: cfg.user || undefined,
+              password: cfg.password || undefined,
+              socket,
+            })
+          } catch (error) {
+            if (error instanceof Error) span.recordException(error)
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: error instanceof Error ? error.message : String(error),
+            })
+            throw error
+          } finally {
+            span.end()
+          }
+        },
+      )
+      .then((db) => {
+        attachFalkorDbLifecycle(db, pending)
+        return db
       })
-      return db
-    })
     databasePerTenantFalkorDb = pending
     void pending.catch(() => {
       if (databasePerTenantFalkorDb === pending)
         databasePerTenantFalkorDb = null
     })
   }
-  return createFalkorDbGraphClient(await databasePerTenantFalkorDb, orgId)
+  return createFalkorDbGraphClient(await databasePerTenantFalkorDb, orgId, uri)
 }
 
 async function resolveBoltClient(
@@ -183,7 +266,12 @@ async function resolveBoltClient(
     if (!databasePerTenantBoltClient) {
       databasePerTenantBoltClient = neo4j.driver(cfg.uri, auth)
     }
-    return scopedBoltDriver(databasePerTenantBoltClient, cfg.provider, orgId)
+    return scopedBoltDriver(
+      databasePerTenantBoltClient,
+      cfg.provider,
+      cfg.uri,
+      orgId,
+    )
   }
   const orgUri = process.env[`GRAPH_DB_URI_${orgSlug}`]
   if (!orgUri) {
@@ -194,7 +282,7 @@ async function resolveBoltClient(
     driver = neo4j.driver(orgUri, auth)
     instancePerTenantBoltClients.set(orgSlug, driver)
   }
-  return scopedBoltDriver(driver, cfg.provider)
+  return scopedBoltDriver(driver, cfg.provider, orgUri)
 }
 
 async function resolveClient(
@@ -227,9 +315,7 @@ export async function closeGraphDb(): Promise<void> {
   if (databasePerTenantFalkorDb) {
     closePromises.push(
       databasePerTenantFalkorDb.then(
-        async (db) => {
-          if ((await db.connection).isOpen) await db.close()
-        },
+        (db) => db.close(),
         () => undefined,
       ),
     )

@@ -1,0 +1,4 @@
+<clickhouse>
+  <!-- Cap RAM so a single-node Railway replica cannot grow into tens of GB. -->
+  <max_server_memory_usage>1073741824</max_server_memory_usage>
+</clickhouse>

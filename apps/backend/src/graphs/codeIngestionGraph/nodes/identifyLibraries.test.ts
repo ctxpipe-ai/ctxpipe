@@ -78,8 +78,8 @@ describe("identifyLibraries post-processing", () => {
     ]
     const { objects } = postProcessLibraries(captured, state)
     expect(objects).toHaveLength(1)
-    expect(objects[0].name).toBe("Drizzle")
-    expect(objects[0].deduplicationKey).toBe("lib:repo_abc:./:Drizzle")
+    expect(objects[0]?.name).toBe("Drizzle")
+    expect(objects[0]?.deduplicationKey).toBe("lib:repo_abc:./:Drizzle")
   })
 
   it("filters by pathMatchesRoot", () => {
@@ -92,8 +92,8 @@ describe("identifyLibraries post-processing", () => {
       roots: ["apps/api"],
     })
     expect(objects).toHaveLength(1)
-    expect(objects[0].name).toBe("Express")
-    expect(objects[0].deduplicationKey).toBe("lib:repo_abc:apps/api:Express")
+    expect(objects[0]?.name).toBe("Express")
+    expect(objects[0]?.deduplicationKey).toBe("lib:repo_abc:apps/api:Express")
   })
 
   it("produces correct output shape for objects and claims", () => {

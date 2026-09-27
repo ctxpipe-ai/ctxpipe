@@ -5,7 +5,10 @@ import {
   countSelectionDelta,
   describeSelectionDelta,
   githubCloneUrlKey,
+  githubContextRepoPollMs,
   matchSavedRepoIds,
+  resolvedContextRepository,
+  sortGithubRepos,
   unmatchedSavedRepos,
 } from "./githubRepoSelection"
 
@@ -16,6 +19,8 @@ const page1 = [
     html_url: "https://github.com/acme/alpha",
     clone_url: "https://github.com/acme/alpha.git",
     name: "alpha",
+    created_at: "2020-01-01T00:00:00Z",
+    pushed_at: "2026-08-20T00:00:00Z",
   },
   {
     id: 2,
@@ -23,6 +28,8 @@ const page1 = [
     html_url: "https://github.com/acme/beta",
     clone_url: "https://github.com/acme/beta.git",
     name: "beta",
+    created_at: "2024-01-01T00:00:00Z",
+    pushed_at: null,
   },
 ]
 
@@ -33,6 +40,8 @@ const page2 = [
     html_url: "https://github.com/acme/payments",
     clone_url: "https://github.com/acme/payments.git",
     name: "payments",
+    created_at: "2022-01-01T00:00:00Z",
+    pushed_at: "2026-08-23T00:00:00Z",
   },
 ]
 
@@ -41,6 +50,33 @@ describe("githubCloneUrlKey", () => {
     expect(githubCloneUrlKey("https://github.com/Acme/Web.GIT")).toBe(
       "https://github.com/acme/web",
     )
+  })
+})
+
+describe("sortGithubRepos", () => {
+  const repos = [...page1, ...page2]
+
+  it("sorts recent pushes first and keeps missing dates last", () => {
+    expect(
+      sortGithubRepos(repos, "pushed-desc").map((repo) => repo.id),
+    ).toEqual([31, 1, 2])
+  })
+
+  it("sorts repository creation in either direction", () => {
+    expect(
+      sortGithubRepos(repos, "created-desc").map((repo) => repo.id),
+    ).toEqual([2, 31, 1])
+    expect(
+      sortGithubRepos(repos, "created-asc").map((repo) => repo.id),
+    ).toEqual([1, 31, 2])
+  })
+
+  it("sorts names without mutating the source list", () => {
+    const originalIds = repos.map((repo) => repo.id)
+    expect(
+      sortGithubRepos([...repos].reverse(), "name-asc").map((repo) => repo.id),
+    ).toEqual([1, 2, 31])
+    expect(repos.map((repo) => repo.id)).toEqual(originalIds)
   })
 })
 
@@ -165,5 +201,71 @@ describe("collectInstallationRepoPages", () => {
       "https://github.com/settings/installations/123",
     )
     expect(result.totalCount).toBe(3)
+  })
+
+  it("keeps the first manage URL from the installation pages", async () => {
+    const result = await collectInstallationRepoPages(async (page) => ({
+      repositories: page === 1 ? page1 : page2,
+      hasMore: page === 1,
+      repositorySelection: "selected",
+      manageUrl:
+        page === 1
+          ? "https://github.com/organizations/acme/settings/installations/1"
+          : null,
+    }))
+    expect(result.manageUrl).toBe(
+      "https://github.com/organizations/acme/settings/installations/1",
+    )
+  })
+})
+
+describe("githubContextRepoPollMs", () => {
+  it("polls on the context step so a newly granted repo can appear", () => {
+    expect(githubContextRepoPollMs("select")).toBe(false)
+    expect(githubContextRepoPollMs("context")).toBe(4000)
+  })
+})
+
+describe("resolvedContextRepository", () => {
+  const canonical = {
+    id: 9,
+    name: "ctxpipe-context",
+  }
+  const demo = {
+    id: 10,
+    name: "ctxpipe-context-demo",
+  }
+
+  it("suggests ctxpipe-context only when the user has not picked", () => {
+    expect(
+      resolvedContextRepository([demo, canonical], {
+        picked: false,
+        selectedId: null,
+      }),
+    ).toEqual(canonical)
+  })
+
+  it("keeps a picked repo that is not named ctxpipe-context", () => {
+    expect(
+      resolvedContextRepository([demo, canonical], {
+        picked: true,
+        selectedId: demo.id,
+      }),
+    ).toEqual(demo)
+  })
+
+  it("does not invent a selection when nothing matches", () => {
+    expect(
+      resolvedContextRepository([demo], {
+        picked: false,
+        selectedId: null,
+      }),
+    ).toBeNull()
+    expect(
+      resolvedContextRepository([demo], {
+        picked: true,
+        selectedId: 99,
+      }),
+    ).toBeNull()
   })
 })

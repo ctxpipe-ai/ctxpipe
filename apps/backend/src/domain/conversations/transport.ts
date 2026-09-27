@@ -4,6 +4,8 @@ import {
 } from "@tanstack/ai"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
 import { log } from "../../observability/logger.js"
+import { applyAttribution } from "../../observability/attribution.js"
+import { runWithLangfuseContext } from "../../observability/langfuse.js"
 import {
   runTanstackWorkspaceChat,
   streamTanstackWorkspaceChat,
@@ -35,6 +37,7 @@ export type StreamInput = {
   threadId?: string
   runId?: string
   source?: string | null
+  userId?: string
   writeStatus?: string | null
   lastBranch?: string | null
   workspaceId?: string | null
@@ -127,7 +130,15 @@ class DataStreamConversationTransport implements ConversationTransportAdapter {
     if (!chatInput) {
       return Response.json({ error: "workspace_required" }, { status: 409 })
     }
-    return runTanstackWorkspaceChat(chatInput)
+    applyAttribution({ "ctxpipe.conversation.id": input.conversationId })
+    return runWithLangfuseContext(
+      {
+        sessionId: input.conversationId,
+        ...(input.userId ? { userId: input.userId } : {}),
+        tags: input.source ? [input.source] : undefined,
+      },
+      () => runTanstackWorkspaceChat(chatInput),
+    )
   }
 }
 

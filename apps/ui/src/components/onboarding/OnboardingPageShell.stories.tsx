@@ -40,6 +40,11 @@ export const DotNavHidden: Story = {
     showDotNav: false,
     sceneFailed: false,
   },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const signOut = await canvas.findByRole("link", { name: "Sign out" })
+    expect(signOut).toHaveAttribute("href", "/.auth/sign-out")
+  },
 }
 
 export const DotNavVisible: Story = {

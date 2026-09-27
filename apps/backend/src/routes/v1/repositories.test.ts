@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
+
 const createRepositoryMock = vi.hoisted(() => vi.fn())
 const getRepositoryMock = vi.hoisted(() => vi.fn())
 const enqueueIngestionMock = vi.hoisted(() =>
@@ -39,23 +40,26 @@ describe("POST /api/v1/repositories", () => {
 
   it("creates repository and triggers ingestion workflow", async () => {
     createRepositoryMock.mockResolvedValue({
-      id: "repo_ABC",
-      orgId: "org_mock123",
-      zoektRepoId: 123,
-      name: "ctxpipe",
-      gitUrl: "https://github.com/appear/ctxpipe.git",
-      indexReady: false,
-      indexingStatus: "queued",
-      indexingError: null,
-      indexingFailedAt: null,
-      indexingReason: null,
-      indexingStep: null,
-      indexingStepTotal: null,
-      indexingStepKey: null,
-      lastIngestedHash: null,
-      lastIngestedAt: null,
-      createdAt: new Date("2026-02-21T10:00:00.000Z"),
-      updatedAt: new Date("2026-02-21T10:00:00.000Z"),
+      created: true,
+      repository: {
+        id: "repo_ABC",
+        orgId: "org_mock123",
+        zoektRepoId: 123,
+        name: "ctxpipe",
+        gitUrl: "https://github.com/appear/ctxpipe.git",
+        indexReady: false,
+        indexingStatus: "queued",
+        indexingError: null,
+        indexingFailedAt: null,
+        indexingReason: null,
+        indexingStep: null,
+        indexingStepTotal: null,
+        indexingStepKey: null,
+        lastIngestedHash: null,
+        lastIngestedAt: null,
+        createdAt: new Date("2026-02-21T10:00:00.000Z"),
+        updatedAt: new Date("2026-02-21T10:00:00.000Z"),
+      },
     })
 
     const app = new OpenAPIHono<AppEnv>()
@@ -102,23 +106,26 @@ describe("POST /api/v1/repositories", () => {
 
   it("returns indexingStep fields when set", async () => {
     createRepositoryMock.mockResolvedValue({
-      id: "repo_ABC",
-      orgId: "org_mock123",
-      zoektRepoId: 123,
-      name: "ctxpipe",
-      gitUrl: "https://github.com/appear/ctxpipe.git",
-      indexReady: false,
-      indexingStatus: "running",
-      indexingError: null,
-      indexingFailedAt: null,
-      indexingReason: null,
-      indexingStep: 7,
-      indexingStepTotal: 22,
-      indexingStepKey: "embedding",
-      lastIngestedHash: null,
-      lastIngestedAt: null,
-      createdAt: new Date("2026-02-21T10:00:00.000Z"),
-      updatedAt: new Date("2026-02-21T10:00:00.000Z"),
+      created: true,
+      repository: {
+        id: "repo_ABC",
+        orgId: "org_mock123",
+        zoektRepoId: 123,
+        name: "ctxpipe",
+        gitUrl: "https://github.com/appear/ctxpipe.git",
+        indexReady: false,
+        indexingStatus: "running",
+        indexingError: null,
+        indexingFailedAt: null,
+        indexingReason: null,
+        indexingStep: 7,
+        indexingStepTotal: 22,
+        indexingStepKey: "embedding",
+        lastIngestedHash: null,
+        lastIngestedAt: null,
+        createdAt: new Date("2026-02-21T10:00:00.000Z"),
+        updatedAt: new Date("2026-02-21T10:00:00.000Z"),
+      },
     })
 
     const app = new OpenAPIHono<AppEnv>()
@@ -238,6 +245,7 @@ describe("POST /api/v1/repositories/:id/reindex", () => {
         repositoryId: "repo_ABC",
         orgId: "org_mock123",
         indexingReason: "manual",
+        fullReingest: true,
       },
       expect.any(Object),
     )

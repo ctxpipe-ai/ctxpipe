@@ -215,10 +215,22 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### New source connectors are git-native
-- **Rule:** this is how to **build new** connectors — do not retrofit Linear, Notion, Slack, or Confluence. Identity, encrypted secrets, and repo binding live on `connections.config` jsonb ([ADR-018](decisions/ADR-018-unified-connections-table.md)). No connector-specific tables (Confluence’s extra tables stay frozen). Connector **config** lives in `<slug>/config.yaml` and is created via PR; **content** may commit to the target branch. Prefer Markdown; copy images and other attachments as files. The store is git; GitHub is today’s rich PR/commit adapter. Same code for hosted and self-host; self-host traffic never transits ctxpipe SaaS (no proxy, relay, gateway, or hosted OAuth app). Process: [source-connectors skill](../../.agents/skills/source-connectors/SKILL.md).
+- **Rule:** this is how to **build new control planes** — do not retrofit Linear, Notion, Slack, or Confluence control-plane architecture. Identity, encrypted secrets, and repo binding live on `connections.config` jsonb ([ADR-018](decisions/ADR-018-unified-connections-table.md)). No connector-specific tables (Confluence’s extra tables stay frozen). Connector **config** lives in `<slug>/config.yaml` and is created via PR; **content** may commit to the target branch. Prefer Markdown. The store is git; GitHub is today’s rich PR/commit adapter. Same code for hosted and self-host; self-host traffic never transits ctxpipe SaaS (no proxy, relay, gateway, or hosted OAuth app). Process: [source-connectors skill](../../.agents/skills/source-connectors/SKILL.md).
 - **Category:** convention
 - **Date:** 2026-08-19
 - **Source:** user direction after Linear, Notion, and Slack (PR #267)
+
+### Connector assets are durable git files
+- **Rule:** Across existing and new source connectors, copy provider-declared file attachments and explicit embedded external media into deterministic git paths and rewrite Markdown to relative links ([ADR-028](decisions/ADR-028-git-native-connector-assets.md)). Ordinary hyperlinks and link-only attachment records stay links; Linear GitHub PR/commit references remain reference-only. Use the shared connector asset boundary: HTTPS + DNS-pinned public addresses for external media, provider credentials only on trusted hosts and stripped on cross-host redirects, 25 MiB per asset / 100 MiB per entity, safe fallback stubs, binary git-SHA no-op checks, and stale-asset pruning.
+- **Category:** convention
+- **Date:** 2026-08-21
+- **Source:** user-confirmed cross-connector image/file capture policy
+
+### Scoped-mirror rebound with matching config.yaml starts content sync
+- **Rule:** After context-repo delete/recreate or rebind, a `draft` binding whose `<slug>/config.yaml` already matches the selected scope must start `initial_sync` (no config PR, `configPrEnqueued: false`, UI honours that). A matching live scope stays a no-op. Applies to Linear, Notion, PagerDuty, and Confluence (Confluence also starts content from the config workflow when yaml is unchanged). Slack has no yaml PR. Ingest after a connector git write goes through `runConnectorRepositoryIngestionWorkflow` (that helper owns logger context).
+- **Category:** convention
+- **Date:** 2026-09-22
+- **Source:** production Linear stall after ctxpipe-context recreate; copied to sibling scoped mirrors
 
 ### New source connectors follow Linear/Notion, not Confluence
 - **Rule:** do **not** copy Confluence’s control plane (`*_sync_targets` tables, config-PR columns, channel/space catalogues in Postgres, dirty-entity flush tables) when adding or simplifying a connector. Linear and Notion are the aligned pattern: identity and repo binding on `connections.config` jsonb ([ADR-022](decisions/ADR-022-linear-connector-git-native-mirror.md), [ADR-023](decisions/ADR-023-notion-connector-git-native-mirror.md)). A connector that is thinner than a git-native mirror (e.g. Slack intent capture) should stay thinner — omit `pendingConfig*`, `*/config.yaml`, and GitHub config-push remirror unless the product actually has a reviewed scope file. Keep `confluence_sync_targets` as legacy Confluence only.
@@ -268,12 +280,6 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
 
-### LangSmith integration
-- **Rule:** mount LangGraph API in-process (no subprocess/proxy), gate with `ENABLE_LANGSMITH`, resolve graph specs from `./src/graphs/index.ts:{exportName}` (no generated `langgraph.json`)
-- **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
-
 ### Atlassian Forge install intent flow
 - **Rule:** use org-scoped `POST /:orgSlug/api/v1/atlassian/installation` to set `forge_installations.status='pending'` + `installed_by_user_id`, enforce one pending per user via partial unique index, resolve webhook first by `cloud_id` then by installer-account join; keep UI status focused on `isLinked`/`isInstalled` and remove linked-site fields
 - **Category:** convention
@@ -293,7 +299,7 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### Notion database mirror contract
-- **Rule:** mirror each selected Notion data source as a database folder containing `index.md`, a generated `table.csv` aggregate, and canonical per-row `rows/<row>/index.md` files. Keep row Markdown as the retrieval-friendly source of page properties and body content; treat CSV as a human-readable tabular companion.
+- **Rule:** mirror each selected Notion data source as a database folder containing `index.md`, a generated `table.csv` aggregate, and canonical per-row `rows/<row>/index.md` files with row-local `assets/` ([ADR-028](decisions/ADR-028-git-native-connector-assets.md)). Keep row Markdown as the retrieval-friendly source of page properties, body content, and relative asset links; treat CSV as a human-readable tabular companion.
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
@@ -323,7 +329,7 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### Repository indexing admission
-- **Rule:** keep durability in OpenWorkflow step boundaries and memory admission at process boundaries; do not add cross-step HTTP/Postgres/Redis leases for codesearch indexing. Codesearch phase APIs run without a begin/end protocol; same-process repo index work may overlap, while purge takes a same-repo in-process exclusive operation so disk/shard removal does not race active phase work.
+- **Rule:** keep durability in OpenWorkflow step boundaries and memory admission at process boundaries; do not add cross-step HTTP/Postgres/Redis leases for codesearch indexing. Codesearch phase APIs run without a begin/end protocol. The in-process pipeline map stays sticky across phases and is dropped locally on `merge-scip` or a fatal clone/detect response (idle TTL reclaims abandoned holds). Overflow sleeps 30s until a slot opens — do not escalate backoff or thread Retry-After; this is a queue, not a failing API. Do not bump `repositories.updatedAt` as an indexing heartbeat; that column is the row’s last write. After OpenWorkflow retries a crashed step, mark the run `failed` instead of reclaiming `queued`/`running` by age. Same-process repo index work may overlap, while purge takes a same-repo in-process exclusive operation so disk/shard removal does not race active phase work.
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
@@ -472,6 +478,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-22
 - **Source:** user correction (GitHub workspace destination); candidate `ba616391f38e94cf`
 
+### Product UI corners
+- **Rule:** Product chrome is square. Use `rounded-none` for new or touched controls, menus, cards, dialogs, and data surfaces.
+- **Category:** convention
+- **Date:** 2026-08-24
+- **Source:** user correction on repository selector
+
 ### UI icon library
 - **Rule:** use `@tabler/icons-react` (not lucide-react); map Tabler `Icon*` names semantically from prior Lucide glyphs; keep size/class/ARIA props
 - **Category:** convention
@@ -502,11 +514,11 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
 
-### Amplitude / product analytics:
-- **Rule:** Self-hosters should **not** need to **rebuild** the UI image — set **runtime** env on the UI server. Resolve **`AMPLITUDE_API_KEY`** / **`AMPLITUDE_REGION`** in the **root route loader** via **`getAmplitudeRuntimeConfig()`** (server-side during SSR); pass config into the client as loader data — **no client `fetch`** for bootstrap. Same JSON shape is also served at **`GET /api/v1/c/s`** for operators. Point the Browser SDK **`serverUrl`** at a **same-origin proxy** (`/.amp/events`). **Single** project key for browser + backend MCP. **Page views:** SDK **autocapture** defaults. See ADR-017.
+### Browser OTEL / HyperDX:
+- **Rule:** Self-hosters set runtime env on the UI server and do not rebuild the UI image for telemetry. Config is resolved in the root route loader. The browser posts only to same-origin `/.otel`. The UI server holds the collector URL and ingest key. See ADR-038 (supersedes ADR-017).
 - **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
+- **Date:** 2026-09-26
+- **Source:** PR-343: Amplitude replaced by HyperDX RUM
 
 ### Unmatched-route fallback
 - **Rule:** mount explicit backend routes first; final `app.all("*")` in `apps/backend/src/app/app.ts` proxies unknown paths to UI origin from `UI_PROXY_URL` via Hono `proxy()`. Auth middleware in `withAuth.ts`, applied in `src/routes/v1/index.ts` via `v1.use("*", withAuth)` (no path-prefix checks in global middleware)
@@ -566,7 +578,7 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Rule:** Linear, Notion, and Confluence share the same chrome: `ctx-node` mark in the header, semantic colour tokens, no nested zinc cards. Existing `rounded-none` on those wizards stays until a dedicated pass; **new or touched** chrome follows [apps/ui/DESIGN.md](../../apps/ui/DESIGN.md) (`rounded-md`). Do not add more square overrides. Do not leave Atlassian/Confluence on leftover `rounded-lg` callback boxes or filled `bg-zinc-900` panels.
 - **Category:** convention
 - **Date:** 2026-08-13
-- **Source:** repo-page-ux; updated 2026-08-15 for product-ui radius target
+- **Source:** repo-page-ux; updated 2026-08-24 for square product chrome
 
 ### Product UI skills vs marketing frontend-design
 - **Rule:** Do not install Anthropic `frontend-design` (or similar marketing taste skills) as always-on for `apps/ui`. Use first-party [product-ui](../../.agents/skills/product-ui/SKILL.md) + [DESIGN.md](../../apps/ui/DESIGN.md). Do not paste copyrighted book prose or figures (including Refactoring UI) into skills or the repo; encode tactics as house yes/no rules in our own words.
@@ -611,13 +623,13 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** workspace pane tabs accessibility
 
 ### Workspace write jobs and native OpenWorkflow ownership
-- **Rule:** Each typed write is a native OpenWorkflow workflow with explicit steps. OpenWorkflow owns retries, waits and resume; a paused command keeps its native owner. `workspace_write_jobs` stores bound command/result metadata, per-concern planning limits and path assignments. Public projections may reconcile the matching native owner's terminal state in short tenant-scoped SQL; do not create a second runner or scheduler. Brokered native Git is the default-branch write authority. See [ADR-033](decisions/ADR-033-native-durable-write-workflows.md).
+- **Rule:** Each typed write is a native OpenWorkflow workflow with explicit steps. OpenWorkflow owns retries, waits and resume; a paused command keeps its native owner. `workspace_write_jobs` stores bound command/result metadata, per-concern planning limits and path assignments. Public projections may reconcile the matching native owner's terminal state in short tenant-scoped SQL; do not create a second runner or scheduler. Brokered native Git is the default-branch write authority. See [ADR-046](decisions/ADR-046-native-durable-write-workflows.md).
 - **Category:** convention
 - **Date:** 2026-09-08
-- **Source:** accepted workspace recovery Gate 3 and ADR-033; supersedes the 2026-08-20 generic-runner instruction from issue 10.
+- **Source:** accepted workspace recovery Gate 3 and ADR-046; supersedes the 2026-08-20 generic-runner instruction from issue 10.
 
 ### Workspace Files pane — Pierre trees and diffs, not a homemade explorer
-- **Rule:** Do not keep growing a custom RAC file tree / `<pre>` preview for the Files pane. Use `@pierre/trees` (explorer) and `@pierre/diffs` (`File` / `FileDiff`). Pierre is chrome only — persist via workspace **write jobs**. The pane is a **workspace-repository** explorer (full git tree), not hydrate `.md` units only. Theme via host `--trees-theme-*`; use `unsafeCSS` only when variables cannot express a rule. See [ADR-026](decisions/ADR-026-pierre-files-pane-chrome.md).
+- **Rule:** Do not keep growing a custom RAC file tree / `<pre>` preview for the Files pane. Use `@pierre/trees` (explorer) and `@pierre/diffs` (`File` / `FileDiff`). Pierre is chrome only — persist via workspace **write jobs**. The pane is a **workspace-repository** explorer (full git tree), not hydrate `.md` units only. Theme via host `--trees-theme-*`; use `unsafeCSS` only when variables cannot express a rule. See [ADR-039](decisions/ADR-039-pierre-files-pane-chrome.md).
 - **Category:** convention
 - **Date:** 2026-08-19
 - **Source:** user product choice (Pierre as Files chrome)
@@ -688,6 +700,24 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-20
 - **Source:** production Railway incident diagnosis (GitHub quota exhaustion → idle transaction termination → pg-pool acquisition timeouts)
 
+### MCP must not hold a request-wide org transaction across ctx_advisor
+- **Rule:** `/mcp` must not wrap `tools/call` in a request-wide `withOrgDbContext`. `ctx_advisor` runs the conversation graph (embeddings, planner, retrieval, agent, title LLM) for tens of seconds; an idle-in-transaction Neon/Postgres connection is then killed with `Connection terminated unexpectedly` (reproduced at 48–60s on Railway `pr-N`). Keep org id in ALS, open short transactions only for conversation writes, and treat that pg message as a transaction-scope bug rather than empty-org or advisor-prompt failure. Do not swallow the error.
+- **Category:** reliability
+- **Date:** 2026-08-31
+- **Source:** PR-304 preview black-box `ctx_advisor` tools/call on a newly created empty org (`d242c36e`)
+
+### Claude Code Stop hooks cannot use additionalContext
+- **Rule:** Emit top-level `decision: "block"` + `reason` on Claude Code Stop (same as Codex). Do **not** emit `hookSpecificOutput.additionalContext` on Stop: older CLIs and stale long-lived sessions reject the whole object (non-blocking → turn ends). Fresh 2.1.163+ accepts `additionalContext`, but the portable contract must not require it. Claude capture is **UserPromptSubmit + Stop** only — do not install `PostToolUse` observe (tool dumps become fake lessons). Stop continuation is **one-shot**: already-surfaced ids must not `decision: block` again on later turns.
+- **Category:** convention
+- **Date:** 2026-08-31
+- **Source:** Claude Code 2.1.251 Stop hook validation failure after `npx ctxpipe init`; [anthropics/claude-code#50682](https://github.com/anthropics/claude-code/issues/50682)
+
+### ctxpipe-observability stays in us-east4-eqdc4a
+- **Rule:** Hosted observability uses the same Railway metal as product: `us-east4-eqdc4a` (Virginia, next to Neon `aws-us-east-1`). Pin with `RAILWAY_SERVICE_SET=observability scripts/railway-set-regions.sh`. The pin is unfinished while any service or volume still shows `asia-southeast1-eqsg3a`.
+- **Category:** convention
+- **Date:** 2026-09-25
+- **Source:** user correction on PR-343 (stack landed in Singapore again after image-service create / region pin)
+
 ### Distributed OAuth connectors require a clean external-workspace acceptance test
 - **Rule:** Never treat a provider workspace that already hosts the development app as proof that a new customer installation works. OAuth grants can be workspace-specific, additive, and contaminated by dashboard installs or earlier re-authorisations; Slack can also silently suppress Events API delivery when the installed token lacks an event scope. Before shipping a distributed connector, install it through the product OAuth flow into a fresh second workspace, inspect the returned and live token scopes, exercise the real webhook-to-durable-output path, and test re-authorisation after a required scope changes. Keep provider app configuration in a committed manifest and CI-check its scopes against the backend request.
 - **Category:** testing
@@ -707,10 +737,10 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** user correction (git-backed workspaces dest backfill)
 
 ### Org SQL is a short GUC transaction
-- **Rule:** Org SQL is a short `BEGIN` + `SET LOCAL app.organization_id` (`set_config(..., true)`) + `COMMIT` on the Neon transaction-mode pooler. That GUC is the RLS hook ([ADR-028](decisions/ADR-028-postgres-rls-app-role.md)): tenant tables use `ENABLE` (not FORCE) and the runtime role is `ctxpipe_app` (no `BYPASSRLS`). Tenant reads/writes go through `withOrgDbContext` / `orgSql` / `getOrgDb()`. Keep `getSystemDb()` for Better Auth tables, `organizations`, `members`, `invitations`, and unRLS’d `connection_directory` only — not LangGraph `checkpoint_*`, not `openworkflow.*`, not disk shards. Do not `SET SESSION` on the pooled URL. Do not hold a `PoolClient` until the HTTP response. Do not add `connect()` retries as a substitute for releasing the client. Nested same-org calls reuse the open tx; nested different-org or nested idle-timeout throws; inner throw aborts the outer (no savepoints). GitHub, sandbox **provider** I/O (Docker / `sbx` / local-process / Railway), codesearch, FalkorDB, connector HTTP, embeddings, and `enqueueWorkspace*` must run after COMMIT — `assertNotInOrgDbContext()` at those gateways. Session advisory locks and a second lock pool are forbidden; live job/chat sandbox identity is a unique row, not a held connection. AWS self-host upgrade stays `pnpm update @ctxpipe/aws-cdk` then `cdk deploy` (no new props, no `psql`).
+- **Rule:** Org SQL is a short `BEGIN` + `SET LOCAL app.organization_id` (`set_config(..., true)`) + `COMMIT` on the Neon transaction-mode pooler. That GUC is the RLS hook ([ADR-041](decisions/ADR-041-postgres-rls-app-role.md)): tenant tables use `ENABLE` (not FORCE) and the runtime role is `ctxpipe_app` (no `BYPASSRLS`). Tenant reads/writes go through `withOrgDbContext` / `orgSql` / `getOrgDb()`. Keep `getSystemDb()` for Better Auth tables, `organizations`, `members`, `invitations`, and unRLS’d `connection_directory` only — not LangGraph `checkpoint_*`, not `openworkflow.*`, not disk shards. Do not `SET SESSION` on the pooled URL. Do not hold a `PoolClient` until the HTTP response. Do not add `connect()` retries as a substitute for releasing the client. Nested same-org calls reuse the open tx; nested different-org or nested idle-timeout throws; inner throw aborts the outer (no savepoints). GitHub, sandbox **provider** I/O (Docker / `sbx` / local-process / Railway), codesearch, FalkorDB, connector HTTP, embeddings, and `enqueueWorkspace*` must run after COMMIT — `assertNotInOrgDbContext()` at those gateways. Session advisory locks and a second lock pool are forbidden; live job/chat sandbox identity is a unique row, not a held connection. AWS self-host upgrade stays `pnpm update @ctxpipe/aws-cdk` then `cdk deploy` (no new props, no `psql`).
 - **Category:** convention
 - **Date:** 2026-08-21
-- **Source:** user correction (RLS is a hard requirement; lock pool caused DELETE 500; ADR-028 enablement)
+- **Source:** user correction (RLS is a hard requirement; lock pool caused DELETE 500; ADR-041 enablement)
 
 ### Enable RLS in the same PR as the org-SQL work
 - **Rule:** Do not split RLS enablement into a follow-up because the org-SQL / workspace PR already needs a full preview pass. Enabling policies does not add a second product-surface test matrix; ship the audit and enablement on that branch. A role-split `DATABASE_URL` still needs one preview smoke (sign-in, list, webhook, index) as deploy verification, not extra feature testing.
@@ -788,11 +818,64 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Rule:** Native git owns repository, revision, branch, diff, and worktree. OpenWorkflow owns durable job orchestration. Stock TanStack AI owns chat, persistence, stream lifecycle, and OpenCode sandbox integration. Pierre owns file-tree and diff/editor chrome. ctxpipe code owns organisation authorization, Workspace identity, projection activation, credential brokering, and publish rules. Do not add a second chat or write engine beside those owners.
 - **Category:** convention
 - **Date:** 2026-09-11
-- **Source:** accepted Workspace recovery foundations (ADR-030, ADR-033, ADR-034)
+- **Source:** accepted Workspace recovery foundations (ADR-043, ADR-046, ADR-047)
 
 ### workspace-golden is not live GitHub or Btrfs proof
-- **Rule:** Tagged Storybook `workspace-golden` plays are the required deterministic UI journey ([ADR-031](decisions/ADR-031-required-recovery-ci.md)). They are not live GitHub App publish proof and not Railway/Btrfs quota proof ([ADR-034](decisions/ADR-034-native-postgres-sandbox-ownership.md)).
+- **Rule:** Tagged Storybook `workspace-golden` plays are the required deterministic UI journey ([ADR-044](decisions/ADR-044-required-recovery-ci.md)). They are not live GitHub App publish proof and not Railway/Btrfs quota proof ([ADR-047](decisions/ADR-047-native-postgres-sandbox-ownership.md)).
 - **Category:** convention
 - **Date:** 2026-09-11
 - **Source:** Gate 6 leftover after deleting docs/plans recovery ledgers
 
+### Claim evidence source ids must be `extractor:repositoryId:…:targetHash`
+- **Rule:** Every extractor's `sourceId` must contain `:${repositoryId}:` and end with `:${targetHash}`. `deriveLogicalSourceKey` only strips a *trailing* hash, so a hash placed mid-string makes every re-ingest append a new evidence row to the same claim; retraction and repository purge select evidence by the `:${repositoryId}:` needle plus a `(^|:)path(:|$)` segment regex, so an id without the repository id can never be retracted or purged. A claim extracted in one repository about another (e.g. context-repo PR mirror → source-repo File) must carry both repository ids and the warehouse file path as segments. Add a render→extract→dedup round-trip test for any new extractor.
+- **Category:** convention
+- **Date:** 2026-09-16
+- **Source:** `github-pr-mirror` branch review; PR extract and `linkLocatedPaths` ids embedded the hash mid-string and omitted repository ids (`logicalSourceKey.ts`, `ingestionRetraction.ts`)
+
+### FalkorDB dropped connections must reconnect instead of crashing the worker
+- **Rule:** When the FalkorDB client emits `error` (serverless sleep, socket close), log it, drop the shared connection, and reconnect on the next call (`platform/graph/client.ts`). Do not leave an unhandled `error` listener gap — that exits the OpenWorkflow worker. Keep that listener when touching the graph client.
+- **Category:** reliability
+- **Date:** 2026-09-17
+- **Source:** Railway FalkorDB sleep closed the socket mid-ingest; the worker exited and knowledge-graph reads hung until the client learned to reconnect
+
+### A re-index at an unchanged tip is a partial ingest with an empty diff, so nothing is ever retracted
+- **Rule:** `repository-ingestion` passes `fromHash = lastIngestedHash` to codesearch; when that commit is an ancestor of the target (including the same commit) the run is `partial`, and `retractIngestionForDiffPg` is a no-op without changed paths while the extractors still re-run over the whole repository. Non-deterministic (LLM) extractors then mint new dedup keys next to the old ones and the object count only grows. Treat "re-index" as `fullReingest: true` (no `fromHash`), have dedup touch every re-observed evidence row (`touchEvidenceBulk` bumps `observedAt`), and after a healthy full run sweep this repository's evidence observed before the index child's `indexedAt` (`retractUnobservedRepositoryEvidencePg`). Take the cutoff from an existing durable step result, not a new step: a new "started at" step executes late for runs already in flight when the worker is redeployed and would sweep the run's own evidence. Do not key the sweep on the commit hash: a re-index at an unchanged tip re-observes at the same hash as the stale rows. Never run the sweep on a degraded run (search/SCIP index failed). When judging a graph change, compare object counts across two runs at the same tip: growth means accumulation, not new knowledge.
+- **Category:** reliability
+- **Date:** 2026-09-17
+- **Source:** `apps/codesearch/src/domain/indexing/phases.ts` mode decision; unchanged-tip re-index accumulated LLM naming drift until the full-ingest sweep landed
+
+### The PR worker supervisor must count runs in its own OpenWorkflow namespace
+- **Rule:** `worker-supervisor.ts` decides idle-exit from `workflow_runs` / `step_attempts` rows. Preview workers claim runs from their own OpenWorkflow namespace (`preview-pr-N` via `openWorkflowNamespaceId`), so a query pinned to `default` sees an idle system while ingests are in flight and exits after `OPENWORKFLOW_IDLE_EXIT_SECONDS`. Nothing re-wakes it: the Railway wake fires only on new enqueues, and sleeping or unclaimed runs wait forever. Resolve the namespace the same way the worker does, and when a preview looks "paused" check `available_at` in the past with `worker_id` null before suspecting codesearch or FalkorDB.
+- **Category:** reliability
+- **Date:** 2026-09-17
+- **Source:** Preview idle-exit while `repository-ingestion` runs sat unclaimed in a non-default namespace
+
+### Telemetry attribution must come from auth, never from inbound headers
+- **Rule:** On public HTTP services, never copy user/org/actor/request attribution from inbound W3C `baggage` (or any client header) onto spans, logs, jobs, or Langfuse — derive it from the authenticated context only. Only private, internal-only services may read attribution from baggage set by our own callers. Span URLs must never include query strings, fragments, or credentials (tokens, device codes, OAuth `state` ride in query strings), and outgoing-fetch instrumentation should only create child spans under an existing server/job span.
+- **Category:** convention
+- **Date:** 2026-09-25
+- **Source:** PR-343 Opus review of the attribution step (live baggage spoof and reset-token leak into ClickHouse)
+
+### The UI is reached through the backend proxy, which rewrites Host
+- **Rule:** Browsers load the app from the backend origin; the backend proxies SPA and `/.otel` routes to `UI_PROXY_URL`, so inside `apps/ui` server handlers `request.url`/`Host` is the internal UI host, not the public origin. Any origin, CSRF, redirect, or absolute-URL logic in `apps/ui` must derive the public origin from the forwarded host/proto the backend proxy sets (or from the backend's configured public URL), and must be tested with a proxied request (internal Host + public Origin), not only with Origin == Host.
+- **Category:** convention
+- **Date:** 2026-09-25
+- **Source:** PR-343 `/.otel` same-origin check rejected every browser telemetry post on pr-343 (403) after deploy
+
+### Tests fake the environment, not our modules
+- **Rule:** Use msw for outbound HTTP, a real Postgres for database paths (`*.integration.test.ts` gated on `DATABASE_URL`), `vi.stubEnv` for config, fake timers for time, and OTel in-memory exporters for telemetry. `vi.mock` of a repo module is only for an import-time side effect that cannot be configured, with a comment naming it. A test that mocks our env, db client, logger, and helpers together asserts the mocks, survives behavior breaks, and fails on harmless refactors.
+- **Category:** testing
+- **Date:** 2026-09-26
+- **Source:** Repository owner review of PR-343 ("tests abusing mocks"; `domain/codeIngestion/codesearchClient.test.ts` had six module mocks before PR-343)
+
+### Every runtime import must be a direct `dependency` of its app
+- **Rule:** An app's production image installs only its own `dependencies`, so a package imported from non-test code must be listed there, not in `devDependencies` and not only reachable as another package's transitive dependency. pnpm hoisting makes the import resolve locally and in Vitest, so the break shows up only when the built image starts (`Cannot find module …`). When a change adds an import from a new package, add it to that app's `dependencies` in the same commit.
+- **Category:** convention
+- **Date:** 2026-09-26
+- **Source:** PR-343 backend image failed "Verify connector asset contracts" after `otel.ts` imported `@opentelemetry/resources`, which was only a devDependency
+
+### CD applies ops changes; no manual follow-ups
+- **Rule:** Do not hand the owner runbook steps, scripts to run, or "after merge" to-dos. Provisioning and one-time cleanups go into the CD workflow, and leftovers from a migration are deleted as part of the work. A Railway setting the Terraform provider omits on update (restart policy, healthcheck, and sleep have `omitempty`) is set once on the service; do not add a workflow script to reapply it, and do not restate platform defaults. The only acceptable owner action is supplying a secret the agent cannot write, stated once with the exact name and location.
+- **Category:** convention
+- **Date:** 2026-09-26
+- **Source:** Repository owner after PR-343 ("I want CD to do these things... you are here to serve me")

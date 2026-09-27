@@ -42,7 +42,7 @@ describe("processStreamSubmissions", () => {
     })
 
     expect(objects).toHaveLength(1)
-    expect(objects[0].deduplicationKey).toBe("stream:repo-1:apps/web:Kafka")
+    expect(objects[0]?.deduplicationKey).toBe("stream:repo-1:apps/web:Kafka")
 
     const predicates = claims.map((c) => c.predicate)
     expect(predicates).toContain("PRODUCES_TO")
@@ -109,8 +109,8 @@ describe("processStreamSubmissions", () => {
     const { objects } = processStreamSubmissions(streams, baseState)
 
     expect(objects).toHaveLength(1)
-    expect(objects[0].name).toBe("Kafka")
-    expect(objects[0].deduplicationKey).toBe("stream:repo-1:apps/web:Kafka")
+    expect(objects[0]?.name).toBe("Kafka")
+    expect(objects[0]?.deduplicationKey).toBe("stream:repo-1:apps/web:Kafka")
   })
 
   it("filters streams by pathMatchesRoot", () => {
@@ -124,7 +124,7 @@ describe("processStreamSubmissions", () => {
     })
 
     expect(objects).toHaveLength(1)
-    expect(objects[0].name).toBe("NATS")
+    expect(objects[0]?.name).toBe("NATS")
   })
 
   it("includes evidence in payload and provenance", () => {
@@ -138,13 +138,13 @@ describe("processStreamSubmissions", () => {
     ]
     const { objects, claims } = processStreamSubmissions(streams, baseState)
 
-    expect(objects[0].payload).toMatchObject({
+    expect(objects[0]?.payload).toMatchObject({
       streamType: "Kafka",
       path: "apps/web",
       submittedPath: "apps/web",
       evidence: "confluent-kafka producer.send()",
     })
-    expect(claims[0].provenance).toMatchObject({
+    expect(claims[0]?.provenance).toMatchObject({
       root: "apps/web",
       streamType: "Kafka",
       evidence: "confluent-kafka producer.send()",
@@ -157,7 +157,7 @@ describe("processStreamSubmissions", () => {
     ]
     const { claims } = processStreamSubmissions(streams, baseState)
 
-    expect(claims[0].sourceId).toContain(
+    expect(claims[0]?.sourceId).toContain(
       "identifyStreams:repo-1:apps/web:Kafka:PRODUCES_TO:abc123",
     )
   })

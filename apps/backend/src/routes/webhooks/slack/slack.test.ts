@@ -1,4 +1,6 @@
+import { createLogger } from "evlog"
 import { Hono } from "hono"
+import { contextStorage } from "hono/context-storage"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 
@@ -8,19 +10,11 @@ const revokeMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn())
 const verifySignatureMock = vi.hoisted(() => vi.fn())
 const postStatusMock = vi.hoisted(() => vi.fn())
-const logInfoMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../../models/slack-connector.js", () => ({
   getSlackConnectionByTeamId: getConnectionMock,
   getSlackSyncTargetByConnectionId: getTargetMock,
   revokeSlackConnectionByTeamId: revokeMock,
-}))
-vi.mock("../../../observability/logger.js", () => ({
-  getLogger: () => ({
-    error: vi.fn(),
-    info: logInfoMock,
-    warn: vi.fn(),
-  }),
 }))
 vi.mock("../../../openworkflow/client.js", () => ({
   runWorkflowWithWorkerWake: runWorkflowMock,
@@ -38,12 +32,18 @@ vi.mock("../../../services/slack/client.js", () => ({
 
 import { registerSlackWebhookRoute } from "./slack.js"
 
+let logInfo = vi.fn()
+
 function testApp() {
+  const log = createLogger()
+  logInfo = vi.spyOn(log, "info")
   const app = new Hono<AppEnv>()
+  app.use(contextStorage())
   app.use("*", async (c, next) => {
     c.set("env", {
       SLACK_SIGNING_SECRET: "signing-secret",
     } as AppEnv["Variables"]["env"])
+    c.set("log", log)
     await next()
   })
   registerSlackWebhookRoute(app as never)
@@ -124,7 +124,7 @@ describe("Slack webhook", () => {
       },
     )
     expect(postStatusMock).not.toHaveBeenCalled()
-    expect(logInfoMock).toHaveBeenCalledWith("slack_webhook_event_received", {
+    expect(logInfo).toHaveBeenCalledWith("slack_webhook_event_received", {
       apiAppId: "A_CTXPIPE",
       teamId: "T1",
       eventType: "app_mention",

@@ -15,6 +15,7 @@ import {
   SLACK_MENTION_STATUS_NEEDS_THREAD,
 } from "../../../services/slack/mention-status.js"
 import { verifySlackRequestSignature } from "../../../services/slack/verify-signature.js"
+import { noteResolvedWebhookConnections } from "../attribution.js"
 
 const SlackEventEnvelopeSchema = z.object({
   type: z.string(),
@@ -124,6 +125,7 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
       getLogger().info("slack_webhook_unknown_team", { teamId })
       return c.json({ ok: true }, 200)
     }
+    noteResolvedWebhookConnections([connection])
 
     const target = await getSlackSyncTargetByConnectionId(connection.id)
     if (!target || target.orgId !== connection.orgId || !target.enabled) {

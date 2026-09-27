@@ -1,6 +1,7 @@
 /**
  * Helpers for partial ingestion: limit identify/extract work to diff-relevant paths.
  */
+import { isConnectorMirrorPath } from "../../../domain/codeIngestion/connectorMirrorPaths.js"
 import type { CodeIngestionState } from "../schemas.js"
 import { stripLeadingDotSlash } from "./narrowRootsForPartialDiff.js"
 
@@ -23,6 +24,35 @@ export function shouldSkipExtractorForPartialDeletesOnly(
   const hasChanged = (state.changedPaths?.length ?? 0) > 0
   const hasRenames = (state.renames?.length ?? 0) > 0
   return !hasChanged && !hasRenames && (state.deletedPaths?.length ?? 0) > 0
+}
+
+/**
+ * Partial ingest where every changed, deleted and renamed path is connector
+ * warehouse content (`github/`, `linear/`, `slack/`, …). Code extractors
+ * (extractKind, identify_*, instruction units) have nothing to learn from those
+ * paths; only the connector extractors and the link pass run (ADR-033).
+ */
+export function isConnectorOnlyPartialDiff(state: CodeIngestionState): boolean {
+  if (state.ingestMode !== "partial") return false
+  const paths = [
+    ...(state.changedPaths ?? []),
+    ...(state.deletedPaths ?? []),
+    ...(state.renames ?? []).flatMap((r) => [r.from, r.to]),
+  ]
+  if (paths.length === 0) return false
+  return paths.every((p) =>
+    isConnectorMirrorPath(stripLeadingDotSlash(p.trim())),
+  )
+}
+
+/** Code extractors skip deletes-only and connector-only partial diffs. */
+export function shouldSkipCodeExtractorForPartialDiff(
+  state: CodeIngestionState,
+): boolean {
+  return (
+    shouldSkipExtractorForPartialDeletesOnly(state) ||
+    isConnectorOnlyPartialDiff(state)
+  )
 }
 
 /**

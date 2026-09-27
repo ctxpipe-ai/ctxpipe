@@ -13,9 +13,10 @@ content.
 
 <Callout title="Fully managed app flow">
   The hosted ctx| service supplies the Notion OAuth application and webhook
-  configuration. Self-hosted operators must register their own public
-  integration before authorisation can succeed. See
-  [Self-host Notion](/docs/self-hosting/notion).
+  configuration. Self-hosted operators register a private OAuth app in the
+  connector setup wizard (client ID, secret, then Add webhook). Setting
+  `NOTION_*` environment variables is an optional operator shortcut, not a
+  required restart. See [Self-host Notion](/docs/self-hosting/notion).
 </Callout>
 
 ## What is mirrored
@@ -28,11 +29,13 @@ see. Their related content can include:
   file per row (properties plus page body).
 - Headings, lists, tasks, quotes, code, and in-scope page links rewritten to
   relative Git paths when the target is also mirrored.
-- External image and file URLs when Notion stores them as public links.
+- Notion-hosted and explicitly embedded external images, files, video, audio,
+  and PDFs copied into an `assets/` directory beside the owning page or row.
 
-Notion-hosted file and image uploads are not copied into Git. The Markdown keeps
-a caption stub instead of an expiring Notion download URL. Page comments are not
-mirrored.
+Markdown uses relative links to copied assets. Expiring Notion download URLs are
+never written to git. Assets over 25 MiB, pages or rows over their 100 MiB asset
+budget, and unsafe or failed external downloads keep a Notion page link or
+caption stub. Page comments are not mirrored.
 
 <Callout title="Page sharing is the access gate">
   Notion only lists pages and databases already shared with the ctx| integration.
@@ -58,10 +61,9 @@ Notion scope exists only in `notion/config.yaml`:
 - **Live scope** is the YAML on the selected target branch after that pull
   request is merged.
 
-ctx| does not keep a second draft or live scope in PostgreSQL. The Notion
-connection's `connections.config` stores only the repository binding and setup
-state, including the repository, target branch, enabled state, and pending
-configuration pull request metadata.
+ctx| does not keep a second draft or live scope outside Git. The connection
+tracks where content belongs and whether setup is complete; the merged YAML
+remains the source of truth for what Notion content is approved.
 
 ## Setup flow
 
@@ -70,8 +72,10 @@ configuration pull request metadata.
     ### Connect Notion
 
     Open **Connectors**, choose **Add connection**, then select **Notion**.
-    Authorize the ctx| application in the Notion popup and share the pages or
-    databases the connector should be allowed to read.
+    On a self-hosted deployment without shared env credentials, complete
+    **Register Notion OAuth app** and **Add webhook** first, then authorize the
+    workspace in the Notion popup and share the pages or databases the connector
+    should be allowed to read.
   </Step>
 
   <Step>
@@ -124,7 +128,8 @@ configuration pull request metadata.
 
 Mirrored files live under `notion/`:
 
-- Pages: `notion/pages/<slug>--<id>/index.md`, with child pages nested under
+- Pages: `notion/pages/<slug>--<id>/index.md`, with assets under the adjacent
+  `assets/` directory and child pages nested under
   their ancestors.
 - Databases: `notion/databases/<slug>--<id>/index.md`, `table.csv`, and
   `rows/<slug>--<id>/index.md`.
@@ -139,15 +144,13 @@ review the replacement configuration pull request.
 
 Notion sends signed webhook events to ctx| when supported entities change.
 While the connector is live, ctx| validates the event against the Git scope,
-directly enqueues an OpenWorkflow entity-sync run, updates the affected files,
-and starts another repository ingestion. Incremental updates re-mirror the
-affected top-level resource (a page subtree or a database), not a single block.
-Events that arrive before the connector is live (including during initial sync)
-are skipped — the same trade-off as Linear and Confluence — rather than buffered
-in a Notion-specific dirty-entity table. Missed webhook events are not
-automatically backfilled: repair webhook delivery, then update the affected
-pages or databases in Notion again so fresh events are delivered, or use content
-retry / remirror after a failed initial sync.
+updates the affected files, and starts another repository ingestion.
+Incremental updates re-mirror the affected top-level resource (a page subtree or
+a database), not a single block. Events that arrive before the connector is
+live, including during initial sync, are skipped rather than queued for later.
+Missed webhook events are not automatically backfilled: repair webhook delivery,
+then update the affected pages or databases in Notion again so fresh events are
+delivered, or use **Retry content sync** after a failed initial mirror.
 
 ## Verify the complete flow
 
@@ -167,9 +170,10 @@ tests Notion webhook delivery.
 
 ### Authorization fails
 
-Allow popups and retry. On fully managed ctx|, report persistent OAuth errors to
-support. On a self-hosted deployment, ask the operator to verify that Notion
-OAuth credentials are configured and that the callback URI matches exactly.
+    Allow popups and retry. On fully managed ctx|, report persistent OAuth errors to
+    support. On a self-hosted deployment, finish **Register Notion OAuth app**
+    and **Add webhook** in the wizard (or the optional env shortcut) and confirm
+    the callback URI matches exactly.
 
 ### No pages or databases appear
 

@@ -8,7 +8,9 @@ This page describes **data handling for the hosted SaaS product** (ctxpipe). It 
 ## What ctx| ingests
 
 - ctx| ingests from **Git** and Git-connected sources you attach to your organization.
-- Other integrations are brought into the **same ingestion pipeline** as your repositories; product direction is that sources (including future integrations such as Confluence) are **normalised into Git-compatible storage** before the same downstream indexing and graph steps run.
+- Connected Linear, Notion, Confluence, and captured Slack content is written
+  into a Git repository you control, then follows the same downstream indexing
+  and graph path as other repository content.
 - **What is in your connected repositories (and equivalent synced sources) is what ctx| can see** - nothing beyond what you connect.
 
 ## What you control
@@ -22,11 +24,9 @@ This page describes **data handling for the hosted SaaS product** (ctxpipe). It 
 
 | Provider    | Purpose                 |
 | ----------- | ----------------------- |
-| Railway     | Compute and hosting     |
+| Railway     | Compute, hosting, and our self-hosted observability (logs, traces, LLM traces) |
 | Neon        | Postgres database       |
 | OpenRouter  | LLM routing ([ZDR](https://openrouter.ai/docs/guides/features/zdr)-only models on hosted) |
-| Langfuse    | LLM observability       |
-| Better Stack | Logging and monitoring |
 
 ## LLM calls
 
@@ -37,11 +37,12 @@ This page describes **data handling for the hosted SaaS product** (ctxpipe). It 
 
 ### Storage and retention (product)
 
-We do **not** publish fixed customer-data retention periods in this documentation yet. Session and auth artefacts in the app use **short-lived tokens** (for example password-reset links and invitations) with server-side expiry; those are account mechanics, not a statement about how long code index or graph data is retained. For deletion timelines, export, or DPA questions, **[get in touch](/docs/getting-started/get-in-touch)**.
+We do **not** publish fixed customer-data retention periods in this documentation yet. Session and auth artifacts in the app use **short-lived tokens** (for example password-reset links and invitations) with server-side expiry; those are account mechanics, not a statement about how long code index or graph data is retained. For deletion timelines, export, or DPA questions, **[get in touch](/docs/getting-started/get-in-touch)**.
 
 ## What we don’t do
 
-- We **don’t** use your repository content to **train** ctx|’s own models (ctx| is not a model trainer; upstream providers have their own policies - see OpenRouter above).
+- We **don’t** use your repository content to **train** ctx|’s own models (ctx| is not a model trainer).
+- On the hosted product, every model call goes only to **[Zero Data Retention (ZDR)](https://openrouter.ai/docs/guides/features/zdr)** endpoints: ZDR is enforced in our OpenRouter account, so providers neither store your prompts and context nor train on them.
 - We **don’t** share data **across tenants** or sell it to third parties; sub-processors above are **service providers** for operating the product.
 - We **don’t** ingest sources you have **not** explicitly connected.
 

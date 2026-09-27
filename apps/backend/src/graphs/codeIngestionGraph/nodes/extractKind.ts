@@ -7,17 +7,17 @@ import type {
   ExtractedClaim,
   ExtractedObject,
 } from "../schemas.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
+import { classifyAmbiguousPackageKindAgent } from "./extractKindAmbiguousPackageAgent.js"
 import {
   filterPathsByPartialScan,
   partialScanPathsForExtractors,
-  shouldSkipExtractorForPartialDeletesOnly,
+  shouldSkipCodeExtractorForPartialDiff,
 } from "./partialIngestionScope.js"
-import { classifyAmbiguousPackageKindAgent } from "./extractKindAmbiguousPackageAgent.js"
 import {
   type PackageKind as Kind,
   WORKSPACE_PACKAGE_MARKERS,
 } from "./workspacePackageMarkers.js"
-import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 
 /** Cap for path listings passed into the ambiguous-package LLM. */
 const AMBIGUOUS_PACKAGE_PATH_LIMIT = 2_000
@@ -128,7 +128,7 @@ export async function extractKind(
   const objects: ExtractedObject[] = []
   const claims: ExtractedClaim[] = []
 
-  if (shouldSkipExtractorForPartialDeletesOnly(state)) {
+  if (shouldSkipCodeExtractorForPartialDiff(state)) {
     return {}
   }
 

@@ -5,7 +5,8 @@ set -euo pipefail
 # 32 MiB is below idle Bun RSS, so the *container* is SIGKILL'd.
 # This script only asserts OOMKilled / exit 137. It does not talk to the API
 # or write repository status. Child-137 HTTP classification (API still alive)
-# is covered by `src/routes/indexPhases.zoekt.test.ts`.
+# Child-137 HTTP classification (API still alive) is covered by
+# `src/routes/indexPhases.zoekt.test.ts` and `src/routes/indexPhases.scip.test.ts`.
 
 IMAGE="${1:?usage: oom-simulation.sh <image>}"
 CONTAINER_NAME="ctxpipe-codesearch-oom-sim-$$"

@@ -6,7 +6,7 @@ import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow
 
 type GitHubPrerequisiteStepProps = {
   orgSlug: string
-  sourceName: "Confluence" | "Linear" | "Notion" | "Slack"
+  sourceName: "Confluence" | "Linear" | "Notion" | "Slack" | "PagerDuty"
   onConnected?: () => void | Promise<void>
 }
 
@@ -51,6 +51,12 @@ export function GitHubPrerequisiteStep({
               void navigate({
                 to: "/$orgSlug/connectors",
                 params: { orgSlug },
+                search: {
+                  error: undefined,
+                  error_description: undefined,
+                  pendingAccountClaim: undefined,
+                  notionConnectionId: undefined,
+                },
               })
             }}
           >

@@ -5,7 +5,7 @@ const requireCurrentOrgSlugMock = vi.hoisted(() => vi.fn(() => "acme"))
 const getSystemDbMock = vi.hoisted(() => vi.fn())
 const getOrgDbMock = vi.hoisted(() => vi.fn())
 const withOrgDbContextMock = vi.hoisted(() =>
-  vi.fn(async (_orgId: string, fn: () => unknown) => fn()),
+  vi.fn(async (_orgId: string, fn: (db?: unknown) => unknown) => fn()),
 )
 const executeQueryMock = vi.hoisted(() => vi.fn())
 const getGraphClientMock = vi.hoisted(() =>
@@ -41,6 +41,7 @@ import {
   PROJECT_CLAIM_BATCH_SIZE,
   type PreparedProjectionRow,
   projectClaimsFromState,
+  refreshClaimProjections,
   retractClaimsFromGraph,
 } from "./graphProjection.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
@@ -223,5 +224,32 @@ describe("retractClaimsFromGraph / deleteObjectsFromGraph", () => {
       ids: ["o1", "o2"],
       orgId: "org_1",
     })
+  })
+})
+
+describe("refreshClaimProjections", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getOrgDbMock.mockImplementation(() => {
+      throw new Error("Org database not initialized")
+    })
+  })
+
+  it("loads claims inside a short organisation DB context", async () => {
+    const where = vi.fn().mockResolvedValue([])
+    const secondJoin = vi.fn().mockReturnValue({ where })
+    const firstJoin = vi.fn().mockReturnValue({ innerJoin: secondJoin })
+    const from = vi.fn().mockReturnValue({ innerJoin: firstJoin })
+    const db = { select: vi.fn().mockReturnValue({ from }) }
+    withOrgDbContextMock.mockImplementation(
+      async (_orgId: string, fn: (contextDb?: typeof db) => unknown) => fn(db),
+    )
+
+    await expect(refreshClaimProjections(["claim_1"])).resolves.toBe(0)
+
+    expect(withOrgDbContextMock).toHaveBeenCalledWith(
+      "org_1",
+      expect.any(Function),
+    )
   })
 })

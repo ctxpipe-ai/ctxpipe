@@ -6,6 +6,7 @@ provider "registry.terraform.io/kislerdm/neon" {
   constraints = "0.13.0"
   hashes = [
     "h1:bS35UCi8zj2vnHjoPFaKkENjKJ7Cp8oxkziDZDRTeDI=",
+    "h1:rYCIbSDOj5QfgaDq5KHq1OVzRqHuEaWXCfMERM5sbpE=",
     "zh:181663a962dbe8438e82bac6b507dd491de7a8b0718d072cbf9b77e4b13a3bb6",
     "zh:296dd7c53b8bedcbf2eb8ab249ef555ec8d276cded1c9ca96d1db92964d99bdd",
     "zh:2aafc4ed6f0c736b20305536edfc6c3720aef5b0b41827d3e66bf05f2f1777ab",
@@ -28,6 +29,7 @@ provider "registry.terraform.io/terraform-community-providers/railway" {
   version     = "0.6.1"
   constraints = "0.6.1"
   hashes = [
+    "h1:8R6T7MSS3vFUwP1ONNXV5jEIOgwvR+kiguz5Di+Wl7I=",
     "h1:CtReNYEv+OboVrtwumyRU6qrQ/JhAJdC0EFqzvSWan4=",
     "zh:1304557765650e3c0de01864b69b2e7bc76908dbaf9e95fd2d8ce8e01e4140f0",
     "zh:2a09fad69304ec85546ffda171d44f1802126c171516256e5385e1e879ed4b5b",

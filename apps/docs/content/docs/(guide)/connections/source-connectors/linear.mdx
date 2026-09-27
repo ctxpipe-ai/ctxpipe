@@ -13,8 +13,9 @@ issues.
 
 <Callout title="Fully managed app flow">
   The hosted ctx| service supplies the Linear OAuth application and webhook
-  configuration. Self-hosted operators must register their own application
-  before authorisation can succeed. See [Self-host Linear](/docs/self-hosting/linear).
+  configuration. Self-hosted operators register their own application in the
+  connector wizard (or optionally with `LINEAR_*`). See
+  [Self-host Linear](/docs/self-hosting/linear).
 </Callout>
 
 ## What is mirrored
@@ -26,7 +27,8 @@ content can include:
 - Project and initiative updates.
 - Cycles, labels, and referenced users.
 - Customer requests when their parent scope is selected.
-- Attachment metadata and links.
+- Linear attachments and explicit embedded external media copied into git with
+  relative links.
 
 GitHub pull requests, commits, reviews, diffs, CI output, and patches are not
 copied through Linear. When Linear references GitHub work, ctx| stores only
@@ -55,10 +57,9 @@ Linear scope exists only in `linear/config.yaml`:
 - **Live scope** is the YAML on the selected target branch after that pull
   request is merged.
 
-ctx| does not keep a second draft or live scope in PostgreSQL. The Linear
-connection's `connections.config` stores only the repository binding and setup
-state, including the repository, target branch, enabled state, and pending
-configuration pull request metadata.
+ctx| does not keep a second draft or live scope outside Git. The connection
+tracks where content belongs and whether setup is complete; the merged YAML
+remains the source of truth for what Linear content is approved.
 
 ## Setup flow
 
@@ -122,6 +123,13 @@ Mirrored files live under `linear/`, grouped into stable paths such as
 `labels/`, `users/`, and `customer-requests/`. Paths include stable Linear IDs,
 so renaming an issue or project does not create a second copy.
 
+Linear file uploads and explicit embedded media live in a sibling
+`<entity>/assets/` directory beside the entity's Markdown file. Ordinary
+link-only attachments remain links and are never crawled. Each asset is capped
+at 25 MiB and each entity has a 100 MiB asset budget. Unsafe, unavailable, or
+oversized downloads leave a Linear link or textual stub. GitHub pull requests
+and commits remain references rather than copied attachments.
+
 Do not hand-edit generated content. Change scope through **Manage scope** and
 review the replacement configuration pull request.
 
@@ -129,13 +137,12 @@ review the replacement configuration pull request.
 
 Linear sends signed webhook events to ctx| when supported entities change.
 While the connector is live, ctx| validates the event against the Git scope,
-directly enqueues an OpenWorkflow entity-sync run, updates the affected files,
-and starts another repository ingestion. Events that arrive before the connector
-is live (including during initial sync) are skipped — the same trade-off as
-Confluence — rather than buffered in a Linear-specific dirty-entity table.
-Missed webhook events are not automatically backfilled: repair webhook delivery,
-then update the affected entities in Linear again so fresh events are delivered,
-or use content retry / remirror after a failed initial sync.
+updates the affected files, and starts another repository ingestion. Events that
+arrive before the connector is live, including during initial sync, are skipped
+rather than queued for later. Missed webhook events are not automatically
+backfilled: repair webhook delivery, then update the affected entities in Linear
+again so fresh events are delivered, or use **Retry content sync** after a
+failed initial mirror.
 
 ## Verify the complete flow
 

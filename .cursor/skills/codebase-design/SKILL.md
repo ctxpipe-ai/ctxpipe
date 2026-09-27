@@ -101,6 +101,7 @@ Good interfaces make testing natural:
 - A **Seam** is where a **Module**'s **Interface** lives.
 - An **Adapter** sits at a **Seam** and satisfies the **Interface**.
 - **Depth** produces **Leverage** for callers and **Locality** for maintainers.
+- A **hypothetical seam** (one adapter, no ADR) is often **accidental**; a deep module that does the job is **essential**. Leftover-machinery review is [`simplicity-audit`](../simplicity-audit/SKILL.md), not this vocabulary.
 
 ## Rejected framings
 

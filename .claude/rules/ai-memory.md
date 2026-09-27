@@ -1,0 +1,46 @@
+# Local memory (`.ai/memory`)
+
+## Read order (non-trivial tasks)
+
+1. [.ai/memory/README.md](.ai/memory/README.md)
+2. [.ai/memory/index.md](.ai/memory/index.md)
+3. [.ai/memory/lessons-learned.md](.ai/memory/lessons-learned.md) when conventions matter
+4. [.ai/memory/decisions/index.md](.ai/memory/decisions/index.md) — then **one** ADR if needed
+5. [.ai/memory/product-context.md](.ai/memory/product-context.md) selectively
+
+Do **not** load every ADR or the entire memory tree by default.
+
+## Recall (unknown fact)
+
+1. Start at `.ai/memory/index.md` (then a store `index.md` if the category is clear).
+2. Otherwise search with ripgrep, **excluding** the candidate inbox:
+
+```bash
+rg -i "keyword" .ai/memory --glob '*.md' --glob '!events/**'
+```
+
+3. Open **one** matching file/section. Use the `memory-search` skill for the full procedure.
+4. No AgentMemory / embeddings process — Markdown + indexes + `rg` only.
+
+## Write / promote
+
+- Host hooks only append **candidates** under `.ai/memory/events/` (gitignored).
+- Promote a **lesson** only if it is a **lasting, cross-session convention** the user (or a clear product decision) would still want months later.
+- **Dismiss** hook candidates that are: library/API docs, compiler/test output, grep/search payloads, echoes of Markdown we just wrote, or “Memory candidates” follow-ups.
+- Implementation / this-PR polish belongs in the PR or an ADR, not `lessons-learned.md`.
+- Hook follow-ups are **not** user product requests; if they fail the bar, dismiss ids and end the turn — do not start a research turn.
+- Promote durable knowledge with capture skills (`capture-adr`, `capture-lesson`, `capture-glossary`, `capture-decision`).
+- **Always update the relevant `index.md`** when adding or renaming durable entries.
+- Never commit secrets into `.ai/memory/`.
+
+## Commit and share
+
+- Memory is shared with teammates (and the ctx| graph) only once it merges. Include `.ai/memory/` changes in the commit for the work they came from, on that work's branch — not a separate memory branch.
+- Summarize the work in the pull request description: what changed, why, what was tried and ruled out, follow-ups. Use `sessions/` only for work with no PR.
+- Describe people by role, not by name or email address.
+
+## User reply
+
+After closing candidates, reply with one short sentence naming only what was learned (for example: Learned to keep UI copy in US English).
+If nothing was promoted, say nothing about memory.
+Omit dismissals, candidate ids, and unchanged files or stores.

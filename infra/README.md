@@ -8,11 +8,11 @@ Mirrors [ops/infra/index.ts](../ops/infra/index.ts):
 
 - **Railway**
   - Project + `production` environment
-  - Region: **`us-east4-eqdc4a`** (Virginia), from `railway_regions` in [`main.tf`](main.tf) — same metro as Neon. Do not hardcode Singapore in the module.
+  - Region: **`us-east4-eqdc4a`** (Virginia), from module variable `railway_regions` (default in [`module/ctxpipe/variables.tf`](module/ctxpipe/variables.tf); [`main.tf`](main.tf) passes the same value) — same metro as Neon. Terraform documents and creates with this value; **updates** go through [`scripts/railway-set-regions.sh`](../scripts/railway-set-regions.sh) (Railway provider 0.6.x never sends `multiRegionConfig` on Update). Do not hardcode Singapore in the module.
   - Services: UI, backend, codesearch (+ volume), OpenWorkflow worker, FalkorDB (+ volume)
   - Service variables: `FALKORDB_PORT`, `GRAPH_DB_URI`
-  - App services pull public GHCR images (`ghcr.io/ctxpipe-ai/{backend,worker,ui,codesearch,otel-collector}`) tagged by Git commit SHA from GitHub Actions (no Railway registry credentials)
-  - **Volume cutover:** Railway migrates attached volumes when a service region changes ([docs](https://docs.railway.com/deployments/regions#volumes)). Codesearch and FalkorDB each have a 50GB volume. Applying this region flip in production (`deploy.yaml` `terraform apply` on merge) migrates those volumes and takes those services down for the copy. Stateless services (backend, worker, UI, otel-collector) flip without volume migration. PR previews pin only the stateless services so an experiment does not start a 50GB copy.
+  - App services pull public GHCR images (`ghcr.io/ctxpipe-ai/{backend,worker,ui,codesearch}`) tagged by Git commit SHA from GitHub Actions (no Railway registry credentials)
+  - **Volume cutover:** Railway migrates attached volumes when a service region changes ([docs](https://docs.railway.com/deployments/regions#volumes)). Codesearch and FalkorDB each have a 50GB volume. The production region write is `deploy.yaml` → `scripts/railway-set-regions.sh` (GraphQL pin + redeploy), not `terraform apply`. That step copies those volumes and takes those services down for the copy. Stateless services (backend, worker, UI) flip without volume migration. `railway_service` resources `ignore_changes` on `source_image` and `regions` so Terraform does not overwrite PR-preview image rolls or hit the provider Update bug. PR previews pin only the stateless services so an experiment does not start a 50GB copy.
 - **Neon**
   - Project `ctxpipe` in org `org-steep-pine-64462726`, region `aws-us-east-1`, pg 17
   - Default branch `production` with db `neondb` and role `neondb_owner`
@@ -95,16 +95,18 @@ Production deploys are driven by `.github/workflows/deploy.yaml`:
 
 - Build/push app images to GHCR with both `:<sha>` and `:latest`
 - Run Terraform for infra (variables, domains, replicas). `TF_VAR_image_tag` is still passed for **new** service creates; `lifecycle.ignore_changes = [source_image]` keeps later SHA churn off `railway_service` so the provider does not `serviceConnect` + `redeployAllInstances` (that would overwrite `pr-*` environments)
-- Roll **production** service instances only via Railway GraphQL `serviceInstanceUpdate` + `serviceInstanceDeployV2` on the environment named `production` (backend, openworkflow/worker, ui, codesearch, otelcollector). GraphQL HTTP/`.errors` fail the job; CI does not wait for Railway SUCCESS
+- Roll **production** service instances only via Railway GraphQL `serviceInstanceUpdate` + `serviceInstanceDeployV2` on the environment named `production` (backend, openworkflow/worker, ui, codesearch). GraphQL HTTP/`.errors` fail the job; CI does not wait for Railway SUCCESS
+
+Production OpenWorkflow / codesearch admission uses the **medium** capacity pair (`OPENWORKFLOW_CONCURRENCY=10`, `CODESEARCH_INDEXER_CONCURRENCY=2`, `CODESEARCH_INDEX_PIPELINE_CONCURRENCY=2`). Railway does not pin CPU/RAM in Terraform; pick these from observed ingest peak RSS (HyperDX / Railway metrics), not a dashboard plan size. Codesearch stays at **one replica** with a volume at `/data`. Changing these module variables requires redeploying **worker and codesearch**.
 
 PR deploys are driven by `.github/workflows/pr-deploy.yaml`:
 
-- Build/push PR images tagged `pr-<number>-<sha>` for **backend, worker, ui, codesearch** only (**not** otel-collector)
+- Build/push PR images tagged `pr-<number>-<sha>` for **backend, worker, ui, codesearch**
 - Update Railway PR environment service instances to those image tags via Railway GraphQL API
 - Trigger deployments for backend, worker, ui, and codesearch in the PR environment
-- Sets preview-only variables: `ENABLE_LANGSMITH=false`; **deletes** `OTEL_EXPORTER_OTLP_{TRACES,LOGS,METRICS}_ENDPOINT` on backend/worker/ui (so no periodic OTLP); worker `OPENWORKFLOW_PR_IDLE_EXIT=true` + `OPENWORKFLOW_IDLE_EXIT_SECONDS=180` + `OPENWORKFLOW_IDLE_STALE_AFTER_HOURS=1`; backend `RAILWAY_TOKEN` to wake `openworkflow` after enqueue. PR backends also use short pg pool idle timeouts / no TCP keepAlive so Neon connections do not block Railway’s ~10m sleep window
-- Enable **Serverless** on backend, ui, codesearch, openworkflow, and **FalkorDB**. **otelcollector is not deployed in PR**: scale to 0 replicas and `deploymentStop` active deployments (no `serviceInstanceDeployV2` — that was briefly starting the collector)
-- **Langfuse in PR**: prefer sleep over collector OTLP→Langfuse; in-app SDK remains request-scoped if keys exist
+- OTLP endpoints stay the production values cloned with the environment (module `otel_otlp_endpoint` defaults to `https://telemetry.ctxpipe.ai`; PR uses flush-on-demand metrics; no 60s timer). Worker `OPENWORKFLOW_PR_IDLE_EXIT=true` + `OPENWORKFLOW_IDLE_EXIT_SECONDS=180` + `OPENWORKFLOW_IDLE_STALE_AFTER_HOURS=6` plus the **small** capacity pair (`OPENWORKFLOW_CONCURRENCY=6`, `CODESEARCH_INDEXER_CONCURRENCY=1`); codesearch `CODESEARCH_INDEXER_CONCURRENCY=1` + `CODESEARCH_INDEX_PIPELINE_CONCURRENCY=1`; backend `RAILWAY_TOKEN` to wake `openworkflow` after enqueue. PR backends also use short pg pool idle timeouts / no TCP keepAlive so Neon connections do not block Railway’s ~10m sleep window
+- Enable **Serverless** on backend, ui, codesearch, openworkflow, and **FalkorDB**.
+- **Langfuse in PR**: shared ClickStack collector + `env:pr-N` tags; in-app Langfuse handler remains request-scoped
 - For the PR **openworkflow worker**, image + Serverless + `restartPolicyType: ON_FAILURE` so idle supervisor exits (status 0) stay down until woken
 
 ## PR Terraform plans (GitHub Actions)

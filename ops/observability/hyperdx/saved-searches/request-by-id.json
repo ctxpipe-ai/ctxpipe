@@ -1,0 +1,9 @@
+{
+  "name": "Request by id",
+  "sourceName": "Logs",
+  "select": "Timestamp, ServiceName, SeverityText, Body, TraceId, LogAttributes['request.id']",
+  "where": "LogAttributes['request.id'] != ''",
+  "whereLanguage": "sql",
+  "orderBy": "Timestamp DESC",
+  "tags": ["ctxpipe"]
+}

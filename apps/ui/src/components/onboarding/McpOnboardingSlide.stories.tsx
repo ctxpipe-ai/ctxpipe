@@ -10,7 +10,7 @@ const orgSlug = "acme"
 const mcpSnippet = `{
   "mcpServers": {
     "ctxpipe": {
-      "type": "streamable-http",
+      "type": "http",
       "url": "https://app.ctxpipe.ai/mcp?orgSlug=${orgSlug}"
     }
   }

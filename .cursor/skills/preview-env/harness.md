@@ -63,7 +63,7 @@ Delete workspace, disconnect GitHub, finish Slack/Linear/Notion/Confluence OAuth
 
 ## Area failure
 
-Stop that area. Attach Railway logs via [analyze-logs](../analyze-logs/SKILL.md) (Railway MCP first). For a chat hang, filter `step` in `opencode.chatStream` / `tanstack-workspace-chat`. Redact tokens and emails.
+Stop that area. Attach Railway logs via [observability](../observability/SKILL.md) (Railway MCP first). For a chat hang, filter `step` in `opencode.chatStream` / `tanstack-workspace-chat`. Redact tokens and emails.
 
 Harness-class blockers (do not continue the suite): sign-in failed, production UI leak, worker/codesearch never woke when a later area needs them.
 

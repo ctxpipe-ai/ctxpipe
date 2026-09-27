@@ -23,10 +23,6 @@ vi.mock("../../routes/mcp.js", () => ({
   registerMcpRoutes: vi.fn(),
 }))
 
-vi.mock("../../routes/langsmith.js", () => ({
-  registerLangsmithRoutes: vi.fn(),
-}))
-
 vi.mock("../webhooks.js", () => ({
   registerWebhookRoutes: vi.fn(),
 }))
@@ -42,7 +38,6 @@ describe("GET /.status", () => {
     process.env.AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"
     process.env.DATABASE_URL = "postgres://localhost:5432/ctxpipe"
     process.env.UI_PROXY_URL = "http://ui:3002"
-    process.env.ENABLE_LANGSMITH = "false"
     const { createApp } = await import("../../app/app.js")
     const app = createApp()
     const res = await app.request("/.status")
@@ -54,7 +49,6 @@ describe("GET /.status", () => {
     delete process.env.AUTH_SECRET
     delete process.env.DATABASE_URL
     delete process.env.UI_PROXY_URL
-    delete process.env.ENABLE_LANGSMITH
     delete process.env.MODEL_PROVIDER_API_KEY
   })
 })

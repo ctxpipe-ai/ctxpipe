@@ -1,9 +1,10 @@
-import { dash } from "@better-auth/infra"
 import { apiKey } from "@better-auth/api-key"
+import { dash } from "@better-auth/infra"
 import { oauthProvider } from "@better-auth/oauth-provider"
 import { passkey } from "@better-auth/passkey"
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
+import { APIError } from "better-auth/api"
 import {
   bearer,
   deviceAuthorization,
@@ -11,10 +12,26 @@ import {
   organization,
   twoFactor,
 } from "better-auth/plugins"
+import { createAccessControl } from "better-auth/plugins/access"
+import {
+  adminAc,
+  defaultStatements,
+  memberAc,
+  ownerAc,
+} from "better-auth/plugins/organization/access"
+import { eq } from "drizzle-orm"
 import { parseEnv } from "../config/env.js"
-import { initDb } from "../db/client.js"
+import { type Db, initDb } from "../db/client.js"
+import { members } from "../db/schema/auth.js"
 import { schema } from "../db/schema.js"
 import { generateObjectId } from "../lib/id.js"
+import { invitationEmailLink } from "./invitation-email-url.js"
+import {
+  getOAuthConsentOrganizationId,
+  OAUTH_ORGANIZATION_CLAIM,
+  resolveOAuthConsentReferenceId,
+  selectOAuthOrganizationBinding,
+} from "./oauth-organization.js"
 
 export type BetterAuthInstance = ReturnType<typeof createBetterAuth>
 export type AuthUser = BetterAuthInstance["$Infer"]["Session"]["user"]
@@ -40,6 +57,64 @@ function toTypeSlug(model: string): string {
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "")
   return slug.length > 0 ? slug : "id"
+}
+
+const API_KEY_ACTIONS = ["create", "read", "update", "delete"] as const
+
+const apiKeyExpiration = {
+  defaultExpiresIn: 1000 * 60 * 60 * 24 * 30,
+  disableCustomExpiresTime: false,
+} as const
+
+const apiKeyRateLimit = {
+  enabled: true,
+  timeWindow: 60 * 60 * 1000,
+  maxRequests: 1000,
+} as const
+
+/** User (`default`) + org-owned configs passed to `apiKey()`. Keep `default` for existing rows. */
+const apiKeyPluginConfigurations = [
+  {
+    configId: "default",
+    references: "user" as const,
+    enableSessionForAPIKeys: true,
+    keyExpiration: apiKeyExpiration,
+    rateLimit: apiKeyRateLimit,
+  },
+  {
+    configId: "organization",
+    references: "organization" as const,
+    enableSessionForAPIKeys: false,
+    keyExpiration: apiKeyExpiration,
+    rateLimit: apiKeyRateLimit,
+  },
+]
+
+const organizationAccessControl = createAccessControl({
+  ...defaultStatements,
+  apiKey: API_KEY_ACTIONS,
+})
+
+const organizationRoles = {
+  owner: organizationAccessControl.newRole({
+    ...ownerAc.statements,
+    apiKey: API_KEY_ACTIONS,
+  }),
+  admin: organizationAccessControl.newRole({
+    ...adminAc.statements,
+    apiKey: API_KEY_ACTIONS,
+  }),
+  member: organizationAccessControl.newRole({
+    ...memberAc.statements,
+  }),
+}
+
+async function getOAuthOrganizationMembershipIds(db: Db, userId: string) {
+  const memberships = await db
+    .select({ id: members.organizationId })
+    .from(members)
+    .where(eq(members.userId, userId))
+  return memberships.map(({ id }) => id)
 }
 
 export function createBetterAuth() {
@@ -146,21 +221,13 @@ export function createBetterAuth() {
           : undefined,
     },
     plugins: [
-      apiKey({
-        // Keep API key auth on the same getSession() path used by middleware
-        // so `x-api-key` is resolved without custom verification code.
-        enableSessionForAPIKeys: true,
-        keyExpiration: {
-          defaultExpiresIn: 1000 * 60 * 60 * 24 * 30,
-          // Allow callers to explicitly create non-expiring keys via
-          // `expiresIn: null` on api-key create/update endpoints.
-          disableCustomExpiresTime: false,
-        },
-      }),
+      apiKey(apiKeyPluginConfigurations),
       bearer(),
       jwt(),
       twoFactor(),
       organization({
+        ac: organizationAccessControl,
+        roles: organizationRoles,
         // Invitation IDs are opaque UUIDv7 values delivered by email; the
         // accepting session must still match the exact invited email address.
         requireEmailVerificationOnInvitation: false,
@@ -173,8 +240,11 @@ export function createBetterAuth() {
           },
         },
         async sendInvitationEmail(data) {
-          const acceptPath = `/.auth/accept-invitation?invitationId=${encodeURIComponent(data.id)}`
-          const inviteLink = `${env.AUTH_BASE_URL}/.auth/sign-up?redirectTo=${encodeURIComponent(`${acceptPath}&email=${encodeURIComponent(data.email)}`)}`
+          const inviteLink = invitationEmailLink(
+            env.AUTH_BASE_URL,
+            data.id,
+            data.email,
+          )
           const [{ sendEmail }, { InvitationEmail }] = await Promise.all([
             import("../email/index.js"),
             import("../email/templates/invitation.js"),
@@ -198,6 +268,45 @@ export function createBetterAuth() {
       oauthProvider({
         loginPage: "/.auth/sign-in",
         consentPage: "/.auth/consent",
+        postLogin: {
+          page: "/.auth/select-organization",
+          async shouldRedirect({ user, session }) {
+            const membershipIds = await getOAuthOrganizationMembershipIds(
+              db,
+              user.id,
+            )
+            return selectOAuthOrganizationBinding(
+              membershipIds,
+              typeof session.activeOrganizationId === "string"
+                ? session.activeOrganizationId
+                : null,
+            ).requiresSelection
+          },
+          async consentReferenceId({ user, session }) {
+            const membershipIds = await getOAuthOrganizationMembershipIds(
+              db,
+              user.id,
+            )
+            const referenceId = resolveOAuthConsentReferenceId(
+              membershipIds,
+              typeof session.activeOrganizationId === "string"
+                ? session.activeOrganizationId
+                : null,
+              getOAuthConsentOrganizationId(),
+            )
+            if (!referenceId) {
+              throw new APIError("BAD_REQUEST", {
+                error: "organization_required",
+                error_description:
+                  "Select a ctxpipe organization before authorizing this client.",
+              })
+            }
+            return referenceId
+          },
+        },
+        customAccessTokenClaims({ referenceId }) {
+          return referenceId ? { [OAUTH_ORGANIZATION_CLAIM]: referenceId } : {}
+        },
         issuer,
         allowDynamicClientRegistration: true,
         allowUnauthenticatedClientRegistration: true,
@@ -206,7 +315,7 @@ export function createBetterAuth() {
         accessTokenExpiresIn: 14_400,
         silenceWarnings: { oauthAuthServerConfig: true },
       }),
-      dash(),
+      ...(env.BETTER_AUTH_API_KEY ? [dash()] : []),
     ],
   })
 }

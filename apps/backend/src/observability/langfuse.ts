@@ -1,179 +1,164 @@
-import { AsyncLocalStorage } from "node:async_hooks"
-import { randomUUID } from "node:crypto"
-import type { Serialized } from "@langchain/core/load/serializable"
+import type { LLMResult } from "@langchain/core/outputs"
 import { CallbackHandler } from "@langfuse/langchain"
-
-export type LangfuseContext = {
-  handler: CallbackHandler
-  parentRunId?: string
-  tags?: string[]
-  metadata?: Record<string, unknown>
-}
-
-const langfuseStorage = new AsyncLocalStorage<LangfuseContext>()
+import { propagateAttributes, startActiveObservation } from "@langfuse/tracing"
+import { readAttribution } from "./attribution.js"
+import { otelDeploymentEnvironment } from "./otel.js"
 
 export type LangfuseContextAttrs = {
   sessionId?: string
   userId?: string
   tags?: string[]
-  /** Merged onto the root Langfuse trace (e.g. repositoryId, workflow). */
+  /** Merged onto the Langfuse trace (e.g. repositoryId, workflow). */
   traceMetadata?: Record<string, unknown>
 }
 
-function serializedRun(name: string): Serialized {
-  return {
-    lc: 1,
-    type: "constructor",
-    id: ["ctxpipe", name],
-    kwargs: {},
-  }
-}
+/**
+ * `@langchain/core` 1.2.1 `_mergeDicts` concatenates `model_name` across
+ * stream chunks. `id`, `name`, `output_version`, and `model_provider` are
+ * the only protected string keys.
+ */
+export class CtxpipeCallbackHandler extends CallbackHandler {
+  // LangChain runs handlers on a background queue by default, which drops the
+  // active OTel span. Inline so generations parent to that span and inherit
+  // propagateAttributes.
+  awaitHandlers = true
 
-export function tryGetLangfuseHandler(): CallbackHandler | undefined {
-  return langfuseStorage.getStore()?.handler
+  override async handleLLMEnd(
+    output: LLMResult,
+    runId: string,
+    parentRunId?: string,
+  ): Promise<void> {
+    for (const group of output.generations) {
+      for (const generation of group) {
+        const meta = (
+          generation as {
+            message?: { response_metadata?: { model_name?: unknown } }
+          }
+        ).message?.response_metadata
+        const name = meta?.model_name
+        const unit =
+          typeof name === "string" ? /^(.+?)\1+$/.exec(name)?.[1] : undefined
+        if (meta && unit) meta.model_name = unit
+      }
+    }
+    return super.handleLLMEnd(output, runId, parentRunId)
+  }
 }
 
 export function getLangfuseHandler(): CallbackHandler {
-  const handler = tryGetLangfuseHandler()
-  if (!handler) {
-    throw new Error(
-      "Langfuse handler not set. Ensure runWithLangfuseContext() wraps this call.",
-    )
-  }
-  return handler
+  return new CtxpipeCallbackHandler()
 }
 
-export function tryGetLangfuseParentRunId(): string | undefined {
-  return langfuseStorage.getStore()?.parentRunId
+function uniqueTags(tags: string[]): string[] {
+  return [...new Set(tags.filter((tag) => tag.length > 0))]
+}
+
+function stringMetadata(
+  metadata: Record<string, unknown> | undefined,
+): Record<string, string> | undefined {
+  if (!metadata) return undefined
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(metadata)) {
+    if (value == null) continue
+    out[key] = typeof value === "string" ? value : JSON.stringify(value)
+  }
+  return Object.keys(out).length > 0 ? out : undefined
 }
 
 export function runWithLangfuseContext<T>(
   attrs: LangfuseContextAttrs,
   fn: () => T | Promise<T>,
 ): Promise<T> {
-  const current = langfuseStorage.getStore()
-  const handler = current?.handler ?? new CallbackHandler(attrs)
-  return langfuseStorage.run(
-    {
-      handler,
-      parentRunId: current?.parentRunId,
-      tags: attrs.tags ?? current?.tags,
-      metadata: attrs.traceMetadata ?? current?.metadata,
-    },
-    fn,
-  ) as Promise<T>
+  const bag = readAttribution()
+  const userId =
+    bag["ctxpipe.actor.type"] === "org_api_key"
+      ? undefined
+      : (attrs.userId ?? bag["enduser.id"])
+  const sessionId = attrs.sessionId ?? bag["ctxpipe.conversation.id"]
+  const orgSlug = bag["ctxpipe.org.slug"]
+  const environment = otelDeploymentEnvironment()
+  const tags = uniqueTags([
+    ...(attrs.tags ?? []),
+    orgSlug ? `org:${orgSlug}` : "",
+    `env:${environment}`,
+  ])
+  const metadata = stringMetadata({
+    ...attrs.traceMetadata,
+    ...(bag["ctxpipe.org.id"] ? { orgId: bag["ctxpipe.org.id"] } : {}),
+    ...(orgSlug ? { orgSlug } : {}),
+    ...(bag["request.id"] ? { requestId: bag["request.id"] } : {}),
+    environment,
+  })
+  return Promise.resolve(
+    propagateAttributes(
+      {
+        ...(userId ? { userId } : {}),
+        ...(sessionId ? { sessionId } : {}),
+        tags,
+        ...(metadata ? { metadata } : {}),
+      },
+      fn,
+    ),
+  )
 }
 
-export async function withLangfuseObservation<T>(
+export function withLangfuseObservation<T>(
   attrs: {
     name: string
     input?: Record<string, unknown>
     metadata?: Record<string, unknown>
-    tags?: string[]
   },
   fn: () => Promise<T>,
 ): Promise<T> {
-  const current = langfuseStorage.getStore()
-  if (!current) {
-    return fn()
-  }
-
-  const runId = randomUUID()
-  const parentRunId = current.parentRunId
-  const metadata = {
-    ...current.metadata,
-    ...attrs.metadata,
-    observationId: runId,
-    parentObservationId: parentRunId ?? null,
-  }
-  const tags = attrs.tags ?? current.tags
-
-  await current.handler.handleChainStart(
-    serializedRun(attrs.name),
-    attrs.input ?? {},
-    runId,
-    parentRunId,
-    tags,
-    metadata,
-    undefined,
+  return startActiveObservation(
     attrs.name,
-  )
-
-  return langfuseStorage.run(
-    {
-      ...current,
-      parentRunId: runId,
-      tags,
-      metadata,
+    async (span) => {
+      span.update({
+        ...(attrs.input !== undefined ? { input: attrs.input } : {}),
+        metadata: {
+          ...attrs.metadata,
+        },
+      })
+      return fn()
     },
-    async () => {
-      try {
-        const result = await fn()
-        await current.handler.handleChainEnd(
-          { output: { status: "ok" } },
-          runId,
-          parentRunId,
-        )
-        return result
-      } catch (err) {
-        await current.handler.handleChainError(err, runId, parentRunId)
-        throw err
-      }
-    },
+    { asType: "span" },
   )
 }
 
-export async function withLangfuseGeneration<T>(
+export function withLangfuseGeneration<T>(
   attrs: {
     name: string
     model?: string
     input: Record<string, unknown>
     metadata?: Record<string, unknown>
-    tags?: string[]
     summarizeOutput?: (result: T) => Record<string, unknown>
   },
   fn: () => Promise<T>,
 ): Promise<T> {
-  const current = langfuseStorage.getStore()
-  if (!current) {
-    return fn()
-  }
-
-  const runId = randomUUID()
-  const parentRunId = current.parentRunId
-  const metadata = {
-    ...current.metadata,
-    ...attrs.metadata,
-    observationId: runId,
-    parentObservationId: parentRunId ?? null,
-  }
-  const tags = attrs.tags ?? current.tags
-
-  await current.handler.handleGenerationStart(
-    serializedRun(attrs.name),
-    [{ role: "user", content: JSON.stringify(attrs.input) }],
-    runId,
-    parentRunId,
-    { invocation_params: { model: attrs.model } },
-    tags,
-    metadata,
+  return startActiveObservation(
     attrs.name,
+    async (generation) => {
+      generation.update({
+        input: attrs.input,
+        ...(attrs.model ? { model: attrs.model } : {}),
+        metadata: {
+          ...attrs.metadata,
+        },
+      })
+      try {
+        const result = await fn()
+        generation.update({
+          output: attrs.summarizeOutput?.(result) ?? { status: "ok" },
+        })
+        return result
+      } catch (err) {
+        generation.update({
+          level: "ERROR",
+          statusMessage: err instanceof Error ? err.message : String(err),
+        })
+        throw err
+      }
+    },
+    { asType: "generation" },
   )
-
-  try {
-    const result = await fn()
-    const output = attrs.summarizeOutput?.(result) ?? { status: "ok" }
-    await current.handler.handleLLMEnd(
-      {
-        generations: [[{ text: JSON.stringify(output) }]],
-        llmOutput: { tokenUsage: {} },
-      },
-      runId,
-      parentRunId,
-    )
-    return result
-  } catch (err) {
-    await current.handler.handleLLMError(err, runId, parentRunId)
-    throw err
-  }
 }

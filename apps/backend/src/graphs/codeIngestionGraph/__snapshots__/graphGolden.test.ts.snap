@@ -1,0 +1,54 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`graph golden spec > produces the expected triple set from real connector output > objects 1`] = `
+[
+  "Decision dec:repo_api:docs/adr/0003-old-handler-layering.md",
+  "Decision dec:repo_api:docs/adr/0007-domain-logic-in-services.md",
+  "File fil:repo_api:.github/CODEOWNERS",
+  "File fil:repo_api:docs/adr/0003-old-handler-layering.md",
+  "File fil:repo_api:docs/adr/0007-domain-logic-in-services.md",
+  "File fil:repo_api:src/domain/user.ts",
+  "File fil:repo_api:src/http/createUser.ts",
+  "File fil:repo_api:src/legacy.ts",
+  "Issue iss:linear:ENG-123",
+  "PullRequest prq:repo_api:42",
+  "Service svc:repo_api:./",
+  "Service svc:repo_api:src",
+  "Team team:github:acme/backend",
+  "Team team:github:acme/platform",
+  "Team team:linear:ENG",
+  "Thread thr:slack:C01:1709372400.123456",
+]
+`;
+
+exports[`graph golden spec > produces the expected triple set from real connector output > triples 1`] = `
+[
+  "dec:repo_api:docs/adr/0003-old-handler-layering.md DECLARED_IN fil:repo_api:docs/adr/0003-old-handler-layering.md",
+  "dec:repo_api:docs/adr/0003-old-handler-layering.md INFLUENCES svc:repo_api:./",
+  "dec:repo_api:docs/adr/0007-domain-logic-in-services.md DECLARED_IN fil:repo_api:docs/adr/0007-domain-logic-in-services.md",
+  "dec:repo_api:docs/adr/0007-domain-logic-in-services.md INFLUENCES svc:repo_api:./",
+  "dec:repo_api:docs/adr/0007-domain-logic-in-services.md MENTIONS fil:repo_api:src/http/createUser.ts",
+  "dec:repo_api:docs/adr/0007-domain-logic-in-services.md SUPERSEDES dec:repo_api:docs/adr/0003-old-handler-layering.md",
+  "fil:repo_api:.github/CODEOWNERS PART_OF repo_api",
+  "fil:repo_api:.github/CODEOWNERS PART_OF svc:repo_api:./",
+  "fil:repo_api:docs/adr/0003-old-handler-layering.md PART_OF repo_api",
+  "fil:repo_api:docs/adr/0003-old-handler-layering.md PART_OF svc:repo_api:./",
+  "fil:repo_api:docs/adr/0007-domain-logic-in-services.md PART_OF repo_api",
+  "fil:repo_api:docs/adr/0007-domain-logic-in-services.md PART_OF svc:repo_api:./",
+  "fil:repo_api:src/domain/user.ts PART_OF repo_api",
+  "fil:repo_api:src/domain/user.ts PART_OF svc:repo_api:src",
+  "fil:repo_api:src/http/createUser.ts PART_OF repo_api",
+  "fil:repo_api:src/http/createUser.ts PART_OF svc:repo_api:src",
+  "iss:linear:ENG-123 REFERENCES prq:repo_api:42",
+  "prq:repo_api:42 ADDED fil:repo_api:src/domain/user.ts @2026-03-02",
+  "prq:repo_api:42 MODIFIED fil:repo_api:src/http/createUser.ts @2026-03-02",
+  "prq:repo_api:42 REFERENCES iss:linear:ENG-123",
+  "prq:repo_api:42 REMOVED fil:repo_api:src/legacy.ts @2026-03-02",
+  "prq:repo_api:42 TARGETS repo_api @2026-03-02",
+  "team:github:acme/backend OWNS svc:repo_api:src",
+  "team:github:acme/platform OWNS svc:repo_api:./",
+  "team:linear:ENG OWNS iss:linear:ENG-123",
+  "thr:slack:C01:1709372400.123456 REFERENCES iss:linear:ENG-123",
+  "thr:slack:C01:1709372400.123456 REFERENCES prq:repo_api:42",
+]
+`;

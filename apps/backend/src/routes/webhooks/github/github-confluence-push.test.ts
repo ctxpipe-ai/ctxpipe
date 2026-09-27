@@ -89,6 +89,7 @@ describe("maybeEnqueueConfluenceSyncOnConfigPush", () => {
       commits: [{ modified: ["confluence/config.yaml"] }],
       before: "aaa",
       after: "bbb",
+      env: {} as never,
       log: { error: vi.fn() },
     })
 
@@ -131,6 +132,7 @@ describe("maybeEnqueueConfluenceSyncOnConfigPush", () => {
       commits: [{ modified: ["README.md"] }],
       before: "aaa",
       after: "bbb",
+      env: {} as never,
       log: { error: vi.fn() },
     })
 
@@ -170,6 +172,7 @@ describe("maybeEnqueueConfluenceSyncOnConfigPush", () => {
       ref: "refs/heads/main",
       repository: { full_name: "acme/docs", default_branch: "main" },
       commits: [{ modified: ["confluence/config.yaml"] }],
+      env: {} as never,
       log: { error: vi.fn() },
     })
 

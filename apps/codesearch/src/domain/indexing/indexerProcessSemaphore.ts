@@ -4,6 +4,9 @@
  * This lives at the Bun.spawn boundary so direct phase API calls and the
  * legacy composer share the same process limit.
  */
+import { getIndexerProcessConcurrency } from "./capacityEnv.js"
+
+/** Default when CODESEARCH_INDEXER_CONCURRENCY is unset (kubernetes memory gate). */
 export const INDEXER_PROCESS_CONCURRENCY = 2
 
 let activeIndexerProcesses = 0
@@ -16,7 +19,8 @@ function releaseIndexerProcessSlot(): void {
 }
 
 async function acquireIndexerProcessSlot(): Promise<void> {
-  if (activeIndexerProcesses < INDEXER_PROCESS_CONCURRENCY) {
+  const cap = getIndexerProcessConcurrency()
+  if (activeIndexerProcesses < cap) {
     activeIndexerProcesses += 1
     return
   }
@@ -38,4 +42,9 @@ export async function withIndexerProcessSlot<T>(
   } finally {
     releaseIndexerProcessSlot()
   }
+}
+
+export function resetIndexerProcessSemaphoreForTests(): void {
+  activeIndexerProcesses = 0
+  indexerProcessWaiters.length = 0
 }

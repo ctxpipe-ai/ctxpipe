@@ -1,12 +1,15 @@
 import { readFileSync } from "node:fs"
+import { basename } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV,
   WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT,
   WORKSPACE_CHAT_OPENCODE_CLI,
+  WORKSPACE_CHAT_OPENCODE_HOME_SLUG_MAX_LENGTH,
   workspaceChatOpenCodeConfig,
   workspaceChatOpenCodeConfigPath,
   workspaceChatOpenCodeContract,
+  workspaceChatOpenCodeHomeDir,
   workspaceChatOpenCodeHomeEnv,
   writeWorkspaceChatOpenCodeConfig,
 } from "./workspace-chat-opencode-contract.js"
@@ -177,6 +180,37 @@ describe("workspaceChatOpenCodeContract", () => {
     expect((env.PATH ?? "").split(":")).toEqual(
       expect.arrayContaining(["/bin", "/usr/bin"]),
     )
+  })
+
+  it("keeps punctuation-distinct conversation ids in separate HOME dirs", () => {
+    const slash = basename(workspaceChatOpenCodeHomeDir("a/b"))
+    const query = basename(workspaceChatOpenCodeHomeDir("a?b"))
+    expect(slash).not.toBe(query)
+    expect(slash).toMatch(/^[A-Za-z0-9_-]+$/)
+    expect(query).toMatch(/^[A-Za-z0-9_-]+$/)
+    expect(slash.length).toBeLessThanOrEqual(
+      WORKSPACE_CHAT_OPENCODE_HOME_SLUG_MAX_LENGTH,
+    )
+    expect(query.length).toBeLessThanOrEqual(
+      WORKSPACE_CHAT_OPENCODE_HOME_SLUG_MAX_LENGTH,
+    )
+  })
+
+  it("bounds a long conversation id to a path-safe HOME slug", () => {
+    const conversationId = `session/${"y".repeat(300)}?tail`
+    const slug = basename(workspaceChatOpenCodeHomeDir(conversationId))
+    expect(slug).toMatch(/^[A-Za-z0-9_-]+$/)
+    expect(slug.length).toBeLessThanOrEqual(
+      WORKSPACE_CHAT_OPENCODE_HOME_SLUG_MAX_LENGTH,
+    )
+    expect(slug).not.toContain(conversationId)
+    expect(
+      writeWorkspaceChatOpenCodeConfig({
+        conversationId,
+        modelBase: "openai/gpt-5.6-terra",
+        isolation: "docker",
+      }).homeEnv.HOME,
+    ).toBe(`/home/node/ctxpipe-opencode/${slug}`)
   })
 
   it("uses a writable nonroot container home without backend PATH entries", () => {

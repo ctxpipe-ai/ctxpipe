@@ -1,26 +1,173 @@
 import { execFileSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import { relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import ts from "typescript"
 import { readTestConfiguration } from "./test-configuration.mjs"
 
-const GATE0 = "7dfa6b93a5baedc3eb2c86dd1056662e89cace00"
+function ownedMockCallHash(callText) {
+  return createHash("sha256").update(callText).digest("hex")
+}
 
-function readGate0File(root, path) {
-  const spec = `${GATE0}:${path}`
+const GATE0 = "7dfa6b93a5baedc3eb2c86dd1056662e89cace00"
+const RECOVERY_MERGE_BASE = "9072089086f6fad87fbf05572b9f1ff5336e0520"
+const MERGED_MAIN = "64c32537364037188c7988aaa2226ff0695a1ef2"
+
+function gitShow(root, spec) {
   const show = () =>
     execFileSync("git", ["show", spec], { cwd: root, encoding: "utf8" })
   try {
     return show()
   } catch {
-    // This SHA is not on every feature-branch history. Fetch it when missing
-    // so CI checkouts of a single branch can still read Gate 0 artifacts.
-    execFileSync("git", ["fetch", "origin", GATE0, "--no-tags"], {
+    // Pinned SHAs are not on every feature-branch history. Fetch when missing
+    // so CI checkouts of a single branch can still read those artifacts.
+    execFileSync("git", ["fetch", "origin", spec.split(":")[0], "--no-tags"], {
       cwd: root,
       encoding: "utf8",
     })
     return show()
   }
+}
+
+function readGate0File(root, path) {
+  return gitShow(root, `${GATE0}:${path}`)
+}
+
+function readMergedMainFile(root, path) {
+  return gitShow(root, `${MERGED_MAIN}:${path}`)
+}
+
+function callTextCounts(sourceText, properties) {
+  const source = ts.createSourceFile(
+    "pinned.tsx",
+    sourceText,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  )
+  const counts = new Map()
+  const visit = (node) => {
+    if (
+      (ts.isPropertyAccessExpression(node) ||
+        ts.isElementAccessExpression(node)) &&
+      ts.isCallExpression(node.parent)
+    ) {
+      const property = ts.isPropertyAccessExpression(node)
+        ? node.name.text
+        : node.argumentExpression.getText(source).replaceAll(/["'`]/g, "")
+      if (properties.has(property)) {
+        const text = node.parent.getText(source)
+        counts.set(text, (counts.get(text) ?? 0) + 1)
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(source)
+  return counts
+}
+
+function skipIfCallCounts(sourceText) {
+  return callTextCounts(sourceText, new Set(["skipIf"]))
+}
+
+function ownedMockCallCounts(sourceText) {
+  return callTextCounts(
+    sourceText,
+    new Set(["mock", "doMock", "spyOn", "module"]),
+  )
+}
+
+// Merge-resolved owned mocks whose AST text differs from MERGED_MAIN.
+// Keys are SHA-256 of exact call AST text (node.parent.getText), counted
+// and consumed one occurrence at a time — same shape as pinned-main.
+const MERGED_OWNED_MOCK_EXCEPTION_COUNTS = {
+  "apps/backend/src/models/conversations.test.ts": {
+    // vi.mock("../auth/context.js", ...)
+    "497f7603db614640cfc0b3293e3517212713bd6f0ff0178bebfb9f7dd9137e90": 1,
+    // vi.mock("../db/org-sql.js", ...)
+    "65a779298395ebf0b27e2d50ada3a9d743714526b7af190c8bc9ffd76b922a58": 1,
+  },
+  "apps/backend/src/models/github-pr-mirror.test.ts": {
+    // vi.mock("../db/client.js", ...)
+    "b0e64060c3dddfa9992cadd61f34022206458233c2463a20d4aaef8ef6315944": 1,
+  },
+  "apps/backend/src/models/linear-oauth-setup.test.ts": {
+    // vi.mock("../db/client.js", ...)
+    "336e734ad929f812aea1df2058902ebd4e00971f5380a2510afdfdeaff5c947d": 1,
+  },
+  "apps/backend/src/openworkflow/workflows/github-ensure-pr-mirror.test.ts": {
+    // vi.mock("../../db/client.js", ...)
+    "5f33ab14feb1821e09a7fcbe83944d3fc0ce7ded27083ba8e6f0da601d43290d": 1,
+    // vi.mock("../../models/github-pr-mirror-target.js", ...)
+    "456458bb7b2fc94760bb007726da3f1ae2939fe69e5183ee500681320736382c": 1,
+    // vi.mock("../../models/github-pr-mirror.js", ...)
+    "0992a49968bc2d5e0de142a944b63102f936530b4104c467957868acd0b7d7bd": 1,
+    // vi.mock("../../models/repositories.js", ...)
+    "ef16b18e3d40d2aaec9a2dc902bd3c7be17c7397ffd5b1d7071b451d4e7d4b19": 1,
+    // vi.mock("../../models/github-installation.js", ...)
+    "f01949b5d66052f2e4473901dbf9ace71600156f62a66b7a094bbccbb3a0abf9": 1,
+    // vi.mock("../../domain/workspaces/capture-connector-mirror.js", ...)
+    "fff8c69fcbd6c023c2408901b07b8ccca5eb009ae5bc61fc26145e2832743a9d": 1,
+    // vi.mock("../../services/github/pull-request-mirror/config-from-repo.js", ...)
+    "40b813747ed9180cb2ed3a84fee38354a8ee4c4398ab94036a5595b2081607fb": 1,
+    // vi.mock("../client.js", ...)
+    "f62f3e77567fc18902c94eedca782501d198bac98055f427c7a049cdd94bd633": 1,
+  },
+  "apps/backend/src/openworkflow/workflows/github-sync-content.test.ts": {
+    // vi.mock("../../db/client.js", ...)
+    "5f33ab14feb1821e09a7fcbe83944d3fc0ce7ded27083ba8e6f0da601d43290d": 1,
+    // vi.mock("../../models/github-pr-mirror.js", ...)
+    "1f772df65d4a528176dd61f5bee1c5745d5270b31effb35aedf412f001e1cd3c": 1,
+    // vi.mock("../../domain/workspaces/capture-connector-mirror.js", ...)
+    "3ca7c391d6794f23066fe4f767af5dcd008957671868fda6cd752c7f05f7621b": 1,
+    // vi.mock("../../services/github/pull-request-mirror/sync.js", ...)
+    "c68606f4939d483b1ceccd612b549316c899d9a98989ee2814effc58be58fa42": 1,
+    // vi.mock("../enqueue-repository-ingestion.js", ...)
+    "12bcb2492106e81fec5f3447a0da35ef61881673a3fd0f00773dad84b50a4f0b": 1,
+    // vi.mock("../client.js", ...)
+    "f62f3e77567fc18902c94eedca782501d198bac98055f427c7a049cdd94bd633": 1,
+  },
+  "apps/backend/src/services/github/pull-request-mirror/ensure.test.ts": {
+    // vi.mock("./sync.js", ...)
+    "52d262136401ed0b113eb82944af15d749285fba5df1e717a548edd8c2b36ba8": 1,
+  },
+  "apps/backend/src/routes/webhooks/github/github-pr-mirror-push.test.ts": {
+    // vi.mock("../../../models/github-pr-mirror.js", ...)
+    "ed0a4161d3d00aa3e567e19f4a67a28c1a1b6a553a9f378a30cae99481efc58c": 1,
+  },
+  "apps/ui/src/features/connectors/components/NotionSetupDialog.test.tsx": {
+    // vi.mock("@tanstack/react-query", ...)
+    "f3120bceb7ad025b2ed86a5e87ffcaadbf545aaac0168bf1366a56c1a7d81573": 1,
+  },
+  "apps/ui/src/features/connectors/components/PagerdutySetupDialog.test.tsx": {
+    // vi.mock("@tanstack/react-query", ...)
+    "e96f0136a528ae00cd84240b9ea2cd116bec5f91b14a7b8c1075eb7fe984df6d": 1,
+  },
+}
+
+function importedMainTestPaths(root) {
+  const spec = `${RECOVERY_MERGE_BASE}..${MERGED_MAIN}`
+  const list = () =>
+    execFileSync("git", ["diff", "--name-only", spec], {
+      cwd: root,
+      encoding: "utf8",
+    })
+  let text
+  try {
+    text = list()
+  } catch {
+    execFileSync(
+      "git",
+      ["fetch", "origin", RECOVERY_MERGE_BASE, MERGED_MAIN, "--no-tags"],
+      { cwd: root, encoding: "utf8" },
+    )
+    text = list()
+  }
+  return new Set(
+    text
+      .split("\n")
+      .filter((file) => /\.(test|stories)\.[cm]?[jt]sx?$/.test(file)),
+  )
 }
 
 try {
@@ -38,6 +185,12 @@ try {
         return [fields[0], fields[3]]
       }),
   )
+  // Gate-0 characterization rows stay characterization. Imported-main paths
+  // that Gate-0 marked proof (or omitted) stay proof: owned mocks are
+  // allowed only as counted pinned-main call AST texts, plus the narrow
+  // merge-resolved exact-call hashes below. Branch-new paths stay proof
+  // unless Gate-0 already marked them characterization.
+  const importedMain = importedMainTestPaths(root)
   const files =
     process.argv.length > 2
       ? process.argv.slice(2)
@@ -105,6 +258,48 @@ try {
     return expression
   }
   const acceptedFixtures = new Map()
+  const importedMainSources = new Map()
+  const mergedMainSource = (path) => {
+    if (!importedMainSources.has(path)) {
+      try {
+        importedMainSources.set(path, readMergedMainFile(root, path))
+      } catch {
+        importedMainSources.set(path, "")
+      }
+    }
+    return importedMainSources.get(path)
+  }
+  const remainingPinnedSkipIf = new Map()
+  const remainingPinnedOwnedMocks = new Map()
+  const remainingMergedOwnedMockExceptions = new Map()
+  const consumeCount = (table, path, key, countsForPath) => {
+    if (!table.has(path)) table.set(path, countsForPath())
+    const remaining = table.get(path)
+    const left = remaining.get(key) ?? 0
+    if (left === 0) return false
+    remaining.set(key, left - 1)
+    return true
+  }
+  const consumePinnedSkipIf = (path, callText) =>
+    consumeCount(remainingPinnedSkipIf, path, callText, () =>
+      skipIfCallCounts(mergedMainSource(path)),
+    )
+  const consumePinnedOwnedMock = (path, callText) =>
+    importedMain.has(path) &&
+    consumeCount(remainingPinnedOwnedMocks, path, callText, () =>
+      ownedMockCallCounts(mergedMainSource(path)),
+    )
+  const consumeMergedOwnedMockException = (path, callText) =>
+    importedMain.has(path) &&
+    consumeCount(
+      remainingMergedOwnedMockExceptions,
+      path,
+      ownedMockCallHash(callText),
+      () =>
+        new Map(
+          Object.entries(MERGED_OWNED_MOCK_EXCEPTION_COUNTS[path] ?? {}),
+        ),
+    )
   for (const file of sourceFiles) {
     const source = program.getSourceFile(file)
     if (!source) throw new Error(`Cannot parse required policy source: ${file}`)
@@ -436,11 +631,19 @@ try {
             "todo",
             "only",
           ].includes(property)
-        )
-          complain(
-            node,
-            `Test selection/expected failure is forbidden: ${property}`,
-          )
+        ) {
+          // Grandfather only exact skipIf call texts from pinned main, one
+          // occurrence per pinned count. A second identical call is rejected.
+          const importedSkipIf =
+            property === "skipIf" &&
+            ts.isCallExpression(node.parent) &&
+            consumePinnedSkipIf(path, node.parent.getText(source))
+          if (!importedSkipIf)
+            complain(
+              node,
+              `Test selection/expected failure is forbidden: ${property}`,
+            )
+        }
         if (
           proof &&
           mocks.has(owner) &&
@@ -478,7 +681,22 @@ try {
             ["Date", "Math", "globalThis", "console"].includes(
               target.getText(source),
             )
-          if (!networkSdk && !fixtureOnly && !outputOrClock)
+          const callText = ts.isCallExpression(node.parent)
+            ? node.parent.getText(source)
+            : ""
+          const pinnedOwnedMock =
+            callText && consumePinnedOwnedMock(path, callText)
+          const mergedOwnedMock =
+            !pinnedOwnedMock &&
+            callText &&
+            consumeMergedOwnedMockException(path, callText)
+          if (
+            !networkSdk &&
+            !fixtureOnly &&
+            !outputOrClock &&
+            !pinnedOwnedMock &&
+            !mergedOwnedMock
+          )
             complain(
               node,
               `Proof cannot mock its owned collaborators (${property})`,

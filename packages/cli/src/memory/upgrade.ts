@@ -41,7 +41,8 @@ export function isLegacyMemoryDoc(text: string): boolean {
     score += 2
   }
   if (/conkeeper/i.test(text)) score += 2
-  if (/memory-(?:sync|init|reflect|insights|search)/i.test(text)) score += 1
+  // memory-search is a current skill (ADR-024), not a retired one.
+  if (/memory-(?:sync|init|reflect|insights)/i.test(text)) score += 1
   if (/\bpatterns\.md\b/i.test(text) && /lessons-learned/i.test(text)) {
     score += 1
   }
@@ -87,7 +88,7 @@ function isLegacyLocalMemoryServer(key: string, value: unknown): boolean {
     ? value.args.filter((a): a is string => typeof a === "string").join(" ")
     : ""
   const joined = `${cmd} ${args}`
-  // Keep remote streamable-http `ctxpipe` entries (url-based, no memory mcp/hook).
+  // Keep remote URL-based `ctxpipe` entries (no memory mcp/hook).
   if (typeof value.url === "string" && value.url.includes("/mcp")) return false
   return (
     /memory mcp|agentmemory/i.test(joined) ||

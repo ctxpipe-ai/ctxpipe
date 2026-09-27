@@ -138,6 +138,12 @@ export function ConfluenceConnectionCard({
                     void navigate({
                       to: "/$orgSlug/connectors",
                       params: { orgSlug },
+                      search: {
+                        error: undefined,
+                        error_description: undefined,
+                        pendingAccountClaim: undefined,
+                        notionConnectionId: undefined,
+                      },
                     })
                   } else onOpenScope()
                 }

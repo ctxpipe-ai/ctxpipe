@@ -7,13 +7,16 @@ description: Frequently asked questions about ctx|, MCP, and self-hosting.
 
 ### What is ctx| in one sentence?
 
-A self-learning context platform for engineering agents: it ingests your repos and tools, builds a knowledge system, and connects to agents via **MCP** using `ctx_advisor`.
+An organization-scoped context platform for engineering agents: it ingests the
+sources you select, builds searchable and graph context, and exposes it through
+**MCP** using `ctx_advisor`.
 
 ### Is ctx| only for GitHub?
 
 The OSS stack emphasizes **Git** and includes **GitHub App** flows for installs and
 webhooks. Other Git hosts generally work when you can supply a clone URL and
-credentials acceptable to your deployment. Dedicated support for Gitlab is coming.
+credentials acceptable to your deployment. GitLab does not currently have a
+dedicated first-party setup flow.
 
 ### Where does the marketing site fit?
 
@@ -41,11 +44,11 @@ hierarchy. See [ctx| MCP](/docs/mcp/mcp-docs).
 
 ## Self-hosting
 
-### One command to run everything?
+### What is the supported small-deployment path?
 
-Use Compose with the **`deploy`** profile, or follow the host dev runbook in
-the repo root `AGENTS.md` (`pnpm dev:infra` then
-`pnpm dev`) for day-to-day development.
+Use `pnpm start` (the Compose **`deploy`** profile) for an evaluation or small
+internal deployment. It is not the contributor development stack. See
+[Self-hosting](/docs/self-hosting) for Docker, Terraform, and AWS options.
 
 ### Which Postgres version?
 
@@ -65,5 +68,5 @@ invited role. Details: [Team members](/docs/managing-organization/team-members).
 
 ### Can I verify my company domain?
 
-Not as a documented shipped feature in OSS today - see
-[Verified domains](/docs/managing-organization/verified-domains).
+Not in the current product. Organization access is based on explicit
+invitations and roles.

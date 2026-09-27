@@ -39,3 +39,17 @@ export function resolveGithubInstallPopupUrl(
   if (import.meta.env.DEV) return fallbackCtxpipeHostedGithubAppInstallUrl()
   return null
 }
+
+/**
+ * Grant-access links must use the App install URL. The raw installation
+ * settings URL does not carry `state`, so GitHub cannot return to this app's
+ * Setup URL with the popup nonce.
+ */
+export function githubGrantAccessUrls(args: {
+  appSlug?: string | null
+  manageUrl?: string | null
+}): string[] {
+  const slug = args.appSlug?.trim()
+  if (slug) return [githubAppInstallUrl(slug)]
+  return args.manageUrl ? [args.manageUrl] : []
+}

@@ -3,20 +3,10 @@
   "root": true,
   "pages": [
     "index",
-    "quickstart",
+    "(getting-started)",
     "deployment",
-    "architecture",
-    "configuration",
-    "production-readiness",
-    "operations",
-    "upgrades",
-    "authentication",
-    "mcp",
-    "models",
-    "graph-databases",
-    "confluence-atlassian",
-    "slack",
-    "linear",
-    "notion"
+    "(configuration)",
+    "(operations)",
+    "(source-connectors)"
   ]
 }

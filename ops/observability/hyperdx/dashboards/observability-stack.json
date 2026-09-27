@@ -1,0 +1,275 @@
+{
+  "name": "Observability Stack",
+  "tags": ["ctxpipe", "observability"],
+  "filters": [
+    {
+      "type": "QUERY_EXPRESSION",
+      "name": "deployment.environment",
+      "expression": "ResourceAttributes['deployment.environment']",
+      "sourceName": "Metrics",
+      "sourceMetricType": "gauge"
+    }
+  ],
+  "savedFilterValues": [
+    {
+      "type": "sql",
+      "condition": "ResourceAttributes['deployment.environment'] IN ('observability')"
+    }
+  ],
+  "tiles": [
+    {
+      "name": "Collector spans per interval",
+      "x": 0,
+      "y": 0,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "line",
+        "sourceName": "Metrics",
+        "fillNulls": true,
+        "groupBy": "ServiceName",
+        "select": [
+          {
+            "aggFn": "increase",
+            "alias": "accepted",
+            "metricName": "otelcol_receiver_accepted_spans",
+            "metricType": "sum",
+            "where": "",
+            "whereLanguage": "sql"
+          },
+          {
+            "aggFn": "increase",
+            "alias": "refused",
+            "metricName": "otelcol_receiver_refused_spans",
+            "metricType": "sum",
+            "where": "",
+            "whereLanguage": "sql"
+          },
+          {
+            "aggFn": "increase",
+            "alias": "sent",
+            "metricName": "otelcol_exporter_sent_spans",
+            "metricType": "sum",
+            "where": "",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Collector exporter queue",
+      "x": 12,
+      "y": 0,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "line",
+        "sourceName": "Metrics",
+        "fillNulls": true,
+        "groupBy": "ServiceName",
+        "select": [
+          {
+            "aggFn": "avg",
+            "alias": "queue",
+            "metricName": "otelcol_exporter_queue_size",
+            "metricType": "gauge",
+            "where": "",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Collector logs per interval",
+      "x": 0,
+      "y": 8,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "line",
+        "sourceName": "Metrics",
+        "fillNulls": true,
+        "groupBy": "ServiceName",
+        "select": [
+          {
+            "aggFn": "increase",
+            "alias": "accepted",
+            "metricName": "otelcol_receiver_accepted_log_records",
+            "metricType": "sum",
+            "where": "",
+            "whereLanguage": "sql"
+          },
+          {
+            "aggFn": "increase",
+            "alias": "refused",
+            "metricName": "otelcol_receiver_refused_log_records",
+            "metricType": "sum",
+            "where": "",
+            "whereLanguage": "sql"
+          },
+          {
+            "aggFn": "increase",
+            "alias": "sent",
+            "metricName": "otelcol_exporter_sent_log_records",
+            "metricType": "sum",
+            "where": "",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Collector metrics per interval",
+      "x": 12,
+      "y": 8,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "line",
+        "sourceName": "Metrics",
+        "fillNulls": true,
+        "groupBy": "ServiceName",
+        "select": [
+          {
+            "aggFn": "increase",
+            "alias": "accepted",
+            "metricName": "otelcol_receiver_accepted_metric_points",
+            "metricType": "sum",
+            "where": "",
+            "whereLanguage": "sql"
+          },
+          {
+            "aggFn": "increase",
+            "alias": "refused",
+            "metricName": "otelcol_receiver_refused_metric_points",
+            "metricType": "sum",
+            "where": "",
+            "whereLanguage": "sql"
+          },
+          {
+            "aggFn": "increase",
+            "alias": "sent",
+            "metricName": "otelcol_exporter_sent_metric_points",
+            "metricType": "sum",
+            "where": "",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ClickHouse queries per interval",
+      "x": 0,
+      "y": 16,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "line",
+        "sourceName": "Metrics",
+        "fillNulls": true,
+        "groupBy": "ServiceName",
+        "select": [
+          {
+            "aggFn": "increase",
+            "alias": "queries",
+            "metricName": "ClickHouseProfileEvents_Query",
+            "metricType": "sum",
+            "where": "",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ClickHouse inserted rows per interval",
+      "x": 12,
+      "y": 16,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "line",
+        "sourceName": "Metrics",
+        "fillNulls": true,
+        "groupBy": "ServiceName",
+        "select": [
+          {
+            "aggFn": "increase",
+            "alias": "inserted rows",
+            "metricName": "ClickHouseProfileEvents_InsertedRows",
+            "metricType": "sum",
+            "where": "",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ClickHouse resident memory",
+      "x": 0,
+      "y": 24,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "line",
+        "sourceName": "Metrics",
+        "fillNulls": true,
+        "groupBy": "ServiceName",
+        "numberFormat": { "output": "byte", "numericUnit": "bytes_iec" },
+        "select": [
+          {
+            "aggFn": "avg",
+            "alias": "resident",
+            "metricName": "ClickHouseAsyncMetrics_MemoryResident",
+            "metricType": "gauge",
+            "where": "",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ClickHouse MergeTree parts",
+      "x": 12,
+      "y": 24,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "line",
+        "sourceName": "Metrics",
+        "fillNulls": true,
+        "groupBy": "ServiceName",
+        "select": [
+          {
+            "aggFn": "avg",
+            "alias": "parts",
+            "metricName": "ClickHouseAsyncMetrics_TotalPartsOfMergeTreeTables",
+            "metricType": "gauge",
+            "where": "",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    },
+    {
+      "name": "railway-telemetry log count",
+      "x": 0,
+      "y": 32,
+      "w": 12,
+      "h": 8,
+      "config": {
+        "displayType": "stacked_bar",
+        "sourceName": "Logs",
+        "fillNulls": true,
+        "groupBy": "SeverityText",
+        "select": [
+          {
+            "aggFn": "count",
+            "alias": "logs",
+            "where": "ServiceName = 'railway-telemetry'",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
+    }
+  ]
+}

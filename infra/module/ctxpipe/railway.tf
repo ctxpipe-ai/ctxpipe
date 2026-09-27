@@ -13,24 +13,35 @@ resource "railway_project" "this" {
 locals {
   database_url  = local.app_database_url
   falkordb_port = 6379
-  # Honors infra/main.tf (us-east4-eqdc4a next to Neon aws-us-east-1).
+  # Honor var.railway_regions (default us-east4-eqdc4a). A direct assign
+  # or `for` over the list fails plan in railway 0.6.1 (ServiceResourceRegionModel
+  # "unknown value"). Expanding the one element into an HCL object still
+  # reads the variable. See variable validation (exactly one region).
   # Do not hardcode Singapore — that leftover default left compute 200ms from Postgres.
   regions = [
-    for r in var.railway_regions : {
-      num_replicas = r.num_replicas
-      region       = r.region
+    {
+      num_replicas = var.railway_regions[0].num_replicas
+      region       = var.railway_regions[0].region
     }
   ]
-  amplitude_shared_env = length(var.amplitude_api_key) > 0 ? [
+  otel_shared_env = [
     {
-      name  = "AMPLITUDE_API_KEY"
-      value = var.amplitude_api_key
+      name  = "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
+      value = "${var.otel_otlp_endpoint}/v1/traces"
     },
     {
-      name  = "AMPLITUDE_REGION"
-      value = var.amplitude_region
+      name  = "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
+      value = "${var.otel_otlp_endpoint}/v1/logs"
     },
-  ] : []
+    {
+      name  = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
+      value = "${var.otel_otlp_endpoint}/v1/metrics"
+    },
+    {
+      name  = "OTEL_EXPORTER_OTLP_HEADERS"
+      value = var.otel_otlp_headers
+    },
+  ]
   # Omit when unset so parseEnv does not see empty strings for optional min(1) secrets.
   slack_shared_env = length(var.slack_client_id) > 0 && length(var.slack_client_secret) > 0 && length(var.slack_signing_secret) > 0 ? [
     {
@@ -64,6 +75,20 @@ locals {
       value = var.linear_webhook_secret
     }] : [],
   )
+  pagerduty_shared_env = concat(
+    length(var.pagerduty_client_id) > 0 ? [{
+      name  = "PAGERDUTY_CLIENT_ID"
+      value = var.pagerduty_client_id
+    }] : [],
+    length(var.pagerduty_client_secret) > 0 ? [{
+      name  = "PAGERDUTY_CLIENT_SECRET"
+      value = var.pagerduty_client_secret
+    }] : [],
+    length(var.pagerduty_redirect_uri) > 0 ? [{
+      name  = "PAGERDUTY_REDIRECT_URI"
+      value = var.pagerduty_redirect_uri
+    }] : [],
+  )
   shared_backend_env_variables = concat([
     {
       name  = "AUTH_SECRET"
@@ -80,14 +105,6 @@ locals {
     {
       name  = "EMAIL_FROM_ADDRESS"
       value = "noreply@ctxpipe.ai"
-    },
-    {
-      name  = "ENABLE_LANGSMITH"
-      value = "TRUE"
-    },
-    {
-      name  = "LANGSMITH_API_KEY"
-      value = var.langsmith_api_key
     },
     {
       name  = "MODEL_PROVIDER_API_KEY",
@@ -153,19 +170,7 @@ locals {
       name  = "GITHUB_WEBHOOK_SECRET",
       value = var.github_webhook_secret
     },
-    {
-      name  = "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
-      value = "http://$${{otelcollector.RAILWAY_PRIVATE_DOMAIN}}:4318/v1/traces"
-    },
-    {
-      name  = "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
-      value = "http://$${{otelcollector.RAILWAY_PRIVATE_DOMAIN}}:4318/v1/logs"
-    },
-    {
-      name  = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
-      value = "http://$${{otelcollector.RAILWAY_PRIVATE_DOMAIN}}:4318/v1/metrics"
-    }
-  ], local.amplitude_shared_env, local.slack_shared_env, local.linear_shared_env)
+  ], local.otel_shared_env, local.slack_shared_env, local.linear_shared_env, local.pagerduty_shared_env)
 }
 
 resource "railway_service" "ui" {
@@ -178,7 +183,9 @@ resource "railway_service" "ui" {
     prevent_destroy = true
     # SHA rolls are environment-scoped GraphQL in CI. Terraform Update()
     # calls serviceConnect + redeployAllInstances and would overwrite pr-* envs.
-    ignore_changes  = [source_image]
+    # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
+    # Region writes go through scripts/railway-set-regions.sh.
+    ignore_changes = [source_image, regions]
   }
 }
 
@@ -209,38 +216,7 @@ resource "railway_variable_collection" "ui_env" {
       name  = "AUTH_BASE_URL"
       value = "http://$${{backend.RAILWAY_PRIVATE_DOMAIN}}:$${{backend.PORT}}"
     }
-  ], local.amplitude_shared_env)
-}
-
-resource "railway_service" "otelcollector" {
-  project_id   = railway_project.this.id
-  name         = "otelcollector"
-  regions      = local.regions
-  source_image = "${var.otel_collector_source_image}:${var.image_tag}"
-  lifecycle {
-    prevent_destroy = true
-    ignore_changes  = [source_image]
-  }
-}
-
-resource "railway_variable_collection" "otelcollector_env" {
-  environment_id = railway_project.this.default_environment.id
-  service_id     = railway_service.otelcollector.id
-
-  variables = [
-    {
-      name  = "BETTER_STACK_TOKEN"
-      value = var.better_stack_token
-    },
-    {
-      name  = "LANGFUSE_AUTH_STRING"
-      value = var.langfuse_auth_string
-    },
-    {
-      name  = "LANGFUSE_OTLP_ENDPOINT"
-      value = var.langfuse_otlp_endpoint
-    },
-  ]
+  ], local.otel_shared_env)
 }
 
 resource "railway_service" "backend" {
@@ -248,10 +224,12 @@ resource "railway_service" "backend" {
   name         = "backend"
   regions      = local.regions
   source_image = "${var.backend_source_image}:${var.image_tag}"
-  depends_on   = [railway_service.falkordb, railway_service.ui, railway_service.code_search, railway_service.otelcollector]
+  depends_on   = [railway_service.falkordb, railway_service.ui, railway_service.code_search]
   lifecycle {
     prevent_destroy = true
-    ignore_changes  = [source_image]
+    # SHA rolls are environment-scoped GraphQL in CI.
+    # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
+    ignore_changes = [source_image, regions]
   }
 }
 
@@ -299,7 +277,9 @@ resource "railway_service" "code_search" {
   }
   lifecycle {
     prevent_destroy = true
-    ignore_changes  = [source_image]
+    # SHA rolls are environment-scoped GraphQL in CI.
+    # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
+    ignore_changes = [source_image, regions]
   }
 }
 
@@ -308,7 +288,7 @@ resource "railway_variable_collection" "code_search_env" {
   service_id     = railway_service.code_search.id
   depends_on     = [terraform_data.app_database_url]
 
-  variables = [
+  variables = concat([
     {
       name  = "AUTH_SECRET"
       value = var.better_auth_secret
@@ -332,8 +312,20 @@ resource "railway_variable_collection" "code_search_env" {
     {
       name  = "ZOEKT_WEBSERVER_URL",
       value = "http://localhost:6070"
+    },
+    {
+      name  = "OTEL_SERVICE_NAME",
+      value = "codesearch"
+    },
+    {
+      name  = "CODESEARCH_INDEXER_CONCURRENCY"
+      value = var.codesearch_indexer_concurrency
+    },
+    {
+      name  = "CODESEARCH_INDEX_PIPELINE_CONCURRENCY"
+      value = var.codesearch_index_pipeline_concurrency
     }
-  ]
+  ], local.otel_shared_env)
 }
 
 resource "railway_service" "open_workflow" {
@@ -341,10 +333,12 @@ resource "railway_service" "open_workflow" {
   name         = "openworkflow"
   regions      = local.regions
   source_image = "${var.worker_source_image}:${var.image_tag}"
-  depends_on   = [railway_service.falkordb, railway_service.backend, railway_service.otelcollector]
+  depends_on   = [railway_service.falkordb, railway_service.backend]
   lifecycle {
     prevent_destroy = true
-    ignore_changes  = [source_image]
+    # SHA rolls are environment-scoped GraphQL in CI.
+    # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
+    ignore_changes = [source_image, regions]
   }
 }
 
@@ -366,6 +360,14 @@ resource "railway_variable_collection" "open_workflow_env" {
       name  = "OTEL_SERVICE_NAME"
       value = "openworkflow"
     },
+    {
+      name  = "OPENWORKFLOW_CONCURRENCY"
+      value = var.openworkflow_concurrency
+    },
+    {
+      name  = "CODESEARCH_INDEXER_CONCURRENCY"
+      value = var.codesearch_indexer_concurrency
+    },
   ])
 }
 
@@ -380,6 +382,8 @@ resource "railway_service" "falkordb" {
   }
   lifecycle {
     prevent_destroy = true
+    # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
+    ignore_changes = [regions]
   }
 }
 

@@ -5,7 +5,8 @@ import { registerMcpRoutes } from "./mcp.js"
 
 const {
   withCookieAuthMock,
-  withBearerAuthMock,
+  withOrgApiKeyAuthMock,
+  withMcpBearerAuthMock,
   requireAuthMock,
   withNetworkOrgContextMock,
   registerMcpToolsMock,
@@ -14,7 +15,8 @@ const {
   loggerErrorMock,
 } = vi.hoisted(() => ({
   withCookieAuthMock: vi.fn(),
-  withBearerAuthMock: vi.fn(),
+  withOrgApiKeyAuthMock: vi.fn(),
+  withMcpBearerAuthMock: vi.fn(),
   requireAuthMock: vi.fn(),
   withNetworkOrgContextMock: vi.fn(),
   registerMcpToolsMock: vi.fn(),
@@ -25,7 +27,8 @@ const {
 
 vi.mock("../auth/withAuth.js", () => ({
   withCookieAuth: withCookieAuthMock,
-  withBearerAuth: withBearerAuthMock,
+  withOrgApiKeyAuth: withOrgApiKeyAuthMock,
+  withMcpBearerAuth: withMcpBearerAuthMock,
   requireAuth: requireAuthMock,
   withNetworkOrgContext: withNetworkOrgContextMock,
 }))
@@ -51,6 +54,8 @@ function createTestApp(): Hono<AppEnv> {
     } as AppEnv["Variables"]["env"])
     c.set("user", null)
     c.set("session", null)
+    c.set("oauthOrganizationId", null)
+    c.set("orgApiKey", null)
     c.set("orgSlug", null)
     c.set("orgId", null)
     await next()
@@ -63,7 +68,8 @@ describe("MCP route auth and org validation", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     withCookieAuthMock.mockImplementation(async (_c, next) => next())
-    withBearerAuthMock.mockImplementation(async (_c, next) => next())
+    withOrgApiKeyAuthMock.mockImplementation(async (_c, next) => next())
+    withMcpBearerAuthMock.mockImplementation(async (_c, next) => next())
     requireAuthMock.mockImplementation(async (_c, next) => next())
     withNetworkOrgContextMock.mockImplementation(async (_c, next) => next())
   })
@@ -96,12 +102,37 @@ describe("MCP route auth and org validation", () => {
     expect(registerMcpToolsMock).not.toHaveBeenCalled()
   })
 
-  it("returns 400 JSON-RPC error for missing orgSlug query", async () => {
+  it("reaches MCP handler when orgSlug is omitted", async () => {
     const app = createTestApp()
-    const response = await app.request("/mcp", { method: "POST" })
-    expect(response.status).toBe(400)
-    const body = await response.json()
-    expect(body).toMatchObject({ jsonrpc: "2.0", error: { code: -32600 } })
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "route-test", version: "1.0.0" },
+        },
+      }),
+    })
+
+    expect(registerMcpToolsMock).toHaveBeenCalledTimes(1)
+    expect(response.status).toBe(200)
+    expect(withMcpBearerAuthMock).toHaveBeenCalledTimes(1)
+    expect(withCookieAuthMock).toHaveBeenCalledTimes(1)
+    expect(withOrgApiKeyAuthMock).toHaveBeenCalledTimes(1)
+    expect(withMcpBearerAuthMock.mock.invocationCallOrder[0]).toBeLessThan(
+      withCookieAuthMock.mock.invocationCallOrder[0] ?? 0,
+    )
+    expect(withCookieAuthMock.mock.invocationCallOrder[0]).toBeLessThan(
+      withOrgApiKeyAuthMock.mock.invocationCallOrder[0] ?? 0,
+    )
   })
 
   it("rejects an untrusted browser origin before authentication", async () => {
@@ -113,6 +144,7 @@ describe("MCP route auth and org validation", () => {
 
     expect(response.status).toBe(403)
     expect(withCookieAuthMock).not.toHaveBeenCalled()
+    expect(withOrgApiKeyAuthMock).not.toHaveBeenCalled()
     expect(registerMcpToolsMock).not.toHaveBeenCalled()
   })
 

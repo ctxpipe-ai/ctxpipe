@@ -103,10 +103,14 @@ export function getBadgeWord(key: IndexingStepKey): BadgeWord {
 export function buildIndexingChecklist(
   scipLanguages: string[] = [],
 ): IndexingStepKey[] {
-  const scipKeys: IndexingStepKey[] = scipLanguages.map((l) => `scip:${l}`)
+  const scipKeys: IndexingStepKey[] = scipLanguages.map(
+    (language): IndexingStepKey => `scip:${language}`,
+  )
   const result: IndexingStepKey[] = []
   for (let i = 0; i < BASE_STEP_KEYS.length; i++) {
-    result.push(BASE_STEP_KEYS[i] as IndexingStepKey)
+    const key = BASE_STEP_KEYS[i]
+    if (!key) continue
+    result.push(key)
     if (i === SCIP_INSERT_AFTER) {
       result.push(...scipKeys)
     }

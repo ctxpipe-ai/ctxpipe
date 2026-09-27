@@ -11,11 +11,10 @@ import type { ContentfulStatusCode } from "hono/utils/http-status"
 import { getAuth } from "../auth/config.js"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
-import { initAmplitudeFromEnv } from "../observability/amplitude.js"
 import { httpWideEventMessage } from "../domain/workspaces/opencode-chat-stream.js"
-import { createEvlogDrain, log } from "../observability/logger.js"
+import { backendOtelMiddleware } from "../observability/http.js"
+import { log } from "../observability/logger.js"
 import { registerAuthRoutes } from "../routes/auth.js"
-import { registerLangsmithRoutes } from "../routes/langsmith.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
 import { registerMcpBrandAssetRoute } from "../routes/mcp-brand-asset.js"
 import { registerOpenapiRoutes } from "../routes/openapi.js"
@@ -23,6 +22,7 @@ import { registerStatusRoutes } from "../routes/status"
 import { registerUiRoutes } from "../routes/ui.js"
 import { registerV1Routes } from "../routes/v1/index.js"
 import { registerWebhookRoutes } from "../routes/webhooks.js"
+import { backfillGithubAppSecretsFromEnv } from "../scripts/backfillGithubConnectionSecrets.js"
 import type { AppEnv } from "./env.js"
 
 export type { AppEnv } from "./env.js"
@@ -46,9 +46,14 @@ export const betterAuthIdentifyExclude = [
 
 export function createApp() {
   const env = parseEnv(process.env as Record<string, string | undefined>)
-  // Amplitude: only initializes when `AMPLITUDE_API_KEY` is set (see `observability/amplitude.ts`).
-  initAmplitudeFromEnv(env)
   initDb(env.DATABASE_URL)
+  void backfillGithubAppSecretsFromEnv(env).catch((err: unknown) => {
+    log.error({
+      step: "backfill.github_connection_secrets",
+      message: err instanceof Error ? err.message : String(err),
+      error: err instanceof Error ? err.stack : String(err),
+    })
+  })
 
   /** Evlog only: enriches `c.var.log` wide events; does not set `c.var.user` or gate routes. */
   const identifyBetterAuthUser = createAuthMiddleware(
@@ -74,9 +79,9 @@ export function createApp() {
     }),
   )
   app.use(contextStorage())
+  app.use("*", backendOtelMiddleware())
   app.use(
     evlog({
-      drain: createEvlogDrain(),
       enrich: (ctx) => {
         const message = httpWideEventMessage({
           method: ctx.event.method ?? ctx.request?.method,
@@ -98,6 +103,10 @@ export function createApp() {
     c.set("env", env)
     c.set("user", null)
     c.set("session", null)
+    c.set("oauthOrganizationId", null)
+    c.set("oauthClientId", null)
+    c.set("orgApiKey", null)
+    c.set("personalApiKeyId", null)
     c.set("orgSlug", null)
     c.set("orgId", null)
     await next()
@@ -148,8 +157,6 @@ export function createApp() {
   registerOpenapiRoutes(app, v1 as OpenAPIHono<AppEnv>)
   // /.status
   registerStatusRoutes(app)
-  // /langsmith mounted only when ENABLE_LANGSMITH=true
-  registerLangsmithRoutes(app)
   // Public MCP brand asset (before /mcp; no auth)
   registerMcpBrandAssetRoute(app)
   // /mcp

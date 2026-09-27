@@ -49,6 +49,10 @@ Bedrock model specs use **dot** ids with optional **`reasoning.effort`** query p
 
 Do not commit secrets; pass any local overrides via `-c` only when needed.
 
+## Observability
+
+`otel` is unset; to export, add `otel` in [`bin/app.ts`](./bin/app.ts) — see the [aws-cdk README](../../packages/aws-cdk/README.md#observability).
+
 ## Manual e2e
 
 Deploy → smoke (`/health`) → destroy:

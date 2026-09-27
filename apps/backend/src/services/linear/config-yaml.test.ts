@@ -40,7 +40,42 @@ describe("Linear config YAML", () => {
       scopes: [project, team],
     })
     expect(rendered).toContain("githubLinks: references_only")
-    expect(rendered).toContain("attachmentBinaries: false")
+    expect(rendered).not.toContain("attachmentBinaries")
+  })
+
+  it("accepts legacy attachmentBinaries config and ignores it so capture stays enabled", () => {
+    const legacy = `
+version: 1
+source: linear
+workspace:
+  id: workspace-1
+  name: Acme
+scope:
+  teams:
+    - { id: team-1, name: Product, key: PRO, teamId: team-1, teamKey: PRO, url: https://linear.app/acme/team/PRO }
+  projects:
+    - { id: project-1, name: Launch, parentId: team-1, teamId: team-1, teamKey: PRO, url: https://linear.app/acme/project/launch }
+policy:
+  customerRequests: limited
+  githubLinks: references_only
+  attachmentBinaries: false
+`
+    expect(parseLinearConfigYamlContent(legacy)).toEqual({
+      workspaceId: "workspace-1",
+      workspaceName: "Acme",
+      customerRequests: "limited",
+      scopes: [project, team],
+    })
+    expect(
+      parseLinearConfigYamlContent(
+        legacy.replace("attachmentBinaries: false", "attachmentBinaries: true"),
+      ),
+    ).toEqual({
+      workspaceId: "workspace-1",
+      workspaceName: "Acme",
+      customerRequests: "limited",
+      scopes: [project, team],
+    })
   })
 
   it("compares semantic content rather than YAML formatting or ordering", () => {

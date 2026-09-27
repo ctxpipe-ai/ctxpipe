@@ -1,0 +1,13 @@
+{
+  "name": "Production errors",
+  "sourceName": "Logs",
+  "select": "Timestamp, ServiceName, SeverityText, Body, TraceId",
+  "where": "ResourceAttributes['deployment.environment'] IN ('production') AND SeverityText IN ('error')",
+  "whereLanguage": "sql",
+  "orderBy": "Timestamp DESC",
+  "filters": [
+    { "type": "sql", "condition": "ResourceAttributes['deployment.environment'] IN ('production')" },
+    { "type": "sql", "condition": "SeverityText IN ('error')" }
+  ],
+  "tags": ["ctxpipe", "production"]
+}

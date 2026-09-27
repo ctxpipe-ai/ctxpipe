@@ -12,22 +12,36 @@ const getNotionBindingWithRepoByConnectionIdMock = vi.hoisted(() => vi.fn())
 const loadNotionScopeFromRepoMock = vi.hoisted(() => vi.fn())
 const getPullRequestHeadBranchMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn())
+const claimNotionContentSyncRetryMock = vi.hoisted(() => vi.fn())
+const claimNotionConfigPrCreationMock = vi.hoisted(() => vi.fn())
+const releaseNotionConfigPrCreationClaimMock = vi.hoisted(() => vi.fn())
+const transitionNotionBindingStateMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../models/notion-connector.js", () => ({
+  claimNotionContentSyncRetry: claimNotionContentSyncRetryMock,
+  claimNotionConfigPrCreation: claimNotionConfigPrCreationMock,
+  createDraftNotionConnection: vi.fn(),
   deleteNotionConnectionById: vi.fn(),
   getNotionBindingWithRepoByConnectionId:
     getNotionBindingWithRepoByConnectionIdMock,
+  getNotionStoredConfigByConnectionId: vi.fn(),
   MULTIPLE_NOTION_CONNECTIONS_MESSAGE:
     "Multiple Notion connections for this organization; specify connectionId query parameter",
   patchNotionConnectorConfig: patchNotionConnectorConfigMock,
+  patchNotionOauthApp: vi.fn(),
+  releaseNotionConfigPrCreationClaim: releaseNotionConfigPrCreationClaimMock,
   resolveNotionConnectionForOrgDetailed:
     resolveNotionConnectionForOrgDetailedMock,
-  updateNotionConnectionTokens: vi.fn(),
+  refreshNotionConnectionTokensWithLock: vi.fn(),
+  transitionNotionBindingState: transitionNotionBindingStateMock,
   upsertNotionConnectionFromOAuth: vi.fn(),
 }))
 
 vi.mock("../../models/github-installation.js", () => ({
   orgHasAnyGithubConnection: vi.fn(),
+}))
+vi.mock("../../openworkflow/workflows/github-ensure-pr-mirror.js", () => ({
+  enqueueGithubPrMirrorEnsureForOrg: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock("../../openworkflow/client.js", () => ({
@@ -48,6 +62,7 @@ vi.mock("../../openworkflow/workflows/notion-sync-content.js", () => ({
 vi.mock("../../services/notion/client.js", () => ({
   exchangeNotionOAuthCode: vi.fn(),
   getNotionOAuthAuthorizeUrl: vi.fn(),
+  refreshNotionOAuthToken: vi.fn(),
   searchNotionResources: vi.fn(),
 }))
 
@@ -156,6 +171,61 @@ describe("Notion connector config", () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ configPrEnqueued: false })
     expect(runWorkflowMock).not.toHaveBeenCalled()
+  })
+
+  it("continues a rebound draft when the target config already matches", async () => {
+    getNotionBindingWithRepoByConnectionIdMock.mockResolvedValue({
+      ...binding,
+      setupPhase: "draft",
+    })
+    loadNotionScopeFromRepoMock.mockResolvedValue({ resources: [pageResource] })
+
+    const response = await patchResources()
+
+    expect(response.status).toBe(200)
+    expect(claimNotionConfigPrCreationMock).not.toHaveBeenCalled()
+    expect(transitionNotionBindingStateMock).toHaveBeenCalledWith({
+      connectionId: "con_1",
+      expectedSetupPhase: "draft",
+      expectedPendingConfigPrCreating: false,
+      repositoryId: "repo_1",
+      branch: "main",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      setupPhase: "initial_sync",
+    })
+    expect(runWorkflowMock).toHaveBeenCalledWith(
+      { name: "notion-sync-content" },
+      {
+        orgId: "org_1",
+        orgSlug: "demo",
+        connectionId: "con_1",
+      },
+    )
+    expect(await response.json()).toMatchObject({ configPrEnqueued: false })
+  })
+
+  it("marks a rebound draft failed when initial sync cannot be enqueued", async () => {
+    getNotionBindingWithRepoByConnectionIdMock.mockResolvedValue({
+      ...binding,
+      setupPhase: "draft",
+    })
+    loadNotionScopeFromRepoMock.mockResolvedValue({ resources: [pageResource] })
+    runWorkflowMock.mockRejectedValueOnce(new Error("worker unavailable"))
+
+    const response = await patchResources()
+
+    expect(response.status).toBe(503)
+    expect(transitionNotionBindingStateMock).toHaveBeenLastCalledWith({
+      connectionId: "con_1",
+      expectedSetupPhase: "initial_sync",
+      expectedPendingConfigPrCreating: false,
+      repositoryId: "repo_1",
+      branch: "main",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      setupPhase: "sync_failed",
+    })
   })
 
   it("does not enqueue a config PR for a binding-only change (scope stays git-native)", async () => {

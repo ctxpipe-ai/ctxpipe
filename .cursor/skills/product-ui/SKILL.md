@@ -11,7 +11,7 @@ Do not install marketing `frontend-design` on this surface. Do not invent a pale
 
 ## 1. Read identity
 
-Open [`apps/ui/DESIGN.md`](../../../apps/ui/DESIGN.md). Apply it on **new or touched** UI. Existing `rounded-none` overrides stay until a later pass — do not add more of them.
+Open [`apps/ui/DESIGN.md`](../../../apps/ui/DESIGN.md). Apply it on **new or touched** UI.
 
 **Done when:** you can name the radius (`rounded-md`), primary (white/light), accent (teal), title scale (`text-lg` / `text-xl` on product screens), and which brand signatures you will reuse (crosses, `.ctx-label`, status pill + text, quiet glow).
 

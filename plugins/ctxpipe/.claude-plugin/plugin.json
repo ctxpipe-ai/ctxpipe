@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "ctxpipe",
+  "displayName": "ctx|",
+  "version": "0.1.0",
+  "description": "Organization engineering context for Claude. Connects the hosted ctx| MCP so Claude can call ctx_advisor for standards, ADRs, architecture, and likely source areas before planning.",
+  "author": {
+    "name": "ctxpipe",
+    "url": "https://ctxpipe.ai"
+  },
+  "homepage": "https://docs.ctxpipe.ai/docs/mcp/claude-plugin",
+  "repository": "https://github.com/ctxpipe-ai/ctxpipe",
+  "license": "Elastic-2.0",
+  "keywords": ["mcp", "ctxpipe", "context", "advisor", "engineering"]
+}

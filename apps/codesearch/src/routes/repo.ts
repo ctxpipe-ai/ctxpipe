@@ -30,6 +30,11 @@ import {
   getLogger,
   withLogger,
 } from "../observability/logger.js"
+import {
+  repositoryNotFoundBody,
+  repositoryNotFoundResponse,
+  repositoryOrPathNotFoundResponse,
+} from "./errorBody.js"
 import { registerIndexPhaseRoutes } from "./indexPhases.js"
 
 const repoIdParam = z
@@ -119,7 +124,7 @@ export const indexRoute = createRoute({
       },
       description: "Index triggered",
     },
-    404: { description: "Repository not found" },
+    404: repositoryNotFoundResponse,
     403: { description: "Access denied" },
     503: { description: "Database not available" },
     500: { description: "Indexing failed" },
@@ -149,7 +154,7 @@ export const purgeRepositoryRoute = createRoute({
       description: "Disk and index data removed for the repository",
     },
     400: { description: "Invalid request" },
-    404: { description: "Repository not found" },
+    404: repositoryNotFoundResponse,
     403: { description: "Access denied" },
   },
 })
@@ -180,7 +185,7 @@ export const listFilesRoute = createRoute({
       },
       description: "List of file entries",
     },
-    404: { description: "Repository not found" },
+    404: repositoryOrPathNotFoundResponse,
     403: { description: "Access denied" },
   },
 })
@@ -255,7 +260,7 @@ export const globFilesRoute = createRoute({
       description: "Glob matches under the repository checkout",
     },
     400: { description: "Invalid path or glob pattern" },
-    404: { description: "Repository or path not found" },
+    404: repositoryOrPathNotFoundResponse,
     403: { description: "Access denied" },
     500: { description: "Glob scan failed" },
   },
@@ -293,7 +298,7 @@ export const resolveRefRoute = createRoute({
       },
       description: "Resolved branch and commit hash",
     },
-    404: { description: "Repository not found" },
+    404: repositoryNotFoundResponse,
     403: { description: "Access denied" },
     500: { description: "Ref resolution failed" },
   },
@@ -319,7 +324,7 @@ export const getFileRoute = createRoute({
       },
       description: "File content",
     },
-    404: { description: "Repository or file not found" },
+    404: repositoryOrPathNotFoundResponse,
     403: { description: "Access denied" },
   },
 })
@@ -353,7 +358,7 @@ export const filesQueryRoute = createRoute({
       },
       description: "Files by path",
     },
-    404: { description: "Repository not found" },
+    404: repositoryNotFoundResponse,
     403: { description: "Access denied" },
   },
 })
@@ -400,7 +405,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
         })
         return c.json({ ok: true as const }, 200)
       }
-      return c.json({ error: "Repository not found or access denied" }, 404)
+      return c.json(repositoryNotFoundBody, 404)
     })
   })
 
@@ -413,8 +418,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const body = c.req.valid("json")
     const checkoutKey = indexCheckoutFromAuth(auth, repoId, body.targetHash)
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
-    if (!repo)
-      return c.json({ error: "Repository not found or access denied" }, 404)
+    if (!repo) return c.json(repositoryNotFoundBody, 404)
     const indexable = await getIndexableRepository(
       db,
       repoId,
@@ -422,7 +426,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       checkoutKey,
     )
     if (!indexable) {
-      return c.json({ error: "Repository not found or access denied" }, 404)
+      return c.json(repositoryNotFoundBody, 404)
     }
 
     const startMs = Date.now()
@@ -514,7 +518,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const path = c.req.valid("query").path
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo) {
-      return c.json({ error: "Repository not found or access denied" }, 404)
+      return c.json(repositoryNotFoundBody, 404)
     }
     const basePath = repoCheckoutPath(
       repo.orgId,
@@ -584,7 +588,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const body = c.req.valid("json")
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo) {
-      return c.json({ error: "Repository not found or access denied" }, 404)
+      return c.json(repositoryNotFoundBody, 404)
     }
     const checkoutRoot = repoCheckoutPath(
       repo.orgId,
@@ -622,8 +626,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const { repoId } = c.req.valid("param")
     const { branch, githubToken } = c.req.valid("json")
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
-    if (!repo)
-      return c.json({ error: "Repository not found or access denied" }, 404)
+    if (!repo) return c.json(repositoryNotFoundBody, 404)
     try {
       const resolved = await resolveRepositoryRef({
         gitUrl: repo.gitUrl,
@@ -645,8 +648,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId, path: filePath } = c.req.valid("param")
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
-    if (!repo)
-      return c.json({ error: "Repository not found or access denied" }, 404)
+    if (!repo) return c.json(repositoryNotFoundBody, 404)
     const basePath = repoCheckoutPath(
       repo.orgId,
       repo.id,
@@ -682,8 +684,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const { repoId } = c.req.valid("param")
     const { paths } = c.req.valid("json")
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
-    if (!repo)
-      return c.json({ error: "Repository not found or access denied" }, 404)
+    if (!repo) return c.json(repositoryNotFoundBody, 404)
     const basePath = repoCheckoutPath(
       repo.orgId,
       repo.id,

@@ -1,4 +1,14 @@
-import { and, count, eq, isNull, lte, or, sql } from "drizzle-orm"
+import {
+  and,
+  count,
+  eq,
+  inArray,
+  isNull,
+  lte,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm"
 import { repositoryRevisionCheckoutKey } from "../../../../shared/workspace-checkout.js"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { type Db, getOrgDb, withOrgDbContext } from "../db/client.js"
@@ -97,6 +107,7 @@ const repositoryWithZoektSelect = {
   repositoryKey: repositories.repositoryKey,
   indexReady: repositories.indexReady,
   indexingStatus: repositories.indexingStatus,
+  indexingFollowUpPending: repositories.indexingFollowUpPending,
   indexingError: repositories.indexingError,
   indexingFailedAt: repositories.indexingFailedAt,
   indexingReason: repositories.indexingReason,
@@ -182,6 +193,15 @@ export const listRepositoriesForGithubConnection = async (
     const db = getOrgDb()
     return selectRepositoriesWithZoekt(db, orgId, githubConnectionId)
   })
+}
+
+export const listRepositoriesForGithubConnectionForOrg = async (
+  orgId: string,
+  githubConnectionId: string,
+): Promise<RepositoryWithSearch[]> => {
+  return withOrgDbContext(orgId, () =>
+    listRepositoriesForGithubConnection(githubConnectionId),
+  )
 }
 
 /** Repositories linked to this GitHub App connection (`github_connection_id`). */
@@ -388,6 +408,182 @@ export async function getGithubConnectionIdForRepository(input: {
   })
 }
 
+export async function markRepositoryIndexingPending(input: {
+  repositoryId: string
+  reason: string | null
+}) {
+  return orgSql(async () => {
+    const db = getOrgDb()
+    await db
+      .update(repositories)
+      .set({
+        indexReady: false,
+        indexingStatus: "queued",
+        indexingError: null,
+        indexingFailedAt: null,
+        indexingReason: input.reason,
+        updatedAt: new Date(),
+      })
+      .where(eq(repositories.id, input.repositoryId))
+  })
+}
+
+export async function markRepositoryIndexingFollowUpPending(input: {
+  repositoryId: string
+}): Promise<void> {
+  return orgSql(async () => {
+    await getOrgDb()
+      .update(repositories)
+      .set({ indexingFollowUpPending: true })
+      .where(eq(repositories.id, input.repositoryId))
+  })
+}
+
+export async function clearRepositoryIndexingFollowUpPending(input: {
+  repositoryId: string
+  ingestedHash: string
+}): Promise<boolean> {
+  return orgSql(async () => {
+    const cleared = await getOrgDb()
+      .update(repositories)
+      .set({ indexingFollowUpPending: false })
+      .where(
+        and(
+          eq(repositories.id, input.repositoryId),
+          eq(repositories.lastIngestedHash, input.ingestedHash),
+          inArray(repositories.indexingStatus, [
+            "ready",
+            "complete_with_issues",
+          ]),
+        ),
+      )
+      .returning({ id: repositories.id })
+    return cleared.length > 0
+  })
+}
+
+export async function hasPendingRepositoryIndexingFollowUp(input: {
+  repositoryId: string
+}): Promise<boolean> {
+  return orgSql(async () => {
+    const [row] = await getOrgDb()
+      .select({
+        indexingFollowUpPending: repositories.indexingFollowUpPending,
+      })
+      .from(repositories)
+      .where(eq(repositories.id, input.repositoryId))
+      .limit(1)
+    return row?.indexingFollowUpPending ?? false
+  })
+}
+
+export async function tryClaimRepositoryIndexingEnqueue(input: {
+  repositoryId: string
+  reason: string | null
+}): Promise<boolean> {
+  return orgSql(async () => {
+    const db = getOrgDb()
+    const queuedStep = resolveIndexingStep("queued")
+    if (!queuedStep) throw new Error("Failed to resolve queued indexing step")
+    for (;;) {
+      const claimed = await db
+        .update(repositories)
+        .set({
+          indexReady: false,
+          indexingStatus: "queued",
+          indexingFollowUpPending: false,
+          indexingError: null,
+          indexingFailedAt: null,
+          indexingReason: input.reason,
+          indexingStep: queuedStep.step,
+          indexingStepTotal: queuedStep.total,
+          indexingStepKey: queuedStep.key,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(repositories.id, input.repositoryId),
+            or(
+              isNull(repositories.indexingStatus),
+              notInArray(repositories.indexingStatus, [
+                "queued",
+                "running",
+                "unindexing",
+              ]),
+            ),
+          ),
+        )
+        .returning({ id: repositories.id })
+      if (claimed.length > 0) return true
+
+      const markedPending = await db
+        .update(repositories)
+        .set({ indexingFollowUpPending: true })
+        .where(
+          and(
+            eq(repositories.id, input.repositoryId),
+            inArray(repositories.indexingStatus, ["queued", "running"]),
+          ),
+        )
+        .returning({ id: repositories.id })
+      if (markedPending.length > 0) return false
+
+      const [repository] = await db
+        .select({
+          id: repositories.id,
+          indexingStatus: repositories.indexingStatus,
+        })
+        .from(repositories)
+        .where(eq(repositories.id, input.repositoryId))
+        .limit(1)
+      if (!repository) return false
+      if (repository.indexingStatus === "unindexing") return false
+    }
+  })
+}
+
+export async function repositoryIngestionBlockedByDeletion(input: {
+  orgId: string
+  repositoryId: string
+}): Promise<boolean> {
+  return withOrgDbContext(input.orgId, async (db) => {
+    const [row] = await db
+      .select({ indexingStatus: repositories.indexingStatus })
+      .from(repositories)
+      .where(
+        and(
+          eq(repositories.id, input.repositoryId),
+          eq(repositories.orgId, input.orgId),
+        ),
+      )
+      .limit(1)
+    if (!row) return true
+    return row.indexingStatus === "unindexing"
+  })
+}
+
+export async function markRepositoryIndexingFailed(input: {
+  repositoryId: string
+  error: unknown
+}) {
+  return orgSql(async () => {
+    const db = getOrgDb()
+    await db
+      .update(repositories)
+      .set({
+        indexReady: false,
+        indexingStatus: "failed",
+        indexingError: sanitizeIndexingError(input.error),
+        indexingFailedAt: new Date(),
+        indexingStep: null,
+        indexingStepTotal: null,
+        indexingStepKey: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(repositories.id, input.repositoryId))
+  })
+}
+
 /** Marks a repository as mid-unindex for UI before background cleanup runs. */
 export async function markRepositoryUnindexing(input: {
   repositoryId: string
@@ -486,6 +682,38 @@ export async function markRepositoryIndexingIssues(input: {
         indexingStep: null,
         indexingStepTotal: null,
         indexingStepKey: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(repositories.id, input.repositoryId),
+          repositoryIngestionWriteCondition(input.requestId),
+        ),
+      )
+  })
+}
+
+export async function markRepositoryIndexingReadyWithIssues(input: {
+  repositoryId: string
+  requestId?: string | null
+  targetHash: string
+  error: unknown
+}) {
+  return orgSql(async () => {
+    const db = getOrgDb()
+    await db
+      .update(repositories)
+      .set({
+        indexReady: true,
+        indexingStatus: "complete_with_issues",
+        indexingError: sanitizeIndexingError(input.error),
+        indexingFailedAt: null,
+        indexingReason: null,
+        indexingStep: null,
+        indexingStepTotal: null,
+        indexingStepKey: null,
+        lastIngestedHash: input.targetHash,
+        lastIngestedAt: new Date(),
         updatedAt: new Date(),
       })
       .where(

@@ -384,6 +384,18 @@ export async function listGithubConnectionsForOrg(
   })
 }
 
+export async function listGithubConnections(): Promise<
+  GitHubInstallationShape[]
+> {
+  const db = getSystemDb()
+  const rows = await db
+    .select()
+    .from(connections)
+    .where(eq(connections.type, CONNECTION_TYPE_GITHUB))
+    .orderBy(connections.createdAt)
+  return rows.map(githubConnectionToShape)
+}
+
 export async function listGithubConnectionRowsForOrg(
   orgId: string,
 ): Promise<ConnectionRow[]> {
@@ -605,6 +617,8 @@ export type GitHubRepoItem = {
   clone_url: string
   name: string
   default_branch: string
+  created_at: string | null
+  pushed_at: string | null
 }
 
 let cachedApp: App | undefined
@@ -993,6 +1007,8 @@ function mapRepoItems(
     clone_url?: string | null
     ssh_url?: string | null
     default_branch?: string | null
+    created_at?: string | null
+    pushed_at?: string | null
   }>,
 ): GitHubRepoItem[] {
   return batch.map((repo) => ({
@@ -1002,6 +1018,8 @@ function mapRepoItems(
     clone_url: repo.clone_url ?? repo.ssh_url ?? "",
     name: repo.name ?? "",
     default_branch: repo.default_branch ?? "main",
+    created_at: repo.created_at ?? null,
+    pushed_at: repo.pushed_at ?? null,
   }))
 }
 

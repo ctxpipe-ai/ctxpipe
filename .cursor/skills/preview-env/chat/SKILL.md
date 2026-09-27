@@ -38,4 +38,4 @@ Click another SideNav conversation (or Home) then return to this thread. `POST �
 - **FAIL** — stream error, sandbox never leaves “Setting up”, empty assistant, or turn 2 created a new conversation id.
 - **SKIP** — workspace missing, `hydrateStatus !== "ready"`, or write/chat blocked with an explicit prepare error (record the chip/JSON).
 
-On FAIL, attach Railway logs: `opencode.chatStream` / `tanstack-workspace-chat` ([analyze-logs](../../analyze-logs/SKILL.md)). A conversation POST **200** only means the stream opened.
+On FAIL, attach Railway logs: `opencode.chatStream` / `tanstack-workspace-chat` ([observability](../../observability/SKILL.md)). A conversation POST **200** only means the stream opened.

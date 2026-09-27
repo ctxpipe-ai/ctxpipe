@@ -200,7 +200,13 @@ describe("memory harness e2e (Layer A)", () => {
       expect(lastLine).toBeTruthy()
       if (!lastLine) throw new Error("expected finalize stdout line")
       const stopPayload = JSON.parse(lastLine) as Record<string, unknown>
-      expect(Object.keys(stopPayload).length).toBeGreaterThan(0)
+      expect(stopPayload).toEqual(
+        expect.objectContaining({
+          decision: "block",
+          reason: expect.stringMatching(/Memory candidates/),
+        }),
+      )
+      expect(stopPayload.hookSpecificOutput).toBeUndefined()
 
       const afterFinalize = readCandidates(cwd)
       expect(afterFinalize.length).toBeGreaterThan(cursorCount)

@@ -1,4 +1,4 @@
-import type { Hono } from "hono"
+import type { Context, Hono } from "hono"
 import { proxy } from "hono/proxy"
 import type { AppEnv } from "../app/env.js"
 import type { Env } from "../config/env.js"
@@ -21,8 +21,11 @@ export async function proxyUiRequest(
     `${sourceUrl.pathname}${sourceUrl.search}`,
     uiProxyUrl,
   )
-  const headers = new Headers(request.headers)
-  headers.set("Host", upstreamUrl.host)
+  const headers = uiProxyUpstreamHeaders(
+    sourceUrl,
+    request.headers,
+    upstreamUrl.host,
+  )
   const timeout = AbortSignal.timeout(timeoutMs)
   const signal =
     typeof AbortSignal.any === "function"
@@ -68,10 +71,39 @@ type UiProxyServerSocket = {
 
 const VITE_WS_PROTOCOLS = new Set(["vite-hmr", "vite-ping"])
 
+/**
+ * The UI service is private. Tell it the host the browser used so `/.otel`
+ * can check Origin against the public site, not the internal UI host.
+ * `X-Forwarded-Host` is taken from this request's URL, not from a client
+ * supplied value.
+ */
+export function uiProxyUpstreamHeaders(
+  sourceUrl: URL,
+  incoming: Headers,
+  upstreamHost: string,
+): Headers {
+  const headers = new Headers(incoming)
+  const forwardedProtoHeader = headers
+    .get("x-forwarded-proto")
+    ?.split(",")[0]
+    ?.trim()
+    .toLowerCase()
+  const proto =
+    sourceUrl.protocol === "https:" || forwardedProtoHeader === "https"
+      ? "https"
+      : "http"
+  headers.set("x-forwarded-host", sourceUrl.host)
+  headers.set("x-forwarded-proto", proto)
+  headers.set("host", upstreamHost)
+  return headers
+}
+
 export function registerUiRoutes(app: Hono<AppEnv>, env: Env) {
-  app.all("*", async (c) => {
-    return proxyUiRequest(c.req.raw, env.UI_PROXY_URL)
-  })
+  const handler = (c: Context<AppEnv>) =>
+    proxyUiRequest(c.req.raw, env.UI_PROXY_URL)
+  // Registered before the catch-all so Hono reports `/.otel/v1/:signal`.
+  app.all("/.otel/v1/:signal", handler)
+  app.all("*", handler)
   return app
 }
 

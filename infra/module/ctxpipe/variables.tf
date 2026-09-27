@@ -23,7 +23,16 @@ variable "railway_regions" {
     region       = string
     num_replicas = number
   }))
-  description = "Railway service regions."
+  description = "Railway service regions. Default is US East (Virginia), next to Neon aws-us-east-1."
+  default = [{
+    region       = "us-east4-eqdc4a"
+    num_replicas = 1
+  }]
+
+  validation {
+    condition     = length(var.railway_regions) == 1
+    error_message = "railway_regions must be a single region. Railway provider 0.6.1 cannot convert a variable-length regions list into ServiceResourceRegionModel."
+  }
 }
 
 variable "backend_source_image" {
@@ -50,12 +59,6 @@ variable "codesearch_source_image" {
   default     = "ghcr.io/ctxpipe-ai/codesearch"
 }
 
-variable "otel_collector_source_image" {
-  type        = string
-  description = "Container image repository for the OpenTelemetry Collector service."
-  default     = "ghcr.io/ctxpipe-ai/otel-collector"
-}
-
 variable "image_tag" {
   type        = string
   description = "Container image tag used for deployable services."
@@ -65,12 +68,6 @@ variable "image_tag" {
 variable "better_auth_secret" {
   type        = string
   description = "value for AUTH_SECRET used in better-auth"
-  sensitive   = true
-}
-
-variable "langsmith_api_key" {
-  type        = string
-  description = "value for LANGSMITH_API_KEY"
   sensitive   = true
 }
 
@@ -182,6 +179,26 @@ variable "notion_webhook_secret" {
   sensitive   = true
 }
 
+variable "pagerduty_client_id" {
+  type        = string
+  description = "value for PAGERDUTY_CLIENT_ID; leave empty to disable the PagerDuty connector"
+  default     = ""
+  sensitive   = true
+}
+
+variable "pagerduty_client_secret" {
+  type        = string
+  description = "value for PAGERDUTY_CLIENT_SECRET"
+  default     = ""
+  sensitive   = true
+}
+
+variable "pagerduty_redirect_uri" {
+  type        = string
+  description = "optional PAGERDUTY_REDIRECT_URI override"
+  default     = ""
+}
+
 variable "github_webhook_secret" {
   type        = string
   description = "value for GITHUB_WEBHOOK_SECRET"
@@ -194,35 +211,21 @@ variable "falkordb_password" {
   sensitive   = true
 }
 
-variable "better_stack_token" {
+variable "otel_otlp_endpoint" {
   type        = string
-  description = "Better Stack OpenTelemetry source token (BETTER_STACK_TOKEN on the collector)."
-  sensitive   = true
+  description = "Public ClickStack collector OTLP HTTP base (no /v1 suffix)."
+  default     = "https://telemetry.ctxpipe.ai"
 }
 
-variable "langfuse_auth_string" {
+variable "otel_otlp_headers" {
   type        = string
-  description = "Base64 basic auth for LangFuse OTLP (LANGFUSE_AUTH_STRING)."
+  description = "OTEL_EXPORTER_OTLP_HEADERS for the public collector (authorization=<HYPERDX_API_KEY>). Same value as OBSERVABILITY_OTLP_HEADERS."
   sensitive   = true
-}
 
-variable "langfuse_otlp_endpoint" {
-  type        = string
-  description = "LangFuse OTLP HTTP endpoint URL (LANGFUSE_OTLP_ENDPOINT)."
-  sensitive   = true
-}
-
-variable "amplitude_api_key" {
-  type        = string
-  description = "Amplitude project API key (browser + MCP); leave empty to disable."
-  default     = ""
-  sensitive   = true
-}
-
-variable "amplitude_region" {
-  type        = string
-  description = "Amplitude data region: us or eu."
-  default     = "us"
+  validation {
+    condition     = length(trimspace(var.otel_otlp_headers)) > 0
+    error_message = "otel_otlp_headers is required so production OTLP includes the collector authorization header."
+  }
 }
 
 variable "neon_project" {
@@ -253,4 +256,22 @@ variable "neon_project" {
     }))
   })
   description = "Neon project configuration."
+}
+
+variable "openworkflow_concurrency" {
+  type        = string
+  description = "In-flight OpenWorkflow runs per worker process. Production default is the medium capacity pair (see ADR-027). Changing this requires redeploying the worker."
+  default     = "10"
+}
+
+variable "codesearch_indexer_concurrency" {
+  type        = string
+  description = "Max concurrent Zoekt/SCIP child processes on the single codesearch replica. Production default is the medium pair. Changing this requires redeploying codesearch (and the worker, which uses the same value to batch SCIP HTTP)."
+  default     = "2"
+}
+
+variable "codesearch_index_pipeline_concurrency" {
+  type        = string
+  description = "Max distinct repos with in-flight OpenWorkflow index-phase HTTP (clone included) on codesearch. Production default is the medium pair. Changing this requires redeploying codesearch."
+  default     = "2"
 }

@@ -171,3 +171,123 @@ export const githubInstallationNoneHandler = http.get(
     new URL(request.url).pathname.includes("/api/v1/github/installation"),
   () => HttpResponse.json(null),
 )
+
+export function organizationFullHandler(organization: {
+  id: string
+  name: string
+  slug: string
+}) {
+  return http.get(`${authBase}/organization/get-full-organization`, () =>
+    HttpResponse.json({
+      ...organization,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      metadata: null,
+      logo: null,
+      members: [
+        {
+          id: "mem_storybook",
+          userId: "user_storybook",
+          organizationId: organization.id,
+          role: "admin",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    }),
+  )
+}
+
+export const organizationFullWithOrgHandler = organizationFullHandler({
+  id: "org_storybook",
+  name: "Storybook Org",
+  slug: "acme",
+})
+
+type StoryOrgApiKey = {
+  id: string
+  name: string
+  start: string
+  expiresAt: string | null
+}
+
+async function requireOrganizationApiKeyBody(
+  request: Request,
+): Promise<Response | null> {
+  const body = (await request.clone().json()) as { configId?: string }
+  if (body.configId === "organization") return null
+  return HttpResponse.json(
+    { message: "Expected configId=organization for org API keys" },
+    { status: 400 },
+  )
+}
+
+export function orgApiKeysListHandler(apiKeys: StoryOrgApiKey[]) {
+  return http.get(`${authBase}/api-key/list`, ({ request }) => {
+    const url = new URL(request.url)
+    if (url.searchParams.get("configId") !== "organization") {
+      return HttpResponse.json(
+        { message: "Expected configId=organization for org API keys" },
+        { status: 400 },
+      )
+    }
+    return HttpResponse.json({ apiKeys, total: apiKeys.length })
+  })
+}
+
+export const orgApiKeysListEmptyHandler = orgApiKeysListHandler([])
+
+export const orgApiKeysListPopulatedHandler = orgApiKeysListHandler([
+  {
+    id: "key_ci",
+    name: "ci-mcp",
+    start: "org_ci1",
+    expiresAt: "2026-10-14T00:00:00.000Z",
+  },
+])
+
+export const orgApiKeysListForbiddenHandler = http.get(
+  `${authBase}/api-key/list`,
+  () =>
+    HttpResponse.json(
+      { message: "INSUFFICIENT_API_KEY_PERMISSIONS" },
+      { status: 403 },
+    ),
+)
+
+export function orgApiKeysCreateHandler() {
+  return http.post(`${authBase}/api-key/create`, async ({ request }) => {
+    const rejected = await requireOrganizationApiKeyBody(request)
+    if (rejected) return rejected
+    const body = (await request.json()) as {
+      name?: string
+      configId?: string
+      organizationId?: string
+    }
+    return HttpResponse.json({
+      id: "key_created",
+      name: body.name ?? "unnamed",
+      start: "org_new",
+      key: "org_plaintext_shown_once",
+      configId: body.configId,
+      referenceId: body.organizationId ?? "org_storybook",
+      expiresAt: "2026-10-14T00:00:00.000Z",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+  })
+}
+
+export function orgApiKeysUpdateHandler() {
+  return http.post(`${authBase}/api-key/update`, async ({ request }) => {
+    const rejected = await requireOrganizationApiKeyBody(request)
+    if (rejected) return rejected
+    return HttpResponse.json({ success: true })
+  })
+}
+
+export function orgApiKeysDeleteHandler() {
+  return http.post(`${authBase}/api-key/delete`, async ({ request }) => {
+    const rejected = await requireOrganizationApiKeyBody(request)
+    if (rejected) return rejected
+    return HttpResponse.json({ success: true })
+  })
+}

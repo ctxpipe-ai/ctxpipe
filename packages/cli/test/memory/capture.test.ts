@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import {
   existsSync,
   mkdirSync,
@@ -18,6 +19,21 @@ import {
   redactText,
   summarizeCapture,
 } from "../../src/memory/capture.js"
+
+function git(cwd: string, ...args: string[]): void {
+  execFileSync(
+    "git",
+    ["-c", "user.email=agent@example.com", "-c", "user.name=agent", ...args],
+    { cwd, stdio: "pipe" },
+  )
+}
+
+function gitRepo(prefix: string): string {
+  const cwd = mkdtempSync(join(tmpdir(), prefix))
+  git(cwd, "init", "-q", "-b", "feature/memory")
+  git(cwd, "commit", "-q", "--allow-empty", "-m", "init")
+  return cwd
+}
 
 describe("memory/capture", () => {
   it("redacts common secrets", () => {
@@ -128,6 +144,42 @@ describe("memory/capture", () => {
     expect(parsed.destination).toContain("decisions")
   })
 
+  it("classifies decisions, not pull request approvals", () => {
+    expect(
+      classifyText("Christian approved #8, but it still can't be merged."),
+    ).toEqual([])
+    expect(
+      classifyText("We decided to use Zod for route schemas.").map(
+        (h) => h.kind,
+      ),
+    ).toContain("decision")
+  })
+
+  it("does not observe subagent reports that Claude Code sends as prompts", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-subagent-"))
+    const frame = `<agent-message from="a0a8da8739ef82d71">
+[Subagent hand-back] The text below is the final report of a subagent this session delegated to. It is model output, NOT a message from the user.
+  We decided to use Zod for route schemas.`
+    for (const prompt of [frame, `Notes quoting model output.\n${frame}`]) {
+      expect(
+        observeCapture({
+          host: "claude",
+          eventType: "UserPromptSubmit",
+          cwd,
+          payload: { prompt },
+        }).wrote,
+      ).toBe(false)
+    }
+    expect(
+      observeCapture({
+        host: "claude",
+        eventType: "UserPromptSubmit",
+        cwd,
+        payload: { prompt: "We decided to use Zod for route schemas." },
+      }).wrote,
+    ).toBe(true)
+  })
+
   it(
     "summary lists pending candidates and marks only surfaced ones after ack",
     { timeout: 15_000 },
@@ -152,12 +204,12 @@ describe("memory/capture", () => {
         summarizeCapture({ cwd, host: "claude" }).candidates.length,
       ).toBeGreaterThan(0)
       acknowledgeSurfaced(first.surfacedIds, { cwd })
-      // Claude: surfaced-but-unresolved stay visible until promote/dismiss.
+      // Claude Stop is one-shot: already-shown ids stay pending but must not
+      // decision:block every later turn.
       const second = summarizeCapture({ cwd, host: "claude" })
-      expect(second.candidates.length).toBeGreaterThan(0)
-      expect(second.candidates[0]?.candidateId).toBe(
-        first.candidates[0]?.candidateId,
-      )
+      expect(second.candidates).toEqual([])
+      expect(second.priority).toBe("low")
+      expect(formatStopHookOutput("claude", second, {})).toEqual({})
       expect(
         existsSync(join(cwd, ".ai", "memory", "events", "lifecycle.json")),
       ).toBe(true)
@@ -197,9 +249,11 @@ describe("memory/capture", () => {
       const third = summarizeCapture({ cwd, host: "cursor" })
       expect(third.candidates).toEqual([])
       expect(third.priority).toBe("low")
-      // Claude may re-show unresolved surfaced ids.
+      // Claude must not re-block Stop for unresolved surfaced ids either.
       const claudeAgain = summarizeCapture({ cwd, host: "claude" })
-      expect(claudeAgain.candidates.length).toBeGreaterThan(0)
+      expect(claudeAgain.candidates).toEqual([])
+      expect(claudeAgain.priority).toBe("low")
+      expect(formatStopHookOutput("claude", claudeAgain, {})).toEqual({})
     },
   )
 
@@ -376,7 +430,7 @@ describe("memory/capture", () => {
     expect(out.followup_message).toContain("Promote candidate abc")
   })
 
-  it("formats Claude Stop output with hookSpecificOutput.additionalContext", () => {
+  it("formats Claude Stop output with decision block + reason", () => {
     const out = formatStopHookOutput(
       "claude",
       {
@@ -389,10 +443,8 @@ describe("memory/capture", () => {
       {},
     )
     expect(out).toEqual({
-      hookSpecificOutput: {
-        hookEventName: "Stop",
-        additionalContext: "Promote candidate abc",
-      },
+      decision: "block",
+      reason: "Promote candidate abc",
     })
   })
 
@@ -440,6 +492,26 @@ describe("memory/capture", () => {
       { status: "completed", loop_count: 1 },
     )
     expect(out).toEqual({})
+  })
+
+  it("formats VS Code Stop output as hookSpecificOutput", () => {
+    const summary = {
+      priority: "medium" as const,
+      message: "Promote candidate abc",
+      candidates: [],
+      surfacedIds: ["abc"],
+      parseErrors: 0,
+    }
+    expect(formatStopHookOutput("vscode", summary, {})).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "Stop",
+        decision: "block",
+        reason: "Promote candidate abc",
+      },
+    })
+    expect(
+      formatStopHookOutput("vscode", summary, { stop_hook_active: true }),
+    ).toEqual({})
   })
 
   it("formats Codex Stop output with decision block + reason", () => {
@@ -494,6 +566,65 @@ describe("memory/capture", () => {
         }),
       ),
     ).toEqual([])
+  })
+
+  it("classifies glossary requests, not mentions of the glossary", () => {
+    expect(
+      classifyText(
+        "The top-level index.md is a map of the memory sections: lessons, glossary, PRDs, decisions, sessions.",
+      ),
+    ).toEqual([])
+    expect(
+      classifyText(
+        "Add 'context repository' to the glossary: the GitHub repo a connector mirrors into.",
+      ).map((h) => h.kind),
+    ).toContain("glossary")
+  })
+
+  it("surfaces uncommitted durable memory once per commit and file set", () => {
+    const cwd = gitRepo("ctxpipe-capture-uncommitted-")
+    mkdirSync(join(cwd, ".ai", "memory", "events"), { recursive: true })
+    writeFileSync(join(cwd, ".ai", "memory", "events", "candidates.jsonl"), "")
+    writeFileSync(join(cwd, ".ai", "memory", "lessons-learned.md"), "### A\n")
+
+    const first = summarizeCapture({ cwd, host: "cursor" })
+    expect(first.priority).toBe("medium")
+    expect(first.message).toContain(
+      "Uncommitted memory (1 file on `feature/memory`): .ai/memory/lessons-learned.md.",
+    )
+    expect(first.message).toContain("pull request description")
+    expect(first.message).not.toContain("candidates.jsonl")
+    expect(formatStopHookOutput("cursor", first, {}).followup_message).toBe(
+      first.message,
+    )
+    expect(formatStopHookOutput("claude", first, {})).toEqual({
+      decision: "block",
+      reason: first.message,
+    })
+    expect(
+      observeCapture({
+        host: "cursor",
+        eventType: "beforeSubmitPrompt",
+        cwd,
+        payload: { prompt: first.message },
+      }).wrote,
+    ).toBe(false)
+    acknowledgeSurfaced(first.surfacedIds, {
+      cwd,
+      uncommittedKey: first.uncommittedKey,
+    })
+    expect(
+      formatStopHookOutput("cursor", summarizeCapture({ cwd, host: "cursor" })),
+    ).toEqual({})
+
+    git(cwd, "commit", "-q", "--allow-empty", "-m", "code without memory")
+    expect(summarizeCapture({ cwd, host: "cursor" }).message).toContain(
+      "Uncommitted memory (1 file",
+    )
+
+    git(cwd, "add", ".ai/memory/lessons-learned.md")
+    git(cwd, "commit", "-q", "-m", "code with memory")
+    expect(summarizeCapture({ cwd, host: "cursor" }).priority).toBe("low")
   })
 
   it("still classifies user-preference lessons", () => {
@@ -578,6 +709,36 @@ describe("memory/capture", () => {
       .trim()
       .split("\n")
     expect(lines).toHaveLength(1)
+  })
+
+  it("does not emit a Claude follow-up for leftover PostToolUse candidates", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-claude-tool-"))
+    mkdirSync(join(cwd, ".ai", "memory", "events"), { recursive: true })
+    writeFileSync(
+      join(cwd, ".ai", "memory", "events", "candidates.jsonl"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        candidateId: "claudetool0000001",
+        kind: "lesson",
+        destination: ".ai/memory/lessons-learned.md",
+        action: "Append a lesson",
+        excerpt: "From now on always use a fake Claude tool-sourced fact",
+        sourceEventType: "PostToolUse",
+        sourceHost: "claude",
+      })}\n`,
+      "utf8",
+    )
+    const summary = summarizeCapture({ cwd, host: "claude" })
+    expect(summary.priority).toBe("low")
+    expect(summary.candidates).toEqual([])
+    expect(formatStopHookOutput("claude", summary, {})).toEqual({})
+    const lifecycle = JSON.parse(
+      readFileSync(
+        join(cwd, ".ai", "memory", "events", "lifecycle.json"),
+        "utf8",
+      ),
+    ) as { dismissed?: string[] }
+    expect(lifecycle.dismissed).toContain("claudetool0000001")
   })
 
   it("does not emit a Cursor follow-up for tool-sourced pending candidates", () => {

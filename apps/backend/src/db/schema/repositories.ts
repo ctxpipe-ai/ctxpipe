@@ -41,6 +41,9 @@ export const repositories = pgTable.withRLS(
     repositoryKey: text("repository_key"),
     indexReady: boolean("index_ready").notNull().default(false),
     indexingStatus: repositoryIndexingStatusEnum("indexing_status"),
+    indexingFollowUpPending: boolean("indexing_follow_up_pending")
+      .notNull()
+      .default(false),
     indexingError: text("indexing_error"),
     indexingFailedAt: timestamp("indexing_failed_at", {
       withTimezone: true,

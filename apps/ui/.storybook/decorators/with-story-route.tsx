@@ -154,6 +154,16 @@ function createStoryRouter(
     path: "$conversationId",
     component: storyRouteStub,
   })
+  const orgOrganization = createRoute({
+    getParentRoute: () => orgRoute,
+    path: "organization",
+    component: () => <Outlet />,
+  })
+  const orgOrganizationView = createRoute({
+    getParentRoute: () => orgOrganization,
+    path: "$organizationView",
+    component: storyRouteStub,
+  })
   /** So `Navigate` from org pages (session/onboarding gates) never hits a missing route before MSW resolves. */
   const authSignInStub = createRoute({
     getParentRoute: () => rootRoute,
@@ -174,6 +184,7 @@ function createStoryRouter(
       orgWorkspacesNew,
       orgWs.addChildren([orgWsIndex, orgWsConversation]),
       orgRepositories.addChildren([orgRepositoriesIndex]),
+      orgOrganization.addChildren([orgOrganizationView]),
     ]),
   ])
   const workspaceSearch =

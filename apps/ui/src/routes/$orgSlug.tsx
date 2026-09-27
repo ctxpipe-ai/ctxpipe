@@ -1,4 +1,4 @@
-import type { QueryClient } from "@tanstack/react-query"
+import { type QueryClient, useSuspenseQuery } from "@tanstack/react-query"
 import {
   createFileRoute,
   Link,
@@ -23,12 +23,12 @@ export const Route = createFileRoute("/$orgSlug")({
       />
     </AppShell>
   ),
-  beforeLoad: ({ cause, params, context, location }) => {
+  loader: async ({ cause, params, context, location }) => {
     if (cause === "stay" || cause === "preload") {
       const cached = peekOrgGate(context.queryClient, params.orgSlug)
-      if (cached) return cached
+      if (cached) return
     }
-    return resolveOrgGate(context.queryClient, params.orgSlug, {
+    await resolveOrgGate(context.queryClient, params.orgSlug, {
       awaitWorkspaceList: !isWorkspaceConversationDocument(location.pathname),
     })
   },
@@ -73,7 +73,8 @@ async function resolveOrgGate(
 
 function OrgScopedLayout() {
   const { orgSlug } = Route.useParams()
-  const { orgAccessDenied } = Route.useRouteContext()
+  const { data: gate } = useSuspenseQuery(orgGateOptions(orgSlug))
+  const { orgAccessDenied } = gate
   const setupMatch = useMatch({
     from: "/$orgSlug/setup",
     shouldThrow: false,

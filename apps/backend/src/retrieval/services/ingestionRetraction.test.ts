@@ -264,6 +264,10 @@ describe("purgeRepositoryEvidencePg (set-based)", () => {
           },
         }),
       }),
+      execute: async () => {
+        ops.push("update-claim-batch")
+        return { rows: [] }
+      },
     }
 
     const db = {
@@ -282,6 +286,71 @@ describe("purgeRepositoryEvidencePg (set-based)", () => {
     expect(stats.claimsUpdated).toBe(1)
     expect(graphEffects.deletedClaimIds).toEqual(["clm_only"])
     expect(graphEffects.refreshedClaimIds).toEqual(["clm_multi"])
-    expect(ops.filter((o) => o === "update-claim")).toHaveLength(1)
+    expect(ops.filter((o) => o === "update-claim")).toHaveLength(0)
+    expect(ops.filter((o) => o === "update-claim-batch")).toHaveLength(1)
+  })
+
+  it("batches N multi-source survivors into one write, not N updates", async () => {
+    const ops: string[] = []
+    const now = new Date("2026-08-03T00:00:00.000Z")
+    const claimIds = ["clm_a", "clm_b", "clm_c"]
+    let selectPhase = 0
+    const tx = {
+      select: () => {
+        const phase = selectPhase++
+        return {
+          from: () => ({
+            innerJoin: () => ({
+              where: async () =>
+                claimIds.map((claimId, i) => ({
+                  id: `cev_${i}`,
+                  claimId,
+                })),
+            }),
+            where: async () => {
+              if (phase === 1) {
+                return claimIds.map((claimId) => ({
+                  claimId,
+                  sourceType: "git",
+                  extractionMethod: "llm",
+                  confidence: 0.7,
+                  observedAt: now,
+                }))
+              }
+              return []
+            },
+          }),
+        }
+      },
+      delete: () => ({
+        where: async () => ({ rowCount: 1 }),
+      }),
+      update: () => ({
+        set: () => ({
+          where: async () => {
+            ops.push("update-claim")
+          },
+        }),
+      }),
+      execute: async () => {
+        ops.push("update-claim-batch")
+        return { rows: [] }
+      },
+    }
+    const db = {
+      transaction: async (fn: (tx: unknown) => Promise<void>) => {
+        await fn(tx)
+      },
+    } as unknown as Db
+
+    const { stats } = await purgeRepositoryEvidencePg(db, {
+      orgId: "org_1",
+      repositoryId: "repo_1",
+    })
+
+    expect(stats.claimsUpdated).toBe(3)
+    expect(stats.claimsDeleted).toBe(0)
+    expect(ops.filter((o) => o === "update-claim")).toHaveLength(0)
+    expect(ops.filter((o) => o === "update-claim-batch")).toHaveLength(1)
   })
 })

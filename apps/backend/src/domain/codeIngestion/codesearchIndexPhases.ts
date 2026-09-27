@@ -2,6 +2,7 @@ import { z } from "zod"
 import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
+import { readCodesearchError } from "../../lib/codesearchError.js"
 import {
   CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY,
   isCodesearchTaskDeath,
@@ -10,6 +11,7 @@ import {
 } from "../../lib/memoryFitError.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
 import { log } from "../../observability/logger.js"
+import { RepositoryGoneError } from "./repositoryGone.js"
 
 const renameSchema = z.object({
   from: z.string(),
@@ -32,6 +34,20 @@ const detectLanguagesResponseSchema = z.object({
 })
 
 const okResponseSchema = z.object({ ok: z.literal(true) })
+const mergeScipResponseSchema = z.object({
+  ok: z.literal(true),
+  shardCount: z.number().int().nonnegative(),
+})
+
+export class CodesearchAdmissionBusyError extends Error {
+  override readonly name = "CodesearchAdmissionBusyError"
+}
+
+export function isCodesearchAdmissionBusyError(
+  error: unknown,
+): error is CodesearchAdmissionBusyError {
+  return error instanceof CodesearchAdmissionBusyError
+}
 
 export type CodesearchIndexAuth = {
   repositoryId: string
@@ -96,24 +112,22 @@ async function parseOrThrow<T>(
   schema: z.ZodType<T>,
   label: string,
 ): Promise<T> {
-  const bodyText = await res.text()
   if (!res.ok) {
-    let detail = bodyText.trim()
-    try {
-      const parsed = JSON.parse(bodyText) as { error?: unknown }
-      if (typeof parsed.error === "string" && parsed.error.length > 0) {
-        detail = parsed.error
-      }
-    } catch {
-      // non-JSON
+    const failure = await readCodesearchError(res)
+    if (failure.code === "repository_not_found") {
+      throw new RepositoryGoneError(failure.message || undefined)
     }
-    const combined = `${label} failed with status ${res.status}: ${detail}`
+    const combined = `${label} failed with status ${failure.status}: ${failure.message}`
+    if (failure.status === 429) {
+      throw new CodesearchAdmissionBusyError(combined)
+    }
     throw new Error(
-      isMemoryFitFailure(combined) || isMemoryFitFailure(detail)
+      isMemoryFitFailure(combined) || isMemoryFitFailure(failure.message)
         ? CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY
         : combined,
     )
   }
+  const bodyText = await res.text()
   let json: unknown
   try {
     json = JSON.parse(bodyText) as unknown
@@ -213,10 +227,18 @@ export async function codesearchIndexScipLang(
 export async function codesearchIndexMergeScip(
   auth: CodesearchIndexAuth,
   detectedLanguages: string[],
-): Promise<void> {
+  languagesToMerge?: string[],
+): Promise<{ shardCount: number }> {
   const res = await codesearchPhaseFetch("/index/merge-scip", auth, {
     method: "POST",
-    body: JSON.stringify({ detectedLanguages }),
+    body: JSON.stringify({
+      detectedLanguages,
+      ...(languagesToMerge !== undefined ? { languagesToMerge } : {}),
+    }),
   })
-  await parseOrThrow(res, okResponseSchema, "codesearch index merge-scip")
+  return parseOrThrow(
+    res,
+    mergeScipResponseSchema,
+    "codesearch index merge-scip",
+  )
 }

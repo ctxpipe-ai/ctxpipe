@@ -17,6 +17,7 @@ import {
 } from "../../models/slack-connector.js"
 import { getLogger } from "../../observability/logger.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
+import { enqueueGithubPrMirrorEnsureForOrg } from "../../openworkflow/workflows/github-ensure-pr-mirror.js"
 import {
   assertSlackOAuthConfigured,
   botTokenFromConnection,
@@ -678,6 +679,7 @@ export const slackConnectorRoutes = slackOAuthStartRoutes
           branch: body.branch,
         }),
       )
+      await enqueueGithubPrMirrorEnsureForOrg(orgId)
       if (target.repositoryIngestion) {
         await enqueueRepositoryIngestionWorkflow(
           {

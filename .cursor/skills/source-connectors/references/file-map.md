@@ -14,6 +14,7 @@ Anchor implementations: Linear and Notion on `main`; Slack on PR #267 (`slack-co
 | Model: list/get, bind, phase transitions, token refresh with lock | `apps/backend/src/models/<slug>-connector.ts` |
 | Org list metadata enum | `apps/backend/src/routes/v1/connectors-list.ts` |
 | Org-scoped routes | `apps/backend/src/routes/v1/connectors-<slug>.ts` — mount in `routes/v1/index.ts` under `requireOrgAdminOrOwner` |
+| Per-connection OAuth app (PagerDuty; Confluence/Atlassian) | PagerDuty: `POST /draft`, `GET`/`PUT /oauth-app` on `connectors-pagerduty.ts` (`oauthClientId` + encrypted `oauthClientSecretEnc`; resolve **row, then env**). Atlassian: `org-atlassian-oauth.ts`. Linear/Notion stay env-app. |
 | OAuth callback (non-org) | same file or `*-oauth-callback`; HTML popup relay |
 | Capabilities (oauth configured, webhook URL) | `apps/backend/src/routes/v1/capabilities.ts` |
 | Binding cleared when repo deleted | `apps/backend/src/domain/repositoryDeletion.ts` |
@@ -26,6 +27,7 @@ Partial unique indexes (e.g. one Slack `teamId` per org) belong on `connections`
 |---------|--------|
 | HTTP/SDK client, token refresh | `apps/backend/src/services/<slug>/client.ts` |
 | Markdown/CSV + attachment conversion | `apps/backend/src/services/<slug>/converter.ts` |
+| Shared asset safety, limits, names, binary files | `apps/backend/src/services/connectors/assets.ts` + [asset contract](assets.md) |
 | Git commit (GitHub today) | `commitFiles` in `apps/backend/src/services/github/installation-write-client.ts` |
 | Config yaml schema + load from repo | `config-yaml.ts`, `config-from-repo.ts` |
 | Scoped: full mirror + incremental | `sync.ts`, `incremental.ts` |
@@ -41,7 +43,7 @@ Partial unique indexes (e.g. one Slack `teamId` per org) belong on `connections`
 | Capture content | event/mention workflow that writes git then ingests |
 | Provider webhook | `apps/backend/src/routes/webhooks/<slug>/<slug>.ts` — register in `routes/webhooks.ts` |
 | GitHub config-merge | `routes/webhooks/github/github-<slug>-push.ts` wired from `github.ts` |
-| Enqueue | `runWorkflowWithWorkerWake`; after git write `runRepositoryIngestionWorkflow` |
+| Enqueue | `runWorkflowWithWorkerWake` (HTTP/webhooks via `enqueueRepositoryIngestionWorkflow`); after every successful sync, including a Git no-op replay, `runConnectorRepositoryIngestionWorkflow` (uses `claimAndRunRepositoryIngestionChild`) |
 
 Webhook: verify signature on the **raw** body; enqueue; ACK. Non-live phases skip. Do not parse-and-reserialise JSON before HMAC.
 
@@ -92,6 +94,7 @@ Self-host page must list: provider app creation, exact callback, exact Event URL
 
 - Converter fixtures for representative payloads (including an image or other attachment if the provider has them).
 - `commitFiles` with `encoding: "base64"` when binaries are written.
+- Shared and provider asset-lifecycle cases in [assets.md](assets.md); run `pnpm --filter @ctxpipe/backend test:connector-assets` and register the new slug in `vitest.connector-assets.config.ts`.
 - Webhook: valid HMAC on the raw body, reject tampered/stale, enqueue-then-ACK, skip when not live.
 - Workflow discovery test (`*-workflow-discovery.test.ts`).
 - `parseEnv` still succeeds when the new optional secrets are empty.

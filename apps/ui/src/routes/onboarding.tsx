@@ -126,7 +126,7 @@ export function OnboardingPageContent({
   const mcpSnippet = `{
   "mcpServers": {
     "ctxpipe": {
-      "type": "streamable-http",
+      "type": "http",
       "url": "https://app.ctxpipe.ai/mcp?orgSlug=${mcpSnippetOrgSlug}"
     }
   }

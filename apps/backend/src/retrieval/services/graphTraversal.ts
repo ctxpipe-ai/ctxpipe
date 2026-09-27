@@ -9,13 +9,14 @@ export type TraversalResult = {
 const MIN_DEPTH = 1
 const MAX_DEPTH = 5
 
-const EXTENSION_PREDICATES = [
-  "RELATES_TO",
-  "ABOUT",
+/** Reference, cause and ownership families (ADR-033); containment and change stay on the core walk. */
+export const EXTENSION_TRAVERSAL_PREDICATES = [
+  "REFERENCES",
   "MENTIONS",
-  "ASSOCIATED_WITH",
   "INFLUENCES",
-]
+  "SUPERSEDES",
+  "OWNS",
+] as const
 
 export type GraphTraversalOptions = {
   /** Max depth (default 3, clamped to 1-5) */
@@ -24,7 +25,7 @@ export type GraphTraversalOptions = {
   limit?: number
   /** When set, filter edges to those valid at this time */
   validAt?: Date
-  /** When true, only traverse edges with extension predicates (RELATES_TO, ABOUT, etc.) */
+  /** When true, only traverse reference / cause / ownership edges (REFERENCES, MENTIONS, INFLUENCES, SUPERSEDES, OWNS) */
   useExtensionLayer?: boolean
 }
 
@@ -49,7 +50,10 @@ export async function graphTraversal(
   options?: GraphTraversalOptions,
 ): Promise<TraversalResult> {
   const maxDepth = clampDepth(options?.maxDepth ?? 3)
-  const limit = Math.min(100, Math.max(1, Math.floor(Number(options?.limit ?? 50))))
+  const limit = Math.min(
+    100,
+    Math.max(1, Math.floor(Number(options?.limit ?? 50))),
+  )
   const validAt = options?.validAt
   const useExtensionLayer = options?.useExtensionLayer ?? false
 
@@ -57,14 +61,14 @@ export async function graphTraversal(
     const driver = getGraphClient()
     const validityFilter =
       validAt != null
-        ? ` AND ALL(rel IN relationships(path) WHERE
+        ? ` AND size([rel IN relationships(path) WHERE
              (rel.valid_from IS NULL AND rel.valid_to IS NULL)
              OR (rel.valid_from IS NULL AND rel.valid_to >= datetime($validAt))
              OR (rel.valid_to IS NULL AND rel.valid_from <= datetime($validAt))
-             OR (rel.valid_from <= datetime($validAt) AND rel.valid_to >= datetime($validAt)))`
+             OR (rel.valid_from <= datetime($validAt) AND rel.valid_to >= datetime($validAt))]) = size(relationships(path))`
         : ""
     const extensionFilter = useExtensionLayer
-      ? ` AND ALL(rel IN relationships(path) WHERE type(rel) IN ['${EXTENSION_PREDICATES.join("','")}'])`
+      ? ` AND size([rel IN relationships(path) WHERE type(rel) IN ['${EXTENSION_TRAVERSAL_PREDICATES.join("','")}']]) = size(relationships(path))`
       : ""
 
     const params: Record<string, unknown> = { startId, orgId, limit }
@@ -75,7 +79,7 @@ export async function graphTraversal(
     const { records } = await driver.executeQuery(
       `MATCH path = (start)-[*1..${maxDepth}]-(n)
        WHERE start.id = $startId AND start.orgId = $orgId
-         AND ALL(node IN nodes(path) WHERE node.orgId = $orgId)${validityFilter}${extensionFilter}
+         AND size([node IN nodes(path) WHERE node.orgId = $orgId]) = size(nodes(path))${validityFilter}${extensionFilter}
        WITH path
        LIMIT $limit
        WITH [node IN nodes(path) | node.id] AS nodeIds,

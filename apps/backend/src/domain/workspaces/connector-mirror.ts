@@ -1,6 +1,8 @@
 import { getConfluenceSyncTargetWithRepoByConnectionId } from "../../models/confluence-sync-target.js"
+import { getGithubPrMirrorBinding } from "../../models/github-pr-mirror.js"
 import { getLinearBindingWithRepoByConnectionId } from "../../models/linear-connector.js"
 import { getNotionBindingWithRepoByConnectionId } from "../../models/notion-connector.js"
+import { getPagerdutyBindingWithRepoByConnectionId } from "../../models/pagerduty-connector.js"
 import { getSlackBindingWithRepoByConnectionId } from "../../models/slack-connector.js"
 import {
   type GitPack,
@@ -19,7 +21,7 @@ export async function assertConnectorMirrorBinding(
   orgId: string,
   source: Pick<
     ConnectorMirrorSource,
-    "provider" | "connectionId" | "repositoryId"
+    "provider" | "connectionId" | "repositoryId" | "contentSyncGeneration"
   >,
   revision: WorkspaceRevision,
 ): Promise<void> {
@@ -28,6 +30,15 @@ export async function assertConnectorMirrorBinding(
     notion: getNotionBindingWithRepoByConnectionId,
     slack: getSlackBindingWithRepoByConnectionId,
     confluence: getConfluenceSyncTargetWithRepoByConnectionId,
+    pagerduty: getPagerdutyBindingWithRepoByConnectionId,
+    github: async (orgId: string, connectionId: string) => {
+      const binding = await getGithubPrMirrorBinding(orgId, connectionId)
+      if (!binding) return undefined
+      return {
+        ...binding,
+        repositoryGitUrl: binding.gitUrl,
+      }
+    },
   }
   const binding = await bindingReaders[source.provider](
     orgId,
@@ -44,7 +55,13 @@ export async function assertConnectorMirrorBinding(
       normalizeWorkspaceRepositoryUrl(revision.remote.url) ||
     ("setupPhase" in binding &&
       binding.setupPhase !== "live" &&
-      binding.setupPhase !== "initial_sync")
+      binding.setupPhase !== "initial_sync" &&
+      // ADR-031 writes github/config.yaml during draft (no config PR).
+      !(source.provider === "github" && binding.setupPhase === "draft")) ||
+    (source.provider === "github" &&
+      source.contentSyncGeneration != null &&
+      "contentSyncGeneration" in binding &&
+      binding.contentSyncGeneration !== source.contentSyncGeneration)
   )
     throw new Error("Connector mirror binding changed")
 }

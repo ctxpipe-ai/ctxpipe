@@ -21,14 +21,19 @@ import {
 import {
   getConfluenceSyncTargetWithRepoByConnectionId,
   getConfluenceSyncTargetWithRepoByOrgId,
+  markAwaitingConfigMergeSetup,
+  markConfluenceSyncTargetInitialSync,
+  updateConfluenceSyncTargetPrState,
 } from "../../models/confluence-sync-target.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
-import { enqueueConnectorConfigSync } from "../../openworkflow/enqueue-connector-config-sync.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import { confluenceSyncConfig } from "../../openworkflow/workflows/confluence-sync-config.js"
+import { confluenceSyncContent } from "../../openworkflow/workflows/confluence-sync-content.js"
 import { forgeProvision } from "../../openworkflow/workflows/forge-provision.js"
+import { loadConfluenceScopeFromRepo } from "../../services/confluence/config-from-repo.js"
+import { confluenceSpacesEqual } from "../../services/confluence/config-yaml.js"
 
 const ErrorResponseSchema = z
   .object({
@@ -1005,33 +1010,82 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       }
     }
 
+    const target = await getConfluenceSyncTargetWithRepoByConnectionId(
+      orgId,
+      installation.id,
+    )
+    const gitScope =
+      target?.githubConnectionId != null
+        ? await loadConfluenceScopeFromRepo({
+            orgId,
+            env: c.var.env,
+            repositoryName: target.repositoryName,
+            githubConnectionId: target.githubConnectionId,
+            branch: target.branch,
+          })
+        : undefined
+    const requestedSpaces = (
+      spacesPatch ??
+      saved.spaces.map((space) => ({
+        spaceKey: space.spaceKey,
+        selectedPageIds: space.selectedPageIds,
+      }))
+    ).map((space) => ({
+      spaceKey: space.spaceKey,
+      selectedPageIds: space.selectedPageIds ?? null,
+    }))
+    const spacesMatch = Boolean(
+      gitScope && confluenceSpacesEqual(requestedSpaces, gitScope.spaces),
+    )
+    const shouldStartInitialSync =
+      spacesMatch && target?.enabled === true && target.setupPhase === "draft"
     const shouldOpenConfigPr =
-      saved.configProposalEnabled &&
+      !spacesMatch &&
       (spacesPatch !== undefined ||
         (syncTarget !== undefined && saved.spaces.length > 0))
-    let configPrEnqueued = false
-    if (shouldOpenConfigPr) {
+    if (shouldStartInitialSync) {
+      await markConfluenceSyncTargetInitialSync({
+        connectionId: installation.id,
+      })
+      const orgSlug = c.get("orgSlug") ?? c.req.param("orgSlug")
+      if (!orgSlug) return c.json({ error: "Unauthorized" }, 401)
       try {
-        const admission = await enqueueConnectorConfigSync({
-          provider: "confluence",
+        await runWorkflowWithWorkerWake(confluenceSyncContent.spec, {
           orgId,
           orgSlug,
           connectionId: installation.id,
-          spaces: saved.spaces.map((space) => ({
-            spaceKey: space.spaceKey,
-            selectedPageIds: space.selectedPageIds as string[] | null,
-          })),
         })
-        if (!admission.accepted)
-          return c.json(
-            {
-              error:
-                "Confluence configuration changed or a proposal is already in progress",
-            },
-            409,
-          )
-        configPrEnqueued = admission.started
-      } catch (err) {
+      } catch (error) {
+        await updateConfluenceSyncTargetPrState({
+          connectionId: installation.id,
+          pendingConfigPullUrl: null,
+          pendingConfigPrCreating: false,
+          setupPhase: "draft",
+        })
+        getLogger().error(
+          error instanceof Error ? error : new Error(String(error)),
+          {
+            step: "confluence.initial_sync.enqueue",
+            connectionId: installation.id,
+          },
+        )
+        return c.json(
+          { error: "Failed to enqueue Confluence initial sync" },
+          503,
+        )
+      }
+    }
+    let configPrEnqueued = false
+    if (shouldOpenConfigPr) {
+      await markAwaitingConfigMergeSetup({ connectionId: installation.id })
+      try {
+        await runWorkflowWithWorkerWake(confluenceSyncConfig.spec, {
+          orgId,
+          orgSlug: c.get("orgSlug") ?? c.req.param("orgSlug"),
+          connectionId: installation.id,
+        })
+        configPrEnqueued = true
+      } catch (err: unknown) {
         getLogger().error(err instanceof Error ? err : new Error(String(err)), {
           step: "confluenceSyncConfig.enqueue",
           connectionId: installation.id,

@@ -3,15 +3,13 @@ import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { captureConnectorMirrorTarget } from "../../domain/workspaces/capture-connector-mirror.js"
-import {
-  getNotionBindingWithRepoByConnectionId,
-  getNotionConnectionByConnectionId,
-} from "../../models/notion-connector.js"
+import { getNotionBindingWithRepoByConnectionId } from "../../models/notion-connector.js"
 import {
   createLogger,
   getLogger,
   withLogger,
 } from "../../observability/logger.js"
+import { loadNotionConnection } from "../../services/notion/connection-load.js"
 import { parseNotionConfigYamlContent } from "../../services/notion/config-yaml.js"
 import { captureNotionIncrementalContent } from "../../services/notion/sync.js"
 import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
@@ -45,7 +43,7 @@ export const notionSyncEntity = defineWorkflow(
               input.connectionId,
             )
             const connection = await withOrgDbContext(input.orgId, () =>
-              getNotionConnectionByConnectionId(
+              loadNotionConnection(
                 input.orgId,
                 input.connectionId,
                 env,
@@ -98,7 +96,7 @@ export const notionSyncEntity = defineWorkflow(
           },
           async () => {
             const connection = await withOrgDbContext(input.orgId, () =>
-              getNotionConnectionByConnectionId(
+              loadNotionConnection(
                 input.orgId,
                 input.connectionId,
                 env,

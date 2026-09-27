@@ -26,18 +26,18 @@ import {
   standardRepoExplorerTools,
 } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
-import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
   ExtractedObject,
 } from "../schemas.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
 import {
   partialScanPathsForExtractors,
   partialScanPromptSuffix,
   repoPathMatchesPartialScan,
-  shouldSkipExtractorForPartialDeletesOnly,
+  shouldSkipCodeExtractorForPartialDiff,
 } from "./partialIngestionScope.js"
 
 /** Normalize pattern name to canonical form for deduplication */
@@ -158,7 +158,7 @@ export async function identifyPatterns(
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 
-  if (shouldSkipExtractorForPartialDeletesOnly(state)) {
+  if (shouldSkipCodeExtractorForPartialDiff(state)) {
     return {}
   }
 

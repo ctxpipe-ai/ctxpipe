@@ -6,27 +6,33 @@ import {
   CONNECTION_TYPE_GITHUB,
   CONNECTION_TYPE_LINEAR,
   CONNECTION_TYPE_NOTION,
+  CONNECTION_TYPE_PAGERDUTY,
   CONNECTION_TYPE_SLACK,
 } from "../db/schema/connections.js"
 import {
   decodeGithubAppCredentials,
   decodeLinearTokens,
   decodeNotionTokens,
+  decodePagerdutyTokens,
   decodeSlackBotToken,
   encodeLinearTokensForDb,
   encodeNotionTokensForDb,
+  encodePagerdutyTokensForDb,
   type githubConnectionConfigStoredSchema,
   type LinearSetupPhase,
   type NotionSetupPhase,
+  type PagerdutySetupPhase,
   parseForgeConnectionConfig,
   parseGithubConnectionStored,
   parseLinearConnectionStored,
   parseNotionConnectionConfig,
+  parsePagerdutyConnectionStored,
   parseSlackConnectionStored,
   serialiseForgeConnectionConfigForDb,
   serialiseGithubConnectionConfigForDb,
   serialiseLinearConnectionConfigForDb,
   serialiseNotionConnectionConfigForDb,
+  serialisePagerdutyConnectionConfigForDb,
   serialiseSlackConnectionConfigForDb,
 } from "../lib/connection-config.js"
 
@@ -77,14 +83,17 @@ export type GitHubInstallationShape = {
 export type LinearConnectionShape = {
   id: string
   orgId: string
-  accessToken: string
+  accessToken: string | null
   refreshToken: string | null
   accessTokenExpiresAt: string | null
-  workspaceId: string
-  workspaceName: string
+  workspaceId: string | null
+  workspaceName: string | null
   workspaceUrlKey: string | null
   actorUserId: string | null
-  ownerUserId: string
+  ownerUserId: string | null
+  oauthClientId?: string | null
+  oauthClientSecretEnc?: string | null
+  webhookSecretEnc?: string | null
   status: string
   lastEventPayload: unknown
   repositoryId: string | null
@@ -93,6 +102,33 @@ export type LinearConnectionShape = {
   setupPhase: LinearSetupPhase
   pendingConfigPullUrl: string | null
   pendingConfigPrCreating: boolean
+  createdAt: Date
+  updatedAt: Date
+}
+
+export type PagerdutyConnectionShape = {
+  id: string
+  orgId: string
+  accessToken: string | null
+  refreshToken: string | null
+  accessTokenExpiresAt: string | null
+  accountId: string
+  accountName: string
+  accountSubdomain: string
+  region: "us" | "eu"
+  actorUserId: string | null
+  ownerUserId: string
+  status: string
+  repositoryId: string | null
+  branch: string | null
+  enabled: boolean
+  setupPhase: PagerdutySetupPhase
+  pendingConfigPullUrl: string | null
+  pendingConfigPrCreating: boolean
+  webhookSubscriptionId: string | null
+  webhookSecretEnc: string | null
+  oauthClientId: string | null
+  oauthClientSecretEnc: string | null
   createdAt: Date
   updatedAt: Date
 }
@@ -184,20 +220,20 @@ export function linearConnectionToShape(
     row.config as Record<string, unknown>,
   )
   const tokens = decodeLinearTokens(config, env)
-  if (!tokens) {
-    throw new Error("Linear connection is missing OAuth credentials")
-  }
   return {
     id: row.id,
     orgId: row.orgId,
-    accessToken: tokens.accessToken,
-    refreshToken: tokens.refreshToken,
+    accessToken: tokens?.accessToken ?? null,
+    refreshToken: tokens?.refreshToken ?? null,
     accessTokenExpiresAt: config.accessTokenExpiresAt ?? null,
-    workspaceId: config.workspaceId,
-    workspaceName: config.workspaceName,
+    workspaceId: config.workspaceId ?? null,
+    workspaceName: config.workspaceName ?? null,
     workspaceUrlKey: config.workspaceUrlKey ?? null,
     actorUserId: config.actorUserId ?? null,
-    ownerUserId: config.ownerUserId,
+    ownerUserId: config.ownerUserId ?? null,
+    oauthClientId: config.oauthClientId ?? null,
+    oauthClientSecretEnc: config.oauthClientSecretEnc ?? null,
+    webhookSecretEnc: config.webhookSecretEnc ?? null,
     status: config.status,
     lastEventPayload: config.lastEventPayload,
     repositoryId: config.repositoryId,
@@ -321,19 +357,24 @@ export function linearShapeToConfig(
   env: Env,
 ): Record<string, unknown> {
   return serialiseLinearConnectionConfigForDb({
-    ...encodeLinearTokensForDb(
-      {
-        accessToken: input.accessToken,
-        refreshToken: input.refreshToken,
-      },
-      env,
-    ),
+    ...(input.accessToken
+      ? encodeLinearTokensForDb(
+          {
+            accessToken: input.accessToken,
+            refreshToken: input.refreshToken,
+          },
+          env,
+        )
+      : {}),
     accessTokenExpiresAt: input.accessTokenExpiresAt,
-    workspaceId: input.workspaceId,
-    workspaceName: input.workspaceName,
+    workspaceId: input.workspaceId ?? undefined,
+    workspaceName: input.workspaceName ?? undefined,
     workspaceUrlKey: input.workspaceUrlKey,
     actorUserId: input.actorUserId,
-    ownerUserId: input.ownerUserId,
+    ownerUserId: input.ownerUserId ?? undefined,
+    oauthClientId: input.oauthClientId ?? undefined,
+    oauthClientSecretEnc: input.oauthClientSecretEnc ?? undefined,
+    webhookSecretEnc: input.webhookSecretEnc ?? undefined,
     status: input.status,
     lastEventPayload: input.lastEventPayload,
     repositoryId: input.repositoryId,
@@ -473,4 +514,81 @@ export function slackRowHasBotToken(row: ConnectionRow, env: Env): boolean {
     row.config as Record<string, unknown>,
   )
   return decodeSlackBotToken(stored, env) != null
+}
+
+export function pagerdutyConnectionToShape(
+  row: ConnectionRow,
+  env: Env,
+): PagerdutyConnectionShape {
+  if (row.type !== CONNECTION_TYPE_PAGERDUTY) {
+    throw new Error("Expected PagerDuty connection row")
+  }
+  const config = parsePagerdutyConnectionStored(
+    row.config as Record<string, unknown>,
+  )
+  const tokens = decodePagerdutyTokens(config, env)
+  return {
+    id: row.id,
+    orgId: row.orgId,
+    accessToken: tokens?.accessToken ?? null,
+    refreshToken: tokens?.refreshToken ?? null,
+    accessTokenExpiresAt: config.accessTokenExpiresAt ?? null,
+    accountId: config.accountId,
+    accountName: config.accountName,
+    accountSubdomain: config.accountSubdomain,
+    region: config.region,
+    actorUserId: config.actorUserId ?? null,
+    ownerUserId: config.ownerUserId,
+    status: config.status,
+    repositoryId: config.repositoryId,
+    branch: config.branch,
+    enabled: config.enabled,
+    setupPhase: config.setupPhase,
+    pendingConfigPullUrl: config.pendingConfigPullUrl,
+    pendingConfigPrCreating: config.pendingConfigPrCreating,
+    webhookSubscriptionId: config.webhookSubscriptionId,
+    webhookSecretEnc: config.webhookSecretEnc ?? null,
+    oauthClientId: config.oauthClientId ?? null,
+    oauthClientSecretEnc: config.oauthClientSecretEnc ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
+}
+
+export function pagerdutyShapeToConfig(
+  input: Omit<
+    PagerdutyConnectionShape,
+    "id" | "orgId" | "createdAt" | "updatedAt"
+  >,
+  env: Env,
+): Record<string, unknown> {
+  return serialisePagerdutyConnectionConfigForDb({
+    ...(input.accessToken
+      ? encodePagerdutyTokensForDb(
+          {
+            accessToken: input.accessToken,
+            refreshToken: input.refreshToken,
+          },
+          env,
+        )
+      : {}),
+    accessTokenExpiresAt: input.accessTokenExpiresAt,
+    accountId: input.accountId,
+    accountName: input.accountName,
+    accountSubdomain: input.accountSubdomain,
+    region: input.region,
+    actorUserId: input.actorUserId,
+    ownerUserId: input.ownerUserId,
+    status: input.status,
+    repositoryId: input.repositoryId,
+    branch: input.branch,
+    enabled: input.enabled,
+    setupPhase: input.setupPhase,
+    pendingConfigPullUrl: input.pendingConfigPullUrl,
+    pendingConfigPrCreating: input.pendingConfigPrCreating,
+    webhookSubscriptionId: input.webhookSubscriptionId,
+    webhookSecretEnc: input.webhookSecretEnc ?? undefined,
+    oauthClientId: input.oauthClientId ?? undefined,
+    oauthClientSecretEnc: input.oauthClientSecretEnc ?? undefined,
+  })
 }

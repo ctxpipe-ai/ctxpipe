@@ -2,9 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Env } from "../config/env.js"
 import type { Db } from "../db/client.js"
 import type { NotionSetupPhase } from "../lib/connection-config.js"
+import { encryptConnectionSecret } from "../lib/connection-secrets.js"
 import {
   clearNotionSyncBindingsForRepository,
   getNotionConnectionByConnectionId,
+  refreshNotionConnectionTokensWithLock,
+  upsertNotionConnectionFromOAuth,
 } from "./notion-connector.js"
 
 const dbMocks = vi.hoisted(() => ({
@@ -73,6 +76,173 @@ describe("Notion connection storage maintenance", () => {
     vi.clearAllMocks()
   })
 
+  it("locks OAuth upserts and preserves the latest binding", async () => {
+    const matched = {
+      ...notionConnectionRow("live", {
+        repositoryId: "repo_old",
+        branch: "main",
+      }),
+      config: {
+        ...notionConnectionRow("live", {
+          repositoryId: "repo_old",
+          branch: "main",
+        }).config,
+        accessToken: "old_access",
+        refreshToken: "old_refresh",
+        botId: "bot_1",
+        workspaceId: "workspace_1",
+        ownerUserId: "user_1",
+        status: "installed",
+      },
+    }
+    const latest = {
+      ...matched,
+      config: {
+        ...matched.config,
+        repositoryId: "repo_rebound",
+        branch: "release",
+      },
+    }
+    let updatedConfig: Record<string, unknown> | undefined
+    const returning = vi.fn(async () => [
+      { ...latest, config: updatedConfig ?? latest.config },
+    ])
+    const set = vi.fn((value: { config: Record<string, unknown> }) => {
+      updatedConfig = value.config
+      return { where: vi.fn(() => ({ returning })) }
+    })
+    const select = vi
+      .fn()
+      .mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            orderBy: vi.fn(() => ({
+              limit: vi.fn().mockResolvedValue([matched]),
+            })),
+          })),
+        })),
+      })
+      .mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([latest]),
+          })),
+        })),
+      })
+    const tx = {
+      execute: vi.fn(),
+      select,
+      update: vi.fn(() => ({ set })),
+    }
+    const db = {
+      transaction: vi.fn((operation: (transaction: Db) => Promise<unknown>) =>
+        operation(tx as unknown as Db),
+      ),
+    } as unknown as Db
+    dbMocks.getOrgDb.mockReturnValue(db)
+
+    const result = await upsertNotionConnectionFromOAuth({
+      orgId: "org_1",
+      env,
+      ownerUserId: "user_1",
+      accessToken: "new_access",
+      refreshToken: "new_refresh",
+      botId: "bot_1",
+      workspaceId: "workspace_1",
+      workspaceName: "Workspace",
+    })
+
+    expect(tx.execute).toHaveBeenCalledTimes(2)
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          repositoryId: "repo_rebound",
+          branch: "release",
+        }),
+      }),
+    )
+    expect(result).toMatchObject({
+      accessToken: "new_access",
+      refreshToken: "new_refresh",
+      repositoryId: "repo_rebound",
+      branch: "release",
+    })
+  })
+
+  it("preserves oauth-app and webhook fields across OAuth upsert and refresh", async () => {
+    const oauthClientSecretEnc = encryptConnectionSecret("row-secret", env)
+    const webhookSecretEnc = encryptConnectionSecret("row-hook", env)
+    const matched = {
+      ...notionConnectionRow("live"),
+      config: {
+        ...notionConnectionRow("live").config,
+        accessToken: "old_access",
+        refreshToken: "old_refresh",
+        botId: "bot_1",
+        oauthClientId: "row-id",
+        oauthClientSecretEnc,
+        webhookSecretEnc,
+      },
+    }
+    let updatedConfig: Record<string, unknown> | undefined
+    const returning = vi.fn(async () => [
+      { ...matched, config: updatedConfig ?? matched.config },
+    ])
+    const set = vi.fn((value: { config: Record<string, unknown> }) => {
+      updatedConfig = value.config
+      return { where: vi.fn(() => ({ returning })) }
+    })
+    const select = vi
+      .fn()
+      .mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            orderBy: vi.fn(() => ({
+              limit: vi.fn().mockResolvedValue([matched]),
+            })),
+          })),
+        })),
+      })
+      .mockReturnValue({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([matched]),
+          })),
+        })),
+      })
+    const tx = {
+      execute: vi.fn(),
+      select,
+      update: vi.fn(() => ({ set })),
+      delete: vi.fn(() => ({ where: vi.fn() })),
+    }
+    const db = {
+      transaction: vi.fn((operation: (transaction: Db) => Promise<unknown>) =>
+        operation(tx as unknown as Db),
+      ),
+    } as unknown as Db
+    dbMocks.getOrgDb.mockReturnValue(db)
+
+    await upsertNotionConnectionFromOAuth({
+      orgId: "org_1",
+      env,
+      ownerUserId: "user_1",
+      accessToken: "new_access",
+      refreshToken: "new_refresh",
+      botId: "bot_1",
+    })
+
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          oauthClientId: "row-id",
+          oauthClientSecretEnc,
+          webhookSecretEnc,
+        }),
+      }),
+    )
+  })
+
   it("rewrites legacy plaintext tokens after reading a connection", async () => {
     const row = {
       ...notionConnectionRow("draft"),
@@ -119,6 +289,101 @@ describe("Notion connection storage maintenance", () => {
     const persisted = set.mock.calls[0]?.[0].config
     expect(persisted).not.toHaveProperty("accessToken")
     expect(persisted).not.toHaveProperty("refreshToken")
+  })
+
+  it("serialises stale refreshes and preserves the locked binding config", async () => {
+    const storedRow = notionConnectionRow("live", {
+      repositoryId: "repo_rebound",
+      branch: "release",
+    })
+    let row: Omit<typeof storedRow, "config"> & {
+      config: Record<string, unknown>
+    } = {
+      ...storedRow,
+      config: {
+        ...storedRow.config,
+        accessToken: "access-old",
+        refreshToken: "refresh-old",
+      },
+    }
+    const set = vi.fn((value: { config: Record<string, unknown> }) => ({
+      where: vi.fn(() => ({
+        returning: vi.fn(async () => {
+          row = { ...row, config: value.config, updatedAt: new Date() }
+          return [{ id: row.id }]
+        }),
+      })),
+    }))
+    const tx = {
+      execute: vi.fn(),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => [row]),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({ set })),
+    }
+    let transactionTail = Promise.resolve()
+    const db = {
+      transaction: vi.fn(
+        <T>(operation: (transaction: Db) => Promise<T>): Promise<T> => {
+          const result = transactionTail.then(() =>
+            operation(tx as unknown as Db),
+          )
+          transactionTail = result.then(
+            () => undefined,
+            () => undefined,
+          )
+          return result
+        },
+      ),
+    } as unknown as Db
+    dbMocks.getOrgDb.mockReturnValue(db)
+    const refresh = vi.fn(async () => ({
+      accessToken: "access-fresh",
+      refreshToken: "refresh-rotated",
+    }))
+
+    const results = await Promise.all([
+      refreshNotionConnectionTokensWithLock({
+        orgId: "org_1",
+        connectionId: "con_notion",
+        env,
+        expectedRefreshToken: "refresh-old",
+        expectedAccessToken: "access-old",
+        refresh,
+      }),
+      refreshNotionConnectionTokensWithLock({
+        orgId: "org_1",
+        connectionId: "con_notion",
+        env,
+        expectedRefreshToken: "refresh-old",
+        expectedAccessToken: "access-old",
+        refresh,
+      }),
+    ])
+
+    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(results).toEqual([
+      {
+        accessToken: "access-fresh",
+        refreshToken: "refresh-rotated",
+      },
+      {
+        accessToken: "access-fresh",
+        refreshToken: "refresh-rotated",
+      },
+    ])
+    expect(set).toHaveBeenCalledTimes(1)
+    expect(set).toHaveBeenCalledWith({
+      config: expect.objectContaining({
+        repositoryId: "repo_rebound",
+        branch: "release",
+      }),
+      updatedAt: expect.any(Date),
+    })
   })
 
   it("clears every binding for a deleted repository", async () => {

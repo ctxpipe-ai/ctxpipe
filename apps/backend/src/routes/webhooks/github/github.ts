@@ -12,12 +12,17 @@ import {
   listInstallationsByGithubInstallationId,
   registerInstallationOnConnection,
 } from "../../../models/github-installation.js"
+import { ensureOrgRepositoryAndIngest } from "../../../domain/workspaces/ensure-org-repository.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
 import { enqueueWorkspaceTipCheck } from "../../../openworkflow/enqueue-workspace-tip-check.js"
+import { noteResolvedWebhookConnections } from "../attribution.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
 import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
+import { maybeActivatePagerdutySyncOnConfigPush } from "./github-pagerduty-push.js"
+import { maybeEnqueueGithubPrMirror } from "./github-pr-mirror-events.js"
+import { maybeActivateGithubPrMirrorOnConfigPush } from "./github-pr-mirror-push.js"
 
 const pushPayloadSchema = z.object({
   ref: z.string(),
@@ -58,9 +63,9 @@ async function githubConnectionAllowsWebhookPayload(input: {
     .object({ installation: z.object({ id: z.number() }) })
     .safeParse(input.payload)
   if (!parsedInstallation.success) return true
-
   const row = await getGithubConnectionRowByConnectionId(input.connectionId)
   if (!row) return false
+  noteResolvedWebhookConnections([row])
   const configuredInstallationId = parseGithubConnectionStored(
     row.config as Record<string, unknown>,
   ).installationId
@@ -113,6 +118,8 @@ async function enqueueIngestionForInstallationRepos(
   if (installationRows.length === 0) {
     return
   }
+
+  noteResolvedWebhookConnections(installationRows)
 
   for (const installationRow of installationRows) {
     const repository = await withOrgDbContext(installationRow.orgId, () =>
@@ -168,6 +175,7 @@ async function processPushEvent(
     commits,
     before,
     after,
+    env: ctx.env,
     log: ctx.log,
   })
 
@@ -192,6 +200,25 @@ async function processPushEvent(
     after,
     log: ctx.log,
   })
+  await maybeActivatePagerdutySyncOnConfigPush({
+    installationId: installation.id,
+    githubConnectionId,
+    repoFullName: repo.full_name,
+    ref,
+    commits,
+    before,
+    after,
+    log: ctx.log,
+  })
+  await maybeActivateGithubPrMirrorOnConfigPush({
+    installationId: installation.id,
+    githubConnectionId,
+    repoFullName: repo.full_name,
+    ref,
+    commits,
+    before,
+    after,
+  })
 
   const onDefaultBranch = isDefaultBranchPush(ref, defaultBranch)
   const installationRows = await listInstallationsByGithubInstallationId(
@@ -211,12 +238,53 @@ async function processPushEvent(
   )
 }
 
+const repositoryCreatedSchema = z.object({
+  repository: z.object({
+    full_name: z.string(),
+    clone_url: z.string(),
+  }),
+  installation: z.object({ id: z.number() }),
+})
+
 async function processRepositoryEvent(
-  _payload: unknown,
-  _ctx: GithubWebhookContext,
-  _githubConnectionId?: string,
+  payload: unknown,
+  ctx: GithubWebhookContext,
+  githubConnectionId?: string,
 ) {
-  return
+  const parsed = repositoryCreatedSchema.safeParse(payload)
+  if (!parsed.success) {
+    return
+  }
+  const { repository: repo, installation } = parsed.data
+
+  const installationRows = (
+    await listInstallationsByGithubInstallationId(installation.id)
+  ).filter(
+    (installationRow) =>
+      !githubConnectionId || installationRow.id === githubConnectionId,
+  )
+
+  noteResolvedWebhookConnections(installationRows)
+
+  for (const installationRow of installationRows) {
+    if (
+      !installationRow.includeFutureRepos ||
+      !installationRow.ingestAllRepositories
+    ) {
+      continue
+    }
+
+    await ensureOrgRepositoryAndIngest({
+      orgId: installationRow.orgId,
+      gitUrl: repo.clone_url,
+      githubConnectionId: installationRow.id,
+      log: {
+        error: (err) => {
+          ctx.log.error(err)
+        },
+      },
+    })
+  }
 }
 
 async function processInstallationEvent(
@@ -287,6 +355,16 @@ export async function processGithubWebhookPayload(
         payload,
         ctx,
       )
+      return
+    case "pull_request":
+    case "pull_request_review":
+    case "pull_request_review_comment":
+    case "issue_comment":
+      await maybeEnqueueGithubPrMirror({
+        eventName,
+        payload,
+        githubConnectionId: opts?.connectionId,
+      })
       return
     default:
       return

@@ -3,6 +3,29 @@ import { ExtractionMethod, SourceType } from "../../retrieval/schema/claims.js"
 import { CoreNodeType } from "../../retrieval/schema/core.js"
 import { ExtensionNodeType } from "../../retrieval/schema/extension.js"
 
+/** Known ID prefixes - refs with these are IDs, else deduplicationKeys */
+const ID_PREFIXES = [
+  "repo_",
+  "obj_",
+  "svc_",
+  "app_",
+  "api_",
+  "str_",
+  "db_",
+  "inf_",
+  "lib_",
+  "pat_",
+  "dec_",
+  "inu_",
+  "skl_",
+  "prq_",
+  "fil_",
+]
+
+export function isIdRef(ref: string): boolean {
+  return ID_PREFIXES.some((p) => ref.startsWith(p))
+}
+
 /** Extracted object before deduplication - has deduplicationKey, no id yet */
 export const ExtractedObjectSchema = z.object({
   kind: CoreNodeType.or(ExtensionNodeType),
@@ -24,6 +47,15 @@ export const ExtractedClaimSchema = z.object({
   extractionMethod: ExtractionMethod,
   confidence: z.number().min(0).max(1),
   provenance: z.record(z.unknown()).optional(),
+  /** Claim validity window as ISO dates (YYYY-MM-DD); change edges set validFrom to the merge date. */
+  validFrom: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  validTo: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
 })
 
 export type ExtractedObject = z.infer<typeof ExtractedObjectSchema>
@@ -48,6 +80,11 @@ export const CodeIngestionStateSchema = z.object({
   deletedPaths: z.array(z.string()).optional(),
   renames: z.array(CodeIngestionRenameSchema).optional(),
   indexedAt: z.string().optional(),
+  /**
+   * Candidate files an extractor skipped because its LLM call failed. A full
+   * ingest only sweeps unobserved evidence when this is 0 (ADR-033 §11).
+   */
+  extractionSkippedFiles: z.number().int().nonnegative().optional(),
   roots: z.array(z.string()).optional(),
   extractedObjects: z.array(ExtractedObjectSchema).default([]),
   extractedClaims: z.array(ExtractedClaimSchema).default([]),

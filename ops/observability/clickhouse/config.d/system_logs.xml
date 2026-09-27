@@ -1,0 +1,62 @@
+<clickhouse>
+  <!-- 26.8 enables these MergeTree logs with ~1M-row buffers and no useful TTL.
+       asynchronous_metric_log alone reached billions of rows and merge memory
+       past the 1 GiB cap. remove="1" stops the logger; existing tables on the
+       volume are not rewritten. HyperDX's built-in ClickHouse page reads
+       system.metric_log for its infrastructure charts; that logger is removed
+       on purpose, and the Observability Stack dashboard replaces those charts.
+       query_log stays for that page's Query Log tab. crash_log stays. -->
+  <asynchronous_metric_log remove="1"/>
+  <metric_log remove="1"/>
+  <query_metric_log remove="1"/>
+  <trace_log remove="1"/>
+  <text_log remove="1"/>
+  <processors_profile_log remove="1"/>
+  <query_thread_log remove="1"/>
+  <query_views_log remove="1"/>
+  <part_log remove="1"/>
+  <opentelemetry_span_log remove="1"/>
+  <asynchronous_insert_log remove="1"/>
+  <backup_log remove="1"/>
+  <blob_storage_log remove="1"/>
+  <instrumentation_trace_log remove="1"/>
+  <iceberg_metadata_log remove="1"/>
+  <delta_lake_metadata_log remove="1"/>
+  <s3queue_log remove="1"/>
+  <aggregated_zookeeper_log remove="1"/>
+  <background_schedule_pool_log remove="1"/>
+
+  <!-- Server-wide allocator samples also land in trace_log. Zero disables them. -->
+  <total_memory_profiler_step>0</total_memory_profiler_step>
+
+  <query_log>
+    <database>system</database>
+    <table>query_log</table>
+    <!-- Day parts so ttl_only_drop_parts can drop a day once it is 3 days old.
+         toYYYYMM would keep the whole month. -->
+    <partition_by>event_date</partition_by>
+    <ttl>event_date + INTERVAL 3 DAY DELETE</ttl>
+    <storage_policy>local_only</storage_policy>
+    <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+    <max_size_rows>8192</max_size_rows>
+    <reserved_size_rows>1024</reserved_size_rows>
+    <buffer_size_rows_flush_threshold>4096</buffer_size_rows_flush_threshold>
+    <flush_on_crash>false</flush_on_crash>
+    <!-- Skip system.user_query_log, a second copy of this log for per-user access. -->
+    <enable_user_query_log>false</enable_user_query_log>
+  </query_log>
+
+  <error_log>
+    <database>system</database>
+    <table>error_log</table>
+    <partition_by>event_date</partition_by>
+    <ttl>event_date + INTERVAL 3 DAY DELETE</ttl>
+    <storage_policy>local_only</storage_policy>
+    <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+    <max_size_rows>8192</max_size_rows>
+    <reserved_size_rows>1024</reserved_size_rows>
+    <buffer_size_rows_flush_threshold>4096</buffer_size_rows_flush_threshold>
+    <collect_interval_milliseconds>7500</collect_interval_milliseconds>
+    <flush_on_crash>false</flush_on_crash>
+  </error_log>
+</clickhouse>

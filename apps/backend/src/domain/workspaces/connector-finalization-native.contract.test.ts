@@ -23,8 +23,6 @@ import {
 import {
   finalizeNotionBindingAfterContentWorkflow,
   getNotionBindingWithRepoByConnectionId,
-  getNotionConnectionByConnectionId,
-  updateNotionConnectionTokens,
 } from "../../models/notion-connector.js"
 import { enqueueConfluenceFullSyncAfterConfigPush } from "../../openworkflow/enqueue-confluence-push-sync.js"
 import { enqueueConnectorContentSync } from "../../openworkflow/enqueue-connector-content-sync.js"
@@ -33,6 +31,10 @@ import { confluenceSyncContent } from "../../openworkflow/workflows/confluence-s
 import { linearSyncContent } from "../../openworkflow/workflows/linear-sync-content.js"
 import { notionSyncContent } from "../../openworkflow/workflows/notion-sync-content.js"
 import { parseConfluenceConfigYamlContent } from "../../services/confluence/config-yaml.js"
+import {
+  loadNotionConnection,
+  writeNotionConnectionTokens,
+} from "../../services/notion/connection-load.js"
 import { parseNotionConfigYamlContent } from "../../services/notion/config-yaml.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 
@@ -449,7 +451,7 @@ it.each([
           )
         try {
           if (provider === "notion" && status === "completed") {
-            await updateNotionConnectionTokens({
+            await writeNotionConnectionTokens({
               orgId: f.org.id,
               connectionId,
               env: parseEnv(process.env),
@@ -458,7 +460,7 @@ it.each([
             })
             expect(
               await withOrgDbContext(f.org.id, () =>
-                getNotionConnectionByConnectionId(
+                loadNotionConnection(
                   f.org.id,
                   connectionId,
                   parseEnv(process.env),

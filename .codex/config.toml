@@ -1,0 +1,16 @@
+# BEGIN ctxpipe-memory-capture
+[[hooks.UserPromptSubmit]]
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = "npx -y ctxpipe memory capture observe --host codex --event UserPromptSubmit"
+
+[[hooks.PostToolUse]]
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = "npx -y ctxpipe memory capture observe --host codex --event PostToolUse"
+
+[[hooks.Stop]]
+[[hooks.Stop.hooks]]
+type = "command"
+command = "npx -y ctxpipe memory capture finalize --host codex --event Stop"
+# END ctxpipe-memory-capture

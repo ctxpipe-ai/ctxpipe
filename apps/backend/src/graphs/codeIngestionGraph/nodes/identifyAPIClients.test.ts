@@ -136,7 +136,7 @@ describe("identifyAPIClients", () => {
       )
 
       expect(objects).toHaveLength(1)
-      expect(objects[0].deduplicationKey).toBe(
+      expect(objects[0]?.deduplicationKey).toBe(
         `api:${repositoryId}:apps/web:external:Twilio`,
       )
       expect(claims).toHaveLength(2)
@@ -155,7 +155,7 @@ describe("identifyAPIClients", () => {
 
       expect(objects).toHaveLength(1)
       expect(claims).toHaveLength(1)
-      expect(claims[0].subjectRef).toBe(`svc:${repositoryId}:./`)
+      expect(claims[0]?.subjectRef).toBe(`svc:${repositoryId}:./`)
     })
 
     it("attributes to the most specific root when ./ and package roots are both listed", () => {
@@ -171,8 +171,8 @@ describe("identifyAPIClients", () => {
 
       expect(objects).toHaveLength(1)
       expect(claims).toHaveLength(1)
-      expect(claims[0].subjectRef).toBe(`svc:${repositoryId}:apps/web`)
-      expect(objects[0].deduplicationKey).toBe(
+      expect(claims[0]?.subjectRef).toBe(`svc:${repositoryId}:apps/web`)
+      expect(objects[0]?.deduplicationKey).toBe(
         `api:${repositoryId}:apps/web:external:Twilio`,
       )
     })
@@ -192,7 +192,7 @@ describe("identifyAPIClients", () => {
       )
 
       const expectedApiKey = `api:${repositoryId}:apps/backend:apps/backend/src/routes`
-      expect(claims[0].objectRef).toBe(expectedApiKey)
+      expect(claims[0]?.objectRef).toBe(expectedApiKey)
     })
   })
 })

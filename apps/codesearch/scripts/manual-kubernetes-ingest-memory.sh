@@ -153,44 +153,48 @@ const ctx: IndexPhaseRepoContext = {
   repoUrl: "${KUBERNETES_REPOSITORY}",
 }
 
-const checkout = await phaseCloneCheckout(ctx, {
-  targetHash: "${KUBERNETES_SHA}",
-})
-await phaseZoekt(ctx)
-const languages = await phaseDetectLanguages(ctx, {
-  ingestMode: checkout.ingestMode,
-  changedPaths: checkout.changedPaths,
-  deletedPaths: checkout.deletedPaths,
-  renames: checkout.renames,
-})
-await Promise.all(
-  languages.languagesToIndex.map((language) =>
-    phaseScipLanguage(ctx, {
-      language,
-      detectedLanguages: languages.detectedLanguages,
-    }),
-  ),
-)
-await phaseMergeScip(ctx, {
-  detectedLanguages: languages.detectedLanguages,
-})
-await phaseMarkCheckoutIndexed(ctx)
-
-if (checkout.targetHash !== "${KUBERNETES_SHA}") {
-  throw new Error("Indexed unexpected commit: " + checkout.targetHash)
-}
-console.log(
-  JSON.stringify({
-    targetHash: checkout.targetHash,
+try {
+  const checkout = await phaseCloneCheckout(ctx, {
+    targetHash: "${KUBERNETES_SHA}",
+  })
+  await phaseZoekt(ctx)
+  const languages = await phaseDetectLanguages(ctx, {
     ingestMode: checkout.ingestMode,
+    changedPaths: checkout.changedPaths,
+    deletedPaths: checkout.deletedPaths,
+    renames: checkout.renames,
+  })
+  await Promise.all(
+    languages.languagesToIndex.map((language) =>
+      phaseScipLanguage(ctx, {
+        language,
+        detectedLanguages: languages.detectedLanguages,
+      }),
+    ),
+  )
+  await phaseMergeScip(ctx, {
     detectedLanguages: languages.detectedLanguages,
-    languagesToIndex: languages.languagesToIndex,
-  }),
-)
-const completed = await withOrgDbContext(db, orgId, (tx) =>
-  tx.select().from(repositoryCheckouts).where(eq(repositoryCheckouts.id, indexedCheckout.id)),
-)
-if (completed[0]?.commitSha !== "${KUBERNETES_SHA}") throw new Error("Checkout publication did not persist")
+    languagesToMerge: languages.languagesToIndex,
+  })
+  await phaseMarkCheckoutIndexed(ctx)
+  const completed = await withOrgDbContext(db, orgId, (tx) =>
+    tx.select().from(repositoryCheckouts).where(eq(repositoryCheckouts.id, indexedCheckout.id)),
+  )
+  if (completed[0]?.commitSha !== "${KUBERNETES_SHA}") throw new Error("Checkout publication did not persist")
+  if (checkout.targetHash !== "${KUBERNETES_SHA}") {
+    throw new Error("Indexed unexpected commit: " + checkout.targetHash)
+  }
+  console.log(
+    JSON.stringify({
+      targetHash: checkout.targetHash,
+      ingestMode: checkout.ingestMode,
+      detectedLanguages: languages.detectedLanguages,
+      languagesToIndex: languages.languagesToIndex,
+    }),
+  )
+} catch (error) {
+  console.error(error)
+  process.exitCode = 1
 } finally {
   await withOrgDbContext(db, orgId, async (tx) => {
     await tx.delete(repositoryCheckouts).where(eq(repositoryCheckouts.orgId, orgId))
@@ -199,11 +203,17 @@ if (completed[0]?.commitSha !== "${KUBERNETES_SHA}") throw new Error("Checkout p
   await db.\$client.query("delete from organizations where id = \$1", [orgId])
   await db.\$client.end()
 }
+process.exit(process.exitCode ?? 0)
 EOF
 
 cat >"${WORK_DIR}/run-with-memory-sampler.sh" <<'EOF'
 #!/usr/bin/env bash
 set -uo pipefail
+
+# Host clone is bind-mounted into the container. Git 2.35+ refuses that
+# directory when the owner uid differs from the container user (root).
+git config --global --add safe.directory \
+  /gate/data/repo-cache/org_manual/repo_kubernetes/checkouts/default
 
 read_memory_bytes() {
   if [[ -r /sys/fs/cgroup/memory.current ]]; then

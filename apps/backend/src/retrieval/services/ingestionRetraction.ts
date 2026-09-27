@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, or, sql } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, lt, or, sql } from "drizzle-orm"
 import type { z } from "zod/v3"
 import type { Db } from "../../db/client.js"
 import { claimEvidence } from "../../db/schema/claim_evidence.js"
@@ -401,6 +401,177 @@ async function chunkedInArrayDelete(
 }
 
 /**
+ * Delete the given evidence rows, then reconcile their claims set-based: claims
+ * left without evidence are deleted (objects no other claim references go with
+ * them); claims that keep proofs from other sources get their aggregate refreshed.
+ * Runs inside the caller's transaction; accumulates into `stats` / `deletedObjectIds`.
+ */
+async function retractEvidenceRowsInTx(
+  tx: Db,
+  params: {
+    orgId: string
+    rows: Array<{ id: string; claimId: string }>
+    now: Date
+    stats: RetractionStats
+    deletedObjectIds: Set<string>
+  },
+): Promise<{ deletedClaimIds: string[]; updatedClaimIds: string[] }> {
+  const { orgId, rows, now, stats, deletedObjectIds } = params
+  const affectedClaimIds = new Set<string>()
+  const evidenceIds = rows.map((r) => r.id)
+  for (const r of rows) affectedClaimIds.add(r.claimId)
+  const claimIds = [...affectedClaimIds]
+
+  await chunkedInArrayDelete(evidenceIds, (chunk) =>
+    tx.delete(claimEvidence).where(inArray(claimEvidence.id, chunk)),
+  )
+  stats.deletedEvidenceRows += evidenceIds.length
+
+  // Remaining evidence = proofs from other sources (multi-source survivors).
+  const remainingEvidence = await chunkedInArraySelect(claimIds, (chunk) =>
+    tx
+      .select({
+        claimId: claimEvidence.claimId,
+        sourceType: claimEvidence.sourceType,
+        extractionMethod: claimEvidence.extractionMethod,
+        confidence: claimEvidence.confidence,
+        observedAt: claimEvidence.observedAt,
+      })
+      .from(claimEvidence)
+      .where(inArray(claimEvidence.claimId, chunk)),
+  )
+
+  const remainingByClaim = new Map<
+    string,
+    Array<{
+      sourceType: string
+      extractionMethod: string
+      confidence: number
+      observedAt: Date
+    }>
+  >()
+  for (const row of remainingEvidence) {
+    const list = remainingByClaim.get(row.claimId)
+    if (list) list.push(row)
+    else remainingByClaim.set(row.claimId, [row])
+  }
+
+  const fullyOwnedClaimIds = claimIds.filter(
+    (id) => (remainingByClaim.get(id)?.length ?? 0) === 0,
+  )
+  const multiSourceClaimIds = claimIds.filter(
+    (id) => (remainingByClaim.get(id)?.length ?? 0) > 0,
+  )
+
+  if (fullyOwnedClaimIds.length > 0) {
+    const claimRows = await chunkedInArraySelect(fullyOwnedClaimIds, (chunk) =>
+      tx
+        .select({
+          id: claims.id,
+          subjectId: claims.subjectId,
+          objectId: claims.objectId,
+        })
+        .from(claims)
+        .where(and(eq(claims.orgId, orgId), inArray(claims.id, chunk))),
+    )
+
+    const candidateObjectIds = new Set<string>()
+    for (const row of claimRows) {
+      candidateObjectIds.add(row.subjectId)
+      candidateObjectIds.add(row.objectId)
+    }
+
+    await chunkedInArrayDelete(fullyOwnedClaimIds, (chunk) =>
+      tx
+        .delete(claims)
+        .where(and(eq(claims.orgId, orgId), inArray(claims.id, chunk))),
+    )
+
+    stats.claimsDeleted += fullyOwnedClaimIds.length
+
+    const objectIdList = [...candidateObjectIds]
+    if (objectIdList.length > 0) {
+      // Set-based orphan cleanup: delete objects no longer referenced by any claim.
+      const orphanRows = await chunkedInArraySelect(objectIdList, (chunk) =>
+        tx
+          .select({ id: objects.id })
+          .from(objects)
+          .where(
+            and(
+              eq(objects.orgId, orgId),
+              inArray(objects.id, chunk),
+              sql`NOT EXISTS (
+                SELECT 1 FROM ${claims}
+                WHERE ${claims.orgId} = ${orgId}
+                  AND (
+                    ${claims.subjectId} = ${objects.id}
+                    OR ${claims.objectId} = ${objects.id}
+                  )
+              )`,
+            ),
+          ),
+      )
+      const orphanIds = orphanRows.map((r) => r.id)
+      if (orphanIds.length > 0) {
+        await chunkedInArrayDelete(orphanIds, (chunk) =>
+          tx
+            .delete(objects)
+            .where(and(eq(objects.orgId, orgId), inArray(objects.id, chunk))),
+        )
+        for (const id of orphanIds) deletedObjectIds.add(id)
+      }
+    }
+  }
+
+  if (multiSourceClaimIds.length > 0) {
+    const updates = multiSourceClaimIds.map((claimId) => {
+      const allEvidence = remainingByClaim.get(claimId) ?? []
+      const aggregated = aggregateConfidence(
+        allEvidence.map((e) => ({
+          sourceType: e.sourceType as SourceTypeValue,
+          extractionMethod: e.extractionMethod as ExtractionMethodValue,
+          confidence: e.confidence,
+          observedAt: e.observedAt,
+        })),
+      )
+      const first = allEvidence[0]
+      const lastObserved = first
+        ? allEvidence.reduce(
+            (max, e) => (e.observedAt > max ? e.observedAt : max),
+            first.observedAt,
+          )
+        : now
+      return { id: claimId, aggregated, lastObserved }
+    })
+    for (let i = 0; i < updates.length; i += EVIDENCE_DELETE_CHUNK_SIZE) {
+      const chunk = updates.slice(i, i + EVIDENCE_DELETE_CHUNK_SIZE)
+      const values = sql.join(
+        chunk.map(
+          (row) =>
+            sql`(${row.id}::text, ${row.aggregated}::double precision, ${row.lastObserved}::timestamptz)`,
+        ),
+        sql`, `,
+      )
+      await tx.execute(sql`
+        UPDATE ${claims} AS c
+        SET
+          aggregated_confidence = v.aggregated_confidence,
+          last_observed_at = v.last_observed_at,
+          updated_at = ${now}::timestamptz
+        FROM (VALUES ${values}) AS v(id, aggregated_confidence, last_observed_at)
+        WHERE c.id = v.id AND c.org_id = ${orgId}
+      `)
+    }
+    stats.claimsUpdated += updates.length
+  }
+
+  return {
+    deletedClaimIds: fullyOwnedClaimIds,
+    updatedClaimIds: multiSourceClaimIds,
+  }
+}
+
+/**
  * Removes all claim evidence tied to a repository (any path), reconciles affected
  * claims (recompute confidence or delete), and returns Falkor follow-up work.
  * Use when a repository is deleted: multi-source facts keep remaining proofs.
@@ -436,154 +607,23 @@ export async function purgeRepositoryEvidencePg(
       return
     }
 
-    const affectedClaimIds = new Set<string>()
-    const evidenceIds = rows.map((r) => r.id)
-    for (const r of rows) affectedClaimIds.add(r.claimId)
-    const claimIds = [...affectedClaimIds]
-
-    await chunkedInArrayDelete(evidenceIds, (chunk) =>
-      tx.delete(claimEvidence).where(inArray(claimEvidence.id, chunk)),
-    )
-    stats.deletedEvidenceRows = evidenceIds.length
-
-    // Remaining evidence = proofs from other sources (multi-source survivors).
-    const remainingEvidence = await chunkedInArraySelect(claimIds, (chunk) =>
-      tx
-        .select({
-          claimId: claimEvidence.claimId,
-          sourceType: claimEvidence.sourceType,
-          extractionMethod: claimEvidence.extractionMethod,
-          confidence: claimEvidence.confidence,
-          observedAt: claimEvidence.observedAt,
-        })
-        .from(claimEvidence)
-        .where(inArray(claimEvidence.claimId, chunk)),
-    )
-
-    const remainingByClaim = new Map<
-      string,
-      Array<{
-        sourceType: string
-        extractionMethod: string
-        confidence: number
-        observedAt: Date
-      }>
-    >()
-    for (const row of remainingEvidence) {
-      const list = remainingByClaim.get(row.claimId)
-      if (list) list.push(row)
-      else remainingByClaim.set(row.claimId, [row])
-    }
-
-    const fullyOwnedClaimIds = claimIds.filter(
-      (id) => (remainingByClaim.get(id)?.length ?? 0) === 0,
-    )
-    const multiSourceClaimIds = claimIds.filter(
-      (id) => (remainingByClaim.get(id)?.length ?? 0) > 0,
-    )
-
-    graphDeletedClaimIds = []
-    graphUpdatedClaimIds = []
-
-    if (fullyOwnedClaimIds.length > 0) {
-      const claimRows = await chunkedInArraySelect(fullyOwnedClaimIds, (chunk) =>
-        tx
-          .select({
-            id: claims.id,
-            subjectId: claims.subjectId,
-            objectId: claims.objectId,
-          })
-          .from(claims)
-          .where(and(eq(claims.orgId, orgId), inArray(claims.id, chunk))),
-      )
-
-      const candidateObjectIds = new Set<string>()
-      for (const row of claimRows) {
-        candidateObjectIds.add(row.subjectId)
-        candidateObjectIds.add(row.objectId)
-      }
-
-      await chunkedInArrayDelete(fullyOwnedClaimIds, (chunk) =>
-        tx
-          .delete(claims)
-          .where(and(eq(claims.orgId, orgId), inArray(claims.id, chunk))),
-      )
-
-      stats.claimsDeleted = fullyOwnedClaimIds.length
-      graphDeletedClaimIds = fullyOwnedClaimIds
-
-      const objectIdList = [...candidateObjectIds]
-      if (objectIdList.length > 0) {
-        // Set-based orphan cleanup: delete objects no longer referenced by any claim.
-        const orphanRows = await chunkedInArraySelect(objectIdList, (chunk) =>
-          tx
-            .select({ id: objects.id })
-            .from(objects)
-            .where(
-              and(
-                eq(objects.orgId, orgId),
-                inArray(objects.id, chunk),
-                sql`NOT EXISTS (
-                  SELECT 1 FROM ${claims}
-                  WHERE ${claims.orgId} = ${orgId}
-                    AND (
-                      ${claims.subjectId} = ${objects.id}
-                      OR ${claims.objectId} = ${objects.id}
-                    )
-                )`,
-              ),
-            ),
-        )
-        const orphanIds = orphanRows.map((r) => r.id)
-        if (orphanIds.length > 0) {
-          await chunkedInArrayDelete(orphanIds, (chunk) =>
-            tx
-              .delete(objects)
-              .where(and(eq(objects.orgId, orgId), inArray(objects.id, chunk))),
-          )
-          for (const id of orphanIds) deletedObjectIds.add(id)
-        }
-      }
-    }
-
-    for (const claimId of multiSourceClaimIds) {
-      const allEvidence = remainingByClaim.get(claimId) ?? []
-      const aggregated = aggregateConfidence(
-        allEvidence.map((e) => ({
-          sourceType: e.sourceType as SourceTypeValue,
-          extractionMethod: e.extractionMethod as ExtractionMethodValue,
-          confidence: e.confidence,
-          observedAt: e.observedAt,
-        })),
-      )
-      const first = allEvidence[0]
-      const lastObserved = first
-        ? allEvidence.reduce(
-            (max, e) => (e.observedAt > max ? e.observedAt : max),
-            first.observedAt,
-          )
-        : now
-
-      await tx
-        .update(claims)
-        .set({
-          aggregatedConfidence: aggregated,
-          lastObservedAt: lastObserved,
-          updatedAt: now,
-        })
-        .where(eq(claims.id, claimId))
-
-      stats.claimsUpdated++
-      graphUpdatedClaimIds.push(claimId)
-    }
+    const outcome = await retractEvidenceRowsInTx(tx, {
+      orgId,
+      rows,
+      now,
+      stats,
+      deletedObjectIds,
+    })
+    graphDeletedClaimIds = outcome.deletedClaimIds
+    graphUpdatedClaimIds = outcome.updatedClaimIds
 
     log.info({
       step: "repositoryDeletion.evidence_purge.progress",
       message: "repositoryDeletion: evidence purge progress",
       repositoryId,
       deletedEvidenceRows: stats.deletedEvidenceRows,
-      fullyOwnedDeleted: fullyOwnedClaimIds.length,
-      multiSourceUpdated: multiSourceClaimIds.length,
+      fullyOwnedDeleted: outcome.deletedClaimIds.length,
+      multiSourceUpdated: outcome.updatedClaimIds.length,
       claimsDeleted: stats.claimsDeleted,
       claimsUpdated: stats.claimsUpdated,
       orphanObjectsDeleted: deletedObjectIds.size,
@@ -598,6 +638,94 @@ export async function purgeRepositoryEvidencePg(
     graphEffects: {
       deletedClaimIds: graphDeletedClaimIds,
       refreshedClaimIds: graphUpdatedClaimIds,
+      deletedObjectIds: [...deletedObjectIds],
+    },
+  }
+}
+
+/** Evidence whose `${extractor}:${repositoryId}:` prefix marks this repository's ingestion as producer. */
+function producedByRepositoryFilter(repositoryId: string) {
+  return sql`split_part(${claimEvidence.sourceId}::text, ':', 2) = ${repositoryId}`
+}
+
+/**
+ * After a successful full ingest, retract evidence the run did not observe: rows
+ * produced by this repository (second source-id segment) whose `observedAt` is
+ * older than `observedBefore` (the index child's `indexedAt`, stamped before any
+ * extraction of the run). Dedup touches every
+ * re-observed row (`touchEvidenceBulk`) and new rows are stamped at write time,
+ * so everything the run asserted is newer; evidence produced by other
+ * repositories that merely mentions this one (PR mirror claims) is untouched.
+ * Hash tails cannot serve here: a re-index at an unchanged tip re-observes at the
+ * same commit as the stale rows. This is what keeps LLM naming drift from
+ * accumulating across re-ingests (ADR-033 §11).
+ * Graph sync is deferred — use {@link applyIngestionRetractionGraphEffects}.
+ */
+export async function retractUnobservedRepositoryEvidencePg(
+  db: Db,
+  params: { orgId: string; repositoryId: string; observedBefore: Date },
+): Promise<{
+  stats: RetractionStats
+  graphEffects: IngestionRetractionGraphEffects
+}> {
+  const { orgId, repositoryId, observedBefore } = params
+  if (Number.isNaN(observedBefore.getTime())) {
+    throw new Error(
+      "retractUnobservedRepositoryEvidencePg: observedBefore must be a valid date",
+    )
+  }
+  const stats = emptyStats()
+  const now = new Date()
+  const deletedObjectIds = new Set<string>()
+  let deletedClaimIds: string[] = []
+  let updatedClaimIds: string[] = []
+
+  await db.transaction(async (tx) => {
+    const started = Date.now()
+    const rows = await tx
+      .select({ id: claimEvidence.id, claimId: claimEvidence.claimId })
+      .from(claimEvidence)
+      .innerJoin(claims, eq(claimEvidence.claimId, claims.id))
+      .where(
+        and(
+          eq(claims.orgId, orgId),
+          producedByRepositoryFilter(repositoryId),
+          lt(claimEvidence.observedAt, observedBefore),
+        ),
+      )
+    if (rows.length === 0) return
+
+    const outcome = await retractEvidenceRowsInTx(tx, {
+      orgId,
+      rows,
+      now,
+      stats,
+      deletedObjectIds,
+    })
+    deletedClaimIds = outcome.deletedClaimIds
+    updatedClaimIds = outcome.updatedClaimIds
+
+    log.info({
+      step: "repositoryIngestion.unobserved_evidence_sweep",
+      message:
+        "repositoryIngestion: retracted evidence not observed by the run",
+      repositoryId,
+      observedBefore: observedBefore.toISOString(),
+      deletedEvidenceRows: stats.deletedEvidenceRows,
+      claimsDeleted: stats.claimsDeleted,
+      claimsUpdated: stats.claimsUpdated,
+      orphanObjectsDeleted: deletedObjectIds.size,
+      durationMs: Date.now() - started,
+    })
+  })
+
+  stats.orphanObjectsDeleted = deletedObjectIds.size
+
+  return {
+    stats,
+    graphEffects: {
+      deletedClaimIds,
+      refreshedClaimIds: updatedClaimIds,
       deletedObjectIds: [...deletedObjectIds],
     },
   }

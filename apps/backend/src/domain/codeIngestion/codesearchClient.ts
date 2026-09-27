@@ -2,7 +2,9 @@ import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
+import { readCodesearchError } from "../../lib/codesearchError.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
+import { RepositoryGoneError } from "./repositoryGone.js"
 import { capturedSourceRevision } from "./source-revision-context.js"
 
 export type FileEntry = { name: string; path: string; type: "file" | "dir" }
@@ -93,6 +95,22 @@ async function fetchWithAuth(
   )
 }
 
+async function raiseCodesearchFailure(
+  operation: string,
+  res: Response,
+  kind: "error" | "checkout" = "error",
+): Promise<never> {
+  const failure = await readCodesearchError(res)
+  if (failure.code === "repository_not_found") {
+    throw new RepositoryGoneError(failure.message || undefined)
+  }
+  const message = `${operation} failed: ${failure.status}${failure.message ? `: ${failure.message}` : ""}`
+  if (kind === "checkout") {
+    throw new CodesearchCheckoutError(message, res.status)
+  }
+  throw new Error(message)
+}
+
 /**
  * Lists files and directories at a path. Returns entries with name, path, type.
  */
@@ -111,7 +129,7 @@ export async function listFiles(
     extras,
   )
   if (!res.ok) {
-    throw new Error(await responseFailureMessage("listFiles", res))
+    await raiseCodesearchFailure("listFiles", res)
   }
   const data = (await res.json()) as { entries: FileEntry[] }
   return data.entries
@@ -145,10 +163,7 @@ export async function globFiles(
     extras,
   )
   if (!res.ok) {
-    throw new CodesearchCheckoutError(
-      await responseFailureMessage("globFiles", res),
-      res.status,
-    )
+    await raiseCodesearchFailure("globFiles", res, "checkout")
   }
   return (await res.json()) as GlobFilesResponse
 }
@@ -196,10 +211,7 @@ export async function listCheckoutTree(input: {
     },
   )
   if (!res.ok) {
-    throw new CodesearchCheckoutError(
-      await responseFailureMessage("listCheckoutTree", res),
-      res.status,
-    )
+    await raiseCodesearchFailure("listCheckoutTree", res, "checkout")
   }
   const data = (await res.json()) as { paths: string[] }
   return data.paths
@@ -227,10 +239,7 @@ export async function fetchFiles(
     extras,
   )
   if (!res.ok) {
-    throw new CodesearchCheckoutError(
-      `fetchFiles failed: ${res.status}`,
-      res.status,
-    )
+    await raiseCodesearchFailure("fetchFiles", res, "checkout")
   }
   const encoded = (await res.json()) as Record<string, string>
   const result: Record<string, string> = {}
@@ -266,29 +275,10 @@ export async function fetchCheckoutFileBytes(input: {
     },
   )
   if (!res.ok) {
-    throw new CodesearchCheckoutError(
-      `fetchCheckoutFileBytes failed: ${res.status}`,
-      res.status,
-    )
+    await raiseCodesearchFailure("fetchCheckoutFileBytes", res, "checkout")
   }
   const encoded = (await res.json()) as Record<string, string>
   const b64 = encoded[input.path]
   if (b64 === undefined) return null
   return Buffer.from(b64, "base64")
-}
-
-async function responseFailureMessage(
-  operation: string,
-  response: Response,
-): Promise<string> {
-  const bodyText = await response.text()
-  let detail = bodyText.trim()
-  try {
-    const parsed = JSON.parse(bodyText) as { error?: unknown }
-    if (typeof parsed.error === "string" && parsed.error.length > 0)
-      detail = parsed.error
-  } catch {
-    // Non-JSON responses retain their original diagnostic text.
-  }
-  return `${operation} failed: ${response.status}${detail ? `: ${detail}` : ""}`
 }

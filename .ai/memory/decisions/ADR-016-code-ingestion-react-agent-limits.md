@@ -36,4 +36,4 @@ Repository ingestion uses LangChain `createAgent` (ReAct) inside several `codeIn
 
 ## Notes
 
-- Broader LangGraph usage remains as in [ADR-005](ADR-005-langgraph-integration.md) (superseded stack details) and [ADR-006](ADR-006-langsmith-studio-dev-routes.md) (Studio routing).
+- Broader LangGraph usage remains as in [ADR-005](ADR-005-langgraph-integration.md) (superseded stack details).

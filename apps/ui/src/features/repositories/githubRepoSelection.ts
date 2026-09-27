@@ -1,3 +1,4 @@
+import { isCtxpipeContextRepositoryName } from "@/features/connectors/components/ConnectorContextRepositoryGuidance"
 import { client } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
 
@@ -13,13 +14,52 @@ export type GithubRepoItem = {
   clone_url: string
   name: string
   githubConnectionId?: string
+  created_at?: string | null
+  pushed_at?: string | null
+  default_branch?: string
 }
+
+export type GithubRepoSort =
+  | "pushed-desc"
+  | "created-desc"
+  | "created-asc"
+  | "name-asc"
 
 export type SelectedGithubRepo = {
   id?: number
   full_name: string
   name: string
   clone_url: string
+}
+
+function githubDateValue(value: string | null | undefined): number | null {
+  if (!value) return null
+  const timestamp = Date.parse(value)
+  return Number.isNaN(timestamp) ? null : timestamp
+}
+
+export function sortGithubRepos(
+  repos: readonly GithubRepoItem[],
+  sort: GithubRepoSort,
+): GithubRepoItem[] {
+  return [...repos].sort((a, b) => {
+    if (sort === "name-asc") {
+      return a.full_name.localeCompare(b.full_name) || a.id - b.id
+    }
+
+    const aDate = githubDateValue(
+      sort === "pushed-desc" ? a.pushed_at : a.created_at,
+    )
+    const bDate = githubDateValue(
+      sort === "pushed-desc" ? b.pushed_at : b.created_at,
+    )
+    if (aDate === null && bDate !== null) return 1
+    if (aDate !== null && bDate === null) return -1
+    if (aDate !== null && bDate !== null && aDate !== bDate) {
+      return sort === "created-asc" ? aDate - bDate : bDate - aDate
+    }
+    return a.full_name.localeCompare(b.full_name) || a.id - b.id
+  })
 }
 
 /** Compare GitHub clone URLs without a trailing `.git` or case differences. */
@@ -61,7 +101,7 @@ export async function collectInstallationRepoPages(
     repositories: GithubRepoItem[]
     hasMore: boolean
     repositorySelection: string
-    manageUrl: string | null
+    manageUrl?: string | null
     totalCount?: number
   }>,
 ): Promise<{
@@ -77,7 +117,7 @@ export async function collectInstallationRepoPages(
   for (let page = 1; page <= MAX_INSTALLATION_PAGES; page += 1) {
     const result = await fetchPage(page)
     repositorySelection = result.repositorySelection
-    manageUrl = result.manageUrl
+    if (!manageUrl && result.manageUrl) manageUrl = result.manageUrl
     if (page === 1 && typeof result.totalCount === "number") {
       totalCount = result.totalCount
     }
@@ -132,6 +172,9 @@ export async function fetchGithubInstallationReposPage(
       full_name: repo.full_name ?? repo.name,
       html_url: repo.html_url ?? repo.clone_url.replace(/\.git$/i, ""),
       clone_url: repo.clone_url,
+      created_at: repo.created_at ?? null,
+      pushed_at: repo.pushed_at ?? null,
+      ...(repo.default_branch ? { default_branch: repo.default_branch } : {}),
       ...(connectionId ? { githubConnectionId: connectionId } : {}),
     })),
     hasMore: body.hasMore === true,
@@ -139,6 +182,31 @@ export async function fetchGithubInstallationReposPage(
     manageUrl: body.manageUrl ?? null,
     totalCount: body.totalCount,
   }
+}
+
+/** Poll GitHub while the context-repository step is open so a new repo can appear. */
+export function githubContextRepoPollMs(
+  step: "select" | "context",
+): number | false {
+  return step === "context" ? 4000 : false
+}
+
+export function suggestedContextRepository<T extends { name: string }>(
+  repos: readonly T[],
+): T | undefined {
+  return repos.find((repo) => isCtxpipeContextRepositoryName(repo.name))
+}
+
+export function resolvedContextRepository<
+  T extends { id: number; name: string },
+>(
+  repos: readonly T[],
+  args: { picked: boolean; selectedId: number | null },
+): T | null {
+  if (args.picked) {
+    return repos.find((repo) => repo.id === args.selectedId) ?? null
+  }
+  return suggestedContextRepository(repos) ?? null
 }
 
 export function selectedCloneUrlKeys(

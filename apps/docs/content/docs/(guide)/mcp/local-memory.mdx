@@ -1,31 +1,81 @@
 ---
 title: Local memory
-description: Markdown-only local agent memory under .ai/memory with candidate capture hooks (ADR-024).
+description: How ctx| helps coding agents remember what your team teaches them, keep it in Git, and share it through your knowledge graph.
 ---
 
-Local memory gives coding agents durable, repo-local project knowledge as
-**Markdown under `.ai/memory/`**, with host hooks that capture candidates into a
-gitignored inbox. Agents promote confirmed facts with capture skills and navigate
-via `index.md` routers — no local memory daemon and no `ctxpipe-memory` MCP.
-
-Use it when you want agents to remember architecture decisions, conventions,
-glossary terms, and curated notes across chats and tools, while keeping useful
-memory reviewable in Git.
-
-<Callout title="Markdown-only (ADR-024)">
-  Install with `npx ctxpipe memory init` (or `npx ctxpipe init --memory`). Hooks
-  write candidates only; durable ADRs and lessons are promoted by the agent.
+<Callout type="info" title="This page changes often">
+  Local memory builds on features of coding agents (Cursor, Claude Code, Codex,
+  OpenCode, VS Code) that change from month to month, and on ideas about agent
+  memory that are still settling. Expect this page and `ctxpipe memory init` to
+  change frequently. After upgrading the CLI, re-run `npx ctxpipe memory init`
+  to pick up the latest hooks, rules, and skills.
 </Callout>
 
-## How it fits with ctx| MCP
+## What it is
 
-| Surface | What it does |
-| --- | --- |
-| `ctxpipe` (remote MCP) | Organization-scoped context from repositories, connectors, the knowledge graph, and `ctx_advisor`. |
-| Local memory (this page) | Repo-scoped Markdown under `.ai/memory/` plus host capture hooks — **not** an MCP server. |
+Local memory is a folder of Markdown files, `.ai/memory/`, that lives in your
+repository. Coding agents read it when they start a task and add to it when they
+learn something worth keeping: a convention, a decision, or a correction from an
+engineer.
 
-You can use local memory alone (`memory init`) or next to the remote `ctxpipe` MCP
-(`init --memory`).
+It is plain files in Git. There is no database and no background service, and
+nothing leaves your machine until you commit and push.
+
+## Why it exists
+
+Agents forget. Every new chat starts from scratch, so engineers end up repeating
+the same corrections ("we use pnpm here", "don't call that API directly"). Local
+memory keeps those lessons:
+
+- **Across chats and tools.** What one agent learns, the next one reads, whether
+  it runs in Cursor, Claude Code, Codex, OpenCode, or VS Code.
+- **With your team.** Memory is committed and reviewed like code, so a lesson one
+  engineer teaches reaches everyone once it merges.
+- **In ctx|.** When the repository is connected, merged lessons become part of
+  your organization's knowledge graph, and `ctx_advisor` passes them on to agents
+  working in other repositories too.
+
+## How it works
+
+1. **The agent notices.** When you tell an agent something that sounds lasting
+   ("from now on…", "we decided…"), a small hook saves it as a *candidate* in
+   `.ai/memory/events/`. Candidates stay on your machine; that folder is
+   gitignored.
+2. **The agent decides.** When the agent finishes its turn, the hook shows it the
+   candidates. The agent writes the ones worth keeping into the right file (for
+   example `lessons-learned.md`, or a new decision record) and discards the rest.
+   Hooks never write lasting memory themselves.
+3. **You commit it with the work.** Memory changes go in the same commit and pull
+   request as the code they came from. If memory is left uncommitted, the agent
+   is reminded once, and again if a later commit leaves it out.
+4. **The pull request tells the story.** The agent summarizes the work in the
+   pull request description: what changed, why, what was tried and ruled out, and
+   what is left. That description is reviewed with the code.
+5. **ctx| learns from what merges.** After merge, ctx| reads
+   `lessons-learned.md` as instructions for how your team works, decision records
+   as decisions, and, where pull request mirroring is enabled, pull request
+   descriptions as the history behind each change.
+
+## What each agent gets
+
+Paths are for repository scope. With `--scope user`, the same files go in your
+home directory.
+
+| Agent | Capture and reminders | Instructions |
+| --- | --- | --- |
+| Cursor | Hooks in `.cursor/hooks.json` | `.cursor/rules/ai-memory.mdc` and skills in `.cursor/skills/` |
+| Claude Code | Hooks in `.claude/settings.json` | `.claude/rules/ai-memory.md` and skills in `.claude/skills/` |
+| Codex | Hooks in `.codex/config.toml` | A block in `AGENTS.md` |
+| VS Code (Copilot) | Hooks in `.github/hooks/ctxpipe-memory.json` | `.github/copilot-instructions.md` |
+| OpenCode | Plugin in `.opencode/plugins/ctxpipe-memory.js` | `.opencode/memory-capture.md` and `AGENTS.md` |
+
+- **Codex** runs project hooks only after you trust the project and approve the
+  hooks in `/hooks`.
+- **VS Code** agent hooks are in preview.
+- **OpenCode** has no end-of-turn hook yet, so the plugin posts the reminder as a
+  new message after the agent finishes.
+- **Cursor and VS Code** can also run Claude Code hooks from
+  `.claude/settings.json`. ctxpipe detects this so capture runs once per turn.
 
 ## Install
 
@@ -33,65 +83,58 @@ You can use local memory alone (`memory init`) or next to the remote `ctxpipe` M
 npx ctxpipe memory init --agents cursor,claude --scope repo --non-interactive
 ```
 
-Or with the main wizard (includes optional remote MCP):
+Or with the main setup wizard, which also configures the ctx| MCP:
 
 ```bash
 npx ctxpipe init --org acme --agents cursor,claude --scope repo --memory --non-interactive
 ```
 
-Init seeds `.ai/memory/` (indexes, lessons, decisions, PRDs, sessions, events),
-installs the `ai-memory` rule and capture / `memory-search` skills, and wires
-capture for the agents you select:
+`--agents` takes any of `cursor`, `claude`, `codex`, `opencode`, and `vscode`.
+`--scope` is `repo` (the default), `user`, or `both`.
 
-- **Cursor, Claude, Codex** — host lifecycle hooks call `memory capture observe|finalize`.
-- **OpenCode, VS Code Copilot** — instruction files that tell the agent to run the same
-  capture CLI (those hosts lack equivalent Stop-hook wiring).
-
-## Layout
+## What's in the folder
 
 ```
 .ai/memory/
-  README.md
-  index.md
-  lessons-learned.md
-  glossary.md
-  product-context.md
-  decisions/index.md + ADR-*.md
-  PRDs/
-  sessions/
-  events/          # gitignored candidate inbox
+  README.md            # how agents should use this folder
+  index.md             # map of the stores below
+  lessons-learned.md   # confirmed conventions and corrections
+  glossary.md          # project terms
+  product-context.md   # product and architecture overview
+  decisions/           # decision records (ADR-*.md) + index.md
+  PRDs/                # product requirements + index.md
+  sessions/            # summaries of work that has no pull request
+  events/              # candidate inbox, gitignored
 ```
 
-## Capture and promote
+## Local memory and the ctx| MCP
 
-1. Capture CLI (`observe` / `finalize`) runs from host hooks or agent instructions
-   (fail-open).
-2. Candidates land in `.ai/memory/events/` (not committed).
-3. Stop/summary surfaces a short promotion list — capture **never** writes durable ADRs.
-4. Agents write durable Markdown with `capture-adr`, `capture-lesson`,
-   `capture-glossary`, or `capture-decision`, **update the matching `index.md`**, then
-   run `memory capture promote|dismiss <id>` so candidates leave the surfaced set.
+| | What it does |
+| --- | --- |
+| `ctxpipe` MCP (`ctx_advisor`) | Answers from your organization's knowledge graph: every connected repository, connector, and decision. |
+| Local memory (this page) | Markdown in one repository plus agent hooks. It is not an MCP server. |
 
-## Recall
+You can use local memory on its own (`memory init`) or alongside the ctx| MCP
+(`init --memory`). Together, local memory is how agents learn, and the MCP is how
+that learning reaches every agent in your organization.
 
-No embeddings search process. Prefer `index.md` routers, then:
+## Finding things in memory
+
+Agents start from `index.md` and each store's own `index.md`. For anything else
+they search with ripgrep, skipping the candidate inbox:
 
 ```bash
 rg -i "keyword" .ai/memory --glob '*.md' --glob '!events/**'
 ```
 
-See the installed `memory-search` skill for the full procedure.
+The installed `memory-search` skill describes the full procedure.
 
-## Upgrade from older local memory
+## Checking and upgrading
 
-Re-run `npx ctxpipe memory init`. Init strips retired `ctxpipe-memory` MCP
-entries (including Codex `config.toml`), ConKeeper memory skills, replaces
-AgentMemory-era `.ai/memory/README.md` when detected, refreshes managed capture /
-`memory-search` skills, and migrates `patterns.md` into `lessons-learned.md` when
-present.
-
-## Related
-
-- CLI: `npx ctxpipe memory status|doctor`
-- Capture skills and the `memory-search` skill are installed into your agent
-  skills directory on init.
+- `npx ctxpipe memory status` and `npx ctxpipe memory doctor` show whether memory
+  is set up and list any memory files that are not committed yet.
+- Re-run `npx ctxpipe memory init` after upgrading the CLI. It refreshes the
+  rules, skills, and hooks, and keeps your own memory files. It also removes
+  retired pieces from older versions: the `ctxpipe-memory` MCP entry, old memory
+  skills, and an AgentMemory-era `README.md`, and it moves `patterns.md` into
+  `lessons-learned.md`.

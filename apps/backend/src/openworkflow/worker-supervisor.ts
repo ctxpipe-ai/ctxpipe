@@ -12,8 +12,11 @@ import { dirname, resolve } from "node:path"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
 import postgres from "postgres"
+import { openworkflowWorkerStartArgs } from "./codesearchCapacity.js"
+import { openWorkflowNamespaceId } from "./namespace.js"
 
-const DEFAULT_NAMESPACE_ID = "default"
+/** Same namespace the worker claims from; PR previews run in `preview-pr-N`, not `default`. */
+const NAMESPACE_ID = openWorkflowNamespaceId()
 const DEFAULT_SCHEMA = "openworkflow"
 const DEFAULT_IDLE_EXIT_SEC = 660
 const DEFAULT_POLL_MS = 10_000
@@ -63,16 +66,16 @@ const staleAfterHours = Math.max(
 async function isWorkflowSystemIdle(sql: postgres.Sql): Promise<boolean> {
   const query = `SELECT (
       (SELECT COUNT(*)::bigint FROM ${openWorkflowSchema}.workflow_runs
-        WHERE namespace_id = '${DEFAULT_NAMESPACE_ID}'
+        WHERE namespace_id = $1
         AND status IN ('pending', 'running', 'sleeping')
         AND COALESCE(started_at, created_at) >= (NOW() - (${staleAfterHours} * INTERVAL '1 hour')))
       +
       (SELECT COUNT(*)::bigint FROM ${openWorkflowSchema}.step_attempts
-        WHERE namespace_id = '${DEFAULT_NAMESPACE_ID}'
+        WHERE namespace_id = $1
         AND status = 'running'
         AND COALESCE(started_at, created_at) >= (NOW() - (${staleAfterHours} * INTERVAL '1 hour')))
     ) AS busy`
-  const rows = await sql.unsafe(query)
+  const rows = await sql.unsafe(query, [NAMESPACE_ID])
   const row = rows[0] as { busy: string | bigint } | undefined
   const busy = Number(row?.busy ?? 1)
   return busy === 0
@@ -97,7 +100,7 @@ function shouldIdleExitOnEmptyQueue(): boolean {
 }
 
 function runOpenworkflowWorkerDirect(backendRoot: string): ChildProcess {
-  return spawn("bunx", ["@openworkflow/cli", "worker", "start"], {
+  return spawn("bunx", openworkflowWorkerStartArgs(), {
     cwd: backendRoot,
     stdio: "inherit",
     env: process.env,
@@ -126,7 +129,7 @@ async function main() {
 
   const sql = postgres(databaseUrl, { max: 1 })
 
-  const child = spawn("bunx", ["@openworkflow/cli", "worker", "start"], {
+  const child = spawn("bunx", openworkflowWorkerStartArgs(), {
     cwd: backendRoot,
     stdio: "inherit",
     env: process.env,

@@ -1,11 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { createError } from "evlog"
 import { z } from "zod"
-import {
-  requireCurrentOrgId,
-  requireCurrentOrgSlug,
-  requireCurrentUserId,
-} from "../auth/context.js"
+import { currentMcpActor, requireCurrentOrgId } from "../auth/context.js"
 import { advisorWorkspaceId } from "../domain/workspaces/chat-sandbox-policy.js"
 import { collectTanstackWorkspaceChatText } from "../domain/workspaces/tanstack-workspace-chat.js"
 import {
@@ -14,9 +10,12 @@ import {
 } from "../domain/workspaces/workspace-chat-send-runtime.js"
 import { generateObjectId } from "../lib/id.js"
 import { discardUnstartedConversation } from "../models/conversations.js"
-import { getOrgFirstWorkspace, listWorkspaces } from "../models/workspaces.js"
-import { trackMcpToolInvocation } from "../observability/amplitude.js"
+import {
+  getOrgFirstWorkspace,
+  listOrgWorkspaces,
+} from "../models/workspaces.js"
 import { runWithLangfuseContext } from "../observability/langfuse.js"
+import { mcpAdvisorThreadId, mcpClientConversationId } from "./advisorThread.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -30,7 +29,7 @@ export function registerMcpTools(server: McpServer): void {
         "Deprecated Workspace chat shim (ctx_advisor) — first Workspace only",
       description: [
         "DEPRECATED. ctx_advisor is a compatibility shim for Workspace chat on the organisation's first Workspace. There is no workspace.id argument and no org-wide advisor. Zero Workspaces → fail; create a Workspace first.",
-        "Each invocation starts a new hidden MCP conversation (no cross-call memory).",
+        "Reuse the same conversationId (and currentProjectName) to continue one MCP thread. Omit conversationId to start a new thread.",
         "MANDATORY default: Call ctx_advisor early and often whenever org standards, architecture, tooling choices, or plans are involved. When in doubt, call — more calls beats too few. This is the single entrypoint to your organization's knowledge graph (CoALA, memory engine, indexed org context).",
         "",
         "RISK — Skipping ctx_advisor risks rework, diverging from org patterns, violating ADRs, and introducing technology that isn't allowed.",
@@ -82,22 +81,16 @@ export function registerMcpTools(server: McpServer): void {
       ].join("\n"),
       inputSchema: z.object({
         prompt: z.string().min(1),
-        currentProjectName: z.string().optional(),
-        conversationId: z.string().optional(),
+        currentProjectName: z.string().max(128).optional(),
+        conversationId: z.string().max(256).optional(),
       }),
     },
     async ({ prompt, currentProjectName, conversationId }, extra) => {
-      const userId = requireCurrentUserId()
-      // No-op when `AMPLITUDE_API_KEY` unset (`observability/amplitude.ts`).
-      trackMcpToolInvocation({
-        userId,
-        orgId: requireCurrentOrgId(),
-        orgSlug: requireCurrentOrgSlug(),
-        toolName: "ctx_advisor",
-      })
-      const [{ items }, first] = await Promise.all([
-        listWorkspaces(),
-        getOrgFirstWorkspace(requireCurrentOrgId()),
+      const actor = currentMcpActor()
+      const orgId = requireCurrentOrgId()
+      const [items, first] = await Promise.all([
+        listOrgWorkspaces(orgId),
+        getOrgFirstWorkspace(orgId),
       ])
       const workspaceId = advisorWorkspaceId(first?.workspaceId ?? null, items)
       if (!workspaceId) {
@@ -107,21 +100,32 @@ export function registerMcpTools(server: McpServer): void {
           why: "Deprecated advisor targets the first Workspace; the org has none",
         })
       }
-      void conversationId
-      const threadId = generateObjectId("conv")
+      const clientConversationId = mcpClientConversationId(conversationId)
+      const threadId = clientConversationId
+        ? mcpAdvisorThreadId({
+            orgId,
+            actor,
+            currentProjectName,
+            conversationId: clientConversationId,
+          })
+        : generateObjectId("conv")
       const promptWithProject = currentProjectName
         ? `Project: ${currentProjectName}\n\n${prompt}`
         : prompt
       try {
         return await runWithLangfuseContext(
-          { sessionId: threadId, tags: ["mcp"] },
+          {
+            sessionId: threadId,
+            tags:
+              actor.type === "org-service" ? ["mcp", "mcp-org-key"] : ["mcp"],
+          },
           async () => {
             const progressToken = extra._meta?.progressToken
             let progress = 0
             const collected = await collectTanstackWorkspaceChatText({
               conversationId: threadId,
               prompt: promptWithProject,
-              orgId: requireCurrentOrgId(),
+              orgId,
               workspaceId,
               writeStatus: "read_only",
               resolveRuntime: () =>

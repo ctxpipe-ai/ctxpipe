@@ -56,5 +56,5 @@ On Settings, each linked repo is **Indexed**, or still **Indexing** / **Pending*
 ## Status
 
 - **PASS** — `hydrateStatus === "ready"`, files/tree is 200, graph is not blocked by hydrate (graph area still runs its own checks).
-- **FAIL** — still `failed` after retry, 409 tree after ready, or worker never ran (attach analyze-logs).
+- **FAIL** — still `failed` after retry, 409 tree after ready, or worker never ran (attach Railway logs via [observability](../../observability/SKILL.md)).
 - **SKIP** — no workspace in the org (record; later areas that need a workspace FAIL).

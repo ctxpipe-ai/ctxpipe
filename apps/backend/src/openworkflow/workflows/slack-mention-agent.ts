@@ -23,6 +23,7 @@ import {
   captureSlackThreadFiles,
   githubBlobUrl,
 } from "../../services/slack/sync.js"
+import { isWorkflowControlSignal } from "../isSleepSignal.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
 const slackMentionAgentInputSchema = z.object({
@@ -139,6 +140,7 @@ export const slackMentionAgent = defineWorkflow(
                 { name: "commit-slack-mirror" },
               )
               .catch(async (error) => {
+                if (isWorkflowControlSignal(error)) throw error
                 const failure = await getSlackMentionMirrorFailure({
                   orgId: input.orgId,
                   connectionId: input.connectionId,

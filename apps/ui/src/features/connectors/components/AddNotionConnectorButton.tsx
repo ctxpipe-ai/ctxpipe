@@ -5,111 +5,63 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { toast } from "sonner"
 import { Spinner } from "@/components/ui/spinner"
+import { useNotionOAuthConnect } from "../hooks/useNotionOAuthConnect"
 import {
-  consumeNotionSetupPopupResult,
-  NOTION_POPUP_NAME,
-  NOTION_SETUP_RESULT_KEY,
-  openCenteredPopup,
-  useWatchPopupClose,
-} from "@/lib/popup"
-import {
-  fetchNotionOAuthStart,
-  NotionOAuthNotConfiguredError,
+  createDraftNotionConnection,
+  fetchNotionOauthApp,
 } from "../queries/notion-connector"
-import {
-  fetchOrgConnections,
-  orgConnectionsKeys,
-} from "../queries/org-connections"
+import { orgConnectionsKeys } from "../queries/org-connections"
 
 export type AddNotionConnectorButtonProps = {
   orgSlug: string
   onFlowStarted?: () => void
   onFlowFinished?: (result: { connectionId?: string }) => void
-  onConfigurationRequired?: () => void
+  onRegisterRequired?: (result: { connectionId: string }) => void
 }
 
 export function AddNotionConnectorButton({
   orgSlug,
   onFlowStarted,
   onFlowFinished,
-  onConfigurationRequired,
+  onRegisterRequired,
 }: AddNotionConnectorButtonProps) {
   const queryClient = useQueryClient()
-  const watchPopupClose = useWatchPopupClose()
-  const [busy, setBusy] = useState(false)
-
-  const finishFlow = async () => {
-    try {
-      const result = consumeNotionSetupPopupResult()
-      if (result.status === "error") {
-        toast.error(result.error)
-        onFlowFinished?.({})
-        return
-      }
-      await queryClient.invalidateQueries({
-        queryKey: orgConnectionsKeys.list(orgSlug),
-      })
-      const items = await queryClient.fetchQuery({
-        queryKey: orgConnectionsKeys.list(orgSlug),
-        queryFn: () => fetchOrgConnections(orgSlug),
-      })
-      if (result.status === "connected") {
-        onFlowFinished?.({ connectionId: result.connectionId })
-        return
-      }
-      const latestNotion = items
-        .filter((item) => item.type === "notion")
-        .sort(
-          (a, b) =>
-            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-        )[0]
-      onFlowFinished?.({ connectionId: latestNotion?.id })
-    } catch (e) {
-      toast.error(
-        e instanceof Error ? e.message : "Failed to refresh connectors",
-      )
-      onFlowFinished?.({})
-    }
-  }
+  const oauth = useNotionOAuthConnect(orgSlug)
+  const [creating, setCreating] = useState(false)
+  const busy = creating || oauth.busy
 
   const handleClick = async () => {
     onFlowStarted?.()
-    setBusy(true)
+    setCreating(true)
     try {
-      const { authorizationUrl } = await fetchNotionOAuthStart(orgSlug)
-      const popup = openCenteredPopup(authorizationUrl, {
-        name: NOTION_POPUP_NAME,
-        width: 1120,
-        height: 780,
+      const draft = await createDraftNotionConnection(orgSlug)
+      await queryClient.invalidateQueries({
+        queryKey: orgConnectionsKeys.list(orgSlug),
       })
-      if (!popup) {
-        setBusy(false)
+      const oauthApp = await fetchNotionOauthApp(orgSlug, draft.id)
+      if (
+        !oauthApp.globalNotionOAuthConfigured &&
+        !oauthApp.oauthAppSaved
+      ) {
+        onRegisterRequired?.({ connectionId: draft.id })
         return
       }
-      let handled = false
-      const handleFinished = () => {
-        if (handled) return
-        handled = true
-        window.removeEventListener("storage", handleStorage)
-        setBusy(false)
-        void finishFlow()
-      }
-      const handleStorage = (event: StorageEvent) => {
-        if (event.key !== NOTION_SETUP_RESULT_KEY) return
-        popup.close()
-        handleFinished()
-      }
-      window.addEventListener("storage", handleStorage)
-      watchPopupClose(popup, () => {
-        handleFinished()
+      oauth.start({
+        connectionId: draft.id,
+        onFinished: (result) => {
+          onFlowFinished?.(result)
+        },
+        onNotConfigured: () => {
+          onRegisterRequired?.({ connectionId: draft.id })
+        },
       })
-    } catch (e) {
-      setBusy(false)
-      if (e instanceof NotionOAuthNotConfiguredError) {
-        onConfigurationRequired?.()
-        return
-      }
-      toast.error(e instanceof Error ? e.message : "Failed to connect Notion")
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to connect Notion",
+      )
+      onFlowFinished?.({})
+    } finally {
+      setCreating(false)
     }
   }
 

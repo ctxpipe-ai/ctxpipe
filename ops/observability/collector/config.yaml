@@ -1,0 +1,88 @@
+# ClickStack merge file, loaded last. Confmap replaces arrays: do not redefine otlp/hyperdx, memory_limiter, batch, the clickhouse exporter, the base logs transform, or service.telemetry (base already exposes :8888).
+# Traces pipeline is restated for clickstack-otel-collector:2.39.1 (receiver otlp/hyperdx). Re-check that list when the image tag changes.
+# metrics/self scrapes the collector and ClickHouse.
+
+receivers:
+  # The prometheus receiver copies target_info{service_name} over the job label.
+  prometheus/self:
+    config:
+      global:
+        scrape_interval: 60s
+        scrape_timeout: 10s
+      scrape_configs:
+        - job_name: otel-collector
+          static_configs:
+            - targets: ["127.0.0.1:8888"]
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: target_info
+              action: drop
+        - job_name: clickhouse
+          static_configs:
+            - targets: ["clickhouse.railway.internal:9363"]
+          # /metrics exposes thousands of series. A 1 GiB ClickHouse node OOMs
+          # inserting that every 60s. Keep the Observability Stack dashboard
+          # names plus a small unlabeled health set (no ZooKeeper, no per-error
+          # or per-interface series).
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: "ClickHouseMetrics_(Query|Merge|BackgroundMergesAndMutationsPoolTask|BackgroundFetchesPoolTask|BackgroundCommonPoolTask|BackgroundSchedulePoolTask|TCPConnection|HTTPConnection|InterserverConnection|Read|Write|QueryThread|MemoryTracking|DelayedInserts|GlobalThreadActive|PartsCommitted|PartsActive)|ClickHouseProfileEvents_(Query|SelectQuery|InsertQuery|FailedQuery|FailedSelectQuery|FailedInsertQuery|InsertedRows|InsertedBytes|SelectedRows|SelectedBytes|DelayedInserts|Merge|MergedRows|MergedUncompressedBytes|NetworkReceiveBytes|NetworkSendBytes|OSReadBytes|OSWriteBytes)|ClickHouseAsyncMetrics_(MemoryResident|jemalloc_resident|TotalPartsOfMergeTreeTables|MaxPartCountForPartition|Uptime|FilesystemMainPathUsedBytes|FilesystemMainPathTotalBytes)"
+              action: keep
+
+processors:
+  # Browser RUM is service.name=ui. ClickHouse keeps it; Langfuse must not.
+  filter/llm_only:
+    error_mode: ignore
+    traces:
+      span:
+        - 'resource.attributes["service.name"] == "ui" or not ((attributes["gen_ai.system"] != nil) or (attributes["gen_ai.operation.name"] != nil) or (attributes["gen_ai.request.model"] != nil) or (attributes["gen_ai.response.model"] != nil) or (attributes["gen_ai.provider.name"] != nil) or (attributes["gen_ai.usage.input_tokens"] != nil) or (attributes["gen_ai.usage.output_tokens"] != nil) or (attributes["gen_ai.response.id"] != nil) or (attributes["gen_ai.conversation.id"] != nil) or (attributes["gen_ai.tool.name"] != nil) or (attributes["gen_ai.tool.call.id"] != nil) or (attributes["gen_ai.tool.type"] != nil) or (attributes["gen_ai.data_source.id"] != nil) or (attributes["gen_ai.agent.name"] != nil) or (attributes["gen_ai.request.choice.count"] != nil) or (attributes["gen_ai.response.finish_reasons"] != nil) or IsMatch(instrumentation_scope.name, "(?i).*(langfuse|langchain|langgraph).*"))'
+  batch/langfuse:
+    timeout: 5s
+    send_batch_size: 512
+  # ClickHouse traces only. traces/llm does not use this processor.
+  transform/redact_llm_content:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - 'delete_matching_keys(span.attributes, "^(langfuse\\.observation\\.(input|output)$|gen_ai\\.(prompt|completion|input\\.messages|output\\.messages))")'
+      - context: spanevent
+        statements:
+          - 'delete_matching_keys(spanevent.attributes, "^(langfuse\\.observation\\.(input|output)$|gen_ai\\.(prompt|completion|input\\.messages|output\\.messages))")'
+  # Error spans stay. Stateless drop; tail sampling would buffer in-flight traces.
+  filter/ops_self_noise:
+    error_mode: ignore
+    traces:
+      span:
+        - 'resource.attributes["deployment.environment"] == "observability" and status.code != STATUS_CODE_ERROR and (IsMatch(name, "^middleware - ") or name == "router - /health" or IsMatch(name, "(?i)^(mongodb|mongoose)[.](hello|ismaster|ping)$") or ((attributes["db.system"] == "mongodb" or attributes["db.system"] == "mongoose") and (IsMatch(attributes["db.operation"], "(?i)^(hello|ismaster|ping)$") or IsMatch(attributes["db.operation.name"], "(?i)^(hello|ismaster|ping)$"))) or (IsRootSpan() and (IsMatch(name, "^periodic-runner[.]") or IsMatch(name, "queue-metrics"))) or name == "tcp.connect" or name == "tls.connect" or name == "dns.lookup")'
+  resource/self:
+    attributes:
+      - key: deployment.environment
+        value: observability
+        action: upsert
+      - key: service.namespace
+        value: ctxpipe
+        action: upsert
+
+exporters:
+  otlphttp/langfuse:
+    endpoint: "http://langfuse-web.railway.internal:3000/api/public/otel"
+    headers:
+      Authorization: "Basic ${env:LANGFUSE_AUTH_STRING}"
+      x-langfuse-ingestion-version: "4"
+
+service:
+  pipelines:
+    # memory_limiter then batch stay in that order.
+    traces:
+      receivers: [otlp/hyperdx]
+      processors: [memory_limiter, filter/ops_self_noise, transform/redact_llm_content, batch]
+      exporters: [clickhouse]
+    traces/llm:
+      receivers: [otlp/hyperdx]
+      processors: [filter/llm_only, batch/langfuse]
+      exporters: [otlphttp/langfuse]
+    metrics/self:
+      receivers: [prometheus/self]
+      processors: [memory_limiter, resource/self, batch]
+      exporters: [clickhouse]

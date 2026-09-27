@@ -10,7 +10,7 @@ npx ctxpipe init
 
 This opens an interactive wizard with repo/global setup scope selection, detected agent defaults, multi-select client setup, and a final change summary before anything is written.
 
-If no organization is supplied, the wizard signs you in with a browser/device-code flow, loads your ctx| organizations, and lets you choose one. MCP clients still perform their own OAuth later when they first use ctx|.
+If no organization is supplied, the wizard signs you in with a browser/device-code flow, loads your ctx| organizations, and lets you choose one. MCP clients still perform their own OAuth later when they first use ctx|. Pass `--auth api-key` to write a client-specific interpolation of `CTXPIPE_API_KEY` (not the secret) into repo or user MCP config. Set `CTXPIPE_API_KEY` in the **MCP client** process; `init` and `mcp add` do not consume that variable. `npx ctxpipe doctor mcp` does send `x-api-key` when `CTXPIPE_API_KEY` is set in that process. GUI apps often do not inherit the shell that ran `npx ctxpipe` — see [Set CTXPIPE_API_KEY](https://docs.ctxpipe.ai/docs/mcp/mcp-docs#set-ctxpipe_api_key).
 
 **Setup credentials:** the CLI stores setup-auth tokens in the **OS keychain** when available (`@napi-rs/keyring`). If the keychain cannot be used (headless Linux, unsupported environment), it falls back to a file under `~/.config/ctxpipe/` and prints a one-time notice to stderr.
 
@@ -29,6 +29,7 @@ Use **`npx ctxpipe <command> --help`** for full flags (for example `npx ctxpipe 
 ```bash
 npx ctxpipe init --org acme --agents codex,claude --scope repo --non-interactive
 npx ctxpipe mcp add --org acme --client cursor --scope user --non-interactive
+npx ctxpipe mcp add --org acme --client cursor --scope both --auth api-key --non-interactive
 npx ctxpipe memory init --agents cursor --non-interactive
 npx ctxpipe doctor --json
 ```
@@ -47,13 +48,20 @@ NODE_EXTRA_CA_CERTS="$HOME/.portless/ca.pem" \
 npx ctxpipe doctor mcp \
   --url "https://app.example.com/mcp?orgSlug=acme" \
   --json
+
+# API-key initialize (reads CTXPIPE_API_KEY from this process)
+CTXPIPE_API_KEY=ctxp_... npx ctxpipe doctor mcp \
+  --url "https://app.example.com/mcp"
 ```
 
 The command checks backend reachability, the unauthenticated Bearer challenge,
 RFC 9728 protected-resource metadata, and RFC 8414 authorisation-server
-metadata. A `ready-for-oauth` result means discovery is coherent; it does not
-prove that browser OAuth, authenticated tools, or `ctx_advisor` work. The doctor
-does not accept bearer tokens and does not test STDIO servers.
+metadata. If `CTXPIPE_API_KEY` is set in the doctor process, it sends `x-api-key`
+on initialize and a `ready-for-api-key` result means HTTP 2xx initialize
+succeeded. Without the variable, a `ready-for-oauth` result means discovery is
+coherent; it does not prove that browser OAuth, authenticated tools, or
+`ctx_advisor` work. The doctor does not accept bearer tokens and does not test
+STDIO servers.
 
 Use the external, version-pinned MCPJam CLI for the authenticated part of the
 investigation:

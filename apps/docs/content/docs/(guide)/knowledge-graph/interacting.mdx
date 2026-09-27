@@ -29,6 +29,21 @@ Use **Copy id** when you need a stable node identifier for a bug report,
 developer task, or API query. Use **Copy link** to share a graph URL with the
 node already selected.
 
+## Reading claim metadata
+
+Claim metadata helps you decide what to investigate:
+
+- **First seen** and **Last seen** describe when ctx| observed supporting
+  evidence. They do not prove the relationship still exists in the current
+  source.
+- **Confidence** helps retrieval and ranking. It is not a correctness score or
+  approval signal.
+- Claim direction and neighboring nodes show how the selected concept is
+  connected to the rest of the returned graph.
+
+Use these signals to find relevant source, then verify important relationships
+before making a risky change.
+
 ## Focus and Neighbor Navigation
 
 Use **Focus** to recenter the selected node. Click strongest connections or

@@ -72,6 +72,7 @@ export type NativeHydrationOptions = {
   slackCaptureIntent?: boolean
   slackResponses?: Record<string, unknown>
   onSlackRequest?: (method: string, body: unknown) => void
+  pagerdutyResponses?: Record<string, { status?: number; body?: unknown }>
   confluenceResponses?: Record<string, { status?: number; body: unknown }>
   embeddings?: "ready" | "failed" | "empty"
   missingTip?: boolean
@@ -129,6 +130,22 @@ async function createNativeHydrationFixture(
           ),
         ]
       : []),
+    http.get(
+      "https://api.github.com/repos/fixture/hydration-contract/pulls/:number/files",
+      () => HttpResponse.json([]),
+    ),
+    http.get(
+      "https://api.github.com/repos/fixture/hydration-contract/pulls/:number/reviews",
+      () => HttpResponse.json([]),
+    ),
+    http.get(
+      "https://api.github.com/repos/fixture/hydration-contract/pulls/:number/comments",
+      () => HttpResponse.json([]),
+    ),
+    http.get(
+      "https://api.github.com/repos/fixture/hydration-contract/issues/:number/comments",
+      () => HttpResponse.json([]),
+    ),
     http.get(
       "https://api.github.com/repos/fixture/hydration-contract/pulls/:number",
       async () => {
@@ -324,6 +341,20 @@ async function createNativeHydrationFixture(
             })
       },
     ),
+    http.all("https://api.pagerduty.com/*", ({ request }) => {
+      const path = new URL(request.url).pathname
+      const response = options.pagerdutyResponses?.[path]
+      return HttpResponse.json(response?.body ?? { error: "Not Found" }, {
+        status: response?.status ?? (response ? 200 : 404),
+      })
+    }),
+    http.all("https://api.eu.pagerduty.com/*", ({ request }) => {
+      const path = new URL(request.url).pathname
+      const response = options.pagerdutyResponses?.[path]
+      return HttpResponse.json(response?.body ?? { error: "Not Found" }, {
+        status: response?.status ?? (response ? 200 : 404),
+      })
+    }),
     http.all("https://slack.com/api/:method", async ({ params, request }) => {
       const method = String(params.method)
       options.onSlackRequest?.(

@@ -177,6 +177,43 @@ export async function listConfluenceSyncTargetsWithRepoByRepositoryId(
   })
 }
 
+export async function markAwaitingConfigMergeSetup(input: {
+  connectionId: string
+}): Promise<void> {
+  await requireConfluenceSyncTargetWrite(input.connectionId, async (db) => {
+    const [row] = await db
+      .update(confluenceSyncTargets)
+      .set({
+        setupPhase: "awaiting_merge",
+        pendingConfigPrCreating: true,
+        updatedAt: new Date(),
+      })
+      .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
+      .returning({ id: confluenceSyncTargets.id })
+    return row
+  })
+}
+
+/** After config push webhook: first full reconcile from Git before flipping to `live`. */
+export async function markConfluenceSyncTargetInitialSync(input: {
+  connectionId: string
+}): Promise<void> {
+  await requireConfluenceSyncTargetWrite(input.connectionId, async (db) => {
+    const [row] = await db
+      .update(confluenceSyncTargets)
+      .set({
+        setupPhase: "initial_sync",
+        pendingConfigPullUrl: null,
+        pendingConfigPrCreating: false,
+        enabled: true,
+        updatedAt: new Date(),
+      })
+      .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
+      .returning({ id: confluenceSyncTargets.id })
+    return row
+  })
+}
+
 export async function setPendingConfigPrCreating(input: {
   connectionId: string
   pendingConfigPrCreating: boolean

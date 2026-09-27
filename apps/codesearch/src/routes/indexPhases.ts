@@ -4,6 +4,11 @@ import type { AppEnv } from "../app/env.js"
 import { checkoutKeyFromAuth, indexCheckoutFromAuth } from "../auth/jwt.js"
 import { isTransientDbConnectionError } from "../db/transient.js"
 import { withRepositoryIndexOperation } from "../domain/indexing/indexConcurrency.js"
+import {
+  releaseIndexPipelineReference,
+  releaseIndexPipelineReservation,
+  tryAcquireIndexPipeline,
+} from "../domain/indexing/indexPipelineAdmission.js"
 import { userFacingIndexingError } from "../domain/indexing/memoryFitError.js"
 import {
   type IndexPhaseRepoContext,
@@ -29,6 +34,10 @@ import {
   getLogger,
   withLogger,
 } from "../observability/logger.js"
+import {
+  repositoryNotFoundBody,
+  repositoryNotFoundResponse,
+} from "./errorBody.js"
 
 const repoIdParam = z
   .string()
@@ -79,6 +88,13 @@ const okResponseSchema = z
   .object({ ok: z.literal(true) })
   .openapi("IndexPhaseOkResponse")
 
+const mergeScipResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    shardCount: z.number().int().nonnegative(),
+  })
+  .openapi("IndexMergeScipResponse")
+
 const detectLanguagesRequestSchema = z
   .object({
     ingestMode: z.enum(["full", "partial"]),
@@ -105,6 +121,7 @@ const scipLangRequestSchema = z
 const mergeScipRequestSchema = z
   .object({
     detectedLanguages: z.array(z.string()),
+    languagesToMerge: z.array(z.string()).optional(),
   })
   .openapi("IndexMergeScipRequest")
 
@@ -125,8 +142,9 @@ const cloneCheckoutRoute = createRoute({
       },
       description: "Clone, checkout, and compute ingest diff",
     },
-    404: { description: "Repository not found" },
     403: { description: "Checkout does not match authenticated workspace" },
+    404: repositoryNotFoundResponse,
+    429: { description: "Index pipeline capacity exceeded" },
     503: { description: "Database not available" },
     500: { description: "Clone/checkout failed" },
   },
@@ -151,7 +169,8 @@ const zoektRoute = createRoute({
       content: { "application/json": { schema: okResponseSchema } },
       description: "Zoekt index built",
     },
-    404: { description: "Repository not found" },
+    404: repositoryNotFoundResponse,
+    429: { description: "Index pipeline capacity exceeded" },
     503: { description: "Database not available" },
     500: { description: "Zoekt indexing failed" },
   },
@@ -175,7 +194,8 @@ const detectLanguagesRoute = createRoute({
       },
       description: "Languages detected for SCIP indexing",
     },
-    404: { description: "Repository not found" },
+    404: repositoryNotFoundResponse,
+    429: { description: "Index pipeline capacity exceeded" },
     503: { description: "Database not available" },
     500: { description: "Language detection failed" },
   },
@@ -198,7 +218,8 @@ const scipLangRoute = createRoute({
       content: { "application/json": { schema: okResponseSchema } },
       description: "Per-language SCIP shard built",
     },
-    404: { description: "Repository not found" },
+    404: repositoryNotFoundResponse,
+    429: { description: "Index pipeline capacity exceeded" },
     503: { description: "Database not available" },
     500: { description: "SCIP indexing failed" },
   },
@@ -215,10 +236,11 @@ const mergeScipRoute = createRoute({
   },
   responses: {
     200: {
-      content: { "application/json": { schema: okResponseSchema } },
+      content: { "application/json": { schema: mergeScipResponseSchema } },
       description: "SCIP shards merged",
     },
-    404: { description: "Repository not found" },
+    404: repositoryNotFoundResponse,
+    429: { description: "Index pipeline capacity exceeded" },
     503: { description: "Database not available" },
     500: { description: "SCIP merge failed" },
   },
@@ -231,7 +253,8 @@ async function resolvePhaseContext(
   options: { checkoutKey: string; githubToken?: string },
 ): Promise<
   | { ok: true; ctx: IndexPhaseRepoContext }
-  | { ok: false; status: 404 | 503; error: string }
+  | { ok: false; status: 503; error: string }
+  | { ok: false; body: typeof repositoryNotFoundBody }
 > {
   let repo: Awaited<ReturnType<typeof getAccessibleRepository>>
   try {
@@ -243,11 +266,7 @@ async function resolvePhaseContext(
     throw error
   }
   if (!repo) {
-    return {
-      ok: false,
-      status: 404,
-      error: "Repository not found or access denied",
-    }
+    return { ok: false, body: repositoryNotFoundBody }
   }
   const checkoutKey = options.checkoutKey
   let indexable: Awaited<ReturnType<typeof getIndexableRepository>>
@@ -260,11 +279,7 @@ async function resolvePhaseContext(
     throw error
   }
   if (!indexable) {
-    return {
-      ok: false,
-      status: 404,
-      error: "Repository not found or access denied",
-    }
+    return { ok: false, body: repositoryNotFoundBody }
   }
   return {
     ok: true,
@@ -288,6 +303,55 @@ async function resolvePhaseContext(
     },
   }
 }
+type PhaseContextFailure =
+  | { ok: false; status: 503; error: string }
+  | { ok: false; body: typeof repositoryNotFoundBody }
+
+function phaseContextErrorResponse(
+  c: { json: (body: unknown, status: 404 | 503) => Response },
+  resolved: PhaseContextFailure,
+): Response {
+  if ("error" in resolved) {
+    return c.json({ error: resolved.error }, resolved.status)
+  }
+  return c.json(resolved.body, 404)
+}
+
+async function withIndexPipelineAdmission(
+  c: {
+    json: (body: { error: string }, status: 429) => Response
+  },
+  repoId: string,
+  fn: () => Promise<Response>,
+): Promise<Response> {
+  const acquired = tryAcquireIndexPipeline(repoId)
+  if (!acquired.ok) {
+    return c.json({ error: "Index pipeline capacity exceeded" }, 429)
+  }
+  try {
+    return await fn()
+  } finally {
+    releaseIndexPipelineReference(repoId)
+  }
+}
+
+async function finishIndexPipelineAdmission(
+  repoId: string,
+  responsePromise: Promise<Response>,
+  reservation: "end-on-error" | "end",
+): Promise<Response> {
+  try {
+    const response = await responsePromise
+    if (reservation === "end" || response.status !== 200) {
+      releaseIndexPipelineReservation(repoId)
+    }
+    return response
+  } catch (error) {
+    releaseIndexPipelineReservation(repoId)
+    throw error
+  }
+}
+
 export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
   app.openapi(cloneCheckoutRoute, async (c) => {
     const db = c.get("db")
@@ -303,42 +367,51 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
         403,
       )
     }
-    return withRepositoryIndexOperation(repoId, async () => {
-      const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
-        githubToken: body.githubToken,
-        checkoutKey,
-      })
-      if (!resolved.ok) {
-        return c.json({ error: resolved.error }, resolved.status)
-      }
-      try {
-        const result = await withLogger(
-          createLogger({
-            repositoryId: resolved.ctx.repoId,
-            phase: "clone-checkout",
-          }),
-          async () => {
-            getLogger().set({
-              step: "codesearch.index.phase.http",
-              phase: "clone-checkout",
-            })
-            getLogger().info("codesearch index phase clone-checkout")
-            flushWorkflowLog()
-            return phaseCloneCheckout(resolved.ctx, {
-              targetHash: body.targetHash,
-              fromHash: body.fromHash,
-            })
-          },
-        )
-        return c.json({ ok: true as const, ...result }, 200)
-      } catch (error) {
-        if (isTransientDbConnectionError(error)) {
-          return c.json({ error: "Database connection lost" }, 503)
-        }
-        const message = userFacingIndexingError(error, "Clone/checkout failed")
-        return c.json({ error: message }, 500)
-      }
-    })
+    return finishIndexPipelineAdmission(
+      repoId,
+      withIndexPipelineAdmission(c, repoId, () =>
+        withRepositoryIndexOperation(repoId, async () => {
+          const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
+            githubToken: body.githubToken,
+            checkoutKey,
+          })
+          if (!resolved.ok) {
+            return phaseContextErrorResponse(c, resolved)
+          }
+          try {
+            const result = await withLogger(
+              createLogger({
+                repositoryId: resolved.ctx.repoId,
+                phase: "clone-checkout",
+              }),
+              async () => {
+                getLogger().set({
+                  step: "codesearch.index.phase.http",
+                  phase: "clone-checkout",
+                })
+                getLogger().info("codesearch index phase clone-checkout")
+                flushWorkflowLog()
+                return phaseCloneCheckout(resolved.ctx, {
+                  targetHash: body.targetHash,
+                  fromHash: body.fromHash,
+                })
+              },
+            )
+            return c.json({ ok: true as const, ...result }, 200)
+          } catch (error) {
+            if (isTransientDbConnectionError(error)) {
+              return c.json({ error: "Database connection lost" }, 503)
+            }
+            const message = userFacingIndexingError(
+              error,
+              "Clone/checkout failed",
+            )
+            return c.json({ error: message }, 500)
+          }
+        }),
+      ),
+      "end-on-error",
+    )
   })
 
   app.openapi(zoektRoute, async (c) => {
@@ -347,35 +420,40 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     const auth = c.get("auth")
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
-    return withRepositoryIndexOperation(repoId, async () => {
-      const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
-        checkoutKey: checkoutKeyFromAuth(auth, repoId),
-      })
-      if (!resolved.ok) {
-        return c.json({ error: resolved.error }, resolved.status)
-      }
-      try {
-        await withLogger(
-          createLogger({ repositoryId: resolved.ctx.repoId, phase: "zoekt" }),
-          async () => {
-            getLogger().set({
-              step: "codesearch.index.phase.http",
-              phase: "zoekt",
-            })
-            getLogger().info("codesearch index phase zoekt")
-            flushWorkflowLog()
-            await phaseZoekt(resolved.ctx)
-          },
-        )
-        return c.json({ ok: true as const }, 200)
-      } catch (error) {
-        if (isTransientDbConnectionError(error)) {
-          return c.json({ error: "Database connection lost" }, 503)
+    return withIndexPipelineAdmission(c, repoId, () =>
+      withRepositoryIndexOperation(repoId, async () => {
+        const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
+          checkoutKey: checkoutKeyFromAuth(auth, repoId),
+        })
+        if (!resolved.ok) {
+          return phaseContextErrorResponse(c, resolved)
         }
-        const message = userFacingIndexingError(error, "Zoekt indexing failed")
-        return c.json({ error: message }, 500)
-      }
-    })
+        try {
+          await withLogger(
+            createLogger({ repositoryId: resolved.ctx.repoId, phase: "zoekt" }),
+            async () => {
+              getLogger().set({
+                step: "codesearch.index.phase.http",
+                phase: "zoekt",
+              })
+              getLogger().info("codesearch index phase zoekt")
+              flushWorkflowLog()
+              await phaseZoekt(resolved.ctx)
+            },
+          )
+          return c.json({ ok: true as const }, 200)
+        } catch (error) {
+          if (isTransientDbConnectionError(error)) {
+            return c.json({ error: "Database connection lost" }, 503)
+          }
+          const message = userFacingIndexingError(
+            error,
+            "Zoekt indexing failed",
+          )
+          return c.json({ error: message }, 500)
+        }
+      }),
+    )
   })
 
   app.openapi(detectLanguagesRoute, async (c) => {
@@ -385,39 +463,45 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
-    return withRepositoryIndexOperation(repoId, async () => {
-      const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
-        checkoutKey: checkoutKeyFromAuth(auth, repoId),
-      })
-      if (!resolved.ok) {
-        return c.json({ error: resolved.error }, resolved.status)
-      }
-      try {
-        const result = await withLogger(
-          createLogger({
-            repositoryId: resolved.ctx.repoId,
-            phase: "detect-languages",
-          }),
-          () =>
-            phaseDetectLanguages(resolved.ctx, {
-              ingestMode: body.ingestMode,
-              changedPaths: body.changedPaths,
-              deletedPaths: body.deletedPaths,
-              renames: body.renames,
-            }),
-        )
-        return c.json({ ok: true as const, ...result }, 200)
-      } catch (error) {
-        if (isTransientDbConnectionError(error)) {
-          return c.json({ error: "Database connection lost" }, 503)
-        }
-        const message = userFacingIndexingError(
-          error,
-          "Language detection failed",
-        )
-        return c.json({ error: message }, 500)
-      }
-    })
+    return finishIndexPipelineAdmission(
+      repoId,
+      withIndexPipelineAdmission(c, repoId, () =>
+        withRepositoryIndexOperation(repoId, async () => {
+          const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
+            checkoutKey: checkoutKeyFromAuth(auth, repoId),
+          })
+          if (!resolved.ok) {
+            return phaseContextErrorResponse(c, resolved)
+          }
+          try {
+            const result = await withLogger(
+              createLogger({
+                repositoryId: resolved.ctx.repoId,
+                phase: "detect-languages",
+              }),
+              () =>
+                phaseDetectLanguages(resolved.ctx, {
+                  ingestMode: body.ingestMode,
+                  changedPaths: body.changedPaths,
+                  deletedPaths: body.deletedPaths,
+                  renames: body.renames,
+                }),
+            )
+            return c.json({ ok: true as const, ...result }, 200)
+          } catch (error) {
+            if (isTransientDbConnectionError(error)) {
+              return c.json({ error: "Database connection lost" }, 503)
+            }
+            const message = userFacingIndexingError(
+              error,
+              "Language detection failed",
+            )
+            return c.json({ error: message }, 500)
+          }
+        }),
+      ),
+      "end-on-error",
+    )
   })
 
   app.openapi(scipLangRoute, async (c) => {
@@ -427,34 +511,36 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId, lang } = c.req.valid("param")
     const body = c.req.valid("json")
-    return withRepositoryIndexOperation(repoId, async () => {
-      const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
-        checkoutKey: checkoutKeyFromAuth(auth, repoId),
-      })
-      if (!resolved.ok) {
-        return c.json({ error: resolved.error }, resolved.status)
-      }
-      try {
-        await withLogger(
-          createLogger({
-            repositoryId: resolved.ctx.repoId,
-            phase: `scip:${lang}`,
-          }),
-          () =>
-            phaseScipLanguage(resolved.ctx, {
-              language: lang,
-              detectedLanguages: body.detectedLanguages,
-            }),
-        )
-        return c.json({ ok: true as const }, 200)
-      } catch (error) {
-        if (isTransientDbConnectionError(error)) {
-          return c.json({ error: "Database connection lost" }, 503)
+    return withIndexPipelineAdmission(c, repoId, () =>
+      withRepositoryIndexOperation(repoId, async () => {
+        const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
+          checkoutKey: checkoutKeyFromAuth(auth, repoId),
+        })
+        if (!resolved.ok) {
+          return phaseContextErrorResponse(c, resolved)
         }
-        const message = userFacingIndexingError(error, "SCIP indexing failed")
-        return c.json({ error: message }, 500)
-      }
-    })
+        try {
+          await withLogger(
+            createLogger({
+              repositoryId: resolved.ctx.repoId,
+              phase: `scip:${lang}`,
+            }),
+            () =>
+              phaseScipLanguage(resolved.ctx, {
+                language: lang,
+                detectedLanguages: body.detectedLanguages,
+              }),
+          )
+          return c.json({ ok: true as const }, 200)
+        } catch (error) {
+          if (isTransientDbConnectionError(error)) {
+            return c.json({ error: "Database connection lost" }, 503)
+          }
+          const message = userFacingIndexingError(error, "SCIP indexing failed")
+          return c.json({ error: message }, 500)
+        }
+      }),
+    )
   })
 
   app.openapi(mergeScipRoute, async (c) => {
@@ -464,34 +550,46 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
-    return withRepositoryIndexOperation(repoId, async () => {
-      const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
-        checkoutKey: checkoutKeyFromAuth(auth, repoId),
-      })
-      if (!resolved.ok) {
-        return c.json({ error: resolved.error }, resolved.status)
-      }
-      try {
-        await withLogger(
-          createLogger({
-            repositoryId: resolved.ctx.repoId,
-            phase: "merge-scip",
-          }),
-          async () => {
-            await phaseMergeScip(resolved.ctx, {
-              detectedLanguages: body.detectedLanguages,
-            })
-            await phaseMarkCheckoutIndexed(resolved.ctx)
-          },
-        )
-        return c.json({ ok: true as const }, 200)
-      } catch (error) {
-        if (isTransientDbConnectionError(error)) {
-          return c.json({ error: "Database connection lost" }, 503)
-        }
-        const message = userFacingIndexingError(error, "SCIP merge failed")
-        return c.json({ error: message }, 500)
-      }
-    })
+    return finishIndexPipelineAdmission(
+      repoId,
+      withIndexPipelineAdmission(c, repoId, () =>
+        withRepositoryIndexOperation(repoId, async () => {
+          const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
+            checkoutKey: checkoutKeyFromAuth(auth, repoId),
+          })
+          if (!resolved.ok) {
+            return phaseContextErrorResponse(c, resolved)
+          }
+          try {
+            let shardCount = 0
+            await withLogger(
+              createLogger({
+                repositoryId: resolved.ctx.repoId,
+                phase: "merge-scip",
+              }),
+              async () => {
+                try {
+                  const published = await phaseMergeScip(resolved.ctx, {
+                    detectedLanguages: body.detectedLanguages,
+                    languagesToMerge: body.languagesToMerge,
+                  })
+                  shardCount = published.shardCount
+                } finally {
+                  await phaseMarkCheckoutIndexed(resolved.ctx)
+                }
+              },
+            )
+            return c.json({ ok: true as const, shardCount }, 200)
+          } catch (error) {
+            if (isTransientDbConnectionError(error)) {
+              return c.json({ error: "Database connection lost" }, 503)
+            }
+            const message = userFacingIndexingError(error, "SCIP merge failed")
+            return c.json({ error: message }, 500)
+          }
+        }),
+      ),
+      "end",
+    )
   })
 }

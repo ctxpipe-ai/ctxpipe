@@ -1,15 +1,16 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import { reconstructChat } from "@tanstack/ai-persistence"
 import type { AppEnv } from "../../app/env.js"
+import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import {
   type ConversationChatMessage,
   type ConversationChatRequest,
   ConversationUiMessagesTimeoutError,
   loadConversationUiMessagesBounded,
-    parseConversationChatRequest,
-    resolveCreatedConversationId,
-    workspaceChatStreamResponse,
+  parseConversationChatRequest,
+  resolveCreatedConversationId,
+  workspaceChatStreamResponse,
 } from "../../domain/conversations/transport.js"
 import {
   conversationSessionBranch,
@@ -127,7 +128,8 @@ const ConversationListResponseSchema = z
 
 const ListConversationsQuerySchema = z
   .object({
-    workspaceId: z.string().min(1),
+    workspaceId: z.string().min(1).optional(),
+    source: z.string().optional(),
     first: z.coerce.number().int().min(1).max(100).optional().default(10),
     after: z.string().optional(),
   })
@@ -193,9 +195,9 @@ const listConversationsRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
     },
-    409: {
+    403: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Workspace required",
+      description: "Forbidden",
     },
   },
 })
@@ -516,6 +518,29 @@ const postConversationPullRequestRoute = createRoute({
   },
 })
 
+async function getReadableConversation(
+  conversationId: string,
+  input: { workspaceId?: string; orgId?: string | null; headers: Headers },
+) {
+  const conversation = await getConversation(conversationId, {
+    workspaceId: input.workspaceId,
+  })
+  if (conversation) return conversation
+  if (
+    !input.orgId ||
+    !(await hasOrgAdminOrOwnerRole({
+      headers: input.headers,
+      orgId: input.orgId,
+    }))
+  ) {
+    return null
+  }
+  return getConversation(conversationId, {
+    workspaceId: input.workspaceId,
+    orgService: true,
+  })
+}
+
 function withConversationIdHeader(response: Response, conversationId: string) {
   const headers = new Headers(response.headers)
   headers.set("x-conversation-id", conversationId)
@@ -573,11 +598,53 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
 
     const query = ListConversationsQuerySchema.parse({
       workspaceId: c.req.query("workspaceId"),
+      source: c.req.query("source"),
       first: c.req.query("first"),
       after: c.req.query("after"),
     })
-    if (!query.workspaceId.trim()) {
-      return c.json({ error: "workspace_required" }, 409)
+    const orgId = c.get("orgId")
+    if (query.source === "mcp-service") {
+      if (
+        !orgId ||
+        !(await hasOrgAdminOrOwnerRole({
+          headers: c.req.raw.headers,
+          orgId,
+        }))
+      ) {
+        return c.json({ error: "Forbidden" }, 403)
+      }
+      const { items: rows, pageInfo } = await listConversationsPaginated({
+        orgService: true,
+        workspaceId: query.workspaceId?.trim() || undefined,
+        first: query.first,
+        after: query.after,
+      })
+      const listedWorkspace = query.workspaceId?.trim()
+        ? await getWorkspaceById(query.workspaceId.trim())
+        : null
+      const items = rows.map((row) =>
+        publicConversation(row, listedWorkspace?.workspaceRepositoryUrl),
+      )
+      return c.json({ items, pageInfo }, 200)
+    }
+    if (query.source === "mcp") {
+      const { items: rows, pageInfo } = await listConversationsPaginated({
+        source: "mcp",
+        orgService: false,
+        workspaceId: query.workspaceId?.trim() || undefined,
+        first: query.first,
+        after: query.after,
+      })
+      const listedWorkspace = query.workspaceId?.trim()
+        ? await getWorkspaceById(query.workspaceId.trim())
+        : null
+      const items = rows.map((row) =>
+        publicConversation(row, listedWorkspace?.workspaceRepositoryUrl),
+      )
+      return c.json({ items, pageInfo }, 200)
+    }
+    if (!query.workspaceId?.trim()) {
+      return c.json({ error: "workspace_required" }, 400)
     }
     const { items: rows, pageInfo } = await listConversationsPaginated({
       source: "ui",
@@ -599,8 +666,10 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
 
     const conversationId = c.req.param("conversationId")
     const workspaceId = c.req.query("workspaceId")
-    const conversation = await getConversation(conversationId, {
+    const conversation = await getReadableConversation(conversationId, {
       workspaceId,
+      orgId: c.get("orgId"),
+      headers: c.req.raw.headers,
     })
     if (!conversation) return c.json({ error: "Not found" }, 404)
 
@@ -643,8 +712,10 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
 
     const conversationId = c.req.param("conversationId")
     const workspaceId = c.req.query("workspaceId")
-    const conversation = await getConversation(conversationId, {
+    const conversation = await getReadableConversation(conversationId, {
       workspaceId,
+      orgId: c.get("orgId"),
+      headers: c.req.raw.headers,
     })
     if (!conversation) return c.json({ error: "Not found" }, 404)
 

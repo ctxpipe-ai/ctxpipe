@@ -31,7 +31,18 @@ function OrgSettingsRedirect() {
     : undefined
   const targetOrg = matchingOrg ?? organizations?.[0]
 
-  if (!targetOrg) return <Navigate to="/" replace />
+  if (!targetOrg)
+    return (
+      <Navigate
+        to="/"
+        replace
+        search={{
+          error: undefined,
+          error_description: undefined,
+          pendingAccountClaim: undefined,
+        }}
+      />
+    )
 
   return (
     <Navigate

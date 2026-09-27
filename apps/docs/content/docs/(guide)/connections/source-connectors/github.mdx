@@ -15,6 +15,13 @@ and the target branch becomes the live scope after merge.
 
 You can connect GitHub during onboarding, or later from the **Connectors** page.
 
+<Callout title="Hosted and self-hosted Apps are different">
+  Hosted ctx| supplies the managed GitHub App. A self-hosted deployment must
+  create and own its own App, private key, webhook secret, and installation.
+  Operators should complete [Self-host GitHub](/docs/self-hosting/github) before
+  users follow this page.
+</Callout>
+
 ## Setup flow
 
 <Steps>
@@ -57,6 +64,21 @@ You can connect GitHub during onboarding, or later from the **Connectors** page.
 - Repo-native docs, ADRs, `AGENTS.md`, skills, and standards as agent context.
 - Target repositories for synced sources such as Confluence and Linear.
 - Pull requests for ctx| configuration, including MCP setup where supported.
+- Optional mirroring of **merged** pull requests (conversation, reviews, and
+  changed paths — not diffs) into your context repository. After ingest, the
+  knowledge graph locates each changed path as a `File` (shared with
+  source-repository extract) and records `ADDED` / `MODIFIED` / `REMOVED` /
+  `RENAMED` edges from the pull request dated at merge, `PullRequest TARGETS`
+  the source repository, `File PART_OF` the owning service when that
+  repository is already classified, and `PullRequest REFERENCES Issue` when
+  the title, body, or branch names a Linear issue.
+
+Selecting GitHub repositories also captures **merged** pull requests into the
+organization context repository (`ctxpipe-context`, or the repo already used
+by Linear, Notion, or Slack). ctx| writes `github/config.yaml` and backfills
+up to 200 newest updated merged pull requests per selected repository. No
+separate toggle. If the organization has no context repository yet, capture
+starts when one is bound.
 
 ## After you connect
 

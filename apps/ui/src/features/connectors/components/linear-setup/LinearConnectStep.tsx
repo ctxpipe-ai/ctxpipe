@@ -7,11 +7,15 @@ import { fetchLinearOAuthStart } from "../../queries/linear-connector"
 
 type LinearConnectStepProps = {
   orgSlug: string
+  connectionId?: string
 }
 
-export function LinearConnectStep({ orgSlug }: LinearConnectStepProps) {
+export function LinearConnectStep({
+  orgSlug,
+  connectionId,
+}: LinearConnectStepProps) {
   const connectMutation = useMutation({
-    mutationFn: () => fetchLinearOAuthStart(orgSlug),
+    mutationFn: () => fetchLinearOAuthStart(orgSlug, connectionId),
     onSuccess: ({ authorizationUrl }) => {
       const popup = window.open(
         authorizationUrl,

@@ -7,6 +7,7 @@ import {
   listWorkspaceRepositoryCommits,
 } from "../../models/workspace-commits.js"
 import { getWorkspaceBySlug } from "../../models/workspaces.js"
+import { getLogger } from "../../observability/logger.js"
 import { enqueueWorkspaceCommitProjection } from "../../openworkflow/enqueue-workspace-commit-projection.js"
 import {
   ErrorResponseSchema,
@@ -72,7 +73,7 @@ export const workspaceActivityRoutes = new OpenAPIHono<AppEnv>().openapi(
       listWorkspaceCommitDayCounts(workspace.id),
       listWorkspaceRepositoryCommits({ workspaceId: workspace.id, limit: 5 }),
     ])
-    const status =
+    const status: "pending" | "ready" | "failed" =
       projection?.backfillStatus === "ready" ||
       projection?.backfillStatus === "failed"
         ? projection.backfillStatus
@@ -85,7 +86,10 @@ export const workspaceActivityRoutes = new OpenAPIHono<AppEnv>().openapi(
     if (stale) {
       void enqueueWorkspaceCommitProjection(
         { orgId: workspace.orgId, workspaceId: workspace.id },
-        c.get("log"),
+        {
+          error: (err) =>
+            getLogger().error(err, { step: "workspace.activity.enqueue" }),
+        },
       )
     }
 

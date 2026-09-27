@@ -7,10 +7,15 @@ import {
   isNull,
   lt,
   or,
+  type SQL,
   sql,
 } from "drizzle-orm"
 import { createError } from "evlog"
-import { requireCurrentOrgId, requireCurrentUserId } from "../auth/context.js"
+import {
+  currentOrgApiKey,
+  requireCurrentOrgId,
+  requireCurrentUserId,
+} from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import { withAmbientOrgDb } from "../db/org-sql.js"
 import { conversations } from "../db/schema/conversations.js"
@@ -25,6 +30,37 @@ import {
 
 function orgSql<T>(fn: () => Promise<T>): Promise<T> {
   return withAmbientOrgDb(fn)
+}
+
+/** Org API key actor: persist and match `userId IS NULL AND source = mcp`. */
+function isOrgServiceActor(): boolean {
+  try {
+    return currentOrgApiKey() != null
+  } catch {
+    return false
+  }
+}
+
+function conversationActorUserId(): string | null {
+  if (isOrgServiceActor()) return null
+  return requireCurrentUserId()
+}
+
+function conversationActorWhere(): SQL {
+  if (isOrgServiceActor()) {
+    return and(
+      isNull(conversations.userId),
+      eq(conversations.source, "mcp"),
+    ) as SQL
+  }
+  return eq(conversations.userId, requireCurrentUserId())
+}
+
+function orgServiceConversationWhere(): SQL {
+  return and(
+    isNull(conversations.userId),
+    eq(conversations.source, "mcp"),
+  ) as SQL
 }
 
 function conversationFieldsWithCurrentPr() {
@@ -64,7 +100,7 @@ export async function ensureConversation(input: {
 }): Promise<ConversationRecord> {
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
-    const userId = requireCurrentUserId()
+    const userId = conversationActorUserId()
     const db = getOrgDb()
 
     if (input.workspaceId) {
@@ -94,7 +130,7 @@ export async function ensureConversation(input: {
         and(
           eq(conversations.id, input.id),
           eq(conversations.orgId, orgId),
-          eq(conversations.userId, userId),
+          conversationActorWhere(),
         ),
       )
       .limit(1)
@@ -137,7 +173,7 @@ export async function ensureConversation(input: {
         orgId,
         userId,
         workspaceId: input.workspaceId ?? null,
-        source: input.source ?? null,
+        source: input.source ?? (userId == null ? "mcp" : null),
         name: "New conversation",
       })
       .returning(conversationFieldsWithCurrentPr())
@@ -240,7 +276,6 @@ export async function touchConversationLastMessage(
 ): Promise<void> {
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
-    const userId = requireCurrentUserId()
     const db = getOrgDb()
     await db
       .update(conversations)
@@ -252,7 +287,7 @@ export async function touchConversationLastMessage(
         and(
           eq(conversations.id, conversationId),
           eq(conversations.orgId, orgId),
-          eq(conversations.userId, userId),
+          conversationActorWhere(),
         ),
       )
   })
@@ -264,7 +299,6 @@ export async function discardUnstartedConversation(
 ): Promise<void> {
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
-    const userId = requireCurrentUserId()
     const db = getOrgDb()
     await db
       .delete(conversations)
@@ -272,7 +306,7 @@ export async function discardUnstartedConversation(
         and(
           eq(conversations.id, conversationId),
           eq(conversations.orgId, orgId),
-          eq(conversations.userId, userId),
+          conversationActorWhere(),
           isNull(conversations.lastMessageAt),
         ),
       )
@@ -282,16 +316,23 @@ export async function discardUnstartedConversation(
 export async function listConversations(input?: {
   source?: string
   workspaceId?: string
+  orgService?: boolean
 }): Promise<ConversationRecord[]> {
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
-    const userId = requireCurrentUserId()
+    if (input?.orgService) requireCurrentUserId()
     const db = getOrgDb()
     const conditions = [
       eq(conversations.orgId, orgId),
-      eq(conversations.userId, userId),
+      input?.orgService
+        ? orgServiceConversationWhere()
+        : conversationActorWhere(),
       isNotNull(conversations.lastMessageAt),
-      input?.source ? eq(conversations.source, input.source) : null,
+      input?.orgService
+        ? null
+        : input?.source
+          ? eq(conversations.source, input.source)
+          : null,
       input?.workspaceId
         ? eq(conversations.workspaceId, input.workspaceId)
         : null,
@@ -311,20 +352,27 @@ export async function listConversations(input?: {
 export async function listConversationsPaginated(input: {
   source?: string
   workspaceId?: string
+  orgService?: boolean
   first: number
   after?: string
 }): Promise<{ items: ConversationRecord[]; pageInfo: PageInfo }> {
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
-    const userId = requireCurrentUserId()
+    if (input.orgService) requireCurrentUserId()
     const db = getOrgDb()
     const { first, after } = input
 
     const baseConditions = [
       eq(conversations.orgId, orgId),
-      eq(conversations.userId, userId),
+      input.orgService
+        ? orgServiceConversationWhere()
+        : conversationActorWhere(),
       isNotNull(conversations.lastMessageAt),
-      input.source ? eq(conversations.source, input.source) : null,
+      input.orgService
+        ? null
+        : input.source
+          ? eq(conversations.source, input.source)
+          : null,
       input.workspaceId
         ? eq(conversations.workspaceId, input.workspaceId)
         : null,
@@ -383,11 +431,11 @@ export async function listConversationsPaginated(input: {
 
 export async function getConversation(
   conversationId: string,
-  input?: { workspaceId?: string },
+  input?: { workspaceId?: string; orgService?: boolean },
 ): Promise<ConversationRecord | null> {
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
-    const userId = requireCurrentUserId()
+    if (input?.orgService) requireCurrentUserId()
     const db = getOrgDb()
     const [row] = await db
       .select(conversationFieldsWithCurrentPr())
@@ -396,7 +444,9 @@ export async function getConversation(
         and(
           eq(conversations.id, conversationId),
           eq(conversations.orgId, orgId),
-          eq(conversations.userId, userId),
+          input?.orgService
+            ? orgServiceConversationWhere()
+            : conversationActorWhere(),
         ),
       )
       .limit(1)

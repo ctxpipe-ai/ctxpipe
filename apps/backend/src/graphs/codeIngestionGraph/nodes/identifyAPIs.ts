@@ -11,12 +11,12 @@ import {
   standardRepoExplorerTools,
 } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
-import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
   ExtractedObject,
 } from "../schemas.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import {
   type ApiSubmission,
   buildApiObjectsAndClaims,
@@ -31,7 +31,7 @@ import {
   filterPathsByPartialScan,
   partialScanPathsForExtractors,
   partialScanPromptSuffix,
-  shouldSkipExtractorForPartialDeletesOnly,
+  shouldSkipCodeExtractorForPartialDiff,
 } from "./partialIngestionScope.js"
 
 function pathMatchesRoot(path: string, root: string): boolean {
@@ -124,7 +124,7 @@ export async function identifyAPIs(
   const { repositoryId, orgId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 
-  if (shouldSkipExtractorForPartialDeletesOnly(state)) {
+  if (shouldSkipCodeExtractorForPartialDiff(state)) {
     return {}
   }
 

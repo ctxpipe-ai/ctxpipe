@@ -2,12 +2,6 @@
   "version": 1,
   "diagnostics": [
     {
-      "file": "../backend/src/domain/indexingSteps.ts",
-      "code": 2322,
-      "message": "Type 'string[]' is not assignable to type 'IndexingStepKey[]'.\n  Type 'string' is not assignable to type 'IndexingStepKey'.",
-      "count": 1
-    },
-    {
       "file": "../backend/src/email/index.ts",
       "code": 7016,
       "message": "Could not find a declaration file for module 'react'. '<repo>/node_modules/.pnpm/react@19.2.4/node_modules/react/index.js' implicitly has an 'any' type.\n  If the 'react' package actually exposes this module, consider sending a pull request to amend 'https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react'",
@@ -62,12 +56,6 @@
       "count": 1
     },
     {
-      "file": "../backend/src/retrieval/services/providers/bedrockModelProvider.ts",
-      "code": 2769,
-      "message": "No overload matches this call.\n  Overload 1 of 2, '(model: string, params?: Omit<ChatBedrockConverseInput, \"model\"> | undefined): ChatBedrockConverse', gave the following error.\n    Argument of type '{ additionalModelRequestFields?: Record<string, unknown> | undefined; topP?: number | undefined; maxTokens?: number | undefined; model: string; region: string; temperature: number | undefined; streaming: boolean; }' is not assignable to parameter of type 'string'.\n  Overload 2 of 2, '(fields?: ChatBedrockConverseInput | undefined): ChatBedrockConverse', gave the following error.\n    Argument of type '{ additionalModelRequestFields?: Record<string, unknown> | undefined; topP?: number | undefined; maxTokens?: number | undefined; model: string; region: string; temperature: number | undefined; streaming: boolean; }' is not assignable to parameter of type 'ChatBedrockConverseInput'.\n      Types of property 'additionalModelRequestFields' are incompatible.\n        Type 'Record<string, unknown> | undefined' is not assignable to type 'DocumentType | undefined'.\n          Type 'Record<string, unknown>' is not assignable to type 'DocumentType | undefined'.\n            Type 'Record<string, unknown>' is missing the following properties from type 'DocumentType[]': length, pop, push, concat, and 29 more.",
-      "count": 1
-    },
-    {
       "file": "../backend/src/routes/v1/bedrockOpenAiProxy.ts",
       "code": 2769,
       "message": "No overload matches this call.\n  Overload 1 of 2, '(model: string, params?: Omit<ChatBedrockConverseInput, \"model\"> | undefined): ChatBedrockConverse', gave the following error.\n    Argument of type '{ additionalModelRequestFields?: Record<string, unknown> | undefined; topP?: number | undefined; maxTokens?: number | undefined; temperature?: number | undefined; model: string; region: string; streaming: boolean; }' is not assignable to parameter of type 'string'.\n  Overload 2 of 2, '(fields?: ChatBedrockConverseInput | undefined): ChatBedrockConverse', gave the following error.\n    Argument of type '{ additionalModelRequestFields?: Record<string, unknown> | undefined; topP?: number | undefined; maxTokens?: number | undefined; temperature?: number | undefined; model: string; region: string; streaming: true; }' is not assignable to parameter of type 'ChatBedrockConverseInput'.\n      Types of property 'additionalModelRequestFields' are incompatible.\n        Type 'Record<string, unknown> | undefined' is not assignable to type 'DocumentType | undefined'.\n          Type 'Record<string, unknown>' is not assignable to type 'DocumentType | undefined'.\n            Type 'Record<string, unknown>' is missing the following properties from type 'DocumentType[]': length, pop, push, concat, and 29 more.",
@@ -90,12 +78,6 @@
       "code": 2322,
       "message": "Type 'ChildrenOrFunction<ButtonRenderProps>' is not assignable to type 'ReactNode'.\n  Type '(values: ButtonRenderProps & { defaultChildren: ReactNode; }) => ReactNode' is not assignable to type 'ReactNode'.",
       "count": 1
-    },
-    {
-      "file": "src/components/ai-elements/message.tsx",
-      "code": 2322,
-      "message": "Type '{ children: string | number | bigint | boolean | Iterable<ReactNode> | Promise<AwaitedReactNode> | Element | ((values: ButtonRenderProps & { ...; }) => ReactNode); ... 113 more ...; disabled: boolean; }' is not assignable to type 'IntrinsicAttributes & ButtonProps'.\n  Property 'disabled' does not exist on type 'IntrinsicAttributes & ButtonProps'. Did you mean 'isDisabled'?",
-      "count": 2
     },
     {
       "file": "src/components/ai-elements/message.tsx",
@@ -185,36 +167,6 @@
       "file": "src/components/ui/Breadcrumbs.tsx",
       "code": 1484,
       "message": "'LinkProps' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.",
-      "count": 1
-    },
-    {
-      "file": "src/components/ui/Button.test.tsx",
-      "code": 2322,
-      "message": "Type '{ children: string; href: string; target: string; rel: string; }' is not assignable to type 'IntrinsicAttributes & ButtonProps'.\n  Property 'href' does not exist on type 'IntrinsicAttributes & ButtonProps'.",
-      "count": 1
-    },
-    {
-      "file": "src/components/ui/Button.tsx",
-      "code": 2339,
-      "message": "Property 'href' does not exist on type 'ButtonProps'.",
-      "count": 1
-    },
-    {
-      "file": "src/components/ui/Button.tsx",
-      "code": 2339,
-      "message": "Property 'target' does not exist on type 'ButtonProps'.",
-      "count": 1
-    },
-    {
-      "file": "src/components/ui/Button.tsx",
-      "code": 2339,
-      "message": "Property 'rel' does not exist on type 'ButtonProps'.",
-      "count": 1
-    },
-    {
-      "file": "src/components/ui/Button.tsx",
-      "code": 2339,
-      "message": "Property 'download' does not exist on type 'ButtonProps'.",
       "count": 1
     },
     {
@@ -614,36 +566,6 @@
       "count": 1
     },
     {
-      "file": "src/features/chat/ConversationThread.test.tsx",
-      "code": 2322,
-      "message": "Type '\"RUN_STARTED\"' is not assignable to type 'EventType.TEXT_MESSAGE_START | EventType.TEXT_MESSAGE_CONTENT | EventType.TEXT_MESSAGE_END | EventType.TOOL_CALL_ARGS | EventType.TOOL_CALL_RESULT | EventType.STATE_SNAPSHOT | EventType.STATE_DELTA | EventType.MESSAGES_SNAPSHOT | ... 13 more ... | \"CUSTOM\"'.",
-      "count": 1
-    },
-    {
-      "file": "src/features/chat/ConversationThread.test.tsx",
-      "code": 2820,
-      "message": "Type '\"REASONING_MESSAGE_START\"' is not assignable to type 'EventType.TEXT_MESSAGE_START | EventType.TEXT_MESSAGE_CONTENT | EventType.TEXT_MESSAGE_END | EventType.TOOL_CALL_ARGS | EventType.TOOL_CALL_RESULT | EventType.STATE_SNAPSHOT | EventType.STATE_DELTA | EventType.MESSAGES_SNAPSHOT | ... 13 more ... | \"CUSTOM\"'. Did you mean 'EventType.REASONING_MESSAGE_CONTENT'?",
-      "count": 1
-    },
-    {
-      "file": "src/features/chat/ConversationThread.test.tsx",
-      "code": 2820,
-      "message": "Type '\"REASONING_MESSAGE_CONTENT\"' is not assignable to type 'EventType.TEXT_MESSAGE_START | EventType.TEXT_MESSAGE_CONTENT | EventType.TEXT_MESSAGE_END | EventType.TOOL_CALL_ARGS | EventType.TOOL_CALL_RESULT | EventType.STATE_SNAPSHOT | EventType.STATE_DELTA | EventType.MESSAGES_SNAPSHOT | ... 13 more ... | \"CUSTOM\"'. Did you mean 'EventType.REASONING_MESSAGE_END'?",
-      "count": 1
-    },
-    {
-      "file": "src/features/chat/ConversationThread.test.tsx",
-      "code": 2322,
-      "message": "Type '\"TEXT_MESSAGE_START\"' is not assignable to type 'EventType.TEXT_MESSAGE_START | EventType.TEXT_MESSAGE_CONTENT | EventType.TEXT_MESSAGE_END | EventType.TOOL_CALL_ARGS | EventType.TOOL_CALL_RESULT | EventType.STATE_SNAPSHOT | EventType.STATE_DELTA | EventType.MESSAGES_SNAPSHOT | ... 13 more ... | \"CUSTOM\"'.",
-      "count": 1
-    },
-    {
-      "file": "src/features/chat/ConversationThread.test.tsx",
-      "code": 2820,
-      "message": "Type '\"TEXT_MESSAGE_CONTENT\"' is not assignable to type 'EventType.TEXT_MESSAGE_START | EventType.TEXT_MESSAGE_CONTENT | EventType.TEXT_MESSAGE_END | EventType.TOOL_CALL_ARGS | EventType.TOOL_CALL_RESULT | EventType.STATE_SNAPSHOT | EventType.STATE_DELTA | EventType.MESSAGES_SNAPSHOT | ... 13 more ... | \"CUSTOM\"'. Did you mean 'EventType.TEXT_MESSAGE_END'?",
-      "count": 1
-    },
-    {
       "file": "src/features/connectors/components/AddConfluenceConnectorButton.stories.tsx",
       "code": 2322,
       "message": "Type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { orgSlug: string; onInstallIntentRegistered: (args: { connectionId: string; }) => void; }, { orgSlug: string; onInstallIntentRegistered: (args: { connectionId: string; }) => void; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' but required in type '{ args: { orgSlug: string; onInstallIntentRegistered: (args: { connectionId: string; }) => void; }; }'.",
@@ -666,12 +588,6 @@
       "code": 2322,
       "message": "Type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { orgSlug: string; onFlowStarted?: (() => void) | undefined; onGithubInstallIntentRegistered?: ((args: { connectionId: string; }) => void) | undefined; onRequestSelfHostedWizard?: (() => void) | undefined; }, { ...; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' but required in type '{ args: { orgSlug: string; onFlowStarted?: (() => void) | undefined; onGithubInstallIntentRegistered?: ((args: { connectionId: string; }) => void) | undefined; onRequestSelfHostedWizard?: (() => void) | undefined; }; }'.",
       "count": 4
-    },
-    {
-      "file": "src/features/connectors/components/AddNotionConnectorButton.stories.tsx",
-      "code": 2322,
-      "message": "Type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { orgSlug: string; onFlowStarted?: (() => void) | undefined; onFlowFinished?: ((result: { connectionId?: string | undefined; }) => void) | undefined; onConfigurationRequired?: (() => void) | undefined; }, { ...; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' but required in type '{ args: { orgSlug: string; onFlowStarted?: (() => void) | undefined; onFlowFinished?: ((result: { connectionId?: string | undefined; }) => void) | undefined; onConfigurationRequired?: (() => void) | undefined; }; }'.",
-      "count": 2
     },
     {
       "file": "src/features/connectors/components/AddSlackConnectorButton.stories.tsx",
@@ -746,12 +662,6 @@
       "count": 5
     },
     {
-      "file": "src/features/connectors/components/ConfluenceConnectionCard.tsx",
-      "code": 2345,
-      "message": "Argument of type '{ to: \"/$orgSlug/connectors\"; params: { orgSlug: string; }; }' is not assignable to parameter of type 'NavigateOptions<RouterCore<Route<Register, any, \"/\", \"/\", string, \"__root__\", undefined, {}, RouterContext, AnyContext, AnyContext, {}, () => { ...; }, ... 4 more ..., undefined>, \"never\", false, RouterHistory, Record<...>>, string, \"/$orgSlug/connectors\", string, \"\">'.\n  Property 'search' is missing in type '{ to: \"/$orgSlug/connectors\"; params: { orgSlug: string; }; }' but required in type 'MakeRequiredSearchParams<RouterCore<Route<Register, any, \"/\", \"/\", string, \"__root__\", undefined, {}, RouterContext, AnyContext, AnyContext, {}, () => { ...; }, ... 4 more ..., undefined>, \"never\", false, RouterHistory, Record<...>>, string, \"/$orgSlug/connectors\">'.",
-      "count": 1
-    },
-    {
       "file": "src/features/connectors/components/ConnectorsEmptyState.stories.tsx",
       "code": 2322,
       "message": "Type '{ render: () => JSX.Element; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { onAddConnection: () => void; }, { onAddConnection: () => void; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; }' but required in type '{ args: { onAddConnection: () => void; }; }'.",
@@ -782,28 +692,10 @@
       "count": 4
     },
     {
-      "file": "src/features/connectors/components/GitHubPrerequisiteStep.tsx",
-      "code": 2345,
-      "message": "Argument of type '{ to: \"/$orgSlug/connectors\"; params: { orgSlug: string; }; }' is not assignable to parameter of type 'NavigateOptions<RouterCore<Route<Register, any, \"/\", \"/\", string, \"__root__\", undefined, {}, RouterContext, AnyContext, AnyContext, {}, () => { ...; }, ... 4 more ..., undefined>, \"never\", false, RouterHistory, Record<...>>, string, \"/$orgSlug/connectors\", string, \"\">'.\n  Property 'search' is missing in type '{ to: \"/$orgSlug/connectors\"; params: { orgSlug: string; }; }' but required in type 'MakeRequiredSearchParams<RouterCore<Route<Register, any, \"/\", \"/\", string, \"__root__\", undefined, {}, RouterContext, AnyContext, AnyContext, {}, () => { ...; }, ... 4 more ..., undefined>, \"never\", false, RouterHistory, Record<...>>, string, \"/$orgSlug/connectors\">'.",
-      "count": 1
-    },
-    {
-      "file": "src/features/connectors/components/LinearConnectionCard.tsx",
-      "code": 2345,
-      "message": "Argument of type '{ to: \"/$orgSlug/connectors\"; params: { orgSlug: string; }; }' is not assignable to parameter of type 'NavigateOptions<RouterCore<Route<Register, any, \"/\", \"/\", string, \"__root__\", undefined, {}, RouterContext, AnyContext, AnyContext, {}, () => { ...; }, ... 4 more ..., undefined>, \"never\", false, RouterHistory, Record<...>>, string, \"/$orgSlug/connectors\", string, \"\">'.\n  Property 'search' is missing in type '{ to: \"/$orgSlug/connectors\"; params: { orgSlug: string; }; }' but required in type 'MakeRequiredSearchParams<RouterCore<Route<Register, any, \"/\", \"/\", string, \"__root__\", undefined, {}, RouterContext, AnyContext, AnyContext, {}, () => { ...; }, ... 4 more ..., undefined>, \"never\", false, RouterHistory, Record<...>>, string, \"/$orgSlug/connectors\">'.",
-      "count": 1
-    },
-    {
       "file": "src/features/connectors/components/NotionConnectionCard.stories.tsx",
       "code": 2322,
       "message": "Type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { orgSlug: string; connectionId: string; onOpenSetup: (manageScope: boolean) => void; }, { orgSlug: string; connectionId: string; onOpenSetup: (manageScope: boolean) => void; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' but required in type '{ args: { orgSlug: string; connectionId: string; onOpenSetup: (manageScope: boolean) => void; }; }'.",
       "count": 6
-    },
-    {
-      "file": "src/features/connectors/components/NotionSetupDialog.stories.tsx",
-      "code": 2322,
-      "message": "Type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { orgSlug: string; connectionId?: string | undefined; githubConnectionIds?: string[] | undefined; manageScope?: boolean | undefined; isOpen: boolean; onOpenChange: (open: boolean) => void; }, { ...; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' but required in type '{ args: { orgSlug: string; connectionId?: string | undefined; githubConnectionIds?: string[] | undefined; manageScope?: boolean | undefined; isOpen: boolean; onOpenChange: (open: boolean) => void; }; }'.",
-      "count": 3
     },
     {
       "file": "src/features/connectors/components/OrgAtlassianOauthPanel.stories.tsx",
@@ -866,18 +758,6 @@
       "count": 4
     },
     {
-      "file": "src/features/connectors/EditScopeModal.tsx",
-      "code": 2741,
-      "message": "Property 'search' is missing in type '{ children: string; to: \"/$orgSlug/connectors\"; params: { orgSlug: string; }; className: string; }' but required in type 'MakeRequiredSearchParams<RouterCore<Route<Register, any, \"/\", \"/\", string, \"__root__\", undefined, {}, RouterContext, AnyContext, AnyContext, {}, () => { ...; }, ... 4 more ..., undefined>, \"never\", false, RouterHistory, Record<...>>, string, \"/$orgSlug/connectors\">'.",
-      "count": 1
-    },
-    {
-      "file": "src/features/connectors/queries/org-connections.ts",
-      "code": 2741,
-      "message": "Property 'slack' is missing in type '{ github: number; forge: number; linear: number; notion: number; }' but required in type 'Record<\"linear\" | \"github\" | \"slack\" | \"notion\" | \"forge\", number>'.",
-      "count": 1
-    },
-    {
       "file": "src/features/connectors/SpacePageTree.stories.tsx",
       "code": 2322,
       "message": "Type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { orgSlug: string; atlassianConnectionId?: string | undefined; value: SpaceScopeItem[]; onChange: (value: SpaceScopeItem[]) => void; }, { ...; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' but required in type '{ args: { orgSlug: string; atlassianConnectionId?: string | undefined; value: SpaceScopeItem[]; onChange: (value: SpaceScopeItem[]) => void; }; }'.",
@@ -902,36 +782,6 @@
       "count": 1
     },
     {
-      "file": "src/routes/$orgSlug.tsx",
-      "code": 2322,
-      "message": "Type '({ cause, params, context, location }: BeforeLoadContextOptions<Register, RootRoute<Register, undefined, RouterContext, AnyContext, AnyContext, {}, () => { amplitudeRuntimeConfig: AmplitudeRuntimeConfig; confluenceForgeRuntimeConfig: ConfluenceForgeRuntimeConfig; }, ... 4 more ..., undefined>, ... 6 more ..., undefi...' is not assignable to type '(ctx: BeforeLoadContextOptions<Register, RootRoute<Register, undefined, RouterContext, AnyContext, AnyContext, {}, () => { amplitudeRuntimeConfig: AmplitudeRuntimeConfig; confluenceForgeRuntimeConfig: ConfluenceForgeRuntimeConfig; }, ... 4 more ..., undefined>, ... 6 more ..., undefined>) => never'.\n  Type 'OrgGate | Promise<OrgGate>' is not assignable to type 'never'.\n    Type 'OrgGate' is not assignable to type 'never'.",
-      "count": 1
-    },
-    {
-      "file": "src/routes/$orgSlug.tsx",
-      "code": 2339,
-      "message": "Property 'orgAccessDenied' does not exist on type '{ queryClient: QueryClient; }'.",
-      "count": 1
-    },
-    {
-      "file": "src/routes/[.]auth.consent.tsx",
-      "code": 2551,
-      "message": "Property 'redirect_uri' does not exist on type 'NonNullable<{ redirect: boolean; url: string; } | { redirect: boolean; url: string; }>'. Did you mean 'redirect'?\n  Property 'redirect_uri' does not exist on type '{ redirect: boolean; url: string; }'.",
-      "count": 1
-    },
-    {
-      "file": "src/routes/[.]auth.consent.tsx",
-      "code": 2551,
-      "message": "Property 'redirectUri' does not exist on type 'NonNullable<{ redirect: boolean; url: string; } | { redirect: boolean; url: string; }>'. Did you mean 'redirect'?\n  Property 'redirectUri' does not exist on type '{ redirect: boolean; url: string; }'.",
-      "count": 1
-    },
-    {
-      "file": "src/routes/[.]auth.consent.tsx",
-      "code": 2339,
-      "message": "Property 'uri' does not exist on type 'NonNullable<{ redirect: boolean; url: string; } | { redirect: boolean; url: string; }>'.\n  Property 'uri' does not exist on type '{ redirect: boolean; url: string; }'.",
-      "count": 1
-    },
-    {
       "file": "src/routes/[.]auth.device.tsx",
       "code": 2339,
       "message": "Property 'message' does not exist on type '{ error: \"invalid_request\"; error_description: string; status: number; statusText: string; }'.",
@@ -947,12 +797,6 @@
       "file": "src/routes/[.]auth.device.tsx",
       "code": 2339,
       "message": "Property 'message' does not exist on type '{ error: \"invalid_request\" | \"expired_token\" | \"access_denied\" | \"unauthorized\"; error_description: string; status: number; statusText: string; }'.",
-      "count": 1
-    },
-    {
-      "file": "src/routes/[.]auth.organization.$organizationView.tsx",
-      "code": 2741,
-      "message": "Property 'search' is missing in type '{ to: \"/\"; replace: true; }' but required in type 'MakeRequiredSearchParams<RouterCore<Route<Register, any, \"/\", \"/\", string, \"__root__\", undefined, {}, RouterContext, AnyContext, AnyContext, {}, () => { ...; }, ... 4 more ..., undefined>, \"never\", false, RouterHistory, Record<...>>, string, \"/\">'.",
       "count": 1
     }
   ]

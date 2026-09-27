@@ -74,6 +74,10 @@ array. CI job **Storybook Playwright golden journey** runs
 those plays in Chromium by opening each story iframe. Do not add a
 parallel jsdom component-test stack.
 
+Keep security and request-contract assertions in focused Vitest tests. Use
+**`@storybook/addon-a11y`** for Storybook accessibility verification. The MCP
+**`run-story-tests`** tool applies when that integration exists.
+
 ## Quick reference (commands)
 
 | Action | Command |

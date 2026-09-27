@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "ctxpipe": {
+      "type": "http",
+      "url": "https://app.ctxpipe.ai/mcp"
+    }
+  }
+}

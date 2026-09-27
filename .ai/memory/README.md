@@ -21,7 +21,11 @@ gitignored [`events/`](./events/) and are promoted by agents using capture skill
 | Architecture decision | `decisions/ADR-NNN-*.md` + `decisions/index.md` |
 | Term | `glossary.md` |
 | Product/PRD fact | `PRDs/` + `PRDs/index.md` or `product-context.md` |
-| Session wrap-up | `sessions/YYYY-MM-DD-*.md` + `sessions/index.md` |
+| Work summary (what changed, why, what was ruled out) | The pull request description; `sessions/YYYY-MM-DD-*.md` + `sessions/index.md` only for work with no PR |
 
 Hooks never write durable ADRs. Promote from `events/` via capture skills.
 See [ADR-024](decisions/ADR-024-markdown-only-local-memory-capture.md).
+
+Commit memory changes with the work they came from, on that work's branch.
+Memory is shared with teammates and the ctx| graph only once it merges
+([ADR-037](decisions/ADR-037-committed-memory-reaches-the-graph.md)).

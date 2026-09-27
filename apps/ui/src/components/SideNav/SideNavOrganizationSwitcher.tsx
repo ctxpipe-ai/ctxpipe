@@ -6,6 +6,7 @@ import {
   OrganizationLogo,
   useCurrentOrganization,
 } from "@daveyplate/better-auth-ui"
+import HyperDX from "@hyperdx/browser"
 import { IconPlus, IconSelector, IconSettings } from "@tabler/icons-react"
 import type { Organization } from "better-auth/plugins/organization"
 import { useCallback, useContext, useEffect, useMemo, useState } from "react"
@@ -121,7 +122,7 @@ export function SideNavOrganizationSwitcher({
   ])
 
   const switchOrganization = useCallback(
-    async (organization: Organization) => {
+    async (organization: Organization): Promise<boolean> => {
       setUrgentOrgSlug(organization.slug)
       setActiveOrganizationPending(true)
       try {
@@ -131,6 +132,7 @@ export function SideNavOrganizationSwitcher({
           fetchOptions: { throw: true },
         })
         organizationRefetch?.()
+        return true
       } catch (error) {
         setUrgentOrgSlug(routeOrgSlug)
         toast({
@@ -141,6 +143,7 @@ export function SideNavOrganizationSwitcher({
               : "Failed to switch organisation",
         })
         setActiveOrganizationPending(false)
+        return false
       }
     },
     [
@@ -253,7 +256,9 @@ export function SideNavOrganizationSwitcher({
                   key={organization.id}
                   className="rounded-md"
                   onClick={() => {
-                    void switchOrganization(organization)
+                    void switchOrganization(organization).then((switched) => {
+                      if (switched) HyperDX.addAction("org_switch")
+                    })
                   }}
                 >
                   <OrganizationCellView

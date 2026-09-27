@@ -133,8 +133,32 @@ modelProvider: {
 
 ## Optional props
 
-- `connectorSecrets`: deployment-wide connector settings for GitHub, Atlassian, Slack, Linear, and Notion. Omit for first boot if connectors are not configured yet. Linear uses `linearClientId`, `linearClientSecret`, optional `linearRedirectUri`, and `linearWebhookSecret`; Notion uses `notionClientId`, `notionClientSecret`, and `notionWebhookSecret`; Slack uses `slackClientId`, `slackClientSecret`, and `slackSigningSecret`.
+- `connectorSecrets`: deployment-wide connector settings for GitHub, Atlassian, Slack, Linear, Notion, and PagerDuty. Omit for first boot if connectors are not configured yet. Linear uses `linearClientId`, `linearClientSecret`, optional `linearRedirectUri`, and `linearWebhookSecret`; Notion uses `notionClientId`, `notionClientSecret`, and `notionWebhookSecret`; Slack uses `slackClientId`, `slackClientSecret`, and `slackSigningSecret`; PagerDuty uses `pagerdutyClientId`, `pagerdutyClientSecret`, and optional `pagerdutyRedirectUri` (no shared webhook secret).
 - `size`: deployment capacity profile (`small`, `medium`, `large`). Defaults to `small` when omitted.
+- `otel`: optional OTLP export to your collector. Omit it and the tasks get no `OTEL_*` environment. The construct does not deploy a collector, Langfuse, or ClickStack.
+
+## Observability
+
+`otel.endpoint` is one OTLP/HTTP base URL. The construct trims it once and sets the per-signal variables the apps read: `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is `${endpoint}/v1/traces`, and logs and metrics follow the same pattern. Migrate does not receive them. Export stays off when `otel` is omitted. A blank `endpoint` throws. `OTEL_SERVICE_NAME` is `backend`, `openworkflow`, `ui`, or `codesearch` on that task.
+
+| Prop | Container env |
+| --- | --- |
+| `endpoint` | `OTEL_EXPORTER_OTLP_{TRACES,LOGS,METRICS}_ENDPOINT` (`/v1/traces`, `/v1/logs`, `/v1/metrics`) |
+| `headers` | `OTEL_EXPORTER_OTLP_HEADERS` (Secrets Manager, only when export is on) |
+| `resourceAttributes` | `OTEL_RESOURCE_ATTRIBUTES` |
+
+```ts
+new CtxPipe(stack, "CtxPipe", {
+  // ...orgSlug, customDomain, modelProvider
+  otel: {
+    endpoint: "https://otel.example.com",
+    headers: cdk.SecretValue.unsafePlainText("Authorization=Bearer replace-me"),
+    resourceAttributes: "deployment.environment=production",
+  },
+});
+```
+
+`endpoint` is one base URL for every signal. Browser telemetry and the env vars the apps read: [Configuration](https://docs.ctxpipe.ai/docs/self-hosting/configuration).
 
 
 
@@ -155,7 +179,8 @@ Sizing guidance:
 - Use `small` for pilots and cost-sensitive setups with moderate ingestion churn. Both Aurora and Neptune use burstable `db.t4g.medium` — the smallest AWS-supported combination for Aurora PostgreSQL 16.x and Neptune in most regions (dev/test oriented; not intended for production graph performance testing).
 - Use `medium` when ingestion/reindex bursts are frequent and you want more headroom. Neptune moves to memory-optimized `db.r6g.large`.
 - Use `large` for high-ingestion repositories with stricter latency requirements. Aurora and Neptune both use `db.r6g.xlarge`.
-- Scale worker first when queue pressure grows; codesearch replicas stay conservative.
+- Keep codesearch at **one replica** on every size. Zoekt shards, git clone cache, and SCIP artifacts live on one process and one EFS volume; a second replica splits that state.
+- Extra worker replicas on `large` help extract and connector jobs only. They do **not** raise ingest throughput unless codesearch memory (and the injected `OPENWORKFLOW_CONCURRENCY` / indexer caps) also grow. Each size injects per-worker concurrency so the cluster cannot stampede the single codesearch task (`small` 6, `medium` 10, `large` 8×2 workers with index pipelines capped at 2).
 - Codesearch memory is sized for **ingest peaks** (Zoekt/SCIP), not idle RSS. Fargate cannot grow a running task; `small` is 4 GiB, `medium` 8 GiB, `large` 12 GiB.
 
 Networking note:
@@ -175,6 +200,7 @@ Networking note:
 - SES domain identity + DKIM records + SMTP credentials in Secrets Manager for backend email delivery.
 - Public ALB routing to backend only (UI/codesearch remain internal-only).
 - Outputs for app URL and key secret ARNs.
+- No OpenTelemetry collector, Langfuse, or ClickStack. Telemetry export is the optional `otel` prop.
 - Backup defaults enabled for Aurora, Neptune, and EFS.
 
 Runtime defaults injected by the construct include:
@@ -260,4 +286,6 @@ Because Neptune is single-graph per cluster, this construct does not support mul
 - `LINEAR_REDIRECT_URI` (optional; defaults to the public app callback)
 - `LINEAR_WEBHOOK_SECRET`
 - `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET`, `NOTION_WEBHOOK_SECRET`
+- `PAGERDUTY_CLIENT_ID`, `PAGERDUTY_CLIENT_SECRET`
+- `PAGERDUTY_REDIRECT_URI` (optional; defaults to the public app callback)
 

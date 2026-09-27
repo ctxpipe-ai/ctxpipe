@@ -27,6 +27,30 @@ describe("buildForgeAppManifestYml", () => {
       buildForgeAppManifestYml({ appIdAri: null, remoteBaseUrl: "  " }),
     ).toThrow(/remoteBaseUrl/)
   })
+
+  it("requests Confluence attachment read scope", () => {
+    const y = buildForgeAppManifestYml({
+      appIdAri: null,
+      remoteBaseUrl: exampleOrigin,
+    })
+    expect(y).toContain("read:attachment:confluence")
+  })
+
+  it("subscribes to attachment lifecycle and page-move events", () => {
+    const y = buildForgeAppManifestYml({
+      appIdAri: null,
+      remoteBaseUrl: exampleOrigin,
+    })
+
+    expect(y).toContain("avi:confluence:created:attachment")
+    expect(y).toContain("avi:confluence:updated:attachment")
+    expect(y).toContain("avi:confluence:archived:attachment")
+    expect(y).toContain("avi:confluence:unarchived:attachment")
+    expect(y).toContain("avi:confluence:trashed:attachment")
+    expect(y).toContain("avi:confluence:restored:attachment")
+    expect(y).toContain("avi:confluence:deleted:attachment")
+    expect(y).toContain("avi:confluence:moved:page")
+  })
 })
 
 describe("forgeAppIdToAri", () => {

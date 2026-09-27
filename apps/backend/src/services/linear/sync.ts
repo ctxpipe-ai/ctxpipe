@@ -4,6 +4,8 @@ import type {
   LinearConnection,
   LinearScope,
 } from "../../models/linear-connector.js"
+import { linearWorkspaceIdentity } from "../../models/linear-oauth-app.js"
+import { connectorPathMatchesPreservation } from "../connectors/assets.js"
 import {
   closePullRequest,
   createPullRequestWithFiles,
@@ -11,6 +13,7 @@ import {
   getPullRequestHeadBranch,
   parseGithubPullNumberFromUrl,
 } from "../github/installation-write-client.js"
+import { omitUnchangedLinearFiles } from "./assets.js"
 import type { LinearTokenRefreshHandler } from "./client.js"
 import { LINEAR_CONFIG_PATH } from "./config-from-repo.js"
 import type { ParsedLinearRepoConfig } from "./config-yaml.js"
@@ -66,9 +69,10 @@ export async function syncLinearConfigYaml(input: {
         })) ?? current
     }
   }
+  const workspace = linearWorkspaceIdentity(input.connection)
   const next = renderLinearConfigYaml({
-    workspaceId: input.connection.workspaceId,
-    workspaceName: input.connection.workspaceName,
+    workspaceId: workspace.workspaceId,
+    workspaceName: workspace.workspaceName,
     scopes: input.scopes,
     customerRequests:
       parseLinearConfigYamlContent(current)?.customerRequests ?? "limited",
@@ -109,37 +113,61 @@ export async function syncLinearConfigYaml(input: {
   }
 }
 
+function existingPathsFromCapture(input: {
+  existingPaths: string[]
+  existingBlobs?: ReadonlyArray<{ path: string; sha: string }>
+}): string[] {
+  return input.existingBlobs
+    ? input.existingBlobs.map((file) => file.path)
+    : input.existingPaths
+}
+
 /** Fetch provider content; the calling workflow owns the native Git child. */
 export async function captureLinearContent(input: {
   env: Env
   connection: LinearConnection
   config: ParsedLinearRepoConfig
   existingPaths: string[]
+  existingBlobs?: ReadonlyArray<{ path: string; sha: string }>
   onTokenRefresh?: LinearTokenRefreshHandler
 }) {
-  if (input.config.workspaceId !== input.connection.workspaceId)
+  const workspace = linearWorkspaceIdentity(input.connection)
+  if (input.config.workspaceId !== workspace.workspaceId)
     throw new Error(
       "linear/config.yaml workspace does not match the Linear connection",
     )
-  const mirror = await buildLinearMirror(input)
+  const existingPaths = existingPathsFromCapture(input)
+  const mirror = await buildLinearMirror({
+    env: input.env,
+    connection: input.connection,
+    config: input.config,
+    onTokenRefresh: input.onTokenRefresh,
+    existingBlobs: input.existingBlobs,
+  })
   const failed = mirror.files.length === 0 && mirror.failures.length > 0
   const nextPaths = new Set(mirror.files.map((file) => file.path))
   const deletePaths =
     mirror.failures.length === 0
-      ? input.existingPaths.filter(
+      ? existingPaths.filter(
           (path) =>
             path.startsWith("linear/") &&
             path !== LINEAR_CONFIG_PATH &&
-            !nextPaths.has(path),
+            !nextPaths.has(path) &&
+            !(mirror.preservePathPrefixes ?? []).some((prefix) =>
+              connectorPathMatchesPreservation(path, prefix),
+            ),
         )
       : []
+  const files = input.existingBlobs
+    ? omitUnchangedLinearFiles(mirror.files, input.existingBlobs)
+    : mirror.files
   return {
     status: failed
       ? ("failed" as const)
       : mirror.failures.length
         ? ("partial_failed" as const)
         : ("completed" as const),
-    files: mirror.files,
+    files,
     deletePaths,
     failures: mirror.failures,
   }
@@ -150,8 +178,28 @@ export async function captureLinearIncrementalContent(input: {
   connection: LinearConnection
   config: ParsedLinearRepoConfig
   existingPaths: string[]
+  existingBlobs?: ReadonlyArray<{ path: string; sha: string }>
   entity: LinearEntityChange
   onTokenRefresh?: LinearTokenRefreshHandler
 }) {
-  return buildLinearIncrementalChanges({ ...input, entities: [input.entity] })
+  const existingPaths = existingPathsFromCapture(input)
+  const changes = await buildLinearIncrementalChanges({
+    env: input.env,
+    connection: input.connection,
+    config: input.config,
+    entities: [input.entity],
+    existingPaths,
+    existingShaByPath: input.existingBlobs
+      ? new Map(input.existingBlobs.map((file) => [file.path, file.sha]))
+      : undefined,
+    onTokenRefresh: input.onTokenRefresh,
+  })
+  const files = input.existingBlobs
+    ? omitUnchangedLinearFiles(changes.files, input.existingBlobs)
+    : changes.files
+  return {
+    files,
+    deletePaths: changes.deletePaths,
+    failures: changes.failures,
+  }
 }

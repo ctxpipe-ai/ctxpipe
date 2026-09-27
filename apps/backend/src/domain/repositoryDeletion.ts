@@ -2,33 +2,35 @@ import { and, eq } from "drizzle-orm"
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"
 import {
+  assertNotInOrgDbContext,
   getOrgDb,
   withOrgDbContext,
-  assertNotInOrgDbContext,
 } from "../db/client.js"
-import { formatUnknownError } from "../db/transientDbRetry.js"
 import { organizations } from "../db/schema/auth.js"
 import { claims } from "../db/schema/claims.js"
 import { conversations } from "../db/schema/conversations.js"
 import { objects } from "../db/schema/objects.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
+import { formatUnknownError } from "../db/transientDbRetry.js"
 import { codesearchBaseUrl } from "../lib/agentToolRuntime.js"
 import {
   TransientHttpError,
   withTransientHttpRetry,
 } from "../lib/withTransientHttpRetry.js"
+import { clearGithubPrMirrorBindingsForRepository } from "../models/github-pr-mirror.js"
 import { clearLinearSyncBindingsForRepository } from "../models/linear-connector.js"
 import { clearNotionSyncBindingsForRepository } from "../models/notion-connector.js"
-import { clearSlackSyncBindingsForRepository } from "../models/slack-connector.js"
+import { clearPagerdutySyncBindingsForRepository } from "../models/pagerduty-connector.js"
 import { DEFAULT_CHECKOUT_KEY } from "../models/repositories.js"
+import { clearSlackSyncBindingsForRepository } from "../models/slack-connector.js"
 import { log } from "../observability/logger.js"
 import { getGraphClient, withGraphClient } from "../platform/graph/client.js"
 import {
   applyIngestionRetractionGraphEffects,
   type IngestionRetractionGraphEffects,
-  type RetractionStats,
   purgeRepositoryEvidencePg,
+  type RetractionStats,
 } from "../retrieval/services/ingestionRetraction.js"
 
 async function mintCodesearchPurgeJwt(
@@ -108,7 +110,7 @@ export async function notifyCodesearchRepositoryDeleted(params: {
         step: "repositoryDeletion.codesearch_purge",
         message: "repositoryDeletion: codesearch purge failed",
         repositoryId: params.repositoryId,
-        status: res.status,
+        "upstream.status_code": res.status,
         body: text.slice(0, 500),
       })
     } else {
@@ -274,6 +276,9 @@ export async function deleteRepositoryRowPostgres(params: {
   const linearCleared = await clearLinearSyncBindingsForRepository(params)
   const notionCleared = await clearNotionSyncBindingsForRepository(params)
   const slackCleared = await clearSlackSyncBindingsForRepository(params)
+  const pagerdutyCleared = await clearPagerdutySyncBindingsForRepository(params)
+  const githubPrMirrorCleared =
+    await clearGithubPrMirrorBindingsForRepository(params)
   const del = await db
     .delete(repositories)
     .where(
@@ -289,6 +294,8 @@ export async function deleteRepositoryRowPostgres(params: {
     linearCleared,
     notionCleared,
     slackCleared,
+    pagerdutyCleared,
+    githubPrMirrorCleared,
   })
   return deleted
 }

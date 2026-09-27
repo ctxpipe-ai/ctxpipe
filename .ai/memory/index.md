@@ -7,7 +7,7 @@
 | Product context | [product-context.md](./product-context.md) | Overview / architecture |
 | ADRs | [decisions/index.md](./decisions/index.md) | Architecture decisions |
 | PRDs | [PRDs/index.md](./PRDs/index.md) | Living product requirements |
-| Sessions | [sessions/index.md](./sessions/index.md) | Episodic summaries |
+| Sessions | [sessions/index.md](./sessions/index.md) | Summaries of work with no PR |
 | Research | [research/index.md](./research/index.md) | Prior art notes (local-memory, ui-design-skills, …) |
 | Events (local) | [events/](./events/) | Gitignored candidate inbox |
 

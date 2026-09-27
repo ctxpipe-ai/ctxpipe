@@ -7,6 +7,7 @@ const LinearOAuthStateSchema = z.object({
   orgId: z.string().min(1),
   orgSlug: z.string().min(1),
   userId: z.string().min(1),
+  connectionId: z.string().min(1).optional(),
 })
 
 export type LinearOAuthState = z.infer<typeof LinearOAuthStateSchema>
@@ -20,6 +21,7 @@ export function createLinearOAuthState(input: {
   orgId: string
   orgSlug: string
   userId: string
+  connectionId?: string
   now?: number
 }): string {
   const payload: LinearOAuthState = {
@@ -28,6 +30,7 @@ export function createLinearOAuthState(input: {
     orgId: input.orgId,
     orgSlug: input.orgSlug,
     userId: input.userId,
+    ...(input.connectionId ? { connectionId: input.connectionId } : {}),
   }
   const encodedPayload = Buffer.from(JSON.stringify(payload)).toString(
     "base64url",
@@ -39,6 +42,7 @@ export function verifyLinearOAuthState(input: {
   authSecret: string
   state: string
   now?: number
+  orgId?: string
 }): LinearOAuthState | undefined {
   const [encodedPayload, signature, extra] = input.state.split(".")
   if (!encodedPayload || !signature || extra) return undefined
@@ -51,7 +55,9 @@ export function verifyLinearOAuthState(input: {
     const parsed = LinearOAuthStateSchema.parse(
       JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")),
     )
-    return parsed.exp > (input.now ?? Date.now()) ? parsed : undefined
+    if (parsed.exp <= (input.now ?? Date.now())) return undefined
+    if (input.orgId && parsed.orgId !== input.orgId) return undefined
+    return parsed
   } catch {
     return undefined
   }

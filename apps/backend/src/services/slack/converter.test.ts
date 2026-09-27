@@ -1,12 +1,23 @@
 import { describe, expect, it } from "vitest"
 import {
+  collectSlackMessageMedia,
+  getSlackChannelIndexPath,
   getSlackThreadPath,
+  resolveSlackChannelPathSlug,
   slackMrkdwnToMarkdown,
+  slackUrlSourceKey,
+  toSlackChannelIndexFile,
   toSlackThreadMarkdownFile,
 } from "./converter.js"
 
 describe("slack converter", () => {
-  it("builds stable thread paths", () => {
+  it("builds a thread.md leaf while the channel index stays index.md", () => {
+    expect(
+      getSlackChannelIndexPath({
+        channelId: "C123",
+        channelName: "Engineering",
+      }),
+    ).toBe("slack/channels/engineering--C123/index.md")
     expect(
       getSlackThreadPath({
         channelId: "C123",
@@ -14,7 +25,7 @@ describe("slack converter", () => {
         threadTs: "1710000000.000100",
       }),
     ).toBe(
-      "slack/channels/engineering--C123/threads/2024/03/1710000000.000100/index.md",
+      "slack/channels/engineering--C123/threads/2024/03/1710000000.000100/thread.md",
     )
   })
 
@@ -22,6 +33,130 @@ describe("slack converter", () => {
     expect(slackMrkdwnToMarkdown("see <https://example.com|docs>")).toBe(
       "see [docs](https://example.com)",
     )
+  })
+
+  it("removes credentials from labelled, angle-bracketed, and bare links", () => {
+    const markdown = slackMrkdwnToMarkdown(
+      "read <https://example.com/guide?token=label-secret|private docs>, <https://example.com/file?X-Amz-Credential=key&X-Amz-Signature=angle-secret>, and https://example.com/raw?access_token=bare-secret.",
+    )
+
+    expect(markdown).toBe(
+      "read private docs, [private link omitted], and [private link omitted].",
+    )
+    expect(markdown).not.toMatch(/label-secret|angle-secret|bare-secret/)
+  })
+
+  it("removes credentials from channel topics and purposes", () => {
+    const file = toSlackChannelIndexFile({
+      channelId: "C123",
+      channelName: "Engineering",
+      isPrivate: false,
+      topic: "Read <https://example.com/guide|the guide>",
+      purpose:
+        "Download https://example.com/export?token=channel-secret when needed.",
+    })
+
+    expect(file.content).toContain(
+      "**Topic:** Read [the guide](https://example.com/guide)",
+    )
+    expect(file.content).toContain(
+      "**Purpose:** Download [private link omitted] when needed.",
+    )
+    expect(file.content).not.toContain("channel-secret")
+  })
+
+  it("resolves inline mentions to @handle when a profile map is provided", () => {
+    const handles = new Map([
+      ["U1", "ada"],
+      ["U2", "bob"],
+    ])
+    expect(slackMrkdwnToMarkdown("hey <@U1> and <@U2|bobby>", handles)).toBe(
+      "hey @ada and @bob",
+    )
+    expect(slackMrkdwnToMarkdown("hey <@U9>")).toBe("hey @U9")
+    expect(slackMrkdwnToMarkdown("hey <@U9|ghost>", handles)).toBe("hey @U9")
+  })
+
+  it("reuses a path slug without changing the rendered channel name", () => {
+    expect(
+      getSlackChannelIndexPath({
+        channelId: "C123",
+        channelName: "Platform",
+        pathSlug: "engineering",
+      }),
+    ).toBe("slack/channels/engineering--C123/index.md")
+    expect(
+      getSlackThreadPath({
+        channelId: "C123",
+        channelName: "Platform",
+        pathSlug: "engineering",
+        threadTs: "1710000000.000100",
+      }),
+    ).toBe(
+      "slack/channels/engineering--C123/threads/2024/03/1710000000.000100/thread.md",
+    )
+    const channel = toSlackChannelIndexFile({
+      channelId: "C123",
+      channelName: "Platform",
+      pathSlug: "engineering",
+      isPrivate: false,
+    })
+    expect(channel.path).toBe("slack/channels/engineering--C123/index.md")
+    expect(channel.content).toContain('channel_name: "Platform"')
+    expect(channel.content).toContain("# #Platform")
+    const thread = toSlackThreadMarkdownFile({
+      channelId: "C123",
+      channelName: "Platform",
+      pathSlug: "engineering",
+      isPrivate: false,
+      threadTs: "1710000000.000100",
+      messages: [
+        {
+          ts: "1710000000.000100",
+          userId: "U9",
+          text: "ping <@U9>",
+        },
+      ],
+    })
+    expect(thread.path).toBe(
+      "slack/channels/engineering--C123/threads/2024/03/1710000000.000100/thread.md",
+    )
+    expect(thread.content).toContain('channel_name: "Platform"')
+    expect(thread.content).toContain("# Thread in #Platform")
+    expect(thread.content).toContain('participant_ids: ["U9"]')
+    expect(thread.content).toContain("### unknown")
+    expect(thread.content).toContain("ping @U9")
+  })
+
+  it("picks a stable existing channel path slug from the git tree", () => {
+    expect(
+      resolveSlackChannelPathSlug({
+        existingPaths: [
+          "slack/channels/platform--C123/index.md",
+          "slack/channels/engineering--C123/threads/2024/03/1710000000.000100/thread.md",
+          "slack/channels/other--C999/index.md",
+        ],
+        channelId: "C123",
+        threadTs: "1710000000.000100",
+        channelName: "Platform",
+      }),
+    ).toBe("engineering")
+    expect(
+      resolveSlackChannelPathSlug({
+        existingPaths: ["slack/channels/eng--C1/index.md"],
+        channelId: "C1",
+        threadTs: "1710000000.000100",
+        channelName: "Platform",
+      }),
+    ).toBe("eng")
+    expect(
+      resolveSlackChannelPathSlug({
+        existingPaths: ["slack/channels/other--C999/index.md"],
+        channelId: "C1",
+        threadTs: "1710000000.000100",
+        channelName: "Platform",
+      }),
+    ).toBe("platform")
   })
 
   it("writes thread markdown with identity frontmatter", () => {
@@ -43,7 +178,7 @@ describe("slack converter", () => {
       ],
     })
     expect(file.path).toBe(
-      "slack/channels/eng--C1/threads/2024/03/1710000000.000100/index.md",
+      "slack/channels/eng--C1/threads/2024/03/1710000000.000100/thread.md",
     )
     expect(file.content).toContain("source: slack")
     expect(file.content).toContain("thread_ts:")
@@ -53,6 +188,57 @@ describe("slack converter", () => {
     expect(file.content).toContain('name: "Ada Lovelace"')
     expect(file.content).toContain("### Ada")
     expect(file.content).toContain("hello")
+  })
+
+  it("renders downloaded images and files as relative markdown", () => {
+    const file = toSlackThreadMarkdownFile({
+      channelId: "C1",
+      channelName: "eng",
+      isPrivate: false,
+      threadTs: "1710000000.000100",
+      mentionHandles: new Map([["U2", "bob"]]),
+      messages: [
+        {
+          ts: "1710000000.000100",
+          userId: "U1",
+          userDisplay: "Ada",
+          text: "see <@U2>",
+          assetLinks: [
+            {
+              label: "diagram](https://evil.example)",
+              path: "assets/F1--diagram.png",
+              kind: "image",
+            },
+            {
+              label: "notes.pdf",
+              path: "assets/F2--notes.pdf",
+              kind: "file",
+            },
+            {
+              label: "missing.png",
+              path: "https://acme.slack.com/files/U1/F3/missing.png",
+              kind: "file",
+            },
+            {
+              label: "unavailable.pdf",
+              path: "",
+              kind: "file",
+            },
+          ],
+        },
+      ],
+    })
+    expect(file.content).toContain("see @bob")
+    expect(file.content).toContain(
+      "![diagram\\](https://evil.example)](assets/F1--diagram.png)",
+    )
+    expect(file.content).not.toContain("![diagram](https://evil.example)")
+    expect(file.content).toContain("[notes.pdf](assets/F2--notes.pdf)")
+    expect(file.content).toContain(
+      "[missing.png](https://acme.slack.com/files/U1/F3/missing.png)",
+    )
+    expect(file.content).toContain("[file: unavailable.pdf unavailable]")
+    expect(file.content).not.toContain("url_private")
   })
 
   it("omits captured_by when lookup failed", () => {
@@ -90,5 +276,205 @@ describe("slack converter", () => {
     })
     expect(file.content).toContain("truncated: true")
     expect(file.content).toContain("later replies were omitted")
+  })
+})
+
+describe("collectSlackMessageMedia", () => {
+  it("collects message.files plus explicit block and legacy attachment media", () => {
+    const external = "https://cdn.example.com/hero.png"
+    const media = collectSlackMessageMedia({
+      files: [
+        {
+          id: "F1",
+          name: "diagram.png",
+          mimetype: "image/png",
+          permalink: "https://acme.slack.com/files/U1/F1/diagram.png",
+          url_private: "https://files.slack.com/files-pri/T1-F1/diagram.png",
+          url_private_download:
+            "https://files.slack.com/files-pri/T1-F1/download/diagram.png",
+        },
+      ],
+      blocks: [
+        {
+          type: "image",
+          alt_text: "hero",
+          image_url: external,
+        },
+        {
+          type: "image",
+          slack_file: {
+            id: "F9",
+            url: "https://files.slack.com/files-pri/T1-F9/block.png",
+          },
+          alt_text: "block.png",
+        },
+        {
+          type: "section",
+          accessory: {
+            type: "image",
+            image_url: "https://cdn.example.com/badge.png",
+            alt_text: "badge.png",
+          },
+        },
+        {
+          type: "video",
+          video_url: "https://cdn.example.com/demo.mp4",
+          thumbnail_url: "https://cdn.example.com/demo-thumb.jpg",
+          title: { type: "plain_text", text: "Demo" },
+        },
+      ],
+      attachments: [
+        {
+          image_url: "https://cdn.example.com/attach.jpg",
+          thumb_url: "https://cdn.example.com/attach-thumb.jpg",
+          title: "attach.jpg",
+        },
+        {
+          files: [
+            {
+              id: "F8",
+              name: "legacy.pdf",
+              permalink: "https://acme.slack.com/files/U1/F8/legacy.pdf",
+              url_private: "https://files.slack.com/files-pri/T1-F8/legacy.pdf",
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(media).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceKey: "F1",
+          filename: "diagram.png",
+          downloadUrl:
+            "https://files.slack.com/files-pri/T1-F1/download/diagram.png",
+          permalink: "https://acme.slack.com/files/U1/F1/diagram.png",
+        }),
+        expect.objectContaining({
+          sourceKey: "F9",
+          downloadUrl: "https://files.slack.com/files-pri/T1-F9/block.png",
+        }),
+        expect.objectContaining({
+          sourceKey: "F8",
+          filename: "legacy.pdf",
+        }),
+        expect.objectContaining({
+          filename: "hero.png",
+          downloadUrl: external,
+        }),
+        expect.objectContaining({
+          filename: "badge.png",
+          downloadUrl: "https://cdn.example.com/badge.png",
+        }),
+        expect.objectContaining({
+          filename: "attach.jpg",
+          downloadUrl: "https://cdn.example.com/attach.jpg",
+        }),
+        expect.objectContaining({
+          downloadUrl: "https://cdn.example.com/attach-thumb.jpg",
+        }),
+        expect.objectContaining({
+          downloadUrl: "https://cdn.example.com/demo.mp4",
+        }),
+        expect.objectContaining({
+          downloadUrl: "https://cdn.example.com/demo-thumb.jpg",
+        }),
+      ]),
+    )
+    expect(media.map((item) => item.sourceKey)).toContain(
+      slackUrlSourceKey(external),
+    )
+    expect(JSON.stringify(media)).not.toContain("url_private")
+  })
+
+  it("ignores expiring query tokens in external media identity", () => {
+    expect(
+      slackUrlSourceKey(
+        "https://cdn.example.com/image.png?X-Amz-Credential=key&X-Amz-Signature=one",
+      ),
+    ).toBe(
+      slackUrlSourceKey(
+        "https://cdn.example.com/image.png?X-Amz-Credential=key&X-Amz-Signature=two",
+      ),
+    )
+    expect(
+      slackUrlSourceKey(
+        "https://cdn.example.com/image.png?token=old&expires=100",
+      ),
+    ).toBe(
+      slackUrlSourceKey(
+        "https://cdn.example.com/image.png?token=new&expires=200",
+      ),
+    )
+  })
+
+  it("does not treat mrkdwn URLs as media", () => {
+    expect(
+      collectSlackMessageMedia({
+        text: "see <https://cdn.example.com/not-an-attachment.png>",
+      }),
+    ).toEqual([])
+  })
+
+  it("keeps explicit media identity stable when access tokens rotate", () => {
+    const collect = (token: string) =>
+      collectSlackMessageMedia({
+        ts: "1710000000.000100",
+        attachments: [
+          {
+            image_url: `https://cdn.example.com/diagram.png?token=${token}`,
+          },
+        ],
+      })[0]
+
+    expect(collect("old")?.sourceKey).toBe(collect("new")?.sourceKey)
+    expect(collect("old")?.downloadUrl).not.toBe(collect("new")?.downloadUrl)
+  })
+
+  it("does not capture generated link-unfurl previews as assets", () => {
+    expect(
+      collectSlackMessageMedia({
+        attachments: [
+          {
+            is_msg_unfurl: true,
+            image_url: "https://cdn.example.com/message-preview.png",
+          },
+          {
+            is_app_unfurl: true,
+            image_url: "https://cdn.example.com/app-preview.png",
+          },
+          {
+            is_reply_unfurl: true,
+            image_url: "https://cdn.example.com/reply-preview.png",
+          },
+          {
+            is_thread_root_unfurl: true,
+            image_url: "https://cdn.example.com/thread-root-preview.png",
+            files: [
+              {
+                id: "F-PREVIEW",
+                name: "linked-file.pdf",
+                url_private: "https://files.slack.com/linked-file.pdf",
+              },
+            ],
+          },
+        ],
+      }),
+    ).toEqual([])
+  })
+
+  it("does not capture automatic link previews without explicit unfurl flags", () => {
+    expect(
+      collectSlackMessageMedia({
+        attachments: [
+          {
+            from_url: "https://docs.example.com/architecture",
+            original_url: "https://docs.example.com/architecture",
+            image_url: "https://cdn.example.com/architecture-preview.png",
+          },
+        ],
+      }),
+    ).toEqual([])
   })
 })

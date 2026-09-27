@@ -212,7 +212,7 @@ describe("executeScipGraphQuery", () => {
       })
       expect(res.ok).toBe(true)
       expect(res.results).toEqual([])
-      expect(res.note).toMatch(/not found/i)
+      expect(res.note).toMatch(/unavailable/i)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

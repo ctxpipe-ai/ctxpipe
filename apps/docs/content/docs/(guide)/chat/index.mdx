@@ -51,11 +51,11 @@ Use Chat to ask how a subsystem is built, where its boundaries are, and what
 risks to inspect before changing it.
 
 ```text
-How does repository ingestion work from GitHub selection to searchable code?
+How does our checkout service authenticate requests, and which files support that answer?
 ```
 
 ```text
-What calls the knowledge graph snapshot endpoint, and what data shape does it return?
+Which services depend on the billing events stream, and where is that relationship implemented?
 ```
 
 When exact implementation details matter, ask Chat to name the files it used and
@@ -88,6 +88,22 @@ I am going to change the GitHub repository setup flow. What conventions and file
 
 The same mental model applies to MCP: agent clients call `ctx_advisor`, while
 humans use Chat.
+
+## Know the limits
+
+Chat combines retrieved source, graph claims, and your conversation. It can
+still miss a file, rely on stale ingestion, or infer a relationship too
+strongly. For consequential answers:
+
+- ask for supporting file paths,
+- ask what is verified versus inferred,
+- check repository indexing status,
+- and inspect the current code before making a risky change.
+
+Connector-generated Markdown can also contribute to Chat when its context
+repository is indexed. Repository access therefore remains part of the
+effective audience for captured Slack threads and mirrored Linear, Notion, or
+Confluence content.
 
 ## Conversation Sources
 

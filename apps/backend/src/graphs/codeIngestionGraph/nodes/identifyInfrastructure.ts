@@ -18,8 +18,8 @@ import {
   standardRepoExplorerTools,
 } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
-import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import type { CodeIngestionState } from "../schemas.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import {
   processCapturedInfrastructure,
   type SubmittedInfrastructure,
@@ -28,7 +28,7 @@ import {
   partialScanPathsForExtractors,
   partialScanPromptSuffix,
   repoPathMatchesPartialScan,
-  shouldSkipExtractorForPartialDeletesOnly,
+  shouldSkipCodeExtractorForPartialDiff,
 } from "./partialIngestionScope.js"
 
 function createIdentifyInfrastructureTools(capturedInfra: {
@@ -102,7 +102,7 @@ export async function identifyInfrastructure(
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 
-  if (shouldSkipExtractorForPartialDeletesOnly(state)) {
+  if (shouldSkipCodeExtractorForPartialDiff(state)) {
     return {}
   }
 

@@ -1,9 +1,11 @@
+import "./observability/register.js"
 import type { Serve } from "bun"
 import { createApp } from "./app/app.js"
 import { parseEnv } from "./config/env.js"
 import { closeDb } from "./db/client.js"
-import { flushEvlog, initEvlog } from "./observability/logger.js"
-import { initOtel, shutdownOtel } from "./observability/otel.js"
+import { flushEvlog } from "./observability/logger.js"
+import { shutdownOtel } from "./observability/otel.js"
+import { startGithubPrMirrorEnsureSweepOnce } from "./openworkflow/workflows/github-ensure-pr-mirror.js"
 import { shutdownGraphClients } from "./platform/graph/index.js"
 import {
   conversationWebSocketHandlers,
@@ -18,9 +20,8 @@ import {
 } from "./routes/ui.js"
 
 const env = parseEnv(process.env as Record<string, string | undefined>)
-initOtel(env)
-initEvlog()
 const app = createApp()
+startGithubPrMirrorEnsureSweepOnce()
 let shuttingDown = false
 
 async function shutdownResources() {

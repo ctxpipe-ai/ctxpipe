@@ -34,7 +34,11 @@ const env = {
 }
 
 /** Script lives at apps/backend/src/scripts → backend root two levels up. */
-const BACKEND_PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..")
+const BACKEND_PKG_ROOT = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+)
 
 /** Explicit path avoids PATH shims that break when HOME is overridden (Volta forge stub + isolated HOME cwd). Workers without a workspace install rely on global `forge` on PATH. */
 function resolveForgeExecutable() {
@@ -59,7 +63,15 @@ try {
     registerArgs.push("--verbose")
     forge(registerArgs)
   }
-  forge(["deploy", "-e", "production", "--non-interactive", "--verbose"])
+  forge([
+    "deploy",
+    "-e",
+    "production",
+    "--non-interactive",
+    "--approve",
+    "MAJOR_VERSION_RULE",
+    "--verbose",
+  ])
   const installArgs = [
     "install",
     "-e",
@@ -71,8 +83,9 @@ try {
     "--non-interactive",
     "--verbose",
   ]
-  if (process.env.FORGE_CONFIRM_SCOPES === "1")
-    installArgs.push("--confirm-scopes")
+  // Provisioning is an explicit operator action; existing installs must accept
+  // manifest scope additions or attachment capture remains silently unusable.
+  if (existing) installArgs.push("--upgrade", "--confirm-scopes")
   forge(installArgs)
   if (existing) writeFileSync(".forge-appid", existing, "utf8")
   process.stdout.write(`OK ${cwd()}\n`)

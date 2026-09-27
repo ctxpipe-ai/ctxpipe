@@ -2,20 +2,23 @@ import { QueryClientProvider } from "@tanstack/react-query"
 import { useRouter } from "@tanstack/react-router"
 import type { ReactNode } from "react"
 import { RouterProvider } from "react-aria-components"
-import type { AmplitudeRuntimeConfig } from "@/lib/amplitudeRuntimeConfig"
 import type { ConfluenceForgeRuntimeConfig } from "@/lib/confluenceForgeRuntimeConfig"
-import { AmplitudeProvider } from "./providers/AmplitudeProvider"
+import type { HyperDxSessionIdentity } from "@/lib/hyperdxAttributes"
+import type { HyperDxRuntimeConfig } from "@/lib/hyperdxRuntimeConfig"
 import { AuthProvider } from "./providers/AuthProvider"
 import { ConfluenceForgeRuntimeProvider } from "./providers/ConfluenceForgeRuntimeContext"
+import { HyperDxProvider } from "./providers/HyperDxProvider"
 import type { RouterContext } from "./router"
 
 export function Providers({
   children,
-  amplitudeRuntimeConfig,
+  hyperdxRuntimeConfig,
+  hyperdxIdentity,
   confluenceForgeRuntimeConfig,
 }: {
   children: ReactNode
-  amplitudeRuntimeConfig: AmplitudeRuntimeConfig
+  hyperdxRuntimeConfig: HyperDxRuntimeConfig
+  hyperdxIdentity: HyperDxSessionIdentity | null
   confluenceForgeRuntimeConfig: ConfluenceForgeRuntimeConfig
 }) {
   const router = useRouter()
@@ -25,7 +28,10 @@ export function Providers({
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <ConfluenceForgeRuntimeProvider value={confluenceForgeRuntimeConfig}>
-          <AmplitudeProvider runtimeConfig={amplitudeRuntimeConfig}>
+          <HyperDxProvider
+            runtimeConfig={hyperdxRuntimeConfig}
+            initialIdentity={hyperdxIdentity}
+          >
             <RouterProvider
               navigate={(href) => {
                 void router.navigate({ href })
@@ -34,7 +40,7 @@ export function Providers({
             >
               {children}
             </RouterProvider>
-          </AmplitudeProvider>
+          </HyperDxProvider>
         </ConfluenceForgeRuntimeProvider>
       </AuthProvider>
     </QueryClientProvider>

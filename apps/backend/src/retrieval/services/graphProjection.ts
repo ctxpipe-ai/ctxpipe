@@ -4,7 +4,6 @@ import {
   requireCurrentOrgSlug,
 } from "../../auth/context.js"
 import { getOrgDb, withOrgDbContext } from "../../db/client.js"
-import { withAmbientOrgDb } from "../../db/org-sql.js"
 import { claimEvidence } from "../../db/schema/claim_evidence.js"
 import { claims } from "../../db/schema/claims.js"
 import { objects } from "../../db/schema/objects.js"
@@ -27,13 +26,21 @@ const KIND_PAYLOAD_KEYS: Record<string, string[]> = {
   Library: ["language", "package"],
   Pattern: ["category"],
   Repository: [],
-  Concept: [],
-  Capability: [],
-  Topic: [],
-  Incident: [],
-  Decision: [],
+  Decision: ["status", "date", "path", "url"],
   InstructionUnit: ["intent", "modality", "path"],
   Skill: ["intent_summary"],
+  PullRequest: [
+    "number",
+    "repository",
+    "url",
+    "review_decision",
+    "merged_at",
+    "author",
+  ],
+  File: ["path", "repository"],
+  Issue: ["identifier", "state", "priority", "team", "project", "url"],
+  Team: ["key", "source", "url"],
+  Thread: ["channel_name", "permalink", "captured_at", "message_count"],
 }
 
 const SAFE_CYPHER_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/
@@ -592,13 +599,12 @@ export async function refreshClaimProjections(
   const uniqueIds = [...new Set(claimIds.filter(Boolean))]
   if (uniqueIds.length === 0) return 0
 
-  const projectionClaims = await withAmbientOrgDb(async () => {
-    const resolvedOrgId = requireCurrentOrgId()
-    const db = getOrgDb()
-    const subjectRo = aliasedTable(objects, "subject_ro")
-    const objectRo = aliasedTable(objects, "object_ro")
-    const loaded: ClaimForProjection[] = []
+  const resolvedOrgId = requireCurrentOrgId()
+  const subjectRo = aliasedTable(objects, "subject_ro")
+  const objectRo = aliasedTable(objects, "object_ro")
 
+  const projectionClaims = await withOrgDbContext(resolvedOrgId, async (db) => {
+    const loaded: ClaimForProjection[] = []
     for (const idChunk of chunkArray(uniqueIds, PROJECT_CLAIM_BATCH_SIZE)) {
       const rows = await db
         .select({

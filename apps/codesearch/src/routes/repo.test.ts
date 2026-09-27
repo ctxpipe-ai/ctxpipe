@@ -345,6 +345,10 @@ describe("POST /{repoId}/resolve-ref", () => {
     })
 
     expect(res.status).toBe(404)
+    await expect(res.json()).resolves.toEqual({
+      error: "Repository not found or access denied",
+      code: "repository_not_found",
+    })
   })
 
   it("returns 500 when ref resolution fails", async () => {
@@ -432,6 +436,10 @@ describe("GET /{repoId}/tree", () => {
   })
 })
 
+const hasBunGlob = Boolean(
+  (globalThis as { Bun?: { Glob?: unknown } }).Bun?.Glob,
+)
+
 describe("POST /{repoId}/glob", () => {
   let tmpDir: string
   let repoCacheDir: string
@@ -484,7 +492,7 @@ describe("POST /{repoId}/glob", () => {
     expect(body.matched).toBe(body.entries.length)
   })
 
-  it("matches dotpaths with default dot true", async () => {
+  it.skipIf(!hasBunGlob)("matches dotpaths with default dot true", async () => {
     await mkdir(join(checkoutDir, ".cursor", "rules"), { recursive: true })
     await writeFile(join(checkoutDir, ".cursor", "rules", "x.mdc"), "rule\n")
 

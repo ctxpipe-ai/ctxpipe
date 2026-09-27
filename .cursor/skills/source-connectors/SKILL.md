@@ -1,19 +1,22 @@
 ---
 name: source-connectors
-description: Source connectors. Use when designing, implementing, or reviewing an integration that durably imports external provider content into a ctxpipe context repository.
+description: Source connectors. Use when designing, implementing, or reviewing an integration or attachment/media path that durably imports external provider content into a ctxpipe context repository.
 ---
 
 # Source connectors
 
-This skill is how to **build new** source connectors. Do not retrofit Linear, Notion, Slack, or Confluence to match it.
+This skill governs connector content for both new and existing connectors.
+Control-plane architecture is not retrofitted: maintain Confluence's legacy
+tables and Slack's thin intent-capture lifecycle unless that architecture is the
+assigned change.
 
-A **git-native** source connector authorises the provider on **this** deployment, writes selected content as files into a **context repository**, then `runRepositoryIngestionWorkflow` indexes that repo. Same code for hosted and self-host. The provider app and webhook endpoint terminate on this deployment; credentials are deployment-shared or connection-specific according to the provider’s tenant-isolation model.
+A **git-native** source connector authorises the provider on **this** deployment, writes selected content as files into a **context repository**, then `claimAndRunRepositoryIngestionChild` (in-workflow) / `enqueueRepositoryIngestionWorkflow` (HTTP) indexes that repo. Connector syncs recover an uncheckpointed Git write via `runConnectorRepositoryIngestionWorkflow`. Same code for hosted and self-host. The provider app and webhook endpoint terminate on this deployment; credentials are deployment-shared or connection-specific according to the provider’s tenant-isolation model.
 
 The store is **git**. Rich operations (open a config PR, `commitFiles`) are implemented today only for **GitHub**. Design against git paths; call the GitHub App for those operations. Do not invent a second git host’s PR API unless you are implementing it.
 
 For new connectors, inherit Linear/Notion’s thin control plane (`connections.config` + `<slug>/config.yaml` via PR). Slack shows **intent capture** as a content kind, not a licence to skip config-in-git. Consult Confluence only when maintaining Confluence.
 
-Canonical decisions: [ADR-018](../../../.ai/memory/decisions/ADR-018-unified-connections-table.md), [ADR-022](../../../.ai/memory/decisions/ADR-022-linear-connector-git-native-mirror.md), [ADR-023](../../../.ai/memory/decisions/ADR-023-notion-connector-git-native-mirror.md). Slack intent-capture (existing, not a template for skipping config): [ADR-025 on PR #267](https://github.com/ctxpipe-ai/ctxpipe/blob/slack-connector/.ai/memory/decisions/ADR-025-slack-connector-git-native-mirror.md). Self-host Atlassian exception: [ADR-019](../../../.ai/memory/decisions/ADR-019-confluence-forge-self-host-and-per-org-atlassian-3lo.md).
+Canonical decisions: [ADR-018](../../../.ai/memory/decisions/ADR-018-unified-connections-table.md), [ADR-022](../../../.ai/memory/decisions/ADR-022-linear-connector-git-native-mirror.md), [ADR-023](../../../.ai/memory/decisions/ADR-023-notion-connector-git-native-mirror.md), [ADR-031](../../../.ai/memory/decisions/ADR-031-github-pr-scoped-mirror.md), [ADR-034](../../../.ai/memory/decisions/ADR-034-pagerduty-connector-git-native-mirror.md). Slack intent-capture (existing, not a template for skipping config): [ADR-025 on PR #267](https://github.com/ctxpipe-ai/ctxpipe/blob/slack-connector/.ai/memory/decisions/ADR-025-slack-connector-git-native-mirror.md). Self-host Atlassian exception: [ADR-019](../../../.ai/memory/decisions/ADR-019-confluence-forge-self-host-and-per-org-atlassian-3lo.md).
 
 ## 1. Classify the job
 
@@ -50,6 +53,9 @@ Encrypt tokens with `encryptConnectionSecret` (`*Enc` fields). Never log or retu
 ## 3. Pipe files into git
 
 Git is the durability and audit store.
+For images, files, attachments, and external embeds, read
+[connector assets](references/assets.md) before designing paths or download
+behaviour.
 
 - **Config** lives in the repo as `<slug>/config.yaml`. Create and change it with a **pull request** (today: GitHub). Draft = yaml on the PR branch; live = yaml on the configured target branch after merge.
 - **Content** (mirrors, entity updates, captures) may commit **directly to that target branch**. Content is not a second review PR.
@@ -58,11 +64,12 @@ Write under a managed root `<slug>/` in the bound context repository (often `ctx
 
 - **Plain text first.** Markdown for documents, issues, threads, comments. YAML for `config.yaml`. CSV only as a tabular companion beside canonical row Markdown (Notion databases).
 - **Deterministic conversion.** Convert provider-native blocks/markup into readable Markdown (or another agreed plain-text form), preserving all user-authored text, ordering, headings, lists, authors, timestamps, links, and code. No LLM rewrite, no API-JSON dumps, no retained HTML unless HTML is itself the source payload.
-- **Stable paths.** Include the provider id so renames do not duplicate. Match a nearby anchor: Linear uses flat `linear/issues/<slug>--<id>.md`; Notion pages and Slack threads use `<slug>--<id>/index.md` directories.
-- **Images and attachments are files.** New connectors download bytes through the authorised client (not anonymous CDN), commit them next to the Markdown, and rewrite links to relative paths. That includes images (`png`/`jpg`/`webp`/`svg`) and other attachments the client can read (PDF, etc.). Never persist private or expiring URLs as file sources. If a blob exceeds the git host’s file-size limit, omit that file and leave a permalink stub — do not fail the whole write.
+- **Stable paths.** Include the provider id so renames do not duplicate. Match a nearby anchor: Linear uses flat `linear/issues/<slug>--<id>.md`; Notion pages use `<slug>--<id>/index.md`; Slack thread directories use `thread.md`.
+- **Images and file attachments are files.** Copy provider-declared file attachments and explicit embedded external media through the shared asset boundary, commit them beside their owning content, and rewrite links to relative paths. Ordinary hyperlinks and link-only attachment records stay links and are never crawled. Never persist private or expiring URLs as file sources. Unsafe, unreadable, or oversized blobs leave a permalink/text stub and do not fail the whole write.
 - **Provenance.** YAML frontmatter: source, stable ids, canonical URL, timestamps. Connector uninstall does not purge git.
+- **Graph contract (ADR-033).** A connector ships its frontmatter contract *and* a deterministic extractor registered in `apps/backend/src/graphs/codeIngestionGraph/nodes/connectorExtractors.ts`. The extractor parses frontmatter into typed kinds (never the instruction LLM), builds keys and cross-tool references only through `domain/codeIngestion/referenceResolver.ts`, and builds every evidence `sourceId` with `buildEvidenceSourceId` (`extractor:repositoryId:…:targetHash`). Add a render → parse → extract round-trip test. Put provider URLs the content links to (PRs, issues, threads) in frontmatter or body so the resolver can join them.
 
-Writes go through `commitFiles` in `installation-write-client.ts` (`encoding: "base64"` for binaries). After a successful write, enqueue `runRepositoryIngestionWorkflow`.
+Writes go through `commitFiles` in `installation-write-client.ts` (`encoding: "base64"` for binaries). Checkpoint the selected repository ID and branch in workflow state before the write; never reload a mutable binding between a checkpointed write and its ingestion hand-off. After the hand-off resolves the repository's GitHub connection, carry that connection through the ingestion child and failure recovery rather than reloading it mid-run. After every successful connector sync, invoke `runConnectorRepositoryIngestionWorkflow` inside the parent workflow (it uses `claimAndRunRepositoryIngestionChild` so the parent sleeps and frees its concurrency slot). HTTP and webhook callers use `enqueueRepositoryIngestionWorkflow`. Do not skip the hand-off for a Git no-op: the shared helper resolves the current branch tip and compares it with `lastIngestedHash` so a replay can recover a write whose prior step result was lost without regressing to an older commit. Do not bypass the repository single-flight claim: overlapping hand-offs persist one coalesced follow-up marker, and both successful and failed ingestion paths drain it through retryable workflow steps. Clear that marker only with a compare-and-set against the terminal ingested hash; an unconditional clear can erase a newer overlap.
 
 **Done when:** a sample tree is specified (config yaml, content paths, attachment files); config is a PR; content commits to the target branch; the mirrored page is readable without a live provider API.
 
@@ -70,11 +77,11 @@ Writes go through `commitFiles` in `installation-write-client.ts` (`encoding: "b
 
 Hosted and self-host run the **same** routes. Difference: who creates the provider app and supplies secrets.
 
-- **Deployment-shared** app credentials live in env (`LINEAR_*`, `NOTION_*`, `SLACK_*`). **Connection-specific** credentials (and provider-issued secrets) live encrypted in `connections.config`. Document which model this provider requires. Backend **and** worker need shared client credentials when the worker refreshes tokens.
+- **Deployment-shared** app credentials live in env (`LINEAR_*`, `NOTION_*`, `SLACK_*`, `PAGERDUTY_*`). **Connection-specific** credentials (and provider-issued secrets) live encrypted in `connections.config`. Linear, Notion, and PagerDuty are Atlassian-shaped: self-host may store the OAuth app (and webhook secret) on that connection and resolve **row, then env**; hosted still falls back to env. Document which model this provider requires. Backend **and** worker resolve the same way when the worker refreshes tokens.
 - Callbacks and Event URLs are on **this** deployment’s `AUTH_BASE_URL` (e.g. `/api/v1/integrations/<slug>/callback`, `/api/v1/webhook/<slug>`). Derive redirect URI from `AUTH_BASE_URL`; optional `*_REDIRECT_URI` only when the public URL differs.
 - One Event URL per deployment app; route to a connection by workspace/team id in the payload. Per-connection webhook paths only when the provider app itself is per-connection (GitHub App on the connection row).
 - Per-org provider apps only when sharing one app would cross tenants (Atlassian 3LO on the Forge row — ADR-019). Still processed on this deployment.
-- OAuth start/callback: expiring signed `state` binds `userId` + `orgId` (and `connectionId` when needed). PKCE when the provider’s code flow supports it (Atlassian). Popup completion: tiny same-origin HTML relay + `localStorage` (lesson: Connector OAuth popup completion). Secrets never go in `state`.
+- OAuth start/callback: expiring signed `state` binds `userId` + `orgId` (and `connectionId` when needed). PKCE when the provider’s code flow supports it (Atlassian, PagerDuty). Store the PKCE verifier in an HttpOnly cookie (or short-lived server record), never in readable `state`. Popup completion: tiny same-origin HTML relay + `localStorage` (lesson: Connector OAuth popup completion). Secrets never go in `state`.
 - Signed webhooks: verify raw body + timestamp; ACK after OpenWorkflow enqueue. Skip events unless setup is live (no dirty-entity buffer). Failed enqueue → 5xx so the provider retries.
 
 **Self-host data boundary (hard):** customer tokens, webhooks, and source bytes stay on the customer’s deployment. No ctxpipe-SaaS proxy, relay, gateway, webhook forwarder, or “use our hosted OAuth app from your self-host”. Hosted ctxpipe is one deployment; a self-host install is another.
@@ -84,6 +91,8 @@ Hosted and self-host run the **same** routes. Difference: who creates the provid
 ## 5. Event and setup lifecycle
 
 Phases: `draft` → `awaiting_merge` → `initial_sync` / first content → `live` (plus `config_failed` / `sync_failed`). Config workflow opens the yaml PR. GitHub push on the target branch after merge starts content (full reconcile, or capture becomes eligible). Live webhooks run entity-sync or capture jobs that commit content to the target branch.
+
+If the binding is `draft` after rebind or context-repo recreate and `<slug>/config.yaml` on the target already matches the selected scope, **do not no-op**. Skip the config PR, start `initial_sync`, enqueue content sync, and return `configPrEnqueued: false`. UI must honour that flag (no phantom “creating PR”). A matching **live** scope stays a no-op. Slack has no yaml PR — leave it. Confluence is heavier (Postgres spaces) but follows the same rule; an unchanged `confluence/config.yaml` starts content sync instead of flipping to `live`.
 
 **Intent capture** still waits on live config. Slack’s shipped path derives `live` from binding with no yaml — leave it; new capture connectors use the config PR.
 
@@ -99,7 +108,7 @@ Follow [references/file-map.md](references/file-map.md). Inspect the named ancho
 
 If AWS CDK / deploy images change, add a changeset for `@ctxpipe/aws-cdk`.
 
-**Done when:** every file-map row for this kind is implemented or N/A; converter fixtures, binary/`base64` commits (including an attachment), raw-body signature tests, workflow discovery, empty optional env parsing, and focused UI tests pass. CDK edits: `pnpm --filter @ctxpipe/aws-cdk test`.
+**Done when:** every file-map row for this kind is implemented or N/A; converter fixtures, asset-boundary safety and reconciliation tests (`pnpm --filter @ctxpipe/backend test:connector-assets`, with the new slug added to `vitest.connector-assets.config.ts`), binary/`base64` commits (including an attachment), raw-body signature tests, workflow discovery, empty optional env parsing, and focused UI tests pass. CDK edits: `pnpm --filter @ctxpipe/aws-cdk test`.
 
 ## 7. Record the decision
 

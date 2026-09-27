@@ -7,15 +7,15 @@ import { Button } from "@/components/ui/Button"
 import { workspaceListOptions } from "@/features/workspaces/queries"
 import type { Workspace } from "@/features/workspaces/types"
 import {
-  ConnectorWorkspaceDestinationPicker,
-  destinationFromWorkspace,
-  workspaceMatchingGitUrl,
-} from "../ConnectorWorkspaceDestinationPicker"
-import {
   fetchLinearConnectorConfig,
   linearConnectorKeys,
   patchLinearConnectorConfig,
 } from "../../queries/linear-connector"
+import {
+  ConnectorWorkspaceDestinationPicker,
+  destinationFromWorkspace,
+  workspaceMatchingGitUrl,
+} from "../ConnectorWorkspaceDestinationPicker"
 
 type LinearTargetStepProps = {
   orgSlug: string

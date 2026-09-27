@@ -2,13 +2,23 @@ import { and, eq, inArray, sql } from "drizzle-orm"
 import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { confluenceSyncTargets } from "../db/schema/confluenceSyncTargets.js"
 import {
+  CONNECTION_TYPE_GITHUB,
   CONNECTION_TYPE_LINEAR,
   CONNECTION_TYPE_NOTION,
+  CONNECTION_TYPE_SLACK,
   connections,
 } from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
+import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
+import { isCtxpipeContextRepositoryName } from "../services/github/pull-request-mirror/source-scope.js"
+import { DEFAULT_CHECKOUT_KEY } from "./repositories.js"
 
-type ConnectorSource = "confluence" | "notion"
+export type ConnectorSource =
+  | "confluence"
+  | "notion"
+  | "linear"
+  | "slack"
+  | "github"
 
 type SyncTargetCandidate = {
   repositoryId: string
@@ -24,6 +34,20 @@ export type SuggestedConnectorSyncTarget = Omit<
   "source"
 > & {
   usedBy: ConnectorSource[]
+}
+
+const GIT_NATIVE_CONNECTOR_TYPES = [
+  CONNECTION_TYPE_NOTION,
+  CONNECTION_TYPE_LINEAR,
+  CONNECTION_TYPE_SLACK,
+] as const
+
+function sourceForConnectionType(
+  type: (typeof GIT_NATIVE_CONNECTOR_TYPES)[number],
+): Exclude<ConnectorSource, "confluence" | "github"> {
+  if (type === CONNECTION_TYPE_LINEAR) return "linear"
+  if (type === CONNECTION_TYPE_SLACK) return "slack"
+  return "notion"
 }
 
 export function chooseSuggestedConnectorSyncTarget(
@@ -45,83 +69,28 @@ export function chooseSuggestedConnectorSyncTarget(
   }
 }
 
-export type ConnectorTargetRepository = {
-  id: string
-  gitUrl: string
-  name: string
-  createdAt: Date
-  githubConnectionId: string | null
-}
-
-export async function listConnectorTargetRepositories(
-  orgId: string,
-): Promise<ConnectorTargetRepository[]> {
-  return withOrgDbContext(orgId, async () => {
-    const db = getOrgDb()
-    const [confluenceTargets, connectionTargets] = await Promise.all([
-      db
-        .select({
-          id: repositories.id,
-          gitUrl: repositories.gitUrl,
-          name: repositories.name,
-          createdAt: repositories.createdAt,
-          githubConnectionId: repositories.githubConnectionId,
-        })
-        .from(confluenceSyncTargets)
-        .innerJoin(
-          repositories,
-          eq(confluenceSyncTargets.repositoryId, repositories.id),
-        )
-        .where(
-          and(
-            eq(confluenceSyncTargets.orgId, orgId),
-            eq(repositories.orgId, orgId),
-            eq(confluenceSyncTargets.enabled, true),
-          ),
-        ),
-      db
-        .select({
-          id: repositories.id,
-          gitUrl: repositories.gitUrl,
-          name: repositories.name,
-          createdAt: repositories.createdAt,
-          githubConnectionId: repositories.githubConnectionId,
-        })
-        .from(connections)
-        .innerJoin(
-          repositories,
-          and(
-            eq(repositories.orgId, connections.orgId),
-            eq(repositories.id, sql`${connections.config}->>'repositoryId'`),
-          ),
-        )
-        .where(
-          and(
-            eq(connections.orgId, orgId),
-            eq(repositories.orgId, orgId),
-            inArray(connections.type, [
-              CONNECTION_TYPE_NOTION,
-              CONNECTION_TYPE_LINEAR,
-            ]),
-            eq(sql`(${connections.config}->>'enabled')::boolean`, true),
-          ),
-        ),
-    ])
-    const byId = new Map<string, ConnectorTargetRepository>()
-    for (const row of [...confluenceTargets, ...connectionTargets]) {
-      if (!row.gitUrl.trim()) continue
-      if (!byId.has(row.id)) byId.set(row.id, row)
-    }
-    return [...byId.values()]
-  })
+export function suggestConnectorSyncTarget(input: {
+  connectorCandidates: SyncTargetCandidate[]
+  ctxpipeContextRepos: Array<Omit<SyncTargetCandidate, "source">>
+}): SuggestedConnectorSyncTarget | null {
+  if (input.connectorCandidates.length > 0) {
+    return chooseSuggestedConnectorSyncTarget(input.connectorCandidates)
+  }
+  const context = input.ctxpipeContextRepos[0]
+  if (!context) return null
+  return {
+    ...context,
+    usedBy: ["github"],
+  }
 }
 
 export async function getSuggestedConnectorSyncTarget(
   orgId: string,
 ): Promise<SuggestedConnectorSyncTarget | null> {
   return withOrgDbContext(orgId, async () => {
-    const db = getOrgDb()
-    const [confluenceTargets, notionTargets] = await Promise.all([
+  const db = getOrgDb()
+  const [confluenceTargets, connectionTargets, githubTargets, contextRows] =
+    await Promise.all([
       db
         .select({
           repositoryId: confluenceSyncTargets.repositoryId,
@@ -144,6 +113,7 @@ export async function getSuggestedConnectorSyncTarget(
         ),
       db
         .select({
+          type: connections.type,
           repositoryId: sql<string>`${connections.config}->>'repositoryId'`,
           repositoryName: repositories.name,
           gitUrl: repositories.gitUrl,
@@ -161,36 +131,126 @@ export async function getSuggestedConnectorSyncTarget(
         .where(
           and(
             eq(connections.orgId, orgId),
-            eq(connections.type, CONNECTION_TYPE_NOTION),
+            inArray(connections.type, [...GIT_NATIVE_CONNECTOR_TYPES]),
             eq(repositories.orgId, orgId),
-            eq(sql`(${connections.config}->>'enabled')::boolean`, true),
+            sql`coalesce(${connections.config}->>'repositoryId', '') <> ''`,
+            sql`coalesce(${connections.config}->>'enabled', 'true') = 'true'`,
           ),
         ),
+      db
+        .select({
+          repositoryId: sql<string>`${connections.config}->'prMirror'->>'repositoryId'`,
+          repositoryName: repositories.name,
+          gitUrl: repositories.gitUrl,
+          branch: sql<
+            string | null
+          >`${connections.config}->'prMirror'->>'branch'`,
+          githubConnectionId: repositories.githubConnectionId,
+        })
+        .from(connections)
+        .innerJoin(
+          repositories,
+          and(
+            eq(repositories.orgId, connections.orgId),
+            eq(
+              repositories.id,
+              sql`${connections.config}->'prMirror'->>'repositoryId'`,
+            ),
+          ),
+        )
+        .where(
+          and(
+            eq(connections.orgId, orgId),
+            eq(connections.type, CONNECTION_TYPE_GITHUB),
+            eq(repositories.orgId, orgId),
+            sql`coalesce(${connections.config}->'prMirror'->>'repositoryId', '') <> ''`,
+            sql`coalesce(${connections.config}->'prMirror'->>'enabled', 'true') = 'true'`,
+          ),
+        ),
+      db
+        .select({
+          repositoryId: repositories.id,
+          repositoryName: repositories.name,
+          gitUrl: repositories.gitUrl,
+          branch: repositoryCheckouts.ref,
+          githubConnectionId: repositories.githubConnectionId,
+        })
+        .from(repositories)
+        .leftJoin(
+          repositoryCheckouts,
+          and(
+            eq(repositoryCheckouts.repositoryId, repositories.id),
+            eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
+          ),
+        )
+        .where(eq(repositories.orgId, orgId)),
     ])
 
-    return chooseSuggestedConnectorSyncTarget([
-      ...confluenceTargets.flatMap((target) =>
-        target.githubConnectionId
-          ? [
-              {
-                ...target,
-                githubConnectionId: target.githubConnectionId,
-                source: "confluence" as const,
-              },
-            ]
-          : [],
-      ),
-      ...notionTargets.flatMap((target) =>
-        target.githubConnectionId
-          ? [
-              {
-                ...target,
-                githubConnectionId: target.githubConnectionId,
-                source: "notion" as const,
-              },
-            ]
-          : [],
-      ),
-    ])
+  const connectorCandidates: SyncTargetCandidate[] = [
+    ...confluenceTargets.flatMap((target) =>
+      target.githubConnectionId
+        ? [
+            {
+              ...target,
+              githubConnectionId: target.githubConnectionId,
+              source: "confluence" as const,
+            },
+          ]
+        : [],
+    ),
+    ...githubTargets.flatMap((target) =>
+      target.githubConnectionId
+        ? [
+            {
+              repositoryId: target.repositoryId,
+              repositoryName: target.repositoryName,
+              gitUrl: target.gitUrl,
+              branch: target.branch?.trim() || "main",
+              githubConnectionId: target.githubConnectionId,
+              source: "github" as const,
+            },
+          ]
+        : [],
+    ),
+    ...connectionTargets.flatMap((target) => {
+      if (!target.githubConnectionId) return []
+      if (
+        target.type !== CONNECTION_TYPE_NOTION &&
+        target.type !== CONNECTION_TYPE_LINEAR &&
+        target.type !== CONNECTION_TYPE_SLACK
+      ) {
+        return []
+      }
+      return [
+        {
+          repositoryId: target.repositoryId,
+          repositoryName: target.repositoryName,
+          gitUrl: target.gitUrl,
+          branch: target.branch,
+          githubConnectionId: target.githubConnectionId,
+          source: sourceForConnectionType(target.type),
+        },
+      ]
+    }),
+  ]
+
+  const ctxpipeContextRepos = contextRows.flatMap((row) => {
+    if (!row.githubConnectionId) return []
+    if (!isCtxpipeContextRepositoryName(row.repositoryName)) return []
+    return [
+      {
+        repositoryId: row.repositoryId,
+        repositoryName: row.repositoryName,
+        gitUrl: row.gitUrl,
+        branch: row.branch?.trim() || "main",
+        githubConnectionId: row.githubConnectionId,
+      },
+    ]
+  })
+
+  return suggestConnectorSyncTarget({
+    connectorCandidates,
+    ctxpipeContextRepos,
+  })
   })
 }

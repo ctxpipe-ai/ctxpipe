@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # preview-env mcp
 
-`{BASE_URL}/mcp?orgSlug={orgSlug}`. Product MCP exposes **one** tool: `ctx_advisor` (new hidden conversation per call, first workspace, read-only). Repo explorer tools run **inside** that chat turn. [Harness](../harness.md) is `PASS`. HTTP/CLI plus a short `computerUse` for the snippet.
+`{BASE_URL}/mcp?orgSlug={orgSlug}`. Product MCP exposes **one** tool: `ctx_advisor` (same `conversationId` resumes the MCP thread; omit it for a new thread; first workspace, read-only). Repo explorer tools run **inside** that chat turn. [Harness](../harness.md) is `PASS`. HTTP/CLI plus a short `computerUse` for the snippet.
 
 ## 1. Discovery
 

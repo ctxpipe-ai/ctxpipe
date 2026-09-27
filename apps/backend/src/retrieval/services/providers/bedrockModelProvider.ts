@@ -1,4 +1,7 @@
-import { ChatBedrockConverse } from "@langchain/aws"
+import {
+  ChatBedrockConverse,
+  type ChatBedrockConverseInput,
+} from "@langchain/aws"
 
 import type { ModelParams } from "../modelParams.js"
 import { invokeBedrockEmbedding } from "./bedrockEmbeddings.js"
@@ -88,8 +91,7 @@ export function bedrockModelProvider(
       ...(converseParams?.topP !== undefined ? { topP: converseParams.topP } : {}),
       ...(converseParams?.additionalModelRequestFields
         ? {
-            additionalModelRequestFields:
-              converseParams.additionalModelRequestFields,
+            additionalModelRequestFields: converseParams.additionalModelRequestFields as ChatBedrockConverseInput["additionalModelRequestFields"],
           }
         : {}),
     }),

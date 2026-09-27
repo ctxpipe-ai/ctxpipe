@@ -4,6 +4,7 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { resolveRepositoryRef } from "../../domain/codeIngestion/queue.js"
+import { isRepositoryGoneError } from "../../domain/codeIngestion/repositoryGone.js"
 import { captureRepositoryExtractionTarget } from "../../domain/workspaces/capture-repository-extraction.js"
 import {
   captureExtractionClaimSourcePath,
@@ -13,6 +14,7 @@ import {
 } from "../../domain/workspaces/extraction.js"
 import { identifyRoots } from "../../graphs/codeIngestionGraph/nodes/identifyRoots.js"
 import {
+  finalizeExtractedReferences,
   runExtractKindForRoot,
   runIdentifyPhaseForRoot,
   stableRootStepId,
@@ -27,6 +29,7 @@ import {
   markRepositoryIndexingIssues,
   markRepositoryIndexingReady,
   markRepositoryIndexingRunning,
+  repositoryIngestionBlockedByDeletion,
   setRepositoryIndexingStep,
 } from "../../models/repositories.js"
 import {
@@ -55,7 +58,41 @@ const repositoryIngestionInputSchema = z.object({
   /** Stored on the row while ingestion runs; cleared on success. */
   indexingReason: z.string().nullable().optional(),
   requestId: z.string().min(1).optional(),
+  /** Checkpointed with connector writes so replay cannot switch installations. */
+  githubConnectionId: z.string().nullable().optional(),
+  /** Ignore the last ingested commit: full codesearch mode plus the unobserved-evidence sweep. */
+  fullReingest: z.boolean().optional(),
 })
+
+const REPOSITORY_INGESTION_STOPPED = {
+  repositoryIngestionStopped: true,
+} as const
+
+class IngestionAborted extends Error {
+  constructor() {
+    super("repository ingestion stopped because the repository was deleted")
+    this.name = "IngestionAborted"
+  }
+}
+
+function isIngestionStopped(
+  value: unknown,
+): value is typeof REPOSITORY_INGESTION_STOPPED {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "repositoryIngestionStopped" in value &&
+    (value as { repositoryIngestionStopped?: unknown })
+      .repositoryIngestionStopped === true
+  )
+}
+
+function continueIngestion<T>(
+  value: T,
+): Exclude<T, typeof REPOSITORY_INGESTION_STOPPED> {
+  if (isIngestionStopped(value)) throw new IngestionAborted()
+  return value as Exclude<T, typeof REPOSITORY_INGESTION_STOPPED>
+}
 
 const extractRetryPolicy = {
   maximumAttempts: 3,
@@ -83,7 +120,7 @@ function logWorkflowMilestone(
 
 export const repositoryIngestion = defineWorkflow(
   { name: "repository-ingestion", schema: repositoryIngestionInputSchema },
-  async ({ input, step, run }) =>
+  async ({ input, step: rawStep, run }) =>
     withLogger(
       createLogger({
         workflow: "repository-ingestion",
@@ -91,7 +128,12 @@ export const repositoryIngestion = defineWorkflow(
         orgId: input.orgId,
       }),
       async () => {
-        const wls = <T>(name: string, fn: () => Promise<T>): Promise<T> =>
+        // Codesearch 404 becomes a sentinel. Throwing inside `step.run` makes
+        // OpenWorkflow retry the step, so the stop is a return value.
+        const wls = async <T>(
+          name: string,
+          fn: () => Promise<T>,
+        ): Promise<T | typeof REPOSITORY_INGESTION_STOPPED> =>
           withLoggedStepAttempt(
             name,
             {
@@ -99,8 +141,29 @@ export const repositoryIngestion = defineWorkflow(
               repositoryId: input.repositoryId,
               orgId: input.orgId,
             },
-            fn,
+            async () => {
+              try {
+                return await fn()
+              } catch (err: unknown) {
+                if (!isRepositoryGoneError(err)) throw err
+                return REPOSITORY_INGESTION_STOPPED
+              }
+            },
           )
+
+        const step = {
+          run: async <T>(
+            config: Parameters<typeof rawStep.run>[0],
+            fn: () => Promise<T>,
+          ): Promise<Exclude<T, typeof REPOSITORY_INGESTION_STOPPED>> => {
+            const result = await rawStep.run(
+              config,
+              fn as Parameters<typeof rawStep.run>[1],
+            )
+            return continueIngestion(result as T)
+          },
+          runWorkflow: rawStep.runWorkflow.bind(rawStep),
+        }
 
         logWorkflowMilestone("repository-ingestion.workflow-handler-entered", {
           repositoryId: input.repositoryId,
@@ -125,6 +188,7 @@ export const repositoryIngestion = defineWorkflow(
         return await withOrgIdContext(
           { id: org.id, slug: org.slug },
           async () => {
+            try {
             const requestId =
               (await captureRepositoryIngestionRequest(input, run.id)) ??
               undefined
@@ -174,7 +238,11 @@ export const repositoryIngestion = defineWorkflow(
               )
             }
 
-            const githubConnectionId = repository.githubConnectionId
+            const githubConnectionId =
+              input.githubConnectionId ?? repository.githubConnectionId
+            const fromHash = input.fullReingest
+              ? undefined
+              : (repository.lastIngestedHash ?? undefined)
             const destination = await step.run(
               { name: "capture-extraction-destination" },
               () =>
@@ -187,6 +255,7 @@ export const repositoryIngestion = defineWorkflow(
             logWorkflowMilestone("repository-ingestion.repository-loaded", {
               repositoryId: input.repositoryId,
               lastIngestedHash: repository.lastIngestedHash,
+              fullReingest: input.fullReingest ?? false,
               githubConnectionId,
             })
 
@@ -242,17 +311,24 @@ export const repositoryIngestion = defineWorkflow(
               targetHash: resolved.hash,
             })
 
+            if (
+              await repositoryIngestionBlockedByDeletion({
+                orgId: input.orgId,
+                repositoryId: input.repositoryId,
+              })
+            ) {
+              throw new IngestionAborted()
+            }
+
             // Durable codesearch phases via child workflow (no org DB txn across HTTP).
-            const reindexState = await step.runWorkflow(
+            const reindexState = await rawStep.runWorkflow(
               repositoryIndex.spec,
               {
                 ...(requestId ? { requestId } : {}),
                 repositoryId: input.repositoryId,
                 orgId: input.orgId,
                 targetHash: resolved.hash,
-                ...(repository.lastIngestedHash
-                  ? { fromHash: repository.lastIngestedHash }
-                  : {}),
+                ...(fromHash ? { fromHash } : {}),
                 ...(githubConnectionId ? { githubConnectionId } : {}),
               },
               { name: "repository-index" },
@@ -263,6 +339,7 @@ export const repositoryIngestion = defineWorkflow(
               targetHash: reindexState.targetHash ?? resolved.hash,
               ingestMode: reindexState.ingestMode,
               searchIndexOk: reindexState.searchIndexOk !== false,
+              scipIndexOk: reindexState.scipIndexOk !== false,
               changedPathsCount: reindexState.changedPaths?.length ?? 0,
               deletedPathsCount: reindexState.deletedPaths?.length ?? 0,
               renamesCount: reindexState.renames?.length ?? 0,
@@ -278,7 +355,7 @@ export const repositoryIngestion = defineWorkflow(
               repositoryId: input.repositoryId,
               orgId: input.orgId,
               githubConnectionId: githubConnectionId ?? undefined,
-              fromHash: repository.lastIngestedHash ?? undefined,
+              fromHash,
               targetHash: reindexState.targetHash ?? resolved.hash,
               indexedAt: reindexState.indexedAt,
               ingestMode: reindexState.ingestMode,
@@ -477,7 +554,16 @@ export const repositoryIngestion = defineWorkflow(
                     })
                   }
 
-                  return { roots, extractedObjects, extractedClaims }
+                  const finalized = await finalizeExtractedReferences({
+                    orgId: baseIngestState.orgId,
+                    extractedObjects,
+                    extractedClaims,
+                  })
+                  return {
+                    roots,
+                    extractedObjects: finalized.extractedObjects,
+                    extractedClaims: finalized.extractedClaims,
+                  }
                 })
               : { roots: [], extractedObjects: [], extractedClaims: [] }
 
@@ -644,6 +730,18 @@ export const repositoryIngestion = defineWorkflow(
             })
 
             return result
+            } catch (err) {
+              if (!(err instanceof IngestionAborted)) throw err
+              logWorkflowMilestone("repository-ingestion.stopped", {
+                repositoryId: input.repositoryId,
+                orgId: input.orgId,
+                reason: "repository_deleted",
+              })
+              return {
+                aborted: "repository_deleted" as const,
+                repositoryId: input.repositoryId,
+              }
+            }
           },
         )
       },

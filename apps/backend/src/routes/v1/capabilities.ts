@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { pagerdutyOauthConfigured } from "../../lib/connection-config.js"
 import { getForgeInstallationByConnectionId } from "../../models/atlassian-connector.js"
 import {
   type ConnectionRow,
@@ -8,6 +9,11 @@ import {
 } from "../../models/connection-rows.js"
 import { getGithubConnectionRow } from "../../models/github-installation.js"
 import { getLinearConnectionByConnectionId } from "../../models/linear-connector.js"
+import { getLinearOauthAppCreds } from "../../models/linear-oauth-app.js"
+import {
+  getPagerdutyConnectionByConnectionId,
+  pagerdutyOAuthAppMetadata,
+} from "../../models/pagerduty-connector.js"
 
 const CapabilitiesQuery = z.object({
   connectionId: z.string().min(1),
@@ -89,10 +95,32 @@ export const orgCapabilitiesRoutes = new OpenAPIHono<AppEnv>().openapi(
       return c.json(
         {
           linearOauthConfigured: Boolean(
-            c.var.env.LINEAR_CLIENT_ID && c.var.env.LINEAR_CLIENT_SECRET,
+            getLinearOauthAppCreds(linear, c.var.env),
           ),
           linearWorkspaceName: linear.workspaceName,
           linearWebhookUrl: `${publicApiOrigin}/api/v1/webhook/linear`,
+        },
+        200,
+      )
+    }
+
+    const pagerduty = await getPagerdutyConnectionByConnectionId(
+      orgId,
+      connectionId,
+      c.var.env,
+    )
+    if (pagerduty) {
+      const oauth = pagerdutyOAuthAppMetadata(pagerduty, c.var.env)
+      return c.json(
+        {
+          pagerdutyOauthConfigured: pagerdutyOauthConfigured(
+            pagerduty,
+            c.var.env,
+          ),
+          oauthAppSaved: oauth.oauthAppSaved,
+          oauthCallbackUrl: oauth.oauthCallbackUrl,
+          pagerdutyAccountName: pagerduty.accountName,
+          pagerdutyWebhookUrl: oauth.webhookUrl,
         },
         200,
       )

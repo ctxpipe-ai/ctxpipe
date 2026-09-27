@@ -20,6 +20,10 @@ export interface ButtonProps extends Omit<RACButtonProps, "size"> {
     | "outline"
   /** @default 'default' */
   size?: "default" | "icon" | "icon-sm"
+  href?: string
+  target?: ComponentProps<typeof RACLink>["target"]
+  rel?: string
+  download?: ComponentProps<typeof RACLink>["download"]
 }
 
 const button = tv({

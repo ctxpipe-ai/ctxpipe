@@ -1,5 +1,6 @@
 "use client"
 
+import HyperDX from "@hyperdx/browser"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useState } from "react"
 import { GithubSelfHostedWizardModal } from "@/features/connectors/components/GithubSelfHostedWizardModal"
@@ -84,8 +85,10 @@ export function useGithubConnectFlow({
 
   const handleInstallSettled = useCallback(
     (status: GithubSetupRegistrationStatus) => {
-      if (status === "registered") onRegistered?.()
-      else if (status === "registration_failed")
+      if (status === "registered") {
+        HyperDX.addAction("connector_connect", { connector: "github" })
+        onRegistered?.()
+      } else if (status === "registration_failed")
         onRegistrationFailed?.(
           "Could not complete GitHub connection. Please try again.",
         )

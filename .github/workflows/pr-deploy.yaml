@@ -63,6 +63,11 @@ jobs:
           REPO="${{ github.repository }}"
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             PR_NUMBER="${{ inputs.pr_number }}"
+            HEAD_REPO="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq .head.repo.full_name)"
+            if [[ "$HEAD_REPO" != "${REPO}" ]]; then
+              echo "Refusing to build untrusted fork PR #${PR_NUMBER} (${HEAD_REPO})" >&2
+              exit 1
+            fi
             HEAD_SHA="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq .head.sha)"
           elif [[ "$EVENT_NAME" == "push" ]]; then
             OWNER="${{ github.repository_owner }}"
@@ -101,7 +106,6 @@ jobs:
             dockerfile: apps/ui/Dockerfile
           - image: codesearch
             dockerfile: apps/codesearch/Dockerfile
-          # otel-collector is not built/deployed for PR envs (keeps previews asleep; no Better Stack quota burn).
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@v1
@@ -150,9 +154,83 @@ jobs:
             ghcr.io/ctxpipe-ai/${{ matrix.image }}:pr-${{ needs.resolve_pr.outputs.pr_number }}-${{ needs.resolve_pr.outputs.head_sha }}
             ghcr.io/ctxpipe-ai/${{ matrix.image }}:${{ needs.resolve_pr.outputs.head_sha }}
 
+  verify_connector_assets:
+    name: Verify connector asset contracts
+    needs: [resolve_pr, build_pr_images]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: useblacksmith/checkout@v1
+        with:
+          ref: ${{ needs.resolve_pr.outputs.head_sha }}
+
+      - name: Mount pnpm store sticky disk
+        uses: useblacksmith/stickydisk@v1
+        with:
+          key: ${{ github.repository }}-pnpm-store
+          path: ~/.pnpm-store
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: useblacksmith/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Force pnpm store path
+        run: pnpm config set store-dir ~/.pnpm-store
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test connector asset contracts
+        run: pnpm --filter @ctxpipe/backend test:connector-assets
+
+      - name: Check whether the deploy runtime changed
+        id: runtime_changes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.resolve_pr.outputs.pr_number }}
+        run: |
+          changed=false
+          while IFS= read -r file; do
+            case "$file" in
+              apps/backend/Dockerfile*|\
+              apps/backend/package.json|\
+              apps/backend/src/scripts/verifyConnectorAssetRuntime.ts|\
+              apps/backend/src/services/connectors/assets.ts|\
+              .github/workflows/pr-deploy.yaml|\
+              package.json|\
+              pnpm-lock.yaml)
+                changed=true
+                break
+                ;;
+            esac
+          done < <(gh api --paginate "repos/${{ github.repository }}/pulls/${PR_NUMBER}/files" --jq '.[].filename')
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        if: steps.runtime_changes.outputs.changed == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify connector assets in the deploy runtime
+        if: steps.runtime_changes.outputs.changed == 'true'
+        run: |
+          for image in backend worker; do
+            docker run --rm --entrypoint bun \
+              -e DATABASE_URL=postgresql://runtime-verifier.invalid/ctxpipe \
+              -e AUTH_SECRET=connector-assets-runtime-verifier-secret \
+              "ghcr.io/ctxpipe-ai/${image}:pr-${{ needs.resolve_pr.outputs.pr_number }}-${{ needs.resolve_pr.outputs.head_sha }}" \
+              run apps/backend/src/scripts/verifyConnectorAssetRuntime.ts
+          done
+
   deploy_pr_environment:
     name: Deploy PR environment (Railway + Neon)
-    needs: [resolve_pr, build_pr_images]
+    needs: [resolve_pr, build_pr_images, verify_connector_assets]
     if: needs.resolve_pr.outputs.pr_number != ''
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 45
@@ -327,6 +405,8 @@ jobs:
         # Single Railway roll. Do not wrap this script in nick-fields/retry —
         # a second attempt stacks serviceInstanceDeployV2 on a still-DEPLOYING
         # instance. GraphQL HTTP retries live in railway_graphql.
+        # New PR envs from `environment new --duplicate` apply as a staged
+        # commit; wait_for_service_instance covers "Service Instance not found".
         timeout-minutes: 35
         run: |
             set -euo pipefail
@@ -398,6 +478,39 @@ jobs:
               return 22
             }
 
+            # Poll until Railway has a live instance in this environment.
+            # Duplicate-from-production creates the env immediately; instances
+            # appear only after the apply-commit finishes (often minutes).
+            wait_for_service_instance() {
+              local label="$1"
+              local service_id="$2"
+              local deadline=$(( $(date +%s) + 600 ))
+              echo "Waiting for live $label instance ($service_id) in $ENV_ID"
+              while true; do
+                local raw http_code body instance_id
+                raw="$(curl -sS -w '\n%{http_code}' \
+                  -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
+                  -H "Content-Type: application/json" \
+                  -d "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" \
+                    '{query:"query($environmentId:String!,$serviceId:String!){serviceInstance(environmentId:$environmentId,serviceId:$serviceId){id}}",variables:{environmentId:$env,serviceId:$service}}')" \
+                  https://backboard.railway.com/graphql/v2)" || true
+                http_code="$(printf '%s' "$raw" | tail -n1)"
+                body="$(printf '%s' "$raw" | sed '$d')"
+                instance_id="$(echo "$body" | jq -r '.data.serviceInstance.id // empty')"
+                if [[ -n "$instance_id" ]]; then
+                  echo "$label instance is live"
+                  return 0
+                fi
+                if (( $(date +%s) >= deadline )); then
+                  echo "Timeout waiting for $label service instance (HTTP ${http_code:-none})" >&2
+                  echo "$body" >&2
+                  return 1
+                fi
+                echo "$label not live yet (HTTP ${http_code:-none}); retrying in 10s"
+                sleep 10
+              done
+            }
+
             # Cache of name -> id from a single project services query (Terraform names).
             SERVICE_IDS_BY_NAME_JSON=""
 
@@ -451,22 +564,11 @@ jobs:
               echo "Updated DATABASE_URL for service $service_id with skipDeploys=true"
             }
 
-            # Preview-only: turn off LangSmith and delete OTEL exporters so apps do not
-            # emit 60s metrics/logs (which keep Railway Serverless awake and wake otelcollector).
-            delete_service_variable() {
-              local service_id="$1"
-              local name="$2"
-              railway_graphql \
-                'mutation variableDelete($input: VariableDeleteInput!) { variableDelete(input: $input) }' \
-                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" --arg name "$name" \
-                  '{input:{projectId:$project, environmentId:$env, serviceId:$service, name:$name}}')" >/dev/null 2>&1 || true
-            }
-
             upsert_preview_service_variables() {
               local service_id="$1"
               railway_graphql \
                 'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
-                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" \
+                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" --arg workflow_namespace "preview-$PR_ENV" \
                   '{
                     input: {
                       projectId: $project,
@@ -474,15 +576,11 @@ jobs:
                       serviceId: $service,
                       skipDeploys: true,
                       variables: {
-                        ENABLE_LANGSMITH: "false"
+                        OPENWORKFLOW_NAMESPACE_ID: $workflow_namespace
                       }
                     }
                   }')"
-              # Delete (not empty-string upsert) so Railway truly unsets OTEL endpoints.
-              delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
-              delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
-              delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
-              echo "Updated preview ENABLE_LANGSMITH=false and deleted OTEL exporters for service $service_id"
+              echo "Updated preview namespace variables for service $service_id"
             }
 
             # UI Nitro must bind 0.0.0.0 or Railway healthcheck on / never reaches the process.
@@ -637,7 +735,8 @@ jobs:
             upsert_preview_worker_idle_exit() {
               local service_id="$1"
               # Explicit OPENWORKFLOW_PR_IDLE_EXIT so supervisor idle-exits even if
-              # RAILWAY_ENVIRONMENT_NAME is missing. 180s idle; 1h stale window.
+              # RAILWAY_ENVIRONMENT_NAME is missing. 180s idle; 6h stale window
+              # so a long connector reconciliation is not killed as "idle".
               railway_graphql \
                 'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
                 "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" \
@@ -650,11 +749,33 @@ jobs:
                       variables: {
                         OPENWORKFLOW_PR_IDLE_EXIT: "true",
                         OPENWORKFLOW_IDLE_EXIT_SECONDS: "180",
-                        OPENWORKFLOW_IDLE_STALE_AFTER_HOURS: "1"
+                        OPENWORKFLOW_IDLE_STALE_AFTER_HOURS: "6",
+                        OPENWORKFLOW_CONCURRENCY: "6",
+                        CODESEARCH_INDEXER_CONCURRENCY: "1"
                       }
                     }
                   }')"
-              echo "Set OPENWORKFLOW_PR_IDLE_EXIT + IDLE_EXIT=180 + STALE_AFTER_HOURS=1 for worker $service_id"
+              echo "Set OPENWORKFLOW_PR_IDLE_EXIT + IDLE_EXIT=180 + STALE_AFTER_HOURS=6 + small capacity pair for worker $service_id"
+            }
+
+            upsert_preview_codesearch_capacity() {
+              local service_id="$1"
+              railway_graphql \
+                'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
+                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" \
+                  '{
+                    input: {
+                      projectId: $project,
+                      environmentId: $env,
+                      serviceId: $service,
+                      skipDeploys: true,
+                      variables: {
+                        CODESEARCH_INDEXER_CONCURRENCY: "1",
+                        CODESEARCH_INDEX_PIPELINE_CONCURRENCY: "1"
+                      }
+                    }
+                  }')"
+              echo "Set small codesearch indexer/pipeline concurrency for $service_id"
             }
 
             update_source_image() {
@@ -885,6 +1006,11 @@ jobs:
               done
             }
 
+            wait_for_service_instance "backend" "$BACKEND_SERVICE_ID"
+            wait_for_service_instance "worker" "$WORKER_SERVICE_ID"
+            wait_for_service_instance "ui" "$UI_SERVICE_ID"
+            wait_for_service_instance "codesearch" "$CODESEARCH_SERVICE_ID"
+
             upsert_database_url_without_deploy "$BACKEND_SERVICE_ID" >/dev/null
             upsert_preview_service_variables "$BACKEND_SERVICE_ID" >/dev/null
             upsert_preview_backend_wake_variables "$BACKEND_SERVICE_ID" >/dev/null
@@ -913,26 +1039,13 @@ jobs:
             smoke_test_preview_ui
 
             upsert_database_url_without_deploy "$CODESEARCH_SERVICE_ID" >/dev/null
+            upsert_preview_codesearch_capacity "$CODESEARCH_SERVICE_ID" >/dev/null
             update_source_image "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE" >/dev/null
             deploy_service "$CODESEARCH_SERVICE_ID" >/dev/null
             wait_for_image_deploy "codesearch" "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE"
 
-            # Terraform service names: otelcollector, falkordb (resolved via GraphQL; no GitHub vars).
             load_service_ids_by_name
-            OTELCOLLECTOR_SERVICE_ID="$(echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r '.otelcollector // empty')"
             FALKORDB_SERVICE_ID="$(echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r '.falkordb // empty')"
-
-            # Never deploy otelcollector in PR: scale to 0 and stop active deployments
-            # (no serviceInstanceDeployV2 — that was waking/starting containers).
-            if [[ -n "$OTELCOLLECTOR_SERVICE_ID" ]]; then
-              delete_service_variable "$OTELCOLLECTOR_SERVICE_ID" "BETTER_STACK_TOKEN"
-              scale_service_to_zero "$OTELCOLLECTOR_SERVICE_ID" >/dev/null
-              stop_active_deployments "$OTELCOLLECTOR_SERVICE_ID"
-              echo "otel-collector ($OTELCOLLECTOR_SERVICE_ID) scaled to 0 and active deployments stopped (not deployed)"
-              verify_sleep_application "otel-collector" "$OTELCOLLECTOR_SERVICE_ID"
-            else
-              echo "Warning: no Railway service named otelcollector in project $RAILWAY_PROJECT_ID; skipping"
-            fi
 
             if [[ -n "$FALKORDB_SERVICE_ID" ]]; then
               enable_serverless "$FALKORDB_SERVICE_ID" >/dev/null
@@ -1001,24 +1114,30 @@ jobs:
             echo "- To test Linear OAuth, add $BACKEND_URL/api/v1/integrations/linear/callback to the Linear application's redirect URIs. Linear applications have one webhook URL, so a shared production application will not deliver incremental events to this preview; use a dedicated preview application if webhook testing is required."
           } > pr-deploy-comment.md
 
-      - name: Find existing PR preview comment
-        if: always()
-        id: find-preview-comment
-        uses: peter-evans/find-comment@v3
-        with:
-          issue-number: ${{ needs.resolve_pr.outputs.pr_number }}
-          comment-author: "github-actions[bot]"
-          body-includes: "## PR Preview Environment"
-
       - name: Create or update PR preview comment
         if: always()
-        uses: peter-evans/create-or-update-comment@v5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          comment-id: ${{ steps.find-preview-comment.outputs.comment-id }}
-          issue-number: ${{ needs.resolve_pr.outputs.pr_number }}
-          body-path: pr-deploy-comment.md
-          edit-mode: replace
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.resolve_pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          COMMENT_ID="$(
+            gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+              --paginate \
+              --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("## PR Preview Environment"))) | .id' \
+              | awk 'NR == 1 { print; exit }'
+          )"
+          if [[ -n "$COMMENT_ID" ]]; then
+            gh api \
+              --method PATCH \
+              "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
+              -F body=@pr-deploy-comment.md
+          else
+            gh api \
+              --method POST \
+              "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+              -F body=@pr-deploy-comment.md
+          fi
 
   cleanup_pr_environment:
     name: Cleanup Neon, Railway, and PR GHCR images
@@ -1074,6 +1193,6 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           owner: ctxpipe-ai
-          packages: backend,worker,ui,codesearch,otel-collector
+          packages: backend,worker,ui,codesearch
           delete-tags: '^pr-${{ github.event.number }}-'
           use-regex: true

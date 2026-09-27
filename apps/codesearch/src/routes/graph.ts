@@ -12,6 +12,7 @@ import {
   scipIndexPath,
 } from "../domain/repositories/paths.js"
 import { getAccessibleRepository } from "../domain/repositories/service.js"
+import { repositoryOrPathNotFoundResponse } from "./errorBody.js"
 
 const graphPrimitiveSchema = z.enum([
   "find_symbol",
@@ -68,7 +69,7 @@ export const graphRoute = createRoute({
     400: { description: "Bad request" },
     401: { description: "Unauthorized" },
     403: { description: "Checkout does not match authenticated workspace" },
-    404: { description: "Repository or checkout not found" },
+    404: repositoryOrPathNotFoundResponse,
     503: { description: "Service unavailable (e.g. database not configured)" },
   },
 })

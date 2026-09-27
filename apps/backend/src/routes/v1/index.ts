@@ -18,7 +18,12 @@ import { connectorsListRoutes } from "./connectors-list.js"
 import {
   notionConnectorRoutes,
   notionOAuthCallbackRoutes,
+  notionOauthAppReadRoutes,
 } from "./connectors-notion.js"
+import {
+  pagerdutyConnectorRoutes,
+  pagerdutyOauthCallbackRoutes,
+} from "./connectors-pagerduty.js"
 import {
   slackConnectorRoutes,
   slackOAuthCallbackRoutes,
@@ -28,6 +33,7 @@ import {
   githubInstallationReadRoutes,
   githubInstallationRoutes,
 } from "./github-installation.js"
+import { githubPrMirrorRoutes } from "./github-pr-mirror.js"
 import { knowledgeGraphRoutes } from "./knowledge-graph.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 import { orgOnboardingRoutes, userOnboardingRoutes } from "./onboarding.js"
@@ -45,6 +51,10 @@ const githubInstallationAdminScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
   .route("/", githubInstallationRoutes)
 
+const githubPrMirrorAdminScoped = new OpenAPIHono<AppEnv>()
+  .use("*", requireOrgAdminOrOwner)
+  .route("/", githubPrMirrorRoutes)
+
 const atlassianConnectorScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
   .route("/", atlassianConnectorRoutes)
@@ -61,6 +71,10 @@ const notionConnectorScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
   .route("/", notionConnectorRoutes)
 
+const pagerdutyConnectorScoped = new OpenAPIHono<AppEnv>()
+  .use("*", requireOrgAdminOrOwner)
+  .route("/", pagerdutyConnectorRoutes)
+
 export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
   // For RPC client type inference to work, we need to chain the handlers
   // https://hono.dev/docs/guides/rpc#using-rpc-with-larger-applications
@@ -75,9 +89,12 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/conversations", conversationRoutes)
     .route("/github/installation", githubInstallationReadRoutes)
     .route("/github/installation", githubInstallationAdminScoped)
+    .route("/github/pull-request-mirror", githubPrMirrorAdminScoped)
     .route("/connectors/atlassian", atlassianConnectorScoped)
     .route("/connectors/linear", linearConnectorScoped)
+    .route("/connectors/notion", notionOauthAppReadRoutes)
     .route("/connectors/notion", notionConnectorScoped)
+    .route("/connectors/pagerduty", pagerdutyConnectorScoped)
     .route("/connectors/atlassian/pending-claim", pendingAtlassianClaimRoutes)
     .route("/connectors/slack", slackConnectorScoped)
     .route("/org/atlassian-oauth", orgAtlassianOauthReadRoutes)
@@ -100,6 +117,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/integrations/atlassian", atlassianOauthCallbackRoutes)
     .route("/connectors/slack", slackOAuthCallbackRoutes)
     .route("/integrations/linear", linearOauthCallbackRoutes)
+    .route("/integrations/pagerduty", pagerdutyOauthCallbackRoutes)
     .route("/me/github/installations", meGithubInstallationsRoutes)
     .route("/connectors/notion", notionOAuthCallbackRoutes)
     .route("/onboarding", userOnboardingRoutes)

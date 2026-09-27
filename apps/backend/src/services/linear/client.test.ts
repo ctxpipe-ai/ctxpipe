@@ -22,7 +22,14 @@ afterEach(() => {
 describe("Linear API client", () => {
   it("requests only read access through the fixed callback URL", () => {
     const url = new URL(
-      getLinearOAuthAuthorizeUrl({ env, state: "signed-state" }),
+      getLinearOAuthAuthorizeUrl({
+        env,
+        state: "signed-state",
+        creds: {
+          clientId: "linear-client",
+          clientSecret: "linear-secret",
+        },
+      }),
     )
     expect(url.origin + url.pathname).toBe("https://linear.app/oauth/authorize")
     expect(url.searchParams.get("scope")).toBe("read")
@@ -64,8 +71,16 @@ describe("Linear API client", () => {
       )
     vi.stubGlobal("fetch", fetchMock)
 
-    await exchangeLinearOAuthCode({ env, code: "oauth-code" })
-    await refreshLinearOAuthToken({ env, refreshToken: "refresh-1" })
+    await exchangeLinearOAuthCode({
+      env,
+      code: "oauth-code",
+      creds: { clientId: "linear-client", clientSecret: "linear-secret" },
+    })
+    await refreshLinearOAuthToken({
+      env,
+      refreshToken: "refresh-1",
+      creds: { clientId: "linear-client", clientSecret: "linear-secret" },
+    })
 
     const exchangeRequest = fetchMock.mock.calls[0]
     const refreshRequest = fetchMock.mock.calls[1]
@@ -96,6 +111,9 @@ describe("Linear API client", () => {
       workspaceUrlKey: "acme",
       actorUserId: "user-1",
       ownerUserId: "owner-1",
+      oauthClientId: null,
+      oauthClientSecretEnc: null,
+      webhookSecretEnc: null,
       status: "installed",
       lastEventPayload: null,
       repositoryId: null,
@@ -121,5 +139,48 @@ describe("Linear API client", () => {
     expect(onTokenRefresh).toHaveBeenCalledWith("refresh-old", "access-old")
     expect(connection.accessToken).toBe("access-new")
     expect(connection.refreshToken).toBe("refresh-new")
+  })
+
+  it("retries a stale 401 with a concurrently refreshed token", async () => {
+    const connection = {
+      id: "con_linear",
+      orgId: "org_1",
+      accessToken: "access-old",
+      refreshToken: "refresh-old",
+      accessTokenExpiresAt: null,
+      workspaceId: "workspace-1",
+      workspaceName: "Acme",
+      workspaceUrlKey: "acme",
+      actorUserId: "user-1",
+      ownerUserId: "owner-1",
+      oauthClientId: null,
+      oauthClientSecretEnc: null,
+      webhookSecretEnc: null,
+      status: "installed",
+      lastEventPayload: null,
+      repositoryId: null,
+      branch: null,
+      enabled: true,
+      setupPhase: "draft",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } satisfies LinearConnection
+    const onTokenRefresh = vi.fn()
+    const run = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        connection.accessToken = "access-from-peer"
+        connection.refreshToken = "refresh-from-peer"
+        throw Object.assign(new Error("stale token"), { status: 401 })
+      })
+      .mockResolvedValueOnce("completed")
+
+    await expect(
+      withLinearClient({ env, connection, onTokenRefresh }, run),
+    ).resolves.toBe("completed")
+    expect(onTokenRefresh).not.toHaveBeenCalled()
+    expect(run).toHaveBeenCalledTimes(2)
   })
 })

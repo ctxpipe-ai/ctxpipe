@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -103,9 +104,39 @@ export const WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV =
 export const WORKSPACE_CHAT_OPENCODE_JSON_SECRET =
   "CTXPIPE_OPENCODE_JSON" as const
 
+/** Single path component under typical NAME_MAX, with room for HOME suffixes. */
+export const WORKSPACE_CHAT_OPENCODE_HOME_SLUG_MAX_LENGTH = 80
+
+const PATH_SAFE_RUNTIME_ID = /^[A-Za-z0-9_-]+$/
+
+export function workspaceChatOpenCodeHomeSlug(conversationId: string): string {
+  if (
+    PATH_SAFE_RUNTIME_ID.test(conversationId) &&
+    conversationId.length > 0 &&
+    conversationId.length <= WORKSPACE_CHAT_OPENCODE_HOME_SLUG_MAX_LENGTH
+  ) {
+    return conversationId
+  }
+  const digest = createHash("sha256")
+    .update(`${conversationId.length}:${conversationId}`, "utf8")
+    .digest("hex")
+    .slice(0, 32)
+  const prefix = conversationId
+    .replace(/[^A-Za-z0-9_-]/g, "_")
+    .replace(/_+/g, "_")
+  const readable = prefix.replace(/^_+|_+$/g, "").slice(0, 24) || "conversation"
+  return `${readable}_${digest}`.slice(
+    0,
+    WORKSPACE_CHAT_OPENCODE_HOME_SLUG_MAX_LENGTH,
+  )
+}
+
 export function workspaceChatOpenCodeHomeDir(conversationId: string): string {
-  const slug = conversationId.replace(/[^a-zA-Z0-9_-]/g, "_") || "conversation"
-  return join(tmpdir(), "ctxpipe-opencode-home", slug)
+  return join(
+    tmpdir(),
+    "ctxpipe-opencode-home",
+    workspaceChatOpenCodeHomeSlug(conversationId),
+  )
 }
 
 export function workspaceChatOpenCodeConfigPath(
@@ -148,8 +179,7 @@ export function writeWorkspaceChatOpenCodeConfig(input: {
   if (input.isolation && input.isolation !== "unsandboxed") {
     // Container paths belong to its nonroot user, never the backend host's
     // temporary directory or PATH. Native thread setup writes this config.
-    const slug =
-      input.conversationId.replace(/[^a-zA-Z0-9_-]/g, "_") || "conversation"
+    const slug = workspaceChatOpenCodeHomeSlug(input.conversationId)
     const home = `/home/node/ctxpipe-opencode/${slug}`
     return {
       configJson,

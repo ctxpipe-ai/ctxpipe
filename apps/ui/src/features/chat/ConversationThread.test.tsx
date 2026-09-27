@@ -1,4 +1,4 @@
-import { StreamProcessor } from "@tanstack/ai"
+import { EventType, StreamProcessor } from "@tanstack/ai"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import type { ChatMessage } from "@/features/chat/types"
@@ -257,19 +257,19 @@ describe("ConversationThread activity chrome", () => {
       ],
     })
     processor.processChunk({
-      type: "RUN_STARTED",
+      type: EventType.RUN_STARTED,
       runId: "run_1",
       threadId: "conv_1",
       timestamp: Date.now(),
     })
     processor.processChunk({
-      type: "REASONING_MESSAGE_START",
+      type: EventType.REASONING_MESSAGE_START,
       messageId: "reason_1",
       role: "reasoning",
       timestamp: Date.now(),
     })
     processor.processChunk({
-      type: "REASONING_MESSAGE_CONTENT",
+      type: EventType.REASONING_MESSAGE_CONTENT,
       messageId: "reason_1",
       delta:
         "**Inspecting repositories**\n\nInspecting repositories for the sign-in path.",
@@ -294,13 +294,13 @@ describe("ConversationThread activity chrome", () => {
     expect(html).not.toContain("Auth0")
 
     processor.processChunk({
-      type: "TEXT_MESSAGE_START",
+      type: EventType.TEXT_MESSAGE_START,
       messageId: "text_1",
       role: "assistant",
       timestamp: Date.now(),
     })
     processor.processChunk({
-      type: "TEXT_MESSAGE_CONTENT",
+      type: EventType.TEXT_MESSAGE_CONTENT,
       messageId: "text_1",
       delta: "Sign-in is handled by Auth0.",
       timestamp: Date.now(),

@@ -1,21 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const { getSessionMock, authHandlerMock, registerLangsmithRoutesMock } =
-  vi.hoisted(() => ({
-    getSessionMock: vi.fn(),
-    authHandlerMock: vi.fn(),
-    registerLangsmithRoutesMock: vi.fn(),
-  }))
+const { getSessionMock, authHandlerMock } = vi.hoisted(() => ({
+  getSessionMock: vi.fn(),
+  authHandlerMock: vi.fn(),
+}))
 
 vi.mock("../auth/config.js", () => ({
   getAuth: () => ({
     api: { getSession: getSessionMock },
     handler: authHandlerMock,
   }),
-}))
-
-vi.mock("../routes/langsmith.js", () => ({
-  registerLangsmithRoutes: registerLangsmithRoutesMock,
 }))
 
 vi.mock("../routes/v1/index.js", () => ({
@@ -69,7 +63,6 @@ describe("UI fallback proxy for unmatched backend routes", () => {
     process.env.AUTH_SECRET = AUTH_SECRET
     process.env.DATABASE_URL = "postgres://localhost:5432/ctxpipe"
     process.env.UI_PROXY_URL = "http://ui:3002"
-    process.env.ENABLE_LANGSMITH = "false"
     getSessionMock.mockResolvedValue(null)
     authHandlerMock.mockImplementation(
       () => new Response("auth", { status: 200 }),
@@ -79,7 +72,6 @@ describe("UI fallback proxy for unmatched backend routes", () => {
   afterEach(() => {
     delete process.env.AUTH_SECRET
     delete process.env.UI_PROXY_URL
-    delete process.env.ENABLE_LANGSMITH
     delete process.env.DATABASE_URL
   })
 
@@ -89,7 +81,6 @@ describe("UI fallback proxy for unmatched backend routes", () => {
     const res = await app.request("/acme/api/v1/health")
 
     expect(res.status).toBe(401)
-    expect(getSessionMock).toHaveBeenCalledTimes(1)
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
@@ -102,7 +93,6 @@ describe("UI fallback proxy for unmatched backend routes", () => {
 
     expect(res.status).toBe(200)
     expect(await res.text()).toBe("ui page")
-    expect(getSessionMock).not.toHaveBeenCalled()
     expect(fetchSpy).toHaveBeenCalledTimes(1)
 
     const [target] = fetchSpy.mock.calls[0] as [Request]
@@ -167,7 +157,6 @@ describe("UI fallback proxy for unmatched backend routes", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1)
     expect(res.status).toBe(201)
     expect(await res.text()).toBe("proxied")
-    expect(getSessionMock).not.toHaveBeenCalled()
     expect(seenRequest).toEqual({
       url: "http://ui:3002/submit?source=test",
       method: "POST",

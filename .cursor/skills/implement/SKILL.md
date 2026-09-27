@@ -12,6 +12,6 @@ Use /tdd where possible, at pre-agreed seams.
 
 Run typechecking regularly, single test files regularly, and the full test suite once at the end.
 
-Once done, use /code-review (`gpt-5.6-sol-high`) to review the work.
+Once done, use /code-review (`gpt-5.6-sol-high`) to review the work. That review is three axes — Standards, Spec, and Simplicity.
 
 Commit your work to the current branch.
