@@ -526,6 +526,7 @@ resource "terraform_data" "cost_telemetry_source_image" {
     command = "bash ${path.module}/connect-source-image-and-deploy.sh"
 
     environment = {
+      PROJECT_ID     = local.railway_project_id
       ENVIRONMENT_ID = local.railway_environment_id
       SERVICE_ID     = railway_service.cost_telemetry.id
       SOURCE_IMAGE   = var.cost_telemetry_image

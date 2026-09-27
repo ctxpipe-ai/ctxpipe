@@ -129,6 +129,10 @@ connect_source_image_and_deploy() {
   # shellcheck disable=SC1091
   source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../scripts/railway-graphql.sh"
 
+  # Values come from the protected GitHub Environment. Sync before connecting
+  # the image so the first cron run and image updates start with valid tokens.
+  python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/sync-cost-telemetry-variables.py"
+
   # shellcheck disable=SC2016
   railway_graphql \
     'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \

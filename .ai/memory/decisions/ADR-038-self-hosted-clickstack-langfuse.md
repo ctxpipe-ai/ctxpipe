@@ -28,6 +28,8 @@ Hosted observability was Langfuse Cloud plus unused Better Stack and Amplitude. 
 
 10. **Billing gauges.** Hourly `cost-telemetry` writes daily `billing.cost` and `billing.usage` points, plus `billing.fx_rate` (USD→AUD), into `otel.otel_metrics_gauge`. Each cost and usage point is stamped with `billing.observed_at_unix_ms`. The HyperDX **Cost** dashboard (`dashboards/cost.json`) reads those rows with raw SQL and `argMax(Value, toUInt64OrZero(Attributes['billing.observed_at_unix_ms']))` per day+provider+sku+scope so a later downward revision wins. Langfuse token cost stays in the `langfuse` database.
 
+11. **Cost credential delivery.** Provider credentials for the Terraform-managed cost collector have source copies in the protected GitHub `observability` Environment. The apply job writes them to Railway immediately before connecting the service image, and syncs them after apply for rotations. Terraform passes only service IDs to the sync script, so provider secret values stay out of plans and state. The isolated PR preview keeps its own Railway variables.
+
 ### Consequences
 
 - One internal APM and LLM stack. Self-host deploy does not ship it.
