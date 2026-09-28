@@ -32,6 +32,23 @@ import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
 import { enqueueInputFromPausedJob } from "./write-job-intent.js"
 import { WRITE_STATUS_REASONS } from "./write-status.js"
 
+async function cancelUnlessAlreadyTerminal(
+  runner: Pick<OpenWorkflow, "cancelWorkflowRun">,
+  runId: string,
+) {
+  try {
+    await runner.cancelWorkflowRun(runId)
+  } catch (error) {
+    if (
+      !(error instanceof Error) ||
+      !/^Cannot cancel workflow run .+ with status (completed|failed|succeeded)$/.test(
+        error.message,
+      )
+    )
+      throw error
+  }
+}
+
 it(
   "completes an already-satisfied edit when write access is revoked after acquisition",
   { timeout: 45_000 },
@@ -289,7 +306,7 @@ it.each(["captured", "legacy"] as const)(
                 f.workspaceId &&
               !["completed", "failed", "canceled"].includes(run.status)
             )
-              await runner.cancelWorkflowRun(run.id)
+              await cancelUnlessAlreadyTerminal(runner, run.id)
           }
           await worker.stop()
           await backend.stop()
@@ -411,7 +428,7 @@ it.each(["bootstrap", "ui_file_edit"] as const)(
                 f.workspaceId &&
               !["completed", "failed", "canceled"].includes(run.status)
             )
-              await runner.cancelWorkflowRun(run.id)
+              await cancelUnlessAlreadyTerminal(runner, run.id)
           }
           await worker.stop()
           await backend.stop()

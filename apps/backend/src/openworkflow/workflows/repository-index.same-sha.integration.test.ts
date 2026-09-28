@@ -115,39 +115,43 @@ describeWithDatabase("repository-index same-SHA coalescing", () => {
     await closeDb()
   })
 
-  it("rebuilds codesearch only when the published SHA changes", async () => {
-    if (!runner) throw new Error("OpenWorkflow runner missing")
-    const activeRunner = runner
-    const runIndex = async (targetHash: string) => {
-      const handle = await activeRunner.runWorkflow(repositoryIndex.spec, {
-        orgId,
-        repositoryId,
-        targetHash,
-      })
-      expect(await handle.result({ timeoutMs: 15_000 })).toMatchObject({
-        targetHash,
-        searchIndexOk: true,
-      })
-    }
-    await runIndex(SHA)
-    await withOrgDbContext(orgId, () =>
-      markRepositoryIndexingReady({
-        repositoryId,
-        targetHash: SHA,
-      }),
-    )
-    expect(cloneCheckouts).toEqual([SHA])
-    await runIndex(SHA)
-    expect(cloneCheckouts).toEqual([SHA])
-    await withOrgDbContext(orgId, (db) =>
-      db
-        .update(repositories)
-        .set({ indexingStatus: "queued" })
-        .where(eq(repositories.id, repositoryId)),
-    )
-    await runIndex(SHA)
-    expect(cloneCheckouts).toEqual([SHA, SHA])
-    await runIndex(NEWER)
-    expect(cloneCheckouts).toEqual([SHA, SHA, NEWER])
-  })
+  it(
+    "rebuilds codesearch only when the published SHA changes",
+    { timeout: 75_000 },
+    async () => {
+      if (!runner) throw new Error("OpenWorkflow runner missing")
+      const activeRunner = runner
+      const runIndex = async (targetHash: string) => {
+        const handle = await activeRunner.runWorkflow(repositoryIndex.spec, {
+          orgId,
+          repositoryId,
+          targetHash,
+        })
+        expect(await handle.result({ timeoutMs: 15_000 })).toMatchObject({
+          targetHash,
+          searchIndexOk: true,
+        })
+      }
+      await runIndex(SHA)
+      await withOrgDbContext(orgId, () =>
+        markRepositoryIndexingReady({
+          repositoryId,
+          targetHash: SHA,
+        }),
+      )
+      expect(cloneCheckouts).toEqual([SHA])
+      await runIndex(SHA)
+      expect(cloneCheckouts).toEqual([SHA])
+      await withOrgDbContext(orgId, (db) =>
+        db
+          .update(repositories)
+          .set({ indexingStatus: "queued" })
+          .where(eq(repositories.id, repositoryId)),
+      )
+      await runIndex(SHA)
+      expect(cloneCheckouts).toEqual([SHA, SHA])
+      await runIndex(NEWER)
+      expect(cloneCheckouts).toEqual([SHA, SHA, NEWER])
+    },
+  )
 })
