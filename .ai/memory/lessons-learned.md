@@ -707,6 +707,19 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-09-26
 - **Source:** PR-343 backend image failed "Verify connector asset contracts" after `otel.ts` imported `@opentelemetry/resources`, which was only a devDependency
 
+### Connector full imports resume at the unfinished page
+
+- **Rule:** A scoped-mirror initial sync checkpoints one OpenWorkflow step per provider page. The step name is the scope id and the page index; the cursor and the rendered text files are the stored result. Git gets one commit after those pages. A crash refetches only the page that was not stored. Follow [source-connectors](../../.cursor/skills/source-connectors/SKILL.md) step 7 when designing or changing an integration.
+- **Category:** convention
+- **Date:** 2026-09-28
+- **Source:** user, after a Linear initial sync held the whole mirror in one step and a crash refetched the workspace
+
+### Connector provider reads scale with the data
+- **Rule:** Source-connector provider calls scale linearly with the amount of data: one request per page of entities or per webhook entity, with related fields batched into that request. They do not scale with the number of relations on each entity (one request per comment, author, or parent). Setup catalogues are one query; extra requests are only later pages of that same query. Follow [source-connectors](../../.cursor/skills/source-connectors/SKILL.md) step 6 when designing or changing an integration.
+- **Category:** convention
+- **Date:** 2026-09-28
+- **Source:** user, after Linear relation getters issued one request per comment, user, and team during a large import
+
 ### CD applies ops changes; no manual follow-ups
 - **Rule:** Do not hand the owner runbook steps, scripts to run, or "after merge" to-dos. Provisioning and one-time cleanups go into the CD workflow, and leftovers from a migration are deleted as part of the work. A Railway setting the Terraform provider omits on update (restart policy, healthcheck, and sleep have `omitempty`) is set once on the service; do not add a workflow script to reapply it, and do not restate platform defaults. The only acceptable owner action is supplying a secret the agent cannot write, stated once with the exact name and location.
 - **Category:** convention

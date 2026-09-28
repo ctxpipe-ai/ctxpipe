@@ -26,7 +26,8 @@
     "graph-quality-report": "bun run src/scripts/graphQualityReport.ts",
     "reindex-repositories": "bun run src/scripts/reindexRepositories.ts",
     "verify-instruction-ingestion": "bun run src/scripts/verifyInstructionIngestion.ts",
-    "verify-connector-assets-runtime": "bun run src/scripts/verifyConnectorAssetRuntime.ts"
+    "verify-connector-assets-runtime": "bun run src/scripts/verifyConnectorAssetRuntime.ts",
+    "codegen:linear": "graphql-codegen --config codegen.linear.yml"
   },
   "dependencies": {
     "@ai-sdk/langchain": "^3.0.11",
@@ -35,6 +36,7 @@
     "@better-auth/infra": "^0.3.5",
     "@better-auth/oauth-provider": "^1.6.23",
     "@better-auth/passkey": "^1.6.23",
+    "@graphql-typed-document-node/core": "3.2.0",
     "@hono/mcp": "^0.2.3",
     "@hono/otel": "^1.1.2",
     "@hono/zod-openapi": "^1.2.2",
@@ -72,6 +74,7 @@
     "drizzle-orm": "beta",
     "evlog": "^2.13.0",
     "falkordb": "^6.6.2",
+    "graphql": "16.13.2",
     "hono": "^4.12.1",
     "jose": "^6.1.3",
     "langchain": "^1.5.2",
@@ -90,6 +93,9 @@
   },
   "devDependencies": {
     "@forge/cli": "^13.4.0",
+    "@graphql-codegen/cli": "^7.4.3",
+    "@graphql-codegen/typed-document-node": "^7.1.0",
+    "@graphql-codegen/typescript-operations": "^6.1.7",
     "@langchain/langgraph-checkpoint": "^1.1.3",
     "@modelcontextprotocol/conformance": "^0.1.15",
     "@opentelemetry/core": "2.6.0",

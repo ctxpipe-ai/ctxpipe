@@ -1,0 +1,26 @@
+# Schema snapshot is packages/sdk/src/schema.graphql from @linear/sdk@89.0.0.
+schema: src/services/linear/schema.graphql
+documents: src/services/linear/documents/*.graphql
+generates:
+  src/services/linear/documents.generated.ts:
+    plugins:
+      # typescript-operations with preResolveTypes emits result types and the
+      # enums those results reference. The typescript plugin's onlyOperationTypes
+      # still emits every Linear input object, so it is not a dependency.
+      - typescript-operations
+      - typed-document-node
+    config:
+      onlyOperationTypes: true
+      preResolveTypes: true
+      skipTypename: true
+      enumsAsTypes: true
+      defaultScalarType: unknown
+      scalars:
+        DateTime: string
+        DateTimeOrDuration: string
+        Duration: string
+        JSON: unknown
+        JSONObject: unknown
+        TimelessDate: string
+        TimelessDateOrDuration: string
+        UUID: string

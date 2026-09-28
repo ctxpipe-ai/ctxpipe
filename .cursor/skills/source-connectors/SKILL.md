@@ -1,6 +1,6 @@
 ---
 name: source-connectors
-description: Source connectors. Use when designing, implementing, or reviewing an integration or attachment/media path that durably imports external provider content into a ctxpipe context repository.
+description: Source connectors. Use when designing, implementing, or reviewing an integration or attachment/media path that durably imports external provider content into a ctxpipe context repository, when provider requests can multiply per related record, or when a full import must resume after a crash.
 ---
 
 # Source connectors
@@ -102,7 +102,40 @@ Durable work is OpenWorkflow in `apps/backend/src/openworkflow/workflows/` (dire
 
 **Done when:** phases, the config-merge trigger, and the live content path are named, matching the kind.
 
-## 6. Implement
+## 6. Provider reads scale with the data
+
+Each provider call fetches one page of entities, or the one webhook entity being applied, with the fields the mirror renders inlined in that same call. Use the provider's bulk or connection fields for comments, authors, labels, and parent context. A longer list is another page of that same query. Setup discovery of the selectable catalogue is one query; a further call is only a later page of it.
+
+Request count grows linearly with the amount of data. One page of N entities is one request whether each entity has one comment or fifty. A request per related record (per comment, per author, per parent) is exponential in the shape of the data and exhausts the provider quota during a large import.
+
+When the provider returns a rate-limit reset, wait and retry that same request inside the read. The page step then succeeds, and pages already stored stay stored.
+
+**Done when:** a test counts provider calls. One page of entities, including the relations the files render, is one call. A second page is one more call of the same shape. Adding a related record to an entity does not add a call. Discovery of the catalogue is one call unless a list has another page.
+
+## 7. Durable steps
+
+A durable step is one `step.run({ name })` call in the workflow function. OpenWorkflow stores that function's return value in Postgres. On a crash the workflow function starts from the top, and each finished name returns the stored value instead of running again.
+
+Call `step.run` from the workflow for each page. A loop that lives inside one step is one step: a crash before it returns drops everything that step fetched.
+
+Initial sync of a scoped mirror:
+
+1. One step loads the connection, repository, and `<slug>/config.yaml`.
+2. One step per provider page. Name it with the scope id and the page index (`team-<id>-issues-0`). Store the provider cursor in the result so the next step knows where to start. Return the rendered text files for that page and `nextAfter`. A nested connection that still has another page is its own step (`team-<id>-issues-0-issue-comments-<issueId>-0`), not another request inside the parent page step.
+3. One commit step joins those stored files and writes one git commit. Download attachment bytes in that commit step. Page results stay text.
+4. Ingest once, then finalize the setup phase.
+
+A webhook applies one entity in one step and one commit.
+
+Crash during `team-<id>-issues-1`, after `issues-0` is stored: `issues-0` returns the stored markdown and the provider is not called for it. `issues-1` runs again. The commit step runs once, after every page has a stored result.
+
+Crash after the git host accepts the commit but before that step is stored: the page steps are already stored, so the provider is not called. The commit step runs again, sees the files already on the branch (`omitUnchanged` against the tree), and writes nothing. The branch still has one commit.
+
+Delete stale managed paths in that same commit, and only when every page reported zero failures.
+
+**Done when:** a workflow test records step names. Two pages produce two step names. A second run with the first page already stored does not call the provider for that page. `commitFiles` is called once.
+
+## 8. Implement
 
 Follow [references/file-map.md](references/file-map.md). Inspect the named anchors and reproduce their **responsibilities** for this kind; mark inapplicable surfaces N/A. UI chrome: [product-ui](../product-ui/SKILL.md) + connector-wizard lesson (Linear/Notion/Slack share setup chrome; list rows are `ConnectorListItem`, not a stepper).
 
@@ -110,7 +143,7 @@ If AWS CDK / deploy images change, add a changeset for `@ctxpipe/aws-cdk`.
 
 **Done when:** every file-map row for this kind is implemented or N/A; converter fixtures, asset-boundary safety and reconciliation tests (`pnpm --filter @ctxpipe/backend test:connector-assets`, with the new slug added to `vitest.connector-assets.config.ts`), binary/`base64` commits (including an attachment), raw-body signature tests, workflow discovery, empty optional env parsing, and focused UI tests pass. CDK edits: `pnpm --filter @ctxpipe/aws-cdk test`.
 
-## 7. Record the decision
+## 9. Record the decision
 
 New kind → [capture-adr](../capture-adr/SKILL.md) and point this skill at it. Confirmed convention → [capture-lesson](../capture-lesson/SKILL.md). New term → [capture-glossary](../capture-glossary/SKILL.md).
 

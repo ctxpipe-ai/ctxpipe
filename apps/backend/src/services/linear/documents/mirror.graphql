@@ -1,0 +1,680 @@
+fragment LinearPageInfo on PageInfo {
+  hasNextPage
+  endCursor
+}
+
+fragment LinearActor on User {
+  id
+  name
+  displayName
+  active
+  admin
+  guest
+  avatarUrl
+}
+
+fragment LinearCommentNode on Comment {
+  id
+  body
+  createdAt
+  updatedAt
+  user {
+    ...LinearActor
+  }
+}
+
+fragment LinearAttachmentNode on Attachment {
+  id
+  title
+  url
+  sourceType
+  metadata
+}
+
+fragment LinearLabelNode on IssueLabel {
+  id
+  name
+  description
+  color
+  team {
+    id
+  }
+}
+
+fragment LinearNeedNode on CustomerNeed {
+  id
+  url
+  body
+  content
+  priority
+  createdAt
+  updatedAt
+  customer {
+    id
+  }
+  issue {
+    id
+  }
+  project {
+    id
+  }
+  creator {
+    ...LinearActor
+  }
+}
+
+fragment LinearDocumentNode on Document {
+  id
+  title
+  url
+  content
+  createdAt
+  updatedAt
+  project {
+    id
+  }
+  creator {
+    ...LinearActor
+  }
+}
+
+fragment LinearIssueCore on Issue {
+  id
+  identifier
+  title
+  description
+  url
+  priorityLabel
+  createdAt
+  updatedAt
+  state {
+    name
+  }
+  team {
+    id
+    key
+    name
+  }
+  project {
+    id
+    name
+    teams(first: 50) {
+      nodes {
+        id
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+  cycle {
+    id
+    name
+  }
+  assignee {
+    ...LinearActor
+  }
+  creator {
+    ...LinearActor
+  }
+  labels(first: 20) {
+    nodes {
+      ...LinearLabelNode
+    }
+    pageInfo {
+      ...LinearPageInfo
+    }
+  }
+  comments(first: 15) {
+    nodes {
+      ...LinearCommentNode
+    }
+    pageInfo {
+      ...LinearPageInfo
+    }
+  }
+  attachments(first: 20) {
+    nodes {
+      ...LinearAttachmentNode
+    }
+    pageInfo {
+      ...LinearPageInfo
+    }
+  }
+}
+
+fragment LinearProjectNode on Project {
+  id
+  name
+  url
+  content
+  description
+  priorityLabel
+  progress
+  startDate
+  targetDate
+  createdAt
+  updatedAt
+  status {
+    id
+  }
+  lead {
+    ...LinearActor
+  }
+  teams(first: 50) {
+    nodes {
+      id
+    }
+    pageInfo {
+      ...LinearPageInfo
+    }
+  }
+  projectUpdates(first: 20) {
+    nodes {
+      body
+      health
+      createdAt
+    }
+    pageInfo {
+      ...LinearPageInfo
+    }
+  }
+  documents(first: 20, includeArchived: true) {
+    nodes {
+      ...LinearDocumentNode
+    }
+    pageInfo {
+      ...LinearPageInfo
+    }
+  }
+}
+
+query DiscoverScopes(
+  $teamsAfter: String
+  $projectsAfter: String
+  $documentsAfter: String
+  $initiativesAfter: String
+  $includeTeams: Boolean!
+  $includeProjects: Boolean!
+  $includeDocuments: Boolean!
+  $includeInitiatives: Boolean!
+) {
+  teams(first: 100, after: $teamsAfter) @include(if: $includeTeams) {
+    nodes {
+      id
+      name
+      key
+    }
+    pageInfo {
+      ...LinearPageInfo
+    }
+  }
+  projects(first: 50, after: $projectsAfter, includeArchived: true)
+    @include(if: $includeProjects)
+  {
+    nodes {
+      id
+      name
+      url
+      teams(first: 1) {
+        nodes {
+          id
+          key
+        }
+      }
+    }
+    pageInfo {
+      ...LinearPageInfo
+    }
+  }
+  documents(first: 50, after: $documentsAfter, includeArchived: true)
+    @include(if: $includeDocuments)
+  {
+    nodes {
+      id
+      title
+      url
+      project {
+        id
+      }
+    }
+    pageInfo {
+      ...LinearPageInfo
+    }
+  }
+  initiatives(first: 100, after: $initiativesAfter, includeArchived: true)
+    @include(if: $includeInitiatives)
+  {
+    nodes {
+      id
+      name
+      url
+    }
+    pageInfo {
+      ...LinearPageInfo
+    }
+  }
+}
+
+query TeamRecord($id: String!) {
+  team(id: $id) {
+    id
+    name
+    key
+    description
+    createdAt
+    updatedAt
+    parent {
+      id
+    }
+  }
+}
+
+query TeamIssues($id: String!, $after: String) {
+  team(id: $id) {
+    issues(first: 20, after: $after, includeArchived: true) {
+      nodes {
+        ...LinearIssueCore
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query TeamIssuesWithNeeds($id: String!, $after: String) {
+  team(id: $id) {
+    issues(first: 20, after: $after, includeArchived: true) {
+      nodes {
+        ...LinearIssueCore
+        needs(first: 10) {
+          nodes {
+            ...LinearNeedNode
+          }
+          pageInfo {
+            ...LinearPageInfo
+          }
+        }
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query TeamProjects($id: String!, $after: String) {
+  team(id: $id) {
+    projects(first: 10, after: $after, includeArchived: true) {
+      nodes {
+        ...LinearProjectNode
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query TeamProjectsWithNeeds($id: String!, $after: String) {
+  team(id: $id) {
+    projects(first: 10, after: $after, includeArchived: true) {
+      nodes {
+        ...LinearProjectNode
+        needs(first: 10) {
+          nodes {
+            ...LinearNeedNode
+          }
+          pageInfo {
+            ...LinearPageInfo
+          }
+        }
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query TeamCycles($id: String!, $after: String) {
+  team(id: $id) {
+    cycles(first: 100, after: $after, includeArchived: true) {
+      nodes {
+        id
+        name
+        number
+        startsAt
+        endsAt
+        completedAt
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query TeamLabels($id: String!, $after: String) {
+  team(id: $id) {
+    labels(first: 100, after: $after, includeArchived: true) {
+      nodes {
+        ...LinearLabelNode
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query ProjectRecord($id: String!) {
+  project(id: $id) {
+    ...LinearProjectNode
+  }
+}
+
+query ProjectRecordWithNeeds($id: String!) {
+  project(id: $id) {
+    ...LinearProjectNode
+    needs(first: 10) {
+      nodes {
+        ...LinearNeedNode
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query ProjectIssues($id: String!, $after: String) {
+  project(id: $id) {
+    issues(first: 20, after: $after, includeArchived: true) {
+      nodes {
+        ...LinearIssueCore
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query ProjectIssuesWithNeeds($id: String!, $after: String) {
+  project(id: $id) {
+    issues(first: 20, after: $after, includeArchived: true) {
+      nodes {
+        ...LinearIssueCore
+        needs(first: 10) {
+          nodes {
+            ...LinearNeedNode
+          }
+          pageInfo {
+            ...LinearPageInfo
+          }
+        }
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query IssueRecord($id: String!) {
+  issue(id: $id) {
+    ...LinearIssueCore
+  }
+}
+
+query IssueRecordWithNeeds($id: String!) {
+  issue(id: $id) {
+    ...LinearIssueCore
+    needs(first: 10) {
+      nodes {
+        ...LinearNeedNode
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query IssueComments($id: String!, $after: String!) {
+  issue(id: $id) {
+    comments(first: 50, after: $after) {
+      nodes {
+        ...LinearCommentNode
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query IssueAttachments($id: String!, $after: String!) {
+  issue(id: $id) {
+    attachments(first: 50, after: $after) {
+      nodes {
+        ...LinearAttachmentNode
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query IssueLabelsPage($id: String!, $after: String!) {
+  issue(id: $id) {
+    labels(first: 50, after: $after) {
+      nodes {
+        ...LinearLabelNode
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query IssueNeedsPage($id: String!, $after: String!) {
+  issue(id: $id) {
+    needs(first: 50, after: $after) {
+      nodes {
+        ...LinearNeedNode
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query IssueProjectTeams($id: String!, $after: String!) {
+  issue(id: $id) {
+    project {
+      teams(first: 50, after: $after) {
+        nodes {
+          id
+        }
+        pageInfo {
+          ...LinearPageInfo
+        }
+      }
+    }
+  }
+}
+
+query ProjectTeamsPage($id: String!, $after: String!) {
+  project(id: $id) {
+    teams(first: 50, after: $after) {
+      nodes {
+        id
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query ProjectUpdatesPage($id: String!, $after: String!) {
+  project(id: $id) {
+    projectUpdates(first: 50, after: $after) {
+      nodes {
+        body
+        health
+        createdAt
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query ProjectDocumentsPage($id: String!, $after: String!) {
+  project(id: $id) {
+    documents(first: 50, after: $after, includeArchived: true) {
+      nodes {
+        ...LinearDocumentNode
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query ProjectNeedsPage($id: String!, $after: String!) {
+  project(id: $id) {
+    needs(first: 50, after: $after) {
+      nodes {
+        ...LinearNeedNode
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query DocumentRecord($id: String!) {
+  document(id: $id) {
+    ...LinearDocumentNode
+    project {
+      id
+      teams(first: 50) {
+        nodes {
+          id
+        }
+        pageInfo {
+          ...LinearPageInfo
+        }
+      }
+    }
+  }
+}
+
+query InitiativeRecord($id: String!) {
+  initiative(id: $id) {
+    id
+    name
+    url
+    content
+    description
+    status
+    health
+    targetDate
+    createdAt
+    updatedAt
+    parentInitiative {
+      id
+    }
+    owner {
+      ...LinearActor
+    }
+    initiativeUpdates(first: 50) {
+      nodes {
+        body
+        health
+        createdAt
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query InitiativeUpdatesPage($id: String!, $after: String!) {
+  initiative(id: $id) {
+    initiativeUpdates(first: 50, after: $after) {
+      nodes {
+        body
+        health
+        createdAt
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query InitiativeProjects($id: String!, $after: String) {
+  initiative(id: $id) {
+    projects(first: 50, after: $after, includeArchived: true) {
+      nodes {
+        id
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query InitiativeDocuments($id: String!, $after: String) {
+  initiative(id: $id) {
+    documents(first: 50, after: $after, includeArchived: true) {
+      nodes {
+        id
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query CycleRecord($id: String!) {
+  cycle(id: $id) {
+    id
+    name
+    number
+    startsAt
+    endsAt
+    completedAt
+    team {
+      id
+    }
+  }
+}
+
+query IssueLabelRecord($id: String!) {
+  issueLabel(id: $id) {
+    ...LinearLabelNode
+  }
+}
+
+query UserRecord($id: String!) {
+  user(id: $id) {
+    ...LinearActor
+  }
+}

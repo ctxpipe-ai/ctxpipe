@@ -1,40 +1,70 @@
-import type { Document, Initiative, Issue, Project, User } from "@linear/sdk"
 import type { Env } from "../../config/env.js"
 import type { LinearConnection } from "../../models/linear-connector.js"
-import { linearAccessToken } from "../../models/linear-oauth-app.js"
-import { createConnectorAssetBytePool } from "../connectors/assets.js"
-import {
-  linearEntityMirrorFiles,
-  linearIssueMirrorFiles,
-  linearMatchingExistingAssetPaths,
-} from "./assets.js"
-import {
-  collectLinearConnectionPages,
-  type LinearTokenRefreshHandler,
-  withLinearClient,
-} from "./client.js"
+import { type LinearTokenRefreshHandler, withLinearClient } from "./client.js"
 import type { ParsedLinearRepoConfig } from "./config-yaml.js"
-import type { LinearMirrorFile } from "./converter.js"
+import { renderLinearEntity, renderLinearIssue } from "./converter.js"
+import type { LinearActorFragment } from "./documents.generated.js"
+import {
+  applyLinearFollowToDocument,
+  applyLinearFollowToInitiative,
+  applyLinearFollowToIssue,
+  applyLinearFollowToProject,
+  type LinearFollow,
+  type LoadedCycle,
+  type LoadedDocument,
+  type LoadedInitiative,
+  type LoadedIssue,
+  type LoadedLabel,
+  type LoadedNeed,
+  type LoadedProject,
+  linearActorName,
+  loadTeam,
+  readDocumentRecord,
+  readInitiativeDocumentPage,
+  readInitiativeProjectPage,
+  readInitiativeRecord,
+  readLinearFollow,
+  readProjectIssuePage,
+  readProjectRecord,
+  readTeamCyclePage,
+  readTeamIssuePage,
+  readTeamLabelPage,
+  readTeamProjectPage,
+} from "./read.js"
 
-export type LinearMirrorBuildResult = {
-  files: LinearMirrorFile[]
+export type LinearMirrorPageRequest =
+  | { kind: "team-record"; teamId: string }
+  | { kind: "team-issues"; teamId: string; after: string | null }
+  | { kind: "team-projects"; teamId: string; after: string | null }
+  | { kind: "team-cycles"; teamId: string; after: string | null }
+  | { kind: "team-labels"; teamId: string; after: string | null }
+  | { kind: "project-record"; projectId: string }
+  | { kind: "project-issues"; projectId: string; after: string | null }
+  | { kind: "initiative-record"; initiativeId: string }
+  | { kind: "initiative-projects"; initiativeId: string; after: string | null }
+  | { kind: "initiative-documents"; initiativeId: string; after: string | null }
+  | { kind: "document"; documentId: string }
+  | { kind: "follow"; follow: LinearFollow; hold: LinearMirrorHold }
+
+export type LinearMirrorHold =
+  | { kind: "issue"; loaded: LoadedIssue }
+  | { kind: "project"; loaded: LoadedProject }
+  | { kind: "initiative"; loaded: LoadedInitiative }
+  | { kind: "document"; loaded: LoadedDocument }
+
+export type LinearMirrorPage = {
+  files: Array<{ path: string; content: string }>
+  nextAfter: string | null
   failures: Array<{ type: string; id: string; message: string }>
-  preservePathPrefixes: string[]
+  projects: Array<{ id: string; teamIds: string[] }>
+  documentIds: string[]
+  childIds: string[]
+  follows: LinearFollow[]
+  held: LinearMirrorHold[]
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
-}
-
-async function settleRelation<T>(
-  value: PromiseLike<T> | undefined,
-): Promise<T | undefined> {
-  if (!value) return undefined
-  try {
-    return await value
-  } catch {
-    return undefined
-  }
 }
 
 export function renderLinearUpdateSections(
@@ -55,82 +85,69 @@ export function renderLinearUpdateSections(
   }))
 }
 
-export async function buildLinearMirror(input: {
-  env: Env
-  connection: LinearConnection
-  config: ParsedLinearRepoConfig
-  onTokenRefresh?: LinearTokenRefreshHandler
-  existingBlobs?: ReadonlyArray<{ path: string; sha: string }>
-}): Promise<LinearMirrorBuildResult> {
-  return withLinearClient(input, async (client) => {
-    const files = new Map<string, LinearMirrorFile>()
-    const failures: LinearMirrorBuildResult["failures"] = []
-    const preservePathPrefixes = new Set<string>()
-    const assetBytePool = createConnectorAssetBytePool()
-    const existingShaByPath = new Map(
-      (input.existingBlobs ?? []).map((blob) => [blob.path, blob.sha]),
+function createTextPage(workspaceUrlKey: string | null) {
+  const files = new Map<string, { path: string; content: string }>()
+  const failures: LinearMirrorPage["failures"] = []
+  const projects: LinearMirrorPage["projects"] = []
+  const documentIds = new Set<string>()
+  const seenNeeds = new Set<string>()
+  const seenUsers = new Set<string>()
+
+  function addFile(file: { path: string; content: string }) {
+    if (!files.has(file.path)) files.set(file.path, file)
+  }
+
+  function addUser(actor: LinearActorFragment | null) {
+    if (!actor || seenUsers.has(actor.id)) return
+    seenUsers.add(actor.id)
+    addFile(
+      renderLinearEntity({
+        preserveSourceUrls: true,
+        directory: "users",
+        type: "user",
+        id: actor.id,
+        title: linearActorName(actor) || actor.id,
+        metadata: {
+          active: actor.active,
+          admin: actor.admin,
+          guest: actor.guest,
+          avatarUrl: actor.avatarUrl,
+        },
+      }),
     )
-    const onPreservePathPrefix = (prefix: string) => {
-      preservePathPrefixes.add(prefix)
-      for (const path of linearMatchingExistingAssetPaths(
-        existingShaByPath.keys(),
-        prefix,
-      )) {
-        preservePathPrefixes.add(path)
-      }
-    }
-    const seen = {
-      teams: new Set<string>(),
-      projects: new Set<string>(),
-      issues: new Set<string>(),
-      documents: new Set<string>(),
-      initiatives: new Set<string>(),
-      cycles: new Set<string>(),
-      labels: new Set<string>(),
-      users: new Set<string>(),
-      needs: new Set<string>(),
-    }
-    const referencedUsers = new Map<string, User>()
+  }
 
-    function addFile(file: LinearMirrorFile) {
-      files.set(file.path, file)
-    }
+  function addNeed(need: LoadedNeed, fallbackIssueId: string | null) {
+    if (seenNeeds.has(need.id)) return
+    seenNeeds.add(need.id)
+    addFile(
+      renderLinearEntity({
+        preserveSourceUrls: true,
+        directory: "customer-requests",
+        type: "customer_request",
+        id: need.id,
+        title: `Customer request ${need.id}`,
+        url: need.url,
+        body: need.content || need.body,
+        metadata: {
+          customerId: need.customerId,
+          projectId: need.projectId,
+          issueId: need.issueId ?? fallbackIssueId,
+          priority: need.priority,
+          createdAt: need.createdAt.toISOString(),
+          updatedAt: need.updatedAt.toISOString(),
+        },
+      }),
+    )
+    addUser(need.creator)
+  }
 
-    function addFiles(next: LinearMirrorFile[]) {
-      for (const file of next) addFile(file)
-    }
-
-    async function addEntity(
-      renderInput: Omit<
-        Parameters<typeof linearEntityMirrorFiles>[0],
-        "accessToken"
-      >,
-    ) {
-      addFiles(
-        await linearEntityMirrorFiles({
-          ...renderInput,
-          accessToken: linearAccessToken(input.connection),
-          onPreservePathPrefix,
-          bytePool: assetBytePool,
-          existingShaByPath,
-        }),
-      )
-    }
-
-    async function captureUser(userPromise: PromiseLike<User> | undefined) {
-      if (!userPromise) return
-      try {
-        const user = await userPromise
-        referencedUsers.set(user.id, user)
-      } catch {
-        // A deleted/inaccessible user should not fail otherwise valid content.
-      }
-    }
-
-    async function addDocument(document: Document) {
-      if (seen.documents.has(document.id)) return
-      seen.documents.add(document.id)
-      await addEntity({
+  function addDocument(document: LoadedDocument) {
+    if (documentIds.has(document.id)) return
+    documentIds.add(document.id)
+    addFile(
+      renderLinearEntity({
+        preserveSourceUrls: true,
         directory: "documents",
         type: "document",
         id: document.id,
@@ -138,385 +155,818 @@ export async function buildLinearMirror(input: {
         url: document.url,
         body: document.content,
         metadata: {
-          projectId: document.projectId ?? null,
-          creatorId: document.creatorId ?? null,
+          projectId: document.projectId,
+          creatorId: document.creator?.id ?? null,
           createdAt: document.createdAt.toISOString(),
           updatedAt: document.updatedAt.toISOString(),
         },
+      }),
+    )
+    addUser(document.creator)
+  }
+
+  function addIssue(loaded: LoadedIssue) {
+    try {
+      addFile(renderLinearIssue(loaded.issue, [], { preserveSourceUrls: true }))
+      for (const actor of loaded.actors) addUser(actor)
+      for (const need of loaded.needs) addNeed(need, loaded.issue.id)
+    } catch (error) {
+      failures.push({
+        type: "issue",
+        id: loaded.issue.id,
+        message: errorMessage(error),
       })
-      await captureUser(document.creator)
     }
+  }
 
-    async function addIssue(issue: Issue) {
-      if (seen.issues.has(issue.id)) return
-      seen.issues.add(issue.id)
-      try {
-        const [
-          comments,
-          attachments,
-          state,
-          needs,
-          team,
-          project,
-          cycle,
-          assignee,
-          creator,
-          labels,
-        ] = await Promise.all([
-          collectLinearConnectionPages(() => issue.comments({ first: 100 })),
-          collectLinearConnectionPages(() => issue.attachments({ first: 100 })),
-          issue.state,
-          input.config.customerRequests === "limited"
-            ? collectLinearConnectionPages(() => issue.needs({ first: 100 }))
-            : Promise.resolve([]),
-          settleRelation(issue.team),
-          settleRelation(issue.project),
-          settleRelation(issue.cycle),
-          settleRelation(issue.assignee),
-          settleRelation(issue.creator),
-          collectLinearConnectionPages(() => issue.labels({ first: 100 })),
-        ])
-        const commentAuthors = await Promise.all(
-          comments.map(async (comment) => {
-            const user = await settleRelation(comment.user)
-            if (user) referencedUsers.set(user.id, user)
-            return user ? user.displayName || user.name || null : null
-          }),
-        )
-        if (assignee) referencedUsers.set(assignee.id, assignee)
-        if (creator) referencedUsers.set(creator.id, creator)
-        addFiles(
-          await linearIssueMirrorFiles(
-            {
-              id: issue.id,
-              identifier: issue.identifier,
-              title: issue.title,
-              description: issue.description,
-              url: issue.url,
-              priorityLabel: issue.priorityLabel,
-              state: state?.name ?? null,
-              teamId: issue.teamId ?? team?.id ?? null,
-              teamKey: team?.key ?? null,
-              teamName: team?.name ?? null,
-              projectId: issue.projectId ?? project?.id ?? null,
-              projectName: project?.name ?? null,
-              cycleId: issue.cycleId ?? cycle?.id ?? null,
-              cycleName: cycle?.name ?? null,
-              assigneeId: issue.assigneeId ?? assignee?.id ?? null,
-              assignee: assignee
-                ? assignee.displayName || assignee.name || null
-                : null,
-              creatorId: issue.creatorId ?? creator?.id ?? null,
-              creator: creator
-                ? creator.displayName || creator.name || null
-                : null,
-              labels: labels.map((label) => ({
-                id: label.id,
-                name: label.name,
-              })),
-              createdAt: issue.createdAt,
-              updatedAt: issue.updatedAt,
-              comments: comments.map((comment, index) => ({
-                id: comment.id,
-                body: comment.body,
-                userId: comment.userId ?? null,
-                userName: commentAuthors[index] ?? null,
-                createdAt: comment.createdAt,
-                updatedAt: comment.updatedAt,
-              })),
-              attachments: attachments.map((attachment) => ({
-                id: attachment.id,
-                title: attachment.title,
-                url: attachment.url,
-                sourceType: attachment.sourceType ?? null,
-                metadata:
-                  attachment.metadata &&
-                  typeof attachment.metadata === "object" &&
-                  !Array.isArray(attachment.metadata)
-                    ? (attachment.metadata as Record<string, unknown>)
-                    : null,
-              })),
-            },
-            linearAccessToken(input.connection),
-            {
-              onPreservePathPrefix,
-              bytePool: assetBytePool,
-              existingShaByPath,
-            },
-          ),
-        )
-        for (const need of needs) {
-          if (seen.needs.has(need.id)) continue
-          seen.needs.add(need.id)
-          await addEntity({
-            directory: "customer-requests",
-            type: "customer_request",
-            id: need.id,
-            title: `Customer request ${need.id}`,
-            url: need.url,
-            body: need.content || need.body,
-            metadata: {
-              customerId: need.customerId ?? null,
-              projectId: need.projectId ?? null,
-              issueId: need.issueId ?? issue.id,
-              priority: need.priority,
-              createdAt: need.createdAt.toISOString(),
-              updatedAt: need.updatedAt.toISOString(),
-            },
-          })
-          await captureUser(need.creator)
-        }
-      } catch (error) {
-        failures.push({
-          type: "issue",
-          id: issue.id,
-          message: errorMessage(error),
-        })
-      }
-    }
-
-    async function addProject(project: Project) {
-      if (seen.projects.has(project.id)) return
-      seen.projects.add(project.id)
-      try {
-        const [issues, updates, needs, documents] = await Promise.all([
-          collectLinearConnectionPages(() =>
-            project.issues({ first: 100, includeArchived: true }),
-          ),
-          collectLinearConnectionPages(() =>
-            project.projectUpdates({ first: 100 }),
-          ),
-          input.config.customerRequests === "limited"
-            ? collectLinearConnectionPages(() => project.needs({ first: 100 }))
-            : Promise.resolve([]),
-          collectLinearConnectionPages(() =>
-            project.documents({ first: 100, includeArchived: true }),
-          ),
-        ])
-        await addEntity({
-          directory: "projects",
-          type: "project",
-          id: project.id,
-          title: project.name,
-          url: project.url,
-          body: project.content || project.description,
-          metadata: {
-            statusId: project.statusId ?? null,
-            leadId: project.leadId ?? null,
-            priority: project.priorityLabel,
-            progress: project.progress,
-            startDate: project.startDate ?? null,
-            targetDate: project.targetDate ?? null,
-            createdAt: project.createdAt.toISOString(),
-            updatedAt: project.updatedAt.toISOString(),
-          },
-          sections: renderLinearUpdateSections(updates),
-        })
-        await captureUser(project.lead)
-        for (const issue of issues) await addIssue(issue)
-        for (const document of documents) await addDocument(document)
-        for (const need of needs) {
-          if (seen.needs.has(need.id)) continue
-          seen.needs.add(need.id)
-          await addEntity({
-            directory: "customer-requests",
-            type: "customer_request",
-            id: need.id,
-            title: `Customer request ${need.id}`,
-            url: need.url,
-            body: need.content || need.body,
-            metadata: {
-              customerId: need.customerId ?? null,
-              projectId: need.projectId ?? project.id,
-              issueId: need.issueId ?? null,
-              priority: need.priority,
-              createdAt: need.createdAt.toISOString(),
-              updatedAt: need.updatedAt.toISOString(),
-            },
-          })
-          await captureUser(need.creator)
-        }
-      } catch (error) {
-        failures.push({
-          type: "project",
-          id: project.id,
-          message: errorMessage(error),
-        })
-      }
-    }
-
-    async function addInitiative(initiative: Initiative) {
-      if (seen.initiatives.has(initiative.id)) return
-      seen.initiatives.add(initiative.id)
-      try {
-        const [updates, projects, documents] = await Promise.all([
-          collectLinearConnectionPages(() =>
-            initiative.initiativeUpdates({ first: 100 }),
-          ),
-          collectLinearConnectionPages(() =>
-            initiative.projects({ first: 100, includeArchived: true }),
-          ),
-          collectLinearConnectionPages(() =>
-            initiative.documents({ first: 100, includeArchived: true }),
-          ),
-        ])
-        await addEntity({
-          directory: "initiatives",
-          type: "initiative",
-          id: initiative.id,
-          title: initiative.name,
-          url: initiative.url,
-          body: initiative.content || initiative.description,
-          metadata: {
-            status: initiative.status,
-            health: initiative.health ?? null,
-            ownerId: initiative.ownerId ?? null,
-            parentInitiativeId: initiative.parentInitiativeId ?? null,
-            targetDate: initiative.targetDate ?? null,
-            createdAt: initiative.createdAt.toISOString(),
-            updatedAt: initiative.updatedAt.toISOString(),
-          },
-          sections: renderLinearUpdateSections(updates),
-        })
-        await captureUser(initiative.owner)
-        for (const project of projects) await addProject(project)
-        for (const document of documents) await addDocument(document)
-      } catch (error) {
-        failures.push({
-          type: "initiative",
-          id: initiative.id,
-          message: errorMessage(error),
-        })
-      }
-    }
-
-    async function addTeam(teamId: string) {
-      if (seen.teams.has(teamId)) return
-      seen.teams.add(teamId)
-      try {
-        const team = await client.team(teamId)
-        const [issues, projects, cycles, labels] = await Promise.all([
-          collectLinearConnectionPages(() =>
-            team.issues({ first: 100, includeArchived: true }),
-          ),
-          collectLinearConnectionPages(() =>
-            team.projects({ first: 100, includeArchived: true }),
-          ),
-          collectLinearConnectionPages(() =>
-            team.cycles({ first: 100, includeArchived: true }),
-          ),
-          collectLinearConnectionPages(() =>
-            team.labels({ first: 100, includeArchived: true }),
-          ),
-        ])
-        await addEntity({
-          directory: "teams",
-          type: "team",
-          id: team.id,
-          title: team.name,
-          url: input.connection.workspaceUrlKey
-            ? `https://linear.app/${input.connection.workspaceUrlKey}/team/${team.key}`
-            : null,
-          body: team.description,
-          metadata: {
-            key: team.key,
-            parentId: team.parentId ?? null,
-            createdAt: team.createdAt.toISOString(),
-            updatedAt: team.updatedAt.toISOString(),
-          },
-        })
-        for (const issue of issues) await addIssue(issue)
-        for (const project of projects) await addProject(project)
-        for (const cycle of cycles) {
-          if (seen.cycles.has(cycle.id)) continue
-          seen.cycles.add(cycle.id)
-          await addEntity({
-            directory: "cycles",
-            type: "cycle",
-            id: cycle.id,
-            title: cycle.name || `Cycle ${cycle.number}`,
-            metadata: {
-              teamId,
-              number: cycle.number,
-              startsAt: cycle.startsAt.toISOString(),
-              endsAt: cycle.endsAt.toISOString(),
-              completedAt: cycle.completedAt?.toISOString() ?? null,
-            },
-          })
-        }
-        for (const label of labels) {
-          if (seen.labels.has(label.id)) continue
-          seen.labels.add(label.id)
-          await addEntity({
-            directory: "labels",
-            type: "issue_label",
-            id: label.id,
-            title: label.name,
-            body: label.description,
-            metadata: { teamId, color: label.color },
-          })
-        }
-      } catch (error) {
-        failures.push({
-          type: "team",
-          id: teamId,
-          message: errorMessage(error),
-        })
-      }
-    }
-
-    async function addSelectedScope(
-      scope: ParsedLinearRepoConfig["scopes"][number],
-    ) {
-      try {
-        switch (scope.type) {
-          case "team":
-            await addTeam(scope.externalId)
-            return
-          case "project":
-            await addProject(await client.project(scope.externalId))
-            return
-          case "document":
-            await addDocument(await client.document(scope.externalId))
-            return
-          case "initiative":
-            await addInitiative(await client.initiative(scope.externalId))
-            return
-        }
-      } catch (error) {
-        failures.push({
-          type: scope.type,
-          id: scope.externalId,
-          message: errorMessage(error),
-        })
-      }
-    }
-
-    for (const scope of input.config.scopes) await addSelectedScope(scope)
-
-    for (const user of referencedUsers.values()) {
-      if (seen.users.has(user.id)) continue
-      seen.users.add(user.id)
-      await addEntity({
-        directory: "users",
-        type: "user",
-        id: user.id,
-        title: user.displayName || user.name,
+  function addProject(project: LoadedProject) {
+    addFile(
+      renderLinearEntity({
+        preserveSourceUrls: true,
+        directory: "projects",
+        type: "project",
+        id: project.id,
+        title: project.name,
+        url: project.url,
+        body: project.content || project.description,
         metadata: {
-          active: user.active,
-          admin: user.admin,
-          guest: user.guest,
-          avatarUrl: user.avatarUrl ?? null,
+          statusId: project.statusId,
+          leadId: project.leadId,
+          priority: project.priorityLabel,
+          progress: project.progress,
+          startDate: project.startDate,
+          targetDate: project.targetDate,
+          createdAt: project.createdAt.toISOString(),
+          updatedAt: project.updatedAt.toISOString(),
         },
-      })
-    }
+        sections: renderLinearUpdateSections(project.updates),
+      }),
+    )
+    for (const actor of project.actors) addUser(actor)
+    for (const document of project.documents) addDocument(document)
+    for (const need of project.needs) addNeed(need, null)
+    projects.push({ id: project.id, teamIds: project.teamIds })
+  }
 
+  function addCycle(cycle: LoadedCycle, teamId: string) {
+    addFile(
+      renderLinearEntity({
+        preserveSourceUrls: true,
+        directory: "cycles",
+        type: "cycle",
+        id: cycle.id,
+        title: cycle.name || `Cycle ${cycle.number}`,
+        metadata: {
+          teamId,
+          number: cycle.number,
+          startsAt: cycle.startsAt.toISOString(),
+          endsAt: cycle.endsAt.toISOString(),
+          completedAt: cycle.completedAt?.toISOString() ?? null,
+        },
+      }),
+    )
+  }
+
+  function addLabel(label: LoadedLabel) {
+    addFile(
+      renderLinearEntity({
+        preserveSourceUrls: true,
+        directory: "labels",
+        type: "issue_label",
+        id: label.id,
+        title: label.name,
+        body: label.description,
+        metadata: { teamId: label.teamId, color: label.color },
+      }),
+    )
+  }
+
+  function addInitiative(initiative: LoadedInitiative) {
+    addFile(
+      renderLinearEntity({
+        preserveSourceUrls: true,
+        directory: "initiatives",
+        type: "initiative",
+        id: initiative.id,
+        title: initiative.name,
+        url: initiative.url,
+        body: initiative.content || initiative.description,
+        metadata: {
+          status: initiative.status,
+          health: initiative.health,
+          ownerId: initiative.ownerId,
+          parentInitiativeId: initiative.parentInitiativeId,
+          targetDate: initiative.targetDate,
+          createdAt: initiative.createdAt.toISOString(),
+          updatedAt: initiative.updatedAt.toISOString(),
+        },
+        sections: renderLinearUpdateSections(initiative.updates),
+      }),
+    )
+    for (const actor of initiative.actors) addUser(actor)
+  }
+
+  function addTeam(team: Awaited<ReturnType<typeof loadTeam>>) {
+    addFile(
+      renderLinearEntity({
+        preserveSourceUrls: true,
+        directory: "teams",
+        type: "team",
+        id: team.id,
+        title: team.name,
+        url: workspaceUrlKey
+          ? `https://linear.app/${workspaceUrlKey}/team/${team.key}`
+          : null,
+        body: team.description,
+        metadata: {
+          key: team.key,
+          parentId: team.parentId,
+          createdAt: team.createdAt.toISOString(),
+          updatedAt: team.updatedAt.toISOString(),
+        },
+      }),
+    )
+  }
+
+  function finish(
+    nextAfter: string | null,
+    childIds: string[] = [],
+    follows: LinearFollow[] = [],
+    held: LinearMirrorHold[] = [],
+  ): LinearMirrorPage {
     return {
-      files: [...files.values()].sort((left, right) =>
-        left.path.localeCompare(right.path),
-      ),
+      files: [...files.values()],
+      nextAfter,
       failures,
-      preservePathPrefixes: [...preservePathPrefixes],
+      projects,
+      documentIds: [...documentIds],
+      childIds,
+      follows,
+      held,
+    }
+  }
+
+  return {
+    failures,
+    addTeam,
+    addInitiative,
+    addIssue,
+    addProject,
+    addDocument,
+    addCycle,
+    addLabel,
+    finish,
+  }
+}
+
+export async function fetchLinearMirrorPage(input: {
+  env: Env
+  connection: LinearConnection
+  config: ParsedLinearRepoConfig
+  onTokenRefresh?: LinearTokenRefreshHandler
+  request: LinearMirrorPageRequest
+}): Promise<LinearMirrorPage> {
+  const includeNeeds = input.config.customerRequests === "limited"
+  return withLinearClient(input, async (client) => {
+    const accessToken = input.connection.accessToken
+    if (!accessToken) {
+      throw new Error("Linear connection is missing OAuth credentials")
+    }
+    const page = createTextPage(input.connection.workspaceUrlKey)
+    const request = input.request
+    switch (request.kind) {
+      case "team-record": {
+        const team = await loadTeam(client, accessToken, request.teamId)
+        page.addTeam(team)
+        return page.finish(null)
+      }
+      case "team-issues": {
+        const loaded = await readTeamIssuePage(
+          client,
+          accessToken,
+          request.teamId,
+          includeNeeds,
+          request.after,
+        )
+        return page.finish(
+          loaded.nextAfter,
+          [],
+          ...placeReads(
+            loaded.issues,
+            (issue) => page.addIssue(issue),
+            (issue) => ({ kind: "issue", loaded: issue }),
+          ),
+        )
+      }
+      case "team-projects": {
+        const loaded = await readTeamProjectPage(
+          client,
+          accessToken,
+          request.teamId,
+          includeNeeds,
+          request.after,
+        )
+        const placed = placeReads(
+          loaded.projects,
+          (project) => {
+            try {
+              page.addProject(project)
+            } catch (error) {
+              page.failures.push({
+                type: "project",
+                id: project.id,
+                message: errorMessage(error),
+              })
+            }
+          },
+          (project) => ({ kind: "project", loaded: project }),
+        )
+        return page.finish(loaded.nextAfter, [], ...placed)
+      }
+      case "team-cycles": {
+        const loaded = await readTeamCyclePage(
+          client,
+          accessToken,
+          request.teamId,
+          request.after,
+        )
+        for (const cycle of loaded.cycles) page.addCycle(cycle, request.teamId)
+        return page.finish(loaded.nextAfter)
+      }
+      case "team-labels": {
+        const loaded = await readTeamLabelPage(
+          client,
+          accessToken,
+          request.teamId,
+          request.after,
+        )
+        for (const label of loaded.labels) page.addLabel(label)
+        return page.finish(loaded.nextAfter)
+      }
+      case "project-record": {
+        const read = await readProjectRecord(
+          client,
+          accessToken,
+          request.projectId,
+          { includeNeeds, includeDocuments: true },
+        )
+        return page.finish(
+          null,
+          [],
+          ...placeReads(
+            [read],
+            (project) => {
+              try {
+                page.addProject(project)
+              } catch (error) {
+                page.failures.push({
+                  type: "project",
+                  id: project.id,
+                  message: errorMessage(error),
+                })
+              }
+            },
+            (project) => ({ kind: "project", loaded: project }),
+          ),
+        )
+      }
+      case "project-issues": {
+        const loaded = await readProjectIssuePage(
+          client,
+          accessToken,
+          request.projectId,
+          includeNeeds,
+          request.after,
+        )
+        return page.finish(
+          loaded.nextAfter,
+          [],
+          ...placeReads(
+            loaded.issues,
+            (issue) => page.addIssue(issue),
+            (issue) => ({ kind: "issue", loaded: issue }),
+          ),
+        )
+      }
+      case "initiative-record": {
+        const read = await readInitiativeRecord(
+          client,
+          accessToken,
+          request.initiativeId,
+        )
+        return page.finish(
+          null,
+          [],
+          ...placeReads(
+            [read],
+            (initiative) => page.addInitiative(initiative),
+            (initiative) => ({ kind: "initiative", loaded: initiative }),
+          ),
+        )
+      }
+      case "initiative-projects": {
+        const loaded = await readInitiativeProjectPage(
+          client,
+          accessToken,
+          request.initiativeId,
+          request.after,
+        )
+        return page.finish(loaded.nextAfter, loaded.projectIds)
+      }
+      case "initiative-documents": {
+        const loaded = await readInitiativeDocumentPage(
+          client,
+          accessToken,
+          request.initiativeId,
+          request.after,
+        )
+        return page.finish(loaded.nextAfter, loaded.documentIds)
+      }
+      case "document": {
+        const read = await readDocumentRecord(
+          client,
+          accessToken,
+          request.documentId,
+        )
+        return page.finish(
+          null,
+          [],
+          ...placeReads(
+            [read],
+            (document) => page.addDocument(document),
+            (document) => ({ kind: "document", loaded: document }),
+          ),
+        )
+      }
+      case "follow":
+        return fetchLinearFollow(
+          client,
+          accessToken,
+          request.follow,
+          request.hold,
+        )
     }
   })
+}
+
+function placeReads<T>(
+  reads: Array<{ loaded: T; follows: LinearFollow[] }>,
+  render: (loaded: T) => void,
+  hold: (loaded: T) => LinearMirrorHold,
+): [LinearFollow[], LinearMirrorHold[]] {
+  const follows: LinearFollow[] = []
+  const held: LinearMirrorHold[] = []
+  for (const read of reads) {
+    if (read.follows.length === 0) {
+      render(read.loaded)
+      continue
+    }
+    follows.push(...read.follows)
+    held.push(hold(read.loaded))
+  }
+  return [follows, held]
+}
+
+async function fetchLinearFollow(
+  client: Parameters<typeof readLinearFollow>[0],
+  accessToken: string,
+  follow: LinearFollow,
+  hold: LinearMirrorHold,
+): Promise<LinearMirrorPage> {
+  const page = await readLinearFollow(client, accessToken, follow)
+  const follows = page.nextAfter ? [{ ...follow, after: page.nextAfter }] : []
+  switch (hold.kind) {
+    case "issue":
+      return followPage(
+        { kind: "issue", loaded: applyLinearFollowToIssue(hold.loaded, page) },
+        follows,
+      )
+    case "project":
+      return followPage(
+        {
+          kind: "project",
+          loaded: applyLinearFollowToProject(hold.loaded, page),
+        },
+        follows,
+      )
+    case "initiative":
+      return followPage(
+        {
+          kind: "initiative",
+          loaded: applyLinearFollowToInitiative(hold.loaded, page),
+        },
+        follows,
+      )
+    case "document":
+      return followPage(
+        {
+          kind: "document",
+          loaded: applyLinearFollowToDocument(hold.loaded, page),
+        },
+        follows,
+      )
+  }
+}
+
+function followPage(
+  hold: LinearMirrorHold,
+  follows: LinearFollow[],
+): LinearMirrorPage {
+  return {
+    files: [],
+    nextAfter: null,
+    failures: [],
+    projects: [],
+    documentIds: [],
+    childIds: [],
+    follows,
+    held: [hold],
+  }
+}
+
+function issuesCovered(
+  teamIds: string[],
+  completedTeams: Set<string>,
+): boolean {
+  return (
+    teamIds.length > 0 && teamIds.every((teamId) => completedTeams.has(teamId))
+  )
+}
+
+export async function walkLinearMirrorPages(input: {
+  config: ParsedLinearRepoConfig
+  runPage: (
+    name: string,
+    request: LinearMirrorPageRequest,
+  ) => Promise<LinearMirrorPage>
+}): Promise<LinearMirrorPage[]> {
+  const pages: LinearMirrorPage[] = []
+  const completedTeams = new Set<string>()
+  const renderedProjects = new Map<string, string[]>()
+  const renderedDocuments = new Set<string>()
+  const startedTeams = new Set<string>()
+  const startedProjects = new Set<string>()
+  const startedInitiatives = new Set<string>()
+  const startedDocuments = new Set<string>()
+
+  function remember(page: LinearMirrorPage) {
+    for (const project of page.projects) {
+      if (!renderedProjects.has(project.id)) {
+        renderedProjects.set(project.id, project.teamIds)
+      }
+    }
+    for (const documentId of page.documentIds) {
+      renderedDocuments.add(documentId)
+    }
+  }
+
+  async function settle(
+    name: string,
+    page: LinearMirrorPage,
+  ): Promise<LinearMirrorPage> {
+    let follows = [...(page.follows ?? [])]
+    const held = [...(page.held ?? [])]
+    if (follows.length === 0) return page
+    const files = [...page.files]
+    const failures = [...page.failures]
+    const projects = [...page.projects]
+    const documentIds = new Set(page.documentIds)
+    const seen = new Map<string, number>()
+    while (follows.length > 0) {
+      const follow = follows[0]
+      if (!follow) break
+      follows = follows.slice(1)
+      const key = `${follow.connection}-${follow.entityId}`
+      const index = seen.get(key) ?? 0
+      seen.set(key, index + 1)
+      const current = held.find((item) => holdMatches(item, follow))
+      if (!current) continue
+      const next = await input.runPage(`${name}-${key}-${index}`, {
+        kind: "follow",
+        follow,
+        hold: current,
+      })
+      const updated = next.held?.[0]
+      const at = held.indexOf(current)
+      if (updated && at >= 0) held[at] = updated
+      failures.push(...(next.failures ?? []))
+      follows = [...(next.follows ?? []), ...follows]
+    }
+    for (const item of held) {
+      const rendered = renderHold(item)
+      files.push(...rendered.files)
+      failures.push(...rendered.failures)
+      for (const project of rendered.projects) {
+        const at = projects.findIndex((existing) => existing.id === project.id)
+        if (at >= 0) projects[at] = project
+        else projects.push(project)
+      }
+      for (const documentId of rendered.documentIds) documentIds.add(documentId)
+    }
+    return {
+      ...page,
+      files,
+      failures,
+      projects,
+      documentIds: [...documentIds],
+      follows: [],
+      held: [],
+    }
+  }
+
+  async function run(name: string, request: LinearMirrorPageRequest) {
+    return settle(name, await input.runPage(name, request))
+  }
+
+  async function drain(
+    prefix: string,
+    request: (after: string | null) => LinearMirrorPageRequest,
+  ): Promise<LinearMirrorPage[]> {
+    const drained: LinearMirrorPage[] = []
+    let after: string | null = null
+    for (let index = 0; ; index += 1) {
+      const cursor = after
+      const page = await run(`${prefix}-${index}`, request(cursor))
+      pages.push(page)
+      drained.push(page)
+      remember(page)
+      if (!page.nextAfter) return drained
+      after = page.nextAfter
+    }
+  }
+
+  async function projectIssues(projectId: string, teamIds: string[]) {
+    if (issuesCovered(teamIds, completedTeams)) return
+    await drain(`project-${projectId}-issues`, (after) => ({
+      kind: "project-issues",
+      projectId,
+      after,
+    }))
+  }
+
+  async function projectRecord(projectId: string) {
+    if (startedProjects.has(projectId)) return
+    startedProjects.add(projectId)
+    const knownTeams = renderedProjects.get(projectId)
+    if (knownTeams) {
+      await projectIssues(projectId, knownTeams)
+      return
+    }
+    const record = await run(`project-${projectId}-record`, {
+      kind: "project-record",
+      projectId,
+    })
+    pages.push(record)
+    remember(record)
+    if (record.failures.length > 0) return
+    await projectIssues(projectId, record.projects[0]?.teamIds ?? [])
+  }
+
+  async function documentRecord(documentId: string) {
+    if (renderedDocuments.has(documentId) || startedDocuments.has(documentId)) {
+      return
+    }
+    startedDocuments.add(documentId)
+    const record = await run(`document-${documentId}`, {
+      kind: "document",
+      documentId,
+    })
+    pages.push(record)
+    remember(record)
+  }
+
+  async function teamRecord(teamId: string) {
+    if (startedTeams.has(teamId)) return
+    startedTeams.add(teamId)
+    const record = await run(`team-${teamId}-record`, {
+      kind: "team-record",
+      teamId,
+    })
+    pages.push(record)
+    remember(record)
+    if (record.failures.length > 0) return
+    const issues = await drain(`team-${teamId}-issues`, (after) => ({
+      kind: "team-issues",
+      teamId,
+      after,
+    }))
+    await drain(`team-${teamId}-projects`, (after) => ({
+      kind: "team-projects",
+      teamId,
+      after,
+    }))
+    await drain(`team-${teamId}-cycles`, (after) => ({
+      kind: "team-cycles",
+      teamId,
+      after,
+    }))
+    await drain(`team-${teamId}-labels`, (after) => ({
+      kind: "team-labels",
+      teamId,
+      after,
+    }))
+    if (issues.every((page) => page.failures.length === 0)) {
+      completedTeams.add(teamId)
+    }
+  }
+
+  async function initiativeRecord(initiativeId: string) {
+    if (startedInitiatives.has(initiativeId)) return
+    startedInitiatives.add(initiativeId)
+    const record = await run(`initiative-${initiativeId}-record`, {
+      kind: "initiative-record",
+      initiativeId,
+    })
+    pages.push(record)
+    remember(record)
+    if (record.failures.length > 0) return
+    const projectPages = await drain(
+      `initiative-${initiativeId}-projects`,
+      (after) => ({
+        kind: "initiative-projects",
+        initiativeId,
+        after,
+      }),
+    )
+    for (const projectPage of projectPages) {
+      for (const projectId of projectPage.childIds) {
+        await projectRecord(projectId)
+      }
+    }
+    const documentPages = await drain(
+      `initiative-${initiativeId}-documents`,
+      (after) => ({
+        kind: "initiative-documents",
+        initiativeId,
+        after,
+      }),
+    )
+    for (const documentPage of documentPages) {
+      for (const documentId of documentPage.childIds) {
+        await documentRecord(documentId)
+      }
+    }
+  }
+
+  const scopeOrder = {
+    team: 0,
+    project: 1,
+    initiative: 2,
+    document: 3,
+  } as const
+  const scopes = [...input.config.scopes].sort(
+    (left, right) => scopeOrder[left.type] - scopeOrder[right.type],
+  )
+  for (const scope of scopes) {
+    switch (scope.type) {
+      case "team":
+        await teamRecord(scope.externalId)
+        break
+      case "project":
+        await projectRecord(scope.externalId)
+        break
+      case "initiative":
+        await initiativeRecord(scope.externalId)
+        break
+      case "document":
+        await documentRecord(scope.externalId)
+        break
+    }
+  }
+  return pages
+}
+
+export function collectLinearMirrorPages(pages: LinearMirrorPage[]): {
+  files: Array<{ path: string; content: string }>
+  failures: LinearMirrorPage["failures"]
+} {
+  const files = new Map<string, { path: string; content: string }>()
+  const failures: LinearMirrorPage["failures"] = []
+  for (const page of pages) {
+    failures.push(...page.failures)
+    for (const file of page.files) {
+      if (!files.has(file.path)) files.set(file.path, file)
+    }
+  }
+  return {
+    files: [...files.values()].sort((left, right) =>
+      left.path.localeCompare(right.path),
+    ),
+    failures,
+  }
+}
+
+function holdMatches(hold: LinearMirrorHold, follow: LinearFollow): boolean {
+  switch (hold.kind) {
+    case "issue":
+      return (
+        follow.connection.startsWith("issue-") &&
+        hold.loaded.issue.id === follow.entityId
+      )
+    case "project":
+      return (
+        follow.connection.startsWith("project-") &&
+        hold.loaded.id === follow.entityId
+      )
+    case "initiative":
+      return (
+        follow.connection.startsWith("initiative-") &&
+        hold.loaded.id === follow.entityId
+      )
+    case "document":
+      return (
+        follow.connection === "document-project-teams" &&
+        hold.loaded.id === follow.entityId
+      )
+  }
+}
+
+function asDate(value: Date | string): Date {
+  return value instanceof Date ? value : new Date(value)
+}
+
+function reviveIssue(loaded: LoadedIssue): LoadedIssue {
+  return {
+    ...loaded,
+    issue: {
+      ...loaded.issue,
+      createdAt: asDate(loaded.issue.createdAt),
+      updatedAt: asDate(loaded.issue.updatedAt),
+      comments: loaded.issue.comments.map((comment) => ({
+        ...comment,
+        createdAt: asDate(comment.createdAt),
+        updatedAt: asDate(comment.updatedAt),
+      })),
+    },
+    needs: loaded.needs.map((need) => ({
+      ...need,
+      createdAt: asDate(need.createdAt),
+      updatedAt: asDate(need.updatedAt),
+    })),
+  }
+}
+
+function reviveProject(loaded: LoadedProject): LoadedProject {
+  return {
+    ...loaded,
+    createdAt: asDate(loaded.createdAt),
+    updatedAt: asDate(loaded.updatedAt),
+    updates: loaded.updates.map((update) => ({
+      ...update,
+      createdAt: asDate(update.createdAt),
+    })),
+    documents: loaded.documents.map(reviveDocument),
+    needs: loaded.needs.map((need) => ({
+      ...need,
+      createdAt: asDate(need.createdAt),
+      updatedAt: asDate(need.updatedAt),
+    })),
+  }
+}
+
+function reviveInitiative(loaded: LoadedInitiative): LoadedInitiative {
+  return {
+    ...loaded,
+    createdAt: asDate(loaded.createdAt),
+    updatedAt: asDate(loaded.updatedAt),
+    updates: loaded.updates.map((update) => ({
+      ...update,
+      createdAt: asDate(update.createdAt),
+    })),
+  }
+}
+
+function reviveDocument(loaded: LoadedDocument): LoadedDocument {
+  return {
+    ...loaded,
+    createdAt: asDate(loaded.createdAt),
+    updatedAt: asDate(loaded.updatedAt),
+  }
+}
+
+function renderHold(hold: LinearMirrorHold): LinearMirrorPage {
+  const page = createTextPage(null)
+  switch (hold.kind) {
+    case "issue":
+      page.addIssue(reviveIssue(hold.loaded))
+      break
+    case "project":
+      try {
+        page.addProject(reviveProject(hold.loaded))
+      } catch (error) {
+        page.failures.push({
+          type: "project",
+          id: hold.loaded.id,
+          message: errorMessage(error),
+        })
+      }
+      break
+    case "initiative":
+      page.addInitiative(reviveInitiative(hold.loaded))
+      break
+    case "document":
+      page.addDocument(reviveDocument(hold.loaded))
+      break
+  }
+  return page.finish(null)
 }

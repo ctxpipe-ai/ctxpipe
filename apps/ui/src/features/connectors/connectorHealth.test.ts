@@ -9,6 +9,7 @@ describe("connectorHealthLabel", () => {
   it("names the operator-facing states", () => {
     expect(connectorHealthLabel("checking")).toBe("Checking")
     expect(connectorHealthLabel("not_connected")).toBe("Not yet connected")
+    expect(connectorHealthLabel("syncing")).toBe("Syncing")
     expect(connectorHealthLabel("connected")).toBe("Connected")
     expect(connectorHealthLabel("couldnt_load")).toBe("Couldn't load")
     expect(connectorHealthLabel("sync_failed")).toBe("Sync failed")
@@ -78,5 +79,13 @@ describe("resolveConnectorHealth", () => {
         connected: false,
       }),
     ).toBe("not_connected")
+    expect(
+      resolveConnectorHealth({
+        statusError: false,
+        checking: false,
+        setupPhase: "initial_sync",
+        connected: false,
+      }),
+    ).toBe("syncing")
   })
 })
