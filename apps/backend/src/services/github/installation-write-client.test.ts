@@ -273,6 +273,17 @@ describe("listFilesInTree", () => {
   })
 })
 
+type CreatedTreeCall = {
+  base_tree: string
+  tree: Array<{
+    path: string
+    mode: string
+    type: string
+    sha?: string | null
+    content?: string
+  }>
+}
+
 describe("commitFiles", () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -329,6 +340,7 @@ describe("commitFiles", () => {
       ],
     })
 
+    expect(createBlob).toHaveBeenCalledTimes(1)
     expect(createBlob).toHaveBeenCalledWith({
       owner: "acme",
       repo: "docs",
@@ -336,6 +348,235 @@ describe("commitFiles", () => {
       encoding: "base64",
     })
     expect(maxConcurrentUploads).toBe(1)
+  })
+
+  it("writes UTF-8 files as tree content without blob posts", async () => {
+    const createBlob = vi.fn()
+    const createTree = vi.fn(async () => ({ data: { sha: "tree" } }))
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 123 },
+      octokit: {
+        rest: {
+          git: {
+            getRef: vi.fn(async () => ({
+              data: { object: { sha: "base" } },
+            })),
+            getCommit: vi.fn(async () => ({
+              data: { tree: { sha: "base-tree" } },
+            })),
+            createBlob,
+            createTree,
+            createCommit: vi.fn(async () => ({ data: { sha: "text-commit" } })),
+            updateRef: vi.fn(async () => ({ data: {} })),
+          },
+        },
+      },
+    })
+
+    await commitFiles({
+      orgId: "org_test",
+      repositoryName: "acme/docs",
+      env: {} as never,
+      branch: "main",
+      message: "Sync Linear",
+      files: [
+        { path: "linear/a.md", content: "a" },
+        { path: "linear/b.md", content: "b" },
+      ],
+    })
+
+    expect(createBlob).not.toHaveBeenCalled()
+    expect(createTree).toHaveBeenCalledTimes(1)
+    expect(createTree).toHaveBeenCalledWith({
+      owner: "acme",
+      repo: "docs",
+      base_tree: "base-tree",
+      tree: [
+        { path: "linear/a.md", mode: "100644", type: "blob", content: "a" },
+        { path: "linear/b.md", mode: "100644", type: "blob", content: "b" },
+      ],
+    })
+  })
+
+  it("chains a second tree after 50 UTF-8 files and puts deletes on the first", async () => {
+    const createBlob = vi.fn()
+    const createTree = vi.fn(async (_request: CreatedTreeCall) => ({
+      data: { sha: `tree-${createTree.mock.calls.length}` },
+    }))
+    const createCommit = vi.fn(async () => ({ data: { sha: "commit" } }))
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 123 },
+      octokit: {
+        rest: {
+          git: {
+            getRef: vi.fn(async () => ({
+              data: { object: { sha: "base" } },
+            })),
+            getCommit: vi.fn(async () => ({
+              data: { tree: { sha: "base-tree" } },
+            })),
+            createBlob,
+            createTree,
+            createCommit,
+            updateRef: vi.fn(async () => ({ data: {} })),
+          },
+        },
+      },
+    })
+
+    await commitFiles({
+      orgId: "org_test",
+      repositoryName: "acme/docs",
+      env: {} as never,
+      branch: "main",
+      message: "Sync Linear",
+      files: Array.from({ length: 51 }, (_, index) => ({
+        path: `linear/issue-${index}.md`,
+        content: `issue ${index}`,
+      })),
+      deletePaths: ["linear/old.md"],
+    })
+
+    expect(createBlob).not.toHaveBeenCalled()
+    expect(createTree).toHaveBeenCalledTimes(2)
+    const firstTree = createTree.mock.calls[0]?.[0]
+    const secondTree = createTree.mock.calls[1]?.[0]
+    expect(firstTree?.base_tree).toBe("base-tree")
+    expect(firstTree?.tree).toHaveLength(51)
+    expect(firstTree?.tree?.at(-1)).toEqual({
+      path: "linear/old.md",
+      mode: "100644",
+      type: "blob",
+      sha: null,
+    })
+    expect(secondTree?.base_tree).toBe("tree-1")
+    expect(secondTree?.tree).toEqual([
+      {
+        path: "linear/issue-50.md",
+        mode: "100644",
+        type: "blob",
+        content: "issue 50",
+      },
+    ])
+    expect(createCommit).toHaveBeenCalledTimes(1)
+    expect(createCommit).toHaveBeenCalledWith(
+      expect.objectContaining({ tree: "tree-2", parents: ["base"] }),
+    )
+  })
+
+  it("gives a UTF-8 file larger than 900 KB its own tree", async () => {
+    const createTree = vi.fn(async (_request: CreatedTreeCall) => ({
+      data: { sha: "tree" },
+    }))
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 123 },
+      octokit: {
+        rest: {
+          git: {
+            getRef: vi.fn(async () => ({
+              data: { object: { sha: "base" } },
+            })),
+            getCommit: vi.fn(async () => ({
+              data: { tree: { sha: "base-tree" } },
+            })),
+            createBlob: vi.fn(),
+            createTree,
+            createCommit: vi.fn(async () => ({ data: { sha: "commit" } })),
+            updateRef: vi.fn(async () => ({ data: {} })),
+          },
+        },
+      },
+    })
+
+    await commitFiles({
+      orgId: "org_test",
+      repositoryName: "acme/docs",
+      env: {} as never,
+      branch: "main",
+      message: "Sync Linear",
+      files: [
+        { path: "linear/huge.md", content: "x".repeat(900 * 1024 + 1) },
+        { path: "linear/small.md", content: "s" },
+      ],
+    })
+
+    expect(createTree).toHaveBeenCalledTimes(2)
+    const hugeTree = createTree.mock.calls[0]?.[0]
+    const smallTree = createTree.mock.calls[1]?.[0]
+    expect(hugeTree?.tree).toHaveLength(1)
+    expect(hugeTree?.tree?.[0]?.path).toBe("linear/huge.md")
+    expect(smallTree?.tree).toEqual([
+      {
+        path: "linear/small.md",
+        mode: "100644",
+        type: "blob",
+        content: "s",
+      },
+    ])
+  })
+
+  it("posts base64 blobs serially and references their shas", async () => {
+    vi.useFakeTimers()
+    const createBlob = vi.fn(async () => ({
+      data: { sha: `blob-${createBlob.mock.calls.length}` },
+    }))
+    const createTree = vi.fn(async () => ({ data: { sha: "tree" } }))
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 123 },
+      octokit: {
+        rest: {
+          git: {
+            getRef: vi.fn(async () => ({
+              data: { object: { sha: "base" } },
+            })),
+            getCommit: vi.fn(async () => ({
+              data: { tree: { sha: "base-tree" } },
+            })),
+            createBlob,
+            createTree,
+            createCommit: vi.fn(async () => ({
+              data: { sha: "asset-commit" },
+            })),
+            updateRef: vi.fn(async () => ({ data: {} })),
+          },
+        },
+      },
+    })
+
+    const pending = commitFiles({
+      orgId: "org_test",
+      repositoryName: "acme/docs",
+      env: {} as never,
+      branch: "main",
+      message: "Capture images",
+      files: [
+        { path: "linear/a.png", content: "aaa", encoding: "base64" },
+        { path: "linear/b.png", content: "bbb", encoding: "base64" },
+      ],
+    })
+    await vi.advanceTimersByTimeAsync(999)
+    expect(createBlob).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    await pending
+    expect(createBlob).toHaveBeenCalledTimes(2)
+    expect(createTree).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tree: [
+          {
+            path: "linear/a.png",
+            mode: "100644",
+            type: "blob",
+            sha: "blob-1",
+          },
+          {
+            path: "linear/b.png",
+            mode: "100644",
+            type: "blob",
+            sha: "blob-2",
+          },
+        ],
+      }),
+    )
   })
 
   it("honours GitHub Retry-After on secondary rate limits", async () => {
@@ -469,6 +710,9 @@ describe("commitFiles", () => {
       )
       .mockResolvedValueOnce({ data: {} })
     const createBlob = vi.fn(async () => ({ data: { sha: "blob" } }))
+    const createTree = vi.fn(async (_request: CreatedTreeCall) => ({
+      data: { sha: "tree" },
+    }))
 
     getInstallationOctokitForOrgMock.mockResolvedValue({
       installation: { installationId: 123 },
@@ -478,7 +722,7 @@ describe("commitFiles", () => {
             getRef,
             getCommit,
             createBlob,
-            createTree: vi.fn(async () => ({ data: { sha: "tree" } })),
+            createTree,
             createCommit,
             updateRef,
           },
@@ -496,12 +740,91 @@ describe("commitFiles", () => {
     })
 
     expect(getRef).toHaveBeenCalledTimes(2)
-    expect(createBlob).toHaveBeenCalledTimes(1)
+    expect(createBlob).not.toHaveBeenCalled()
+    expect(createTree).toHaveBeenCalledTimes(2)
+    expect(createTree.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        base_tree: "tree-1",
+        tree: [
+          {
+            path: "notion/page.md",
+            mode: "100644",
+            type: "blob",
+            content: "# Page\n",
+          },
+        ],
+      }),
+    )
+    expect(createTree.mock.calls[1]?.[0]?.base_tree).toBe("tree-2")
     expect(createCommit).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ parents: ["base-2"] }),
     )
     expect(updateRef).toHaveBeenCalledTimes(2)
     expect(result.commitSha).toBe("commit-2")
+  })
+
+  it("does not recreate a binary blob when the ref update is retried", async () => {
+    const createBlob = vi.fn(async () => ({ data: { sha: "blob-bin" } }))
+    const createTree = vi.fn(async (_request: CreatedTreeCall) => ({
+      data: { sha: "tree" },
+    }))
+    const updateRef = vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("Update is not a fast forward"), {
+          status: 422,
+        }),
+      )
+      .mockResolvedValueOnce({ data: {} })
+    const getCommit = vi
+      .fn()
+      .mockResolvedValueOnce({ data: { tree: { sha: "tree-1" } } })
+      .mockResolvedValueOnce({ data: { tree: { sha: "tree-2" } } })
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 123 },
+      octokit: {
+        rest: {
+          git: {
+            getRef: vi
+              .fn()
+              .mockResolvedValueOnce({ data: { object: { sha: "base-1" } } })
+              .mockResolvedValueOnce({ data: { object: { sha: "base-2" } } }),
+            getCommit,
+            createBlob,
+            createTree,
+            createCommit: vi
+              .fn()
+              .mockResolvedValueOnce({ data: { sha: "commit-1" } })
+              .mockResolvedValueOnce({ data: { sha: "commit-2" } }),
+            updateRef,
+          },
+        },
+      },
+    })
+
+    await commitFiles({
+      orgId: "org_test",
+      repositoryName: "acme/docs",
+      env: {} as never,
+      branch: "main",
+      message: "Capture image",
+      files: [
+        { path: "linear/diagram.png", content: "iVBORw==", encoding: "base64" },
+      ],
+    })
+
+    expect(createBlob).toHaveBeenCalledTimes(1)
+    expect(createTree).toHaveBeenCalledTimes(2)
+    expect(createTree.mock.calls[0]?.[0]?.tree).toEqual([
+      {
+        path: "linear/diagram.png",
+        mode: "100644",
+        type: "blob",
+        sha: "blob-bin",
+      },
+    ])
+    expect(createTree.mock.calls[1]?.[0]?.base_tree).toBe("tree-2")
+    expect(updateRef).toHaveBeenCalledTimes(2)
   })
 })
