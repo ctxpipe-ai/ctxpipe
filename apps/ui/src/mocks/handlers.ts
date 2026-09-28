@@ -92,6 +92,62 @@ export function organizationCreateErrorHandler(
   })
 }
 
+/** `POST /.auth/api/v1/auth/organization/invite-member` — per-email success. */
+export function organizationInviteSuccessHandler() {
+  return http.post(
+    `${authBase}/organization/invite-member`,
+    async ({ request }) => {
+      const body = (await request.json()) as {
+        email: string
+        role: string
+        organizationId?: string
+      }
+      return HttpResponse.json({
+        id: `inv_${body.email.replace(/[@.]+/g, "_")}`,
+        email: body.email,
+        role: body.role,
+        organizationId: body.organizationId ?? "org_storybook",
+        inviterId: "user_onboarding_story",
+        status: "pending",
+        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+        createdAt: new Date().toISOString(),
+      })
+    },
+  )
+}
+
+export function organizationInviteErrorHandler() {
+  return http.post(`${authBase}/organization/invite-member`, async () => {
+    await delay("real")
+    return HttpResponse.json({ message: "Invite failed" }, { status: 400 })
+  })
+}
+
+/** Invite after MSW `delay("real")` (same JSON shape as {@link organizationInviteSuccessHandler}). */
+export function organizationInviteSlowSuccessHandler() {
+  return http.post(
+    `${authBase}/organization/invite-member`,
+    async ({ request }) => {
+      await delay("real")
+      const body = (await request.json()) as {
+        email: string
+        role: string
+        organizationId?: string
+      }
+      return HttpResponse.json({
+        id: `inv_${body.email.replace(/[@.]+/g, "_")}`,
+        email: body.email,
+        role: body.role,
+        organizationId: body.organizationId ?? "org_storybook",
+        inviterId: "user_onboarding_story",
+        status: "pending",
+        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+        createdAt: new Date().toISOString(),
+      })
+    },
+  )
+}
+
 /** `GET /api/v1/onboarding/user` — `firstMcpCall` null until their agent calls MCP. */
 export function userOnboardingHandler(
   firstMcpCall: {
