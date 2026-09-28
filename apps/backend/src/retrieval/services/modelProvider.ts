@@ -42,13 +42,11 @@ const modelEnvSchema = z
     MODEL_BEDROCK_AWS_REGION: z.string().optional(),
     MODEL_FAST_NAME: z
       .string()
-      .default("openai/gpt-5.6-terra?reasoning.effort=low"),
+      .default("openai/gpt-6-luna?reasoning.effort=high"),
     MODEL_MEDIUM_NAME: z
       .string()
-      .default("openai/gpt-5.6-terra?reasoning.effort=medium"),
-    MODEL_HIGH_NAME: z
-      .string()
-      .default("openai/gpt-5.6-terra?reasoning.effort=high"),
+      .default("openai/gpt-6-luna?reasoning.effort=xhigh"),
+    MODEL_HIGH_NAME: z.string().default("xiaomi/mimo-v2.6-pro"),
     MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
   })
   .superRefine((data, ctx) => {

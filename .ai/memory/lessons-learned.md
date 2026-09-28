@@ -293,10 +293,10 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### Default LLM tiers
-- **Rule:** unset `MODEL_*_NAME` defaults to `openai/gpt-5.6-terra` with `reasoning.effort=low|medium|high` (not Luna). Prefer Terra over Luna for repo-scale agent/ingestion work — Luna’s high/xhigh/max TTFT is too slow/risky for large-repo latency; Luna remains a cost option via explicit env override.
+- **Rule:** unset `MODEL_*_NAME` defaults are fast `openai/gpt-6-luna?reasoning.effort=high`, medium `openai/gpt-6-luna?reasoning.effort=xhigh`, and high `xiaomi/mimo-v2.6-pro`. The fast tier is the low slot. Do not revert these to GPT-5.6 Terra.
 - **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
+- **Date:** 2026-09-28
+- **Source:** product default model update
 
 ### `deduplicateAndStore` DB access
 - **Rule:** never upsert objects/claims with one Postgres round-trip per extracted item. Prefetch by `deduplicationKey` / claim triples (chunked), merge in memory (`mergeRetrievalObjectPayloads` / logical evidence keys), batch writes; emit `codeIngestion.deduplicateAndStore.progress` + `flushWorkflowLog` on large runs. Keep stub-vs-full merge and duplicate-evidence→still-project semantics.
