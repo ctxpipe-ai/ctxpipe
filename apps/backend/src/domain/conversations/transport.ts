@@ -1,13 +1,12 @@
 import {
   chatParamsFromRequestBody,
   modelMessagesToUIMessages,
+  type StreamChunk,
 } from "@tanstack/ai"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
-import { applyAttribution } from "../../observability/attribution.js"
 import { runWithLangfuseContext } from "../../observability/langfuse.js"
 import { log } from "../../observability/logger.js"
 import {
-  runTanstackWorkspaceChat,
   streamTanstackWorkspaceChat,
   type TanstackWorkspaceChatInput,
 } from "../workspaces/tanstack-workspace-chat.js"
@@ -68,14 +67,6 @@ export type ConversationChatMessage = {
   }>
 }
 
-export interface ConversationTransportAdapter {
-  toResponse(input: StreamInput): Promise<Response>
-}
-
-export function createDataStreamConversationTransport(): ConversationTransportAdapter {
-  return new DataStreamConversationTransport()
-}
-
 export function workspaceChatStreamReady(input: {
   workspaceId?: string | null
   orgId?: string | null
@@ -124,21 +115,35 @@ function toChatInput(input: StreamInput): TanstackWorkspaceChatInput | null {
   }
 }
 
-class DataStreamConversationTransport implements ConversationTransportAdapter {
-  async toResponse(input: StreamInput): Promise<Response> {
-    applyAttribution({ "ctxpipe.conversation.id": input.conversationId })
-    const chatInput = toChatInput(input)
-    if (!chatInput) {
-      return Response.json({ error: "workspace_required" }, { status: 409 })
-    }
-    return runWithLangfuseContext(
-      {
-        sessionId: input.conversationId,
-        ...(input.userId ? { userId: input.userId } : {}),
-        tags: input.source ? [input.source] : undefined,
-      },
-      () => runTanstackWorkspaceChat(chatInput),
-    )
+function streamWorkspaceChatWithLangfuseContext(
+  input: StreamInput,
+  chatInput: TanstackWorkspaceChatInput,
+): AsyncIterable<StreamChunk> {
+  const attrs = {
+    sessionId: input.conversationId,
+    ...(input.userId ? { userId: input.userId } : {}),
+    tags: input.source ? [input.source] : undefined,
+  }
+  return {
+    [Symbol.asyncIterator]() {
+      let iterator: AsyncIterator<StreamChunk> | undefined
+      return {
+        next() {
+          return runWithLangfuseContext(attrs, () => {
+            iterator ??=
+              streamTanstackWorkspaceChat(chatInput)[Symbol.asyncIterator]()
+            return iterator.next()
+          })
+        },
+        return(value) {
+          return runWithLangfuseContext(attrs, () =>
+            iterator?.return
+              ? iterator.return(value)
+              : Promise.resolve({ done: true as const, value: undefined }),
+          )
+        },
+      }
+    },
   }
 }
 
@@ -153,7 +158,7 @@ export function workspaceChatStreamResponse(
   const format =
     input.wireFormat ?? (request ? workspaceChatWireFormat(request) : "sse")
   return workspaceChatHttpResponse(
-    streamTanstackWorkspaceChat(chatInput),
+    streamWorkspaceChatWithLangfuseContext(input, chatInput),
     format,
     request,
   )

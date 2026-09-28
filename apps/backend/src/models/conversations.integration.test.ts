@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, expect, it } from "vitest"
+import { describeWithDatabase } from "../../test/db.js"
 import { withUserIdContext } from "../auth/context.js"
 import { withOrgIdContext } from "../auth/withAuth.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
@@ -13,16 +14,18 @@ const orgId = generateObjectId("org")
 const conversationId = generateObjectId("conv")
 const privateConversationId = generateObjectId("conv")
 
-describe.skipIf(!connectionString)("conversation first-send race (Postgres)", () => {
+describeWithDatabase("conversation first-send race (Postgres)", () => {
   beforeAll(async () => {
     if (!connectionString) return
     initDb(connectionString)
-    await getSystemDb().insert(organizations).values({
-      id: orgId,
-      name: "Conversation race integration",
-      slug: `conversation-race-${orgId}`,
-      createdAt: new Date(),
-    })
+    await getSystemDb()
+      .insert(organizations)
+      .values({
+        id: orgId,
+        name: "Conversation race integration",
+        slug: `conversation-race-${orgId}`,
+        createdAt: new Date(),
+      })
   })
 
   afterAll(async () => {
@@ -31,7 +34,9 @@ describe.skipIf(!connectionString)("conversation first-send race (Postgres)", ()
       db.delete(conversations).where(eq(conversations.id, conversationId)),
     )
     await withOrgDbContext(orgId, (db) =>
-      db.delete(conversations).where(eq(conversations.id, privateConversationId)),
+      db
+        .delete(conversations)
+        .where(eq(conversations.id, privateConversationId)),
     )
     await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
     await closeDb()

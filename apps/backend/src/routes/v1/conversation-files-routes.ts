@@ -35,6 +35,7 @@ import {
   getDesiredWorkspaceRevision,
   getWorkspaceById,
 } from "../../models/workspaces.js"
+import { applyAttribution } from "../../observability/attribution.js"
 
 const ErrorResponseSchema = z
   .object({ error: z.string() })
@@ -502,6 +503,7 @@ const withConversationFileLock = createMiddleware<ConversationFileEnv>(
       ? await loadConversationWorkspace(conversationId)
       : null
     if (!loaded) return c.json({ error: "Not found" }, 404)
+    applyAttribution({ "ctxpipe.conversation.id": loaded.conversation.id })
     const controller = new AbortController()
     const onRequestAbort = () => controller.abort(c.req.raw.signal.reason)
     c.req.raw.signal.addEventListener("abort", onRequestAbort, { once: true })

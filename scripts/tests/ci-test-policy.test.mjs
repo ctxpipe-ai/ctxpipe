@@ -309,7 +309,7 @@ test("imported main mocks and exact skipIf are counted; fresh ones stay proof", 
     assert.equal(duplicate.status, 1, duplicate.stderr)
     assert.match(duplicate.stderr, /skipIf/)
 
-    const importedMockPath = "apps/backend/src/auth/config.test.ts"
+    const importedMockPath = "apps/backend/src/models/github-pr-mirror.test.ts"
     const importedMockTarget = join(worktree, importedMockPath)
     const importedMock = readFileSync(join(root, importedMockPath), "utf8")
     const existingOwnedMock = 'vi.mock("../db/client.js"'
@@ -320,11 +320,7 @@ test("imported main mocks and exact skipIf are counted; fresh ones stay proof", 
     )
     writeFileSync(importedMockTarget, importedMock)
     const existingImportedMocks = checkWorktree(importedMockTarget)
-    assert.equal(
-      existingImportedMocks.status,
-      0,
-      existingImportedMocks.stderr,
-    )
+    assert.equal(existingImportedMocks.status, 0, existingImportedMocks.stderr)
 
     writeFileSync(
       importedMockTarget,
@@ -381,4 +377,19 @@ test("imported main mocks and exact skipIf are counted; fresh ones stay proof", 
       execFileSync("git", ["worktree", "prune"], { cwd: root })
     }
   }
+})
+
+test("CI runs the full-tree proof policy; workflow_dispatch does not select changed files", () => {
+  const root = fileURLToPath(new URL("../../", import.meta.url))
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  assert.match(
+    workflow,
+    /run: node scripts\/ci\/check-test-policy\.mjs\n/,
+    "Biome job must invoke the policy with no path argv",
+  )
+  assert.doesNotMatch(
+    workflow,
+    /git diff --name-only/,
+    "changed-file selection would hide branch-new skipIf and rewritten owned mocks",
+  )
 })

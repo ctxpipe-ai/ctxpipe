@@ -3,17 +3,16 @@ import { describe, expect, it } from "vitest"
 import {
   ConversationUiMessagesTimeoutError,
   clientConversationId,
-  createDataStreamConversationTransport,
   parseConversationChatRequest,
   resolveCreatedConversationId,
   withConversationLoadDeadline,
   workspaceChatStreamReady,
+  workspaceChatStreamResponse,
 } from "./transport.js"
 
-describe("createDataStreamConversationTransport", () => {
+describe("workspaceChatStreamResponse", () => {
   it("fails closed without a Workspace instead of LangGraph product chat", async () => {
-    const transport = createDataStreamConversationTransport()
-    const res = await transport.toResponse({
+    const res = workspaceChatStreamResponse({
       conversationId: "conv_1",
       checkpointNamespace: "",
       prompt: "hello",
