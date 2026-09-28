@@ -1,6 +1,6 @@
 # ADR-011: Backend Observability via OpenTelemetry and evlog
 
-**Status:** Accepted | **Date:** 2026-03-12 | **Updated:** 2026-09-26 | **Tags:** backend, observability, opentelemetry, evlog
+**Status:** Accepted | **Date:** 2026-03-12 | **Updated:** 2026-09-28 | **Tags:** backend, observability, opentelemetry, evlog
 
 ### Context
 
@@ -21,6 +21,8 @@ The backend needs traces, structured logs, and LLM spans. Hosted ingest is Click
 6. **Names.** Ids from auth only; OTel semconv plus `ctxpipe.*`; `deployment.environment` (not `.name`); URLs without query strings; no backfill. Keys: [observability skill](../../../.cursor/skills/observability/SKILL.md).
 
 7. **Preview metrics.** `RAILWAY_ENVIRONMENT_NAME` matching `pr-<digits>` selects `FlushOnDemandMetricReader` on the backend (no interval); `withLogger` and the HTTP middleware flush after the job or response. Production uses `PeriodicExportingMetricReader` at 60s. Codesearch exports no metrics on preview, so it has no periodic reader there.
+
+8. **OpenWorkflow.** `openworkflow` 0.10 traces through the same global provider (scope `openworkflow`): `workflow_run.create` on the caller's trace, and `workflow_run.execute` plus `step_attempt.execute` on a new worker trace linked back to creation. Product attribution stays on `openworkflow.job` (`ctxpipe.actor.type=job`).
 
 ### Consequences
 

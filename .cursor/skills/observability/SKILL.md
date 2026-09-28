@@ -9,7 +9,7 @@ Hosted stack: Railway project `ctxpipe-observability`. URLs, accounts, dashboard
 
 ## Find a signal
 
-1. Take the id you have: response header `x-request-id` (`request.id`), a W3C `traceId`, `enduser.id` plus a time window, `ctxpipe.org.slug` / `ctxpipe.org.id`, or an OpenWorkflow job (`SpanName = openworkflow.job`, `ctxpipe.actor.type = job`).
+1. Take the id you have: response header `x-request-id` (`request.id`), a W3C `traceId`, `enduser.id` plus a time window, `ctxpipe.org.slug` / `ctxpipe.org.id`, an OpenWorkflow run (`SpanName` `workflow_run.create`, `workflow_run.execute`, or `step_attempt.execute` on scope `openworkflow`; correlate with `openworkflow.run.id`), or the job attribution span (`SpanName = openworkflow.job`, `ctxpipe.actor.type = job`).
 2. Name the environment: `production`, `pr-<digits>`, `observability`, or `local-<name>`. Dashboards and the shared filter: [USING.md](../../../ops/observability/USING.md#dashboards).
 3. Read logs, traces, and metrics in HyperDX (MCP `hyperdx`). Read LLM prompt text in Langfuse (MCP `langfuse`). Read deploy status and stdout in Railway (MCP `railway`) when the process exited before export. URLs and keys: [USING.md](../../../ops/observability/USING.md#mcp).
 4. Done when the failing span or log line is named, or the window is empty and the environment, service, and time range are written down.
