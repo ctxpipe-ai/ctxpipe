@@ -5,7 +5,10 @@ import {
   type LinearScope,
   withLinearBindingSnapshot,
 } from "../../models/linear-connector.js"
-import { linearWorkspaceIdentity } from "../../models/linear-oauth-app.js"
+import {
+  linearAccessToken,
+  linearWorkspaceIdentity,
+} from "../../models/linear-oauth-app.js"
 import { connectorPathMatchesPreservation } from "../connectors/assets.js"
 import {
   closePullRequest,
@@ -16,7 +19,10 @@ import {
   listFilesInTree,
   parseGithubPullNumberFromUrl,
 } from "../github/installation-write-client.js"
-import { omitUnchangedLinearFiles } from "./assets.js"
+import {
+  downloadLinearMirrorAssets,
+  omitUnchangedLinearFiles,
+} from "./assets.js"
 import type { LinearTokenRefreshHandler } from "./client.js"
 import { LINEAR_CONFIG_PATH } from "./config-from-repo.js"
 import type { ParsedLinearRepoConfig } from "./config-yaml.js"
@@ -139,6 +145,51 @@ export async function syncLinearContentToGit(input: {
       "linear/config.yaml workspace does not match the Linear connection",
     )
   }
+  const mirror = await buildLinearMirror({
+    env: input.env,
+    connection: input.connection,
+    config: input.config,
+    onTokenRefresh: input.onTokenRefresh,
+  })
+  return commitLinearMirror({
+    orgId: input.orgId,
+    env: input.env,
+    connection: input.connection,
+    target: input.target,
+    files: mirror.files,
+    failures: mirror.failures,
+    preservePathPrefixes: mirror.preservePathPrefixes,
+  })
+}
+
+export async function commitLinearMirror(input: {
+  orgId: string
+  env: Env
+  connection: LinearConnection
+  target: LinearBindingWithRepo
+  files: Array<{ path: string; content: string; encoding?: "utf-8" | "base64" }>
+  failures: Array<{ type: string; id: string; message: string }>
+  preservePathPrefixes?: string[]
+}): Promise<{
+  status: "completed" | "partial_failed" | "failed"
+  written: number
+  deleted: number
+  commitSha?: string
+  failures: Array<{ type: string; id: string; message: string }>
+}> {
+  const githubConnectionId = input.target.githubConnectionId
+  if (!githubConnectionId) {
+    throw new Error("Linear sync repository has no GitHub connection")
+  }
+  if (input.files.length === 0 && input.failures.length > 0) {
+    return {
+      status: "failed",
+      written: 0,
+      deleted: 0,
+      failures: input.failures,
+    }
+  }
+
   const existing = await listFilesInTree({
     orgId: input.orgId,
     env: input.env,
@@ -146,25 +197,18 @@ export async function syncLinearContentToGit(input: {
     githubConnectionId,
     branch: input.target.branch,
   })
-  const mirror = await buildLinearMirror({
-    env: input.env,
-    connection: input.connection,
-    config: input.config,
-    onTokenRefresh: input.onTokenRefresh,
-    existingBlobs: existing,
+  const downloaded = await downloadLinearMirrorAssets({
+    files: input.files,
+    accessToken: linearAccessToken(input.connection),
+    existingShaByPath: new Map(existing.map((file) => [file.path, file.sha])),
   })
-  if (mirror.files.length === 0 && mirror.failures.length > 0) {
-    return {
-      status: "failed",
-      written: 0,
-      deleted: 0,
-      failures: mirror.failures,
-    }
-  }
-
-  const nextPaths = new Set(mirror.files.map((file) => file.path))
+  const preservePathPrefixes = [
+    ...(input.preservePathPrefixes ?? []),
+    ...downloaded.preservePathPrefixes,
+  ]
+  const nextPaths = new Set(downloaded.files.map((file) => file.path))
   const deletePaths =
-    mirror.failures.length === 0
+    input.failures.length === 0
       ? existing
           .map((file) => file.path)
           .filter(
@@ -172,12 +216,12 @@ export async function syncLinearContentToGit(input: {
               path.startsWith("linear/") &&
               path !== LINEAR_CONFIG_PATH &&
               !nextPaths.has(path) &&
-              !(mirror.preservePathPrefixes ?? []).some((prefix) =>
+              !preservePathPrefixes.some((prefix) =>
                 connectorPathMatchesPreservation(path, prefix),
               ),
           )
       : []
-  const filesToWrite = omitUnchangedLinearFiles(mirror.files, existing)
+  const filesToWrite = omitUnchangedLinearFiles(downloaded.files, existing)
   let commitSha: string | undefined
 
   await withLinearBindingSnapshot(
@@ -204,11 +248,11 @@ export async function syncLinearContentToGit(input: {
     },
   )
   return {
-    status: mirror.failures.length > 0 ? "partial_failed" : "completed",
+    status: input.failures.length > 0 ? "partial_failed" : "completed",
     written: filesToWrite.length,
     deleted: deletePaths.length,
     commitSha,
-    failures: mirror.failures,
+    failures: input.failures,
   }
 }
 

@@ -178,53 +178,64 @@ export async function loadTeam(
   }
 }
 
+export async function readTeamIssuePage(
+  client: LinearClient,
+  teamId: string,
+  includeNeeds: boolean,
+  after: string | null,
+): Promise<{ issues: LoadedIssue[]; nextAfter: string | null }> {
+  const page = includeNeeds
+    ? (
+        await linearGraphql(client, TeamIssuesWithNeedsDocument, {
+          id: teamId,
+          after,
+        })
+      ).team.issues
+    : (await linearGraphql(client, TeamIssuesDocument, { id: teamId, after }))
+        .team.issues
+  const issues: LoadedIssue[] = []
+  for (const node of page.nodes) {
+    issues.push(await loadIssueNode(client, node, includeNeeds))
+  }
+  return { issues, nextAfter: nextCursor(page) }
+}
+
 export async function loadTeamIssues(
   client: LinearClient,
   teamId: string,
   includeNeeds: boolean,
 ): Promise<LoadedIssue[]> {
-  const nodes = includeNeeds
-    ? await collectPages(
-        (after) =>
-          linearGraphql(client, TeamIssuesWithNeedsDocument, {
-            id: teamId,
-            after,
-          }),
-        (data) => data.team.issues,
-      )
-    : await collectPages(
-        (after) =>
-          linearGraphql(client, TeamIssuesDocument, { id: teamId, after }),
-        (data) => data.team.issues,
-      )
   const issues: LoadedIssue[] = []
-  for (const node of nodes) {
-    issues.push(await loadIssueNode(client, node, includeNeeds))
+  let after: string | null = null
+  for (;;) {
+    const page = await readTeamIssuePage(client, teamId, includeNeeds, after)
+    issues.push(...page.issues)
+    if (!page.nextAfter) return issues
+    after = page.nextAfter
   }
-  return issues
 }
 
-export async function loadTeamProjects(
+export async function readTeamProjectPage(
   client: LinearClient,
   teamId: string,
   includeNeeds: boolean,
-): Promise<LoadedProject[]> {
-  const nodes = includeNeeds
-    ? await collectPages(
-        (after) =>
-          linearGraphql(client, TeamProjectsWithNeedsDocument, {
-            id: teamId,
-            after,
-          }),
-        (data) => data.team.projects,
-      )
-    : await collectPages(
-        (after) =>
-          linearGraphql(client, TeamProjectsDocument, { id: teamId, after }),
-        (data) => data.team.projects,
-      )
+  after: string | null,
+): Promise<{ projects: LoadedProject[]; nextAfter: string | null }> {
+  const page = includeNeeds
+    ? (
+        await linearGraphql(client, TeamProjectsWithNeedsDocument, {
+          id: teamId,
+          after,
+        })
+      ).team.projects
+    : (
+        await linearGraphql(client, TeamProjectsDocument, {
+          id: teamId,
+          after,
+        })
+      ).team.projects
   const projects: LoadedProject[] = []
-  for (const node of nodes) {
+  for (const node of page.nodes) {
     projects.push(
       await loadProjectNode(client, node, {
         includeNeeds,
@@ -232,37 +243,86 @@ export async function loadTeamProjects(
       }),
     )
   }
-  return projects
+  return { projects, nextAfter: nextCursor(page) }
+}
+
+export async function loadTeamProjects(
+  client: LinearClient,
+  teamId: string,
+  includeNeeds: boolean,
+): Promise<LoadedProject[]> {
+  const projects: LoadedProject[] = []
+  let after: string | null = null
+  for (;;) {
+    const page = await readTeamProjectPage(client, teamId, includeNeeds, after)
+    projects.push(...page.projects)
+    if (!page.nextAfter) return projects
+    after = page.nextAfter
+  }
+}
+
+export async function readTeamCyclePage(
+  client: LinearClient,
+  teamId: string,
+  after: string | null,
+): Promise<{ cycles: LoadedCycle[]; nextAfter: string | null }> {
+  const page = (
+    await linearGraphql(client, TeamCyclesDocument, { id: teamId, after })
+  ).team.cycles
+  return {
+    cycles: page.nodes.map((cycle) => ({
+      id: cycle.id,
+      name: cycle.name,
+      number: cycle.number,
+      teamId,
+      startsAt: new Date(cycle.startsAt),
+      endsAt: new Date(cycle.endsAt),
+      completedAt: cycle.completedAt ? new Date(cycle.completedAt) : null,
+    })),
+    nextAfter: nextCursor(page),
+  }
 }
 
 export async function loadTeamCycles(
   client: LinearClient,
   teamId: string,
 ): Promise<LoadedCycle[]> {
-  const nodes = await collectPages(
-    (after) => linearGraphql(client, TeamCyclesDocument, { id: teamId, after }),
-    (data) => data.team.cycles,
-  )
-  return nodes.map((cycle) => ({
-    id: cycle.id,
-    name: cycle.name,
-    number: cycle.number,
-    teamId,
-    startsAt: new Date(cycle.startsAt),
-    endsAt: new Date(cycle.endsAt),
-    completedAt: cycle.completedAt ? new Date(cycle.completedAt) : null,
-  }))
+  const cycles: LoadedCycle[] = []
+  let after: string | null = null
+  for (;;) {
+    const page = await readTeamCyclePage(client, teamId, after)
+    cycles.push(...page.cycles)
+    if (!page.nextAfter) return cycles
+    after = page.nextAfter
+  }
+}
+
+export async function readTeamLabelPage(
+  client: LinearClient,
+  teamId: string,
+  after: string | null,
+): Promise<{ labels: LoadedLabel[]; nextAfter: string | null }> {
+  const page = (
+    await linearGraphql(client, TeamLabelsDocument, { id: teamId, after })
+  ).team.labels
+  return {
+    labels: page.nodes.map((label) => mapLabel(label, teamId)),
+    nextAfter: nextCursor(page),
+  }
 }
 
 export async function loadTeamLabels(
   client: LinearClient,
   teamId: string,
 ): Promise<LoadedLabel[]> {
-  const nodes = await collectPages(
-    (after) => linearGraphql(client, TeamLabelsDocument, { id: teamId, after }),
-    (data) => data.team.labels,
-  )
-  return nodes.map((label) => mapLabel(label, teamId))
+  const labels: LoadedLabel[] = []
+  let after: string | null = null
+  for (;;) {
+    const page = await readTeamLabelPage(client, teamId, after)
+    labels.push(...page.labels)
+    if (!page.nextAfter) return labels
+    after = page.nextAfter
+  }
 }
 
 export async function loadProject(
@@ -280,33 +340,50 @@ export async function loadProject(
   return loadProjectNode(client, data.project, options)
 }
 
+export async function readProjectIssuePage(
+  client: LinearClient,
+  projectId: string,
+  includeNeeds: boolean,
+  after: string | null,
+): Promise<{ issues: LoadedIssue[]; nextAfter: string | null }> {
+  const page = includeNeeds
+    ? (
+        await linearGraphql(client, ProjectIssuesWithNeedsDocument, {
+          id: projectId,
+          after,
+        })
+      ).project.issues
+    : (
+        await linearGraphql(client, ProjectIssuesDocument, {
+          id: projectId,
+          after,
+        })
+      ).project.issues
+  const issues: LoadedIssue[] = []
+  for (const node of page.nodes) {
+    issues.push(await loadIssueNode(client, node, includeNeeds))
+  }
+  return { issues, nextAfter: nextCursor(page) }
+}
+
 export async function loadProjectIssues(
   client: LinearClient,
   projectId: string,
   includeNeeds: boolean,
 ): Promise<LoadedIssue[]> {
-  const nodes = includeNeeds
-    ? await collectPages(
-        (after) =>
-          linearGraphql(client, ProjectIssuesWithNeedsDocument, {
-            id: projectId,
-            after,
-          }),
-        (data) => data.project.issues,
-      )
-    : await collectPages(
-        (after) =>
-          linearGraphql(client, ProjectIssuesDocument, {
-            id: projectId,
-            after,
-          }),
-        (data) => data.project.issues,
-      )
   const issues: LoadedIssue[] = []
-  for (const node of nodes) {
-    issues.push(await loadIssueNode(client, node, includeNeeds))
+  let after: string | null = null
+  for (;;) {
+    const page = await readProjectIssuePage(
+      client,
+      projectId,
+      includeNeeds,
+      after,
+    )
+    issues.push(...page.issues)
+    if (!page.nextAfter) return issues
+    after = page.nextAfter
   }
-  return issues
 }
 
 export async function loadIssue(
@@ -367,27 +444,60 @@ export async function loadInitiative(
   }
 }
 
+export async function readInitiativeProjectPage(
+  client: LinearClient,
+  id: string,
+  after: string | null,
+): Promise<{ projectIds: string[]; nextAfter: string | null }> {
+  const page = (
+    await linearGraphql(client, InitiativeProjectsDocument, { id, after })
+  ).initiative.projects
+  return {
+    projectIds: page.nodes.map((project) => project.id),
+    nextAfter: nextCursor(page),
+  }
+}
+
 export async function loadInitiativeProjectIds(
   client: LinearClient,
   id: string,
 ): Promise<string[]> {
-  const nodes = await collectPages(
-    (after) => linearGraphql(client, InitiativeProjectsDocument, { id, after }),
-    (data) => data.initiative.projects,
-  )
-  return nodes.map((project) => project.id)
+  const projectIds: string[] = []
+  let after: string | null = null
+  for (;;) {
+    const page = await readInitiativeProjectPage(client, id, after)
+    projectIds.push(...page.projectIds)
+    if (!page.nextAfter) return projectIds
+    after = page.nextAfter
+  }
+}
+
+export async function readInitiativeDocumentPage(
+  client: LinearClient,
+  id: string,
+  after: string | null,
+): Promise<{ documentIds: string[]; nextAfter: string | null }> {
+  const page = (
+    await linearGraphql(client, InitiativeDocumentsDocument, { id, after })
+  ).initiative.documents
+  return {
+    documentIds: page.nodes.map((document) => document.id),
+    nextAfter: nextCursor(page),
+  }
 }
 
 export async function loadInitiativeDocumentIds(
   client: LinearClient,
   id: string,
 ): Promise<string[]> {
-  const nodes = await collectPages(
-    (after) =>
-      linearGraphql(client, InitiativeDocumentsDocument, { id, after }),
-    (data) => data.initiative.documents,
-  )
-  return nodes.map((document) => document.id)
+  const documentIds: string[] = []
+  let after: string | null = null
+  for (;;) {
+    const page = await readInitiativeDocumentPage(client, id, after)
+    documentIds.push(...page.documentIds)
+    if (!page.nextAfter) return documentIds
+    after = page.nextAfter
+  }
 }
 
 export async function loadCycle(
@@ -708,19 +818,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-async function collectPages<TData, TNode>(
-  load: (after: string | null) => Promise<TData>,
-  read: (data: TData) => Page<TNode> | null | undefined,
-): Promise<TNode[]> {
-  const nodes: TNode[] = []
-  let after: string | null = null
-  for (;;) {
-    const page = read(await load(after))
-    if (!page) return nodes
-    nodes.push(...page.nodes)
-    if (!page.pageInfo.hasNextPage || !page.pageInfo.endCursor) return nodes
-    after = page.pageInfo.endCursor
-  }
+function nextCursor(page: Page<unknown> | null | undefined): string | null {
+  if (!page?.pageInfo.hasNextPage || !page.pageInfo.endCursor) return null
+  return page.pageInfo.endCursor
 }
 
 async function completeConnection<T>(

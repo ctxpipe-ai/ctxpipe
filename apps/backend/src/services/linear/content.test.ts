@@ -9,7 +9,7 @@ import { useMswServer } from "../../../test/msw.js"
 import type { Env } from "../../config/env.js"
 import type { LinearConnection } from "../../models/linear-connector.js"
 import type { ParsedLinearRepoConfig } from "./config-yaml.js"
-import { buildLinearMirror } from "./content.js"
+import { buildLinearMirror, fetchLinearMirrorPage } from "./content.js"
 import { resetLinearGraphqlForTests } from "./graphql.js"
 
 const calls: LinearGraphqlCall[] = []
@@ -199,6 +199,29 @@ beforeEach(() => {
       return { initiative: { documents: emptyLinearPage() } }
     }
     return {}
+  })
+})
+
+describe("fetchLinearMirrorPage", () => {
+  it("returns the next issue cursor without fetching that page", async () => {
+    const page = await fetchLinearMirrorPage({
+      env: {} as Env,
+      connection,
+      config: config([teamScope]),
+      request: { kind: "team-issues", teamId: "team-1", after: null },
+    })
+
+    expect(page.nextAfter).toBe("issue-cursor")
+    expect(
+      calls.filter((call) => call.name === "TeamIssuesWithNeeds"),
+    ).toHaveLength(1)
+    expect(calls.filter((call) => call.name === "IssueComments")).toHaveLength(
+      1,
+    )
+    expect(
+      page.files.some((file) => file.path.includes("pro-1--issue-1")),
+    ).toBe(true)
+    expect(page.files.every((file) => !("encoding" in file))).toBe(true)
   })
 })
 
