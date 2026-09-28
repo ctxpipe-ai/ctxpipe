@@ -53,7 +53,8 @@ export type GitHubRepositorySetupFormProps = {
   setupData?: GitHubRepositorySetupData
   /** Affects the small section label above the title (default: repositories). */
   pageContext?: "repositories" | "connectors"
-  variant?: "page" | "onboarding"
+  /** `step`: inside an onboarding step that already carries the title. */
+  variant?: "page" | "onboarding" | "step"
   /** Storybook / tests: start on the context-repository step. */
   initialStep?: GitHubRepositorySetupStep
   onSaveSuccess: () => void
@@ -341,32 +342,40 @@ export function GitHubRepositorySetupForm({
           </span>
         </header>
       ) : null}
-      <section className={variant === "onboarding" ? "text-center" : undefined}>
-        <h1
-          className={
-            variant === "onboarding"
-              ? "onb-in-1 text-3xl font-semibold text-zinc-100 sm:text-4xl"
-              : "text-3xl font-medium tracking-tight text-foreground"
-          }
+      {variant === "step" ? null : (
+        <section
+          className={variant === "onboarding" ? "text-center" : undefined}
         >
-          {step === "context"
-            ? "Choose a context repository"
-            : variant === "onboarding"
-              ? "Choose repositories to index"
-              : "GitHub repository setup"}
-        </h1>
-        <p className="mt-3 text-balance leading-relaxed text-muted-foreground">
-          {step === "context"
-            ? "ctx| writes pull-request capture and later connector content here. Prefer ctxpipe-context, or pick another repository the App can see."
-            : variant === "onboarding"
-              ? "GitHub controls which repositories ctx| can access. Now choose which of those repositories to index into your knowledge graph."
-              : "Choose which repositories to ingest. Already indexed repositories stay selected even if you search or have not scrolled the list."}
-        </p>
-      </section>
+          <h1
+            className={
+              variant === "onboarding"
+                ? "onb-in-1 text-3xl font-semibold text-zinc-100 sm:text-4xl"
+                : "text-3xl font-medium tracking-tight text-foreground"
+            }
+          >
+            {step === "context"
+              ? "Choose a context repository"
+              : variant === "onboarding"
+                ? "Choose repositories to index"
+                : "GitHub repository setup"}
+          </h1>
+          <p className="mt-3 text-balance leading-relaxed text-muted-foreground">
+            {step === "context"
+              ? "ctx| writes pull-request capture and later connector content here. Prefer ctxpipe-context, or pick another repository the App can see."
+              : variant === "onboarding"
+                ? "GitHub controls which repositories ctx| can access. Now choose which of those repositories to index into your knowledge graph."
+                : "Choose which repositories to ingest. Already indexed repositories stay selected even if you search or have not scrolled the list."}
+          </p>
+        </section>
+      )}
 
       <form
         onSubmit={handleSubmit}
-        className="mt-8 space-y-6 rounded-none border border-border bg-card/40 p-6 text-left [&_label]:text-zinc-200!"
+        className={
+          variant === "step"
+            ? "space-y-6 text-left [&_label]:text-zinc-200!"
+            : "mt-8 space-y-6 rounded-none border border-border bg-card/40 p-6 text-left [&_label]:text-zinc-200!"
+        }
       >
         {step === "select" ? (
           <>
@@ -465,7 +474,7 @@ export function GitHubRepositorySetupForm({
                 className="rounded-none"
                 onPress={onCancel}
               >
-                {variant === "onboarding" ? "Skip for now" : "Cancel"}
+                {variant === "page" ? "Cancel" : "Skip for now"}
               </Button>
             </div>
           </>
@@ -532,7 +541,7 @@ export function GitHubRepositorySetupForm({
               >
                 {updateOptionsMutation.isPending
                   ? "Saving…"
-                  : variant === "onboarding"
+                  : variant !== "page"
                     ? "Save and continue"
                     : "Save and queue indexing"}
               </Button>

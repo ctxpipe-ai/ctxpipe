@@ -1,21 +1,19 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useRouter } from "@tanstack/react-router"
-import { useCallback, useEffect, useState } from "react"
-import { ADMIN_SLIDES, JOINER_SLIDES } from "@/components/onboarding/constants"
-import { McpOnboardingSlide } from "@/components/onboarding/McpOnboardingSlide"
-import { OnboardingCreateOrgSlide } from "@/components/onboarding/OnboardingCreateOrgSlide"
-import { OnboardingGithubSlide } from "@/components/onboarding/OnboardingGithubSlide"
-import { OnboardingInviteSlide } from "@/components/onboarding/OnboardingInviteSlide"
-import { OnboardingJoinerDoneSlide } from "@/components/onboarding/OnboardingJoinerDoneSlide"
-import { OnboardingOverviewSlide } from "@/components/onboarding/OnboardingOverviewSlide"
-import { OnboardingPageShell } from "@/components/onboarding/OnboardingPageShell"
-import { OnboardingWelcomeSlide } from "@/components/onboarding/OnboardingWelcomeSlide"
-import { useOnboardingCarousel } from "@/components/onboarding/useOnboardingCarousel"
+import { useState } from "react"
+import { OnboardingAgentStep } from "@/components/onboarding/OnboardingAgentStep"
+import { OnboardingDiagram } from "@/components/onboarding/OnboardingDiagram"
+import { OnboardingGithubStep } from "@/components/onboarding/OnboardingGithubStep"
+import { OnboardingOrgStep } from "@/components/onboarding/OnboardingOrgStep"
+import { OnboardingStep } from "@/components/onboarding/OnboardingStep"
+import { deriveOnboardingView } from "@/components/onboarding/onboarding-state"
+import { Button } from "@/components/ui/Button"
 import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
 } from "@/features/connectors/queries/github-connector"
 import { useRepositoryIndexingSummary } from "@/features/repositories"
+import { getRepositoryIndexingStatus } from "@/features/repositories/types"
 import { client } from "@/lib/api"
 import {
   authClient,
@@ -27,16 +25,6 @@ import { useUserPreferences } from "@/lib/user-preferences"
 
 export const Route = createFileRoute("/onboarding")({
   ssr: false,
-  head: () => ({
-    links: [
-      {
-        rel: "preload",
-        href: "/images/ctxpipe-onboarding-diagram.svg",
-        as: "image",
-        type: "image/svg+xml",
-      },
-    ],
-  }),
   component: OnboardingPage,
   validateSearch: (search: Record<string, unknown>) => ({
     orgSlug: typeof search.orgSlug === "string" ? search.orgSlug : undefined,
@@ -58,36 +46,19 @@ export function OnboardingPageContent({
   const { data: organizations, isPending: orgsPending } = useListOrganizations()
   const [, setPreferences] = useUserPreferences()
   const [createdOrgSlug, setCreatedOrgSlug] = useState<string | null>(null)
+  const [typedSlug, setTypedSlug] = useState("")
+  const [githubSkipped, setGithubSkipped] = useState(false)
+  const [agentSkipped, setAgentSkipped] = useState(false)
+  const [repositoriesQueued, setRepositoriesQueued] = useState(false)
+  const [completing, setCompleting] = useState(false)
   const orgSlug = urlOrgSlug ?? createdOrgSlug
 
-  const [isJoinerLocked, setIsJoinerLocked] = useState<boolean | null>(null)
-  const [sceneFailed, setSceneFailed] = useState(false)
-  const [sceneReady, setSceneReady] = useState(false)
-  const [showWelcomeDotNav, setShowWelcomeDotNav] = useState(false)
-  const [completing, setCompleting] = useState(false)
-  const [repositorySelectionSaved, setRepositorySelectionSaved] =
-    useState(false)
-
-  useEffect(() => {
-    if (sceneReady || sceneFailed) return
-    const timer = window.setTimeout(() => {
-      setSceneReady(true)
-    }, 1600)
-    return () => window.clearTimeout(timer)
-  }, [sceneReady, sceneFailed])
-
-  useEffect(() => {
-    if (orgsPending || organizations == null) return
-    setIsJoinerLocked((prev) => {
-      if (prev !== null) return prev
-      return organizations.length > 0
-    })
-  }, [organizations, orgsPending])
-
-  const slides = isJoinerLocked === true ? JOINER_SLIDES : ADMIN_SLIDES
-
-  const { currentSlide, slideKey, transitioning, goToSlide } =
-    useOnboardingCarousel(slides.length)
+  // Joiner or admin is decided once, from the orgs they had on arrival, so
+  // creating an org mid-flow does not flip the admin into the joiner flow.
+  const [isJoiner, setIsJoiner] = useState<boolean | null>(null)
+  if (isJoiner === null && !orgsPending && organizations != null) {
+    setIsJoiner(organizations.length > 0)
+  }
 
   const { data: installation } = useQuery({
     queryKey: githubConnectorKeys.installation(orgSlug ?? ""),
@@ -95,78 +66,66 @@ export function OnboardingPageContent({
       orgSlug ? fetchGithubInstallationSummary(orgSlug) : Promise.resolve(null),
     enabled: Boolean(orgSlug && session),
   })
-  const hasGithubInstallation = Boolean(installation)
   const repositoryIndexing = useRepositoryIndexingSummary(orgSlug, {
     enabled: Boolean(orgSlug && session),
-    pollWhileEmpty: repositorySelectionSaved,
+    pollWhileEmpty: repositoriesQueued,
   })
-  const { activeCount, failedCount, runningCount, totalCount } =
+  const { data: orgOnboarding } = useQuery({
+    queryKey: ["org-onboarding", orgSlug],
+    queryFn: async () => {
+      if (!orgSlug) throw new Error("Missing organisation")
+      const res = await client[":orgSlug"].api.v1.onboarding.$get({
+        param: { orgSlug },
+      })
+      if (!res.ok) throw new Error("Failed to fetch onboarding state")
+      return res.json()
+    },
+    enabled: Boolean(orgSlug && session),
+    // The agent beat completes on the backend's first-call record.
+    refetchInterval: (query) =>
+      query.state.data && "firstMcpCall" in query.state.data
+        ? query.state.data.firstMcpCall
+          ? false
+          : 3000
+        : 3000,
+  })
+  const firstCall =
+    orgOnboarding && "firstMcpCall" in orgOnboarding
+      ? orgOnboarding.firstMcpCall
+      : null
+
+  const repositories = repositoryIndexing.repositories ?? []
+  const { activeCount, failedCount, singleActiveStepLabel } =
     repositoryIndexing.summary
-  const repositoryStatus =
-    activeCount > 0
-      ? {
-          tone: "indexing" as const,
-          label: `${runningCount > 0 ? "Indexing" : "Preparing"} ${activeCount} ${
-            activeCount === 1 ? "repository" : "repositories"
-          }`,
-        }
-      : failedCount > 0
-        ? {
-            tone: "failed" as const,
-            label: `${failedCount} ${
-              failedCount === 1 ? "repository needs" : "repositories need"
-            } attention`,
-          }
-        : repositorySelectionSaved &&
-            totalCount === 0 &&
-            !repositoryIndexing.isError
-          ? {
-              tone: "indexing" as const,
-              label: "Starting repository indexing",
-            }
-          : null
+  const view = deriveOnboardingView({
+    orgSlug,
+    typedSlug,
+    isJoiner: isJoiner === true,
+    github: {
+      installed: Boolean(installation),
+      skipped: githubSkipped,
+      repositories: repositories.map((repo) => repo.name),
+      queued: repositoriesQueued,
+      activeCount,
+      readyCount: repositories.filter(
+        (repo) => getRepositoryIndexingStatus(repo) === "ready",
+      ).length,
+      failedCount,
+      stepLabel: singleActiveStepLabel,
+    },
+    agent: { firstCall, skipped: agentSkipped },
+  })
 
-  const onWelcomeDetailsVisible = useCallback(() => {
-    setShowWelcomeDotNav(true)
-  }, [])
-
-  const mcpSnippetOrgSlug = orgSlug ?? "your-org"
-  const mcpSnippet = `{
-  "mcpServers": {
-    "ctxpipe": {
-      "type": "http",
-      "url": "https://app.ctxpipe.ai/mcp?orgSlug=${mcpSnippetOrgSlug}"
-    }
-  }
-}`
-
-  if (isPending || orgsPending || isJoinerLocked === null) {
+  if (isPending || orgsPending || isJoiner === null) {
     return (
-      <OnboardingPageShell
-        completing={false}
-        transitioning={false}
-        showDotNav={false}
-        sceneReady={false}
-        currentSlide={0}
-        slideCount={1}
-        sceneFailed={false}
-        onSceneLoad={() => {}}
-        onSceneError={() => {}}
-        onGoToSlide={() => {}}
-      >
-        <div className="onboarding-fade-in mx-auto max-w-2xl">
-          <p className="text-sm text-zinc-400">Preparing onboarding…</p>
-        </div>
-      </OnboardingPageShell>
+      <OnboardingFrame completing={false}>
+        <p className="text-sm text-muted-foreground">Preparing onboarding…</p>
+      </OnboardingFrame>
     )
   }
   if (!session) return <Navigate to="/.auth/sign-in" replace />
 
-  const user = session.user as {
-    id: string
-    onboardingCompletedAt?: string | null
-    email?: string
-  }
+  const user = session.user as { onboardingCompletedAt?: string | null }
   if (user.onboardingCompletedAt && orgSlug) {
     return <Navigate to="/$orgSlug" params={{ orgSlug }} replace />
   }
@@ -174,16 +133,10 @@ export function OnboardingPageContent({
   if (organizations && organizations.length > 0) {
     const fallbackOrgSlug =
       createdOrgSlug ?? (organizations[0]?.slug as string | undefined)
-    const hasUrlOrgSlug = urlOrgSlug !== null
-    const urlOrgIsKnown = hasUrlOrgSlug
-      ? organizations.some((org: { slug: string }) => org.slug === urlOrgSlug)
-      : false
-    if (
-      fallbackOrgSlug &&
-      slides[currentSlide] !== "create-org" &&
-      (!hasUrlOrgSlug || !urlOrgIsKnown) &&
-      urlOrgSlug !== fallbackOrgSlug
-    ) {
+    const urlOrgIsKnown =
+      urlOrgSlug !== null &&
+      organizations.some((org: { slug: string }) => org.slug === urlOrgSlug)
+    if (fallbackOrgSlug && !urlOrgIsKnown && urlOrgSlug !== fallbackOrgSlug) {
       return (
         <Navigate
           to="/onboarding"
@@ -194,199 +147,231 @@ export function OnboardingPageContent({
     }
   }
 
-  const currentSlideName = slides[currentSlide]
-  const githubSlideIndexAdmin = ADMIN_SLIDES.indexOf("github")
-
-  const transitionToApp = (navigate: () => void) => {
-    if (completing) return
+  const finish = async () => {
+    if (!orgSlug || completing) return
     setCompleting(true)
+    try {
+      if (isJoiner) {
+        await fetch("/api/v1/onboarding/user/complete", {
+          method: "POST",
+          credentials: "include",
+        })
+      } else {
+        const organization = organizations?.find(
+          (org: { slug: string }) => org.slug === orgSlug,
+        )
+        if (organization && typeof organization.id === "string") {
+          await authClient.organization.setActive({
+            organizationId: organization.id,
+            fetchOptions: { throw: true },
+          })
+        }
+        await Promise.all([
+          fetch("/api/v1/onboarding/user/complete", {
+            method: "POST",
+            credentials: "include",
+          }),
+          client[":orgSlug"].api.v1.onboarding.complete.$post({
+            param: { orgSlug },
+          }),
+        ])
+        setPreferences((prev) => ({
+          ...prev,
+          selectedOrganizationSlug: orgSlug,
+        }))
+      }
+      void getSession({ fetchOptions: { throw: false } })
+    } catch {
+      // best-effort: the app shell re-checks completion on arrival
+    }
     window.setTimeout(() => {
       sessionStorage.setItem(
         "ctxpipe:onboarding-transition-pending-at",
         String(Date.now()),
       )
       sessionStorage.setItem("ctxpipe:app-shell-fade-in", "1")
-      navigate()
-    }, 320)
-  }
-
-  const completeOnboarding = async () => {
-    if (!orgSlug || completing) return
-    const organization = organizations?.find(
-      (org: { slug: string }) => org.slug === orgSlug,
-    )
-    try {
-      if (organization && typeof organization.id === "string") {
-        await authClient.organization.setActive({
-          organizationId: organization.id,
-          fetchOptions: { throw: true },
-        })
-      }
-      await Promise.all([
-        fetch("/api/v1/onboarding/user/complete", {
-          method: "POST",
-          credentials: "include",
-        }),
-        client[":orgSlug"].api.v1.onboarding.complete.$post({
-          param: { orgSlug },
-        }),
-      ])
-      setPreferences((prev) => ({
-        ...prev,
-        selectedOrganizationSlug: orgSlug,
-      }))
-      void getSession({ fetchOptions: { throw: false } })
-    } catch {
-      // best-effort
-    }
-    transitionToApp(() => {
       void router.navigate({
         to: "/$orgSlug",
         params: { orgSlug },
         replace: true,
       })
-    })
+    }, 320)
   }
 
-  const completeJoinerOnboarding = async () => {
-    if (completing) return
-    try {
-      await fetch("/api/v1/onboarding/user/complete", {
-        method: "POST",
-        credentials: "include",
-      })
-      void getSession({ fetchOptions: { throw: false } })
-    } catch {
-      // best-effort
-    }
-    transitionToApp(() => {
-      if (orgSlug) {
-        void router.navigate({
-          to: "/$orgSlug",
-          params: { orgSlug },
-          replace: true,
-        })
-        return
-      }
-      void router.navigate({
-        to: "/",
-        search: {
-          error: undefined,
-          error_description: undefined,
-          pendingAccountClaim: undefined,
-        },
-        replace: true,
-      })
-    })
-  }
-
-  const showDotNav =
-    isJoinerLocked === true
-      ? true
-      : currentSlideName !== "welcome" || showWelcomeDotNav
+  const repoWord = (n: number) =>
+    `${n} ${n === 1 ? "repository" : "repositories"}`
+  const skipNote =
+    view.beats.source === "skipped" && view.beats.agent === "skipped"
+      ? "GitHub and the agent are skipped. Both stay dark until you connect them."
+      : view.beats.source === "skipped"
+        ? "GitHub is not connected. Your agent has nothing to answer from until it is."
+        : view.beats.agent === "skipped"
+          ? "No agent is connected yet. Add the config whenever you are ready."
+          : null
 
   return (
-    <OnboardingPageShell
-      completing={completing}
-      transitioning={transitioning}
-      showDotNav={showDotNav}
-      sceneReady={sceneReady}
-      currentSlide={currentSlide}
-      slideCount={slides.length}
-      sceneFailed={sceneFailed}
-      statusIndicator={
-        repositoryStatus ? (
-          <output
-            aria-live="polite"
-            className={[
-              "inline-flex items-center gap-2 border bg-zinc-950/90 px-3 py-2 font-mono text-xs shadow-lg shadow-black/20 backdrop-blur",
-              repositoryStatus.tone === "failed"
-                ? "border-red-400/30 text-red-200"
-                : "border-teal-400/30 text-teal-100",
-            ].join(" ")}
+    <OnboardingFrame completing={completing}>
+      <div className="grid gap-14 lg:grid-cols-[minmax(0,28rem)_minmax(0,1fr)]">
+        <section aria-labelledby="onboarding-title" className="flex flex-col">
+          <h1
+            id="onboarding-title"
+            className="m-0 text-3xl font-medium tracking-tight text-zinc-100"
           >
-            <span
-              aria-hidden
-              className={
-                repositoryStatus.tone === "failed"
-                  ? "ctx-indexing-failed-dot"
-                  : "ctx-indexing-dot"
+            {isJoiner ? "Join ctx|" : "Set up ctx|"}
+          </h1>
+          <p className="mt-3 mb-0 max-w-prose text-sm text-muted-foreground">
+            {isJoiner
+              ? "Your organisation is ready. Connect your agent and the picture lights up when it first calls ctx|."
+              : "Three steps. The picture lights up as each one works."}
+          </p>
+          <ol className="m-0 mt-8 list-none border-t border-white/5 p-0">
+            <OnboardingStep
+              number={1}
+              title={
+                isJoiner ? "Join your organisation" : "Create your organisation"
               }
-            />
-            {repositoryStatus.label}
-          </output>
-        ) : null
-      }
-      onSceneLoad={() => {
-        setSceneReady(true)
-        setSceneFailed(false)
-      }}
-      onSceneError={() => {
-        setSceneReady(true)
-        setSceneFailed(true)
-      }}
-      onGoToSlide={(i) => goToSlide(i)}
-    >
-      <div key={`slide-${currentSlide}-${slideKey}`}>
-        {currentSlideName === "welcome" ? (
-          <OnboardingWelcomeSlide
-            onWelcomeDetailsVisible={onWelcomeDetailsVisible}
-            onGetStarted={() => goToSlide(1)}
+              beat={view.beats.org}
+              summary={orgSlug ?? undefined}
+            >
+              <OnboardingOrgStep
+                slug={typedSlug}
+                onSlugChange={setTypedSlug}
+                onCreated={(slug) => {
+                  setCreatedOrgSlug(slug)
+                  void router.navigate({
+                    to: "/onboarding",
+                    search: { orgSlug: slug },
+                    replace: true,
+                  })
+                }}
+              />
+            </OnboardingStep>
+            <OnboardingStep
+              number={2}
+              title="Connect GitHub"
+              beat={view.beats.source}
+              summary={
+                view.beats.source === "done"
+                  ? repositories.length > 0
+                    ? `${repoWord(repositories.length)}${activeCount > 0 ? ", indexing" : ""}`
+                    : "indexing"
+                  : view.beats.source === "skipped"
+                    ? "Skipped"
+                    : isJoiner
+                      ? "Not connected"
+                      : undefined
+              }
+              action={
+                view.beats.source === "skipped" ? (
+                  <Button
+                    variant="ghost"
+                    className="h-7 rounded-none px-2 text-xs"
+                    onPress={() => setGithubSkipped(false)}
+                  >
+                    Connect now
+                  </Button>
+                ) : null
+              }
+            >
+              {orgSlug ? (
+                <OnboardingGithubStep
+                  orgSlug={orgSlug}
+                  hasInstallation={Boolean(installation)}
+                  onRepositoriesQueued={() => setRepositoriesQueued(true)}
+                  onSkip={() => setGithubSkipped(true)}
+                />
+              ) : null}
+            </OnboardingStep>
+            <OnboardingStep
+              number={3}
+              title="Connect an agent"
+              beat={view.beats.agent}
+              summary={
+                view.beats.agent === "done"
+                  ? (firstCall?.client ?? "Connected")
+                  : view.beats.agent === "skipped"
+                    ? "Skipped"
+                    : undefined
+              }
+              action={
+                view.beats.agent === "skipped" ? (
+                  <Button
+                    variant="ghost"
+                    className="h-7 rounded-none px-2 text-xs"
+                    onPress={() => setAgentSkipped(false)}
+                  >
+                    Connect now
+                  </Button>
+                ) : null
+              }
+            >
+              {orgSlug ? (
+                <OnboardingAgentStep
+                  orgSlug={orgSlug}
+                  hasSource={view.hasSource}
+                  hasGithubInstallation={Boolean(installation)}
+                  firstRepository={repositories[0]?.name ?? null}
+                  onSkip={() => setAgentSkipped(true)}
+                />
+              ) : null}
+            </OnboardingStep>
+          </ol>
+          {view.current === null ? (
+            <div className="mt-6 flex flex-col items-start gap-3">
+              {skipNote ? (
+                <p className="m-0 text-sm text-muted-foreground">{skipNote}</p>
+              ) : null}
+              <Button
+                variant="primary"
+                className="rounded-none"
+                isPending={completing}
+                onPress={() => void finish()}
+              >
+                Open ctx|
+              </Button>
+            </div>
+          ) : null}
+        </section>
+        <div className="hidden pt-10 md:block">
+          <OnboardingDiagram
+            view={view}
+            githubAccount={installation?.accountSlug ?? null}
+            repositories={repositories.map((repo) => repo.name)}
+            firstCall={firstCall}
           />
-        ) : null}
-
-        {currentSlideName === "overview" ? (
-          <OnboardingOverviewSlide onNext={() => goToSlide(2)} />
-        ) : null}
-
-        {currentSlideName === "create-org" ? (
-          <OnboardingCreateOrgSlide
-            onOrgCreated={(slug) => {
-              setCreatedOrgSlug(slug)
-              void router.navigate({
-                to: "/onboarding",
-                search: (prev) => ({ ...prev, orgSlug: slug }),
-                replace: true,
-              })
-              goToSlide(githubSlideIndexAdmin)
-            }}
-          />
-        ) : null}
-
-        {currentSlideName === "github" ? (
-          <OnboardingGithubSlide
-            orgSlug={orgSlug}
-            onRepositoriesQueued={() => setRepositorySelectionSaved(true)}
-            onContinue={() => goToSlide(currentSlide + 1)}
-          />
-        ) : null}
-
-        {currentSlideName === "mcp-config" ? (
-          <McpOnboardingSlide
-            key={orgSlug ?? "no-org"}
-            orgSlug={orgSlug}
-            hasGithubInstallation={hasGithubInstallation}
-            mcpSnippet={mcpSnippet}
-            onContinue={() => goToSlide(currentSlide + 1)}
-            onSkip={() => goToSlide(currentSlide + 1)}
-          />
-        ) : null}
-
-        {currentSlideName === "invite" ? (
-          <OnboardingInviteSlide
-            userEmail={user.email}
-            completing={completing}
-            onCompleteOnboarding={() => completeOnboarding()}
-          />
-        ) : null}
-
-        {currentSlideName === "done" ? (
-          <OnboardingJoinerDoneSlide
-            completing={completing}
-            onFinish={() => completeJoinerOnboarding()}
-          />
-        ) : null}
+        </div>
       </div>
-    </OnboardingPageShell>
+    </OnboardingFrame>
+  )
+}
+
+function OnboardingFrame({
+  completing,
+  children,
+}: {
+  completing: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <main
+      className={`min-h-screen bg-zinc-950 text-foreground transition-opacity duration-300 ${
+        completing ? "opacity-0" : "opacity-100"
+      }`}
+    >
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-12 px-6 py-8 lg:px-14">
+        <header className="flex items-center justify-between">
+          <span className="font-mono text-xl text-zinc-100">
+            ctx<span className="text-teal-400">|</span>
+          </span>
+          <a
+            href="/.auth/sign-out"
+            className="text-sm text-muted-foreground transition-colors hover:text-teal-400"
+          >
+            Sign out
+          </a>
+        </header>
+        {children}
+      </div>
+    </main>
   )
 }

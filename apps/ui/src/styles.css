@@ -368,6 +368,47 @@
   animation-delay: 240ms;
 }
 
+/* Onboarding picture: faint grid like the ctxpipe.ai diagram; only the current beat moves. */
+.onb-diagram-grid::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(202, 202, 215, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(202, 202, 215, 0.02) 1px, transparent 1px);
+  background-size: 30px 30px;
+  mask-image: radial-gradient(92% 75%, #000, transparent 92%);
+}
+
+.onb-wire-flow {
+  stroke-dasharray: 4 5;
+  animation: onb-wire-flow 1s linear infinite;
+}
+
+.onb-caret {
+  animation: onb-caret-blink 1.05s steps(1) infinite;
+}
+
+@keyframes onb-wire-flow {
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+
+@keyframes onb-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onb-wire-flow,
+  .onb-caret {
+    animation: none;
+  }
+}
+
 .hero-gradient {
   position: relative;
 }

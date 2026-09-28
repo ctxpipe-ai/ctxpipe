@@ -1,5 +1,4 @@
-import { OpenAPIHono } from "@hono/zod-openapi"
-import { createRoute, z } from "@hono/zod-openapi"
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import { eq } from "drizzle-orm"
 import type { AppEnv } from "../../app/env.js"
 import { getSystemDb } from "../../db/client.js"
@@ -62,6 +61,13 @@ const getOrgOnboardingRoute = createRoute({
           schema: z
             .object({
               completedAt: z.string().datetime().nullable(),
+              firstMcpCall: z
+                .object({
+                  at: z.string().datetime(),
+                  client: z.string().nullable(),
+                  tool: z.string().nullable(),
+                })
+                .nullable(),
             })
             .openapi("OrgOnboardingStateResponse"),
         },
@@ -104,12 +110,26 @@ export const orgOnboardingRoutes = new OpenAPIHono<AppEnv>()
 
     const db = getSystemDb()
     const [row] = await db
-      .select({ completedAt: orgOnboarding.completedAt })
+      .select({
+        completedAt: orgOnboarding.completedAt,
+        firstMcpCallAt: orgOnboarding.firstMcpCallAt,
+        firstMcpClient: orgOnboarding.firstMcpClient,
+        firstMcpTool: orgOnboarding.firstMcpTool,
+      })
       .from(orgOnboarding)
       .where(eq(orgOnboarding.organizationId, orgId))
 
     return c.json(
-      { completedAt: row?.completedAt?.toISOString() ?? null },
+      {
+        completedAt: row?.completedAt?.toISOString() ?? null,
+        firstMcpCall: row?.firstMcpCallAt
+          ? {
+              at: row.firstMcpCallAt.toISOString(),
+              client: row.firstMcpClient,
+              tool: row.firstMcpTool,
+            }
+          : null,
+      },
       200,
     )
   })

@@ -1,9 +1,13 @@
 import { StreamableHTTPTransport } from "@hono/mcp"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import { CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js"
+import {
+  CallToolRequestSchema,
+  InitializeRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js"
 import type { Context } from "hono"
 import type { AppEnv } from "../app/env.js"
 import { currentMcpActor, requireCurrentOrgId } from "../auth/context.js"
+import { recordFirstMcpCall } from "../models/org-onboarding.js"
 import {
   type AttributionInput,
   applyAttribution,
@@ -134,6 +138,7 @@ export async function handleMcpTransportRequest(
           "method" in message &&
           !("id" in message),
       )
+    if (res && res.status < 400) await recordAgentCall(c, messages)
     if (isNotificationOnly && res?.status === 202) {
       const headers = new Headers(res.headers)
       headers.delete("content-type")
@@ -153,6 +158,39 @@ export async function handleMcpTransportRequest(
     })
     log.error(error instanceof Error ? error : new Error("MCP request failed"))
     throw error
+  }
+}
+
+/**
+ * Onboarding waits on this row to show the agent step done. Only agents
+ * count (OAuth client or API key), and only `initialize` or `tools/call`,
+ * so a web session or a `tools/list` poll never marks it.
+ */
+async function recordAgentCall(
+  c: Context<AppEnv>,
+  messages: readonly unknown[],
+): Promise<void> {
+  const orgId = c.get("orgId")
+  const isAgent = Boolean(
+    c.get("oauthClientId") || c.get("orgApiKey") || c.get("personalApiKeyId"),
+  )
+  if (!orgId || !isAgent) return
+  let clientName: string | undefined
+  let toolName: string | undefined
+  for (const message of messages) {
+    const init = InitializeRequestSchema.safeParse(message)
+    if (init.success)
+      clientName ??= init.data.params.clientInfo.name.slice(0, 100)
+    const call = CallToolRequestSchema.safeParse(message)
+    if (call.success) toolName ??= call.data.params.name.slice(0, 100)
+  }
+  if (!clientName && !toolName) return
+  try {
+    await recordFirstMcpCall({ orgId, clientName, toolName })
+  } catch (error) {
+    getLogger().warn("mcp_first_call_record_failed", {
+      error: error instanceof Error ? error.message : String(error),
+    })
   }
 }
 

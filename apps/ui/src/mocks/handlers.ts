@@ -92,76 +92,18 @@ export function organizationCreateErrorHandler(
   })
 }
 
-/** Create after MSW `delay("real")` (mirrors {@link organizationCreateSuccessHandler}). */
-export function organizationCreateSlowSuccessHandler() {
-  return http.post(`${authBase}/organization/create`, async ({ request }) => {
-    await delay("real")
-    const body = (await request.json()) as { name: string; slug: string }
-    return HttpResponse.json({
-      id: `org_${body.slug.replace(/[^a-z0-9]+/gi, "_")}`,
-      name: body.name,
-      slug: body.slug,
-      createdAt: new Date().toISOString(),
-      metadata: null,
-      logo: null,
-      members: [],
-    })
-  })
-}
-
-/** `POST /.auth/api/v1/auth/organization/invite-member` — per-email success. */
-export function organizationInviteSuccessHandler() {
-  return http.post(
-    `${authBase}/organization/invite-member`,
-    async ({ request }) => {
-      const body = (await request.json()) as {
-        email: string
-        role: string
-        organizationId?: string
-      }
-      return HttpResponse.json({
-        id: `inv_${body.email.replace(/[@.]+/g, "_")}`,
-        email: body.email,
-        role: body.role,
-        organizationId: body.organizationId ?? "org_storybook",
-        inviterId: "user_onboarding_story",
-        status: "pending",
-        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
-        createdAt: new Date().toISOString(),
-      })
-    },
-  )
-}
-
-export function organizationInviteErrorHandler() {
-  return http.post(`${authBase}/organization/invite-member`, async () => {
-    await delay("real")
-    return HttpResponse.json({ message: "Invite failed" }, { status: 400 })
-  })
-}
-
-/** Invite after MSW `delay("real")` (same JSON shape as {@link organizationInviteSuccessHandler}). */
-export function organizationInviteSlowSuccessHandler() {
-  return http.post(
-    `${authBase}/organization/invite-member`,
-    async ({ request }) => {
-      await delay("real")
-      const body = (await request.json()) as {
-        email: string
-        role: string
-        organizationId?: string
-      }
-      return HttpResponse.json({
-        id: `inv_${body.email.replace(/[@.]+/g, "_")}`,
-        email: body.email,
-        role: body.role,
-        organizationId: body.organizationId ?? "org_storybook",
-        inviterId: "user_onboarding_story",
-        status: "pending",
-        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
-        createdAt: new Date().toISOString(),
-      })
-    },
+/** `GET /:orgSlug/api/v1/onboarding` — `firstMcpCall` null until an agent calls MCP. */
+export function orgOnboardingHandler(
+  firstMcpCall: {
+    at: string
+    client: string | null
+    tool: string | null
+  } | null,
+) {
+  return http.get(
+    ({ request }) =>
+      new URL(request.url).pathname.endsWith("/api/v1/onboarding"),
+    () => HttpResponse.json({ completedAt: null, firstMcpCall }),
   )
 }
 
