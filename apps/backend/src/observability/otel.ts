@@ -35,6 +35,7 @@ import { baggageWithAttribution, copyAttributionToSpan } from "./attribution.js"
 import { BetterAuthSpanFilter } from "./betterAuthSpanFilter.js"
 import { FlushOnDemandMetricReader } from "./flushOnDemandMetricReader.js"
 import { LangfuseContextSpanProcessor } from "./langfuseContextProcessor.js"
+import { scrubExportedSpan } from "./scrubDbError.js"
 import { redactSecretPath } from "./secretPath.js"
 
 let sdk: NodeSDK | undefined
@@ -131,6 +132,10 @@ export class AttributionUrlSpanProcessor implements SpanProcessor {
       const next = recordedUrl(value, absolute)
       if (next !== value) span.setAttribute(key, next)
     }
+  }
+
+  onEnding(span: Span): void {
+    scrubExportedSpan(span)
   }
 
   onEnd(_span: ReadableSpan): void {}

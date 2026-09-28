@@ -1,4 +1,10 @@
-import { context, propagation, SpanKind, trace } from "@opentelemetry/api"
+import {
+  context,
+  propagation,
+  SpanKind,
+  SpanStatusCode,
+  trace,
+} from "@opentelemetry/api"
 import {
   CompositePropagator,
   W3CBaggagePropagator,
@@ -275,6 +281,47 @@ describe("span URL attributes", () => {
     expect(String(finished?.attributes["url.full"])).not.toContain("?")
     expect(String(finished?.attributes["url.path"])).not.toContain("?")
     expect(JSON.stringify(finished?.attributes)).not.toContain(token)
+  })
+})
+
+describe("exported exceptions", () => {
+  it("drops drizzle params from the exception event and the status message", () => {
+    const span = trace.getTracer("test").startSpan("query")
+    const error = new Error(
+      'Failed query: insert into "repositories" ("git_url") values ($1)\nparams: user@example.com token=SECRET',
+    )
+    span.recordException(error)
+    span.setStatus({ code: SpanStatusCode.ERROR, message: error.message })
+    span.end()
+
+    const finished = exporter
+      .getFinishedSpans()
+      .find((candidate) => candidate.name === "query")
+    const dumped = JSON.stringify({
+      status: finished?.status.message,
+      events: finished?.events,
+    })
+    expect(dumped).not.toContain("params:")
+    expect(dumped).not.toContain("user@example.com")
+    expect(dumped).not.toContain("token=SECRET")
+    expect(finished?.status.message).toContain("Failed query:")
+    expect(finished?.events[0]?.attributes["exception.message"]).toBe(
+      finished?.status.message,
+    )
+  })
+
+  it("leaves an ordinary exception message unchanged", () => {
+    const span = trace.getTracer("test").startSpan("sync")
+    span.recordException(new Error("sync failed"))
+    span.setStatus({ code: SpanStatusCode.ERROR, message: "sync failed" })
+    span.end()
+    const finished = exporter
+      .getFinishedSpans()
+      .find((candidate) => candidate.name === "sync")
+    expect(finished?.status.message).toBe("sync failed")
+    expect(finished?.events[0]?.attributes["exception.message"]).toBe(
+      "sync failed",
+    )
   })
 })
 
