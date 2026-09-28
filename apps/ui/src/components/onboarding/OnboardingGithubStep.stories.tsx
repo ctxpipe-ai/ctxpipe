@@ -49,7 +49,11 @@ const meta = {
   args: {
     orgSlug: "acme",
     hasInstallation: true,
+    // Stories start after indexing began, so nothing is saved on mount.
+    alreadyIndexed: true,
     onRepositoriesQueued: fn(),
+    onContinue: fn(),
+    onBack: fn(),
     onSkip: fn(),
   },
   decorators: [
@@ -65,7 +69,7 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-/** One primary action; changing the selection and the context repository are quiet. */
+/** Indexing runs on its own; Continue is the one primary action. */
 export const SharedSelection: Story = {
   parameters: {
     msw: {
@@ -77,7 +81,7 @@ export const SharedSelection: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(
-      await canvas.findByRole("button", { name: /index 2 repositories/i }),
+      await canvas.findByRole("button", { name: "Continue" }),
     ).toBeVisible()
     await expect(
       canvas.getByRole("link", { name: /create one on github/i }),

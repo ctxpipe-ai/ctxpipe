@@ -16,6 +16,7 @@ function facts(overrides: Partial<OnboardingFacts> = {}): OnboardingFacts {
       skipped: false,
       repositories: [],
       queued: false,
+      continued: false,
       activeCount: 0,
       readyCount: 0,
       failedCount: 0,
@@ -48,6 +49,7 @@ describe("deriveOnboardingView", () => {
           skipped: false,
           repositories: ["acme/api"],
           queued: true,
+          continued: true,
           activeCount: 1,
           readyCount: 0,
           failedCount: 0,
@@ -74,6 +76,7 @@ describe("deriveOnboardingView", () => {
         github: {
           ...facts().github,
           repositories: ["acme/api"],
+          continued: true,
           readyCount: 1,
         },
         agent: {
@@ -93,6 +96,24 @@ describe("deriveOnboardingView", () => {
     expect(view.beats.org).toBe("done")
     expect(view.beats.source).toBe("future")
   })
+})
+
+it("keeps the GitHub step open after indexing starts, until Continue", () => {
+  const indexing = {
+    ...facts().github,
+    installed: true,
+    repositories: ["acme/api"],
+    queued: true,
+    activeCount: 1,
+  }
+  const before = deriveOnboardingView(facts({ github: indexing }))
+  expect(before.current).toBe("source")
+  expect(before.hasSource).toBe(true)
+  const after = deriveOnboardingView(
+    facts({ github: { ...indexing, continued: true } }),
+  )
+  expect(after.current).toBe("agent")
+  expect(after.beats.source).toBe("done")
 })
 
 describe("slugify", () => {

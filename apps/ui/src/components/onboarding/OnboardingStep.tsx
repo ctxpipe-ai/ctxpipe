@@ -12,6 +12,8 @@ type OnboardingStepProps = {
   action?: ReactNode
   /** Shows the body. Defaults to the current step; a done step can reopen. */
   open?: boolean
+  /** Makes the title a button that opens or closes a done step. */
+  onSelect?: () => void
   children?: ReactNode
 }
 
@@ -22,6 +24,7 @@ export function OnboardingStep({
   summary,
   action,
   open = beat === "current",
+  onSelect,
   children,
 }: OnboardingStepProps) {
   return (
@@ -55,7 +58,18 @@ export function OnboardingStep({
                 : "text-zinc-500"
           }`}
         >
-          {title}
+          {onSelect ? (
+            <button
+              type="button"
+              aria-expanded={open}
+              onClick={onSelect}
+              className="cursor-pointer rounded-none text-left hover:text-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400"
+            >
+              {title}
+            </button>
+          ) : (
+            title
+          )}
         </h2>
         <span className="ml-auto flex items-center gap-3">
           {summary ? (

@@ -119,7 +119,9 @@ export function OnboardingDiagram({
             <PanelHeader
               label="Sources"
               beat={beats.source}
-              word={STATUS_WORD.source[beats.source]}
+              word={
+                view.hasSource ? "ingesting" : STATUS_WORD.source[beats.source]
+              }
             />
             <div className="flex items-center gap-2 text-sm font-medium">
               <IconBrandGithub className="size-4" aria-hidden />

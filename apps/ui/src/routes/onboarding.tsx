@@ -6,7 +6,10 @@ import { OnboardingDiagram } from "@/components/onboarding/OnboardingDiagram"
 import { OnboardingGithubStep } from "@/components/onboarding/OnboardingGithubStep"
 import { OnboardingOrgStep } from "@/components/onboarding/OnboardingOrgStep"
 import { OnboardingStep } from "@/components/onboarding/OnboardingStep"
-import { deriveOnboardingView } from "@/components/onboarding/onboarding-state"
+import {
+  deriveOnboardingView,
+  type OnboardingStepId,
+} from "@/components/onboarding/onboarding-state"
 import { Button } from "@/components/ui/Button"
 import {
   fetchGithubInstallationSummary,
@@ -56,7 +59,10 @@ export function OnboardingPageContent({
   const [completing, setCompleting] = useState(false)
   // Going back: a done step reopens to review or change it. Beats still come
   // from the account, so reopening never undoes anything.
-  const [reviewing, setReviewing] = useState<"source" | "agent" | null>(null)
+  const [reviewing, setReviewing] = useState<OnboardingStepId | null>(null)
+  // Indexing starts on its own, so the GitHub step stays open for the
+  // context repository until they press Continue.
+  const [sourceContinued, setSourceContinued] = useState(false)
   const orgSlug = urlOrgSlug ?? createdOrgSlug
 
   // Joiner or admin is decided once, from the orgs they had on arrival, so
@@ -146,6 +152,10 @@ export function OnboardingPageContent({
       skipped: githubSkipped,
       repositories: repositoryNames,
       queued: queuedRepositories !== null,
+      // Arriving with repositories already indexed counts as continued.
+      continued:
+        sourceContinued ||
+        (repositories.length > 0 && queuedRepositories === null),
       activeCount,
       readyCount: repositories.filter(
         (repo) => getRepositoryIndexingStatus(repo) === "ready",
@@ -244,33 +254,32 @@ export function OnboardingPageContent({
   }
 
   const openStep = reviewing ?? view.current
-  const stepAction = (id: "source" | "agent", onConnectNow: () => void) => {
-    const beat = view.beats[id]
-    if (beat === "skipped") {
-      return (
-        <Button
-          variant="ghost"
-          className="h-7 rounded-none px-2 text-xs"
-          onPress={() => {
-            setReviewing(null)
-            onConnectNow()
-          }}
-        >
-          Connect now
-        </Button>
-      )
+  // Back reopens the step before; a done or skipped title reopens that one.
+  // Nothing is undone: each step's state still comes from the account.
+  const reopen = (id: OnboardingStepId) => {
+    if (id === "source" && view.beats.source === "skipped") {
+      setGithubSkipped(false)
+      setReviewing(null)
+      return
     }
-    if (beat !== "done") return null
-    return (
-      <Button
-        variant="ghost"
-        className="h-7 rounded-none px-2 text-xs"
-        onPress={() => setReviewing(reviewing === id ? null : id)}
-      >
-        {reviewing === id ? "Close" : "Change"}
-      </Button>
-    )
+    if (id === "agent" && view.beats.agent === "skipped") {
+      setAgentSkipped(false)
+      setReviewing(null)
+      return
+    }
+    setReviewing(id)
   }
+  const goBackFrom = (id: "source" | "agent") =>
+    reopen(id === "agent" && !isJoiner ? "source" : "org")
+  const canReopen = (id: OnboardingStepId) =>
+    openStep !== id &&
+    (view.beats[id] === "done" || view.beats[id] === "skipped")
+  const toggle = (id: OnboardingStepId) =>
+    openStep === id
+      ? () => setReviewing(null)
+      : canReopen(id)
+        ? () => reopen(id)
+        : undefined
 
   const repoWord = (n: number) =>
     `${n} ${n === 1 ? "repository" : "repositories"}`
@@ -330,20 +339,41 @@ export function OnboardingPageContent({
               }
               beat={view.beats.org}
               open={openStep === "org"}
+              onSelect={view.beats.org === "done" ? toggle("org") : undefined}
               summary={orgSlug ?? undefined}
             >
-              <OnboardingOrgStep
-                slug={typedSlug}
-                onSlugChange={setTypedSlug}
-                onCreated={(slug) => {
-                  setCreatedOrgSlug(slug)
-                  void router.navigate({
-                    to: "/onboarding",
-                    search: { orgSlug: slug },
-                    replace: true,
-                  })
-                }}
-              />
+              {view.beats.org === "done" ? (
+                <>
+                  <p className="m-0 text-sm text-muted-foreground">
+                    <code className="font-mono text-zinc-200">{orgSlug}</code>{" "}
+                    {isJoiner
+                      ? "is the organisation you joined."
+                      : "is ready. You can rename it later in Organisation settings."}
+                  </p>
+                  <div>
+                    <Button
+                      variant="primary"
+                      className="rounded-none"
+                      onPress={() => setReviewing(null)}
+                    >
+                      Continue
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <OnboardingOrgStep
+                  slug={typedSlug}
+                  onSlugChange={setTypedSlug}
+                  onCreated={(slug) => {
+                    setCreatedOrgSlug(slug)
+                    void router.navigate({
+                      to: "/onboarding",
+                      search: { orgSlug: slug },
+                      replace: true,
+                    })
+                  }}
+                />
+              )}
             </OnboardingStep>
             <OnboardingStep
               number={2}
@@ -361,23 +391,23 @@ export function OnboardingPageContent({
                       ? "Not connected"
                       : undefined
               }
-              action={stepAction("source", () => setGithubSkipped(false))}
+              onSelect={toggle("source")}
             >
               {orgSlug ? (
                 <OnboardingGithubStep
-                  key={reviewing === "source" ? "review" : "setup"}
                   orgSlug={orgSlug}
                   hasInstallation={Boolean(installation)}
-                  startEditing={reviewing === "source"}
-                  onRepositoriesQueued={(names) => {
-                    setQueuedRepositories(names)
+                  alreadyIndexed={repositoryNames.length > 0}
+                  onRepositoriesQueued={setQueuedRepositories}
+                  onContinue={() => {
+                    setSourceContinued(true)
                     setReviewing(null)
                   }}
-                  onSkip={() =>
-                    reviewing === "source"
-                      ? setReviewing(null)
-                      : setGithubSkipped(true)
-                  }
+                  onBack={() => goBackFrom("source")}
+                  onSkip={() => {
+                    setGithubSkipped(true)
+                    setReviewing(null)
+                  }}
                 />
               ) : null}
             </OnboardingStep>
@@ -393,7 +423,7 @@ export function OnboardingPageContent({
                     ? "Skipped"
                     : undefined
               }
-              action={stepAction("agent", () => setAgentSkipped(false))}
+              onSelect={toggle("agent")}
             >
               {orgSlug ? (
                 <OnboardingAgentStep
@@ -403,7 +433,11 @@ export function OnboardingPageContent({
                   connectedClient={
                     firstCall ? (firstCall.client ?? "Your agent") : null
                   }
-                  onSkip={() => setAgentSkipped(true)}
+                  onSkip={() => {
+                    setAgentSkipped(true)
+                    setReviewing(null)
+                  }}
+                  onBack={() => goBackFrom("agent")}
                 />
               ) : null}
             </OnboardingStep>

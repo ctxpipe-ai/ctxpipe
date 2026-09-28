@@ -419,6 +419,15 @@
     inset 0 0 24px -12px rgba(94, 234, 212, 0.06);
 }
 
+/* Every colour in the picture crossfades together when the step changes.
+   Text used to swap instantly while borders and glows faded, which read as
+   a blink. :where keeps this below each element's own transition class. */
+.onb-diagram-grid :where(*) {
+  transition-property: color, background-color, border-color, box-shadow;
+  transition-duration: 500ms;
+  transition-timing-function: ease-out;
+}
+
 .onb-wire-flow {
   stroke-dasharray: 4 5;
   animation: onb-wire-flow 1s linear infinite;
@@ -434,6 +443,10 @@
   .onb-page-in,
   .onb-wire-flow {
     animation: none;
+  }
+
+  .onb-diagram-grid :where(*) {
+    transition: none;
   }
 }
 

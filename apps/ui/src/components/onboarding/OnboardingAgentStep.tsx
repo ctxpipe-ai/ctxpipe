@@ -10,6 +10,7 @@ type OnboardingAgentStepProps = {
   /** Set once their agent has called ctx| (the step was reopened). */
   connectedClient: string | null
   onSkip: () => void
+  onBack: () => void
 }
 
 type Method = "cli" | "claude" | "json"
@@ -39,6 +40,7 @@ export function OnboardingAgentStep({
   firstRepository,
   connectedClient,
   onSkip,
+  onBack,
 }: OnboardingAgentStepProps) {
   const [method, setMethod] = useState<Method>("cli")
   const setup = agentSetup(window.location.origin, orgSlug)
@@ -77,10 +79,17 @@ export function OnboardingAgentStep({
       />
 
       {connectedClient ? (
-        <p className="m-0 text-sm text-muted-foreground">
-          <span className="font-mono text-zinc-200">{connectedClient}</span> is
-          connected. Add ctx| to another agent the same way.
-        </p>
+        <>
+          <p className="m-0 text-sm text-muted-foreground">
+            <span className="font-mono text-zinc-200">{connectedClient}</span>{" "}
+            is connected. Add ctx| to another agent the same way.
+          </p>
+          <div>
+            <Button variant="quiet" className="rounded-none" onPress={onBack}>
+              Back
+            </Button>
+          </div>
+        </>
       ) : (
         <>
           <output className="flex flex-col gap-1 border border-teal-400/30 bg-teal-400/[0.04] p-4">
@@ -95,9 +104,12 @@ export function OnboardingAgentStep({
             </span>
           </output>
 
-          <div>
+          <div className="flex flex-wrap items-center gap-6">
             <Button variant="ghost" className="rounded-none" onPress={onSkip}>
               I’ll do this later
+            </Button>
+            <Button variant="quiet" className="rounded-none" onPress={onBack}>
+              Back
             </Button>
           </div>
         </>

@@ -23,6 +23,12 @@ export type OnboardingFacts = {
     repositories: string[]
     /** Saved a selection this session; the list may not show it yet. */
     queued: boolean
+    /**
+     * They pressed Continue on the GitHub step, or arrived with repositories
+     * already indexed. Indexing starts on its own, so the step stays open for
+     * the context repository until then.
+     */
+    continued: boolean
     activeCount: number
     readyCount: number
     failedCount: number
@@ -57,7 +63,8 @@ export function deriveOnboardingView(facts: OnboardingFacts): OnboardingView {
   const hasSource = github.repositories.length > 0 || github.queued
   // Joiners cannot connect GitHub themselves; an unconnected org reads as
   // skipped for them rather than as a step they are stuck on.
-  const sourceSettled = hasSource || github.skipped || facts.isJoiner
+  const sourceSettled =
+    (hasSource && github.continued) || github.skipped || facts.isJoiner
   const agentSettled = agent.firstCall !== null || agent.skipped
 
   const current: OnboardingStepId | null = !orgDone
@@ -78,7 +85,11 @@ export function deriveOnboardingView(facts: OnboardingFacts): OnboardingView {
   const beats = {
     org: beat("org", orgDone, false),
     // A joiner's unconnected GitHub is their admin's to do, not a skip.
-    source: beat("source", hasSource, github.skipped && !hasSource),
+    source: beat(
+      "source",
+      hasSource && github.continued,
+      github.skipped && !hasSource,
+    ),
     agent: beat("agent", agent.firstCall !== null, agent.skipped),
   }
 
