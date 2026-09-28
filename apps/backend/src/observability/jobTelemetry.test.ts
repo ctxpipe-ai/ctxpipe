@@ -137,7 +137,7 @@ describe("job telemetry", () => {
     const parent = tracer.startSpan("webhook")
     const parentContext = trace.setSpan(context.active(), parent)
     const { context: withBag } = contextWithAttributionBag(parentContext)
-    await context.with(withBag, async () => {
+    const queued = await context.with(withBag, async () => {
       applyAttribution({
         "request.id": "req_wh",
         "ctxpipe.actor.type": "webhook",
@@ -167,18 +167,20 @@ describe("job telemetry", () => {
         "ctxpipe.org.id": "org_last",
         "ctxpipe.org.slug": "last-org",
       })
-      for (const [name, input] of [
+      return [
         ["alpha-run", matching],
         ["beta-run", mismatched],
         ["gamma-run", explicit],
-      ] as const) {
-        const execution = tracer.startSpan(name)
-        await context.with(trace.setSpan(context.active(), execution), () =>
-          restoreJobTelemetry(input, async () => undefined),
-        )
-        execution.end()
-      }
+      ] as const
     })
+    // The worker starts workflow_run.execute before the job bag exists.
+    for (const [name, input] of queued) {
+      const execution = tracer.startSpan(name)
+      await context.with(trace.setSpan(context.active(), execution), () =>
+        restoreJobTelemetry(input, async () => undefined),
+      )
+      execution.end()
+    }
     parent.end()
 
     const jobs = ["alpha-run", "beta-run", "gamma-run"].map((name) =>
