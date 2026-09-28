@@ -15,6 +15,7 @@ import {
 import { conversationSessionBranch } from "../../domain/workspaces/chat-lifecycle.js"
 import { shellSingleQuote } from "../../domain/workspaces/conversation-publish.js"
 import { warmTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
+import { destroySandboxesForConversation } from "../../domain/workspaces/workspace-sandbox-cleanup.js"
 import { getConversation } from "../../models/conversations.js"
 import {
   contextStorage,
@@ -90,6 +91,7 @@ it.each([
         const previousProvider = process.env.SANDBOX_PROVIDER
         process.env.SANDBOX_PROVIDER = "unsandboxed"
         let raw = await localProcessSandbox().create({ id: conversationId })
+        let ownsRaw = true
         try {
           await withOrgDbContext(f.org.id, (db) =>
             db.insert(conversations).values({
@@ -142,6 +144,7 @@ it.each([
             if (!warmed.ok) throw new Error(warmed.error)
             await raw.destroy()
             raw = warmed.handle
+            ownsRaw = false
           }
           await raw.process.exec("git init -b main")
           await raw.process.exec(`git fetch ${shellSingleQuote(f.remote)} main`)
@@ -430,28 +433,15 @@ fi
           }
           expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
         } finally {
-          {
-            const { listSandboxInstances, deleteSandboxInstance } =
-              await import("../../models/workspaces.js")
-            const { destroyDetachedProviderSandbox } = await import(
-              "../../domain/workspaces/sandbox-provider.js"
-            )
-            const instances = await withOrgDbContext(f.org.id, () =>
-              listSandboxInstances({ conversationId, kind: "chat" }),
-            )
-            for (const instance of instances) {
-              if (instance.providerSandboxId)
-                await destroyDetachedProviderSandbox({
-                  provider: instance.provider,
-                  providerSandboxId: instance.providerSandboxId,
-                })
-              await deleteSandboxInstance(instance.id, f.org.id)
-            }
-          }
+          await withOrgIdContext(f.org, () =>
+            destroySandboxesForConversation(conversationId),
+          )
           if (previousProvider === undefined)
             delete process.env.SANDBOX_PROVIDER
           else process.env.SANDBOX_PROVIDER = previousProvider
-          await raw.destroy()
+          // Production cleanup already destroyed the warmed handle. Only the
+          // leftover local-process placeholder still needs raw.destroy.
+          if (ownsRaw) await raw.destroy()
           await withOrgDbContext(f.org.id, (db) =>
             db
               .delete(conversations)

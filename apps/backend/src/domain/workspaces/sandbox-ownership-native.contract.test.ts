@@ -1227,27 +1227,32 @@ fi'`,
       expect(await handle.fs.read("native-policy-proof.txt")).toBe(
         "bounded workspace",
       )
-      // count=1 so BusyBox cannot buffer the 4 GiB fill. oflag=direct keeps
-      // each 8 MiB write out of the 1 GiB page cache. Capture dd's text in
-      // memory: redirecting onto the quota volume truncates the error file
-      // and then cannot write EDQUOT. Print after deleting the fill.
+      // Write on the overlay, not /tmp: isolation and many images mount /tmp as
+      // tmpfs, so a fill there hits the 1 GiB memory cgroup (status 137) instead
+      // of the 4 GiB storage quota. count=1 so BusyBox cannot buffer the 4 GiB
+      // fill. oflag=direct + conv=fsync keep each 8 MiB write out of the page
+      // cache. Capture dd's text in memory: redirecting onto the quota volume
+      // truncates the error file and then cannot write EDQUOT. Print after
+      // deleting the fill. Overlay size limits often say ENOSPC, not EDQUOT.
       const quotaWrite = await handle.process.exec(
         `sh -eu -c '
 set +e
-: > /tmp/native-policy-quota.bin
+: > /var/tmp/native-policy-quota.bin
 i=0
 status=0
 last=
 while [ "$i" -lt 640 ]; do
-  last=$(dd if=/dev/zero of=/tmp/native-policy-quota.bin bs=8192k count=1 seek="$i" oflag=direct conv=notrunc 2>&1)
+  last=$(dd if=/dev/zero of=/var/tmp/native-policy-quota.bin bs=8192k count=1 seek="$i" oflag=direct conv=notrunc,fsync 2>&1)
   status=$?
   [ "$status" -eq 0 ] || break
   i=$((i + 1))
 done
-rm -f /tmp/native-policy-quota.bin
+rm -f /var/tmp/native-policy-quota.bin
 printf "quota-status=%s\\nquota-blocks=%s\\nquota-error=%s\\nquota-end=1\\n" "$status" "$i" "$last"'`,
       )
-      expect(quotaWrite.stdout, quotaWrite.stdout).toMatch(/quota exceeded/i)
+      expect(quotaWrite.stdout, quotaWrite.stdout).toMatch(
+        /quota exceeded|no space left/i,
+      )
       expect(quotaWrite.stdout, quotaWrite.stdout).toMatch(
         /quota-status=[1-9]\d*/,
       )

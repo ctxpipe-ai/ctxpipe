@@ -3,9 +3,11 @@ import { mkdtempSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
+import type { SandboxHandle } from "@tanstack/ai-sandbox"
 import {
   classifySandboxCommand,
   parseSandboxLifecycleMarks,
+  timedSandboxHandle,
   wrapSandboxSetupCommand,
 } from "./sandbox-lifecycle-timing.js"
 
@@ -48,5 +50,26 @@ describe("sandbox lifecycle timing", () => {
       expect.objectContaining({ phase: "setup-opencode" }),
     ])
     expect(marks[0]?.ms).toBeGreaterThanOrEqual(0)
+  })
+
+  it("keeps Docker class-method snapshot and destroy after timing wrap", async () => {
+    class DockerStyleHandle {
+      id = "ctr"
+      async snapshot(label?: string) {
+        return { id: `snap-${label ?? "default"}` }
+      }
+      async destroy() {
+        return undefined
+      }
+    }
+    const timed = timedSandboxHandle(
+      new DockerStyleHandle() as unknown as SandboxHandle,
+    )
+    expect(typeof timed.snapshot).toBe("function")
+    expect(typeof timed.destroy).toBe("function")
+    await expect(timed.snapshot?.("after-setup")).resolves.toEqual({
+      id: "snap-after-setup",
+    })
+    await expect(timed.destroy()).resolves.toBeUndefined()
   })
 })

@@ -20,6 +20,7 @@ import { workspaces } from "../../../db/schema/workspaces.js"
 import { generateObjectId } from "../../../lib/id.js"
 import { getWorkspaceById } from "../../../models/workspaces.js"
 import { createLogger } from "../../../observability/logger.js"
+import { contextStorage } from "../../../test/hono-test-logger.js"
 import { registerGithubWebhookRoute } from "./github.js"
 
 it("a signed push durably queues the common tip resolver without publishing webhook metadata", async () => {
@@ -72,6 +73,7 @@ it("a signed push durably queues the common tip resolver without publishing webh
         githubInstallationId: String(installationId),
       })
     const app = new OpenAPIHono<AppEnv>()
+    app.use(contextStorage())
     app.use("*", async (c, next) => {
       c.set("env", env)
       c.set("log", createLogger({ proof: "webhook" }))

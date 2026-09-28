@@ -480,30 +480,34 @@ it(
           await f.request(`/conversations?workspaceId=${f.workspaceId}`)
         ).json()
         const progress: unknown[] = []
-        const reply = await client.callTool(
-          {
-            name: "ctx_advisor",
-            arguments: {
-              prompt: "Read the workspace",
-              currentProjectName: "Fixture app",
-              conversationId: "ignored-client-id",
+        const reply = await f.runInHonoContext(() =>
+          client.callTool(
+            {
+              name: "ctx_advisor",
+              arguments: {
+                prompt: "Read the workspace",
+                currentProjectName: "Fixture app",
+                conversationId: "ignored-client-id",
+              },
             },
-          },
-          undefined,
-          { onprogress: (event) => progress.push(event) },
+            undefined,
+            { onprogress: (event) => progress.push(event) },
+          ),
         )
         expect(reply.isError, JSON.stringify(reply.content)).not.toBe(true)
         expect(reply.content).toEqual([
           { type: "text", text: "Native reply completed." },
         ])
         expect(progress.length).toBeGreaterThan(0)
-        const second = await client.callTool({
-          name: "ctx_advisor",
-          arguments: {
-            prompt: "A separate question",
-            conversationId: "ignored-client-id",
-          },
-        })
+        const second = await f.runInHonoContext(() =>
+          client.callTool({
+            name: "ctx_advisor",
+            arguments: {
+              prompt: "A separate question",
+              conversationId: "ignored-client-id",
+            },
+          }),
+        )
         expect(second.isError, JSON.stringify(second.content)).not.toBe(true)
         const calls = f.modelRequests.filter((request) =>
           Array.isArray(request.tools),
@@ -532,10 +536,12 @@ it(
           })
           expect(deleted.status).toBe(204)
         }
-        const missing = await client.callTool({
-          name: "ctx_advisor",
-          arguments: { prompt: "No workspace remains" },
-        })
+        const missing = await f.runInHonoContext(() =>
+          client.callTool({
+            name: "ctx_advisor",
+            arguments: { prompt: "No workspace remains" },
+          }),
+        )
         expect(missing.isError).toBe(true)
         expect(JSON.stringify(missing.content)).toContain("Create a Workspace")
       } finally {

@@ -186,6 +186,26 @@ export function timedSandboxProvider(
 export function timedSandboxHandle(handle: SandboxHandle): SandboxHandle {
   return {
     ...handle,
+    // DockerHandle keeps snapshot/destroy/fork on the class prototype.
+    // Object spread copies only enumerable own fields, so the warm Docker
+    // path must rebind those methods or base snapshots are never persisted.
+    ...(handle.snapshot
+      ? {
+          snapshot: (label?: string) =>
+            timeSandboxLifecycle("snapshot", () => handle.snapshot!(label), {
+              label,
+            }),
+        }
+      : {}),
+    destroy: () => timeSandboxLifecycle("destroy", () => handle.destroy()),
+    ...(handle.fork
+      ? {
+          fork: async () =>
+            timedSandboxHandle(
+              await timeSandboxLifecycle("fork", () => handle.fork!()),
+            ),
+        }
+      : {}),
     env: {
       ...handle.env,
       set: (values) =>

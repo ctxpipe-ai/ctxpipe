@@ -82,7 +82,7 @@ it.each(["repository", "confluence"] as const)(
         expect(before).toHaveLength(1)
         expect(before[0]).toMatchObject({ indexingStatus: null })
         const accepted = await request()
-        expect(accepted.status).toBe(mode === "repository" ? 201 : 200)
+        expect(accepted.status).toBe(200)
         const after = await listRepositoriesForOrg(f.org.id)
         expect(after).toHaveLength(1)
         expect(after[0]).toMatchObject({

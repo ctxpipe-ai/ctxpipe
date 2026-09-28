@@ -41,6 +41,7 @@ export async function withNativeChatFixture<T>(
     sha: string
     modelRequests: Array<Record<string, unknown>>
     request: OpenAPIHono<AppEnv>["request"]
+    runInHonoContext: <R>(operation: () => Promise<R>) => Promise<R>
   }) => Promise<T>,
   beforeModelResponse?: () => Promise<void>,
   options: { listenHost?: string } = {},
@@ -75,11 +76,18 @@ export async function withNativeChatFixture<T>(
       id: `session_${orgId}`,
     } as AppEnv["Variables"]["session"])
     c.set("orgSlug", orgId)
+    c.set("orgId", orgId)
+    c.set("orgApiKey", null)
     await next()
   })
   app.route(`/${orgId}/api/v1/workspace-chat/openai`, workspaceChatOpenaiRoutes)
   app.route("/conversations", conversationRoutes)
   app.route("/workspaces", workspaceRoutes)
+  let honoContextOperation: (() => Promise<void>) | undefined
+  app.get("/__native-fixture-context", async (context) => {
+    await honoContextOperation?.()
+    return context.body(null, 204)
+  })
   const server = createServer((req, res) => {
     void (async () => {
       const chunks: Buffer[] = []
@@ -206,6 +214,24 @@ export async function withNativeChatFixture<T>(
             sha,
             modelRequests,
             request: app.request.bind(app),
+            runInHonoContext: async (operation) => {
+              let result: Awaited<ReturnType<typeof operation>> | undefined
+              let runError: unknown
+              honoContextOperation = async () => {
+                try {
+                  result = await operation()
+                } catch (error) {
+                  runError = error
+                }
+              }
+              try {
+                await app.request("/__native-fixture-context")
+              } finally {
+                honoContextOperation = undefined
+              }
+              if (runError) throw runError
+              return result as Awaited<ReturnType<typeof operation>>
+            },
           }),
         ),
       ),

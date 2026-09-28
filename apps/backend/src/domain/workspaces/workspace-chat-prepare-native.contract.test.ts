@@ -597,7 +597,9 @@ it(
     delete process.env.DOCKER_CERT_PATH
     const docker = new Docker({ timeout: 30_000 })
     try {
-      await docker.getImage(WORKSPACE_CHAT_DOCKER_SANDBOX.image).inspect()
+      const proxyImage = await docker
+        .getImage(WORKSPACE_CHAT_DOCKER_SANDBOX.image)
+        .inspect()
       await withNativeHttpsGitFixture(
         {
           baseImage:
@@ -617,6 +619,7 @@ it(
               await nestedBridgeGateway(docker)
               const relay = await startNestedModelRelay({
                 docker,
+                image: proxyImage.Id,
                 destHost,
                 destPort: listenPort,
                 listenPort,
@@ -1653,13 +1656,14 @@ async function nestedBridgeGateway(docker: Docker): Promise<string> {
 
 async function startNestedModelRelay(input: {
   docker: Docker
+  image: string
   destHost: string
   destPort: number
   listenPort: number
 }): Promise<{ stop: () => Promise<void> }> {
   const container = await input.docker.createContainer({
     name: `ctxpipe-model-relay-${randomUUID()}`,
-    Image: WORKSPACE_CHAT_DOCKER_SANDBOX.image,
+    Image: input.image,
     User: "1000:1000",
     Entrypoint: ["node"],
     Cmd: [

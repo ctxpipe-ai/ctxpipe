@@ -16,6 +16,7 @@ it.each([
   async (_name, body) => {
     await withNativeHydrationFixture(
       {
+        namespaceId: "default",
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",
