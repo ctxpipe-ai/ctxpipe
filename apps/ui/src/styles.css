@@ -381,6 +381,18 @@
   mask-image: radial-gradient(92% 75%, #000, transparent 92%);
 }
 
+/* Sign-in hands over to onboarding with a fade. `backwards` only holds the
+   start frame, so the completing fade-out on the same element still runs. */
+.onb-page-in {
+  animation: onb-page-in 500ms ease-out backwards;
+}
+
+@keyframes onb-page-in {
+  from {
+    opacity: 0;
+  }
+}
+
 /* Noise texture from the ctxpipe.ai "The solution" cards. */
 .onb-noise {
   position: relative;
@@ -412,25 +424,15 @@
   animation: onb-wire-flow 1s linear infinite;
 }
 
-.onb-caret {
-  animation: onb-caret-blink 1.05s steps(1) infinite;
-}
-
 @keyframes onb-wire-flow {
   to {
     stroke-dashoffset: -18;
   }
 }
 
-@keyframes onb-caret-blink {
-  50% {
-    opacity: 0;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .onb-wire-flow,
-  .onb-caret {
+  .onb-page-in,
+  .onb-wire-flow {
     animation: none;
   }
 }

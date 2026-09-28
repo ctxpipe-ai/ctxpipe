@@ -4,6 +4,7 @@ import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   authConfigHandler,
   githubInstallationNoneHandler,
+  organizationCreateSuccessHandler,
   organizationListEmptyHandler,
   organizationListWithOrgHandler,
   sessionSignedInOnboardingHandler,
@@ -179,5 +180,41 @@ export const JoinerWhileRepositoriesIndex: Story = {
     await expect(
       await canvas.findByText(/indexing 2 repositories/i),
     ).toBeVisible()
+  },
+}
+
+/** Creating the org keeps the same picture on screen: no remount, no second fade-in. */
+export const AdminCreateThenGithub: Story = {
+  render: () => <OnboardingPageContent urlOrgSlug={null} />,
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: [
+          authConfigHandler,
+          sessionSignedInOnboardingHandler,
+          organizationListEmptyHandler,
+          organizationCreateSuccessHandler(),
+          http.post("*/.auth/api/v1/auth/organization/set-active", () =>
+            HttpResponse.json({ id: "org_acme_engineering" }),
+          ),
+          githubInstallationNoneHandler,
+          noRepositoriesHandler,
+          userOnboardingHandler(null),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.type(
+      await canvas.findByRole("textbox", { name: /organisation name/i }),
+      "Acme Engineering",
+    )
+    const picture = canvasElement.querySelector("figure")
+    await userEvent.click(
+      canvas.getByRole("button", { name: /create organisation/i }),
+    )
+    await canvas.findByRole("button", { name: /connect github/i })
+    await expect(picture?.isConnected).toBe(true)
   },
 }

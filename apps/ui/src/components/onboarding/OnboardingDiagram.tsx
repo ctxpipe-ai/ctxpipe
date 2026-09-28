@@ -89,12 +89,18 @@ export function OnboardingDiagram({
       >
         <span
           className={`absolute -top-2.5 left-6 bg-zinc-950 px-2 font-mono text-sm transition-colors duration-500 ${
-            beats.org === "done" ? "text-zinc-100" : "text-zinc-400"
+            beats.org === "done"
+              ? "text-zinc-100"
+              : view.framePlaceholder
+                ? "text-zinc-600"
+                : "text-zinc-300"
           }`}
         >
           {view.frameLabel}
           {beats.org === "current" ? (
-            <span className="onb-caret ml-px text-teal-400">|</span>
+            // Dim and still: the frame mirrors the slug field, it is not
+            // an input itself.
+            <span className="ml-px text-zinc-600">|</span>
           ) : null}
         </span>
 

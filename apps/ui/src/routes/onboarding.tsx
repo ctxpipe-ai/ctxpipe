@@ -153,7 +153,10 @@ export function OnboardingPageContent({
     agent: { firstCall, skipped: agentSkipped },
   })
 
-  if (isPending || orgsPending || isJoiner === null) {
+  // Only the first load shows this. Creating the org refetches the session
+  // and org list; showing it then would unmount the picture and replay its
+  // fade-in between step 1 and step 2.
+  if (isJoiner === null || (isPending && !session)) {
     return (
       <OnboardingFrame completing={false}>
         <p className="text-sm text-muted-foreground">Preparing onboarding…</p>
@@ -167,9 +170,11 @@ export function OnboardingPageContent({
     return <Navigate to="/$orgSlug" params={{ orgSlug }} replace />
   }
 
-  if (organizations && organizations.length > 0) {
-    const fallbackOrgSlug =
-      createdOrgSlug ?? (organizations[0]?.slug as string | undefined)
+  // Skipped once they create an org here: the page moves the URL itself, and
+  // the org list can arrive before it (the old create-org slide skipped this
+  // too). Redirecting in between would remount the page.
+  if (createdOrgSlug === null && organizations && organizations.length > 0) {
+    const fallbackOrgSlug = organizations[0]?.slug as string | undefined
     const urlOrgIsKnown =
       urlOrgSlug !== null &&
       organizations.some((org: { slug: string }) => org.slug === urlOrgSlug)
@@ -272,7 +277,7 @@ export function OnboardingPageContent({
         ) : null
       }
     >
-      <div className="grid gap-16 lg:grid-cols-[minmax(0,30rem)_minmax(0,1fr)]">
+      <div className="onb-in-1 grid gap-16 lg:grid-cols-[minmax(0,30rem)_minmax(0,1fr)]">
         <section aria-labelledby="onboarding-title" className="flex flex-col">
           <h1
             id="onboarding-title"
@@ -392,7 +397,7 @@ export function OnboardingPageContent({
             </div>
           ) : null}
         </section>
-        <div className="hidden md:block lg:self-center">
+        <div className="hidden md:block lg:sticky lg:top-8 lg:self-start">
           <OnboardingDiagram
             view={view}
             githubAccount={installation?.accountSlug ?? null}
@@ -416,7 +421,7 @@ function OnboardingFrame({
 }) {
   return (
     <main
-      className={`min-h-screen bg-zinc-950 text-foreground transition-opacity duration-300 ${
+      className={`onb-page-in min-h-screen bg-zinc-950 text-foreground transition-opacity duration-300 ${
         completing ? "opacity-0" : "opacity-100"
       }`}
     >

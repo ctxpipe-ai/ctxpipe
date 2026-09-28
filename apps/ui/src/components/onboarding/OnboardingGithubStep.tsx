@@ -1,8 +1,10 @@
 import HyperDX from "@hyperdx/browser"
+import { IconExternalLink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { GITHUB_FINALISING_MIN_MS } from "@/components/onboarding/constants"
 import { Button } from "@/components/ui/Button"
+import { ComboBox, ComboBoxItem } from "@/components/ui/ComboBox"
 import { getConnectorContextRepositoryCreateUrl } from "@/features/connectors/components/ConnectorContextRepositoryGuidance"
 import {
   fetchGithubInstallationSummary,
@@ -16,6 +18,8 @@ import {
 import { fetchInstallationReposPage } from "@/features/repositories/components/GitHubRepositorySetupForm"
 import {
   collectInstallationRepoPages,
+  type GithubRepoItem,
+  sortGithubRepos,
   suggestedContextRepository,
 } from "@/features/repositories/githubRepoSelection"
 import { client } from "@/lib/api"
@@ -39,8 +43,21 @@ export function OnboardingGithubStep({
   const [setupError, setSetupError] = useState<string | null>(null)
   const [connectOptimistic, setConnectOptimistic] = useState(false)
   const [editing, setEditing] = useState(false)
-  // Set once they open GitHub to create ctxpipe-context; we watch for it.
-  const [awaitingContextRepo, setAwaitingContextRepo] = useState(false)
+  // Repository ids GitHub shared when they went to create a context
+  // repository; the first new one is theirs, whatever they named it.
+  const [knownRepoIds, setKnownRepoIds] = useState<Set<number> | null>(null)
+  // undefined: pick automatically. null: none. A number: their choice.
+  const [pickedContextId, setPickedContextId] = useState<
+    number | null | undefined
+  >(undefined)
+  const pickContextRepo = (repos: readonly GithubRepoItem[]) =>
+    pickedContextId === undefined
+      ? (suggestedContextRepository(repos) ??
+        (knownRepoIds
+          ? repos.find((repo) => !knownRepoIds.has(repo.id))
+          : undefined) ??
+        null)
+      : (repos.find((repo) => repo.id === pickedContextId) ?? null)
   const installed = hasInstallation || connectOptimistic
 
   const { data: installation } = useQuery({
@@ -58,15 +75,14 @@ export function OnboardingGithubStep({
       ),
     enabled: installed,
     refetchInterval: (query) =>
-      awaitingContextRepo &&
-      !suggestedContextRepository(query.state.data?.repositories ?? [])
+      knownRepoIds && !pickContextRepo(query.state.data?.repositories ?? [])
         ? 4000
         : false,
-    refetchOnWindowFocus: awaitingContextRepo ? "always" : true,
+    refetchOnWindowFocus: knownRepoIds ? "always" : true,
   })
   const grantedRepos = granted.data?.repositories ?? []
   const grantsAll = granted.data?.repositorySelection === "all"
-  const contextRepo = suggestedContextRepository(grantedRepos) ?? null
+  const contextRepo = pickContextRepo(grantedRepos)
 
   const { data: setupData, isPending: setupPending } = useQuery({
     queryKey: ["github-installation-setup", orgSlug],
@@ -184,6 +200,10 @@ export function OnboardingGithubStep({
     }
     const count = grantedRepos.length
     const shown = grantedRepos.slice(0, 5)
+    const canIndex = count > 0 && !granted.isError
+    const repoWord = count === 1 ? "repository" : "repositories"
+    // One primary action (Index). Changing the selection and the optional
+    // context repository sit beside what they change, as quiet links.
     return (
       <>
         {granted.isError ? (
@@ -198,92 +218,141 @@ export function OnboardingGithubStep({
           </p>
         ) : (
           <>
-            <p className="m-0 text-sm text-muted-foreground">
-              {grantsAll
-                ? `You gave ctx| access to all ${count} repositories in GitHub. It indexes them and any you add later.`
-                : `You gave ctx| access to ${count} ${count === 1 ? "repository" : "repositories"} in GitHub. It indexes ${count === 1 ? "it" : "them"}.`}
-            </p>
-            <ul className="m-0 flex list-none flex-col gap-1 p-0">
-              {shown.map((repo) => (
-                <li
-                  key={repo.id}
-                  className="truncate font-mono text-xs text-zinc-300"
+            <section className="flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="ctx-label m-0">Repositories</h3>
+                <Button
+                  variant="quiet"
+                  className="h-auto rounded-none px-0 text-sm"
+                  isDisabled={indexGranted.isPending}
+                  onPress={() => setEditing(true)}
                 >
-                  {repo.full_name}
-                </li>
-              ))}
-              {count > shown.length ? (
-                <li className="font-mono text-xs text-zinc-500">
-                  +{count - shown.length} more
-                </li>
-              ) : null}
-            </ul>
-            {contextRepo ? (
+                  Change
+                </Button>
+              </div>
               <p className="m-0 text-sm text-muted-foreground">
-                Context repository:{" "}
-                <code className="font-mono text-zinc-200">
-                  {contextRepo.full_name}
-                </code>
+                {grantsAll
+                  ? `All ${count} ${repoWord} you shared in GitHub, and any you add later.`
+                  : `The ${count} ${repoWord} you shared in GitHub.`}
               </p>
-            ) : (
-              <div className="flex flex-col gap-3 border border-white/10 p-4">
-                <span className="text-sm font-medium text-zinc-100">
-                  Dedicated context repository
-                </span>
-                <span className="text-sm text-muted-foreground">
-                  ctx| writes pull-request capture and connector content to one
-                  repository, usually{" "}
-                  <code className="font-mono text-zinc-200">
-                    ctxpipe-context
-                  </code>
-                  . Optional: you can add it later.
-                </span>
-                {awaitingContextRepo ? (
-                  <output className="inline-flex flex-wrap items-center gap-2 text-sm text-zinc-200">
-                    <span className="ctx-indexing-dot" aria-hidden />
-                    Waiting for ctxpipe-context to appear.
-                    {grantsAll ? null : (
-                      <>
-                        {" "}
-                        Then{" "}
-                        <a
-                          href={
-                            githubGrantAccessUrls({
-                              appSlug: installation?.appSlug,
-                              manageUrl: granted.data?.manageUrl,
-                            })[0]
-                          }
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-teal-400 hover:text-teal-300"
-                        >
-                          give ctx| access to it
-                        </a>
-                        .
-                      </>
-                    )}
-                  </output>
+              <ul className="m-0 flex list-none flex-col gap-1 p-0">
+                {shown.map((repo) => (
+                  <li
+                    key={repo.id}
+                    className="truncate font-mono text-xs text-zinc-300"
+                  >
+                    {repo.full_name}
+                  </li>
+                ))}
+                {count > shown.length ? (
+                  <li className="font-mono text-xs text-zinc-500">
+                    +{count - shown.length} more
+                  </li>
                 ) : null}
-                <div>
+              </ul>
+            </section>
+            <section className="flex flex-col gap-2 border-t border-white/5 pt-4">
+              <h3 className="ctx-label m-0">
+                Context repository{" "}
+                <span className="normal-case tracking-normal">· optional</span>
+              </h3>
+              {contextRepo ? (
+                <div className="flex items-center justify-between gap-3">
+                  <code className="truncate font-mono text-xs text-zinc-300">
+                    {contextRepo.full_name}
+                  </code>
                   <Button
-                    variant="secondary"
-                    className="rounded-none"
+                    variant="quiet"
+                    className="h-auto rounded-none px-0 text-sm"
                     onPress={() => {
-                      window.open(
-                        getConnectorContextRepositoryCreateUrl(
-                          installation?.accountSlug,
-                        ),
-                        "_blank",
-                        "noopener,noreferrer",
-                      )
-                      setAwaitingContextRepo(true)
+                      setPickedContextId(null)
+                      setKnownRepoIds(null)
                     }}
                   >
-                    Create ctxpipe-context on GitHub
+                    Change
                   </Button>
                 </div>
-              </div>
-            )}
+              ) : (
+                <>
+                  {knownRepoIds ? (
+                    <ol className="m-0 flex list-none flex-col gap-1 p-0 text-sm text-muted-foreground">
+                      <li>1. Create it in GitHub. Any name works.</li>
+                      {grantsAll ? null : (
+                        <li>
+                          2.{" "}
+                          <a
+                            href={
+                              githubGrantAccessUrls({
+                                appSlug: installation?.appSlug,
+                                manageUrl: granted.data?.manageUrl,
+                              })[0]
+                            }
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
+                          >
+                            Share it with ctx|
+                            <IconExternalLink
+                              className="size-3.5"
+                              aria-hidden
+                            />
+                          </a>{" "}
+                          in GitHub.
+                        </li>
+                      )}
+                      <li>
+                        <output className="inline-flex items-center gap-2 text-zinc-200">
+                          <span className="ctx-indexing-dot" aria-hidden />
+                          Watching for the new repository
+                        </output>
+                      </li>
+                    </ol>
+                  ) : (
+                    <p className="m-0 text-sm text-muted-foreground">
+                      One repository for pull-request capture and connector
+                      content.{" "}
+                      <a
+                        href={getConnectorContextRepositoryCreateUrl(
+                          installation?.accountSlug,
+                        )}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={() => {
+                          setPickedContextId(undefined)
+                          setKnownRepoIds(
+                            new Set(grantedRepos.map((repo) => repo.id)),
+                          )
+                        }}
+                        className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
+                      >
+                        Create one on GitHub
+                        <IconExternalLink className="size-3.5" aria-hidden />
+                      </a>
+                    </p>
+                  )}
+                  <ComboBox
+                    label="Or use a repository you already shared"
+                    placeholder="Search repositories"
+                    selectedKey={null}
+                    items={sortGithubRepos(grantedRepos, "name-asc")}
+                    onSelectionChange={(key) => {
+                      if (key == null || key === "") return
+                      setPickedContextId(Number(key))
+                      setKnownRepoIds(null)
+                    }}
+                  >
+                    {(repo) => (
+                      <ComboBoxItem
+                        id={String(repo.id)}
+                        textValue={repo.full_name}
+                      >
+                        {repo.full_name}
+                      </ComboBoxItem>
+                    )}
+                  </ComboBox>
+                </>
+              )}
+            </section>
           </>
         )}
         {indexGranted.error ? (
@@ -291,25 +360,25 @@ export function OnboardingGithubStep({
             {indexGranted.error.message}
           </p>
         ) : null}
-        <div className="flex flex-wrap items-center gap-3">
-          {count > 0 && !granted.isError ? (
+        <div className="flex flex-wrap items-center gap-6 pt-2">
+          {canIndex ? (
             <Button
               variant="primary"
               className="rounded-none"
               isPending={indexGranted.isPending}
               onPress={() => indexGranted.mutate()}
             >
-              {`Index ${count} ${count === 1 ? "repository" : "repositories"}`}
+              {`Index ${count} ${repoWord}`}
             </Button>
-          ) : null}
-          <Button
-            variant="secondary"
-            className="rounded-none"
-            isDisabled={indexGranted.isPending}
-            onPress={() => setEditing(true)}
-          >
-            Change selection
-          </Button>
+          ) : (
+            <Button
+              variant="primary"
+              className="rounded-none"
+              onPress={() => setEditing(true)}
+            >
+              Change selection
+            </Button>
+          )}
           <Button
             variant="ghost"
             className="rounded-none"

@@ -40,6 +40,8 @@ export type OnboardingView = {
   beats: Record<OnboardingStepId, BeatState>
   hasSource: boolean
   frameLabel: string
+  /** The frame shows "your-org" until a slug is typed. */
+  framePlaceholder: boolean
   /** Mono line under the context layer. */
   indexingLabel: string
   caption: string
@@ -122,6 +124,7 @@ export function deriveOnboardingView(facts: OnboardingFacts): OnboardingView {
     beats,
     hasSource,
     frameLabel: facts.orgSlug ?? (facts.typedSlug.trim() || "your-org"),
+    framePlaceholder: facts.orgSlug === null && facts.typedSlug.trim() === "",
     indexingLabel,
     caption,
   }
