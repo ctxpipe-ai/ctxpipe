@@ -187,6 +187,38 @@ describe("linearSyncContent", () => {
     )
   })
 
+  it("does not mark OpenWorkflow suspension as a failed sync", async () => {
+    mocks.getTarget.mockResolvedValue({
+      repositoryId: "repo_1",
+      repositoryName: "acme/context",
+      githubConnectionId: "con_github",
+      branch: "main",
+      enabled: true,
+      setupPhase: "initial_sync",
+    })
+    mocks.getConnection.mockResolvedValue(linearConnection)
+    mocks.loadConfig.mockResolvedValue({
+      workspaceId: "workspace_1",
+      scopes: [],
+    })
+    const sleepSignal = new Error("suspend")
+    sleepSignal.name = "SleepSignal"
+    mocks.runIngestion.mockRejectedValueOnce(sleepSignal)
+    const step = {
+      run: async (_opts: { name: string }, operation: () => Promise<unknown>) =>
+        operation(),
+    }
+
+    await expect(
+      linearSyncContent.fn({
+        input: { orgId: "org_1", connectionId: "con_linear" },
+        step,
+      } as never),
+    ).rejects.toBe(sleepSignal)
+
+    expect(mocks.finalizeTarget).not.toHaveBeenCalled()
+  })
+
   it("checks the branch tip when replaying an unchanged initial sync", async () => {
     mocks.getTarget.mockResolvedValue({
       repositoryId: "repo_1",

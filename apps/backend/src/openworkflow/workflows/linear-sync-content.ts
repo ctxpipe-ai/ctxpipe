@@ -22,6 +22,7 @@ import {
 import { commitLinearMirror } from "../../services/linear/sync.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
+import { isWorkflowControlSignal } from "../isSleepSignal.js"
 
 const LinearSyncContentInputSchema = z.object({
   orgId: z.string().min(1),
@@ -78,6 +79,7 @@ export const linearSyncContent = defineWorkflow(
         return { connection, target, config }
       })
       .catch(async (error) => {
+        if (isWorkflowControlSignal(error)) throw error
         await markSyncFailed()
         throw error
       })
@@ -172,6 +174,7 @@ export const linearSyncContent = defineWorkflow(
       )
       return result
     } catch (error) {
+      if (isWorkflowControlSignal(error)) throw error
       await markSyncFailed()
       throw error
     }
