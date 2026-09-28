@@ -79,10 +79,18 @@ describe("linearGraphql endpoint budgets", () => {
     )
     const client = new LinearClient({ accessToken: "endpoint-isolation" })
 
-    await linearGraphql(client, generated.UserRecordDocument, { id: "user-1" })
-    const pending = linearGraphql(client, generated.UserRecordDocument, {
-      id: "user-2",
-    })
+    await linearGraphql(
+      client,
+      generated.UserRecordDocument,
+      { id: "user-1" },
+      "endpoint-isolation",
+    )
+    const pending = linearGraphql(
+      client,
+      generated.UserRecordDocument,
+      { id: "user-2" },
+      "endpoint-isolation",
+    )
     await vi.advanceTimersByTimeAsync(1_000)
     await pending
 
@@ -106,9 +114,9 @@ describe("estimateLinearQueryComplexity", () => {
     )
     const client = new LinearClient({ accessToken: "test-token" })
     const rawRequest = vi.spyOn(client.client, "rawRequest")
-    await expect(linearGraphql(client, document, {})).rejects.toBeInstanceOf(
-      LinearQueryTooComplexError,
-    )
+    await expect(
+      linearGraphql(client, document, {}, "test-token"),
+    ).rejects.toBeInstanceOf(LinearQueryTooComplexError)
     expect(rawRequest).not.toHaveBeenCalled()
   })
 

@@ -121,8 +121,16 @@ export async function buildLinearIncrementalChanges(input: {
     function getSelectedInitiativeDescendants() {
       selectedInitiativeDescendants ??= Promise.all(
         [...selectedInitiatives].map(async (initiativeId) => ({
-          projectIds: await loadInitiativeProjectIds(client, initiativeId),
-          documentIds: await loadInitiativeDocumentIds(client, initiativeId),
+          projectIds: await loadInitiativeProjectIds(
+            client,
+            accessToken,
+            initiativeId,
+          ),
+          documentIds: await loadInitiativeDocumentIds(
+            client,
+            accessToken,
+            initiativeId,
+          ),
         })),
       ).then((descendants) => ({
         projectIds: new Set(
@@ -189,7 +197,7 @@ export async function buildLinearIncrementalChanges(input: {
         let mirrored: LinearMirrorFile[] | undefined
         switch (entity.entityType) {
           case "team": {
-            const team = await loadTeam(client, entity.externalId)
+            const team = await loadTeam(client, accessToken, entity.externalId)
             if (!selectedTeams.has(team.id)) {
               removeExisting(entity.externalId)
               break
@@ -217,6 +225,7 @@ export async function buildLinearIncrementalChanges(input: {
           case "issue": {
             const loaded = await loadIssue(
               client,
+              accessToken,
               entity.externalId,
               includeNeeds,
             )
@@ -263,10 +272,15 @@ export async function buildLinearIncrementalChanges(input: {
             break
           }
           case "project": {
-            const project = await loadProject(client, entity.externalId, {
-              includeNeeds,
-              includeDocuments: false,
-            })
+            const project = await loadProject(
+              client,
+              accessToken,
+              entity.externalId,
+              {
+                includeNeeds,
+                includeDocuments: false,
+              },
+            )
             if (
               !(await projectIsSelectedOrInitiative(project.id)) &&
               !project.teamIds.some((teamId) => selectedTeams.has(teamId))
@@ -322,7 +336,11 @@ export async function buildLinearIncrementalChanges(input: {
             break
           }
           case "document": {
-            const document = await loadDocument(client, entity.externalId)
+            const document = await loadDocument(
+              client,
+              accessToken,
+              entity.externalId,
+            )
             if (
               !selectedDocuments.has(document.id) &&
               !(await projectIsInScope(
@@ -357,7 +375,11 @@ export async function buildLinearIncrementalChanges(input: {
             break
           }
           case "initiative": {
-            const initiative = await loadInitiative(client, entity.externalId)
+            const initiative = await loadInitiative(
+              client,
+              accessToken,
+              entity.externalId,
+            )
             if (!selectedInitiatives.has(initiative.id)) {
               removeExisting(entity.externalId)
               break
@@ -383,7 +405,11 @@ export async function buildLinearIncrementalChanges(input: {
             break
           }
           case "cycle": {
-            const cycle = await loadCycle(client, entity.externalId)
+            const cycle = await loadCycle(
+              client,
+              accessToken,
+              entity.externalId,
+            )
             if (!selectedTeams.has(cycle.teamId)) {
               removeExisting(entity.externalId)
               break
@@ -406,7 +432,11 @@ export async function buildLinearIncrementalChanges(input: {
             break
           }
           case "issueLabel": {
-            const label = await loadIssueLabel(client, entity.externalId)
+            const label = await loadIssueLabel(
+              client,
+              accessToken,
+              entity.externalId,
+            )
             if (!selectedTeams.has(label.teamId ?? "")) {
               removeExisting(entity.externalId)
               break
@@ -425,7 +455,7 @@ export async function buildLinearIncrementalChanges(input: {
           }
           case "user": {
             if (!shouldUpdateExisting(entity.externalId)) break
-            const user = await loadUser(client, entity.externalId)
+            const user = await loadUser(client, accessToken, entity.externalId)
             mirrored = await linearEntityMirrorFiles({
               directory: "users",
               type: "user",

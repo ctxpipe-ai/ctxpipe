@@ -9,7 +9,11 @@ import { useMswServer } from "../../../test/msw.js"
 import type { Env } from "../../config/env.js"
 import type { LinearConnection } from "../../models/linear-connector.js"
 import type { ParsedLinearRepoConfig } from "./config-yaml.js"
-import { buildLinearMirror, fetchLinearMirrorPage } from "./content.js"
+import {
+  collectLinearMirrorPages,
+  fetchLinearMirrorPage,
+  walkLinearMirrorPages,
+} from "./content.js"
 import { resetLinearGraphqlForTests } from "./graphql.js"
 
 const calls: LinearGraphqlCall[] = []
@@ -216,22 +220,43 @@ describe("fetchLinearMirrorPage", () => {
       calls.filter((call) => call.name === "TeamIssuesWithNeeds"),
     ).toHaveLength(1)
     expect(calls.filter((call) => call.name === "IssueComments")).toHaveLength(
-      1,
+      0,
     )
+    expect(page.follows).toEqual([
+      {
+        connection: "issue-comments",
+        entityId: "issue-1",
+        queryId: "issue-1",
+        after: "comment-cursor",
+      },
+    ])
     expect(
       page.files.some((file) => file.path.includes("pro-1--issue-1")),
-    ).toBe(true)
-    expect(page.files.every((file) => !("encoding" in file))).toBe(true)
+    ).toBe(false)
+    expect(page.held).toHaveLength(1)
   })
 })
 
-describe("buildLinearMirror", () => {
-  it("pages issues once per page and follows a comment thread once", async () => {
-    const result = await buildLinearMirror({
-      env: {} as Env,
-      connection,
-      config: config([teamScope]),
+describe("walkLinearMirrorPages", () => {
+  async function walked(scopes: ParsedLinearRepoConfig["scopes"]) {
+    const names: string[] = []
+    const pages = await walkLinearMirrorPages({
+      config: config(scopes),
+      runPage: (name, request) => {
+        names.push(name)
+        return fetchLinearMirrorPage({
+          env: {} as Env,
+          connection,
+          config: config(scopes),
+          request,
+        })
+      },
     })
+    return { ...collectLinearMirrorPages(pages), names }
+  }
+
+  it("pages issues once per page and follows a comment thread in its own step", async () => {
+    const result = await walked([teamScope])
 
     expect(result.failures).toEqual([])
     expect(
@@ -241,28 +266,68 @@ describe("buildLinearMirror", () => {
     expect(calls.filter((call) => call.name === "IssueComments")).toHaveLength(
       1,
     )
+    expect(result.names).toContain(
+      "team-team-1-issues-0-issue-comments-issue-1-0",
+    )
+    const issue = result.files.find((file) =>
+      file.path.includes("pro-1--issue-1"),
+    )
+    expect(issue?.content).toContain("Third")
+  })
+
+  it("refetches a comment page without repeating the stored issue page", async () => {
+    const stored = await fetchLinearMirrorPage({
+      env: {} as Env,
+      connection,
+      config: config([teamScope]),
+      request: { kind: "team-issues", teamId: "team-1", after: null },
+    })
+    calls.length = 0
+    issuePages = 0
+    const pages = await walkLinearMirrorPages({
+      config: config([teamScope]),
+      runPage: (name, request) => {
+        if (name === "team-team-1-issues-0") {
+          return Promise.resolve(JSON.parse(JSON.stringify(stored)))
+        }
+        return fetchLinearMirrorPage({
+          env: {} as Env,
+          connection,
+          config: config([teamScope]),
+          request,
+        })
+      },
+    })
+    const result = collectLinearMirrorPages(pages)
+
     expect(
-      result.files.some((file) => file.path.includes("pro-1--issue-1")),
-    ).toBe(true)
+      calls.filter(
+        (call) =>
+          call.name === "TeamIssuesWithNeeds" && call.variables.after == null,
+      ),
+    ).toHaveLength(0)
+    expect(calls.filter((call) => call.name === "IssueComments")).toHaveLength(
+      1,
+    )
+    expect(
+      result.files.find((file) => file.path.includes("pro-1--issue-1"))
+        ?.content,
+    ).toContain("Third")
   })
 
   it("does not list project issues for a project already covered by its team", async () => {
-    const result = await buildLinearMirror({
-      env: {} as Env,
-      connection,
-      config: config([
-        teamScope,
-        {
-          externalId: "initiative-1",
-          type: "initiative",
-          title: "Roadmap",
-          url: null,
-          parentExternalId: null,
-          teamId: null,
-          teamKey: null,
-        },
-      ]),
-    })
+    const result = await walked([
+      teamScope,
+      {
+        externalId: "initiative-1",
+        type: "initiative",
+        title: "Roadmap",
+        url: null,
+        parentExternalId: null,
+        teamId: null,
+        teamKey: null,
+      },
+    ])
 
     expect(result.failures).toEqual([])
     expect(calls.some((call) => call.name.startsWith("ProjectIssues"))).toBe(
@@ -274,21 +339,17 @@ describe("buildLinearMirror", () => {
   })
 
   it("pages project issues when the project is in scope without its team", async () => {
-    const result = await buildLinearMirror({
-      env: {} as Env,
-      connection,
-      config: config([
-        {
-          externalId: "project-9",
-          type: "project",
-          title: "Launch",
-          url: null,
-          parentExternalId: null,
-          teamId: null,
-          teamKey: null,
-        },
-      ]),
-    })
+    const result = await walked([
+      {
+        externalId: "project-9",
+        type: "project",
+        title: "Launch",
+        url: null,
+        parentExternalId: null,
+        teamId: null,
+        teamKey: null,
+      },
+    ])
 
     expect(result.failures).toEqual([])
     expect(calls.map((call) => call.name)).toContain("ProjectIssuesWithNeeds")
@@ -301,22 +362,18 @@ describe("buildLinearMirror", () => {
       projectNode("project-2", ["team-1", "team-2"]),
     ]
 
-    const result = await buildLinearMirror({
-      env: {} as Env,
-      connection,
-      config: config([
-        teamScope,
-        {
-          externalId: "project-2",
-          type: "project",
-          title: "Shared",
-          url: null,
-          parentExternalId: null,
-          teamId: null,
-          teamKey: null,
-        },
-      ]),
-    })
+    const result = await walked([
+      teamScope,
+      {
+        externalId: "project-2",
+        type: "project",
+        title: "Shared",
+        url: null,
+        parentExternalId: null,
+        teamId: null,
+        teamKey: null,
+      },
+    ])
 
     expect(result.failures).toEqual([])
     expect(

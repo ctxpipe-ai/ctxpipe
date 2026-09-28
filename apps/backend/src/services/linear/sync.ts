@@ -23,7 +23,7 @@ import {
   downloadLinearMirrorAssets,
   omitUnchangedLinearFiles,
 } from "./assets.js"
-import type { LinearTokenRefreshHandler } from "./client.js"
+import { type LinearTokenRefreshHandler, withLinearClient } from "./client.js"
 import { LINEAR_CONFIG_PATH } from "./config-from-repo.js"
 import type { ParsedLinearRepoConfig } from "./config-yaml.js"
 import {
@@ -32,7 +32,6 @@ import {
   parseLinearConfigYamlContent,
   renderLinearConfigYaml,
 } from "./config-yaml.js"
-import { buildLinearMirror } from "./content.js"
 import {
   buildLinearIncrementalChanges,
   type LinearEntityChange,
@@ -122,46 +121,6 @@ export async function syncLinearConfigYaml(input: {
   }
 }
 
-export async function syncLinearContentToGit(input: {
-  orgId: string
-  env: Env
-  connection: LinearConnection
-  target: LinearBindingWithRepo
-  config: ParsedLinearRepoConfig
-  onTokenRefresh?: LinearTokenRefreshHandler
-}): Promise<{
-  status: "completed" | "partial_failed" | "failed"
-  written: number
-  deleted: number
-  commitSha?: string
-  failures: Array<{ type: string; id: string; message: string }>
-}> {
-  const githubConnectionId = input.target.githubConnectionId
-  if (!githubConnectionId) {
-    throw new Error("Linear sync repository has no GitHub connection")
-  }
-  if (input.config.workspaceId !== input.connection.workspaceId) {
-    throw new Error(
-      "linear/config.yaml workspace does not match the Linear connection",
-    )
-  }
-  const mirror = await buildLinearMirror({
-    env: input.env,
-    connection: input.connection,
-    config: input.config,
-    onTokenRefresh: input.onTokenRefresh,
-  })
-  return commitLinearMirror({
-    orgId: input.orgId,
-    env: input.env,
-    connection: input.connection,
-    target: input.target,
-    files: mirror.files,
-    failures: mirror.failures,
-    preservePathPrefixes: mirror.preservePathPrefixes,
-  })
-}
-
 export async function commitLinearMirror(input: {
   orgId: string
   env: Env
@@ -170,6 +129,7 @@ export async function commitLinearMirror(input: {
   files: Array<{ path: string; content: string; encoding?: "utf-8" | "base64" }>
   failures: Array<{ type: string; id: string; message: string }>
   preservePathPrefixes?: string[]
+  onTokenRefresh?: LinearTokenRefreshHandler
 }): Promise<{
   status: "completed" | "partial_failed" | "failed"
   written: number
@@ -197,6 +157,14 @@ export async function commitLinearMirror(input: {
     githubConnectionId,
     branch: input.target.branch,
   })
+  await withLinearClient(
+    {
+      env: input.env,
+      connection: input.connection,
+      onTokenRefresh: input.onTokenRefresh,
+    },
+    async () => undefined,
+  )
   const downloaded = await downloadLinearMirrorAssets({
     files: input.files,
     accessToken: linearAccessToken(input.connection),

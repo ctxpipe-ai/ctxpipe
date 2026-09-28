@@ -252,6 +252,10 @@ export async function discoverLinearScopes(input: {
   onTokenRefresh?: LinearTokenRefreshHandler
 }): Promise<LinearDiscoveredScope[]> {
   return withLinearClient(input, async (client) => {
+    const accessToken = input.connection.accessToken
+    if (!accessToken) {
+      throw new Error("Linear connection is missing OAuth credentials")
+    }
     const teams: NonNullable<DiscoverScopesQuery["teams"]>["nodes"] = []
     const projects: NonNullable<DiscoverScopesQuery["projects"]>["nodes"] = []
     const documents: NonNullable<DiscoverScopesQuery["documents"]>["nodes"] = []
@@ -273,16 +277,21 @@ export async function discoverLinearScopes(input: {
       includeDocuments ||
       includeInitiatives
     ) {
-      const data = await linearGraphql(client, DiscoverScopesDocument, {
-        teamsAfter,
-        projectsAfter,
-        documentsAfter,
-        initiativesAfter,
-        includeTeams,
-        includeProjects,
-        includeDocuments,
-        includeInitiatives,
-      })
+      const data = await linearGraphql(
+        client,
+        DiscoverScopesDocument,
+        {
+          teamsAfter,
+          projectsAfter,
+          documentsAfter,
+          initiativesAfter,
+          includeTeams,
+          includeProjects,
+          includeDocuments,
+          includeInitiatives,
+        },
+        accessToken,
+      )
       if (includeTeams) {
         const page = takeDiscoverPage(data.teams)
         teams.push(...page.nodes)

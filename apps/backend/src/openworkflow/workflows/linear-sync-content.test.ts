@@ -1,4 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  emptyLinearPage,
+  installLinearGraphql,
+  type LinearGraphqlCall,
+  linearIssueData,
+} from "../../../test/linear-graphql.js"
+import { useMswServer } from "../../../test/msw.js"
 
 const mocks = vi.hoisted(() => ({
   finalizeTarget: vi.fn(),
@@ -6,7 +13,6 @@ const mocks = vi.hoisted(() => ({
   getTarget: vi.fn(),
   loadConfig: vi.fn(),
   runIngestion: vi.fn(),
-  fetchPage: vi.fn(),
   commitMirror: vi.fn(),
 }))
 
@@ -30,11 +36,7 @@ vi.mock("../../observability/logger.js", () => ({
 vi.mock("../../services/linear/config-from-repo.js", () => ({
   loadLinearScopeFromRepo: mocks.loadConfig,
 }))
-vi.mock("../../services/linear/content.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../../services/linear/content.js")>()
-  return { ...actual, fetchLinearMirrorPage: mocks.fetchPage }
-})
+// commitLinearMirror writes through the GitHub installation client. This test records that step.
 vi.mock("../../services/linear/sync.js", () => ({
   commitLinearMirror: mocks.commitMirror,
 }))
@@ -42,7 +44,12 @@ vi.mock("../enqueue-repository-ingestion.js", () => ({
   runConnectorRepositoryIngestionWorkflow: mocks.runIngestion,
 }))
 
+import { resetLinearGraphqlForTests } from "../../services/linear/graphql.js"
 import { linearSyncContent } from "./linear-sync-content.js"
+
+const linearCalls: LinearGraphqlCall[] = []
+// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
+const server = useMswServer()
 
 function emptyPage(nextAfter: string | null = null) {
   return {
@@ -52,12 +59,65 @@ function emptyPage(nextAfter: string | null = null) {
     projects: [] as Array<{ id: string; teamIds: string[] }>,
     documentIds: [] as string[],
     childIds: [] as string[],
+    follows: [],
+    held: [],
   }
+}
+
+const linearConnection = {
+  id: "con_linear",
+  status: "installed",
+  workspaceId: "workspace_1",
+  accessToken: "access-token",
+  refreshToken: null,
+  accessTokenExpiresAt: null,
+  workspaceUrlKey: "acme",
 }
 
 describe("linearSyncContent", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    resetLinearGraphqlForTests()
+    linearCalls.length = 0
+    installLinearGraphql(server, linearCalls, (call) => {
+      if (call.name === "TeamRecord") {
+        return {
+          team: {
+            id: "team-1",
+            name: "Product",
+            key: "PRO",
+            description: null,
+            createdAt: "2026-08-01T00:00:00.000Z",
+            updatedAt: "2026-08-01T00:00:00.000Z",
+            parent: null,
+          },
+        }
+      }
+      if (call.name === "TeamIssues" || call.name === "TeamIssuesWithNeeds") {
+        if (call.variables.after == null) {
+          return {
+            team: {
+              issues: {
+                nodes: [linearIssueData()],
+                pageInfo: { hasNextPage: true, endCursor: "issue-cursor" },
+              },
+            },
+          }
+        }
+        return { team: { issues: emptyLinearPage() } }
+      }
+      if (
+        call.name === "TeamProjects" ||
+        call.name === "TeamProjectsWithNeeds"
+      ) {
+        return { team: { projects: emptyLinearPage() } }
+      }
+      if (call.name === "TeamCycles")
+        return { team: { cycles: emptyLinearPage() } }
+      if (call.name === "TeamLabels")
+        return { team: { labels: emptyLinearPage() } }
+      return {}
+    })
     mocks.finalizeTarget.mockResolvedValue(true)
     mocks.commitMirror.mockResolvedValue({
       status: "completed",
@@ -66,22 +126,6 @@ describe("linearSyncContent", () => {
       commitSha: "sha-linear",
       failures: [],
     })
-    mocks.fetchPage.mockImplementation(
-      async (input: { request: { kind: string; after?: string | null } }) => {
-        if (
-          input.request.kind === "team-issues" &&
-          input.request.after == null
-        ) {
-          return {
-            ...emptyPage("issue-cursor"),
-            files: [
-              { path: "linear/issues/pro-1--issue-1.md", content: "one" },
-            ],
-          }
-        }
-        return emptyPage()
-      },
-    )
   })
 
   it("marks setup failed when loading sync context fails", async () => {
@@ -112,11 +156,7 @@ describe("linearSyncContent", () => {
       enabled: true,
       setupPhase: "initial_sync",
     })
-    mocks.getConnection.mockResolvedValue({
-      id: "con_linear",
-      status: "installed",
-      workspaceId: "workspace_1",
-    })
+    mocks.getConnection.mockResolvedValue(linearConnection)
     mocks.loadConfig.mockResolvedValue({
       workspaceId: "workspace_1",
       scopes: [],
@@ -156,11 +196,7 @@ describe("linearSyncContent", () => {
       enabled: true,
       setupPhase: "initial_sync",
     })
-    mocks.getConnection.mockResolvedValue({
-      id: "con_linear",
-      status: "installed",
-      workspaceId: "workspace_1",
-    })
+    mocks.getConnection.mockResolvedValue(linearConnection)
     mocks.loadConfig.mockResolvedValue({
       workspaceId: "workspace_1",
       scopes: [],
@@ -214,11 +250,7 @@ describe("linearSyncContent", () => {
       ) => {
         if (options.name === "load-linear-sync-context") {
           return {
-            connection: {
-              id: "con_linear",
-              status: "installed",
-              workspaceId: "workspace_1",
-            },
+            connection: linearConnection,
             target: checkpointedTarget,
             config: { workspaceId: "workspace_1", scopes: [] },
           }
@@ -254,11 +286,7 @@ describe("linearSyncContent", () => {
       enabled: true,
       setupPhase: "initial_sync",
     })
-    mocks.getConnection.mockResolvedValue({
-      id: "con_linear",
-      status: "installed",
-      workspaceId: "workspace_1",
-    })
+    mocks.getConnection.mockResolvedValue(linearConnection)
     mocks.loadConfig.mockResolvedValue({
       workspaceId: "workspace_1",
       scopes: [
@@ -313,11 +341,7 @@ describe("linearSyncContent", () => {
       ) => {
         if (options.name === "load-linear-sync-context") {
           return {
-            connection: {
-              id: "con_linear",
-              status: "installed",
-              workspaceId: "workspace_1",
-            },
+            connection: linearConnection,
             target: {
               repositoryId: "repo_1",
               repositoryName: "acme/context",
@@ -362,22 +386,19 @@ describe("linearSyncContent", () => {
 
     expect(executed).not.toContain("team-team-1-issues-0")
     expect(executed).toContain("team-team-1-issues-1")
-    expect(mocks.fetchPage).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        request: expect.objectContaining({
-          kind: "team-issues",
-          after: null,
-        }),
-      }),
-    )
-    expect(mocks.fetchPage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        request: expect.objectContaining({
-          kind: "team-issues",
-          after: "issue-cursor",
-        }),
-      }),
-    )
+    expect(
+      linearCalls.some(
+        (call) =>
+          call.name.startsWith("TeamIssues") && call.variables.after == null,
+      ),
+    ).toBe(false)
+    expect(
+      linearCalls.some(
+        (call) =>
+          call.name.startsWith("TeamIssues") &&
+          call.variables.after === "issue-cursor",
+      ),
+    ).toBe(true)
     expect(mocks.commitMirror).toHaveBeenCalledTimes(1)
   })
 })

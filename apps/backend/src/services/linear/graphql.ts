@@ -51,14 +51,19 @@ export async function linearGraphql<
   client: LinearClient,
   document: TypedDocumentNode<TData, TVariables>,
   variables: TVariables,
+  accessToken: string,
 ): Promise<TData> {
   const estimate = cachedQueryComplexity(document, variables)
   if (estimate > linearQueryComplexityCeiling) {
     throw new LinearQueryTooComplexError(estimate)
   }
-  const token = accessTokenKey(client)
-  return enqueue(token, () =>
-    requestWithBudget(client, print(document), variables, budgetFor(token)),
+  return enqueue(accessToken, () =>
+    requestWithBudget(
+      client,
+      print(document),
+      variables,
+      budgetFor(accessToken),
+    ),
   )
 }
 
@@ -162,22 +167,6 @@ function budgetFor(token: string): Budget {
   const created: Budget = { calls: [], tail: Promise.resolve() }
   budgets.set(token, created)
   return created
-}
-
-function accessTokenKey(client: LinearClient): string {
-  const headers = client.options?.headers
-  if (!headers) return ""
-  if (headers instanceof Headers) return headers.get("authorization") ?? ""
-  if (Array.isArray(headers)) {
-    const match = headers.find(
-      ([name]) => name.toLowerCase() === "authorization",
-    )
-    return match?.[1] ?? ""
-  }
-  for (const [name, value] of Object.entries(headers)) {
-    if (name.toLowerCase() === "authorization") return value
-  }
-  return ""
 }
 
 function nextWaitMs(budget: Budget, now = Date.now()): number {

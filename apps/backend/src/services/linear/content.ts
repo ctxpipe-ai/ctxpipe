@@ -5,20 +5,27 @@ import type { ParsedLinearRepoConfig } from "./config-yaml.js"
 import { renderLinearEntity, renderLinearIssue } from "./converter.js"
 import type { LinearActorFragment } from "./documents.generated.js"
 import {
+  applyLinearFollowToDocument,
+  applyLinearFollowToInitiative,
+  applyLinearFollowToIssue,
+  applyLinearFollowToProject,
+  type LinearFollow,
   type LoadedCycle,
   type LoadedDocument,
+  type LoadedInitiative,
   type LoadedIssue,
   type LoadedLabel,
   type LoadedNeed,
   type LoadedProject,
   linearActorName,
-  loadDocument,
-  loadInitiative,
-  loadProject,
   loadTeam,
+  readDocumentRecord,
   readInitiativeDocumentPage,
   readInitiativeProjectPage,
+  readInitiativeRecord,
+  readLinearFollow,
   readProjectIssuePage,
+  readProjectRecord,
   readTeamCyclePage,
   readTeamIssuePage,
   readTeamLabelPage,
@@ -37,6 +44,13 @@ export type LinearMirrorPageRequest =
   | { kind: "initiative-projects"; initiativeId: string; after: string | null }
   | { kind: "initiative-documents"; initiativeId: string; after: string | null }
   | { kind: "document"; documentId: string }
+  | { kind: "follow"; follow: LinearFollow; hold: LinearMirrorHold }
+
+export type LinearMirrorHold =
+  | { kind: "issue"; loaded: LoadedIssue }
+  | { kind: "project"; loaded: LoadedProject }
+  | { kind: "initiative"; loaded: LoadedInitiative }
+  | { kind: "document"; loaded: LoadedDocument }
 
 export type LinearMirrorPage = {
   files: Array<{ path: string; content: string }>
@@ -45,12 +59,8 @@ export type LinearMirrorPage = {
   projects: Array<{ id: string; teamIds: string[] }>
   documentIds: string[]
   childIds: string[]
-}
-
-export type LinearMirrorBuildResult = {
-  files: Array<{ path: string; content: string }>
-  failures: Array<{ type: string; id: string; message: string }>
-  preservePathPrefixes: string[]
+  follows: LinearFollow[]
+  held: LinearMirrorHold[]
 }
 
 function errorMessage(error: unknown): string {
@@ -231,9 +241,7 @@ function createTextPage(workspaceUrlKey: string | null) {
     )
   }
 
-  function addInitiative(
-    initiative: Awaited<ReturnType<typeof loadInitiative>>,
-  ) {
+  function addInitiative(initiative: LoadedInitiative) {
     addFile(
       renderLinearEntity({
         preserveSourceUrls: true,
@@ -283,6 +291,8 @@ function createTextPage(workspaceUrlKey: string | null) {
   function finish(
     nextAfter: string | null,
     childIds: string[] = [],
+    follows: LinearFollow[] = [],
+    held: LinearMirrorHold[] = [],
   ): LinearMirrorPage {
     return {
       files: [...files.values()],
@@ -291,6 +301,8 @@ function createTextPage(workspaceUrlKey: string | null) {
       projects,
       documentIds: [...documentIds],
       childIds,
+      follows,
+      held,
     }
   }
 
@@ -316,47 +328,65 @@ export async function fetchLinearMirrorPage(input: {
 }): Promise<LinearMirrorPage> {
   const includeNeeds = input.config.customerRequests === "limited"
   return withLinearClient(input, async (client) => {
+    const accessToken = input.connection.accessToken
+    if (!accessToken) {
+      throw new Error("Linear connection is missing OAuth credentials")
+    }
     const page = createTextPage(input.connection.workspaceUrlKey)
     const request = input.request
     switch (request.kind) {
       case "team-record": {
-        const team = await loadTeam(client, request.teamId)
+        const team = await loadTeam(client, accessToken, request.teamId)
         page.addTeam(team)
         return page.finish(null)
       }
       case "team-issues": {
         const loaded = await readTeamIssuePage(
           client,
+          accessToken,
           request.teamId,
           includeNeeds,
           request.after,
         )
-        for (const issue of loaded.issues) page.addIssue(issue)
-        return page.finish(loaded.nextAfter)
+        return page.finish(
+          loaded.nextAfter,
+          [],
+          ...placeReads(
+            loaded.issues,
+            (issue) => page.addIssue(issue),
+            (issue) => ({ kind: "issue", loaded: issue }),
+          ),
+        )
       }
       case "team-projects": {
         const loaded = await readTeamProjectPage(
           client,
+          accessToken,
           request.teamId,
           includeNeeds,
           request.after,
         )
-        for (const project of loaded.projects) {
-          try {
-            page.addProject(project)
-          } catch (error) {
-            page.failures.push({
-              type: "project",
-              id: project.id,
-              message: errorMessage(error),
-            })
-          }
-        }
-        return page.finish(loaded.nextAfter)
+        const placed = placeReads(
+          loaded.projects,
+          (project) => {
+            try {
+              page.addProject(project)
+            } catch (error) {
+              page.failures.push({
+                type: "project",
+                id: project.id,
+                message: errorMessage(error),
+              })
+            }
+          },
+          (project) => ({ kind: "project", loaded: project }),
+        )
+        return page.finish(loaded.nextAfter, [], ...placed)
       }
       case "team-cycles": {
         const loaded = await readTeamCyclePage(
           client,
+          accessToken,
           request.teamId,
           request.after,
         )
@@ -366,6 +396,7 @@ export async function fetchLinearMirrorPage(input: {
       case "team-labels": {
         const loaded = await readTeamLabelPage(
           client,
+          accessToken,
           request.teamId,
           request.after,
         )
@@ -373,31 +404,70 @@ export async function fetchLinearMirrorPage(input: {
         return page.finish(loaded.nextAfter)
       }
       case "project-record": {
-        const project = await loadProject(client, request.projectId, {
-          includeNeeds,
-          includeDocuments: true,
-        })
-        page.addProject(project)
-        return page.finish(null)
+        const read = await readProjectRecord(
+          client,
+          accessToken,
+          request.projectId,
+          { includeNeeds, includeDocuments: true },
+        )
+        return page.finish(
+          null,
+          [],
+          ...placeReads(
+            [read],
+            (project) => {
+              try {
+                page.addProject(project)
+              } catch (error) {
+                page.failures.push({
+                  type: "project",
+                  id: project.id,
+                  message: errorMessage(error),
+                })
+              }
+            },
+            (project) => ({ kind: "project", loaded: project }),
+          ),
+        )
       }
       case "project-issues": {
         const loaded = await readProjectIssuePage(
           client,
+          accessToken,
           request.projectId,
           includeNeeds,
           request.after,
         )
-        for (const issue of loaded.issues) page.addIssue(issue)
-        return page.finish(loaded.nextAfter)
+        return page.finish(
+          loaded.nextAfter,
+          [],
+          ...placeReads(
+            loaded.issues,
+            (issue) => page.addIssue(issue),
+            (issue) => ({ kind: "issue", loaded: issue }),
+          ),
+        )
       }
       case "initiative-record": {
-        const initiative = await loadInitiative(client, request.initiativeId)
-        page.addInitiative(initiative)
-        return page.finish(null)
+        const read = await readInitiativeRecord(
+          client,
+          accessToken,
+          request.initiativeId,
+        )
+        return page.finish(
+          null,
+          [],
+          ...placeReads(
+            [read],
+            (initiative) => page.addInitiative(initiative),
+            (initiative) => ({ kind: "initiative", loaded: initiative }),
+          ),
+        )
       }
       case "initiative-projects": {
         const loaded = await readInitiativeProjectPage(
           client,
+          accessToken,
           request.initiativeId,
           request.after,
         )
@@ -406,18 +476,112 @@ export async function fetchLinearMirrorPage(input: {
       case "initiative-documents": {
         const loaded = await readInitiativeDocumentPage(
           client,
+          accessToken,
           request.initiativeId,
           request.after,
         )
         return page.finish(loaded.nextAfter, loaded.documentIds)
       }
       case "document": {
-        const document = await loadDocument(client, request.documentId)
-        page.addDocument(document)
-        return page.finish(null)
+        const read = await readDocumentRecord(
+          client,
+          accessToken,
+          request.documentId,
+        )
+        return page.finish(
+          null,
+          [],
+          ...placeReads(
+            [read],
+            (document) => page.addDocument(document),
+            (document) => ({ kind: "document", loaded: document }),
+          ),
+        )
       }
+      case "follow":
+        return fetchLinearFollow(
+          client,
+          accessToken,
+          request.follow,
+          request.hold,
+        )
     }
   })
+}
+
+function placeReads<T>(
+  reads: Array<{ loaded: T; follows: LinearFollow[] }>,
+  render: (loaded: T) => void,
+  hold: (loaded: T) => LinearMirrorHold,
+): [LinearFollow[], LinearMirrorHold[]] {
+  const follows: LinearFollow[] = []
+  const held: LinearMirrorHold[] = []
+  for (const read of reads) {
+    if (read.follows.length === 0) {
+      render(read.loaded)
+      continue
+    }
+    follows.push(...read.follows)
+    held.push(hold(read.loaded))
+  }
+  return [follows, held]
+}
+
+async function fetchLinearFollow(
+  client: Parameters<typeof readLinearFollow>[0],
+  accessToken: string,
+  follow: LinearFollow,
+  hold: LinearMirrorHold,
+): Promise<LinearMirrorPage> {
+  const page = await readLinearFollow(client, accessToken, follow)
+  const follows = page.nextAfter ? [{ ...follow, after: page.nextAfter }] : []
+  switch (hold.kind) {
+    case "issue":
+      return followPage(
+        { kind: "issue", loaded: applyLinearFollowToIssue(hold.loaded, page) },
+        follows,
+      )
+    case "project":
+      return followPage(
+        {
+          kind: "project",
+          loaded: applyLinearFollowToProject(hold.loaded, page),
+        },
+        follows,
+      )
+    case "initiative":
+      return followPage(
+        {
+          kind: "initiative",
+          loaded: applyLinearFollowToInitiative(hold.loaded, page),
+        },
+        follows,
+      )
+    case "document":
+      return followPage(
+        {
+          kind: "document",
+          loaded: applyLinearFollowToDocument(hold.loaded, page),
+        },
+        follows,
+      )
+  }
+}
+
+function followPage(
+  hold: LinearMirrorHold,
+  follows: LinearFollow[],
+): LinearMirrorPage {
+  return {
+    files: [],
+    nextAfter: null,
+    failures: [],
+    projects: [],
+    documentIds: [],
+    childIds: [],
+    follows,
+    held: [hold],
+  }
 }
 
 function issuesCovered(
@@ -456,6 +620,64 @@ export async function walkLinearMirrorPages(input: {
     }
   }
 
+  async function settle(
+    name: string,
+    page: LinearMirrorPage,
+  ): Promise<LinearMirrorPage> {
+    let follows = [...(page.follows ?? [])]
+    const held = [...(page.held ?? [])]
+    if (follows.length === 0) return page
+    const files = [...page.files]
+    const failures = [...page.failures]
+    const projects = [...page.projects]
+    const documentIds = new Set(page.documentIds)
+    const seen = new Map<string, number>()
+    while (follows.length > 0) {
+      const follow = follows[0]
+      if (!follow) break
+      follows = follows.slice(1)
+      const key = `${follow.connection}-${follow.entityId}`
+      const index = seen.get(key) ?? 0
+      seen.set(key, index + 1)
+      const current = held.find((item) => holdMatches(item, follow))
+      if (!current) continue
+      const next = await input.runPage(`${name}-${key}-${index}`, {
+        kind: "follow",
+        follow,
+        hold: current,
+      })
+      const updated = next.held?.[0]
+      const at = held.indexOf(current)
+      if (updated && at >= 0) held[at] = updated
+      failures.push(...(next.failures ?? []))
+      follows = [...(next.follows ?? []), ...follows]
+    }
+    for (const item of held) {
+      const rendered = renderHold(item)
+      files.push(...rendered.files)
+      failures.push(...rendered.failures)
+      for (const project of rendered.projects) {
+        const at = projects.findIndex((existing) => existing.id === project.id)
+        if (at >= 0) projects[at] = project
+        else projects.push(project)
+      }
+      for (const documentId of rendered.documentIds) documentIds.add(documentId)
+    }
+    return {
+      ...page,
+      files,
+      failures,
+      projects,
+      documentIds: [...documentIds],
+      follows: [],
+      held: [],
+    }
+  }
+
+  async function run(name: string, request: LinearMirrorPageRequest) {
+    return settle(name, await input.runPage(name, request))
+  }
+
   async function drain(
     prefix: string,
     request: (after: string | null) => LinearMirrorPageRequest,
@@ -464,7 +686,7 @@ export async function walkLinearMirrorPages(input: {
     let after: string | null = null
     for (let index = 0; ; index += 1) {
       const cursor = after
-      const page = await input.runPage(`${prefix}-${index}`, request(cursor))
+      const page = await run(`${prefix}-${index}`, request(cursor))
       pages.push(page)
       drained.push(page)
       remember(page)
@@ -490,7 +712,7 @@ export async function walkLinearMirrorPages(input: {
       await projectIssues(projectId, knownTeams)
       return
     }
-    const record = await input.runPage(`project-${projectId}-record`, {
+    const record = await run(`project-${projectId}-record`, {
       kind: "project-record",
       projectId,
     })
@@ -505,7 +727,7 @@ export async function walkLinearMirrorPages(input: {
       return
     }
     startedDocuments.add(documentId)
-    const record = await input.runPage(`document-${documentId}`, {
+    const record = await run(`document-${documentId}`, {
       kind: "document",
       documentId,
     })
@@ -516,7 +738,7 @@ export async function walkLinearMirrorPages(input: {
   async function teamRecord(teamId: string) {
     if (startedTeams.has(teamId)) return
     startedTeams.add(teamId)
-    const record = await input.runPage(`team-${teamId}-record`, {
+    const record = await run(`team-${teamId}-record`, {
       kind: "team-record",
       teamId,
     })
@@ -551,7 +773,7 @@ export async function walkLinearMirrorPages(input: {
   async function initiativeRecord(initiativeId: string) {
     if (startedInitiatives.has(initiativeId)) return
     startedInitiatives.add(initiativeId)
-    const record = await input.runPage(`initiative-${initiativeId}-record`, {
+    const record = await run(`initiative-${initiativeId}-record`, {
       kind: "initiative-record",
       initiativeId,
     })
@@ -614,25 +836,12 @@ export async function walkLinearMirrorPages(input: {
   return pages
 }
 
-export async function buildLinearMirror(input: {
-  env: Env
-  connection: LinearConnection
-  config: ParsedLinearRepoConfig
-  onTokenRefresh?: LinearTokenRefreshHandler
-}): Promise<LinearMirrorBuildResult> {
-  const pages = await walkLinearMirrorPages({
-    config: input.config,
-    runPage: (_name, request) =>
-      fetchLinearMirrorPage({
-        env: input.env,
-        connection: input.connection,
-        config: input.config,
-        onTokenRefresh: input.onTokenRefresh,
-        request,
-      }),
-  })
+export function collectLinearMirrorPages(pages: LinearMirrorPage[]): {
+  files: Array<{ path: string; content: string }>
+  failures: LinearMirrorPage["failures"]
+} {
   const files = new Map<string, { path: string; content: string }>()
-  const failures: LinearMirrorBuildResult["failures"] = []
+  const failures: LinearMirrorPage["failures"] = []
   for (const page of pages) {
     failures.push(...page.failures)
     for (const file of page.files) {
@@ -644,6 +853,120 @@ export async function buildLinearMirror(input: {
       left.path.localeCompare(right.path),
     ),
     failures,
-    preservePathPrefixes: [],
   }
+}
+
+function holdMatches(hold: LinearMirrorHold, follow: LinearFollow): boolean {
+  switch (hold.kind) {
+    case "issue":
+      return (
+        follow.connection.startsWith("issue-") &&
+        hold.loaded.issue.id === follow.entityId
+      )
+    case "project":
+      return (
+        follow.connection.startsWith("project-") &&
+        hold.loaded.id === follow.entityId
+      )
+    case "initiative":
+      return (
+        follow.connection.startsWith("initiative-") &&
+        hold.loaded.id === follow.entityId
+      )
+    case "document":
+      return (
+        follow.connection === "document-project-teams" &&
+        hold.loaded.id === follow.entityId
+      )
+  }
+}
+
+function asDate(value: Date | string): Date {
+  return value instanceof Date ? value : new Date(value)
+}
+
+function reviveIssue(loaded: LoadedIssue): LoadedIssue {
+  return {
+    ...loaded,
+    issue: {
+      ...loaded.issue,
+      createdAt: asDate(loaded.issue.createdAt),
+      updatedAt: asDate(loaded.issue.updatedAt),
+      comments: loaded.issue.comments.map((comment) => ({
+        ...comment,
+        createdAt: asDate(comment.createdAt),
+        updatedAt: asDate(comment.updatedAt),
+      })),
+    },
+    needs: loaded.needs.map((need) => ({
+      ...need,
+      createdAt: asDate(need.createdAt),
+      updatedAt: asDate(need.updatedAt),
+    })),
+  }
+}
+
+function reviveProject(loaded: LoadedProject): LoadedProject {
+  return {
+    ...loaded,
+    createdAt: asDate(loaded.createdAt),
+    updatedAt: asDate(loaded.updatedAt),
+    updates: loaded.updates.map((update) => ({
+      ...update,
+      createdAt: asDate(update.createdAt),
+    })),
+    documents: loaded.documents.map(reviveDocument),
+    needs: loaded.needs.map((need) => ({
+      ...need,
+      createdAt: asDate(need.createdAt),
+      updatedAt: asDate(need.updatedAt),
+    })),
+  }
+}
+
+function reviveInitiative(loaded: LoadedInitiative): LoadedInitiative {
+  return {
+    ...loaded,
+    createdAt: asDate(loaded.createdAt),
+    updatedAt: asDate(loaded.updatedAt),
+    updates: loaded.updates.map((update) => ({
+      ...update,
+      createdAt: asDate(update.createdAt),
+    })),
+  }
+}
+
+function reviveDocument(loaded: LoadedDocument): LoadedDocument {
+  return {
+    ...loaded,
+    createdAt: asDate(loaded.createdAt),
+    updatedAt: asDate(loaded.updatedAt),
+  }
+}
+
+function renderHold(hold: LinearMirrorHold): LinearMirrorPage {
+  const page = createTextPage(null)
+  switch (hold.kind) {
+    case "issue":
+      page.addIssue(reviveIssue(hold.loaded))
+      break
+    case "project":
+      try {
+        page.addProject(reviveProject(hold.loaded))
+      } catch (error) {
+        page.failures.push({
+          type: "project",
+          id: hold.loaded.id,
+          message: errorMessage(error),
+        })
+      }
+      break
+    case "initiative":
+      page.addInitiative(reviveInitiative(hold.loaded))
+      break
+    case "document":
+      page.addDocument(reviveDocument(hold.loaded))
+      break
+  }
+  return page.finish(null)
 }

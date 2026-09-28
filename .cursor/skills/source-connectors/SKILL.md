@@ -121,7 +121,7 @@ Call `step.run` from the workflow for each page. A loop that lives inside one st
 Initial sync of a scoped mirror:
 
 1. One step loads the connection, repository, and `<slug>/config.yaml`.
-2. One step per provider page. Name it with the scope id and the page index (`team-<id>-issues-0`). Store the provider cursor in the result so the next step knows where to start. Return the rendered text files for that page and `nextAfter`.
+2. One step per provider page. Name it with the scope id and the page index (`team-<id>-issues-0`). Store the provider cursor in the result so the next step knows where to start. Return the rendered text files for that page and `nextAfter`. A nested connection that still has another page is its own step (`team-<id>-issues-0-issue-comments-<issueId>-0`), not another request inside the parent page step.
 3. One commit step joins those stored files and writes one git commit. Download attachment bytes in that commit step. Page results stay text.
 4. Ingest once, then finalize the setup phase.
 

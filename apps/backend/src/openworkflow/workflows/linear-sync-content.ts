@@ -15,6 +15,7 @@ import {
 } from "../../services/linear/client.js"
 import { loadLinearScopeFromRepo } from "../../services/linear/config-from-repo.js"
 import {
+  collectLinearMirrorPages,
   fetchLinearMirrorPage,
   walkLinearMirrorPages,
 } from "../../services/linear/content.js"
@@ -129,22 +130,16 @@ export const linearSyncContent = defineWorkflow(
             }),
           ),
       })
-      const files = new Map<string, { path: string; content: string }>()
-      const failures: Array<{ type: string; id: string; message: string }> = []
-      for (const page of pages) {
-        failures.push(...page.failures)
-        for (const file of page.files) {
-          if (!files.has(file.path)) files.set(file.path, file)
-        }
-      }
+      const collected = collectLinearMirrorPages(pages)
       const result = await step.run({ name: "commit-linear-mirror" }, () =>
         commitLinearMirror({
           orgId: input.orgId,
           env,
           connection: context.connection,
           target: context.target,
-          files: [...files.values()],
-          failures,
+          files: collected.files,
+          failures: collected.failures,
+          onTokenRefresh,
         }),
       )
 
