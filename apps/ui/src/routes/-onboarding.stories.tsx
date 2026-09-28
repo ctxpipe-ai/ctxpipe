@@ -117,6 +117,13 @@ export const JoinerConnected: Story = {
     await waitFor(() =>
       expect(canvas.getByRole("button", { name: /open ctx\|/i })).toBeVisible(),
     )
+    // Going back: a done step reopens without undoing it.
+    const changeButtons = canvas.getAllByRole("button", { name: "Change" })
+    await userEvent.click(
+      changeButtons[changeButtons.length - 1] as HTMLElement,
+    )
+    await expect(await canvas.findByText(/add ctx\| to another agent/i)).toBeVisible()
+    await expect(canvas.getByRole("button", { name: "Close" })).toBeVisible()
   },
 }
 

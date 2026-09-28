@@ -31,10 +31,12 @@ const indexing: OnboardingFacts["github"] = {
 }
 
 function render(facts: OnboardingFacts) {
+  const view = deriveOnboardingView(facts)
   return (
     <div className="max-w-4xl bg-zinc-950 p-10">
       <OnboardingDiagram
-        view={deriveOnboardingView(facts)}
+        view={view}
+        editing={view.current}
         githubAccount={facts.github.installed ? "acme" : null}
         repositories={facts.github.repositories}
         firstCall={facts.agent.firstCall}

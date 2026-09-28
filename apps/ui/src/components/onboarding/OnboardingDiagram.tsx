@@ -1,8 +1,14 @@
 import { IconBrandGithub, IconTerminal2 } from "@tabler/icons-react"
-import type { BeatState, OnboardingView } from "./onboarding-state"
+import type {
+  BeatState,
+  OnboardingStepId,
+  OnboardingView,
+} from "./onboarding-state"
 
 type OnboardingDiagramProps = {
   view: OnboardingView
+  /** The step open on the left; only its area glows. */
+  editing: OnboardingStepId | null
   githubAccount: string | null
   repositories: string[]
   firstCall: { client: string | null; tool: string | null } | null
@@ -11,8 +17,7 @@ type OnboardingDiagramProps = {
 const PANEL: Record<BeatState, string> = {
   // The noise texture blends into the panel background, so every state has one.
   future: "border-white/5 bg-zinc-950 text-zinc-600",
-  // Only the area the current step edits glows.
-  current: "onb-active border-teal-400/50 bg-zinc-900 text-zinc-100",
+  current: "border-white/15 bg-zinc-900 text-zinc-100",
   done: "border-white/15 bg-zinc-900 text-zinc-100",
   skipped: "border-dashed border-white/10 bg-zinc-950 text-zinc-600",
 }
@@ -39,10 +44,15 @@ const STATUS_WORD = {
   },
 } satisfies Record<string, Record<BeatState, string>>
 
-const LATER_SOURCES = ["Linear", "Notion", "Slack", "Confluence"]
+// One tile however many connectors ship; they are added after setup.
+const LATER_SOURCES = "Linear, Notion, Slack, Confluence, PagerDuty and more"
+
+// Only the area the open step edits glows.
+const EDITING = "onb-active border-teal-400/50"
 
 export function OnboardingDiagram({
   view,
+  editing,
   githubAccount,
   repositories,
   firstCall,
@@ -82,9 +92,7 @@ export function OnboardingDiagram({
       <div
         aria-hidden
         className={`onb-diagram-grid relative border bg-zinc-950 p-5 pt-8 transition-[border-color,box-shadow] duration-500 ${
-          beats.org === "current"
-            ? "onb-active border-teal-400/50"
-            : "border-white/10"
+          editing === "org" ? EDITING : "border-white/10"
         }`}
       >
         <span
@@ -106,7 +114,7 @@ export function OnboardingDiagram({
 
         <div className="relative grid min-h-120 grid-cols-[minmax(0,12rem)_3rem_minmax(0,1fr)_3rem_minmax(0,13rem)] items-stretch">
           <section
-            className={`onb-noise flex flex-col gap-3 border p-4 transition-[border-color,background-color,box-shadow] duration-500 ${PANEL[beats.source]}`}
+            className={`onb-noise flex flex-col gap-3 border p-4 transition-[border-color,background-color,box-shadow] duration-500 ${PANEL[beats.source]} ${editing === "source" ? EDITING : ""}`}
           >
             <PanelHeader
               label="Sources"
@@ -148,16 +156,12 @@ export function OnboardingDiagram({
                 repository
               </span>
             )}
-            <ul className="m-0 mt-auto flex list-none flex-col gap-1 p-0">
-              {LATER_SOURCES.map((source) => (
-                <li
-                  key={source}
-                  className="border border-dashed border-white/5 px-2 py-1 text-xs text-zinc-700"
-                >
-                  {source}
-                </li>
-              ))}
-            </ul>
+            <div className="mt-auto flex flex-col gap-1 border border-dashed border-white/10 px-2 py-2">
+              <span className="text-xs font-medium text-zinc-500">+ Tools</span>
+              <span className="text-xs text-zinc-600">
+                {LATER_SOURCES}, after setup
+              </span>
+            </div>
           </section>
 
           <Wire beat={beats.source} rows={1} />
@@ -218,7 +222,7 @@ export function OnboardingDiagram({
           <Wire beat={agentWire} rows={2} />
 
           <section
-            className={`onb-noise flex flex-col gap-3 border p-4 transition-[border-color,background-color,box-shadow] duration-500 ${PANEL[beats.agent]}`}
+            className={`onb-noise flex flex-col gap-3 border p-4 transition-[border-color,background-color,box-shadow] duration-500 ${PANEL[beats.agent]} ${editing === "agent" ? EDITING : ""}`}
           >
             <PanelHeader
               label="Agents"

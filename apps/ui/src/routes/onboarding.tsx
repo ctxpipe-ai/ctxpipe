@@ -54,6 +54,9 @@ export function OnboardingPageContent({
     null,
   )
   const [completing, setCompleting] = useState(false)
+  // Going back: a done step reopens to review or change it. Beats still come
+  // from the account, so reopening never undoes anything.
+  const [reviewing, setReviewing] = useState<"source" | "agent" | null>(null)
   const orgSlug = urlOrgSlug ?? createdOrgSlug
 
   // Joiner or admin is decided once, from the orgs they had on arrival, so
@@ -240,6 +243,35 @@ export function OnboardingPageContent({
     }, 320)
   }
 
+  const openStep = reviewing ?? view.current
+  const stepAction = (id: "source" | "agent", onConnectNow: () => void) => {
+    const beat = view.beats[id]
+    if (beat === "skipped") {
+      return (
+        <Button
+          variant="ghost"
+          className="h-7 rounded-none px-2 text-xs"
+          onPress={() => {
+            setReviewing(null)
+            onConnectNow()
+          }}
+        >
+          Connect now
+        </Button>
+      )
+    }
+    if (beat !== "done") return null
+    return (
+      <Button
+        variant="ghost"
+        className="h-7 rounded-none px-2 text-xs"
+        onPress={() => setReviewing(reviewing === id ? null : id)}
+      >
+        {reviewing === id ? "Close" : "Change"}
+      </Button>
+    )
+  }
+
   const repoWord = (n: number) =>
     `${n} ${n === 1 ? "repository" : "repositories"}`
   const skipNote =
@@ -297,6 +329,7 @@ export function OnboardingPageContent({
                 isJoiner ? "Join your organisation" : "Create your organisation"
               }
               beat={view.beats.org}
+              open={openStep === "org"}
               summary={orgSlug ?? undefined}
             >
               <OnboardingOrgStep
@@ -316,6 +349,7 @@ export function OnboardingPageContent({
               number={2}
               title="Connect GitHub"
               beat={view.beats.source}
+              open={openStep === "source"}
               summary={
                 view.beats.source === "done"
                   ? repositoryNames.length > 0
@@ -327,24 +361,23 @@ export function OnboardingPageContent({
                       ? "Not connected"
                       : undefined
               }
-              action={
-                view.beats.source === "skipped" ? (
-                  <Button
-                    variant="ghost"
-                    className="h-7 rounded-none px-2 text-xs"
-                    onPress={() => setGithubSkipped(false)}
-                  >
-                    Connect now
-                  </Button>
-                ) : null
-              }
+              action={stepAction("source", () => setGithubSkipped(false))}
             >
               {orgSlug ? (
                 <OnboardingGithubStep
+                  key={reviewing === "source" ? "review" : "setup"}
                   orgSlug={orgSlug}
                   hasInstallation={Boolean(installation)}
-                  onRepositoriesQueued={setQueuedRepositories}
-                  onSkip={() => setGithubSkipped(true)}
+                  startEditing={reviewing === "source"}
+                  onRepositoriesQueued={(names) => {
+                    setQueuedRepositories(names)
+                    setReviewing(null)
+                  }}
+                  onSkip={() =>
+                    reviewing === "source"
+                      ? setReviewing(null)
+                      : setGithubSkipped(true)
+                  }
                 />
               ) : null}
             </OnboardingStep>
@@ -352,6 +385,7 @@ export function OnboardingPageContent({
               number={3}
               title="Connect an agent"
               beat={view.beats.agent}
+              open={openStep === "agent"}
               summary={
                 view.beats.agent === "done"
                   ? (firstCall?.client ?? "Connected")
@@ -359,23 +393,16 @@ export function OnboardingPageContent({
                     ? "Skipped"
                     : undefined
               }
-              action={
-                view.beats.agent === "skipped" ? (
-                  <Button
-                    variant="ghost"
-                    className="h-7 rounded-none px-2 text-xs"
-                    onPress={() => setAgentSkipped(false)}
-                  >
-                    Connect now
-                  </Button>
-                ) : null
-              }
+              action={stepAction("agent", () => setAgentSkipped(false))}
             >
               {orgSlug ? (
                 <OnboardingAgentStep
                   orgSlug={orgSlug}
                   hasSource={view.hasSource}
                   firstRepository={repositoryNames[0] ?? null}
+                  connectedClient={
+                    firstCall ? (firstCall.client ?? "Your agent") : null
+                  }
                   onSkip={() => setAgentSkipped(true)}
                 />
               ) : null}
@@ -400,6 +427,7 @@ export function OnboardingPageContent({
         <div className="hidden md:block lg:sticky lg:top-8 lg:self-start">
           <OnboardingDiagram
             view={view}
+            editing={openStep}
             githubAccount={installation?.accountSlug ?? null}
             repositories={repositoryNames}
             firstCall={firstCall}
@@ -421,7 +449,7 @@ function OnboardingFrame({
 }) {
   return (
     <main
-      className={`onb-page-in min-h-screen bg-zinc-950 text-foreground transition-opacity duration-300 ${
+      className={`onb-page-in hero-gradient min-h-screen bg-zinc-950 text-foreground transition-opacity duration-300 ${
         completing ? "opacity-0" : "opacity-100"
       }`}
     >

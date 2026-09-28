@@ -31,6 +31,8 @@ type OnboardingGithubStepProps = {
   /** Full names of what was queued, so the picture fills before indexing rows exist. */
   onRepositoriesQueued: (repositories: string[]) => void
   onSkip: () => void
+  /** Reopened after indexing: go straight to the saved selection. */
+  startEditing?: boolean
 }
 
 export function OnboardingGithubStep({
@@ -38,11 +40,12 @@ export function OnboardingGithubStep({
   hasInstallation,
   onRepositoriesQueued,
   onSkip,
+  startEditing = false,
 }: OnboardingGithubStepProps) {
   const queryClient = useQueryClient()
   const [setupError, setSetupError] = useState<string | null>(null)
   const [connectOptimistic, setConnectOptimistic] = useState(false)
-  const [editing, setEditing] = useState(false)
+  const [editing, setEditing] = useState(startEditing)
   // Repository ids GitHub shared when they went to create a context
   // repository; the first new one is theirs, whatever they named it.
   const [knownRepoIds, setKnownRepoIds] = useState<Set<number> | null>(null)
@@ -185,7 +188,7 @@ export function OnboardingGithubStep({
               : (saved?.savedRepositories.map((repo) => repo.name) ?? []),
           )
         }}
-        onCancel={() => setEditing(false)}
+        onCancel={() => (startEditing ? onSkip() : setEditing(false))}
       />
     )
   }

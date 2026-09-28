@@ -7,6 +7,8 @@ type OnboardingAgentStepProps = {
   orgSlug: string
   hasSource: boolean
   firstRepository: string | null
+  /** Set once their agent has called ctx| (the step was reopened). */
+  connectedClient: string | null
   onSkip: () => void
 }
 
@@ -35,6 +37,7 @@ export function OnboardingAgentStep({
   orgSlug,
   hasSource,
   firstRepository,
+  connectedClient,
   onSkip,
 }: OnboardingAgentStepProps) {
   const [method, setMethod] = useState<Method>("cli")
@@ -73,23 +76,32 @@ export function OnboardingAgentStep({
         label={method === "json" ? "Copy config" : "Copy command"}
       />
 
-      <output className="flex flex-col gap-1 border border-teal-400/30 bg-teal-400/[0.04] p-4">
-        <span className="inline-flex items-center gap-2 text-sm text-zinc-100">
-          <span className="ctx-indexing-dot" aria-hidden />
-          Listening for your agent’s first call
-        </span>
-        <span className="text-sm text-muted-foreground">
-          {hasSource && firstRepository
-            ? `Ask it something that needs ctx|, for example: “Use ctx| to explain how ${firstRepository} is structured.”`
-            : "Ask it anything that uses ctx|. Answers stay empty until a repository is indexed."}
-        </span>
-      </output>
+      {connectedClient ? (
+        <p className="m-0 text-sm text-muted-foreground">
+          <span className="font-mono text-zinc-200">{connectedClient}</span> is
+          connected. Add ctx| to another agent the same way.
+        </p>
+      ) : (
+        <>
+          <output className="flex flex-col gap-1 border border-teal-400/30 bg-teal-400/[0.04] p-4">
+            <span className="inline-flex items-center gap-2 text-sm text-zinc-100">
+              <span className="ctx-indexing-dot" aria-hidden />
+              Listening for your agent’s first call
+            </span>
+            <span className="text-sm text-muted-foreground">
+              {hasSource && firstRepository
+                ? `Ask it something that needs ctx|, for example: “Use ctx| to explain how ${firstRepository} is structured.”`
+                : "Ask it anything that uses ctx|. Answers stay empty until a repository is indexed."}
+            </span>
+          </output>
 
-      <div>
-        <Button variant="ghost" className="rounded-none" onPress={onSkip}>
-          I’ll do this later
-        </Button>
-      </div>
+          <div>
+            <Button variant="ghost" className="rounded-none" onPress={onSkip}>
+              I’ll do this later
+            </Button>
+          </div>
+        </>
+      )}
     </>
   )
 }

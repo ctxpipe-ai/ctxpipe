@@ -8,8 +8,10 @@ type OnboardingStepProps = {
   beat: BeatState
   /** Mono summary on the right once the step is done or skipped. */
   summary?: string
-  /** e.g. "Connect now" on a skipped step. */
+  /** e.g. "Connect now" on a skipped step, "Change" on a done one. */
   action?: ReactNode
+  /** Shows the body. Defaults to the current step; a done step can reopen. */
+  open?: boolean
   children?: ReactNode
 }
 
@@ -19,9 +21,9 @@ export function OnboardingStep({
   beat,
   summary,
   action,
+  open = beat === "current",
   children,
 }: OnboardingStepProps) {
-  const open = beat === "current"
   return (
     <li className="border-b border-white/5 py-4">
       <div className="flex min-h-7 items-center gap-3">
