@@ -49,7 +49,10 @@ export function OnboardingPageContent({
   const [typedSlug, setTypedSlug] = useState("")
   const [githubSkipped, setGithubSkipped] = useState(false)
   const [agentSkipped, setAgentSkipped] = useState(false)
-  const [repositoriesQueued, setRepositoriesQueued] = useState(false)
+  // What was just queued, so the picture fills before indexing rows exist.
+  const [queuedRepositories, setQueuedRepositories] = useState<string[] | null>(
+    null,
+  )
   const [completing, setCompleting] = useState(false)
   const orgSlug = urlOrgSlug ?? createdOrgSlug
 
@@ -68,7 +71,7 @@ export function OnboardingPageContent({
   })
   const repositoryIndexing = useRepositoryIndexingSummary(orgSlug, {
     enabled: Boolean(orgSlug && session),
-    pollWhileEmpty: repositoriesQueued,
+    pollWhileEmpty: queuedRepositories !== null,
   })
   // The agent beat completes on the backend's record of this user's first
   // MCP call, so poll until it exists (or they skip the step).
@@ -93,6 +96,10 @@ export function OnboardingPageContent({
   const firstCall = userOnboarding?.firstMcpCall ?? null
 
   const repositories = repositoryIndexing.repositories ?? []
+  const repositoryNames =
+    repositories.length > 0
+      ? repositories.map((repo) => repo.name)
+      : (queuedRepositories ?? [])
   const { activeCount, failedCount, singleActiveStepLabel } =
     repositoryIndexing.summary
   const view = deriveOnboardingView({
@@ -102,8 +109,8 @@ export function OnboardingPageContent({
     github: {
       installed: Boolean(installation),
       skipped: githubSkipped,
-      repositories: repositories.map((repo) => repo.name),
-      queued: repositoriesQueued,
+      repositories: repositoryNames,
+      queued: queuedRepositories !== null,
       activeCount,
       readyCount: repositories.filter(
         (repo) => getRepositoryIndexingStatus(repo) === "ready",
@@ -250,8 +257,8 @@ export function OnboardingPageContent({
               beat={view.beats.source}
               summary={
                 view.beats.source === "done"
-                  ? repositories.length > 0
-                    ? `${repoWord(repositories.length)}${activeCount > 0 ? ", indexing" : ""}`
+                  ? repositoryNames.length > 0
+                    ? `${repoWord(repositoryNames.length)}${activeCount > 0 ? ", indexing" : ""}`
                     : "indexing"
                   : view.beats.source === "skipped"
                     ? "Skipped"
@@ -275,7 +282,7 @@ export function OnboardingPageContent({
                 <OnboardingGithubStep
                   orgSlug={orgSlug}
                   hasInstallation={Boolean(installation)}
-                  onRepositoriesQueued={() => setRepositoriesQueued(true)}
+                  onRepositoriesQueued={setQueuedRepositories}
                   onSkip={() => setGithubSkipped(true)}
                 />
               ) : null}
@@ -307,7 +314,7 @@ export function OnboardingPageContent({
                 <OnboardingAgentStep
                   orgSlug={orgSlug}
                   hasSource={view.hasSource}
-                  firstRepository={repositories[0]?.name ?? null}
+                  firstRepository={repositoryNames[0] ?? null}
                   onSkip={() => setAgentSkipped(true)}
                 />
               ) : null}
@@ -333,7 +340,7 @@ export function OnboardingPageContent({
           <OnboardingDiagram
             view={view}
             githubAccount={installation?.accountSlug ?? null}
-            repositories={repositories.map((repo) => repo.name)}
+            repositories={repositoryNames}
             firstCall={firstCall}
           />
         </div>

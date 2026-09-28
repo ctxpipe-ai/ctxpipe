@@ -88,7 +88,7 @@ export function deriveOnboardingView(facts: OnboardingFacts): OnboardingView {
         : github.failedCount > 0
           ? `${repositoryCount(github.failedCount)} need attention`
           : hasSource
-            ? "starting indexing"
+            ? `queued ${repositoryCount(github.repositories.length)}`
             : "nothing indexed yet"
 
   const first = github.repositories[0] ?? "Your selection"

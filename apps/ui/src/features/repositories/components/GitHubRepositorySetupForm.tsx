@@ -61,7 +61,7 @@ export type GitHubRepositorySetupFormProps = {
   onCancel: () => void
 }
 
-async function fetchInstallationReposPage(
+export async function fetchInstallationReposPage(
   orgSlug: string,
   page: number,
 ): Promise<{
