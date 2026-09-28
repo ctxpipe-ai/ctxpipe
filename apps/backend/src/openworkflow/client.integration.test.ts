@@ -21,7 +21,7 @@ describeWithDatabase("runWorkflowWithWorkerWake", () => {
     await closeOpenWorkflowClient()
   })
 
-  it("does not start a span when nothing is already tracing", async () => {
+  it("starts workflow_run.create on its own trace when nothing is already tracing", async () => {
     const { runWorkflowWithWorkerWake } = await import("./client.js")
     const handle = await runWorkflowWithWorkerWake(enqueueProbe.spec, {
       orgId: "org_1",
@@ -30,9 +30,16 @@ describeWithDatabase("runWorkflowWithWorkerWake", () => {
     expect(
       spans.spanNamed("openworkflow.enqueue observability-enqueue-probe"),
     ).toBeUndefined()
+    const create = spans.spanNamed("workflow_run.create")
+    expect(create?.kind).toBe(SpanKind.PRODUCER)
+    expect(create?.parentSpanContext).toBeUndefined()
+    expect(create?.attributes).toMatchObject({
+      "openworkflow.workflow.name": "observability-enqueue-probe",
+      "openworkflow.run.id": handle.workflowRun.id,
+    })
   })
 
-  it("parents an enqueue span to the active span", async () => {
+  it("parents workflow_run.create to the active span", async () => {
     const { runWorkflowWithWorkerWake } = await import("./client.js")
     const handle = await trace
       .getTracer("ctxpipe-backend")
@@ -44,29 +51,18 @@ describeWithDatabase("runWorkflowWithWorkerWake", () => {
         return queued
       })
     const request = spans.spanNamed("POST /repositories")
-    const enqueue = spans.spanNamed(
-      "openworkflow.enqueue observability-enqueue-probe",
-    )
-    expect(enqueue?.kind).toBe(SpanKind.PRODUCER)
-    expect(enqueue?.parentSpanContext?.spanId).toBe(
+    const create = spans.spanNamed("workflow_run.create")
+    expect(create?.kind).toBe(SpanKind.PRODUCER)
+    expect(create?.parentSpanContext?.spanId).toBe(
       request?.spanContext().spanId,
     )
-    expect(enqueue?.parentSpanContext?.traceId).toBe(
+    expect(create?.parentSpanContext?.traceId).toBe(
       request?.spanContext().traceId,
     )
-    expect(enqueue?.attributes).toMatchObject({
-      "messaging.system": "openworkflow",
-      "messaging.operation.type": "send",
-      "messaging.destination.name": "observability-enqueue-probe",
+    expect(create?.attributes).toMatchObject({
+      "openworkflow.workflow.name": "observability-enqueue-probe",
+      "openworkflow.run.id": handle.workflowRun.id,
     })
-    const traceparent = (
-      handle.workflowRun.input as {
-        telemetry?: { carrier?: { traceparent?: string } }
-      } | null
-    )?.telemetry?.carrier?.traceparent
-    expect(traceparent?.split("-")[1]).toBe(enqueue?.spanContext().traceId)
-    expect(traceparent?.split("-")[2]).toBe(enqueue?.spanContext().spanId)
-    expect(traceparent?.split("-")[2]).not.toBe(request?.spanContext().spanId)
     await handle.cancel()
   })
 })
