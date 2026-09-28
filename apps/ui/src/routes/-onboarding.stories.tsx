@@ -118,3 +118,66 @@ export const JoinerConnected: Story = {
     )
   },
 }
+
+/** Repositories are indexing: the header pill says so on every step. */
+export const JoinerWhileRepositoriesIndex: Story = {
+  render: () => <OnboardingPageContent urlOrgSlug="acme" />,
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: [
+          authConfigHandler,
+          sessionSignedInOnboardingHandler,
+          organizationListWithOrgHandler,
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname ===
+              "/acme/api/v1/github/installation",
+            () =>
+              HttpResponse.json({
+                id: "github_connection_1",
+                appSlug: "ctxpipe",
+                accountSlug: "acme",
+              }),
+          ),
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname === "/acme/api/v1/repositories",
+            () =>
+              HttpResponse.json({
+                items: [
+                  {
+                    id: "repo_1",
+                    name: "acme/api",
+                    gitUrl: "https://github.com/acme/api.git",
+                    indexReady: false,
+                    indexingStatus: "running",
+                    indexingStep: 7,
+                    indexingStepTotal: 22,
+                    indexingStepKey: "embedding",
+                  },
+                  {
+                    id: "repo_2",
+                    name: "acme/web",
+                    gitUrl: "https://github.com/acme/web.git",
+                    indexReady: false,
+                    indexingStatus: "queued",
+                    indexingStep: null,
+                    indexingStepTotal: null,
+                    indexingStepKey: null,
+                  },
+                ],
+              }),
+          ),
+          userOnboardingHandler(null),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      await canvas.findByText(/indexing 2 repositories/i),
+    ).toBeVisible()
+  },
+}

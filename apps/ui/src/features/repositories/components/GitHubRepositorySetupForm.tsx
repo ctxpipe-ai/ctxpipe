@@ -295,6 +295,12 @@ export function GitHubRepositorySetupForm({
         return
       }
     }
+    // Onboarding saves straight away: an existing ctxpipe-context repository
+    // is picked up automatically, and choosing one is left for later.
+    if (variant === "step") {
+      updateOptionsMutation.mutate()
+      return
+    }
     setStep("context")
   }
 
@@ -463,10 +469,18 @@ export function GitHubRepositorySetupForm({
               <Button
                 type="submit"
                 variant="primary"
-                isDisabled={selectBusy || (mode === "select" && reposFailed)}
+                isDisabled={
+                  selectBusy ||
+                  (mode === "select" && reposFailed) ||
+                  updateOptionsMutation.isPending
+                }
                 className="rounded-none"
               >
-                Continue
+                {variant !== "step"
+                  ? "Continue"
+                  : updateOptionsMutation.isPending
+                    ? "Saving…"
+                    : "Save and index"}
               </Button>
               <Button
                 type="button"

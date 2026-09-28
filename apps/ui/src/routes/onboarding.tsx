@@ -102,8 +102,38 @@ export function OnboardingPageContent({
     repositories.length > 0
       ? repositories.map((repo) => repo.name)
       : (queuedRepositories ?? [])
-  const { activeCount, failedCount, singleActiveStepLabel } =
-    repositoryIndexing.summary
+  const {
+    activeCount,
+    failedCount,
+    runningCount,
+    totalCount,
+    singleActiveStepLabel,
+  } = repositoryIndexing.summary
+  // Same pill as the old onboarding: it stays visible on every step while
+  // repositories index.
+  const repositoryStatus =
+    activeCount > 0
+      ? {
+          tone: "indexing" as const,
+          label: `${runningCount > 0 ? "Indexing" : "Preparing"} ${activeCount} ${
+            activeCount === 1 ? "repository" : "repositories"
+          }`,
+        }
+      : failedCount > 0
+        ? {
+            tone: "failed" as const,
+            label: `${failedCount} ${
+              failedCount === 1 ? "repository needs" : "repositories need"
+            } attention`,
+          }
+        : queuedRepositories !== null &&
+            totalCount === 0 &&
+            !repositoryIndexing.isError
+          ? {
+              tone: "indexing" as const,
+              label: "Starting repository indexing",
+            }
+          : null
   const view = deriveOnboardingView({
     orgSlug,
     typedSlug,
@@ -217,7 +247,31 @@ export function OnboardingPageContent({
           : null
 
   return (
-    <OnboardingFrame completing={completing}>
+    <OnboardingFrame
+      completing={completing}
+      status={
+        repositoryStatus ? (
+          <output
+            aria-live="polite"
+            className={`inline-flex items-center gap-2 border bg-zinc-950/90 px-3 py-2 font-mono text-xs ${
+              repositoryStatus.tone === "failed"
+                ? "border-red-400/30 text-red-200"
+                : "border-teal-400/30 text-teal-100"
+            }`}
+          >
+            <span
+              aria-hidden
+              className={
+                repositoryStatus.tone === "failed"
+                  ? "ctx-indexing-failed-dot"
+                  : "ctx-indexing-dot"
+              }
+            />
+            {repositoryStatus.label}
+          </output>
+        ) : null
+      }
+    >
       <div className="grid gap-16 lg:grid-cols-[minmax(0,30rem)_minmax(0,1fr)]">
         <section aria-labelledby="onboarding-title" className="flex flex-col">
           <h1
@@ -353,9 +407,11 @@ export function OnboardingPageContent({
 
 function OnboardingFrame({
   completing,
+  status,
   children,
 }: {
   completing: boolean
+  status?: React.ReactNode
   children: React.ReactNode
 }) {
   return (
@@ -369,12 +425,15 @@ function OnboardingFrame({
           <span className="font-mono text-xl text-zinc-100">
             ctx<span className="text-teal-400">|</span>
           </span>
-          <a
-            href="/.auth/sign-out"
-            className="text-sm text-muted-foreground transition-colors hover:text-teal-400"
-          >
-            Sign out
-          </a>
+          <span className="flex items-center gap-6">
+            {status}
+            <a
+              href="/.auth/sign-out"
+              className="text-sm text-muted-foreground transition-colors hover:text-teal-400"
+            >
+              Sign out
+            </a>
+          </span>
         </header>
         {children}
       </div>
