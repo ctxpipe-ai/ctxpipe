@@ -28,18 +28,12 @@ export class LinearQueryTooComplexError extends Error {
   }
 }
 
-type EndpointBudget = {
-  remaining: number
-  resetAt?: number
-}
-
 type Budget = {
   calls: number[]
   requestsRemaining?: number
   requestsResetAt?: number
   complexityRemaining?: number
   complexityResetAt?: number
-  endpoints: Map<string, EndpointBudget>
   tail: Promise<void>
 }
 
@@ -50,7 +44,10 @@ export function resetLinearGraphqlForTests(): void {
   budgets.clear()
 }
 
-export async function linearGraphql<TData, TVariables>(
+export async function linearGraphql<
+  TData,
+  TVariables extends Record<string, unknown>,
+>(
   client: LinearClient,
   document: TypedDocumentNode<TData, TVariables>,
   variables: TVariables,
@@ -113,9 +110,8 @@ async function requestWithBudget<TData>(
   budget: Budget,
 ): Promise<TData> {
   let waits = 0
-  let retryEndpointName: string | undefined
   for (;;) {
-    const waitMs = nextWaitMs(budget, retryEndpointName)
+    const waitMs = nextWaitMs(budget)
     if (waitMs > 0) {
       await waitForBudget(waitMs, waits)
       waits += 1
@@ -137,14 +133,15 @@ async function requestWithBudget<TData>(
       const limited = rateLimitWait(error)
       if (!limited) throw error
       applyRateLimit(budget, limited)
-      retryEndpointName =
-        limited.endpointRemaining === 0
-          ? (limited.endpointName ?? "")
-          : undefined
-      if (nextWaitMs(budget, retryEndpointName) === 0) {
-        await waitForBudget(limited.fallbackMs, waits)
-        waits += 1
-      }
+      const retryWaitMs = earliestWait(
+        nextWaitMs(budget),
+        endpointWaitMs(limited),
+      )
+      await waitForBudget(
+        retryWaitMs > 0 ? retryWaitMs : limited.fallbackMs,
+        waits,
+      )
+      waits += 1
     }
   }
 }
@@ -162,11 +159,7 @@ function enqueue<T>(token: string, run: () => Promise<T>): Promise<T> {
 function budgetFor(token: string): Budget {
   const existing = budgets.get(token)
   if (existing) return existing
-  const created: Budget = {
-    calls: [],
-    endpoints: new Map(),
-    tail: Promise.resolve(),
-  }
+  const created: Budget = { calls: [], tail: Promise.resolve() }
   budgets.set(token, created)
   return created
 }
@@ -187,11 +180,7 @@ function accessTokenKey(client: LinearClient): string {
   return ""
 }
 
-function nextWaitMs(
-  budget: Budget,
-  endpointName?: string,
-  now = Date.now(),
-): number {
+function nextWaitMs(budget: Budget, now = Date.now()): number {
   const waits: number[] = []
   const recent = callsInWindow(budget, now)
   if (recent.length >= 70) {
@@ -211,12 +200,6 @@ function nextWaitMs(
     budget.complexityResetAt !== undefined
   ) {
     waits.push(budget.complexityResetAt + 1000 - now)
-  }
-  if (endpointName !== undefined) {
-    const endpoint = budget.endpoints.get(endpointName)
-    if (endpoint?.remaining === 0 && endpoint.resetAt !== undefined) {
-      waits.push(endpoint.resetAt + 1000 - now)
-    }
   }
   const pending = waits.filter((wait) => wait > 0)
   if (pending.length === 0) return 0
@@ -271,7 +254,6 @@ function recordHeaders(budget: Budget, headers: Headers | undefined): void {
   }
   if (complexityResetAt !== undefined)
     budget.complexityResetAt = complexityResetAt
-  recordEndpoint(budget, headers)
 }
 
 type RateLimitWait = {
@@ -279,7 +261,6 @@ type RateLimitWait = {
   requestsResetAt?: number
   complexityRemaining?: number
   complexityResetAt?: number
-  endpointName?: string
   endpointRemaining?: number
   endpointResetAt?: number
   fallbackMs: number
@@ -290,7 +271,6 @@ function rateLimitWait(error: unknown): RateLimitWait | undefined {
   const headers = errorHeaders(error)
   const limited = error instanceof RatelimitedLinearError ? error : undefined
   const retryAfterSeconds = limited?.retryAfter
-  const endpointName = headers?.get("x-ratelimit-endpoint-requests-name")
   return {
     requestsRemaining:
       limited?.requestsRemaining ??
@@ -306,7 +286,6 @@ function rateLimitWait(error: unknown): RateLimitWait | undefined {
       limited?.complexityResetAt ??
         headerNumber(headers, "x-ratelimit-complexity-reset"),
     ),
-    endpointName: endpointName ?? undefined,
     endpointRemaining: headerNumber(
       headers,
       "x-ratelimit-endpoint-requests-remaining",
@@ -331,16 +310,6 @@ function applyRateLimit(budget: Budget, limited: RateLimitWait): void {
       budget.complexityResetAt = limited.complexityResetAt
     }
   }
-  if (limited.endpointRemaining !== undefined) {
-    budget.endpoints.set(limited.endpointName ?? "", {
-      remaining: limited.endpointRemaining,
-      resetAt:
-        limited.endpointResetAt ??
-        (limited.endpointRemaining === 0
-          ? Date.now() + limited.fallbackMs - 1000
-          : undefined),
-    })
-  }
   const requestsBlocking =
     limited.requestsRemaining !== undefined &&
     limited.requestsRemaining < requestReserve
@@ -357,19 +326,16 @@ function applyRateLimit(budget: Budget, limited: RateLimitWait): void {
   }
 }
 
-function recordEndpoint(budget: Budget, headers: Headers): void {
-  const remaining = headerNumber(
-    headers,
-    "x-ratelimit-endpoint-requests-remaining",
-  )
-  if (remaining === undefined) return
-  const name = headers.get("x-ratelimit-endpoint-requests-name") ?? ""
-  budget.endpoints.set(name, {
-    remaining,
-    resetAt: epochMs(
-      headerNumber(headers, "x-ratelimit-endpoint-requests-reset"),
-    ),
-  })
+function endpointWaitMs(limited: RateLimitWait, now = Date.now()): number {
+  if (limited.endpointRemaining !== 0) return 0
+  if (limited.endpointResetAt === undefined) return limited.fallbackMs
+  return Math.max(0, limited.endpointResetAt + 1000 - now)
+}
+
+function earliestWait(left: number, right: number): number {
+  const pending = [left, right].filter((wait) => wait > 0)
+  if (pending.length === 0) return 0
+  return Math.min(...pending)
 }
 
 function isRateLimited(error: unknown): boolean {
