@@ -17,6 +17,7 @@ const calls: LinearGraphqlCall[] = []
 const server = useMswServer()
 let issuePages = 0
 let commentPages = 0
+let teamProjectNodes = [projectNode()]
 
 const connection = {
   id: "con_linear",
@@ -74,7 +75,7 @@ function teamRecord() {
   }
 }
 
-function projectNode(id = "project-1") {
+function projectNode(id = "project-1", teamIds = ["team-1"]) {
   return {
     id,
     name: "Launch",
@@ -89,7 +90,7 @@ function projectNode(id = "project-1") {
     updatedAt: "2026-08-02T00:00:00.000Z",
     status: { id: "status-1" },
     lead: null,
-    teams: emptyLinearPage([{ id: "team-1" }]),
+    teams: emptyLinearPage(teamIds.map((teamId) => ({ id: teamId }))),
     projectUpdates: emptyLinearPage(),
     documents: emptyLinearPage(),
     needs: emptyLinearPage(),
@@ -101,6 +102,7 @@ beforeEach(() => {
   calls.length = 0
   issuePages = 0
   commentPages = 0
+  teamProjectNodes = [projectNode()]
   installLinearGraphql(server, calls, (call) => {
     if (call.name === "TeamRecord") return { team: teamRecord() }
     if (call.name === "TeamIssues" || call.name === "TeamIssuesWithNeeds") {
@@ -145,7 +147,7 @@ beforeEach(() => {
       }
     }
     if (call.name === "TeamProjects" || call.name === "TeamProjectsWithNeeds") {
-      return { team: { projects: emptyLinearPage([projectNode()]) } }
+      return { team: { projects: emptyLinearPage(teamProjectNodes) } }
     }
     if (call.name === "TeamCycles")
       return { team: { cycles: emptyLinearPage() } }
@@ -268,5 +270,36 @@ describe("buildLinearMirror", () => {
     expect(result.failures).toEqual([])
     expect(calls.map((call) => call.name)).toContain("ProjectIssuesWithNeeds")
     expect(calls.some((call) => call.name.startsWith("TeamIssues"))).toBe(false)
+  })
+
+  it("pages issues for a selected project that also belongs to an unselected team", async () => {
+    teamProjectNodes = [
+      projectNode("project-1"),
+      projectNode("project-2", ["team-1", "team-2"]),
+    ]
+
+    const result = await buildLinearMirror({
+      env: {} as Env,
+      connection,
+      config: config([
+        teamScope,
+        {
+          externalId: "project-2",
+          type: "project",
+          title: "Shared",
+          url: null,
+          parentExternalId: null,
+          teamId: null,
+          teamKey: null,
+        },
+      ]),
+    })
+
+    expect(result.failures).toEqual([])
+    expect(
+      calls
+        .filter((call) => call.name === "ProjectIssuesWithNeeds")
+        .map((call) => call.variables.id),
+    ).toEqual(["project-2"])
   })
 })

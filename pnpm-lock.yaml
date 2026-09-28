@@ -237,9 +237,6 @@ importers:
       '@graphql-codegen/typed-document-node':
         specifier: ^7.1.0
         version: 7.1.0(graphql@16.13.2)
-      '@graphql-codegen/typescript':
-        specifier: ^6.1.0
-        version: 6.1.0(graphql@16.13.2)
       '@graphql-codegen/typescript-operations':
         specifier: ^6.1.7
         version: 6.1.7(graphql@16.13.2)

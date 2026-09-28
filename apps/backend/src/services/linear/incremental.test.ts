@@ -580,6 +580,60 @@ describe("buildLinearIncrementalChanges", () => {
     ])
   })
 
+  it("waits for an empty endpoint bucket without parking on a healthy request window", async () => {
+    vi.useFakeTimers()
+    let attempts = 0
+    server.use(
+      http.post("https://api.linear.app/graphql", async () => {
+        attempts += 1
+        if (attempts === 1) {
+          return HttpResponse.json(
+            {
+              errors: [
+                {
+                  message: "Rate limited",
+                  extensions: { code: "RATELIMITED" },
+                },
+              ],
+            },
+            {
+              status: 400,
+              headers: {
+                "X-RateLimit-Requests-Remaining": "4900",
+                "X-RateLimit-Requests-Reset": String(Date.now() + 3_600_000),
+                "X-RateLimit-Endpoint-Requests-Remaining": "0",
+                "X-RateLimit-Endpoint-Requests-Reset": String(
+                  Date.now() + 3_000,
+                ),
+                "X-RateLimit-Endpoint-Requests-Name": "issues",
+              },
+            },
+          )
+        }
+        return HttpResponse.json(
+          { data: { issue } },
+          { headers: linearBudgetHeaders() },
+        )
+      }),
+    )
+
+    const pending = buildLinearIncrementalChanges({
+      env: {} as Env,
+      connection,
+      config: selectedConfig,
+      entities: [issueChange],
+      existingPaths: [],
+    })
+    await vi.advanceTimersByTimeAsync(5_000)
+    const result = await pending
+
+    expect(attempts).toBe(2)
+    expect(result.failures).toEqual([])
+    expect(result.files.map((file) => file.path)).toContain(
+      "linear/issues/pro-1--issue-1.md",
+    )
+  })
+
   it("includes health in incremental initiative update sections", async () => {
     const result = await buildLinearIncrementalChanges({
       env: {} as Env,

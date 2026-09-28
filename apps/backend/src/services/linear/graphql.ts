@@ -12,11 +12,8 @@ import {
 
 export const linearQueryComplexityCeiling = 8_000
 
-const maxCallsPerMinute = 70
 const requestReserve = 25
 const complexityReserve = 20_000
-const maxWindowWaits = 3
-const maxSleepMs = 65 * 60 * 1000
 const minuteMs = 60_000
 
 export class LinearQueryTooComplexError extends Error {
@@ -31,9 +28,9 @@ export class LinearQueryTooComplexError extends Error {
   }
 }
 
-export type LinearGraphqlRequester = {
-  client: Pick<LinearClient["client"], "rawRequest">
-  options?: Pick<LinearClient["options"], "headers">
+type EndpointBudget = {
+  remaining: number
+  resetAt?: number
 }
 
 type Budget = {
@@ -42,8 +39,7 @@ type Budget = {
   requestsResetAt?: number
   complexityRemaining?: number
   complexityResetAt?: number
-  endpointRemaining?: number
-  endpointResetAt?: number
+  endpoints: Map<string, EndpointBudget>
   tail: Promise<void>
 }
 
@@ -54,7 +50,7 @@ export function resetLinearGraphqlForTests(): void {
 }
 
 export async function linearGraphql<TData, TVariables>(
-  client: LinearGraphqlRequester,
+  client: LinearClient,
   document: TypedDocumentNode<TData, TVariables>,
   variables: TVariables,
 ): Promise<TData> {
@@ -92,7 +88,7 @@ export function estimateLinearQueryComplexity(
 }
 
 async function requestWithBudget<TData>(
-  client: LinearGraphqlRequester,
+  client: LinearClient,
   query: string,
   variables: unknown,
   budget: Budget,
@@ -144,12 +140,16 @@ function enqueue<T>(token: string, run: () => Promise<T>): Promise<T> {
 function budgetFor(token: string): Budget {
   const existing = budgets.get(token)
   if (existing) return existing
-  const created: Budget = { calls: [], tail: Promise.resolve() }
+  const created: Budget = {
+    calls: [],
+    endpoints: new Map(),
+    tail: Promise.resolve(),
+  }
   budgets.set(token, created)
   return created
 }
 
-function accessTokenKey(client: LinearGraphqlRequester): string {
+function accessTokenKey(client: LinearClient): string {
   const headers = client.options?.headers
   if (!headers) return ""
   if (headers instanceof Headers) return headers.get("authorization") ?? ""
@@ -168,7 +168,7 @@ function accessTokenKey(client: LinearGraphqlRequester): string {
 function nextWaitMs(budget: Budget, now = Date.now()): number {
   const waits: number[] = []
   const recent = callsInWindow(budget, now)
-  if (recent.length >= maxCallsPerMinute) {
+  if (recent.length >= 70) {
     const oldest = recent[0]
     if (oldest !== undefined) waits.push(oldest + minuteMs + 1000 - now)
   }
@@ -186,8 +186,10 @@ function nextWaitMs(budget: Budget, now = Date.now()): number {
   ) {
     waits.push(budget.complexityResetAt + 1000 - now)
   }
-  if (budget.endpointRemaining === 0 && budget.endpointResetAt !== undefined) {
-    waits.push(budget.endpointResetAt + 1000 - now)
+  for (const endpoint of budget.endpoints.values()) {
+    if (endpoint.remaining === 0 && endpoint.resetAt !== undefined) {
+      waits.push(endpoint.resetAt + 1000 - now)
+    }
   }
   const pending = waits.filter((wait) => wait > 0)
   if (pending.length === 0) return 0
@@ -198,10 +200,10 @@ async function waitForBudget(
   waitMs: number,
   waitsSoFar: number,
 ): Promise<void> {
-  if (waitsSoFar >= maxWindowWaits) {
+  if (waitsSoFar >= 3) {
     throw new Error("Linear rate limit persisted after 3 waits")
   }
-  if (waitMs > maxSleepMs) {
+  if (waitMs > 65 * 60 * 1000) {
     throw new Error("Linear rate limit wait exceeds 65 minutes")
   }
   await new Promise((resolve) => setTimeout(resolve, waitMs))
@@ -234,13 +236,6 @@ function recordHeaders(budget: Budget, headers: Headers | undefined): void {
   const complexityResetAt = epochMs(
     headerNumber(headers, "x-ratelimit-complexity-reset"),
   )
-  const endpointRemaining = headerNumber(
-    headers,
-    "x-ratelimit-endpoint-requests-remaining",
-  )
-  const endpointResetAt = epochMs(
-    headerNumber(headers, "x-ratelimit-endpoint-requests-reset"),
-  )
   if (requestsRemaining !== undefined)
     budget.requestsRemaining = requestsRemaining
   if (requestsResetAt !== undefined) budget.requestsResetAt = requestsResetAt
@@ -249,14 +244,16 @@ function recordHeaders(budget: Budget, headers: Headers | undefined): void {
   }
   if (complexityResetAt !== undefined)
     budget.complexityResetAt = complexityResetAt
-  if (endpointRemaining !== undefined)
-    budget.endpointRemaining = endpointRemaining
-  if (endpointResetAt !== undefined) budget.endpointResetAt = endpointResetAt
+  recordEndpoint(budget, headers)
 }
 
 type RateLimitWait = {
+  requestsRemaining?: number
   requestsResetAt?: number
+  complexityRemaining?: number
   complexityResetAt?: number
+  endpointName?: string
+  endpointRemaining?: number
   endpointResetAt?: number
   fallbackMs: number
 }
@@ -266,14 +263,26 @@ function rateLimitWait(error: unknown): RateLimitWait | undefined {
   const headers = errorHeaders(error)
   const limited = error instanceof RatelimitedLinearError ? error : undefined
   const retryAfterSeconds = limited?.retryAfter
+  const endpointName = headers?.get("x-ratelimit-endpoint-requests-name")
   return {
+    requestsRemaining:
+      limited?.requestsRemaining ??
+      headerNumber(headers, "x-ratelimit-requests-remaining"),
     requestsResetAt: epochMs(
       limited?.requestsResetAt ??
         headerNumber(headers, "x-ratelimit-requests-reset"),
     ),
+    complexityRemaining:
+      limited?.complexityRemaining ??
+      headerNumber(headers, "x-ratelimit-complexity-remaining"),
     complexityResetAt: epochMs(
       limited?.complexityResetAt ??
         headerNumber(headers, "x-ratelimit-complexity-reset"),
+    ),
+    endpointName: endpointName ?? undefined,
+    endpointRemaining: headerNumber(
+      headers,
+      "x-ratelimit-endpoint-requests-remaining",
     ),
     endpointResetAt: epochMs(
       headerNumber(headers, "x-ratelimit-endpoint-requests-reset"),
@@ -283,26 +292,57 @@ function rateLimitWait(error: unknown): RateLimitWait | undefined {
 }
 
 function applyRateLimit(budget: Budget, limited: RateLimitWait): void {
-  if (limited.requestsResetAt !== undefined) {
-    budget.requestsRemaining = 0
-    budget.requestsResetAt = limited.requestsResetAt
+  if (limited.requestsRemaining !== undefined) {
+    budget.requestsRemaining = limited.requestsRemaining
+    if (limited.requestsResetAt !== undefined) {
+      budget.requestsResetAt = limited.requestsResetAt
+    }
   }
-  if (limited.complexityResetAt !== undefined) {
-    budget.complexityRemaining = 0
-    budget.complexityResetAt = limited.complexityResetAt
+  if (limited.complexityRemaining !== undefined) {
+    budget.complexityRemaining = limited.complexityRemaining
+    if (limited.complexityResetAt !== undefined) {
+      budget.complexityResetAt = limited.complexityResetAt
+    }
   }
-  if (limited.endpointResetAt !== undefined) {
-    budget.endpointRemaining = 0
-    budget.endpointResetAt = limited.endpointResetAt
+  if (limited.endpointRemaining !== undefined) {
+    budget.endpoints.set(limited.endpointName ?? "", {
+      remaining: limited.endpointRemaining,
+      resetAt:
+        limited.endpointResetAt ??
+        (limited.endpointRemaining === 0
+          ? Date.now() + limited.fallbackMs - 1000
+          : undefined),
+    })
   }
+  const requestsBlocking =
+    limited.requestsRemaining !== undefined &&
+    limited.requestsRemaining < requestReserve
+  const complexityBlocking =
+    limited.complexityRemaining !== undefined &&
+    limited.complexityRemaining < complexityReserve
   if (
-    limited.requestsResetAt === undefined &&
-    limited.complexityResetAt === undefined &&
-    limited.endpointResetAt === undefined
+    !requestsBlocking &&
+    !complexityBlocking &&
+    limited.endpointRemaining !== 0
   ) {
     budget.requestsRemaining = 0
     budget.requestsResetAt = Date.now() + limited.fallbackMs - 1000
   }
+}
+
+function recordEndpoint(budget: Budget, headers: Headers): void {
+  const remaining = headerNumber(
+    headers,
+    "x-ratelimit-endpoint-requests-remaining",
+  )
+  if (remaining === undefined) return
+  const name = headers.get("x-ratelimit-endpoint-requests-name") ?? ""
+  budget.endpoints.set(name, {
+    remaining,
+    resetAt: epochMs(
+      headerNumber(headers, "x-ratelimit-endpoint-requests-reset"),
+    ),
+  })
 }
 
 function isRateLimited(error: unknown): boolean {

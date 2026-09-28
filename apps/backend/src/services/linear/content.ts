@@ -59,13 +59,6 @@ export function renderLinearUpdateSections(
   }))
 }
 
-const scopeOrder = {
-  team: 0,
-  project: 1,
-  initiative: 2,
-  document: 3,
-} as const
-
 export async function buildLinearMirror(input: {
   env: Env
   connection: LinearConnection
@@ -93,6 +86,7 @@ export async function buildLinearMirror(input: {
     const seen = {
       teams: new Set<string>(),
       projects: new Set<string>(),
+      projectTeamIds: new Map<string, string[]>(),
       issues: new Set<string>(),
       documents: new Set<string>(),
       initiatives: new Set<string>(),
@@ -222,13 +216,21 @@ export async function buildLinearMirror(input: {
         await addLoadedDocument(document)
       }
       for (const need of project.needs) await addNeed(need, null)
-      const coveredBySelectedTeam =
-        project.teamIds.length > 0 &&
-        project.teamIds.every((teamId) => seen.teams.has(teamId))
-      if (!includeIssues || coveredBySelectedTeam) return
+      seen.projectTeamIds.set(project.id, project.teamIds)
+      if (!includeIssues || projectIssuesCovered(project.teamIds)) return
+      await addProjectIssues(project.id)
+    }
+
+    function projectIssuesCovered(teamIds: string[]): boolean {
+      return (
+        teamIds.length > 0 && teamIds.every((teamId) => seen.teams.has(teamId))
+      )
+    }
+
+    async function addProjectIssues(projectId: string) {
       for (const issue of await loadProjectIssues(
         client,
-        project.id,
+        projectId,
         includeNeeds,
       )) {
         try {
@@ -244,7 +246,24 @@ export async function buildLinearMirror(input: {
     }
 
     async function addProject(projectId: string, includeIssues: boolean) {
-      if (seen.projects.has(projectId)) return
+      if (seen.projects.has(projectId)) {
+        if (
+          !includeIssues ||
+          projectIssuesCovered(seen.projectTeamIds.get(projectId) ?? [])
+        ) {
+          return
+        }
+        try {
+          await addProjectIssues(projectId)
+        } catch (error) {
+          failures.push({
+            type: "project",
+            id: projectId,
+            message: errorMessage(error),
+          })
+        }
+        return
+      }
       seen.projects.add(projectId)
       try {
         const project = await loadProject(client, projectId, {
@@ -427,6 +446,12 @@ export async function buildLinearMirror(input: {
       }
     }
 
+    const scopeOrder = {
+      team: 0,
+      project: 1,
+      initiative: 2,
+      document: 3,
+    } as const
     const scopes = [...input.config.scopes].sort(
       (left, right) => scopeOrder[left.type] - scopeOrder[right.type],
     )

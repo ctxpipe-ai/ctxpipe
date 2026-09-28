@@ -1,3 +1,4 @@
+import { LinearClient } from "@linear/sdk"
 import { type DocumentNode, parse } from "graphql"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import * as generated from "./documents.generated.js"
@@ -46,18 +47,11 @@ describe("estimateLinearQueryComplexity", () => {
     expect(estimateLinearQueryComplexity(document)).toBeGreaterThan(
       linearQueryComplexityCeiling,
     )
-    const rawRequest = vi.fn(async () => ({
-      status: 200,
-      headers: new Headers(),
-      data: undefined,
-    }))
-    await expect(
-      linearGraphql(
-        { client: { rawRequest }, options: { headers: {} } },
-        document,
-        {},
-      ),
-    ).rejects.toBeInstanceOf(LinearQueryTooComplexError)
+    const client = new LinearClient({ accessToken: "test-token" })
+    const rawRequest = vi.spyOn(client.client, "rawRequest")
+    await expect(linearGraphql(client, document, {})).rejects.toBeInstanceOf(
+      LinearQueryTooComplexError,
+    )
     expect(rawRequest).not.toHaveBeenCalled()
   })
 

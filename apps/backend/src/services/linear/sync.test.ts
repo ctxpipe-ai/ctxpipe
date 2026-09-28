@@ -1,10 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  installLinearGraphql,
+  type LinearGraphqlCall,
+} from "../../../test/linear-graphql.js"
+import { useMswServer } from "../../../test/msw.js"
 import type { Env } from "../../config/env.js"
 import type {
   LinearBindingWithRepo,
   LinearConnection,
   LinearScope,
 } from "../../models/linear-connector.js"
+import { resetLinearGraphqlForTests } from "./graphql.js"
 import {
   syncLinearConfigYaml,
   syncLinearContentToGit,
@@ -56,6 +62,10 @@ vi.mock("./client.js", async (importOriginal) => {
 })
 vi.mock("./content.js", () => content)
 vi.mock("./incremental.js", () => incremental)
+
+const linearCalls: LinearGraphqlCall[] = []
+// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
+const server = useMswServer()
 
 const connection = {
   id: "con_linear",
@@ -109,6 +119,7 @@ const scopes = [
 ] satisfies LinearScope[]
 
 beforeEach(() => {
+  resetLinearGraphqlForTests()
   vi.clearAllMocks()
   github.getFileContent.mockResolvedValue(undefined)
   github.getPullRequestHeadBranch.mockResolvedValue(undefined)
@@ -167,49 +178,31 @@ describe("syncLinearContentToGit", () => {
   it("crosses provider traversal, asset capture, and Git reconciliation", async () => {
     const actualContent =
       await vi.importActual<typeof import("./content.js")>("./content.js")
+    const actualClient =
+      await vi.importActual<typeof import("./client.js")>("./client.js")
     content.buildLinearMirror.mockImplementationOnce(
       actualContent.buildLinearMirror,
     )
     linearClient.withClient.mockImplementationOnce(
-      async (
-        _input: unknown,
-        run: (client: {
-          client: {
-            rawRequest: (query: string) => Promise<{
-              data: unknown
-              headers: Headers
-              status: number
-            }>
-          }
-          options: { headers: { Authorization: string } }
-        }) => Promise<unknown>,
-      ) =>
-        run({
-          client: {
-            rawRequest: async (query: string) => {
-              expect(query).toContain("DocumentRecord")
-              return {
-                data: {
-                  document: {
-                    id: "doc-1",
-                    title: "Architecture",
-                    url: "https://linear.app/acme/document/architecture-doc-1",
-                    content:
-                      "Current design\n\n![System diagram](https://uploads.linear.app/files/diagram.png?token=temporary-secret)",
-                    createdAt: "2026-08-01T00:00:00.000Z",
-                    updatedAt: "2026-08-25T00:00:00.000Z",
-                    project: null,
-                    creator: null,
-                  },
-                },
-                headers: new Headers(),
-                status: 200,
-              }
-            },
-          },
-          options: { headers: { Authorization: "Bearer secret" } },
-        }),
+      actualClient.withLinearClient,
     )
+    linearCalls.length = 0
+    installLinearGraphql(server, linearCalls, (call) => {
+      if (call.name !== "DocumentRecord") return {}
+      return {
+        document: {
+          id: "doc-1",
+          title: "Architecture",
+          url: "https://linear.app/acme/document/architecture-doc-1",
+          content:
+            "Current design\n\n![System diagram](https://uploads.linear.app/files/diagram.png?token=temporary-secret)",
+          createdAt: "2026-08-01T00:00:00.000Z",
+          updatedAt: "2026-08-25T00:00:00.000Z",
+          project: null,
+          creator: null,
+        },
+      }
+    })
 
     await syncLinearContentToGit({
       orgId: "org_1",
@@ -232,6 +225,7 @@ describe("syncLinearContentToGit", () => {
       },
     })
 
+    expect(linearCalls.map((call) => call.name)).toEqual(["DocumentRecord"])
     expect(assetBoundary.download).toHaveBeenCalledWith(
       expect.objectContaining({
         url: "https://uploads.linear.app/files/diagram.png?token=temporary-secret",

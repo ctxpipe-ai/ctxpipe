@@ -6,7 +6,7 @@ generates:
     plugins:
       # typescript-operations with preResolveTypes emits result types and the
       # enums those results reference. The typescript plugin's onlyOperationTypes
-      # still emits every Linear input object, so it stays off this output.
+      # still emits every Linear input object, so it is not a dependency.
       - typescript-operations
       - typed-document-node
     config:

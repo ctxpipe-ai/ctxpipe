@@ -1,3 +1,4 @@
+import type { LinearClient } from "@linear/sdk"
 import type { LinearIssueForMirror } from "./converter.js"
 import type {
   LinearActorFragment,
@@ -41,7 +42,7 @@ import {
   TeamRecordDocument,
   UserRecordDocument,
 } from "./documents.generated.js"
-import { type LinearGraphqlRequester, linearGraphql } from "./graphql.js"
+import { linearGraphql } from "./graphql.js"
 
 type Page<T> = {
   nodes: T[]
@@ -162,7 +163,7 @@ export type LoadedInitiative = {
 }
 
 export async function loadTeam(
-  client: LinearGraphqlRequester,
+  client: LinearClient,
   id: string,
 ): Promise<LoadedTeam> {
   const data = await linearGraphql(client, TeamRecordDocument, { id })
@@ -178,7 +179,7 @@ export async function loadTeam(
 }
 
 export async function loadTeamIssues(
-  client: LinearGraphqlRequester,
+  client: LinearClient,
   teamId: string,
   includeNeeds: boolean,
 ): Promise<LoadedIssue[]> {
@@ -204,7 +205,7 @@ export async function loadTeamIssues(
 }
 
 export async function loadTeamProjects(
-  client: LinearGraphqlRequester,
+  client: LinearClient,
   teamId: string,
   includeNeeds: boolean,
 ): Promise<LoadedProject[]> {
@@ -235,7 +236,7 @@ export async function loadTeamProjects(
 }
 
 export async function loadTeamCycles(
-  client: LinearGraphqlRequester,
+  client: LinearClient,
   teamId: string,
 ): Promise<LoadedCycle[]> {
   const nodes = await collectPages(
@@ -254,7 +255,7 @@ export async function loadTeamCycles(
 }
 
 export async function loadTeamLabels(
-  client: LinearGraphqlRequester,
+  client: LinearClient,
   teamId: string,
 ): Promise<LoadedLabel[]> {
   const nodes = await collectPages(
@@ -265,7 +266,7 @@ export async function loadTeamLabels(
 }
 
 export async function loadProject(
-  client: LinearGraphqlRequester,
+  client: LinearClient,
   id: string,
   options: { includeNeeds: boolean; includeDocuments: boolean },
 ): Promise<LoadedProject> {
@@ -280,7 +281,7 @@ export async function loadProject(
 }
 
 export async function loadProjectIssues(
-  client: LinearGraphqlRequester,
+  client: LinearClient,
   projectId: string,
   includeNeeds: boolean,
 ): Promise<LoadedIssue[]> {
@@ -309,7 +310,7 @@ export async function loadProjectIssues(
 }
 
 export async function loadIssue(
-  client: LinearGraphqlRequester,
+  client: LinearClient,
   id: string,
   includeNeeds: boolean,
 ): Promise<LoadedIssue> {
@@ -324,7 +325,7 @@ export async function loadIssue(
 }
 
 export async function loadDocument(
-  client: LinearGraphqlRequester,
+  client: LinearClient,
   id: string,
 ): Promise<LoadedDocument> {
   const data = await linearGraphql(client, DocumentRecordDocument, { id })
@@ -332,7 +333,7 @@ export async function loadDocument(
 }
 
 export async function loadInitiative(
-  client: LinearGraphqlRequester,
+  client: LinearClient,
   id: string,
 ): Promise<LoadedInitiative> {
   const data = await linearGraphql(client, InitiativeRecordDocument, { id })
@@ -367,7 +368,7 @@ export async function loadInitiative(
 }
 
 export async function loadInitiativeProjectIds(
-  client: LinearGraphqlRequester,
+  client: LinearClient,
   id: string,
 ): Promise<string[]> {
   const nodes = await collectPages(
@@ -378,7 +379,7 @@ export async function loadInitiativeProjectIds(
 }
 
 export async function loadInitiativeDocumentIds(
-  client: LinearGraphqlRequester,
+  client: LinearClient,
   id: string,
 ): Promise<string[]> {
   const nodes = await collectPages(
@@ -390,7 +391,7 @@ export async function loadInitiativeDocumentIds(
 }
 
 export async function loadCycle(
-  client: LinearGraphqlRequester,
+  client: LinearClient,
   id: string,
 ): Promise<LoadedCycle> {
   const data = await linearGraphql(client, CycleRecordDocument, { id })
@@ -407,7 +408,7 @@ export async function loadCycle(
 }
 
 export async function loadIssueLabel(
-  client: LinearGraphqlRequester,
+  client: LinearClient,
   id: string,
 ): Promise<LoadedLabel> {
   const data = await linearGraphql(client, IssueLabelRecordDocument, { id })
@@ -415,7 +416,7 @@ export async function loadIssueLabel(
 }
 
 export async function loadUser(
-  client: LinearGraphqlRequester,
+  client: LinearClient,
   id: string,
 ): Promise<LinearActorFragment> {
   const data = await linearGraphql(client, UserRecordDocument, { id })
@@ -430,7 +431,7 @@ export function linearActorName(
 }
 
 async function loadIssueNode(
-  client: LinearGraphqlRequester,
+  client: LinearClient,
   issue: IssueNode,
   includeNeeds: boolean,
 ): Promise<LoadedIssue> {
@@ -520,7 +521,7 @@ async function loadIssueNode(
 }
 
 async function loadProjectNode(
-  client: LinearGraphqlRequester,
+  client: LinearClient,
   project: ProjectNode,
   options: { includeNeeds: boolean; includeDocuments: boolean },
 ): Promise<LoadedProject> {
@@ -589,7 +590,7 @@ async function loadProjectNode(
 }
 
 async function mapDocumentRecord(
-  client: LinearGraphqlRequester,
+  client: LinearClient,
   document: LinearDocumentNodeFragment & {
     project: {
       id: string
