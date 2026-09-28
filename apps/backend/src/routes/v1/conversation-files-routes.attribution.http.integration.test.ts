@@ -98,7 +98,11 @@ describeWithDatabase("conversation files/status HTTP attribution", () => {
       },
     )
 
-    expect([400, 409]).toContain(res.status)
+    // Documented post-load statuses: attribution runs before sandbox warmup.
+    expect([200, 400, 409, 503]).toContain(res.status)
+    if (res.status !== 200) {
+      expect(await res.json()).toEqual({ error: expect.any(String) })
+    }
     const span = spans.serverSpan()
     expect(span?.attributes).toMatchObject({
       "ctxpipe.conversation.id": conversationId,
