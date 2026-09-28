@@ -1,6 +1,9 @@
 import { LinearClient } from "@linear/sdk"
 import { type DocumentNode, parse } from "graphql"
+import { HttpResponse, http } from "msw"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { linearBudgetHeaders } from "../../../test/linear-graphql.js"
+import { useMswServer } from "../../../test/msw.js"
 import * as generated from "./documents.generated.js"
 import {
   estimateLinearQueryComplexity,
@@ -9,6 +12,19 @@ import {
   linearQueryComplexityCeiling,
   resetLinearGraphqlForTests,
 } from "./graphql.js"
+
+// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
+const server = useMswServer()
+
+const linearUser = {
+  id: "user-1",
+  name: "Ada",
+  displayName: "Ada",
+  active: true,
+  admin: false,
+  guest: false,
+  avatarUrl: null,
+}
 
 beforeEach(() => {
   resetLinearGraphqlForTests()
@@ -32,6 +48,47 @@ function isDocument(value: unknown): value is DocumentNode {
     )
   )
 }
+
+describe("linearGraphql endpoint budgets", () => {
+  it("does not park the next query on an exhausted endpoint from the previous one", async () => {
+    vi.useFakeTimers()
+    let calls = 0
+    server.use(
+      http.post("https://api.linear.app/graphql", () => {
+        calls += 1
+        if (calls === 1) {
+          return HttpResponse.json(
+            { data: { user: linearUser } },
+            {
+              headers: {
+                ...linearBudgetHeaders(),
+                "X-RateLimit-Endpoint-Requests-Remaining": "0",
+                "X-RateLimit-Endpoint-Requests-Reset": String(
+                  Date.now() + 3_600_000,
+                ),
+                "X-RateLimit-Endpoint-Requests-Name": "issues",
+              },
+            },
+          )
+        }
+        return HttpResponse.json(
+          { data: { user: { ...linearUser, id: "user-2" } } },
+          { headers: linearBudgetHeaders() },
+        )
+      }),
+    )
+    const client = new LinearClient({ accessToken: "endpoint-isolation" })
+
+    await linearGraphql(client, generated.UserRecordDocument, { id: "user-1" })
+    const pending = linearGraphql(client, generated.UserRecordDocument, {
+      id: "user-2",
+    })
+    await vi.advanceTimersByTimeAsync(1_000)
+    await pending
+
+    expect(calls).toBe(2)
+  })
+})
 
 describe("estimateLinearQueryComplexity", () => {
   it("rejects a document whose first arguments exceed the per-query ceiling", async () => {

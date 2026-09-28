@@ -43,12 +43,15 @@ const model = vi.hoisted(() => ({
   ),
 }))
 
+// withLinearBindingSnapshot opens a Postgres transaction around the git write.
 vi.mock("../../models/linear-connector.js", () => model)
+// downloadConnectorAsset fetches uploads.linear.app, which is outside the GraphQL budget.
 vi.mock("../connectors/assets.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../connectors/assets.js")>()
   return { ...actual, downloadConnectorAsset: assetBoundary.download }
 })
+// GitHub contents and pull-request calls are a separate HTTP API from Linear.
 vi.mock("../github/installation-write-client.js", async (importOriginal) => {
   const actual =
     await importOriginal<
@@ -56,11 +59,14 @@ vi.mock("../github/installation-write-client.js", async (importOriginal) => {
     >()
   return { ...actual, ...github }
 })
+// withLinearClient builds a LinearClient; the traversal test delegates to the real one.
 vi.mock("./client.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./client.js")>()
   return { ...actual, withLinearClient: linearClient.withClient }
 })
+// Most cases stub the mirror result; the traversal test runs the real builder.
 vi.mock("./content.js", () => content)
+// Incremental git sync is covered with msw in incremental.test.ts.
 vi.mock("./incremental.js", () => incremental)
 
 const linearCalls: LinearGraphqlCall[] = []

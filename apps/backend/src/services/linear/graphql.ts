@@ -44,6 +44,7 @@ type Budget = {
 }
 
 const budgets = new Map<string, Budget>()
+const complexityByDocument = new WeakMap<DocumentNode, number>()
 
 export function resetLinearGraphqlForTests(): void {
   budgets.clear()
@@ -54,7 +55,7 @@ export async function linearGraphql<TData, TVariables>(
   document: TypedDocumentNode<TData, TVariables>,
   variables: TVariables,
 ): Promise<TData> {
-  const estimate = estimateLinearQueryComplexity(document, variables)
+  const estimate = cachedQueryComplexity(document, variables)
   if (estimate > linearQueryComplexityCeiling) {
     throw new LinearQueryTooComplexError(estimate)
   }
@@ -62,6 +63,24 @@ export async function linearGraphql<TData, TVariables>(
   return enqueue(token, () =>
     requestWithBudget(client, print(document), variables, budgetFor(token)),
   )
+}
+
+function cachedQueryComplexity(
+  document: DocumentNode,
+  variables: unknown,
+): number {
+  const values = recordOf(variables)
+  if (
+    values &&
+    Object.values(values).some((value) => typeof value === "number")
+  ) {
+    return estimateLinearQueryComplexity(document, variables)
+  }
+  const cached = complexityByDocument.get(document)
+  if (cached !== undefined) return cached
+  const estimate = estimateLinearQueryComplexity(document, variables)
+  complexityByDocument.set(document, estimate)
+  return estimate
 }
 
 export function estimateLinearQueryComplexity(
@@ -94,8 +113,9 @@ async function requestWithBudget<TData>(
   budget: Budget,
 ): Promise<TData> {
   let waits = 0
+  let retryEndpointName: string | undefined
   for (;;) {
-    const waitMs = nextWaitMs(budget)
+    const waitMs = nextWaitMs(budget, retryEndpointName)
     if (waitMs > 0) {
       await waitForBudget(waitMs, waits)
       waits += 1
@@ -117,12 +137,14 @@ async function requestWithBudget<TData>(
       const limited = rateLimitWait(error)
       if (!limited) throw error
       applyRateLimit(budget, limited)
-      const retryWaitMs = nextWaitMs(budget)
-      await waitForBudget(
-        retryWaitMs > 0 ? retryWaitMs : limited.fallbackMs,
-        waits,
-      )
-      waits += 1
+      retryEndpointName =
+        limited.endpointRemaining === 0
+          ? (limited.endpointName ?? "")
+          : undefined
+      if (nextWaitMs(budget, retryEndpointName) === 0) {
+        await waitForBudget(limited.fallbackMs, waits)
+        waits += 1
+      }
     }
   }
 }
@@ -165,7 +187,11 @@ function accessTokenKey(client: LinearClient): string {
   return ""
 }
 
-function nextWaitMs(budget: Budget, now = Date.now()): number {
+function nextWaitMs(
+  budget: Budget,
+  endpointName?: string,
+  now = Date.now(),
+): number {
   const waits: number[] = []
   const recent = callsInWindow(budget, now)
   if (recent.length >= 70) {
@@ -186,8 +212,9 @@ function nextWaitMs(budget: Budget, now = Date.now()): number {
   ) {
     waits.push(budget.complexityResetAt + 1000 - now)
   }
-  for (const endpoint of budget.endpoints.values()) {
-    if (endpoint.remaining === 0 && endpoint.resetAt !== undefined) {
+  if (endpointName !== undefined) {
+    const endpoint = budget.endpoints.get(endpointName)
+    if (endpoint?.remaining === 0 && endpoint.resetAt !== undefined) {
       waits.push(endpoint.resetAt + 1000 - now)
     }
   }
