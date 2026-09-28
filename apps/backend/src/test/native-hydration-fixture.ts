@@ -40,6 +40,7 @@ export type NativeHydrationOptions = {
   }
   semanticMergeDelayMs?: number
   count?: number
+  traceGitCommands?: boolean
   github?: boolean
   githubWriteView?: "writable" | "missing"
   githubDefaultBranch?: () => string
@@ -261,21 +262,20 @@ async function createNativeHydrationFixture(
       },
     ),
     http.get("https://api.github.com/repos/fixture/:repo", async () => {
-        await beforeWriteProbe?.()
-        return githubWriteView === "writable"
-          ? HttpResponse.json({
-              default_branch: options.githubDefaultBranch?.() ?? "main",
-              ...(options.githubRepoPermissions === null
-                ? {}
-                : {
-                    permissions: options.githubRepoPermissions ?? {
-                      push: true,
-                    },
-                  }),
-            })
-          : HttpResponse.json({ message: "Use native Git" }, { status: 404 })
-      },
-    ),
+      await beforeWriteProbe?.()
+      return githubWriteView === "writable"
+        ? HttpResponse.json({
+            default_branch: options.githubDefaultBranch?.() ?? "main",
+            ...(options.githubRepoPermissions === null
+              ? {}
+              : {
+                  permissions: options.githubRepoPermissions ?? {
+                    push: true,
+                  },
+                }),
+          })
+        : HttpResponse.json({ message: "Use native Git" }, { status: 404 })
+    }),
     http.get(
       "https://api.github.com/app/installations/123456789",
       ({ request }) => {
@@ -474,6 +474,7 @@ async function createNativeHydrationFixture(
   runner.implementWorkflow(workspaceIndex.spec, workspaceIndex.fn)
   runner.implementWorkflow(repositoryIndex.spec, repositoryIndex.fn)
   const worker = runner.newWorker({ concurrency: 2 })
+  const gitTrace = join(tmpdir(), `ctxpipe-hydration-trace-${id}.jsonl`)
 
   let cleanupPromise: Promise<void> | undefined
   const cleanup = () =>
@@ -518,6 +519,7 @@ async function createNativeHydrationFixture(
           if (value === undefined) delete process.env[key]
           else process.env[key] = value
         }
+        rmSync(gitTrace, { force: true })
         rmSync(directory, { recursive: true, force: true })
       }
     })())
@@ -643,8 +645,8 @@ async function createNativeHydrationFixture(
       workspaceId,
       revision,
     })
-    const gitTrace = join(directory, "git-trace.jsonl")
-    process.env.GIT_TRACE2_EVENT = gitTrace
+    if (options.traceGitCommands) process.env.GIT_TRACE2_EVENT = gitTrace
+    else delete process.env.GIT_TRACE2_EVENT
     return {
       resolveRevision,
       revision,

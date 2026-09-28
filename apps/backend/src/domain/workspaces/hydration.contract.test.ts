@@ -75,19 +75,24 @@ it(
   "hydrates a 100-file immutable tree within eight native Git commands",
   { timeout: 60_000 },
   async () =>
-    withNativeHydrationFixture({ count: 100 }, async (f) => {
-      const { gitTrace } = f
-      await f.publish()
-      const gitCommands = readFileSync(gitTrace, "utf8")
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line))
-        .filter((event) => event.event === "start" && !event.sid.includes("/"))
-      expect(
-        gitCommands.length,
-        "native git command budget per immutable tree",
-      ).toBeLessThanOrEqual(8)
-    }),
+    withNativeHydrationFixture(
+      { count: 100, traceGitCommands: true },
+      async (f) => {
+        const { gitTrace } = f
+        await f.publish()
+        const gitCommands = readFileSync(gitTrace, "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line))
+          .filter(
+            (event) => event.event === "start" && !event.sid.includes("/"),
+          )
+        expect(
+          gitCommands.length,
+          "native git command budget per immutable tree",
+        ).toBeLessThanOrEqual(8)
+      },
+    ),
 )
 
 it(
