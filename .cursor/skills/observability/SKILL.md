@@ -77,3 +77,4 @@ Tests sit next to the module. Assert telemetry through the OTel SDK in-memory ex
 - A PR flush exports after `span.end()`. An empty preview has no metric series until the next request or job.
 - Under Bun there are no `v8js.*` runtime metrics.
 - `CtxpipeCallbackHandler` (`observability/langfuse.ts`) collapses a repeated `model_name` before Langfuse records the generation.
+- `AttributionUrlSpanProcessor` strips a Drizzle `params:` line from exception messages, stacks, and status text as the span ends. Bound values stay off the exported span when a library calls `recordException` with the original error.

@@ -115,8 +115,12 @@ describe("defineObservedWorkflow", () => {
     expect(childCreate?.spanContext().traceId).toBe(
       parentExecute?.spanContext().traceId,
     )
+    expect(childExecute?.parentSpanContext).toBeUndefined()
     expect(childExecute?.spanContext().traceId).not.toBe(
       parentExecute?.spanContext().traceId,
+    )
+    expect(childExecute?.spanContext().traceId).not.toBe(
+      childCreate?.spanContext().traceId,
     )
     expect(
       childExecute?.links.some(
@@ -232,6 +236,10 @@ describe("defineObservedWorkflow", () => {
       expect(create?.attributes["openworkflow.workflow.name"]).toBe(
         "native-trace-sleep",
       )
+      expect(execute.parentSpanContext).toBeUndefined()
+      expect(execute.spanContext().traceId).not.toBe(
+        create?.spanContext().traceId,
+      )
       expect(
         execute.links.some(
           (link) =>
@@ -249,6 +257,8 @@ describe("defineObservedWorkflow", () => {
         )
       expect(step?.parentSpanContext?.spanId).toBe(execute.spanContext().spanId)
       expect(step?.spanContext().traceId).toBe(execute.spanContext().traceId)
+      expect(step?.attributes["ctxpipe.actor.type"]).toBe("job")
+      expect(step?.attributes["ctxpipe.org.id"]).toBe("org_1")
       expect(
         spans
           .finishedSpans()
@@ -275,5 +285,79 @@ describe("defineObservedWorkflow", () => {
       await backend.stop()
       vi.useRealTimers()
     }
+  }, 20_000)
+
+  it("omits drizzle params from a failed step and its execution span", async () => {
+    const workflow = defineWorkflow(
+      {
+        name: "native-trace-db-error",
+        schema: z.object({ orgId: z.string() }),
+      },
+      async ({ step }) => {
+        await step.run(
+          {
+            name: "write-row",
+            retryPolicy: {
+              maximumAttempts: 1,
+              initialInterval: "1s",
+              backoffCoefficient: 1,
+              maximumInterval: "1s",
+            },
+          },
+          async () => {
+            throw new Error(
+              'Failed query: insert into "repositories" ("git_url") values ($1)\nparams: user@example.com token=SECRET',
+            )
+          },
+        )
+      },
+    )
+
+    const backend = BackendSqlite.connect(":memory:")
+    const ow = new OpenWorkflow({ backend })
+    ow.implementWorkflow(workflow.spec, workflow.fn)
+    const worker = ow.newWorker({ concurrency: 1 })
+    await worker.start()
+    try {
+      const handle = await ow.runWorkflow(workflow.spec, { orgId: "org_1" })
+      await expect(handle.result({ timeoutMs: 15_000 })).rejects.toThrow(
+        /Failed query:/,
+      )
+    } finally {
+      await worker.stop()
+      await backend.stop()
+    }
+
+    const recorded = spans.finishedSpans().filter((span) => {
+      return (
+        span.attributes["openworkflow.workflow.name"] ===
+          "native-trace-db-error" &&
+        (span.name === "workflow_run.execute" ||
+          span.name === "step_attempt.execute")
+      )
+    })
+    expect(recorded.map((span) => span.name).sort()).toEqual([
+      "step_attempt.execute",
+      "workflow_run.execute",
+    ])
+    const dumped = JSON.stringify(
+      recorded.map((span) => ({
+        status: span.status.message,
+        events: span.events,
+        attributes: span.attributes,
+      })),
+    )
+    expect(dumped).not.toContain("params:")
+    expect(dumped).not.toContain("user@example.com")
+    expect(dumped).not.toContain("token=SECRET")
+    expect(dumped).toContain("Failed query:")
+    const step = recorded.find((span) => span.name === "step_attempt.execute")
+    expect(step?.attributes["ctxpipe.org.id"]).toBe("org_1")
+    expect(step?.attributes["ctxpipe.actor.type"]).toBe("job")
+    expect(step?.parentSpanContext?.spanId).toBe(
+      recorded
+        .find((span) => span.name === "workflow_run.execute")
+        ?.spanContext().spanId,
+    )
   }, 20_000)
 })

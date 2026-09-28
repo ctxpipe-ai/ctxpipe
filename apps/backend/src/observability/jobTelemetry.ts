@@ -16,7 +16,7 @@ export const jobTelemetrySchema = z.object({
 
 export type JobTelemetry = z.infer<typeof jobTelemetrySchema>
 
-export function captureJobTelemetry(): JobTelemetry | undefined {
+function captureJobTelemetry(): JobTelemetry | undefined {
   const bag = readAttribution()
   const telemetry: JobTelemetry = {}
   for (const key of [
@@ -48,7 +48,7 @@ function stringField(
 }
 
 /** Fields from the job payload. Does not write them onto the caller's span. */
-export function attributionPatchFromJobInput(
+function attributionPatchFromJobInput(
   input: unknown,
 ): Partial<Record<AttributionKey, string>> {
   if (!input || typeof input !== "object") return {}

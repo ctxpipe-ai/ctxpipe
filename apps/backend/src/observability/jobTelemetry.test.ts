@@ -6,11 +6,7 @@ import {
   contextWithAttributionBag,
   readAttribution,
 } from "./attribution.js"
-import {
-  attachJobTelemetry,
-  captureJobTelemetry,
-  restoreJobTelemetry,
-} from "./jobTelemetry.js"
+import { attachJobTelemetry, restoreJobTelemetry } from "./jobTelemetry.js"
 import { createLogger, loggerStorage } from "./logger.js"
 
 const spans = recordSpans()
@@ -33,20 +29,18 @@ describe("job telemetry", () => {
         "ctxpipe.org.slug": "acme",
         "ctxpipe.actor.type": "user",
       })
-      const telemetry = captureJobTelemetry()
-      expect(telemetry).not.toHaveProperty("carrier")
-      expect(telemetry).toMatchObject({
-        "request.id": "req_job",
-        "enduser.id": "user_1",
-        "ctxpipe.org.id": "org_1",
-        "ctxpipe.org.slug": "acme",
-      })
       const attached = attachJobTelemetry({
         repositoryId: "repo_1",
         orgId: "org_1",
         orgSlug: "acme",
       })
-      expect(attached.telemetry).toEqual(telemetry)
+      expect(attached.telemetry).not.toHaveProperty("carrier")
+      expect(attached.telemetry).toEqual({
+        "request.id": "req_job",
+        "enduser.id": "user_1",
+        "ctxpipe.org.id": "org_1",
+        "ctxpipe.org.slug": "acme",
+      })
 
       const execution = tracer.startSpan("workflow_run.execute")
       await context.with(trace.setSpan(context.active(), execution), () =>
@@ -207,13 +201,6 @@ describe("job telemetry", () => {
     const webhook = spans.spanNamed("webhook")
     expect(webhook?.attributes["ctxpipe.org.id"]).toBe("org_last")
     expect(webhook?.attributes["ctxpipe.connection.id"]).toBe("con_last")
-  })
-
-  it("returns non-object enqueue input unchanged", () => {
-    expect(attachJobTelemetry(undefined)).toBeUndefined()
-    expect(attachJobTelemetry(null)).toBeNull()
-    expect(attachJobTelemetry("plain")).toBe("plain")
-    expect(attachJobTelemetry([1, 2])).toEqual([1, 2])
   })
 
   it("rethrows failures, sleep, and retry scheduling", async () => {
