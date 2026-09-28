@@ -20,7 +20,7 @@ On 2026-09-28, apply of `c22338c6` updated codesearch first ([job 108996933119](
 ## Consequences
 
 - A production deploy no longer retags or redeploys preview environments.
-- `terraform plan` on a SHA bump does not show those image changes. The script skips a service when that environment's source image already matches and the latest deployment is `SUCCESS` or `SLEEPING`. A matching image with any other status is deployed again.
+- `terraform plan` on a SHA bump does not show those image changes. The script skips a service when that environment's source image already matches and the latest deployment is `SUCCESS` or `SLEEPING`. If `serviceInstanceUpdate` already started a deployment, the script waits for that deployment instead of calling `serviceInstanceDeployV2` on top of it. A deployment left `INITIALIZING` with no region is cancelled once it is stale, then a deploy is started. The image update includes `multiRegionConfig` for `us-east4-eqdc4a` so that deployment can be placed.
 - Provider Update of any other `railway_service` attribute still calls `redeployAllInstances`. Do not put per-deploy changes on those resources besides the ignored fields.
 - `serviceInstanceUpdate` on production also writes other non-fork environments. Production is the only non-fork; `pr-*` environments are forks and are left alone. The following deploy is still only production.
 
