@@ -1,8 +1,7 @@
 import { SpanStatusCode } from "@opentelemetry/api"
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-base"
 import { OpenWorkflow } from "openworkflow"
 import { BackendSqlite } from "openworkflow/sqlite"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 import { recordSpans } from "../../test/spans.js"
 import { readAttribution } from "../observability/attribution.js"
@@ -11,10 +10,10 @@ import { defineWorkflow } from "./defineObservedWorkflow.js"
 const spans = recordSpans()
 
 describe("defineObservedWorkflow", () => {
-  it("names the job span after the workflow", async () => {
+  it("restores job attribution without starting a span", async () => {
     const workflow = defineWorkflow(
       { name: "widget-refresh", schema: z.object({ orgId: z.string() }) },
-      async () => "ok",
+      async () => readAttribution(),
     )
     await expect(
       workflow.fn({
@@ -23,8 +22,15 @@ describe("defineObservedWorkflow", () => {
         version: null,
         run: {} as never,
       }),
-    ).resolves.toBe("ok")
-    expect(spans.spanNamed("openworkflow.job widget-refresh")).toBeDefined()
+    ).resolves.toMatchObject({
+      "ctxpipe.actor.type": "job",
+      "ctxpipe.org.id": "org_1",
+    })
+    expect(
+      spans
+        .finishedSpans()
+        .some((span) => span.name.startsWith("openworkflow.job")),
+    ).toBe(false)
   })
 
   it("gives a child run the parent attribution and a link to the parent span", async () => {
@@ -82,18 +88,44 @@ describe("defineObservedWorkflow", () => {
       await backend.stop()
     }
 
-    const childSpan = spans.spanNamed("openworkflow.job child-sync")
-    const link = childSpan?.links[0]?.context
-    const linkedParent = spans
+    const childExecute = spans
       .finishedSpans()
       .find(
         (span) =>
-          span.name === "openworkflow.job parent-sync" &&
-          span.spanContext().spanId === link?.spanId &&
-          span.spanContext().traceId === link?.traceId,
+          span.name === "workflow_run.execute" &&
+          span.attributes["openworkflow.workflow.name"] === "child-sync",
       )
-    expect(linkedParent).toBeDefined()
-    expect(childSpan?.attributes).toMatchObject({
+    const childCreate = spans
+      .finishedSpans()
+      .find(
+        (span) =>
+          span.name === "workflow_run.create" &&
+          span.attributes["openworkflow.workflow.name"] === "child-sync",
+      )
+    const parentExecute = spans
+      .finishedSpans()
+      .find(
+        (span) =>
+          span.name === "workflow_run.execute" &&
+          span.attributes["openworkflow.workflow.name"] === "parent-sync",
+      )
+    expect(childCreate?.parentSpanContext?.spanId).toBe(
+      parentExecute?.spanContext().spanId,
+    )
+    expect(childCreate?.spanContext().traceId).toBe(
+      parentExecute?.spanContext().traceId,
+    )
+    expect(childExecute?.spanContext().traceId).not.toBe(
+      parentExecute?.spanContext().traceId,
+    )
+    expect(
+      childExecute?.links.some(
+        (link) =>
+          link.context.spanId === childCreate?.spanContext().spanId &&
+          link.context.traceId === childCreate?.spanContext().traceId,
+      ),
+    ).toBe(true)
+    expect(childExecute?.attributes).toMatchObject({
       "ctxpipe.actor.type": "job",
       "ctxpipe.org.id": "org_1",
       "ctxpipe.org.slug": "acme",
@@ -143,8 +175,15 @@ describe("defineObservedWorkflow", () => {
     }
 
     expect(
-      spans.spanNamed("openworkflow.job child-no-slug")?.attributes,
+      spans
+        .finishedSpans()
+        .find(
+          (span) =>
+            span.name === "workflow_run.execute" &&
+            span.attributes["openworkflow.workflow.name"] === "child-no-slug",
+        )?.attributes,
     ).toMatchObject({
+      "ctxpipe.actor.type": "job",
       "ctxpipe.org.id": "org_1",
       "ctxpipe.org.slug": "acme",
     })
@@ -167,15 +206,22 @@ describe("defineObservedWorkflow", () => {
     const ow = new OpenWorkflow({ backend })
     ow.implementWorkflow(workflow.spec, workflow.fn)
     const worker = ow.newWorker({ concurrency: 1 })
-    await worker.start()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     try {
       const handle = await ow.runWorkflow(workflow.spec, { orgId: "org_1" })
-      const execute = await waitForSpan(
-        (span) =>
-          span.name === "workflow_run.execute" &&
-          span.attributes["openworkflow.workflow.name"] ===
-            "native-trace-sleep",
-      )
+      await worker.start()
+      const execute = await vi.waitFor(() => {
+        const span = spans
+          .finishedSpans()
+          .find(
+            (candidate) =>
+              candidate.name === "workflow_run.execute" &&
+              candidate.attributes["openworkflow.workflow.name"] ===
+                "native-trace-sleep",
+          )
+        if (!span) throw new Error("execution span not finished")
+        return span
+      })
       const create = spans
         .finishedSpans()
         .find(
@@ -193,16 +239,16 @@ describe("defineObservedWorkflow", () => {
             link.context.traceId === create?.spanContext().traceId,
         ),
       ).toBe(true)
-      expect(
-        spans
-          .finishedSpans()
-          .some(
-            (span) =>
-              span.name === "step_attempt.execute" &&
-              span.attributes["openworkflow.step.name"] === "read-org" &&
-              span.attributes["openworkflow.run.id"] === handle.workflowRun.id,
-          ),
-      ).toBe(true)
+      const step = spans
+        .finishedSpans()
+        .find(
+          (span) =>
+            span.name === "step_attempt.execute" &&
+            span.attributes["openworkflow.step.name"] === "read-org" &&
+            span.attributes["openworkflow.run.id"] === handle.workflowRun.id,
+        )
+      expect(step?.parentSpanContext?.spanId).toBe(execute.spanContext().spanId)
+      expect(step?.spanContext().traceId).toBe(execute.spanContext().traceId)
       expect(
         spans
           .finishedSpans()
@@ -212,26 +258,22 @@ describe("defineObservedWorkflow", () => {
               span.attributes["openworkflow.step.name"] === "pause",
           ),
       ).toBe(false)
+      expect(
+        spans
+          .finishedSpans()
+          .some((span) => span.name.startsWith("openworkflow.job")),
+      ).toBe(false)
       expect(execute.attributes["openworkflow.execution.outcome"]).toBe(
         "suspended",
       )
+      expect(execute.attributes["ctxpipe.actor.type"]).toBe("job")
+      expect(execute.attributes["ctxpipe.org.id"]).toBe("org_1")
       expect(execute.status.code).toBe(SpanStatusCode.UNSET)
       await handle.cancel()
     } finally {
       await worker.stop()
       await backend.stop()
+      vi.useRealTimers()
     }
   }, 20_000)
 })
-
-async function waitForSpan(
-  match: (span: ReadableSpan) => boolean,
-): Promise<ReadableSpan> {
-  const deadline = Date.now() + 10_000
-  while (Date.now() < deadline) {
-    const found = spans.finishedSpans().find(match)
-    if (found) return found
-    await new Promise((resolve) => setTimeout(resolve, 25))
-  }
-  throw new Error("timed out waiting for an OpenWorkflow span")
-}

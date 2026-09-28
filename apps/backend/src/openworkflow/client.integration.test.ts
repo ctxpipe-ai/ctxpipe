@@ -63,13 +63,6 @@ describeWithDatabase("runWorkflowWithWorkerWake", () => {
       "openworkflow.workflow.name": "observability-enqueue-probe",
       "openworkflow.run.id": handle.workflowRun.id,
     })
-    const traceparent = (
-      handle.workflowRun.input as {
-        telemetry?: { carrier?: { traceparent?: string } }
-      } | null
-    )?.telemetry?.carrier?.traceparent
-    expect(traceparent?.split("-")[1]).toBe(request?.spanContext().traceId)
-    expect(traceparent?.split("-")[2]).toBe(request?.spanContext().spanId)
     await handle.cancel()
   })
 })
