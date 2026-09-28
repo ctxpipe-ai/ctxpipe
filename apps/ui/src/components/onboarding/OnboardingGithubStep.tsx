@@ -61,17 +61,19 @@ export function OnboardingGithubStep({
   const installed = hasInstallation || connectOptimistic
 
   // What is saved now: GitHub's grant after auto-indexing, or their edit.
+  const setupKey = ["github-installation-setup", orgSlug]
+  const fetchSetup = async () => {
+    const res = await (
+      client[":orgSlug"].api.v1.github.installation.setup.$get as (arg: {
+        param: { orgSlug: string }
+      }) => Promise<Response>
+    )({ param: { orgSlug } })
+    if (!res.ok) throw new Error("Failed to fetch GitHub setup data")
+    return (await res.json()) as GitHubRepositorySetupData
+  }
   const { data: setupData, isPending: setupPending } = useQuery({
-    queryKey: ["github-installation-setup", orgSlug],
-    queryFn: async () => {
-      const res = await (
-        client[":orgSlug"].api.v1.github.installation.setup.$get as (arg: {
-          param: { orgSlug: string }
-        }) => Promise<Response>
-      )({ param: { orgSlug } })
-      if (!res.ok) throw new Error("Failed to fetch GitHub setup data")
-      return (await res.json()) as GitHubRepositorySetupData
-    },
+    queryKey: setupKey,
+    queryFn: fetchSetup,
     enabled: installed,
   })
 
@@ -203,9 +205,14 @@ export function OnboardingGithubStep({
     !alreadyIndexed &&
     !editing &&
     autoIndex.isIdle
-  const startAutoIndex = autoIndex.mutate
+  // Continue waits on this rather than showing a disabled button, which
+  // flashed grey the first time the step opened.
+  const autoIndexRun = useRef<Promise<unknown> | null>(null)
+  const startAutoIndex = autoIndex.mutateAsync
   useEffect(() => {
-    if (canAutoIndex) startAutoIndex()
+    if (canAutoIndex) {
+      autoIndexRun.current = startAutoIndex().catch(() => undefined)
+    }
   }, [canAutoIndex, startAutoIndex])
 
   // Continue keeps the saved selection and adds the context repository. The
@@ -213,21 +220,27 @@ export function OnboardingGithubStep({
   // index anything twice.
   const continueStep = useMutation({
     mutationFn: async (repository: ContextRepository) => {
-      const selection = setupData?.ingestAllRepositories
+      // Read the saved selection after auto-indexing: a stale one would send
+      // an empty selection and drop the repositories just queued.
+      await autoIndexRun.current
+      const setup = await queryClient.fetchQuery({
+        queryKey: setupKey,
+        queryFn: fetchSetup,
+        staleTime: 0,
+      })
+      const selection = setup.ingestAllRepositories
         ? {
             ingestAllRepositories: true,
-            includeFutureRepos: setupData.includeFutureRepos,
+            includeFutureRepos: setup.includeFutureRepos,
           }
         : {
             ingestAllRepositories: false,
             includeFutureRepos: false,
-            selectedRepositories: (setupData?.savedRepositories ?? []).map(
-              (repo) => ({
-                full_name: repo.name,
-                name: repo.name.split("/").pop() ?? repo.name,
-                clone_url: repo.gitUrl,
-              }),
-            ),
+            selectedRepositories: setup.savedRepositories.map((repo) => ({
+              full_name: repo.name,
+              name: repo.name.split("/").pop() ?? repo.name,
+              clone_url: repo.gitUrl,
+            })),
           }
       await patchInstallation({ ...selection, contextRepository: repository })
     },
@@ -518,7 +531,6 @@ export function OnboardingGithubStep({
               variant="primary"
               className="rounded-none"
               isPending={continueStep.isPending}
-              isDisabled={autoIndex.isPending}
               onPress={() =>
                 contextRepo
                   ? continueStep.mutate({
@@ -579,8 +591,11 @@ export function OnboardingGithubStep({
           <Button
             variant="primary"
             className="rounded-none"
-            isDisabled={busy}
+            // Not disabled while the connect flow loads: that flashed grey
+            // on first open. A press that early does nothing.
+            isDisabled={isSyncing}
             onPress={() => {
+              if (busy) return
               setSetupError(null)
               start("connect")
             }}

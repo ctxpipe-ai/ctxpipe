@@ -88,10 +88,10 @@ export function OnboardingDiagram({
   ]
 
   return (
-    <figure className="onb-in-2 m-0">
+    <figure className="onb-in-2 m-0 flex h-full flex-col">
       <div
         aria-hidden
-        className={`onb-diagram-grid relative border bg-zinc-950 p-5 pt-8 transition-[border-color,box-shadow] duration-500 ${
+        className={`onb-diagram-grid relative flex min-h-0 flex-1 flex-col border bg-zinc-950 p-5 pt-8 transition-[border-color,box-shadow] duration-500 ${
           editing === "org" ? EDITING : "border-white/10"
         }`}
       >
@@ -112,7 +112,7 @@ export function OnboardingDiagram({
           ) : null}
         </span>
 
-        <div className="relative grid min-h-120 grid-cols-[minmax(0,12rem)_3rem_minmax(0,1fr)_3rem_minmax(0,13rem)] items-stretch">
+        <div className="relative grid min-h-120 flex-1 grid-cols-[minmax(0,12rem)_3rem_minmax(0,1fr)_3rem_minmax(0,13rem)] items-stretch">
           <section
             className={`onb-noise flex flex-col gap-3 border p-4 transition-[border-color,background-color,box-shadow] duration-500 ${PANEL[beats.source]} ${editing === "source" ? EDITING : ""}`}
           >

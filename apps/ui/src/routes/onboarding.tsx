@@ -371,8 +371,13 @@ export function OnboardingPageContent({
         ) : null
       }
     >
-      <div className="onb-in-1 grid gap-16 lg:grid-cols-[minmax(0,30rem)_minmax(0,1fr)]">
-        <section aria-labelledby="onboarding-title" className="flex flex-col">
+      {/* The wizard and the picture keep one height (the window, capped), so
+          opening a step never resizes the page. */}
+      <div className="onb-in-1 grid gap-16 lg:h-[min(52rem,calc(100dvh-9rem))] lg:min-h-144 lg:grid-cols-[minmax(0,30rem)_minmax(0,1fr)]">
+        <section
+          aria-labelledby="onboarding-title"
+          className="flex min-h-0 flex-col"
+        >
           <h1
             id="onboarding-title"
             className="m-0 text-3xl font-medium tracking-tight text-zinc-100"
@@ -384,7 +389,7 @@ export function OnboardingPageContent({
               ? "Your organisation is ready. Connect your agent and the picture lights up when it first calls ctx|."
               : "Three steps. The picture lights up as each one works."}
           </p>
-          <ol className="m-0 mt-8 list-none border-t border-white/5 p-0">
+          <ol className="m-0 mt-8 flex min-h-0 flex-1 list-none flex-col border-t border-white/5 p-0">
             <OnboardingStep
               number={1}
               title={
@@ -419,14 +424,10 @@ export function OnboardingPageContent({
                 <OnboardingOrgStep
                   slug={typedSlug}
                   onSlugChange={setTypedSlug}
-                  onCreated={(slug) => {
-                    setCreatedOrgSlug(slug)
-                    void router.navigate({
-                      to: "/onboarding",
-                      search: { orgSlug: slug },
-                      replace: true,
-                    })
-                  }}
+                  // State only, no router navigation: navigating here was the
+                  // one step change that could flash in production. A reload
+                  // without ?orgSlug is sent to their org by the check above.
+                  onCreated={setCreatedOrgSlug}
                 />
               )}
             </OnboardingStep>
@@ -513,7 +514,7 @@ export function OnboardingPageContent({
             </div>
           ) : null}
         </section>
-        <div className="hidden md:block lg:sticky lg:top-8 lg:self-start">
+        <div className="hidden min-h-0 md:block">
           <OnboardingDiagram
             view={view}
             editing={openStep}

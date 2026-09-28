@@ -28,7 +28,11 @@ export function OnboardingStep({
   children,
 }: OnboardingStepProps) {
   return (
-    <li className="border-b border-white/5 py-4">
+    <li
+      className={`flex flex-col border-b border-white/5 py-4 ${
+        open ? "min-h-0 flex-1" : "shrink-0"
+      }`}
+    >
       <div className="flex min-h-7 items-center gap-3">
         <span
           className={`inline-flex size-7 shrink-0 items-center justify-center border font-mono text-xs ${
@@ -85,7 +89,9 @@ export function OnboardingStep({
         </span>
       </div>
       {open && children ? (
-        <div className="onb-step-body flex flex-col gap-4 pb-1 pl-10 pt-4">
+        // Fills the space left by the other steps and scrolls inside it,
+        // so the step's buttons stay put at the bottom.
+        <div className="onb-step-body flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-1 pl-10 pt-4">
           {children}
         </div>
       ) : null}
@@ -104,7 +110,7 @@ export function StepActions({
   primary?: ReactNode
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 pt-2">
+    <div className="sticky bottom-0 mt-auto flex flex-wrap items-center gap-3 bg-zinc-950 pt-2">
       <div className="mr-auto">{back}</div>
       {secondary}
       {primary}

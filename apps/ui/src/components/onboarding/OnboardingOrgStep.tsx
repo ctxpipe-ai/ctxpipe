@@ -81,7 +81,7 @@ export function OnboardingOrgStep({
 
   return (
     <form
-      className="flex flex-col gap-4"
+      className="flex flex-1 flex-col gap-4"
       onSubmit={(event) => {
         event.preventDefault()
         submit()
