@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/Button"
-import { mcpConfigSnippet } from "./onboarding-state"
+import { Radio, RadioGroup } from "@/components/ui/RadioGroup"
+import { agentSetup } from "./onboarding-state"
 
 type OnboardingAgentStepProps = {
   orgSlug: string
@@ -9,28 +10,68 @@ type OnboardingAgentStepProps = {
   onSkip: () => void
 }
 
+type Method = "cli" | "claude" | "json"
+
+const METHODS: Array<{ id: Method; title: string; description: string }> = [
+  {
+    id: "cli",
+    title: "npx ctxpipe init",
+    description:
+      "Recommended. Run it in a repository to set up Cursor, Claude Code, Codex, OpenCode or VS Code.",
+  },
+  {
+    id: "claude",
+    title: "Quick add to Claude Code",
+    description: "One command adds ctx| to Claude Code for your user.",
+  },
+  {
+    id: "json",
+    title: "Other agents",
+    description: "Paste the MCP config into any agent that takes a server URL.",
+  },
+]
+
 export function OnboardingAgentStep({
   orgSlug,
   hasSource,
   firstRepository,
   onSkip,
 }: OnboardingAgentStepProps) {
-  const snippet = mcpConfigSnippet(orgSlug)
+  const [method, setMethod] = useState<Method>("cli")
+  const setup = agentSetup(window.location.origin, orgSlug)
+  const text = setup[method]
+
   return (
     <>
-      <p className="m-0 text-sm text-muted-foreground">
-        Paste this into your agent’s MCP settings. It points at{" "}
-        <code className="font-mono text-zinc-200">{orgSlug}</code>.
-      </p>
+      <RadioGroup
+        aria-label="How to connect your agent"
+        value={method}
+        onChange={(value) => setMethod(value as Method)}
+      >
+        {METHODS.map((option) => (
+          <Radio key={option.id} value={option.id} className="items-start">
+            <span className="flex flex-col gap-0.5">
+              <span
+                className={`text-sm font-medium text-zinc-100 ${option.id === "cli" ? "font-mono" : ""}`}
+              >
+                {option.title}
+              </span>
+              <span className="text-sm text-muted-foreground">
+                {option.description}
+              </span>
+            </span>
+          </Radio>
+        ))}
+      </RadioGroup>
+
       <pre className="m-0 overflow-x-auto border border-white/10 bg-zinc-950 p-3 font-mono text-xs leading-5 text-zinc-200">
-        <code>{snippet}</code>
+        <code>{text}</code>
       </pre>
-      <CopyButton text={snippet} label="Copy config" />
-      <p className="m-0 text-sm text-muted-foreground">
-        Or run <code className="font-mono text-zinc-200">npx ctxpipe init</code>{" "}
-        inside a repository. It writes the config for Cursor, Claude Code,
-        Codex, OpenCode or VS Code.
-      </p>
+      <CopyButton
+        key={method}
+        text={text}
+        label={method === "json" ? "Copy config" : "Copy command"}
+      />
 
       <output className="flex flex-col gap-1 border border-teal-400/30 bg-teal-400/[0.04] p-4">
         <span className="inline-flex items-center gap-2 text-sm text-zinc-100">

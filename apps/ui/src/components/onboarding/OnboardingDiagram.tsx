@@ -9,10 +9,12 @@ type OnboardingDiagramProps = {
 }
 
 const PANEL: Record<BeatState, string> = {
-  future: "border-white/5 text-zinc-600",
-  current: "border-dashed border-zinc-500 text-zinc-200",
+  // The noise texture blends into the panel background, so every state has one.
+  future: "border-white/5 bg-zinc-950 text-zinc-600",
+  // Only the area the current step edits glows.
+  current: "onb-active border-teal-400/50 bg-zinc-900 text-zinc-100",
   done: "border-white/15 bg-zinc-900 text-zinc-100",
-  skipped: "border-dashed border-white/10 text-zinc-600",
+  skipped: "border-dashed border-white/10 bg-zinc-950 text-zinc-600",
 }
 
 const WIRE: Record<BeatState, string> = {
@@ -58,7 +60,6 @@ export function OnboardingDiagram({
       title: "Observe & ingest",
       metric: view.indexingLabel,
       lit: view.hasSource,
-      current: beats.source === "current",
     },
     {
       index: "02",
@@ -66,7 +67,6 @@ export function OnboardingDiagram({
       title: "Reason & remember",
       metric: view.hasSource ? "org-scoped graph" : "empty",
       lit: view.hasSource,
-      current: false,
     },
     {
       index: "03",
@@ -74,15 +74,18 @@ export function OnboardingDiagram({
       title: "Serve over MCP",
       metric: firstCall?.tool ?? "ctx_advisor",
       lit: beats.agent === "done",
-      current: beats.agent === "current",
     },
   ]
 
   return (
-    <figure className="m-0">
+    <figure className="onb-in-2 m-0">
       <div
         aria-hidden
-        className="onb-diagram-grid relative border border-white/10 bg-zinc-950 p-5 pt-8"
+        className={`onb-diagram-grid relative border bg-zinc-950 p-5 pt-8 transition-[border-color,box-shadow] duration-500 ${
+          beats.org === "current"
+            ? "onb-active border-teal-400/50"
+            : "border-white/10"
+        }`}
       >
         <span
           className={`absolute -top-2.5 left-6 bg-zinc-950 px-2 font-mono text-sm transition-colors duration-500 ${
@@ -95,9 +98,9 @@ export function OnboardingDiagram({
           ) : null}
         </span>
 
-        <div className="relative grid grid-cols-[minmax(0,10rem)_2.5rem_minmax(0,1fr)_2.5rem_minmax(0,11rem)] items-stretch">
+        <div className="relative grid grid-cols-[minmax(0,12rem)_3rem_minmax(0,1fr)_3rem_minmax(0,13rem)] items-stretch">
           <section
-            className={`flex flex-col gap-3 border p-3 transition-colors duration-500 ${PANEL[beats.source]}`}
+            className={`onb-noise flex flex-col gap-3 border p-4 transition-[border-color,background-color,box-shadow] duration-500 ${PANEL[beats.source]}`}
           >
             <PanelHeader
               label="Sources"
@@ -155,29 +158,31 @@ export function OnboardingDiagram({
 
           <section
             className={`relative flex flex-col gap-2 border border-dashed p-3 pt-5 transition-colors duration-500 ${
-              view.hasSource
-                ? "border-teal-400/45 bg-teal-400/[0.04]"
-                : "border-teal-400/20 bg-teal-400/[0.015]"
+              view.hasSource ? "border-white/15" : "border-white/10"
             }`}
           >
-            <span className="absolute -top-2.5 left-4 border border-teal-400/30 bg-zinc-950 px-2 font-mono text-xs uppercase tracking-wider text-teal-400">
+            <span
+              className={`absolute -top-2.5 left-4 border bg-zinc-950 px-2 font-mono text-xs uppercase tracking-wider transition-colors duration-500 ${
+                view.hasSource
+                  ? "border-teal-400/30 text-teal-400"
+                  : "border-white/10 text-zinc-500"
+              }`}
+            >
               ctx| · context layer
             </span>
             {layers.map((layer) => (
               <article
                 key={layer.index}
-                className={`flex flex-1 flex-col gap-1 border p-3 transition-colors duration-500 ${
-                  layer.current
-                    ? "border-teal-400/45 bg-zinc-900"
-                    : layer.lit
-                      ? "border-white/15 bg-zinc-900"
-                      : "border-white/5 bg-zinc-950"
+                className={`onb-noise flex flex-1 flex-col gap-1 border p-3 transition-colors duration-500 ${
+                  layer.lit
+                    ? "border-white/15 bg-zinc-900"
+                    : "border-white/5 bg-zinc-950"
                 }`}
               >
                 <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-zinc-500">
                   <span
                     className={`inline-flex size-5 items-center justify-center border font-mono ${
-                      layer.current || layer.lit
+                      layer.lit
                         ? "border-teal-400/45 text-teal-400"
                         : "border-white/10 text-zinc-600"
                     }`}
@@ -188,9 +193,7 @@ export function OnboardingDiagram({
                 </div>
                 <span
                   className={`text-sm font-medium ${
-                    layer.lit || layer.current
-                      ? "text-zinc-100"
-                      : "text-zinc-600"
+                    layer.lit ? "text-zinc-100" : "text-zinc-600"
                   }`}
                 >
                   {layer.title}
@@ -209,7 +212,7 @@ export function OnboardingDiagram({
           <Wire beat={agentWire} rows={2} />
 
           <section
-            className={`flex flex-col gap-3 border p-3 transition-colors duration-500 ${PANEL[beats.agent]}`}
+            className={`onb-noise flex flex-col gap-3 border p-4 transition-[border-color,background-color,box-shadow] duration-500 ${PANEL[beats.agent]}`}
           >
             <PanelHeader
               label="Agents"

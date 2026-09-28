@@ -137,13 +137,21 @@ export function slugify(value: string): string {
     .slice(0, SLUG_MAX_LENGTH)
 }
 
-export function mcpConfigSnippet(orgSlug: string): string {
-  return `{
+/** Commands and config for connecting an agent to this deployment. */
+export function agentSetup(origin: string, orgSlug: string) {
+  const mcpUrl = `${origin}/mcp?orgSlug=${orgSlug}`
+  const baseUrlFlag =
+    origin === "https://app.ctxpipe.ai" ? "" : ` --base-url ${origin}`
+  return {
+    cli: `npx ctxpipe init --org ${orgSlug}${baseUrlFlag}`,
+    claude: `claude mcp add --transport http ctxpipe --scope user "${mcpUrl}"`,
+    json: `{
   "mcpServers": {
     "ctxpipe": {
       "type": "http",
-      "url": "https://app.ctxpipe.ai/mcp?orgSlug=${orgSlug}"
+      "url": "${mcpUrl}"
     }
   }
-}`
+}`,
+  }
 }

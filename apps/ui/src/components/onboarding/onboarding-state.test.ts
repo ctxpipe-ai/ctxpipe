@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  agentSetup,
   deriveOnboardingView,
   type OnboardingFacts,
   slugify,
@@ -98,5 +99,22 @@ describe("slugify", () => {
   it("lowercases, hyphenates and caps at 32 characters", () => {
     expect(slugify("  Acme Engineering! ")).toBe("acme-engineering")
     expect(slugify("x".repeat(40))).toHaveLength(32)
+  })
+})
+
+describe("agentSetup", () => {
+  it("points every option at this deployment", () => {
+    const hosted = agentSetup("https://app.ctxpipe.ai", "acme")
+    expect(hosted.cli).toBe("npx ctxpipe init --org acme")
+    const preview = agentSetup("https://pr-361.example.com", "acme")
+    expect(preview.cli).toBe(
+      "npx ctxpipe init --org acme --base-url https://pr-361.example.com",
+    )
+    expect(preview.claude).toContain(
+      '"https://pr-361.example.com/mcp?orgSlug=acme"',
+    )
+    expect(preview.json).toContain(
+      "https://pr-361.example.com/mcp?orgSlug=acme",
+    )
   })
 })

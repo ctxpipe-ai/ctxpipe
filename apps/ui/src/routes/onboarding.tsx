@@ -91,7 +91,9 @@ export function OnboardingPageContent({
       }
     },
     enabled: Boolean(orgSlug && session) && !agentSkipped,
-    refetchInterval: (query) => (query.state.data?.firstMcpCall ? false : 3000),
+    refetchInterval: (query) => (query.state.data?.firstMcpCall ? false : 2000),
+    // They run the command in a terminal, then come back to this tab.
+    refetchOnWindowFocus: "always",
   })
   const firstCall = userOnboarding?.firstMcpCall ?? null
 
@@ -216,7 +218,7 @@ export function OnboardingPageContent({
 
   return (
     <OnboardingFrame completing={completing}>
-      <div className="grid gap-14 lg:grid-cols-[minmax(0,28rem)_minmax(0,1fr)]">
+      <div className="grid gap-16 lg:grid-cols-[minmax(0,30rem)_minmax(0,1fr)]">
         <section aria-labelledby="onboarding-title" className="flex flex-col">
           <h1
             id="onboarding-title"
@@ -362,7 +364,7 @@ function OnboardingFrame({
         completing ? "opacity-0" : "opacity-100"
       }`}
     >
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-12 px-6 py-8 lg:px-14">
+      <div className="mx-auto flex w-full max-w-screen-2xl flex-col gap-12 px-6 py-8 lg:px-12">
         <header className="flex items-center justify-between">
           <span className="font-mono text-xl text-zinc-100">
             ctx<span className="text-teal-400">|</span>
