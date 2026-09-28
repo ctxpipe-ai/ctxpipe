@@ -182,7 +182,10 @@ resource "railway_service" "ui" {
     prevent_destroy = true
     # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
     # Region writes go through scripts/railway-set-regions.sh.
-    ignore_changes = [regions]
+    # The same Update() connects source_image for the whole project and
+    # redeploys every environment. Image tags go through
+    # scripts/railway-set-images.sh (ADR-039).
+    ignore_changes = [regions, source_image]
   }
 }
 
@@ -211,7 +214,11 @@ resource "railway_service" "backend" {
   lifecycle {
     prevent_destroy = true
     # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
-    ignore_changes = [regions]
+    # Region writes go through scripts/railway-set-regions.sh.
+    # The same Update() connects source_image for the whole project and
+    # redeploys every environment. Image tags go through
+    # scripts/railway-set-images.sh (ADR-039).
+    ignore_changes = [regions, source_image]
   }
 }
 
@@ -259,7 +266,11 @@ resource "railway_service" "code_search" {
   lifecycle {
     prevent_destroy = true
     # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
-    ignore_changes = [regions]
+    # Region writes go through scripts/railway-set-regions.sh.
+    # The same Update() connects source_image for the whole project and
+    # redeploys every environment. Image tags go through
+    # scripts/railway-set-images.sh (ADR-039).
+    ignore_changes = [regions, source_image]
   }
 }
 
@@ -316,7 +327,11 @@ resource "railway_service" "open_workflow" {
   lifecycle {
     prevent_destroy = true
     # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
-    ignore_changes = [regions]
+    # Region writes go through scripts/railway-set-regions.sh.
+    # The same Update() connects source_image for the whole project and
+    # redeploys every environment. Image tags go through
+    # scripts/railway-set-images.sh (ADR-039).
+    ignore_changes = [regions, source_image]
   }
 }
 

@@ -209,6 +209,15 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: bash scripts/railway-set-regions.sh
 
+      # Provider Update() serviceConnects the image for every environment and
+      # redeploys previews. App image tags are ignore_changes; this step
+      # deploys production only (ADR-039).
+      - name: Deploy production images
+        working-directory: ${{ github.workspace }}
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: bash scripts/railway-set-images.sh
+
       - name: Terraform Plan
         run: terraform plan --out=terraform.plan
 
