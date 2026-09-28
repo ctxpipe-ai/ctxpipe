@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest"
 import {
   agentSetup,
+  type BeatState,
   deriveOnboardingView,
   type OnboardingFacts,
+  type OnboardingStepId,
+  reopenAs,
   slugify,
+  stepBefore,
+  titleAction,
 } from "./onboarding-state"
 
 function facts(overrides: Partial<OnboardingFacts> = {}): OnboardingFacts {
@@ -137,5 +142,87 @@ describe("agentSetup", () => {
     expect(preview.json).toContain(
       "https://pr-361.example.com/mcp?orgSlug=acme",
     )
+  })
+})
+
+describe("step navigation", () => {
+  const admin = { isJoiner: false }
+  const joiner = { isJoiner: true }
+  const beats = (
+    org: BeatState,
+    source: BeatState,
+    agent: BeatState,
+  ): Record<OnboardingStepId, BeatState> => ({ org, source, agent })
+
+  it("goes back one step, skipping GitHub for joiners", () => {
+    expect(stepBefore("source", admin)).toBe("org")
+    expect(stepBefore("agent", admin)).toBe("source")
+    expect(stepBefore("agent", joiner)).toBe("org")
+  })
+
+  it("un-skips a skipped step instead of reviewing it", () => {
+    expect(
+      reopenAs("source", { beats: beats("done", "skipped", "current") }),
+    ).toBe("unskip")
+    expect(
+      reopenAs("source", { beats: beats("done", "done", "current") }),
+    ).toBe("review")
+    expect(reopenAs("org", { beats: beats("done", "done", "current") })).toBe(
+      "review",
+    )
+  })
+
+  it("on step 3: done titles open, the current title does nothing", () => {
+    const nav = {
+      open: "agent" as const,
+      current: "agent" as const,
+      beats: beats("done", "done", "current"),
+      isJoiner: false,
+    }
+    expect(titleAction("org", nav)).toBe("open")
+    expect(titleAction("source", nav)).toBe("open")
+    expect(titleAction("agent", nav)).toBeNull()
+  })
+
+  it("reviewing step 1 from step 3: its title closes, step 3's returns", () => {
+    const nav = {
+      open: "org" as const,
+      current: "agent" as const,
+      beats: beats("done", "done", "current"),
+      isJoiner: false,
+    }
+    expect(titleAction("org", nav)).toBe("close")
+    expect(titleAction("agent", nav)).toBe("return")
+    expect(titleAction("source", nav)).toBe("open")
+  })
+
+  it("does nothing for a future step", () => {
+    const nav = {
+      open: "source" as const,
+      current: "source" as const,
+      beats: beats("done", "current", "future"),
+      isJoiner: false,
+    }
+    expect(titleAction("agent", nav)).toBeNull()
+  })
+
+  it("all done: every title opens its step, and its own title closes it", () => {
+    const done = beats("done", "done", "done")
+    expect(
+      titleAction("agent", {
+        open: null,
+        current: null,
+        beats: done,
+        isJoiner: false,
+      }),
+    ).toBe("open")
+    expect(
+      titleAction("agent", {
+        open: "agent",
+        current: null,
+        beats: done,
+        isJoiner: false,
+      }),
+    ).toBe("close")
   })
 })

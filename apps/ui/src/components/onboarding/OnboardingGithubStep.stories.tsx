@@ -84,7 +84,7 @@ export const SharedSelection: Story = {
       await canvas.findByRole("button", { name: "Continue" }),
     ).toBeVisible()
     await expect(
-      canvas.getByRole("link", { name: /create one on github/i }),
+      canvas.getByRole("link", { name: /create it on github/i }),
     ).toBeVisible()
   },
 }

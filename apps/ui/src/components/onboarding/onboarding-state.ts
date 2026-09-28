@@ -169,3 +169,47 @@ export function agentSetup(origin: string, orgSlug: string) {
 }`,
   }
 }
+
+/**
+ * Going back and forward. `open` is the step shown on the left: a reopened
+ * earlier step, or the current one. Reopening never undoes anything; a
+ * skipped step is un-skipped instead, which makes it current again.
+ */
+export type StepNavigation = {
+  open: OnboardingStepId | null
+  current: OnboardingStepId | null
+  beats: Record<OnboardingStepId, BeatState>
+  /** Members cannot change GitHub, so their Back skips it. */
+  isJoiner: boolean
+}
+
+/** The step Back from `id` opens. */
+export function stepBefore(
+  id: "source" | "agent",
+  nav: Pick<StepNavigation, "isJoiner">,
+): OnboardingStepId {
+  return id === "agent" && !nav.isJoiner ? "source" : "org"
+}
+
+/** How opening `id` works: show it again, or un-skip it. */
+export function reopenAs(
+  id: OnboardingStepId,
+  nav: Pick<StepNavigation, "beats">,
+): "review" | "unskip" {
+  return nav.beats[id] === "skipped" ? "unskip" : "review"
+}
+
+/**
+ * What pressing a step's title does. The open step's title closes it back
+ * to the current step; the current step's title returns to it; a done or
+ * skipped step's title opens it. A future step does nothing.
+ */
+export function titleAction(
+  id: OnboardingStepId,
+  nav: StepNavigation,
+): "close" | "return" | "open" | null {
+  if (nav.open === id) return id === nav.current ? null : "close"
+  if (id === nav.current) return "return"
+  if (nav.beats[id] === "done" || nav.beats[id] === "skipped") return "open"
+  return null
+}

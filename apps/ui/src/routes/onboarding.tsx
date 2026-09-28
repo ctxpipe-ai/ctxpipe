@@ -5,10 +5,16 @@ import { OnboardingAgentStep } from "@/components/onboarding/OnboardingAgentStep
 import { OnboardingDiagram } from "@/components/onboarding/OnboardingDiagram"
 import { OnboardingGithubStep } from "@/components/onboarding/OnboardingGithubStep"
 import { OnboardingOrgStep } from "@/components/onboarding/OnboardingOrgStep"
-import { OnboardingStep } from "@/components/onboarding/OnboardingStep"
+import {
+  OnboardingStep,
+  StepActions,
+} from "@/components/onboarding/OnboardingStep"
 import {
   deriveOnboardingView,
   type OnboardingStepId,
+  reopenAs,
+  stepBefore,
+  titleAction,
 } from "@/components/onboarding/onboarding-state"
 import { Button } from "@/components/ui/Button"
 import {
@@ -65,19 +71,64 @@ export function OnboardingPageContent({
   const [sourceContinued, setSourceContinued] = useState(false)
   const orgSlug = urlOrgSlug ?? createdOrgSlug
 
-  // Joiner or admin is decided once, from the orgs they had on arrival, so
-  // creating an org mid-flow does not flip the admin into the joiner flow.
+  // Joiner or admin is decided once. No org yet: they are creating one.
+  // Otherwise by role in the org: an owner coming back mid-setup is not a
+  // joiner, and only owners and admins can set up GitHub.
+  const arrivalOrgSlug =
+    urlOrgSlug ?? (organizations?.[0]?.slug as string | undefined) ?? null
+  const memberRole = useQuery({
+    queryKey: ["active-member-role", arrivalOrgSlug],
+    queryFn: async () => {
+      const { data } = await authClient.organization.getActiveMemberRole({
+        query: { organizationSlug: arrivalOrgSlug ?? "" },
+      })
+      return data?.role ?? null
+    },
+    enabled: Boolean(session && arrivalOrgSlug && createdOrgSlug === null),
+  })
   const [isJoiner, setIsJoiner] = useState<boolean | null>(null)
   if (isJoiner === null && !orgsPending && organizations != null) {
-    setIsJoiner(organizations.length > 0)
+    if (organizations.length === 0) setIsJoiner(false)
+    else if (memberRole.isSuccess) {
+      setIsJoiner(!(memberRole.data === "owner" || memberRole.data === "admin"))
+    } else if (memberRole.isError) setIsJoiner(true)
   }
 
-  const { data: installation } = useQuery({
+  const installationQuery = useQuery({
     queryKey: githubConnectorKeys.installation(orgSlug ?? ""),
     queryFn: () =>
       orgSlug ? fetchGithubInstallationSummary(orgSlug) : Promise.resolve(null),
     enabled: Boolean(orgSlug && session),
   })
+  const installation = installationQuery.data
+  const setupQuery = useQuery({
+    queryKey: ["github-installation-setup", orgSlug],
+    queryFn: async () => {
+      if (!orgSlug) throw new Error("Missing organisation")
+      const res = await fetch(`/${orgSlug}/api/v1/github/installation/setup`, {
+        credentials: "include",
+      })
+      if (!res.ok) throw new Error("Failed to fetch GitHub setup data")
+      return (await res.json()) as { contextRepository?: string | null }
+    },
+    enabled: Boolean(orgSlug && session && installation),
+  })
+  // Decided once on arrival: GitHub counts as done only if they come back
+  // with a context repository already set. In this visit only Continue
+  // finishes the step, even when indexing or the sync binds one meanwhile.
+  const [sourceDoneOnArrival, setSourceDoneOnArrival] = useState<
+    boolean | null
+  >(null)
+  if (sourceDoneOnArrival === null) {
+    if (createdOrgSlug !== null) setSourceDoneOnArrival(false)
+    else if (installationQuery.isSuccess && !installationQuery.data) {
+      setSourceDoneOnArrival(false)
+    } else if (installationQuery.isError || setupQuery.isError) {
+      setSourceDoneOnArrival(false)
+    } else if (setupQuery.isSuccess) {
+      setSourceDoneOnArrival(Boolean(setupQuery.data.contextRepository))
+    }
+  }
   const repositoryIndexing = useRepositoryIndexingSummary(orgSlug, {
     enabled: Boolean(orgSlug && session),
     pollWhileEmpty: queuedRepositories !== null,
@@ -152,10 +203,7 @@ export function OnboardingPageContent({
       skipped: githubSkipped,
       repositories: repositoryNames,
       queued: queuedRepositories !== null,
-      // Arriving with repositories already indexed counts as continued.
-      continued:
-        sourceContinued ||
-        (repositories.length > 0 && queuedRepositories === null),
+      continued: sourceContinued || sourceDoneOnArrival === true,
       activeCount,
       readyCount: repositories.filter(
         (repo) => getRepositoryIndexingStatus(repo) === "ready",
@@ -169,7 +217,12 @@ export function OnboardingPageContent({
   // Only the first load shows this. Creating the org refetches the session
   // and org list; showing it then would unmount the picture and replay its
   // fade-in between step 1 and step 2.
-  if (isJoiner === null || (isPending && !session)) {
+  const arrivingWithOrg = orgSlug !== null && createdOrgSlug === null
+  if (
+    isJoiner === null ||
+    (isPending && !session) ||
+    (arrivingWithOrg && sourceDoneOnArrival === null)
+  ) {
     return (
       <OnboardingFrame completing={false}>
         <p className="text-sm text-muted-foreground">Preparing onboarding…</p>
@@ -254,32 +307,32 @@ export function OnboardingPageContent({
   }
 
   const openStep = reviewing ?? view.current
-  // Back reopens the step before; a done or skipped title reopens that one.
-  // Nothing is undone: each step's state still comes from the account.
-  const reopen = (id: OnboardingStepId) => {
-    if (id === "source" && view.beats.source === "skipped") {
-      setGithubSkipped(false)
-      setReviewing(null)
-      return
-    }
-    if (id === "agent" && view.beats.agent === "skipped") {
-      setAgentSkipped(false)
-      setReviewing(null)
-      return
-    }
-    setReviewing(id)
+  const nav = {
+    open: openStep,
+    current: view.current,
+    beats: view.beats,
+    isJoiner: isJoiner === true,
   }
-  const goBackFrom = (id: "source" | "agent") =>
-    reopen(id === "agent" && !isJoiner ? "source" : "org")
-  const canReopen = (id: OnboardingStepId) =>
-    openStep !== id &&
-    (view.beats[id] === "done" || view.beats[id] === "skipped")
-  const toggle = (id: OnboardingStepId) =>
-    openStep === id
-      ? () => setReviewing(null)
-      : canReopen(id)
-        ? () => reopen(id)
-        : undefined
+  // Reopening never undoes anything: a done step shows again, a skipped one
+  // is un-skipped so it becomes current.
+  const reopen = (id: OnboardingStepId) => {
+    if (reopenAs(id, nav) === "unskip") {
+      if (id === "source") setGithubSkipped(false)
+      if (id === "agent") setAgentSkipped(false)
+      setReviewing(null)
+      return
+    }
+    setReviewing(id === view.current ? null : id)
+  }
+  const goBackFrom = (id: "source" | "agent") => reopen(stepBefore(id, nav))
+  const toggle = (id: OnboardingStepId) => {
+    const action = titleAction(id, nav)
+    if (action === "open") return () => reopen(id)
+    if (action === "close" || action === "return") {
+      return () => setReviewing(null)
+    }
+    return undefined
+  }
 
   const repoWord = (n: number) =>
     `${n} ${n === 1 ? "repository" : "repositories"}`
@@ -339,7 +392,7 @@ export function OnboardingPageContent({
               }
               beat={view.beats.org}
               open={openStep === "org"}
-              onSelect={view.beats.org === "done" ? toggle("org") : undefined}
+              onSelect={toggle("org")}
               summary={orgSlug ?? undefined}
             >
               {view.beats.org === "done" ? (
@@ -350,15 +403,17 @@ export function OnboardingPageContent({
                       ? "is the organisation you joined."
                       : "is ready. You can rename it later in Organisation settings."}
                   </p>
-                  <div>
-                    <Button
-                      variant="primary"
-                      className="rounded-none"
-                      onPress={() => setReviewing(null)}
-                    >
-                      Continue
-                    </Button>
-                  </div>
+                  <StepActions
+                    primary={
+                      <Button
+                        variant="primary"
+                        className="rounded-none"
+                        onPress={() => setReviewing(null)}
+                      >
+                        Continue
+                      </Button>
+                    }
+                  />
                 </>
               ) : (
                 <OnboardingOrgStep

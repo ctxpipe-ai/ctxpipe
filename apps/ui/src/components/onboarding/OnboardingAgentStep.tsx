@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { Radio, RadioGroup } from "@/components/ui/RadioGroup"
+import { StepActions } from "./OnboardingStep"
 import { agentSetup } from "./onboarding-state"
 
 type OnboardingAgentStepProps = {
@@ -84,11 +85,17 @@ export function OnboardingAgentStep({
             <span className="font-mono text-zinc-200">{connectedClient}</span>{" "}
             is connected. Add ctx| to another agent the same way.
           </p>
-          <div>
-            <Button variant="quiet" className="rounded-none" onPress={onBack}>
-              Back
-            </Button>
-          </div>
+          <StepActions
+            back={
+              <Button
+                variant="quiet"
+                className="rounded-none px-0"
+                onPress={onBack}
+              >
+                Back
+              </Button>
+            }
+          />
         </>
       ) : (
         <>
@@ -104,14 +111,22 @@ export function OnboardingAgentStep({
             </span>
           </output>
 
-          <div className="flex flex-wrap items-center gap-6">
-            <Button variant="ghost" className="rounded-none" onPress={onSkip}>
-              I’ll do this later
-            </Button>
-            <Button variant="quiet" className="rounded-none" onPress={onBack}>
-              Back
-            </Button>
-          </div>
+          <StepActions
+            back={
+              <Button
+                variant="quiet"
+                className="rounded-none px-0"
+                onPress={onBack}
+              >
+                Back
+              </Button>
+            }
+            secondary={
+              <Button variant="ghost" className="rounded-none" onPress={onSkip}>
+                I’ll do this later
+              </Button>
+            }
+          />
         </>
       )}
     </>

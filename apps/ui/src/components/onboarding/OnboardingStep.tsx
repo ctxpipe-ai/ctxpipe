@@ -32,13 +32,17 @@ export function OnboardingStep({
       <div className="flex min-h-7 items-center gap-3">
         <span
           className={`inline-flex size-7 shrink-0 items-center justify-center border font-mono text-xs ${
-            beat === "current"
+            // Only the open step looks active, even while an earlier one
+            // is reopened.
+            open && beat !== "done" && beat !== "skipped"
               ? "border-teal-400 text-teal-400"
-              : beat === "done"
-                ? "border-white/10 bg-zinc-900 text-zinc-100"
-                : beat === "skipped"
-                  ? "border-dashed border-zinc-700 text-zinc-500"
-                  : "border-white/10 text-zinc-500"
+              : beat === "current"
+                ? "border-white/10 text-zinc-300"
+                : beat === "done"
+                  ? "border-white/10 bg-zinc-900 text-zinc-100"
+                  : beat === "skipped"
+                    ? "border-dashed border-zinc-700 text-zinc-500"
+                    : "border-white/10 text-zinc-500"
           }`}
         >
           {beat === "done" ? (
@@ -81,8 +85,29 @@ export function OnboardingStep({
         </span>
       </div>
       {open && children ? (
-        <div className="flex flex-col gap-4 pb-1 pl-10 pt-4">{children}</div>
+        <div className="onb-step-body flex flex-col gap-4 pb-1 pl-10 pt-4">
+          {children}
+        </div>
       ) : null}
     </li>
+  )
+}
+
+/** Every step's buttons: Back far left, the primary far right, its secondary beside it. */
+export function StepActions({
+  back,
+  secondary,
+  primary,
+}: {
+  back?: ReactNode
+  secondary?: ReactNode
+  primary?: ReactNode
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-3 pt-2">
+      <div className="mr-auto">{back}</div>
+      {secondary}
+      {primary}
+    </div>
   )
 }

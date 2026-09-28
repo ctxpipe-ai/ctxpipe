@@ -381,6 +381,17 @@
   mask-image: radial-gradient(92% 75%, #000, transparent 92%);
 }
 
+/* Opening a tall step adds a scrollbar; reserve its space so the page does
+   not shift sideways between steps. */
+html:has(.onb-page-in) {
+  scrollbar-gutter: stable;
+}
+
+/* A step's body fades in when it opens rather than appearing at once. */
+.onb-step-body {
+  animation: onb-page-in 200ms ease-out backwards;
+}
+
 /* Sign-in hands over to onboarding with a fade. `backwards` only holds the
    start frame, so the completing fade-out on the same element still runs. */
 .onb-page-in {
@@ -441,6 +452,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .onb-page-in,
+  .onb-step-body,
   .onb-wire-flow {
     animation: none;
   }

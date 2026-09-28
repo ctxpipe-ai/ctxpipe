@@ -32,6 +32,7 @@ import {
 } from "../../models/github-mcp-config-pr.js"
 import {
   bindGithubPrMirror,
+  getGithubPrMirrorBinding,
   resolveGithubPrMirrorRepository,
 } from "../../models/github-pr-mirror.js"
 import {
@@ -227,6 +228,8 @@ const GitHubInstallationSetupResponseSchema = z
     ingestAllRepositories: z.boolean(),
     includeFutureRepos: z.boolean(),
     savedRepositories: z.array(SavedRepoSchema),
+    /** Full name of the bound context repository, or null when none is set. */
+    contextRepository: z.string().nullable(),
   })
   .openapi("GitHubInstallationSetupResponse")
 
@@ -824,7 +827,10 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "No GitHub installation found for this org" }, 404)
     }
     const installation = resolved.installation
-    const repos = await listRepositoriesForGithubConnection(installation.id)
+    const [repos, mirror] = await Promise.all([
+      listRepositoriesForGithubConnection(installation.id),
+      getGithubPrMirrorBinding(orgId, installation.id),
+    ])
     return c.json(
       {
         ingestAllRepositories: installation.ingestAllRepositories,
@@ -833,6 +839,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
           name: r.name,
           gitUrl: r.gitUrl,
         })),
+        contextRepository: mirror?.repositoryName ?? null,
       },
       200,
     )

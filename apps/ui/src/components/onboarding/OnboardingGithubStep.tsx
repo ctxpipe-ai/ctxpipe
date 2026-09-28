@@ -1,8 +1,9 @@
 import HyperDX from "@hyperdx/browser"
 import { IconExternalLink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { GITHUB_FINALISING_MIN_MS } from "@/components/onboarding/constants"
+import { StepActions } from "@/components/onboarding/OnboardingStep"
 import { Button } from "@/components/ui/Button"
 import { ComboBox, ComboBoxItem } from "@/components/ui/ComboBox"
 import { getConnectorContextRepositoryCreateUrl } from "@/features/connectors/components/ConnectorContextRepositoryGuidance"
@@ -57,22 +58,58 @@ export function OnboardingGithubStep({
   const [setupError, setSetupError] = useState<string | null>(null)
   const [connectOptimistic, setConnectOptimistic] = useState(false)
   const [editing, setEditing] = useState(false)
+  const installed = hasInstallation || connectOptimistic
+
+  // What is saved now: GitHub's grant after auto-indexing, or their edit.
+  const { data: setupData, isPending: setupPending } = useQuery({
+    queryKey: ["github-installation-setup", orgSlug],
+    queryFn: async () => {
+      const res = await (
+        client[":orgSlug"].api.v1.github.installation.setup.$get as (arg: {
+          param: { orgSlug: string }
+        }) => Promise<Response>
+      )({ param: { orgSlug } })
+      if (!res.ok) throw new Error("Failed to fetch GitHub setup data")
+      return (await res.json()) as GitHubRepositorySetupData
+    },
+    enabled: installed,
+  })
+
   // Repository ids GitHub shared when they went to create a context
   // repository; the first new one is theirs, whatever they named it.
   const [knownRepoIds, setKnownRepoIds] = useState<Set<number> | null>(null)
+  // Picking an existing repository is tucked away: a new org rarely has one.
+  const [pickingExisting, setPickingExisting] = useState(false)
+  // GitHub's create and share pages open in one tab we can close once the
+  // repository shows up.
+  const githubTab = useRef<Window | null>(null)
+  const openInGithubTab = (url: string) => {
+    const tab = window.open(url, "ctxpipe-github")
+    if (!tab) return
+    try {
+      // Still about:blank here, so this is allowed: GitHub gets no handle on
+      // this page, while we keep ours to close the tab.
+      tab.opener = null
+    } catch {
+      // A reused tab is already cross-origin; it was cut off when opened.
+    }
+    githubTab.current = tab
+  }
   // undefined: pick automatically. null: none. A number: their choice.
   const [pickedContextId, setPickedContextId] = useState<
     number | null | undefined
   >(undefined)
   const pickContextRepo = (repos: readonly GithubRepoItem[]) =>
     pickedContextId === undefined
-      ? (suggestedContextRepository(repos) ??
+      ? (repos.find(
+          (repo) => repo.full_name === setupData?.contextRepository,
+        ) ??
+        suggestedContextRepository(repos) ??
         (knownRepoIds
           ? repos.find((repo) => !knownRepoIds.has(repo.id))
           : undefined) ??
         null)
       : (repos.find((repo) => repo.id === pickedContextId) ?? null)
-  const installed = hasInstallation || connectOptimistic
 
   const { data: installation } = useQuery({
     queryKey: githubConnectorKeys.installation(orgSlug),
@@ -97,21 +134,22 @@ export function OnboardingGithubStep({
   const grantedRepos = granted.data?.repositories ?? []
   const grantsAll = granted.data?.repositorySelection === "all"
   const contextRepo = pickContextRepo(grantedRepos)
+  const createUrl = getConnectorContextRepositoryCreateUrl(
+    installation?.accountSlug,
+  )
+  const grantUrl = githubGrantAccessUrls({
+    appSlug: installation?.appSlug,
+    manageUrl: granted.data?.manageUrl,
+  })[0]
 
-  // What is saved now: GitHub's grant after auto-indexing, or their edit.
-  const { data: setupData, isPending: setupPending } = useQuery({
-    queryKey: ["github-installation-setup", orgSlug],
-    queryFn: async () => {
-      const res = await (
-        client[":orgSlug"].api.v1.github.installation.setup.$get as (arg: {
-          param: { orgSlug: string }
-        }) => Promise<Response>
-      )({ param: { orgSlug } })
-      if (!res.ok) throw new Error("Failed to fetch GitHub setup data")
-      return (await res.json()) as GitHubRepositorySetupData
-    },
-    enabled: installed,
-  })
+  // Syncing with the GitHub tab (outside React): close it once the
+  // repository they created is visible here.
+  const contextRepoId = contextRepo?.id
+  useEffect(() => {
+    if (contextRepoId === undefined || !githubTab.current) return
+    githubTab.current.close()
+    githubTab.current = null
+  }, [contextRepoId])
 
   const patchInstallation = async (json: Record<string, unknown>) => {
     const res = await (
@@ -193,7 +231,12 @@ export function OnboardingGithubStep({
           }
       await patchInstallation({ ...selection, contextRepository: repository })
     },
-    onSuccess: onContinue,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["github-installation-setup", orgSlug],
+      })
+      onContinue()
+    },
   })
 
   const { start, isPending, isSyncing, hasHostedApp, SelfHostedWizardModal } =
@@ -262,18 +305,26 @@ export function OnboardingGithubStep({
               ? "Could not load repositories from GitHub. Change the selection to try again."
               : "GitHub has not given ctx| access to any repositories yet. Change the selection to grant access."}
           </p>
-          <div className="flex flex-wrap items-center gap-6 pt-2">
-            <Button
-              variant="primary"
-              className="rounded-none"
-              onPress={() => setEditing(true)}
-            >
-              Change selection
-            </Button>
-            <Button variant="quiet" className="rounded-none" onPress={onBack}>
-              Back
-            </Button>
-          </div>
+          <StepActions
+            back={
+              <Button
+                variant="quiet"
+                className="rounded-none px-0"
+                onPress={onBack}
+              >
+                Back
+              </Button>
+            }
+            primary={
+              <Button
+                variant="primary"
+                className="rounded-none"
+                onPress={() => setEditing(true)}
+              >
+                Change selection
+              </Button>
+            }
+          />
         </>
       )
     }
@@ -344,6 +395,7 @@ export function OnboardingGithubStep({
                 onPress={() => {
                   setPickedContextId(null)
                   setKnownRepoIds(null)
+                  setPickingExisting(false)
                 }}
               >
                 Change
@@ -351,75 +403,97 @@ export function OnboardingGithubStep({
             </div>
           ) : (
             <>
-              {knownRepoIds ? (
-                <ol className="m-0 flex list-none flex-col gap-1 p-0 text-sm text-muted-foreground">
-                  <li>1. Create it in GitHub. Any name works.</li>
-                  {grantsAll ? null : (
-                    <li>
-                      2.{" "}
-                      <a
-                        href={
-                          githubGrantAccessUrls({
-                            appSlug: installation?.appSlug,
-                            manageUrl: granted.data?.manageUrl,
-                          })[0]
-                        }
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
-                      >
-                        Share it with ctx|
-                        <IconExternalLink className="size-3.5" aria-hidden />
-                      </a>{" "}
-                      in GitHub.
-                    </li>
-                  )}
-                  <li>
-                    <output className="inline-flex items-center gap-2 text-zinc-200">
-                      <span className="ctx-indexing-dot" aria-hidden />
-                      Watching for the new repository
-                    </output>
-                  </li>
-                </ol>
-              ) : (
-                <p className="m-0 text-sm text-muted-foreground">
-                  Where ctx| keeps pull-request capture and connector content.{" "}
+              <p className="m-0 text-sm text-muted-foreground">
+                Where ctx| keeps pull-request capture and connector content.
+              </p>
+              <ol className="m-0 flex list-none flex-col gap-1 p-0 text-sm text-muted-foreground">
+                <li>
+                  1.{" "}
                   <a
-                    href={getConnectorContextRepositoryCreateUrl(
-                      installation?.accountSlug,
-                    )}
+                    href={createUrl}
                     target="_blank"
                     rel="noreferrer"
-                    onClick={() => {
+                    onClick={(event) => {
+                      event.preventDefault()
+                      openInGithubTab(createUrl)
                       setPickedContextId(undefined)
+                      setPickingExisting(false)
                       setKnownRepoIds(
                         new Set(grantedRepos.map((repo) => repo.id)),
                       )
                     }}
                     className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
                   >
-                    Create one on GitHub
+                    Create it on GitHub
                     <IconExternalLink className="size-3.5" aria-hidden />
                   </a>
-                </p>
-              )}
-              <ComboBox
-                label="Or use a repository you already shared"
-                placeholder="Search repositories"
-                selectedKey={null}
-                items={sortGithubRepos(grantedRepos, "name-asc")}
-                onSelectionChange={(key) => {
-                  if (key == null || key === "") return
-                  setPickedContextId(Number(key))
-                  setKnownRepoIds(null)
-                }}
-              >
-                {(repo) => (
-                  <ComboBoxItem id={String(repo.id)} textValue={repo.full_name}>
-                    {repo.full_name}
-                  </ComboBoxItem>
+                  . Any name works.
+                </li>
+                {grantsAll ? null : (
+                  <li>
+                    2.{" "}
+                    <a
+                      href={grantUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(event) => {
+                        if (!grantUrl) return
+                        event.preventDefault()
+                        openInGithubTab(grantUrl)
+                      }}
+                      className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
+                    >
+                      Share it with ctx|
+                      <IconExternalLink className="size-3.5" aria-hidden />
+                    </a>
+                    , so ctx| can see it.
+                  </li>
                 )}
-              </ComboBox>
+                <li>
+                  {grantsAll ? "2." : "3."}{" "}
+                  {knownRepoIds ? (
+                    <output className="inline-flex items-center gap-2 text-zinc-200">
+                      <span className="ctx-indexing-dot" aria-hidden />
+                      Watching for the new repository
+                    </output>
+                  ) : (
+                    "ctx| picks it up here and closes the GitHub tab."
+                  )}
+                </li>
+              </ol>
+              {pickingExisting ? (
+                <ComboBox
+                  label="Repository you already shared"
+                  placeholder="Search repositories"
+                  selectedKey={null}
+                  items={sortGithubRepos(grantedRepos, "name-asc")}
+                  onSelectionChange={(key) => {
+                    if (key == null || key === "") return
+                    setPickedContextId(Number(key))
+                    setKnownRepoIds(null)
+                    setPickingExisting(false)
+                  }}
+                >
+                  {(repo) => (
+                    <ComboBoxItem
+                      id={String(repo.id)}
+                      textValue={repo.full_name}
+                    >
+                      {repo.full_name}
+                    </ComboBoxItem>
+                  )}
+                </ComboBox>
+              ) : (
+                <div>
+                  <Button
+                    variant="quiet"
+                    className="h-auto rounded-none px-0 text-sm"
+                    onPress={() => setPickingExisting(true)}
+                  >
+                    Use a repository you already shared
+                  </Button>
+                </div>
+              )}
             </>
           )}
         </section>
@@ -429,29 +503,37 @@ export function OnboardingGithubStep({
             {continueStep.error.message}
           </p>
         ) : null}
-        <div className="flex flex-wrap items-center gap-6 pt-2">
-          <Button
-            variant="primary"
-            className="rounded-none"
-            isPending={continueStep.isPending}
-            isDisabled={autoIndex.isPending}
-            onPress={() =>
-              contextRepo
-                ? continueStep.mutate({
-                    full_name: contextRepo.full_name,
-                    name: contextRepo.name,
-                    clone_url: contextRepo.clone_url,
-                    default_branch: contextRepo.default_branch ?? "main",
-                  })
-                : onContinue()
-            }
-          >
-            Continue
-          </Button>
-          <Button variant="quiet" className="rounded-none" onPress={onBack}>
-            Back
-          </Button>
-        </div>
+        <StepActions
+          back={
+            <Button
+              variant="quiet"
+              className="rounded-none px-0"
+              onPress={onBack}
+            >
+              Back
+            </Button>
+          }
+          primary={
+            <Button
+              variant="primary"
+              className="rounded-none"
+              isPending={continueStep.isPending}
+              isDisabled={autoIndex.isPending}
+              onPress={() =>
+                contextRepo
+                  ? continueStep.mutate({
+                      full_name: contextRepo.full_name,
+                      name: contextRepo.name,
+                      clone_url: contextRepo.clone_url,
+                      default_branch: contextRepo.default_branch ?? "main",
+                    })
+                  : onContinue()
+              }
+            >
+              Continue
+            </Button>
+          }
+        />
       </>
     )
   }
@@ -473,34 +555,44 @@ export function OnboardingGithubStep({
           {setupError}
         </p>
       ) : null}
-      <div className="flex flex-wrap items-center gap-6">
-        <Button
-          variant="primary"
-          className="rounded-none"
-          isDisabled={busy}
-          onPress={() => {
-            setSetupError(null)
-            start("connect")
-          }}
-        >
-          {isSyncing
-            ? "Connecting…"
-            : selfHosted
-              ? "Set up GitHub App"
-              : "Connect GitHub"}
-        </Button>
-        <Button
-          variant="ghost"
-          className="rounded-none"
-          isDisabled={isSyncing}
-          onPress={onSkip}
-        >
-          I’ll do this later
-        </Button>
-        <Button variant="quiet" className="rounded-none" onPress={onBack}>
-          Back
-        </Button>
-      </div>
+      <StepActions
+        back={
+          <Button
+            variant="quiet"
+            className="rounded-none px-0"
+            onPress={onBack}
+          >
+            Back
+          </Button>
+        }
+        secondary={
+          <Button
+            variant="ghost"
+            className="rounded-none"
+            isDisabled={isSyncing}
+            onPress={onSkip}
+          >
+            I’ll do this later
+          </Button>
+        }
+        primary={
+          <Button
+            variant="primary"
+            className="rounded-none"
+            isDisabled={busy}
+            onPress={() => {
+              setSetupError(null)
+              start("connect")
+            }}
+          >
+            {isSyncing
+              ? "Connecting…"
+              : selfHosted
+                ? "Set up GitHub App"
+                : "Connect GitHub"}
+          </Button>
+        }
+      />
       {SelfHostedWizardModal}
     </>
   )

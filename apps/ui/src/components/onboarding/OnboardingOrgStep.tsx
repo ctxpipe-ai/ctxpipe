@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button"
 import { TextField } from "@/components/ui/TextField"
 import { authClient } from "@/lib/auth-client"
 import { useUserPreferences } from "@/lib/user-preferences"
+import { StepActions } from "./OnboardingStep"
 import { slugify } from "./onboarding-state"
 
 type OnboardingOrgStepProps = {
@@ -118,16 +119,18 @@ export function OnboardingOrgStep({
           {error}
         </p>
       ) : null}
-      <div>
-        <Button
-          type="submit"
-          variant="primary"
-          className="rounded-none"
-          isPending={createOrg.isPending}
-        >
-          Create organisation
-        </Button>
-      </div>
+      <StepActions
+        primary={
+          <Button
+            type="submit"
+            variant="primary"
+            className="rounded-none"
+            isPending={createOrg.isPending}
+          >
+            Create organisation
+          </Button>
+        }
+      />
     </form>
   )
 }

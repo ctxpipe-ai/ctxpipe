@@ -44,6 +44,8 @@ export type GitHubRepositorySetupData = {
   ingestAllRepositories: boolean
   includeFutureRepos: boolean
   savedRepositories: Array<{ name: string; gitUrl: string }>
+  /** Full name of the bound context repository, if any. */
+  contextRepository?: string | null
 }
 
 export type GitHubRepositorySetupStep = "select" | "context"
