@@ -12,8 +12,9 @@ import {
   seedOrg,
 } from "../../test/db.js"
 import type { AppEnv } from "../app/env.js"
-import { getSystemDb } from "../db/client.js"
-import { orgOnboarding } from "../db/schema/org_onboarding.js"
+import { getSystemDb, initDb } from "../db/client.js"
+import { users } from "../db/schema/auth.js"
+import { userOnboardingRoutes } from "../routes/v1/onboarding.js"
 import { handleMcpTransportRequest } from "./transport.js"
 
 function registerEchoTool(server: McpServer) {
@@ -22,37 +23,48 @@ function registerEchoTool(server: McpServer) {
   }))
 }
 
+type Actor = "oauth-agent" | "org-api-key" | "web-session"
+
 describeWithDatabase("first MCP call", () => {
-  let seed: SeededOrg
+  let admin: SeededOrg
+  let joiner: SeededOrg
 
   beforeAll(async () => {
     initLogger({
       env: { service: "ctxpipe-backend", environment: "test" },
       pretty: false,
     })
-    seed = await seedOrg()
+    admin = await seedOrg()
+    joiner = await seedOrg()
   })
 
   afterAll(async () => {
-    await cleanupSeededOrg(seed)
+    await cleanupSeededOrg(joiner)
+    // cleanupSeededOrg closes the pool; reopen it for the second seed.
+    initDb(process.env.DATABASE_URL ?? "")
+    await cleanupSeededOrg(admin)
   })
 
-  function mcpApp(actor: "agent" | "web") {
-    const app = new Hono<AppEnv>()
+  function withActor(app: Hono<AppEnv>, actor: Actor, seed: SeededOrg) {
     app.use(contextStorage())
     app.use(evlog())
     app.use("*", async (c, next) => {
       c.set("env", {
         AUTH_BASE_URL: "https://localhost:3000",
       } as AppEnv["Variables"]["env"])
-      c.set("user", null)
+      c.set(
+        "user",
+        actor === "org-api-key"
+          ? null
+          : ({ id: seed.userId } as AppEnv["Variables"]["user"]),
+      )
       c.set("session", null)
       c.set("oauthOrganizationId", null)
-      c.set("oauthClientId", null)
+      c.set("oauthClientId", actor === "oauth-agent" ? "client_test" : null)
       c.set("personalApiKeyId", null)
       c.set(
         "orgApiKey",
-        actor === "agent"
+        actor === "org-api-key"
           ? { id: "key_test", orgId: seed.orgId, configId: "organization" }
           : null,
       )
@@ -60,12 +72,13 @@ describeWithDatabase("first MCP call", () => {
       c.set("orgId", seed.orgId)
       await next()
     })
-    app.post("/mcp", (c) => handleMcpTransportRequest(c, registerEchoTool))
     return app
   }
 
-  async function send(actor: "agent" | "web", message: object) {
-    const response = await mcpApp(actor).request("http://backend.test/mcp", {
+  async function send(actor: Actor, message: object, seed = admin) {
+    const app = withActor(new Hono<AppEnv>(), actor, seed)
+    app.post("/mcp", (c) => handleMcpTransportRequest(c, registerEchoTool))
+    const response = await app.request("http://backend.test/mcp", {
       method: "POST",
       headers: {
         accept: "application/json, text/event-stream",
@@ -86,32 +99,41 @@ describeWithDatabase("first MCP call", () => {
     },
   })
 
-  async function row() {
-    const [found] = await getSystemDb()
-      .select()
-      .from(orgOnboarding)
-      .where(eq(orgOnboarding.organizationId, seed.orgId))
-    return found
+  async function firstCall(seed: SeededOrg) {
+    const app = withActor(new Hono<AppEnv>(), "web-session", seed)
+    app.route("/onboarding", userOnboardingRoutes)
+    const response = await app.request("http://backend.test/onboarding/user")
+    expect(response.status).toBe(200)
+    return ((await response.json()) as { firstMcpCall: unknown }).firstMcpCall
   }
 
-  it("ignores web sessions, then keeps the first agent's client and tool", async () => {
-    await send("web", initialize("browser"))
-    expect(await row()).toBeUndefined()
+  it("records only the user's own agent and keeps its first client and tool", async () => {
+    await send("web-session", initialize("browser"))
+    await send("org-api-key", initialize("ci-bot"))
+    expect(await firstCall(admin)).toBeNull()
 
-    await send("agent", initialize("claude-code"))
-    const afterInit = await row()
-    expect(afterInit?.firstMcpCallAt).toBeInstanceOf(Date)
-    expect(afterInit?.firstMcpClient).toBe("claude-code")
-    expect(afterInit?.firstMcpTool).toBeNull()
+    await send("oauth-agent", initialize("claude-code"))
+    const [afterInit] = await getSystemDb()
+      .select({ at: users.firstMcpCallAt })
+      .from(users)
+      .where(eq(users.id, admin.userId))
+    expect(await firstCall(admin)).toMatchObject({
+      client: "claude-code",
+      tool: null,
+    })
 
-    await send("agent", initialize("cursor"))
-    await send("agent", {
+    await send("oauth-agent", initialize("cursor"))
+    await send("oauth-agent", {
       method: "tools/call",
       params: { name: "echo", arguments: {} },
     })
-    const afterCall = await row()
-    expect(afterCall?.firstMcpClient).toBe("claude-code")
-    expect(afterCall?.firstMcpTool).toBe("echo")
-    expect(afterCall?.firstMcpCallAt).toEqual(afterInit?.firstMcpCallAt)
+    expect(await firstCall(admin)).toEqual({
+      at: afterInit?.at?.toISOString(),
+      client: "claude-code",
+      tool: "echo",
+    })
+
+    // A joiner's agent step waits for their own agent, not the admin's.
+    expect(await firstCall(joiner)).toBeNull()
   })
 })

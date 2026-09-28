@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "75198eee-281a-4d82-81d0-98f80e9000a5",
+  "id": "96446ff8-898d-46e3-abf9-4c230345720c",
   "prevIds": [
     "3a50a151-fb82-49f6-a395-c115d5bb052f"
   ],
@@ -2236,6 +2236,45 @@
       "table": "users"
     },
     {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "first_mcp_call_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "users"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "first_mcp_client",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "users"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "first_mcp_tool",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "users"
+    },
+    {
       "type": "text",
       "typeSchema": null,
       "notNull": true,
@@ -3245,45 +3284,6 @@
       "generated": null,
       "identity": null,
       "name": "completed_by_user_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "org_onboarding"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "first_mcp_call_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "org_onboarding"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "first_mcp_client",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "org_onboarding"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "first_mcp_tool",
       "entityType": "columns",
       "schema": "public",
       "table": "org_onboarding"

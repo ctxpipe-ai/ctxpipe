@@ -7,7 +7,7 @@ import {
 import type { Context } from "hono"
 import type { AppEnv } from "../app/env.js"
 import { currentMcpActor, requireCurrentOrgId } from "../auth/context.js"
-import { recordFirstMcpCall } from "../models/org-onboarding.js"
+import { recordFirstMcpCall } from "../models/mcp-first-call.js"
 import {
   type AttributionInput,
   applyAttribution,
@@ -162,31 +162,30 @@ export async function handleMcpTransportRequest(
 }
 
 /**
- * Onboarding waits on this row to show the agent step done. Only agents
- * count (OAuth client or API key), and only `initialize` or `tools/call`,
- * so a web session or a `tools/list` poll never marks it.
+ * Onboarding waits on this to show the agent step done. Only a user's agent
+ * counts (OAuth client or personal API key), and only `initialize` or
+ * `tools/call`, so a web session or a `tools/list` poll never marks it.
  */
 async function recordAgentCall(
   c: Context<AppEnv>,
   messages: readonly unknown[],
 ): Promise<void> {
-  const orgId = c.get("orgId")
-  const isAgent = Boolean(
-    c.get("oauthClientId") || c.get("orgApiKey") || c.get("personalApiKeyId"),
-  )
-  if (!orgId || !isAgent) return
+  const userId = c.get("user")?.id
+  const isAgent = Boolean(c.get("oauthClientId") || c.get("personalApiKeyId"))
+  if (!userId || !isAgent) return
   let clientName: string | undefined
   let toolName: string | undefined
   for (const message of messages) {
     const init = InitializeRequestSchema.safeParse(message)
-    if (init.success)
+    if (init.success) {
       clientName ??= init.data.params.clientInfo.name.slice(0, 100)
+    }
     const call = CallToolRequestSchema.safeParse(message)
     if (call.success) toolName ??= call.data.params.name.slice(0, 100)
   }
   if (!clientName && !toolName) return
   try {
-    await recordFirstMcpCall({ orgId, clientName, toolName })
+    await recordFirstMcpCall({ userId, clientName, toolName })
   } catch (error) {
     getLogger().warn("mcp_first_call_record_failed", {
       error: error instanceof Error ? error.message : String(error),
