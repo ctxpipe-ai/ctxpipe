@@ -11,7 +11,7 @@ Mirrors [ops/infra/index.ts](../ops/infra/index.ts):
   - Region: **`us-east4-eqdc4a`** (Virginia), from module variable `railway_regions` (default in [`module/ctxpipe/variables.tf`](module/ctxpipe/variables.tf); [`main.tf`](main.tf) passes the same value) — same metro as Neon. Terraform documents and creates with this value; **updates** go through [`scripts/railway-set-regions.sh`](../scripts/railway-set-regions.sh) (Railway provider 0.6.x never sends `multiRegionConfig` on Update).
   - Services: UI, backend, codesearch (+ volume), OpenWorkflow worker, FalkorDB (+ volume)
   - Service variables: `FALKORDB_PORT`, `GRAPH_DB_URI`
-  - App services pull public GHCR images (`ghcr.io/ctxpipe-ai/{backend,worker,ui,codesearch}`) tagged by Git commit SHA from GitHub Actions (no Railway registry credentials)
+  - App services pull public GHCR images (`ghcr.io/ctxpipe-ai/{backend,worker,ui,codesearch}`) tagged by Git commit SHA from GitHub Actions (no Railway registry credentials). Production tag updates are [`scripts/railway-set-images.sh`](../scripts/railway-set-images.sh), not `railway_service` Update (ADR-039).
   - **Volume cutover:** Railway migrates attached volumes when a service region changes ([docs](https://docs.railway.com/deployments/regions#volumes)). Codesearch and FalkorDB each have a 50GB volume. The production region write is `deploy.yaml` → `scripts/railway-set-regions.sh` (GraphQL pin + redeploy), not `terraform apply`. That step copies those volumes and takes those services down for the copy. Stateless services (backend, worker, UI) flip without volume migration. `railway_service` resources `ignore_changes` on `regions` so Terraform does not hit the provider Update bug. PR preview environments are a copy of production, so they inherit this region after production actually moves.
 - **Neon**
   - Project `ctxpipe` in org `org-steep-pine-64462726`, region `aws-us-east-1`, pg 17
@@ -94,8 +94,8 @@ If the plan wants to replace production resources, stop and we’ll adjust the c
 Production deploys are driven by `.github/workflows/deploy.yaml`:
 
 - Build/push app images to GHCR with both `:<sha>` and `:latest`
-- Run Terraform with `TF_VAR_image_tag=<sha>`
-- Railway services are updated to `source_image = ghcr.io/ctxpipe-ai/<service>:<sha>`
+- Run [`scripts/railway-set-images.sh`](../scripts/railway-set-images.sh) with `IMAGE_TAG=<sha>` so production `backend`, `ui`, `openworkflow`, and `codesearch` deploy that tag. The script updates and deploys only the production environment.
+- Run Terraform with `TF_VAR_image_tag=<sha>`. `source_image` is `ignore_changes` on those four services, so apply does not call the provider Update that redeploys every environment.
 
 Production OpenWorkflow / codesearch admission uses the **medium** capacity pair (`OPENWORKFLOW_CONCURRENCY=10`, `CODESEARCH_INDEXER_CONCURRENCY=2`, `CODESEARCH_INDEX_PIPELINE_CONCURRENCY=2`). Railway does not pin CPU/RAM in Terraform; pick these from observed ingest peak RSS (HyperDX / Railway metrics), not a dashboard plan size. Codesearch stays at **one replica** with a volume at `/data`. Changing these module variables requires redeploying **worker and codesearch**.
 
