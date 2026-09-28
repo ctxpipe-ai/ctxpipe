@@ -6,8 +6,8 @@ import {
   githubInstallationNoneHandler,
   organizationListEmptyHandler,
   organizationListWithOrgHandler,
-  orgOnboardingHandler,
   sessionSignedInOnboardingHandler,
+  userOnboardingHandler,
 } from "@/mocks/handlers"
 import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
@@ -74,7 +74,7 @@ export const JoinerListening: Story = {
           organizationListWithOrgHandler,
           githubInstallationNoneHandler,
           noRepositoriesHandler,
-          orgOnboardingHandler(null),
+          userOnboardingHandler(null),
         ],
       },
     },
@@ -102,7 +102,7 @@ export const JoinerConnected: Story = {
           organizationListWithOrgHandler,
           githubInstallationNoneHandler,
           noRepositoriesHandler,
-          orgOnboardingHandler({
+          userOnboardingHandler({
             at: "2026-09-28T09:00:00.000Z",
             client: "claude-code",
             tool: "ctx_advisor",

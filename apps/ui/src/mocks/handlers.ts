@@ -92,18 +92,16 @@ export function organizationCreateErrorHandler(
   })
 }
 
-/** `GET /:orgSlug/api/v1/onboarding` — `firstMcpCall` null until an agent calls MCP. */
-export function orgOnboardingHandler(
+/** `GET /api/v1/onboarding/user` — `firstMcpCall` null until their agent calls MCP. */
+export function userOnboardingHandler(
   firstMcpCall: {
     at: string
     client: string | null
     tool: string | null
   } | null,
 ) {
-  return http.get(
-    ({ request }) =>
-      new URL(request.url).pathname.endsWith("/api/v1/onboarding"),
-    () => HttpResponse.json({ completedAt: null, firstMcpCall }),
+  return http.get("*/api/v1/onboarding/user", () =>
+    HttpResponse.json({ firstMcpCall }),
   )
 }
 

@@ -70,29 +70,27 @@ export function OnboardingPageContent({
     enabled: Boolean(orgSlug && session),
     pollWhileEmpty: repositoriesQueued,
   })
-  const { data: orgOnboarding } = useQuery({
-    queryKey: ["org-onboarding", orgSlug],
+  // The agent beat completes on the backend's record of this user's first
+  // MCP call, so poll until it exists (or they skip the step).
+  const { data: userOnboarding } = useQuery({
+    queryKey: ["user-onboarding"],
     queryFn: async () => {
-      if (!orgSlug) throw new Error("Missing organisation")
-      const res = await client[":orgSlug"].api.v1.onboarding.$get({
-        param: { orgSlug },
+      const res = await fetch("/api/v1/onboarding/user", {
+        credentials: "include",
       })
       if (!res.ok) throw new Error("Failed to fetch onboarding state")
-      return res.json()
+      return (await res.json()) as {
+        firstMcpCall: {
+          at: string
+          client: string | null
+          tool: string | null
+        } | null
+      }
     },
-    enabled: Boolean(orgSlug && session),
-    // The agent beat completes on the backend's first-call record.
-    refetchInterval: (query) =>
-      query.state.data && "firstMcpCall" in query.state.data
-        ? query.state.data.firstMcpCall
-          ? false
-          : 3000
-        : 3000,
+    enabled: Boolean(orgSlug && session) && !agentSkipped,
+    refetchInterval: (query) => (query.state.data?.firstMcpCall ? false : 3000),
   })
-  const firstCall =
-    orgOnboarding && "firstMcpCall" in orgOnboarding
-      ? orgOnboarding.firstMcpCall
-      : null
+  const firstCall = userOnboarding?.firstMcpCall ?? null
 
   const repositories = repositoryIndexing.repositories ?? []
   const { activeCount, failedCount, singleActiveStepLabel } =
@@ -309,7 +307,6 @@ export function OnboardingPageContent({
                 <OnboardingAgentStep
                   orgSlug={orgSlug}
                   hasSource={view.hasSource}
-                  hasGithubInstallation={Boolean(installation)}
                   firstRepository={repositories[0]?.name ?? null}
                   onSkip={() => setAgentSkipped(true)}
                 />
