@@ -304,40 +304,6 @@ type GitTreeEntry = {
   content?: string
 }
 
-/** GitHub creates UTF-8 blobs inside createTree. Chunk so one body stays small. */
-function chunkGitTreeEntries(entries: GitTreeEntry[]): GitTreeEntry[][] {
-  const maxFiles = 50
-  const maxBytes = 900 * 1024
-  const chunks: GitTreeEntry[][] = []
-  let current: GitTreeEntry[] = []
-  let bytes = 0
-  const flush = () => {
-    if (current.length === 0) return
-    chunks.push(current)
-    current = []
-    bytes = 0
-  }
-  for (const entry of entries) {
-    const size =
-      entry.content === undefined ? 0 : Buffer.byteLength(entry.content, "utf8")
-    if (size > maxBytes) {
-      flush()
-      chunks.push([entry])
-      continue
-    }
-    if (
-      current.length > 0 &&
-      (current.length >= maxFiles || bytes + size > maxBytes)
-    ) {
-      flush()
-    }
-    current.push(entry)
-    bytes += size
-  }
-  flush()
-  return chunks
-}
-
 export async function commitFiles(
   input: BaseInput & {
     branch: string
@@ -347,9 +313,7 @@ export async function commitFiles(
   },
 ) {
   const context = await getInstallationContext(input)
-  let nextHead:
-    | Awaited<ReturnType<typeof getOrInitializeBaseBranch>>
-    | undefined = await withTransientGitHubRetry(() =>
+  const loadedHead = await withTransientGitHubRetry(() =>
     getOrInitializeBaseBranch({
       octokit: context.octokit,
       owner: context.owner,
@@ -357,6 +321,7 @@ export async function commitFiles(
       branch: input.branch,
     }),
   )
+  let nextHead: typeof loadedHead | undefined = loadedHead
   const fileEntries: GitTreeEntry[] = []
   let lastBinaryBlobStartedAt = 0
   for (const file of input.files) {
@@ -400,12 +365,44 @@ export async function commitFiles(
       sha: null,
     }),
   )
-  const chunks = chunkGitTreeEntries(fileEntries)
-  if (deleteEntries.length > 0) {
-    const first = chunks[0] ?? []
-    chunks[0] = [...first, ...deleteEntries]
+  // GitHub creates UTF-8 blobs inside createTree. Deletes count toward the
+  // same entry cap so a tree never exceeds 50 entries or ~900 KB of content.
+  const maxFiles = 50
+  const maxBytes = 900 * 1024
+  const chunks: GitTreeEntry[][] = []
+  let current: GitTreeEntry[] = []
+  let bytes = 0
+  const flush = () => {
+    if (current.length === 0) return
+    chunks.push(current)
+    current = []
+    bytes = 0
   }
-  if (chunks.length === 0) chunks.push([])
+  for (const entry of [...deleteEntries, ...fileEntries]) {
+    const size =
+      entry.content === undefined ? 0 : Buffer.byteLength(entry.content, "utf8")
+    if (size > maxBytes) {
+      flush()
+      chunks.push([entry])
+      continue
+    }
+    if (
+      current.length > 0 &&
+      (current.length >= maxFiles || bytes + size > maxBytes)
+    ) {
+      flush()
+    }
+    current.push(entry)
+    bytes += size
+  }
+  flush()
+  if (chunks.length === 0) {
+    return {
+      commitSha: loadedHead.commitSha,
+      branch: input.branch,
+      installationId: context.installation.installationId ?? 0,
+    }
+  }
 
   return withTransientGitHubRetry(async () => {
     const head =
