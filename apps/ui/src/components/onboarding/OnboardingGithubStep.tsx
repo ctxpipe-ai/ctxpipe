@@ -3,6 +3,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { GITHUB_FINALISING_MIN_MS } from "@/components/onboarding/constants"
 import { Button } from "@/components/ui/Button"
+import { getConnectorContextRepositoryCreateUrl } from "@/features/connectors/components/ConnectorContextRepositoryGuidance"
+import {
+  fetchGithubInstallationSummary,
+  githubConnectorKeys,
+} from "@/features/connectors/queries/github-connector"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import {
   type GitHubRepositorySetupData,
@@ -14,6 +19,7 @@ import {
   suggestedContextRepository,
 } from "@/features/repositories/githubRepoSelection"
 import { client } from "@/lib/api"
+import { githubGrantAccessUrls } from "@/lib/github-app-url"
 
 type OnboardingGithubStepProps = {
   orgSlug: string
@@ -33,7 +39,15 @@ export function OnboardingGithubStep({
   const [setupError, setSetupError] = useState<string | null>(null)
   const [connectOptimistic, setConnectOptimistic] = useState(false)
   const [editing, setEditing] = useState(false)
+  // Set once they open GitHub to create ctxpipe-context; we watch for it.
+  const [awaitingContextRepo, setAwaitingContextRepo] = useState(false)
   const installed = hasInstallation || connectOptimistic
+
+  const { data: installation } = useQuery({
+    queryKey: githubConnectorKeys.installation(orgSlug),
+    queryFn: () => fetchGithubInstallationSummary(orgSlug),
+    enabled: installed,
+  })
 
   // Same key as GitHubRepositorySetupForm, so "Change selection" reuses it.
   const granted = useQuery({
@@ -43,6 +57,12 @@ export function OnboardingGithubStep({
         fetchInstallationReposPage(orgSlug, page),
       ),
     enabled: installed,
+    refetchInterval: (query) =>
+      awaitingContextRepo &&
+      !suggestedContextRepository(query.state.data?.repositories ?? [])
+        ? 4000
+        : false,
+    refetchOnWindowFocus: awaitingContextRepo ? "always" : true,
   })
   const grantedRepos = granted.data?.repositories ?? []
   const grantsAll = granted.data?.repositorySelection === "all"
@@ -205,7 +225,65 @@ export function OnboardingGithubStep({
                   {contextRepo.full_name}
                 </code>
               </p>
-            ) : null}
+            ) : (
+              <div className="flex flex-col gap-3 border border-white/10 p-4">
+                <span className="text-sm font-medium text-zinc-100">
+                  Dedicated context repository
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  ctx| writes pull-request capture and connector content to one
+                  repository, usually{" "}
+                  <code className="font-mono text-zinc-200">
+                    ctxpipe-context
+                  </code>
+                  . Optional: you can add it later.
+                </span>
+                {awaitingContextRepo ? (
+                  <output className="inline-flex flex-wrap items-center gap-2 text-sm text-zinc-200">
+                    <span className="ctx-indexing-dot" aria-hidden />
+                    Waiting for ctxpipe-context to appear.
+                    {grantsAll ? null : (
+                      <>
+                        {" "}
+                        Then{" "}
+                        <a
+                          href={
+                            githubGrantAccessUrls({
+                              appSlug: installation?.appSlug,
+                              manageUrl: granted.data?.manageUrl,
+                            })[0]
+                          }
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-teal-400 hover:text-teal-300"
+                        >
+                          give ctx| access to it
+                        </a>
+                        .
+                      </>
+                    )}
+                  </output>
+                ) : null}
+                <div>
+                  <Button
+                    variant="secondary"
+                    className="rounded-none"
+                    onPress={() => {
+                      window.open(
+                        getConnectorContextRepositoryCreateUrl(
+                          installation?.accountSlug,
+                        ),
+                        "_blank",
+                        "noopener,noreferrer",
+                      )
+                      setAwaitingContextRepo(true)
+                    }}
+                  >
+                    Create ctxpipe-context on GitHub
+                  </Button>
+                </div>
+              </div>
+            )}
           </>
         )}
         {indexGranted.error ? (

@@ -392,7 +392,7 @@ export function OnboardingPageContent({
             </div>
           ) : null}
         </section>
-        <div className="hidden pt-10 md:block">
+        <div className="hidden md:block lg:self-center">
           <OnboardingDiagram
             view={view}
             githubAccount={installation?.accountSlug ?? null}

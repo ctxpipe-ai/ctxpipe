@@ -98,7 +98,7 @@ export function OnboardingDiagram({
           ) : null}
         </span>
 
-        <div className="relative grid grid-cols-[minmax(0,12rem)_3rem_minmax(0,1fr)_3rem_minmax(0,13rem)] items-stretch">
+        <div className="relative grid min-h-120 grid-cols-[minmax(0,12rem)_3rem_minmax(0,1fr)_3rem_minmax(0,13rem)] items-stretch">
           <section
             className={`onb-noise flex flex-col gap-3 border p-4 transition-[border-color,background-color,box-shadow] duration-500 ${PANEL[beats.source]}`}
           >
