@@ -9,12 +9,14 @@ on:
     branches: [main]
     paths:
       - "ops/observability/**"
-      - "scripts/railway-*.sh"
+      - "scripts/railway-graphql.sh"
+      - "scripts/railway-set-regions.sh"
       - ".github/workflows/observability.yaml"
   pull_request:
     paths:
       - "ops/observability/**"
-      - "scripts/railway-*.sh"
+      - "scripts/railway-graphql.sh"
+      - "scripts/railway-set-regions.sh"
       - ".github/workflows/observability.yaml"
   workflow_dispatch:
 

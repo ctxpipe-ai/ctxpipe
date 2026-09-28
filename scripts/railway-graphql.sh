@@ -3,7 +3,9 @@
 # GraphQL documents are single-quoted on purpose.
 # shellcheck disable=SC2016
 
-railway_graphql() {
+# Prints the JSON body for an HTTP 200 response, including GraphQL errors.
+# Callers that want those errors to fail should use railway_graphql.
+railway_graphql_body() {
   local query="$1"
   local variables="$2"
   local token="${RAILWAY_TOKEN:-${RAILWAY_API_TOKEN:-}}"
@@ -24,6 +26,13 @@ railway_graphql() {
     echo "$body" >&2
     return 22
   fi
+  printf '%s' "$body"
+}
+
+railway_graphql() {
+  local query="$1"
+  local body
+  body="$(railway_graphql_body "$@")" || return $?
   if echo "$body" | jq -e '.errors | type == "array" and length > 0' >/dev/null 2>&1; then
     echo "Railway GraphQL errors for query: ${query:0:120}…" >&2
     echo "$body" | jq -c '.errors' >&2
