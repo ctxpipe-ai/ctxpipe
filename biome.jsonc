@@ -3,7 +3,8 @@
   "files": {
     "experimentalScannerIgnores": [
       "**/.nitro/**",
-      "**/storybook-static/**"
+      "**/storybook-static/**",
+      "**/services/linear/schema.graphql"
     ]
   },
   "css": {
@@ -28,6 +29,11 @@
     }
   },
   "overrides": [
+    {
+      "includes": ["apps/backend/src/services/linear/documents.generated.ts"],
+      "formatter": { "enabled": false },
+      "linter": { "enabled": false }
+    },
     {
       "includes": ["apps/ui/src/styles.css"],
       "linter": {

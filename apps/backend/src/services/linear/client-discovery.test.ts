@@ -1,33 +1,18 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it } from "vitest"
+import {
+  emptyLinearPage,
+  installLinearGraphql,
+  type LinearGraphqlCall,
+} from "../../../test/linear-graphql.js"
+import { useMswServer } from "../../../test/msw.js"
 import type { Env } from "../../config/env.js"
 import type { LinearConnection } from "../../models/linear-connector.js"
 import { discoverLinearScopes } from "./client.js"
+import { resetLinearGraphqlForTests } from "./graphql.js"
 
-const sdk = vi.hoisted(() => ({
-  client: {
-    teams: vi.fn(),
-    projects: vi.fn(),
-    documents: vi.fn(),
-    initiatives: vi.fn(),
-  },
-}))
-
-vi.mock("@linear/sdk", () => ({
-  LinearClient: class {
-    teams = sdk.client.teams
-    projects = sdk.client.projects
-    documents = sdk.client.documents
-    initiatives = sdk.client.initiatives
-  },
-}))
-
-function page<T>(nodes: T[]) {
-  return {
-    nodes,
-    pageInfo: { hasNextPage: false },
-    fetchNext: vi.fn(),
-  }
-}
+const calls: LinearGraphqlCall[] = []
+// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
+const server = useMswServer()
 
 const connection = {
   id: "con_linear",
@@ -53,43 +38,53 @@ const connection = {
 } satisfies LinearConnection
 
 beforeEach(() => {
-  vi.clearAllMocks()
-  const team = {
-    id: "team-1",
-    key: "PRO",
-    name: "Product",
-    url: "https://linear.app/acme/team/PRO",
-  }
-  sdk.client.teams.mockResolvedValue(page([team]))
-  sdk.client.projects.mockResolvedValue(
-    page([
-      {
-        id: "project-1",
-        name: "Launch",
-        url: "https://linear.app/acme/project/launch",
-        teams: vi.fn().mockResolvedValue(page([team])),
-      },
-    ]),
-  )
-  sdk.client.documents.mockResolvedValue(
-    page([
-      {
-        id: "document-1",
-        title: "Architecture",
-        url: "https://linear.app/acme/document/architecture",
-        projectId: "project-1",
-      },
-    ]),
-  )
-  sdk.client.initiatives.mockResolvedValue(
-    page([
-      {
-        id: "initiative-1",
-        name: "FY27",
-        url: "https://linear.app/acme/initiative/fy27",
-      },
-    ]),
-  )
+  resetLinearGraphqlForTests()
+  calls.length = 0
+  installLinearGraphql(server, calls, (call) => {
+    if (call.name === "DiscoverTeams") {
+      return {
+        teams: emptyLinearPage([{ id: "team-1", key: "PRO", name: "Product" }]),
+      }
+    }
+    if (call.name === "DiscoverProjects") {
+      return {
+        projects: emptyLinearPage(
+          Array.from({ length: 5 }, (_, index) => ({
+            id: `project-${index + 1}`,
+            name: index === 0 ? "Launch" : `Project ${index + 1}`,
+            url: "https://linear.app/acme/project/launch",
+            teams: {
+              nodes: [{ id: "team-1", key: "PRO" }],
+            },
+          })),
+        ),
+      }
+    }
+    if (call.name === "DiscoverDocuments") {
+      return {
+        documents: emptyLinearPage([
+          {
+            id: "document-1",
+            title: "Architecture",
+            url: "https://linear.app/acme/document/architecture",
+            project: { id: "project-1" },
+          },
+        ]),
+      }
+    }
+    if (call.name === "DiscoverInitiatives") {
+      return {
+        initiatives: emptyLinearPage([
+          {
+            id: "initiative-1",
+            name: "FY27",
+            url: "https://linear.app/acme/initiative/fy27",
+          },
+        ]),
+      }
+    }
+    return {}
+  })
 })
 
 describe("discoverLinearScopes", () => {
@@ -105,11 +100,13 @@ describe("discoverLinearScopes", () => {
         type: "team",
         teamKey: "PRO",
       }),
-      expect.objectContaining({
-        externalId: "project-1",
-        type: "project",
-        parentExternalId: "team-1",
-      }),
+      ...Array.from({ length: 5 }, (_, index) =>
+        expect.objectContaining({
+          externalId: `project-${index + 1}`,
+          type: "project",
+          parentExternalId: "team-1",
+        }),
+      ),
       expect.objectContaining({
         externalId: "document-1",
         type: "document",
@@ -121,5 +118,14 @@ describe("discoverLinearScopes", () => {
         type: "initiative",
       }),
     ])
+    expect(calls.map((call) => call.name).sort()).toEqual([
+      "DiscoverDocuments",
+      "DiscoverInitiatives",
+      "DiscoverProjects",
+      "DiscoverTeams",
+    ])
+    const projects = calls.find((call) => call.name === "DiscoverProjects")
+    expect(projects?.query).toContain("teams(first: 1)")
+    expect(calls).toHaveLength(4)
   })
 })

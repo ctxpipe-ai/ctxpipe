@@ -1,4 +1,3 @@
-import type { CustomerNeed, Issue } from "@linear/sdk"
 import type { Env } from "../../config/env.js"
 import type { LinearConnection } from "../../models/linear-connector.js"
 import { linearAccessToken } from "../../models/linear-oauth-app.js"
@@ -13,14 +12,23 @@ import {
   linearManagedPathsForEntity,
   linearMatchingExistingAssetPaths,
 } from "./assets.js"
-import {
-  collectLinearConnectionPages,
-  type LinearTokenRefreshHandler,
-  withLinearClient,
-} from "./client.js"
+import { type LinearTokenRefreshHandler, withLinearClient } from "./client.js"
 import type { ParsedLinearRepoConfig } from "./config-yaml.js"
 import { renderLinearUpdateSections } from "./content.js"
 import type { LinearMirrorFile } from "./converter.js"
+import {
+  linearActorName,
+  loadCycle,
+  loadDocument,
+  loadInitiative,
+  loadInitiativeDocumentIds,
+  loadInitiativeProjectIds,
+  loadIssue,
+  loadIssueLabel,
+  loadProject,
+  loadTeam,
+  loadUser,
+} from "./read.js"
 
 export type LinearIncrementalChanges = {
   files: LinearMirrorFile[]
@@ -45,17 +53,6 @@ export type LinearEntityChange = {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
-}
-
-async function settleRelation<T>(
-  value: PromiseLike<T> | undefined,
-): Promise<T | undefined> {
-  if (!value) return undefined
-  try {
-    return await value
-  } catch {
-    return undefined
-  }
 }
 
 function existingPathForId(paths: string[], id: string): string | undefined {
@@ -95,6 +92,8 @@ export async function buildLinearIncrementalChanges(input: {
         new Map(input.existingPaths.map((path) => [path, ""])),
       onPreservePathPrefix,
     }
+    const accessToken = linearAccessToken(input.connection)
+    const includeNeeds = input.config.customerRequests === "limited"
     const selectedTeams = new Set(
       input.config.scopes
         .filter((scope) => scope.type === "team")
@@ -118,32 +117,19 @@ export async function buildLinearIncrementalChanges(input: {
     let selectedInitiativeDescendants:
       | Promise<{ projectIds: Set<string>; documentIds: Set<string> }>
       | undefined
-    const projectScope = new Map<string, Promise<boolean>>()
 
     function getSelectedInitiativeDescendants() {
       selectedInitiativeDescendants ??= Promise.all(
-        [...selectedInitiatives].map(async (initiativeId) => {
-          const initiative = await client.initiative(initiativeId)
-          const [projects, documents] = await Promise.all([
-            collectLinearConnectionPages(() =>
-              initiative.projects({ first: 100, includeArchived: true }),
-            ),
-            collectLinearConnectionPages(() =>
-              initiative.documents({ first: 100, includeArchived: true }),
-            ),
-          ])
-          return { projects, documents }
-        }),
+        [...selectedInitiatives].map(async (initiativeId) => ({
+          projectIds: await loadInitiativeProjectIds(client, initiativeId),
+          documentIds: await loadInitiativeDocumentIds(client, initiativeId),
+        })),
       ).then((descendants) => ({
         projectIds: new Set(
-          descendants.flatMap(({ projects }) =>
-            projects.map((project) => project.id),
-          ),
+          descendants.flatMap((descendant) => descendant.projectIds),
         ),
         documentIds: new Set(
-          descendants.flatMap(({ documents }) =>
-            documents.map((document) => document.id),
-          ),
+          descendants.flatMap((descendant) => descendant.documentIds),
         ),
       }))
       return selectedInitiativeDescendants
@@ -160,21 +146,14 @@ export async function buildLinearIncrementalChanges(input: {
       )
     }
 
-    async function projectIsInScope(projectId: string | null | undefined) {
+    async function projectIsInScope(
+      projectId: string | null | undefined,
+      teamIds: string[],
+    ) {
       if (!projectId) return false
       if (await projectIsSelectedOrInitiative(projectId)) return true
       if (selectedTeams.size === 0) return false
-      let pending = projectScope.get(projectId)
-      if (!pending) {
-        pending = client.project(projectId).then(async (project) => {
-          const teams = await collectLinearConnectionPages(() =>
-            project.teams({ first: 100 }),
-          )
-          return teams.some((team) => selectedTeams.has(team.id))
-        })
-        projectScope.set(projectId, pending)
-      }
-      return pending
+      return teamIds.some((teamId) => selectedTeams.has(teamId))
     }
 
     function removeExisting(id: string) {
@@ -200,111 +179,6 @@ export async function buildLinearIncrementalChanges(input: {
       return Boolean(existingPathForId(input.existingPaths, id))
     }
 
-    async function renderCustomerNeed(
-      need: CustomerNeed,
-    ): Promise<LinearMirrorFile[]> {
-      return linearEntityMirrorFiles({
-        directory: "customer-requests",
-        type: "customer_request",
-        id: need.id,
-        title: `Customer request ${need.id}`,
-        url: need.url,
-        body: need.content || need.body,
-        metadata: {
-          customerId: need.customerId ?? null,
-          projectId: need.projectId ?? null,
-          issueId: need.issueId ?? null,
-          priority: need.priority,
-          createdAt: need.createdAt.toISOString(),
-          updatedAt: need.updatedAt.toISOString(),
-        },
-        accessToken: linearAccessToken(input.connection),
-        ...assetOptions,
-      })
-    }
-
-    async function renderIssue(issue: Issue): Promise<LinearMirrorFile[]> {
-      const [
-        comments,
-        attachments,
-        state,
-        team,
-        project,
-        cycle,
-        assignee,
-        creator,
-        labels,
-      ] = await Promise.all([
-        collectLinearConnectionPages(() => issue.comments({ first: 100 })),
-        collectLinearConnectionPages(() => issue.attachments({ first: 100 })),
-        issue.state,
-        settleRelation(issue.team),
-        settleRelation(issue.project),
-        settleRelation(issue.cycle),
-        settleRelation(issue.assignee),
-        settleRelation(issue.creator),
-        collectLinearConnectionPages(() => issue.labels({ first: 100 })),
-      ])
-      const commentAuthors = await Promise.all(
-        comments.map(async (comment) => {
-          const user = await settleRelation(comment.user)
-          return user ? user.displayName || user.name || null : null
-        }),
-      )
-      return linearIssueMirrorFiles(
-        {
-          id: issue.id,
-          identifier: issue.identifier,
-          title: issue.title,
-          description: issue.description,
-          url: issue.url,
-          priorityLabel: issue.priorityLabel,
-          state: state?.name ?? null,
-          teamId: issue.teamId ?? team?.id ?? null,
-          teamKey: team?.key ?? null,
-          teamName: team?.name ?? null,
-          projectId: issue.projectId ?? project?.id ?? null,
-          projectName: project?.name ?? null,
-          cycleId: issue.cycleId ?? cycle?.id ?? null,
-          cycleName: cycle?.name ?? null,
-          assigneeId: issue.assigneeId ?? assignee?.id ?? null,
-          assignee: assignee
-            ? assignee.displayName || assignee.name || null
-            : null,
-          creatorId: issue.creatorId ?? creator?.id ?? null,
-          creator: creator ? creator.displayName || creator.name || null : null,
-          labels: labels.map((label) => ({
-            id: label.id,
-            name: label.name,
-          })),
-          createdAt: issue.createdAt,
-          updatedAt: issue.updatedAt,
-          comments: comments.map((comment, index) => ({
-            id: comment.id,
-            body: comment.body,
-            userId: comment.userId ?? null,
-            userName: commentAuthors[index] ?? null,
-            createdAt: comment.createdAt,
-            updatedAt: comment.updatedAt,
-          })),
-          attachments: attachments.map((attachment) => ({
-            id: attachment.id,
-            title: attachment.title,
-            url: attachment.url,
-            sourceType: attachment.sourceType ?? null,
-            metadata:
-              attachment.metadata &&
-              typeof attachment.metadata === "object" &&
-              !Array.isArray(attachment.metadata)
-                ? (attachment.metadata as Record<string, unknown>)
-                : null,
-          })),
-        },
-        linearAccessToken(input.connection),
-        assetOptions,
-      )
-    }
-
     for (const entity of input.entities) {
       if (entity.action === "delete") {
         removeExisting(entity.externalId)
@@ -315,7 +189,7 @@ export async function buildLinearIncrementalChanges(input: {
         let mirrored: LinearMirrorFile[] | undefined
         switch (entity.entityType) {
           case "team": {
-            const team = await client.team(entity.externalId)
+            const team = await loadTeam(client, entity.externalId)
             if (!selectedTeams.has(team.id)) {
               removeExisting(entity.externalId)
               break
@@ -331,61 +205,97 @@ export async function buildLinearIncrementalChanges(input: {
               body: team.description,
               metadata: {
                 key: team.key,
-                parentId: team.parentId ?? null,
+                parentId: team.parentId,
                 createdAt: team.createdAt.toISOString(),
                 updatedAt: team.updatedAt.toISOString(),
               },
-              accessToken: linearAccessToken(input.connection),
+              accessToken,
               ...assetOptions,
             })
             break
           }
           case "issue": {
-            const issue = await client.issue(entity.externalId)
+            const loaded = await loadIssue(
+              client,
+              entity.externalId,
+              includeNeeds,
+            )
             if (
-              !selectedTeams.has(issue.teamId ?? "") &&
-              !(await projectIsInScope(issue.projectId))
+              !selectedTeams.has(loaded.issue.teamId ?? "") &&
+              !(await projectIsInScope(
+                loaded.issue.projectId,
+                loaded.projectTeamIds,
+              ))
             ) {
               removeExisting(entity.externalId)
               break
             }
-            if (input.config.customerRequests === "limited") {
-              const needs = await collectLinearConnectionPages(() =>
-                issue.needs({ first: 100 }),
-              )
-              for (const need of needs) {
-                for (const needFile of await renderCustomerNeed(need)) {
+            if (includeNeeds) {
+              for (const need of loaded.needs) {
+                const needFiles = await linearEntityMirrorFiles({
+                  directory: "customer-requests",
+                  type: "customer_request",
+                  id: need.id,
+                  title: `Customer request ${need.id}`,
+                  url: need.url,
+                  body: need.content || need.body,
+                  metadata: {
+                    customerId: need.customerId,
+                    projectId: need.projectId,
+                    issueId: need.issueId,
+                    priority: need.priority,
+                    createdAt: need.createdAt.toISOString(),
+                    updatedAt: need.updatedAt.toISOString(),
+                  },
+                  accessToken,
+                  ...assetOptions,
+                })
+                for (const needFile of needFiles)
                   files.set(needFile.path, needFile)
-                }
                 pruneStaleManagedPaths(need.id)
               }
             }
-            mirrored = await renderIssue(issue)
+            mirrored = await linearIssueMirrorFiles(
+              loaded.issue,
+              accessToken,
+              assetOptions,
+            )
             break
           }
           case "project": {
-            const project = await client.project(entity.externalId)
-            const teams = await collectLinearConnectionPages(() =>
-              project.teams({ first: 100 }),
-            )
+            const project = await loadProject(client, entity.externalId, {
+              includeNeeds,
+              includeDocuments: false,
+            })
             if (
               !(await projectIsSelectedOrInitiative(project.id)) &&
-              !teams.some((team) => selectedTeams.has(team.id))
+              !project.teamIds.some((teamId) => selectedTeams.has(teamId))
             ) {
               removeExisting(entity.externalId)
               break
             }
-            const updates = await collectLinearConnectionPages(() =>
-              project.projectUpdates({ first: 100 }),
-            )
-            if (input.config.customerRequests === "limited") {
-              const needs = await collectLinearConnectionPages(() =>
-                project.needs({ first: 100 }),
-              )
-              for (const need of needs) {
-                for (const needFile of await renderCustomerNeed(need)) {
+            if (includeNeeds) {
+              for (const need of project.needs) {
+                const needFiles = await linearEntityMirrorFiles({
+                  directory: "customer-requests",
+                  type: "customer_request",
+                  id: need.id,
+                  title: `Customer request ${need.id}`,
+                  url: need.url,
+                  body: need.content || need.body,
+                  metadata: {
+                    customerId: need.customerId,
+                    projectId: need.projectId,
+                    issueId: need.issueId,
+                    priority: need.priority,
+                    createdAt: need.createdAt.toISOString(),
+                    updatedAt: need.updatedAt.toISOString(),
+                  },
+                  accessToken,
+                  ...assetOptions,
+                })
+                for (const needFile of needFiles)
                   files.set(needFile.path, needFile)
-                }
                 pruneStaleManagedPaths(need.id)
               }
             }
@@ -397,25 +307,28 @@ export async function buildLinearIncrementalChanges(input: {
               url: project.url,
               body: project.content || project.description,
               metadata: {
-                statusId: project.statusId ?? null,
-                leadId: project.leadId ?? null,
+                statusId: project.statusId,
+                leadId: project.leadId,
                 priority: project.priorityLabel,
                 progress: project.progress,
-                startDate: project.startDate ?? null,
-                targetDate: project.targetDate ?? null,
+                startDate: project.startDate,
+                targetDate: project.targetDate,
                 updatedAt: project.updatedAt.toISOString(),
               },
-              sections: renderLinearUpdateSections(updates),
-              accessToken: linearAccessToken(input.connection),
+              sections: renderLinearUpdateSections(project.updates),
+              accessToken,
               ...assetOptions,
             })
             break
           }
           case "document": {
-            const document = await client.document(entity.externalId)
+            const document = await loadDocument(client, entity.externalId)
             if (
               !selectedDocuments.has(document.id) &&
-              !(await projectIsInScope(document.projectId)) &&
+              !(await projectIsInScope(
+                document.projectId,
+                document.projectTeamIds,
+              )) &&
               !(
                 selectedInitiatives.size > 0 &&
                 (await getSelectedInitiativeDescendants()).documentIds.has(
@@ -434,24 +347,21 @@ export async function buildLinearIncrementalChanges(input: {
               url: document.url,
               body: document.content,
               metadata: {
-                projectId: document.projectId ?? null,
-                creatorId: document.creatorId ?? null,
+                projectId: document.projectId,
+                creatorId: document.creator?.id ?? null,
                 updatedAt: document.updatedAt.toISOString(),
               },
-              accessToken: linearAccessToken(input.connection),
+              accessToken,
               ...assetOptions,
             })
             break
           }
           case "initiative": {
-            const initiative = await client.initiative(entity.externalId)
+            const initiative = await loadInitiative(client, entity.externalId)
             if (!selectedInitiatives.has(initiative.id)) {
               removeExisting(entity.externalId)
               break
             }
-            const updates = await collectLinearConnectionPages(() =>
-              initiative.initiativeUpdates({ first: 100 }),
-            )
             mirrored = await linearEntityMirrorFiles({
               directory: "initiatives",
               type: "initiative",
@@ -461,20 +371,20 @@ export async function buildLinearIncrementalChanges(input: {
               body: initiative.content || initiative.description,
               metadata: {
                 status: initiative.status,
-                health: initiative.health ?? null,
-                ownerId: initiative.ownerId ?? null,
-                targetDate: initiative.targetDate ?? null,
+                health: initiative.health,
+                ownerId: initiative.ownerId,
+                targetDate: initiative.targetDate,
                 updatedAt: initiative.updatedAt.toISOString(),
               },
-              sections: renderLinearUpdateSections(updates),
-              accessToken: linearAccessToken(input.connection),
+              sections: renderLinearUpdateSections(initiative.updates),
+              accessToken,
               ...assetOptions,
             })
             break
           }
           case "cycle": {
-            const cycle = await client.cycle(entity.externalId)
-            if (!selectedTeams.has(cycle.teamId ?? "")) {
+            const cycle = await loadCycle(client, entity.externalId)
+            if (!selectedTeams.has(cycle.teamId)) {
               removeExisting(entity.externalId)
               break
             }
@@ -490,13 +400,13 @@ export async function buildLinearIncrementalChanges(input: {
                 endsAt: cycle.endsAt.toISOString(),
                 completedAt: cycle.completedAt?.toISOString() ?? null,
               },
-              accessToken: linearAccessToken(input.connection),
+              accessToken,
               ...assetOptions,
             })
             break
           }
           case "issueLabel": {
-            const label = await client.issueLabel(entity.externalId)
+            const label = await loadIssueLabel(client, entity.externalId)
             if (!selectedTeams.has(label.teamId ?? "")) {
               removeExisting(entity.externalId)
               break
@@ -507,27 +417,27 @@ export async function buildLinearIncrementalChanges(input: {
               id: label.id,
               title: label.name,
               body: label.description,
-              metadata: { teamId: label.teamId ?? null, color: label.color },
-              accessToken: linearAccessToken(input.connection),
+              metadata: { teamId: label.teamId, color: label.color },
+              accessToken,
               ...assetOptions,
             })
             break
           }
           case "user": {
             if (!shouldUpdateExisting(entity.externalId)) break
-            const user = await client.user(entity.externalId)
+            const user = await loadUser(client, entity.externalId)
             mirrored = await linearEntityMirrorFiles({
               directory: "users",
               type: "user",
               id: user.id,
-              title: user.displayName || user.name,
+              title: linearActorName(user) || user.id,
               metadata: {
                 active: user.active,
                 admin: user.admin,
                 guest: user.guest,
-                avatarUrl: user.avatarUrl ?? null,
+                avatarUrl: user.avatarUrl,
               },
-              accessToken: linearAccessToken(input.connection),
+              accessToken,
               ...assetOptions,
             })
             break

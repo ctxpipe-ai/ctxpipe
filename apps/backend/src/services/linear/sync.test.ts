@@ -174,25 +174,40 @@ describe("syncLinearContentToGit", () => {
       async (
         _input: unknown,
         run: (client: {
-          document: (id: string) => Promise<unknown>
+          client: {
+            rawRequest: (query: string) => Promise<{
+              data: unknown
+              headers: Headers
+              status: number
+            }>
+          }
+          options: { headers: { Authorization: string } }
         }) => Promise<unknown>,
       ) =>
         run({
-          document: async (id: string) => {
-            expect(id).toBe("doc-1")
-            return {
-              id: "doc-1",
-              title: "Architecture",
-              url: "https://linear.app/acme/document/architecture-doc-1",
-              content:
-                "Current design\n\n![System diagram](https://uploads.linear.app/files/diagram.png?token=temporary-secret)",
-              projectId: null,
-              creatorId: null,
-              createdAt: new Date("2026-08-01T00:00:00.000Z"),
-              updatedAt: new Date("2026-08-25T00:00:00.000Z"),
-              creator: undefined,
-            }
+          client: {
+            rawRequest: async (query: string) => {
+              expect(query).toContain("DocumentRecord")
+              return {
+                data: {
+                  document: {
+                    id: "doc-1",
+                    title: "Architecture",
+                    url: "https://linear.app/acme/document/architecture-doc-1",
+                    content:
+                      "Current design\n\n![System diagram](https://uploads.linear.app/files/diagram.png?token=temporary-secret)",
+                    createdAt: "2026-08-01T00:00:00.000Z",
+                    updatedAt: "2026-08-25T00:00:00.000Z",
+                    project: null,
+                    creator: null,
+                  },
+                },
+                headers: new Headers(),
+                status: 200,
+              }
+            },
           },
+          options: { headers: { Authorization: "Bearer secret" } },
         }),
     )
 
