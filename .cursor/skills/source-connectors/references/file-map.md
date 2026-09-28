@@ -1,6 +1,6 @@
 # Connector implementation file-map
 
-Read this in skill step 6. `<slug>` is the connection type (`linear`, `notion`, `slack`, …). Native git skips yaml/content-sync rows. Every new connector that writes into a context repo includes `config.yaml` + config PR (`*-sync-config`), including capture.
+Read this in skill step 7. `<slug>` is the connection type (`linear`, `notion`, `slack`, …). Native git skips yaml/content-sync rows. Every new connector that writes into a context repo includes `config.yaml` + config PR (`*-sync-config`), including capture. Provider reads: skill step 6.
 
 Anchor implementations: Linear and Notion on `main`; Slack on PR #267 (`slack-connector`).
 

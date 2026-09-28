@@ -1,6 +1,6 @@
 ---
 name: source-connectors
-description: Source connectors. Use when designing, implementing, or reviewing an integration or attachment/media path that durably imports external provider content into a ctxpipe context repository.
+description: Source connectors. Use when designing, implementing, or reviewing an integration or attachment/media path that durably imports external provider content into a ctxpipe context repository, or when provider requests can multiply per related record.
 ---
 
 # Source connectors
@@ -102,7 +102,17 @@ Durable work is OpenWorkflow in `apps/backend/src/openworkflow/workflows/` (dire
 
 **Done when:** phases, the config-merge trigger, and the live content path are named, matching the kind.
 
-## 6. Implement
+## 6. Provider reads scale with the data
+
+Each provider call fetches one page of entities, or the one webhook entity being applied, with the fields the mirror renders inlined in that same call. Use the provider's bulk or connection fields for comments, authors, labels, and parent context. A longer list is another page of that same query. Setup discovery of the selectable catalogue is one query; a further call is only a later page of it.
+
+Request count grows linearly with the amount of data. One page of N entities is one request whether each entity has one comment or fifty. A request per related record (per comment, per author, per parent) is exponential in the shape of the data and exhausts the provider quota during a large import.
+
+When the provider returns a rate-limit reset, wait and retry that same request inside the read. A failed workflow step restarts the walk and multiplies the calls.
+
+**Done when:** a test counts provider calls. One page of entities, including the relations the files render, is one call. A second page is one more call of the same shape. Adding a related record to an entity does not add a call. Discovery of the catalogue is one call unless a list has another page.
+
+## 7. Implement
 
 Follow [references/file-map.md](references/file-map.md). Inspect the named anchors and reproduce their **responsibilities** for this kind; mark inapplicable surfaces N/A. UI chrome: [product-ui](../product-ui/SKILL.md) + connector-wizard lesson (Linear/Notion/Slack share setup chrome; list rows are `ConnectorListItem`, not a stepper).
 
@@ -110,7 +120,7 @@ If AWS CDK / deploy images change, add a changeset for `@ctxpipe/aws-cdk`.
 
 **Done when:** every file-map row for this kind is implemented or N/A; converter fixtures, asset-boundary safety and reconciliation tests (`pnpm --filter @ctxpipe/backend test:connector-assets`, with the new slug added to `vitest.connector-assets.config.ts`), binary/`base64` commits (including an attachment), raw-body signature tests, workflow discovery, empty optional env parsing, and focused UI tests pass. CDK edits: `pnpm --filter @ctxpipe/aws-cdk test`.
 
-## 7. Record the decision
+## 8. Record the decision
 
 New kind → [capture-adr](../capture-adr/SKILL.md) and point this skill at it. Confirmed convention → [capture-lesson](../capture-lesson/SKILL.md). New term → [capture-glossary](../capture-glossary/SKILL.md).
 
