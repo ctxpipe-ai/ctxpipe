@@ -189,8 +189,17 @@ fragment LinearProjectNode on Project {
   }
 }
 
-query DiscoverTeams($after: String) {
-  teams(first: 100, after: $after) {
+query DiscoverScopes(
+  $teamsAfter: String
+  $projectsAfter: String
+  $documentsAfter: String
+  $initiativesAfter: String
+  $includeTeams: Boolean!
+  $includeProjects: Boolean!
+  $includeDocuments: Boolean!
+  $includeInitiatives: Boolean!
+) {
+  teams(first: 100, after: $teamsAfter) @include(if: $includeTeams) {
     nodes {
       id
       name
@@ -200,10 +209,9 @@ query DiscoverTeams($after: String) {
       ...LinearPageInfo
     }
   }
-}
-
-query DiscoverProjects($after: String) {
-  projects(first: 50, after: $after, includeArchived: true) {
+  projects(first: 50, after: $projectsAfter, includeArchived: true)
+    @include(if: $includeProjects)
+  {
     nodes {
       id
       name
@@ -219,10 +227,9 @@ query DiscoverProjects($after: String) {
       ...LinearPageInfo
     }
   }
-}
-
-query DiscoverDocuments($after: String) {
-  documents(first: 50, after: $after, includeArchived: true) {
+  documents(first: 50, after: $documentsAfter, includeArchived: true)
+    @include(if: $includeDocuments)
+  {
     nodes {
       id
       title
@@ -235,10 +242,9 @@ query DiscoverDocuments($after: String) {
       ...LinearPageInfo
     }
   }
-}
-
-query DiscoverInitiatives($after: String) {
-  initiatives(first: 100, after: $after, includeArchived: true) {
+  initiatives(first: 100, after: $initiativesAfter, includeArchived: true)
+    @include(if: $includeInitiatives)
+  {
     nodes {
       id
       name

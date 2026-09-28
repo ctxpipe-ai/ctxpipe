@@ -707,6 +707,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-09-26
 - **Source:** PR-343 backend image failed "Verify connector asset contracts" after `otel.ts` imported `@opentelemetry/resources`, which was only a devDependency
 
+### Linear setup scope discovery is one GraphQL query
+- **Rule:** Scope discovery in the Linear setup wizard is one GraphQL document covering teams, projects, documents, and initiatives. Further requests are only later pages of that same document, when a list's `pageInfo.hasNextPage` is true. Do not add a second discovery query.
+- **Category:** product
+- **Date:** 2026-09-28
+- **Source:** user, Linear setup wizard query budget
+
 ### CD applies ops changes; no manual follow-ups
 - **Rule:** Do not hand the owner runbook steps, scripts to run, or "after merge" to-dos. Provisioning and one-time cleanups go into the CD workflow, and leftovers from a migration are deleted as part of the work. A Railway setting the Terraform provider omits on update (restart policy, healthcheck, and sleep have `omitempty`) is set once on the service; do not add a workflow script to reapply it, and do not restate platform defaults. The only acceptable owner action is supplying a secret the agent cannot write, stated once with the exact name and location.
 - **Category:** convention
