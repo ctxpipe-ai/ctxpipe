@@ -568,11 +568,11 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-15
 - **Source:** ui-design-skills research / product-ui skill
 
-### Cursor Task models
-- **Rule:** always pass an explicit Task `model` (see root [AGENTS.md](../../AGENTS.md) **Cursor Task models**). Implementation and explore: `cursor-grok-4.6-high-fast`. Review and grilling: `gpt-5.6-sol-high`. Map leftover Claude names: Sonnet/Fable/Haiku → Grok; Opus (including xhigh/fast) → `gpt-5.6-sol-high`. This is a parent-agent nudge; disabling Claude in Cursor Settings → Models is the hard block.
+### Sub-agent models
+- **Rule:** always set the sub-agent model explicitly (see root [AGENTS.md](../../AGENTS.md) **Sub-agent models**). Implementation and explore: Opus at medium effort. Review and grilling: Opus at high effort. Keep the wording harness-agnostic (plain "Opus" plus an effort level, no Cursor or Claude slugs) so the instructions work in both Cursor and Claude Code.
 - **Category:** convention
-- **Date:** 2026-08-17
-- **Source:** user preference (Grok for implementations, Sol for reviews)
+- **Date:** 2026-09-29
+- **Source:** user preference (Opus replaces Grok for implementation and Sol for review)
 
 ### Do not squash migrations already applied to PR Neon
 - **Rule:** PR preview DBs are reused (`preview/pr-N` from production, not reset each deploy). Deleting applied Drizzle folders and regenerating the same DDL under a new tag re-runs `CREATE UNIQUE INDEX` and fails with `42P07`. Keep the original folders, or make the replacement DDL idempotent (`IF NOT EXISTS`) like `clean_lyja` / `smart_nextwave`. Never squash unreleased history that a long-lived PR branch may already have applied.

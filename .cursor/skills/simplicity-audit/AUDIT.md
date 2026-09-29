@@ -8,7 +8,7 @@ Same classifications and justification search as [REVIEW-BRIEF.md](REVIEW-BRIEF.
 
 ## Scope
 
-A named app or area. Full monorepo only if the user said so. Explore with `cursor-grok-4.6-high-fast` sub-agents.
+A named app or area. Full monorepo only if the user said so. Explore with Opus sub-agents at medium effort.
 
 ## Steps
 

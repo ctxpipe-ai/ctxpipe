@@ -46,9 +46,9 @@ For Storybook conventions and tools, read [.agents/skills/storybook/SKILL.md](.a
 
 After completing requested code changes, commit and push the current feature branch, then create or update a draft PR against `main` before the final response. Analysis-only work needs no commit. Never merge unless the user asks.
 
-### Cursor Task models
+### Sub-agent models
 
-On Task, always set `model`: `cursor-grok-4.6-high-fast` for implementation and explore; `gpt-5.6-sol-high` for review and grilling. Treat Claude/Sonnet/Opus/Fable/Haiku names as those two slugs.
+When spawning a sub-agent (Cursor Task, Claude Code Agent, or any other harness), always set the model explicitly: **Opus at medium effort** for implementation and explore; **Opus at high effort** for review and grilling. Use the harness's own name for Opus and its effort setting.
 
 ### Issue tracker
 
@@ -64,7 +64,7 @@ Single-context via `.ai/memory/` (product context, glossary, ADRs). See [`.ai/ag
 
 ### Adversarial review
 
-Every adversarial review of a diff is three Sol axes — **Standards**, **Spec**, and **Simplicity** — via [`code-review`](.agents/skills/code-review/SKILL.md). Do not run Sol as spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense. See [`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md).
+Every adversarial review of a diff is three Opus (high effort) axes — **Standards**, **Spec**, and **Simplicity** — via [`code-review`](.agents/skills/code-review/SKILL.md). Do not run the review as spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense. See [`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md).
 
 ## Architecture decisions & ADRs
 
