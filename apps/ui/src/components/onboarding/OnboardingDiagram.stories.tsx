@@ -40,7 +40,23 @@ function render(facts: OnboardingFacts) {
         view={view}
         editing={view.current}
         githubAccount={facts.github.installed ? "acme" : null}
+        githubInstalled={facts.github.installed}
         repositories={facts.github.repositories}
+        progress={facts.github.repositories.map((name, index) => ({
+          name,
+          label:
+            index === 0 && facts.github.stepLabel
+              ? facts.github.stepLabel
+              : facts.github.activeCount > 0
+                ? "queued"
+                : "indexed",
+          fraction:
+            index === 0 && facts.github.activeCount > 0
+              ? 7 / 22
+              : facts.github.activeCount > 0
+                ? null
+                : 1,
+        }))}
         firstCall={facts.agent.firstCall}
       />
     </div>
@@ -70,6 +86,13 @@ export const Arrival: Story = {
 export const OrganisationCreated: Story = {
   args: noArgs,
   render: () => render(base),
+}
+
+/** GitHub connected, repository list on its way: the bouncing line. */
+export const ReadingRepositories: Story = {
+  args: noArgs,
+  render: () =>
+    render({ ...base, github: { ...base.github, installed: true } }),
 }
 
 /** First repository queued: the middle is live status, the agent beat moves. */

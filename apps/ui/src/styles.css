@@ -439,6 +439,33 @@ html:has(.onb-page-in) {
   transition-timing-function: ease-out;
 }
 
+/* Bouncing line: GitHub is handing over the repository list. */
+.onb-line-loader {
+  position: relative;
+  display: block;
+  height: 1px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.onb-line-loader::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  width: 30%;
+  background: linear-gradient(90deg, transparent, #40e0d0, transparent);
+  animation: onb-line-bounce 1.4s ease-in-out infinite alternate;
+}
+
+@keyframes onb-line-bounce {
+  from {
+    left: -30%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
 .onb-wire-flow {
   stroke-dasharray: 4 5;
   animation: onb-wire-flow 1s linear infinite;
@@ -453,7 +480,8 @@ html:has(.onb-page-in) {
 @media (prefers-reduced-motion: reduce) {
   .onb-page-in,
   .onb-step-body,
-  .onb-wire-flow {
+  .onb-wire-flow,
+  .onb-line-loader::after {
     animation: none;
   }
 

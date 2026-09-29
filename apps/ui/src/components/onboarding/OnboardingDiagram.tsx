@@ -1,4 +1,5 @@
 import { IconBrandGithub, IconTerminal2 } from "@tabler/icons-react"
+import { GrowingGraph } from "./GrowingGraph"
 import type {
   BeatState,
   OnboardingStepId,
@@ -10,7 +11,11 @@ type OnboardingDiagramProps = {
   /** The step open on the left; only its area glows. */
   editing: OnboardingStepId | null
   githubAccount: string | null
+  /** GitHub is installed; the loader runs until repositories are queued. */
+  githubInstalled: boolean
   repositories: string[]
+  /** Live per-repository progress for the Perception layer. */
+  progress: Array<{ name: string; label: string; fraction: number | null }>
   firstCall: { client: string | null; tool: string | null } | null
 }
 
@@ -54,7 +59,9 @@ export function OnboardingDiagram({
   view,
   editing,
   githubAccount,
+  githubInstalled,
   repositories,
+  progress,
   firstCall,
 }: OnboardingDiagramProps) {
   const { beats } = view
@@ -63,6 +70,8 @@ export function OnboardingDiagram({
   const shownRepos = repositories.slice(0, 2)
   const moreRepos = repositories.length - shownRepos.length
 
+  const shownProgress = progress.slice(0, 3)
+  const moreProgress = progress.length - shownProgress.length
   const layers = [
     {
       index: "01",
@@ -70,6 +79,35 @@ export function OnboardingDiagram({
       title: "Observe & ingest",
       metric: view.indexingLabel,
       lit: view.hasSource,
+      grow: false,
+      canvas: null,
+      // Real ingestion: each repository's live step from the backend.
+      body:
+        shownProgress.length > 0 ? (
+          <ul className="m-0 mt-auto flex list-none flex-col gap-1.5 p-0">
+            {shownProgress.map((repo) => (
+              <li key={repo.name} className="flex flex-col gap-1">
+                <span className="flex items-baseline justify-between gap-2 font-mono text-xs">
+                  <span className="truncate text-zinc-300">{repo.name}</span>
+                  <span className="shrink-0 text-teal-400">{repo.label}</span>
+                </span>
+                <span className="relative h-px w-full bg-white/10">
+                  {repo.fraction === null ? null : (
+                    <span
+                      className="absolute inset-y-0 left-0 bg-teal-400/70"
+                      style={{ width: `${Math.round(repo.fraction * 100)}%` }}
+                    />
+                  )}
+                </span>
+              </li>
+            ))}
+            {moreProgress > 0 ? (
+              <li className="font-mono text-xs text-zinc-500">
+                +{moreProgress} more
+              </li>
+            ) : null}
+          </ul>
+        ) : null,
     },
     {
       index: "02",
@@ -77,6 +115,24 @@ export function OnboardingDiagram({
       title: "Reason & remember",
       metric: view.hasSource ? "org-scoped graph" : "empty",
       lit: view.hasSource,
+      grow: view.hasSource,
+      // Mocked: a graph grows once repositories are queued; before that, a
+      // loader while GitHub hands over the repository list.
+      // Between the heading and the metric line, so text stays clear.
+      canvas: view.hasSource ? (
+        <div className="absolute inset-x-3 top-16 bottom-8">
+          <GrowingGraph />
+        </div>
+      ) : null,
+      body:
+        !view.hasSource && githubInstalled ? (
+          <span className="mt-auto flex flex-col gap-2">
+            <span className="onb-line-loader" />
+            <span className="font-mono text-xs text-zinc-500">
+              reading repositories
+            </span>
+          </span>
+        ) : null,
     },
     {
       index: "03",
@@ -84,6 +140,9 @@ export function OnboardingDiagram({
       title: "Serve over MCP",
       metric: firstCall?.tool ?? "ctx_advisor",
       lit: beats.agent === "done",
+      grow: false,
+      canvas: null,
+      body: null,
     },
   ]
 
@@ -185,13 +244,16 @@ export function OnboardingDiagram({
             {layers.map((layer) => (
               <article
                 key={layer.index}
-                className={`onb-noise flex flex-1 flex-col gap-1 border p-3 transition-colors duration-500 ${
+                className={`onb-noise relative flex flex-col gap-1 overflow-hidden border p-3 transition-[flex-grow,border-color,background-color] duration-700 ${
+                  layer.grow ? "flex-[2]" : "flex-1"
+                } ${
                   layer.lit
                     ? "border-white/15 bg-zinc-900"
                     : "border-white/5 bg-zinc-950"
                 }`}
               >
-                <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-zinc-500">
+                {layer.canvas}
+                <div className="relative flex items-center gap-2 text-xs uppercase tracking-wider text-zinc-500">
                   <span
                     className={`inline-flex size-5 items-center justify-center border font-mono ${
                       layer.lit
@@ -204,19 +266,25 @@ export function OnboardingDiagram({
                   {layer.name}
                 </div>
                 <span
-                  className={`text-sm font-medium ${
+                  className={`relative text-sm font-medium ${
                     layer.lit ? "text-zinc-100" : "text-zinc-600"
                   }`}
                 >
                   {layer.title}
                 </span>
-                <span
-                  className={`mt-auto font-mono text-xs ${
-                    layer.lit ? "text-teal-400" : "text-zinc-600"
-                  }`}
-                >
-                  {layer.metric}
-                </span>
+                {layer.body ? (
+                  <div className="relative mt-auto flex flex-col">
+                    {layer.body}
+                  </div>
+                ) : (
+                  <span
+                    className={`relative mt-auto font-mono text-xs ${
+                      layer.lit ? "text-teal-400" : "text-zinc-600"
+                    }`}
+                  >
+                    {layer.metric}
+                  </span>
+                )}
               </article>
             ))}
           </section>

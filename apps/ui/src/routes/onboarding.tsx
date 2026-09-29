@@ -22,7 +22,10 @@ import {
   githubConnectorKeys,
 } from "@/features/connectors/queries/github-connector"
 import { useRepositoryIndexingSummary } from "@/features/repositories"
-import { getRepositoryIndexingStatus } from "@/features/repositories/types"
+import {
+  formatIndexingStepLabel,
+  getRepositoryIndexingStatus,
+} from "@/features/repositories/types"
 import { client } from "@/lib/api"
 import {
   authClient,
@@ -169,6 +172,41 @@ export function OnboardingPageContent({
     repositories.length > 0
       ? repositories.map((repo) => repo.name)
       : (queuedRepositories ?? [])
+  // Perception shows real ingestion: running first, then queued, then done.
+  const statusOrder = { running: 0, queued: 1, failed: 2 } as Record<
+    string,
+    number
+  >
+  const repositoryProgress =
+    repositories.length > 0
+      ? repositories
+          .map((repo) => {
+            const status = getRepositoryIndexingStatus(repo)
+            return {
+              name: repo.name,
+              order: statusOrder[status] ?? 3,
+              label:
+                formatIndexingStepLabel(repo) ??
+                (status === "ready"
+                  ? "indexed"
+                  : status === "failed" || status === "complete_with_issues"
+                    ? "needs attention"
+                    : status),
+              fraction:
+                repo.indexingStep != null && repo.indexingStepTotal
+                  ? repo.indexingStep / repo.indexingStepTotal
+                  : status === "ready"
+                    ? 1
+                    : null,
+            }
+          })
+          .sort((a, b) => a.order - b.order)
+      : (queuedRepositories ?? []).map((name) => ({
+          name,
+          order: 1,
+          label: "queued",
+          fraction: null,
+        }))
   const {
     activeCount,
     failedCount,
@@ -533,7 +571,9 @@ export function OnboardingPageContent({
             view={view}
             editing={openStep}
             githubAccount={installation?.accountSlug ?? null}
+            githubInstalled={Boolean(installation)}
             repositories={repositoryNames}
+            progress={repositoryProgress}
             firstCall={firstCall}
           />
         </div>
