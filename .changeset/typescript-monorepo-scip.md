@@ -2,4 +2,4 @@
 "@ctxpipe/aws-cdk": patch
 ---
 
-Index TypeScript monorepos per project: each outermost nested `tsconfig.json` / `jsconfig.json` gets its own `scip-typescript` run with workspace packages linked into a temporary `node_modules`, and shards merge without decoding. Monorepos whose root config lists no inputs or covers every package no longer fail with "no indexable files" or run out of heap.
+Index every TypeScript project, including the root, in its own `scip-typescript` run (parents exclude nested project directories), with workspace packages linked into a temporary `node_modules`, a heap sized from the memory share, and wire-level shard merges. Partially failed TypeScript indexes report `complete_with_issues` with a short reason; repositories where TypeScript is only an incidental nested config soft-skip instead of failing. Graph queries load SCIP one document at a time, and monorepo packages gain `PART_OF` edges to their enclosing package.

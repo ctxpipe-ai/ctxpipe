@@ -8,7 +8,7 @@ import { repositoryCheckouts } from "../../db/schema.js"
 import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
 import { authenticatedGitUrl } from "../../utils/git.js"
 import {
-  assertScipFraming,
+  assertScipIndex,
   encodeScipIndex,
   mergeScipShardFiles,
 } from "../graph/scipProto.js"
@@ -460,7 +460,7 @@ export async function publishMergedScipIndex(input: {
       throw error
     }
     try {
-      assertScipFraming(bytes)
+      assertScipIndex(bytes)
     } catch (error) {
       tryEmitIndexEvent("codesearch.index.scip.shard_skipped", {
         shardPath,
@@ -497,7 +497,7 @@ export async function writeMergedScipIndex(
         encodeScipIndex({ documents: [], externalSymbols: [] }),
       )
     } else {
-      await mergeScipShardFiles(shardPaths, temporaryPath)
+      await mergeScipShardFiles(shardPaths, temporaryPath, { dedupe: false })
     }
     await rename(temporaryPath, outputPath)
   } finally {
@@ -660,19 +660,20 @@ export async function phaseScipLanguage(
     language: string
     detectedLanguages: readonly string[]
   },
-): Promise<void> {
+): Promise<{ issue?: string }> {
   const writeStep = monotonicWriteStep(ctx.db, ctx.repoId)
   const shardPath = scipLangShardPath(ctx.orgId, ctx.repoId, params.language)
-  await withPhase(`scip:${params.language}`, async () => {
-    await runScipIndexer({
+  const result = await withPhase(`scip:${params.language}`, () =>
+    runScipIndexer({
       indexerId: params.language as ScipIndexerId,
       checkoutPath: ctx.clonePath,
       shardPath,
-    })
-  })
+    }),
+  )
   await writeStep(`scip:${params.language}` as IndexingStepKey, [
     ...params.detectedLanguages,
   ])
+  return result
 }
 
 export async function phaseMergeScip(

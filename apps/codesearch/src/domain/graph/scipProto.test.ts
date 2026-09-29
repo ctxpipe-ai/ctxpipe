@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
+  assertScipIndex,
   decodeScipIndex,
   encodeScipIndex,
   mergeScipShardFiles,
@@ -15,7 +16,7 @@ describe("SCIP protobuf helpers", () => {
     ).toEqual({ documents: [], externalSymbols: [] })
   })
 
-  it("merges shards without decoding, keeping the first document per path and symbol per name", async () => {
+  it("dedupes shards without decoding, keeping the first document per path and symbol per name", async () => {
     const directory = await mkdtemp(join(tmpdir(), "scip-merge-"))
     const shards = [
       {
@@ -43,7 +44,7 @@ describe("SCIP protobuf helpers", () => {
       )
       const outputPath = join(directory, "index.scip")
 
-      await mergeScipShardFiles(shardPaths, outputPath)
+      await mergeScipShardFiles(shardPaths, outputPath, { dedupe: true })
 
       expect(decodeScipIndex(await readFile(outputPath))).toEqual({
         documents: [
@@ -58,5 +59,39 @@ describe("SCIP protobuf helpers", () => {
     } finally {
       await rm(directory, { recursive: true, force: true })
     }
+  })
+
+  it("concatenates language shards when not deduping", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "scip-merge-"))
+    try {
+      const shardPaths = await Promise.all(
+        ["go", "typescript"].map(async (language) => {
+          const path = join(directory, `${language}.scip`)
+          await writeFile(
+            path,
+            encodeScipIndex({ documents: [{ relativePath: "shared.gen" }] }),
+          )
+          return path
+        }),
+      )
+      const outputPath = join(directory, "index.scip")
+
+      await mergeScipShardFiles(shardPaths, outputPath, { dedupe: false })
+
+      expect(
+        decodeScipIndex(await readFile(outputPath)).documents,
+      ).toHaveLength(2)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("rejects an index whose nested document is malformed", () => {
+    const valid = encodeScipIndex({ documents: [{ relativePath: "a.ts" }] })
+    // A document whose inner relative_path claims 5 bytes but carries 1.
+    const malformed = new Uint8Array([0x12, 0x03, 0x0a, 0x05, 0x61])
+
+    expect(() => assertScipIndex(valid)).not.toThrow()
+    expect(() => assertScipIndex(malformed)).toThrow()
   })
 })

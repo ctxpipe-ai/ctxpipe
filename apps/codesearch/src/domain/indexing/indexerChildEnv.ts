@@ -36,7 +36,6 @@ const INDEXER_CHILD_ENV_ALLOWLIST = [
   "GOMAXPROCS",
   "GOGC",
   // Node / Python / Ruby
-  "NODE_OPTIONS",
   "npm_config_cache",
   "NPM_CONFIG_CACHE",
   "PIP_CACHE_DIR",

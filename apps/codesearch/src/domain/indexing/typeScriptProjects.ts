@@ -1,63 +1,87 @@
 import { existsSync } from "node:fs"
-import { mkdir, readdir, readFile, rm, symlink } from "node:fs/promises"
-import { dirname, join } from "node:path"
+import {
+  mkdir,
+  readdir,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
+import { dirname, join, relative } from "node:path"
 import { SKIP_DIRS } from "./detectLanguages.js"
 
-const TYPESCRIPT_CONFIGS = ["tsconfig.json", "jsconfig.json"]
+export type TypeScriptProject = {
+  /** Checkout-relative directory; `""` is the checkout root. */
+  dir: string
+  config: "tsconfig.json" | "jsconfig.json"
+  /** Checkout-relative directories of projects nested under this one. */
+  nested: string[]
+}
 
 export type TypeScriptWorkspace = {
-  /** Checkout-relative project directories to pass to `scip-typescript`. */
-  projects: string[]
-  /** Named `package.json` packages; linked for monorepos only. */
+  /** Every project, deepest first, so the checkout root runs last. */
+  projects: TypeScriptProject[]
+  /** Named `package.json` packages, linked when `monorepo`. */
   packages: Array<{ name: string; dir: string }>
+  monorepo: boolean
 }
 
-async function isMonorepoRoot(checkoutPath: string): Promise<boolean> {
-  if (
-    existsSync(join(checkoutPath, "pnpm-workspace.yaml")) ||
-    existsSync(join(checkoutPath, "lerna.json"))
-  ) {
-    return true
-  }
-  const manifest = await readPackageJson(join(checkoutPath, "package.json"))
-  return manifest?.workspaces !== undefined
-}
+/** Written when the checkout root has no package.json; see prepare below. */
+const ROOT_PACKAGE_MARKER = '{"description":"ctxpipe scip-typescript root"}\n'
+/** Marks a root node_modules this module created, so a crashed run's is replaced. */
+const LINKED_MARKER = ".ctxpipe-scip-links"
+const DERIVED_CONFIG = "tsconfig.ctxpipe-scip.json"
 
-async function readPackageJson(
-  path: string,
-): Promise<{ name?: unknown; workspaces?: unknown } | null> {
+async function readJson(path: string): Promise<Record<string, unknown> | null> {
   try {
-    const parsed: unknown = JSON.parse(await readFile(path, "utf8"))
-    return typeof parsed === "object" && parsed !== null ? parsed : null
+    const parsed: unknown = JSON.parse(
+      stripJsonComments(await readFile(path, "utf8")),
+    )
+    return typeof parsed === "object" && parsed !== null
+      ? (parsed as Record<string, unknown>)
+      : null
   } catch {
     return null
   }
 }
 
-/** Drops every directory that sits inside another one in the list. */
-function outermost(dirs: string[]): string[] {
-  const sorted = [...dirs].sort()
-  const kept: string[] = []
-  for (const dir of sorted) {
-    if (!kept.some((parent) => dir.startsWith(`${parent}/`))) kept.push(dir)
+/** tsconfig files are JSONC: drop comments and trailing commas outside strings. */
+function stripJsonComments(text: string): string {
+  let out = ""
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i]
+    if (char === '"') {
+      const start = i
+      for (i++; i < text.length && text[i] !== '"'; i++) {
+        if (text[i] === "\\") i++
+      }
+      out += text.slice(start, i + 1)
+    } else if (char === "/" && text[i + 1] === "/") {
+      while (i < text.length && text[i] !== "\n") i++
+      out += "\n"
+    } else if (char === "/" && text[i + 1] === "*") {
+      i = text.indexOf("*/", i + 2)
+      if (i < 0) break
+      i++
+    } else {
+      out += char
+    }
   }
-  return kept
+  return out.replace(/,(\s*[}\]])/g, "$1")
 }
 
 /**
- * Choose the TypeScript projects for one checkout.
- *
- * A single-package repository with a root config is one project (`.`). A
- * monorepo root config (covering every package, or only an uninstalled
- * `node_modules` file) either runs out of heap or indexes nothing, so
- * monorepos — and repositories with nested configs only — index each
- * outermost nested project instead.
+ * Every TypeScript project in a checkout: each directory with a
+ * `tsconfig.json` (or only a `jsconfig.json`), including the root. Projects
+ * run deepest first and a parent excludes its nested projects' directories,
+ * so each file is indexed once by its innermost project and a catch-all root
+ * config only covers root-level files.
  */
 export async function scanTypeScriptWorkspace(
   checkoutPath: string,
 ): Promise<TypeScriptWorkspace> {
-  const configDirs: string[] = []
-  const packages: Array<{ name: string; dir: string }> = []
+  const configs = new Map<string, TypeScriptProject["config"]>()
+  const packages: TypeScriptWorkspace["packages"] = []
   const queue = [""]
   while (queue.length > 0) {
     const dir = queue.shift() as string
@@ -71,10 +95,16 @@ export async function scanTypeScriptWorkspace(
         if (!SKIP_DIRS.has(entry.name) && !entry.name.startsWith(".")) {
           queue.push(path)
         }
-      } else if (entry.isFile() && TYPESCRIPT_CONFIGS.includes(entry.name)) {
-        if (!configDirs.includes(dir)) configDirs.push(dir)
-      } else if (entry.isFile() && entry.name === "package.json") {
-        const manifest = await readPackageJson(join(checkoutPath, path))
+      } else if (entry.isFile() && entry.name === "tsconfig.json") {
+        configs.set(dir, "tsconfig.json")
+      } else if (entry.isFile() && entry.name === "jsconfig.json") {
+        if (!configs.has(dir)) configs.set(dir, "jsconfig.json")
+      } else if (
+        entry.isFile() &&
+        entry.name === "package.json" &&
+        dir !== ""
+      ) {
+        const manifest = await readJson(join(checkoutPath, path))
         if (typeof manifest?.name === "string" && manifest.name !== "") {
           packages.push({ name: manifest.name, dir })
         }
@@ -82,36 +112,140 @@ export async function scanTypeScriptWorkspace(
     }
   }
 
-  const monorepo = await isMonorepoRoot(checkoutPath)
-  const hasRootConfig = configDirs.includes("")
-  if (hasRootConfig && !monorepo) return { projects: ["."], packages: [] }
-  const nested = outermost(configDirs.filter((dir) => dir !== ""))
-  return {
-    projects: nested.length > 0 ? nested : ["."],
-    packages: monorepo ? packages : [],
-  }
+  const rootManifest = await readJson(join(checkoutPath, "package.json"))
+  const monorepo =
+    existsSync(join(checkoutPath, "pnpm-workspace.yaml")) ||
+    existsSync(join(checkoutPath, "lerna.json")) ||
+    rootManifest?.workspaces !== undefined
+  const dirs = [...configs.keys()]
+  const depth = (dir: string) => (dir === "" ? 0 : dir.split("/").length)
+  const projects = dirs
+    .map((dir) => ({
+      dir,
+      config: configs.get(dir) as TypeScriptProject["config"],
+      nested: dirs.filter(
+        (other) => other !== dir && (dir === "" || other.startsWith(`${dir}/`)),
+      ),
+    }))
+    .sort((a, b) => depth(b.dir) - depth(a.dir) || a.dir.localeCompare(b.dir))
+  return { projects, packages: monorepo ? packages : [], monorepo }
 }
 
 /**
- * Link workspace packages into a temporary root `node_modules` so configs
- * that `extends` a sibling package (`@scope/tsconfig/…`) and
- * cross-package imports resolve without installing dependencies. Skipped
- * when the checkout already has a root `node_modules`. Returns the cleanup.
+ * Put the checkout in shape for `scip-typescript` without installing
+ * anything, and return each project's config path plus the cleanup:
+ *
+ * - Monorepo packages are symlinked into a root `node_modules`, so configs
+ *   that `extends` a sibling package (`@scope/tsconfig/…`) and cross-package
+ *   imports resolve. A pre-existing real `node_modules` is left alone.
+ * - A root `package.json` is ensured: scip-typescript names a file's package
+ *   after the nearest one and otherwise walks up to `/`, which would put the
+ *   absolute checkout path into symbols.
+ * - A project with nested projects gets a derived config that extends its
+ *   own and also excludes those directories.
+ *
+ * Leftovers from a crashed run carry markers and are replaced.
  */
-export async function linkWorkspacePackages(
+export async function prepareTypeScriptWorkspace(
   checkoutPath: string,
-  packages: TypeScriptWorkspace["packages"],
-): Promise<() => Promise<void>> {
-  const nodeModules = join(checkoutPath, "node_modules")
-  if (packages.length === 0 || existsSync(nodeModules)) return async () => {}
-
-  const linked = new Set<string>()
-  for (const { name, dir } of packages) {
-    if (linked.has(name) || name.includes("..")) continue
-    const link = join(nodeModules, name)
-    await mkdir(dirname(link), { recursive: true })
-    await symlink(join(checkoutPath, dir), link, "dir")
-    linked.add(name)
+  workspace: TypeScriptWorkspace,
+): Promise<{
+  configPaths: Map<string, string>
+  cleanup: () => Promise<void>
+}> {
+  const created: string[] = []
+  const cleanup = async () => {
+    await Promise.all(
+      created.map((path) => rm(path, { recursive: true, force: true })),
+    )
   }
-  return () => rm(nodeModules, { recursive: true, force: true })
+  try {
+    const nodeModules = join(checkoutPath, "node_modules")
+    if (existsSync(join(nodeModules, LINKED_MARKER))) {
+      await rm(nodeModules, { recursive: true, force: true })
+    }
+    if (workspace.packages.length > 0 && !existsSync(nodeModules)) {
+      created.push(nodeModules)
+      await mkdir(nodeModules, { recursive: true })
+      await writeFile(join(nodeModules, LINKED_MARKER), "")
+      const linked = new Set<string>()
+      for (const { name, dir } of workspace.packages) {
+        if (
+          linked.has(name) ||
+          name.split("/").some((part) => part === ".." || part === ".")
+        )
+          continue
+        const link = join(nodeModules, name)
+        await mkdir(dirname(link), { recursive: true })
+        await symlink(join(checkoutPath, dir), link, "dir")
+        linked.add(name)
+      }
+    }
+
+    const rootManifest = join(checkoutPath, "package.json")
+    const existing = existsSync(rootManifest)
+      ? await readFile(rootManifest, "utf8")
+      : null
+    if (existing === null || existing === ROOT_PACKAGE_MARKER) {
+      created.push(rootManifest)
+      await writeFile(rootManifest, ROOT_PACKAGE_MARKER)
+    }
+
+    const configPaths = new Map<string, string>()
+    for (const project of workspace.projects) {
+      const projectDir = join(checkoutPath, project.dir)
+      const ownConfig = join(projectDir, project.config)
+      if (project.nested.length === 0) {
+        configPaths.set(project.dir, ownConfig)
+        continue
+      }
+      const derived = join(projectDir, DERIVED_CONFIG)
+      created.push(derived)
+      await writeFile(
+        derived,
+        JSON.stringify(await derivedConfig(checkoutPath, project, ownConfig)),
+      )
+      configPaths.set(project.dir, derived)
+    }
+    return { configPaths, cleanup }
+  } catch (error) {
+    await cleanup()
+    throw error
+  }
+}
+
+async function derivedConfig(
+  checkoutPath: string,
+  project: TypeScriptProject,
+  ownConfig: string,
+): Promise<Record<string, unknown>> {
+  const own = await readJson(ownConfig)
+  // `exclude` replaces the inherited one, so keep the project's own list.
+  // Inherited excludes (via `extends`) and TypeScript's defaults are replaced
+  // by the defaults below, which can only add files to the project.
+  const ownExclude = Array.isArray(own?.exclude)
+    ? own.exclude.filter((item): item is string => typeof item === "string")
+    : ["node_modules", "bower_components", "jspm_packages"]
+  const projectDir = join(checkoutPath, project.dir)
+  return {
+    extends: `./${project.config}`,
+    exclude: [
+      ...ownExclude,
+      ...project.nested.map((dir) =>
+        relative(projectDir, join(checkoutPath, dir)),
+      ),
+    ],
+    // scip-typescript applies jsconfig defaults by file name only.
+    ...(project.config === "jsconfig.json"
+      ? {
+          compilerOptions: {
+            allowJs: true,
+            maxNodeModuleJsDepth: 2,
+            allowSyntheticDefaultImports: true,
+            skipLibCheck: true,
+            noEmit: true,
+          },
+        }
+      : {}),
+  }
 }

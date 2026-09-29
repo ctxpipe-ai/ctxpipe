@@ -7,7 +7,7 @@ import {
 } from "node:fs"
 import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { dirname, join, resolve } from "node:path"
+import { dirname, join, relative, resolve } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { decodeScipIndex, encodeScipIndex } from "../graph/scipProto.js"
 import type { ScipIndexerId } from "./detectLanguages.js"
@@ -17,12 +17,28 @@ import {
   SCIP_INDEXER_OUTPUT_FLAG,
 } from "./scipIndexers.js"
 
-function fakeSubprocess(exited: Promise<number>): ReturnType<typeof Bun.spawn> {
+function fakeSubprocess(
+  exited: Promise<number>,
+  stdout?: string,
+): ReturnType<typeof Bun.spawn> {
   return {
     exited,
-    stdout: null,
+    stdout: stdout === undefined ? null : new Response(stdout).body,
     stderr: null,
   } as unknown as ReturnType<typeof Bun.spawn>
+}
+
+/** Shard path an indexer writes: after `--output`, else the last argument. */
+function outputOf(argv: string[]): string {
+  const flag = argv.indexOf("--output")
+  return (flag >= 0 ? argv[flag + 1] : argv.at(-1)) as string
+}
+
+function writeFiles(root: string, files: Record<string, string>): void {
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, path)), { recursive: true })
+    writeFileSync(join(root, path), content)
+  }
 }
 
 afterEach(() => {
@@ -86,10 +102,11 @@ describe("runScipIndexer", () => {
     const goShard = join(directory, "shards", "go.scip")
     const typescriptShard = join(directory, "shards", "typescript.scip")
     await mkdir(checkoutPath)
+    writeFileSync(join(checkoutPath, "tsconfig.json"), "{}")
 
     const exits: Array<() => void> = []
     const spawn = vi.fn((argv: string[]) => {
-      writeFileSync(argv.at(-1) as string, `index-${exits.length}`)
+      writeFileSync(outputOf(argv), `index-${exits.length}`)
       let resolveExit: () => void = () => undefined
       const exited = new Promise<number>((resolve) => {
         resolveExit = () => resolve(0)
@@ -124,6 +141,7 @@ describe("runScipIndexer", () => {
         "index",
         "--output",
         expect.stringMatching(/\.typescript\.scip\..+\.tmp$/),
+        join(checkoutPath, "tsconfig.json"),
       ])
       expect(existsSync(join(checkoutPath, "index.scip"))).toBe(false)
 
@@ -140,10 +158,11 @@ describe("runScipIndexer", () => {
     const directory = await mkdtemp(join(tmpdir(), "scip-indexers-"))
     const checkoutPath = join(directory, "checkout")
     await mkdir(checkoutPath)
+    writeFileSync(join(checkoutPath, "tsconfig.json"), "{}")
 
     const exits: Array<() => void> = []
     const spawn = vi.fn((argv: string[]) => {
-      writeFileSync(argv.at(-1) as string, `index-${exits.length}`)
+      writeFileSync(outputOf(argv), `index-${exits.length}`)
       let resolveExit: () => void = () => undefined
       const exited = new Promise<number>((resolve) => {
         resolveExit = () => resolve(0)
@@ -312,39 +331,48 @@ describe("runScipIndexer", () => {
     }
   })
 
-  it("indexes each monorepo TypeScript project separately and merges unique documents", async () => {
+  it("indexes every monorepo project deepest first and reports the ones that failed", async () => {
     const directory = await mkdtemp(join(tmpdir(), "scip-indexers-"))
     const checkoutPath = join(directory, "checkout")
     const shardPath = join(directory, "shards", "typescript.scip")
-    const files: Record<string, string> = {
+    writeFiles(checkoutPath, {
       "pnpm-workspace.yaml": "packages: ['packages/*']",
-      "tsconfig.json": "{}",
+      "tsconfig.json": '{ "exclude": ["dist"] }',
       "packages/config/package.json": '{"name":"@acme/config"}',
       "packages/config/tsconfig.json": "{}",
       "packages/app/tsconfig.json": "{}",
       "packages/app/test/tsconfig.json": "{}",
       "packages/broken/tsconfig.json": "{}",
-    }
-    for (const [path, content] of Object.entries(files)) {
-      mkdirSync(dirname(join(checkoutPath, path)), { recursive: true })
-      writeFileSync(join(checkoutPath, path), content)
-    }
+      "packages/empty/tsconfig.json": "{}",
+    })
 
     const documents: Record<string, string[]> = {
-      "packages/app": ["packages/app/main.ts", "packages/config/base.ts"],
-      "packages/config": ["packages/config/base.ts"],
+      "packages/app/test/tsconfig.json": ["packages/app/test/a.test.ts"],
+      "packages/app/tsconfig.ctxpipe-scip.json": [
+        "packages/app/main.ts",
+        "packages/config/base.ts",
+      ],
+      "packages/config/tsconfig.json": ["packages/config/base.ts"],
+      "tsconfig.ctxpipe-scip.json": ["scripts/release.ts"],
     }
+    let rootConfig: unknown
     const spawn = vi.fn((argv: string[], _options?: object) => {
       expect(
         lstatSync(
           join(checkoutPath, "node_modules", "@acme", "config"),
         ).isSymbolicLink(),
       ).toBe(true)
-      const project = argv.at(-1) as string
-      const paths = documents[project]
+      const config = relative(checkoutPath, argv.at(-1) as string)
+      if (config === "tsconfig.ctxpipe-scip.json") {
+        rootConfig = JSON.parse(readFileSync(argv.at(-1) as string, "utf8"))
+      }
+      if (config === "packages/empty/tsconfig.json") {
+        return fakeSubprocess(Promise.resolve(1), "error: no files got indexed")
+      }
+      const paths = documents[config]
       if (!paths) return fakeSubprocess(Promise.resolve(1))
       writeFileSync(
-        argv[argv.indexOf("--output") + 1] as string,
+        outputOf(argv),
         encodeScipIndex({
           documents: paths.map((relativePath) => ({ relativePath })),
         }),
@@ -354,35 +382,72 @@ describe("runScipIndexer", () => {
     vi.stubGlobal("Bun", { spawn })
 
     try {
-      await runScipIndexer({ indexerId: "typescript", checkoutPath, shardPath })
+      const result = await runScipIndexer({
+        indexerId: "typescript",
+        checkoutPath,
+        shardPath,
+      })
 
-      expect(spawn.mock.calls.map(([argv]) => argv.at(-1))).toEqual([
-        "packages/app",
-        "packages/broken",
-        "packages/config",
+      expect(
+        spawn.mock.calls.map(([argv]) =>
+          relative(checkoutPath, argv.at(-1) as string),
+        ),
+      ).toEqual([
+        "packages/app/test/tsconfig.json",
+        "packages/app/tsconfig.ctxpipe-scip.json",
+        "packages/broken/tsconfig.json",
+        "packages/config/tsconfig.json",
+        "packages/empty/tsconfig.json",
+        "tsconfig.ctxpipe-scip.json",
       ])
+      expect(rootConfig).toEqual({
+        extends: "./tsconfig.json",
+        exclude: [
+          "dist",
+          "packages/app",
+          "packages/broken",
+          "packages/config",
+          "packages/empty",
+          "packages/app/test",
+        ],
+      })
       expect(spawn.mock.calls[0]?.[1]).toMatchObject({
         env: {
           NODE_OPTIONS: expect.stringMatching(/^--max-old-space-size=\d+$/),
         },
       })
+      expect(result).toEqual({
+        issue:
+          "TypeScript code intelligence is incomplete: 1 of 6 projects could not be indexed (packages/broken)",
+      })
       expect(
         decodeScipIndex(readFileSync(shardPath)).documents?.map(
           (document) => (document as { relativePath: string }).relativePath,
         ),
-      ).toEqual(["packages/app/main.ts", "packages/config/base.ts"])
-      expect(existsSync(join(checkoutPath, "node_modules"))).toBe(false)
+      ).toEqual([
+        "packages/app/test/a.test.ts",
+        "packages/app/main.ts",
+        "packages/config/base.ts",
+        "scripts/release.ts",
+      ])
+      for (const leftover of [
+        "node_modules",
+        "package.json",
+        "tsconfig.ctxpipe-scip.json",
+        "packages/app/tsconfig.ctxpipe-scip.json",
+      ]) {
+        expect(existsSync(join(checkoutPath, leftover))).toBe(false)
+      }
     } finally {
       await rm(directory, { recursive: true, force: true })
     }
   })
 
-  it("fails the TypeScript shard when no project produced an index", async () => {
+  it("fails the TypeScript shard when no project of a TypeScript repository indexed", async () => {
     const directory = await mkdtemp(join(tmpdir(), "scip-indexers-"))
     const checkoutPath = join(directory, "checkout")
     const shardPath = join(directory, "shards", "typescript.scip")
-    await mkdir(checkoutPath)
-    writeFileSync(join(checkoutPath, "tsconfig.json"), "{}")
+    writeFiles(checkoutPath, { "tsconfig.json": "{}" })
 
     vi.stubGlobal("Bun", {
       spawn: vi.fn(() => fakeSubprocess(Promise.resolve(1))),
@@ -393,6 +458,55 @@ describe("runScipIndexer", () => {
         runScipIndexer({ indexerId: "typescript", checkoutPath, shardPath }),
       ).rejects.toThrow('SCIP indexer "typescript" failed with exit code 1')
       expect(existsSync(shardPath)).toBe(false)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("soft-skips with an empty shard when incidental nested TypeScript fails", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "scip-indexers-"))
+    const checkoutPath = join(directory, "checkout")
+    const shardPath = join(directory, "shards", "typescript.scip")
+    writeFiles(checkoutPath, {
+      "go.mod": "module example.com/app",
+      "docs/site/tsconfig.json": '{ "extends": "@tsconfig/node20" }',
+    })
+
+    vi.stubGlobal("Bun", {
+      spawn: vi.fn(() => fakeSubprocess(Promise.resolve(1))),
+    })
+
+    try {
+      await expect(
+        runScipIndexer({ indexerId: "typescript", checkoutPath, shardPath }),
+      ).resolves.toEqual({})
+      expect(decodeScipIndex(readFileSync(shardPath))).toEqual({
+        documents: [],
+        externalSymbols: [],
+      })
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("does not pass the service NODE_OPTIONS to indexers", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "scip-indexers-"))
+    const checkoutPath = join(directory, "checkout")
+    await mkdir(checkoutPath)
+    const spawn = vi.fn((argv: string[], _options?: object) => {
+      writeFileSync(outputOf(argv), "index")
+      return fakeSubprocess(Promise.resolve(0))
+    })
+    vi.stubGlobal("Bun", { spawn })
+
+    try {
+      await runScipIndexer({
+        indexerId: "python",
+        checkoutPath,
+        shardPath: join(directory, "shards", "python.scip"),
+        env: { NODE_OPTIONS: "--require ./preload.js" },
+      })
+      expect(spawn.mock.calls[0]?.[1]).not.toHaveProperty("env.NODE_OPTIONS")
     } finally {
       await rm(directory, { recursive: true, force: true })
     }

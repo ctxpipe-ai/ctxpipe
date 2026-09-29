@@ -8,7 +8,7 @@ export type ScipWireIndex = {
 
 // Wire-compatible subset of the official schema:
 // https://github.com/scip-code/scip/blob/main/scip.proto
-const scipIndexMessage = parse(`
+const scipSchema = parse(`
   syntax = "proto3";
   package scip;
 
@@ -64,7 +64,10 @@ const scipIndexMessage = parse(`
     SingleLineRange single_line_enclosing_range = 10;
     MultiLineRange multi_line_enclosing_range = 11;
   }
-`).root.lookupType("scip.Index")
+`).root
+const scipIndexMessage = scipSchema.lookupType("scip.Index")
+const scipDocumentMessage = scipSchema.lookupType("scip.Document")
+const scipSymbolMessage = scipSchema.lookupType("scip.SymbolInformation")
 
 export function decodeScipIndex(bytes: Uint8Array): ScipWireIndex {
   return scipIndexMessage.toObject(scipIndexMessage.decode(bytes), {
@@ -77,36 +80,39 @@ export function encodeScipIndex(index: ScipWireIndex): Uint8Array {
 }
 
 /**
- * Top-level `Index` fields as raw wire slices. Documents and external symbols
- * carry their first string field (`relative_path` / `symbol`) as `key`; their
- * bodies are never decoded. Throws on malformed framing.
+ * Top-level `Index` fields one at a time: `raw` is the whole field on the
+ * wire and `body` a length-delimited field's payload (a `Document` for field
+ * 2, an external `SymbolInformation` for 3). Throws on malformed framing.
  */
 export function* scipIndexFields(
   bytes: Uint8Array,
-): Generator<{ field: number; key?: string; raw: Uint8Array }> {
+): Generator<{ field: number; raw: Uint8Array; body?: Uint8Array }> {
   const reader = Reader.create(bytes)
   while (reader.pos < reader.len) {
     const start = reader.pos
     const tag = reader.uint32()
-    const field = tag >>> 3
-    if ((tag & 7) !== 2) {
-      reader.skipType(tag & 7)
-      yield { field, raw: bytes.subarray(start, reader.pos) }
-      continue
-    }
-    const body = reader.bytes()
-    yield {
-      field,
-      key: field === 2 || field === 3 ? firstString(body) : undefined,
-      raw: bytes.subarray(start, reader.pos),
-    }
+    const body = (tag & 7) === 2 ? reader.bytes() : undefined
+    if (body === undefined) reader.skipType(tag & 7)
+    yield { field: tag >>> 3, raw: bytes.subarray(start, reader.pos), body }
   }
 }
 
-/** Throws when a SCIP index's top-level framing is malformed. */
-export function assertScipFraming(bytes: Uint8Array): void {
-  const reader = Reader.create(bytes)
-  while (reader.pos < reader.len) reader.skipType(reader.uint32() & 7)
+/** Decode one `Document` (field 2) or external `SymbolInformation` (3). */
+export function decodeScipField(field: 2 | 3, body: Uint8Array): object {
+  const message = field === 2 ? scipDocumentMessage : scipSymbolMessage
+  return message.toObject(message.decode(body), { arrays: true })
+}
+
+/**
+ * Throws when a SCIP index is malformed, decoding one document at a time so
+ * a large shard never becomes one object tree.
+ */
+export function assertScipIndex(bytes: Uint8Array): void {
+  for (const { field, body } of scipIndexFields(bytes)) {
+    if (body && (field === 2 || field === 3)) {
+      ;(field === 2 ? scipDocumentMessage : scipSymbolMessage).decode(body)
+    }
+  }
 }
 
 function firstString(message: Uint8Array): string | undefined {
@@ -121,13 +127,14 @@ function firstString(message: Uint8Array): string | undefined {
 
 /**
  * Merge SCIP shard files into `outputPath` one shard at a time without
- * decoding them, keeping the first metadata, the first document per path, and
- * the first external symbol per name: TypeScript projects re-index the
- * projects they reference, so one file can arrive from several shards.
+ * decoding them. Language shards concatenate. With `dedupe` (TypeScript
+ * projects, which re-index the projects they reference) the first metadata,
+ * document per path, and external symbol per name win.
  */
 export async function mergeScipShardFiles(
   shardPaths: readonly string[],
   outputPath: string,
+  options: { dedupe: boolean },
 ): Promise<void> {
   const seen = new Set<string>()
   const output = await open(outputPath, "w")
@@ -138,15 +145,17 @@ export async function mergeScipShardFiles(
         throw new Error(`Empty SCIP shard: ${shardPath}`)
       const kept: Uint8Array[] = []
       try {
-        for (const { field, key, raw } of scipIndexFields(bytes)) {
-          const seenKey =
-            field === 1
-              ? "metadata"
-              : key === undefined
-                ? null
-                : `${field}:${key}`
-          if (seenKey !== null && seen.has(seenKey)) continue
-          if (seenKey !== null) seen.add(seenKey)
+        for (const { field, raw, body } of scipIndexFields(bytes)) {
+          if (options.dedupe) {
+            const key =
+              field === 1
+                ? "metadata"
+                : body && (field === 2 || field === 3)
+                  ? `${field}:${firstString(body)}`
+                  : null
+            if (key !== null && seen.has(key)) continue
+            if (key !== null) seen.add(key)
+          }
           kept.push(raw)
         }
       } catch (error) {
