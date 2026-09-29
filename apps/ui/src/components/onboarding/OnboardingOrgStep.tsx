@@ -37,16 +37,18 @@ export function OnboardingOrgStep({
       if (!result.data?.slug) throw new Error("Failed to create organisation")
       return result.data
     },
-    onSuccess: async (org) => {
-      await authClient.organization.setActive({
-        organizationId: org.id,
-        fetchOptions: { throw: true },
-      })
+    // The next step opens as soon as the org exists; making it active runs
+    // in the background. Step 2 addresses the org by slug, and finishing
+    // onboarding sets it active again anyway.
+    onSuccess: (org) => {
+      onCreated(org.slug)
       setPreferences((prev) => ({
         ...prev,
         selectedOrganizationSlug: org.slug,
       }))
-      onCreated(org.slug)
+      void authClient.organization
+        .setActive({ organizationId: org.id, fetchOptions: { throw: true } })
+        .catch(() => undefined)
       void queryClient.invalidateQueries({
         queryKey: ["organizations"],
         refetchType: "active",
@@ -91,7 +93,7 @@ export function OnboardingOrgStep({
         label="Organisation name"
         placeholder="Acme Engineering"
         value={name}
-        isDisabled={createOrg.isPending}
+        isReadOnly={createOrg.isPending}
         autoFocus
         onChange={(value) => {
           setName(value)
@@ -105,7 +107,7 @@ export function OnboardingOrgStep({
         placeholder="acme-engineering"
         description="Self-hosting? Use the slug from your deployment config."
         value={slug}
-        isDisabled={createOrg.isPending}
+        isReadOnly={createOrg.isPending}
         className="[&_input]:font-mono"
         onChange={(value) => {
           setSlugTouched(true)

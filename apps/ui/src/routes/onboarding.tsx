@@ -86,6 +86,13 @@ export function OnboardingPageContent({
     },
     enabled: Boolean(session && arrivalOrgSlug && createdOrgSlug === null),
   })
+  // Locked on the first org list. Creating an org here makes Better Auth
+  // refetch the list, which can land before the page records the new org;
+  // anything that re-reads the list meanwhile must not act on it.
+  const [arrivedWithOrgs, setArrivedWithOrgs] = useState<boolean | null>(null)
+  if (arrivedWithOrgs === null && !orgsPending && organizations != null) {
+    setArrivedWithOrgs(organizations.length > 0)
+  }
   const [isJoiner, setIsJoiner] = useState<boolean | null>(null)
   if (isJoiner === null && !orgsPending && organizations != null) {
     if (organizations.length === 0) setIsJoiner(false)
@@ -236,10 +243,17 @@ export function OnboardingPageContent({
     return <Navigate to="/$orgSlug" params={{ orgSlug }} replace />
   }
 
-  // Skipped once they create an org here: the page moves the URL itself, and
-  // the org list can arrive before it (the old create-org slide skipped this
-  // too). Redirecting in between would remount the page.
-  if (createdOrgSlug === null && organizations && organizations.length > 0) {
+  // Only for people who arrived with an org, before the steps show. Someone
+  // creating their org here never needs it: the refetched list can arrive
+  // before createdOrgSlug is set, and rendering Navigate then unmounted the
+  // whole page and replayed its fade-in (the old create-org slide skipped
+  // this for the same reason).
+  if (
+    arrivedWithOrgs === true &&
+    createdOrgSlug === null &&
+    organizations &&
+    organizations.length > 0
+  ) {
     const fallbackOrgSlug = organizations[0]?.slug as string | undefined
     const urlOrgIsKnown =
       urlOrgSlug !== null &&
