@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest"
 import type { Db } from "../../../db/client.js"
 import {
   claimEvidenceMatchesLogicalKey,
+  DEDUP_CLAIM_TRIPLE_BATCH_SIZE,
+  prefetchClaimsByTriples,
   prefetchDedupKeysIntoMap,
+  prefetchEvidenceByClaimIds,
   resolveDedupRefToId,
   shouldEmitDedupProgress,
 } from "./deduplicateAndStore.js"
@@ -146,5 +149,40 @@ describe("prefetchDedupKeysIntoMap", () => {
     const db = { select: vi.fn() } as unknown as Db
     await prefetchDedupKeysIntoMap(["svc:a", "obj_b"], map, "org_1", db)
     expect(db.select).not.toHaveBeenCalled()
+  })
+})
+
+describe("prefetchClaimsByTriples", () => {
+  it("batches unique triples so 501 lookups are two queries", async () => {
+    const where = vi.fn().mockResolvedValue([])
+    const from = vi.fn().mockReturnValue({ where })
+    const db = {
+      select: vi.fn().mockReturnValue({ from }),
+    } as unknown as Db
+    const triples = Array.from(
+      { length: DEDUP_CLAIM_TRIPLE_BATCH_SIZE + 1 },
+      (_, i) => ({
+        subjectId: `fil_${i}`,
+        predicate: "PART_OF",
+        objectId: "repo_1",
+      }),
+    )
+    await prefetchClaimsByTriples("org_1", db, triples)
+    expect(where).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("prefetchEvidenceByClaimIds", () => {
+  it("uniques ids before the IN query", async () => {
+    const where = vi.fn().mockResolvedValue([])
+    const from = vi.fn().mockReturnValue({ where })
+    const db = {
+      select: vi.fn().mockReturnValue({ from }),
+    } as unknown as Db
+    await prefetchEvidenceByClaimIds(
+      db,
+      Array.from({ length: 2000 }, () => "claim_a"),
+    )
+    expect(where).toHaveBeenCalledTimes(1)
   })
 })
