@@ -9,7 +9,7 @@ Querying: [USING.md](./USING.md). Deploy: [terraform/README.md](./terraform/READ
 | Service | Image | Role |
 | --- | --- | --- |
 | collector | `ghcr.io/ctxpipe-ai/obs-collector` | Public OTLP at `telemetry.ctxpipe.ai`. LLM spans go to Langfuse. Scrapes itself and ClickHouse |
-| clickhouse | `ghcr.io/ctxpipe-ai/obs-clickhouse` | 1 GiB, databases `otel` and `langfuse`, tiered. [clickhouse/README.md](./clickhouse/README.md) |
+| clickhouse | `ghcr.io/ctxpipe-ai/obs-clickhouse` | 4 GiB cap, databases `otel` and `langfuse`, tiered. [clickhouse/README.md](./clickhouse/README.md) |
 | hyperdx | `hyperdx/hyperdx:2.39.1` | UI at `hyperdx.ctxpipe.ai`. [hyperdx/README.md](./hyperdx/README.md) |
 | mongo | `mongo:7` | HyperDX metadata |
 | langfuse-web | `langfuse/langfuse:3` | UI at `langfuse.ctxpipe.ai` |
@@ -55,6 +55,6 @@ Railway holds runtime values. Terraform holds references and does not list provi
 
 CI builds `ghcr.io/ctxpipe-ai/obs-<svc>:<git tree hash>` and Terraform pins those images. Apply, the delete check, `prevent_destroy`, imports, and a fresh project: [terraform/README.md](./terraform/README.md). Dashboards: [hyperdx/README.md](./hyperdx/README.md).
 
-Cost target is about $25–35/mo: one replica, ClickHouse capped at 1 GiB, no preview copies of this project.
+Cost target is about $25–35/mo at idle: one replica, ClickHouse capped at 4 GiB (Railway bills used RAM), no preview copies of this project.
 
 If the ClickStack image cannot fan LLM spans out, run one contrib collector that exports to ClickHouse and Langfuse. Never run two collectors.

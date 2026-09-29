@@ -1,5 +1,5 @@
 <clickhouse>
-  <!-- One move at a time so an S3 upload does not stack buffers on the 1 GiB cap. -->
+  <!-- One move at a time so an S3 upload does not stack buffers on the 4 GiB cap. -->
   <background_move_pool_size>1</background_move_pool_size>
 
   <storage_configuration>
@@ -32,7 +32,7 @@
         <!-- The cache disk probes S3 itself. The flag on s3_cold does not cover it. -->
         <skip_access_check>0</skip_access_check>
         <max_size>268435456</max_size>
-        <!-- Default is 10 million file entries. Bound it for the 1 GiB node. -->
+        <!-- Default is 10 million file entries. Bound it for the 4 GiB node. -->
         <max_elements>10240</max_elements>
       </s3_cold_cache>
     </disks>
