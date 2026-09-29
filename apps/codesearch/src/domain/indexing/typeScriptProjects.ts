@@ -31,6 +31,7 @@ const ROOT_PACKAGE_MARKER = '{"description":"ctxpipe scip-typescript root"}\n'
 /** Marks a root node_modules this module created, so a crashed run's is replaced. */
 const LINKED_MARKER = ".ctxpipe-scip-links"
 const DERIVED_CONFIG = "tsconfig.ctxpipe-scip.json"
+const STANDALONE_CONFIG = "tsconfig.ctxpipe-scip-standalone.json"
 
 async function readJson(path: string): Promise<Record<string, unknown> | null> {
   try {
@@ -143,6 +144,10 @@ export async function scanTypeScriptWorkspace(
  *   absolute checkout path into symbols.
  * - A project with nested projects gets a derived config that extends its
  *   own and also excludes those directories.
+ * - `standaloneConfig` writes, on demand, a copy of a project's own config
+ *   without `extends`, for bases that only an install would provide
+ *   (`@tsconfig/node16/…`): the project keeps its own include, exclude and
+ *   compiler options and loses only the base's defaults.
  *
  * Leftovers from a crashed run carry markers and are replaced.
  */
@@ -151,6 +156,7 @@ export async function prepareTypeScriptWorkspace(
   workspace: TypeScriptWorkspace,
 ): Promise<{
   configPaths: Map<string, string>
+  standaloneConfig: (dir: string) => Promise<string>
   cleanup: () => Promise<void>
 }> {
   const created: string[] = []
@@ -203,11 +209,22 @@ export async function prepareTypeScriptWorkspace(
       created.push(derived)
       await writeFile(
         derived,
-        JSON.stringify(await derivedConfig(checkoutPath, project, ownConfig)),
+        JSON.stringify(await derivedConfig(checkoutPath, project, false)),
       )
       configPaths.set(project.dir, derived)
     }
-    return { configPaths, cleanup }
+    const standaloneConfig = async (dir: string) => {
+      const project = workspace.projects.find((entry) => entry.dir === dir)
+      if (!project) throw new Error(`Unknown TypeScript project: ${dir}`)
+      const path = join(checkoutPath, dir, STANDALONE_CONFIG)
+      created.push(path)
+      await writeFile(
+        path,
+        JSON.stringify(await derivedConfig(checkoutPath, project, true)),
+      )
+      return path
+    }
+    return { configPaths, standaloneConfig, cleanup }
   } catch (error) {
     await cleanup()
     throw error
@@ -217,35 +234,47 @@ export async function prepareTypeScriptWorkspace(
 async function derivedConfig(
   checkoutPath: string,
   project: TypeScriptProject,
-  ownConfig: string,
+  standalone: boolean,
 ): Promise<Record<string, unknown>> {
-  const own = await readJson(ownConfig)
+  const projectDir = join(checkoutPath, project.dir)
+  const own = (await readJson(join(projectDir, project.config))) ?? {}
   // `exclude` replaces the inherited one, so keep the project's own list.
   // Inherited excludes (via `extends`) and TypeScript's defaults are replaced
   // by the defaults below, which can only add files to the project.
-  const ownExclude = Array.isArray(own?.exclude)
+  const ownExclude = Array.isArray(own.exclude)
     ? own.exclude.filter((item): item is string => typeof item === "string")
     : ["node_modules", "bower_components", "jspm_packages"]
-  const projectDir = join(checkoutPath, project.dir)
+  const exclude = [
+    ...ownExclude,
+    ...project.nested.map((dir) =>
+      relative(projectDir, join(checkoutPath, dir)),
+    ),
+  ]
+  // scip-typescript applies jsconfig defaults by file name only.
+  const jsconfigOptions =
+    project.config === "jsconfig.json"
+      ? {
+          allowJs: true,
+          maxNodeModuleJsDepth: 2,
+          allowSyntheticDefaultImports: true,
+          skipLibCheck: true,
+          noEmit: true,
+        }
+      : undefined
+  if (standalone) {
+    const { extends: _base, ...rest } = own
+    return {
+      ...rest,
+      exclude,
+      compilerOptions: {
+        ...jsconfigOptions,
+        ...(typeof own.compilerOptions === "object" ? own.compilerOptions : {}),
+      },
+    }
+  }
   return {
     extends: `./${project.config}`,
-    exclude: [
-      ...ownExclude,
-      ...project.nested.map((dir) =>
-        relative(projectDir, join(checkoutPath, dir)),
-      ),
-    ],
-    // scip-typescript applies jsconfig defaults by file name only.
-    ...(project.config === "jsconfig.json"
-      ? {
-          compilerOptions: {
-            allowJs: true,
-            maxNodeModuleJsDepth: 2,
-            allowSyntheticDefaultImports: true,
-            skipLibCheck: true,
-            noEmit: true,
-          },
-        }
-      : {}),
+    exclude,
+    ...(jsconfigOptions ? { compilerOptions: jsconfigOptions } : {}),
   }
 }

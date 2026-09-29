@@ -301,10 +301,8 @@ async function runTypeScriptIndexer(input: {
   env?: Record<string, string | undefined>
 }): Promise<{ issue?: string }> {
   const workspace = await scanTypeScriptWorkspace(input.checkoutPath)
-  const { configPaths, cleanup } = await prepareTypeScriptWorkspace(
-    input.checkoutPath,
-    workspace,
-  )
+  const { configPaths, standaloneConfig, cleanup } =
+    await prepareTypeScriptWorkspace(input.checkoutPath, workspace)
   // V8's default heap follows host memory (2 GB in an 8 GB container), which
   // a large monorepo package outgrows; give each concurrent indexer 3/4 of
   // its share of the container.
@@ -316,10 +314,37 @@ async function runTypeScriptIndexer(input: {
   try {
     for (const project of workspace.projects) {
       const configPath = configPaths.get(project.dir) as string
-      outcomes.push({
-        dir: project.dir,
-        outcome: await indexTypeScriptProject({ ...input, configPath, heapMb }),
+      let outcome = await indexTypeScriptProject({
+        ...input,
+        configPath,
+        heapMb,
       })
+      // A config error (usually an `extends` base only an install provides):
+      // retry once with the project's own config without `extends`.
+      if (outcome.status === "failed" && hasConfigDiagnostics(outcome.error)) {
+        const retry = await indexTypeScriptProject({
+          ...input,
+          configPath: await standaloneConfig(project.dir),
+          heapMb,
+        })
+        if (retry.status !== "failed") {
+          tryEmitIndexEvent(
+            "codesearch.index.scip.typescript_extends_dropped",
+            {
+              project: project.dir || ".",
+              error: errorMessage(outcome.error),
+            },
+          )
+          outcome = retry
+        }
+      }
+      if (outcome.status === "failed") {
+        tryEmitIndexEvent("codesearch.index.scip.typescript_project_failed", {
+          project: project.dir || ".",
+          error: errorMessage(outcome.error),
+        })
+      }
+      outcomes.push({ dir: project.dir, outcome })
     }
     const shards = outcomes.flatMap(({ outcome }) =>
       outcome.status === "indexed" ? [outcome.shard] : [],
@@ -417,9 +442,14 @@ async function indexTypeScriptProject(input: {
           return { status: "indexed", shard }
         } catch (error) {
           await removeFileBestEffort(shard)
-          const message = error instanceof Error ? error.message : String(error)
+          const message = errorMessage(error)
+          // Nothing to index, as opposed to a config that failed to load
+          // (which also ends in "no files got indexed", after diagnostics).
           if (
-            /no files got indexed|no indexable files in project/.test(message)
+            /no files got indexed|no indexable files in project/.test(
+              message,
+            ) &&
+            !hasConfigDiagnostics(error)
           ) {
             span.setAttribute("scip.outcome", "empty")
             return { status: "empty" }
@@ -427,14 +457,19 @@ async function indexTypeScriptProject(input: {
           span.setAttribute("scip.outcome", "failed")
           span.recordException(error instanceof Error ? error : message)
           span.setStatus({ code: SpanStatusCode.ERROR, message })
-          tryEmitIndexEvent("codesearch.index.scip.typescript_project_failed", {
-            project,
-            error: message,
-          })
           return { status: "failed", error }
         } finally {
           span.end()
         }
       },
     )
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/** TypeScript config diagnostics (`error TS6053: File '…' not found`, …). */
+function hasConfigDiagnostics(error: unknown): boolean {
+  return /error TS\d+/.test(errorMessage(error))
 }

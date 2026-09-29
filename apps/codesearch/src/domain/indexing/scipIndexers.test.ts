@@ -443,6 +443,47 @@ describe("runScipIndexer", () => {
     }
   })
 
+  it("retries a project whose extends base is not installed without it", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "scip-indexers-"))
+    const checkoutPath = join(directory, "checkout")
+    const shardPath = join(directory, "shards", "typescript.scip")
+    writeFiles(checkoutPath, {
+      "tsconfig.json":
+        '{ "extends": "@tsconfig/node16/tsconfig.json", "include": ["src"] }',
+    })
+    let standalone: unknown
+    const spawn = vi.fn((argv: string[], _options?: object) => {
+      const config = argv.at(-1) as string
+      if (config.endsWith("/tsconfig.json")) {
+        return fakeSubprocess(
+          Promise.resolve(1),
+          "error TS6053: File '@tsconfig/node16/tsconfig.json' not found.\nerror: no files got indexed",
+        )
+      }
+      standalone = JSON.parse(readFileSync(config, "utf8"))
+      writeFileSync(
+        outputOf(argv),
+        encodeScipIndex({ documents: [{ relativePath: "src/a.ts" }] }),
+      )
+      return fakeSubprocess(Promise.resolve(0))
+    })
+    vi.stubGlobal("Bun", { spawn })
+
+    try {
+      await expect(
+        runScipIndexer({ indexerId: "typescript", checkoutPath, shardPath }),
+      ).resolves.toEqual({})
+      expect(standalone).toEqual({
+        include: ["src"],
+        exclude: ["node_modules", "bower_components", "jspm_packages"],
+        compilerOptions: {},
+      })
+      expect(decodeScipIndex(readFileSync(shardPath)).documents).toHaveLength(1)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it("fails the TypeScript shard when no project of a TypeScript repository indexed", async () => {
     const directory = await mkdtemp(join(tmpdir(), "scip-indexers-"))
     const checkoutPath = join(directory, "checkout")
