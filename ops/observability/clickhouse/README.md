@@ -29,7 +29,7 @@ If the `query_log` or `error_log` `CREATE` changes, ClickHouse renames the old t
 
 `skip_access_check` is 0 on `s3_cold` and `s3_cold_cache`. An unreachable bucket at start fails the disk check and the process exits. Railway's default restart policy is `ON_FAILURE` with 10 retries. After those, the deployment stays crashed until a restart.
 
-While ClickHouse is down, `clickstack-otel-collector:2.39.1` retries export for 300s, then drops the batch. `memory_limiter` is 1500 MiB. The image sets no `sending_queue`; the exporter default is 1000 batches. `max_server_memory_usage` is 1 GiB (`config.d/memory.xml`).
+While ClickHouse is down, `clickstack-otel-collector:2.39.1` retries export for 300s, then drops the batch. `memory_limiter` is 1500 MiB. The image sets no `sending_queue`; the exporter default is 1000 batches. `max_server_memory_usage` is 4 GiB (`config.d/memory.xml`).
 
 If the process is up and the bucket later fails, hot inserts still land locally. A cold-column read fails after the S3 timeout (10s, one retry) and inside `max_execution_time` 120s. `count()` over cold parts can be answered from local metadata.
 
