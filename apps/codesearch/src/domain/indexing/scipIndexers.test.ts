@@ -334,7 +334,7 @@ describe("runScipIndexer", () => {
       "packages/app": ["packages/app/main.ts", "packages/config/base.ts"],
       "packages/config": ["packages/config/base.ts"],
     }
-    const spawn = vi.fn((argv: string[]) => {
+    const spawn = vi.fn((argv: string[], _options?: object) => {
       expect(
         lstatSync(
           join(checkoutPath, "node_modules", "@acme", "config"),
@@ -361,6 +361,11 @@ describe("runScipIndexer", () => {
         "packages/broken",
         "packages/config",
       ])
+      expect(spawn.mock.calls[0]?.[1]).toMatchObject({
+        env: {
+          NODE_OPTIONS: expect.stringMatching(/^--max-old-space-size=\d+$/),
+        },
+      })
       expect(
         decodeScipIndex(readFileSync(shardPath)).documents?.map(
           (document) => (document as { relativePath: string }).relativePath,

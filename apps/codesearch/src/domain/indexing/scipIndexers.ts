@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto"
 import { copyFile, mkdir, rename, rm, stat } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
 import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
+import { log } from "../../observability/logger.js"
 import { mergeScipShardFiles } from "../graph/scipProto.js"
+import { getIndexerProcessConcurrency } from "./capacityEnv.js"
 import type { ScipIndexerId } from "./detectLanguages.js"
 import { withIndexerGoLimits } from "./indexerChildEnv.js"
 import { withIndexerProcessSlot } from "./indexerProcessSemaphore.js"
@@ -283,6 +285,15 @@ async function runTypeScriptIndexer(input: {
     input.checkoutPath,
     workspace.packages,
   )
+  // V8's default heap follows host memory (2 GB in an 8 GB container), which
+  // n8n's nodes-base outgrows; give each concurrent indexer 3/4 of its share.
+  const shareMb =
+    process.constrainedMemory() / 1024 / 1024 / getIndexerProcessConcurrency()
+  const heapMb = Math.min(8192, Math.max(2048, Math.floor(shareMb * 0.75)))
+  const env = {
+    ...input.env,
+    NODE_OPTIONS: `--max-old-space-size=${heapMb}`,
+  }
   const projectShards: string[] = []
   let firstError: unknown
   await rm(input.shardPath, { force: true })
@@ -295,13 +306,21 @@ async function runTypeScriptIndexer(input: {
       const argv = [...SCIP_INDEXER_ARGV.typescript, "--output", projectShard]
       if (project !== ".") argv.push(project)
       try {
-        await runIndexerProcess({ ...input, indexerId: "typescript", argv })
+        await runIndexerProcess({
+          indexerId: "typescript",
+          ...input,
+          env,
+          argv,
+        })
         await verifyShard("typescript", projectShard)
         projectShards.push(projectShard)
       } catch (error) {
         await removeFileBestEffort(projectShard)
         firstError ??= error
-        tryEmitIndexEvent("codesearch.index.scip.typescript_project_failed", {
+        // Global log: request-scoped index events after a flush are dropped.
+        log.warn({
+          step: "codesearch.index.scip.typescript_project_failed",
+          checkoutPath: input.checkoutPath,
           project,
           error: error instanceof Error ? error.message : String(error),
         })
@@ -309,10 +328,13 @@ async function runTypeScriptIndexer(input: {
     }
     if (projectShards.length === 0) throw firstError
 
-    tryEmitIndexEvent("codesearch.index.scip.typescript_projects", {
+    log.info({
+      step: "codesearch.index.scip.typescript_projects",
+      checkoutPath: input.checkoutPath,
       projects: workspace.projects.length,
       indexed: projectShards.length,
       linkedPackages: workspace.packages.length,
+      heapMb,
     })
     const [onlyShard] = projectShards
     if (projectShards.length === 1 && onlyShard) {
