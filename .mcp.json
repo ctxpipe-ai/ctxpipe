@@ -23,6 +23,13 @@
       "command": "npx",
       "args": ["-y", "@railway/cli@5.63.1", "mcp", "local"]
     },
+    "hyperdx": {
+      "type": "http",
+      "url": "https://hyperdx.ctxpipe.ai/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${HYPERDX_ACCESS_KEY:-}"
+      }
+    },
     "langfuse": {
       "type": "http",
       "url": "https://langfuse.ctxpipe.ai/api/public/mcp",
