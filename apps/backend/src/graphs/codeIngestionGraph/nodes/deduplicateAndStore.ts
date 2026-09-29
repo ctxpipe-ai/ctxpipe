@@ -22,7 +22,11 @@ import { aggregateConfidence } from "../../../retrieval/services/confidenceAggre
 import { evidenceSourceIdMayHaveWindowsDriveColon } from "../../../retrieval/services/ingestionPathMatching.js"
 import { deriveLogicalSourceKey } from "../../../retrieval/services/logicalSourceKey.js"
 import { batchUpsertRetrievalObjectsByDeduplicationKey } from "../../../retrieval/services/retrievalObjectWrite.js"
-import type { ClaimForProjection, CodeIngestionState } from "../schemas.js"
+import type {
+  ClaimForProjection,
+  CodeIngestionState,
+  ExtractedClaim,
+} from "../schemas.js"
 import { isIdRef } from "../schemas.js"
 import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 
@@ -59,6 +63,90 @@ export function claimTripleKey(
   objectId: string,
 ): string {
   return `${subjectId}\0${predicate}\0${objectId}`
+}
+
+export type CollapsedClaimObservation = {
+  subjectId: string
+  objectId: string
+  logicalKey: string
+  claim: ExtractedClaim
+  observationCount: number
+}
+
+/**
+ * One classify/write per unique (triple, logical source key). Later
+ * observations win `sourceId` so a touch records the current commit.
+ */
+export function collapseExtractedClaimsForStore(
+  extractedClaims: readonly ExtractedClaim[],
+  keyToId: ReadonlyMap<string, string>,
+  targetHash: string,
+): {
+  collapsed: CollapsedClaimObservation[]
+  uniqueTriples: Array<{
+    subjectId: string
+    predicate: string
+    objectId: string
+  }>
+  unresolved: Array<{
+    reason: "unresolved_subject_ref" | "unresolved_object_ref"
+    claim: ExtractedClaim
+  }>
+} {
+  const groups = new Map<string, CollapsedClaimObservation>()
+  const uniqueTriples: Array<{
+    subjectId: string
+    predicate: string
+    objectId: string
+  }> = []
+  const seenTriples = new Set<string>()
+  const unresolved: Array<{
+    reason: "unresolved_subject_ref" | "unresolved_object_ref"
+    claim: ExtractedClaim
+  }> = []
+
+  for (const claim of extractedClaims) {
+    const subjectId = resolveRefFromMap(claim.subjectRef, keyToId)
+    if (!subjectId) {
+      unresolved.push({ reason: "unresolved_subject_ref", claim })
+      continue
+    }
+    const objectId = resolveRefFromMap(claim.objectRef, keyToId)
+    if (!objectId) {
+      unresolved.push({ reason: "unresolved_object_ref", claim })
+      continue
+    }
+    const logicalKey = deriveLogicalSourceKey(claim.sourceId, targetHash)
+    const triple = claimTripleKey(subjectId, claim.predicate, objectId)
+    if (!seenTriples.has(triple)) {
+      seenTriples.add(triple)
+      uniqueTriples.push({
+        subjectId,
+        predicate: claim.predicate,
+        objectId,
+      })
+    }
+    const key = `${triple}\0${logicalKey}`
+    const existing = groups.get(key)
+    if (existing) {
+      existing.claim = claim
+      existing.observationCount++
+      continue
+    }
+    groups.set(key, {
+      subjectId,
+      objectId,
+      logicalKey,
+      claim,
+      observationCount: 1,
+    })
+  }
+
+  return {
+    collapsed: [...groups.values()],
+    uniqueTriples,
+    unresolved,
+  }
 }
 
 /**
@@ -298,9 +386,11 @@ export async function prefetchEvidenceByClaimIds(
  * their own per-chunk txs) — never one multi-minute transaction holding a
  * pool client for the whole kubernetes-scale run.
  *
- * Claims are projected from the prefetch + in-memory classify loop. There is
- * no end-of-run `IN (claim_id…)` refetch, which overflowed Postgres at n8n
- * scale (97k binds vs a 65535 cap).
+ * Claims are projected from the prefetch + a classify loop over unique
+ * (triple, logical key) groups. Same-run duplicate observations collapse
+ * first so we do not allocate a write/touch/projection per extracted row.
+ * There is no end-of-run `IN (claim_id…)` refetch, which overflowed
+ * Postgres at n8n scale (97k binds vs a 65535 cap).
  */
 export async function deduplicateAndStore(
   state: CodeIngestionState,
@@ -406,28 +496,17 @@ export async function deduplicateAndStore(
     )
   })
 
-  const uniqueTriples: Array<{
-    subjectId: string
-    predicate: string
-    objectId: string
-  }> = []
-  const seenTriples = new Set<string>()
-  let claimsResolvedCount = 0
-
-  for (const c of extractedClaims) {
-    const subjectId = resolveRefFromMap(c.subjectRef, keyToId)
-    const objectId = resolveRefFromMap(c.objectRef, keyToId)
-    if (!subjectId || !objectId) continue
-    claimsResolvedCount++
-    const key = claimTripleKey(subjectId, c.predicate, objectId)
-    if (seenTriples.has(key)) continue
-    seenTriples.add(key)
-    uniqueTriples.push({
-      subjectId,
-      predicate: c.predicate,
-      objectId,
-    })
-  }
+  const { collapsed, uniqueTriples, unresolved } =
+    collapseExtractedClaimsForStore(extractedClaims, keyToId, targetHash)
+  const claimsResolvedCount = collapsed.reduce(
+    (sum, row) => sum + row.observationCount,
+    0,
+  )
+  const claimsCollapsedDuplicates = collapsed.reduce(
+    (sum, row) => sum + (row.observationCount - 1),
+    0,
+  )
+  claimsDuplicateEvidenceSkipped += claimsCollapsedDuplicates
 
   const claimsById = new Map<string, PrefetchedClaim>()
   const claimIdByTriple = new Map<string, string>()
@@ -457,6 +536,8 @@ export async function deduplicateAndStore(
       phase: "claims_prefetch",
       claimsResolvedCount,
       claimsUniqueTriples: uniqueTriples.length,
+      claimsUniqueKeys: collapsed.length,
+      claimsCollapsedDuplicates,
       claimsExistingPrefetched: claimsById.size,
       claimsTriplePrefetchQueries: triplePrefetchQueries,
     })
@@ -466,14 +547,12 @@ export async function deduplicateAndStore(
   const addEvidenceWrites: AddEvidenceInput[] = []
   const evidenceTouchWrites: TouchEvidenceInput[] = []
 
-  const logUnresolved = (
-    reason: "unresolved_subject_ref" | "unresolved_object_ref",
-    c: (typeof extractedClaims)[number],
-  ) => {
+  for (const skipped of unresolved) {
     claimsSkippedUnresolvedRef++
+    const c = skipped.claim
     logger.set({
       step: "codeIngestion.deduplicateAndStore.claimSkipped",
-      reason,
+      reason: skipped.reason,
       repositoryId: state.repositoryId,
       orgId,
       roots: state.roots,
@@ -483,7 +562,7 @@ export async function deduplicateAndStore(
       sourceId: c.sourceId,
     })
     logger.warn(
-      reason === "unresolved_subject_ref"
+      skipped.reason === "unresolved_subject_ref"
         ? "[codeIngestion] skipping claim: unresolved subject deduplication ref"
         : "[codeIngestion] skipping claim: unresolved object deduplication ref",
       {
@@ -497,21 +576,10 @@ export async function deduplicateAndStore(
   }
 
   let claimsProcessed = 0
-  for (const c of extractedClaims) {
-    const subjectId = resolveRefFromMap(c.subjectRef, keyToId)
-    if (!subjectId) {
-      logUnresolved("unresolved_subject_ref", c)
-      continue
-    }
-    const objectId = resolveRefFromMap(c.objectRef, keyToId)
-    if (!objectId) {
-      logUnresolved("unresolved_object_ref", c)
-      continue
-    }
-
+  for (const observation of collapsed) {
+    const { subjectId, objectId, logicalKey, claim: c } = observation
     const subjectKind = c.subjectKind
     const objectKind = c.objectKind
-    const logicalKey = deriveLogicalSourceKey(c.sourceId, targetHash)
     const kinds = { subjectKind, objectKind }
 
     if (
@@ -583,6 +651,8 @@ export async function deduplicateAndStore(
           claimsEvidenceAddedToExisting,
           claimsDuplicateEvidenceSkipped,
           claimsSkippedUnresolvedRef,
+          claimsUniqueKeys: collapsed.length,
+          claimsCollapsedDuplicates,
         })
       }
       continue
@@ -697,6 +767,8 @@ export async function deduplicateAndStore(
         claimsEvidenceAddedToExisting,
         claimsDuplicateEvidenceSkipped,
         claimsSkippedUnresolvedRef,
+        claimsUniqueKeys: collapsed.length,
+        claimsCollapsedDuplicates,
       })
     }
   }
@@ -726,6 +798,8 @@ export async function deduplicateAndStore(
     claimsSkippedUnresolvedRef,
     claimsForProjectionCount: claimsForProjection.length,
     claimsUniqueTriples: uniqueTriples.length,
+    claimsUniqueKeys: collapsed.length,
+    claimsCollapsedDuplicates,
     claimsTriplePrefetchQueries: triplePrefetchQueries,
     claimsRefetchQueries: 0,
   })

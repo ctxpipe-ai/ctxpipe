@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
 import type { Db } from "../../../db/client.js"
+import type { ExtractedClaim } from "../schemas.js"
 import {
   claimEvidenceMatchesLogicalKey,
+  collapseExtractedClaimsForStore,
   DEDUP_CLAIM_TRIPLE_BATCH_SIZE,
   prefetchClaimsByTriples,
   prefetchDedupKeysIntoMap,
@@ -9,6 +11,21 @@ import {
   resolveDedupRefToId,
   shouldEmitDedupProgress,
 } from "./deduplicateAndStore.js"
+
+function extracted(over: Partial<ExtractedClaim> = {}): ExtractedClaim {
+  return {
+    subjectRef: "file:src/a.ts",
+    subjectKind: "File",
+    objectRef: "repo:repo_1",
+    objectKind: "Repository",
+    predicate: "PART_OF",
+    sourceId: "identifyAPIs:src/a.ts:hash-one",
+    sourceType: "git",
+    extractionMethod: "deterministic",
+    confidence: 0.9,
+    ...over,
+  }
+}
 
 describe("shouldEmitDedupProgress", () => {
   it("emits on positive multiples of the interval", () => {
@@ -115,6 +132,79 @@ describe("claimEvidenceMatchesLogicalKey", () => {
         hash,
       ),
     ).toBe(false)
+  })
+})
+
+describe("collapseExtractedClaimsForStore", () => {
+  const keyToId = new Map([
+    ["file:src/a.ts", "fil_a"],
+    ["file:src/b.ts", "fil_b"],
+    ["repo:repo_1", "repo_1"],
+  ])
+
+  it("keeps one observation per triple and logical key and lets the last sourceId win", () => {
+    const { collapsed, uniqueTriples, unresolved } =
+      collapseExtractedClaimsForStore(
+        [
+          extracted({ sourceId: "identifyAPIs:src/a.ts" }),
+          extracted({ sourceId: "identifyAPIs:src/a.ts:hash-one" }),
+          extracted({
+            subjectRef: "file:src/b.ts",
+            sourceId: "identifyAPIs:src/b.ts:hash-one",
+          }),
+        ],
+        keyToId,
+        "hash-one",
+      )
+
+    expect(unresolved).toEqual([])
+    expect(uniqueTriples).toEqual([
+      { subjectId: "fil_a", predicate: "PART_OF", objectId: "repo_1" },
+      { subjectId: "fil_b", predicate: "PART_OF", objectId: "repo_1" },
+    ])
+    expect(collapsed).toHaveLength(2)
+    expect(collapsed[0]).toMatchObject({
+      subjectId: "fil_a",
+      logicalKey: "identifyAPIs:src/a.ts",
+      observationCount: 2,
+    })
+    expect(collapsed[0]?.claim.sourceId).toBe("identifyAPIs:src/a.ts:hash-one")
+    expect(collapsed[1]).toMatchObject({
+      subjectId: "fil_b",
+      observationCount: 1,
+    })
+  })
+
+  it("does not collapse different logical keys on the same triple", () => {
+    const { collapsed, uniqueTriples } = collapseExtractedClaimsForStore(
+      [
+        extracted({ sourceId: "identifyAPIs:src/a.ts:hash-one" }),
+        extracted({ sourceId: "identifyPatterns:src/a.ts:hash-one" }),
+      ],
+      keyToId,
+      "hash-one",
+    )
+    expect(uniqueTriples).toHaveLength(1)
+    expect(collapsed).toHaveLength(2)
+    expect(collapsed.map((row) => row.logicalKey).sort()).toEqual([
+      "identifyAPIs:src/a.ts",
+      "identifyPatterns:src/a.ts",
+    ])
+  })
+
+  it("records unresolved refs without grouping them", () => {
+    const { collapsed, unresolved } = collapseExtractedClaimsForStore(
+      [extracted({ subjectRef: "file:missing.ts" }), extracted()],
+      keyToId,
+      "hash-one",
+    )
+    expect(collapsed).toHaveLength(1)
+    expect(unresolved).toEqual([
+      {
+        reason: "unresolved_subject_ref",
+        claim: expect.objectContaining({ subjectRef: "file:missing.ts" }),
+      },
+    ])
   })
 })
 

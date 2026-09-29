@@ -142,6 +142,22 @@ describe.skipIf(!connectionString)(
       }
     })
 
+    it("keeps the last sourceId when same-run observations share a logical key", async () => {
+      const first = fileClaim("src/index.ts")
+      first.sourceId = "identifyAPIs:src/index.ts"
+      const last = fileClaim("src/index.ts")
+      last.sourceId = "identifyAPIs:src/index.ts:hash-one"
+
+      await dedup([first, last])
+      const rows = await getSystemDb()
+        .select({ sourceId: claimEvidence.sourceId })
+        .from(claimEvidence)
+        .innerJoin(claims, eq(claimEvidence.claimId, claims.id))
+        .where(eq(claims.orgId, ORG_ID))
+
+      expect(rows).toEqual([{ sourceId: "identifyAPIs:src/index.ts:hash-one" }])
+    })
+
     it("stores 66k duplicate extracted claims as one projected claim", async () => {
       const copies = Array.from({ length: OVER_BIND_LIMIT }, () =>
         fileClaim("src/index.ts"),
