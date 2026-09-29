@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest"
 import type { Db } from "../../../db/client.js"
 import {
   claimEvidenceMatchesLogicalKey,
+  DEDUP_CLAIM_PREFETCH_BATCH_SIZE,
+  fetchExistingClaimsForProjection,
   prefetchDedupKeysIntoMap,
   resolveDedupRefToId,
   shouldEmitDedupProgress,
@@ -112,6 +114,63 @@ describe("claimEvidenceMatchesLogicalKey", () => {
         hash,
       ),
     ).toBe(false)
+  })
+})
+
+describe("fetchExistingClaimsForProjection", () => {
+  function claimRow(id: string) {
+    return {
+      id,
+      subjectId: "fil_1",
+      objectId: "repo_1",
+      predicate: "PART_OF",
+      status: "active",
+      aggregatedConfidence: 0.9,
+      lastObservedAt: new Date("2026-09-01T00:00:00.000Z"),
+      validFrom: null,
+      validTo: null,
+    }
+  }
+
+  function mockDb() {
+    const whereArgs: unknown[] = []
+    const groupBy = vi.fn().mockResolvedValue([])
+    const where = vi.fn().mockImplementation((arg: unknown) => {
+      whereArgs.push(arg)
+      const rows = Promise.resolve([claimRow("claim_a")])
+      return Object.assign(rows, { groupBy })
+    })
+    const from = vi.fn().mockReturnValue({ where })
+    const db = {
+      select: vi.fn().mockReturnValue({ from }),
+    } as unknown as Db
+    return { db, where, groupBy, whereArgs }
+  }
+
+  it("collapses duplicate ids before querying", async () => {
+    const { db, where } = mockDb()
+    const ids = Array.from({ length: 2000 }, () => "claim_a")
+    const result = await fetchExistingClaimsForProjection(db, "org_1", ids)
+    expect(where).toHaveBeenCalledTimes(2)
+    expect(result.rows).toHaveLength(1)
+    expect(result.rows[0]?.id).toBe("claim_a")
+  })
+
+  it("splits unique ids into batches of 500", async () => {
+    const { db, where } = mockDb()
+    const ids = Array.from(
+      { length: DEDUP_CLAIM_PREFETCH_BATCH_SIZE + 1 },
+      (_, i) => `claim_${i}`,
+    )
+    await fetchExistingClaimsForProjection(db, "org_1", ids)
+    expect(where).toHaveBeenCalledTimes(4)
+  })
+
+  it("does not query when the id list is empty", async () => {
+    const db = { select: vi.fn() } as unknown as Db
+    const result = await fetchExistingClaimsForProjection(db, "org_1", [])
+    expect(db.select).not.toHaveBeenCalled()
+    expect(result.rows).toEqual([])
   })
 })
 

@@ -23,7 +23,7 @@ import { isIdRef } from "../schemas.js"
 import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 
 /** Chunk size for IN-list / OR-triple claim prefetch. */
-const DEDUP_CLAIM_PREFETCH_BATCH_SIZE = 500
+export const DEDUP_CLAIM_PREFETCH_BATCH_SIZE = 500
 const DEDUP_CLAIM_TRIPLE_BATCH_SIZE = 100
 /** Emit progress evlog + flush every N claims processed (and after object chunks). */
 export const DEDUP_PROGRESS_EVERY_CLAIMS = 250
@@ -181,6 +181,70 @@ async function prefetchClaimsByTriples(
   return claimByTriple
 }
 
+export type ExistingClaimProjectionRow = {
+  id: string
+  subjectId: string
+  objectId: string
+  predicate: string
+  status: string
+  aggregatedConfidence: number
+  lastObservedAt: Date
+  validFrom: Date | null
+  validTo: Date | null
+}
+
+/**
+ * Load claim rows + evidence counts for projection. Uniques ids and chunks
+ * the IN lists so a n8n-scale refetch cannot exceed Postgres's 65535 binds.
+ */
+export async function fetchExistingClaimsForProjection(
+  db: Db,
+  orgId: string,
+  claimIds: readonly string[],
+): Promise<{
+  rows: ExistingClaimProjectionRow[]
+  evidenceCounts: Map<string, number>
+}> {
+  const uniqueIds = [...new Set(claimIds)]
+  const rows: ExistingClaimProjectionRow[] = []
+  const evidenceCounts = new Map<string, number>()
+  if (uniqueIds.length === 0) {
+    return { rows, evidenceCounts }
+  }
+
+  for (const chunk of chunkArray(uniqueIds, DEDUP_CLAIM_PREFETCH_BATCH_SIZE)) {
+    const fetched = await db
+      .select({
+        id: claims.id,
+        subjectId: claims.subjectId,
+        objectId: claims.objectId,
+        predicate: claims.predicate,
+        status: claims.status,
+        aggregatedConfidence: claims.aggregatedConfidence,
+        lastObservedAt: claims.lastObservedAt,
+        validFrom: claims.validFrom,
+        validTo: claims.validTo,
+      })
+      .from(claims)
+      .where(and(eq(claims.orgId, orgId), inArray(claims.id, chunk)))
+    rows.push(...fetched)
+
+    const counts = await db
+      .select({
+        claimId: claimEvidence.claimId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(claimEvidence)
+      .where(inArray(claimEvidence.claimId, chunk))
+      .groupBy(claimEvidence.claimId)
+    for (const row of counts) {
+      evidenceCounts.set(row.claimId, row.count)
+    }
+  }
+
+  return { rows, evidenceCounts }
+}
+
 async function prefetchEvidenceByClaimIds(
   db: Db,
   claimIds: string[],
@@ -252,7 +316,7 @@ export async function deduplicateAndStore(
   const objectIds: string[] = []
   const touchedObjectIds: string[] = []
   const claimsForProjection: ClaimForProjection[] = []
-  const claimIdsToFetch: string[] = []
+  const claimIdsToFetch = new Set<string>()
   const claimIdToKinds = new Map<
     string,
     { subjectKind: string; objectKind: string }
@@ -489,7 +553,7 @@ export async function deduplicateAndStore(
         matchedEvidence.sourceId = c.sourceId
         matchedEvidence.logicalSourceKey = logicalKey
       }
-      claimIdsToFetch.push(existingClaimId)
+      claimIdsToFetch.add(existingClaimId)
       claimIdToKinds.set(existingClaimId, { subjectKind, objectKind })
       claimsProcessed++
       if (shouldEmitDedupProgress(claimsProcessed)) {
@@ -524,7 +588,7 @@ export async function deduplicateAndStore(
         logicalSourceKey: logicalKey,
       })
       evidenceByClaimId.set(existingClaimId, list)
-      claimIdsToFetch.push(existingClaimId)
+      claimIdsToFetch.add(existingClaimId)
       claimIdToKinds.set(existingClaimId, {
         subjectKind,
         objectKind,
@@ -599,36 +663,9 @@ export async function deduplicateAndStore(
     await addEvidenceBulk(addEvidenceWrites)
     await touchEvidenceBulk(evidenceTouchWrites, now)
 
-    if (claimIdsToFetch.length > 0) {
-      const fetchedClaims = await db
-        .select({
-          id: claims.id,
-          subjectId: claims.subjectId,
-          objectId: claims.objectId,
-          predicate: claims.predicate,
-          status: claims.status,
-          aggregatedConfidence: claims.aggregatedConfidence,
-          lastObservedAt: claims.lastObservedAt,
-          validFrom: claims.validFrom,
-          validTo: claims.validTo,
-        })
-        .from(claims)
-        .where(
-          and(eq(claims.orgId, orgId), inArray(claims.id, claimIdsToFetch)),
-        )
-
-      const evidenceCounts = Object.fromEntries(
-        (
-          await db
-            .select({
-              claimId: claimEvidence.claimId,
-              count: sql<number>`count(*)::int`,
-            })
-            .from(claimEvidence)
-            .where(inArray(claimEvidence.claimId, claimIdsToFetch))
-            .groupBy(claimEvidence.claimId)
-        ).map((r) => [r.claimId, r.count]),
-      )
+    if (claimIdsToFetch.size > 0) {
+      const { rows: fetchedClaims, evidenceCounts } =
+        await fetchExistingClaimsForProjection(db, orgId, [...claimIdsToFetch])
 
       for (const row of fetchedClaims) {
         const kinds = claimIdToKinds.get(row.id)
@@ -642,7 +679,7 @@ export async function deduplicateAndStore(
           predicate: row.predicate,
           status: row.status,
           aggregatedConfidence: row.aggregatedConfidence,
-          sourceCount: evidenceCounts[row.id] ?? 1,
+          sourceCount: evidenceCounts.get(row.id) ?? 1,
           lastObservedAt: row.lastObservedAt.toISOString(),
           validFrom: row.validFrom?.toISOString() ?? null,
           validTo: row.validTo?.toISOString() ?? null,
