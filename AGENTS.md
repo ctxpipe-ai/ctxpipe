@@ -172,6 +172,10 @@ Durable agent memory is **Markdown-only** under **[.ai/memory/](.ai/memory/)**. 
 - **Rules**: never commit secrets; never auto-write durable ADRs from hooks; prefer [`lessons-learned.md`](.ai/memory/lessons-learned.md) for confirmed conventions.
 - **Commit and share**: include `.ai/memory/` changes in the commit for the work they came from, on that branch; summarize the work in the PR description. Merged lessons become graph instructions ([ADR-037](.ai/memory/decisions/ADR-037-committed-memory-reaches-the-graph.md)).
 
+## Customer privacy
+
+This repository is public. **Never** put the name, slug, email, username, id (`org_*`, `user_*`, `repo_*`, `con_*`, …), repository name, or any other identifier of a user or organization into anything others can see: code, tests, fixtures, comments, commit messages, branch names, PR titles and descriptions, PR/issue comments, changesets, docs, ADRs, or `.ai/memory/`. This applies even when production logs or traces name them. Describe them generically ("a customer's n8n fork", "the affected org"), and use public upstream projects (e.g. `n8n-io/n8n`) or made-up ids for examples and reproductions. Before pushing or publishing, search the diff, commit messages, and PR text for identifiers you saw while debugging. GitHub keeps edited PR description revisions, so a leak needs its revision deleted, not just edited out.
+
 ## Code style
 
 - **Avoid pulling to globals**: Do not extract config or one-off values to module/global scope unless they are reused in more than one place. Inline them where they are used.
