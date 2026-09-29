@@ -17,4 +17,4 @@ Hono + OpenAPI + MCP, Drizzle, TanStack + React Aria, Better Auth, Zoekt, git-na
 
 ## Models
 
-Simplicity review runs as `gpt-5.6-sol-high`. Implementation and explore stay `cursor-grok-4.6-high-fast`.
+Simplicity review runs on Opus at high effort. Implementation and explore run on Opus at medium effort.

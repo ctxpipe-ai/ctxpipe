@@ -1,6 +1,6 @@
 # Simplicity review brief
 
-Paste this file in full into the Sol Simplicity sub-agent. Apply every rule to the pinned diff.
+Paste this file in full into the Simplicity sub-agent. Apply every rule to the pinned diff.
 
 ## Stance
 
