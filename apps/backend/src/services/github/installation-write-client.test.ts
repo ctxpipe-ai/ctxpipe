@@ -572,9 +572,11 @@ describe("commitFiles", () => {
   })
 
   it("posts base64 blobs serially and references their shas", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "Date"] })
     const github = installGithubGit()
 
-    await commitFiles({
+    let settled = false
+    const pending = commitFiles({
       orgId: "org_test",
       repositoryName: "acme/docs",
       env: {} as never,
@@ -584,7 +586,17 @@ describe("commitFiles", () => {
         { path: "linear/a.png", content: "aaa", encoding: "base64" },
         { path: "linear/b.png", content: "bbb", encoding: "base64" },
       ],
+    }).finally(() => {
+      settled = true
     })
+    // msw answers over real I/O and Octokit's Bottleneck yields on
+    // setTimeout(0), so step the fake clock one timer at a time. Only the
+    // client's spacing delay moves it, so request latency cannot skew the gap.
+    while (!settled) {
+      await new Promise((resolve) => setImmediate(resolve))
+      await vi.advanceTimersToNextTimerAsync()
+    }
+    await expect(pending).resolves.toMatchObject({ commitSha: "commit-1" })
 
     expect(github.blobs).toEqual([
       { content: "aaa", encoding: "base64" },
