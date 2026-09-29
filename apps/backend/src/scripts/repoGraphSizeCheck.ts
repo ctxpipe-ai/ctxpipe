@@ -52,7 +52,8 @@ export function estimateRepoGraph(paths: string[]): {
       /(^|\/)\.(cursor|agents)\/rules\//.test(p) ||
       /(^|\/)skill\.md$/.test(p) ||
       p === "readme.md" ||
-      (p.endsWith("/readme.md") && rootDirs.has(p.slice(0, -10))),
+      (p.endsWith("/readme.md") &&
+        rootDirs.has(p.slice(0, -"/readme.md".length))),
   ).length
   const decisionFiles = lower.filter((p) =>
     /(^|\/)(adr|adrs|decisions)\/.+\.mdx?$/.test(p),
@@ -64,6 +65,10 @@ export function estimateRepoGraph(paths: string[]): {
       !NOT_A_PACKAGE.test(p),
   ).length
 
+  // Deliberately loose floors: most packages classify as a Service, App or
+  // Library; about half the instruction files state at least one norm; most
+  // decision records parse; package tsconfigs often exclude tests, so a SCIP
+  // index covers well over 60% of TypeScript sources.
   const packageNodes = Math.floor(roots * 0.8)
   const instructionUnits = Math.floor(instructionFiles * 0.5)
   const decisions = Math.floor(decisionFiles * 0.8)
