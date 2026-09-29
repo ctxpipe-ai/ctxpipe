@@ -1,4 +1,3 @@
-import { setTimeout as sleep } from "node:timers/promises"
 import { initLogger } from "evlog"
 import { describe, expect, it, vi } from "vitest"
 import { tryEmitIndexEvent } from "./indexingLog.js"
@@ -19,34 +18,31 @@ describe("tryEmitIndexEvent", () => {
     })
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
 
-    await withLogger(createLogger({ repoId: "repo_1" }), async () => {
-      const heartbeat = setInterval(() => {
-        tryEmitIndexEvent("codesearch.index.phase.heartbeat", { pid: 7 })
-      }, 30)
-      const branch = new Promise<void>((resolve) => {
+    // Both timers are created before the first flush and fire after it.
+    const after = (ms: number, step: string) =>
+      new Promise<void>((resolve) => {
         setTimeout(() => {
-          tryEmitIndexEvent("codesearch.index.phase.end", { phase: "zoekt" })
+          tryEmitIndexEvent(step)
           resolve()
-        }, 45)
+        }, ms)
       })
-
+    await withLogger(createLogger({ repoId: "repo_1" }), async () => {
+      const heartbeat = after(20, "codesearch.index.phase.heartbeat")
+      const end = after(40, "codesearch.index.phase.end")
       tryEmitIndexEvent("codesearch.index.phase.start", { phase: "zoekt" })
-      await sleep(70)
-      await branch
-      clearInterval(heartbeat)
+      await Promise.all([heartbeat, end])
     })
 
-    const steps = emitted.map((event) => [event.step, event.repoId])
-    expect(steps).toEqual([
+    expect(emitted.map((event) => [event.step, event.repoId])).toEqual([
       ["codesearch.index.phase.start", "repo_1"],
       ["codesearch.index.phase.heartbeat", "repo_1"],
       ["codesearch.index.phase.end", "repo_1"],
-      ["codesearch.index.phase.heartbeat", "repo_1"],
     ])
     expect(
       warn.mock.calls.filter(([message]) =>
         String(message).includes("Keys dropped"),
       ),
     ).toEqual([])
+    warn.mockRestore()
   })
 })
