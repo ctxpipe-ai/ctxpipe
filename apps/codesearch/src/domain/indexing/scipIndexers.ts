@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto"
 import { copyFile, mkdir, rename, rm, stat } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
 import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
-import { log } from "../../observability/logger.js"
 import { mergeScipShardFiles } from "../graph/scipProto.js"
 import { getIndexerProcessConcurrency } from "./capacityEnv.js"
 import type { ScipIndexerId } from "./detectLanguages.js"
@@ -317,10 +316,7 @@ async function runTypeScriptIndexer(input: {
       } catch (error) {
         await removeFileBestEffort(projectShard)
         firstError ??= error
-        // Global log: request-scoped index events after a flush are dropped.
-        log.warn({
-          step: "codesearch.index.scip.typescript_project_failed",
-          checkoutPath: input.checkoutPath,
+        tryEmitIndexEvent("codesearch.index.scip.typescript_project_failed", {
           project,
           error: error instanceof Error ? error.message : String(error),
         })
@@ -328,9 +324,7 @@ async function runTypeScriptIndexer(input: {
     }
     if (projectShards.length === 0) throw firstError
 
-    log.info({
-      step: "codesearch.index.scip.typescript_projects",
-      checkoutPath: input.checkoutPath,
+    tryEmitIndexEvent("codesearch.index.scip.typescript_projects", {
       projects: workspace.projects.length,
       indexed: projectShards.length,
       linkedPackages: workspace.packages.length,
