@@ -24,6 +24,7 @@ import {
   asLocatedPath,
   fileDedupKey,
   linkLocatedPaths,
+  linkPackageHierarchy,
   matchPackageForPath,
   parsePackageDedupKey,
   resolveReferenceClaims,
@@ -216,6 +217,70 @@ describe("linkLocatedPaths", () => {
           claim.predicate === "DECLARED_IN" && claim.objectRef === fileKey,
       ),
     ).toBe(true)
+  })
+})
+
+describe("linkPackageHierarchy", () => {
+  const pkg = (
+    kind: ExtractedObject["kind"],
+    key: string,
+  ): ExtractedObject => ({
+    kind,
+    deduplicationKey: key,
+  })
+
+  it("links each package to its nearest enclosing package and the workspace root to the repository", () => {
+    const claims = linkPackageHierarchy({
+      repositoryId: "repo_1",
+      targetHash: "abc",
+      objects: [
+        pkg("Service", "svc:repo_1:./"),
+        pkg("App", "app:repo_1:apps/web"),
+        pkg("Library", "lib:repo_1:apps/web/plugins/charts"),
+        pkg("Library", "lib:repo_1:packages/ui"),
+        pkg("Library", "lib:repo_1:packages/ui:react"),
+        pkg("Service", "svc:repo_2:apps/other"),
+      ],
+      claims: [],
+    })
+
+    expect(
+      claims.map(({ subjectRef, predicate, objectRef, objectKind }) => [
+        subjectRef,
+        predicate,
+        objectRef,
+        objectKind,
+      ]),
+    ).toEqual([
+      ["svc:repo_1:./", "IMPLEMENTED_IN", "repo_1", "Repository"],
+      ["app:repo_1:apps/web", "PART_OF", "svc:repo_1:./", "Service"],
+      [
+        "lib:repo_1:apps/web/plugins/charts",
+        "PART_OF",
+        "app:repo_1:apps/web",
+        "App",
+      ],
+      ["lib:repo_1:packages/ui", "PART_OF", "svc:repo_1:./", "Service"],
+    ])
+    for (const claim of claims) {
+      expect(
+        isConventionalEvidenceSourceId(claim.sourceId, "repo_1", "abc"),
+      ).toBe(true)
+    }
+  })
+
+  it("adds no parent edge for top-level packages without a workspace root node", () => {
+    expect(
+      linkPackageHierarchy({
+        repositoryId: "repo_1",
+        targetHash: "abc",
+        objects: [
+          pkg("App", "app:repo_1:apps/web"),
+          pkg("Library", "lib:repo_1:packages/ui"),
+        ],
+        claims: [],
+      }),
+    ).toEqual([])
   })
 })
 

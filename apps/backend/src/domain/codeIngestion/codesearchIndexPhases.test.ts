@@ -167,6 +167,23 @@ describe("codesearchIndexScipLang", () => {
   })
 })
 
+describe("codesearchIndexScipLang result", () => {
+  it("returns the public issue of an incomplete shard", async () => {
+    server.use(
+      http.post(`${base}/:repositoryId/index/scip/:language`, () =>
+        HttpResponse.json({ ok: true, issue: "1 of 3 projects failed" }),
+      ),
+    )
+    await expect(
+      codesearchIndexScipLang(
+        { repositoryId: "repo_1", orgId: "org_1" },
+        "typescript",
+        ["typescript"],
+      ),
+    ).resolves.toEqual({ issue: "1 of 3 projects failed" })
+  })
+})
+
 describe("codesearchIndexMergeScip", () => {
   it("sends an empty languagesToMerge array so merge omits leftover shards", async () => {
     let body: unknown

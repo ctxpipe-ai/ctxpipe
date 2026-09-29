@@ -146,11 +146,19 @@ async function cloneAndIndexRepositoryInner(
     languagesToIndex.map((language) =>
       runOptionalIndexPhase(
         "codesearch.index.scip.lang.failed",
-        () =>
-          phaseScipLanguage(ctx, {
+        async () => {
+          const { issue } = await phaseScipLanguage(ctx, {
             language,
             detectedLanguages,
-          }),
+          })
+          if (issue) {
+            log.warn({
+              step: "codesearch.index.scip.lang.incomplete",
+              language,
+              issue,
+            })
+          }
+        },
         { language },
       ),
     ),

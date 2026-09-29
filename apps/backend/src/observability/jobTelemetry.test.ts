@@ -12,7 +12,7 @@ import { createLogger, loggerStorage } from "./logger.js"
 const spans = recordSpans()
 
 beforeEach(() => {
-  loggerStorage.enterWith(createLogger({}))
+  loggerStorage.enterWith({ logger: createLogger({}), base: {} })
 })
 
 describe("job telemetry", () => {
