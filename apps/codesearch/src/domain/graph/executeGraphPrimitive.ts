@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises"
 import { resolve } from "node:path"
-import { decodeScipIndex, type ScipWireIndex } from "./scipProto.js"
+import { Reader } from "protobufjs"
 
 export type GraphPrimitiveName =
   | "find_symbol"
@@ -43,18 +43,6 @@ type WireMultiLineRange = {
   endCharacter?: number
 }
 
-type WireOccurrence = {
-  range?: number[]
-  symbol?: string
-  symbolRoles?: number
-  syntaxKind?: number
-  enclosingRange?: number[]
-  singleLineRange?: WireSingleLineRange
-  multiLineRange?: WireMultiLineRange
-  singleLineEnclosingRange?: WireSingleLineRange
-  multiLineEnclosingRange?: WireMultiLineRange
-}
-
 type WireRelationship = {
   symbol?: string
   isReference?: boolean
@@ -70,12 +58,6 @@ type WireSymbolInformation = {
   kind?: number
   displayName?: string
   enclosingSymbol?: string
-}
-
-type WireDocument = {
-  relativePath?: string
-  occurrences?: WireOccurrence[]
-  symbols?: WireSymbolInformation[]
 }
 
 type SourceRange = {
@@ -166,14 +148,104 @@ function rangeFromWire(
   return undefined
 }
 
+const LENGTH_DELIMITED = 2
+
+/** Packed (`[packed = true]`) or unpacked repeated int32 at the reader. */
+function readInt32s(reader: Reader, wireType: number, into: number[]): void {
+  if (wireType !== LENGTH_DELIMITED) {
+    into.push(reader.int32())
+    return
+  }
+  const end = reader.uint32() + reader.pos
+  while (reader.pos < end) into.push(reader.int32())
+}
+
+function readSingleLineRange(reader: Reader): WireSingleLineRange {
+  const end = reader.uint32() + reader.pos
+  const range: WireSingleLineRange = {}
+  while (reader.pos < end) {
+    const tag = reader.uint32()
+    const field = tag >>> 3
+    if (field === 1) range.line = reader.int32()
+    else if (field === 2) range.startCharacter = reader.int32()
+    else if (field === 3) range.endCharacter = reader.int32()
+    else reader.skipType(tag & 7)
+  }
+  return range
+}
+
+function readMultiLineRange(reader: Reader): WireMultiLineRange {
+  const end = reader.uint32() + reader.pos
+  const range: WireMultiLineRange = {}
+  while (reader.pos < end) {
+    const tag = reader.uint32()
+    const field = tag >>> 3
+    if (field === 1) range.startLine = reader.int32()
+    else if (field === 2) range.startCharacter = reader.int32()
+    else if (field === 3) range.endLine = reader.int32()
+    else if (field === 4) range.endCharacter = reader.int32()
+    else reader.skipType(tag & 7)
+  }
+  return range
+}
+
+function readRelationship(
+  reader: Reader,
+  intern: (value: string) => string,
+): WireRelationship {
+  const end = reader.uint32() + reader.pos
+  const relationship: WireRelationship = {}
+  while (reader.pos < end) {
+    const tag = reader.uint32()
+    const field = tag >>> 3
+    if (field === 1) relationship.symbol = intern(reader.string())
+    else if (field === 2) relationship.isReference = reader.bool()
+    else if (field === 3) relationship.isImplementation = reader.bool()
+    else if (field === 4) relationship.isTypeDefinition = reader.bool()
+    else if (field === 5) relationship.isDefinition = reader.bool()
+    else reader.skipType(tag & 7)
+  }
+  return relationship
+}
+
+function readSymbolInformation(
+  reader: Reader,
+  intern: (value: string) => string,
+): WireSymbolInformation {
+  const end = reader.uint32() + reader.pos
+  const info: WireSymbolInformation = { documentation: [], relationships: [] }
+  while (reader.pos < end) {
+    const tag = reader.uint32()
+    const field = tag >>> 3
+    if (field === 1) info.symbol = intern(reader.string())
+    else if (field === 3) info.documentation?.push(reader.string())
+    else if (field === 4)
+      info.relationships?.push(readRelationship(reader, intern))
+    else if (field === 5) info.kind = reader.int32()
+    else if (field === 6) info.displayName = reader.string()
+    else if (field === 8) info.enclosingSymbol = intern(reader.string())
+    else reader.skipType(tag & 7)
+  }
+  return info
+}
+
+/**
+ * Decode straight from the wire into the query index, one field at a time.
+ * The protobufjs object tree for a large monorepo (1.7M occurrences)
+ * cost more than the index itself, and every occurrence held its own copy of
+ * its symbol string; symbols and paths are interned instead.
+ */
 function decodeIndex(bytes: Uint8Array): ScipIndex {
-  const wire = decodeScipIndex(bytes) as {
-    documents?: WireDocument[]
-    externalSymbols?: WireSymbolInformation[]
-  } & ScipWireIndex
   const occurrences: IndexedOccurrence[] = []
   const definitions: IndexedOccurrence[] = []
   const symbols = new Map<string, IndexedSymbol>()
+  const strings = new Map<string, string>()
+  const intern = (value: string): string => {
+    const existing = strings.get(value)
+    if (existing !== undefined) return existing
+    strings.set(value, value)
+    return value
+  }
 
   const addSymbol = (
     raw: WireSymbolInformation,
@@ -206,33 +278,77 @@ function decodeIndex(bytes: Uint8Array): ScipIndex {
     })
   }
 
-  for (const raw of wire.externalSymbols ?? []) addSymbol(raw)
-  for (const document of wire.documents ?? []) {
-    if (!document.relativePath) continue
-    for (const raw of document.symbols ?? []) {
-      addSymbol(raw, document.relativePath)
+  const readOccurrence = (reader: Reader, documentPath: string): void => {
+    const end = reader.uint32() + reader.pos
+    const range: number[] = []
+    const enclosing: number[] = []
+    let symbol = ""
+    let symbolRoles = 0
+    let syntaxKind = 0
+    let single: WireSingleLineRange | undefined
+    let multi: WireMultiLineRange | undefined
+    let singleEnclosing: WireSingleLineRange | undefined
+    let multiEnclosing: WireMultiLineRange | undefined
+    while (reader.pos < end) {
+      const tag = reader.uint32()
+      const field = tag >>> 3
+      if (field === 1) readInt32s(reader, tag & 7, range)
+      else if (field === 2) symbol = intern(reader.string())
+      else if (field === 3) symbolRoles = reader.int32()
+      else if (field === 5) syntaxKind = reader.int32()
+      else if (field === 7) readInt32s(reader, tag & 7, enclosing)
+      else if (field === 8) single = readSingleLineRange(reader)
+      else if (field === 9) multi = readMultiLineRange(reader)
+      else if (field === 10) singleEnclosing = readSingleLineRange(reader)
+      else if (field === 11) multiEnclosing = readMultiLineRange(reader)
+      else reader.skipType(tag & 7)
     }
-    for (const raw of document.occurrences ?? []) {
-      const occurrenceRange = rangeFromWire(
-        raw.range,
-        raw.singleLineRange,
-        raw.multiLineRange,
-      )
-      if (!raw.symbol || !occurrenceRange) continue
-      const occurrence: IndexedOccurrence = {
-        documentPath: document.relativePath,
-        symbol: raw.symbol,
-        symbolRoles: raw.symbolRoles ?? 0,
-        syntaxKind: raw.syntaxKind ?? 0,
-        range: occurrenceRange,
-        enclosingRange: rangeFromWire(
-          raw.enclosingRange,
-          raw.singleLineEnclosingRange,
-          raw.multiLineEnclosingRange,
-        ),
-      }
-      occurrences.push(occurrence)
-      if ((occurrence.symbolRoles & 1) !== 0) definitions.push(occurrence)
+    const occurrenceRange = rangeFromWire(range, single, multi)
+    if (!symbol || !occurrenceRange) return
+    const occurrence: IndexedOccurrence = {
+      documentPath,
+      symbol,
+      symbolRoles,
+      syntaxKind,
+      range: occurrenceRange,
+      enclosingRange: rangeFromWire(enclosing, singleEnclosing, multiEnclosing),
+    }
+    occurrences.push(occurrence)
+    if ((symbolRoles & 1) !== 0) definitions.push(occurrence)
+  }
+
+  // Path first: a document's fields may arrive in any order.
+  const readDocument = (reader: Reader): void => {
+    const end = reader.uint32() + reader.pos
+    const start = reader.pos
+    let documentPath = ""
+    while (reader.pos < end) {
+      const tag = reader.uint32()
+      if (tag >>> 3 === 1) documentPath = intern(reader.string())
+      else reader.skipType(tag & 7)
+    }
+    if (!documentPath) return
+    reader.pos = start
+    while (reader.pos < end) {
+      const tag = reader.uint32()
+      const field = tag >>> 3
+      if (field === 2) readOccurrence(reader, documentPath)
+      else if (field === 3)
+        addSymbol(readSymbolInformation(reader, intern), documentPath)
+      else reader.skipType(tag & 7)
+    }
+  }
+
+  // External symbols first, as before, so document symbols take precedence.
+  for (const pass of [3, 2]) {
+    const reader = Reader.create(bytes)
+    while (reader.pos < reader.len) {
+      const tag = reader.uint32()
+      const field = tag >>> 3
+      if (field === pass && field === 3)
+        addSymbol(readSymbolInformation(reader, intern))
+      else if (field === pass && field === 2) readDocument(reader)
+      else reader.skipType(tag & 7)
     }
   }
 
