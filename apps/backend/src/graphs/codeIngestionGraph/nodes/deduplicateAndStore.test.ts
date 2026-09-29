@@ -142,12 +142,20 @@ describe("collapseExtractedClaimsForStore", () => {
     ["repo:repo_1", "repo_1"],
   ])
 
-  it("keeps one observation per triple and logical key and lets the last sourceId win", () => {
+  it("keeps one observation per triple and logical key and lets only the last sourceId win", () => {
     const { collapsed, uniqueTriples, unresolved } =
       collapseExtractedClaimsForStore(
         [
-          extracted({ sourceId: "identifyAPIs:src/a.ts" }),
-          extracted({ sourceId: "identifyAPIs:src/a.ts:hash-one" }),
+          extracted({
+            sourceId: "identifyAPIs:src/a.ts",
+            confidence: 0.9,
+            provenance: { root: "first" },
+          }),
+          extracted({
+            sourceId: "identifyAPIs:src/a.ts:hash-one",
+            confidence: 0.4,
+            provenance: { root: "last" },
+          }),
           extracted({
             subjectRef: "file:src/b.ts",
             sourceId: "identifyAPIs:src/b.ts:hash-one",
@@ -169,6 +177,8 @@ describe("collapseExtractedClaimsForStore", () => {
       observationCount: 2,
     })
     expect(collapsed[0]?.claim.sourceId).toBe("identifyAPIs:src/a.ts:hash-one")
+    expect(collapsed[0]?.claim.confidence).toBe(0.9)
+    expect(collapsed[0]?.claim.provenance).toEqual({ root: "first" })
     expect(collapsed[1]).toMatchObject({
       subjectId: "fil_b",
       observationCount: 1,

@@ -171,9 +171,6 @@ describe.skipIf(!connectionString)(
       expect(counts.evidence).toBe(1)
       expect(result.claimsForProjection).toHaveLength(1)
       expect(elapsedMs).toBeLessThan(10_000)
-      console.info(
-        `dedup-no-refetch 66k-dups: ${elapsedMs}ms, projection=${result.claimsForProjection?.length}`,
-      )
     }, 120_000)
 
     it("re-observes 600 unique triples without a claim-id refetch", async () => {
@@ -193,9 +190,6 @@ describe.skipIf(!connectionString)(
         UNIQUE_TRIPLES,
       )
       expect(elapsedMs).toBeLessThan(15_000)
-      console.info(
-        `dedup-no-refetch 600-reobserve: ${elapsedMs}ms, projection=${result.claimsForProjection?.length}`,
-      )
     }, 120_000)
   },
 )

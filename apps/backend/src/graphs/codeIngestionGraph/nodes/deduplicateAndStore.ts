@@ -129,7 +129,7 @@ export function collapseExtractedClaimsForStore(
     const key = `${triple}\0${logicalKey}`
     const existing = groups.get(key)
     if (existing) {
-      existing.claim = claim
+      existing.claim = { ...existing.claim, sourceId: claim.sourceId }
       existing.observationCount++
       continue
     }
@@ -508,8 +508,7 @@ export async function deduplicateAndStore(
   )
   claimsDuplicateEvidenceSkipped += claimsCollapsedDuplicates
 
-  const claimsById = new Map<string, PrefetchedClaim>()
-  const claimIdByTriple = new Map<string, string>()
+  const claimByTriple = new Map<string, PrefetchedClaim>()
   let evidenceByClaimId = new Map<string, PrefetchedEvidence[]>()
   const triplePrefetchQueries = Math.ceil(
     uniqueTriples.length / DEDUP_CLAIM_TRIPLE_BATCH_SIZE,
@@ -525,8 +524,7 @@ export async function deduplicateAndStore(
       return { byTriple, byClaim }
     })
     for (const [triple, row] of prefetched.byTriple) {
-      claimsById.set(row.id, row)
-      claimIdByTriple.set(triple, row.id)
+      claimByTriple.set(triple, row)
     }
     evidenceByClaimId = prefetched.byClaim
   }
@@ -538,7 +536,7 @@ export async function deduplicateAndStore(
       claimsUniqueTriples: uniqueTriples.length,
       claimsUniqueKeys: collapsed.length,
       claimsCollapsedDuplicates,
-      claimsExistingPrefetched: claimsById.size,
+      claimsExistingPrefetched: claimByTriple.size,
       claimsTriplePrefetchQueries: triplePrefetchQueries,
     })
   }
@@ -575,6 +573,21 @@ export async function deduplicateAndStore(
     )
   }
 
+  const emitClaimsProgress = (claimsProcessed: number) => {
+    if (!shouldEmitDedupProgress(claimsProcessed)) return
+    emitProgress({
+      phase: "claims",
+      claimsProcessed,
+      claimsTotal: claimsResolvedCount,
+      claimsNewCreated,
+      claimsEvidenceAddedToExisting,
+      claimsDuplicateEvidenceSkipped,
+      claimsSkippedUnresolvedRef,
+      claimsUniqueKeys: collapsed.length,
+      claimsCollapsedDuplicates,
+    })
+  }
+
   let claimsProcessed = 0
   for (const observation of collapsed) {
     const { subjectId, objectId, logicalKey, claim: c } = observation
@@ -598,7 +611,8 @@ export async function deduplicateAndStore(
     }
 
     const triple = claimTripleKey(subjectId, c.predicate, objectId)
-    const existingClaimId = claimIdByTriple.get(triple)
+    const existing = claimByTriple.get(triple)
+    const existingClaimId = existing?.id
     const existingEvidence = existingClaimId
       ? (evidenceByClaimId.get(existingClaimId) ?? [])
       : []
@@ -627,38 +641,25 @@ export async function deduplicateAndStore(
         matchedEvidence.logicalSourceKey = logicalKey
         matchedEvidence.observedAt = now
       }
-      const row = claimsById.get(existingClaimId)
-      if (row) {
-        row.lastObservedAt = now
+      if (existing) {
+        existing.lastObservedAt = now
         projectionById.set(
           existingClaimId,
           projectionFromPrefetch(
-            row,
+            existing,
             kinds,
             existingEvidence.length,
             nowIso,
-            row.aggregatedConfidence,
+            existing.aggregatedConfidence,
           ),
         )
       }
-      claimsProcessed++
-      if (shouldEmitDedupProgress(claimsProcessed)) {
-        emitProgress({
-          phase: "claims",
-          claimsProcessed,
-          claimsTotal: claimsResolvedCount,
-          claimsNewCreated,
-          claimsEvidenceAddedToExisting,
-          claimsDuplicateEvidenceSkipped,
-          claimsSkippedUnresolvedRef,
-          claimsUniqueKeys: collapsed.length,
-          claimsCollapsedDuplicates,
-        })
-      }
+      claimsProcessed += observation.observationCount
+      emitClaimsProgress(claimsProcessed)
       continue
     }
 
-    if (existingClaimId) {
+    if (existingClaimId && existing) {
       claimsEvidenceAddedToExisting++
       addEvidenceWrites.push({
         claimId: existingClaimId,
@@ -680,16 +681,13 @@ export async function deduplicateAndStore(
         observedAt: now,
       })
       evidenceByClaimId.set(existingClaimId, list)
-      const row = claimsById.get(existingClaimId)
-      if (row) {
-        const agg = confidenceFromEvidence(list)
-        row.aggregatedConfidence = agg
-        row.lastObservedAt = now
-        projectionById.set(
-          existingClaimId,
-          projectionFromPrefetch(row, kinds, list.length, nowIso, agg),
-        )
-      }
+      const agg = confidenceFromEvidence(list)
+      existing.aggregatedConfidence = agg
+      existing.lastObservedAt = now
+      projectionById.set(
+        existingClaimId,
+        projectionFromPrefetch(existing, kinds, list.length, nowIso, agg),
+      )
     } else {
       claimsNewCreated++
       const claimId = generateObjectId("claim")
@@ -738,8 +736,7 @@ export async function deduplicateAndStore(
         validFrom,
         validTo,
       }
-      claimsById.set(claimId, row)
-      claimIdByTriple.set(triple, claimId)
+      claimByTriple.set(triple, row)
       evidenceByClaimId.set(claimId, evidence)
       projectionById.set(claimId, {
         id: claimId,
@@ -757,20 +754,8 @@ export async function deduplicateAndStore(
       })
     }
 
-    claimsProcessed++
-    if (shouldEmitDedupProgress(claimsProcessed)) {
-      emitProgress({
-        phase: "claims",
-        claimsProcessed,
-        claimsTotal: claimsResolvedCount,
-        claimsNewCreated,
-        claimsEvidenceAddedToExisting,
-        claimsDuplicateEvidenceSkipped,
-        claimsSkippedUnresolvedRef,
-        claimsUniqueKeys: collapsed.length,
-        claimsCollapsedDuplicates,
-      })
-    }
+    claimsProcessed += observation.observationCount
+    emitClaimsProgress(claimsProcessed)
   }
 
   await withOrgDbContext(orgId, async () => {
@@ -801,7 +786,6 @@ export async function deduplicateAndStore(
     claimsUniqueKeys: collapsed.length,
     claimsCollapsedDuplicates,
     claimsTriplePrefetchQueries: triplePrefetchQueries,
-    claimsRefetchQueries: 0,
   })
   logger.info("deduplicateAndStore summary")
 
