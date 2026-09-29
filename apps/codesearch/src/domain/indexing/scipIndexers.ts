@@ -2,11 +2,17 @@ import { randomUUID } from "node:crypto"
 import { copyFile, mkdir, rename, rm, stat } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
 import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
+import { mergeScipShardFiles } from "../graph/scipProto.js"
+import { getIndexerProcessConcurrency } from "./capacityEnv.js"
 import type { ScipIndexerId } from "./detectLanguages.js"
 import { withIndexerGoLimits } from "./indexerChildEnv.js"
 import { withIndexerProcessSlot } from "./indexerProcessSemaphore.js"
 import { errorFromIndexerExit } from "./memoryFitError.js"
 import { INDEX_CHILD_LOG_TAIL_BYTES, readStreamTail } from "./streamTail.js"
+import {
+  linkWorkspacePackages,
+  scanTypeScriptWorkspace,
+} from "./typeScriptProjects.js"
 
 /**
  * Direct upstream SCIP indexer CLIs. These commands run from the checkout root.
@@ -211,6 +217,11 @@ export async function runScipIndexer(input: {
   const outputFlag = SCIP_INDEXER_OUTPUT_FLAG[input.indexerId]
   await mkdir(dirname(shardPath), { recursive: true })
 
+  if (input.indexerId === "typescript") {
+    await runTypeScriptIndexer({ ...input, shardPath })
+    return
+  }
+
   if (outputFlag) {
     const argv = [...SCIP_INDEXER_ARGV[input.indexerId], outputFlag, shardPath]
     await rm(shardPath, { force: true })
@@ -256,4 +267,82 @@ export async function runScipIndexer(input: {
       throw error
     }
   })
+}
+
+/**
+ * Index each TypeScript project in its own process so one project's heap or
+ * config failure cannot sink the rest, then merge the per-project shards.
+ * Fails only when no project produced an index.
+ */
+async function runTypeScriptIndexer(input: {
+  checkoutPath: string
+  shardPath: string
+  env?: Record<string, string | undefined>
+}): Promise<void> {
+  const workspace = await scanTypeScriptWorkspace(input.checkoutPath)
+  const unlink = await linkWorkspacePackages(
+    input.checkoutPath,
+    workspace.packages,
+  )
+  // V8's default heap follows host memory (2 GB in an 8 GB container), which
+  // a large monorepo package outgrows; give each concurrent indexer 3/4 of
+  // its share.
+  const shareMb =
+    process.constrainedMemory() / 1024 / 1024 / getIndexerProcessConcurrency()
+  const heapMb = Math.min(8192, Math.max(2048, Math.floor(shareMb * 0.75)))
+  const env = {
+    ...input.env,
+    NODE_OPTIONS: `--max-old-space-size=${heapMb}`,
+  }
+  const projectShards: string[] = []
+  let firstError: unknown
+  await rm(input.shardPath, { force: true })
+  try {
+    for (const project of workspace.projects) {
+      const projectShard = join(
+        dirname(input.shardPath),
+        `.${basename(input.shardPath)}.${randomUUID()}.tmp`,
+      )
+      const argv = [...SCIP_INDEXER_ARGV.typescript, "--output", projectShard]
+      if (project !== ".") argv.push(project)
+      try {
+        await runIndexerProcess({
+          indexerId: "typescript",
+          ...input,
+          env,
+          argv,
+        })
+        await verifyShard("typescript", projectShard)
+        projectShards.push(projectShard)
+      } catch (error) {
+        await removeFileBestEffort(projectShard)
+        firstError ??= error
+        tryEmitIndexEvent("codesearch.index.scip.typescript_project_failed", {
+          project,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+    if (projectShards.length === 0) throw firstError
+
+    tryEmitIndexEvent("codesearch.index.scip.typescript_projects", {
+      projects: workspace.projects.length,
+      indexed: projectShards.length,
+      linkedPackages: workspace.packages.length,
+      heapMb,
+    })
+    const [onlyShard] = projectShards
+    if (projectShards.length === 1 && onlyShard) {
+      await rename(onlyShard, input.shardPath)
+    } else {
+      await mergeScipShardFiles(projectShards, input.shardPath)
+    }
+    await verifyShard("typescript", input.shardPath)
+  } catch (error) {
+    await removeFileBestEffort(input.shardPath)
+    throw error
+  } finally {
+    await Promise.all(projectShards.map(removeFileBestEffort))
+    await unlink()
+  }
 }

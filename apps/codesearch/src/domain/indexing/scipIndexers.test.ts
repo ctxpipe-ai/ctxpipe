@@ -1,8 +1,15 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs"
 import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { decodeScipIndex, encodeScipIndex } from "../graph/scipProto.js"
 import type { ScipIndexerId } from "./detectLanguages.js"
 import {
   runScipIndexer,
@@ -116,7 +123,7 @@ describe("runScipIndexer", () => {
         "scip-typescript",
         "index",
         "--output",
-        resolve(typescriptShard),
+        expect.stringMatching(/\.typescript\.scip\..+\.tmp$/),
       ])
       expect(existsSync(join(checkoutPath, "index.scip"))).toBe(false)
 
@@ -300,6 +307,92 @@ describe("runScipIndexer", () => {
           shardPath,
         }),
       ).rejects.toThrow("it is not a regular file")
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("indexes each monorepo TypeScript project separately and merges unique documents", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "scip-indexers-"))
+    const checkoutPath = join(directory, "checkout")
+    const shardPath = join(directory, "shards", "typescript.scip")
+    const files: Record<string, string> = {
+      "pnpm-workspace.yaml": "packages: ['packages/*']",
+      "tsconfig.json": "{}",
+      "packages/config/package.json": '{"name":"@acme/config"}',
+      "packages/config/tsconfig.json": "{}",
+      "packages/app/tsconfig.json": "{}",
+      "packages/app/test/tsconfig.json": "{}",
+      "packages/broken/tsconfig.json": "{}",
+    }
+    for (const [path, content] of Object.entries(files)) {
+      mkdirSync(dirname(join(checkoutPath, path)), { recursive: true })
+      writeFileSync(join(checkoutPath, path), content)
+    }
+
+    const documents: Record<string, string[]> = {
+      "packages/app": ["packages/app/main.ts", "packages/config/base.ts"],
+      "packages/config": ["packages/config/base.ts"],
+    }
+    const spawn = vi.fn((argv: string[], _options?: object) => {
+      expect(
+        lstatSync(
+          join(checkoutPath, "node_modules", "@acme", "config"),
+        ).isSymbolicLink(),
+      ).toBe(true)
+      const project = argv.at(-1) as string
+      const paths = documents[project]
+      if (!paths) return fakeSubprocess(Promise.resolve(1))
+      writeFileSync(
+        argv[argv.indexOf("--output") + 1] as string,
+        encodeScipIndex({
+          documents: paths.map((relativePath) => ({ relativePath })),
+        }),
+      )
+      return fakeSubprocess(Promise.resolve(0))
+    })
+    vi.stubGlobal("Bun", { spawn })
+
+    try {
+      await runScipIndexer({ indexerId: "typescript", checkoutPath, shardPath })
+
+      expect(spawn.mock.calls.map(([argv]) => argv.at(-1))).toEqual([
+        "packages/app",
+        "packages/broken",
+        "packages/config",
+      ])
+      expect(spawn.mock.calls[0]?.[1]).toMatchObject({
+        env: {
+          NODE_OPTIONS: expect.stringMatching(/^--max-old-space-size=\d+$/),
+        },
+      })
+      expect(
+        decodeScipIndex(readFileSync(shardPath)).documents?.map(
+          (document) => (document as { relativePath: string }).relativePath,
+        ),
+      ).toEqual(["packages/app/main.ts", "packages/config/base.ts"])
+      expect(existsSync(join(checkoutPath, "node_modules"))).toBe(false)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("fails the TypeScript shard when no project produced an index", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "scip-indexers-"))
+    const checkoutPath = join(directory, "checkout")
+    const shardPath = join(directory, "shards", "typescript.scip")
+    await mkdir(checkoutPath)
+    writeFileSync(join(checkoutPath, "tsconfig.json"), "{}")
+
+    vi.stubGlobal("Bun", {
+      spawn: vi.fn(() => fakeSubprocess(Promise.resolve(1))),
+    })
+
+    try {
+      await expect(
+        runScipIndexer({ indexerId: "typescript", checkoutPath, shardPath }),
+      ).rejects.toThrow('SCIP indexer "typescript" failed with exit code 1')
+      expect(existsSync(shardPath)).toBe(false)
     } finally {
       await rm(directory, { recursive: true, force: true })
     }

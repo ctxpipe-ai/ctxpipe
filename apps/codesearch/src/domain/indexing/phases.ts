@@ -8,9 +8,9 @@ import { repositoryCheckouts } from "../../db/schema.js"
 import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
 import { authenticatedGitUrl } from "../../utils/git.js"
 import {
-  decodeScipIndex,
   encodeScipIndex,
-  mergeScipIndexes,
+  mergeScipShardFiles,
+  scipIndexFields,
 } from "../graph/scipProto.js"
 import type { IndexingStepKey } from "../indexingSteps.js"
 import { trySetRepositoryIndexingStep } from "../indexingSteps.js"
@@ -460,7 +460,7 @@ export async function publishMergedScipIndex(input: {
       throw error
     }
     try {
-      decodeScipIndex(bytes)
+      for (const _field of scipIndexFields(bytes));
     } catch (error) {
       tryEmitIndexEvent("codesearch.index.scip.shard_skipped", {
         shardPath,
@@ -497,32 +497,7 @@ export async function writeMergedScipIndex(
         encodeScipIndex({ documents: [], externalSymbols: [] }),
       )
     } else {
-      const shards = await Promise.all(
-        shardPaths.map(async (shardPath) => {
-          const bytes = await readFile(shardPath)
-          let index: ReturnType<typeof decodeScipIndex>
-          try {
-            index = decodeScipIndex(bytes)
-          } catch (error) {
-            throw new Error(
-              `Malformed SCIP shard ${shardPath}: ${
-                error instanceof Error ? error.message : String(error)
-              }`,
-            )
-          }
-          if (bytes.byteLength === 0) {
-            throw new Error(`Empty SCIP shard: ${shardPath}`)
-          }
-          return { bytes, index }
-        }),
-      )
-      const singleShard = shards[0]
-      await writeFile(
-        temporaryPath,
-        shards.length === 1 && singleShard
-          ? singleShard.bytes
-          : mergeScipIndexes(shards.map(({ index }) => index)),
-      )
+      await mergeScipShardFiles(shardPaths, temporaryPath)
     }
     await rename(temporaryPath, outputPath)
   } finally {

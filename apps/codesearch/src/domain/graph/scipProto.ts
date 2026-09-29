@@ -1,4 +1,5 @@
-import { parse } from "protobufjs"
+import { open, readFile } from "node:fs/promises"
+import { parse, Reader } from "protobufjs"
 
 export type ScipWireIndex = {
   documents?: object[]
@@ -75,11 +76,83 @@ export function encodeScipIndex(index: ScipWireIndex): Uint8Array {
   return scipIndexMessage.encode(scipIndexMessage.fromObject(index)).finish()
 }
 
-export function mergeScipIndexes(
-  indexes: readonly ScipWireIndex[],
-): Uint8Array {
-  return encodeScipIndex({
-    documents: indexes.flatMap((index) => index.documents ?? []),
-    externalSymbols: indexes.flatMap((index) => index.externalSymbols ?? []),
-  })
+/**
+ * Top-level `Index` fields as raw wire slices. Documents and external symbols
+ * carry their first string field (`relative_path` / `symbol`) as `key`; their
+ * bodies are never decoded. Throws on malformed framing.
+ */
+export function* scipIndexFields(
+  bytes: Uint8Array,
+): Generator<{ field: number; key?: string; raw: Uint8Array }> {
+  const reader = Reader.create(bytes)
+  while (reader.pos < reader.len) {
+    const start = reader.pos
+    const tag = reader.uint32()
+    const field = tag >>> 3
+    if ((tag & 7) !== 2) {
+      reader.skipType(tag & 7)
+      yield { field, raw: bytes.subarray(start, reader.pos) }
+      continue
+    }
+    const body = reader.bytes()
+    yield {
+      field,
+      key: field === 2 || field === 3 ? firstString(body) : undefined,
+      raw: bytes.subarray(start, reader.pos),
+    }
+  }
+}
+
+function firstString(message: Uint8Array): string | undefined {
+  const reader = Reader.create(message)
+  while (reader.pos < reader.len) {
+    const tag = reader.uint32()
+    if (tag === ((1 << 3) | 2)) return reader.string()
+    reader.skipType(tag & 7)
+  }
+  return undefined
+}
+
+/**
+ * Merge SCIP shard files into `outputPath` one shard at a time without
+ * decoding them, keeping the first metadata, the first document per path, and
+ * the first external symbol per name: TypeScript projects re-index the
+ * projects they reference, so one file can arrive from several shards.
+ */
+export async function mergeScipShardFiles(
+  shardPaths: readonly string[],
+  outputPath: string,
+): Promise<void> {
+  const seen = new Set<string>()
+  const output = await open(outputPath, "w")
+  try {
+    for (const shardPath of shardPaths) {
+      const bytes = await readFile(shardPath)
+      if (bytes.byteLength === 0)
+        throw new Error(`Empty SCIP shard: ${shardPath}`)
+      const kept: Uint8Array[] = []
+      try {
+        for (const { field, key, raw } of scipIndexFields(bytes)) {
+          const seenKey =
+            field === 1
+              ? "metadata"
+              : key === undefined
+                ? null
+                : `${field}:${key}`
+          if (seenKey !== null && seen.has(seenKey)) continue
+          if (seenKey !== null) seen.add(seenKey)
+          kept.push(raw)
+        }
+      } catch (error) {
+        throw new Error(
+          `Malformed SCIP shard ${shardPath}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        )
+      }
+      await output.write(Buffer.concat(kept))
+    }
+  } finally {
+    await output.close()
+  }
 }
