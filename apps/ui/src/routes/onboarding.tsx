@@ -4,6 +4,7 @@ import { useState } from "react"
 import { OnboardingAgentStep } from "@/components/onboarding/OnboardingAgentStep"
 import { OnboardingDiagram } from "@/components/onboarding/OnboardingDiagram"
 import { OnboardingGithubStep } from "@/components/onboarding/OnboardingGithubStep"
+import { OnboardingIndexingStatus } from "@/components/onboarding/OnboardingIndexingStatus"
 import { OnboardingOrgStep } from "@/components/onboarding/OnboardingOrgStep"
 import {
   OnboardingStep,
@@ -189,8 +190,8 @@ export function OnboardingPageContent({
                 formatIndexingStepLabel(repo) ??
                 (status === "ready"
                   ? "indexed"
-                  : status === "failed" || status === "complete_with_issues"
-                    ? "needs attention"
+                  : status === "complete_with_issues"
+                    ? "with issues"
                     : status),
               fraction:
                 repo.indexingStep != null && repo.indexingStepTotal
@@ -207,38 +208,8 @@ export function OnboardingPageContent({
           label: "queued",
           fraction: null,
         }))
-  const {
-    activeCount,
-    failedCount,
-    runningCount,
-    totalCount,
-    singleActiveStepLabel,
-  } = repositoryIndexing.summary
-  // Same pill as the old onboarding: it stays visible on every step while
-  // repositories index.
-  const repositoryStatus =
-    activeCount > 0
-      ? {
-          tone: "indexing" as const,
-          label: `${runningCount > 0 ? "Indexing" : "Preparing"} ${activeCount} ${
-            activeCount === 1 ? "repository" : "repositories"
-          }`,
-        }
-      : failedCount > 0
-        ? {
-            tone: "failed" as const,
-            label: `${failedCount} ${
-              failedCount === 1 ? "repository needs" : "repositories need"
-            } attention`,
-          }
-        : queuedRepositories !== null &&
-            totalCount === 0 &&
-            !repositoryIndexing.isError
-          ? {
-              tone: "indexing" as const,
-              label: "Starting repository indexing",
-            }
-          : null
+  const { activeCount, failedCount, singleActiveStepLabel } =
+    repositoryIndexing.summary
   const view = deriveOnboardingView({
     orgSlug,
     typedSlug,
@@ -401,26 +372,11 @@ export function OnboardingPageContent({
     <OnboardingFrame
       completing={completing}
       status={
-        repositoryStatus ? (
-          <output
-            aria-live="polite"
-            className={`inline-flex items-center gap-2 border bg-zinc-950/90 px-3 py-2 font-mono text-xs ${
-              repositoryStatus.tone === "failed"
-                ? "border-red-400/30 text-red-200"
-                : "border-teal-400/30 text-teal-100"
-            }`}
-          >
-            <span
-              aria-hidden
-              className={
-                repositoryStatus.tone === "failed"
-                  ? "ctx-indexing-failed-dot"
-                  : "ctx-indexing-dot"
-              }
-            />
-            {repositoryStatus.label}
-          </output>
-        ) : null
+        <OnboardingIndexingStatus
+          orgSlug={orgSlug}
+          repositories={repositories}
+          starting={queuedRepositories !== null}
+        />
       }
     >
       {/* The wizard and the picture keep one height (the window, capped), so

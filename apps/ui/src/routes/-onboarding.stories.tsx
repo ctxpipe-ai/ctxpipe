@@ -226,3 +226,64 @@ export const AdminCreateThenGithub: Story = {
     await expect(picture?.isConnected).toBe(true)
   },
 }
+
+/** Two repositories failed: the pill names them, says why, and retries here. */
+export const RepositoriesFailed: Story = {
+  render: () => <OnboardingPageContent urlOrgSlug="acme" />,
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: [
+          authConfigHandler,
+          sessionSignedInOnboardingHandler,
+          organizationListWithOrgHandler,
+          githubInstallationNoneHandler,
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname === "/acme/api/v1/repositories",
+            () =>
+              HttpResponse.json({
+                items: [
+                  {
+                    id: "repo_api",
+                    name: "acme/api",
+                    gitUrl: "https://github.com/acme/api.git",
+                    indexReady: false,
+                    indexingStatus: "failed",
+                    indexingError:
+                      "Code search did not respond while indexing (timed out after 11 attempts).",
+                    indexingStep: null,
+                    indexingStepTotal: null,
+                    indexingStepKey: null,
+                  },
+                  {
+                    id: "repo_web",
+                    name: "acme/web",
+                    gitUrl: "https://github.com/acme/web.git",
+                    indexReady: true,
+                    indexingStatus: "complete_with_issues",
+                    indexingError: "3 files could not be parsed.",
+                    indexingStep: null,
+                    indexingStepTotal: null,
+                    indexingStepKey: null,
+                  },
+                ],
+              }),
+          ),
+          userOnboardingHandler(null),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: /did not finish indexing/i }),
+    )
+    const popover = within(document.body)
+    await expect(
+      await popover.findByText(/code search did not respond/i),
+    ).toBeVisible()
+    await expect(popover.getByRole("button", { name: "Retry 2" })).toBeVisible()
+  },
+}
