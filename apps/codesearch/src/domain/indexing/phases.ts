@@ -8,9 +8,9 @@ import { repositoryCheckouts } from "../../db/schema.js"
 import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
 import { authenticatedGitUrl } from "../../utils/git.js"
 import {
+  assertScipFraming,
   encodeScipIndex,
   mergeScipShardFiles,
-  scipIndexFields,
 } from "../graph/scipProto.js"
 import type { IndexingStepKey } from "../indexingSteps.js"
 import { trySetRepositoryIndexingStep } from "../indexingSteps.js"
@@ -460,7 +460,7 @@ export async function publishMergedScipIndex(input: {
       throw error
     }
     try {
-      for (const _field of scipIndexFields(bytes));
+      assertScipFraming(bytes)
     } catch (error) {
       tryEmitIndexEvent("codesearch.index.scip.shard_skipped", {
         shardPath,

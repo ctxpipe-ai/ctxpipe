@@ -103,6 +103,12 @@ export function* scipIndexFields(
   }
 }
 
+/** Throws when a SCIP index's top-level framing is malformed. */
+export function assertScipFraming(bytes: Uint8Array): void {
+  const reader = Reader.create(bytes)
+  while (reader.pos < reader.len) reader.skipType(reader.uint32() & 7)
+}
+
 function firstString(message: Uint8Array): string | undefined {
   const reader = Reader.create(message)
   while (reader.pos < reader.len) {
