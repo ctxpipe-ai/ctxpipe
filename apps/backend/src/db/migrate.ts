@@ -5,7 +5,7 @@
 import { drizzle } from "drizzle-orm/node-postgres"
 import { migrate } from "drizzle-orm/node-postgres/migrator"
 import { Pool } from "pg"
-import { initEvlog, log } from "../observability/logger.js"
+import { flushEvlog, initEvlog, log } from "../observability/logger.js"
 
 initEvlog()
 
@@ -18,3 +18,4 @@ log.info({ step: "migrate", message: "[migrate] running migrations…" })
 await migrate(db, { migrationsFolder: "./apps/backend/migrations" })
 await pool.end()
 log.info({ step: "migrate", message: "[migrate] done" })
+await flushEvlog()
