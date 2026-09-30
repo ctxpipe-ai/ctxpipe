@@ -689,6 +689,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-09-25
 - **Source:** PR-343 Opus review of the attribution step (live baggage spoof and reset-token leak into ClickHouse)
 
+### Telemetry export never sits on the request or job path
+- **Rule:** Sending logs, spans, or metrics to the collector must not change app behaviour. Exporters buffer and send in the background (evlog `createDrainPipeline`, the OTel batch span processor, a periodic metric reader); a request or job never awaits a network call to the collector. A relay that forwards telemetry has a short upstream timeout. A slow or unreachable collector costs dropped telemetry, never response latency or errors. Flush explicitly only on shutdown or before a script exits.
+- **Category:** convention
+- **Date:** 2026-09-30
+- **Source:** user, after a Railway edge routing incident made the backend's awaited OTLP log drain add 5–15 s to production responses
+
 ### The UI is reached through the backend proxy, which rewrites Host
 - **Rule:** Browsers load the app from the backend origin; the backend proxies SPA and `/.otel` routes to `UI_PROXY_URL`, so inside `apps/ui` server handlers `request.url`/`Host` is the internal UI host, not the public origin. Any origin, CSRF, redirect, or absolute-URL logic in `apps/ui` must derive the public origin from the forwarded host/proto the backend proxy sets (or from the backend's configured public URL), and must be tested with a proxied request (internal Host + public Origin), not only with Origin == Host.
 - **Category:** convention
