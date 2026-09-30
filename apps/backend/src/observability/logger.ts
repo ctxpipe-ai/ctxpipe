@@ -109,8 +109,7 @@ export function initEvlog(options?: { silent?: boolean }): void {
   }
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const pretty = env.NODE_ENV === "development"
-  const otlp = otlpDrain()
-  otlpPipeline = otlp
+  otlpPipeline = otlpDrain()
   initLogger({
     env: {
       service: otelServiceName(env.OTEL_SERVICE_NAME),
@@ -123,7 +122,7 @@ export function initEvlog(options?: { silent?: boolean }): void {
     drain: (ctx) => {
       applyLogContract(ctx.event)
       if (!pretty) process.stdout.write(`${JSON.stringify(ctx.event)}\n`)
-      otlp?.(ctx)
+      otlpPipeline?.(ctx)
     },
   })
 }
