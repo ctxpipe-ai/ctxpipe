@@ -1,5 +1,6 @@
 export { CtxPipe } from "./ctxpipe";
 export type {
+  CtxPipeBackendProps,
   CtxPipeBedrockModelProviderProps,
   CtxPipeConnectorSecretsProps,
   CtxPipeCustomDomainProps,

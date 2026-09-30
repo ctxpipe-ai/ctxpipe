@@ -61,6 +61,10 @@ export function createAgent(params: CreateAgentParams) {
     model: params.model,
     tools: [...params.tools],
     systemPrompt: params.systemPrompt,
+    // Inside a checkpointed graph node the loop would inherit the parent
+    // checkpointer and write every step, one pool connection per parallel tool
+    // call. The parent graph already persists what the node returns.
+    checkpointer: false,
     middleware: [
       contextEditingMiddleware({
         tokenCountMethod: "approx",

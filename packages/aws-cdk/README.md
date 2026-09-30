@@ -135,6 +135,7 @@ modelProvider: {
 
 - `connectorSecrets`: deployment-wide connector settings for GitHub, Atlassian, Slack, Linear, Notion, and PagerDuty. Omit for first boot if connectors are not configured yet. Linear uses `linearClientId`, `linearClientSecret`, optional `linearRedirectUri`, and `linearWebhookSecret`; Notion uses `notionClientId`, `notionClientSecret`, and `notionWebhookSecret`; Slack uses `slackClientId`, `slackClientSecret`, and `slackSigningSecret`; PagerDuty uses `pagerdutyClientId`, `pagerdutyClientSecret`, and optional `pagerdutyRedirectUri` (no shared webhook secret).
 - `size`: deployment capacity profile (`small`, `medium`, `large`). Defaults to `small` when omitted.
+- `backend`: optional `cpu`, `memoryLimitMiB`, and `desiredCount` for the backend service. Each field overrides the `size` profile's backend value without resizing Aurora or Neptune.
 - `otel`: optional OTLP export to your collector. Omit it and the tasks get no `OTEL_*` environment. The construct does not deploy a collector, Langfuse, or ClickStack.
 
 ## Observability
@@ -169,8 +170,8 @@ new CtxPipe(stack, "CtxPipe", {
 
 | Size              | ECS task sizes (cpu/memory MiB)                                                                     | ECS desired count                               | Aurora writer   | Neptune instance | Backup retention |
 | ----------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------- | --------------- | ---------------- | ---------------- |
-| `small` (default) | backend `256/512`, worker `512/1024`, ui `256/512`, codesearch `512/4096`, migrate `256/512`        | backend `1`, worker `1`, ui `1`, codesearch `1` | `db.t4g.medium` | `db.t4g.medium`  | 7 days           |
-| `medium`          | backend `512/1024`, worker `1024/2048`, ui `256/512`, codesearch `1024/8192`, migrate `512/1024`    | backend `1`, worker `1`, ui `1`, codesearch `1` | `db.t4g.large`  | `db.r6g.large`   | 7 days           |
+| `small` (default) | backend `1024/2048`, worker `512/1024`, ui `256/512`, codesearch `512/4096`, migrate `256/512`      | backend `1`, worker `1`, ui `1`, codesearch `1` | `db.t4g.medium` | `db.t4g.medium`  | 7 days           |
+| `medium`          | backend `1024/2048`, worker `1024/2048`, ui `256/512`, codesearch `1024/8192`, migrate `512/1024`   | backend `1`, worker `1`, ui `1`, codesearch `1` | `db.t4g.large`  | `db.r6g.large`   | 7 days           |
 | `large`           | backend `1024/2048`, worker `2048/4096`, ui `512/1024`, codesearch `2048/12288`, migrate `1024/2048` | backend `2`, worker `2`, ui `1`, codesearch `1` | `db.r6g.xlarge` | `db.r6g.xlarge`  | 14 days          |
 
 
@@ -179,6 +180,7 @@ Sizing guidance:
 - Use `small` for pilots and cost-sensitive setups with moderate ingestion churn. Both Aurora and Neptune use burstable `db.t4g.medium` — the smallest AWS-supported combination for Aurora PostgreSQL 16.x and Neptune in most regions (dev/test oriented; not intended for production graph performance testing).
 - Use `medium` when ingestion/reindex bursts are frequent and you want more headroom. Neptune moves to memory-optimized `db.r6g.large`.
 - Use `large` for high-ingestion repositories with stricter latency requirements. Aurora and Neptune both use `db.r6g.xlarge`.
+- The backend runs advisor and chat agents on one JavaScript thread. Every size gives it a full vCPU: below that, a few concurrent `ctx_advisor` calls throttle the task until new database connections time out while the database is idle. If MCP clients send many calls at once, raise `backend.desiredCount` (or `backend.cpu`) rather than moving to a larger `size`, which also resizes Aurora and Neptune.
 - Keep codesearch at **one replica** on every size. Zoekt shards, git clone cache, and SCIP artifacts live on one process and one EFS volume; a second replica splits that state.
 - Extra worker replicas on `large` help extract and connector jobs only. They do **not** raise ingest throughput unless codesearch memory (and the injected `OPENWORKFLOW_CONCURRENCY` / indexer caps) also grow. Each size injects per-worker concurrency so the cluster cannot stampede the single codesearch task (`small` 6, `medium` 10, `large` 8×2 workers with index pipelines capped at 2).
 - Codesearch memory is sized for **ingest peaks** (Zoekt/SCIP), not idle RSS. Fargate cannot grow a running task; `small` is 4 GiB, `medium` 8 GiB, `large` 12 GiB.
