@@ -1,12 +1,12 @@
 # Consolidate intent and ADRs
 
-Status: blocked
+Status: review
 Priority: P0
 Order: 2 (after 07)
-Owner: unassigned
+Owner: claude
 Blocked by: 07
 Created: 2026-10-01
-Updated: 2026-10-01
+Updated: 2026-10-02
 
 ## Context
 
@@ -43,6 +43,21 @@ Read first: this ticket, `../../git-backed-projects/map.md` and its issues, `.ai
 Verify every claim in code before keeping it. Write short, plain decisions; no implementation diaries. Report the claims ledger and the drafts for user review before committing.
 
 ## Comments
+
+- 2026-10-02 (claude): drafts ready for user review.
+  - New PRD `PRDs/workspaces.md`; items still to ship are marked *(ticket NN)*.
+  - ADR-040–048 rewritten in place, each under one page:
+    - ADR-042 was accurate and is unchanged.
+    - ADR-043 is reduced to a short superseded record.
+    - ADR-048 now records the decided sandbox design. It marks tickets 01–03 as pending and lists the rejected alternatives (Railway, ECS RunTask, sbx, SHA-keyed transitions).
+  - Indexes and memory files reconciled:
+    - Decisions and PRD indexes updated.
+    - Glossary: Job sandbox marked retired; Chat sandbox and Session branch defined.
+    - Railway and `local_process` lines removed from lessons-learned and the chat PRDs.
+    - product-context no longer mentions the conversation graph or LangGraph chat.
+    - The map's destination now points to the PRD.
+  - ADR-006 was already marked superseded; no change.
+  - No AGENTS.md edits are needed: no pointer references the retired designs.
 
 - 2026-10-01 (ticket 07): the legacy LangGraph advisor (`graphs/conversationGraph`, `graphs/index.ts`) is deleted; ADR-006 (LangSmith Studio dev routes over `src/graphs/index.ts`) no longer matches the code.
 

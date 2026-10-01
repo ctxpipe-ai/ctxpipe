@@ -1,64 +1,20 @@
-# ADR-045: Required recovery CI
+# ADR-045: CI proves what ran
 
-**Status:** Accepted | **Date:** 2026-09-08 | **Tags:** ci, testing, recovery
+**Status:** Accepted (revised 2026-10-02) | **Date:** 2026-09-08 | **Tags:** ci, testing
 
 ## Context
 
-The full PR 280 baseline found path-filtered TypeScript checks, excluded database
-tests, optional OpenCode tests, missing test fixtures, and build scripts that ran
-`tsc` with `noEmit`. A green check did not establish which product paths ran.
-The accepted workspace recovery plan requires Gate 1 to make those checks
-truthful before Gates 2–6 change product behavior.
+Before PR 280's recovery, CI filtered TypeScript diagnostics by path, excluded database and OpenCode tests, and built packages with `tsc --noEmit`. A green run did not say which product paths executed.
 
 ## Decision
 
-- Check every affected TypeScript project with its actual compiler configuration.
-  Print all diagnostics. During recovery, acknowledge only the finite, reviewed
-  file/code/message/count baselines in `scripts/ci/diagnostics`. Git history must
-  show that allowances only shrink; resolved allowances must be removed.
-- Run required tests with an inventory and Vitest's structured results. A
-  missing file, empty suite, skip, todo, unrecognized failure, or abnormal process
-  exit fails the command. Existing failures may have exact file/title/error
-  allowances in `scripts/ci/failures`; they still execute and print as failures.
-- Require the declared Bun and OpenCode binaries and migrated PostgreSQL using
-  an application role without table ownership or RLS bypass. Scripted model
-  upstreams exercise the real proxy and OpenCode process without paid requests.
-- Keep named PostgreSQL, native git, local sandbox/job worktree, OpenWorkflow,
-  hydration, and chat-engine contract lanes. Their assertions use real owned collaborators.
-  Hydration runs its workflow for 0/1/100 files. Every write kind runs through
-  OpenWorkflow and records its current pre-write failure as an explicit
-  characterization; Gate 3 replaces it with successful commit/CAS/push proof.
-  Gate 0's characterization classification remains explicit pending replacement
-  and deletion; it does not count as proof of the replaced collaborators.
-- Reject test selection modifiers, expected-failure tests, blind test retries,
-  and owned collaborator substitution in proof. External SDK/network boundaries,
-  output observation, and the two documented Gate 0 filesystem fixtures retain
-  their existing roles.
-- Build every production image without publishing it. Build backend/codesearch
-  package entrypoints with Bun and check types separately. Build distributable
-  CDK/CLI packages and typecheck the self-host consumer. Validate Terraform with
-  its remote backend disabled and without account credentials.
-  Run pnpm installation and frontend compilation under Node 22 in Docker;
-  Bun remains the production service runtime. Native Linux builds stalled during
-  pnpm installation under Bun, while the Node 22 CI installation completed.
-- Run the tagged Storybook `workspace-golden` plays in Chromium. The
-  `storybook-golden` job builds Storybook and opens each tagged story
-  iframe until the play function emits `played`. The Storybook index
-  must list `play-fn`; a generic `completed` render is not success. A
-  skip, missing required play, or unexpected failure fails CI. Direct
-  Playwright against a live backend remains optional and is not a
-  substitute for these plays.
+- **Typecheck** every project in `scripts/ci/projects.json` with its real compiler configuration and print all diagnostics. Known diagnostics live in `scripts/ci/diagnostics/<project>.json`; git history must show those allowances only shrink.
+- **Tests** run from an inventory with Vitest's structured results. A missing file, empty suite, skip, todo, or unexpected failure fails CI; known failures need exact entries in `scripts/ci/failures/` (currently none). The test-policy check rejects test selection modifiers, expected-failure tests, retries, and mocks of our own modules in proof tests; third-party SDK and network boundaries may be faked (MSW, SDK mocks on an allowlist).
+- **Contract lanes** (`scripts/ci/contracts.json`) run real collaborators: migrated Postgres as the `ctxpipe_app` role, native git, OpenWorkflow, hydrate, the chat engine with a scripted model upstream and a real OpenCode binary, sandbox ownership, and codesearch with real indexers (Node and Bun).
+- **Builds**: production images (backend, worker, UI, codesearch, docs) build without publishing; CDK and CLI packages build and the self-host example typechecks; Terraform validates without credentials.
+- **UI journeys**: Storybook `play` functions tagged `workspace-golden` run in Chromium; a missing or skipped required play fails CI.
+- **Migrations** apply on a fresh database and on the previous schema.
 
 ## Consequences
 
-CI needs full Git history and real prerequisites. It costs more than isolated
-mock suites, but distinguishes successful execution from acknowledged defects.
-Allowances are temporary recovery debt, never permission to skip execution or
-add regressions. Passing Gate 1 does not claim the product invariants assigned
-to later gates are fixed.
-
-## References
-
-- [Stock TanStack workspace chat](ADR-044-workspace-chat-stock-tanstack.md)
-- [Application role and RLS](ADR-042-postgres-rls-app-role.md)
-- [Bun service runtime](ADR-002-backend-service-stack-and-runtime.md)
+CI is slower and needs Postgres, Bun, OpenCode and Docker, but a green run means the listed paths executed. Allowances are debt to burn down, never a way to add regressions.

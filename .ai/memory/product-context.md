@@ -4,8 +4,9 @@
 
 ctx| is an organization-scoped context platform for engineering teams and AI
 agents. It ingests selected Git repositories and Git-backed connector content,
-builds search indexes and graph claims, and exposes that context through Chat,
-the knowledge graph UI, and the `ctx_advisor` MCP tool.
+builds search indexes and graph claims, and exposes that context through
+git-backed Workspaces (Workspace chat, Files, Graph) and the product MCP
+([workspaces PRD](PRDs/workspaces.md)).
 
 The monorepo uses pnpm workspaces, Turbo, and Biome. The root project is licensed
 under Elastic License 2.0 by default; package-specific exceptions such as the
@@ -14,7 +15,7 @@ CLI and Confluence Forge app declare their own licenses.
 ## Applications and packages
 
 - **`apps/backend`** — Hono on Bun. Owns the REST API, in-process MCP endpoint,
-  Better Auth, Drizzle schema and migrations, LangGraph graphs, retrieval, and
+  Better Auth, Drizzle schema and migrations, Workspace chat, retrieval, and
   OpenWorkflow enqueue paths.
 - **Backend worker** — the `apps/backend` OpenWorkflow worker runs durable
   repository indexing, ingestion, deletion, GitHub synchronization, and
@@ -59,8 +60,9 @@ Workspace chat is stock TanStack (`useChat` + persistence + sandbox) against git
 - `repository-ingestion` coordinates repository indexing and graph extraction.
   Its indexing child calls codesearch phases for checkout, Zoekt, language
   detection, SCIP, and SCIP merge.
-- LangGraph remains responsible for code extraction and the conversation graph;
-  it is not the durable workflow engine.
+- LangGraph remains responsible for code extraction only; it is not the
+  durable workflow engine. Workspace chat runs OpenCode in a sandbox
+  ([ADR-044](decisions/ADR-044-workspace-chat-stock-tanstack.md)).
 - The backend owns repository readiness and indexing status. Codesearch records
   checkout and indexing-step metadata.
 - Retrieval combines code search, repository files, extracted objects and
@@ -70,7 +72,7 @@ Workspace chat is stock TanStack (`useChat` + persistence + sandbox) against git
 
 - REST routes are organization-scoped under `/:orgSlug/api/v1`.
 - The product MCP is a Streamable HTTP endpoint at `/mcp`. `ctx_advisor` is
-  the product tool and runs the same conversation graph used by Chat. Humans
+  a deprecated shim onto Workspace chat for the org's first Workspace. Humans
   default to OAuth: grants are bound to one organization before consent;
   explicit `orgSlug` remains for legacy/manual clients and cannot override a
   bound grant. Organization-owned API keys (`x-api-key`) are the

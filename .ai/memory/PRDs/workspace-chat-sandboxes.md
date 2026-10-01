@@ -7,7 +7,7 @@ Workspace chat (`chat()` + `withSandbox` + `opencodeText`) must reuse one TanSta
 ## Requirements
 
 - **Reuse:** keep the provider sandbox and workdir across turns (`reuse: "thread"`, `snapshot: "after-setup"`). `reuse: "none"` and `destroyOnComplete: true` are rejected — a full git clone plus plugin boot per turn is unacceptable.
-- **Parallelism:** many users and conversations run concurrently. A process-wide mutex or a single host port (for example 4096) for all `local_process` chats is rejected.
+- **Parallelism:** many users and conversations run concurrently. A process-wide mutex or a single host port (for example 4096) shared by all chats is rejected.
 - **TanStack stays stock:** do not patch, fork, or wrap-hack `@tanstack/ai*`. ServeError, echo, and failed resume are treated as our wiring. Do not add `OPENCODE_SERVER_PASSWORD`.
 - **Simplicity:** prefer official `chat()` + `withSandbox` + `opencodeText`. Persistence and the client both see that stream. Attach / keep-alive serve is retired; see [ADR-044](../decisions/ADR-044-workspace-chat-stock-tanstack.md). A host-wide daemon or shared port-4096 lock is still rejected.
 
@@ -16,4 +16,4 @@ Answer-time SLO stays in [workspace-chat-latency](workspace-chat-latency.md).
 
 ## Not this document
 
-Implementation details (ephemeral port lease, instance-store key, definition-hash stability) belong in the working plan / code, not here. A Railway-native sandbox provider is later work.
+Implementation details (instance-store key, locks, providers) belong in [ADR-048](../decisions/ADR-048-native-postgres-sandbox-ownership.md) and code, not here. Hosted chat uses Cloudflare Sandboxes; self-hosters use Docker.

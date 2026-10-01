@@ -20,8 +20,9 @@
 | Temporality | Optional `[valid_from, valid_to)` window. Missing `valid_to` = evergreen (source half-life). Missing `valid_from` is derived from the introducing git commit at hydrate, then persisted by a **job**. `e = 0` before `valid_from` and at/after `valid_to`. |
 | AGENTS.md (workspace map) | Workspace-repository root file: display name in front matter; **one** semantic folder-structure section the ops job maintains (any heading the user chose). Keep folders that exist; drop dead links. Not this monorepo’s agent-instructions `AGENTS.md`. |
 | Read-only Workspace | A Workspace whose desired workspace remote can be cloned and hydrated, but ctxpipe cannot commit/push to it. Chrome shows read-only with an error-specific fix. **Jobs** that maintain that URL are paused; hydrate, search, and workspace chat continue. Distinct from hydrate-failed (tree unreadable). |
-| Job sandbox | One long-lived TanStack sandbox per Workspace for **predefined jobs** (ingest, repair, ops, …). Concurrent jobs use **in-sandbox `git worktree`s**, not per-job sandbox forks. Distinct from a **chat sandbox**. Any sandbox may write, with different restrictions: jobs may push the **default branch**; chat may only open a **branch + PR**. Mechanical GitHub-API mirrors do not use it. Formerly “write sandbox.” |
-| Chat sandbox | One reused TanStack `withSandbox` workdir per conversation (`threadId` = conversation id). Clone and plugins stay; `opencode serve` / session are per turn. Conversations run in parallel. See [workspace-chat-sandboxes](PRDs/workspace-chat-sandboxes.md). |
+| Job sandbox | Retired. Write jobs are typed workflows over captured git data and need no sandbox; only semantic merge uses a short-lived sandbox ([ADR-047](decisions/ADR-047-native-durable-write-workflows.md)). |
+| Chat sandbox | One TanStack sandbox per conversation (`threadId` = conversation id), reused across turns and disposable: work is pushed to the conversation's **session branch**. Conversations run in parallel. See [ADR-048](decisions/ADR-048-native-postgres-sandbox-ownership.md). |
+| Session branch | `ctxpipe/chat/<conversation>/<n>`: the git branch holding a conversation's edits. The durable state of a chat sandbox; Create PR opens a pull request from it. |
 | Zoekt | Google's open-source code search engine, used for indexing and searching repositories |
 | MCP | Model Context Protocol — AI tool interface exposed alongside REST APIs |
 | Better Auth | TypeScript authentication framework used in the backend |
@@ -50,7 +51,7 @@
 | Attach / detach (repos) | **Link / unlink** |
 | Project chat | **Workspace chat** |
 | Serving store / derived store (when you mean the index) | **Projection** |
-| Write sandbox | **Job sandbox** |
+| Write sandbox | **Job sandbox** (retired) |
 | Cutover (as a product step) | **Create workspace** (GitHub picker); uniqueness = that repo already has a Workspace |
 
 ## Abbreviations

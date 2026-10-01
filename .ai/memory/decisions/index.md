@@ -48,13 +48,13 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md) | Self-hosted ClickStack + Langfuse (ops observability) | Accepted (amended 2026-09-29) |
 | [ADR-039](ADR-039-production-image-deploys-one-environment.md) | Production image deploys stay on one Railway environment | Accepted |
 | [ADR-040](ADR-040-pierre-files-pane-chrome.md) | Pierre trees/diffs as Workspace Files explorer chrome | Accepted |
-| [ADR-041](ADR-041-short-org-sql-unique-sandbox-rows.md) | Short org SQL transactions and unique sandbox rows | Accepted |
+| [ADR-041](ADR-041-short-org-sql-unique-sandbox-rows.md) | Short org SQL transactions, no held connections | Accepted |
 | [ADR-042](ADR-042-postgres-rls-app-role.md) | Postgres RLS with a non-owner app role | Accepted |
 | [ADR-043](ADR-043-workspace-chat-keep-alive-serve.md) | In-sandbox keep-alive OpenCode serve | Superseded by [ADR-044](ADR-044-workspace-chat-stock-tanstack.md) |
 | [ADR-044](ADR-044-workspace-chat-stock-tanstack.md) | Stock TanStack workspace chat | Accepted |
-| [ADR-045](ADR-045-required-recovery-ci.md) | Required recovery CI | Accepted |
+| [ADR-045](ADR-045-required-recovery-ci.md) | CI proves what ran | Accepted |
 | [ADR-046](ADR-046-workspace-revision-projection-identity.md) | Workspace revision and projection identity | Accepted |
-| [ADR-047](ADR-047-native-durable-write-workflows.md) | Typed durable write ownership, immutable source indexes, preserved claim metadata and fenced connector results | Accepted |
-| [ADR-048](ADR-048-native-postgres-sandbox-ownership.md) | Native Postgres sandbox ownership, shared bases, live revisions, native stream/process/resource enforcement, provider eligibility, remote TLS runner, per-workspace native egress, PG collision guards and native-run credential brokering | Accepted |
+| [ADR-047](ADR-047-native-durable-write-workflows.md) | Durable write workflows | Accepted |
+| [ADR-048](ADR-048-native-postgres-sandbox-ownership.md) | Conversation sandboxes: stock providers, Postgres ownership, git as durable state | Accepted |
 
 Numbers 035 and 036 are unused. The next new ADR is 049.

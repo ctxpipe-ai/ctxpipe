@@ -1,34 +1,26 @@
-# ADR-040: Pierre trees and diffs as Workspace Files explorer chrome
+# ADR-040: Pierre trees and diffs as Workspace Files chrome
 
-**Status:** Accepted | **Date:** 2026-08-19 | **Tags:** ui, workspaces, git
+**Status:** Accepted (revised 2026-10-02) | **Date:** 2026-08-19 | **Tags:** ui, workspaces, git
 
 ## Context
 
-The Workspace Files pane started as a homemade React Aria `Tree` plus a `<pre>` preview of hydrated knowledge `.md` files. That explorer needed search, flatten, git status, diffs, edit, and mutations. Growing it in-house would duplicate a path-first file tree and a syntax-highlighted editor.
-
-`@pierre/trees` and `@pierre/diffs` (Apache-2.0) already provide that chrome. Compose Files (`/$org/ws/$slug`, no thread) stay a **workspace-repository** explorer at the projection SHA via codesearch. Conversation Files persist on the **chat sandbox** (`ctxpipe/chat/<conversationId>/1`) and reach GitHub only through brokered Commit+Push / Create PR — not `POST …/files/jobs` / `ui_file_edit`. Graph stays on hydrate knowledge.
-
-React Aria remains the house primitive for product chrome. Pierre paints the tree and file surfaces in Shadow DOM — the same class of exception as Cosmograph.
+The Workspace Files pane needs a path-first tree with search, git status, diffs and editing. Growing a React Aria tree and a `<pre>` preview in-house would duplicate what `@pierre/trees` and `@pierre/diffs` (Apache-2.0) already provide.
 
 ## Decision
 
-Use **`@pierre/trees`** (`FileTree`, search, flatten, git badges, DND, rename) and **`@pierre/diffs`** (`File`, `FileDiff`, `EditProvider`) as Files pane chrome only.
-
-- Compose / prepare-fallback browse: `GET /{workspaceSlug}/files/tree`, `GET /{workspaceSlug}/files/blob?path=`, and `GET /{workspaceSlug}/files/status`. SHA is `activeProjectionSha`, then `desiredSha`. That surface is **not writable**.
-- Conversation Files (sandbox ready): `GET|PUT /conversations/{id}/files/…`, `GET …/files/diff`, `POST …/push`. Save / autosave / ⌘S and tree mutations write the sandbox FS. Commit+Push leftover-commits then force-with-lease the session branch. Create PR is that push plus `pulls.create`. `POST /{workspaceSlug}/files/jobs` (`ui_file_edit`) is unused by the conversation pane.
-- Protected default is not read-only: chat may still edit the session branch. Cannot-publish (non-GitHub / no App / no Contents write) is Read-only: no pane edits, no agent writes.
-- Context menus stay React Aria; do not restyle Pierre rows with Tailwind.
-- Map Pierre CSS variables to house zinc / card / quiet focus. Tabler icons stay on pane chrome, not inside the tree.
+- Files pane chrome is **`@pierre/trees`** (`FileTree`, search, git badges, rename) and **`@pierre/diffs`** (`File`, `FileDiff`, `EditProvider`). React Aria stays the primitive for the rest of the product; Pierre renders in Shadow DOM, the same exception as Cosmograph. Theme it through host CSS variables, not utility classes on rows. Context menus stay React Aria.
+- **Compose Files** (`/$org/ws/$slug`, no conversation) browse the workspace repository at the active projection SHA and are read-only.
+- **Conversation Files** read and write the conversation's sandbox worktree through `…/conversations/{id}/files/…` routes with per-file version checks. Work reaches GitHub on the conversation session branch (`ctxpipe/chat/<conversation>/<n>`), pushed by the backend broker, and is published with **Create PR** / **Show PR** ([ADR-048](ADR-048-native-postgres-sandbox-ownership.md)).
+- A read-only Workspace (no Contents:write, non-GitHub host) allows no pane edits.
 
 ## Consequences
 
-- Files pane ARIA for the tree is Pierre’s, not RAC Tree. Keyboard and focus must be checked in Storybook, not assumed from RAC lessons.
-- UI must not treat hydrate `.md` paths as the full repo. Story fixtures are git-shaped and include `AGENTS.md`.
-- Shadow DOM theming is CSS variables on the host, not utility classes on rows.
-- `useFileTree` is create-once: later tree and status updates go through `resetPaths` / `setGitStatus`, not hook option changes.
+- Tree accessibility is Pierre's; keyboard and focus are proven in Storybook plays, not assumed from React Aria.
+- `useFileTree` is create-once: later tree and status updates go through `resetPaths` / `setGitStatus`.
+- Commit+Push is removed from the conversation chrome; turn commits are pushed automatically and squashed when the PR is created (PR 280 ticket 02).
 
-## Alternatives Considered
+## Alternatives considered
 
-- Keep growing the RAC tree and `<pre>` preview: rejected; the feature set already exists in Pierre.
-- Knowledge-only explorer (hydrate `.md` units): rejected; the Files pane is the workspace repository.
-- Commit via GitHub Contents API from the UI: rejected for jobs (default-branch persist stays `ui_file_edit`). Conversation publish is brokered git push of the session branch, not Contents squash.
+- Keep growing the React Aria tree: rejected; the feature set exists in Pierre.
+- A knowledge-only explorer of hydrated `.md` units: rejected; the pane is the repository.
+- GitHub Contents API commits from the UI: rejected; default-branch writes are jobs ([ADR-047](ADR-047-native-durable-write-workflows.md)).

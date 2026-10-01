@@ -1,29 +1,25 @@
 # ADR-044: Stock TanStack workspace chat
 
-**Status:** Accepted | **Date:** 2026-08-25 | **Tags:** workspace-chat, tanstack, persistence, sandbox
+**Status:** Accepted (revised 2026-10-02) | **Date:** 2026-08-25 | **Tags:** workspace-chat, tanstack, persistence, sandbox
 
 ## Context
 
-ADR-043 added a keep-alive OpenCode serve and an attach-only `session.prompt` path because the then-current lock could not pass `baseUrl` into `opencodeText`. That second machine ignored `chat({ messages })`, stored assistant text only, skipped official persistence/durability, and rematerialized the sandbox on prepare (custom clone + serve + session). The lock is now `@tanstack/ai@0.48` + `@tanstack/ai-opencode@0.3.4`.
+Workspace chat runs OpenCode inside a per-conversation sandbox. A homemade attach/keep-alive path ([ADR-043](ADR-043-workspace-chat-keep-alive-serve.md)) bypassed TanStack's persistence and stream lifecycle and was replaced. During PR 280 recovery the stack accumulated ~9.9k lines of `pnpm patch` against `@tanstack/ai*` and `@opencode-ai/sdk`.
 
 ## Decision
 
-Workspace chat uses the official TanStack loop only:
-
-- `toWebSocketStream({ durability: memoryStream, onRun })`
-- `chat({ messages, threadId, runId, middleware: [withPersistence, withSandbox] })`
-- `useChat({ persistence: true })` + `GET …/chat` via `reconstructChat`
-- Sandbox warm is `definition.ensure()` with the Postgres instance store and lifecycle `{ reuse: "thread", snapshot: "after-setup" }`. Checkout fallback lives in `defineWorkspace` setup, not a second clone API.
-
-Keep outside TanStack: org auth and conversation list metadata.
+- Chat uses the official TanStack loop only: `useChat({ persistence: true })` ↔ `toWebSocketStream({ durability: memoryStream })` ↔ `chat({ messages, threadId, runId, middleware: [withPersistence, withSandbox] })` with `opencodeText`. Reload hydrates through `reconstructChat` (`GET …/chat`).
+- Transcripts are TanStack persistence over Postgres; `threadId` is the conversation id. The app owns only org auth, conversation list metadata, retrieval tools, and credential brokering.
+- Sandbox warm-up is `definition.ensure()` against the Postgres instance store ([ADR-048](ADR-048-native-postgres-sandbox-ownership.md)).
+- **TanStack stays stock.** Patches are debt to remove by upgrading and by changing our design; any patch that cannot go needs an upstream PR and explicit acceptance (PR 280 ticket 01).
+- Models are only the configured fast/medium/high tiers through the app's model proxy ([workspace-chat-models](../PRDs/workspace-chat-models.md)).
 
 ## Consequences
 
-- ADR-043 is superseded. Attach, in-process conversation runtime, and turn-claim are removed from the product path.
-- Reload hydrates thinking/tool/text parts from the message store.
-- A warm prepare is `ensure()` resume. First bootstrap may still clone and install OpenCode once.
+- Persistence, streaming and resume behave as upstream documents; fixes go upstream or into our wiring, not into vendored package code.
+- Until ticket 01 lands, the branch carries patches that this ADR does not endorse.
 
 ## Alternatives considered
 
-- Keep attach for serve reuse: rejected; it ignored `ctx.messages` and blocked token streaming.
-- Store `parts` jsonb beside a custom persist path: rejected; official `withPersistence` is the store.
+- Keep attach / keep-alive serve: rejected; it ignored `ctx.messages` and blocked streaming.
+- A custom `parts` store beside persistence: rejected; `withPersistence` is the store.

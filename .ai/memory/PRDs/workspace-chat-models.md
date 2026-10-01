@@ -11,4 +11,4 @@ Workspace chat (TanStack `opencodeText` + `withSandbox`) must use the same model
 
 ## Not this document
 
-A Railway-native sandbox provider is later work. Today production uses the `local_process` fallback when `SANDBOX_PROVIDER` is unset; that is sequencing, not a second model/provider rule.
+Sandbox providers (Cloudflare hosted, Docker self-host) are in [ADR-048](../decisions/ADR-048-native-postgres-sandbox-ownership.md); they do not change the model rule.
