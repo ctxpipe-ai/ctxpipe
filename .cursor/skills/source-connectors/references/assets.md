@@ -85,7 +85,7 @@ recovery.
 Run `pnpm --filter @ctxpipe/backend verify-connector-assets-runtime` before a
 Railway acceptance test; it exercises the Bun TLS pinning path, authenticated
 download, and cross-host redirect credential stripping. It requires the repo's
-declared Bun 1.3.11+ runtime; older Bun versions do not honour the HTTPS lookup
+declared Bun 1.4.2+ runtime; Bun before 1.3.11 does not honour the HTTPS lookup
 contract safely. When the host Bun is older, run the deploy-runtime gate
 directly:
 
@@ -94,7 +94,7 @@ docker run --rm \
   -e DATABASE_URL=postgresql://runtime-verifier.invalid/ctxpipe \
   -e AUTH_SECRET=connector-assets-runtime-verifier-secret \
   -v "$PWD:/workspace" -w /workspace/apps/backend \
-  oven/bun:1.3.11-alpine bun run src/scripts/verifyConnectorAssetRuntime.ts
+  oven/bun:1.4.2-alpine bun run src/scripts/verifyConnectorAssetRuntime.ts
 ```
 
 Use only dedicated provider tenants and throwaway repositories for preview
