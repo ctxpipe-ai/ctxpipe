@@ -525,6 +525,11 @@ export function OnboardingPageContent({
         <div className="hidden min-h-0 md:block">
           <OnboardingDiagram
             view={view}
+            orgSlug={orgSlug}
+            graphLive={
+              activeCount > 0 ||
+              (queuedRepositories !== null && repositories.length === 0)
+            }
             editing={openStep}
             githubAccount={installation?.accountSlug ?? null}
             githubInstalled={Boolean(installation)}

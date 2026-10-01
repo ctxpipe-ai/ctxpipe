@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { HttpResponse, http } from "msw"
 import { OnboardingDiagram } from "./OnboardingDiagram"
 import { deriveOnboardingView, type OnboardingFacts } from "./onboarding-state"
 
@@ -38,6 +39,8 @@ function render(facts: OnboardingFacts) {
     <div className="max-w-4xl bg-zinc-950 p-10">
       <OnboardingDiagram
         view={view}
+        orgSlug="acme"
+        graphLive={facts.github.activeCount > 0}
         editing={view.current}
         githubAccount={facts.github.installed ? "acme" : null}
         githubInstalled={facts.github.installed}
@@ -66,7 +69,44 @@ function render(facts: OnboardingFacts) {
 const meta = {
   title: "Onboarding/Diagram",
   component: OnboardingDiagram,
-  parameters: { layout: "fullscreen" },
+  parameters: {
+    layout: "fullscreen",
+    msw: {
+      handlers: {
+        page: [
+          // A small real-shaped graph so the Knowledge preview renders.
+          http.get("*/acme/api/v1/knowledge-graph", () => {
+            const kinds = ["Service", "Module", "Database", "Team", "Decision"]
+            const nodes = Array.from({ length: 90 }, (_, index) => ({
+              id: `node_${index}`,
+              kind: kinds[index % kinds.length] as string,
+              name: `entity ${index}`,
+              summary: null,
+            }))
+            const edges = nodes.slice(1).map((node, index) => ({
+              sourceId: node.id,
+              targetId: `node_${Math.floor((index * 7) % (index + 1))}`,
+              predicate: "depends_on",
+              lastObservedAt: null,
+              confidence: 0.8,
+            }))
+            return HttpResponse.json({
+              metrics: {
+                totalNodes: nodes.length,
+                totalEdges: edges.length,
+                lastUpdatedAt: null,
+                nodesReturned: nodes.length,
+                edgesReturned: edges.length,
+                truncated: false,
+              },
+              nodes,
+              edges,
+            })
+          }),
+        ],
+      },
+    },
+  },
 } satisfies Meta<typeof OnboardingDiagram>
 
 export default meta

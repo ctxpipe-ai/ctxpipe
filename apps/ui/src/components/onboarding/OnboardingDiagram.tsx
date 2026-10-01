@@ -1,5 +1,5 @@
 import { IconBrandGithub, IconTerminal2 } from "@tabler/icons-react"
-import { GrowingGraph } from "./GrowingGraph"
+import { OnboardingGraphPreview } from "./OnboardingGraphPreview"
 import type {
   BeatState,
   OnboardingStepId,
@@ -8,6 +8,10 @@ import type {
 
 type OnboardingDiagramProps = {
   view: OnboardingView
+  /** The org whose real graph the Knowledge layer previews. */
+  orgSlug: string | null
+  /** Indexing is still running, so the preview keeps re-fetching. */
+  graphLive: boolean
   /** The step open on the left; only its area glows. */
   editing: OnboardingStepId | null
   githubAccount: string | null
@@ -57,6 +61,8 @@ const EDITING = "onb-active border-teal-400/50"
 
 export function OnboardingDiagram({
   view,
+  orgSlug,
+  graphLive,
   editing,
   githubAccount,
   githubInstalled,
@@ -113,17 +119,18 @@ export function OnboardingDiagram({
       index: "02",
       name: "Knowledge",
       title: "Reason & remember",
-      metric: view.hasSource ? "org-scoped graph" : "empty",
+      metric: view.hasSource ? "" : "empty",
       lit: view.hasSource,
       grow: view.hasSource,
-      // Mocked: a graph grows once repositories are queued; before that, a
+      // The org's real graph as it is built, marked Preview; before that, a
       // loader while GitHub hands over the repository list.
       // Between the heading and the metric line, so text stays clear.
-      canvas: view.hasSource ? (
-        <div className="absolute inset-x-3 top-16 bottom-8">
-          <GrowingGraph />
-        </div>
-      ) : null,
+      canvas:
+        view.hasSource && orgSlug ? (
+          <div className="absolute inset-x-3 top-16 bottom-8">
+            <OnboardingGraphPreview orgSlug={orgSlug} live={graphLive} />
+          </div>
+        ) : null,
       body:
         !view.hasSource && githubInstalled ? (
           <span className="mt-auto flex flex-col gap-2">
