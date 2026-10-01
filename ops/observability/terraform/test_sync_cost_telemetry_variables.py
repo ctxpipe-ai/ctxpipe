@@ -33,7 +33,7 @@ class CostTelemetryCredentialSyncTest(unittest.TestCase):
     def railway_response(self, request, timeout):
         self.assertEqual(timeout, 30)
         self.assertEqual(request.get_header("Authorization"), "Bearer management-token")
-        self.assertEqual(request.get_header("User-agent"), "ctxpipe-observability-ci/1.0")
+        self.assertEqual(request.get_header("User-agent"), "observability-ci/1.0")
         body = json.loads(request.data)
         query = body["query"]
         variables = body["variables"]
