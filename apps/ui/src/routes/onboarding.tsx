@@ -60,8 +60,6 @@ export function OnboardingPageContent({
   const [, setPreferences] = useUserPreferences()
   const [createdOrgSlug, setCreatedOrgSlug] = useState<string | null>(null)
   const [typedSlug, setTypedSlug] = useState("")
-  const [githubSkipped, setGithubSkipped] = useState(false)
-  const [agentSkipped, setAgentSkipped] = useState(false)
   // What was just queued, so the picture fills before indexing rows exist.
   const [queuedRepositories, setQueuedRepositories] = useState<string[] | null>(
     null,
@@ -70,10 +68,30 @@ export function OnboardingPageContent({
   // Going back: a done step reopens to review or change it. Beats still come
   // from the account, so reopening never undoes anything.
   const [reviewing, setReviewing] = useState<OnboardingStepId | null>(null)
-  // Indexing starts on its own, so the GitHub step stays open for the
-  // context repository until they press Continue.
-  const [sourceContinued, setSourceContinued] = useState(false)
   const orgSlug = urlOrgSlug ?? createdOrgSlug
+
+  // "I'll do this later" and Continue are choices, not account state. They
+  // are kept per user and org in this browser, so coming back does not
+  // reopen what they set aside. Continue matters because indexing starts
+  // on its own and the GitHub step stays open for the context repository.
+  const choicesKey =
+    session?.user && orgSlug
+      ? `ctxpipe:onboarding:${session.user.id}:${orgSlug}`
+      : null
+  const [choices, setChoices] = useState<OnboardingChoices>(NO_CHOICES)
+  const [choicesFor, setChoicesFor] = useState<string | null>(null)
+  if (choicesKey !== choicesFor) {
+    setChoicesFor(choicesKey)
+    setChoices(readChoices(choicesKey))
+  }
+  const choose = (patch: Partial<OnboardingChoices>) => {
+    const next = { ...choices, ...patch }
+    setChoices(next)
+    writeChoices(choicesKey, next)
+  }
+  const githubSkipped = choices.githubSkipped
+  const agentSkipped = choices.agentSkipped
+  const sourceContinued = choices.sourceContinued
 
   // Joiner or admin is decided once. No org yet: they are creating one.
   // Otherwise by role in the org: an owner coming back mid-setup is not a
@@ -340,8 +358,8 @@ export function OnboardingPageContent({
   // is un-skipped so it becomes current.
   const reopen = (id: OnboardingStepId) => {
     if (reopenAs(id, nav) === "unskip") {
-      if (id === "source") setGithubSkipped(false)
-      if (id === "agent") setAgentSkipped(false)
+      if (id === "source") choose({ githubSkipped: false })
+      if (id === "agent") choose({ agentSkipped: false })
       setReviewing(null)
       return
     }
@@ -452,7 +470,7 @@ export function OnboardingPageContent({
                   : view.beats.source === "skipped"
                     ? "Skipped"
                     : isJoiner
-                      ? "Not connected"
+                      ? "Set up by an admin"
                       : undefined
               }
               onSelect={toggle("source")}
@@ -464,12 +482,12 @@ export function OnboardingPageContent({
                   alreadyIndexed={repositoryNames.length > 0}
                   onRepositoriesQueued={setQueuedRepositories}
                   onContinue={() => {
-                    setSourceContinued(true)
+                    choose({ sourceContinued: true })
                     setReviewing(null)
                   }}
                   onBack={() => goBackFrom("source")}
                   onSkip={() => {
-                    setGithubSkipped(true)
+                    choose({ githubSkipped: true })
                     setReviewing(null)
                   }}
                 />
@@ -498,7 +516,7 @@ export function OnboardingPageContent({
                     firstCall ? (firstCall.client ?? "Your agent") : null
                   }
                   onSkip={() => {
-                    setAgentSkipped(true)
+                    choose({ agentSkipped: true })
                     setReviewing(null)
                   }}
                   onBack={() => goBackFrom("agent")}
@@ -577,4 +595,43 @@ function OnboardingFrame({
       </div>
     </main>
   )
+}
+
+type OnboardingChoices = {
+  githubSkipped: boolean
+  agentSkipped: boolean
+  sourceContinued: boolean
+}
+
+const NO_CHOICES: OnboardingChoices = {
+  githubSkipped: false,
+  agentSkipped: false,
+  sourceContinued: false,
+}
+
+// Storage can be missing or throw (private windows, blocked site data); the
+// flow still works, it just forgets the choices.
+function readChoices(key: string | null): OnboardingChoices {
+  if (!key) return NO_CHOICES
+  try {
+    const stored = JSON.parse(localStorage.getItem(key) ?? "null") as Partial<
+      Record<keyof OnboardingChoices, unknown>
+    > | null
+    return {
+      githubSkipped: stored?.githubSkipped === true,
+      agentSkipped: stored?.agentSkipped === true,
+      sourceContinued: stored?.sourceContinued === true,
+    }
+  } catch {
+    return NO_CHOICES
+  }
+}
+
+function writeChoices(key: string | null, choices: OnboardingChoices) {
+  if (!key) return
+  try {
+    localStorage.setItem(key, JSON.stringify(choices))
+  } catch {
+    // Not remembered; nothing else depends on it.
+  }
 }

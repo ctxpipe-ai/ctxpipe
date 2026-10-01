@@ -1,10 +1,19 @@
 import { IconBrandGithub, IconTerminal2 } from "@tabler/icons-react"
-import { OnboardingGraphPreview } from "./OnboardingGraphPreview"
+import { lazy, Suspense } from "react"
 import type {
   BeatState,
   OnboardingStepId,
   OnboardingView,
 } from "./onboarding-state"
+
+// Cosmograph only loads in the browser, when the preview shows. A static
+// import pulled it into server rendering (the route file also exports its
+// page for Storybook, so it is not code-split), where it cannot load.
+const OnboardingGraphPreview = lazy(() =>
+  import("./OnboardingGraphPreview").then((module) => ({
+    default: module.OnboardingGraphPreview,
+  })),
+)
 
 type OnboardingDiagramProps = {
   view: OnboardingView
@@ -128,7 +137,9 @@ export function OnboardingDiagram({
       canvas:
         view.hasSource && orgSlug ? (
           <div className="absolute inset-x-3 top-16 bottom-8">
-            <OnboardingGraphPreview orgSlug={orgSlug} live={graphLive} />
+            <Suspense fallback={null}>
+              <OnboardingGraphPreview orgSlug={orgSlug} live={graphLive} />
+            </Suspense>
           </div>
         ) : null,
       body:
