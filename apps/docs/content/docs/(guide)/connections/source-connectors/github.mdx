@@ -1,17 +1,16 @@
 ---
 title: GitHub connector
-description: Why GitHub is the foundational source connector for ctx| and where to manage repositories.
+description: Why GitHub is the foundational connector for ctx| and what it enables.
 ---
 
-GitHub is the first source connector most teams set up. It gives ctx| access to
-the repositories your organization chooses, and those repositories become the
-base for code search, file reads, knowledge graph ingestion, and agent context.
+GitHub is the first connector most teams set up. The ctx| GitHub App hosts
+your [Workspaces'](/docs/workspaces) repositories and gives ctx| access to the
+code repositories you link for search and extraction.
 
-GitHub also supports other connectors. When a source like Confluence, Linear, or
-Notion needs to become visible and reviewable, ctx| syncs selected content into a
-GitHub repository first, then ingests it through the same Git-backed pipeline.
-For Linear and Notion, the configuration pull request branch is the draft scope
-and the target branch becomes the live scope after merge.
+Other connectors build on it. Confluence, Linear, Notion, and PagerDuty write
+selected content into a Workspace's GitHub repository. Their configuration
+pull request is the draft scope; the default branch becomes the live scope
+after merge.
 
 You can connect GitHub during onboarding, or later from the **Connectors** page.
 
@@ -50,22 +49,22 @@ You can connect GitHub during onboarding, or later from the **Connectors** page.
   <Step>
     ### Choose a workspace
 
-    After the App is installed, create a workspace or open an existing one.
-    Link repositories from that workspace's Settings. ctx| ingests a repository
-    when you attach it, so it can power search, Chat, MCP, and the knowledge
-    graph.
+    After the App is installed, create a Workspace or open an existing one.
+    Link code repositories from that Workspace's **Settings**. ctx| indexes a
+    repository when you link it, so it can power search, chat, MCP, and the
+    knowledge graph.
   </Step>
 </Steps>
 
 ## What GitHub enables
 
-- Single-repo and cross-repo code search.
-- Repository ingestion into your organization's knowledge system.
+- Workspace repositories that ctx| can read and write.
+- Code search and extraction across linked repositories.
 - Repo-native docs, ADRs, `AGENTS.md`, skills, and standards as agent context.
-- Target repositories for synced sources such as Confluence and Linear.
-- Pull requests for ctx| configuration, including MCP setup where supported.
-- Optional mirroring of **merged** pull requests (conversation, reviews, and
-  changed paths — not diffs) into your context repository. After ingest, the
+- Pull requests for connector configuration, Workspace chat changes, and MCP
+  setup.
+- Mirroring of **merged** pull requests (conversation, reviews, and changed
+  paths, not diffs) into a Workspace. After indexing, the
   knowledge graph locates each changed path as a `File` (shared with
   source-repository extract) and records `ADDED` / `MODIFIED` / `REMOVED` /
   `RENAMED` edges from the pull request dated at merge, `PullRequest TARGETS`
@@ -73,34 +72,16 @@ You can connect GitHub during onboarding, or later from the **Connectors** page.
   repository is already classified, and `PullRequest REFERENCES Issue` when
   the title, body, or branch names a Linear issue.
 
-Selecting GitHub repositories also captures **merged** pull requests into the
-organization context repository (`ctxpipe-context`, or the repo already used
-by Linear, Notion, or Slack). ctx| writes `github/config.yaml` and backfills
-up to 200 newest updated merged pull requests per selected repository. No
-separate toggle. If the organization has no context repository yet, capture
-starts when one is bound.
+Merged pull requests are captured into the Workspace your Linear, Notion, or
+Slack connector writes to. ctx| writes `github/config.yaml` there and
+backfills up to 200 of the most recently updated merged pull requests per
+repository. There is no separate toggle. If no connector writes to a Workspace
+yet, capture starts once one does.
 
 ## After you connect
 
-Link repositories from a workspace's **Settings**. These pages cover search
-indexing and other Git-backed operations:
-
 <Cards>
-  <Card title="Git repositories" href="/docs/git-repositories" description="How repositories feed ctx| search, Chat, MCP, and the knowledge graph." />
-  <Card title="Add repository" href="/docs/git-repositories/add-repository" description="Add Git repositories through GitHub selection or a manual clone URL." />
-  <Card title="Manage repositories" href="/docs/git-repositories/manage-repositories" description="Review indexed repositories, GitHub App selections, and repository actions." />
-  <Card title="Unindex / reindex" href="/docs/git-repositories/unindex-reindex" description="Remove repository context from ctx| or start ingestion again." />
-  <Card title="Install MCPs via PR" href="/docs/git-repositories/install-mcps-via-pr" description="Open pull requests that add ctx| MCP configuration to selected repositories." />
+  <Card title="Create a Workspace" href="/docs/workspaces/create-workspace" description="Choose or create the workspace repository." />
+  <Card title="Linked repositories" href="/docs/workspaces/linked-repositories" description="Add code repositories for search and extraction." />
+  <Card title="Install MCPs via PR" href="/docs/mcp/install-mcps-via-pr" description="Open pull requests that add ctx| MCP configuration to repositories." />
 </Cards>
-
-## Related pages
-
-- [Ingestion](/docs/connections/ingestion) explains what happens after ctx|
-  receives repo-backed source material.
-- [Confluence connector](/docs/connections/source-connectors/confluence) shows
-  how another source can sync selected content into a GitHub repository before
-  ingestion.
-- [Linear connector](/docs/connections/source-connectors/linear) covers the
-  reviewable `linear/config.yaml` scope and Git-backed Linear mirror.
-- [Notion connector](/docs/connections/source-connectors/notion) covers the
-  reviewable `notion/config.yaml` scope and Git-backed Notion mirror.

@@ -1,0 +1,84 @@
+---
+title: Workspaces
+description: A Workspace is a git repository of team knowledge plus the code repositories it searches.
+---
+
+A **Workspace** is where ctx| keeps one body of team knowledge. Each Workspace
+has:
+
+- one **workspace repository**: a git repository of Markdown knowledge files,
+  connector content, and `AGENTS.md`;
+- zero or more **linked repositories**: code repositories that ctx| indexes
+  so chat and agents can search them.
+
+An organization can have many Workspaces, for example one per product area or
+team.
+
+## Git is the source of truth
+
+Everything ctx| knows about a Workspace lives as files in its workspace
+repository. ctx| reads those files to build its search indexes and knowledge
+graph, and it writes new knowledge back as ordinary commits.
+
+That means:
+
+- you can read, review, and edit the knowledge with the tools you already use;
+- every change ctx| makes is a commit in the repository's history;
+- if you stop using ctx|, the repository and its knowledge stay with you.
+
+## What you can do in a Workspace
+
+Open a Workspace from the sidebar. The main column is the conversation; the
+right-hand pane has four tabs:
+
+| Tab | What it shows |
+| --- | --- |
+| **Files** | The workspace repository as seen by the current conversation. Browse, edit, and create files. |
+| **Diff** | The changes the current conversation has made. |
+| **Graph** | The knowledge graph built from this Workspace's files and linked code. |
+| **Settings** | Name, URL slug, workspace repository, linked repositories, and indexing status. |
+
+The sidebar lists your Workspaces with their most recent conversations. Home
+shows recent activity and commits across them.
+
+## How a Workspace stays current
+
+<Steps>
+  <Step>
+    ### Files change in git
+
+    Someone pushes to the workspace repository, a connector mirrors new content
+    into it, or ctx| commits extracted knowledge.
+  </Step>
+
+  <Step>
+    ### ctx| refreshes its index
+
+    ctx| reads the new commit and rebuilds the Workspace's search index and
+    knowledge graph. It never edits files while doing this. The previous
+    version keeps serving until the new one is ready.
+  </Step>
+
+  <Step>
+    ### Linked code is indexed
+
+    Linked repositories are indexed for code search. ctx| also extracts
+    services, APIs, libraries, and their relationships from that code, and
+    commits the results to the workspace repository as knowledge files.
+  </Step>
+</Steps>
+
+## Read-only Workspaces
+
+ctx| writes to the workspace repository only through the ctx| GitHub App. If
+it cannot push, for example because the repository is not on GitHub or the
+App lost access, the Workspace becomes **read-only**. Search, chat, and the
+graph keep working on the latest commit, and Settings explains why writes are
+paused. Writes resume when access returns.
+
+<Cards>
+  <Card title="Create a Workspace" href="/docs/workspaces/create-workspace" description="Choose or create the workspace repository." />
+  <Card title="Knowledge files" href="/docs/workspaces/knowledge-files" description="How files, links, and claims become the knowledge graph." />
+  <Card title="Linked repositories" href="/docs/workspaces/linked-repositories" description="Add code repositories for search and extraction." />
+  <Card title="Workspace chat" href="/docs/workspaces/chat" description="Ask questions and change files in a conversation." />
+</Cards>

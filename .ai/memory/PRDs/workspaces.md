@@ -49,7 +49,7 @@ ctxpipe is a job engine over **Workspaces**. An organization's portable knowledg
 
 - Navigation: Home, Search (palette), Connectors, then Workspace rows (last 5 conversations each). No org-wide Chat, Repositories, or Knowledge graph pages.
 - `/$orgSlug/ws/$workspaceSlug` composes; the first message creates the conversation at `/$orgSlug/ws/$workspaceSlug/$conversationId`. Right pane tabs: Files (Pierre tree/diff/editor), Graph (this Workspace's projection), Settings (name, slug, repository, linked repositories with index health).
-- Add Workspace lives in org settings and in the zero-Workspace gate.
+- Add Workspace lives in org settings and in the zero-Workspace gate *(ticket 11: org settings entry is missing)*.
 
 ## Out of scope for this release
 

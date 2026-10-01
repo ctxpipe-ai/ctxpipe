@@ -1,4 +1,8 @@
 {
   "title": "ctx| MCP",
-  "pages": ["mcp-docs", "local-memory"]
+  "pages": [
+    "mcp-docs",
+    "install-mcps-via-pr",
+    "local-memory"
+  ]
 }

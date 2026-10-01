@@ -1,66 +1,53 @@
 ---
 title: Connection overview
-description: How source connections bring code and docs into ctx| through Git-backed ingestion.
+description: How connectors bring content from your tools into a Workspace as reviewable git files.
 ---
 
-Connections bring source material into ctx| so agents can use it as
-organization-scoped context. ctx| is Git-first: GitHub gives ctx| access to
-code, while context repositories provide a transparent home for selected
-content from other systems.
+Connectors bring content from the tools your team uses into a
+[Workspace](/docs/workspaces). ctx| is git-first: every connector writes
+Markdown into the Workspace's repository, so you can see, review, and keep
+exactly what ctx| and your agents rely on.
 
-That means your team keeps control. You choose what ctx| can read, where synced
-content lands, and what becomes part of the knowledge system agents can query.
+You choose what each connector may read and which Workspace it writes to.
 
 ## GitHub is the foundation
 
-Most teams start by connecting GitHub. This lets ctx| read selected
-repositories, build code search, and ingest repository structure into your
-organization's knowledge system.
+Connect GitHub first. The ctx| GitHub App lets ctx|:
 
-GitHub is critical because it supports two jobs:
+- read and write workspace repositories;
+- index linked code repositories for search and extraction;
+- open pull requests for connector configuration and Workspace chat changes.
 
-- It gives ctx| direct access to source code for single-repo and cross-repo code
-  search.
-- It provides the target repositories used by other connections, such as
-  Confluence, Slack, Linear, Notion, and PagerDuty, when external content needs
-  to become repo-backed context.
+## Two source behaviors
 
-## Three source behaviors
-
-Do not treat every connection as the same kind of synchronization:
-
-- **Git sources** — GitHub repositories are indexed directly.
-- **Scoped mirrors** — Linear, Notion, Confluence, and PagerDuty write approved
-  source scope to Git, then keep that selected content current.
-- **Intent capture** — Slack writes one existing thread only when a user
+- **Scoped mirrors**: Linear, Notion, Confluence, PagerDuty, and GitHub pull
+  requests. You approve a scope through a configuration pull request; ctx|
+  then keeps the selected content current in the Workspace.
+- **Intent capture**: Slack writes one existing thread only when someone
   mentions the bot inside it. There is no channel mirror or history backfill.
 
 <ConnectorKindsDiagram />
 
-The Git-backed paths give your team:
+Because everything lands in git, you get:
 
-- A visible Git history for synced context.
-- A clear repo owner and review surface.
-- One ingestion path for code, docs, and synced source material.
-- Better control over what agents can rely on.
+- a visible history of what changed and when;
+- a review surface for scope changes;
+- one indexing path for code, docs, and mirrored content;
+- control over what agents can rely on.
 
 ## Agents use ctx| through MCP
 
-MCP is agent access, not another source connection. Agents connect to ctx| once,
-then ask for context from the sources your organization has connected, indexed,
-and ingested.
+MCP is how agents read a Workspace, not another source. See
+[ctx| MCP](/docs/mcp/mcp-docs).
 
-For setup details, see [ctx| MCP](/docs/mcp/mcp-docs).
-
-<Callout title="One organization can connect multiple sources">
-  Use the **Connectors** page to review each source, its status, its approved
-  scope, and the repository that receives generated context.
+<Callout title="One organization, many connectors">
+  The **Connectors** page shows each connector, its status, its approved
+  scope, and the Workspace it writes to.
 </Callout>
 
 <Cards>
-  <Card title="Source connector guide" href="/docs/connections/source-connectors" description="Compare Git sources, scoped mirrors, and intent capture." />
-  <Card title="Context repository" href="/docs/connections/context-repository" description="Create the Git-backed home for connector-generated context." />
-  <Card title="GitHub connector" href="/docs/connections/source-connectors/github" description="Connect the foundational code and Git source." />
-  <Card title="Connected sources" href="/docs/connections/connected-sources" description="What ctx| can connect today and how source content is scoped." />
-  <Card title="Ingestion" href="/docs/connections/ingestion" description="What happens after ctx| receives repo-backed source material." />
+  <Card title="Source connector guide" href="/docs/connections/source-connectors" description="Compare mirrors and Slack capture." />
+  <Card title="GitHub connector" href="/docs/connections/source-connectors/github" description="Connect the foundation." />
+  <Card title="Connected sources" href="/docs/connections/connected-sources" description="What ctx| connects today." />
+  <Card title="Indexing" href="/docs/connections/ingestion" description="What happens after content reaches the Workspace." />
 </Cards>

@@ -3,9 +3,9 @@ title: Notion connector
 description: Connect a Notion workspace, review its Git-backed scope, and keep selected pages and databases available to ctx|.
 ---
 
-The **Notion connector** mirrors selected workspace context into a GitHub
-repository, then sends that repository through the normal ctx| ingestion
-pipeline. The generated `notion/config.yaml` pull request makes the scope
+The **Notion connector** mirrors selected workspace context into a
+[Workspace's](/docs/workspaces) GitHub repository, where it is indexed like
+any other knowledge file. The generated `notion/config.yaml` pull request makes the scope
 reviewable before content sync begins.
 
 ctx| reads Notion pages and databases. It does not create or update Notion
@@ -49,7 +49,7 @@ caption stub. Page comments are not mirrored.
 
 - Permission to authorize an application in the Notion workspace and share the
   pages or databases that should be mirrored.
-- A ctx| GitHub connection with access to the destination repository.
+- A [Workspace](/docs/workspaces) whose repository the ctx| GitHub App can write to.
 - Permission to merge the generated configuration pull request.
 
 ## Configuration source of truth
@@ -81,17 +81,15 @@ remains the source of truth for what Notion content is approved.
   <Step>
     ### Confirm GitHub
 
-    Notion content is stored in Git before ingestion. If GitHub is not connected
+    Notion content is stored in git before indexing. If GitHub is not connected
     for this ctx| organization, complete the GitHub App installation first.
   </Step>
 
   <Step>
-    ### Choose a context repository
+    ### Select a workspace
 
-    Select an existing connected repository. A dedicated private repository
-    usually gives the clearest ownership and access boundary; create it in
-    GitHub first, grant the ctx| GitHub App access, then refresh the repository
-    list in ctx|.
+    Choose the [Workspace](/docs/workspaces) that should receive Notion
+    content. ctx| writes it under `notion/` in that Workspace's repository.
   </Step>
 
   <Step>
@@ -115,12 +113,12 @@ remains the source of truth for what Notion content is approved.
   </Step>
 
   <Step>
-    ### Wait for initial sync and ingestion
+    ### Wait for initial sync and indexing
 
     After GitHub reports the merge, ctx| performs the first Notion mirror and
-    starts repository ingestion. The connector reaches **Connected** when the
+    starts indexing. The connector reaches **Connected** when the
     mirror succeeds. Repository indexing may continue afterwards; see
-    [Ingestion](/docs/connections/ingestion) for the indexing lifecycle.
+    [Indexing](/docs/connections/ingestion) for the indexing lifecycle.
   </Step>
 </Steps>
 
@@ -144,7 +142,7 @@ review the replacement configuration pull request.
 
 Notion sends signed webhook events to ctx| when supported entities change.
 While the connector is live, ctx| validates the event against the Git scope,
-updates the affected files, and starts another repository ingestion.
+updates the affected files, and starts indexing again.
 Incremental updates re-mirror the affected top-level resource (a page subtree or
 a database), not a single block. Events that arrive before the connector is
 live, including during initial sync, are skipped rather than queued for later.
@@ -161,7 +159,7 @@ delivered, or use **Retry content sync** after a failed initial mirror.
 4. Confirm the connector reaches **Connected** and the repository contains
    generated files under `notion/`.
 5. Edit a mirrored page in Notion and confirm the matching Git file changes.
-6. Confirm the destination repository reaches an indexed state in ctx|.
+6. Confirm the Workspace index is ready in its **Settings**.
 
 Steps 3 and 4 test the GitHub push webhook and initial mirror. Step 5 separately
 tests Notion webhook delivery.

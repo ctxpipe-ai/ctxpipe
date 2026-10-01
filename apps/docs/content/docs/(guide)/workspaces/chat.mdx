@@ -1,0 +1,103 @@
+---
+title: Workspace chat
+description: Ask questions about a Workspace and change its files in a conversation, then open a pull request.
+---
+
+Workspace chat is a coding agent that works on one Workspace. It answers
+questions using the Workspace's knowledge files, knowledge graph, and linked
+code, and it can edit the workspace repository for you.
+
+## Start a conversation
+
+Open a Workspace and type in the composer (**Ask about this Workspace…**).
+Your first message creates the conversation and gives it its own URL. The
+sidebar keeps your five most recent conversations under each Workspace.
+
+Good first questions:
+
+```text
+I am new here. What are the main services, and which files should I read first?
+```
+
+```text
+Which services depend on the billing events stream, and where is that implemented?
+```
+
+```text
+Before we change authentication, which decisions and standards apply?
+```
+
+## How chat finds answers
+
+Each answer can draw on:
+
+- **knowledge files** in the workspace repository, including mirrored
+  connector content;
+- the **knowledge graph** built from links and claims in those files;
+- **code search** across the Workspace's
+  [linked repositories](/docs/workspaces/linked-repositories);
+- earlier messages in the same conversation.
+
+Chat only sees this Workspace. Other Workspaces in your organization are not
+searched.
+
+## Change files
+
+Ask the agent to write or update knowledge, for example:
+
+```text
+Write a knowledge unit for the checkout service from what you found, and link it to the payments service.
+```
+
+While the agent works:
+
+- the **Files** tab shows the workspace repository as this conversation sees
+  it. You can also edit, create, and rename files there yourself;
+- the **Diff** tab shows everything the conversation has changed.
+
+Each conversation works on its own branch, `ctxpipe/chat/<conversation>/<n>`,
+and never pushes to the default branch.
+
+## Publish with a pull request
+
+When you are happy with the changes, choose **Create PR**. ctx| opens a pull
+request from the conversation's branch to the default branch, and the button
+becomes **Show PR**. Review and merge it like any other pull request; once
+merged, the Workspace re-indexes the new commit.
+
+If the default branch moves while a conversation is open, ctx| brings the
+conversation's branch up to date before the next message. If that update
+conflicts, the conversation shows **Branch needs a rebase**; keep chatting and
+the agent resolves the conflict before you publish.
+
+## Where the agent runs
+
+Each conversation runs in its own isolated sandbox with a copy of the
+workspace repository. The first message in a conversation may take a little
+longer while the sandbox starts (**Setting up sandbox**); later messages reuse
+it. The conversation's work is saved to its git branch, so nothing is lost
+when an idle sandbox is shut down.
+
+The sandbox never holds a credential that can push to your default branch.
+Model calls and git access go through ctx|, scoped to that conversation.
+
+## Know the limits
+
+Chat combines retrieved files, graph claims, and code search. It can still
+miss a file, read an index that is a few minutes behind, or state a
+relationship too strongly. For consequential answers:
+
+- ask which files support the answer;
+- ask what is verified and what is inferred;
+- check the Workspace's indexing status in **Settings**;
+- read the current code before making a risky change.
+
+Anyone who can read a Workspace's repository can read what connectors mirrored
+into it, so the repository's access settings are part of who can see
+captured Slack threads and mirrored Linear, Notion, or Confluence content.
+
+## Chat from your coding agent
+
+Coding agents reach the same context through [ctx| MCP](/docs/mcp/mcp-docs).
+Today `ctx_advisor` asks your organization's first Workspace. Conversations
+started over MCP do not appear in the sidebar.

@@ -7,17 +7,17 @@ This page describes **data handling for the hosted SaaS product** (ctxpipe). It 
 
 ## What ctx| ingests
 
-- ctx| ingests from **Git** and Git-connected sources you attach to your organization.
-- Connected Linear, Notion, Confluence, and captured Slack content is written
-  into a Git repository you control, then follows the same downstream indexing
-  and graph path as other repository content.
-- **What is in your connected repositories (and equivalent synced sources) is what ctx| can see** - nothing beyond what you connect.
+- ctx| reads **git repositories** you add to a Workspace and the sources you connect.
+- Connected Linear, Notion, Confluence, PagerDuty, and captured Slack content
+  is written into a Workspace's git repository you control, then indexed like
+  any other knowledge file.
+- **What is in your Workspaces and their linked repositories is what ctx| can see** - nothing beyond what you connect.
 
 ## What you control
 
-- You **connect repositories explicitly** through the web UI (or supported install flows).
+- You **create Workspaces and link repositories explicitly** through the web UI (or supported install flows).
 - **Nothing is ingested without your action** - a connection or registration step is required.
-- You can **remove repositories** at any time; that stops further ingestion for those sources (existing indexed data may remain until your organization’s deletion processes complete - [get in touch](/docs/getting-started/get-in-touch) for specifics).
+- You can **unlink repositories or delete a Workspace** at any time; that stops further indexing for those sources (existing indexed data may remain until your organization’s deletion processes complete - [get in touch](/docs/getting-started/get-in-touch) for specifics).
 - Ingested data is **scoped to your organization**; other tenants cannot access it.
 
 ## Sub-processors
@@ -30,10 +30,10 @@ This page describes **data handling for the hosted SaaS product** (ctxpipe). It 
 
 ## LLM calls
 
-- **Chat (in-app or via MCP `ctx_advisor`):** Models run when you use the conversational experience. Your **message and retrieved context** (for example search snippets, file excerpts the agent retrieved, and graph-backed context) are sent to the configured model provider. On hosted deployments this is **OpenRouter** (see backend `MODEL_PROVIDER_URL` defaults in the open-source tree). We use **only [Zero Data Retention (ZDR)](https://openrouter.ai/docs/guides/features/zdr)** model endpoints - OpenRouter routes requests to providers it classifies as ZDR; see their docs for how that is enforced and which endpoints qualify.
-- **Ingestion:** The pipeline can also call models for **graph extraction** and related steps over parts of your tree - this is **not** the same as a single chat reply. See [Ingestion explanation](/docs/connections/ingestion) for the stages (clone, index, extraction).
+- **Workspace chat (in-app or via MCP `ctx_advisor`):** Models run when you use the conversational experience. Each conversation's agent runs in an isolated sandbox holding a copy of the workspace repository; its changes stay on a conversation branch until you open a pull request. Your **message and retrieved context** (for example search snippets, file excerpts the agent retrieved, and graph-backed context) are sent to the configured model provider. On hosted deployments this is **OpenRouter** (see backend `MODEL_PROVIDER_URL` defaults in the open-source tree). We use **only [Zero Data Retention (ZDR)](https://openrouter.ai/docs/guides/features/zdr)** model endpoints - OpenRouter routes requests to providers it classifies as ZDR; see their docs for how that is enforced and which endpoints qualify.
+- **Indexing:** Indexing linked repositories can also call models for **knowledge extraction** and related steps over parts of your tree - this is **not** the same as a single chat reply. See [How indexing works](/docs/connections/ingestion) for the stages (clone, index, extraction).
 - **OpenRouter:** For their handling of prompts, logging, and training, see **[OpenRouter’s privacy policy](https://openrouter.ai/privacy)** and their **[privacy & logging](https://openrouter.ai/docs/features/privacy-and-logging)** documentation (the hosted product routes via OpenRouter and is subject to their terms and your account settings).
-- The product does **not** ship your entire repository as one flat paste into chat; context is **selected** by retrieval and tools. Ingestion still uses models on **bounded excerpts or representations** as part of extraction - again, see [Ingestion explanation](/docs/connections/ingestion).
+- The product does **not** ship your entire repository as one flat paste into chat; context is **selected** by retrieval and tools. Ingestion still uses models on **bounded excerpts or representations** as part of extraction - again, see [How indexing works](/docs/connections/ingestion).
 
 ### Storage and retention (product)
 

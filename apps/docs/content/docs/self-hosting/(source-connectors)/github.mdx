@@ -83,8 +83,8 @@ Subscribe to these events:
 Optional for richer PR conversation: **Issues: Read**. Required-check
 conclusions are not mirrored in v1.
 
-Write access is required because ctx| can open configuration pull requests and
-commit connector-generated Markdown into a context repository. Limit the App
+Write access is required because ctx| commits to workspace repositories and
+opens pull requests for connector configuration and Workspace chat. Limit the App
 installation to the repositories ctx| should read or write.
 
 ## 4. Generate and save credentials
@@ -112,11 +112,12 @@ deliberately needs broad access.
 Then verify the full path:
 
 1. The GitHub connector reaches **Connected**.
-2. **Repositories → Select repositories** shows the expected installation.
-3. A selected repository can reach **Indexed**.
+2. **Create workspace** lists repositories from the expected installation.
+3. A linked repository reaches **Indexed** in the Workspace's **Settings**.
 4. Changing repository selection returns through the ctx| setup URL.
 5. A test push reaches the connection-specific webhook.
-6. A context repository can accept a configuration pull request.
+6. A connector can open a configuration pull request on the workspace
+   repository.
 
 ## Troubleshooting
 
@@ -130,7 +131,8 @@ backend origin.
 
 Confirm that the App is installed on the correct GitHub account and has access
 to the repository. Changing the installation in GitHub does not itself tell
-ctx| to index a repository; return to **Select repositories** afterwards.
+ctx| to index a repository; link it from the Workspace's **Settings**
+afterwards.
 
 ### Webhooks fail signature verification
 
@@ -141,11 +143,11 @@ another connection.
 ### Connector writes fail
 
 Confirm **Contents** and **Pull requests** are both read/write and that the
-installation includes the destination context repository.
+installation includes the workspace repository.
 
 <Cards>
   <Card title="Docker deployment" href="/docs/self-hosting/deployment/docker" description="Run the reference stack and provide deployment secrets." />
   <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="Verify origins, callbacks, persistence, and secret handling." />
   <Card title="GitHub user guide" href="/docs/connections/source-connectors/github" description="Select and manage repositories after operators configure the App." />
-  <Card title="Context repository" href="/docs/connections/context-repository" description="Create the Git target used by source connectors." />
+  <Card title="Create a Workspace" href="/docs/workspaces/create-workspace" description="Choose the repository connectors write to." />
 </Cards>

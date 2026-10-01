@@ -73,6 +73,10 @@ Phase 1 output (ADR draft) goes to the user before building; phases 2–9 follow
 
 ## Comments
 
+- 2026-10-02 (claude, ticket 07 docs): public docs now describe the target chat. Before closing:
+  - add Cloudflare to the sub-processor table in `apps/docs/content/docs/(guide)/resources/data-processing.mdx`;
+  - re-check `workspaces/chat.mdx` ("Where the agent runs", Create PR / Show PR, no Commit+Push) against what ships.
+
 - 2026-10-01 (user): drop Commit+Push (keep Create PR / Show PR, squash on PR); start on `basic`.
 
 - 2026-10-01 (user): no separate spike (Railway plan).

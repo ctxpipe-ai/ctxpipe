@@ -1,0 +1,84 @@
+---
+title: Create a Workspace
+description: Choose or create the git repository that holds a Workspace's knowledge.
+---
+
+Creating a Workspace means choosing its **workspace repository**. There is no
+draft step: once you pick a repository, the Workspace exists and ctx| starts
+reading it.
+
+## Before you start
+
+- Connect GitHub from **Connectors** if you want to pick or create a
+  repository on GitHub. ctx| can only write to repositories the ctx| GitHub App
+  can access.
+- Decide which repository should hold this Workspace's knowledge. An empty
+  repository is fine; so is an existing documentation repository.
+
+## Create the Workspace
+
+<Steps>
+  <Step>
+    ### Open Add Workspace
+
+    Onboarding offers to create your first Workspace after you connect GitHub.
+    Later, open **Connectors**, choose **Link to a workspace** on the GitHub
+    connector, then **Create workspace**. If your organization has no Workspaces, Home shows
+    **Create a workspace**.
+  </Step>
+
+  <Step>
+    ### Choose the repository
+
+    Pick one of three ways:
+
+    - **Select GitHub**: search the repositories the ctx| GitHub App can see.
+      Sort by recently pushed, newest, oldest, or name.
+    - **Create on GitHub**: opens GitHub's new-repository page. Create the
+      repository, make sure the App can access it, then come back and select
+      it.
+    - **Paste URL**: any git URL. Repositories outside GitHub work as
+      read-only Workspaces.
+  </Step>
+
+  <Step>
+    ### Wait for the first index
+
+    ctx| reads the default branch and builds the Workspace's index. Settings
+    shows the progress. You can start a conversation straight away; answers
+    improve once indexing finishes.
+  </Step>
+</Steps>
+
+A repository can be the workspace repository of only one Workspace in an
+organization. Other Workspaces can still add it as a linked repository.
+
+## What ctx| adds to the repository
+
+On a writable repository, ctx| makes one setup commit if these files are
+missing:
+
+- `AGENTS.md` with the Workspace `name` in its front matter and a short folder
+  map;
+- `.agents/skills/ctxpipe-knowledge/SKILL.md`, which tells coding agents how to
+  write knowledge files for this Workspace.
+
+Existing files are kept. ctx| only adds what is missing.
+
+## Workspace settings
+
+Open the **Settings** tab in a Workspace to:
+
+- change the **display name** (stored in `AGENTS.md`) and the **slug** used in
+  URLs. Changing the slug breaks old links;
+- change the **workspace repository**. The current index keeps serving until
+  the new repository is indexed;
+- add and remove [linked repositories](/docs/workspaces/linked-repositories);
+- see whether the Workspace is writable and whether its index is ready;
+- delete the Workspace. Deleting removes the Workspace, its conversations, and
+  its index from ctx|. The git repository is not deleted.
+
+<Cards>
+  <Card title="Knowledge files" href="/docs/workspaces/knowledge-files" description="How to structure files ctx| can use." />
+  <Card title="Connect sources" href="/docs/connections" description="Mirror Linear, Notion, Confluence, Slack, and PagerDuty into the Workspace." />
+</Cards>
