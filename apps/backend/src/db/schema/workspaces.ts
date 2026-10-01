@@ -111,6 +111,7 @@ export const workspaceKnowledgeUnits = pgTable.withRLS(
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
     path: text("path").notNull(),
+    kind: text("kind"),
     body: text("body").notNull(),
     projectionSha: text("projection_sha").notNull(),
     links: jsonb("links").$type<string[]>().notNull().default([]),

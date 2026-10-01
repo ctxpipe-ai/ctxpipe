@@ -7,6 +7,7 @@ import {
   servingIdForKnowledgePath,
   shouldHydrateBeforeMigrationExport,
 } from "./hydrate.js"
+import { workspaceGraphNodes } from "./workspace-graph.js"
 
 describe("hydrateKnowledgeTree", () => {
   it("uses a stable serving id per Workspace + path and skips malformed files", () => {
@@ -77,6 +78,24 @@ describe("hydrateKnowledgeTree", () => {
     expect(result.linked).toHaveLength(1)
     expect(result.skipped).toEqual([
       { path: "repositories/billing-dup.md", reason: "malformed" },
+    ])
+  })
+
+  it("keeps the ontology kind from front matter for the workspace graph", () => {
+    const { units } = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      files: [
+        {
+          path: "knowledge/services/billing.md",
+          content: "---\nkind: Service\n---\nBilling service.",
+        },
+        { path: "knowledge/notes/overview.md", content: "Plain notes." },
+      ],
+    })
+    expect(units.map((unit) => unit.kind)).toEqual(["Service", null])
+    expect(workspaceGraphNodes(units).map((node) => node.kind)).toEqual([
+      "Service",
+      "KnowledgeUnit",
     ])
   })
 })

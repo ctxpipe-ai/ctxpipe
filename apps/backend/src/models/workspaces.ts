@@ -381,6 +381,7 @@ async function readWorkspaceProjectionSnapshot(
           select jsonb_agg(jsonb_build_object(
             'servingId', ${qualified(workspaceKnowledgeUnits.servingId)},
             'path', ${qualified(workspaceKnowledgeUnits.path)},
+            'kind', ${qualified(workspaceKnowledgeUnits.kind)},
             'body', ${qualified(workspaceKnowledgeUnits.body)},
             'links', ${qualified(workspaceKnowledgeUnits.links)},
             'claims', ${qualified(workspaceKnowledgeUnits.claims)},
@@ -1053,6 +1054,7 @@ export async function listWorkspaceKnowledgeUnits(
       .select({
         servingId: workspaceKnowledgeUnits.servingId,
         path: workspaceKnowledgeUnits.path,
+        kind: workspaceKnowledgeUnits.kind,
         body: workspaceKnowledgeUnits.body,
         links: workspaceKnowledgeUnits.links,
         claims: workspaceKnowledgeUnits.claims,
@@ -1069,6 +1071,7 @@ export async function listWorkspaceKnowledgeUnits(
       units: rows.map((row) => ({
         servingId: row.servingId,
         path: row.path,
+        kind: row.kind,
         body: row.body,
         links: row.links,
         claims: row.claims,
@@ -1153,6 +1156,7 @@ export async function commitHydrateProjection(input: {
             orgId: input.orgId,
             workspaceId: input.revision.workspaceId,
             path: unit.path,
+            kind: unit.kind ?? null,
             body: unit.body,
             projectionSha: input.revision.sha,
             links: unit.links,

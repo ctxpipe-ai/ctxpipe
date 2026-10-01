@@ -2,7 +2,7 @@ import {
   combineWorkspaceSignals,
   decayWorkspaceSignal,
 } from "./claim-confidence.js"
-import { type HydrateUnit, hydrateUnitsToProjectionClaims } from "./hydrate.js"
+import type { HydrateUnit, hydrateUnitsToProjectionClaims } from "./hydrate.js"
 
 export type WorkspaceGraphPayload = {
   metrics: {
@@ -47,7 +47,7 @@ export function workspaceGraphNodes(
 ): WorkspaceGraphPayload["nodes"] {
   return units.map((unit) => ({
     id: unit.servingId,
-    kind: "KnowledgeUnit",
+    kind: unit.kind ?? "KnowledgeUnit",
     name: unitName(unit.path),
     summary: unitSummary(unit.body),
   }))

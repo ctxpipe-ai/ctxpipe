@@ -1,6 +1,5 @@
-import { z } from "zod"
-import { hydrateUnitsToProjectionClaims } from "./hydrate.js"
 import { createHash } from "node:crypto"
+import { z } from "zod"
 import {
   requireCurrentOrgId,
   requireCurrentOrgSlug,
@@ -10,16 +9,17 @@ import {
   persistWorkspaceGraphResult,
 } from "../../models/workspaces.js"
 import { getGraphClient, withGraphClient } from "../../platform/graph/client.js"
+import { hydrateUnitsToProjectionClaims } from "./hydrate.js"
 import {
+  type PublishedProjection,
   publishedProjection,
   sameWorkspaceRevision,
-  workspaceRevisionSchema,
   type WorkspaceRevision,
-  type PublishedProjection,
+  workspaceRevisionSchema,
 } from "./revision.js"
 import {
-  workspaceGraphNodes,
   workspaceGraphFromSignals,
+  workspaceGraphNodes,
 } from "./workspace-graph.js"
 
 export function workspaceGraphRevisionKey(revision: WorkspaceRevision): string {
@@ -129,7 +129,7 @@ export async function readWorkspaceGraph(input: {
     )
     const nodeSchema = z.object({
       id: z.string(),
-      kind: z.literal("KnowledgeUnit"),
+      kind: z.string(),
       name: z.string().nullable(),
       summary: z.string().nullable(),
     })

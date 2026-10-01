@@ -32,6 +32,8 @@ export type HydrateClaim = {
 export type HydrateUnit = {
   path: string
   servingId: string
+  /** Front-matter `kind` (graph ontology); absent for plain knowledge files. */
+  kind?: string | null
   body: string
   links: string[]
   claims: HydrateClaim[]
@@ -87,6 +89,11 @@ export function hydrateKnowledgeTree(input: {
     units.push({
       path,
       servingId: servingIdForKnowledgePath(input.workspaceId, path),
+      kind:
+        typeof parsed.attributes.kind === "string" &&
+        parsed.attributes.kind.trim()
+          ? parsed.attributes.kind.trim()
+          : null,
       body: parsed.body,
       links: markdownLinks(parsed.body),
       claims: parseClaims(parsed.attributes.claims),
