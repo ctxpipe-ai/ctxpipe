@@ -1,4 +1,5 @@
-import { parse } from "protobufjs"
+import { open, readFile } from "node:fs/promises"
+import { parse, Reader } from "protobufjs"
 
 export type ScipWireIndex = {
   documents?: object[]
@@ -7,7 +8,7 @@ export type ScipWireIndex = {
 
 // Wire-compatible subset of the official schema:
 // https://github.com/scip-code/scip/blob/main/scip.proto
-const scipIndexMessage = parse(`
+const scipSchema = parse(`
   syntax = "proto3";
   package scip;
 
@@ -63,7 +64,10 @@ const scipIndexMessage = parse(`
     SingleLineRange single_line_enclosing_range = 10;
     MultiLineRange multi_line_enclosing_range = 11;
   }
-`).root.lookupType("scip.Index")
+`).root
+const scipIndexMessage = scipSchema.lookupType("scip.Index")
+const scipDocumentMessage = scipSchema.lookupType("scip.Document")
+const scipSymbolMessage = scipSchema.lookupType("scip.SymbolInformation")
 
 export function decodeScipIndex(bytes: Uint8Array): ScipWireIndex {
   return scipIndexMessage.toObject(scipIndexMessage.decode(bytes), {
@@ -75,11 +79,95 @@ export function encodeScipIndex(index: ScipWireIndex): Uint8Array {
   return scipIndexMessage.encode(scipIndexMessage.fromObject(index)).finish()
 }
 
-export function mergeScipIndexes(
-  indexes: readonly ScipWireIndex[],
-): Uint8Array {
-  return encodeScipIndex({
-    documents: indexes.flatMap((index) => index.documents ?? []),
-    externalSymbols: indexes.flatMap((index) => index.externalSymbols ?? []),
-  })
+/**
+ * Top-level `Index` fields one at a time: `raw` is the whole field on the
+ * wire and `body` a length-delimited field's payload (a `Document` for field
+ * 2, an external `SymbolInformation` for 3). Throws on malformed framing.
+ */
+export function* scipIndexFields(
+  bytes: Uint8Array,
+): Generator<{ field: number; raw: Uint8Array; body?: Uint8Array }> {
+  const reader = Reader.create(bytes)
+  while (reader.pos < reader.len) {
+    const start = reader.pos
+    const tag = reader.uint32()
+    const body = (tag & 7) === 2 ? reader.bytes() : undefined
+    if (body === undefined) reader.skipType(tag & 7)
+    yield { field: tag >>> 3, raw: bytes.subarray(start, reader.pos), body }
+  }
+}
+
+/** Decode one `Document` (field 2) or external `SymbolInformation` (3). */
+export function decodeScipField(field: 2 | 3, body: Uint8Array): object {
+  const message = field === 2 ? scipDocumentMessage : scipSymbolMessage
+  return message.toObject(message.decode(body), { arrays: true })
+}
+
+/**
+ * Throws when a SCIP index is malformed, decoding one document at a time so
+ * a large shard never becomes one object tree.
+ */
+export function assertScipIndex(bytes: Uint8Array): void {
+  for (const { field, body } of scipIndexFields(bytes)) {
+    if (body && (field === 2 || field === 3)) {
+      ;(field === 2 ? scipDocumentMessage : scipSymbolMessage).decode(body)
+    }
+  }
+}
+
+function firstString(message: Uint8Array): string | undefined {
+  const reader = Reader.create(message)
+  while (reader.pos < reader.len) {
+    const tag = reader.uint32()
+    if (tag === ((1 << 3) | 2)) return reader.string()
+    reader.skipType(tag & 7)
+  }
+  return undefined
+}
+
+/**
+ * Merge SCIP shard files into `outputPath` one shard at a time without
+ * decoding them. Language shards concatenate. With `dedupe` (TypeScript
+ * projects, which re-index the projects they reference) the first metadata,
+ * document per path, and external symbol per name win.
+ */
+export async function mergeScipShardFiles(
+  shardPaths: readonly string[],
+  outputPath: string,
+  options: { dedupe: boolean },
+): Promise<void> {
+  const seen = new Set<string>()
+  const output = await open(outputPath, "w")
+  try {
+    for (const shardPath of shardPaths) {
+      const bytes = await readFile(shardPath)
+      if (bytes.byteLength === 0)
+        throw new Error(`Empty SCIP shard: ${shardPath}`)
+      const kept: Uint8Array[] = []
+      try {
+        for (const { field, raw, body } of scipIndexFields(bytes)) {
+          if (options.dedupe) {
+            const key =
+              field === 1
+                ? "metadata"
+                : body && (field === 2 || field === 3)
+                  ? `${field}:${firstString(body)}`
+                  : null
+            if (key !== null && seen.has(key)) continue
+            if (key !== null) seen.add(key)
+          }
+          kept.push(raw)
+        }
+      } catch (error) {
+        throw new Error(
+          `Malformed SCIP shard ${shardPath}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        )
+      }
+      await output.write(Buffer.concat(kept))
+    }
+  } finally {
+    await output.close()
+  }
 }

@@ -14,9 +14,15 @@ import {
   refreshLinearOAuthToken,
 } from "../../services/linear/client.js"
 import { loadLinearScopeFromRepo } from "../../services/linear/config-from-repo.js"
-import { syncLinearContentToGit } from "../../services/linear/sync.js"
+import {
+  collectLinearMirrorPages,
+  fetchLinearMirrorPage,
+  walkLinearMirrorPages,
+} from "../../services/linear/content.js"
+import { commitLinearMirror } from "../../services/linear/sync.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
+import { isWorkflowControlSignal } from "../isSleepSignal.js"
 
 const LinearSyncContentInputSchema = z.object({
   orgId: z.string().min(1),
@@ -73,46 +79,69 @@ export const linearSyncContent = defineWorkflow(
         return { connection, target, config }
       })
       .catch(async (error) => {
+        if (isWorkflowControlSignal(error)) throw error
         await markSyncFailed()
         throw error
       })
 
     try {
-      const result = await step.run({ name: "mirror-linear-content" }, () =>
-        syncLinearContentToGit({
+      if (context.config.workspaceId !== context.connection.workspaceId) {
+        throw new Error(
+          "linear/config.yaml workspace does not match the Linear connection",
+        )
+      }
+      const onTokenRefresh = (
+        expectedRefreshToken: string,
+        expectedAccessToken: string,
+      ) =>
+        withOrgDbContext(input.orgId, () =>
+          refreshLinearConnectionTokensWithLock({
+            orgId: input.orgId,
+            connectionId: input.connectionId,
+            env,
+            expectedRefreshToken,
+            expectedAccessToken,
+            refresh: async (refreshToken) => {
+              const creds = getLinearOauthAppCreds(context.connection, env)
+              if (!creds) {
+                throw new Error("Linear OAuth is not configured")
+              }
+              const token = await refreshLinearOAuthToken({
+                env,
+                refreshToken,
+                creds,
+              })
+              return {
+                accessToken: token.access_token,
+                refreshToken: token.refresh_token ?? refreshToken,
+                accessTokenExpiresAt: linearTokenExpiresAt(token.expires_in),
+              }
+            },
+          }),
+        )
+      const pages = await walkLinearMirrorPages({
+        config: context.config,
+        runPage: (name, request) =>
+          step.run({ name }, () =>
+            fetchLinearMirrorPage({
+              env,
+              connection: context.connection,
+              config: context.config,
+              onTokenRefresh,
+              request,
+            }),
+          ),
+      })
+      const collected = collectLinearMirrorPages(pages)
+      const result = await step.run({ name: "commit-linear-mirror" }, () =>
+        commitLinearMirror({
           orgId: input.orgId,
           env,
           connection: context.connection,
           target: context.target,
-          config: context.config,
-          onTokenRefresh: (expectedRefreshToken, expectedAccessToken) =>
-            withOrgDbContext(input.orgId, () =>
-              refreshLinearConnectionTokensWithLock({
-                orgId: input.orgId,
-                connectionId: input.connectionId,
-                env,
-                expectedRefreshToken,
-                expectedAccessToken,
-                refresh: async (refreshToken) => {
-                  const creds = getLinearOauthAppCreds(context.connection, env)
-                  if (!creds) {
-                    throw new Error("Linear OAuth is not configured")
-                  }
-                  const token = await refreshLinearOAuthToken({
-                    env,
-                    refreshToken,
-                    creds,
-                  })
-                  return {
-                    accessToken: token.access_token,
-                    refreshToken: token.refresh_token ?? refreshToken,
-                    accessTokenExpiresAt: linearTokenExpiresAt(
-                      token.expires_in,
-                    ),
-                  }
-                },
-              }),
-            ),
+          files: collected.files,
+          failures: collected.failures,
+          onTokenRefresh,
         }),
       )
 
@@ -145,6 +174,7 @@ export const linearSyncContent = defineWorkflow(
       )
       return result
     } catch (error) {
+      if (isWorkflowControlSignal(error)) throw error
       await markSyncFailed()
       throw error
     }

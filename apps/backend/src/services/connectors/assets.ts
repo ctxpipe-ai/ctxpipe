@@ -384,6 +384,9 @@ export function connectorAssetPinnedTlsOptions(input: {
   family: 4 | 6
 }) {
   return {
+    // A pooled keep-alive socket never calls `lookup`, so reusing one would
+    // skip the pin.
+    agent: false as const,
     lookup: createPinnedConnectorAssetLookup(input),
     rejectUnauthorized: true as const,
     servername: input.hostname,
@@ -403,7 +406,12 @@ async function requestConnectorAsset(input: {
     const req = request(
       input.url,
       {
-        headers: { "accept-encoding": "identity", ...input.headers },
+        // node:https sends no User-Agent, and some hosts reject anonymous requests.
+        headers: {
+          "accept-encoding": "identity",
+          "user-agent": "ctxpipe",
+          ...input.headers,
+        },
         ...connectorAssetPinnedTlsOptions({
           hostname: input.url.hostname,
           address: input.address,

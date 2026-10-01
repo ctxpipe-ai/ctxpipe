@@ -293,10 +293,10 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### Default LLM tiers
-- **Rule:** unset `MODEL_*_NAME` defaults to `openai/gpt-5.6-terra` with `reasoning.effort=low|medium|high` (not Luna). Prefer Terra over Luna for repo-scale agent/ingestion work — Luna’s high/xhigh/max TTFT is too slow/risky for large-repo latency; Luna remains a cost option via explicit env override.
+- **Rule:** unset `MODEL_*_NAME` defaults are fast `openai/gpt-6-luna?reasoning.effort=high`, medium `openai/gpt-6-luna?reasoning.effort=xhigh`, and high `xiaomi/mimo-v2.6-pro`. The fast tier is the low slot. Do not revert these to GPT-5.6 Terra.
 - **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
+- **Date:** 2026-09-28
+- **Source:** product default model update
 
 ### `deduplicateAndStore` DB access
 - **Rule:** never upsert objects/claims with one Postgres round-trip per extracted item. Prefetch by `deduplicationKey` / claim triples (chunked), merge in memory (`mergeRetrievalObjectPayloads` / logical evidence keys), batch writes; emit `codeIngestion.deduplicateAndStore.progress` + `flushWorkflowLog` on large runs. Keep stub-vs-full merge and duplicate-evidence→still-project semantics.
@@ -568,11 +568,11 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-15
 - **Source:** ui-design-skills research / product-ui skill
 
-### Cursor Task models
-- **Rule:** always pass an explicit Task `model` (see root [AGENTS.md](../../AGENTS.md) **Cursor Task models**). Implementation and explore: `cursor-grok-4.6-high-fast`. Review and grilling: `gpt-5.6-sol-high`. Map leftover Claude names: Sonnet/Fable/Haiku → Grok; Opus (including xhigh/fast) → `gpt-5.6-sol-high`. This is a parent-agent nudge; disabling Claude in Cursor Settings → Models is the hard block.
+### Sub-agent models
+- **Rule:** always set the sub-agent model explicitly (see root [AGENTS.md](../../AGENTS.md) **Sub-agent models**). Implementation and explore: Opus at medium effort. Review and grilling: Opus at high effort. Keep the wording harness-agnostic (plain "Opus" plus an effort level, no Cursor or Claude slugs) so the instructions work in both Cursor and Claude Code.
 - **Category:** convention
-- **Date:** 2026-08-17
-- **Source:** user preference (Grok for implementations, Sol for reviews)
+- **Date:** 2026-09-29
+- **Source:** user preference (Opus replaces Grok for implementation and Sol for review)
 
 ### Do not squash migrations already applied to PR Neon
 - **Rule:** PR preview DBs are reused (`preview/pr-N` from production, not reset each deploy). Deleting applied Drizzle folders and regenerating the same DDL under a new tag re-runs `CREATE UNIQUE INDEX` and fails with `42P07`. Keep the original folders, or make the replacement DDL idempotent (`IF NOT EXISTS`) like `clean_lyja` / `smart_nextwave`. Never squash unreleased history that a long-lived PR branch may already have applied.
@@ -689,6 +689,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-09-25
 - **Source:** PR-343 Opus review of the attribution step (live baggage spoof and reset-token leak into ClickHouse)
 
+### Telemetry export never sits on the request or job path
+- **Rule:** Sending logs, spans, or metrics to the collector must not change app behaviour. Exporters buffer and send in the background (evlog `createDrainPipeline`, the OTel batch span processor, a periodic metric reader); a request or job never awaits a network call to the collector. A relay that forwards telemetry has a short upstream timeout. A slow or unreachable collector costs dropped telemetry, never response latency or errors. Flush explicitly only on shutdown or before a script exits.
+- **Category:** convention
+- **Date:** 2026-09-30
+- **Source:** user, after a Railway edge routing incident made the backend's awaited OTLP log drain add 5–15 s to production responses
+
 ### The UI is reached through the backend proxy, which rewrites Host
 - **Rule:** Browsers load the app from the backend origin; the backend proxies SPA and `/.otel` routes to `UI_PROXY_URL`, so inside `apps/ui` server handlers `request.url`/`Host` is the internal UI host, not the public origin. Any origin, CSRF, redirect, or absolute-URL logic in `apps/ui` must derive the public origin from the forwarded host/proto the backend proxy sets (or from the backend's configured public URL), and must be tested with a proxied request (internal Host + public Origin), not only with Origin == Host.
 - **Category:** convention
@@ -706,6 +712,19 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** convention
 - **Date:** 2026-09-26
 - **Source:** PR-343 backend image failed "Verify connector asset contracts" after `otel.ts` imported `@opentelemetry/resources`, which was only a devDependency
+
+### Connector full imports resume at the unfinished page
+
+- **Rule:** A scoped-mirror initial sync checkpoints one OpenWorkflow step per provider page. The step name is the scope id and the page index; the cursor and the rendered text files are the stored result. Git gets one commit after those pages. A crash refetches only the page that was not stored. Follow [source-connectors](../../.cursor/skills/source-connectors/SKILL.md) step 7 when designing or changing an integration.
+- **Category:** convention
+- **Date:** 2026-09-28
+- **Source:** user, after a Linear initial sync held the whole mirror in one step and a crash refetched the workspace
+
+### Connector provider reads scale with the data
+- **Rule:** Source-connector provider calls scale linearly with the amount of data: one request per page of entities or per webhook entity, with related fields batched into that request. They do not scale with the number of relations on each entity (one request per comment, author, or parent). Setup catalogues are one query; extra requests are only later pages of that same query. Follow [source-connectors](../../.cursor/skills/source-connectors/SKILL.md) step 6 when designing or changing an integration.
+- **Category:** convention
+- **Date:** 2026-09-28
+- **Source:** user, after Linear relation getters issued one request per comment, user, and team during a large import
 
 ### CD applies ops changes; no manual follow-ups
 - **Rule:** Do not hand the owner runbook steps, scripts to run, or "after merge" to-dos. Provisioning and one-time cleanups go into the CD workflow, and leftovers from a migration are deleted as part of the work. A Railway setting the Terraform provider omits on update (restart policy, healthcheck, and sleep have `omitempty`) is set once on the service; do not add a workflow script to reapply it, and do not restate platform defaults. The only acceptable owner action is supplying a secret the agent cannot write, stated once with the exact name and location.

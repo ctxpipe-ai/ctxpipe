@@ -9,7 +9,7 @@ Hosted stack: Railway project `ctxpipe-observability`. URLs, accounts, dashboard
 
 ## Find a signal
 
-1. Take the id you have: response header `x-request-id` (`request.id`), a W3C `traceId`, `enduser.id` plus a time window, `ctxpipe.org.slug` / `ctxpipe.org.id`, or an OpenWorkflow job (`SpanName = openworkflow.job`, `ctxpipe.actor.type = job`).
+1. Take the id you have: response header `x-request-id` (`request.id`), a W3C `traceId`, `enduser.id` plus a time window, `ctxpipe.org.slug` / `ctxpipe.org.id`, or an OpenWorkflow run (`SpanName` `workflow_run.create`, `workflow_run.execute`, or `step_attempt.execute` on scope `openworkflow`). Correlate runs with `openworkflow.run.id`. Execution spans carry `ctxpipe.actor.type=job`. Each execution is its own trace, linked to `workflow_run.create`; step spans are children of that execution.
 2. Name the environment: `production`, `pr-<digits>`, `observability`, or `local-<name>`. Dashboards and the shared filter: [USING.md](../../../ops/observability/USING.md#dashboards).
 3. Read logs, traces, and metrics in HyperDX (MCP `hyperdx`). Read LLM prompt text in Langfuse (MCP `langfuse`). Read deploy status and stdout in Railway (MCP `railway`) when the process exited before export. URLs and keys: [USING.md](../../../ops/observability/USING.md#mcp).
 4. Done when the failing span or log line is named, or the window is empty and the environment, service, and time range are written down.
@@ -67,6 +67,8 @@ Logs go through evlog (`getLogger()` or `log` from `observability/logger.ts`). W
 
 Metrics: a gauge for a current level, a counter for a cumulative count.
 
+Export stays off the request and job path. evlog logs go through `createDrainPipeline` (backend and codesearch), spans through the batch processor, metrics through the periodic reader. Never await a collector call in a handler, middleware, or job; a telemetry relay gets a short upstream timeout. Flush only on shutdown or before a script exits (`flushEvlog()`).
+
 `RAILWAY_ENVIRONMENT_NAME` matching `pr-<digits>` uses flush-on-demand and `forceFlushOtel()` after the response or job. Production uses a 60s reader.
 
 Tests sit next to the module. Assert telemetry through the OTel SDK in-memory exporters and outbound calls through msw: attribute names present; params, query strings, emails, and secrets absent. Mocking rules: root AGENTS.md → Testing.
@@ -77,3 +79,4 @@ Tests sit next to the module. Assert telemetry through the OTel SDK in-memory ex
 - A PR flush exports after `span.end()`. An empty preview has no metric series until the next request or job.
 - Under Bun there are no `v8js.*` runtime metrics.
 - `CtxpipeCallbackHandler` (`observability/langfuse.ts`) collapses a repeated `model_name` before Langfuse records the generation.
+- `AttributionUrlSpanProcessor` strips a Drizzle `params:` line from exception messages, stacks, and status text as the span ends. Bound values stay off the exported span when a library calls `recordException` with the original error.

@@ -304,6 +304,7 @@ function attachmentFrontmatter(
 export function renderLinearIssue(
   issue: LinearIssueForMirror,
   assets: readonly LinearResolvedAsset[] = [],
+  options?: { preserveSourceUrls?: boolean },
 ): LinearMirrorFile {
   const assetsByUrl = linearAssetsByUrl(assets)
   const assetsByKey = new Map(assets.map((asset) => [asset.sourceKey, asset]))
@@ -313,7 +314,14 @@ export function renderLinearIssue(
   const attachmentMetadata = issue.attachments
     .filter((attachment) => !githubReference(attachment))
     .map((attachment) =>
-      attachmentFrontmatter(attachment, assetsByKey, assetsByUrl),
+      options?.preserveSourceUrls
+        ? {
+            id: attachment.id,
+            title: attachment.title,
+            url: attachment.url,
+            sourceType: attachment.sourceType ?? null,
+          }
+        : attachmentFrontmatter(attachment, assetsByKey, assetsByUrl),
     )
   const sections = [
     frontmatter({
@@ -344,15 +352,20 @@ export function renderLinearIssue(
       attachments: attachmentMetadata,
     }),
     `# ${issue.identifier}: ${issue.title}`,
-    applyLinearAssetRewrites(issue.description, assets).trim() ||
-      "_No description._",
+    (options?.preserveSourceUrls
+      ? (issue.description ?? "")
+      : applyLinearAssetRewrites(issue.description, assets)
+    ).trim() || "_No description._",
   ]
   if (issue.comments.length > 0) {
     sections.push(
       "## Comments",
       ...issue.comments.map((comment) => {
         const author = comment.userName?.trim() || comment.userId || "unknown"
-        return `### ${comment.createdAt.toISOString()} · ${author}\n\n${applyLinearAssetRewrites(comment.body, assets)}`
+        const body = options?.preserveSourceUrls
+          ? comment.body
+          : applyLinearAssetRewrites(comment.body, assets)
+        return `### ${comment.createdAt.toISOString()} · ${author}\n\n${body}`
       }),
     )
   }
@@ -380,6 +393,7 @@ export function renderLinearEntity(
     body?: string | null
     metadata?: Record<string, unknown>
     sections?: Array<{ heading: string; body: string }>
+    preserveSourceUrls?: boolean
   },
   assets: readonly LinearResolvedAsset[] = [],
 ): LinearMirrorFile {
@@ -393,10 +407,15 @@ export function renderLinearEntity(
       ...input.metadata,
     }),
     `# ${input.title}`,
-    applyLinearAssetRewrites(input.body, assets).trim() || "_No description._",
+    (input.preserveSourceUrls
+      ? (input.body ?? "")
+      : applyLinearAssetRewrites(input.body, assets)
+    ).trim() || "_No description._",
     ...(input.sections ?? []).flatMap((section) => [
       `## ${section.heading}`,
-      applyLinearAssetRewrites(section.body, assets),
+      input.preserveSourceUrls
+        ? section.body
+        : applyLinearAssetRewrites(section.body, assets),
     ]),
   ]
   return {

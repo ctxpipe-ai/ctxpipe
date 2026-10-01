@@ -3,7 +3,7 @@
 Agent instructions are **distributed**: this file covers repo-wide rules; apps and packages can have their own `AGENTS.md` with local instructions. When working in an app or package, read both the root AGENTS.md and that folder's AGENTS.md (if present).
 
 - **Root** (this file): architecture, code style.
-- **apps/backend**: [apps/backend/AGENTS.md](apps/backend/AGENTS.md) — API, OpenAPI, MCP, Drizzle, TypeScript, etc. **[Source-connectors skill](.agents/skills/source-connectors/)** when designing, building, or reviewing a source connector (Linear, Notion, Slack, git-native mirror/capture, `connections.config`, self-host).
+- **apps/backend**: [apps/backend/AGENTS.md](apps/backend/AGENTS.md) — API, OpenAPI, MCP, Drizzle, TypeScript, etc. **[Source-connectors skill](.agents/skills/source-connectors/)** when designing, building, or reviewing a source connector (Linear, Notion, Slack, git-native mirror/capture, `connections.config`, self-host), when provider requests can multiply per related record, or when a full import must resume after a crash.
 - **apps/otel-collector**: laptop OTLP debug sink for `pnpm dev:infra` (stdout only). Hosted ingest is [`ops/observability`](ops/observability/) ([ADR-038](.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md)).
 - **apps/codesearch**: [apps/codesearch/AGENTS.md](apps/codesearch/AGENTS.md) — Zoekt/SCIP orchestration, read-only DB, OpenAPI + Zod, and the manual Kubernetes ingest memory gate.
 - **apps/ui**: [apps/ui/AGENTS.md](apps/ui/AGENTS.md) — TanStack Start frontend, React Aria, Tailwind, Storybook, Vitest; **[React skill](.agents/skills/react/)** when building or editing components; **[product-ui skill](.agents/skills/product-ui/)** and [DESIGN.md](apps/ui/DESIGN.md) when building or restyling product screens.
@@ -44,11 +44,11 @@ For Storybook conventions and tools, read [.agents/skills/storybook/SKILL.md](.a
 
 ## Agent skills
 
-Skills that say "commit your work" (or similar) are overridden: create a git commit only when the user explicitly asks to commit in the conversation.
+After completing requested code changes, commit and push the current feature branch, then create or update a draft PR against `main` before the final response. Analysis-only work needs no commit. Never merge unless the user asks.
 
-### Cursor Task models
+### Sub-agent models
 
-On Task, always set `model`: `cursor-grok-4.6-high-fast` for implementation and explore; `gpt-5.6-sol-high` for review and grilling. Treat Claude/Sonnet/Opus/Fable/Haiku names as those two slugs.
+When spawning a sub-agent (Cursor Task, Claude Code Agent, or any other harness), always set the model explicitly: **Opus at medium effort** for implementation and explore; **Opus at high effort** for review and grilling. Use the harness's own name for Opus and its effort setting.
 
 ### Issue tracker
 
@@ -64,7 +64,7 @@ Single-context via `.ai/memory/` (product context, glossary, ADRs). See [`.ai/ag
 
 ### Adversarial review
 
-Every adversarial review of a diff is three Sol axes — **Standards**, **Spec**, and **Simplicity** — via [`code-review`](.agents/skills/code-review/SKILL.md). Do not run Sol as spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense. See [`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md).
+Every adversarial review of a diff is three Opus (high effort) axes — **Standards**, **Spec**, and **Simplicity** — via [`code-review`](.agents/skills/code-review/SKILL.md). Do not run the review as spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense. See [`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md).
 
 ## Architecture decisions & ADRs
 
@@ -171,6 +171,10 @@ Durable agent memory is **Markdown-only** under **[.ai/memory/](.ai/memory/)**. 
 - **CLI**: `ctxpipe memory init` · `ctxpipe memory capture observe|summary` (hooks) · `ctxpipe memory status|doctor`.
 - **Rules**: never commit secrets; never auto-write durable ADRs from hooks; prefer [`lessons-learned.md`](.ai/memory/lessons-learned.md) for confirmed conventions.
 - **Commit and share**: include `.ai/memory/` changes in the commit for the work they came from, on that branch; summarize the work in the PR description. Merged lessons become graph instructions ([ADR-037](.ai/memory/decisions/ADR-037-committed-memory-reaches-the-graph.md)).
+
+## Customer privacy
+
+This repository is public. **Never** put the name, slug, email, username, id (`org_*`, `user_*`, `repo_*`, `con_*`, …), repository name, or any other identifier of a user or organization into anything others can see: code, tests, fixtures, comments, commit messages, branch names, PR titles and descriptions, PR/issue comments, changesets, docs, ADRs, or `.ai/memory/`. This applies even when production logs or traces name them. Do not reveal which customer motivated a change either: keep their product or repository names out of branch names, PR titles and descriptions, commit messages, changesets, and code comments, and describe the case generically ("a large pnpm monorepo", "the affected org"). Tests may use public upstream projects as fixtures; otherwise use made-up names and ids. Before pushing or publishing, search the diff, commit messages, and PR text for identifiers you saw while debugging. GitHub keeps edited PR description revisions, so a leak needs its revision deleted, not just edited out.
 
 ## Code style
 

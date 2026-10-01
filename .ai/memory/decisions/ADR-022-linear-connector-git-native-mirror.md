@@ -1,6 +1,6 @@
 # ADR-022: Linear connector Git-native mirror
 
-**Status:** Accepted | **Date:** 2026-08-08 | **Updated:** 2026-09-20 | **Tags:** connectors, linear, oauth, webhooks, git, multi-tenant
+**Status:** Accepted | **Date:** 2026-08-08 | **Updated:** 2026-09-28 | **Tags:** connectors, linear, oauth, webhooks, git, multi-tenant
 
 ## Context
 
@@ -33,6 +33,7 @@ ctxpipe needs Linear work context alongside code and existing source connectors.
 - Config and sync-target updates must be atomic on `connections.config` and safe under retries/concurrent saves.
 - Customer records and copied attachments are privacy-sensitive; repository access is the durable content boundary. Customer-request scope remains limited and does not widen merely because assets are copied.
 - Events during `initial_sync` are skipped; operators recover via content retry / full remirror after config merge rather than a custom coalesce buffer.
+- The initial sync is one OpenWorkflow run with one step per Linear page (`team-<id>-issues-0`, and the same shape for projects, cycles, labels, and the other scopes). A nested connection that still has another page is its own step (`team-<id>-issues-0-issue-comments-<issueId>-0`). OpenWorkflow stores each step’s text in Postgres. The walk renders an entity’s file after that entity’s extra pages are stored. Git receives one commit, `commit-linear-mirror`, after those pages. That commit refreshes the Linear access token when it is expired, then downloads attachment bytes. A crash refetches only the page whose result was not stored.
 - Local databases that applied the removed Linear table migrations on this feature branch should reset/migrate fresh.
 
 ## Alternatives Considered

@@ -1,6 +1,6 @@
 # ADR-038: Self-hosted ClickStack + Langfuse (ops observability)
 
-**Status:** Accepted | **Date:** 2026-09-21 | **Updated:** 2026-09-26 | **Tags:** observability, railway, clickhouse, langfuse, hyperdx, otel
+**Status:** Accepted | **Date:** 2026-09-21 | **Updated:** 2026-09-29 | **Tags:** observability, railway, clickhouse, langfuse, hyperdx, otel
 
 ### Context
 
@@ -10,7 +10,7 @@ Hosted observability was Langfuse Cloud plus unused Better Stack and Amplitude. 
 
 1. **Separate Railway project** `ctxpipe-observability`, with no preview deploys, in region `us-east4-eqdc4a` (same Virginia metal as product Railway and Neon). Internal ops only, under [`ops/observability/`](../../../ops/observability/). Not in the product Terraform module, the product deploy workflow, or the AWS CDK templates. Pin the region after create or apply. Detail: [ops/observability/README.md](../../../ops/observability/README.md).
 
-2. **One ClickHouse** (1 GiB memory cap) shared by HyperDX and Langfuse, databases `otel` and `langfuse`. Detail: [clickhouse/README.md](../../../ops/observability/clickhouse/README.md).
+2. **One ClickHouse** (4 GiB memory cap) shared by HyperDX and Langfuse, databases `otel` and `langfuse`. Railway bills used RAM, not the cap. Detail: [clickhouse/README.md](../../../ops/observability/clickhouse/README.md).
 
 3. **One collector** is the only OTLP ingress. Apps export each signal once. The ClickStack config keeps traces in ClickHouse and routes LLM spans to Langfuse with `filter/llm_only`. A second collector is rejected. [`apps/otel-collector`](../../../apps/otel-collector/) is a laptop debug sink and is not started by self-host deploy.
 
@@ -26,6 +26,10 @@ Hosted observability was Langfuse Cloud plus unused Better Stack and Amplitude. 
 
 9. **Awake vs sleep.** Production metrics keep the collector and ClickHouse awake. HyperDX sleeps. Nothing polls sleepable services. `railway-telemetry` is a 5-minute cron. Detail: [ops/observability/README.md](../../../ops/observability/README.md) (Awake vs sleep).
 
+10. **Billing gauges.** Hourly `cost-telemetry` writes daily `billing.cost` and `billing.usage` points, plus `billing.fx_rate` (USD→AUD), into `otel.otel_metrics_gauge`. Each cost and usage point is stamped with `billing.observed_at_unix_ms`. The HyperDX **Cost** dashboard (`dashboards/cost.json`) reads those rows with raw SQL and `argMax(Value, toUInt64OrZero(Attributes['billing.observed_at_unix_ms']))` per day+provider+sku+scope so a later downward revision wins. Langfuse token cost stays in the `langfuse` database.
+
+11. **Cost credential delivery.** Provider credentials for the Terraform-managed cost collector have source copies in the protected GitHub `observability` Environment. The apply job writes them to Railway immediately before connecting the service image, and syncs them after apply for rotations. Terraform passes only service IDs to the sync script, so provider secret values stay out of plans and state. The isolated PR preview keeps its own Railway variables.
+
 ### Consequences
 
 - One internal APM and LLM stack. Self-host deploy does not ship it.
@@ -33,6 +37,7 @@ Hosted observability was Langfuse Cloud plus unused Better Stack and Amplitude. 
 - Cross-project OTLP is public, with an ingest token. Private networking does not cross Railway projects.
 - Single-node ClickHouse. A bucket outage at boot keeps it restarting until the bucket answers. Cold-part metadata stays on the volume.
 - Langfuse isolation is a second database on the existing Neon project, not a schema on `neondb`.
+- Provider spend history lives in the same `otel` gauge TTL (390 days). Tiles keep the latest observation per day (`argMax` on `billing.observed_at_unix_ms`), not `max(Value)`. Estimated rows are list price, not invoices. ≈ AUD always uses the latest stored FX rate.
 
 ### Alternatives Considered
 

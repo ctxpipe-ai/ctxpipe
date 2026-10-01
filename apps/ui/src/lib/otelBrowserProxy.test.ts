@@ -1,4 +1,4 @@
-import { HttpResponse, http } from "msw"
+import { delay, HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import {
   afterAll,
@@ -486,6 +486,23 @@ describe("POST /.otel/v1/$signal", () => {
       sameOriginRequest("https://app.example/.otel/v1/traces", { body: "{}" }),
     )
     expect(response.status).toBe(502)
+  })
+
+  it("502s after 2s when the collector hangs", async () => {
+    vi.useFakeTimers()
+    server.use(http.post("http://127.0.0.1:9/*", () => delay("infinite")))
+    try {
+      const pending = postSignal(
+        "traces",
+        sameOriginRequest("https://app.example/.otel/v1/traces", {
+          body: "{}",
+        }),
+      )
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect((await pending).status).toBe(502)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("prefers RAILWAY_ENVIRONMENT_NAME, then the resource attribute, then NODE_ENV", async () => {

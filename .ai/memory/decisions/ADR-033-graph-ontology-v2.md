@@ -37,6 +37,10 @@ cross-tool edges require shared identity.
    `REFERENCES`, `MENTIONS`, `SUPERSEDES`; ownership `OWNS`; cause
    `INFLUENCES`. `ABOUT`, `RELATES_TO`, `ASSOCIATED_WITH` are retired. The
    extension traversal walks the reference, cause and ownership families.
+   Containment also shapes a monorepo: a `Service`/`App`/`Library` is
+   `PART_OF` its nearest enclosing package or the workspace root
+   (`svc:…:./`), which is `IMPLEMENTED_IN` the `Repository` like every
+   package (`linkPackageHierarchy`).
 3. **Identity is shared.** `domain/codeIngestion/referenceResolver.ts` is the
    only place that turns URLs, identifiers and paths into keys:
    `prq:${repoId}:${n}`, `iss:linear:${IDENT}`, `team:linear:${KEY}`,

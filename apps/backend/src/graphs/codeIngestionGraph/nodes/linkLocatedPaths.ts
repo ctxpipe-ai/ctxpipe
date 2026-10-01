@@ -153,6 +153,90 @@ export async function listLinearTeamKeys(orgId: string): Promise<string[]> {
   }
 }
 
+/** Package root without the `./` prefix; the workspace root `./` becomes `""`. */
+function packageDir(root: string): string {
+  return root.replace(/^\.\//, "").replace(/\/$/, "")
+}
+
+/**
+ * Once every root's objects are in, give a monorepo its shape: each package
+ * is `PART_OF` its nearest enclosing package — an outer package or the
+ * workspace root (`svc:…:./`, present when workspace-wide docs exist) — and
+ * the workspace root is `IMPLEMENTED_IN` the Repository like every package.
+ * Returns only the additional claims.
+ */
+export function linkPackageHierarchy(input: {
+  repositoryId: string
+  targetHash: string
+  objects: ExtractedObject[]
+  claims: ExtractedClaim[]
+}): ExtractedClaim[] {
+  const packages = [
+    ...new Map(
+      packageRootsFromObjects(input.objects)
+        .filter((entry) => entry.repositoryId === input.repositoryId)
+        .map((entry) => [entry.deduplicationKey, entry]),
+    ).values(),
+  ]
+  const existingTriples = new Set(input.claims.map(claimTripleKey))
+  const claims: ExtractedClaim[] = []
+  const pushClaim = (claim: ExtractedClaim) => {
+    const key = claimTripleKey(claim)
+    if (existingTriples.has(key)) return
+    existingTriples.add(key)
+    claims.push(claim)
+  }
+  const sourceId = (segments: string[]) =>
+    buildEvidenceSourceId({
+      extractor: "linkPackageHierarchy",
+      repositoryId: input.repositoryId,
+      segments,
+      targetHash: input.targetHash,
+    })
+
+  for (const child of packages) {
+    const dir = packageDir(child.root)
+    if (dir === "") {
+      pushClaim({
+        subjectRef: child.deduplicationKey,
+        subjectKind: child.kind,
+        objectRef: input.repositoryId,
+        objectKind: "Repository",
+        predicate: "IMPLEMENTED_IN",
+        sourceId: sourceId(["package", child.root, "IMPLEMENTED_IN"]),
+        sourceType: "git",
+        extractionMethod: "deterministic",
+        confidence: 0.95,
+        provenance: { root: child.root },
+      })
+      continue
+    }
+    const parent = packages
+      .filter((candidate) => {
+        const candidateDir = packageDir(candidate.root)
+        return (
+          candidate !== child &&
+          (candidateDir === "" || dir.startsWith(`${candidateDir}/`))
+        )
+      })
+      .sort((a, b) => packageDir(b.root).length - packageDir(a.root).length)[0]
+    if (!parent) continue
+    pushClaim({
+      subjectRef: child.deduplicationKey,
+      subjectKind: child.kind,
+      objectRef: parent.deduplicationKey,
+      objectKind: parent.kind,
+      predicate: "PART_OF",
+      sourceId: sourceId(["package", child.root, "PART_OF", parent.root]),
+      sourceType: "git",
+      extractionMethod: "deterministic",
+      confidence: 0.95,
+      provenance: { root: child.root, parentRoot: parent.root },
+    })
+  }
+  return claims
+}
+
 /** Works inside a request / workflow logger scope and outside it (post-concat hook). */
 function logLinkPass(
   level: "info" | "warn",

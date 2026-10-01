@@ -8,6 +8,7 @@ import {
   type RequestLogger,
 } from "evlog"
 import { createOTLPDrain } from "evlog/otlp"
+import { createDrainPipeline, type PipelineDrainFn } from "evlog/pipeline"
 import { getContext } from "hono/context-storage"
 import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
@@ -56,20 +57,38 @@ function otlpLogsEndpoint(): string | undefined {
   return raw.replace(/\/v1\/logs\/?$/i, "").replace(/\/$/, "")
 }
 
-const inflightOtlp = new Set<Promise<void>>()
+let otlpPipeline: PipelineDrainFn<DrainContext> | undefined
 
-function otlpDrain(): ((ctx: DrainContext) => Promise<void>) | undefined {
+/**
+ * Batches OTLP log exports off the request path. A push only buffers; a slow
+ * or unreachable collector costs dropped logs, never response latency.
+ */
+function otlpDrain(): PipelineDrainFn<DrainContext> | undefined {
   const endpoint = otlpLogsEndpoint()
   if (!endpoint) return undefined
-  return createOTLPDrain({
-    endpoint,
-    serviceName: otelServiceName(),
-    resourceAttributes: {
-      "service.namespace": "ctxpipe",
-      "deployment.environment": otelDeploymentEnvironment(),
+  const pipeline = createDrainPipeline<DrainContext>({
+    batch: { size: 50, intervalMs: 5_000 },
+    retry: { maxAttempts: 3, backoff: "exponential", initialDelayMs: 1_000 },
+    onDropped: (events, error) => {
+      log.error({
+        step: "evlog.pipeline",
+        droppedEventCount: events.length,
+        message: `[evlog] Dropped ${events.length} events`,
+        error: error instanceof Error ? error.message : undefined,
+      })
     },
-    timeout: 5_000,
   })
+  return pipeline(
+    createOTLPDrain({
+      endpoint,
+      serviceName: otelServiceName(),
+      resourceAttributes: {
+        "service.namespace": "ctxpipe",
+        "deployment.environment": otelDeploymentEnvironment(),
+      },
+      timeout: 5_000,
+    }),
+  )
 }
 
 /** Initialize evlog. Call early in app bootstrap. Reads env from process.env. */
@@ -90,7 +109,7 @@ export function initEvlog(options?: { silent?: boolean }): void {
   }
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const pretty = env.NODE_ENV === "development"
-  const otlp = otlpDrain()
+  otlpPipeline = otlpDrain()
   initLogger({
     env: {
       service: otelServiceName(env.OTEL_SERVICE_NAME),
@@ -99,27 +118,20 @@ export function initEvlog(options?: { silent?: boolean }): void {
     pretty,
     silent: !pretty,
     redact: evlogRedact,
-    drain: async (ctx) => {
+    // Synchronous so the contract reads the active span; the export is batched.
+    drain: (ctx) => {
       applyLogContract(ctx.event)
       if (!pretty) process.stdout.write(`${JSON.stringify(ctx.event)}\n`)
-      if (!otlp) return
-      const run = otlp(ctx)
-      inflightOtlp.add(run)
-      try {
-        await run
-      } finally {
-        inflightOtlp.delete(run)
-      }
+      otlpPipeline?.(ctx)
     },
   })
 }
 
-/** Flush in-flight OTLP log exports. Call on server shutdown. */
+/** Send buffered OTLP log exports. Call on shutdown and before a script exits. */
 export async function flushEvlog(): Promise<void> {
-  const waiting = [...inflightOtlp]
-  if (waiting.length === 0) return
+  if (!otlpPipeline) return
   try {
-    await Promise.all(waiting)
+    await otlpPipeline.flush()
   } catch (error) {
     log.error({
       step: "evlog.pipeline",
@@ -131,10 +143,18 @@ export async function flushEvlog(): Promise<void> {
 
 // --- Logger context (AsyncLocalStorage + getLogger) ---
 
-export const loggerStorage = new AsyncLocalStorage<RequestLogger>()
+/**
+ * The stored value is a mutable holder, not the logger: `flushWorkflowLog`
+ * swaps `holder.logger`, and timers or branches created before the flush
+ * share the holder, so they write to the fresh logger instead of the sealed
+ * one.
+ */
+export type LoggerHolder = {
+  logger: RequestLogger
+  base: Record<string, unknown>
+}
 
-/** Base workflow fields preserved across milestone flushes inside `withLogger`. */
-const workflowBaseContext = new AsyncLocalStorage<Record<string, unknown>>()
+export const loggerStorage = new AsyncLocalStorage<LoggerHolder>()
 
 function workflowLoggerHasMilestoneContent(logger: RequestLogger): boolean {
   const ctx = logger.getContext()
@@ -151,22 +171,19 @@ export async function withLogger<T>(
   logger: RequestLogger,
   handler: () => Promise<T>,
 ): Promise<T> {
-  const baseContext = { ...logger.getContext() }
-  return workflowBaseContext.run(baseContext, () =>
-    loggerStorage.run(logger, async () => {
-      try {
-        return await handler()
-      } finally {
-        const current = loggerStorage.getStore()
-        if (current && workflowLoggerHasMilestoneContent(current)) {
-          current.emit()
-        }
-        if (isRailwayPrEnvironment()) {
-          await forceFlushOtel()
-        }
+  const holder: LoggerHolder = { logger, base: { ...logger.getContext() } }
+  return loggerStorage.run(holder, async () => {
+    try {
+      return await handler()
+    } finally {
+      if (workflowLoggerHasMilestoneContent(holder.logger)) {
+        holder.logger.emit()
       }
-    }),
-  )
+      if (isRailwayPrEnvironment()) {
+        await forceFlushOtel()
+      }
+    }
+  })
 }
 
 /**
@@ -176,16 +193,13 @@ export async function withLogger<T>(
  * until completion. Call after milestone `info`/`set` calls in workers.
  *
  * After emit the logger is sealed; this rotates a fresh logger (same base
- * workflow context) into AsyncLocalStorage so later `getLogger()` calls work.
+ * workflow context) into the shared holder so later `getLogger()` calls work.
  */
 export function flushWorkflowLog(): void {
-  const current = loggerStorage.getStore()
-  const base = workflowBaseContext.getStore()
-  if (!current) return
-  current.emit()
-  if (base) {
-    loggerStorage.enterWith(createLogger({ ...base }))
-  }
+  const holder = loggerStorage.getStore()
+  if (!holder) return
+  holder.logger.emit()
+  holder.logger = createLogger({ ...holder.base })
 }
 
 /**
@@ -193,7 +207,7 @@ export function flushWorkflowLog(): void {
  * @throws if neither context has a logger
  */
 export function getLogger(): RequestLogger {
-  const fromStorage = loggerStorage.getStore()
+  const fromStorage = loggerStorage.getStore()?.logger
   if (fromStorage) return fromStorage
   try {
     const ctx = getContext<AppEnv>()

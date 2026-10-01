@@ -1,6 +1,6 @@
 # ADR-011: Backend Observability via OpenTelemetry and evlog
 
-**Status:** Accepted | **Date:** 2026-03-12 | **Updated:** 2026-09-26 | **Tags:** backend, observability, opentelemetry, evlog
+**Status:** Accepted | **Date:** 2026-03-12 | **Updated:** 2026-09-28 | **Tags:** backend, observability, opentelemetry, evlog
 
 ### Context
 
@@ -10,7 +10,7 @@ The backend needs traces, structured logs, and LLM spans. Hosted ingest is Click
 
 1. **Traces.** `@opentelemetry/sdk-node` exports OTLP HTTP when `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set. LLM spans come from the Langfuse LangChain `CallbackHandler` (`awaitHandlers` so a generation stays on the active span) inside `propagateAttributes` (`runWithLangfuseContext`). There is no LangSmith tracing and no app-side Langfuse exporter.
 
-2. **Logs.** evlog on Hono. When `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is set, logs drain through evlog's `createOTLPDrain` (5s timeout). Otherwise stdout.
+2. **Logs.** evlog on Hono. When `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is set, logs drain through evlog's `createOTLPDrain` (5s timeout) wrapped in `createDrainPipeline`, which batches in the background so a request never waits on the collector. Otherwise stdout.
 
 3. **One endpoint per signal.** Fan-out is a collector's job. Hosted ingest keeps full traces in ClickHouse and sends LLM spans to Langfuse via `filter/llm_only` ([ADR-038](ADR-038-self-hosted-clickstack-langfuse.md)). [`apps/otel-collector`](../../../apps/otel-collector/config.yaml) is a laptop debug sink. The app does not fan out.
 
@@ -21,6 +21,8 @@ The backend needs traces, structured logs, and LLM spans. Hosted ingest is Click
 6. **Names.** Ids from auth only; OTel semconv plus `ctxpipe.*`; `deployment.environment` (not `.name`); URLs without query strings; no backfill. Keys: [observability skill](../../../.cursor/skills/observability/SKILL.md).
 
 7. **Preview metrics.** `RAILWAY_ENVIRONMENT_NAME` matching `pr-<digits>` selects `FlushOnDemandMetricReader` on the backend (no interval); `withLogger` and the HTTP middleware flush after the job or response. Production uses `PeriodicExportingMetricReader` at 60s. Codesearch exports no metrics on preview, so it has no periodic reader there.
+
+8. **OpenWorkflow.** `openworkflow` 0.10 traces through the same global provider (scope `openworkflow`). Each run is a set of linked traces: `workflow_run.create` on the caller's trace, then one `workflow_run.execute` trace per attempt, linked back to creation, with `step_attempt.execute` as its children. Job attribution (`ctxpipe.actor.type=job` and the org, user, and request ids) is stamped on that execution span and copied onto its children. There is no parallel `openworkflow.job` trace. Export drops a Drizzle `params:` line from exception events and status text, including errors a library recorded itself.
 
 ### Consequences
 

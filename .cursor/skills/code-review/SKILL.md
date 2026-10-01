@@ -9,7 +9,7 @@ Three-axis review of the diff between `HEAD` and a fixed point the user supplies
 - **Spec** — does the code faithfully implement the originating issue / spec?
 - **Simplicity** — is the machinery essential for the job, or accidental leftover?
 
-All three axes run as **parallel sub-agents** (`gpt-5.6-sol-high`) so they don't pollute each other's context, then this skill aggregates their findings. Do **not** run Sol as spec-only.
+All three axes run as **parallel sub-agents** (Opus, high effort) so they don't pollute each other's context, then this skill aggregates their findings. Do **not** run the review as spec-only.
 
 The issue tracker should have been provided to you — run `/setup-matt-pocock-skills` if `.ai/agents/issue-tracker.md` is missing.
 
@@ -60,7 +60,7 @@ A single switch that replaced a one-adapter seam is not Repeated Switches. A typ
 
 ### 4. Spawn three sub-agents in parallel
 
-Spawn all three with `model: gpt-5.6-sol-high`. Always spawn **Simplicity**. Skip Spec only when step 2 found no spec.
+Spawn all three on Opus at high effort (use the harness's own name for the model and effort setting). Always spawn **Simplicity**. Skip Spec only when step 2 found no spec.
 
 **Standards sub-agent prompt** — include:
 

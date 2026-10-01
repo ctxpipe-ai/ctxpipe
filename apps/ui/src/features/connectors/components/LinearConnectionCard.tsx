@@ -129,6 +129,11 @@ export function LinearConnectionCard({
               : undefined
         }
       >
+        {status?.setupPhase === "initial_sync" ? (
+          <p className="text-sm text-muted-foreground">
+            Mirroring Linear content to Git.
+          </p>
+        ) : null}
         {status?.setupPhase === "sync_failed" ? (
           <p className="text-sm text-muted-foreground">
             Content mirror failed. Open setup to retry.

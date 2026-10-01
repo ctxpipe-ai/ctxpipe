@@ -4,7 +4,7 @@ Naming: `ADR-NNN-title-slug.md`. Status | Date | Tags; Context; Decision; Conseq
 
 Parent: [`.ai/memory/README.md`](../README.md).
 
-**Updated:** 2026-09-26
+**Updated:** 2026-09-29
 
 ## Index
 
@@ -48,4 +48,5 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-035](ADR-035-weighted-graph-traversal-and-node-id-indexes.md) | Weighted graph traversal and node id indexes | Accepted |
 | [ADR-036](ADR-036-decision-scope-and-status.md) | Decision scope and status in the graph | Accepted |
 | [ADR-037](ADR-037-committed-memory-reaches-the-graph.md) | Committed memory reaches the graph | Accepted |
-| [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md) | Self-hosted ClickStack + Langfuse (ops observability) | Accepted |
+| [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md) | Self-hosted ClickStack + Langfuse (ops observability) | Accepted (amended 2026-09-29) |
+| [ADR-039](ADR-039-production-image-deploys-one-environment.md) | Production image deploys stay on one Railway environment | Accepted |

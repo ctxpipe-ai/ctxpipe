@@ -1,4 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  installLinearGraphql,
+  type LinearGraphqlCall,
+} from "../../../test/linear-graphql.js"
+import { useMswServer } from "../../../test/msw.js"
 import type { Env } from "../../config/env.js"
 import type {
   LinearBindingWithRepo,
@@ -6,10 +11,12 @@ import type {
   LinearScope,
 } from "../../models/linear-connector.js"
 import {
-  syncLinearConfigYaml,
-  syncLinearContentToGit,
-  syncLinearIncrementalContent,
-} from "./sync.js"
+  collectLinearMirrorPages,
+  fetchLinearMirrorPage,
+  walkLinearMirrorPages,
+} from "./content.js"
+import { resetLinearGraphqlForTests } from "./graphql.js"
+import { commitLinearMirror, syncLinearConfigYaml } from "./sync.js"
 
 const github = vi.hoisted(() => ({
   closePullRequest: vi.fn(),
@@ -18,15 +25,6 @@ const github = vi.hoisted(() => ({
   getFileContent: vi.fn(),
   getPullRequestHeadBranch: vi.fn(),
   listFilesInTree: vi.fn(),
-}))
-const content = vi.hoisted(() => ({
-  buildLinearMirror: vi.fn(),
-}))
-const incremental = vi.hoisted(() => ({
-  buildLinearIncrementalChanges: vi.fn(),
-}))
-const linearClient = vi.hoisted(() => ({
-  withClient: vi.fn(),
 }))
 const assetBoundary = vi.hoisted(() => ({
   download: vi.fn(),
@@ -37,12 +35,15 @@ const model = vi.hoisted(() => ({
   ),
 }))
 
+// assertLinearBindingSnapshot reads the binding row from Postgres around the git write.
 vi.mock("../../models/linear-connector.js", () => model)
+// downloadConnectorAsset resolves uploads.linear.app to a public IP and fetches that address.
 vi.mock("../connectors/assets.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../connectors/assets.js")>()
   return { ...actual, downloadConnectorAsset: assetBoundary.download }
 })
+// getInstallationOctokitForOrg loads the GitHub App installation from Postgres.
 vi.mock("../github/installation-write-client.js", async (importOriginal) => {
   const actual =
     await importOriginal<
@@ -50,12 +51,10 @@ vi.mock("../github/installation-write-client.js", async (importOriginal) => {
     >()
   return { ...actual, ...github }
 })
-vi.mock("./client.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./client.js")>()
-  return { ...actual, withLinearClient: linearClient.withClient }
-})
-vi.mock("./content.js", () => content)
-vi.mock("./incremental.js", () => incremental)
+
+const linearCalls: LinearGraphqlCall[] = []
+// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
+const server = useMswServer()
 
 const connection = {
   id: "con_linear",
@@ -109,6 +108,7 @@ const scopes = [
 ] satisfies LinearScope[]
 
 beforeEach(() => {
+  resetLinearGraphqlForTests()
   vi.clearAllMocks()
   github.getFileContent.mockResolvedValue(undefined)
   github.getPullRequestHeadBranch.mockResolvedValue(undefined)
@@ -124,22 +124,12 @@ beforeEach(() => {
     filename: "diagram.png",
     contentType: "image/png",
   })
-  content.buildLinearMirror.mockResolvedValue({
-    files: [],
-    failures: [],
-    preservePathPrefixes: [],
-  })
-  incremental.buildLinearIncrementalChanges.mockResolvedValue({
-    files: [],
-    deletePaths: [],
-    failures: [],
-  })
   model.withLinearBindingSnapshot.mockImplementation(
     async (_input: unknown, operation: () => Promise<unknown>) => operation(),
   )
 })
 
-describe("syncLinearContentToGit", () => {
+describe("commitLinearMirror", () => {
   const config = {
     workspaceId: "workspace-1",
     workspaceName: "Acme",
@@ -149,12 +139,13 @@ describe("syncLinearContentToGit", () => {
 
   it("returns no commit for a true Git no-op", async () => {
     await expect(
-      syncLinearContentToGit({
+      commitLinearMirror({
         orgId: "org_1",
         env: {} as Env,
         connection,
         target,
-        config,
+        files: [],
+        failures: [],
       }),
     ).resolves.toMatchObject({
       written: 0,
@@ -165,58 +156,59 @@ describe("syncLinearContentToGit", () => {
   })
 
   it("crosses provider traversal, asset capture, and Git reconciliation", async () => {
-    const actualContent =
-      await vi.importActual<typeof import("./content.js")>("./content.js")
-    content.buildLinearMirror.mockImplementationOnce(
-      actualContent.buildLinearMirror,
-    )
-    linearClient.withClient.mockImplementationOnce(
-      async (
-        _input: unknown,
-        run: (client: {
-          document: (id: string) => Promise<unknown>
-        }) => Promise<unknown>,
-      ) =>
-        run({
-          document: async (id: string) => {
-            expect(id).toBe("doc-1")
-            return {
-              id: "doc-1",
-              title: "Architecture",
-              url: "https://linear.app/acme/document/architecture-doc-1",
-              content:
-                "Current design\n\n![System diagram](https://uploads.linear.app/files/diagram.png?token=temporary-secret)",
-              projectId: null,
-              creatorId: null,
-              createdAt: new Date("2026-08-01T00:00:00.000Z"),
-              updatedAt: new Date("2026-08-25T00:00:00.000Z"),
-              creator: undefined,
-            }
-          },
+    linearCalls.length = 0
+    installLinearGraphql(server, linearCalls, (call) => {
+      if (call.name !== "DocumentRecord") return {}
+      return {
+        document: {
+          id: "doc-1",
+          title: "Architecture",
+          url: "https://linear.app/acme/document/architecture-doc-1",
+          content:
+            "Current design\n\n![System diagram](https://uploads.linear.app/files/diagram.png?token=temporary-secret)",
+          createdAt: "2026-08-01T00:00:00.000Z",
+          updatedAt: "2026-08-25T00:00:00.000Z",
+          project: null,
+          creator: null,
+        },
+      }
+    })
+    const documentConfig = {
+      ...config,
+      scopes: [
+        {
+          externalId: "doc-1",
+          type: "document" as const,
+          title: "Architecture",
+          url: "https://linear.app/acme/document/architecture-doc-1",
+          parentExternalId: null,
+          teamId: null,
+          teamKey: null,
+        },
+      ],
+    }
+    const pages = await walkLinearMirrorPages({
+      config: documentConfig,
+      runPage: (_name, request) =>
+        fetchLinearMirrorPage({
+          env: {} as Env,
+          connection,
+          config: documentConfig,
+          request,
         }),
-    )
+    })
+    const mirror = collectLinearMirrorPages(pages)
 
-    await syncLinearContentToGit({
+    await commitLinearMirror({
       orgId: "org_1",
       env: {} as Env,
       connection,
       target,
-      config: {
-        ...config,
-        scopes: [
-          {
-            externalId: "doc-1",
-            type: "document",
-            title: "Architecture",
-            url: "https://linear.app/acme/document/architecture-doc-1",
-            parentExternalId: null,
-            teamId: null,
-            teamKey: null,
-          },
-        ],
-      },
+      files: mirror.files,
+      failures: mirror.failures,
     })
 
+    expect(linearCalls.map((call) => call.name)).toEqual(["DocumentRecord"])
     expect(assetBoundary.download).toHaveBeenCalledWith(
       expect.objectContaining({
         url: "https://uploads.linear.app/files/diagram.png?token=temporary-secret",
@@ -242,15 +234,6 @@ describe("syncLinearContentToGit", () => {
   })
 
   it("deletes stale mirror files after a complete reconcile", async () => {
-    content.buildLinearMirror.mockResolvedValue({
-      files: [
-        {
-          path: "linear/issues/eng-1--issue-1.md",
-          content: "current",
-        },
-      ],
-      failures: [],
-    })
     github.listFilesInTree.mockResolvedValue([
       { path: "linear/config.yaml", sha: "config" },
       { path: "linear/issues/eng-1--issue-1.md", sha: "current" },
@@ -258,12 +241,15 @@ describe("syncLinearContentToGit", () => {
     ])
 
     await expect(
-      syncLinearContentToGit({
+      commitLinearMirror({
         orgId: "org_1",
         env: {} as Env,
         connection,
         target,
-        config,
+        files: [
+          { path: "linear/issues/eng-1--issue-1.md", content: "current" },
+        ],
+        failures: [],
       }),
     ).resolves.toMatchObject({
       status: "completed",
@@ -278,20 +264,6 @@ describe("syncLinearContentToGit", () => {
   })
 
   it("includes sibling assets in the desired set and prunes stale ones", async () => {
-    content.buildLinearMirror.mockResolvedValue({
-      files: [
-        {
-          path: "linear/issues/eng-1--issue-1.md",
-          content: "current",
-        },
-        {
-          path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
-          content: Buffer.from("png-bytes").toString("base64"),
-          encoding: "base64",
-        },
-      ],
-      failures: [],
-    })
     github.listFilesInTree.mockResolvedValue([
       { path: "linear/config.yaml", sha: "config" },
       { path: "linear/issues/eng-1--issue-1.md", sha: "current" },
@@ -307,12 +279,20 @@ describe("syncLinearContentToGit", () => {
     ])
 
     await expect(
-      syncLinearContentToGit({
+      commitLinearMirror({
         orgId: "org_1",
         env: {} as Env,
         connection,
         target,
-        config,
+        files: [
+          { path: "linear/issues/eng-1--issue-1.md", content: "current" },
+          {
+            path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
+            content: Buffer.from("png-bytes").toString("base64"),
+            encoding: "base64",
+          },
+        ],
+        failures: [],
       }),
     ).resolves.toMatchObject({
       status: "completed",
@@ -342,7 +322,19 @@ describe("syncLinearContentToGit", () => {
   it("preserves a prior asset when the current download is transiently unavailable", async () => {
     const preserved =
       "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png"
-    content.buildLinearMirror.mockResolvedValue({
+    github.listFilesInTree.mockResolvedValue([
+      { path: preserved, sha: "prior-good-asset" },
+      {
+        path: "linear/issues/eng-1--issue-1/assets/removed--old.png",
+        sha: "stale",
+      },
+    ])
+
+    await commitLinearMirror({
+      orgId: "org_1",
+      env: {} as Env,
+      connection,
+      target,
       files: [
         {
           path: "linear/issues/eng-1--issue-1.md",
@@ -354,21 +346,6 @@ describe("syncLinearContentToGit", () => {
         "linear/issues/eng-1--issue-1/assets/attachment-4--",
       ],
     })
-    github.listFilesInTree.mockResolvedValue([
-      { path: preserved, sha: "prior-good-asset" },
-      {
-        path: "linear/issues/eng-1--issue-1/assets/removed--old.png",
-        sha: "stale",
-      },
-    ])
-
-    await syncLinearContentToGit({
-      orgId: "org_1",
-      env: {} as Env,
-      connection,
-      target,
-      config,
-    })
 
     const deletePaths = github.commitFiles.mock.calls[0]?.[0]
       ?.deletePaths as string[]
@@ -379,20 +356,6 @@ describe("syncLinearContentToGit", () => {
   })
 
   it("omits unchanged binary assets from the commit while keeping them in the desired set", async () => {
-    content.buildLinearMirror.mockResolvedValue({
-      files: [
-        {
-          path: "linear/issues/eng-1--issue-1.md",
-          content: "current",
-        },
-        {
-          path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
-          content: Buffer.from("hello").toString("base64"),
-          encoding: "base64",
-        },
-      ],
-      failures: [],
-    })
     github.listFilesInTree.mockResolvedValue([
       { path: "linear/config.yaml", sha: "config" },
       { path: "linear/issues/eng-1--issue-1.md", sha: "md" },
@@ -407,12 +370,20 @@ describe("syncLinearContentToGit", () => {
     ])
 
     await expect(
-      syncLinearContentToGit({
+      commitLinearMirror({
         orgId: "org_1",
         env: {} as Env,
         connection,
         target,
-        config,
+        files: [
+          { path: "linear/issues/eng-1--issue-1.md", content: "current" },
+          {
+            path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
+            content: Buffer.from("hello").toString("base64"),
+            encoding: "base64",
+          },
+        ],
+        failures: [],
       }),
     ).resolves.toMatchObject({
       status: "completed",
@@ -432,20 +403,6 @@ describe("syncLinearContentToGit", () => {
   })
 
   it("recommits a binary asset when the git blob sha changed", async () => {
-    content.buildLinearMirror.mockResolvedValue({
-      files: [
-        {
-          path: "linear/issues/eng-1--issue-1.md",
-          content: "current",
-        },
-        {
-          path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
-          content: Buffer.from("hello").toString("base64"),
-          encoding: "base64",
-        },
-      ],
-      failures: [],
-    })
     github.listFilesInTree.mockResolvedValue([
       {
         path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
@@ -454,12 +411,20 @@ describe("syncLinearContentToGit", () => {
     ])
 
     await expect(
-      syncLinearContentToGit({
+      commitLinearMirror({
         orgId: "org_1",
         env: {} as Env,
         connection,
         target,
-        config,
+        files: [
+          { path: "linear/issues/eng-1--issue-1.md", content: "current" },
+          {
+            path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
+            content: Buffer.from("hello").toString("base64"),
+            encoding: "base64",
+          },
+        ],
+        failures: [],
       }),
     ).resolves.toMatchObject({
       written: 2,
@@ -478,28 +443,22 @@ describe("syncLinearContentToGit", () => {
   })
 
   it("preserves possible orphans when any entity fetch fails", async () => {
-    content.buildLinearMirror.mockResolvedValue({
-      files: [
-        {
-          path: "linear/issues/eng-1--issue-1.md",
-          content: "current",
-        },
-      ],
-      failures: [
-        { type: "issue", id: "issue-2", message: "Linear unavailable" },
-      ],
-    })
     github.listFilesInTree.mockResolvedValue([
       { path: "linear/issues/eng-2--issue-2.md", sha: "possibly-current" },
     ])
 
     await expect(
-      syncLinearContentToGit({
+      commitLinearMirror({
         orgId: "org_1",
         env: {} as Env,
         connection,
         target,
-        config,
+        files: [
+          { path: "linear/issues/eng-1--issue-1.md", content: "current" },
+        ],
+        failures: [
+          { type: "issue", id: "issue-2", message: "Linear unavailable" },
+        ],
       }),
     ).resolves.toMatchObject({
       status: "partial_failed",
@@ -511,131 +470,53 @@ describe("syncLinearContentToGit", () => {
   })
 
   it("does not commit content after the sync target changes", async () => {
-    content.buildLinearMirror.mockResolvedValue({
-      files: [{ path: "linear/issues/eng-1--issue-1.md", content: "stale" }],
-      failures: [],
-    })
     model.withLinearBindingSnapshot.mockRejectedValueOnce(
       new Error("Linear sync target changed while content was being built"),
     )
 
     await expect(
-      syncLinearContentToGit({
+      commitLinearMirror({
         orgId: "org_1",
         env: {} as Env,
         connection,
         target,
-        config,
+        files: [{ path: "linear/issues/eng-1--issue-1.md", content: "stale" }],
+        failures: [],
       }),
     ).rejects.toThrow("target changed")
     expect(github.commitFiles).not.toHaveBeenCalled()
   })
-})
 
-describe("syncLinearIncrementalContent", () => {
-  const config = {
-    workspaceId: "workspace-1",
-    workspaceName: "Acme",
-    customerRequests: "limited" as const,
-    scopes: [],
-  }
-  const entity = {
-    entityType: "issue" as const,
-    externalId: "issue-1",
-    action: "upsert" as const,
-  }
+  it("refreshes an expired Linear token before downloading attachments", async () => {
+    const onTokenRefresh = vi.fn().mockResolvedValue({
+      accessToken: "access-new",
+      refreshToken: "refresh-new",
+      accessTokenExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+    })
 
-  it("omits unchanged incremental binaries from the commit without pruning them", async () => {
-    incremental.buildLinearIncrementalChanges.mockResolvedValue({
+    await commitLinearMirror({
+      orgId: "org_1",
+      env: {} as Env,
+      connection: {
+        ...connection,
+        accessTokenExpiresAt: new Date(0).toISOString(),
+      },
+      target,
+      onTokenRefresh,
       files: [
         {
-          path: "linear/issues/eng-1--issue-1.md",
-          content: "updated",
-        },
-        {
-          path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
-          content: Buffer.from("hello").toString("base64"),
-          encoding: "base64",
+          path: "linear/documents/architecture--doc-1.md",
+          content:
+            "![System diagram](https://uploads.linear.app/files/diagram.png?token=temporary-secret)",
         },
       ],
-      deletePaths: ["linear/issues/eng-1--issue-1/assets/stale--old.png"],
       failures: [],
     })
-    github.listFilesInTree.mockResolvedValue([
-      { path: "linear/issues/eng-1--issue-1.md", sha: "md" },
-      {
-        path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
-        sha: "b6fc4c620b67d95f953a5c1c1230aaab5db5a1b0",
-      },
-      {
-        path: "linear/issues/eng-1--issue-1/assets/stale--old.png",
-        sha: "stale-asset",
-      },
-    ])
 
-    await expect(
-      syncLinearIncrementalContent({
-        orgId: "org_1",
-        env: {} as Env,
-        connection,
-        target,
-        config,
-        entity,
-      }),
-    ).resolves.toMatchObject({
-      written: 1,
-      deleted: 1,
-      commitSha: "commit-sha",
-    })
-    expect(github.commitFiles).toHaveBeenCalledWith(
+    expect(onTokenRefresh).toHaveBeenCalledWith("refresh", "secret")
+    expect(assetBoundary.download).toHaveBeenCalledWith(
       expect.objectContaining({
-        files: [
-          expect.objectContaining({
-            path: "linear/issues/eng-1--issue-1.md",
-          }),
-        ],
-        deletePaths: ["linear/issues/eng-1--issue-1/assets/stale--old.png"],
-      }),
-    )
-  })
-
-  it("recommits an incremental binary when the git blob sha changed", async () => {
-    incremental.buildLinearIncrementalChanges.mockResolvedValue({
-      files: [
-        {
-          path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
-          content: Buffer.from("hello").toString("base64"),
-          encoding: "base64",
-        },
-      ],
-      deletePaths: [],
-      failures: [],
-    })
-    github.listFilesInTree.mockResolvedValue([
-      {
-        path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
-        sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      },
-    ])
-
-    await expect(
-      syncLinearIncrementalContent({
-        orgId: "org_1",
-        env: {} as Env,
-        connection,
-        target,
-        config,
-        entity,
-      }),
-    ).resolves.toMatchObject({ written: 1, deleted: 0 })
-    expect(github.commitFiles).toHaveBeenCalledWith(
-      expect.objectContaining({
-        files: [
-          expect.objectContaining({
-            path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
-            encoding: "base64",
-          }),
-        ],
+        headers: { Authorization: "Bearer access-new" },
       }),
     )
   })
