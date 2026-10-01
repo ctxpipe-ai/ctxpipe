@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
@@ -19,6 +18,7 @@ import {
   persistLinkedIndexedSha,
   persistWorkspaceIndexResult,
 } from "../../models/workspaces.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { repositoryIndex } from "./repository-index.js"
 
 export const workspaceIndexInputSchema = z

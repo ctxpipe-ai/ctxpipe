@@ -8,7 +8,7 @@ Timing matters: PRs up to #296 reached the branch before the recovery rewrite (#
 
 | # | Row | Main PRs | Status |
 | --- | --- | --- | --- |
-| 1 | Job attribution: 26 workflows call `openworkflow`'s `defineWorkflow` directly (all `workspace-*` writes, Confluence/Notion/Linear config+entity, PagerDuty, Slack agent, backfill), so their spans carry no org/workspace/connection attribution | #364, #343 | todo |
+| 1 | Job attribution: 25 workflows called `openworkflow`'s `defineWorkflow` directly (all `workspace-*` writes, Confluence/Notion/Linear config+entity, Slack agent), so their spans carried no org/workspace/connection attribution | #364, #343 | done — all use `defineObservedWorkflow`, which now accepts union schemas (`workspace-bootstrap`); proof `defineObservedWorkflow.test.ts` "accepts enqueue telemetry on a union schema…" |
 | 2 | Product analytics: `advisor_question_sent` and `repository_index_started` disappeared with the old Chat and Repositories pages; the Workspace UI emits no equivalent (chat message sent, workspace created, repository linked / index started) | #343 | todo |
 | 3 | Workspace graph drops ontology v2: every node is `kind: "KnowledgeUnit"` although extraction writes `kind` front matter and v2 predicates | #335 | todo |
 | 4 | Graph quality tooling reads the legacy `objects`/`claims` tables, which this branch no longer writes: `graphQualityReport`, `repoGraphSizeCheck`, `GET …/knowledge-graph/quality` must read the workspace projection (also needed by ticket 04) | #335 | todo |

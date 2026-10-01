@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -10,6 +9,7 @@ import {
 import { getConfluenceSyncTargetWithRepoByConnectionId } from "../../models/confluence-sync-target.js"
 import { parseConfluenceConfigYamlContent } from "../../services/confluence/config-yaml.js"
 import { captureConfluenceContent } from "../../services/confluence/sync.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
 const inputSchema = z.object({

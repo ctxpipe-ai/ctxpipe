@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -23,6 +22,7 @@ import {
   captureSlackThreadFiles,
   githubBlobUrl,
 } from "../../services/slack/sync.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { isWorkflowControlSignal } from "../isSleepSignal.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 

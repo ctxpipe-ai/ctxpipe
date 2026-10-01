@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -15,6 +14,7 @@ import {
 } from "../../models/linear-connector.js"
 import { closePullRequest } from "../../services/github/installation-write-client.js"
 import { syncLinearConfigYaml } from "../../services/linear/sync.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueConnectorContentSync } from "../enqueue-connector-content-sync.js"
 
 const LinearSyncConfigInputSchema = z.object({

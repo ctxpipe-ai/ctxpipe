@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import {
@@ -49,6 +48,7 @@ import {
   validateGitTree,
 } from "../../services/git/write-tree.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 

@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -17,6 +16,7 @@ import {
   parseGithubPullNumberFromUrl,
 } from "../../services/github/installation-write-client.js"
 import { syncNotionConfigYaml } from "../../services/notion/sync.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueConnectorContentSync } from "../enqueue-connector-content-sync.js"
 
 const notionSyncConfigInputSchema = z.object({

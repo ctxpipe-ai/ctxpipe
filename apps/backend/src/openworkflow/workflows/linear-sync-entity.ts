@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -20,6 +19,7 @@ import {
 } from "../../services/linear/client.js"
 import { parseLinearConfigYamlContent } from "../../services/linear/config-yaml.js"
 import { captureLinearIncrementalContent } from "../../services/linear/sync.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 

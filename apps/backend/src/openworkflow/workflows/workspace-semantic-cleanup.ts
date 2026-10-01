@@ -1,9 +1,9 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import {
   destroyMergeSandbox,
   mergeSandboxSchema,
 } from "../../domain/workspaces/semantic-merge.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 
 export const workspaceSemanticCleanup = defineWorkflow(
   {

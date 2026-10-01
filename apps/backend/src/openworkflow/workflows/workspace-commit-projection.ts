@@ -1,9 +1,9 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import { projectWorkspaceCommits } from "../../domain/workspaces/project-workspace-commits.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
 
 const workspaceCommitProjectionInputSchema = z.object({
   orgId: z.string().min(1),
