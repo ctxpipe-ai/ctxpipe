@@ -13,6 +13,16 @@ type OnboardingAgentStepProps = {
   connectedClient: string | null
   onSkip: () => void
   onBack: () => void
+  /**
+   * Set once nothing before this step is left to do: the primary becomes
+   * Open ctx|, and skipping finishes too.
+   */
+  finish: {
+    onFinish: () => void
+    pending: boolean
+    /** Why something stays dark, e.g. GitHub was skipped. */
+    note: string | null
+  } | null
 }
 
 type Method = "cli" | "claude" | "json"
@@ -43,7 +53,16 @@ export function OnboardingAgentStep({
   connectedClient,
   onSkip,
   onBack,
+  finish,
 }: OnboardingAgentStepProps) {
+  const back = (
+    <Button variant="quiet" className="rounded-none px-0" onPress={onBack}>
+      Back
+    </Button>
+  )
+  const note = finish?.note ? (
+    <p className="m-0 text-sm text-muted-foreground">{finish.note}</p>
+  ) : null
   const [method, setMethod] = useState<Method>("cli")
   const setup = agentSetup(window.location.origin, orgSlug)
   const text = setup[method]
@@ -86,15 +105,20 @@ export function OnboardingAgentStep({
             <span className="font-mono text-zinc-200">{connectedClient}</span>{" "}
             is connected. Add ctx| to another agent the same way.
           </p>
+          {note}
           <StepActions
-            back={
-              <Button
-                variant="quiet"
-                className="rounded-none px-0"
-                onPress={onBack}
-              >
-                Back
-              </Button>
+            back={back}
+            primary={
+              finish ? (
+                <Button
+                  variant="primary"
+                  className="rounded-none"
+                  isPending={finish.pending}
+                  onPress={finish.onFinish}
+                >
+                  Open ctx|
+                </Button>
+              ) : undefined
             }
           />
         </>
@@ -122,19 +146,20 @@ export function OnboardingAgentStep({
             )}
           </output>
 
+          {note}
           <StepActions
-            back={
-              <Button
-                variant="quiet"
-                className="rounded-none px-0"
-                onPress={onBack}
-              >
-                Back
-              </Button>
-            }
+            back={back}
             secondary={
-              <Button variant="ghost" className="rounded-none" onPress={onSkip}>
-                I’ll do this later
+              <Button
+                variant="ghost"
+                className="rounded-none"
+                isPending={finish?.pending}
+                onPress={() => {
+                  onSkip()
+                  finish?.onFinish()
+                }}
+              >
+                {finish ? "Skip and open ctx|" : "I’ll do this later"}
               </Button>
             }
           />

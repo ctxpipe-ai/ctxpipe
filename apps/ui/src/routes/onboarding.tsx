@@ -357,10 +357,15 @@ export function OnboardingPageContent({
     }, 320)
   }
 
-  const openStep = reviewing ?? view.current
+  // Once every step is done or skipped, step 3 stays open: its primary is
+  // Open ctx|, in the same place as every other step's primary.
+  const restingStep = view.current ?? "agent"
+  const openStep = reviewing ?? restingStep
+  // Finishing is offered once nothing before step 3 is still to do.
+  const canFinish = view.current === null || view.current === "agent"
   const nav = {
     open: openStep,
-    current: view.current,
+    current: restingStep,
     beats: view.beats,
     isJoiner: isJoiner === true,
   }
@@ -373,7 +378,7 @@ export function OnboardingPageContent({
       setReviewing(null)
       return
     }
-    setReviewing(id === view.current ? null : id)
+    setReviewing(id === restingStep ? null : id)
   }
   const goBackFrom = (id: "source" | "agent") => reopen(stepBefore(id, nav))
   const toggle = (id: OnboardingStepId) => {
@@ -388,13 +393,9 @@ export function OnboardingPageContent({
   const repoWord = (n: number) =>
     `${n} ${n === 1 ? "repository" : "repositories"}`
   const skipNote =
-    view.beats.source === "skipped" && view.beats.agent === "skipped"
-      ? "GitHub and the agent are skipped. Both stay dark until you connect them."
-      : view.beats.source === "skipped"
-        ? "GitHub is not connected. Your agent has nothing to answer from until it is."
-        : view.beats.agent === "skipped"
-          ? "No agent is connected yet. Add the config whenever you are ready."
-          : null
+    view.beats.source === "skipped"
+      ? "GitHub is not connected. Your agent has nothing to answer from until it is."
+      : null
 
   return (
     <OnboardingFrame
@@ -532,25 +533,19 @@ export function OnboardingPageContent({
                     setReviewing(null)
                   }}
                   onBack={() => goBackFrom("agent")}
+                  finish={
+                    canFinish
+                      ? {
+                          onFinish: () => void finish(),
+                          pending: completing,
+                          note: skipNote,
+                        }
+                      : null
+                  }
                 />
               ) : null}
             </OnboardingStep>
           </ol>
-          {view.current === null ? (
-            <div className="mt-6 flex flex-col items-start gap-3">
-              {skipNote ? (
-                <p className="m-0 text-sm text-muted-foreground">{skipNote}</p>
-              ) : null}
-              <Button
-                variant="primary"
-                className="rounded-none"
-                isPending={completing}
-                onPress={() => void finish()}
-              >
-                Open ctx|
-              </Button>
-            </div>
-          ) : null}
         </section>
         <div className="hidden min-h-0 md:block">
           <OnboardingDiagram
@@ -560,7 +555,7 @@ export function OnboardingPageContent({
               activeCount > 0 ||
               (queuedRepositories !== null && repositories.length === 0)
             }
-            editing={openStep}
+            editing={view.current === null && !reviewing ? null : openStep}
             githubAccount={installation?.accountSlug ?? null}
             githubInstalled={Boolean(installation)}
             repositories={repositoryNames}
