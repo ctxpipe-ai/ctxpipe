@@ -195,7 +195,11 @@ function CopyField({
       <Button
         variant="quiet"
         aria-label={copied ? "Copied" : label}
-        className="h-auto shrink-0 items-start rounded-none border-l border-white/10 px-3 py-2 text-zinc-400 hover:text-teal-300"
+        // Commands get a divider; a wrapping prompt keeps the icon in its
+        // corner without one.
+        className={`h-auto shrink-0 items-start rounded-none px-3 py-2 text-zinc-400 hover:text-teal-300 ${
+          block ? "border-l border-white/10" : ""
+        }`}
         onPress={async () => {
           try {
             await navigator.clipboard.writeText(text)
