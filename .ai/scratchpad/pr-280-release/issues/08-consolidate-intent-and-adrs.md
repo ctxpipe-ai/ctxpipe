@@ -12,7 +12,7 @@ Updated: 2026-10-01
 
 The user confirmed the branch's ADRs are not accurate. ADR-045–048 (recovery CI, revision identity, durable writes, sandbox ownership) are long, partly contradictory (e.g. ADR-048 says the Docker chat journey is open while Gate 4 was closed), and describe patch-based designs that tickets 01–03 are removing. Product intent is spread across the wayfinder map and 19 issues under `../../git-backed-projects/`, three PRDs in `.ai/memory/PRDs/workspace-chat-*.md`, the glossary, lessons-learned, and ADR-040–048. None of this has merged to `main` yet, so it can be rewritten rather than superseded.
 
-User decisions to reflect (2026-10-01): managed sandboxes on Railway Sandboxes; self-host on stock `dockerSandbox` (Compose dind, CDK EC2 Graviton host); unsandboxed only as an explicit last resort; isolation limited to stock TanStack policy; reduce vendor patches; `@ctxpipe/aws-cdk` ships as a minor.
+User decisions to reflect (2026-10-01): managed sandboxes on Cloudflare Sandboxes; conversation work is pushed to its git session branch (sandboxes are disposable); self-host on stock `dockerSandbox` (Compose dind, CDK EC2 Graviton host); unsandboxed only as an explicit last resort; isolation limited to stock TanStack policy; reduce vendor patches; `@ctxpipe/aws-cdk` ships as a minor.
 
 ## Goal
 

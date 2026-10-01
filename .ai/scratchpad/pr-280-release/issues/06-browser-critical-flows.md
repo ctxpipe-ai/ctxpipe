@@ -26,7 +26,7 @@ A skill that lists every critical user flow with preconditions, steps, and expec
 - [ ] Full run on pr-280 with a report: per flow `PASS`/`FAIL`/`SKIP`, evidence, trace links.
 - [ ] Each `FAIL` → fix with a regression test (Storybook play, contract, or unit) or a new ticket here.
 - [ ] Two consecutive clean full runs after fixes; skill refined with anything learned (flaky waits, missing preconditions).
-- [ ] Final hosted pass after ticket 02 (Railway sandboxes) lands.
+- [ ] Final hosted pass after ticket 02 (Cloudflare sandboxes) lands.
 
 ## Proposed critical flows (for review)
 
@@ -50,7 +50,7 @@ A skill that lists every critical user flow with preconditions, steps, and expec
 3. **First run (local host dev),** to shake out the skill itself. Refine wording, waits, and preconditions.
 4. **Run on pr-280.** Capture report and evidence. File each failure: fix immediately if small (with a regression test), otherwise a ticket.
 5. **Fix loop** until two consecutive clean runs.
-6. **Final pass after ticket 02** on Railway sandboxes; record in `## Resolution`.
+6. **Final pass after ticket 02** on Cloudflare sandboxes; record in `## Resolution`.
 7. (Optional, ask) Convert the most valuable flows into Playwright scripts for repeatable runs.
 
 ## Open questions

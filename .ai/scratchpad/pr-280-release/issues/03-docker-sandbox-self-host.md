@@ -77,6 +77,8 @@ Do not add TanStack patches or an application-level sandbox registry. Keep const
 
 ## Comments
 
+- 2026-10-01: ticket 02 makes the git session branch the durable conversation state on hosted. Apply the same rule on Docker so self-host sandboxes are equally disposable (idle stop/destroy never loses work).
+
 - 2026-10-01 (user): no opt-out from the sandbox host.
 
 - 2026-10-01 (user): previous sizing too expensive for a host that does little; DinD acceptable. Moved to `t4g.medium`/`large`/`xlarge` with idle stop.

@@ -53,7 +53,7 @@ Zero `@tanstack/*` and `@opencode-ai/*` entries in `patchedDependencies`. Any pa
 5. **Verify end-to-end.** Full CI lanes, preview deploy, preview-env `chat` + `files-publish` areas. Measure warm-turn latency against the PRD (~5 s first answer) and record before/after.
 6. **Update ADR-044/048 and the deletion ledger**; close.
 
-Unblocks tickets 02 and 03 (both build on the upgraded stock providers).
+Unblocks tickets 02 and 03 (both build on the upgraded stock providers; ticket 02 needs `@tanstack/ai` ≥ 0.63 for `@tanstack/ai-sandbox-cloudflare`).
 
 ## Open questions
 
@@ -78,6 +78,8 @@ Read first: this ticket, ADR-044, ADR-048 (sections on patches, transitions, per
 Phase 1 only until the user approves the ledger. Do not add new patches or wrappers that restate TanStack APIs. Report: the ledger table, upstream diffs that close each item, and a list of application modules that become deletable.
 
 ## Comments
+
+- 2026-10-01 (user): hosted chat moves to Cloudflare Sandboxes and conversation work is pushed to git (session branch) as the durable state. Option D still applies while a sandbox is alive; a wiped sandbox is recreated from the session branch.
 
 - 2026-10-01 (user): option D approved for revision changes.
 
