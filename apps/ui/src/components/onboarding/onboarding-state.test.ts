@@ -7,6 +7,7 @@ import {
   findCreatedContextRepo,
   type OnboardingFacts,
   type OnboardingStepId,
+  orgNameFromEmail,
   reopenAs,
   slugify,
   stepBefore,
@@ -278,5 +279,21 @@ describe("context repository", () => {
       { id: 9, created_at: null },
     ]
     expect(findCreatedContextRepo(repos, started)?.id).toBe(9)
+  })
+})
+
+describe("orgNameFromEmail", () => {
+  it("names the organisation after a work domain", () => {
+    expect(orgNameFromEmail("tom@trurec.ai")).toBe("Trurec")
+    expect(orgNameFromEmail("a@eng.acme.co.uk")).toBe("Acme")
+    expect(orgNameFromEmail("a@Acme.COM")).toBe("Acme")
+  })
+
+  it("suggests nothing for personal mail or a missing address", () => {
+    expect(orgNameFromEmail("someone@gmail.com")).toBe("")
+    expect(orgNameFromEmail("someone@outlook.co.uk")).toBe("")
+    expect(orgNameFromEmail("someone@proton.me")).toBe("")
+    expect(orgNameFromEmail(undefined)).toBe("")
+    expect(orgNameFromEmail("no-at-sign")).toBe("")
   })
 })

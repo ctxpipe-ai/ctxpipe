@@ -13,7 +13,9 @@ import {
 import {
   deriveOnboardingView,
   type OnboardingStepId,
+  orgNameFromEmail,
   reopenAs,
+  slugify,
   stepBefore,
   titleAction,
 } from "@/components/onboarding/onboarding-state"
@@ -60,6 +62,14 @@ export function OnboardingPageContent({
   const [, setPreferences] = useUserPreferences()
   const [createdOrgSlug, setCreatedOrgSlug] = useState<string | null>(null)
   const [typedSlug, setTypedSlug] = useState("")
+  // Their work email's domain names the organisation to start with; the
+  // slug follows once the session is known, and they can change both.
+  const suggestedOrgName = orgNameFromEmail(session?.user.email)
+  const [slugSeeded, setSlugSeeded] = useState(false)
+  if (!slugSeeded && session) {
+    setSlugSeeded(true)
+    if (suggestedOrgName && !typedSlug) setTypedSlug(slugify(suggestedOrgName))
+  }
   // What was just queued, so the picture fills before indexing rows exist.
   const [queuedRepositories, setQueuedRepositories] = useState<string[] | null>(
     null,
@@ -450,6 +460,7 @@ export function OnboardingPageContent({
                 <OnboardingOrgStep
                   slug={typedSlug}
                   onSlugChange={setTypedSlug}
+                  defaultName={suggestedOrgName}
                   // State only, no router navigation: navigating here was the
                   // one step change that could flash in production. A reload
                   // without ?orgSlug is sent to their org by the check above.

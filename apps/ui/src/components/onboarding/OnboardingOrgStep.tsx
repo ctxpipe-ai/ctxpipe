@@ -11,6 +11,8 @@ type OnboardingOrgStepProps = {
   slug: string
   onSlugChange: (slug: string) => void
   onCreated: (slug: string) => void
+  /** Prefilled name, from their email domain; the slug starts from it too. */
+  defaultName?: string
 }
 
 /**
@@ -21,10 +23,11 @@ export function OnboardingOrgStep({
   slug,
   onSlugChange,
   onCreated,
+  defaultName = "",
 }: OnboardingOrgStepProps) {
   const queryClient = useQueryClient()
   const [, setPreferences] = useUserPreferences()
-  const [name, setName] = useState("")
+  const [name, setName] = useState(defaultName)
   const [slugTouched, setSlugTouched] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
 

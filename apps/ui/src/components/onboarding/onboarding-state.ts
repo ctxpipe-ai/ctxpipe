@@ -151,6 +151,59 @@ export function slugify(value: string): string {
     .slice(0, SLUG_MAX_LENGTH)
 }
 
+/**
+ * A starting organisation name from a work email: tom@trurec.ai gives
+ * "Trurec". Personal mail providers give nothing, since the domain says
+ * nothing about the team.
+ */
+export function orgNameFromEmail(email: string | null | undefined): string {
+  const domain = email?.split("@")[1]?.trim().toLowerCase()
+  if (!domain) return ""
+  const labels = domain.split(".").filter(Boolean)
+  // Drop the public suffix: the last label, plus a generic second level
+  // such as co.uk or com.au.
+  labels.pop()
+  if (
+    labels.length > 1 &&
+    ["co", "com", "org", "net", "ac", "gov", "edu"].includes(
+      labels.at(-1) ?? "",
+    )
+  ) {
+    labels.pop()
+  }
+  const name = labels.at(-1)
+  if (!name || PERSONAL_MAIL_DOMAINS.has(name)) return ""
+  return name.charAt(0).toUpperCase() + name.slice(1)
+}
+
+const PERSONAL_MAIL_DOMAINS = new Set([
+  "gmail",
+  "googlemail",
+  "outlook",
+  "hotmail",
+  "live",
+  "msn",
+  "yahoo",
+  "ymail",
+  "icloud",
+  "me",
+  "mac",
+  "aol",
+  "proton",
+  "protonmail",
+  "pm",
+  "gmx",
+  "mail",
+  "yandex",
+  "zoho",
+  "fastmail",
+  "hey",
+  "tutanota",
+  "qq",
+  "163",
+  "example",
+])
+
 /** Commands and config for connecting an agent to this deployment. */
 export function agentSetup(origin: string, orgSlug: string) {
   const mcpUrl = `${origin}/mcp?orgSlug=${orgSlug}`
