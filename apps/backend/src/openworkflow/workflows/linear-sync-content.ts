@@ -31,7 +31,7 @@ import {
 } from "../../services/linear/content.js"
 import { captureLinearContent } from "../../services/linear/sync.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
+import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
 const LinearSyncContentInputSchema = z.object({
@@ -230,21 +230,22 @@ export const linearSyncContent = defineWorkflow(
         }
 
         if (result.status !== "failed") {
-          await runConnectorRepositoryIngestionWorkflow(
-            step,
-            {
-              repositoryId: context.target.repositoryId,
-              orgId: input.orgId,
-              targetBranch: context.target.branch,
-              indexingReason: "Syncing Linear content",
-            },
-            {
-              error: (error) =>
-                getLogger().error(error, {
-                  step: "linear-sync-content.ingestion",
-                  connectionId: input.connectionId,
-                }),
-            },
+          await step.run({ name: "ingest-linear-content" }, () =>
+            runRepositoryIngestionWorkflow(
+              {
+                repositoryId: context.target.repositoryId,
+                orgId: input.orgId,
+                targetBranch: context.target.branch,
+                indexingReason: "Syncing Linear content",
+              },
+              {
+                error: (error) =>
+                  getLogger().error(error, {
+                    step: "linear-sync-content.ingestion",
+                    connectionId: input.connectionId,
+                  }),
+              },
+            ),
           )
         }
 

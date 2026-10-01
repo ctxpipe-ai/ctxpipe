@@ -49,9 +49,11 @@ it(
     const f = await fixture()
     const runs: Promise<unknown>[] = []
     try {
+      // TypeScript runs per discovered project and merges shards, so these
+      // slot tests use single-process direct-output indexers.
       for (const [command, name] of [
         ["scip-go", "go"],
-        ["scip-typescript", "typescript"],
+        ["scip-python", "python"],
       ] as const) {
         await f.command(
           command,
@@ -61,7 +63,7 @@ touch ${quote(join(f.directory, `${name}.started`))}
 while [ ! -f ${quote(join(f.directory, "release"))} ]; do sleep 0.01; done`,
         )
       }
-      for (const indexerId of ["go", "typescript"] as const)
+      for (const indexerId of ["go", "python"] as const)
         runs.push(
           runScipIndexer({
             indexerId,
@@ -74,14 +76,14 @@ while [ ! -f ${quote(join(f.directory, "release"))} ]; do sleep 0.01; done`,
         .poll(
           async () =>
             (await exists(join(f.directory, "go.started"))) &&
-            (await exists(join(f.directory, "typescript.started"))),
+            (await exists(join(f.directory, "python.started"))),
         )
         .toBe(true)
       expect(await exists(join(f.checkoutPath, "index.scip"))).toBe(false)
       await f.release()
       await Promise.all(runs)
       expect(await readFile(f.shard("go"), "utf8")).toBe("go")
-      expect(await readFile(f.shard("typescript"), "utf8")).toBe("typescript")
+      expect(await readFile(f.shard("python"), "utf8")).toBe("python")
     } finally {
       await f.release()
       await Promise.allSettled(runs)
@@ -99,8 +101,8 @@ it(
     try {
       for (const [command, name] of [
         ["scip-go", "go"],
-        ["scip-typescript", "typescript"],
         ["scip-python", "python"],
+        ["scip-ruby", "ruby"],
       ] as const) {
         await f.command(
           command,
@@ -110,7 +112,7 @@ touch ${quote(join(f.directory, `${name}.started`))}
 while [ ! -f ${quote(join(f.directory, "release"))} ] && [ ! -f ${quote(join(f.directory, `release-${name}`))} ]; do sleep 0.01; done`,
         )
       }
-      for (const indexerId of ["go", "typescript", "python"] as const)
+      for (const indexerId of ["go", "python", "ruby"] as const)
         runs.push(
           runScipIndexer({
             indexerId,
@@ -135,7 +137,7 @@ while [ ! -f ${quote(join(f.directory, "release"))} ] && [ ! -f ${quote(join(f.d
         .toBe(3)
       await f.release()
       await Promise.all(runs)
-      for (const name of ["go", "typescript", "python"])
+      for (const name of ["go", "python", "ruby"])
         expect(await readFile(f.shard(name), "utf8")).toBe(name)
     } finally {
       await f.release()
