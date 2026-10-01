@@ -22,6 +22,8 @@ const LinkedRepositorySchema = z
     desiredRef: z.string().nullable(),
     desiredSha: z.string().nullable(),
     indexedSha: z.string().nullable(),
+    indexingStatus: z.string().nullable(),
+    indexingError: z.string().nullable(),
     createdAt: z.string().datetime(),
   })
   .openapi("WorkspaceLinkedRepository")

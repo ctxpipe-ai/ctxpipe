@@ -28,6 +28,7 @@ import { withIngestAgentContext } from "../../graphs/codeIngestionGraph/withInge
 import {
   markRepositoryIndexingIssues,
   markRepositoryIndexingReady,
+  markRepositoryIndexingReadyWithIssues,
   markRepositoryIndexingRunning,
   repositoryIngestionBlockedByDeletion,
   setRepositoryIndexingStep,
@@ -48,6 +49,7 @@ import {
 } from "../../observability/logger.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueFollowUpIfTipAhead } from "../enqueue-follow-up-if-tip-ahead.js"
+import { indexingOutcome } from "../indexing-outcome.js"
 import { withLoggedStepAttempt } from "../withLoggedStepAttempt.js"
 import { repositoryIndex } from "./repository-index.js"
 import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
@@ -685,21 +687,27 @@ export const repositoryIngestion = defineWorkflow(
 
               await step.run({ name: "mark-success" }, () =>
                 wls("mark-success", () =>
-                  withOrgDbContext(input.orgId, () =>
-                    reindexState.searchIndexOk === false
-                      ? markRepositoryIndexingIssues({
+                  withOrgDbContext(input.orgId, () => {
+                    const outcome = indexingOutcome(reindexState)
+                    if (outcome.kind === "issues")
+                      return markRepositoryIndexingIssues({
+                        requestId,
+                        repositoryId: input.repositoryId,
+                        error: outcome.error,
+                      })
+                    return outcome.kind === "ready-with-issues"
+                      ? markRepositoryIndexingReadyWithIssues({
                           requestId,
                           repositoryId: input.repositoryId,
-                          error:
-                            reindexState.searchIndexError ??
-                            "Search index unavailable",
+                          targetHash: result.targetHash,
+                          error: outcome.error,
                         })
                       : markRepositoryIndexingReady({
                           requestId,
                           repositoryId: input.repositoryId,
                           targetHash: result.targetHash,
-                        }),
-                  ),
+                        })
+                  }),
                 ),
               )
 

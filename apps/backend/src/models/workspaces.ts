@@ -1007,9 +1007,14 @@ export async function touchLastUsedWorkspace(
   })
 }
 
-export async function listLinkedRepositories(
-  workspaceId: string,
-): Promise<WorkspaceLinkedRepositoryRecord[]> {
+export async function listLinkedRepositories(workspaceId: string): Promise<
+  Array<
+    WorkspaceLinkedRepositoryRecord & {
+      indexingStatus: string | null
+      indexingError: string | null
+    }
+  >
+> {
   return orgSql(async () => {
     const db = getOrgDb()
     const workspace = await getWorkspaceById(workspaceId)
@@ -1020,11 +1025,33 @@ export async function listLinkedRepositories(
         why: "Cannot list linked remotes for an unknown Workspace",
       })
     }
-    return db
-      .select()
-      .from(workspaceLinkedRepositories)
-      .where(eq(workspaceLinkedRepositories.workspaceId, workspaceId))
-      .orderBy(workspaceLinkedRepositories.createdAt)
+    const [linked, indexed] = await Promise.all([
+      db
+        .select()
+        .from(workspaceLinkedRepositories)
+        .where(eq(workspaceLinkedRepositories.workspaceId, workspaceId))
+        .orderBy(workspaceLinkedRepositories.createdAt),
+      db
+        .select({
+          gitUrl: repositories.gitUrl,
+          indexingStatus: repositories.indexingStatus,
+          indexingError: repositories.indexingError,
+        })
+        .from(repositories)
+        .where(eq(repositories.orgId, workspace.orgId)),
+    ])
+    // The org repository row carries index health (e.g. complete_with_issues).
+    const health = new Map(
+      indexed.map((row) => [normalizeWorkspaceRepositoryUrl(row.gitUrl), row]),
+    )
+    return linked.map((row) => {
+      const repository = health.get(normalizeWorkspaceRepositoryUrl(row.gitUrl))
+      return {
+        ...row,
+        indexingStatus: repository?.indexingStatus ?? null,
+        indexingError: repository?.indexingError ?? null,
+      }
+    })
   })
 }
 

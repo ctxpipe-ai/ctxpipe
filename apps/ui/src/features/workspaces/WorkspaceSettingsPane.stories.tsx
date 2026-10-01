@@ -74,6 +74,31 @@ export const EmptyLinkedRepos: Story = {
   },
 }
 
+export const LinkedRepositoryWithIssues: Story = {
+  args: {
+    workspace: {
+      ...docsWorkspaceDetail,
+      linkedRepositories: docsWorkspaceDetail.linkedRepositories.map(
+        (repository, index) =>
+          index === 0
+            ? {
+                ...repository,
+                indexedSha: repository.desiredSha ?? repository.indexedSha,
+                indexingStatus: "complete_with_issues",
+                indexingError:
+                  "TypeScript code intelligence is incomplete: 1 of 6 projects could not be indexed (packages/broken)",
+              }
+            : repository,
+      ),
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Indexed with issues")
+    await canvas.findByText(/1 of 6 projects could not be indexed/)
+  },
+}
+
 export const AddRepositories: Story = {
   args: {
     workspace: emptyLinkedWorkspaceDetail,

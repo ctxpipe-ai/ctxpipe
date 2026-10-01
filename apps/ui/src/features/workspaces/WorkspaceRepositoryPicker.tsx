@@ -302,7 +302,10 @@ function SelectGitHubPanel(props: {
           aria-label="Search GitHub repositories"
           className="min-w-0 flex-1"
         />
-        <GithubRepoSortSelect value={props.sort} onChange={props.onSortChange} />
+        <GithubRepoSortSelect
+          value={props.sort}
+          onChange={props.onSortChange}
+        />
       </div>
       {props.filteredRepos.length === 0 ? (
         <p className="text-sm text-muted-foreground">No repositories match.</p>

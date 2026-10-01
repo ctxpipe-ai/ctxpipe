@@ -33,6 +33,9 @@ export type WorkspaceLinkedRepository = {
   desiredRef: string | null
   desiredSha: string | null
   indexedSha: string | null
+  /** Org repository index health, e.g. `complete_with_issues`. */
+  indexingStatus?: string | null
+  indexingError?: string | null
   createdAt: string
 }
 

@@ -17,9 +17,9 @@ import {
   githubWebUrl,
 } from "@/features/repositories/github-web-url"
 import {
-  type GithubRepoSort,
   collectInstallationRepoPages,
   fetchGithubInstallationReposPage,
+  type GithubRepoSort,
   sortGithubRepos,
 } from "@/features/repositories/githubRepoSelection"
 import { gitSourceMatchesQuery } from "@/features/repositories/gitSourcesFilter"
@@ -44,6 +44,14 @@ function linkedStatus(item: WorkspaceLinkedRepository): {
   const indexed =
     item.indexedSha != null &&
     item.indexedSha === (item.desiredSha ?? item.indexedSha)
+  if (indexed && item.indexingStatus === "complete_with_issues") {
+    return {
+      label: "Indexed with issues",
+      className:
+        "inline-flex items-center gap-1.5 rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-xs text-amber-200",
+      dotClassName: "size-1.5 rounded-full bg-amber-300",
+    }
+  }
   if (indexed) {
     return {
       label: "Indexed",
@@ -174,6 +182,12 @@ export function WorkspaceLinkedRepositories(props: {
                             {item.gitUrl}
                           </p>
                         )}
+                        {item.indexingStatus === "complete_with_issues" &&
+                        item.indexingError ? (
+                          <p className="mt-0.5 text-xs text-amber-200/80">
+                            {item.indexingError}
+                          </p>
+                        ) : null}
                       </div>
                       <span className={cn("shrink-0", status.className)}>
                         <span className={status.dotClassName} aria-hidden />
