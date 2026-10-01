@@ -35,14 +35,13 @@ Workspace chat on hosted ctxpipe (production and PR previews) runs each conversa
 
 ## Plan
 
-1. **Spike (time-boxed, 1 day).** In a throwaway script on the pr-280 Railway environment: create a sandbox from a template containing `git` + pinned `opencode-ai`, exec a streaming command, write/read files, checkpoint + create from checkpoint, fork, connect by id after process restart, destroy. Measure create, checkpoint-restore, fork, and exec latency. Determine networking: can the backend reach the sandbox on the private network (PRIVATE mode) without a public domain, and can the sandbox reach `backend.railway.internal`? Output: a comment with numbers and the networking answer.
-2. **Provider package.** Implement `railwaySandbox(config)` as a small standalone package (e.g. `packages/tanstack-sandbox-railway`) shaped for upstream contribution: map `create`→`Sandbox.create` (template or checkpoint source), `resume`→`Sandbox.connect`, `destroy`→`destroy`, `snapshot`→`checkpoint`, `fork`→`fork`, process/fs/ports/env onto the SDK. Capabilities: `snapshots`, `fork`, `durableFilesystem`, `killableProcesses`, `ports` as proven in the spike; `networkPolicy: false` unless Railway exposes an allowlist.
-3. **Chat image as a Railway template.** Build the sandbox template from the same inputs as `scripts/chat-sandbox/Dockerfile` (git, `opencode-ai@<pinned>`, credential helper). Version the template with the OpenCode pin so definition identity changes when it does.
-4. **Networking + auth.** Prefer PRIVATE network with backend → sandbox private addressing. If the only option is a public `domains` URL, protect OpenCode with a per-run secret header enforced by a tiny in-sandbox proxy or OpenCode's own auth, and record the choice in an ADR.
-5. **Wire into product.** `SANDBOX_PROVIDER=railway` in `infra/module/ctxpipe/railway.tf` for backend + worker (and PR previews), Railway API token + environment id as secrets, region pinned next to Neon (ADR-029). Remove the unsandboxed fallback on Railway (`discoverSandboxProvider`), keep `unsandboxed` only as an explicit lock.
-6. **Lifecycle + cleanup.** Map keep-alive (30 min) to `idleTimeoutMinutes`; extend `workspace-sandbox-cleanup.ts` to list provider sandboxes/checkpoints and destroy anything without a live owner row. Add a metric/log for orphan count.
-7. **Proof.** Provider contract tests in a CI lane gated on a Railway test token (fail, not skip, when the token is missing in that lane); preview-env `chat`/`files-publish`; latency numbers; orphan sweep.
-8. **Upstream.** Offer the provider to TanStack once stable.
+1. **Provider package.** Implement `railwaySandbox(config)` as a small standalone package (e.g. `packages/tanstack-sandbox-railway`) shaped for upstream contribution: map `create`→`Sandbox.create` (template or checkpoint source), `resume`→`Sandbox.connect`, `destroy`→`destroy`, `snapshot`→`checkpoint`, `fork`→`fork`, process/fs/ports/env onto the SDK. Capabilities: `snapshots`, `fork`, `durableFilesystem`, `killableProcesses`, `ports` as proven by the contract tests; `networkPolicy: false` unless Railway exposes an allowlist.
+2. **Chat image as a Railway template.** Build the sandbox template from the same inputs as `scripts/chat-sandbox/Dockerfile` (git, `opencode-ai@<pinned>`, credential helper). Version the template with the OpenCode pin so definition identity changes when it does.
+3. **Networking + auth.** Establish while building the provider whether the backend can reach the sandbox on the private network and the sandbox can reach `backend.railway.internal`. Prefer PRIVATE network with backend → sandbox private addressing. If the only option is a public `domains` URL, protect OpenCode with a per-run secret header enforced by a tiny in-sandbox proxy or OpenCode's own auth, and record the choice in an ADR.
+4. **Wire into product.** `SANDBOX_PROVIDER=railway` in `infra/module/ctxpipe/railway.tf` for backend + worker (and PR previews), Railway API token + environment id as secrets, region pinned next to Neon (ADR-029). Remove the unsandboxed fallback on Railway (`discoverSandboxProvider`), keep `unsandboxed` only as an explicit lock.
+5. **Lifecycle + cleanup.** Map keep-alive (30 min) to `idleTimeoutMinutes`; extend `workspace-sandbox-cleanup.ts` to list provider sandboxes/checkpoints and destroy anything without a live owner row. Add a metric/log for orphan count.
+6. **Proof.** Provider contract tests in a CI lane gated on a Railway test token (fail, not skip, when the token is missing in that lane); preview-env `chat`/`files-publish`; latency numbers; orphan sweep.
+7. **Upstream.** Offer the provider to TanStack once stable.
 
 ## Open questions
 
@@ -54,8 +53,10 @@ Workspace chat on hosted ctxpipe (production and PR previews) runs each conversa
 
 Read first: this ticket, ticket 01's ledger, `sandbox-provider.ts`, `tanstack-workspace-chat.ts` (provider selection + `defineSandbox`), `workspace-sandbox-cleanup.ts`, `scripts/chat-sandbox/`, `infra/module/ctxpipe/railway.tf`, the `use-railway` skill, and one upstream provider (`@tanstack/ai-sandbox-sprites` or `-daytona`) as a template.
 
-Start with phase 1 and report the numbers + networking answer before writing the provider. Needs a Railway API token scoped to the pr-280 environment (ask the user). Never fall back to unsandboxed on Railway.
+Build the provider directly (no separate spike). Record create / checkpoint-restore / fork / exec latency and the networking answer in `## Comments` as soon as known. Needs a Railway API token scoped to the pr-280 environment (ask the user). Never fall back to unsandboxed on Railway.
 
 ## Comments
+
+- 2026-10-01 (user): no separate spike — build the provider directly. Plan updated.
 
 ## Resolution

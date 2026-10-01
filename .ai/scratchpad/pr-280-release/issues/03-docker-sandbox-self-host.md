@@ -43,14 +43,25 @@ Self-hosters get sandboxed workspace chat by default on both Compose and CDK, us
 
 1. **Compose simplification.** Replace the custom runner with stock `docker:dind` (TLS on via `DOCKER_TLS_CERTDIR`, named volume for `/var/lib/docker`, `daemon.json` with `cgroup-parent` + log rotation). Backend/worker use `DOCKER_HOST=tcp://dind:2376` + client certs. Build the chat image inside dind at startup (keep the existing `chat-sandbox-image` step if still needed). Remove `sandbox-model-relay`; sandboxes reach the backend through the dind network / `hostGateway`. Prove: two chats, restart dind, chats resume or re-create cleanly.
 2. **Cleanup owner.** Label every sandbox container and snapshot image with org/workspace/conversation ids. Extend `workspace-sandbox-cleanup.ts`: destroy idle sandboxes past keep-alive, delete snapshot images whose owner rows are gone, then `docker container prune` / `image prune` filtered by our labels. Run it from the existing periodic workflow. Prove with a native contract test that creates, snapshots, forks, expires, and asserts nothing labelled remains.
-3. **CDK sandbox host construct.** Add `SandboxHostConstruct` to `packages/aws-cdk/src/internal/`: single-instance ASG (self-healing) on a Graviton or x86 instance sized by `size` profile (overridable), gp3 root + data volume for `/var/lib/docker`, user data installing Docker with TLS and the same `daemon.json`, certs generated once into Secrets Manager, security group allowing 2376 only from backend/worker and sandbox → backend ports. Inject `SANDBOX_PROVIDER=docker`, `DOCKER_HOST`, and certs into backend/worker task definitions. CloudWatch disk + memory alarms. Default on; no new required props.
+3. **CDK sandbox host construct.** Add `SandboxHostConstruct` to `packages/aws-cdk/src/internal/`: single-instance ASG (self-healing) on the Graviton instance for the `size` profile (table above, overridable), gp3 root + data volume for `/var/lib/docker`, user data installing Docker with TLS and the same `daemon.json`, certs generated once into Secrets Manager, security group allowing 2376 only from backend/worker and sandbox → backend ports. Inject `SANDBOX_PROVIDER=docker`, `DOCKER_HOST`, and certs into backend/worker task definitions. CloudWatch disk + memory alarms. Default on; no new required props.
 4. **Backend wiring.** Provider selection reads the configured daemon; remove unsandboxed auto-fallback when a daemon is configured but unreachable (fail closed). Keep `unsandboxed` reachable only by explicit `SANDBOX_PROVIDER=unsandboxed`, with a startup warning.
 5. **Upgrade path test.** Deploy the previous published construct in a sandbox AWS account, then upgrade to this one: no data loss, no manual steps. Record in the ticket.
 6. **Docs + changeset.** Self-hosting docs for Compose and CDK sandboxing; minor changeset for `@ctxpipe/aws-cdk`; ADR for "self-host sandbox = stock dockerSandbox on DinD/EC2" (feeds ticket 08).
 
+## Instance sizing (decided 2026-10-01: optimal for the use case, ARM)
+
+Chat sandboxes are idle most of the time (waiting on the model) with short bursts (clone, grep, tests), so burstable Graviton fits small installs and general-purpose Graviton fits larger ones. Each conversation sandbox (OpenCode + git + node) needs roughly 0.3–0.6 GiB RSS while active. Prices are us-east-1 on-demand, approximate.
+
+| `size` | Instance | vCPU / RAM | Docker volume (gp3) | ~Cost/month | Concurrent active chats (est.) |
+| --- | --- | --- | --- | --- | --- |
+| small | `t4g.large` (unlimited credits) | 2 / 8 GiB | 60 GB | ~$55 | ~8 |
+| medium | `m7g.xlarge` | 4 / 16 GiB | 120 GB | ~$130 | ~20 |
+| large | `m7g.2xlarge` | 8 / 32 GiB | 250 GB | ~$255 | ~45 |
+
+Overridable via optional props. ARM means the chat image is built `linux/arm64` (OpenCode ships arm64 binaries); Compose keeps building for the host architecture. Validate the estimates with the browser suite (ticket 06) and adjust before release.
+
 ## Open questions
 
-- Default EC2 instance for `small`/`medium`/`large` sizes (e.g. `m7g.large` ~ $60/month for small)? Graviton requires an arm64 chat image — OK to build multi-arch?
 - Should CDK users be able to opt out (`sandbox: false` ⇒ unsandboxed with a loud warning), or is the host always created?
 - Compose: is dind (privileged container) acceptable as the default, given the alternative is mounting the host socket into the backend?
 
@@ -61,5 +72,7 @@ Read first: this ticket, ticket 01's ledger, `docker-compose.yml`, `scripts/sand
 Do not add TanStack patches or an application-level sandbox registry. Keep construct changes backwards compatible. Report: deletion ledger, cleanup proof output, CDK synth diff summary, upgrade-path result.
 
 ## Comments
+
+- 2026-10-01 (user): no instance preference beyond "optimal for the use case, balancing simplicity, cost and speed; ARM". Sizing table added.
 
 ## Resolution

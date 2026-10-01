@@ -17,6 +17,7 @@ Every ticket starts with these lines:
 ```
 Status: <status>
 Priority: P0 | P1 | P2
+Order: <n> (optional; execution order set by the user)
 Owner: unassigned | claude | <agent name> | human
 Blocked by: none | NN, NN
 Created: YYYY-MM-DD
