@@ -1,5 +1,19 @@
 # @ctxpipe/aws-cdk
 
+## 3.2.0
+
+### Minor Changes
+
+- ce5f396: Optional `otel` prop: one OTLP/HTTP base URL; the construct sets per-signal `OTEL_EXPORTER_OTLP_*_ENDPOINT`, headers (Secrets Manager), and `OTEL_SERVICE_NAME` on the backend, worker, UI, and codesearch tasks. No collector is deployed.
+
+### Patch Changes
+
+- 58b47fa: The backend and worker images run on Bun 1.4.2. Reading streamed model responses costs several times less CPU than on Bun 1.3, so concurrent advisor requests no longer saturate a small backend task. Bun 1.4 checks TLS certificates against the connection host: if `DATABASE_URL` or `GRAPH_DB_URI` reaches a TLS server by IP address or through a `localhost` port-forward, use the hostname on its certificate.
+- 93ab07f: Default chat tiers are GPT-6 Luna with high reasoning (fast), GPT-6 Luna with xhigh reasoning (medium), and Xiaomi MiMo-V2.6-Pro (high) when `MODEL_*_NAME` is unset.
+- c22338c: Read Linear through budgeted GraphQL documents: one request per page, a workflow step per page, and one git commit at the end. UTF-8 GitHub writes go in chunked trees instead of one blob post per file. A connector stays Syncing until indexing finishes.
+- 3ec176f: Backend logs export to the OTLP collector in background batches, and the UI telemetry relay times out after 2s. A slow or unreachable collector no longer delays API responses.
+- cca4146: Index every TypeScript project, including the root, in its own `scip-typescript` run (parents exclude nested project directories), with workspace packages linked into a temporary `node_modules`, a heap sized from the memory share, and wire-level shard merges. Partially failed TypeScript indexes report `complete_with_issues` with a short reason; repositories where TypeScript is only an incidental nested config soft-skip instead of failing. Graph queries load SCIP one document at a time, and monorepo packages gain `PART_OF` edges to their enclosing package.
+
 ## 3.1.14
 
 ### Patch Changes

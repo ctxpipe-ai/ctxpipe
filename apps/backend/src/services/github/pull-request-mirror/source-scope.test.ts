@@ -9,12 +9,7 @@ describe("sourceRepositoriesForPrMirror", () => {
   it("follows the picker and drops the context warehouse", () => {
     expect(
       sourceRepositoriesForPrMirror(
-        [
-          "acme/worker",
-          "acme/api",
-          "acme/ctxpipe-context",
-          "acme/api",
-        ],
+        ["acme/worker", "acme/api", "acme/ctxpipe-context", "acme/api"],
         "acme/ctxpipe-context",
       ),
     ).toEqual(["acme/api", "acme/worker"])

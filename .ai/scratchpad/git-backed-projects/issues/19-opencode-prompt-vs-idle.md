@@ -2,7 +2,7 @@
 
 Status: historical
 
-The 0.2.5 version pin and attach/idle-wait workaround are historical. Product chat is stock TanStack (`@tanstack/ai@0.48` + `@tanstack/ai-opencode@0.3.4`); see [ADR-043](../../../memory/decisions/ADR-043-workspace-chat-stock-tanstack.md).
+The 0.2.5 version pin and attach/idle-wait workaround are historical. Product chat is stock TanStack (`@tanstack/ai@0.48` + `@tanstack/ai-opencode@0.3.4`); see [ADR-044](../../../memory/decisions/ADR-044-workspace-chat-stock-tanstack.md).
 
 Stock `@tanstack/ai-opencode@0.2.5` ended the event queue when `session.prompt()` resolved, not when `session.idle` fired. Assistant `message.part.updated` events that arrived after that were dropped. Workspace chat then saw harness echo or an empty persist reply.
 

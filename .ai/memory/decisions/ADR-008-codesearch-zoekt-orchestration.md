@@ -66,8 +66,8 @@ Implementation: [`apps/codesearch/src/domain/indexing/service.ts`](../../../apps
   no separate Zoekt-only search service.
 - Structural search stays argv-only, streamed, path-contained, and bounded.
 - Immutable published checkouts and SHA-bound claims are owned by
-  [ADR-045](ADR-045-workspace-revision-projection-identity.md) and
-  [ADR-046](ADR-046-native-durable-write-workflows.md).
+  [ADR-046](ADR-046-workspace-revision-projection-identity.md) and
+  [ADR-047](ADR-047-native-durable-write-workflows.md).
 
 ## Alternatives Considered
 

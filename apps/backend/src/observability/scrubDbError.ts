@@ -40,6 +40,49 @@ export function flattenDbErrorCause(event: Record<string, unknown>): void {
   if ("cause" in record) record.cause = plainDbCause(record.cause, 0)
 }
 
+/**
+ * Drop a Drizzle `params:` line from text a library already recorded.
+ * Messages that carried bound values are also capped, matching `dbErrorException`.
+ */
+export function scrubExportedSpan(span: {
+  events: { name: string; attributes?: Record<string, unknown> }[]
+  status: { code: number; message?: string }
+  setStatus(status: { code: number; message?: string }): void
+}): void {
+  for (const event of span.events) {
+    const attributes = event.attributes
+    if (event.name !== "exception" || !attributes) continue
+    const message = attributes["exception.message"]
+    if (typeof message === "string") {
+      attributes["exception.message"] = scrubDbMessage(message)
+    }
+    const stack = attributes["exception.stacktrace"]
+    if (typeof stack === "string") {
+      const scrubbed = scrubDbStack(stack)
+      if (scrubbed === undefined) delete attributes["exception.stacktrace"]
+      else attributes["exception.stacktrace"] = scrubbed
+    }
+  }
+  const statusMessage = span.status.message
+  if (typeof statusMessage !== "string") return
+  const scrubbed = scrubDbMessage(statusMessage)
+  if (scrubbed !== statusMessage) {
+    span.setStatus({ code: span.status.code, message: scrubbed })
+  }
+}
+
+function scrubDbMessage(text: string): string {
+  if (!/\r?\nparams:/i.test(text)) return text
+  return scrubDrizzleParams(text).replace(/\s+/g, " ").trim().slice(0, 300)
+}
+
+function scrubDbStack(text: string): string | undefined {
+  if (!/\r?\nparams:/i.test(text)) return text
+  const scrubbed = scrubDrizzleParams(text)
+  if (/params:/i.test(scrubbed)) return undefined
+  return scrubbed
+}
+
 /** Exception for a failed query span. No bound values, detail, or cause chain. */
 export function dbErrorException(error: unknown): Error {
   const raw = error instanceof Error ? error.message : String(error)

@@ -305,10 +305,10 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### Default LLM tiers
-- **Rule:** unset `MODEL_*_NAME` defaults to `openai/gpt-5.6-terra` with `reasoning.effort=low|medium|high` (not Luna). Prefer Terra over Luna for repo-scale agent/ingestion work — Luna’s high/xhigh/max TTFT is too slow/risky for large-repo latency; Luna remains a cost option via explicit env override.
+- **Rule:** unset `MODEL_*_NAME` defaults are fast `openai/gpt-6-luna?reasoning.effort=high`, medium `openai/gpt-6-luna?reasoning.effort=xhigh`, and high `xiaomi/mimo-v2.6-pro`. The fast tier is the low slot. Do not revert these to GPT-5.6 Terra.
 - **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
+- **Date:** 2026-09-28
+- **Source:** product default model update
 
 ### `deduplicateAndStore` DB access
 - **Rule:** never upsert objects/claims with one Postgres round-trip per extracted item. Prefetch by `deduplicationKey` / claim triples (chunked), merge in memory (`mergeRetrievalObjectPayloads` / logical evidence keys), batch writes; emit `codeIngestion.deduplicateAndStore.progress` + `flushWorkflowLog` on large runs. Keep stub-vs-full merge and duplicate-evidence→still-project semantics.
@@ -586,11 +586,11 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-15
 - **Source:** ui-design-skills research / product-ui skill
 
-### Cursor Task models
-- **Rule:** always pass an explicit Task `model` (see root [AGENTS.md](../../AGENTS.md) **Cursor Task models**). Implementation and explore: `cursor-grok-4.6-high-fast`. Review and grilling: `gpt-5.6-sol-high`. Map leftover Claude names: Sonnet/Fable/Haiku → Grok; Opus (including xhigh/fast) → `gpt-5.6-sol-high`. This is a parent-agent nudge; disabling Claude in Cursor Settings → Models is the hard block.
+### Sub-agent models
+- **Rule:** always set the sub-agent model explicitly (see root [AGENTS.md](../../AGENTS.md) **Sub-agent models**). Implementation and explore: Opus at medium effort. Review and grilling: Opus at high effort. Keep the wording harness-agnostic (plain "Opus" plus an effort level, no Cursor or Claude slugs) so the instructions work in both Cursor and Claude Code.
 - **Category:** convention
-- **Date:** 2026-08-17
-- **Source:** user preference (Grok for implementations, Sol for reviews)
+- **Date:** 2026-09-29
+- **Source:** user preference (Opus replaces Grok for implementation and Sol for review)
 
 ### Scope shared UI class helpers
 - **Rule:** when iterating on one region of a surface (footer vs list, one panel vs another), do **not** put hover/focus/outline experiments on shared class helpers that restyle siblings. Keep shared layout tokens shared; keep region-only treatments on region helpers.
@@ -623,13 +623,13 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** workspace pane tabs accessibility
 
 ### Workspace write jobs and native OpenWorkflow ownership
-- **Rule:** Each typed write is a native OpenWorkflow workflow with explicit steps. OpenWorkflow owns retries, waits and resume; a paused command keeps its native owner. `workspace_write_jobs` stores bound command/result metadata, per-concern planning limits and path assignments. Public projections may reconcile the matching native owner's terminal state in short tenant-scoped SQL; do not create a second runner or scheduler. Brokered native Git is the default-branch write authority. See [ADR-046](decisions/ADR-046-native-durable-write-workflows.md).
+- **Rule:** Each typed write is a native OpenWorkflow workflow with explicit steps. OpenWorkflow owns retries, waits and resume; a paused command keeps its native owner. `workspace_write_jobs` stores bound command/result metadata, per-concern planning limits and path assignments. Public projections may reconcile the matching native owner's terminal state in short tenant-scoped SQL; do not create a second runner or scheduler. Brokered native Git is the default-branch write authority. See [ADR-047](decisions/ADR-047-native-durable-write-workflows.md).
 - **Category:** convention
 - **Date:** 2026-09-08
-- **Source:** accepted workspace recovery Gate 3 and ADR-046; supersedes the 2026-08-20 generic-runner instruction from issue 10.
+- **Source:** accepted workspace recovery Gate 3 and ADR-047; supersedes the 2026-08-20 generic-runner instruction from issue 10.
 
 ### Workspace Files pane — Pierre trees and diffs, not a homemade explorer
-- **Rule:** Do not keep growing a custom RAC file tree / `<pre>` preview for the Files pane. Use `@pierre/trees` (explorer) and `@pierre/diffs` (`File` / `FileDiff`). Pierre is chrome only — persist via workspace **write jobs**. The pane is a **workspace-repository** explorer (full git tree), not hydrate `.md` units only. Theme via host `--trees-theme-*`; use `unsafeCSS` only when variables cannot express a rule. See [ADR-039](decisions/ADR-039-pierre-files-pane-chrome.md).
+- **Rule:** Do not keep growing a custom RAC file tree / `<pre>` preview for the Files pane. Use `@pierre/trees` (explorer) and `@pierre/diffs` (`File` / `FileDiff`). Pierre is chrome only — persist via workspace **write jobs**. The pane is a **workspace-repository** explorer (full git tree), not hydrate `.md` units only. Theme via host `--trees-theme-*`; use `unsafeCSS` only when variables cannot express a rule. See [ADR-040](decisions/ADR-040-pierre-files-pane-chrome.md).
 - **Category:** convention
 - **Date:** 2026-08-19
 - **Source:** user product choice (Pierre as Files chrome)
@@ -737,10 +737,10 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** user correction (git-backed workspaces dest backfill)
 
 ### Org SQL is a short GUC transaction
-- **Rule:** Org SQL is a short `BEGIN` + `SET LOCAL app.organization_id` (`set_config(..., true)`) + `COMMIT` on the Neon transaction-mode pooler. That GUC is the RLS hook ([ADR-041](decisions/ADR-041-postgres-rls-app-role.md)): tenant tables use `ENABLE` (not FORCE) and the runtime role is `ctxpipe_app` (no `BYPASSRLS`). Tenant reads/writes go through `withOrgDbContext` / `orgSql` / `getOrgDb()`. Keep `getSystemDb()` for Better Auth tables, `organizations`, `members`, `invitations`, and unRLS’d `connection_directory` only — not LangGraph `checkpoint_*`, not `openworkflow.*`, not disk shards. Do not `SET SESSION` on the pooled URL. Do not hold a `PoolClient` until the HTTP response. Do not add `connect()` retries as a substitute for releasing the client. Nested same-org calls reuse the open tx; nested different-org or nested idle-timeout throws; inner throw aborts the outer (no savepoints). GitHub, sandbox **provider** I/O (Docker / `sbx` / local-process / Railway), codesearch, FalkorDB, connector HTTP, embeddings, and `enqueueWorkspace*` must run after COMMIT — `assertNotInOrgDbContext()` at those gateways. Session advisory locks and a second lock pool are forbidden; live job/chat sandbox identity is a unique row, not a held connection. AWS self-host upgrade stays `pnpm update @ctxpipe/aws-cdk` then `cdk deploy` (no new props, no `psql`).
+- **Rule:** Org SQL is a short `BEGIN` + `SET LOCAL app.organization_id` (`set_config(..., true)`) + `COMMIT` on the Neon transaction-mode pooler. That GUC is the RLS hook ([ADR-042](decisions/ADR-042-postgres-rls-app-role.md)): tenant tables use `ENABLE` (not FORCE) and the runtime role is `ctxpipe_app` (no `BYPASSRLS`). Tenant reads/writes go through `withOrgDbContext` / `orgSql` / `getOrgDb()`. Keep `getSystemDb()` for Better Auth tables, `organizations`, `members`, `invitations`, and unRLS’d `connection_directory` only — not LangGraph `checkpoint_*`, not `openworkflow.*`, not disk shards. Do not `SET SESSION` on the pooled URL. Do not hold a `PoolClient` until the HTTP response. Do not add `connect()` retries as a substitute for releasing the client. Nested same-org calls reuse the open tx; nested different-org or nested idle-timeout throws; inner throw aborts the outer (no savepoints). GitHub, sandbox **provider** I/O (Docker / `sbx` / local-process / Railway), codesearch, FalkorDB, connector HTTP, embeddings, and `enqueueWorkspace*` must run after COMMIT — `assertNotInOrgDbContext()` at those gateways. Session advisory locks and a second lock pool are forbidden; live job/chat sandbox identity is a unique row, not a held connection. AWS self-host upgrade stays `pnpm update @ctxpipe/aws-cdk` then `cdk deploy` (no new props, no `psql`).
 - **Category:** convention
 - **Date:** 2026-08-21
-- **Source:** user correction (RLS is a hard requirement; lock pool caused DELETE 500; ADR-041 enablement)
+- **Source:** user correction (RLS is a hard requirement; lock pool caused DELETE 500; ADR-042 enablement)
 
 ### Enable RLS in the same PR as the org-SQL work
 - **Rule:** Do not split RLS enablement into a follow-up because the org-SQL / workspace PR already needs a full preview pass. Enabling policies does not add a second product-surface test matrix; ship the audit and enablement on that branch. A role-split `DATABASE_URL` still needs one preview smoke (sign-in, list, webhook, index) as deploy verification, not extra feature testing.
@@ -818,10 +818,10 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Rule:** Native git owns repository, revision, branch, diff, and worktree. OpenWorkflow owns durable job orchestration. Stock TanStack AI owns chat, persistence, stream lifecycle, and OpenCode sandbox integration. Pierre owns file-tree and diff/editor chrome. ctxpipe code owns organisation authorization, Workspace identity, projection activation, credential brokering, and publish rules. Do not add a second chat or write engine beside those owners.
 - **Category:** convention
 - **Date:** 2026-09-11
-- **Source:** accepted Workspace recovery foundations (ADR-043, ADR-046, ADR-047)
+- **Source:** accepted Workspace recovery foundations (ADR-044, ADR-047, ADR-048)
 
 ### workspace-golden is not live GitHub or Btrfs proof
-- **Rule:** Tagged Storybook `workspace-golden` plays are the required deterministic UI journey ([ADR-044](decisions/ADR-044-required-recovery-ci.md)). They are not live GitHub App publish proof and not Railway/Btrfs quota proof ([ADR-047](decisions/ADR-047-native-postgres-sandbox-ownership.md)).
+- **Rule:** Tagged Storybook `workspace-golden` plays are the required deterministic UI journey ([ADR-045](decisions/ADR-045-required-recovery-ci.md)). They are not live GitHub App publish proof and not Railway/Btrfs quota proof ([ADR-048](decisions/ADR-048-native-postgres-sandbox-ownership.md)).
 - **Category:** convention
 - **Date:** 2026-09-11
 - **Source:** Gate 6 leftover after deleting docs/plans recovery ledgers
@@ -856,6 +856,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-09-25
 - **Source:** PR-343 Opus review of the attribution step (live baggage spoof and reset-token leak into ClickHouse)
 
+### Telemetry export never sits on the request or job path
+- **Rule:** Sending logs, spans, or metrics to the collector must not change app behaviour. Exporters buffer and send in the background (evlog `createDrainPipeline`, the OTel batch span processor, a periodic metric reader); a request or job never awaits a network call to the collector. A relay that forwards telemetry has a short upstream timeout. A slow or unreachable collector costs dropped telemetry, never response latency or errors. Flush explicitly only on shutdown or before a script exits.
+- **Category:** convention
+- **Date:** 2026-09-30
+- **Source:** user, after a Railway edge routing incident made the backend's awaited OTLP log drain add 5–15 s to production responses
+
 ### The UI is reached through the backend proxy, which rewrites Host
 - **Rule:** Browsers load the app from the backend origin; the backend proxies SPA and `/.otel` routes to `UI_PROXY_URL`, so inside `apps/ui` server handlers `request.url`/`Host` is the internal UI host, not the public origin. Any origin, CSRF, redirect, or absolute-URL logic in `apps/ui` must derive the public origin from the forwarded host/proto the backend proxy sets (or from the backend's configured public URL), and must be tested with a proxied request (internal Host + public Origin), not only with Origin == Host.
 - **Category:** convention
@@ -873,6 +879,19 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** convention
 - **Date:** 2026-09-26
 - **Source:** PR-343 backend image failed "Verify connector asset contracts" after `otel.ts` imported `@opentelemetry/resources`, which was only a devDependency
+
+### Connector full imports resume at the unfinished page
+
+- **Rule:** A scoped-mirror initial sync checkpoints one OpenWorkflow step per provider page. The step name is the scope id and the page index; the cursor and the rendered text files are the stored result. Git gets one commit after those pages. A crash refetches only the page that was not stored. Follow [source-connectors](../../.cursor/skills/source-connectors/SKILL.md) step 7 when designing or changing an integration.
+- **Category:** convention
+- **Date:** 2026-09-28
+- **Source:** user, after a Linear initial sync held the whole mirror in one step and a crash refetched the workspace
+
+### Connector provider reads scale with the data
+- **Rule:** Source-connector provider calls scale linearly with the amount of data: one request per page of entities or per webhook entity, with related fields batched into that request. They do not scale with the number of relations on each entity (one request per comment, author, or parent). Setup catalogues are one query; extra requests are only later pages of that same query. Follow [source-connectors](../../.cursor/skills/source-connectors/SKILL.md) step 6 when designing or changing an integration.
+- **Category:** convention
+- **Date:** 2026-09-28
+- **Source:** user, after Linear relation getters issued one request per comment, user, and team during a large import
 
 ### CD applies ops changes; no manual follow-ups
 - **Rule:** Do not hand the owner runbook steps, scripts to run, or "after merge" to-dos. Provisioning and one-time cleanups go into the CD workflow, and leftovers from a migration are deleted as part of the work. A Railway setting the Terraform provider omits on update (restart policy, healthcheck, and sleep have `omitempty`) is set once on the service; do not add a workflow script to reapply it, and do not restate platform defaults. The only acceptable owner action is supplying a secret the agent cannot write, stated once with the exact name and location.

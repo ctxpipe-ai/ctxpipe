@@ -6,7 +6,7 @@ import { drizzle } from "drizzle-orm/node-postgres"
 import { migrate } from "drizzle-orm/node-postgres/migrator"
 import { Pool } from "pg"
 import { parseEnv } from "../config/env.js"
-import { initEvlog, log } from "../observability/logger.js"
+import { flushEvlog, initEvlog, log } from "../observability/logger.js"
 import { backfillGithubAppSecretsFromEnv } from "../scripts/backfillGithubConnectionSecrets.js"
 import { backfillKnowledgePathState } from "./backfill-knowledge-path-state.js"
 import { backfillMissingPagerdutyConnectionDirectory } from "./backfill-pagerduty-connection-directory.js"
@@ -64,3 +64,4 @@ if (appRolePassword) {
 
 await pool.end()
 log.info({ step: "migrate", message: "[migrate] done" })
+await flushEvlog()

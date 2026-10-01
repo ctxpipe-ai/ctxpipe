@@ -3,8 +3,8 @@ import {
   chmod,
   mkdir,
   mkdtemp,
-  readFile,
   readdir,
+  readFile,
   rm,
   writeFile,
 } from "node:fs/promises"
@@ -47,7 +47,7 @@ it(
   { timeout: 30_000 },
   async () => {
     const f = await fixture()
-    const runs: Promise<void>[] = []
+    const runs: Promise<unknown>[] = []
     try {
       for (const [command, name] of [
         ["scip-go", "go"],
@@ -95,7 +95,7 @@ it(
   { timeout: 30_000 },
   async () => {
     const f = await fixture()
-    const runs: Promise<void>[] = []
+    const runs: Promise<unknown>[] = []
     try {
       for (const [command, name] of [
         ["scip-go", "go"],
@@ -150,7 +150,7 @@ it(
   { timeout: 30_000 },
   async () => {
     const f = await fixture()
-    const runs: Promise<void>[] = []
+    const runs: Promise<unknown>[] = []
     try {
       await writeFile(join(f.checkoutPath, "index.scip"), "stale")
       await f.command(

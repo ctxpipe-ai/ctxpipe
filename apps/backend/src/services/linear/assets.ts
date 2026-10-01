@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { parse as parseYaml } from "yaml"
 import type { ConnectorAssetBytePool } from "../connectors/assets.js"
 import {
   CONNECTOR_ENTITY_MAX_ASSETS,
@@ -368,6 +369,79 @@ export async function captureLinearEntityAssets(input: {
     preservePathPrefixes,
     rewriteMarkdown: (markdown) => applyLinearAssetRewrites(markdown, assets),
   }
+}
+
+function frontmatterAttachments(content: string): LinearAttachmentMetadata[] {
+  if (!content.startsWith("---\n")) return []
+  const end = content.indexOf("\n---", 4)
+  if (end < 0) return []
+  const parsed = parseYaml(content.slice(4, end))
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return []
+  }
+  const attachments = parsed.attachments
+  if (!Array.isArray(attachments)) return []
+  const metadata: LinearAttachmentMetadata[] = []
+  for (const attachment of attachments) {
+    if (typeof attachment !== "object" || attachment === null) continue
+    const record = attachment as Record<string, unknown>
+    if (typeof record.id !== "string" || typeof record.url !== "string") {
+      continue
+    }
+    metadata.push({
+      id: record.id,
+      title: typeof record.title === "string" ? record.title : record.id,
+      url: record.url,
+      sourceType:
+        typeof record.sourceType === "string" ? record.sourceType : null,
+    })
+  }
+  return metadata
+}
+
+export async function downloadLinearMirrorAssets(input: {
+  files: ReadonlyArray<{
+    path: string
+    content: string
+    encoding?: "utf-8" | "base64"
+  }>
+  accessToken: string
+  existingShaByPath?: ReadonlyMap<string, string>
+}): Promise<{
+  files: LinearMirrorFile[]
+  preservePathPrefixes: string[]
+}> {
+  const bytePool = createConnectorAssetBytePool()
+  const files: LinearMirrorFile[] = []
+  const preservePathPrefixes: string[] = []
+  for (const file of input.files) {
+    if (file.encoding === "base64" || !file.path.endsWith(".md")) {
+      files.push({
+        path: file.path,
+        content: file.content,
+        encoding: file.encoding,
+      })
+      continue
+    }
+    const captured = await captureLinearEntityAssets({
+      markdownPath: file.path,
+      accessToken: input.accessToken,
+      attachments: frontmatterAttachments(file.content),
+      markdownSources: [file.content],
+      bytePool,
+      existingShaByPath: input.existingShaByPath,
+    })
+    let content = captured.rewriteMarkdown(file.content)
+    for (const asset of captured.assets) {
+      if (asset.status === "downloaded") {
+        content = content.replaceAll(asset.sourceUrl, asset.relativePath)
+      }
+    }
+    preservePathPrefixes.push(...captured.preservePathPrefixes)
+    files.push({ path: file.path, content })
+    files.push(...captured.files)
+  }
+  return { files, preservePathPrefixes }
 }
 
 export async function linearIssueMirrorFiles(

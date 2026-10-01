@@ -377,6 +377,14 @@ export async function githubRefExists(
   }
 }
 
+type GitTreeEntry = {
+  path: string
+  mode: "100644"
+  type: "blob"
+  sha?: string | null
+  content?: string
+}
+
 export async function commitFiles(
   input: BaseInput & {
     branch: string
@@ -389,57 +397,105 @@ export async function commitFiles(
 ) {
   const context = await getInstallationContext(input, { contents: "write" })
   await assertConfigBranch(context, input.branch)
-  const fileEntries: Array<{
-    path: string
-    mode: "100644"
-    type: "blob"
-    sha: string
-  }> = []
+  const fileEntries: GitTreeEntry[] = []
   let lastBinaryBlobStartedAt = 0
   for (const file of input.files) {
-    if (file.encoding === "base64" && lastBinaryBlobStartedAt > 0) {
-      const remainingDelay = 1_000 - (Date.now() - lastBinaryBlobStartedAt)
-      if (remainingDelay > 0) {
-        await new Promise((resolve) => setTimeout(resolve, remainingDelay))
+    if (file.encoding === "base64") {
+      if (lastBinaryBlobStartedAt > 0) {
+        const remainingDelay = 1_000 - (Date.now() - lastBinaryBlobStartedAt)
+        if (remainingDelay > 0) {
+          await new Promise((resolve) => setTimeout(resolve, remainingDelay))
+        }
       }
+      lastBinaryBlobStartedAt = Date.now()
+      const blob = await withTransientGitHubRetry(() =>
+        context.octokit.rest.git.createBlob({
+          owner: context.owner,
+          repo: context.repo,
+          content: file.content,
+          encoding: "base64",
+        }),
+      )
+      fileEntries.push({
+        path: file.path,
+        mode: "100644",
+        type: "blob",
+        sha: blob.data.sha,
+      })
+      continue
     }
-    if (file.encoding === "base64") lastBinaryBlobStartedAt = Date.now()
-    const blob = await withTransientGitHubRetry(() =>
-      context.octokit.rest.git.createBlob({
-        owner: context.owner,
-        repo: context.repo,
-        content: file.content,
-        encoding: file.encoding ?? "utf-8",
-      }),
-    )
     fileEntries.push({
       path: file.path,
       mode: "100644",
       type: "blob",
-      sha: blob.data.sha,
+      content: file.content,
     })
   }
 
-  const deleteEntries = (input.deletePaths ?? []).map((path) => ({
-    path,
-    mode: "100644" as const,
-    type: "blob" as const,
-    sha: null,
-  }))
+  const deleteEntries: GitTreeEntry[] = (input.deletePaths ?? []).map(
+    (path) => ({
+      path,
+      mode: "100644",
+      type: "blob",
+      sha: null,
+    }),
+  )
+  // GitHub creates UTF-8 blobs inside createTree. Deletes count toward the
+  // same entry cap so a tree never exceeds 50 entries or ~900 KB of content.
+  const maxFiles = 50
+  const maxBytes = 900 * 1024
+  const chunks: GitTreeEntry[][] = []
+  let current: GitTreeEntry[] = []
+  let bytes = 0
+  const flush = () => {
+    if (current.length === 0) return
+    chunks.push(current)
+    current = []
+    bytes = 0
+  }
+  for (const entry of [...deleteEntries, ...fileEntries]) {
+    const size =
+      entry.content === undefined ? 0 : Buffer.byteLength(entry.content, "utf8")
+    if (size > maxBytes) {
+      flush()
+      chunks.push([entry])
+      continue
+    }
+    if (
+      current.length > 0 &&
+      (current.length >= maxFiles || bytes + size > maxBytes)
+    ) {
+      flush()
+    }
+    current.push(entry)
+    bytes += size
+  }
+  flush()
 
   const commitOnce = async (head: { commitSha: string; treeSha: string }) => {
-    const { data: tree } = await context.octokit.rest.git.createTree({
-      owner: context.owner,
-      repo: context.repo,
-      base_tree: head.treeSha,
-      tree: [...fileEntries, ...deleteEntries],
-    })
+    if (chunks.length === 0) {
+      return {
+        commitSha: head.commitSha,
+        branch: input.branch,
+        installationId: context.installation.installationId ?? 0,
+      }
+    }
+    let treeSha = head.treeSha
+    for (const chunk of chunks) {
+      const { data: tree } = await context.octokit.rest.git.createTree({
+        owner: context.owner,
+        repo: context.repo,
+        base_tree: treeSha,
+        tree: chunk,
+      })
+      treeSha = tree.sha
+    }
 
     const { data: commit } = await context.octokit.rest.git.createCommit({
       owner: context.owner,
       repo: context.repo,
       message: input.message,
-      tree: tree.sha,
+      tree: treeSha,
       parents: [head.commitSha],
     })
 

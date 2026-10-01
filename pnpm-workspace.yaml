@@ -3,6 +3,7 @@ packages:
   - packages/*
   - examples/*
   - ops/observability/railway-telemetry
+  - ops/observability/cost-telemetry
   - ops/observability/hyperdx
 
 patchedDependencies:

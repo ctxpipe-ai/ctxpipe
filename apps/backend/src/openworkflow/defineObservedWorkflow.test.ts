@@ -1,6 +1,7 @@
+import { SpanStatusCode } from "@opentelemetry/api"
 import { OpenWorkflow } from "openworkflow"
 import { BackendSqlite } from "openworkflow/sqlite"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 import { recordSpans } from "../../test/spans.js"
 import { readAttribution } from "../observability/attribution.js"
@@ -9,10 +10,10 @@ import { defineWorkflow } from "./defineObservedWorkflow.js"
 const spans = recordSpans()
 
 describe("defineObservedWorkflow", () => {
-  it("names the job span after the workflow", async () => {
+  it("restores job attribution without starting a span", async () => {
     const workflow = defineWorkflow(
       { name: "widget-refresh", schema: z.object({ orgId: z.string() }) },
-      async () => "ok",
+      async () => readAttribution(),
     )
     await expect(
       workflow.fn({
@@ -21,8 +22,15 @@ describe("defineObservedWorkflow", () => {
         version: null,
         run: {} as never,
       }),
-    ).resolves.toBe("ok")
-    expect(spans.spanNamed("openworkflow.job widget-refresh")).toBeDefined()
+    ).resolves.toMatchObject({
+      "ctxpipe.actor.type": "job",
+      "ctxpipe.org.id": "org_1",
+    })
+    expect(
+      spans
+        .finishedSpans()
+        .some((span) => span.name.startsWith("openworkflow.job")),
+    ).toBe(false)
   })
 
   it("keeps a strict refined schema valid when enqueue adds telemetry", async () => {
@@ -37,7 +45,10 @@ describe("defineObservedWorkflow", () => {
           .strict()
           .refine((input) => input.workspaceId.startsWith("ws_"), "workspace"),
       },
-      async ({ input }) => input.workspaceId,
+      async ({ input }) => ({
+        workspaceId: input.workspaceId,
+        attribution: readAttribution(),
+      }),
     )
     await expect(
       workflow.fn({
@@ -50,12 +61,12 @@ describe("defineObservedWorkflow", () => {
         version: null,
         run: {} as never,
       }),
-    ).resolves.toBe("ws_1")
-    expect(
-      spans.spanNamed("openworkflow.job workspace-hydrate-strict")?.attributes,
-    ).toMatchObject({
-      "ctxpipe.workspace.id": "ws_1",
-      "request.id": "req_1",
+    ).resolves.toMatchObject({
+      workspaceId: "ws_1",
+      attribution: {
+        "ctxpipe.workspace.id": "ws_1",
+        "request.id": "req_1",
+      },
     })
   })
 
@@ -114,18 +125,48 @@ describe("defineObservedWorkflow", () => {
       await backend.stop()
     }
 
-    const childSpan = spans.spanNamed("openworkflow.job child-sync")
-    const link = childSpan?.links[0]?.context
-    const linkedParent = spans
+    const childExecute = spans
       .finishedSpans()
       .find(
         (span) =>
-          span.name === "openworkflow.job parent-sync" &&
-          span.spanContext().spanId === link?.spanId &&
-          span.spanContext().traceId === link?.traceId,
+          span.name === "workflow_run.execute" &&
+          span.attributes["openworkflow.workflow.name"] === "child-sync",
       )
-    expect(linkedParent).toBeDefined()
-    expect(childSpan?.attributes).toMatchObject({
+    const childCreate = spans
+      .finishedSpans()
+      .find(
+        (span) =>
+          span.name === "workflow_run.create" &&
+          span.attributes["openworkflow.workflow.name"] === "child-sync",
+      )
+    const parentExecute = spans
+      .finishedSpans()
+      .find(
+        (span) =>
+          span.name === "workflow_run.execute" &&
+          span.attributes["openworkflow.workflow.name"] === "parent-sync",
+      )
+    expect(childCreate?.parentSpanContext?.spanId).toBe(
+      parentExecute?.spanContext().spanId,
+    )
+    expect(childCreate?.spanContext().traceId).toBe(
+      parentExecute?.spanContext().traceId,
+    )
+    expect(childExecute?.parentSpanContext).toBeUndefined()
+    expect(childExecute?.spanContext().traceId).not.toBe(
+      parentExecute?.spanContext().traceId,
+    )
+    expect(childExecute?.spanContext().traceId).not.toBe(
+      childCreate?.spanContext().traceId,
+    )
+    expect(
+      childExecute?.links.some(
+        (link) =>
+          link.context.spanId === childCreate?.spanContext().spanId &&
+          link.context.traceId === childCreate?.spanContext().traceId,
+      ),
+    ).toBe(true)
+    expect(childExecute?.attributes).toMatchObject({
       "ctxpipe.actor.type": "job",
       "ctxpipe.org.id": "org_1",
       "ctxpipe.org.slug": "acme",
@@ -175,10 +216,185 @@ describe("defineObservedWorkflow", () => {
     }
 
     expect(
-      spans.spanNamed("openworkflow.job child-no-slug")?.attributes,
+      spans
+        .finishedSpans()
+        .find(
+          (span) =>
+            span.name === "workflow_run.execute" &&
+            span.attributes["openworkflow.workflow.name"] === "child-no-slug",
+        )?.attributes,
     ).toMatchObject({
+      "ctxpipe.actor.type": "job",
       "ctxpipe.org.id": "org_1",
       "ctxpipe.org.slug": "acme",
     })
+  }, 20_000)
+
+  it("links the execution span to creation and suspends a sleep without a step span", async () => {
+    const workflow = defineWorkflow(
+      {
+        name: "native-trace-sleep",
+        schema: z.object({ orgId: z.string() }),
+      },
+      async ({ step }) => {
+        await step.run({ name: "read-org" }, async () => "ok")
+        await step.sleep("pause", "1h")
+        return "done"
+      },
+    )
+
+    const backend = BackendSqlite.connect(":memory:")
+    const ow = new OpenWorkflow({ backend })
+    ow.implementWorkflow(workflow.spec, workflow.fn)
+    const worker = ow.newWorker({ concurrency: 1 })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const handle = await ow.runWorkflow(workflow.spec, { orgId: "org_1" })
+      await worker.start()
+      const execute = await vi.waitFor(() => {
+        const span = spans
+          .finishedSpans()
+          .find(
+            (candidate) =>
+              candidate.name === "workflow_run.execute" &&
+              candidate.attributes["openworkflow.workflow.name"] ===
+                "native-trace-sleep",
+          )
+        if (!span) throw new Error("execution span not finished")
+        return span
+      })
+      const create = spans
+        .finishedSpans()
+        .find(
+          (span) =>
+            span.name === "workflow_run.create" &&
+            span.attributes["openworkflow.run.id"] === handle.workflowRun.id,
+        )
+      expect(create?.attributes["openworkflow.workflow.name"]).toBe(
+        "native-trace-sleep",
+      )
+      expect(execute.parentSpanContext).toBeUndefined()
+      expect(execute.spanContext().traceId).not.toBe(
+        create?.spanContext().traceId,
+      )
+      expect(
+        execute.links.some(
+          (link) =>
+            link.context.spanId === create?.spanContext().spanId &&
+            link.context.traceId === create?.spanContext().traceId,
+        ),
+      ).toBe(true)
+      const step = spans
+        .finishedSpans()
+        .find(
+          (span) =>
+            span.name === "step_attempt.execute" &&
+            span.attributes["openworkflow.step.name"] === "read-org" &&
+            span.attributes["openworkflow.run.id"] === handle.workflowRun.id,
+        )
+      expect(step?.parentSpanContext?.spanId).toBe(execute.spanContext().spanId)
+      expect(step?.spanContext().traceId).toBe(execute.spanContext().traceId)
+      expect(step?.attributes["ctxpipe.actor.type"]).toBe("job")
+      expect(step?.attributes["ctxpipe.org.id"]).toBe("org_1")
+      expect(
+        spans
+          .finishedSpans()
+          .some(
+            (span) =>
+              span.name === "step_attempt.execute" &&
+              span.attributes["openworkflow.step.name"] === "pause",
+          ),
+      ).toBe(false)
+      expect(
+        spans
+          .finishedSpans()
+          .some((span) => span.name.startsWith("openworkflow.job")),
+      ).toBe(false)
+      expect(execute.attributes["openworkflow.execution.outcome"]).toBe(
+        "suspended",
+      )
+      expect(execute.attributes["ctxpipe.actor.type"]).toBe("job")
+      expect(execute.attributes["ctxpipe.org.id"]).toBe("org_1")
+      expect(execute.status.code).toBe(SpanStatusCode.UNSET)
+      await handle.cancel()
+    } finally {
+      await worker.stop()
+      await backend.stop()
+      vi.useRealTimers()
+    }
+  }, 20_000)
+
+  it("omits drizzle params from a failed step and its execution span", async () => {
+    const workflow = defineWorkflow(
+      {
+        name: "native-trace-db-error",
+        schema: z.object({ orgId: z.string() }),
+      },
+      async ({ step }) => {
+        await step.run(
+          {
+            name: "write-row",
+            retryPolicy: {
+              maximumAttempts: 1,
+              initialInterval: "1s",
+              backoffCoefficient: 1,
+              maximumInterval: "1s",
+            },
+          },
+          async () => {
+            throw new Error(
+              'Failed query: insert into "repositories" ("git_url") values ($1)\nparams: user@example.com token=SECRET',
+            )
+          },
+        )
+      },
+    )
+
+    const backend = BackendSqlite.connect(":memory:")
+    const ow = new OpenWorkflow({ backend })
+    ow.implementWorkflow(workflow.spec, workflow.fn)
+    const worker = ow.newWorker({ concurrency: 1 })
+    await worker.start()
+    try {
+      const handle = await ow.runWorkflow(workflow.spec, { orgId: "org_1" })
+      await expect(handle.result({ timeoutMs: 15_000 })).rejects.toThrow(
+        /Failed query:/,
+      )
+    } finally {
+      await worker.stop()
+      await backend.stop()
+    }
+
+    const recorded = spans.finishedSpans().filter((span) => {
+      return (
+        span.attributes["openworkflow.workflow.name"] ===
+          "native-trace-db-error" &&
+        (span.name === "workflow_run.execute" ||
+          span.name === "step_attempt.execute")
+      )
+    })
+    expect(recorded.map((span) => span.name).sort()).toEqual([
+      "step_attempt.execute",
+      "workflow_run.execute",
+    ])
+    const dumped = JSON.stringify(
+      recorded.map((span) => ({
+        status: span.status.message,
+        events: span.events,
+        attributes: span.attributes,
+      })),
+    )
+    expect(dumped).not.toContain("params:")
+    expect(dumped).not.toContain("user@example.com")
+    expect(dumped).not.toContain("token=SECRET")
+    expect(dumped).toContain("Failed query:")
+    const step = recorded.find((span) => span.name === "step_attempt.execute")
+    expect(step?.attributes["ctxpipe.org.id"]).toBe("org_1")
+    expect(step?.attributes["ctxpipe.actor.type"]).toBe("job")
+    expect(step?.parentSpanContext?.spanId).toBe(
+      recorded
+        .find((span) => span.name === "workflow_run.execute")
+        ?.spanContext().spanId,
+    )
   }, 20_000)
 })

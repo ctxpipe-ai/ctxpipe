@@ -153,11 +153,16 @@ async function forward(upstream: string, payload: string): Promise<Response> {
     }
   }
   headers["Content-Type"] = "application/json"
+  // Same budget as the backend OTLP exporters: a hung collector must not pin
+  // relay requests on the backend and UI.
+  const abort = new AbortController()
+  const timer = setTimeout(() => abort.abort(), 2_000)
   try {
     const response = await fetch(upstream, {
       method: "POST",
       headers,
       body: payload,
+      signal: abort.signal,
     })
     return new Response(await response.arrayBuffer(), {
       status: response.status,
@@ -168,5 +173,7 @@ async function forward(upstream: string, payload: string): Promise<Response> {
     })
   } catch {
     return new Response(null, { status: 502 })
+  } finally {
+    clearTimeout(timer)
   }
 }

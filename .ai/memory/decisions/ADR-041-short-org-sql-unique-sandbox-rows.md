@@ -1,4 +1,4 @@
-# ADR-040: Short org SQL transactions and unique sandbox rows
+# ADR-041: Short org SQL transactions and unique sandbox rows
 
 **Status:** Accepted | **Date:** 2026-08-21 | **Tags:** postgres, rls, sandboxes, neon
 
@@ -20,7 +20,7 @@ A second `lockPool` checked out a `PoolClient` and held **session** `pg_advisory
 
 - Concurrent job claims: one insert wins; the loser resumes or returns without creating a second provider.
 - List or destroy failure on user delete does not delete the workspace row (409 when a provider id remains).
-- RLS policies can be added later without changing the GUC transaction shape; `getSystemDb()` tenant leaks must be fixed first. Enablement landed in [ADR-041](ADR-041-postgres-rls-app-role.md) (`ENABLE` on `ctxpipe_app`, no FORCE).
+- RLS policies can be added later without changing the GUC transaction shape; `getSystemDb()` tenant leaks must be fixed first. Enablement landed in [ADR-042](ADR-042-postgres-rls-app-role.md) (`ENABLE` on `ctxpipe_app`, no FORCE).
 - LangGraph / OpenWorkflow / codesearch pools are unchanged.
 
 ## Alternatives Considered
@@ -30,4 +30,4 @@ A second `lockPool` checked out a `PoolClient` and held **session** `pg_advisory
 - `deletingAt` tombstone: rejected; uniqueness plus fail-closed delete is enough.
 - `SET SESSION app.organization_id` on the pooler URL: rejected; transaction-mode PgBouncer does not preserve session GUCs.
 
-Gate 4 supersedes conversation-row uniqueness and the check-only LockStore with [ADR-047](ADR-047-native-postgres-sandbox-ownership.md). Short RLS transactions and the ban on held SQL clients remain in force.
+Gate 4 supersedes conversation-row uniqueness and the check-only LockStore with [ADR-048](ADR-048-native-postgres-sandbox-ownership.md). Short RLS transactions and the ban on held SQL clients remain in force.

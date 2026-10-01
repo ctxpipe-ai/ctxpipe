@@ -112,6 +112,14 @@ const detectLanguagesResponseSchema = z
   })
   .openapi("IndexDetectLanguagesResponse")
 
+const scipLangResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    /** Public-facing note when the shard is incomplete (some projects failed). */
+    issue: z.string().optional(),
+  })
+  .openapi("IndexScipLangResponse")
+
 const scipLangRequestSchema = z
   .object({
     detectedLanguages: z.array(z.string()).min(1),
@@ -215,7 +223,7 @@ const scipLangRoute = createRoute({
   },
   responses: {
     200: {
-      content: { "application/json": { schema: okResponseSchema } },
+      content: { "application/json": { schema: scipLangResponseSchema } },
       description: "Per-language SCIP shard built",
     },
     404: repositoryNotFoundResponse,
@@ -520,7 +528,7 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
           return phaseContextErrorResponse(c, resolved)
         }
         try {
-          await withLogger(
+          const { issue } = await withLogger(
             createLogger({
               repositoryId: resolved.ctx.repoId,
               phase: `scip:${lang}`,
@@ -531,7 +539,7 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
                 detectedLanguages: body.detectedLanguages,
               }),
           )
-          return c.json({ ok: true as const }, 200)
+          return c.json({ ok: true as const, ...(issue ? { issue } : {}) }, 200)
         } catch (error) {
           if (isTransientDbConnectionError(error)) {
             return c.json({ error: "Database connection lost" }, 503)

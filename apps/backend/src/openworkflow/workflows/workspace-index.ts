@@ -2,13 +2,13 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
-import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
   linkedRevisionSchema,
   sameLinkedReadBinding,
   sameWorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
+import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
   ensureWorkspaceCheckout,
   findRepositoriesByNormalizedGitUrls,

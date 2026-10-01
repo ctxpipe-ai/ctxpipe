@@ -38,7 +38,7 @@ CLI and Confluence Forge app declare their own licenses.
 - **`packages/aws-cdk`** — AWS self-hosting construct, with a runnable example
   under `examples/aws-cdk-self-host`.
 
-Workspace chat is stock TanStack (`useChat` + persistence + sandbox) against git-backed Workspaces ([ADR-043](decisions/ADR-043-workspace-chat-stock-tanstack.md)). Codesearch is one service: Zoekt lexical search, SCIP graph, ast-grep structural match, and checkout file reads ([ADR-008](decisions/ADR-008-codesearch-zoekt-orchestration.md)).
+Workspace chat is stock TanStack (`useChat` + persistence + sandbox) against git-backed Workspaces ([ADR-044](decisions/ADR-044-workspace-chat-stock-tanstack.md)). Codesearch is one service: Zoekt lexical search, SCIP graph, ast-grep structural match, and checkout file reads ([ADR-008](decisions/ADR-008-codesearch-zoekt-orchestration.md)).
 
 ## Data and tenancy
 

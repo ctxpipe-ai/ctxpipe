@@ -34,6 +34,10 @@ const detectLanguagesResponseSchema = z.object({
 })
 
 const okResponseSchema = z.object({ ok: z.literal(true) })
+const scipLangResponseSchema = z.object({
+  ok: z.literal(true),
+  issue: z.string().optional(),
+})
 const mergeScipResponseSchema = z.object({
   ok: z.literal(true),
   shardCount: z.number().int().nonnegative(),
@@ -208,11 +212,15 @@ export async function codesearchIndexDetectLanguages(
   }
 }
 
+/**
+ * Build one language's SCIP shard. `issue` is a public-facing note when the
+ * shard was built but is incomplete (some TypeScript projects failed).
+ */
 export async function codesearchIndexScipLang(
   auth: CodesearchIndexAuth,
   language: string,
   detectedLanguages: string[],
-): Promise<void> {
+): Promise<{ issue?: string }> {
   const res = await codesearchPhaseFetch(
     `/index/scip/${encodeURIComponent(language)}`,
     auth,
@@ -221,7 +229,12 @@ export async function codesearchIndexScipLang(
       body: JSON.stringify({ detectedLanguages }),
     },
   )
-  await parseOrThrow(res, okResponseSchema, `codesearch index scip:${language}`)
+  const { issue } = await parseOrThrow(
+    res,
+    scipLangResponseSchema,
+    `codesearch index scip:${language}`,
+  )
+  return issue ? { issue } : {}
 }
 
 export async function codesearchIndexMergeScip(

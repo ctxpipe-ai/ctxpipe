@@ -20,7 +20,7 @@ receivers:
         - job_name: clickhouse
           static_configs:
             - targets: ["clickhouse.railway.internal:9363"]
-          # /metrics exposes thousands of series. A 1 GiB ClickHouse node OOMs
+          # /metrics exposes thousands of series. A small ClickHouse node OOMs
           # inserting that every 60s. Keep the Observability Stack dashboard
           # names plus a small unlabeled health set (no ZooKeeper, no per-error
           # or per-interface series).

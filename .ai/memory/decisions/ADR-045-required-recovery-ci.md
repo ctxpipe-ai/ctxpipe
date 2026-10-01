@@ -1,4 +1,4 @@
-# ADR-044: Required recovery CI
+# ADR-045: Required recovery CI
 
 **Status:** Accepted | **Date:** 2026-09-08 | **Tags:** ci, testing, recovery
 
@@ -59,6 +59,6 @@ to later gates are fixed.
 
 ## References
 
-- [Stock TanStack workspace chat](ADR-043-workspace-chat-stock-tanstack.md)
-- [Application role and RLS](ADR-041-postgres-rls-app-role.md)
+- [Stock TanStack workspace chat](ADR-044-workspace-chat-stock-tanstack.md)
+- [Application role and RLS](ADR-042-postgres-rls-app-role.md)
 - [Bun service runtime](ADR-002-backend-service-stack-and-runtime.md)

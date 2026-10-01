@@ -7,6 +7,11 @@ import {
   getLinearOauthAppCreds,
   type LinearOauthAppCreds,
 } from "../../models/linear-oauth-app.js"
+import {
+  DiscoverScopesDocument,
+  type DiscoverScopesQuery,
+} from "./documents.generated.js"
+import { linearGraphql } from "./graphql.js"
 
 const LinearOAuthTokenResponseSchema = z.object({
   access_token: z.string().min(1),
@@ -28,12 +33,6 @@ export type LinearTokenRefreshHandler = (
   refreshToken: string | null
   accessTokenExpiresAt: string | null
 }>
-
-type LinearConnectionPage<T> = {
-  nodes: T[]
-  pageInfo: { hasNextPage: boolean }
-  fetchNext: () => PromiseLike<LinearConnectionPage<T>>
-}
 
 export type LinearDiscoveredScope = {
   externalId: string
@@ -231,15 +230,21 @@ export async function getLinearWorkspaceIdentity(accessToken: string): Promise<{
   }
 }
 
-export async function collectLinearConnectionPages<T>(
-  firstPage: () => PromiseLike<LinearConnectionPage<T>>,
-): Promise<T[]> {
-  const nodes: T[] = []
-  let page = await firstPage()
-  for (;;) {
-    nodes.push(...page.nodes)
-    if (!page.pageInfo.hasNextPage) return nodes
-    page = await page.fetchNext()
+function takeDiscoverPage<T>(
+  connection:
+    | {
+        nodes: T[]
+        pageInfo: { hasNextPage: boolean; endCursor: string | null }
+      }
+    | undefined,
+): { nodes: T[]; after: string | null } {
+  if (!connection) return { nodes: [], after: null }
+  return {
+    nodes: connection.nodes,
+    after:
+      connection.pageInfo.hasNextPage && connection.pageInfo.endCursor
+        ? connection.pageInfo.endCursor
+        : null,
   }
 }
 
@@ -249,34 +254,84 @@ export async function discoverLinearScopes(input: {
   onTokenRefresh?: LinearTokenRefreshHandler
 }): Promise<LinearDiscoveredScope[]> {
   return withLinearClient(input, async (client) => {
-    const [teams, projects, documents, initiatives] = await Promise.all([
-      collectLinearConnectionPages(() => client.teams({ first: 100 })),
-      collectLinearConnectionPages(() =>
-        client.projects({ first: 100, includeArchived: true }),
-      ),
-      collectLinearConnectionPages(() =>
-        client.documents({ first: 100, includeArchived: true }),
-      ),
-      collectLinearConnectionPages(() =>
-        client.initiatives({ first: 100, includeArchived: true }),
-      ),
-    ])
+    const accessToken = input.connection.accessToken
+    if (!accessToken) {
+      throw new Error("Linear connection is missing OAuth credentials")
+    }
+    const teams: NonNullable<DiscoverScopesQuery["teams"]>["nodes"] = []
+    const projects: NonNullable<DiscoverScopesQuery["projects"]>["nodes"] = []
+    const documents: NonNullable<DiscoverScopesQuery["documents"]>["nodes"] = []
+    const initiatives: NonNullable<
+      DiscoverScopesQuery["initiatives"]
+    >["nodes"] = []
+    let teamsAfter: string | null = null
+    let projectsAfter: string | null = null
+    let documentsAfter: string | null = null
+    let initiativesAfter: string | null = null
+    let includeTeams = true
+    let includeProjects = true
+    let includeDocuments = true
+    let includeInitiatives = true
+
+    while (
+      includeTeams ||
+      includeProjects ||
+      includeDocuments ||
+      includeInitiatives
+    ) {
+      const data: DiscoverScopesQuery = await linearGraphql(
+        client,
+        DiscoverScopesDocument,
+        {
+          teamsAfter,
+          projectsAfter,
+          documentsAfter,
+          initiativesAfter,
+          includeTeams,
+          includeProjects,
+          includeDocuments,
+          includeInitiatives,
+        },
+        accessToken,
+      )
+      if (includeTeams) {
+        const page = takeDiscoverPage(data.teams)
+        teams.push(...page.nodes)
+        teamsAfter = page.after
+        includeTeams = page.after !== null
+      }
+      if (includeProjects) {
+        const page = takeDiscoverPage(data.projects)
+        projects.push(...page.nodes)
+        projectsAfter = page.after
+        includeProjects = page.after !== null
+      }
+      if (includeDocuments) {
+        const page = takeDiscoverPage(data.documents)
+        documents.push(...page.nodes)
+        documentsAfter = page.after
+        includeDocuments = page.after !== null
+      }
+      if (includeInitiatives) {
+        const page = takeDiscoverPage(data.initiatives)
+        initiatives.push(...page.nodes)
+        initiativesAfter = page.after
+        includeInitiatives = page.after !== null
+      }
+    }
     const teamById = new Map(teams.map((team) => [team.id, team]))
-    const projectScopes = await Promise.all(
-      projects.map(async (project): Promise<LinearDiscoveredScope> => {
-        const projectTeams = await project.teams({ first: 1 })
-        const team = projectTeams.nodes[0]
-        return {
-          externalId: project.id,
-          type: "project",
-          title: project.name,
-          url: project.url,
-          parentExternalId: team?.id ?? null,
-          teamId: team?.id ?? null,
-          teamKey: team?.key ?? null,
-        }
-      }),
-    )
+    const projectScopes = projects.map((project): LinearDiscoveredScope => {
+      const team = project.teams.nodes[0]
+      return {
+        externalId: project.id,
+        type: "project",
+        title: project.name,
+        url: project.url,
+        parentExternalId: team?.id ?? null,
+        teamId: team?.id ?? null,
+        teamKey: team?.key ?? null,
+      }
+    })
 
     return [
       ...teams.map(
@@ -294,7 +349,7 @@ export async function discoverLinearScopes(input: {
       ),
       ...projectScopes,
       ...documents.map((document): LinearDiscoveredScope => {
-        const projectId = document.projectId ?? null
+        const projectId = document.project?.id ?? null
         const project = projectId
           ? projects.find((candidate) => candidate.id === projectId)
           : undefined

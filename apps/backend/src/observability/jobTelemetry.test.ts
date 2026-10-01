@@ -1,24 +1,34 @@
-import { context, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
+import { context, trace } from "@opentelemetry/api"
 import { describe, expect, it } from "vitest"
+import { z } from "zod"
 import { recordSpans } from "../../test/spans.js"
-import { applyAttribution, contextWithAttributionBag } from "./attribution.js"
+import {
+  applyAttribution,
+  contextWithAttributionBag,
+  readAttribution,
+} from "./attribution.js"
 import {
   attachJobTelemetry,
-  captureJobTelemetry,
+  attachJobTelemetryForSchema,
   restoreJobTelemetry,
 } from "./jobTelemetry.js"
-import { createLogger, withLogger } from "./logger.js"
+import { createLogger, loggerStorage } from "./logger.js"
 
 const spans = recordSpans()
 
+/** `applyAttribution` writes to the request/job logger, so tests scope one. */
+function withJobLogger<T>(fn: () => T): T {
+  return loggerStorage.run({ logger: createLogger({}), base: {} }, fn)
+}
+
 describe("job telemetry", () => {
-  it("links the job span and copies request id; org comes from the input", async () => {
-    const tracer = trace.getTracer("test")
-    const parent = tracer.startSpan("request")
-    const parentContext = trace.setSpan(context.active(), parent)
-    const { context: withBag } = contextWithAttributionBag(parentContext)
-    const input = await context.with(withBag, () =>
-      withLogger(createLogger({}), async () => {
+  it("stamps job attribution on the active execution span", () =>
+    withJobLogger(async () => {
+      const tracer = trace.getTracer("test")
+      const parent = tracer.startSpan("request")
+      const parentContext = trace.setSpan(context.active(), parent)
+      const { context: withBag } = contextWithAttributionBag(parentContext)
+      const input = await context.with(withBag, async () => {
         applyAttribution({
           "request.id": "req_job",
           "enduser.id": "user_1",
@@ -26,67 +36,67 @@ describe("job telemetry", () => {
           "ctxpipe.org.slug": "acme",
           "ctxpipe.actor.type": "user",
         })
-        const telemetry = captureJobTelemetry()
-        expect(telemetry?.carrier?.traceparent).toMatch(
-          /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/,
-        )
-        expect(telemetry).not.toHaveProperty("traceparent")
-        expect(telemetry).toMatchObject({
-          "request.id": "req_job",
-          "enduser.id": "user_1",
-          "ctxpipe.org.id": "org_1",
-          "ctxpipe.org.slug": "acme",
-        })
         const attached = attachJobTelemetry({
           repositoryId: "repo_1",
           orgId: "org_1",
           orgSlug: "acme",
         })
-        expect(attached.telemetry).toEqual(telemetry)
+        expect(attached.telemetry).not.toHaveProperty("carrier")
+        expect(attached.telemetry).toEqual({
+          "request.id": "req_job",
+          "enduser.id": "user_1",
+          "ctxpipe.org.id": "org_1",
+          "ctxpipe.org.slug": "acme",
+        })
 
-        await restoreJobTelemetry(
-          attached,
-          { name: "widget-refresh" },
-          async () => {
-            expect(trace.getActiveSpan()?.spanContext().spanId).not.toBe(
-              parent.spanContext().spanId,
+        const execution = tracer.startSpan("workflow_run.execute")
+        await context.with(trace.setSpan(context.active(), execution), () =>
+          restoreJobTelemetry(attached, async () => {
+            expect(trace.getActiveSpan()?.spanContext().spanId).toBe(
+              execution.spanContext().spanId,
             )
-          },
+            expect(readAttribution()).toMatchObject({
+              "ctxpipe.actor.type": "job",
+              "ctxpipe.repository.id": "repo_1",
+            })
+          }),
         )
+        execution.end()
         return attached
-      }),
-    )
-    parent.end()
+      })
+      parent.end()
 
-    const job = spans.spanNamed("openworkflow.job widget-refresh")
-    expect(job?.kind).toBe(SpanKind.CONSUMER)
-    expect(job?.spanContext().traceId).not.toBe(parent.spanContext().traceId)
-    expect(job?.parentSpanContext?.spanId).toBeUndefined()
-    expect(job?.links[0]?.context.traceId).toBe(parent.spanContext().traceId)
-    expect(job?.links[0]?.context.spanId).toBe(parent.spanContext().spanId)
-    expect(job?.attributes).toMatchObject({
-      "ctxpipe.actor.type": "job",
-      "request.id": "req_job",
-      "enduser.id": "user_1",
-      "ctxpipe.org.id": "org_1",
-      "ctxpipe.org.slug": "acme",
-    })
-    expect(
-      spans.spanNamed("request")?.attributes["ctxpipe.repository.id"],
-    ).toBeUndefined()
-    expect(input.telemetry).toMatchObject({
-      "ctxpipe.org.id": "org_1",
-      "ctxpipe.org.slug": "acme",
-    })
-  })
+      expect(
+        spans
+          .finishedSpans()
+          .some((span) => span.name.startsWith("openworkflow.job")),
+      ).toBe(false)
+      expect(spans.spanNamed("workflow_run.execute")?.attributes).toMatchObject(
+        {
+          "ctxpipe.actor.type": "job",
+          "request.id": "req_job",
+          "enduser.id": "user_1",
+          "ctxpipe.org.id": "org_1",
+          "ctxpipe.org.slug": "acme",
+          "ctxpipe.repository.id": "repo_1",
+        },
+      )
+      expect(
+        spans.spanNamed("request")?.attributes["ctxpipe.repository.id"],
+      ).toBeUndefined()
+      expect(input.telemetry).toMatchObject({
+        "ctxpipe.org.id": "org_1",
+        "ctxpipe.org.slug": "acme",
+      })
+    }))
 
-  it("does not copy the job repository or connection onto the caller span", async () => {
-    const tracer = trace.getTracer("test")
-    const parent = tracer.startSpan("request")
-    const parentContext = trace.setSpan(context.active(), parent)
-    const { context: withBag } = contextWithAttributionBag(parentContext)
-    await context.with(withBag, () =>
-      withLogger(createLogger({}), async () => {
+  it("does not copy the job repository or connection onto the caller span", () =>
+    withJobLogger(async () => {
+      const tracer = trace.getTracer("test")
+      const parent = tracer.startSpan("request")
+      const parentContext = trace.setSpan(context.active(), parent)
+      const { context: withBag } = contextWithAttributionBag(parentContext)
+      await context.with(withBag, async () => {
         applyAttribution({
           "request.id": "req_job",
           "ctxpipe.actor.type": "user",
@@ -110,46 +120,46 @@ describe("job telemetry", () => {
           "ctxpipe.org.id": "org_caller",
         })
         expect(second.telemetry).not.toHaveProperty("ctxpipe.repository.id")
-      }),
-    )
-    parent.end()
-    const request = spans.spanNamed("request")
-    expect(request?.attributes["ctxpipe.repository.id"]).toBeUndefined()
-    expect(request?.attributes["ctxpipe.connection.id"]).toBeUndefined()
-    expect(request?.attributes["ctxpipe.actor.type"]).toBe("user")
-    expect(request?.attributes["ctxpipe.org.id"]).toBe("org_caller")
-  })
+      })
+      parent.end()
+      const request = spans.spanNamed("request")
+      expect(request?.attributes["ctxpipe.repository.id"]).toBeUndefined()
+      expect(request?.attributes["ctxpipe.connection.id"]).toBeUndefined()
+      expect(request?.attributes["ctxpipe.actor.type"]).toBe("user")
+      expect(request?.attributes["ctxpipe.org.id"]).toBe("org_caller")
+    }))
 
-  it("starts a job span for background enqueue with actor job and org id", async () => {
-    await restoreJobTelemetry(
+  it("restores actor job and org id when nothing is already tracing", async () => {
+    const seen = await restoreJobTelemetry(
       { orgId: "org_bg", connectionId: "con_bg" },
-      { name: "background-refresh" },
-      async () => {
-        expect(trace.getActiveSpan()?.spanContext().spanId).toBeTruthy()
-      },
+      async () => readAttribution(),
     )
-    const job = spans.spanNamed("openworkflow.job background-refresh")
-    expect(job?.kind).toBe(SpanKind.CONSUMER)
-    expect(job?.attributes).toMatchObject({
+    expect(seen).toMatchObject({
       "ctxpipe.actor.type": "job",
       "ctxpipe.org.id": "org_bg",
       "ctxpipe.connection.id": "con_bg",
     })
+    expect(
+      spans
+        .finishedSpans()
+        .some((span) => span.name.startsWith("openworkflow.job")),
+    ).toBe(false)
   })
 
-  it("copies workspace and repository ids from the job input onto the job span", async () => {
-    await restoreJobTelemetry(
-      {
-        orgId: "org_ws",
-        workspaceId: "ws_hydrate",
-        repositoryId: "repo_ingest",
-      },
-      { name: "workspace-hydrate" },
-      async () => undefined,
+  it("copies workspace and repository ids from the job input onto the execution span", async () => {
+    const execution = trace.getTracer("test").startSpan("workflow_run.execute")
+    await context.with(trace.setSpan(context.active(), execution), () =>
+      restoreJobTelemetry(
+        {
+          orgId: "org_ws",
+          workspaceId: "ws_hydrate",
+          repositoryId: "repo_ingest",
+        },
+        async () => undefined,
+      ),
     )
-    expect(
-      spans.spanNamed("openworkflow.job workspace-hydrate")?.attributes,
-    ).toMatchObject({
+    execution.end()
+    expect(spans.spanNamed("workflow_run.execute")?.attributes).toMatchObject({
       "ctxpipe.actor.type": "job",
       "ctxpipe.org.id": "org_ws",
       "ctxpipe.workspace.id": "ws_hydrate",
@@ -157,13 +167,29 @@ describe("job telemetry", () => {
     })
   })
 
-  it("lets each job's org and connection come from that job's input", async () => {
-    const tracer = trace.getTracer("test")
-    const parent = tracer.startSpan("webhook")
-    const parentContext = trace.setSpan(context.active(), parent)
-    const { context: withBag } = contextWithAttributionBag(parentContext)
-    await context.with(withBag, () =>
-      withLogger(createLogger({}), async () => {
+  it("drops telemetry a strict workflow schema would reject", () =>
+    withJobLogger(() => {
+      const strict = z.object({ orgId: z.string() }).strict()
+      const loose = z.object({ orgId: z.string() })
+      const { context: withBag } = contextWithAttributionBag(context.active())
+      context.with(withBag, () => {
+        applyAttribution({ "request.id": "req_schema" })
+        expect(attachJobTelemetryForSchema(strict, { orgId: "org_1" })).toEqual(
+          { orgId: "org_1" },
+        )
+        expect(
+          attachJobTelemetryForSchema(loose, { orgId: "org_1" }),
+        ).toMatchObject({ telemetry: { "request.id": "req_schema" } })
+      })
+    }))
+
+  it("lets each job's org and connection come from that job's input", () =>
+    withJobLogger(async () => {
+      const tracer = trace.getTracer("test")
+      const parent = tracer.startSpan("webhook")
+      const parentContext = trace.setSpan(context.active(), parent)
+      const { context: withBag } = contextWithAttributionBag(parentContext)
+      const queued = await context.with(withBag, async () => {
         applyAttribution({
           "request.id": "req_wh",
           "ctxpipe.actor.type": "webhook",
@@ -193,63 +219,48 @@ describe("job telemetry", () => {
           "ctxpipe.org.id": "org_last",
           "ctxpipe.org.slug": "last-org",
         })
-        await restoreJobTelemetry(
-          matching,
-          { name: "alpha-run" },
-          async () => undefined,
+        return [
+          ["alpha-run", matching],
+          ["beta-run", mismatched],
+          ["gamma-run", explicit],
+        ] as const
+      })
+      // The worker starts workflow_run.execute before the job bag exists.
+      for (const [name, input] of queued) {
+        const execution = tracer.startSpan(name)
+        await context.with(trace.setSpan(context.active(), execution), () =>
+          restoreJobTelemetry(input, async () => undefined),
         )
-        await restoreJobTelemetry(
-          mismatched,
-          { name: "beta-run" },
-          async () => undefined,
-        )
-        await restoreJobTelemetry(
-          explicit,
-          { name: "gamma-run" },
-          async () => undefined,
-        )
-      }),
-    )
-    parent.end()
+        execution.end()
+      }
+      parent.end()
 
-    const jobs = spans
-      .finishedSpans()
-      .filter((span) => span.name.startsWith("openworkflow.job "))
-    expect(jobs.map((span) => span.name)).toEqual([
-      "openworkflow.job alpha-run",
-      "openworkflow.job beta-run",
-      "openworkflow.job gamma-run",
-    ])
-    expect(jobs.map((span) => span.attributes["ctxpipe.org.id"])).toEqual([
-      "org_last",
-      "org_b",
-      "org_c",
-    ])
-    expect(
-      jobs.map((span) => span.attributes["ctxpipe.connection.id"]),
-    ).toEqual(["con_a", "con_b", "con_c"])
-    expect(jobs.map((span) => span.attributes["ctxpipe.org.slug"])).toEqual([
-      "last-org",
-      undefined,
-      "from-input",
-    ])
-    expect(jobs[0]?.attributes["ctxpipe.actor.type"]).toBe("job")
-    const webhook = spans.spanNamed("webhook")
-    expect(webhook?.attributes["ctxpipe.org.id"]).toBe("org_last")
-    expect(webhook?.attributes["ctxpipe.connection.id"]).toBe("con_last")
-  })
+      const jobs = ["alpha-run", "beta-run", "gamma-run"].map((name) =>
+        spans.spanNamed(name),
+      )
+      expect(jobs.map((span) => span?.attributes["ctxpipe.org.id"])).toEqual([
+        "org_last",
+        "org_b",
+        "org_c",
+      ])
+      expect(
+        jobs.map((span) => span?.attributes["ctxpipe.connection.id"]),
+      ).toEqual(["con_a", "con_b", "con_c"])
+      expect(jobs.map((span) => span?.attributes["ctxpipe.org.slug"])).toEqual([
+        "last-org",
+        undefined,
+        "from-input",
+      ])
+      expect(jobs[0]?.attributes["ctxpipe.actor.type"]).toBe("job")
+      const webhook = spans.spanNamed("webhook")
+      expect(webhook?.attributes["ctxpipe.org.id"]).toBe("org_last")
+      expect(webhook?.attributes["ctxpipe.connection.id"]).toBe("con_last")
+    }))
 
-  it("returns non-object enqueue input unchanged", () => {
-    expect(attachJobTelemetry(undefined)).toBeUndefined()
-    expect(attachJobTelemetry(null)).toBeNull()
-    expect(attachJobTelemetry("plain")).toBe("plain")
-    expect(attachJobTelemetry([1, 2])).toEqual([1, 2])
-  })
-
-  it("records a failure and leaves sleep and retry scheduling unmarked", async () => {
+  it("rethrows failures, sleep, and retry scheduling", async () => {
     const failure = new Error("sync failed")
     await expect(
-      restoreJobTelemetry(undefined, { name: "widget-refresh" }, async () => {
+      restoreJobTelemetry(undefined, async () => {
         throw failure
       }),
     ).rejects.toBe(failure)
@@ -257,53 +268,23 @@ describe("job telemetry", () => {
     const sleep = new Error("SleepSignal")
     sleep.name = "SleepSignal"
     await expect(
-      restoreJobTelemetry(undefined, { name: "widget-refresh" }, async () => {
+      restoreJobTelemetry(undefined, async () => {
         throw sleep
       }),
     ).rejects.toBe(sleep)
 
     const retry = new Error("step failed")
     retry.name = "StepError"
-    Object.assign(retry, {
-      stepFailedAttempts: 1,
-      retryPolicy: { maximumAttempts: 10 },
-      originalError: new Error("db down"),
-    })
     await expect(
-      restoreJobTelemetry(undefined, { name: "widget-refresh" }, async () => {
+      restoreJobTelemetry(undefined, async () => {
         throw retry
       }),
     ).rejects.toBe(retry)
 
-    const exhausted = new Error("step failed")
-    exhausted.name = "StepError"
-    Object.assign(exhausted, {
-      stepFailedAttempts: 10,
-      retryPolicy: { maximumAttempts: 10 },
-      originalError: new Error("db down"),
-    })
-    await expect(
-      restoreJobTelemetry(undefined, { name: "widget-refresh" }, async () => {
-        throw exhausted
-      }),
-    ).rejects.toBe(exhausted)
-
-    const jobs = spans
-      .finishedSpans()
-      .filter((span) => span.name === "openworkflow.job widget-refresh")
-    expect(jobs).toHaveLength(4)
-    expect(jobs[0]?.status.code).toBe(SpanStatusCode.ERROR)
-    expect(jobs[0]?.events.map((event) => event.name)).toContain("exception")
-    expect(jobs[0]?.events[0]?.attributes?.["exception.message"]).toBe(
-      "sync failed",
-    )
-    expect(jobs[1]?.status.code).toBe(SpanStatusCode.UNSET)
-    expect(jobs[1]?.events).toHaveLength(0)
-    expect(jobs[2]?.status.code).toBe(SpanStatusCode.UNSET)
-    expect(jobs[2]?.events).toHaveLength(0)
-    expect(jobs[3]?.status.code).toBe(SpanStatusCode.ERROR)
-    expect(jobs[3]?.events[0]?.attributes?.["exception.message"]).toBe(
-      "db down",
-    )
+    expect(
+      spans
+        .finishedSpans()
+        .some((span) => span.name.startsWith("openworkflow.job")),
+    ).toBe(false)
   })
 })

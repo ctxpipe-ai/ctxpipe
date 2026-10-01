@@ -185,7 +185,10 @@ resource "railway_service" "ui" {
     # calls serviceConnect + redeployAllInstances and would overwrite pr-* envs.
     # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
     # Region writes go through scripts/railway-set-regions.sh.
-    ignore_changes = [source_image, regions]
+    # The same Update() connects source_image for the whole project and
+    # redeploys every environment. Image tags go through
+    # scripts/railway-set-images.sh (ADR-039).
+    ignore_changes = [regions, source_image]
   }
 }
 
@@ -229,7 +232,11 @@ resource "railway_service" "backend" {
     prevent_destroy = true
     # SHA rolls are environment-scoped GraphQL in CI.
     # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
-    ignore_changes = [source_image, regions]
+    # Region writes go through scripts/railway-set-regions.sh.
+    # The same Update() connects source_image for the whole project and
+    # redeploys every environment. Image tags go through
+    # scripts/railway-set-images.sh (ADR-039).
+    ignore_changes = [regions, source_image]
   }
 }
 
@@ -279,7 +286,11 @@ resource "railway_service" "code_search" {
     prevent_destroy = true
     # SHA rolls are environment-scoped GraphQL in CI.
     # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
-    ignore_changes = [source_image, regions]
+    # Region writes go through scripts/railway-set-regions.sh.
+    # The same Update() connects source_image for the whole project and
+    # redeploys every environment. Image tags go through
+    # scripts/railway-set-images.sh (ADR-039).
+    ignore_changes = [regions, source_image]
   }
 }
 
@@ -338,7 +349,11 @@ resource "railway_service" "open_workflow" {
     prevent_destroy = true
     # SHA rolls are environment-scoped GraphQL in CI.
     # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
-    ignore_changes = [source_image, regions]
+    # Region writes go through scripts/railway-set-regions.sh.
+    # The same Update() connects source_image for the whole project and
+    # redeploys every environment. Image tags go through
+    # scripts/railway-set-images.sh (ADR-039).
+    ignore_changes = [regions, source_image]
   }
 }
 

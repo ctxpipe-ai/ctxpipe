@@ -1,18 +1,28 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { HttpResponse, http } from "msw"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  emptyLinearPage,
+  installLinearGraphql,
+  type LinearGraphqlCall,
+  linearBudgetHeaders,
+  linearIssueData,
+} from "../../../test/linear-graphql.js"
+import { useMswServer } from "../../../test/msw.js"
 import type { Env } from "../../config/env.js"
 import type { LinearConnection } from "../../models/linear-connector.js"
 import { createConnectorAssetBytePool } from "../connectors/assets.js"
+import { resetLinearGraphqlForTests } from "./graphql.js"
 import {
   buildLinearIncrementalChanges,
   type LinearEntityChange,
 } from "./incremental.js"
 import { captureLinearIncrementalContent } from "./sync.js"
 
-const sdk = vi.hoisted(() => ({
-  initiative: vi.fn(),
-  issue: vi.fn(),
-  team: vi.fn(),
-}))
+const calls: LinearGraphqlCall[] = []
+// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
+const server = useMswServer()
+let issue = linearIssueData()
+let initiativeProjectIds: string[] = []
 const downloadConnectorAsset = vi.hoisted(() => vi.fn())
 const github = vi.hoisted(() => ({
   commitFiles: vi.fn(),
@@ -24,13 +34,6 @@ const model = vi.hoisted(() => ({
   ),
 }))
 
-vi.mock("@linear/sdk", () => ({
-  LinearClient: class {
-    initiative = sdk.initiative
-    issue = sdk.issue
-    team = sdk.team
-  },
-}))
 vi.mock("../connectors/assets.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../connectors/assets.js")>()),
   downloadConnectorAsset,
@@ -42,14 +45,6 @@ vi.mock("../github/installation-write-client.js", async (importOriginal) => ({
   >()),
   ...github,
 }))
-
-function page<T>(nodes: T[]) {
-  return {
-    nodes,
-    pageInfo: { hasNextPage: false },
-    fetchNext: vi.fn(),
-  }
-}
 
 const connection = {
   id: "con_linear",
@@ -97,39 +92,73 @@ const selectedConfig = {
   ],
 }
 
-const linearIssue = {
-  id: "issue-1",
-  identifier: "PRO-1",
-  title: "Changed issue",
-  description: "Updated from a webhook",
-  url: "https://linear.app/acme/issue/PRO-1",
-  priorityLabel: "High",
-  teamId: "team-1",
-  projectId: null,
-  cycleId: null,
-  assigneeId: null,
-  creatorId: "user-1",
-  createdAt: new Date("2026-08-01T00:00:00.000Z"),
-  updatedAt: new Date("2026-08-02T00:00:00.000Z"),
-  state: Promise.resolve({ name: "In Progress" }),
-  team: Promise.resolve({ id: "team-1", key: "PRO", name: "Product" }),
-  project: Promise.resolve(undefined),
-  cycle: Promise.resolve(undefined),
-  assignee: Promise.resolve(undefined),
-  creator: Promise.resolve({
-    id: "user-1",
-    displayName: "Ada",
-    name: "Ada",
-  }),
-  labels: vi.fn().mockResolvedValue(page([])),
-  comments: vi.fn().mockResolvedValue(page([])),
-  attachments: vi.fn().mockResolvedValue(page([])),
-  needs: vi.fn().mockResolvedValue(page([])),
+function respond(call: LinearGraphqlCall): unknown {
+  if (call.name === "IssueRecord" || call.name === "IssueRecordWithNeeds") {
+    return { issue }
+  }
+  if (call.name === "TeamRecord") {
+    return {
+      team: {
+        id: "team-1",
+        name: "Product",
+        key: "PRO",
+        description: "Updated team description",
+        createdAt: "2026-08-01T00:00:00.000Z",
+        updatedAt: "2026-08-03T00:00:00.000Z",
+        parent: null,
+      },
+    }
+  }
+  if (call.name === "InitiativeProjects") {
+    return {
+      initiative: {
+        projects: emptyLinearPage(initiativeProjectIds.map((id) => ({ id }))),
+      },
+    }
+  }
+  if (call.name === "InitiativeDocuments") {
+    return { initiative: { documents: emptyLinearPage() } }
+  }
+  if (call.name === "InitiativeRecord") {
+    return {
+      initiative: {
+        id: "initiative-1",
+        name: "Roadmap",
+        url: "https://linear.app/acme/initiative/initiative-1",
+        content: "Initiative body",
+        description: null,
+        status: "Active",
+        health: "onTrack",
+        targetDate: null,
+        createdAt: "2026-08-01T00:00:00.000Z",
+        updatedAt: "2026-08-03T00:00:00.000Z",
+        parentInitiative: null,
+        owner: null,
+        initiativeUpdates: emptyLinearPage([
+          {
+            body: "Delivery remains on schedule.",
+            health: "onTrack",
+            createdAt: "2026-08-02T00:00:00.000Z",
+          },
+        ]),
+      },
+    }
+  }
+  return {}
 }
 
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 beforeEach(() => {
+  vi.useRealTimers()
   vi.clearAllMocks()
-  sdk.issue.mockResolvedValue(linearIssue)
+  resetLinearGraphqlForTests()
+  calls.length = 0
+  issue = linearIssueData()
+  initiativeProjectIds = []
+  installLinearGraphql(server, calls, respond)
   github.listFilesInTree.mockResolvedValue([])
   github.commitFiles.mockResolvedValue({ commitSha: "commit-sha" })
   model.withLinearBindingSnapshot.mockImplementation(
@@ -140,20 +169,16 @@ beforeEach(() => {
 describe("buildLinearIncrementalChanges", () => {
   it("crosses provider traversal, asset capture, and Git reconciliation", async () => {
     const sourceUrl = "https://uploads.linear.app/acme/diagram.png"
-    sdk.issue.mockResolvedValueOnce({
-      ...linearIssue,
+    issue = linearIssueData({
       description: `Current architecture: ![diagram](${sourceUrl})`,
-      attachments: vi.fn().mockResolvedValue(
-        page([
-          {
-            id: "attachment-1",
-            title: "diagram.png",
-            url: sourceUrl,
-            sourceType: "upload",
-            metadata: null,
-          },
-        ]),
-      ),
+      attachments: [
+        {
+          id: "attachment-1",
+          title: "diagram.png",
+          url: sourceUrl,
+          sourceType: "upload",
+        },
+      ],
     })
     downloadConnectorAsset.mockResolvedValueOnce({
       status: "downloaded",
@@ -188,16 +213,6 @@ describe("buildLinearIncrementalChanges", () => {
   })
 
   it("updates a selected team from a webhook event", async () => {
-    sdk.team.mockResolvedValue({
-      id: "team-1",
-      key: "PRO",
-      name: "Product",
-      description: "Updated team description",
-      parentId: null,
-      createdAt: new Date("2026-08-01T00:00:00.000Z"),
-      updatedAt: new Date("2026-08-03T00:00:00.000Z"),
-    })
-
     const result = await buildLinearIncrementalChanges({
       env: {} as Env,
       connection,
@@ -234,10 +249,7 @@ describe("buildLinearIncrementalChanges", () => {
       failures: [],
     })
 
-    sdk.issue.mockResolvedValue({
-      ...linearIssue,
-      teamId: "team-outside-scope",
-    })
+    issue = linearIssueData({ teamId: "team-outside-scope" })
     const outside = await buildLinearIncrementalChanges({
       env: {} as Env,
       connection,
@@ -250,10 +262,7 @@ describe("buildLinearIncrementalChanges", () => {
   })
 
   it("deletes the stale path when an in-scope entity is renamed", async () => {
-    sdk.issue.mockResolvedValue({
-      ...linearIssue,
-      identifier: "PRO-2",
-    })
+    issue = linearIssueData({ identifier: "PRO-2" })
 
     const result = await buildLinearIncrementalChanges({
       env: {} as Env,
@@ -272,10 +281,7 @@ describe("buildLinearIncrementalChanges", () => {
   })
 
   it("deletes sibling assets with the markdown file on rename", async () => {
-    sdk.issue.mockResolvedValue({
-      ...linearIssue,
-      identifier: "PRO-2",
-    })
+    issue = linearIssueData({ identifier: "PRO-2" })
 
     const result = await buildLinearIncrementalChanges({
       env: {} as Env,
@@ -323,17 +329,14 @@ describe("buildLinearIncrementalChanges", () => {
 
   it("enforces the retained-byte pool across duplicate attachment aliases", async () => {
     const sharedUrl = "https://uploads.linear.app/acme/shared.png"
-    linearIssue.attachments.mockResolvedValueOnce(
-      page(
-        Array.from({ length: 5 }, (_, index) => ({
-          id: `attachment-${index}`,
-          title: "shared.png",
-          url: sharedUrl,
-          sourceType: "upload",
-          metadata: null,
-        })),
-      ),
-    )
+    issue = linearIssueData({
+      attachments: Array.from({ length: 5 }, (_, index) => ({
+        id: `attachment-${index}`,
+        title: "shared.png",
+        url: sharedUrl,
+        sourceType: "upload",
+      })),
+    })
     downloadConnectorAsset.mockResolvedValue({
       status: "downloaded",
       bytes: Buffer.from("x"),
@@ -360,22 +363,18 @@ describe("buildLinearIncrementalChanges", () => {
   })
 
   it("prunes stale customer-request assets when its parent issue updates", async () => {
-    linearIssue.needs.mockResolvedValueOnce(
-      page([
+    issue = linearIssueData({
+      needs: [
         {
           id: "need-1",
           url: "https://linear.app/acme/customer-request/need-1",
           content: "Current request",
-          body: null,
           customerId: "customer-1",
-          projectId: null,
           issueId: "issue-1",
           priority: 1,
-          createdAt: new Date("2026-08-01T00:00:00.000Z"),
-          updatedAt: new Date("2026-08-02T00:00:00.000Z"),
         },
-      ]),
-    )
+      ],
+    })
 
     const result = await buildLinearIncrementalChanges({
       env: {} as Env,
@@ -398,20 +397,16 @@ describe("buildLinearIncrementalChanges", () => {
       status: "stub",
       reason: "download_failed",
     })
-    sdk.issue.mockResolvedValue({
-      ...linearIssue,
+    issue = linearIssueData({
       identifier: "ENG-1",
-      attachments: vi.fn().mockResolvedValue(
-        page([
-          {
-            id: "attachment-4",
-            title: "diagram.png",
-            url: "https://uploads.linear.app/acme/diagram.png",
-            sourceType: "upload",
-            metadata: null,
-          },
-        ]),
-      ),
+      attachments: [
+        {
+          id: "attachment-4",
+          title: "diagram.png",
+          url: "https://uploads.linear.app/acme/diagram.png",
+          sourceType: "upload",
+        },
+      ],
     })
     const preserved =
       "linear/issues/pro-1--issue-1/assets/attachment-4--diagram.png"
@@ -456,7 +451,7 @@ describe("buildLinearIncrementalChanges", () => {
     })
 
     expect(result.deletePaths).toEqual(["linear/issues/old-title--issue-1.md"])
-    expect(sdk.issue).not.toHaveBeenCalled()
+    expect(calls).toEqual([])
   })
 
   it("deletes sibling assets without fetching Linear", async () => {
@@ -476,18 +471,14 @@ describe("buildLinearIncrementalChanges", () => {
       "linear/issues/old-title--issue-1.md",
       "linear/issues/old-title--issue-1/assets/attachment-4--diagram.png",
     ])
-    expect(sdk.issue).not.toHaveBeenCalled()
+    expect(calls).toEqual([])
   })
 
   it("updates issues descended from a selected initiative", async () => {
-    sdk.initiative.mockResolvedValue({
-      projects: vi.fn().mockResolvedValue(page([{ id: "project-1" }])),
-      documents: vi.fn().mockResolvedValue(page([])),
-    })
-    sdk.issue.mockResolvedValue({
-      ...linearIssue,
+    initiativeProjectIds = ["project-1"]
+    issue = linearIssueData({
       teamId: "team-outside-scope",
-      projectId: "project-1",
+      project: { id: "project-1", name: "Launch", teamIds: [] },
     })
 
     const result = await buildLinearIncrementalChanges({
@@ -519,29 +510,113 @@ describe("buildLinearIncrementalChanges", () => {
     expect(result.deletePaths).toEqual([])
   })
 
-  it("includes health in incremental initiative update sections", async () => {
-    sdk.initiative.mockResolvedValue({
-      id: "initiative-1",
-      name: "Roadmap",
-      url: "https://linear.app/acme/initiative/initiative-1",
-      content: "Initiative body",
-      description: null,
-      status: "Started",
-      health: "onTrack",
-      ownerId: null,
-      targetDate: null,
-      updatedAt: new Date("2026-08-03T00:00:00.000Z"),
-      initiativeUpdates: vi.fn().mockResolvedValue(
-        page([
-          {
-            body: "Delivery remains on schedule.",
-            health: "onTrack",
-            createdAt: new Date("2026-08-02T00:00:00.000Z"),
-          },
-        ]),
-      ),
-    })
+  it("waits out a short rate limit and still returns the mapped issue", async () => {
+    vi.useFakeTimers()
+    let attempts = 0
+    server.use(
+      http.post("https://api.linear.app/graphql", async () => {
+        attempts += 1
+        if (attempts === 1) {
+          return HttpResponse.json(
+            {
+              errors: [
+                {
+                  message: "Rate limited",
+                  extensions: { code: "RATELIMITED" },
+                },
+              ],
+            },
+            {
+              status: 400,
+              headers: {
+                "X-RateLimit-Requests-Remaining": "0",
+                "X-RateLimit-Requests-Reset": String(Date.now() + 3_000),
+              },
+            },
+          )
+        }
+        return HttpResponse.json(
+          { data: { issue } },
+          { headers: linearBudgetHeaders() },
+        )
+      }),
+    )
 
+    const pending = buildLinearIncrementalChanges({
+      env: {} as Env,
+      connection,
+      config: selectedConfig,
+      entities: [issueChange],
+      existingPaths: [],
+    })
+    await vi.advanceTimersByTimeAsync(5_000)
+    const result = await pending
+
+    expect(attempts).toBe(2)
+    expect(result.failures).toEqual([])
+    expect(result.files).toEqual([
+      expect.objectContaining({
+        path: "linear/issues/pro-1--issue-1.md",
+        content: expect.stringContaining("Updated from a webhook"),
+      }),
+    ])
+  })
+
+  it("waits for an empty endpoint bucket without parking on a healthy request window", async () => {
+    vi.useFakeTimers()
+    let attempts = 0
+    server.use(
+      http.post("https://api.linear.app/graphql", async () => {
+        attempts += 1
+        if (attempts === 1) {
+          return HttpResponse.json(
+            {
+              errors: [
+                {
+                  message: "Rate limited",
+                  extensions: { code: "RATELIMITED" },
+                },
+              ],
+            },
+            {
+              status: 400,
+              headers: {
+                "X-RateLimit-Requests-Remaining": "4900",
+                "X-RateLimit-Requests-Reset": String(Date.now() + 3_600_000),
+                "X-RateLimit-Endpoint-Requests-Remaining": "0",
+                "X-RateLimit-Endpoint-Requests-Reset": String(
+                  Date.now() + 3_000,
+                ),
+                "X-RateLimit-Endpoint-Requests-Name": "issues",
+              },
+            },
+          )
+        }
+        return HttpResponse.json(
+          { data: { issue } },
+          { headers: linearBudgetHeaders() },
+        )
+      }),
+    )
+
+    const pending = buildLinearIncrementalChanges({
+      env: {} as Env,
+      connection,
+      config: selectedConfig,
+      entities: [issueChange],
+      existingPaths: [],
+    })
+    await vi.advanceTimersByTimeAsync(5_000)
+    const result = await pending
+
+    expect(attempts).toBe(2)
+    expect(result.failures).toEqual([])
+    expect(result.files.map((file) => file.path)).toContain(
+      "linear/issues/pro-1--issue-1.md",
+    )
+  })
+
+  it("includes health in incremental initiative update sections", async () => {
     const result = await buildLinearIncrementalChanges({
       env: {} as Env,
       connection,

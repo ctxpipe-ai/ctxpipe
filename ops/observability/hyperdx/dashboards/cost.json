@@ -1,0 +1,244 @@
+{
+  "name": "Cost",
+  "tags": [
+    "ctxpipe",
+    "cost"
+  ],
+  "filters": [
+    {
+      "type": "QUERY_EXPRESSION",
+      "name": "billing.provider",
+      "expression": "Attributes['billing.provider']",
+      "sourceName": "Metrics",
+      "sourceMetricType": "gauge"
+    },
+    {
+      "type": "QUERY_EXPRESSION",
+      "name": "billing.source",
+      "expression": "Attributes['billing.source']",
+      "sourceName": "Metrics",
+      "sourceMetricType": "gauge"
+    }
+  ],
+  "savedFilterValues": [],
+  "tiles": [
+    {
+      "name": "Month to date",
+      "x": 0,
+      "y": 0,
+      "w": 8,
+      "h": 4,
+      "config": {
+        "configType": "sql",
+        "displayType": "number",
+        "connectionName": "ctxpipe ClickHouse",
+        "sourceName": "Metrics",
+        "numberFormat": {
+          "output": "currency",
+          "mantissa": 2,
+          "currencySymbol": "$",
+          "thousandSeparated": true
+        },
+        "sqlTemplate": "WITH\n  toDate($__toTime) AS as_of,\n  toStartOfMonth(as_of) AS month_start\nSELECT sumOrNull(cost) AS usd\nFROM (\n  SELECT\n    toDate(TimeUnix) AS day,\n    Attributes['billing.provider'] AS provider,\n    Attributes['billing.sku'] AS sku,\n    Attributes['billing.scope'] AS scope,\n    argMax(Value, toUInt64OrZero(Attributes['billing.observed_at_unix_ms'])) AS cost\n  FROM otel.otel_metrics_gauge\n  WHERE MetricName = 'billing.cost'\n    AND ServiceName = 'cost-telemetry'\n    AND $__filters\n    AND TimeUnix >= toDateTime(month_start)\n    AND TimeUnix <= $__toTime\n  GROUP BY day, provider, sku, scope\n)\nLIMIT 1"
+      }
+    },
+    {
+      "name": "Projected month",
+      "x": 8,
+      "y": 0,
+      "w": 8,
+      "h": 4,
+      "config": {
+        "configType": "sql",
+        "displayType": "number",
+        "connectionName": "ctxpipe ClickHouse",
+        "sourceName": "Metrics",
+        "numberFormat": {
+          "output": "currency",
+          "mantissa": 2,
+          "currencySymbol": "$",
+          "thousandSeparated": true
+        },
+        "sqlTemplate": "WITH\n  toDate($__toTime) AS as_of,\n  toStartOfMonth(as_of) AS month_start,\n  dateDiff('day', month_start, as_of) + 1 AS elapsed_days,\n  toDayOfMonth(toLastDayOfMonth(as_of)) AS month_days\nSELECT sumOrNull(cost) / elapsed_days * month_days AS usd\nFROM (\n  SELECT\n    toDate(TimeUnix) AS day,\n    Attributes['billing.provider'] AS provider,\n    Attributes['billing.sku'] AS sku,\n    Attributes['billing.scope'] AS scope,\n    argMax(Value, toUInt64OrZero(Attributes['billing.observed_at_unix_ms'])) AS cost\n  FROM otel.otel_metrics_gauge\n  WHERE MetricName = 'billing.cost'\n    AND ServiceName = 'cost-telemetry'\n    AND $__filters\n    AND TimeUnix >= toDateTime(month_start)\n    AND TimeUnix <= $__toTime\n  GROUP BY day, provider, sku, scope\n)\nLIMIT 1"
+      }
+    },
+    {
+      "name": "Last month",
+      "x": 16,
+      "y": 0,
+      "w": 8,
+      "h": 4,
+      "config": {
+        "configType": "sql",
+        "displayType": "number",
+        "connectionName": "ctxpipe ClickHouse",
+        "sourceName": "Metrics",
+        "numberFormat": {
+          "output": "currency",
+          "mantissa": 2,
+          "currencySymbol": "$",
+          "thousandSeparated": true
+        },
+        "sqlTemplate": "WITH\n  toDate($__toTime) AS as_of,\n  toStartOfMonth(as_of) AS month_start,\n  toStartOfMonth(addMonths(as_of, -1)) AS last_start\nSELECT sumOrNull(cost) AS usd\nFROM (\n  SELECT\n    toDate(TimeUnix) AS day,\n    Attributes['billing.provider'] AS provider,\n    Attributes['billing.sku'] AS sku,\n    Attributes['billing.scope'] AS scope,\n    argMax(Value, toUInt64OrZero(Attributes['billing.observed_at_unix_ms'])) AS cost\n  FROM otel.otel_metrics_gauge\n  WHERE MetricName = 'billing.cost'\n    AND ServiceName = 'cost-telemetry'\n    AND $__filters\n    AND TimeUnix >= toDateTime(last_start)\n    AND TimeUnix < toDateTime(month_start)\n  GROUP BY day, provider, sku, scope\n)\nLIMIT 1"
+      }
+    },
+    {
+      "name": "Month to date \u2248 AUD",
+      "x": 0,
+      "y": 4,
+      "w": 6,
+      "h": 4,
+      "config": {
+        "configType": "sql",
+        "displayType": "number",
+        "connectionName": "ctxpipe ClickHouse",
+        "sourceName": "Metrics",
+        "numberFormat": {
+          "output": "currency",
+          "mantissa": 2,
+          "currencySymbol": "A$",
+          "thousandSeparated": true
+        },
+        "sqlTemplate": "WITH\n  toDate($__toTime) AS as_of,\n  toStartOfMonth(as_of) AS month_start,\n  (SELECT argMax(Value, TimeUnix) FROM otel.otel_metrics_gauge WHERE MetricName = 'billing.fx_rate' AND ServiceName = 'cost-telemetry') AS fx\nSELECT sumOrNull(cost) * fx AS aud\nFROM (\n  SELECT\n    toDate(TimeUnix) AS day,\n    Attributes['billing.provider'] AS provider,\n    Attributes['billing.sku'] AS sku,\n    Attributes['billing.scope'] AS scope,\n    argMax(Value, toUInt64OrZero(Attributes['billing.observed_at_unix_ms'])) AS cost\n  FROM otel.otel_metrics_gauge\n  WHERE MetricName = 'billing.cost'\n    AND ServiceName = 'cost-telemetry'\n    AND $__filters\n    AND TimeUnix >= toDateTime(month_start)\n    AND TimeUnix <= $__toTime\n  GROUP BY day, provider, sku, scope\n)\nLIMIT 1"
+      }
+    },
+    {
+      "name": "Projected month \u2248 AUD",
+      "x": 6,
+      "y": 4,
+      "w": 6,
+      "h": 4,
+      "config": {
+        "configType": "sql",
+        "displayType": "number",
+        "connectionName": "ctxpipe ClickHouse",
+        "sourceName": "Metrics",
+        "numberFormat": {
+          "output": "currency",
+          "mantissa": 2,
+          "currencySymbol": "A$",
+          "thousandSeparated": true
+        },
+        "sqlTemplate": "WITH\n  toDate($__toTime) AS as_of,\n  toStartOfMonth(as_of) AS month_start,\n  dateDiff('day', month_start, as_of) + 1 AS elapsed_days,\n  toDayOfMonth(toLastDayOfMonth(as_of)) AS month_days,\n  (SELECT argMax(Value, TimeUnix) FROM otel.otel_metrics_gauge WHERE MetricName = 'billing.fx_rate' AND ServiceName = 'cost-telemetry') AS fx\nSELECT sumOrNull(cost) / elapsed_days * month_days * fx AS aud\nFROM (\n  SELECT\n    toDate(TimeUnix) AS day,\n    Attributes['billing.provider'] AS provider,\n    Attributes['billing.sku'] AS sku,\n    Attributes['billing.scope'] AS scope,\n    argMax(Value, toUInt64OrZero(Attributes['billing.observed_at_unix_ms'])) AS cost\n  FROM otel.otel_metrics_gauge\n  WHERE MetricName = 'billing.cost'\n    AND ServiceName = 'cost-telemetry'\n    AND $__filters\n    AND TimeUnix >= toDateTime(month_start)\n    AND TimeUnix <= $__toTime\n  GROUP BY day, provider, sku, scope\n)\nLIMIT 1"
+      }
+    },
+    {
+      "name": "Last month \u2248 AUD",
+      "x": 12,
+      "y": 4,
+      "w": 6,
+      "h": 4,
+      "config": {
+        "configType": "sql",
+        "displayType": "number",
+        "connectionName": "ctxpipe ClickHouse",
+        "sourceName": "Metrics",
+        "numberFormat": {
+          "output": "currency",
+          "mantissa": 2,
+          "currencySymbol": "A$",
+          "thousandSeparated": true
+        },
+        "sqlTemplate": "WITH\n  toDate($__toTime) AS as_of,\n  toStartOfMonth(as_of) AS month_start,\n  toStartOfMonth(addMonths(as_of, -1)) AS last_start,\n  (SELECT argMax(Value, TimeUnix) FROM otel.otel_metrics_gauge WHERE MetricName = 'billing.fx_rate' AND ServiceName = 'cost-telemetry') AS fx\nSELECT sumOrNull(cost) * fx AS aud\nFROM (\n  SELECT\n    toDate(TimeUnix) AS day,\n    Attributes['billing.provider'] AS provider,\n    Attributes['billing.sku'] AS sku,\n    Attributes['billing.scope'] AS scope,\n    argMax(Value, toUInt64OrZero(Attributes['billing.observed_at_unix_ms'])) AS cost\n  FROM otel.otel_metrics_gauge\n  WHERE MetricName = 'billing.cost'\n    AND ServiceName = 'cost-telemetry'\n    AND $__filters\n    AND TimeUnix >= toDateTime(last_start)\n    AND TimeUnix < toDateTime(month_start)\n  GROUP BY day, provider, sku, scope\n)\nLIMIT 1"
+      }
+    },
+    {
+      "name": "USD\u2192AUD rate",
+      "x": 18,
+      "y": 4,
+      "w": 6,
+      "h": 4,
+      "config": {
+        "configType": "sql",
+        "displayType": "number",
+        "connectionName": "ctxpipe ClickHouse",
+        "sourceName": "Metrics",
+        "numberFormat": {
+          "output": "number",
+          "mantissa": 4
+        },
+        "sqlTemplate": "WITH $__toTime AS _as_of\nSELECT if(count() = 0, NULL, argMax(Value, TimeUnix)) AS rate\nFROM otel.otel_metrics_gauge\nWHERE MetricName = 'billing.fx_rate'\n  AND ServiceName = 'cost-telemetry'\n  AND _as_of IS NOT NULL\nLIMIT 1"
+      }
+    },
+    {
+      "name": "Daily cost by provider",
+      "x": 0,
+      "y": 8,
+      "w": 24,
+      "h": 8,
+      "config": {
+        "configType": "sql",
+        "displayType": "stacked_bar",
+        "connectionName": "ctxpipe ClickHouse",
+        "sourceName": "Metrics",
+        "fillNulls": false,
+        "alignDateRangeToGranularity": false,
+        "numberFormat": {
+          "output": "currency",
+          "mantissa": 2,
+          "currencySymbol": "$",
+          "thousandSeparated": true
+        },
+        "sqlTemplate": "SELECT\n  toDateTime(day) AS ts,\n  provider,\n  sum(cost) AS cost\nFROM (\n  SELECT\n    toDate(TimeUnix) AS day,\n    Attributes['billing.provider'] AS provider,\n    Attributes['billing.sku'] AS sku,\n    Attributes['billing.scope'] AS scope,\n    argMax(Value, toUInt64OrZero(Attributes['billing.observed_at_unix_ms'])) AS cost\n  FROM otel.otel_metrics_gauge\n  WHERE MetricName = 'billing.cost'\n    AND ServiceName = 'cost-telemetry'\n    AND $__filters\n    AND toDate(TimeUnix) >= toDate($__fromTime)\n    AND toDate(TimeUnix) <= toDate($__toTime)\n  GROUP BY day, provider, sku, scope\n)\nGROUP BY ts, provider\nORDER BY ts, provider\nLIMIT 10000"
+      }
+    },
+    {
+      "name": "Monthly cost by provider",
+      "x": 0,
+      "y": 16,
+      "w": 24,
+      "h": 8,
+      "config": {
+        "configType": "sql",
+        "displayType": "bar",
+        "connectionName": "ctxpipe ClickHouse",
+        "sourceName": "Metrics",
+        "numberFormat": {
+          "output": "currency",
+          "mantissa": 2,
+          "currencySymbol": "$",
+          "thousandSeparated": true
+        },
+        "sqlTemplate": "WITH\n  toDate($__toTime) AS as_of,\n  toStartOfMonth(as_of) AS month_start\nSELECT\n  provider,\n  sum(cost) AS cost\nFROM (\n  SELECT\n    toDate(TimeUnix) AS day,\n    Attributes['billing.provider'] AS provider,\n    Attributes['billing.sku'] AS sku,\n    Attributes['billing.scope'] AS scope,\n    argMax(Value, toUInt64OrZero(Attributes['billing.observed_at_unix_ms'])) AS cost\n  FROM otel.otel_metrics_gauge\n  WHERE MetricName = 'billing.cost'\n    AND ServiceName = 'cost-telemetry'\n    AND $__filters\n    AND TimeUnix >= toDateTime(month_start)\n    AND toDate(TimeUnix) <= as_of\n  GROUP BY day, provider, sku, scope\n)\nGROUP BY provider\nORDER BY cost DESC, provider\nLIMIT 50"
+      }
+    },
+    {
+      "name": "By provider",
+      "x": 0,
+      "y": 24,
+      "w": 12,
+      "h": 10,
+      "config": {
+        "configType": "sql",
+        "displayType": "table",
+        "connectionName": "ctxpipe ClickHouse",
+        "sourceName": "Metrics",
+        "numberFormat": {
+          "output": "number",
+          "mantissa": 2,
+          "thousandSeparated": true
+        },
+        "sqlTemplate": "WITH\n  toDate($__toTime) AS as_of,\n  toStartOfMonth(as_of) AS month_start,\n  toStartOfMonth(addMonths(as_of, -1)) AS last_start,\n  (SELECT argMax(Value, TimeUnix) FROM otel.otel_metrics_gauge WHERE MetricName = 'billing.fx_rate' AND ServiceName = 'cost-telemetry') AS fx\nSELECT\n  provider,\n  mtd_usd,\n  mtd_usd * fx AS mtd_aud,\n  last_usd AS last_month_usd,\n  last_usd * fx AS last_month_aud,\n  if(last_usd = 0, NULL, (mtd_usd - last_usd) / last_usd * 100) AS delta_pct\nFROM (\n  SELECT\n    provider,\n    sumIf(cost, day >= month_start AND day <= as_of) AS mtd_usd,\n    sumIf(cost, day >= last_start AND day < month_start) AS last_usd\n  FROM (\n    SELECT\n      toDate(TimeUnix) AS day,\n      Attributes['billing.provider'] AS provider,\n      Attributes['billing.sku'] AS sku,\n      Attributes['billing.scope'] AS scope,\n      argMax(Value, toUInt64OrZero(Attributes['billing.observed_at_unix_ms'])) AS cost\n    FROM otel.otel_metrics_gauge\n    WHERE MetricName = 'billing.cost'\n      AND ServiceName = 'cost-telemetry'\n      AND $__filters\n      AND TimeUnix >= toDateTime(last_start)\n      AND TimeUnix <= $__toTime\n    GROUP BY day, provider, sku, scope\n  )\n  GROUP BY provider\n)\nORDER BY mtd_usd DESC\nLIMIT 50"
+      }
+    },
+    {
+      "name": "Top line items",
+      "x": 12,
+      "y": 24,
+      "w": 12,
+      "h": 10,
+      "config": {
+        "configType": "sql",
+        "displayType": "table",
+        "connectionName": "ctxpipe ClickHouse",
+        "sourceName": "Metrics",
+        "numberFormat": {
+          "output": "number",
+          "mantissa": 2,
+          "thousandSeparated": true
+        },
+        "sqlTemplate": "WITH\n  toDate($__fromTime) AS range_start,\n  toDate($__toTime) AS range_end,\n  (SELECT argMax(Value, TimeUnix) FROM otel.otel_metrics_gauge WHERE MetricName = 'billing.fx_rate' AND ServiceName = 'cost-telemetry') AS fx\nSELECT\n  cost.provider AS provider,\n  cost.sku AS sku,\n  cost.scope AS scope,\n  cost.source AS source,\n  ifNull(usage.usage, 0) AS usage,\n  if(ifNull(usage.unit, '') != '', usage.unit, cost.unit) AS unit,\n  cost.cost AS cost_usd,\n  cost.cost * fx AS cost_aud\nFROM (\n  SELECT\n    provider,\n    sku,\n    scope,\n    argMax(source, day) AS source,\n    if(uniqExact(unit) = 1, argMax(unit, day), '') AS unit,\n    sum(cost) AS cost\n  FROM (\n    SELECT\n      toDate(TimeUnix) AS day,\n      Attributes['billing.provider'] AS provider,\n      Attributes['billing.sku'] AS sku,\n      Attributes['billing.scope'] AS scope,\n      argMax(Attributes['billing.source'], toUInt64OrZero(Attributes['billing.observed_at_unix_ms'])) AS source,\n      argMax(Attributes['billing.unit'], toUInt64OrZero(Attributes['billing.observed_at_unix_ms'])) AS unit,\n      argMax(Value, toUInt64OrZero(Attributes['billing.observed_at_unix_ms'])) AS cost\n    FROM otel.otel_metrics_gauge\n    WHERE MetricName = 'billing.cost'\n      AND ServiceName = 'cost-telemetry'\n      AND $__filters\n      AND toDate(TimeUnix) >= range_start\n      AND toDate(TimeUnix) <= range_end\n    GROUP BY day, provider, sku, scope\n  )\n  GROUP BY provider, sku, scope\n) AS cost\nLEFT JOIN (\n  SELECT\n    provider,\n    sku,\n    scope,\n    sum(usage) AS usage,\n    if(uniqExact(unit) = 1, argMax(unit, day), '') AS unit\n  FROM (\n    SELECT\n      toDate(TimeUnix) AS day,\n      Attributes['billing.provider'] AS provider,\n      Attributes['billing.sku'] AS sku,\n      Attributes['billing.scope'] AS scope,\n      argMax(Attributes['billing.unit'], toUInt64OrZero(Attributes['billing.observed_at_unix_ms'])) AS unit,\n      argMax(Value, toUInt64OrZero(Attributes['billing.observed_at_unix_ms'])) AS usage\n    FROM otel.otel_metrics_gauge\n    WHERE MetricName = 'billing.usage'\n      AND ServiceName = 'cost-telemetry'\n      AND $__filters\n      AND toDate(TimeUnix) >= range_start\n      AND toDate(TimeUnix) <= range_end\n    GROUP BY day, provider, sku, scope\n  )\n  GROUP BY provider, sku, scope\n) AS usage ON usage.provider = cost.provider AND usage.sku = cost.sku AND usage.scope = cost.scope\nORDER BY cost.cost DESC\nLIMIT 50"
+      }
+    }
+  ]
+}

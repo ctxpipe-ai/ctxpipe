@@ -384,8 +384,8 @@ export function connectorAssetPinnedTlsOptions(input: {
   family: 4 | 6
 }) {
   return {
-    // Bun 1.4.2 pools https.request sockets by hostname and skips lookup
-    // on reuse, so a later pin would silently dial the earlier address.
+    // A pooled keep-alive socket never calls `lookup`, so reusing one would
+    // skip the pin.
     agent: false as const,
     lookup: createPinnedConnectorAssetLookup(input),
     rejectUnauthorized: true as const,
@@ -406,7 +406,12 @@ async function requestConnectorAsset(input: {
     const req = request(
       input.url,
       {
-        headers: { "accept-encoding": "identity", ...input.headers },
+        // node:https sends no User-Agent, and some hosts reject anonymous requests.
+        headers: {
+          "accept-encoding": "identity",
+          "user-agent": "ctxpipe",
+          ...input.headers,
+        },
         ...connectorAssetPinnedTlsOptions({
           hostname: input.url.hostname,
           address: input.address,

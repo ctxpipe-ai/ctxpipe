@@ -554,20 +554,20 @@ it(
             requestId: request.requestId,
           }),
         )
-        expect(await getRepositoryForOrg(f.org.id, repository.id)).toMatchObject(
-          {
-            indexReady: true,
-            lastIngestedHash: f.sha,
-            indexingStatus: "queued",
-          },
-        )
+        expect(
+          await getRepositoryForOrg(f.org.id, repository.id),
+        ).toMatchObject({
+          indexReady: true,
+          lastIngestedHash: f.sha,
+          indexingStatus: "queued",
+        })
         await owner.cancel()
-        expect(await getRepositoryForOrg(f.org.id, repository.id)).toMatchObject(
-          {
-            indexingStatus: "failed",
-            indexingError: "Repository ingestion canceled",
-          },
-        )
+        expect(
+          await getRepositoryForOrg(f.org.id, repository.id),
+        ).toMatchObject({
+          indexingStatus: "failed",
+          indexingError: "Repository ingestion canceled",
+        })
         await foreign.cancel()
       },
     )

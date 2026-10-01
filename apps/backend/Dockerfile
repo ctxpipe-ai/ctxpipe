@@ -2,10 +2,12 @@
 FROM node:22-alpine AS opencode
 RUN npm install -g opencode-ai@1.18.18
 
-FROM node:22-alpine AS deps
+FROM oven/bun:1.4.2-alpine AS deps
 WORKDIR /app
 ENV CI=true
-RUN npm install -g pnpm@10.12.1
+# pnpm is a Node CLI. Running it through Bun can stall during lifecycle scripts.
+RUN apk add --no-cache nodejs
+RUN bun install -g pnpm@10.12.1
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/backend/package.json apps/backend/package.json

@@ -281,12 +281,30 @@ describe("modelProvider", () => {
     const { getModel } = await import("./modelProvider.js")
     getModel("fast")
 
-    const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
+    const fastCall = chatOpenAIConstructor.mock.calls[0]?.[0] as {
       model?: string
       modelKwargs?: { reasoning?: { effort?: string } }
     }
-    expect(call?.model).toBe("openai/gpt-5.6-terra")
-    expect(call?.modelKwargs?.reasoning).toEqual({ effort: "low" })
+    expect(fastCall?.model).toBe("openai/gpt-6-luna")
+    expect(fastCall?.modelKwargs?.reasoning).toEqual({ effort: "high" })
+
+    chatOpenAIConstructor.mockClear()
+    getModel("medium")
+    const mediumCall = chatOpenAIConstructor.mock.calls[0]?.[0] as {
+      model?: string
+      modelKwargs?: { reasoning?: { effort?: string } }
+    }
+    expect(mediumCall?.model).toBe("openai/gpt-6-luna")
+    expect(mediumCall?.modelKwargs?.reasoning).toEqual({ effort: "xhigh" })
+
+    chatOpenAIConstructor.mockClear()
+    getModel("high")
+    const highCall = chatOpenAIConstructor.mock.calls[0]?.[0] as {
+      model?: string
+      modelKwargs?: { reasoning?: { effort?: string }; models?: string[] }
+    }
+    expect(highCall?.model).toBe("xiaomi/mimo-v2.6-pro")
+    expect(highCall?.modelKwargs?.reasoning).toBeUndefined()
   })
 
   it("getModel merges reasoning.effort=none when reasoning false on Bedrock", async () => {

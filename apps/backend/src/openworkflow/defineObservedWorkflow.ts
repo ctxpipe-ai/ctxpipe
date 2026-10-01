@@ -56,7 +56,7 @@ export function defineWorkflow<S extends z.ZodObject<z.ZodRawShape>, Output>(
     },
     (ctx) => {
       attachChildTelemetry(ctx.step)
-      return restoreJobTelemetry(ctx.input, { name: spec.name }, () => fn(ctx))
+      return restoreJobTelemetry(ctx.input, () => fn(ctx))
     },
   )
 }

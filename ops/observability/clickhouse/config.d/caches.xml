@@ -1,7 +1,7 @@
 <clickhouse>
   <!-- Defaults reserve multi-GiB caches (mark cache 5 GiB, uncompressed cache 8 GiB,
        primary_index_cache_size 5 GiB, text index caches 1–2 GiB).
-       On this node max_server_memory_usage is 1 GiB, so every cache cap is smaller
+       On this node max_server_memory_usage is 4 GiB, so every cache cap is smaller
        than that. max_server_memory_usage_to_ram_ratio is left at the image default.
        use_primary_key_cache stays off; the size cap is set anyway. -->
   <mark_cache_size>134217728</mark_cache_size>

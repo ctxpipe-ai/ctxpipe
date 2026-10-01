@@ -9,8 +9,8 @@ import {
   getLogger,
   withLogger,
 } from "../../observability/logger.js"
-import { loadNotionConnection } from "../../services/notion/connection-load.js"
 import { parseNotionConfigYamlContent } from "../../services/notion/config-yaml.js"
+import { loadNotionConnection } from "../../services/notion/connection-load.js"
 import { captureNotionIncrementalContent } from "../../services/notion/sync.js"
 import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
@@ -43,11 +43,7 @@ export const notionSyncEntity = defineWorkflow(
               input.connectionId,
             )
             const connection = await withOrgDbContext(input.orgId, () =>
-              loadNotionConnection(
-                input.orgId,
-                input.connectionId,
-                env,
-              ),
+              loadNotionConnection(input.orgId, input.connectionId, env),
             )
             if (!connection?.accessToken)
               throw new Error("Notion connection is not ready for sync")
@@ -96,11 +92,7 @@ export const notionSyncEntity = defineWorkflow(
           },
           async () => {
             const connection = await withOrgDbContext(input.orgId, () =>
-              loadNotionConnection(
-                input.orgId,
-                input.connectionId,
-                env,
-              ),
+              loadNotionConnection(input.orgId, input.connectionId, env),
             )
             if (
               !connection?.accessToken ||

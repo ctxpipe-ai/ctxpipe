@@ -8,6 +8,11 @@ variable "collector_image" {
   type        = string
 }
 
+variable "cost_telemetry_image" {
+  description = "Public GHCR image for cost-telemetry (ghcr.io/ctxpipe-ai/obs-cost-telemetry:<git tree of ops/observability/cost-telemetry>). Railway pulls it with no registry credentials, same as the product services."
+  type        = string
+}
+
 variable "railway_telemetry_image" {
   description = "Public GHCR image for railway-telemetry (ghcr.io/ctxpipe-ai/obs-railway-telemetry:<git tree of ops/observability/railway-telemetry>). Railway pulls it with no registry credentials, same as the product services."
   type        = string

@@ -18,7 +18,12 @@ import {
   resolveWorkspaceChatSendRuntime,
 } from "../../domain/workspaces/workspace-chat-send-runtime.js"
 import { discardUnstartedConversation } from "../../models/conversations.js"
-import { createLogger, log, loggerStorage } from "../../observability/logger.js"
+import {
+  createLogger,
+  type LoggerHolder,
+  log,
+  loggerStorage,
+} from "../../observability/logger.js"
 import {
   type BunWebSocketLike,
   bunSocketToWebSocketLike,
@@ -235,10 +240,11 @@ async function* withAuthContextStream<T>(
     conversationId,
     orgSlug: org.slug,
   })
+  const holder: LoggerHolder = { logger, base: { ...logger.getContext() } }
   const iterator = stream[Symbol.asyncIterator]()
   try {
     while (true) {
-      const next = await loggerStorage.run(logger, () =>
+      const next = await loggerStorage.run(holder, () =>
         withOrgIdContext(org, () =>
           withUserIdContext(userId, () => iterator.next()),
         ),
@@ -247,6 +253,6 @@ async function* withAuthContextStream<T>(
       yield next.value
     }
   } finally {
-    logger.emit()
+    holder.logger.emit()
   }
 }

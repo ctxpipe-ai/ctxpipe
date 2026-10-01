@@ -1,10 +1,10 @@
-# ADR-041: Postgres RLS with a non-owner app role
+# ADR-042: Postgres RLS with a non-owner app role
 
 **Status:** Accepted | **Date:** 2026-08-22 | **Tags:** postgres, rls, neon, aws-cdk, railway, compose
 
 ## Context
 
-[ADR-040](ADR-040-short-org-sql-unique-sandbox-rows.md) kept org SQL as short `SET LOCAL app.organization_id` transactions so policies could read `current_setting('app.organization_id', true)`. Tenant tables still used `getSystemDb()` and the runtime role was the table owner (`neondb_owner` / Compose `ctxpipe` / Aurora master `ctxpipe`). Owner roles inherit `BYPASSRLS` (`neondb_owner`, Compose/Aurora master `ctxpipe` as superuser), so `ENABLE ROW LEVEL SECURITY` alone would be theater on the migrate URL, and `FORCE ROW LEVEL SECURITY` is inert on those same owners. Drizzle kit cannot emit `FORCE`. ENABLE binds because the runtime role is not the owner. A `SECURITY DEFINER` webhook helper owned by the same role as the app would also see nothing useful under FORCE.
+[ADR-041](ADR-041-short-org-sql-unique-sandbox-rows.md) kept org SQL as short `SET LOCAL app.organization_id` transactions so policies could read `current_setting('app.organization_id', true)`. Tenant tables still used `getSystemDb()` and the runtime role was the table owner (`neondb_owner` / Compose `ctxpipe` / Aurora master `ctxpipe`). Owner roles inherit `BYPASSRLS` (`neondb_owner`, Compose/Aurora master `ctxpipe` as superuser), so `ENABLE ROW LEVEL SECURITY` alone would be theater on the migrate URL, and `FORCE ROW LEVEL SECURITY` is inert on those same owners. Drizzle kit cannot emit `FORCE`. ENABLE binds because the runtime role is not the owner. A `SECURITY DEFINER` webhook helper owned by the same role as the app would also see nothing useful under FORCE.
 
 AWS self-hosters must keep the existing upgrade path: bump `@ctxpipe/aws-cdk` and `cdk deploy`. No new `CtxPipe` props, no operator `psql`, no second connection string in their CDK app.
 

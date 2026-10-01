@@ -29,6 +29,6 @@ HyperDX 2.39.1 does not default every search to `production`. The shared filter 
 | --- | --- |
 | ctxpipe Services, LLM (gen_ai), Product usage | `production` |
 | Observability Stack | `observability` |
-| Railway Infrastructure | none |
+| Railway Infrastructure, Cost | none |
 
-Product usage: [dashboards/product-usage.md](dashboards/product-usage.md).
+Product usage: [dashboards/product-usage.md](dashboards/product-usage.md). Cost: [dashboards/cost.md](dashboards/cost.md).

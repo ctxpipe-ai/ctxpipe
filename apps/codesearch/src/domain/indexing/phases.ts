@@ -12,9 +12,9 @@ import { repositoryCheckouts } from "../../db/schema.js"
 import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
 import { authenticatedGitUrl } from "../../utils/git.js"
 import {
-  decodeScipIndex,
+  assertScipIndex,
   encodeScipIndex,
-  mergeScipIndexes,
+  mergeScipShardFiles,
 } from "../graph/scipProto.js"
 import type { IndexingStepKey } from "../indexingSteps.js"
 import { trySetRepositoryIndexingStep } from "../indexingSteps.js"
@@ -467,7 +467,7 @@ export async function publishMergedScipIndex(input: {
       throw error
     }
     try {
-      decodeScipIndex(bytes)
+      assertScipIndex(bytes)
     } catch (error) {
       tryEmitIndexEvent("codesearch.index.scip.shard_skipped", {
         shardPath,
@@ -504,32 +504,7 @@ export async function writeMergedScipIndex(
         encodeScipIndex({ documents: [], externalSymbols: [] }),
       )
     } else {
-      const shards = await Promise.all(
-        shardPaths.map(async (shardPath) => {
-          const bytes = await readFile(shardPath)
-          let index: ReturnType<typeof decodeScipIndex>
-          try {
-            index = decodeScipIndex(bytes)
-          } catch (error) {
-            throw new Error(
-              `Malformed SCIP shard ${shardPath}: ${
-                error instanceof Error ? error.message : String(error)
-              }`,
-            )
-          }
-          if (bytes.byteLength === 0) {
-            throw new Error(`Empty SCIP shard: ${shardPath}`)
-          }
-          return { bytes, index }
-        }),
-      )
-      const singleShard = shards[0]
-      await writeFile(
-        temporaryPath,
-        shards.length === 1 && singleShard
-          ? singleShard.bytes
-          : mergeScipIndexes(shards.map(({ index }) => index)),
-      )
+      await mergeScipShardFiles(shardPaths, temporaryPath, { dedupe: false })
     }
     await rename(temporaryPath, outputPath)
   } finally {
@@ -701,7 +676,7 @@ export async function phaseScipLanguage(
     language: string
     detectedLanguages: readonly string[]
   },
-): Promise<void> {
+): Promise<{ issue?: string }> {
   const writeStep = monotonicWriteStep(ctx)
   const shardPath = scipLangShardPath(
     ctx.orgId,
@@ -709,16 +684,17 @@ export async function phaseScipLanguage(
     params.language,
     ctx.checkoutKey,
   )
-  await withPhase(`scip:${params.language}`, async () => {
-    await runScipIndexer({
+  const result = await withPhase(`scip:${params.language}`, () =>
+    runScipIndexer({
       indexerId: params.language as ScipIndexerId,
       checkoutPath: ctx.clonePath,
       shardPath,
-    })
-  })
+    }),
+  )
   await writeStep(`scip:${params.language}` as IndexingStepKey, [
     ...params.detectedLanguages,
   ])
+  return result
 }
 
 export async function phaseMergeScip(
@@ -746,7 +722,12 @@ export async function phaseMergeScip(
       ) {
         await discardScipShardFiles(
           detected.map((indexerId) =>
-            scipLangShardPath(ctx.orgId, ctx.repoId, indexerId, ctx.checkoutKey),
+            scipLangShardPath(
+              ctx.orgId,
+              ctx.repoId,
+              indexerId,
+              ctx.checkoutKey,
+            ),
           ),
         )
       }

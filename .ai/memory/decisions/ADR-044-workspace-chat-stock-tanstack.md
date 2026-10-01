@@ -1,10 +1,10 @@
-# ADR-043: Stock TanStack workspace chat
+# ADR-044: Stock TanStack workspace chat
 
 **Status:** Accepted | **Date:** 2026-08-25 | **Tags:** workspace-chat, tanstack, persistence, sandbox
 
 ## Context
 
-ADR-042 added a keep-alive OpenCode serve and an attach-only `session.prompt` path because the then-current lock could not pass `baseUrl` into `opencodeText`. That second machine ignored `chat({ messages })`, stored assistant text only, skipped official persistence/durability, and rematerialized the sandbox on prepare (custom clone + serve + session). The lock is now `@tanstack/ai@0.48` + `@tanstack/ai-opencode@0.3.4`.
+ADR-043 added a keep-alive OpenCode serve and an attach-only `session.prompt` path because the then-current lock could not pass `baseUrl` into `opencodeText`. That second machine ignored `chat({ messages })`, stored assistant text only, skipped official persistence/durability, and rematerialized the sandbox on prepare (custom clone + serve + session). The lock is now `@tanstack/ai@0.48` + `@tanstack/ai-opencode@0.3.4`.
 
 ## Decision
 
@@ -19,7 +19,7 @@ Keep outside TanStack: org auth and conversation list metadata.
 
 ## Consequences
 
-- ADR-042 is superseded. Attach, in-process conversation runtime, and turn-claim are removed from the product path.
+- ADR-043 is superseded. Attach, in-process conversation runtime, and turn-claim are removed from the product path.
 - Reload hydrates thinking/tool/text parts from the message store.
 - A warm prepare is `ensure()` resume. First bootstrap may still clone and install OpenCode once.
 

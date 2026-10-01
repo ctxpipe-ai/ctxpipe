@@ -22,8 +22,8 @@ vi.mock("./client.js", () => ({
 }))
 
 import {
-  GITHUB_PR_MIRROR_COMMIT_BATCH,
   captureGithubPullRequestsForConfig,
+  GITHUB_PR_MIRROR_COMMIT_BATCH,
   listGithubPullRequestNumbersForConfig,
   reviewDecisionFromReviews,
 } from "./sync.js"
@@ -131,7 +131,9 @@ describe("listGithubPullRequestNumbersForConfig", () => {
       repository: "acme/api",
     })
 
-    expect(result.numbers).toEqual(Array.from({ length: count }, (_, i) => i + 1))
+    expect(result.numbers).toEqual(
+      Array.from({ length: count }, (_, i) => i + 1),
+    )
     expect(mocks.commitFiles).not.toHaveBeenCalled()
     expect(mocks.fetchGithubPullRequestSnapshot).not.toHaveBeenCalled()
     expect(mocks.getInstallationOctokitForOrg).toHaveBeenCalledWith(

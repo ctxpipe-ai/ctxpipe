@@ -1,4 +1,4 @@
-# ADR-045: Workspace revision and projection identity
+# ADR-046: Workspace revision and projection identity
 
 **Status:** Accepted | **Date:** 2026-09-08 | **Tags:** workspace, git, postgres, recovery
 

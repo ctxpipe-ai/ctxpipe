@@ -55,6 +55,12 @@ jobs:
       - name: Typecheck railway-telemetry
         run: pnpm --filter railway-telemetry typecheck
 
+      - name: Test cost-telemetry
+        run: pnpm --filter cost-telemetry test
+
+      - name: Typecheck cost-telemetry
+        run: pnpm --filter cost-telemetry typecheck
+
       - name: Typecheck HyperDX provision
         run: pnpm --filter hyperdx typecheck
 
@@ -80,6 +86,9 @@ jobs:
         with:
           terraform_version: 1.14.7
 
+      - name: Test cost telemetry credential sync
+        run: python3 -m unittest discover -p 'test_*.py'
+
       - name: Terraform fmt
         run: terraform fmt -check -recursive
 
@@ -98,6 +107,7 @@ jobs:
       collector: ${{ steps.tags.outputs.collector }}
       clickhouse: ${{ steps.tags.outputs.clickhouse }}
       railway-telemetry: ${{ steps.tags.outputs['railway-telemetry'] }}
+      cost-telemetry: ${{ steps.tags.outputs['cost-telemetry'] }}
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
@@ -107,7 +117,7 @@ jobs:
       - name: Image tags
         id: tags
         run: |
-          for service in collector clickhouse railway-telemetry; do
+          for service in collector clickhouse railway-telemetry cost-telemetry; do
             sha="$(git rev-parse "HEAD:ops/observability/${service}")"
             echo "${service}=ghcr.io/ctxpipe-ai/obs-${service}:${sha}" >> "$GITHUB_OUTPUT"
           done
@@ -124,7 +134,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [collector, clickhouse, railway-telemetry]
+        service: [collector, clickhouse, railway-telemetry, cost-telemetry]
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
@@ -173,6 +183,7 @@ jobs:
       TF_VAR_collector_image: ${{ needs.tags.outputs.collector }}
       TF_VAR_clickhouse_image: ${{ needs.tags.outputs.clickhouse }}
       TF_VAR_railway_telemetry_image: ${{ needs.tags.outputs['railway-telemetry'] }}
+      TF_VAR_cost_telemetry_image: ${{ needs.tags.outputs['cost-telemetry'] }}
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
@@ -195,7 +206,7 @@ jobs:
         run: |
           umask 077
           terraform show -json terraform.plan > plan.json
-          jq -e '[.resource_changes[] | select(.change.actions | index("delete"))] | length == 0' plan.json
+          jq -e '[.resource_changes[] | select((.change.actions | index("delete")) and (.address != "terraform_data.cost_telemetry_source_image" or (.change.actions | index("create") | not)))] | length == 0' plan.json
 
       - name: Generate Observability Terraform Plan comment
         if: always()
@@ -261,9 +272,21 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      COST_TELEMETRY_OPENROUTER_MANAGEMENT_KEY: ${{ secrets.COST_TELEMETRY_OPENROUTER_MANAGEMENT_KEY }}
+      COST_TELEMETRY_GITHUB_BILLING_TOKEN: ${{ secrets.COST_TELEMETRY_GITHUB_BILLING_TOKEN }}
+      COST_TELEMETRY_BLACKSMITH_TOKEN: ${{ secrets.COST_TELEMETRY_BLACKSMITH_TOKEN }}
+      COST_TELEMETRY_NEON_API_KEY: ${{ secrets.COST_TELEMETRY_NEON_API_KEY }}
+      COST_TELEMETRY_NEON_ORG_ID: ${{ vars.COST_TELEMETRY_NEON_ORG_ID }}
+      COST_TELEMETRY_CLOUDFLARE_API_TOKEN: ${{ secrets.COST_TELEMETRY_CLOUDFLARE_API_TOKEN }}
+      COST_TELEMETRY_CLOUDFLARE_ACCOUNT_ID: ${{ vars.COST_TELEMETRY_CLOUDFLARE_ACCOUNT_ID }}
+      COST_TELEMETRY_RAILWAY_API_TOKEN: ${{ secrets.COST_TELEMETRY_RAILWAY_API_TOKEN }}
+      COST_TELEMETRY_AWS_ACCESS_KEY_ID: ${{ secrets.COST_TELEMETRY_AWS_ACCESS_KEY_ID }}
+      COST_TELEMETRY_AWS_SECRET_ACCESS_KEY: ${{ secrets.COST_TELEMETRY_AWS_SECRET_ACCESS_KEY }}
+      COST_TELEMETRY_AWS_SESSION_TOKEN: ${{ secrets.COST_TELEMETRY_AWS_SESSION_TOKEN }}
       TF_VAR_collector_image: ${{ needs.tags.outputs.collector }}
       TF_VAR_clickhouse_image: ${{ needs.tags.outputs.clickhouse }}
       TF_VAR_railway_telemetry_image: ${{ needs.tags.outputs['railway-telemetry'] }}
+      TF_VAR_cost_telemetry_image: ${{ needs.tags.outputs['cost-telemetry'] }}
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
@@ -286,10 +309,17 @@ jobs:
         run: |
           umask 077
           terraform show -json terraform.plan > plan.json
-          jq -e '[.resource_changes[] | select(.change.actions | index("delete"))] | length == 0' plan.json
+          jq -e '[.resource_changes[] | select((.change.actions | index("delete")) and (.address != "terraform_data.cost_telemetry_source_image" or (.change.actions | index("create") | not)))] | length == 0' plan.json
 
       - name: Terraform apply
         run: terraform apply -input=false -auto-approve -lock-timeout=10m terraform.plan
+
+      - name: Sync cost telemetry credentials after apply
+        run: |
+          export PROJECT_ID="$RAILWAY_PROJECT_ID"
+          export ENVIRONMENT_ID="5a0afd5c-5f12-47ef-8f8a-606107610f89"
+          export SERVICE_ID="$(terraform output -raw cost_telemetry_service_id)"
+          python3 sync-cost-telemetry-variables.py --redeploy-on-change
 
       # Provider Update() never sends multiRegionConfig (issue #77).
       - name: Pin Railway observability region

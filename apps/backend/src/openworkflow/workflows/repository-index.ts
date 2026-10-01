@@ -498,11 +498,21 @@ export const repositoryIndex = defineWorkflow(
               `scip:${lang}`,
               async () => {
                 try {
-                  await codesearchIndexScipLang(
+                  const { issue } = await codesearchIndexScipLang(
                     auth,
                     lang,
                     languages.detectedLanguages,
                   )
+                  if (issue) {
+                    // The shard exists and merges; the repository still
+                    // shows the gap as complete_with_issues.
+                    logMilestone("repository-index.scip.incomplete", {
+                      repositoryId: input.repositoryId,
+                      phase: `scip:${lang}`,
+                      issue,
+                    })
+                    return { ok: false as const, error: issue }
+                  }
                   return { ok: true as const }
                 } catch (error) {
                   if (isCodesearchAdmissionBusyError(error)) throw error

@@ -20,6 +20,11 @@ const TONE: Record<
     dot: "bg-zinc-500",
     pulse: false,
   },
+  syncing: {
+    text: "text-muted-foreground",
+    dot: "bg-zinc-500",
+    pulse: true,
+  },
   connected: {
     text: "text-emerald-400",
     dot: "bg-emerald-400",

@@ -61,7 +61,7 @@ Leave `OTEL_EXPORTER_OTLP_*` unset unless this run needs a backend. `pnpm dev` d
 
 **Laptop collector.** `pnpm dev:infra` publishes `${CTXPIPE_OTEL_COLLECTOR_HOST_PORT:-4318}:4318` on every interface. Point the app at `http://127.0.0.1:4318/v1/traces`, `/v1/logs`, and `/v1/metrics`. Omit the headers. `OTEL_SERVICE_NAME` is `backend`, `openworkflow`, or `codesearch`. The collector prints OTLP to its own logs. There is no local HyperDX.
 
-**Shared collector (opt-in).** Use it when the hosted dashboards should show this run. The 1 GiB ClickHouse node and the Langfuse prompt store are why it stays opt-in.
+**Shared collector (opt-in).** Use it when the hosted dashboards should show this run. The 4 GiB ClickHouse node and the Langfuse prompt store are why it stays opt-in.
 
 ```bash
 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://telemetry.ctxpipe.ai/v1/traces

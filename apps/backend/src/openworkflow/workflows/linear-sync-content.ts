@@ -1,4 +1,3 @@
-import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -25,8 +24,14 @@ import {
   refreshLinearOAuthToken,
 } from "../../services/linear/client.js"
 import { parseLinearConfigYamlContent } from "../../services/linear/config-yaml.js"
+import {
+  collectLinearMirrorPages,
+  fetchLinearMirrorPage,
+  walkLinearMirrorPages,
+} from "../../services/linear/content.js"
 import { captureLinearContent } from "../../services/linear/sync.js"
-import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
+import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
 const LinearSyncContentInputSchema = z.object({
@@ -122,55 +127,82 @@ export const linearSyncContent = defineWorkflow(
           },
         )
 
+        const onTokenRefresh = (
+          expectedRefreshToken: string,
+          expectedAccessToken: string,
+        ) =>
+          withOrgDbContext(input.orgId, () =>
+            refreshLinearConnectionTokensWithLock({
+              orgId: input.orgId,
+              connectionId: input.connectionId,
+              env,
+              expectedRefreshToken,
+              expectedAccessToken,
+              refresh: async (refreshToken) => {
+                const connection = await getLinearConnectionByConnectionId(
+                  input.orgId,
+                  input.connectionId,
+                  env,
+                )
+                const creds = connection
+                  ? getLinearOauthAppCreds(connection, env)
+                  : undefined
+                if (!creds) throw new Error("Linear OAuth is not configured")
+                const token = await refreshLinearOAuthToken({
+                  env,
+                  refreshToken,
+                  creds,
+                })
+                return {
+                  accessToken: token.access_token,
+                  refreshToken: token.refresh_token ?? refreshToken,
+                  accessTokenExpiresAt: linearTokenExpiresAt(token.expires_in),
+                }
+              },
+            }),
+          )
+        const loadAuthorizedConnection = async () => {
+          const connection = await withOrgDbContext(input.orgId, () =>
+            getLinearConnectionByConnectionId(
+              input.orgId,
+              input.connectionId,
+              env,
+            ),
+          )
+          if (
+            !connection ||
+            connection.status !== "installed" ||
+            connection.workspaceId !== context.config.workspaceId
+          )
+            throw new Error("Linear authorization changed")
+          return connection
+        }
+        // One durable step per page: a crash refetches only the unfinished page.
+        const pages = await walkLinearMirrorPages({
+          config: context.config,
+          runPage: (name, request) =>
+            step.run({ name }, async () =>
+              fetchLinearMirrorPage({
+                env,
+                connection: await loadAuthorizedConnection(),
+                config: context.config,
+                onTokenRefresh,
+                request,
+              }),
+            ),
+        })
+        const collected = collectLinearMirrorPages(pages)
         const captured = await step.run(
           { name: "capture-linear-content" },
-          async () => {
-            const connection = await withOrgDbContext(input.orgId, () =>
-              getLinearConnectionByConnectionId(
-                input.orgId,
-                input.connectionId,
-                env,
-              ),
-            )
-            if (
-              !connection ||
-              connection.status !== "installed" ||
-              connection.workspaceId !== context.config.workspaceId
-            )
-              throw new Error("Linear authorization changed")
-            return captureLinearContent({
+          async () =>
+            captureLinearContent({
               env,
-              connection,
+              connection: await loadAuthorizedConnection(),
+              files: collected.files,
+              failures: collected.failures,
               existingPaths: context.captured.paths,
-              config: context.config,
-              onTokenRefresh: (expectedRefreshToken, expectedAccessToken) =>
-                refreshLinearConnectionTokensWithLock({
-                  orgId: input.orgId,
-                  connectionId: input.connectionId,
-                  env,
-                  expectedRefreshToken,
-                  expectedAccessToken,
-                  refresh: async (refreshToken) => {
-                    const creds = getLinearOauthAppCreds(connection, env)
-                    if (!creds) {
-                      throw new Error("Linear OAuth is not configured")
-                    }
-                    const token = await refreshLinearOAuthToken({
-                      env,
-                      refreshToken,
-                      creds,
-                    })
-                    return {
-                      accessToken: token.access_token,
-                      refreshToken: token.refresh_token ?? refreshToken,
-                      accessTokenExpiresAt: linearTokenExpiresAt(
-                        token.expires_in,
-                      ),
-                    }
-                  },
-                }),
-            })
-          },
+              onTokenRefresh,
+            }),
         )
         if (
           captured.status !== "failed" &&
@@ -198,22 +230,21 @@ export const linearSyncContent = defineWorkflow(
         }
 
         if (result.status !== "failed") {
-          await step.run({ name: "ingest-linear-content" }, () =>
-            runRepositoryIngestionWorkflow(
-              {
-                repositoryId: context.target.repositoryId,
-                orgId: input.orgId,
-                targetBranch: context.target.branch,
-                indexingReason: "Syncing Linear content",
-              },
-              {
-                error: (error) =>
-                  getLogger().error(error, {
-                    step: "linear-sync-content.ingestion",
-                    connectionId: input.connectionId,
-                  }),
-              },
-            ),
+          await runConnectorRepositoryIngestionWorkflow(
+            step,
+            {
+              repositoryId: context.target.repositoryId,
+              orgId: input.orgId,
+              targetBranch: context.target.branch,
+              indexingReason: "Syncing Linear content",
+            },
+            {
+              error: (error) =>
+                getLogger().error(error, {
+                  step: "linear-sync-content.ingestion",
+                  connectionId: input.connectionId,
+                }),
+            },
           )
         }
 

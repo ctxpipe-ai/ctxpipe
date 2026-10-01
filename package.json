@@ -45,6 +45,7 @@
   },
   "pnpm": {
     "overrides": {
+      "@daveyplate/better-auth-ui>better-call": "1.3.7",
       "@luma.gl/core": "9.2.6",
       "@luma.gl/engine": "9.2.6",
       "@luma.gl/webgl": "9.2.6",

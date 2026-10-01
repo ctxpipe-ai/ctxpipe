@@ -17,8 +17,8 @@ import {
   getLogger,
   withLogger,
 } from "../../observability/logger.js"
-import { loadNotionConnection } from "../../services/notion/connection-load.js"
 import { parseNotionConfigYamlContent } from "../../services/notion/config-yaml.js"
+import { loadNotionConnection } from "../../services/notion/connection-load.js"
 import { captureNotionContent } from "../../services/notion/sync.js"
 import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 import { parsedNotionRepoScopeSchema } from "../notion-scope-repo-schema.js"
@@ -69,11 +69,7 @@ export const notionSyncContent = defineWorkflow(
               input.connectionId,
             )
             const connection = await withOrgDbContext(input.orgId, () =>
-              loadNotionConnection(
-                input.orgId,
-                input.connectionId,
-                env,
-              ),
+              loadNotionConnection(input.orgId, input.connectionId, env),
             )
             if (!connection?.accessToken || !connection.workspaceId)
               throw new Error("Notion connection is not ready for sync")
@@ -123,11 +119,7 @@ export const notionSyncContent = defineWorkflow(
           { name: "capture-notion-content" },
           async () => {
             const connection = await withOrgDbContext(input.orgId, () =>
-              loadNotionConnection(
-                input.orgId,
-                input.connectionId,
-                env,
-              ),
+              loadNotionConnection(input.orgId, input.connectionId, env),
             )
             if (
               !connection?.accessToken ||

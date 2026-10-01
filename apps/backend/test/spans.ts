@@ -8,6 +8,7 @@ import {
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { afterAll, beforeEach } from "vitest"
+import { AttributionUrlSpanProcessor } from "../src/observability/otel.js"
 
 export type RecordedSpans = {
   reset: () => void
@@ -45,7 +46,10 @@ export function recordSpans(): RecordedSpans {
     exporter = created
     const provider = new NodeTracerProvider({
       resource: resourceFromAttributes({ "service.name": "ctxpipe-test" }),
-      spanProcessors: [new SimpleSpanProcessor(created)],
+      spanProcessors: [
+        new AttributionUrlSpanProcessor(),
+        new SimpleSpanProcessor(created),
+      ],
     })
     provider.register()
     beforeEach(() => {
