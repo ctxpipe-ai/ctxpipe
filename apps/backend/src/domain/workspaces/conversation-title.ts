@@ -1,19 +1,12 @@
-import type { BaseMessageLike } from "@langchain/core/messages"
-import { getConfig, getWriter } from "@langchain/langgraph"
 import {
   getConversation,
   updateConversation,
-} from "../../../models/conversations.js"
-import { getModel } from "../../../retrieval/services/modelProvider.js"
+} from "../../models/conversations.js"
+import { getModel } from "../../retrieval/services/modelProvider.js"
 
 const titlePrompt =
   `Generate a short 2-5 word title for a chat conversation. Reply with ONLY the title, no quotes or punctuation.
 First user message: ` as const
-
-export type ConversationNamingState = {
-  messages: BaseMessageLike[]
-  conversationName?: string
-}
 
 export function isUnnamedConversation(
   name: string | null | undefined,
@@ -21,7 +14,7 @@ export function isUnnamedConversation(
   return !name || name === "New conversation" || name === "New Chat"
 }
 
-export function textFromMessageContent(content: unknown, join = " "): string {
+function textFromMessageContent(content: unknown): string {
   if (typeof content === "string") return content
   if (!Array.isArray(content)) return ""
   return content
@@ -33,7 +26,7 @@ export function textFromMessageContent(content: unknown, join = " "): string {
         typeof (part as { text?: unknown }).text === "string",
     )
     .map((part) => part.text)
-    .join(join)
+    .join("")
 }
 
 /** One-shot title: model text, or truncated first user message. */
@@ -46,56 +39,6 @@ export function conversationTitleFromModel(
   const name = raw.trim().slice(0, 100)
   if (name && !isUnnamedConversation(name)) return name
   return truncatedFallback
-}
-
-export async function conversationNaming(
-  state: ConversationNamingState,
-): Promise<Partial<ConversationNamingState>> {
-  const config = getConfig()
-  const conversationId = config.configurable?.thread_id as string | undefined
-  const source = config.configurable?.source as string | undefined
-
-  if (!conversationId) return {}
-
-  const conversation = await getConversation(conversationId)
-  if (!conversation) return {}
-  if (!isUnnamedConversation(conversation.name)) return {}
-
-  const firstUserMessage = state.messages.find(
-    (m) => (m as { getType?: () => string }).getType?.() === "human",
-  ) as BaseMessageLike | undefined
-  const promptText = textFromMessageContent(
-    typeof firstUserMessage === "object" &&
-      firstUserMessage !== null &&
-      "content" in firstUserMessage
-      ? firstUserMessage.content
-      : undefined,
-  )
-  const context = promptText.slice(0, 200).trim() || "Conversation"
-
-  let raw = ""
-  try {
-    const model = getModel("fast", { temperature: 0.5 })
-    const response = await model.invoke([
-      { role: "user", content: titlePrompt + context },
-    ])
-    raw = textFromMessageContent(response.content, "")
-  } catch {
-    raw = ""
-  }
-  const name = conversationTitleFromModel(raw, promptText)
-
-  await updateConversation(conversationId, { name })
-
-  if (source === "ui") {
-    const writer = getWriter()
-    writer?.({
-      type: "rename-conversation",
-      name,
-    })
-    return { conversationName: name }
-  }
-  return {}
 }
 
 export async function nameConversationIfUnnamed(input: {
@@ -117,7 +60,7 @@ export async function nameConversationIfUnnamed(input: {
           content: titlePrompt + input.prompt.slice(0, 200).trim(),
         },
       ])
-      raw = textFromMessageContent(response.content, "")
+      raw = textFromMessageContent(response.content)
     }
   } catch {
     raw = ""

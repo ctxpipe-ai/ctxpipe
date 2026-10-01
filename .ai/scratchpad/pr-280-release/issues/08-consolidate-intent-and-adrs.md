@@ -44,6 +44,8 @@ Verify every claim in code before keeping it. Write short, plain decisions; no i
 
 ## Comments
 
+- 2026-10-01 (ticket 07): the legacy LangGraph advisor (`graphs/conversationGraph`, `graphs/index.ts`) is deleted; ADR-006 (LangSmith Studio dev routes over `src/graphs/index.ts`) no longer matches the code.
+
 - 2026-10-01 (user): order corrected — update from main (07) first, then this ticket.
 - 2026-10-01 (claude, partial ledger before pausing): sources read (map, issues 01–19, PRDs, ADR-040–048, glossary, branch lessons). Code checks so far:
   - true: `ws_` rows, slug unique per org (case-insensitive), workspace URL unique per org, linked repos table, `repositories/*.md` declarations; old `/chat`, `/repositories`, `/knowledge-graph` routes removed, `/ws/$workspaceSlug[/$conversationId]` exists; LLM commit subject with template fallback; confidence decay (α 0.25, half-lives 365/180/120/21 d); permission handler with fast-model judge; `ctx_advisor` shim + MCP-origin conversations hidden; chat idle 30 min; writes GitHub-only (`write-status.ts`); tip-check workflow.

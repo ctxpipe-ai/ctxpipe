@@ -77,6 +77,8 @@ Do not add TanStack patches or an application-level sandbox registry. Keep const
 
 ## Comments
 
+- 2026-10-01 (ticket 07): when running the CDK example, also open the Workspace Graph pane — it is the only live check of the workspace graph queries on Neptune (#341).
+
 - 2026-10-01: ticket 02 makes the git session branch the durable conversation state on hosted. Apply the same rule on Docker so self-host sandboxes are equally disposable (idle stop/destroy never loses work).
 
 - 2026-10-01 (user): no opt-out from the sandbox host.

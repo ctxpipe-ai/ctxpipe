@@ -30,7 +30,6 @@ import Docker from "dockerode"
 import { eq } from "drizzle-orm"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
-import { nameConversationIfUnnamed } from "../../graphs/conversationGraph/nodes/conversationNaming.js"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
 import {
   getDesiredWorkspaceRevision,
@@ -54,6 +53,7 @@ import {
   workspaceChatSandboxSpec,
 } from "./chat-runtime.js"
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
+import { nameConversationIfUnnamed } from "./conversation-title.js"
 import {
   sameWorkspaceBinding,
   type WorkspaceRevision,
