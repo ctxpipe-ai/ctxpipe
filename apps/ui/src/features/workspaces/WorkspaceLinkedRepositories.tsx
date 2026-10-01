@@ -11,13 +11,16 @@ import { Modal } from "@/components/ui/Modal"
 import { SearchField } from "@/components/ui/SearchField"
 import { TextField } from "@/components/ui/TextField"
 import { GithubRepoPickerList } from "@/features/repositories/components/GithubRepoPickerList"
+import { GithubRepoSortSelect } from "@/features/repositories/components/GithubRepoSortSelect"
 import {
   githubRepoFullNameFromGitUrl,
   githubWebUrl,
 } from "@/features/repositories/github-web-url"
 import {
+  type GithubRepoSort,
   collectInstallationRepoPages,
   fetchGithubInstallationReposPage,
+  sortGithubRepos,
 } from "@/features/repositories/githubRepoSelection"
 import { gitSourceMatchesQuery } from "@/features/repositories/gitSourcesFilter"
 import { cn } from "@/lib/utils"
@@ -216,6 +219,7 @@ function AddLinkedReposModal(props: {
   const { orgSlug, workspace, isOpen, onOpenChange } = props
   const queryClient = useQueryClient()
   const [searchQuery, setSearchQuery] = useState("")
+  const [sort, setSort] = useState<GithubRepoSort>("pushed-desc")
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [pasteUrl, setPasteUrl] = useState("")
 
@@ -247,11 +251,13 @@ function AddLinkedReposModal(props: {
 
   const filteredRepos = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
-    if (!q) return eligibleRepos
-    return eligibleRepos.filter((repo) =>
-      (repo.full_name ?? repo.name).toLowerCase().includes(q),
-    )
-  }, [eligibleRepos, searchQuery])
+    const matching = q
+      ? eligibleRepos.filter((repo) =>
+          (repo.full_name ?? repo.name).toLowerCase().includes(q),
+        )
+      : eligibleRepos
+    return sortGithubRepos(matching, sort)
+  }, [eligibleRepos, searchQuery, sort])
 
   const reset = () => {
     setSearchQuery("")
@@ -270,7 +276,7 @@ function AddLinkedReposModal(props: {
         queryKey: workspaceKeys.detail(orgSlug, workspace.slug),
       })
       HyperDX.addAction("repository_index_started")
-      toast.success("Repositories linked")
+      toast.success("Repositories linked and queued for indexing.")
       reset()
       onOpenChange(false)
     },
@@ -305,12 +311,16 @@ function AddLinkedReposModal(props: {
         </p>
 
         <div className="mt-5 space-y-3">
-          <SearchField
-            value={searchQuery}
-            onChange={setSearchQuery}
-            placeholder="Search repositories"
-            aria-label="Search GitHub repositories"
-          />
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <SearchField
+              value={searchQuery}
+              onChange={setSearchQuery}
+              placeholder="Search repositories"
+              aria-label="Search GitHub repositories"
+              className="min-w-0 flex-1"
+            />
+            <GithubRepoSortSelect value={sort} onChange={setSort} />
+          </div>
           {reposQuery.isPending ? (
             <InlineLoader label="Loading repositories" />
           ) : reposQuery.isError ? (

@@ -12,10 +12,13 @@ import {
   GithubRepoPickerList,
   GithubRepoPickerSkeleton,
 } from "@/features/repositories/components/GithubRepoPickerList"
+import { GithubRepoSortSelect } from "@/features/repositories/components/GithubRepoSortSelect"
 import {
   collectInstallationRepoPages,
   fetchGithubInstallationReposPage,
   type GithubRepoItem,
+  type GithubRepoSort,
+  sortGithubRepos,
 } from "@/features/repositories/githubRepoSelection"
 import { gitSourceMatchesQuery } from "@/features/repositories/gitSourcesFilter"
 import { focusVisibleClassName } from "@/lib/focus-styles"
@@ -42,6 +45,7 @@ export function WorkspaceRepositoryPicker(props: {
   const [mode, setMode] = useState<Mode>("select")
   const [gitUrl, setGitUrl] = useState("")
   const [searchQuery, setSearchQuery] = useState("")
+  const [sort, setSort] = useState<GithubRepoSort>("pushed-desc")
   const [selectedId, setSelectedId] = useState<number | null>(null)
 
   const existing = useQuery({
@@ -103,10 +107,13 @@ export function WorkspaceRepositoryPicker(props: {
 
   const filteredRepos = useMemo(
     () =>
-      eligibleRepos.filter((repo) =>
-        gitSourceMatchesQuery(repo.full_name, repo.clone_url, searchQuery),
+      sortGithubRepos(
+        eligibleRepos.filter((repo) =>
+          gitSourceMatchesQuery(repo.full_name, repo.clone_url, searchQuery),
+        ),
+        sort,
       ),
-    [eligibleRepos, searchQuery],
+    [eligibleRepos, searchQuery, sort],
   )
 
   const selectedRepo =
@@ -150,6 +157,8 @@ export function WorkspaceRepositoryPicker(props: {
               pending={pending}
               submitLabel={submitLabel}
               searchQuery={searchQuery}
+              sort={sort}
+              onSortChange={setSort}
               onSearchQueryChange={setSearchQuery}
               filteredRepos={filteredRepos}
               eligibleCount={eligibleRepos.length}
@@ -234,6 +243,8 @@ function SelectGitHubPanel(props: {
   submitLabel: string
   searchQuery: string
   onSearchQueryChange: (value: string) => void
+  sort: GithubRepoSort
+  onSortChange: (sort: GithubRepoSort) => void
   filteredRepos: readonly GithubRepoItem[]
   eligibleCount: number
   selectedIds: Set<number>
@@ -283,12 +294,16 @@ function SelectGitHubPanel(props: {
 
   return (
     <div className="space-y-3">
-      <SearchField
-        value={props.searchQuery}
-        onChange={props.onSearchQueryChange}
-        placeholder="Search repositories"
-        aria-label="Search GitHub repositories"
-      />
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <SearchField
+          value={props.searchQuery}
+          onChange={props.onSearchQueryChange}
+          placeholder="Search repositories"
+          aria-label="Search GitHub repositories"
+          className="min-w-0 flex-1"
+        />
+        <GithubRepoSortSelect value={props.sort} onChange={props.onSortChange} />
+      </div>
       {props.filteredRepos.length === 0 ? (
         <p className="text-sm text-muted-foreground">No repositories match.</p>
       ) : (
