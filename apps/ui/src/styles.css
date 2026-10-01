@@ -439,6 +439,24 @@ html:has(.onb-page-in) {
   transition-timing-function: ease-out;
 }
 
+/* A count that just grew flashes teal and settles back. */
+.onb-count-pulse {
+  color: var(--color-zinc-200);
+  animation: onb-count-pulse 1.4s ease-out;
+}
+
+@keyframes onb-count-pulse {
+  0%,
+  30% {
+    color: #40e0d0;
+    text-shadow: 0 0 8px rgba(64, 224, 208, 0.6);
+  }
+  100% {
+    color: var(--color-zinc-200);
+    text-shadow: none;
+  }
+}
+
 /* Bouncing line: GitHub is handing over the repository list. */
 .onb-line-loader {
   position: relative;
@@ -481,7 +499,8 @@ html:has(.onb-page-in) {
   .onb-page-in,
   .onb-step-body,
   .onb-wire-flow,
-  .onb-line-loader::after {
+  .onb-line-loader::after,
+  .onb-count-pulse {
     animation: none;
   }
 

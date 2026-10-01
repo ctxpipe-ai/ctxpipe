@@ -153,7 +153,7 @@ export function OnboardingGraphPreview({
         <CosmographProvider>
           <Cosmograph
             ref={cosmographRef}
-            className="absolute inset-0 h-full w-full"
+            className="absolute inset-x-0 top-12 bottom-0"
             style={{ backgroundColor: "transparent" }}
             {...config}
           />
@@ -166,15 +166,60 @@ export function OnboardingGraphPreview({
           </span>
         </span>
       )}
-      <span className="absolute right-0 top-0 border border-teal-400/30 bg-zinc-950/80 px-1.5 font-mono text-xs uppercase tracking-wider text-teal-400">
-        Preview
+      <span className="absolute inset-x-0 top-0 flex flex-col items-start gap-1 font-mono text-xs">
+        <span className="border border-teal-400/30 bg-zinc-950/80 px-1.5 uppercase tracking-wider text-teal-400">
+          Preview
+        </span>
         {points.length > 0 ? (
-          <span className="normal-case tracking-normal text-zinc-400">
-            {" "}
-            · {points.length} entities
+          <span className="whitespace-nowrap text-zinc-400">
+            <GrowingCount value={points.length} /> entities ·{" "}
+            <GrowingCount value={links.length} /> links
           </span>
         ) : null}
       </span>
     </>
+  )
+}
+
+/**
+ * Counts up to a new value and pulses once when it grows, so the graph's
+ * growth reads at a glance. Reduced motion shows the new value straight away.
+ */
+function GrowingCount({ value }: { value: number }) {
+  const [shown, setShown] = useState(value)
+  const [pulse, setPulse] = useState(0)
+  const shownRef = useRef(value)
+  // Animating a number over time is outside React's render; this Effect
+  // drives it with requestAnimationFrame and cancels on change.
+  useEffect(() => {
+    const from = shownRef.current
+    if (
+      value <= from ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      shownRef.current = value
+      setShown(value)
+      return
+    }
+    setPulse((count) => count + 1)
+    const start = performance.now()
+    let frame = 0
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / 900)
+      const next = Math.round(from + (value - from) * (1 - (1 - t) ** 3))
+      shownRef.current = next
+      setShown(next)
+      if (t < 1) frame = requestAnimationFrame(step)
+    }
+    frame = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(frame)
+  }, [value])
+  return (
+    <span
+      key={pulse}
+      className={`tabular-nums ${pulse > 0 ? "onb-count-pulse" : "text-zinc-200"}`}
+    >
+      {shown}
+    </span>
   )
 }
