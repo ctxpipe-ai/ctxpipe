@@ -1,11 +1,11 @@
 # Flaky SCIP indexer serialization test
 
-Status: needs-triage
+Status: done
 Priority: P2
-Owner: unassigned
+Owner: claude
 Blocked by: none
 Created: 2026-10-01
-Updated: 2026-10-01
+Updated: 2026-10-02
 
 ## Context
 
@@ -19,3 +19,5 @@ Updated: 2026-10-01
 ## Comments
 
 ## Resolution
+
+Real race in code, not a test-only flake. `runScipIndexer` awaited `mkdir` before joining the per-checkout mutex, so two runs on one checkout could enter in either order depending on I/O completion. The test released the first spawned process while awaiting the first call, which was then still queued behind the second, so it hung. The fix joins the mutex before any await (runs on one checkout start in request order). Proof: the file failed 2/20 runs before and 0/40 after.

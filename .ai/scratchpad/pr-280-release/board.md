@@ -13,5 +13,5 @@ Updated: 2026-10-02. Rules: [README.md](README.md). Order is set by the user; un
 | — | 06 | [Browser end-to-end critical flows](issues/06-browser-critical-flows.md) | plan-review | P0 | unassigned | — (final pass: 02) |
 | — | 05 | [Ingestion performance from traces](issues/05-ingestion-performance.md) | plan-review | P1 | unassigned | 04 |
 | — | 09 | [Release @ctxpipe/aws-cdk as a minor](issues/09-aws-cdk-minor-changeset.md) | in-progress | P2 | claude | 03, 06 (final wording) |
-| — | 10 | [Flaky SCIP indexer serialization test](issues/10-scip-indexer-test-flake.md) | needs-triage | P2 | unassigned | — |
+| — | 10 | [Flaky SCIP indexer serialization test](issues/10-scip-indexer-test-flake.md) | done | P2 | claude | — |
 | — | 11 | [Add a second Workspace from the UI](issues/11-add-workspace-entry-point.md) | needs-triage | P1 | unassigned | — |
