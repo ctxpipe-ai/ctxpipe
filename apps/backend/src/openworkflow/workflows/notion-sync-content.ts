@@ -133,6 +133,7 @@ export const notionSyncContent = defineWorkflow(
               notionConnection: connection,
               config: context.config,
               existingPaths: context.captured.paths,
+              existingBlobs: context.captured.blobs,
             })
 
             return captured

@@ -89,6 +89,7 @@ export const confluenceSyncSpace = defineWorkflow(
           },
           config: context.config,
           existingPaths: context.captured.paths,
+          existingBlobs: context.captured.blobs,
           mode: {
             spaceKey: input.spaceKey,
             pageId: input.pageId,

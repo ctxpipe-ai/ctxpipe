@@ -145,6 +145,7 @@ export const confluenceSyncContent = defineWorkflow(
           },
           config: context.config,
           existingPaths: context.captured.paths,
+          existingBlobs: context.captured.blobs,
         })
       },
     )

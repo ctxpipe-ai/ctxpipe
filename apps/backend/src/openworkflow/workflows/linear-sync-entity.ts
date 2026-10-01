@@ -131,6 +131,7 @@ export const linearSyncEntity = defineWorkflow(
               env,
               connection,
               existingPaths: context.captured.paths,
+              existingBlobs: context.captured.blobs,
               config: context.config,
               entity: {
                 entityType: input.entityType,

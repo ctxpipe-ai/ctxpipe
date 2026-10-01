@@ -5,6 +5,7 @@ import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
 import { listOrgWorkspaces } from "../../models/workspaces.js"
 import {
+  listTreeBlobs,
   nativeGit,
   readGitPackFromRemote,
   withGitDirectory,
@@ -64,18 +65,9 @@ export async function captureConnectorMirrorTarget(input: {
     return withGitDirectory(
       pack.sha,
       async (directory) => {
-        const paths = (
-          await nativeGit(directory, [
-            "ls-tree",
-            "-r",
-            "--name-only",
-            "-z",
-            pack.sha,
-          ])
-        )
-          .toString()
-          .split("\0")
-          .filter(Boolean)
+        // Blob ids let connectors skip re-downloading unchanged assets.
+        const blobs = await listTreeBlobs(directory, pack.sha)
+        const paths = blobs.map((blob) => blob.path)
         const configPath = `${input.mirror.provider}/config.yaml`
         const config = paths.includes(configPath)
           ? (
@@ -100,6 +92,7 @@ export async function captureConnectorMirrorTarget(input: {
               : null,
           },
           paths,
+          blobs,
           config,
         }
       },

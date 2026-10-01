@@ -201,6 +201,7 @@ export const linearSyncContent = defineWorkflow(
               files: collected.files,
               failures: collected.failures,
               existingPaths: context.captured.paths,
+              existingBlobs: context.captured.blobs,
               onTokenRefresh,
             }),
         )

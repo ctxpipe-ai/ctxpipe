@@ -106,6 +106,7 @@ export const notionSyncEntity = defineWorkflow(
               notionConnection: connection,
               config: context.config,
               existingPaths: context.captured.paths,
+              existingBlobs: context.captured.blobs,
               entity: {
                 entityType: input.entityType,
                 externalId: input.externalId,

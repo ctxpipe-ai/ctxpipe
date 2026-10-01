@@ -152,3 +152,17 @@ export async function readGitPackFromRemote(input: {
     return captureGitPack(directory, input.sha, input.additionalShas)
   })
 }
+
+/** Every blob in a tree with its object id (git ls-tree), paths unquoted. */
+export async function listTreeBlobs(
+  directory: string,
+  treeish: string,
+): Promise<Array<{ path: string; sha: string }>> {
+  return (await nativeGit(directory, ["ls-tree", "-r", "-z", treeish]))
+    .toString()
+    .split("\0")
+    .flatMap((entry) => {
+      const match = /^\d+ blob ([0-9a-f]+)\t(.+)$/s.exec(entry)
+      return match?.[1] && match[2] ? [{ path: match[2], sha: match[1] }] : []
+    })
+}
