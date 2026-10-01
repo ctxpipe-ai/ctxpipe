@@ -89,8 +89,8 @@ export function OnboardingStep({
         </span>
       </div>
       {open && children ? (
-        // Fills the space left by the other steps and scrolls inside it,
-        // so the step's buttons stay put at the bottom.
+        // Fills the space left by the other steps and scrolls inside it; the
+        // buttons sit at its bottom.
         <div className="onb-step-body flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-1 pl-10 pt-4">
           {children}
         </div>
@@ -110,7 +110,7 @@ export function StepActions({
   primary?: ReactNode
 }) {
   return (
-    <div className="sticky bottom-0 mt-auto flex flex-wrap items-center gap-3 bg-zinc-950 pt-2">
+    <div className="mt-auto flex flex-wrap items-center gap-3 pt-2">
       <div className="mr-auto">{back}</div>
       {secondary}
       {primary}
