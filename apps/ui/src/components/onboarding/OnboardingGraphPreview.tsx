@@ -19,8 +19,11 @@ import { client } from "@/lib/api"
 
 /**
  * The org's real knowledge graph, small and read-only, while it is built.
- * Same query key as the explorer, so the cache carries over after setup.
- * Re-fetches while `live`; new entities join without resetting the layout.
+ * Merges the real graph (projected at the end of each repository's run) with
+ * the provisional one recorded as extractors finish, so it grows from the
+ * first minutes. Same query key as the explorer for the real graph, so that
+ * cache carries over after setup. Re-fetches while `live`; new entities join
+ * without resetting the layout.
  */
 export function OnboardingGraphPreview({
   orgSlug,
@@ -40,13 +43,41 @@ export function OnboardingGraphPreview({
     },
     refetchInterval: live ? 8000 : false,
   })
+  // What the extractors have found so far, before it reaches the real graph
+  // at the end of each repository's run. Empty once nothing is indexing.
+  const { data: provisional } = useQuery({
+    queryKey: ["knowledge-graph-preview", orgSlug],
+    queryFn: async () => {
+      const res = await fetch(`/${orgSlug}/api/v1/knowledge-graph/preview`, {
+        credentials: "include",
+      })
+      if (!res.ok) throw new Error("Could not load the graph preview.")
+      return (await res.json()) as {
+        nodes: Array<{ id: string; kind: string; name: string | null }>
+        edges: Array<{ sourceId: string; targetId: string; predicate: string }>
+      }
+    },
+    refetchInterval: live ? 5000 : false,
+  })
 
-  // Same rows as the explorer: label, kind for colour, degree for size.
+  // Same rows as the explorer: label, kind for colour, degree for size. The
+  // real graph and the provisional one are merged; their ids never collide
+  // (object ids against extractors' keys).
   const { points, links } = useMemo(() => {
-    const nodes = (data?.nodes ?? []).filter((node) => node.id)
+    const nodes = [
+      ...(data?.nodes ?? []),
+      ...(provisional?.nodes ?? []).map((node) => ({ ...node, summary: null })),
+    ].filter((node) => node.id)
     const ids = new Set(nodes.map((node) => String(node.id)))
     const degree = new Map<string, number>()
-    const links = (data?.edges ?? [])
+    const links = [
+      ...(data?.edges ?? []),
+      ...(provisional?.edges ?? []).map((edge) => ({
+        ...edge,
+        confidence: null,
+        lastObservedAt: null,
+      })),
+    ]
       .filter(
         (edge) =>
           ids.has(String(edge.sourceId)) && ids.has(String(edge.targetId)),
@@ -70,7 +101,7 @@ export function OnboardingGraphPreview({
       degree: degree.get(String(node.id)) ?? 0,
     }))
     return { points, links }
-  }, [data])
+  }, [data, provisional])
 
   const cosmographRef = useRef<CosmographRef>(undefined)
   const [config, setConfig] = useState<CosmographConfig | null>(null)

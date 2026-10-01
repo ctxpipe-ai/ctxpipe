@@ -131,8 +131,9 @@ export function OnboardingDiagram({
       metric: view.hasSource ? "" : "empty",
       lit: view.hasSource,
       grow: view.hasSource,
-      // The org's real graph as it is built, marked Preview; before that, a
-      // loader while GitHub hands over the repository list.
+      // The graph as it is built (extractors' finds, then the real graph),
+      // marked Preview; before that, a loader while GitHub hands over the
+      // repository list.
       // Between the heading and the metric line, so text stays clear.
       canvas:
         view.hasSource && orgSlug ? (

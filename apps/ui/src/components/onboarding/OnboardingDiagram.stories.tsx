@@ -74,34 +74,35 @@ const meta = {
     msw: {
       handlers: {
         page: [
-          // A small real-shaped graph so the Knowledge preview renders.
-          http.get("*/acme/api/v1/knowledge-graph", () => {
+          // Nothing projected yet: the preview grows from what extractors
+          // have found so far.
+          http.get("*/acme/api/v1/knowledge-graph", () =>
+            HttpResponse.json({
+              metrics: {
+                totalNodes: 0,
+                totalEdges: 0,
+                lastUpdatedAt: null,
+                nodesReturned: 0,
+                edgesReturned: 0,
+                truncated: false,
+              },
+              nodes: [],
+              edges: [],
+            }),
+          ),
+          http.get("*/acme/api/v1/knowledge-graph/preview", () => {
             const kinds = ["Service", "Module", "Database", "Team", "Decision"]
             const nodes = Array.from({ length: 90 }, (_, index) => ({
               id: `node_${index}`,
               kind: kinds[index % kinds.length] as string,
               name: `entity ${index}`,
-              summary: null,
             }))
             const edges = nodes.slice(1).map((node, index) => ({
               sourceId: node.id,
               targetId: `node_${Math.floor((index * 7) % (index + 1))}`,
               predicate: "depends_on",
-              lastObservedAt: null,
-              confidence: 0.8,
             }))
-            return HttpResponse.json({
-              metrics: {
-                totalNodes: nodes.length,
-                totalEdges: edges.length,
-                lastUpdatedAt: null,
-                nodesReturned: nodes.length,
-                edgesReturned: edges.length,
-                truncated: false,
-              },
-              nodes,
-              edges,
-            })
+            return HttpResponse.json({ nodes, edges })
           }),
         ],
       },
