@@ -190,7 +190,10 @@ export function nextPersistedWriteProbe(input: {
     input.probe.readOnlyReason === WRITE_STATUS_REASONS.notInInstallation &&
     input.currentStatus === WORKSPACE_WRITE_STATUSES.writable
   ) {
-    return { writeStatus: WORKSPACE_WRITE_STATUSES.unknown, readOnlyReason: null }
+    return {
+      writeStatus: WORKSPACE_WRITE_STATUSES.unknown,
+      readOnlyReason: null,
+    }
   }
   if (input.probe.writeStatus === WORKSPACE_WRITE_STATUSES.read_only) {
     return {

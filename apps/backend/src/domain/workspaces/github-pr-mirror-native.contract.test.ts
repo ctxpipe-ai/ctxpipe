@@ -8,8 +8,8 @@ import { getGithubPrMirrorBinding } from "../../models/github-pr-mirror.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import { githubSyncPullRequest } from "../../openworkflow/workflows/github-sync-pull-request.js"
 import { workspaceConnectorMirror } from "../../openworkflow/workflows/workspace-connector-mirror.js"
-import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { prepareGithubPrMirrorConfigYaml } from "../../services/github/pull-request-mirror/sync.js"
+import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 
 const GITHUB_PR_CONFIG = `version: 1
@@ -169,9 +169,9 @@ it.each([
                 repositories: ["fixture/api"],
               }),
             ).rejects.toThrow(/Connector target has no Workspace/)
-            expect(
-              f.git("--git-dir", f.remote, "rev-parse", "main"),
-            ).toBe(f.sha)
+            expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(
+              f.sha,
+            )
             return
           }
 
@@ -199,19 +199,18 @@ it.each([
                 { timeout: 20_000 },
               )
               .toMatchObject({ status: "paused" })
-            expect(
-              f.git("--git-dir", f.remote, "rev-parse", "main"),
-            ).toBe(f.sha)
+            expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(
+              f.sha,
+            )
             return
           }
           const result = await handle.result({ timeoutMs: 20_000 })
           if (mode === "policy") {
             expect(result).toEqual({ written: false, skipped: "policy" })
             expect(
-              (
-                await f.backend.listWorkflowRuns({ limit: 100 })
-              ).data.filter(
-                (run) => run.workflowName === "workspace-write-connector-mirror",
+              (await f.backend.listWorkflowRuns({ limit: 100 })).data.filter(
+                (run) =>
+                  run.workflowName === "workspace-write-connector-mirror",
               ),
             ).toHaveLength(0)
             return
@@ -237,9 +236,7 @@ it.each([
             },
           })
           expect(
-            (
-              await f.backend.listWorkflowRuns({ limit: 100 })
-            ).data.some(
+            (await f.backend.listWorkflowRuns({ limit: 100 })).data.some(
               (run) => run.workflowName === "repository-ingestion-orchestrator",
             ),
           ).toBe(true)

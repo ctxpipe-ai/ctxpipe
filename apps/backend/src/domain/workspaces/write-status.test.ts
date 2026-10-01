@@ -4,12 +4,12 @@ import {
   githubConnectionIdForWriteProbe,
   githubInstallationCanPush,
   githubRepoFullNameFromWorkspaceUrl,
+  isProtectedDefaultBranchGithubError,
   nextPersistedWriteProbe,
   probeWorkspaceWriteAccess,
   WRITE_STATUS_REASONS,
   writeStatusFromClassification,
   writeStatusFromGithubProbeError,
-  isProtectedDefaultBranchGithubError,
 } from "./write-status.js"
 
 describe("githubRepoFullNameFromWorkspaceUrl", () => {

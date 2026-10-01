@@ -9,19 +9,19 @@ import {
 } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { connections } from "../../db/schema/connections.js"
+import { repositories } from "../../db/schema/repositories.js"
 import {
-  workspaces,
   workspaceLinkedRepositories,
+  workspaces,
 } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
-import {
-  getWorkspaceById,
-  getLinkedReadBinding,
-  persistLinkedDesiredSha,
-} from "../../models/workspaces.js"
 import { deleteGithubConnectionById } from "../../models/github-installation.js"
 import { setRepositoryGithubConnectionId } from "../../models/repositories.js"
-import { repositories } from "../../db/schema/repositories.js"
+import {
+  getLinkedReadBinding,
+  getWorkspaceById,
+  persistLinkedDesiredSha,
+} from "../../models/workspaces.js"
 import type { WorkspaceRevision } from "./revision.js"
 
 it.each([

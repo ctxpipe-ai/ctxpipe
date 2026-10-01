@@ -136,14 +136,13 @@ it.each(["entity", "full", "no_workspace", "read_only", "not_live"] as const)(
             await expect(handle.result({ timeoutMs: 20_000 })).rejects.toThrow(
               /Connector target has no Workspace/,
             )
+            expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(
+              f.sha,
+            )
             expect(
-              f.git("--git-dir", f.remote, "rev-parse", "main"),
-            ).toBe(f.sha)
-            expect(
-              (
-                await f.backend.listWorkflowRuns({ limit: 100 })
-              ).data.filter(
-                (run) => run.workflowName === "workspace-write-connector-mirror",
+              (await f.backend.listWorkflowRuns({ limit: 100 })).data.filter(
+                (run) =>
+                  run.workflowName === "workspace-write-connector-mirror",
               ),
             ).toHaveLength(0)
             return
@@ -153,27 +152,30 @@ it.each(["entity", "full", "no_workspace", "read_only", "not_live"] as const)(
               .poll(
                 () =>
                   withOrgIdContext(f.org, () =>
-                    reconcileWorkspaceWriteJob(`wjob_${handle.workflowRun.id}_mirror`),
+                    reconcileWorkspaceWriteJob(
+                      `wjob_${handle.workflowRun.id}_mirror`,
+                    ),
                   ),
                 { timeout: 20_000 },
               )
               .toMatchObject({ status: "paused" })
-            expect(
-              f.git("--git-dir", f.remote, "rev-parse", "main"),
-            ).toBe(f.sha)
+            expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(
+              f.sha,
+            )
             return
           }
           if (mode === "not_live") {
-            await expect(handle.result({ timeoutMs: 20_000 })).resolves.toEqual({
-              written: 0,
-              deleted: 0,
-              errors: [],
-            })
+            await expect(handle.result({ timeoutMs: 20_000 })).resolves.toEqual(
+              {
+                written: 0,
+                deleted: 0,
+                errors: [],
+              },
+            )
             expect(
-              (
-                await f.backend.listWorkflowRuns({ limit: 100 })
-              ).data.filter(
-                (run) => run.workflowName === "workspace-write-connector-mirror",
+              (await f.backend.listWorkflowRuns({ limit: 100 })).data.filter(
+                (run) =>
+                  run.workflowName === "workspace-write-connector-mirror",
               ),
             ).toHaveLength(0)
             return
@@ -219,9 +221,7 @@ it.each(["entity", "full", "no_workspace", "read_only", "not_live"] as const)(
             },
           })
           expect(
-            (
-              await f.backend.listWorkflowRuns({ limit: 100 })
-            ).data.filter(
+            (await f.backend.listWorkflowRuns({ limit: 100 })).data.filter(
               (run) => run.workflowName === "repository-ingestion-orchestrator",
             ),
           ).toHaveLength(0)

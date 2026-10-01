@@ -2,8 +2,8 @@ import { execFileSync } from "node:child_process"
 import { mkdtempSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it } from "vitest"
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
+import { describe, expect, it } from "vitest"
 import {
   classifySandboxCommand,
   parseSandboxLifecycleMarks,

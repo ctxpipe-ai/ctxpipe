@@ -1,10 +1,10 @@
 /**
  * Graph quality report (ADR-033 §8). Reads join density, orphan rate,
- * evidence per claim, kind and predicate counts for one organization from
- * Postgres, or compares two saved reports.
+ * sourced-claim rate, kind and predicate counts for one Workspace's active
+ * projection from Postgres, or compares two saved reports.
  *
  * Usage (apps/backend):
- *   bun run src/scripts/graphQualityReport.ts --org-id <org> [--out before.json]
+ *   bun run src/scripts/graphQualityReport.ts --org-id <org> --workspace-id <ws> [--out before.json]
  *   bun run src/scripts/graphQualityReport.ts --compare before.json after.json
  *
  * Env: apps/backend/.env.local — DATABASE_URL.
@@ -13,11 +13,16 @@ import { readFileSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { config } from "dotenv"
-import { closeDb, initDb, withOrgDbContext } from "../db/client.js"
+import { eq } from "drizzle-orm"
+import { withOrgIdContext } from "../auth/withAuth.js"
+import { closeDb, getSystemDb, initDb } from "../db/client.js"
+import { organizations } from "../db/schema/auth.js"
+import { hydrateUnitsToProjectionClaims } from "../domain/workspaces/hydrate.js"
 import {
-  computeKnowledgeGraphQuality,
-  type KnowledgeGraphQuality,
-} from "../domain/knowledgeGraphQuality.js"
+  computeWorkspaceGraphQuality,
+  type WorkspaceGraphQuality,
+} from "../domain/workspaces/workspace-graph.js"
+import { getWorkspaceProjectionSnapshot } from "../models/workspaces.js"
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
 config({ path: resolve(__dirname, "../../.env.local") })
@@ -33,28 +38,23 @@ function pct(value: number): string {
 }
 
 function compare(
-  before: KnowledgeGraphQuality,
-  after: KnowledgeGraphQuality,
+  before: WorkspaceGraphQuality,
+  after: WorkspaceGraphQuality,
 ): string {
   const rows: Array<[string, string, string]> = [
-    ["objects", String(before.totalObjects), String(after.totalObjects)],
+    ["units", String(before.totalUnits), String(after.totalUnits)],
     ["claims", String(before.totalClaims), String(after.totalClaims)],
     ["join density", pct(before.joinDensity), pct(after.joinDensity)],
     [
-      "multi-source objects",
-      String(before.multiSourceObjects),
-      String(after.multiSourceObjects),
+      "multi-source units",
+      String(before.multiSourceUnits),
+      String(after.multiSourceUnits),
     ],
     ["orphan rate", pct(before.orphanRate), pct(after.orphanRate)],
     [
-      "evidence rows per claim",
-      before.evidenceRowsPerClaim.toFixed(2),
-      after.evidenceRowsPerClaim.toFixed(2),
-    ],
-    [
-      "connector-derived instruction units",
-      String(before.connectorInstructionUnits),
-      String(after.connectorInstructionUnits),
+      "sourced claims",
+      pct(before.sourcedClaimRate),
+      pct(after.sourcedClaimRate),
     ],
   ]
   const kinds = new Set([
@@ -99,26 +99,39 @@ async function main(argv: string[]): Promise<void> {
       throw new Error("--compare needs two report paths")
     const before = JSON.parse(
       readFileSync(beforePath, "utf8"),
-    ) as KnowledgeGraphQuality
+    ) as WorkspaceGraphQuality
     const after = JSON.parse(
       readFileSync(afterPath, "utf8"),
-    ) as KnowledgeGraphQuality
+    ) as WorkspaceGraphQuality
     process.stdout.write(`${compare(before, after)}\n`)
     return
   }
 
   const orgId = flag(argv, "--org-id")
-  if (!orgId)
-    throw new Error("--org-id is required (or use --compare a.json b.json)")
+  const workspaceId = flag(argv, "--workspace-id")
+  if (!orgId || !workspaceId)
+    throw new Error(
+      "--org-id and --workspace-id are required (or use --compare a.json b.json)",
+    )
   const connectionString = process.env.DATABASE_URL
   if (!connectionString) throw new Error("DATABASE_URL is required")
   initDb(connectionString)
   try {
-    const quality = await withOrgDbContext(orgId, (db) =>
-      computeKnowledgeGraphQuality(db, orgId),
+    const [org] = await getSystemDb()
+      .select({ slug: organizations.slug })
+      .from(organizations)
+      .where(eq(organizations.id, orgId))
+    if (!org) throw new Error(`Organization ${orgId} not found`)
+    const { units } = await withOrgIdContext(
+      { id: orgId, slug: org.slug },
+      () => getWorkspaceProjectionSnapshot(workspaceId),
+    )
+    const quality = computeWorkspaceGraphQuality(
+      units,
+      hydrateUnitsToProjectionClaims(units),
     )
     const json = JSON.stringify(
-      { orgId, generatedAt: new Date().toISOString(), ...quality },
+      { orgId, workspaceId, generatedAt: new Date().toISOString(), ...quality },
       null,
       2,
     )

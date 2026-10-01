@@ -16,8 +16,8 @@ import { expect, it } from "vitest"
 import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
 import { workspaces } from "../../db/schema/workspaces.js"
-import { registerMcpTools } from "../../mcp/tools.js"
 import { conversationIdFromIdempotencyKey } from "../../lib/id.js"
+import { registerMcpTools } from "../../mcp/tools.js"
 import {
   listSandboxInstances,
   persistOrgFirstWorkspace,
@@ -625,9 +625,9 @@ it(
         `/conversations?workspaceId=${f.workspaceId}`,
       )
       expect(listed.status).toBe(200)
-      expect((await listed.json()).items.map((item: { id: string }) => item.id)).toEqual(
-        [f.conversationId],
-      )
+      expect(
+        (await listed.json()).items.map((item: { id: string }) => item.id),
+      ).toEqual([f.conversationId])
 
       const body = JSON.stringify({
         threadId: "conv_start_1",

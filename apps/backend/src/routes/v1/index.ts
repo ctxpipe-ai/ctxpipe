@@ -34,17 +34,16 @@ import {
   githubInstallationRoutes,
 } from "./github-installation.js"
 import { githubPrMirrorRoutes } from "./github-pr-mirror.js"
-import { knowledgeGraphRoutes } from "./knowledge-graph.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 import { orgOnboardingRoutes, userOnboardingRoutes } from "./onboarding.js"
 import { openaiRoutes } from "./openai.js"
-import { workspaceChatOpenaiRoutes } from "./workspace-chat-openai.js"
 import {
   orgAtlassianOauthAdminRoutes,
   orgAtlassianOauthReadRoutes,
 } from "./org-atlassian-oauth.js"
 import { pendingAtlassianClaimRoutes } from "./pending-atlassian-claim.js"
 import { repositoryRoutes } from "./repositories.js"
+import { workspaceChatOpenaiRoutes } from "./workspace-chat-openai.js"
 import { workspaceRoutes } from "./workspaces.js"
 
 const githubInstallationAdminScoped = new OpenAPIHono<AppEnv>()
@@ -103,7 +102,6 @@ function createOrgScopedV1<BasePath extends string>(
     .route("/capabilities", orgCapabilitiesRoutes)
     .route("/connectors", connectorsListRoutes)
     .route("/onboarding", orgOnboardingRoutes)
-    .route("/knowledge-graph", knowledgeGraphRoutes)
     .route("/openai", openaiRoutes)
 }
 

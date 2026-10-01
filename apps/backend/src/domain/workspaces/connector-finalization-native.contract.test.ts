@@ -31,11 +31,11 @@ import { confluenceSyncContent } from "../../openworkflow/workflows/confluence-s
 import { linearSyncContent } from "../../openworkflow/workflows/linear-sync-content.js"
 import { notionSyncContent } from "../../openworkflow/workflows/notion-sync-content.js"
 import { parseConfluenceConfigYamlContent } from "../../services/confluence/config-yaml.js"
+import { parseNotionConfigYamlContent } from "../../services/notion/config-yaml.js"
 import {
   loadNotionConnection,
   writeNotionConnectionTokens,
 } from "../../services/notion/connection-load.js"
-import { parseNotionConfigYamlContent } from "../../services/notion/config-yaml.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 
 it.each(["notion", "confluence"] as const)(

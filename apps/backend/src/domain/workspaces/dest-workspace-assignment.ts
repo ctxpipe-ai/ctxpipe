@@ -83,7 +83,9 @@ export function planDestWorkspaceLinks(input: {
     firstWorkspaceId == null
       ? []
       : nonTargetUrls
-          .filter((gitUrl) => !existingKeys.has(`${firstWorkspaceId}\0${gitUrl}`))
+          .filter(
+            (gitUrl) => !existingKeys.has(`${firstWorkspaceId}\0${gitUrl}`),
+          )
           .map((gitUrl) => ({ workspaceId: firstWorkspaceId, gitUrl }))
   return {
     firstWorkspaceId,

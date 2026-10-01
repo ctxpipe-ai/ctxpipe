@@ -7,7 +7,10 @@ import {
   servingIdForKnowledgePath,
   shouldHydrateBeforeMigrationExport,
 } from "./hydrate.js"
-import { workspaceGraphNodes } from "./workspace-graph.js"
+import {
+  computeWorkspaceGraphQuality,
+  workspaceGraphNodes,
+} from "./workspace-graph.js"
 
 describe("hydrateKnowledgeTree", () => {
   it("uses a stable serving id per Workspace + path and skips malformed files", () => {
@@ -214,5 +217,50 @@ describe("displayNameFromAgentsMarkdown", () => {
     expect(displayNameFromAgentsMarkdown("---\nname:   \n---\n")).toBeNull()
     expect(displayNameFromAgentsMarkdown("---\nnot closed\n")).toBeNull()
     expect(displayNameFromAgentsMarkdown("# No front matter\n")).toBeNull()
+  })
+})
+
+describe("computeWorkspaceGraphQuality", () => {
+  it("counts multi-source units, orphans, kinds and predicates from projected claims", () => {
+    const { units } = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      files: [
+        {
+          path: "knowledge/services/api.md",
+          content: [
+            "---",
+            "kind: Service",
+            "claims:",
+            "  - to: ../billing/ledger.md",
+            "    predicate: DEPENDS_ON",
+            "    source: ../../linear/issues/PAY-1.md",
+            "  - to: ../billing/ledger.md",
+            "    predicate: REFERENCES",
+            "    source: ../../slack/threads/c1.md",
+            "---",
+            "API.",
+          ].join("\n"),
+        },
+        {
+          path: "knowledge/billing/ledger.md",
+          content: "---\nkind: Service\n---\nLedger.",
+        },
+        { path: "knowledge/notes/lonely.md", content: "Nobody links here." },
+      ],
+    })
+    const quality = computeWorkspaceGraphQuality(
+      units,
+      hydrateUnitsToProjectionClaims(units),
+    )
+    expect(quality).toMatchObject({
+      totalUnits: 3,
+      totalClaims: 2,
+      multiSourceUnits: 2,
+      orphanUnits: 1,
+      sourcedClaimRate: 1,
+      kinds: { Service: 2, KnowledgeUnit: 1 },
+      predicates: { DEPENDS_ON: 1, REFERENCES: 1 },
+    })
+    expect(quality.joinDensity).toBeCloseTo(2 / 3)
   })
 })

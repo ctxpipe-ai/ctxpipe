@@ -25,9 +25,9 @@ describe("commit activity", () => {
   })
 
   it("starts the week on Sunday", () => {
-    expect(startOfUtcSunday(new Date("2026-08-26T12:00:00.000Z")).toISOString()).toBe(
-      "2026-08-23T00:00:00.000Z",
-    )
+    expect(
+      startOfUtcSunday(new Date("2026-08-26T12:00:00.000Z")).toISOString(),
+    ).toBe("2026-08-23T00:00:00.000Z")
   })
 
   it("skips only a ready projection at the desired tip", () => {

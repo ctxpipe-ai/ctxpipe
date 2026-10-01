@@ -31,8 +31,14 @@ describe("dest workspace SQL backfill", () => {
     const at = (iso: string) => new Date(iso)
     const plan = planDestWorkspaceLinks({
       workspaces: [
-        { id: "ws_docs", workspaceRepositoryUrl: "https://github.com/acme/docs" },
-        { id: "ws_wiki", workspaceRepositoryUrl: "https://github.com/acme/wiki" },
+        {
+          id: "ws_docs",
+          workspaceRepositoryUrl: "https://github.com/acme/docs",
+        },
+        {
+          id: "ws_wiki",
+          workspaceRepositoryUrl: "https://github.com/acme/wiki",
+        },
       ],
       repositories: [
         {
@@ -63,7 +69,9 @@ describe("dest workspace SQL backfill", () => {
     expect(plan).toEqual({
       firstWorkspaceId: "ws_docs",
       firstSourceRepositoryId: "repo_first",
-      insertLinks: [{ workspaceId: "ws_docs", gitUrl: "https://github.com/acme/app" }],
+      insertLinks: [
+        { workspaceId: "ws_docs", gitUrl: "https://github.com/acme/app" },
+      ],
       deleteLinkIds: ["wlr_cross"],
     })
   })

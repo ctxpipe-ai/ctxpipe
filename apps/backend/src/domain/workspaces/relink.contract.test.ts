@@ -44,14 +44,12 @@ it("a connection-only relink creates a new desired generation and preserves the 
       .insert(organizations)
       .values({ ...org, createdAt: new Date() })
     await withOrgDbContext(org.id, async (db) => {
-      await db
-        .insert(connections)
-        .values({
-          id: connectionId,
-          orgId: org.id,
-          type: "github" as const,
-          config: {},
-        })
+      await db.insert(connections).values({
+        id: connectionId,
+        orgId: org.id,
+        type: "github" as const,
+        config: {},
+      })
       await db.insert(workspaces).values({
         id: revision.workspaceId,
         orgId: org.id,

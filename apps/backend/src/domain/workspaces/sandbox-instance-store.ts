@@ -155,7 +155,9 @@ export function postgresSandboxInstanceStore(input: {
               kind: "chat" as const,
               state: "live" as const,
             }
-            assertOwnedRecord(record.id, record, { allowPreviousRevision: true })
+            assertOwnedRecord(record.id, record, {
+              allowPreviousRevision: true,
+            })
             return toTanstackRecord(record)
           }
           if (input.conversationId) {

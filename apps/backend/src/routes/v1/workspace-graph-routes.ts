@@ -1,16 +1,19 @@
-import { requireCurrentOrgSlug } from "../../auth/context.js"
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { requireCurrentOrgSlug } from "../../auth/context.js"
 import {
   readWorkspaceGraph,
   WorkspaceGraphUnavailableError,
 } from "../../domain/workspaces/graph-projection.js"
+import { hydrateUnitsToProjectionClaims } from "../../domain/workspaces/hydrate.js"
 import { publishedProjection } from "../../domain/workspaces/revision.js"
-import { getLogger } from "../../observability/logger.js"
+import { computeWorkspaceGraphQuality } from "../../domain/workspaces/workspace-graph.js"
 import {
   getWorkspaceBySlug,
   getWorkspaceProjection,
+  getWorkspaceProjectionSnapshot,
 } from "../../models/workspaces.js"
+import { getLogger } from "../../observability/logger.js"
 import {
   ErrorResponseSchema,
   WorkspaceSlugParamsSchema,
@@ -73,9 +76,45 @@ const listWorkspaceGraphRoute = createRoute({
   },
 })
 
-export const workspaceGraphRoutes = new OpenAPIHono<AppEnv>().openapi(
-  listWorkspaceGraphRoute,
-  async (c) => {
+const WorkspaceGraphQualityResponseSchema = z
+  .object({
+    totalUnits: z.number().int(),
+    totalClaims: z.number().int(),
+    multiSourceUnits: z.number().int(),
+    joinDensity: z.number(),
+    orphanUnits: z.number().int(),
+    orphanRate: z.number(),
+    sourcedClaimRate: z.number(),
+    kinds: z.record(z.string(), z.number().int()),
+    predicates: z.record(z.string(), z.number().int()),
+  })
+  .openapi("WorkspaceGraphQualityResponse")
+
+const workspaceGraphQualityRoute = createRoute({
+  method: "get",
+  path: "/{workspaceSlug}/graph/quality",
+  request: { params: WorkspaceSlugParamsSchema },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: WorkspaceGraphQualityResponseSchema },
+      },
+      description:
+        "Graph health of this Workspace’s active projection (ADR-033 join density)",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+  },
+})
+
+export const workspaceGraphRoutes = new OpenAPIHono<AppEnv>()
+  .openapi(listWorkspaceGraphRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
     }
@@ -105,5 +144,20 @@ export const workspaceGraphRoutes = new OpenAPIHono<AppEnv>().openapi(
         503,
       )
     }
-  },
-)
+  })
+  .openapi(workspaceGraphQualityRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const { workspaceSlug } = workspaceSlugParams(c)
+    const workspace = await getWorkspaceBySlug(workspaceSlug)
+    if (!workspace) return c.json({ error: "Not found" }, 404)
+    const { units } = await getWorkspaceProjectionSnapshot(workspace.id)
+    return c.json(
+      computeWorkspaceGraphQuality(
+        units,
+        hydrateUnitsToProjectionClaims(units),
+      ),
+      200,
+    )
+  })

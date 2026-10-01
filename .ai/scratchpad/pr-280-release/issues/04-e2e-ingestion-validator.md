@@ -83,6 +83,8 @@ Needs: a Railway token for the validator environment, a dedicated OpenRouter key
 
 ## Comments
 
+- 2026-10-01 (ticket 07): `graphQualityReport` now reads a Workspace projection (`--org-id --workspace-id`). `repoGraphSizeCheck` still counts legacy `objects` rows, which this branch no longer writes — port it to workspace knowledge units as part of the validator.
+
 - 2026-10-01 (user): estimate too high; start with n8n alone and budget from its measured cost.
 
 - 2026-10-01 (user): the validator runs with the cheaper Luna tiers; standard models stay unchanged. Budget requested — proposal added.

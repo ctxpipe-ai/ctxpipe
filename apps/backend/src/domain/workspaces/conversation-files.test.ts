@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto"
 import { execFileSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import {
   mkdirSync,
   mkdtempSync,
@@ -10,7 +10,6 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import type { JobSandboxHandle } from "./job-worktree.js"
 import {
   conversationWorktreeVersion,
   ensureConversationSessionBranch,
@@ -18,6 +17,7 @@ import {
   listConversationSandboxPaths,
   sanitizeGitRemoteError,
 } from "./conversation-files.js"
+import type { JobSandboxHandle } from "./job-worktree.js"
 
 function realHandle(directory: string): JobSandboxHandle {
   return {
@@ -26,9 +26,7 @@ function realHandle(directory: string): JobSandboxHandle {
         const stdout = execFileSync("bash", ["-c", command], {
           cwd: directory,
           encoding: "utf8",
-          env: options?.env
-            ? { ...process.env, ...options.env }
-            : process.env,
+          env: options?.env ? { ...process.env, ...options.env } : process.env,
         })
         return { stdout, stderr: "", exitCode: 0 }
       } catch (error) {

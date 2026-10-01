@@ -9,9 +9,9 @@ import { getWorkspaceById } from "../../models/workspaces.js"
 import { workspaceRoutes } from "../../routes/v1/workspaces.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
-import { WRITE_STATUS_REASONS } from "./write-status.js"
-import { relinkWorkspaceLifecycle } from "./workspace-lifecycle.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
+import { relinkWorkspaceLifecycle } from "./workspace-lifecycle.js"
+import { WRITE_STATUS_REASONS } from "./write-status.js"
 
 async function orgWorkflows(orgId: string) {
   const result = await getSystemDb().execute(sql`
@@ -64,10 +64,7 @@ it(
           errors.push(error.message)
         },
       }
-      const before = relinkCounts(
-        await orgWorkflows(f.org.id),
-        f.workspaceId,
-      )
+      const before = relinkCounts(await orgWorkflows(f.org.id), f.workspaceId)
       const current = await withOrgIdContext(f.org, () =>
         getWorkspaceById(f.workspaceId),
       )

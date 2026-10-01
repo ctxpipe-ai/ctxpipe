@@ -49,9 +49,12 @@ it(
           pendingBody.days.every((day: { count: number }) => day.count === 0),
         ).toBe(true)
         await expect
-          .poll(async () => (await projectionRuns(f.org.id, f.workspaceId)).length, {
-            timeout: 5_000,
-          })
+          .poll(
+            async () => (await projectionRuns(f.org.id, f.workspaceId)).length,
+            {
+              timeout: 5_000,
+            },
+          )
           .toBeGreaterThan(0)
 
         expect(
@@ -77,11 +80,13 @@ it(
           },
         ])
         expect(
-          readyBody.days.find((day: { date: string }) => day.date === "2026-08-26")
-            ?.count,
+          readyBody.days.find(
+            (day: { date: string }) => day.date === "2026-08-26",
+          )?.count,
         ).toBe(1)
 
-        const afterReady = (await projectionRuns(f.org.id, f.workspaceId)).length
+        const afterReady = (await projectionRuns(f.org.id, f.workspaceId))
+          .length
         await app.request("/workspaces/knowledge/activity")
         await new Promise((resolve) => setTimeout(resolve, 400))
         expect((await projectionRuns(f.org.id, f.workspaceId)).length).toBe(
@@ -98,11 +103,15 @@ it(
         expect(stale.status).toBe(200)
         expect((await stale.json()).status).toBe("ready")
         await expect
-          .poll(async () => (await projectionRuns(f.org.id, f.workspaceId)).length, {
-            timeout: 5_000,
-          })
+          .poll(
+            async () => (await projectionRuns(f.org.id, f.workspaceId)).length,
+            {
+              timeout: 5_000,
+            },
+          )
           .toBeGreaterThan(afterReady)
-        const afterStale = (await projectionRuns(f.org.id, f.workspaceId)).length
+        const afterStale = (await projectionRuns(f.org.id, f.workspaceId))
+          .length
 
         await withOrgIdContext(f.org, () =>
           upsertWorkspaceCommitProjection({
@@ -115,9 +124,12 @@ it(
         expect(failed.status).toBe(200)
         expect((await failed.json()).status).toBe("failed")
         await expect
-          .poll(async () => (await projectionRuns(f.org.id, f.workspaceId)).length, {
-            timeout: 5_000,
-          })
+          .poll(
+            async () => (await projectionRuns(f.org.id, f.workspaceId)).length,
+            {
+              timeout: 5_000,
+            },
+          )
           .toBeGreaterThan(afterStale)
       },
     )

@@ -123,3 +123,65 @@ export function workspaceGraphFromSignals(input: {
     edges,
   }
 }
+
+/**
+ * Graph health for one Workspace projection (ADR-033 §8 on git-canonical
+ * knowledge). Join density is the share of units whose claims cite at least
+ * two distinct sources; body links carry no source and do not count.
+ */
+export type WorkspaceGraphQuality = {
+  totalUnits: number
+  totalClaims: number
+  multiSourceUnits: number
+  joinDensity: number
+  orphanUnits: number
+  orphanRate: number
+  sourcedClaimRate: number
+  kinds: Record<string, number>
+  predicates: Record<string, number>
+}
+
+export function computeWorkspaceGraphQuality(
+  units: readonly HydrateUnit[],
+  claims: ReturnType<typeof hydrateUnitsToProjectionClaims>,
+): WorkspaceGraphQuality {
+  const sources = new Map<string, Set<string>>()
+  const touched = new Set<string>()
+  const predicates: Record<string, number> = {}
+  let sourced = 0
+  for (const claim of claims) {
+    touched.add(claim.subjectId)
+    touched.add(claim.objectId)
+    predicates[claim.predicate] = (predicates[claim.predicate] ?? 0) + 1
+    if (!claim.source) continue
+    sourced += 1
+    for (const id of [claim.subjectId, claim.objectId]) {
+      const seen = sources.get(id) ?? new Set<string>()
+      seen.add(claim.source)
+      sources.set(id, seen)
+    }
+  }
+  const kinds: Record<string, number> = {}
+  for (const unit of units) {
+    const kind = unit.kind ?? "KnowledgeUnit"
+    kinds[kind] = (kinds[kind] ?? 0) + 1
+  }
+  const totalUnits = units.length
+  const multiSourceUnits = units.filter(
+    (unit) => (sources.get(unit.servingId)?.size ?? 0) >= 2,
+  ).length
+  const orphanUnits = units.filter(
+    (unit) => !touched.has(unit.servingId),
+  ).length
+  return {
+    totalUnits,
+    totalClaims: claims.length,
+    multiSourceUnits,
+    joinDensity: totalUnits > 0 ? multiSourceUnits / totalUnits : 0,
+    orphanUnits,
+    orphanRate: totalUnits > 0 ? orphanUnits / totalUnits : 0,
+    sourcedClaimRate: claims.length > 0 ? sourced / claims.length : 0,
+    kinds,
+    predicates,
+  }
+}

@@ -1,14 +1,11 @@
-import {
-  withNativeIndexFixture,
-  type NativeIndexFixture,
-} from "../../test/native-index-fixture.js"
-import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
-import { encodeScipIndex } from "../../../../codesearch/src/domain/graph/scipProto.js"
 import { rename, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { eq, sql } from "drizzle-orm"
 import { expect, it } from "vitest"
+import { encodeScipIndex } from "../../../../codesearch/src/domain/graph/scipProto.js"
+import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
+import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
@@ -17,25 +14,28 @@ import {
   workspaces,
 } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
+import { ensureWorkspaceCheckout } from "../../models/repositories.js"
 import {
   captureWorkspaceRevision,
   commitHydrateProjection,
-  persistWorkspaceIndexResult,
   getWorkspaceById,
-  persistLinkedIndexedSha,
   getWorkspaceProjection,
   getWorkspaceProjectionSnapshot,
   getWorkspaceSearchProjection,
+  persistLinkedIndexedSha,
+  persistWorkspaceIndexResult,
 } from "../../models/workspaces.js"
-import { ensureWorkspaceCheckout } from "../../models/repositories.js"
 import { repositoryIndex } from "../../openworkflow/workflows/repository-index.js"
-import { workspaceTipCheck } from "../../openworkflow/workflows/workspace-tip-check.js"
 import { workspaceIndex } from "../../openworkflow/workflows/workspace-index.js"
+import { workspaceTipCheck } from "../../openworkflow/workflows/workspace-tip-check.js"
 import { codeSearch } from "../../retrieval/services/codeSearch.js"
-import { parseEnv } from "../../config/env.js"
+import {
+  type NativeIndexFixture,
+  withNativeIndexFixture,
+} from "../../test/native-index-fixture.js"
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
-import { workspaceChatTools } from "./workspace-chat-tools.js"
 import type { WorkspaceRevision } from "./revision.js"
+import { workspaceChatTools } from "./workspace-chat-tools.js"
 
 async function prepareUnpublishedIndex(f: NativeIndexFixture) {
   const { remote, git, org, repositoryId, workspaceId, runner, revision } = f
