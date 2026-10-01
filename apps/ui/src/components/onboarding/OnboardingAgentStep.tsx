@@ -90,13 +90,11 @@ export function OnboardingAgentStep({
         ))}
       </RadioGroup>
 
-      <pre className="m-0 overflow-x-auto border border-white/10 bg-zinc-950 p-3 font-mono text-xs leading-5 text-zinc-200">
-        <code>{text}</code>
-      </pre>
-      <CopyButton
+      <CopyField
         key={method}
         text={text}
         label={method === "json" ? "Copy config" : "Copy command"}
+        block
       />
 
       {connectedClient ? (
@@ -134,8 +132,9 @@ export function OnboardingAgentStep({
                 <span className="text-sm text-muted-foreground">
                   Paste this into your agent:
                 </span>
-                <PromptToCopy
+                <CopyField
                   text={`Use ctx| to explain how ${firstRepository} is structured.`}
+                  label="Copy prompt"
                 />
               </span>
             ) : (
@@ -169,51 +168,41 @@ export function OnboardingAgentStep({
   )
 }
 
-function CopyButton({ text, label }: { text: string; label: string }) {
-  const [state, setState] = useState<"idle" | "copied" | "error">("idle")
-  return (
-    <div>
-      <Button
-        variant="primary"
-        className="rounded-none"
-        onPress={async () => {
-          try {
-            await navigator.clipboard.writeText(text)
-            setState("copied")
-          } catch {
-            setState("error")
-          }
-        }}
-      >
-        {state === "copied"
-          ? "Copied"
-          : state === "error"
-            ? "Copy failed"
-            : label}
-      </Button>
-    </div>
-  )
-}
-
-/** The prompt to try, as one line they can copy in a click. */
-function PromptToCopy({ text }: { text: string }) {
+/**
+ * Text to paste somewhere else, with a copy icon inside the field. `block`
+ * keeps lines as written and scrolls sideways (commands, config); otherwise
+ * it wraps (a prompt).
+ */
+function CopyField({
+  text,
+  label,
+  block = false,
+}: {
+  text: string
+  label: string
+  block?: boolean
+}) {
   const [copied, setCopied] = useState(false)
   return (
-    <span className="flex items-stretch border border-white/10 bg-zinc-950">
-      <code className="min-w-0 flex-1 px-3 py-2 font-mono text-xs leading-5 text-zinc-100">
-        {text}
-      </code>
+    <div className="flex items-stretch border border-white/10 bg-zinc-950">
+      <pre
+        className={`m-0 min-w-0 flex-1 px-3 py-2 font-mono text-xs leading-5 text-zinc-100 ${
+          block ? "overflow-x-auto" : "whitespace-pre-wrap"
+        }`}
+      >
+        <code>{text}</code>
+      </pre>
       <Button
         variant="quiet"
-        aria-label={copied ? "Copied" : "Copy prompt"}
-        className="h-auto shrink-0 rounded-none border-l border-white/10 px-3 text-zinc-400 hover:text-teal-300"
+        aria-label={copied ? "Copied" : label}
+        className="h-auto shrink-0 items-start rounded-none border-l border-white/10 px-3 py-2 text-zinc-400 hover:text-teal-300"
         onPress={async () => {
           try {
             await navigator.clipboard.writeText(text)
             setCopied(true)
             setTimeout(() => setCopied(false), 1500)
           } catch {
-            // The prompt is still there to select by hand.
+            // The text is still there to select by hand.
           }
         }}
       >
@@ -223,6 +212,6 @@ function PromptToCopy({ text }: { text: string }) {
           <IconCopy className="size-4" aria-hidden />
         )}
       </Button>
-    </span>
+    </div>
   )
 }
