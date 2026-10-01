@@ -1,12 +1,12 @@
 # Carry main's intent into Workspaces code
 
-Status: in-progress
+Status: done
 Priority: P0
 Order: 1 (first)
 Owner: claude
 Blocked by: none
 Created: 2026-10-01
-Updated: 2026-10-01
+Updated: 2026-10-02
 
 ## Context
 
@@ -52,3 +52,5 @@ Work row by row; never batch unrelated fixes. Ask the user before changing inten
 - 2026-10-01 (user): approved; goes second, after 08. Plan expanded from the sketch.
 
 ## Resolution
+
+All ledger rows done except row 15 (GitHub merged-PR mirror target), handed to ticket 06 to verify and fix. CI green on `6351e7eb` (run 36880421227).

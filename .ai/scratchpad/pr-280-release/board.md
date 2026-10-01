@@ -4,7 +4,7 @@ Updated: 2026-10-02. Rules: [README.md](README.md). Order is set by the user; un
 
 | Order | # | Ticket | Status | Priority | Owner | Blocked by |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 07 | [Carry main's intent into Workspaces code](issues/07-carry-main-intent.md) | in-progress | P0 | claude | — |
+| 1 | 07 | [Carry main's intent into Workspaces code](issues/07-carry-main-intent.md) | done | P0 | claude | — |
 | 2 | 08 | [Consolidate intent and ADRs](issues/08-consolidate-intent-and-adrs.md) | review | P0 | claude | — |
 | — | 01 | [Remove vendor patches](issues/01-remove-vendor-patches.md) | plan-review | P0 | unassigned | — |
 | — | 02 | [Cloudflare Sandboxes for hosted chat](issues/02-cloudflare-sandbox-provider.md) | plan-review | P0 | unassigned | 01 |
