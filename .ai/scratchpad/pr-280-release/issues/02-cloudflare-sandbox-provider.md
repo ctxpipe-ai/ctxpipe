@@ -38,6 +38,7 @@ Every hosted workspace conversation (production and PR previews) runs in its own
 - [ ] Gateway Worker + Durable Object deploy from this repo in CI for production and each PR preview, isolated per environment.
 - [ ] Resource use bounded: per-environment concurrency cap, `sleepAfter` aligned with keep-alive, sandboxes destroyed on conversation delete, orphan sweep reports zero after the browser suite.
 - [ ] Latency recorded on pr-280: cold first answer (new sandbox + clone) and warm turn, against the ~5 s PRD target; cost per conversation-hour recorded.
+- [ ] Conversation chrome shows only "Create PR" / "Show PR"; creating the PR squashes turn commits into one commit (proved by a Storybook play and a native git contract test).
 - [ ] Preview-env `chat` and `files-publish` areas pass on pr-280.
 
 ## Plan
@@ -50,22 +51,29 @@ Every hosted workspace conversation (production and PR previews) runs in its own
 3. **Chat image.** Build the container image from `scripts/chat-sandbox/` (git, pinned `opencode-ai`, credential helper) for Cloudflare's registry; instance type `basic` to start (¼ vCPU, 1 GiB), configurable; measure and adjust.
 4. **Backend provider + networking.** Implement/plug the provider; OpenCode in the container calls our model proxy and tool bridge on the backend's public URL with the existing per-run bearer tokens; backend reaches OpenCode through the gateway (container port proxied by the Worker), never a public unauthenticated URL.
 5. **Git as durable state.** After each turn that changed the worktree, commit (message from the turn) and push to `ctxpipe/chat/<conversation>` via the existing conversation publication broker (backend fetches the delta and pushes; the sandbox holds read credentials only). On (re)create: clone the workspace repository, check out the session branch if it exists, run setup. Snapshots/forks are not needed for correctness; optionally use Cloudflare snapshots only to speed up the post-setup base.
-6. **Lifecycle + limits.** `sleepAfter` = keep-alive (30 min) or shorter if cost data says so; per-environment concurrency cap enforced before create (clear "capacity" error to the user); destroy on conversation/workspace delete; periodic orphan sweep via the gateway listing live sandboxes vs owner rows.
-7. **Wire into hosted.** `SANDBOX_PROVIDER=cloudflare` + gateway URL/secret in `infra/module/ctxpipe/railway.tf` for backend + worker and PR previews; Cloudflare API token in CI secrets; deploy the Worker in `deploy.yaml` and `pr-deploy.yaml`; remove the unsandboxed fallback on hosted.
-8. **Proof.** Provider contract tests against a real Cloudflare dev environment in a CI lane (fails, not skips, without credentials); preview-env `chat` + `files-publish`; sleep/destroy-mid-conversation test proving no work is lost; latency and cost numbers; orphan sweep.
+6. **Publish UI.** Remove "Commit+Push" from the conversation chrome and its route/mutation; "Create PR" squashes the session branch's turn commits onto the default branch base into one commit before opening the PR; "Show PR" unchanged. Update Storybook plays and the preview-env `files-publish` area.
+7. **Lifecycle + limits.** `sleepAfter` = keep-alive (30 min) or shorter if cost data says so; per-environment concurrency cap enforced before create (clear "capacity" error to the user); destroy on conversation/workspace delete; periodic orphan sweep via the gateway listing live sandboxes vs owner rows.
+8. **Wire into hosted.** `SANDBOX_PROVIDER=cloudflare` + gateway URL/secret in `infra/module/ctxpipe/railway.tf` for backend + worker and PR previews; Cloudflare API token in CI secrets; deploy the Worker in `deploy.yaml` and `pr-deploy.yaml`; remove the unsandboxed fallback on hosted.
+9. **Proof.** Provider contract tests against a real Cloudflare dev environment in a CI lane (fails, not skips, without credentials); preview-env `chat` + `files-publish`; sleep/destroy-mid-conversation test proving no work is lost; latency and cost numbers; orphan sweep.
+
+## Decisions
+
+- **Publish UI (user, 2026-10-01):** turn commits are pushed automatically, so the UI drops "Commit+Push" and keeps only "Create PR" / "Show PR". Creating the PR squashes the conversation's turn commits into one.
+- **Instance type (user, 2026-10-01):** start on `basic` (1 GiB, ¼ vCPU); move to `standard-1` only if measurements require it.
 
 ## Open questions
 
-- Pushing every changed turn to the session branch makes "Commit+Push" automatic. Should the UI drop that button and keep only "Create PR" / "Show PR", with the turn commits squashed when the PR is created?
-- Start on instance type `basic` (1 GiB, ¼ vCPU) and move to `standard-1` (4 GiB, ½ vCPU, ~4× memory cost) only if measurements require it?
+None.
 
 ## Delegation brief
 
 Read first: this ticket, ticket 01 (upgrade to `@tanstack/ai` 0.63 must land first), ADR-044, `sandbox-provider.ts`, `tanstack-workspace-chat.ts`, conversation publication code (`conversation-files-routes.ts`, publish broker), `scripts/chat-sandbox/`, `infra/module/ctxpipe/railway.tf`, `.github/workflows/deploy.yaml` and `pr-deploy.yaml`, the TanStack Cloudflare sandbox guide and `@tanstack/ai-sandbox-cloudflare` source, Cloudflare Sandbox SDK docs.
 
-Phase 1 output (ADR draft) goes to the user before building. Needs a Cloudflare account/API token with Workers + Containers (ask the user). Never fall back to unsandboxed on hosted.
+Phase 1 output (ADR draft) goes to the user before building; phases 2–9 follow once it is approved. Needs a Cloudflare account/API token with Workers + Containers (ask the user). Never fall back to unsandboxed on hosted.
 
 ## Comments
+
+- 2026-10-01 (user): drop Commit+Push (keep Create PR / Show PR, squash on PR); start on `basic`.
 
 - 2026-10-01 (user): no separate spike (Railway plan).
 - 2026-10-01 (user): 100 Railway sandboxes too low; asked about Cloudflare. Comparison given (Cloudflare: pooled 1,500 vCPU / 6 TiB limits, ~7× cheaper memory, wipes files on sleep, Worker-only access, no process kill).
