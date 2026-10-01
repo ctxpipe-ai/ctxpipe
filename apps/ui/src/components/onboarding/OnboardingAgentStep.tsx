@@ -1,3 +1,4 @@
+import { IconCheck, IconCopy } from "@tabler/icons-react"
 import { useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { Radio, RadioGroup } from "@/components/ui/RadioGroup"
@@ -99,16 +100,26 @@ export function OnboardingAgentStep({
         </>
       ) : (
         <>
-          <output className="flex flex-col gap-1 border border-teal-400/30 bg-teal-400/[0.04] p-4">
+          <output className="flex flex-col gap-3 border border-teal-400/30 bg-teal-400/[0.04] p-4">
             <span className="inline-flex items-center gap-2 text-sm text-zinc-100">
               <span className="ctx-indexing-dot" aria-hidden />
               Listening for your agent’s first call
             </span>
-            <span className="text-sm text-muted-foreground">
-              {hasSource && firstRepository
-                ? `Ask it something that needs ctx|, for example: “Use ctx| to explain how ${firstRepository} is structured.”`
-                : "Ask it anything that uses ctx|. Answers stay empty until a repository is indexed."}
-            </span>
+            {hasSource && firstRepository ? (
+              <span className="flex flex-col gap-1.5">
+                <span className="text-sm text-muted-foreground">
+                  Paste this into your agent:
+                </span>
+                <PromptToCopy
+                  text={`Use ctx| to explain how ${firstRepository} is structured.`}
+                />
+              </span>
+            ) : (
+              <span className="text-sm text-muted-foreground">
+                Ask it anything that uses ctx|. Answers stay empty until a
+                repository is indexed.
+              </span>
+            )}
           </output>
 
           <StepActions
@@ -156,5 +167,37 @@ function CopyButton({ text, label }: { text: string; label: string }) {
             : label}
       </Button>
     </div>
+  )
+}
+
+/** The prompt to try, as one line they can copy in a click. */
+function PromptToCopy({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <span className="flex items-stretch border border-white/10 bg-zinc-950">
+      <code className="min-w-0 flex-1 px-3 py-2 font-mono text-xs leading-5 text-zinc-100">
+        {text}
+      </code>
+      <Button
+        variant="quiet"
+        aria-label={copied ? "Copied" : "Copy prompt"}
+        className="h-auto shrink-0 rounded-none border-l border-white/10 px-3 text-zinc-400 hover:text-teal-300"
+        onPress={async () => {
+          try {
+            await navigator.clipboard.writeText(text)
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1500)
+          } catch {
+            // The prompt is still there to select by hand.
+          }
+        }}
+      >
+        {copied ? (
+          <IconCheck className="size-4 text-teal-400" aria-hidden />
+        ) : (
+          <IconCopy className="size-4" aria-hidden />
+        )}
+      </Button>
+    </span>
   )
 }
