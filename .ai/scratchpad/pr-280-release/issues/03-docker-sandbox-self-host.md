@@ -48,22 +48,25 @@ Self-hosters get sandboxed workspace chat by default on both Compose and CDK, us
 5. **Upgrade path test.** Deploy the previous published construct in a sandbox AWS account, then upgrade to this one: no data loss, no manual steps. Record in the ticket.
 6. **Docs + changeset.** Self-hosting docs for Compose and CDK sandboxing; minor changeset for `@ctxpipe/aws-cdk`; ADR for "self-host sandbox = stock dockerSandbox on DinD/EC2" (feeds ticket 08).
 
-## Instance sizing (decided 2026-10-01: optimal for the use case, ARM)
+## Instance sizing (user, 2026-10-01: ARM, cheap — the host does little work)
 
-Chat sandboxes are idle most of the time (waiting on the model) with short bursts (clone, grep, tests), so burstable Graviton fits small installs and general-purpose Graviton fits larger ones. Each conversation sandbox (OpenCode + git + node) needs roughly 0.3–0.6 GiB RSS while active. Prices are us-east-1 on-demand, approximate.
+The host mostly holds idle sandboxes; CPU bursts are short (clone, grep, tests) and model calls run elsewhere. Burstable Graviton (`t4g`, unlimited credits) is the cheapest fit; memory is the real limit (~0.3–0.5 GiB per active sandbox). Prices are us-east-1 on-demand, approximate, including the gp3 Docker volume.
 
-| `size` | Instance | vCPU / RAM | Docker volume (gp3) | ~Cost/month | Concurrent active chats (est.) |
+| `size` | Instance | vCPU / RAM | Docker volume | ~Cost/month | Resident sandboxes (est.) |
 | --- | --- | --- | --- | --- | --- |
-| small | `t4g.large` (unlimited credits) | 2 / 8 GiB | 60 GB | ~$55 | ~8 |
-| medium | `m7g.xlarge` | 4 / 16 GiB | 120 GB | ~$130 | ~20 |
-| large | `m7g.2xlarge` | 8 / 32 GiB | 250 GB | ~$255 | ~45 |
+| small | `t4g.medium` | 2 / 4 GiB | 30 GB | ~$27 | ~6 |
+| medium | `t4g.large` | 2 / 8 GiB | 50 GB | ~$53 | ~14 |
+| large | `t4g.xlarge` | 4 / 16 GiB | 100 GB | ~$106 | ~30 |
 
-Overridable via optional props. ARM means the chat image is built `linux/arm64` (OpenCode ships arm64 binaries); Compose keeps building for the host architecture. Validate the estimates with the browser suite (ticket 06) and adjust before release.
+Keep memory low by stopping (`docker stop`) sandboxes idle for 10 minutes and resuming with `docker start` on the next turn, and destroying them after the 30-minute keep-alive. Overridable via optional props. ARM means the chat image is built `linux/arm64`. Validate with the browser suite (ticket 06) before release.
+
+## Decisions
+
+- Compose default is DinD (privileged sidecar); the backend never mounts the host Docker socket (user, 2026-10-01).
 
 ## Open questions
 
 - Should CDK users be able to opt out (`sandbox: false` ⇒ unsandboxed with a loud warning), or is the host always created?
-- Compose: is dind (privileged container) acceptable as the default, given the alternative is mounting the host socket into the backend?
 
 ## Delegation brief
 
@@ -72,6 +75,8 @@ Read first: this ticket, ticket 01's ledger, `docker-compose.yml`, `scripts/sand
 Do not add TanStack patches or an application-level sandbox registry. Keep construct changes backwards compatible. Report: deletion ledger, cleanup proof output, CDK synth diff summary, upgrade-path result.
 
 ## Comments
+
+- 2026-10-01 (user): previous sizing too expensive for a host that does little; DinD acceptable. Moved to `t4g.medium`/`large`/`xlarge` with idle stop.
 
 - 2026-10-01 (user): no instance preference beyond "optimal for the use case, balancing simplicity, cost and speed; ARM". Sizing table added.
 

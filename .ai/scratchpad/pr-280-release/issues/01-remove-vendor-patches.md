@@ -44,7 +44,7 @@ Zero `@tanstack/*` and `@opencode-ai/*` entries in `patchedDependencies`. Any pa
 1. **Ledger (no code changes).** For each patch hunk, record: the behaviour it adds, the contract test that proves it, the caller in our code, and a proposed class:
    - *Dropped by decision* — egress proxy, per-run grants, quotas, Btrfs, isolation policy enforcement, fork-image ownership tied to the custom runner, remote-TLS port host. Expected to remove most of the docker patch outright.
    - *Fixed upstream* — check changelogs/diffs between our pinned versions and current for: role-based part translation, SSE abort on dispose, `server.connected` wait, terminal-update ordering, port-zero readiness, persistence concurrency, fs abort signals.
-   - *Designed away* — candidates: runtime workspace on `ensure` (replace with one stock `defineSandbox` per workspace + branch); live-revision transition hooks (option D below: SHA-free sandbox identity + in-sandbox git update via stock `exec`); handle admission for MCP ports (gone with the egress proxy); persistence thread lock (serialize sends per thread in our route with the existing Postgres `LockStore`, or use upstream if 0.7 covers it).
+   - *Designed away* — candidates: runtime workspace on `ensure` (replace with one stock `defineSandbox` per workspace + branch); live-revision transition hooks — **decided: option D** (SHA-free sandbox identity per conversation + in-sandbox git update via stock `exec` before a turn when the tip moved; current SHA recorded in our sandbox row); handle admission for MCP ports (gone with the egress proxy); persistence thread lock (serialize sends per thread in our route with the existing Postgres `LockStore`, or use upstream if 0.7 covers it).
    - *Still required* — anything left; prepare a minimal upstream PR.
    Output: a table in `## Comments` for the user to review before phase 2.
 2. **Upgrade on a scratch branch with all patches removed.** Bump the TanStack AI family + `opencode-ai`/SDK to current, drop the patch files, run `pnpm install`, fix compile errors against the new APIs. Do not reintroduce patches; record every failing contract test against its ledger row.
@@ -68,7 +68,7 @@ Unblocks tickets 02 and 03 (both build on the upgraded stock providers).
   | C. Restart on new commit | Next turn forks a new sandbox from the new base; uncommitted edits carried via `git diff`/`apply` | No | Fresh, but the first turn after a tip move is slower (fork + setup) and carried edits can conflict |
   | **D. Stable sandbox, update git in place (recommended)** | Sandbox identity excludes the SHA (branch only); before a turn, if the tip moved, run the existing stash/rebase script with stock `exec` | No | Fresh, edits kept, no patch. The base snapshot may lag the tip, so a new conversation does a small `git fetch` on its first turn; the sandbox record no longer proves its commit, so we keep the current SHA in our own row |
 
-  Recommendation: **D**. It keeps today's user-visible behaviour, removes the patch, and reuses code we already have.
+  **Decided (user, 2026-10-01): D.**
 - If a concurrency fix is only available upstream in a version that changes the persistence schema, is a data migration of existing chat rows acceptable on this branch?
 
 ## Delegation brief
@@ -78,6 +78,8 @@ Read first: this ticket, ADR-044, ADR-048 (sections on patches, transitions, per
 Phase 1 only until the user approves the ledger. Do not add new patches or wrappers that restate TanStack APIs. Report: the ledger table, upstream diffs that close each item, and a list of application modules that become deletable.
 
 ## Comments
+
+- 2026-10-01 (user): option D approved for revision changes.
 
 - 2026-10-01 (user): asked what the revision-transition question means; trade-off table (options A–D) added under Open questions, recommending D.
 

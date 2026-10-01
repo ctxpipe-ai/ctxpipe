@@ -19,6 +19,7 @@ A skill that lists every critical user flow with preconditions, steps, and expec
 
 ## Acceptance criteria
 
+- [ ] Every run starts from registration and onboarding with freshly created accounts (no pre-seeded users).
 - [ ] Critical-flow catalogue reviewed and approved by the user before execution.
 - [ ] Skill updated (extend `preview-env` areas; no parallel skill) so each flow has: preconditions/data, steps, expected visible result, expected backend side effect (DB row, git commit, workflow), timing budget, evidence to capture (screenshot/recording, trace id).
 - [ ] Skill works against local host dev (`https://app.ctxpipe.localhost`) and Railway previews.
@@ -29,7 +30,7 @@ A skill that lists every critical user flow with preconditions, steps, and expec
 
 ## Proposed critical flows (for review)
 
-1. **Auth:** sign up/in (email, GitHub), 2FA, sign out, invite accept (incl. signed in as another account, #320), org switch.
+1. **Registration + onboarding (start of every run):** sign up a fresh account (unique email per run), go through onboarding to create the org, connect the GitHub App, and create the first workspace — everything later flows use comes from this run. Then: sign in/out, 2FA, invite a second fresh account and accept (incl. signed in as another account, #320), org switch.
 2. **Org home:** composer visible, activity heatmap, Home send → new conversation in under 1 s of URL change (instant chrome).
 3. **Workspace create/select:** connect GitHub App, select existing repo, create via github.com/new then select, paste any git URL, zero-workspace gate, rename, delete with confirm.
 4. **Hydrate:** new workspace reaches active projection; knowledge files listed; malformed file surfaced; push to default branch → tip check → re-hydrate.
@@ -45,7 +46,7 @@ A skill that lists every critical user flow with preconditions, steps, and expec
 ## Plan
 
 1. **Catalogue.** Expand the list above with expectations, data setup, and budgets by reading the routes, PRDs (workspace-chat-*), and existing `preview-env` areas. Present to the user (this ticket's `## Comments`) for approval.
-2. **Update the skill.** Restructure `preview-env` so each area file lists its flows in a fixed format (preconditions → steps → expect → evidence → budget), plus a shared seed-data section (test org, GitHub test repo, connector sandboxes) and a report template with trace links. Follow `.cursor/skills/writing-great-skills/`.
+2. **Update the skill.** Restructure `preview-env` so each area file lists its flows in a fixed format (preconditions → steps → expect → evidence → budget), plus a shared run-setup section (unique emails per run, GitHub test org/repo for onboarding, connector test workspaces) and a report template with trace links. Follow `.cursor/skills/writing-great-skills/`.
 3. **First run (local host dev),** to shake out the skill itself. Refine wording, waits, and preconditions.
 4. **Run on pr-280.** Capture report and evidence. File each failure: fix immediately if small (with a regression test), otherwise a ticket.
 5. **Fix loop** until two consecutive clean runs.
@@ -54,7 +55,7 @@ A skill that lists every critical user flow with preconditions, steps, and expec
 
 ## Open questions
 
-- Which accounts and connector sandboxes (Linear/Notion/Slack/Confluence/PagerDuty test workspaces) can the run use, and where are the credentials?
+- Accounts are created by the run itself (user, 2026-10-01). Still needed: which GitHub test org/repos the onboarding may install the App on, and credentials for connector test workspaces (Linear/Notion/Slack/Confluence/PagerDuty).
 - Should OAuth-dependent flows (GitHub App install, connector OAuth) be automated, or stay `ready-for-human` checkpoints in the run?
 - Do you want the Playwright conversion (step 7) in scope for this ticket?
 
@@ -65,5 +66,7 @@ Read first: this ticket, `.cursor/skills/preview-env/` (all files), `.cursor/ski
 Phase 1 only until the user approves the catalogue. Never point flows at production. Report: catalogue diff, run report, list of fixes and new tickets.
 
 ## Comments
+
+- 2026-10-01 (user): flows start with registration and onboarding, creating accounts as needed. Email sign-up currently needs no verification (`emailAndPassword` without `requireEmailVerification`); if that changes, the run needs a test inbox.
 
 ## Resolution

@@ -43,11 +43,11 @@ Workspace chat on hosted ctxpipe (production and PR previews) runs each conversa
 6. **Proof.** Provider contract tests in a CI lane gated on a Railway test token (fail, not skip, when the token is missing in that lane); preview-env `chat`/`files-publish`; latency numbers; orphan sweep.
 7. **Upstream.** Offer the provider to TanStack once stable.
 
-## Open questions
+## Decisions (made in the plan, 2026-10-01)
 
-- OK to spend Railway Pro sandbox quota (100 per environment) on PR previews, or should previews share a smaller cap?
-- If backend → sandbox needs a public domain, is a per-run secret on the OpenCode port acceptable, or must traffic stay private?
-- Should the provider live in this repo as a package, or go straight to a TanStack PR?
+- **Quota:** Railway's sandbox limit (100 on Pro) is per environment, so PR previews do not consume production's quota. No extra cap.
+- **Networking:** keep backend ↔ sandbox traffic on Railway's private network. Only if Railway cannot route private traffic to a sandbox, publish the OpenCode port on a Railway domain and require a per-run secret; record that in an ADR.
+- **Location:** the provider lives in this repo as a small package first, then is offered upstream to TanStack.
 
 ## Delegation brief
 
@@ -56,6 +56,8 @@ Read first: this ticket, ticket 01's ledger, `sandbox-provider.ts`, `tanstack-wo
 Build the provider directly (no separate spike). Record create / checkpoint-restore / fork / exec latency and the networking answer in `## Comments` as soon as known. Needs a Railway API token scoped to the pr-280 environment (ask the user). Never fall back to unsandboxed on Railway.
 
 ## Comments
+
+- 2026-10-01: the three open questions (preview quota, public vs private networking, package location) are decided in the plan above rather than left to the user.
 
 - 2026-10-01 (user): no separate spike — build the provider directly. Plan updated.
 
