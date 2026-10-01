@@ -36,7 +36,7 @@ it(
     expect(output).toContain("Configuration looks good!")
     const names = output
       .split("\n")
-      .map((line) => line.match(/• ([a-z][a-z0-9-]+)$/)?.[1])
+      .map((line) => line.match(/• ([a-z][a-z0-9-]+)(?: — \S+)?$/)?.[1])
     expect(names).toEqual(
       expect.arrayContaining([
         "notion-sync-config",

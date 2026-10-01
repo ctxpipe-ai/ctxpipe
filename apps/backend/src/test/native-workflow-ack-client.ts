@@ -4,6 +4,8 @@ import { initDb } from "../db/client.js"
 import { enqueueWriteJob } from "../openworkflow/enqueue-workspace-write-commit.js"
 
 initLogger({ enabled: false })
+// stdout carries only the JSON result; postgres.js prints server notices with console.log.
+console.log = console.error
 const [orgId, workspaceId, jobId] = process.argv.slice(2)
 if (!orgId || !workspaceId || !jobId || !process.env.DATABASE_URL)
   throw new Error("Native admission fixture arguments missing")

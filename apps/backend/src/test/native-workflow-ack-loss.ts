@@ -65,6 +65,9 @@ async function withPostgresReplyFault<T>(
     let discard = false
     let inserted = false
     let holdingCommit = false
+    // An idempotent insert runs inside a transaction: its row reply is harmless
+    // until COMMIT, so the fault applies to the COMMIT acknowledgement instead.
+    let awaitingCommit = false
     let withheld: Buffer[] = []
     client.on("data", (chunk: Buffer) => {
       input = Buffer.concat([input, chunk])
@@ -121,6 +124,23 @@ async function withPostgresReplyFault<T>(
         if (output.length < length) return
         const frame = output.subarray(0, length)
         output = output.subarray(length)
+        if (awaitingCommit && fault.kind === "insert") {
+          if (
+            frame[0] === 67 &&
+            frame.toString("utf8", 5).startsWith("COMMIT")
+          ) {
+            awaitingCommit = false
+            lostAcknowledgement = true
+            if (fault.mode === "disconnect") {
+              client.destroy()
+              upstream.destroy()
+              return
+            }
+            client.write(lostCommitError())
+            continue
+          }
+          if (frame[0] === 90 && frame[5] === 73) awaitingCommit = false
+        }
         if (!discard) {
           client.write(frame)
           continue
@@ -151,6 +171,14 @@ async function withPostgresReplyFault<T>(
         )
           inserted = true
         if (frame[0] !== 90) continue // ReadyForQuery follows the actual commit.
+        if (inserted && frame[5] === 84) {
+          for (const pending of withheld) client.write(pending)
+          withheld = []
+          discard = false
+          inserted = false
+          awaitingCommit = true
+          continue
+        }
         if (inserted && frame[5] === 73) {
           lostAcknowledgement = true
           if (fault.mode === "disconnect") {
@@ -192,4 +220,16 @@ async function withPostgresReplyFault<T>(
     for (const socket of sockets) socket.destroy()
     await new Promise<void>((resolve) => server.close(() => resolve()))
   }
+}
+
+/** ErrorResponse for a COMMIT the server applied but the client never saw succeed. */
+function lostCommitError(): Buffer {
+  const fields = Buffer.from(
+    "SERROR\0VERROR\0C08006\0Mcommit acknowledgement lost\0\0",
+    "utf8",
+  )
+  const header = Buffer.alloc(5)
+  header[0] = 69
+  header.writeInt32BE(fields.length + 4, 1)
+  return Buffer.concat([header, fields])
 }

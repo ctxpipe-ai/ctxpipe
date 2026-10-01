@@ -3,6 +3,8 @@ import { initDb } from "../db/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../openworkflow/enqueue-repository-ingestion.js"
 
 initLogger({ enabled: false })
+// stdout carries only the JSON result; postgres.js prints server notices with console.log.
+console.log = console.error
 const [orgId, repositoryId] = process.argv.slice(2)
 if (!orgId || !repositoryId || !process.env.DATABASE_URL)
   throw new Error("Native repository admission fixture arguments missing")
