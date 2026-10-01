@@ -1,16 +1,16 @@
 # Carry main's intent into Workspaces code
 
-Status: blocked
+Status: in-progress
 Priority: P0
-Order: 2 (after 08)
-Owner: unassigned
-Blocked by: 08
+Order: 1 (first)
+Owner: claude
+Blocked by: none
 Created: 2026-10-01
 Updated: 2026-10-01
 
 ## Context
 
-`main` was merged into the branch at `9fe4ba0c`. The 14 newest `main` commits were reconciled by intent; the ~46 earlier `main` PRs since the fork (Aug 13) came in as plain merges. The ledger is [main-intent-carry.md](../main-intent-carry.md). Ticket 08 defines the target intent this ticket checks against.
+`main` was merged into the branch at `9fe4ba0c`. The 14 newest `main` commits were reconciled by intent; the ~46 earlier `main` PRs since the fork (Aug 13) came in as plain merges. The ledger is [main-intent-carry.md](../main-intent-carry.md). Ticket 08 (consolidated intent) follows this ticket and records any intent changes made here.
 
 Open rows from the latest merge: job attribution on 26 raw `defineWorkflow` workflows (#364); connector asset blob-SHA skip (#298/#362); claim collapse + bind-cap batching (#368); incomplete SCIP shard vs publication rule (#371); verify `linkPackageHierarchy` claims pass the typed extract write.
 
@@ -23,7 +23,7 @@ Every `main` change since the fork either holds in the code this branch rewrote,
 - [ ] Ledger has one row per `main` PR since `ba7c9f80` (fork point), each with intent, branch surface, and status `done` / `n/a` (reason).
 - [ ] Each `done` row has a commit and proof (test or recorded check); no row is closed by assertion alone.
 - [ ] Typecheck, test policy, CI lanes green after each batch.
-- [ ] Decisions that change intent (e.g. SCIP incomplete-shard publication) are confirmed with the user and reflected in ticket 08's documents.
+- [ ] Decisions that change intent (e.g. SCIP incomplete-shard publication) are confirmed with the user and handed to ticket 08.
 
 ## Plan
 
@@ -46,6 +46,8 @@ Read first: this ticket, the ledger, ticket 08's PRD and ADRs, root and app `AGE
 Work row by row; never batch unrelated fixes. Ask the user before changing intent. Report ledger progress and proof per row.
 
 ## Comments
+
+- 2026-10-01 (user): this goes first (update from main), then 08, then the rest. Branch is level with `origin/main` (0 behind) at start.
 
 - 2026-10-01 (user): approved; goes second, after 08. Plan expanded from the sketch.
 

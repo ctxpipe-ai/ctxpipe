@@ -1,10 +1,10 @@
 # Consolidate intent and ADRs
 
-Status: ready-for-agent
+Status: blocked
 Priority: P0
-Order: 1 (first)
+Order: 2 (after 07)
 Owner: unassigned
-Blocked by: none
+Blocked by: 07
 Created: 2026-10-01
 Updated: 2026-10-01
 
@@ -16,7 +16,7 @@ User decisions to reflect (2026-10-01): managed sandboxes on Cloudflare Sandboxe
 
 ## Goal
 
-One accurate, short statement of what this branch ships — a product intent document plus ADRs that each record one decision the code actually implements — so later tickets (07 first) have a single target to check against.
+One accurate, short statement of what this branch ships — a product intent document plus ADRs that each record one decision the code actually implements — so later tickets have a single target to check against.
 
 ## Acceptance criteria
 
@@ -43,6 +43,12 @@ Read first: this ticket, `../../git-backed-projects/map.md` and its issues, `.ai
 Verify every claim in code before keeping it. Write short, plain decisions; no implementation diaries. Report the claims ledger and the drafts for user review before committing.
 
 ## Comments
+
+- 2026-10-01 (user): order corrected — update from main (07) first, then this ticket.
+- 2026-10-01 (claude, partial ledger before pausing): sources read (map, issues 01–19, PRDs, ADR-040–048, glossary, branch lessons). Code checks so far:
+  - true: `ws_` rows, slug unique per org (case-insensitive), workspace URL unique per org, linked repos table, `repositories/*.md` declarations; old `/chat`, `/repositories`, `/knowledge-graph` routes removed, `/ws/$workspaceSlug[/$conversationId]` exists; LLM commit subject with template fallback; confidence decay (α 0.25, half-lives 365/180/120/21 d); permission handler with fast-model judge; `ctx_advisor` shim + MCP-origin conversations hidden; chat idle 30 min; writes GitHub-only (`write-status.ts`); tip-check workflow.
+  - false/stale: "one job sandbox per Workspace with in-sandbox worktrees" (retired in Gate 3; `job-sandbox.ts` now only adapts chat handles for conversation files); "one session branch `…/1`" (now `ctxpipe/chat/<conversation>/<prNumber>`, many PRs); `JOB_SANDBOX_IDLE_MS` unused outside its module; chat sandbox limits/egress exist only via patches (being dropped).
+  - changing: sandbox providers, revision transitions, Commit+Push, patches (tickets 01–03).
 
 - 2026-10-01 (user): approved; this ticket goes first. Plan expanded from the sketch.
 

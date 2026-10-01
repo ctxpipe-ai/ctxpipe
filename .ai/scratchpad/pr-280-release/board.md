@@ -4,8 +4,8 @@ Updated: 2026-10-01. Rules: [README.md](README.md). Order is set by the user; un
 
 | Order | # | Ticket | Status | Priority | Owner | Blocked by |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 08 | [Consolidate intent and ADRs](issues/08-consolidate-intent-and-adrs.md) | ready-for-agent | P0 | unassigned | — |
-| 2 | 07 | [Carry main's intent into Workspaces code](issues/07-carry-main-intent.md) | blocked | P0 | unassigned | 08 |
+| 1 | 07 | [Carry main's intent into Workspaces code](issues/07-carry-main-intent.md) | in-progress | P0 | claude | — |
+| 2 | 08 | [Consolidate intent and ADRs](issues/08-consolidate-intent-and-adrs.md) | blocked | P0 | unassigned | 07 |
 | — | 01 | [Remove vendor patches](issues/01-remove-vendor-patches.md) | plan-review | P0 | unassigned | — |
 | — | 02 | [Cloudflare Sandboxes for hosted chat](issues/02-cloudflare-sandbox-provider.md) | plan-review | P0 | unassigned | 01 |
 | — | 03 | [Docker sandboxing for self-hosters](issues/03-docker-sandbox-self-host.md) | plan-review | P0 | unassigned | 01 |
