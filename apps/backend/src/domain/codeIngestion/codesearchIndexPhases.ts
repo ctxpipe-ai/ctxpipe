@@ -6,6 +6,7 @@ import { readCodesearchError } from "../../lib/codesearchError.js"
 import {
   CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY,
   isCodesearchTaskDeath,
+  isHeadersTimeout,
   isMemoryFitFailure,
   userFacingIndexingError,
 } from "../../lib/memoryFitError.js"
@@ -58,33 +59,39 @@ export type CodesearchIndexAuth = {
   orgId: string
 }
 
-async function codesearchPhaseFetch(
+async function authorizedCodesearchFetch(
   path: string,
   auth: CodesearchIndexAuth,
   init: RequestInit,
 ): Promise<Response> {
   const env = parseEnv(process.env as Record<string, string | undefined>)
+  const token = await signUpstreamJwt({
+    env,
+    audience: env.AUTH_TOKEN_AUDIENCE_CODESEARCH ?? "codesearch",
+    claims: {
+      sub: `repo:${auth.repositoryId}`,
+      orgId: auth.orgId,
+      principal: "service",
+    },
+  })
+  return fetch(`${codesearchBaseUrl()}/${auth.repositoryId}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      ...(init.headers ?? {}),
+    },
+  })
+}
+
+async function codesearchPhaseFetch(
+  path: string,
+  auth: CodesearchIndexAuth,
+  init: RequestInit,
+): Promise<Response> {
   try {
     return await withTransientHttpRetry(
-      async () => {
-        const token = await signUpstreamJwt({
-          env,
-          audience: env.AUTH_TOKEN_AUDIENCE_CODESEARCH ?? "codesearch",
-          claims: {
-            sub: `repo:${auth.repositoryId}`,
-            orgId: auth.orgId,
-            principal: "service",
-          },
-        })
-        return fetch(`${codesearchBaseUrl()}/${auth.repositoryId}${path}`, {
-          ...init,
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-            ...(init.headers ?? {}),
-          },
-        })
-      },
+      () => authorizedCodesearchFetch(path, auth, init),
       { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
     )
   } catch (error) {
@@ -205,6 +212,54 @@ export async function codesearchIndexDetectLanguages(
  * Build one language's SCIP shard. `issue` is a public-facing note when the
  * shard was built but is incomplete (some TypeScript projects failed).
  */
+const scipPhaseStatusSchema = z.object({
+  status: z.enum(["running", "succeeded", "failed"]),
+  issue: z.string().optional(),
+  error: z.string().optional(),
+})
+
+async function waitForScipPhase(
+  auth: CodesearchIndexAuth,
+  language: string,
+): Promise<{ issue?: string }> {
+  const path = `/index/scip/${encodeURIComponent(language)}`
+  for (;;) {
+    try {
+      const res = await authorizedCodesearchFetch(path, auth, { method: "GET" })
+      if (res.status === 404) {
+        throw new Error(`codesearch index scip:${language} status was lost`)
+      }
+      if (!res.ok) {
+        const failure = await readCodesearchError(res)
+        throw new Error(
+          `codesearch index scip:${language} status failed with status ${failure.status}: ${failure.message}`,
+        )
+      }
+      const parsed = scipPhaseStatusSchema.safeParse(await res.json())
+      if (!parsed.success) {
+        throw new Error(
+          `codesearch index scip:${language} returned an unexpected status`,
+        )
+      }
+      if (parsed.data.status === "running") {
+        await new Promise((resolve) => setTimeout(resolve, 1_000))
+        continue
+      }
+      if (parsed.data.status === "succeeded") {
+        return parsed.data.issue ? { issue: parsed.data.issue } : {}
+      }
+      const error = new Error(parsed.data.error ?? "SCIP indexing failed")
+      if (isMemoryFitFailure(error)) {
+        throw new Error(CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY, { cause: error })
+      }
+      throw error
+    } catch (error) {
+      if (!isHeadersTimeout(error)) throw error
+      await new Promise((resolve) => setTimeout(resolve, 1_000))
+    }
+  }
+}
+
 export async function codesearchIndexScipLang(
   auth: CodesearchIndexAuth,
   language: string,
@@ -218,6 +273,9 @@ export async function codesearchIndexScipLang(
       body: JSON.stringify({ detectedLanguages }),
     },
   )
+  if (res.status === 202) {
+    return waitForScipPhase(auth, language)
+  }
   const { issue } = await parseOrThrow(
     res,
     scipLangResponseSchema,

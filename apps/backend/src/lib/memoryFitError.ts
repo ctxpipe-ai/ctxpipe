@@ -40,6 +40,15 @@ export function isMemoryFitFailure(error: unknown): boolean {
   return false
 }
 
+/** Undici gave up waiting for response headers. The server may still be working. */
+export function isHeadersTimeout(error: unknown): boolean {
+  for (const item of collectErrors(error)) {
+    if (errorCode(item) === "UND_ERR_HEADERS_TIMEOUT") return true
+    if (matchesMessage(item, /headers timeout/i)) return true
+  }
+  return false
+}
+
 /** Undici/socket death of the codesearch task — only remap at codesearch HTTP phases. */
 export function isCodesearchTaskDeath(error: unknown): boolean {
   for (const item of collectErrors(error)) {
