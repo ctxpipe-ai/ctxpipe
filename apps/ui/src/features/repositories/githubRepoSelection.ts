@@ -1,4 +1,3 @@
-import { isCtxpipeContextRepositoryName } from "@/features/connectors/components/ConnectorContextRepositoryGuidance"
 import { client } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
 
@@ -182,31 +181,6 @@ export async function fetchGithubInstallationReposPage(
     manageUrl: body.manageUrl ?? null,
     totalCount: body.totalCount,
   }
-}
-
-/** Poll GitHub while the context-repository step is open so a new repo can appear. */
-export function githubContextRepoPollMs(
-  step: "select" | "context",
-): number | false {
-  return step === "context" ? 4000 : false
-}
-
-export function suggestedContextRepository<T extends { name: string }>(
-  repos: readonly T[],
-): T | undefined {
-  return repos.find((repo) => isCtxpipeContextRepositoryName(repo.name))
-}
-
-export function resolvedContextRepository<
-  T extends { id: number; name: string },
->(
-  repos: readonly T[],
-  args: { picked: boolean; selectedId: number | null },
-): T | null {
-  if (args.picked) {
-    return repos.find((repo) => repo.id === args.selectedId) ?? null
-  }
-  return suggestedContextRepository(repos) ?? null
 }
 
 export function selectedCloneUrlKeys(

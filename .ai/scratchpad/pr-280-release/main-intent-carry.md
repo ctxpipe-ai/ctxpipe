@@ -21,6 +21,7 @@ Timing matters: PRs up to #296 reached the branch before the recovery rewrite (#
 | 11 | Public docs describe the removed org-wide Chat, Repositories and Knowledge graph pages and `ctx_advisor` as the main entry; rewrite for Workspaces (after ticket 08) | #300 | todo |
 | 12 | Dead legacy advisor: `graphs/conversationGraph` was unused except the title helper | #355 | done — 2,085 lines deleted; title helpers moved to `domain/workspaces/conversation-title.ts` (proof `conversation-title.test.ts`). ADR-006 still describes the deleted graph registry → ticket 08 |
 | 13 | `deploy.yaml`: production images via `scripts/railway-set-images.sh` after the `ctxpipe_app` role steps | #365 | done (`9fe4ba0c`) |
+| 14 | Confluence setup still picked a GitHub repository ("context repository") while mirrors only land in a Workspace's repository, so a non-Workspace pick failed every sync ("Connector target has no Workspace") | #262, #298 | done — Confluence uses the shared Workspace picker like Linear, Notion, Slack and PagerDuty (story `SelectSyncTarget` play asserts the saved target); the unused `ctxpipe-context` guidance component and helpers are deleted. MCP `ctx_advisor` text no longer claims the deleted CoALA graph |
 
 ## Ledger
 

@@ -94,12 +94,6 @@ vi.mock("../queries/pagerduty-connector", () => ({
   searchPagerdutyServices: vi.fn(),
 }))
 
-vi.mock("./ConnectorContextRepositoryGuidance", () => ({
-  CONNECTOR_CONTEXT_REPOSITORY_NAME: "ctxpipe-context",
-  ConnectorContextRepositoryGuidance: () => null,
-  getConnectorContextRepositoryCreateUrl: () => "https://github.com/new",
-}))
-
 vi.mock("./ConnectorSetupStepper", () => ({
   ConnectorSetupStepper: () => null,
 }))

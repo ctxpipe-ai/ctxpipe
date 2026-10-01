@@ -5,9 +5,7 @@ import {
   countSelectionDelta,
   describeSelectionDelta,
   githubCloneUrlKey,
-  githubContextRepoPollMs,
   matchSavedRepoIds,
-  resolvedContextRepository,
   sortGithubRepos,
   unmatchedSavedRepos,
 } from "./githubRepoSelection"
@@ -216,56 +214,5 @@ describe("collectInstallationRepoPages", () => {
     expect(result.manageUrl).toBe(
       "https://github.com/organizations/acme/settings/installations/1",
     )
-  })
-})
-
-describe("githubContextRepoPollMs", () => {
-  it("polls on the context step so a newly granted repo can appear", () => {
-    expect(githubContextRepoPollMs("select")).toBe(false)
-    expect(githubContextRepoPollMs("context")).toBe(4000)
-  })
-})
-
-describe("resolvedContextRepository", () => {
-  const canonical = {
-    id: 9,
-    name: "ctxpipe-context",
-  }
-  const demo = {
-    id: 10,
-    name: "ctxpipe-context-demo",
-  }
-
-  it("suggests ctxpipe-context only when the user has not picked", () => {
-    expect(
-      resolvedContextRepository([demo, canonical], {
-        picked: false,
-        selectedId: null,
-      }),
-    ).toEqual(canonical)
-  })
-
-  it("keeps a picked repo that is not named ctxpipe-context", () => {
-    expect(
-      resolvedContextRepository([demo, canonical], {
-        picked: true,
-        selectedId: demo.id,
-      }),
-    ).toEqual(demo)
-  })
-
-  it("does not invent a selection when nothing matches", () => {
-    expect(
-      resolvedContextRepository([demo], {
-        picked: false,
-        selectedId: null,
-      }),
-    ).toBeNull()
-    expect(
-      resolvedContextRepository([demo], {
-        picked: true,
-        selectedId: 99,
-      }),
-    ).toBeNull()
   })
 })
