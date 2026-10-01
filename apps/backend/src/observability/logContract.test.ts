@@ -195,6 +195,7 @@ describe("evlog redact and OTLP drain", () => {
         `http://backend.test/.auth/api/v1/auth/reset-password/${token}?reset_token=${querySecret}`,
       )
       expect(res.status).toBe(400)
+      await flushEvlog()
       expect(bodies).toHaveLength(1)
       const printed = `${stdout.join("")}\n${stderr.join("")}`
       const stdoutEvent = JSON.parse(
@@ -262,6 +263,46 @@ describe("evlog redact and OTLP drain", () => {
     } finally {
       process.stdout.write = writeOut
       process.stderr.write = writeErr
+      server.close()
+    }
+  })
+
+  it("answers a request while the collector hangs, and exports on flush", async () => {
+    let release = () => {}
+    const collectorGate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const bodies: unknown[] = []
+    const server = setupServer(
+      http.post("http://127.0.0.1:4318/v1/logs", async ({ request }) => {
+        await collectorGate
+        bodies.push(await request.json())
+        return HttpResponse.json({})
+      }),
+    )
+    server.listen({ onUnhandledRequest: "bypass" })
+    stubRuntimeEnv()
+    vi.stubEnv(
+      "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+      "http://127.0.0.1:4318/v1/logs",
+    )
+    await flushEvlog()
+    try {
+      initEvlog()
+      const app = new Hono<AppEnv>()
+      app.use(evlog())
+      app.get("/ping", (c) => c.json({ ok: true }))
+
+      const res = await app.request("http://backend.test/ping")
+      expect(res.status).toBe(200)
+      expect(bodies).toHaveLength(0)
+
+      const flushed = flushEvlog()
+      release()
+      await flushed
+      expect(bodies).toHaveLength(1)
+    } finally {
+      release()
       server.close()
     }
   })
