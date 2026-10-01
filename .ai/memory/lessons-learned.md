@@ -479,10 +479,10 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** user correction (GitHub workspace destination); candidate `ba616391f38e94cf`
 
 ### Product UI corners
-- **Rule:** Product chrome is square. Use `rounded-none` for new or touched controls, menus, cards, dialogs, and data surfaces.
+- **Rule:** Product chrome uses `rounded-md`. Apply it to new or touched controls, menus, cards, dialogs, and data surfaces; do not add `rounded-none`.
 - **Category:** convention
-- **Date:** 2026-08-24
-- **Source:** user correction on repository selector
+- **Date:** 2026-10-01
+- **Source:** user correction (supersedes the 2026-08-24 square-chrome rule)
 
 ### UI icon library
 - **Rule:** use `@tabler/icons-react` (not lucide-react); map Tabler `Icon*` names semantically from prior Lucide glyphs; keep size/class/ARIA props

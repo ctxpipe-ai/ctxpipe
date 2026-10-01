@@ -4,13 +4,13 @@ Agents read this file before building or restyling user-visible product UI. It r
 
 `apps/ui` is an **Operate** surface: dense, trusted, keyboard-heavy, dark zinc, white primary, teal accent. It answers the click immediately — waiting chrome is a defect. Region waits use skeletons; process waits use the teal loader. **Ceiling** (large type, atmosphere) is onboarding and marketing only. Knowledge-graph may stay a bit more spatial but must not reintroduce page-wide glow or grid.
 
-Product chrome is square. Apply `rounded-none` to new or touched controls, menus, cards, dialogs, and data surfaces.
+Product chrome uses one radius: `rounded-md`. Apply it to new or touched controls, menus, cards, dialogs, and data surfaces.
 
 Implementation process: [`.agents/skills/product-ui/SKILL.md`](../../.agents/skills/product-ui/SKILL.md). React data flow: [`.agents/skills/react/SKILL.md`](../../.agents/skills/react/SKILL.md). Stories: [`.agents/skills/storybook/SKILL.md`](../../.agents/skills/storybook/SKILL.md).
 
 ## Personality (copy these)
 
-- **Corners:** square (`rounded-none`). Product chrome does not use rounded corners.
+- **Corners:** `rounded-md` (Tailwind default, 0.375rem). Do not add `rounded-none`.
 - **Primary actions:** white / light filled buttons (`bg-primary` / `text-primary-foreground`). Teal (`#40E0D0` / `teal-*`) is the **accent**, not the default filled CTA.
 - **Brand signatures (keep):**
   - Card corner crosses from [`Card.tsx`](src/components/ui/Card.tsx)
