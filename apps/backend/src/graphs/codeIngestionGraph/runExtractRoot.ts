@@ -69,6 +69,8 @@ export async function runIdentifyPhaseForRoot(
   state: CodeIngestionState,
   root: string,
   kindPartial: Partial<CodeIngestionState>,
+  /** Called as each extractor finishes, before the others (provisional graph). */
+  onExtracted?: (part: Partial<CodeIngestionState>) => Promise<void>,
 ): Promise<{
   extractedObjects: ExtractedObject[]
   extractedClaims: ExtractedClaim[]
@@ -83,20 +85,27 @@ export async function runIdentifyPhaseForRoot(
     extractedClaims: kindPartial.extractedClaims ?? [],
   }
 
-  const parts = await Promise.all([
-    identifyAPIClients(rootState),
-    identifyAPIs(rootState),
-    identifyDatabases(rootState),
-    identifyInfrastructure(rootState),
-    identifyStreams(rootState),
-    identifyServiceDependencies(rootState),
-    identifyLibraries(rootState),
-    identifyPatterns(rootState),
-    extractInstructionUnits(rootState),
-    extractDecisions(rootState),
-    extractCodeowners(rootState),
-    ...CONNECTOR_EXTRACTORS.map((extractor) => extractor.extract(rootState)),
-  ])
+  const report = async (pending: Promise<Partial<CodeIngestionState>>) => {
+    const part = await pending
+    await onExtracted?.(part)
+    return part
+  }
+  const parts = await Promise.all(
+    [
+      identifyAPIClients(rootState),
+      identifyAPIs(rootState),
+      identifyDatabases(rootState),
+      identifyInfrastructure(rootState),
+      identifyStreams(rootState),
+      identifyServiceDependencies(rootState),
+      identifyLibraries(rootState),
+      identifyPatterns(rootState),
+      extractInstructionUnits(rootState),
+      extractDecisions(rootState),
+      extractCodeowners(rootState),
+      ...CONNECTOR_EXTRACTORS.map((extractor) => extractor.extract(rootState)),
+    ].map(report),
+  )
 
   const extracted = concatExtracted([kindPartial, ...parts])
   const extractionSkippedFiles = parts.reduce(

@@ -7,6 +7,7 @@ import {
 import { withOrgDbContext } from "../../db/client.js"
 import { computeKnowledgeGraphQuality } from "../../domain/knowledgeGraphQuality.js"
 import { getKnowledgeGraphSnapshot } from "../../domain/knowledgeGraphSnapshot.js"
+import { listIngestionPreview } from "../../models/ingestion-preview.js"
 import { getLogger } from "../../observability/logger.js"
 
 const ErrorResponseSchema = z
@@ -123,6 +124,42 @@ export const getKnowledgeGraphQualityRoute = createRoute({
   },
 })
 
+const KnowledgeGraphPreviewSchema = z
+  .object({
+    nodes: z.array(
+      z.object({
+        id: z.string(),
+        kind: z.string(),
+        name: z.string().nullable(),
+      }),
+    ),
+    edges: z.array(
+      z.object({
+        sourceId: z.string(),
+        targetId: z.string(),
+        predicate: z.string(),
+      }),
+    ),
+  })
+  .openapi("KnowledgeGraphPreview")
+
+export const getKnowledgeGraphPreviewRoute = createRoute({
+  method: "get",
+  path: "/preview",
+  summary: "Provisional graph from repositories that are still indexing",
+  responses: {
+    200: {
+      content: { "application/json": { schema: KnowledgeGraphPreviewSchema } },
+      description:
+        "Entities and links extracted so far, before deduplication and projection",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+  },
+})
+
 export const knowledgeGraphRoutes = new OpenAPIHono<AppEnv>()
   .openapi(getKnowledgeGraphQualityRoute, async (c) => {
     // Sessions and org API keys may read quality (the A/B harness uses a key).
@@ -162,4 +199,14 @@ export const knowledgeGraphRoutes = new OpenAPIHono<AppEnv>()
       })
       return c.json({ error: "Graph database unavailable" }, 503)
     }
+  })
+  .openapi(getKnowledgeGraphPreviewRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const preview = await listIngestionPreview({
+      orgId: requireCurrentOrgId(),
+      nodeLimit: 5000,
+    })
+    return c.json(preview, 200)
   })
