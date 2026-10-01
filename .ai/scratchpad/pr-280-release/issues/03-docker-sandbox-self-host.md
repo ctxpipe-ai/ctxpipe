@@ -62,11 +62,12 @@ Keep memory low by stopping (`docker stop`) sandboxes idle for 10 minutes and re
 
 ## Decisions
 
+- No opt-out: the CDK construct always creates the sandbox host; sandboxing is a safety feature (user, 2026-10-01).
 - Compose default is DinD (privileged sidecar); the backend never mounts the host Docker socket (user, 2026-10-01).
 
 ## Open questions
 
-- Should CDK users be able to opt out (`sandbox: false` ⇒ unsandboxed with a loud warning), or is the host always created?
+None.
 
 ## Delegation brief
 
@@ -75,6 +76,8 @@ Read first: this ticket, ticket 01's ledger, `docker-compose.yml`, `scripts/sand
 Do not add TanStack patches or an application-level sandbox registry. Keep construct changes backwards compatible. Report: deletion ledger, cleanup proof output, CDK synth diff summary, upgrade-path result.
 
 ## Comments
+
+- 2026-10-01 (user): no opt-out from the sandbox host.
 
 - 2026-10-01 (user): previous sizing too expensive for a host that does little; DinD acceptable. Moved to `t4g.medium`/`large`/`xlarge` with idle stop.
 

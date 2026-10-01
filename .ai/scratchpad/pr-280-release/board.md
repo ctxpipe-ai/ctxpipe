@@ -7,7 +7,7 @@ Updated: 2026-10-01. Rules: [README.md](README.md). Order is set by the user; un
 | 1 | 08 | [Consolidate intent and ADRs](issues/08-consolidate-intent-and-adrs.md) | ready-for-agent | P0 | unassigned | — |
 | 2 | 07 | [Carry main's intent into Workspaces code](issues/07-carry-main-intent.md) | blocked | P0 | unassigned | 08 |
 | — | 01 | [Remove vendor patches](issues/01-remove-vendor-patches.md) | plan-review | P0 | unassigned | — |
-| — | 02 | [Railway Sandboxes provider for managed chat](issues/02-railway-sandbox-provider.md) | plan-review | P0 | unassigned | 01 |
+| — | 02 | [Managed sandbox provider for hosted chat](issues/02-railway-sandbox-provider.md) | needs-info | P0 | unassigned | 01 |
 | — | 03 | [Docker sandboxing for self-hosters](issues/03-docker-sandbox-self-host.md) | plan-review | P0 | unassigned | 01 |
 | — | 04 | [End-to-end ingestion validator](issues/04-e2e-ingestion-validator.md) | plan-review | P0 | unassigned | — |
 | — | 06 | [Browser end-to-end critical flows](issues/06-browser-critical-flows.md) | plan-review | P0 | unassigned | — (final pass: 02) |

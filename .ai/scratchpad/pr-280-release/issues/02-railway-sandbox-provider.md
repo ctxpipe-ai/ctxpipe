@@ -1,6 +1,6 @@
-# Railway Sandboxes provider for managed chat
+# Managed sandbox provider for hosted chat (Railway or alternative)
 
-Status: plan-review
+Status: needs-info
 Priority: P0
 Owner: unassigned
 Blocked by: 01
@@ -43,9 +43,27 @@ Workspace chat on hosted ctxpipe (production and PR previews) runs each conversa
 6. **Proof.** Provider contract tests in a CI lane gated on a Railway test token (fail, not skip, when the token is missing in that lane); preview-env `chat`/`files-publish`; latency numbers; orphan sweep.
 7. **Upstream.** Offer the provider to TanStack once stable.
 
-## Decisions (made in the plan, 2026-10-01)
+## Provider choice (open — user, 2026-10-01: Railway's 100-sandbox cap is not enough)
 
-- **Quota:** Railway's sandbox limit (100 on Pro) is per environment, so PR previews do not consume production's quota. No extra cap.
+Railway Pro allows **100 running sandboxes per environment**; Enterprise offers a custom limit. Cloudflare was proposed as an alternative.
+
+| | Railway Sandboxes | Cloudflare Sandboxes (Containers) |
+| --- | --- | --- |
+| Concurrency | 100 running per environment (Pro); custom on Enterprise | Pooled per account: 1,500 vCPU / 6 TiB memory / 30 TB disk concurrent, raisable. ≈ 6,000 `basic` (¼ vCPU, 1 GiB) or 1,500 `standard-1` (½ vCPU, 4 GiB) |
+| Sizes | Up to 32 vCPU / 32 GB | Up to 4 vCPU / 12 GiB / 20 GB disk |
+| State when idle | Durable filesystem; idle timeout configurable; fork + named checkpoints | **Wiped on sleep** ("all files are deleted, all processes terminate"), default after 10 min idle; `keepAlive` prevents sleep but must be managed; snapshots up to 20 GB, kept 30 days |
+| Process control | Kill supported | `killableProcesses: false` (no signal crosses the Workers RPC boundary) |
+| How our backend drives it | SDK from the Railway backend, private network | Only through a Worker + Durable Object binding. Our backend would call a gateway Worker we deploy, and the sandbox calls back over the public internet. New platform to deploy and operate (ADR-007 removed our Workers runtime) |
+| TanStack provider | None upstream (we write it) | `@tanstack/ai-sandbox-cloudflare` exists (needs `@tanstack/ai` 0.63, i.e. after ticket 01) |
+| Maturity | GA | Sandbox SDK GA; container scheduling policy in public beta |
+| Cost (1 GiB sandbox, mostly idle) | ~$0.07/hour (memory $50/GB-month) | ~$0.01/hour (memory $0.0000025/GiB-s; CPU billed only when active) |
+
+What Cloudflare would change in our design: decision D in ticket 01 keeps uncommitted edits inside a long-lived conversation sandbox. On Cloudflare those edits disappear when the container sleeps, so we would need to snapshot on idle and restore on the next turn (or keep containers awake and pay for it), plus build and run a gateway Worker.
+
+**Recommendation:** first ask Railway what the Enterprise limit and price would be — it keeps today's design and private networking. If it does not fit, compare Cloudflare against the other providers that already have TanStack adapters and higher concurrency (Vercel Sandbox, Daytona, E2B, Sprites) on: concurrency, durable filesystem across idle, snapshots/fork, kill support, networking from a non-edge backend, and cost. The plan below (written for Railway) changes accordingly once the provider is chosen.
+
+## Decisions (made in the plan, 2026-10-01; apply if Railway is chosen)
+
 - **Networking:** keep backend ↔ sandbox traffic on Railway's private network. Only if Railway cannot route private traffic to a sandbox, publish the OpenCode port on a Railway domain and require a per-run secret; record that in an ADR.
 - **Location:** the provider lives in this repo as a small package first, then is offered upstream to TanStack.
 
@@ -56,6 +74,8 @@ Read first: this ticket, ticket 01's ledger, `sandbox-provider.ts`, `tanstack-wo
 Build the provider directly (no separate spike). Record create / checkpoint-restore / fork / exec latency and the networking answer in `## Comments` as soon as known. Needs a Railway API token scoped to the pr-280 environment (ask the user). Never fall back to unsandboxed on Railway.
 
 ## Comments
+
+- 2026-10-01 (user): 100 sandboxes is too low; asked about Cloudflare Sandboxes. Comparison and recommendation added; status `needs-info` until the provider is chosen.
 
 - 2026-10-01: the three open questions (preview quota, public vs private networking, package location) are decided in the plan above rather than left to the user.
 
