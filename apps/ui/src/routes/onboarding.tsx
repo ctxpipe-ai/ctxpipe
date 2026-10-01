@@ -424,7 +424,7 @@ export function OnboardingPageContent({
           <p className="mt-3 mb-0 max-w-prose text-sm text-muted-foreground">
             {isJoiner
               ? "Your organisation is ready. Connect your agent and the picture lights up when it first calls ctx|."
-              : "Three steps. The picture lights up as each one works."}
+              : "Three quick steps to set up ctx|. Then open the platform; your repositories keep indexing in the background."}
           </p>
           <ol className="m-0 mt-8 flex min-h-0 flex-1 list-none flex-col border-t border-white/5 p-0">
             <OnboardingStep
