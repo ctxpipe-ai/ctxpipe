@@ -1,3 +1,4 @@
+import HyperDX from "@hyperdx/browser"
 import { IconGitBranch, IconPlus, IconUnlink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
@@ -268,6 +269,7 @@ function AddLinkedReposModal(props: {
       void queryClient.invalidateQueries({
         queryKey: workspaceKeys.detail(orgSlug, workspace.slug),
       })
+      HyperDX.addAction("repository_index_started")
       toast.success("Repositories linked")
       reset()
       onOpenChange(false)

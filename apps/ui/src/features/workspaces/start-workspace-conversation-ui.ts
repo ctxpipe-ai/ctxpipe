@@ -1,3 +1,4 @@
+import HyperDX from "@hyperdx/browser"
 import type { QueryClient } from "@tanstack/react-query"
 import type { NavigateFn } from "@tanstack/react-router"
 import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
@@ -134,6 +135,7 @@ export async function openWorkspaceConversation(input: {
 }): Promise<{ conversationId: string }> {
   const conversationId = input.conversationId ?? newUiConversationId()
   const idempotencyKey = input.idempotencyKey ?? conversationId
+  HyperDX.addAction("advisor_question_sent")
   seedWorkspaceConversation({
     queryClient: input.queryClient,
     orgSlug: input.orgSlug,

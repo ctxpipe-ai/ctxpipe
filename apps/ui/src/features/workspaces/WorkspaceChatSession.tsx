@@ -1,3 +1,4 @@
+import HyperDX from "@hyperdx/browser"
 import type { StreamChunk, UIMessage } from "@tanstack/ai"
 import { useChat } from "@tanstack/ai-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -214,6 +215,7 @@ export function WorkspaceChatSession(props: {
   const handleSendMessage = async (params: { text: string }) => {
     setSandboxPhase("idle")
     setSendError(null)
+    HyperDX.addAction("advisor_question_sent")
     try {
       await sendMessage(params.text)
     } catch (error) {

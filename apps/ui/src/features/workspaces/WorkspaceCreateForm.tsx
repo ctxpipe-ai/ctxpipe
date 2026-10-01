@@ -1,3 +1,4 @@
+import HyperDX from "@hyperdx/browser"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
@@ -22,6 +23,7 @@ export function WorkspaceCreateForm(props: {
       source: "select" | "paste"
     }) => createWorkspace(orgSlug, choice),
     onSuccess: (workspace) => {
+      HyperDX.addAction("workspace_created")
       void queryClient.invalidateQueries({
         queryKey: workspaceKeys.list(orgSlug),
       })

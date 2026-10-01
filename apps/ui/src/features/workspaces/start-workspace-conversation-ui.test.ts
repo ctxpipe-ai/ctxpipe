@@ -20,6 +20,10 @@ import {
 } from "./start-workspace-conversation-ui"
 import { docsWorkspace } from "./workspace-fixtures"
 
+const hyperdx = vi.hoisted(() => ({ addAction: vi.fn() }))
+// The HyperDX browser SDK sends product analytics to the network.
+vi.mock("@hyperdx/browser", () => ({ default: hyperdx }))
+
 const server = setupServer()
 const conversationId = "conv_0123456789abcdef0123456789abcdef"
 
@@ -176,6 +180,7 @@ describe("openWorkspaceConversation", () => {
       conversationId,
     })
     expect(navigate).toHaveBeenCalled()
+    expect(hyperdx.addAction).toHaveBeenCalledWith("advisor_question_sent")
     expect(createSettled).toBe(false)
     releasePost()
     await expect(opened).resolves.toEqual({ conversationId })

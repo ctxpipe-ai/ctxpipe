@@ -35,9 +35,7 @@ export const workspaceChromeTabStripClassName =
   "relative z-10 -mb-px flex items-end gap-0.5"
 
 export function workspaceChromeIconTabClassName(active: boolean): string {
-  return active
-    ? workspaceChromeTabClassName
-    : workspaceChromeTabIdleClassName
+  return active ? workspaceChromeTabClassName : workspaceChromeTabIdleClassName
 }
 
 /**

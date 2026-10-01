@@ -1,4 +1,10 @@
-export type PaneKind = "files" | "graph" | "settings" | "file" | "diff" | "unknown"
+export type PaneKind =
+  | "files"
+  | "graph"
+  | "settings"
+  | "file"
+  | "diff"
+  | "unknown"
 
 export type ParsedPane =
   | { kind: "files" }
