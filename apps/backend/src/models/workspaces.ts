@@ -1148,10 +1148,11 @@ export async function commitHydrateProjection(input: {
         .where(
           eq(workspaceKnowledgeUnits.workspaceId, input.revision.workspaceId),
         )
-      if (input.units.length > 0) {
-        const now = new Date()
+      const now = new Date()
+      // Postgres caps bind parameters at 65,535; ~11 per unit row.
+      for (let start = 0; start < input.units.length; start += 500) {
         await tx.insert(workspaceKnowledgeUnits).values(
-          input.units.map((unit) => ({
+          input.units.slice(start, start + 500).map((unit) => ({
             servingId: unit.servingId,
             orgId: input.orgId,
             workspaceId: input.revision.workspaceId,
@@ -1699,11 +1700,14 @@ export async function persistUnitEmbeddings(input: {
         .for("update")
       if (!sameWorkspaceRevision(workspace?.activeRevision, input.revision))
         return false
-      if (input.embeddings.length > 0) {
-        const values = input.embeddings.map(
-          (row) =>
-            sql`(${row.servingId}, ${JSON.stringify(row.embedding)}::jsonb)`,
-        )
+      // Each embedding is a large JSON literal; bound the statement size.
+      for (let start = 0; start < input.embeddings.length; start += 200) {
+        const values = input.embeddings
+          .slice(start, start + 200)
+          .map(
+            (row) =>
+              sql`(${row.servingId}, ${JSON.stringify(row.embedding)}::jsonb)`,
+          )
         await tx.execute(sql`
         UPDATE workspace_knowledge_units AS u
         SET embedding = v.embedding, updated_at = NOW()

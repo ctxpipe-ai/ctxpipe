@@ -72,6 +72,24 @@ it(
 )
 
 it(
+  "hydrates a tree larger than one Postgres statement's bind parameters",
+  { timeout: 300_000 },
+  async () =>
+    withNativeHydrationFixture({ count: 7_000 }, async (f) => {
+      const { org, workspaceId, sha } = f
+      await f.publish()
+      await withOrgIdContext(org, async () => {
+        expect(
+          (await listWorkspaceKnowledgeUnits(workspaceId)).units,
+        ).toHaveLength(7_000)
+        expect((await getWorkspaceById(workspaceId))?.activeProjectionSha).toBe(
+          sha,
+        )
+      })
+    }),
+)
+
+it(
   "hydrates a 100-file immutable tree within eight native Git commands",
   { timeout: 60_000 },
   async () =>
