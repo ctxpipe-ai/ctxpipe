@@ -5,7 +5,7 @@ Priority: P0
 Owner: unassigned
 Blocked by: none
 Created: 2026-10-01
-Updated: 2026-10-01
+Updated: 2026-10-02
 
 ## Context
 
@@ -78,6 +78,40 @@ Read first: this ticket, ADR-044, ADR-048 (sections on patches, transitions, per
 Phase 1 only until the user approves the ledger. Do not add new patches or wrappers that restate TanStack APIs. Report: the ledger table, upstream diffs that close each item, and a list of application modules that become deletable.
 
 ## Comments
+
+- 2026-10-02 (claude): **Phase 1 ledger (for review before phase 2).**
+
+  Sources: our patch files compared with the packages at the pinned versions and at current releases (`ai-sandbox` 0.5.17, `ai-opencode` 0.4.14, `ai-persistence` 0.7.1, `ai` 0.63.0, `@opencode-ai/sdk` 1.18.34; `ai-sandbox-docker` is still 0.3.2). "Verify" means phase 2 runs the contract test on stock packages and keeps a fix only if the test fails.
+
+  | Package | Hunk | Class | How |
+  | --- | --- | --- | --- |
+  | ai-sandbox | Runtime workspace on `ensure` / middleware / snapshots; `onReady(handle, ctx)` | Designed away | Build one stock `defineSandbox` per Workspace for each request. Upstream already leaves the git token out of the sandbox key (`computeWorkspaceHash`), so a fresh token per request keeps the same sandbox. No registry. |
+  | ai-sandbox | Git auth token as a SecretRef | Designed away | Pass the resolved token string. It is not hashed. |
+  | ai-sandbox | `source.commit` checkout | Designed away (option D) | The key uses the branch. The commit is recorded in our sandbox row. A pre-turn `exec` fetches and rebases the session branch. |
+  | ai-sandbox | Live-revision transitions (`transitionKey`, `move`, `findByTransitionKey`, `onWorkspaceTransition`, transition lock) | Designed away (option D) | The sandbox key has no SHA, so nothing moves between keys. `workspace-chat-revision-transition.ts` becomes the pre-turn update. |
+  | ai-sandbox | Shared base snapshot (`baseSnapshot`, `threadSetup`, `injectSecrets`, base keys) | Designed away | Use stock `snapshot: 'after-setup'` per conversation. **Trade-off:** a new conversation clones the repository instead of restoring a shared base. Phase 5 measures first-answer latency against the ~5 s PRD. |
+  | ai-sandbox | `hostBridgeAccess`, `SandboxChannel.close`, tool-bridge admission | Dropped by decision | Only existed for the egress proxy. |
+  | ai-sandbox | Fs abort signals (`read`/`write`/`mkdir`/`remove`) | Dropped | Files routes check the request signal between operations instead. |
+  | ai-sandbox | `deleteSnapshot` on the provider | Designed away | Our cleanup job removes snapshot images with the provider's own client (dockerode for Docker; ticket 02 covers Cloudflare). |
+  | ai-sandbox | Deterministic `restoreSnapshot` id; persist the record before snapshotting; `AggregateError` on cleanup failure | Verify | These are robustness fixes for rare crash windows. Drop them unless a sandbox ownership contract fails. |
+  | ai-opencode | Port-zero readiness (read the port from the "listening on" line) | Designed away | Each Docker or Cloudflare sandbox has its own network, so the stock fixed port is fine. For explicit `unsandboxed`, we pass a free port to `opencodeText`. |
+  | ai-opencode | Stop with SIGTERM, then SIGKILL, with bounded waits | Verify | Risk: a lingering `opencode serve` in a reused sandbox holds the port for the next turn. Proof: the two-turn contract. If it fails, open an upstream PR. |
+  | ai-opencode | Wait for `server.connected` and the assistant's terminal update; abort SSE before dispose | Verify | Proof: the HTTP two-turn and cancel-mid-stream contracts. If they fail, open an upstream PR. |
+  | ai-opencode | Classify parts by message role (`translate.ts`) | Verify | Proof: the exact-text contract (no user text echoed as assistant text). If it fails, open an upstream PR. |
+  | ai-opencode | Startup and cleanup diagnostics, `AggregateError` cleanup | Dropped | Nice to have; we log at our boundary. |
+  | ai-persistence | Postgres thread lock plus history validation under the lock | Designed away | Wrap each send in our Postgres `LockStore.withLock("thread:<id>")` in the send runtime, held until the stream ends. Upstream `withLocks` only provides the capability; it does not lock threads. |
+  | ai-sandbox-local-process | Cancellable fs calls | Dropped | Same as the Fs signals row. Local process is explicit-only. |
+  | ai-sandbox-docker | Egress proxy, per-run grants, isolation enforcement (CPU/mem/PID/disk, non-root), Btrfs, fork-image ownership, remote TLS port host | Dropped by decision | Isolation is stock policy only (decision 2026-10-01). |
+  | ai-sandbox-docker | Exec inherits the image env (stock `exec` replaces it, keeping only PATH/HOME) | Verify | Risk: OpenCode loses the image's tool paths or non-root home. If it fails, set the env through the stock workspace `env`/secrets before considering an upstream PR. |
+  | ai-sandbox-docker | Create sends the name as a query parameter, separate from the body (credentials never in the URL); process wait registered at spawn | Verify on Bun 1.4.2 | If it fails, open an upstream PR. The credential-in-URL risk must not ship. |
+  | ai-sandbox-docker | Stable container name; abort signals on create/resume | Verify | Stock already passes the deterministic key as `id`. |
+  | @opencode-ai/sdk | `reader.cancel()` rejection handled; no retry after an intentional abort | Still required unless verify passes | Not fixed in 1.18.34. If the cancel contract shows an unhandled rejection or a retry loop, open an upstream PR (24 lines) and keep only this patch until it merges. |
+
+  **Expected result:** every `@tanstack/*` patch removed. The `@opencode-ai/sdk` patch stays only if its contract fails. Three `ai-opencode` behaviors are uncertain and could need small upstream PRs; phase 2 settles them.
+
+  **Code that becomes deletable** (sized in phase 3): `workspace-chat-revision-transition.ts` (reduced to the pre-turn update), the transition, base-snapshot and alias paths in `sandbox-instance-store.ts`, `workspace-chat-docker-policy.ts`, the egress, quota and replica contracts tied to the patched provider, `sandbox-egress-*`, and the Btrfs runner in CI ("Remove native sandbox quota runner").
+
+  **Phase 2 needs:** approval of this table, especially the base-snapshot trade-off.
 
 - 2026-10-01 (user): hosted chat moves to Cloudflare Sandboxes and conversation work is pushed to git (session branch) as the durable state. Option D still applies while a sandbox is alive; a wiped sandbox is recreated from the session branch.
 
