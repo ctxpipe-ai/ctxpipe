@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest"
 import {
   agentSetup,
   type BeatState,
+  contextRepoStage,
   deriveOnboardingView,
+  findCreatedContextRepo,
   type OnboardingFacts,
   type OnboardingStepId,
   reopenAs,
@@ -224,5 +226,57 @@ describe("step navigation", () => {
         isJoiner: false,
       }),
     ).toBe("close")
+  })
+})
+
+describe("context repository", () => {
+  const started = {
+    startedAt: Date.parse("2026-10-01T03:00:00Z"),
+    knownIds: [1, 2],
+    shareOpened: false,
+  }
+
+  it("moves create, share (selected repositories only), waiting, found", () => {
+    expect(
+      contextRepoStage({ found: false, progress: null, grantsAll: false }),
+    ).toBe("create")
+    expect(
+      contextRepoStage({ found: false, progress: started, grantsAll: false }),
+    ).toBe("share")
+    expect(
+      contextRepoStage({ found: false, progress: started, grantsAll: true }),
+    ).toBe("waiting")
+    expect(
+      contextRepoStage({
+        found: false,
+        progress: { ...started, shareOpened: true },
+        grantsAll: false,
+      }),
+    ).toBe("waiting")
+    expect(
+      contextRepoStage({ found: true, progress: started, grantsAll: false }),
+    ).toBe("found")
+  })
+
+  it("finds the newest repository created since they started, whatever its name", () => {
+    const repos = [
+      { id: 1, created_at: "2025-01-01T00:00:00Z" },
+      { id: 3, created_at: "2026-10-01T03:02:00Z" },
+      { id: 4, created_at: "2026-10-01T03:05:00Z" },
+    ]
+    expect(findCreatedContextRepo(repos, started)?.id).toBe(4)
+    expect(findCreatedContextRepo(repos, null)).toBeUndefined()
+    // An old repository shared now is not mistaken for the new one.
+    expect(
+      findCreatedContextRepo([repos[0] as (typeof repos)[number]], started),
+    ).toBeUndefined()
+  })
+
+  it("falls back to a newly shared id when GitHub gives no creation time", () => {
+    const repos = [
+      { id: 2, created_at: null },
+      { id: 9, created_at: null },
+    ]
+    expect(findCreatedContextRepo(repos, started)?.id).toBe(9)
   })
 })

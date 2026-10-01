@@ -213,3 +213,52 @@ export function titleAction(
   if (nav.beats[id] === "done" || nav.beats[id] === "skipped") return "open"
   return null
 }
+
+/** Set when they start creating a context repository; kept across reloads. */
+export type ContextRepoProgress = {
+  startedAt: number
+  /** Repository ids GitHub already shared when they started. */
+  knownIds: number[]
+  /** They opened GitHub's page to share the new repository with ctx|. */
+  shareOpened: boolean
+}
+
+export type ContextRepoStage = "create" | "share" | "waiting" | "found"
+
+/**
+ * Where the context repository sub-steps are. Sharing is only a step when
+ * GitHub shares selected repositories: a new repository is invisible to
+ * ctx| until it is shared.
+ */
+export function contextRepoStage(input: {
+  found: boolean
+  progress: ContextRepoProgress | null
+  grantsAll: boolean
+}): ContextRepoStage {
+  if (input.found) return "found"
+  if (!input.progress) return "create"
+  if (!input.grantsAll && !input.progress.shareOpened) return "share"
+  return "waiting"
+}
+
+/**
+ * The repository they created after starting, whatever they named it: the
+ * newest one created since then (a minute's grace for clock skew). Without a
+ * creation time, a repository GitHub did not share before counts.
+ */
+export function findCreatedContextRepo<
+  T extends { id: number; created_at: string | null },
+>(repos: readonly T[], progress: ContextRepoProgress | null): T | undefined {
+  if (!progress) return undefined
+  const known = new Set(progress.knownIds)
+  const createdAt = (repo: T) =>
+    repo.created_at ? Date.parse(repo.created_at) : Number.NaN
+  return repos
+    .filter((repo) => {
+      const at = createdAt(repo)
+      return Number.isFinite(at)
+        ? at >= progress.startedAt - 60_000
+        : !known.has(repo.id)
+    })
+    .sort((a, b) => (createdAt(b) || 0) - (createdAt(a) || 0))[0]
+}

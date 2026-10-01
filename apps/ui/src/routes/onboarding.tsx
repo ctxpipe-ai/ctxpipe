@@ -486,6 +486,7 @@ export function OnboardingPageContent({
                     setReviewing(null)
                   }}
                   onBack={() => goBackFrom("source")}
+                  progressKey={choicesKey ? `${choicesKey}:context-repo` : null}
                   onSkip={() => {
                     choose({ githubSkipped: true })
                     setReviewing(null)

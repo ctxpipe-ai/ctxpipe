@@ -1,5 +1,5 @@
 import HyperDX from "@hyperdx/browser"
-import { IconExternalLink } from "@tabler/icons-react"
+import { IconCheck, IconExternalLink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useRef, useState } from "react"
 import { GITHUB_FINALISING_MIN_MS } from "@/components/onboarding/constants"
@@ -25,6 +25,11 @@ import {
 } from "@/features/repositories/githubRepoSelection"
 import { client } from "@/lib/api"
 import { githubGrantAccessUrls } from "@/lib/github-app-url"
+import {
+  type ContextRepoProgress,
+  contextRepoStage,
+  findCreatedContextRepo,
+} from "./onboarding-state"
 
 type OnboardingGithubStepProps = {
   orgSlug: string
@@ -36,6 +41,8 @@ type OnboardingGithubStepProps = {
   onContinue: () => void
   onBack: () => void
   onSkip: () => void
+  /** Per user and org, so a started context repository survives reloads. */
+  progressKey: string | null
 }
 
 type ContextRepository = {
@@ -53,6 +60,7 @@ export function OnboardingGithubStep({
   onContinue,
   onBack,
   onSkip,
+  progressKey,
 }: OnboardingGithubStepProps) {
   const queryClient = useQueryClient()
   const [setupError, setSetupError] = useState<string | null>(null)
@@ -77,9 +85,22 @@ export function OnboardingGithubStep({
     enabled: installed,
   })
 
-  // Repository ids GitHub shared when they went to create a context
-  // repository; the first new one is theirs, whatever they named it.
-  const [knownRepoIds, setKnownRepoIds] = useState<Set<number> | null>(null)
+  // Started creating a context repository: when, and what GitHub already
+  // shared then. Stored so a reload or coming back later still finds it.
+  const [progress, setProgressState] = useState<ContextRepoProgress | null>(
+    null,
+  )
+  const [progressFor, setProgressFor] = useState<string | null | undefined>(
+    undefined,
+  )
+  if (progressKey !== progressFor) {
+    setProgressFor(progressKey)
+    setProgressState(readProgress(progressKey))
+  }
+  const setProgress = (next: ContextRepoProgress | null) => {
+    setProgressState(next)
+    writeProgress(progressKey, next)
+  }
   // Picking an existing repository is tucked away: a new org rarely has one.
   const [pickingExisting, setPickingExisting] = useState(false)
   // GitHub's create and share pages open in one tab we can close once the
@@ -107,9 +128,7 @@ export function OnboardingGithubStep({
           (repo) => repo.full_name === setupData?.contextRepository,
         ) ??
         suggestedContextRepository(repos) ??
-        (knownRepoIds
-          ? repos.find((repo) => !knownRepoIds.has(repo.id))
-          : undefined) ??
+        findCreatedContextRepo(repos, progress) ??
         null)
       : (repos.find((repo) => repo.id === pickedContextId) ?? null)
 
@@ -127,11 +146,13 @@ export function OnboardingGithubStep({
         fetchInstallationReposPage(orgSlug, page),
       ),
     enabled: installed,
+    // Watching for the new repository: poll, and check as soon as they come
+    // back from GitHub.
     refetchInterval: (query) =>
-      knownRepoIds && !pickContextRepo(query.state.data?.repositories ?? [])
+      progress && !pickContextRepo(query.state.data?.repositories ?? [])
         ? 4000
         : false,
-    refetchOnWindowFocus: knownRepoIds ? "always" : true,
+    refetchOnWindowFocus: progress ? "always" : true,
   })
   const grantedRepos = granted.data?.repositories ?? []
   const grantsAll = granted.data?.repositorySelection === "all"
@@ -143,6 +164,25 @@ export function OnboardingGithubStep({
     appSlug: installation?.appSlug,
     manageUrl: granted.data?.manageUrl,
   })[0]
+  const stage = contextRepoStage({
+    found: contextRepo !== null,
+    progress,
+    grantsAll,
+  })
+  const startCreating = () => {
+    openInGithubTab(createUrl)
+    setPickedContextId(undefined)
+    setPickingExisting(false)
+    setProgress({
+      startedAt: Date.now(),
+      knownIds: grantedRepos.map((repo) => repo.id),
+      shareOpened: false,
+    })
+  }
+  const openShare = () => {
+    if (grantUrl) openInGithubTab(grantUrl)
+    if (progress) setProgress({ ...progress, shareOpened: true })
+  }
 
   // Syncing with the GitHub tab (outside React): close it once the
   // repository they created is visible here.
@@ -248,6 +288,7 @@ export function OnboardingGithubStep({
       await queryClient.invalidateQueries({
         queryKey: ["github-installation-setup", orgSlug],
       })
+      setProgress(null)
       onContinue()
     },
   })
@@ -395,119 +436,131 @@ export function OnboardingGithubStep({
           </ul>
         </section>
 
-        <section className="flex flex-col gap-2 border-t border-white/5 pt-4">
-          <h3 className="ctx-label m-0">Context repository</h3>
-          {contextRepo ? (
-            <div className="flex items-center justify-between gap-3">
-              <code className="truncate font-mono text-xs text-zinc-300">
-                {contextRepo.full_name}
-              </code>
-              <Button
-                variant="quiet"
-                className="h-auto rounded-none px-0 text-sm"
-                onPress={() => {
-                  setPickedContextId(null)
-                  setKnownRepoIds(null)
-                  setPickingExisting(false)
+        <section className="flex flex-col gap-3 border-t border-white/5 pt-4">
+          <div className="flex flex-col gap-1">
+            <h3 className="ctx-label m-0">Context repository</h3>
+            <p className="m-0 text-sm text-muted-foreground">
+              ctx| writes pull-request capture and connector content here, so
+              your agents can read them.
+            </p>
+          </div>
+          <ol className="m-0 flex list-none flex-col gap-3 p-0">
+            <ContextSubStep
+              number={1}
+              state={stage === "create" ? "current" : "done"}
+              title="Create the repository on GitHub"
+            >
+              <a
+                href={createUrl}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(event) => {
+                  event.preventDefault()
+                  startCreating()
                 }}
+                className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
               >
-                Change
-              </Button>
-            </div>
-          ) : (
-            <>
-              <p className="m-0 text-sm text-muted-foreground">
-                Where ctx| keeps pull-request capture and connector content.
-              </p>
-              <ol className="m-0 flex list-none flex-col gap-1 p-0 text-sm text-muted-foreground">
-                <li>
-                  1.{" "}
-                  <a
-                    href={createUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      openInGithubTab(createUrl)
-                      setPickedContextId(undefined)
-                      setPickingExisting(false)
-                      setKnownRepoIds(
-                        new Set(grantedRepos.map((repo) => repo.id)),
-                      )
-                    }}
-                    className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
-                  >
-                    Create it on GitHub
-                    <IconExternalLink className="size-3.5" aria-hidden />
-                  </a>
-                  . Any name works.
-                </li>
-                {grantsAll ? null : (
-                  <li>
-                    2.{" "}
-                    <a
-                      href={grantUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={(event) => {
-                        if (!grantUrl) return
-                        event.preventDefault()
-                        openInGithubTab(grantUrl)
-                      }}
-                      className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
-                    >
-                      Share it with ctx|
-                      <IconExternalLink className="size-3.5" aria-hidden />
-                    </a>
-                    , so ctx| can see it.
-                  </li>
-                )}
-                <li>
-                  {grantsAll ? "2." : "3."}{" "}
-                  {knownRepoIds ? (
-                    <output className="inline-flex items-center gap-2 text-zinc-200">
-                      <span className="ctx-indexing-dot" aria-hidden />
-                      Watching for the new repository
-                    </output>
-                  ) : (
-                    "ctx| picks it up here and closes the GitHub tab."
-                  )}
-                </li>
-              </ol>
-              {pickingExisting ? (
-                <ComboBox
-                  label="Repository you already shared"
-                  placeholder="Search repositories"
-                  selectedKey={null}
-                  items={sortGithubRepos(grantedRepos, "name-asc")}
-                  onSelectionChange={(key) => {
-                    if (key == null || key === "") return
-                    setPickedContextId(Number(key))
-                    setKnownRepoIds(null)
-                    setPickingExisting(false)
+                Open GitHub
+                <IconExternalLink className="size-3.5" aria-hidden />
+              </a>{" "}
+              Any name works; ctxpipe-context is filled in.
+            </ContextSubStep>
+            {grantsAll ? null : (
+              <ContextSubStep
+                number={2}
+                state={
+                  stage === "create"
+                    ? "pending"
+                    : stage === "share"
+                      ? "current"
+                      : "done"
+                }
+                title="Share it with ctx|"
+              >
+                <a
+                  href={grantUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(event) => {
+                    if (!grantUrl) return
+                    event.preventDefault()
+                    openShare()
                   }}
+                  className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
                 >
-                  {(repo) => (
-                    <ComboBoxItem
-                      id={String(repo.id)}
-                      textValue={repo.full_name}
-                    >
-                      {repo.full_name}
-                    </ComboBoxItem>
-                  )}
-                </ComboBox>
-              ) : (
-                <div>
+                  Open access settings
+                  <IconExternalLink className="size-3.5" aria-hidden />
+                </a>{" "}
+                GitHub only shows ctx| the repositories you share.
+              </ContextSubStep>
+            )}
+            <ContextSubStep
+              number={grantsAll ? 2 : 3}
+              state={
+                stage === "found"
+                  ? "done"
+                  : stage === "waiting"
+                    ? "current"
+                    : "pending"
+              }
+              title={contextRepo ? "ctx| found it" : "ctx| picks it up"}
+            >
+              {contextRepo ? (
+                <span className="flex items-center gap-3">
+                  <code className="truncate font-mono text-xs text-zinc-200">
+                    {contextRepo.full_name}
+                  </code>
                   <Button
                     variant="quiet"
                     className="h-auto rounded-none px-0 text-sm"
-                    onPress={() => setPickingExisting(true)}
+                    onPress={() => {
+                      setPickedContextId(null)
+                      setProgress(null)
+                      setPickingExisting(false)
+                    }}
                   >
-                    Use a repository you already shared
+                    Change
                   </Button>
-                </div>
+                </span>
+              ) : stage === "waiting" ? (
+                <output className="inline-flex items-center gap-2 text-zinc-200">
+                  <span className="ctx-indexing-dot" aria-hidden />
+                  Watching for it. The GitHub tab closes when it appears.
+                </output>
+              ) : (
+                "It shows up here on its own."
               )}
-            </>
+            </ContextSubStep>
+          </ol>
+          {contextRepo ? null : pickingExisting ? (
+            <ComboBox
+              label="Repository you already shared"
+              placeholder="Search repositories"
+              selectedKey={null}
+              items={sortGithubRepos(grantedRepos, "name-asc")}
+              onSelectionChange={(key) => {
+                if (key == null || key === "") return
+                setPickedContextId(Number(key))
+                setProgress(null)
+                setPickingExisting(false)
+              }}
+            >
+              {(repo) => (
+                <ComboBoxItem id={String(repo.id)} textValue={repo.full_name}>
+                  {repo.full_name}
+                </ComboBoxItem>
+              )}
+            </ComboBox>
+          ) : (
+            <div>
+              <Button
+                variant="quiet"
+                className="h-auto rounded-none px-0 text-sm"
+                onPress={() => setPickingExisting(true)}
+              >
+                Use a repository you already shared
+              </Button>
+            </div>
           )}
         </section>
 
@@ -516,6 +569,8 @@ export function OnboardingGithubStep({
             {continueStep.error.message}
           </p>
         ) : null}
+        {/* The primary always names the next thing to do; Continue only
+            appears once the repository is found. */}
         <StepActions
           back={
             <Button
@@ -526,24 +581,60 @@ export function OnboardingGithubStep({
               Back
             </Button>
           }
+          secondary={
+            stage === "found" ? null : (
+              <Button
+                variant="ghost"
+                className="rounded-none"
+                onPress={onContinue}
+              >
+                Set up later
+              </Button>
+            )
+          }
           primary={
-            <Button
-              variant="primary"
-              className="rounded-none"
-              isPending={continueStep.isPending}
-              onPress={() =>
-                contextRepo
-                  ? continueStep.mutate({
-                      full_name: contextRepo.full_name,
-                      name: contextRepo.name,
-                      clone_url: contextRepo.clone_url,
-                      default_branch: contextRepo.default_branch ?? "main",
-                    })
-                  : onContinue()
-              }
-            >
-              Continue
-            </Button>
+            stage === "found" && contextRepo ? (
+              <Button
+                variant="primary"
+                className="rounded-none"
+                isPending={continueStep.isPending}
+                onPress={() =>
+                  continueStep.mutate({
+                    full_name: contextRepo.full_name,
+                    name: contextRepo.name,
+                    clone_url: contextRepo.clone_url,
+                    default_branch: contextRepo.default_branch ?? "main",
+                  })
+                }
+              >
+                Continue
+              </Button>
+            ) : stage === "share" ? (
+              <Button
+                variant="primary"
+                className="rounded-none"
+                onPress={openShare}
+              >
+                Share it with ctx|
+              </Button>
+            ) : stage === "waiting" ? (
+              <Button
+                variant="primary"
+                className="rounded-none"
+                isPending={granted.isFetching}
+                onPress={() => void granted.refetch()}
+              >
+                Check again
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                className="rounded-none"
+                onPress={startCreating}
+              >
+                Create context repository
+              </Button>
+            )
           }
         />
       </>
@@ -611,4 +702,81 @@ export function OnboardingGithubStep({
       {SelfHostedWizardModal}
     </>
   )
+}
+
+/** One numbered sub-step: done (tick), current (teal) or still to come. */
+function ContextSubStep({
+  number,
+  state,
+  title,
+  children,
+}: {
+  number: number
+  state: "done" | "current" | "pending"
+  title: string
+  children: React.ReactNode
+}) {
+  return (
+    <li className="flex gap-3">
+      <span
+        className={`inline-flex size-5 shrink-0 items-center justify-center border font-mono text-xs ${
+          state === "done"
+            ? "border-teal-400/45 text-teal-400"
+            : state === "current"
+              ? "border-teal-400 text-teal-400"
+              : "border-white/10 text-zinc-500"
+        }`}
+      >
+        {state === "done" ? (
+          <IconCheck className="size-3" aria-label="Done" />
+        ) : (
+          number
+        )}
+      </span>
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span
+          className={`text-sm ${state === "pending" ? "text-zinc-500" : "text-zinc-100"}`}
+        >
+          {title}
+        </span>
+        <span className="text-sm text-muted-foreground">{children}</span>
+      </span>
+    </li>
+  )
+}
+
+// Storage can be missing or throw (private windows, blocked site data); the
+// step still works, it just forgets that creating had started.
+function readProgress(key: string | null): ContextRepoProgress | null {
+  if (!key) return null
+  try {
+    const stored = JSON.parse(localStorage.getItem(key) ?? "null") as {
+      startedAt?: unknown
+      knownIds?: unknown
+      shareOpened?: unknown
+    } | null
+    if (!stored || typeof stored.startedAt !== "number") return null
+    return {
+      startedAt: stored.startedAt,
+      knownIds: Array.isArray(stored.knownIds)
+        ? stored.knownIds.filter((id): id is number => typeof id === "number")
+        : [],
+      shareOpened: stored.shareOpened === true,
+    }
+  } catch {
+    return null
+  }
+}
+
+function writeProgress(
+  key: string | null,
+  progress: ContextRepoProgress | null,
+) {
+  if (!key) return
+  try {
+    if (progress) localStorage.setItem(key, JSON.stringify(progress))
+    else localStorage.removeItem(key)
+  } catch {
+    // Not remembered; nothing else depends on it.
+  }
 }

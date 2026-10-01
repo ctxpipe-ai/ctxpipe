@@ -55,6 +55,7 @@ const meta = {
     onContinue: fn(),
     onBack: fn(),
     onSkip: fn(),
+    progressKey: null,
   },
   decorators: [
     (Story) => (
@@ -69,8 +70,8 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-/** Indexing runs on its own; Continue is the one primary action. */
-export const SharedSelection: Story = {
+/** No context repository yet: the primary creates one; later is the escape. */
+export const NoContextRepository: Story = {
   parameters: {
     msw: {
       handlers: {
@@ -81,10 +82,42 @@ export const SharedSelection: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(
-      await canvas.findByRole("button", { name: "Continue" }),
+      await canvas.findByRole("button", { name: "Create context repository" }),
     ).toBeVisible()
     await expect(
-      canvas.getByRole("link", { name: /create it on github/i }),
+      canvas.getByRole("button", { name: "Set up later" }),
+    ).toBeVisible()
+    await expect(
+      canvas.queryByRole("button", { name: "Continue" }),
+    ).not.toBeInTheDocument()
+  },
+}
+
+/** Back from GitHub on a selected install: the primary moves to sharing. */
+export const ShareContextRepository: Story = {
+  args: { progressKey: "story:context-repo:share" },
+  beforeEach: () => {
+    localStorage.setItem(
+      "story:context-repo:share",
+      JSON.stringify({
+        startedAt: Date.now(),
+        knownIds: [1, 2],
+        shareOpened: false,
+      }),
+    )
+    return () => localStorage.removeItem("story:context-repo:share")
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: githubHandlers([repo(1, "api"), repo(2, "web")]),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      await canvas.findByRole("button", { name: "Share it with ctx|" }),
     ).toBeVisible()
   },
 }
@@ -107,5 +140,6 @@ export const ContextRepositoryFound: Story = {
     await expect(
       await canvas.findByText("acme/ctxpipe-context", { selector: "code" }),
     ).toBeVisible()
+    await expect(canvas.getByRole("button", { name: "Continue" })).toBeVisible()
   },
 }
