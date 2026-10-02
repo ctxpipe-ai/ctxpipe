@@ -1,5 +1,4 @@
-import { OpenAPIHono } from "@hono/zod-openapi"
-import { createRoute, z } from "@hono/zod-openapi"
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import { eq } from "drizzle-orm"
 import type { AppEnv } from "../../app/env.js"
 import { getSystemDb } from "../../db/client.js"
@@ -33,9 +32,59 @@ const completeUserOnboardingRoute = createRoute({
   },
 })
 
-export const userOnboardingRoutes = new OpenAPIHono<AppEnv>().openapi(
-  completeUserOnboardingRoute,
-  async (c) => {
+const getUserOnboardingRoute = createRoute({
+  method: "get",
+  path: "/user",
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z
+            .object({
+              firstMcpCall: z
+                .object({
+                  at: z.string().datetime(),
+                  client: z.string().nullable(),
+                  tool: z.string().nullable(),
+                })
+                .nullable(),
+            })
+            .openapi("UserOnboardingStateResponse"),
+        },
+      },
+      description: "User onboarding state: their agent's first MCP call",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+  },
+})
+
+export const userOnboardingRoutes = new OpenAPIHono<AppEnv>()
+  .openapi(getUserOnboardingRoute, async (c) => {
+    const user = c.get("user")
+    if (!user) return c.json({ error: "Unauthorized" }, 401)
+
+    const [row] = await getSystemDb()
+      .select({
+        at: users.firstMcpCallAt,
+        client: users.firstMcpClient,
+        tool: users.firstMcpTool,
+      })
+      .from(users)
+      .where(eq(users.id, user.id))
+
+    return c.json(
+      {
+        firstMcpCall: row?.at
+          ? { at: row.at.toISOString(), client: row.client, tool: row.tool }
+          : null,
+      },
+      200,
+    )
+  })
+  .openapi(completeUserOnboardingRoute, async (c) => {
     const user = c.get("user")
     if (!user) return c.json({ error: "Unauthorized" }, 401)
 
@@ -47,8 +96,7 @@ export const userOnboardingRoutes = new OpenAPIHono<AppEnv>().openapi(
       .where(eq(users.id, user.id))
 
     return c.json({ completedAt: now.toISOString() }, 200)
-  },
-)
+  })
 
 // ── Org onboarding ─────────────────────────────────────────────────
 
@@ -108,10 +156,7 @@ export const orgOnboardingRoutes = new OpenAPIHono<AppEnv>()
       .from(orgOnboarding)
       .where(eq(orgOnboarding.organizationId, orgId))
 
-    return c.json(
-      { completedAt: row?.completedAt?.toISOString() ?? null },
-      200,
-    )
+    return c.json({ completedAt: row?.completedAt?.toISOString() ?? null }, 200)
   })
   .openapi(completeOrgOnboardingRoute, async (c) => {
     const user = c.get("user")

@@ -5,19 +5,22 @@ import {
   IconFileDescription,
   IconMessageCircle,
   IconPlug,
+  IconUsersPlus,
 } from "@tabler/icons-react"
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { motion, type Variants } from "motion/react"
-import { type ReactNode, useEffect } from "react"
+import { type ReactNode, useEffect, useState } from "react"
 import { AppShell } from "@/components/AppShell"
+import { OnboardingInviteSlide } from "@/components/onboarding/OnboardingInviteSlide"
+import { Modal } from "@/components/ui/Modal"
 import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
 } from "@/features/connectors/queries/github-connector"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import { useRepositoryIndexingSummary } from "@/features/repositories"
-import { useSession } from "@/lib/auth-client"
+import { authClient, useSession } from "@/lib/auth-client"
 import { useUserPreferences } from "@/lib/user-preferences"
 
 export const Route = createFileRoute("/$orgSlug/")({
@@ -148,6 +151,21 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   })
   const { data: githubInstallation } = githubInstallationQuery
   const githubConnected = Boolean(githubInstallation)
+  const [inviteOpen, setInviteOpen] = useState(false)
+  // Inviting was the last onboarding step; it lives here now, for the
+  // roles Better Auth lets invite.
+  const memberRoleQuery = useQuery({
+    queryKey: ["active-member-role", orgSlug],
+    queryFn: async () => {
+      const { data } = await authClient.organization.getActiveMemberRole({
+        query: { organizationSlug: orgSlug },
+      })
+      return data?.role ?? null
+    },
+    enabled: Boolean(session),
+  })
+  const canInvite =
+    memberRoleQuery.data === "admin" || memberRoleQuery.data === "owner"
   const { summary: repositorySummary } = useRepositoryIndexingSummary(orgSlug, {
     enabled: Boolean(session),
   })
@@ -160,7 +178,9 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
             `${
               repositorySummary.runningCount > 0 ? "Indexing" : "Preparing"
             } ${repositorySummary.activeCount} ${
-              repositorySummary.activeCount === 1 ? "repository" : "repositories"
+              repositorySummary.activeCount === 1
+                ? "repository"
+                : "repositories"
             }`,
           description:
             repositorySummary.failedCount > 0
@@ -344,6 +364,32 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
                 </span>
               </motion.button>
             </li>
+            {canInvite ? (
+              <li className="w-full">
+                <motion.button
+                  type="button"
+                  className={onboardingRowClass}
+                  aria-label="Invite your team. Add co-workers to this organisation."
+                  variants={onboardingRowGestureVariants}
+                  initial="rest"
+                  whileHover="hover"
+                  onClick={() => setInviteOpen(true)}
+                >
+                  <OnboardingRowIcon icon={<IconUsersPlus aria-hidden />} />
+                  <span className="min-w-0 flex-1 text-left">
+                    <span className="block font-medium text-foreground">
+                      Invite your team
+                    </span>
+                    <span className="mt-0.5 block text-sm text-muted-foreground">
+                      Add co-workers to this organisation.
+                    </span>
+                  </span>
+                  <span className="ctx-label-muted shrink-0 uppercase opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                    team
+                  </span>
+                </motion.button>
+              </li>
+            ) : null}
             <li className="w-full">
               <OnboardingNavButton
                 to="/$orgSlug/connectors"
@@ -377,6 +423,22 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
         </div>
       </div>
       {SelfHostedWizardModal}
+      {inviteOpen ? (
+        <Modal
+          isOpen={inviteOpen}
+          onOpenChange={setInviteOpen}
+          isDismissable
+          size="wide"
+        >
+          <div className="p-6 text-center sm:p-8">
+            <OnboardingInviteSlide
+              userEmail={session?.user.email}
+              completing={false}
+              onCompleteOnboarding={async () => setInviteOpen(false)}
+            />
+          </div>
+        </Modal>
+      ) : null}
     </AppShell>
   )
 }

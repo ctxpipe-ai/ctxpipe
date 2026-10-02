@@ -83,32 +83,6 @@ export function organizationCreateSuccessHandler() {
   })
 }
 
-export function organizationCreateErrorHandler(
-  message = "Failed to create organisation",
-) {
-  return http.post(`${authBase}/organization/create`, async () => {
-    await delay("real")
-    return HttpResponse.json({ message }, { status: 400 })
-  })
-}
-
-/** Create after MSW `delay("real")` (mirrors {@link organizationCreateSuccessHandler}). */
-export function organizationCreateSlowSuccessHandler() {
-  return http.post(`${authBase}/organization/create`, async ({ request }) => {
-    await delay("real")
-    const body = (await request.json()) as { name: string; slug: string }
-    return HttpResponse.json({
-      id: `org_${body.slug.replace(/[^a-z0-9]+/gi, "_")}`,
-      name: body.name,
-      slug: body.slug,
-      createdAt: new Date().toISOString(),
-      metadata: null,
-      logo: null,
-      members: [],
-    })
-  })
-}
-
 /** `POST /.auth/api/v1/auth/organization/invite-member` — per-email success. */
 export function organizationInviteSuccessHandler() {
   return http.post(
@@ -162,6 +136,19 @@ export function organizationInviteSlowSuccessHandler() {
         createdAt: new Date().toISOString(),
       })
     },
+  )
+}
+
+/** `GET /api/v1/onboarding/user` — `firstMcpCall` null until their agent calls MCP. */
+export function userOnboardingHandler(
+  firstMcpCall: {
+    at: string
+    client: string | null
+    tool: string | null
+  } | null,
+) {
+  return http.get("*/api/v1/onboarding/user", () =>
+    HttpResponse.json({ firstMcpCall }),
   )
 }
 

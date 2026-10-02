@@ -1,6 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
-import { githubInstallationNoneHandler } from "@/mocks/handlers"
+import { expect, userEvent, within } from "storybook/test"
+import {
+  githubInstallationNoneHandler,
+  organizationInviteSuccessHandler,
+} from "@/mocks/handlers"
 import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { OrgHomePageContent } from "./$orgSlug.index"
@@ -149,5 +153,38 @@ export const IndexingSingleRepoWithStepLabel: Story = {
         ],
       },
     },
+  },
+}
+
+/** Admins invite their team from home now that onboarding no longer asks. */
+export const InviteTeam: Story = {
+  render: () => <OrgHomePageContent orgSlug="acme" />,
+  parameters: {
+    storyRoute: {
+      pattern: "orgIndex",
+      orgSlug: "acme",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          githubInstallationNoneHandler,
+          organizationInviteSuccessHandler(),
+          http.get(
+            "*/.auth/api/v1/auth/organization/get-active-member-role",
+            () => HttpResponse.json({ role: "owner" }),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: /invite your team/i }),
+    )
+    const dialog = within(document.body)
+    await expect(
+      await dialog.findByRole("heading", { name: /invite team members/i }),
+    ).toBeVisible()
   },
 }

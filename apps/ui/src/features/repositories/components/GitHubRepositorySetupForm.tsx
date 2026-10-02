@@ -44,6 +44,8 @@ export type GitHubRepositorySetupData = {
   ingestAllRepositories: boolean
   includeFutureRepos: boolean
   savedRepositories: Array<{ name: string; gitUrl: string }>
+  /** Full name of the bound context repository, if any. */
+  contextRepository?: string | null
 }
 
 export type GitHubRepositorySetupStep = "select" | "context"
@@ -53,14 +55,15 @@ export type GitHubRepositorySetupFormProps = {
   setupData?: GitHubRepositorySetupData
   /** Affects the small section label above the title (default: repositories). */
   pageContext?: "repositories" | "connectors"
-  variant?: "page" | "onboarding"
+  /** `step`: inside an onboarding step that already carries the title. */
+  variant?: "page" | "step"
   /** Storybook / tests: start on the context-repository step. */
   initialStep?: GitHubRepositorySetupStep
   onSaveSuccess: () => void
   onCancel: () => void
 }
 
-async function fetchInstallationReposPage(
+export async function fetchInstallationReposPage(
   orgSlug: string,
   page: number,
 ): Promise<{
@@ -294,6 +297,12 @@ export function GitHubRepositorySetupForm({
         return
       }
     }
+    // Onboarding saves straight away: an existing ctxpipe-context repository
+    // is picked up automatically, and choosing one is left for later.
+    if (variant === "step") {
+      updateOptionsMutation.mutate()
+      return
+    }
     setStep("context")
   }
 
@@ -341,32 +350,28 @@ export function GitHubRepositorySetupForm({
           </span>
         </header>
       ) : null}
-      <section className={variant === "onboarding" ? "text-center" : undefined}>
-        <h1
-          className={
-            variant === "onboarding"
-              ? "onb-in-1 text-3xl font-semibold text-zinc-100 sm:text-4xl"
-              : "text-3xl font-medium tracking-tight text-foreground"
-          }
-        >
-          {step === "context"
-            ? "Choose a context repository"
-            : variant === "onboarding"
-              ? "Choose repositories to index"
+      {variant === "step" ? null : (
+        <section>
+          <h1 className="text-3xl font-medium tracking-tight text-foreground">
+            {step === "context"
+              ? "Choose a context repository"
               : "GitHub repository setup"}
-        </h1>
-        <p className="mt-3 text-balance leading-relaxed text-muted-foreground">
-          {step === "context"
-            ? "ctx| writes pull-request capture and later connector content here. Prefer ctxpipe-context, or pick another repository the App can see."
-            : variant === "onboarding"
-              ? "GitHub controls which repositories ctx| can access. Now choose which of those repositories to index into your knowledge graph."
+          </h1>
+          <p className="mt-3 text-balance leading-relaxed text-muted-foreground">
+            {step === "context"
+              ? "ctx| writes pull-request capture and later connector content here. Prefer ctxpipe-context, or pick another repository the App can see."
               : "Choose which repositories to ingest. Already indexed repositories stay selected even if you search or have not scrolled the list."}
-        </p>
-      </section>
+          </p>
+        </section>
+      )}
 
       <form
         onSubmit={handleSubmit}
-        className="mt-8 space-y-6 rounded-none border border-border bg-card/40 p-6 text-left [&_label]:text-zinc-200!"
+        className={
+          variant === "step"
+            ? "space-y-6 text-left [&_label]:text-zinc-200!"
+            : "mt-8 space-y-6 rounded-none border border-border bg-card/40 p-6 text-left [&_label]:text-zinc-200!"
+        }
       >
         {step === "select" ? (
           <>
@@ -454,10 +459,18 @@ export function GitHubRepositorySetupForm({
               <Button
                 type="submit"
                 variant="primary"
-                isDisabled={selectBusy || (mode === "select" && reposFailed)}
+                isDisabled={
+                  selectBusy ||
+                  (mode === "select" && reposFailed) ||
+                  updateOptionsMutation.isPending
+                }
                 className="rounded-none"
               >
-                Continue
+                {variant !== "step"
+                  ? "Continue"
+                  : updateOptionsMutation.isPending
+                    ? "Saving…"
+                    : "Save and index"}
               </Button>
               <Button
                 type="button"
@@ -465,7 +478,7 @@ export function GitHubRepositorySetupForm({
                 className="rounded-none"
                 onPress={onCancel}
               >
-                {variant === "onboarding" ? "Skip for now" : "Cancel"}
+                Cancel
               </Button>
             </div>
           </>
@@ -532,9 +545,7 @@ export function GitHubRepositorySetupForm({
               >
                 {updateOptionsMutation.isPending
                   ? "Saving…"
-                  : variant === "onboarding"
-                    ? "Save and continue"
-                    : "Save and queue indexing"}
+                  : "Save and queue indexing"}
               </Button>
               <Button
                 type="button"
