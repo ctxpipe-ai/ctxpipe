@@ -79,9 +79,12 @@ Every hosted conversation (production and PR previews) runs in its own Vercel sa
 5. **Workspace base (shared with ticket 03).**
    - A base builder creates a sandbox from the Workspace repository, runs setup, and snapshots it with no expiry while in use.
    - Recorded in the sandbox table, rebuilt when stale, deleted when unused.
-6. **Egress allowlist.**
-   - Apply Vercel's network policy at create and resume (our patch or wrapper).
+6. **Egress allowlist and GitHub token in the firewall.**
+   - Apply Vercel's network policy at create, at resume, and on token refresh (our own `Sandbox.create` / `sandbox.update`; no patch).
    - Allowlist: backend origin, `github.com`, `api.github.com`, `codeload.github.com`, and what OpenCode needs (to be measured).
+   - `github.com` / `api.github.com` rules add the session's GitHub read token as the `Authorization` header; the token never enters the sandbox.
+   - Token rotation: keep a token for 10 minutes, recorded on the sandbox row. When it is older, mint a fresh one (no Octokit cache), update the rule off the critical path, and revoke the old token after ~30 s. Revoke on sandbox stop.
+   - Proof: real-Vercel contract for a private-repository clone with no credentials in the sandbox, plus rotation and revocation.
 7. **Lifecycle.**
    - Idle timeout 5 minutes. Persistent sandboxes with `keepLastSnapshots: 1` and 30-day expiry.
    - The org cap is counted from our sandbox table under the Workspace lock before create.
@@ -110,6 +113,8 @@ Read first:
 Keep each patch minimal and listed with its removal condition. Never fall back to unsandboxed on hosted.
 
 ## Comments
+
+- 2026-10-03 (user): put the GitHub read token in the Vercel firewall rule. Keep a token for 10 minutes rather than refreshing every turn; refresh off the critical path. Measured: header added to HTTPS from Node and curl; not visible in the sandbox; rule update 0.42 s, new value live 0.35 s later.
 
 - 2026-10-03 (claude): **measured against real Vercel sandboxes** (CI lane "Hosted sandbox (Vercel) contracts", all five pass):
 
