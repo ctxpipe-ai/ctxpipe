@@ -1,8 +1,8 @@
 # Vercel Sandbox for hosted chat
 
-Status: ready
+Status: in progress
 Priority: P0
-Owner: unassigned
+Owner: claude
 Blocked by: 01
 Created: 2026-10-01
 Updated: 2026-10-02
@@ -113,6 +113,14 @@ Read first:
 Keep each patch minimal and listed with its removal condition. Never fall back to unsandboxed on hosted.
 
 ## Comments
+
+- 2026-10-03 (claude): **progress.** Done and proven in the Vercel lane (7 real-sandbox contracts):
+  - `vercel-sandbox-provider.ts`: our `Sandbox.create` over the stock `VercelHandle`, with no patches. It sets persistence with 30-day saved state, the egress allowlist, the agent port behind the OpenCode password, and kill enabled.
+  - GitHub read token only in the firewall rule, stored encrypted per sandbox (Vercel redacts header values). Rotated after 10 minutes in the background; the replaced token is revoked after 30 s; revoked on stop and delete. Resume costs: fresh token 0.23 s, aged token 0.24 s (rotation off the critical path), after stop 0.9 s.
+  - Chat wiring: `SANDBOX_PROVIDER=vercel` fails closed. Model proxy and per-run tool bridge are at the backend's public origin; the tool bridge is a backend route (`handleBridgeJsonRpc`). Known limit: during a rolling deploy, a tool call can land on the replica that is not running the turn.
+  - Providers are now docker | vercel | unsandboxed (sbx and railway removed).
+
+  Next: Workspace base snapshot (OpenCode baked in), lifecycle (idle stop job, 50-per-org cap, non-interactive stop), deploy secrets to Railway plus preview tagging and cleanup, an end-to-end chat on pr-280, docs.
 
 - 2026-10-03 (user): put the GitHub read token in the Vercel firewall rule. Keep a token for 10 minutes rather than refreshing every turn; refresh off the critical path. Measured: header added to HTTPS from Node and curl; not visible in the sandbox; rule update 0.42 s, new value live 0.35 s later.
 
