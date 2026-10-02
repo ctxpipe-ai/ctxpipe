@@ -278,6 +278,31 @@ jobs:
           node-version: 22
       - run: pnpm --filter @ctxpipe/codesearch test
 
+  vercel-sandbox:
+    timeout-minutes: 30
+    name: Hosted sandbox (Vercel) contracts
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+      VERCEL_TEAM: ctxpipe
+      VERCEL_PROJECT: ctxpipe
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Required real Vercel sandbox contracts
+        run: node scripts/ci/test-suite.mjs vercel
+
   terraform-validate:
     name: Terraform configuration
     if: |

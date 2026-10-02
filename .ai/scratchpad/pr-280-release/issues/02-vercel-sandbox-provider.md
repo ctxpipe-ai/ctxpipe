@@ -85,7 +85,7 @@ Every hosted conversation (production and PR previews) runs in its own Vercel sa
 7. **Lifecycle.**
    - Idle timeout 5 minutes. Persistent sandboxes with `keepLastSnapshots: 1` and 30-day expiry.
    - The org cap is counted from our sandbox table under the Workspace lock before create.
-   - Non-interactive callers (MCP, Slack, semantic merge) call stop in `finally`.
+   - Non-interactive callers (MCP, Slack) call stop in `finally`. Semantic merge no longer uses a sandbox (ticket 01).
 8. **Git as durable state + publish UI.** Per-turn commit and push via the broker. Squash on Create PR; remove Commit+Push (route, mutation, chrome, stories).
 9. **Deploy.** Pass the GitHub secret through `deploy.yaml` and `pr-deploy.yaml` (and Terraform variables if that's where Railway env lives). Preview tag plus cleanup on PR close.
 10. **Proof.**
@@ -111,6 +111,14 @@ Keep each patch minimal and listed with its removal condition. Never fall back t
 
 ## Comments
 
+- 2026-10-03 (claude): **findings from reading `@tanstack/ai-sandbox-vercel` 0.2.5 and `@vercel/sandbox` 2.9.2** (to confirm against a real sandbox in the new CI lane "Hosted sandbox (Vercel) contracts", `vercel-sandbox.contract.test.ts`):
+  - **Probably no patches needed.** `VercelHandle` is a public export. Our provider can call `Sandbox.create` with the full parameters (snapshot source, `networkPolicy`, `persistent`, `tags`, snapshot retention) and wrap the result in the stock handle. Port auth needs only `ports.connect` to return `headers`; the stock OpenCode adapter already forwards channel headers. OpenCode 1.18.34 enforces `OPENCODE_SERVER_PASSWORD` as Basic auth (`opencode:<password>`) on every route, including the event stream (checked locally).
+  - **Stock `destroy` only stops.** On a persistent sandbox `stop()` saves state; it does not delete. Deleting (conversation removed, 30 days unused) needs `sandbox.delete()` in our cleanup.
+  - **Retention can be Vercel's.** `snapshotExpiration` plus `keepLastSnapshots: { count: 1 }` keeps only the latest saved state and expires it, which may cover the 30-day rule without our own job.
+  - **Idle stop:** Vercel's `timeout` caps a session from its start, not from the last activity, so the 5-minute idle stop still comes from our cleanup (last heartbeat). The Vercel timeout is only a backstop.
+  - **No custom image needed.** The Workspace base snapshot can carry OpenCode, so hosted sandboxes start from `node24` plus the base, not a registry image.
+  - **Option to raise with the user:** the firewall can add request headers per domain (`transform.headers`). The GitHub read token could then live in the firewall rule instead of inside the sandbox.
+
 - 2026-10-02 (user decisions):
   - **Egress:** use Vercel's firewall allowlist (our backend, GitHub, whatever OpenCode needs), because the sandbox can read its Workspace read token.
   - **Lifecycle:** stop a sandbox after **5 minutes idle**. Keep a conversation's saved state **30 days** after last use. Cap each organization at **50 running sandboxes**.
@@ -118,7 +126,7 @@ Keep each patch minimal and listed with its removal condition. Never fall back t
   - **Credentials and target:** the Vercel access token is the GitHub Actions secret `VERCEL_ACCESS_TOKEN`; project `ctxpipe` in team `ctxpipe`. Deploy must pass it to the Railway backend and worker.
 
 - 2026-10-02 (claude, ticket 07 docs): public docs now describe the target chat. Before closing:
-  - add Cloudflare to the sub-processor table in `apps/docs/content/docs/(guide)/resources/data-processing.mdx`;
+  - add Vercel to the sub-processor table in `apps/docs/content/docs/(guide)/resources/data-processing.mdx`;
   - re-check `workspaces/chat.mdx` ("Where the agent runs", Create PR / Show PR, no Commit+Push) against what ships.
 
 - 2026-10-01 (user): drop Commit+Push (keep Create PR / Show PR, squash on PR); start on `basic`.
