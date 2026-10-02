@@ -1,8 +1,8 @@
 # Remove vendor patches
 
-Status: plan-review
+Status: ready
 Priority: P0
-Owner: unassigned
+Owner: claude
 Blocked by: none
 Created: 2026-10-01
 Updated: 2026-10-02
@@ -78,6 +78,8 @@ Read first: this ticket, ADR-044, ADR-048 (sections on patches, transitions, per
 Phase 1 only until the user approves the ledger. Do not add new patches or wrappers that restate TanStack APIs. Report: the ledger table, upstream diffs that close each item, and a list of application modules that become deletable.
 
 ## Comments
+
+- 2026-10-02 (user): Docker fast start uses option B, the per-Workspace base image built by our code (ticket 03). The shared-base hunk in `ai-sandbox` is deleted, not replaced by a patch. Hosted gets the same Workspace base via the Vercel snapshot patch (ticket 02).
 
 - 2026-10-02 (user): phase 1 ledger approved. Exception: the three `@tanstack/ai-sandbox-vercel` gaps (start from snapshot, authenticated agent port, process kill) are temporary patches, upstreamed after production launch (ticket 02). Self-host Docker fast start: decision pending on the app-level per-Workspace base image (no patch).
 

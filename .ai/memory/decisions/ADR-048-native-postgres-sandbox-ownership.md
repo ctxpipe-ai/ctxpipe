@@ -27,20 +27,37 @@ Every Workspace conversation runs OpenCode in its own sandbox with a checkout of
 
 Hosted needs CPU billed only while busy (an agent mostly waits on the model), a TanStack provider, fast start and durable files. Vercel is the chosen vendor: microVM isolation, an existing vendor, and 10,000 concurrent sandboxes. Its provider gaps (start from snapshot, authenticated agent port, process kill) are temporary patches, upstreamed after launch.
 
-### Isolation
+### Isolation and egress
 
-Only stock TanStack sandbox policy: `commands`, `capabilities.fileWrite`, `capabilities.network`, `default`. No egress proxy, per-run grants, resource quotas, Btrfs runner or custom isolation patches *(ticket 01)*.
+- In the sandbox, only stock TanStack policy: `commands`, `capabilities.fileWrite`, `capabilities.network`, `default`. No custom egress proxy, per-run grants, resource quotas, Btrfs runner or isolation patches *(ticket 01)*.
+- Hosted egress is an allowlist in Vercel's firewall (enforced outside the VM): our backend, GitHub, and what OpenCode needs *(ticket 02)*. Self-host relies on the Docker network.
+- The agent's OpenCode port is authenticated (server password, sent as headers by the provider's port channel), because Vercel ports are public URLs *(ticket 02)*.
 
 ### Identity and git
 
 - The sandbox belongs to the conversation, keyed without the commit SHA (option D, *ticket 01*). Before a turn, if the default branch moved, the sandbox fetches and rebases its session branch in place with stock `exec`. The current SHA is recorded in our sandbox row, not in the key.
 - Conversation work is committed and pushed to the session branch `ctxpipe/chat/<conversation>/<n>`. Git is the durable state; a sandbox is disposable and is recreated from the session branch when it is gone ([ADR-040](ADR-040-pierre-files-pane-chrome.md)).
-- Credentials never live in the sandbox image, key or environment. The sandbox gets short-lived, HMAC-signed run capabilities bound to org, conversation, lock owner and revision (`workspace-chat-run-capability.ts`). It exchanges them through the backend for a git credential (`workspace-chat-git-credentials.ts`) or for model access via the model proxy (`workspace-chat-model-proxy.ts`).
+- No credential is baked into the sandbox image, key or environment. The sandbox gets short-lived, HMAC-signed run capabilities bound to org, conversation, lock owner and revision (`workspace-chat-run-capability.ts`). It exchanges them through the backend for model access via the model proxy (`workspace-chat-model-proxy.ts`), so no model key enters the sandbox.
+- Git reads use a GitHub installation token the backend mints on request (`workspace-chat-git-credentials.ts`): read-only, limited to the Workspace's repositories, valid up to an hour, and readable by the agent. Accepted (2026-10-02) because writes never use it: every push goes through the backend broker, only to the conversation's session branch.
+
+### Fast start: Workspace base
+
+- Each Workspace has a **base**: a provider snapshot of a sandbox that cloned the Workspace repository and ran setup. Our code builds it (one build at a time, under the Workspace lock), records it in the sandbox table, rebuilds it when it falls well behind the default branch, and deletes old bases once no sandbox uses them.
+- A new conversation starts from the base; the pre-turn update only fetches the latest commit and checks out the session branch.
+- Docker: the base is a committed image passed as `dockerSandbox({ image })`, stock and no patch *(ticket 03)*. Vercel: a snapshot passed as the sandbox source, a temporary provider patch *(ticket 02)*.
+
+### Lifecycle and limits
+
+- An interactive sandbox stops after **5 minutes idle**; files are saved (Vercel snapshot on stop; Docker `stop`) and the next message resumes it.
+- A conversation's saved state is kept **30 days** after last use, then deleted; pushed work stays in git.
+- Each organization runs at most **50 sandboxes** at once; the limit is checked before create, with a clear "at capacity" error.
+- Runs nobody is watching (MCP `ctx_advisor` turns, Slack agent turns, semantic merge) stop their sandbox as soon as the run ends, so they never hold a slot.
+- Cancel kills the agent process where the provider supports it; otherwise (Vercel, until proven) it stops the sandbox.
 
 ### Cleanup
 
-- A periodic cleanup (`workspace-sandbox-cleanup.ts`) destroys idle sandboxes and rows whose Workspace or conversation is gone. Failed destroys keep their row and retry.
-- Self-hosted Docker hosts must also remove stopped containers and unused images, so the host never runs out of disk *(ticket 03)*.
+- A periodic cleanup (`workspace-sandbox-cleanup.ts`) stops idle sandboxes, deletes state past 30 days, and removes rows whose Workspace or conversation is gone. Failed destroys keep their row and retry.
+- Self-hosted Docker hosts also remove stopped containers and unused images (labelled by owner), so the host never runs out of disk *(ticket 03)*. Hosted deletes Vercel snapshots past retention and unused bases.
 
 ## Consequences
 

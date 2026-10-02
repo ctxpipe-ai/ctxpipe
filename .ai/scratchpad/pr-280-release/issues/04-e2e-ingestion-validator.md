@@ -1,6 +1,6 @@
 # End-to-end ingestion validator on popular repositories
 
-Status: plan-review
+Status: ready
 Priority: P0
 Owner: unassigned
 Blocked by: none

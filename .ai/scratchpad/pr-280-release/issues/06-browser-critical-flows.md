@@ -1,6 +1,6 @@
 # Browser end-to-end testing of critical flows
 
-Status: plan-review
+Status: ready
 Priority: P0
 Owner: unassigned
 Blocked by: none (skill phases); 02 for the final hosted pass

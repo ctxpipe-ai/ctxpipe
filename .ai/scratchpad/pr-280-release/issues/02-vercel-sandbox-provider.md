@@ -1,6 +1,6 @@
 # Vercel Sandbox for hosted chat
 
-Status: needs-replan
+Status: ready
 Priority: P0
 Owner: unassigned
 Blocked by: 01
@@ -9,65 +9,90 @@ Updated: 2026-10-02
 
 ## Context
 
-> **2026-10-02 (user): the hosted provider is Vercel Sandbox, not Cloudflare.** Reasons: maturity, and we already use Vercel. CPU billed only while busy is a hard requirement. Close the `@tanstack/ai-sandbox-vercel` gaps with patches first, then raise upstream PRs after production launch:
-> - start a new sandbox from a prepared snapshot (`source: snapshot`, snapshots and fork capabilities);
-> - authenticated agent port (OpenCode server password + channel headers), because Vercel ports are public URLs;
-> - process kill, measured against a real sandbox.
->
-> The Cloudflare text below is history; the plan must be rewritten for Vercel before work starts.
+Hosted ctxpipe runs on Railway. Today hosted workspace chat falls back to `unsandboxed`: OpenCode runs inside the shared backend container across tenants. This ticket moves every hosted conversation into its own Vercel Sandbox (Firecracker microVM). Architecture: [ADR-048](../../../memory/decisions/ADR-048-native-postgres-sandbox-ownership.md).
 
+Decisions (user, 2026-10-02):
 
-Hosted ctxpipe runs on Railway. Today workspace chat there falls back to `unsandboxed`: OpenCode runs inside the shared backend container across tenants.
-
-Decisions (user, 2026-10-01):
-
-- Managed sandboxes run on **Cloudflare Sandboxes**. Railway Sandboxes' 100-per-environment cap is too low and Enterprise is not an option; no new vendors (Cloudflare is already used for R2 and is in the cost dashboard).
-- Sandbox files are **not** the store of record: conversation work is **pushed to git** (the conversation's session branch). A sandbox can be wiped at any time.
-- Unsandboxed is never the default on hosted.
-
-Cloudflare facts (checked 2026-10-01):
-
-- Limits are pooled per account: 1,500 vCPU / 6 TiB memory / 30 TB disk concurrent, raisable via support. Instance types `lite` (1/16 vCPU, 256 MiB), `basic` (¼, 1 GiB, 4 GB), `standard-1` (½, 4 GiB, 8 GB) … `standard-4` (4, 12 GiB, 20 GB). Image storage 50 GB per account. Snapshots ≤ 20 GB, kept 30 days.
-- Sleep after `sleepAfter` idle (default 10 min) wipes files and processes; `keepAlive` prevents sleep.
-- Pricing: memory $0.0000025/GiB-s, CPU $0.000020/vCPU-s (active only), disk $0.00000007/GB-s, plus Worker requests and Durable Object instances.
-- The SDK is driven from a Worker through a Durable Object binding; the container reaches the outside world only over the network. Container scheduling policy is public beta.
-- TanStack ships `@tanstack/ai-sandbox-cloudflare` (provider + coordinator + container runner), requiring `@tanstack/ai` ≥ 0.63 — available once ticket 01 upgrades the stack. Its capabilities: `durableFilesystem: false`, `killableProcesses: false`, ports via preview/tunnel.
+- **Vendor:** Vercel Sandbox. Reasons: maturity, an existing vendor, CPU billed only while busy (hard requirement), microVM isolation, durable files, 10,000 concurrent sandboxes.
+- **Provider gaps** in `@tanstack/ai-sandbox-vercel` 0.2.5 are closed with **temporary patches**. Each gets an upstream PR **after production launch**:
+  1. start a new sandbox from a snapshot (`source: { type: 'snapshot' }`), and enable snapshots and fork;
+  2. authenticated agent port: OpenCode server password in the sandbox, `Authorization` header returned by `ports.connect`, because `sandbox.domain(port)` is a public URL;
+  3. process kill: measure Vercel's server-side kill against a real sandbox, enable `killableProcesses` only if it stops the whole process group.
+- **Egress:** Vercel firewall allowlist (our backend, GitHub, what OpenCode needs).
+- **Lifecycle:**
+  - stop after 5 minutes idle;
+  - keep saved state 30 days after last use;
+  - at most 50 running sandboxes per organization;
+  - non-interactive runs stop their sandbox as soon as they finish.
+- **Publish UI:** turn commits are pushed automatically; the UI keeps only Create PR (squashes turn commits) and Show PR; Commit+Push is removed.
+- **Credentials:** GitHub Actions secret `VERCEL_ACCESS_TOKEN`, team `ctxpipe`, project `ctxpipe`. Deploy passes them to the Railway backend and worker. Region `iad1` (next to Railway and Neon).
+- Unsandboxed is never used on hosted; a missing or failing provider fails closed.
 
 ## Goal
 
-Every hosted workspace conversation (production and PR previews) runs in its own Cloudflare sandbox. The conversation's durable state is its git session branch; losing a sandbox costs a re-clone, never work.
+Every hosted conversation (production and PR previews) runs in its own Vercel sandbox:
+- it starts from the Workspace base;
+- it resumes with its files after idle;
+- it never exposes an unauthenticated agent port;
+- it never holds a slot longer than needed.
 
 ## Acceptance criteria
 
-- [ ] Hosted backend + worker use `SANDBOX_PROVIDER=cloudflare`; a missing or failing provider fails closed (no unsandboxed fallback on hosted).
-- [ ] One sandbox per conversation; a sandbox that slept or was destroyed is recreated transparently on the next turn from the session branch.
-- [ ] After every turn that changed files, the work is committed and pushed to the conversation's session branch through the backend broker (no push credential in the sandbox).
-- [ ] OpenCode in the sandbox reaches only our model proxy and tool bridge, authenticated per run; the sandbox's OpenCode port is not reachable without a credential.
-- [ ] Gateway Worker + Durable Object deploy from this repo in CI for production and each PR preview, isolated per environment.
-- [ ] Resource use bounded: per-environment concurrency cap, `sleepAfter` aligned with keep-alive, sandboxes destroyed on conversation delete, orphan sweep reports zero after the browser suite.
-- [ ] Latency recorded on pr-280: cold first answer (new sandbox + clone) and warm turn, against the ~5 s PRD target; cost per conversation-hour recorded.
-- [ ] Conversation chrome shows only "Create PR" / "Show PR"; creating the PR squashes turn commits into one commit (proved by a Storybook play and a native git contract test).
+- [ ] Hosted backend and worker select the Vercel provider; without `VERCEL_ACCESS_TOKEN` they fail closed.
+- [ ] The three patches exist, are minimal, and are listed in the patch ledger with removal conditions.
+- [ ] A new conversation starts from the Workspace base (no clone in the first turn). An idle-stopped conversation resumes with its files.
+- [ ] The agent port rejects requests without the password (contract test against a real sandbox).
+- [ ] The firewall allowlist is applied; a request to a non-allowlisted host fails (contract test).
+- [ ] Lifecycle:
+  - idle stop at 5 minutes;
+  - non-interactive runs stop immediately;
+  - 30-day state deletion;
+  - 50-per-org cap with a clear "at capacity" error.
+  
+  Each is proven by a test.
+- [ ] Cancel stops the agent: by kill if proven, otherwise by stopping the sandbox.
+- [ ] Each turn that changed files is committed and pushed to the session branch through the backend broker. Create PR squashes; Show PR links; Commit+Push is gone (Storybook play + native git contract).
+- [ ] Deploy:
+  - `deploy.yaml` and `pr-deploy.yaml` pass the token, team and project to Railway backend and worker;
+  - previews tag their sandboxes by environment;
+  - a PR close cleans them up.
+- [ ] Latency and cost recorded on pr-280: first answer in a new conversation, resumed conversation, warm turn, against the ~5 s target.
+- [ ] Docs: `resources/data-processing.mdx` lists Vercel as a sub-processor; `workspaces/chat.mdx` matches what ships.
 - [ ] Preview-env `chat` and `files-publish` areas pass on pr-280.
 
 ## Plan
 
-1. **Integration design (first, short).** Decide how the Railway backend drives Cloudflare sandboxes while keeping our `chat()` loop on the backend (ADR-044):
-   - Preferred: a thin **gateway Worker + Sandbox Durable Object** we deploy, exposing the sandbox operations TanStack needs (create/ensure, exec/spawn with streaming, fs, ports, destroy) over authenticated HTTP/WebSocket, and a backend-side provider that implements TanStack's `SandboxProvider` against that gateway. Check first whether `@tanstack/ai-sandbox-cloudflare` already supports a remote (non-Worker) host; if so use it instead of writing our own.
-   - Rejected unless the first option fails: moving `chat()` into the Cloudflare coordinator Durable Object (would move persistence, auth, and tools off our backend).
-   Output: a short ADR (gateway shape, auth between backend ↔ Worker ↔ container, callback URLs). User review before phase 2.
-2. **Gateway Worker.** New app (e.g. `apps/sandbox-gateway`) with the Sandbox DO class and container image config, `wrangler` deploy, per-environment names (`production`, `pr-N`). Auth: backend → Worker with a shared bearer per environment; Worker → DO by sandbox id = conversation id.
-3. **Chat image.** Build the container image from `scripts/chat-sandbox/` (git, pinned `opencode-ai`, credential helper) for Cloudflare's registry; instance type `basic` to start (¼ vCPU, 1 GiB), configurable; measure and adjust.
-4. **Backend provider + networking.** Implement/plug the provider; OpenCode in the container calls our model proxy and tool bridge on the backend's public URL with the existing per-run bearer tokens; backend reaches OpenCode through the gateway (container port proxied by the Worker), never a public unauthenticated URL.
-5. **Git as durable state.** After each turn that changed the worktree, commit (message from the turn) and push to `ctxpipe/chat/<conversation>` via the existing conversation publication broker (backend fetches the delta and pushes; the sandbox holds read credentials only). On (re)create: clone the workspace repository, check out the session branch if it exists, run setup. Snapshots/forks are not needed for correctness; optionally use Cloudflare snapshots only to speed up the post-setup base.
-6. **Publish UI.** Remove "Commit+Push" from the conversation chrome and its route/mutation; "Create PR" squashes the session branch's turn commits onto the default branch base into one commit before opening the PR; "Show PR" unchanged. Update Storybook plays and the preview-env `files-publish` area.
-7. **Lifecycle + limits.** `sleepAfter` = keep-alive (30 min) or shorter if cost data says so; per-environment concurrency cap enforced before create (clear "capacity" error to the user); destroy on conversation/workspace delete; periodic orphan sweep via the gateway listing live sandboxes vs owner rows.
-8. **Wire into hosted.** `SANDBOX_PROVIDER=cloudflare` + gateway URL/secret in `infra/module/ctxpipe/railway.tf` for backend + worker and PR previews; Cloudflare API token in CI secrets; deploy the Worker in `deploy.yaml` and `pr-deploy.yaml`; remove the unsandboxed fallback on hosted.
-9. **Proof.** Provider contract tests against a real Cloudflare dev environment in a CI lane (fails, not skips, without credentials); preview-env `chat` + `files-publish`; sleep/destroy-mid-conversation test proving no work is lost; latency and cost numbers; orphan sweep.
-
-## Decisions
-
-- **Publish UI (user, 2026-10-01):** turn commits are pushed automatically, so the UI drops "Commit+Push" and keeps only "Create PR" / "Show PR". Creating the PR squashes the conversation's turn commits into one.
-- **Instance type (user, 2026-10-01):** start on `basic` (1 GiB, ¼ vCPU); move to `standard-1` only if measurements require it.
+1. **Provider wiring (after ticket 01's upgrade).**
+   - Add `@tanstack/ai-sandbox-vercel`.
+   - `sandbox-provider.ts` selects `vercel` when configured. Config: token, team, project, region.
+   - Chat image as a Vercel custom image: pinned `opencode-ai`, git credential helper.
+2. **Patch 1: start from snapshot.**
+   - Provider config `snapshot?: string` passed as `source`, mirroring the Upstash provider.
+   - Snapshots and fork capabilities through `sandbox.snapshot()` / `Sandbox.fork`.
+   - Proof: contract test creates a base, starts two sandboxes from it, and finds the clone already present.
+3. **Patch 2: authenticated port.**
+   - Generate an OpenCode server password per sandbox, set it in the sandbox env, and return `{ url, headers: { Authorization } }` from `ports.connect`.
+   - Proof: an unauthenticated request is rejected; the adapter connects.
+4. **Patch 3: kill.**
+   - Measure `Command.kill` on a process group (`tail -f` child) against a real sandbox.
+   - Enable only if it is clean; otherwise our cancel path stops the sandbox.
+5. **Workspace base (shared with ticket 03).**
+   - A base builder creates a sandbox from the Workspace repository, runs setup, and snapshots it with no expiry while in use.
+   - Recorded in the sandbox table, rebuilt when stale, deleted when unused.
+6. **Egress allowlist.**
+   - Apply Vercel's network policy at create and resume (our patch or wrapper).
+   - Allowlist: backend origin, `github.com`, `api.github.com`, `codeload.github.com`, and what OpenCode needs (to be measured).
+7. **Lifecycle.**
+   - Idle timeout 5 minutes. Persistent sandboxes with `keepLastSnapshots: 1` and 30-day expiry.
+   - The org cap is counted from our sandbox table under the Workspace lock before create.
+   - Non-interactive callers (MCP, Slack, semantic merge) call stop in `finally`.
+8. **Git as durable state + publish UI.** Per-turn commit and push via the broker. Squash on Create PR; remove Commit+Push (route, mutation, chrome, stories).
+9. **Deploy.** Pass the GitHub secret through `deploy.yaml` and `pr-deploy.yaml` (and Terraform variables if that's where Railway env lives). Preview tag plus cleanup on PR close.
+10. **Proof.**
+    - Real-Vercel contract lane: fails, never skips, without credentials.
+    - Preview-env `chat` + `files-publish`.
+    - Idle-stop and resume mid-conversation without losing work.
+    - Latency and cost numbers.
 
 ## Open questions
 
@@ -75,9 +100,14 @@ None.
 
 ## Delegation brief
 
-Read first: this ticket, ticket 01 (upgrade to `@tanstack/ai` 0.63 must land first), ADR-044, `sandbox-provider.ts`, `tanstack-workspace-chat.ts`, conversation publication code (`conversation-files-routes.ts`, publish broker), `scripts/chat-sandbox/`, `infra/module/ctxpipe/railway.tf`, `.github/workflows/deploy.yaml` and `pr-deploy.yaml`, the TanStack Cloudflare sandbox guide and `@tanstack/ai-sandbox-cloudflare` source, Cloudflare Sandbox SDK docs.
+Read first:
+- this ticket, ticket 01 (upgrade lands first), ADR-044, ADR-048;
+- `sandbox-provider.ts`, `tanstack-workspace-chat.ts`, `workspace-sandbox-cleanup.ts`, `sandbox-instance-store.ts`;
+- conversation publication (`conversation-files-routes.ts`, `conversation-publish.ts`);
+- `scripts/chat-sandbox/`, `.github/workflows/deploy.yaml`, `pr-deploy.yaml`, `infra/module/ctxpipe/railway.tf`;
+- `@tanstack/ai-sandbox-vercel` and `@vercel/sandbox` source, Vercel Sandbox docs (persistence, snapshots, firewall, pricing).
 
-Phase 1 output (ADR draft) goes to the user before building; phases 2–9 follow once it is approved. Needs a Cloudflare account/API token with Workers + Containers (ask the user). Never fall back to unsandboxed on hosted.
+Keep each patch minimal and listed with its removal condition. Never fall back to unsandboxed on hosted.
 
 ## Comments
 
