@@ -564,7 +564,8 @@ async function createNativeHydrationFixture(
     )
     const sha = git("rev-parse", "HEAD")
     const remote = join(directory, "remote.git")
-    git("clone", "--bare", directory, remote)
+    // A pack transfer, not a per-object copy, so background gc cannot race it.
+    git("clone", "--bare", "--no-local", directory, remote)
     const workspaceUrl = github
       ? "https://github.com/fixture/hydration-contract.git"
       : remote

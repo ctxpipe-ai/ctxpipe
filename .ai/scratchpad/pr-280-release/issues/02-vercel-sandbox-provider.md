@@ -111,6 +111,23 @@ Keep each patch minimal and listed with its removal condition. Never fall back t
 
 ## Comments
 
+- 2026-10-03 (claude): **measured against real Vercel sandboxes** (CI lane "Hosted sandbox (Vercel) contracts", all five pass):
+
+  | Step | Time |
+  | --- | ---: |
+  | Create a sandbox | 0.25–0.7 s |
+  | Stop a persistent sandbox (saves state) | 3.2–4.3 s |
+  | Resume it and read a saved file | 1.6–1.8 s |
+  | Snapshot a prepared base | 2.1 s |
+  | Start a new sandbox from that snapshot | 0.9 s |
+  | Install OpenCode 1.18.34 with npm | 11.3 s |
+  | OpenCode serving after spawn | 1.8 s |
+
+  - The egress allowlist works: `github.com` answers; other hosts fail DNS (`ENOTFOUND`).
+  - The agent port answers 200 with the OpenCode password and 401 without it.
+  - `Command.kill` stops the command's child process too, so hosted cancel can kill the agent (enable `killableProcesses`); no patch is needed for kill.
+  - So the three planned patches look unnecessary: snapshot start and port auth fit in our own `Sandbox.create` + stock `VercelHandle`, and kill already works. The base snapshot should carry OpenCode, which saves the 11 s install.
+
 - 2026-10-03 (claude): **findings from reading `@tanstack/ai-sandbox-vercel` 0.2.5 and `@vercel/sandbox` 2.9.2** (to confirm against a real sandbox in the new CI lane "Hosted sandbox (Vercel) contracts", `vercel-sandbox.contract.test.ts`):
   - **Probably no patches needed.** `VercelHandle` is a public export. Our provider can call `Sandbox.create` with the full parameters (snapshot source, `networkPolicy`, `persistent`, `tags`, snapshot retention) and wrap the result in the stock handle. Port auth needs only `ports.connect` to return `headers`; the stock OpenCode adapter already forwards channel headers. OpenCode 1.18.34 enforces `OPENCODE_SERVER_PASSWORD` as Basic auth (`opencode:<password>`) on every route, including the event stream (checked locally).
   - **Stock `destroy` only stops.** On a persistent sandbox `stop()` saves state; it does not delete. Deleting (conversation removed, 30 days unused) needs `sandbox.delete()` in our cleanup.
