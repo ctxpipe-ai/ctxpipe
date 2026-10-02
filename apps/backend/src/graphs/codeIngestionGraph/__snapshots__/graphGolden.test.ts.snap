@@ -27,6 +27,7 @@ exports[`graph golden spec > produces the expected triple set from real connecto
   "dec:repo_api:docs/adr/0003-old-handler-layering.md INFLUENCES svc:repo_api:./",
   "dec:repo_api:docs/adr/0007-domain-logic-in-services.md DECLARED_IN fil:repo_api:docs/adr/0007-domain-logic-in-services.md",
   "dec:repo_api:docs/adr/0007-domain-logic-in-services.md INFLUENCES svc:repo_api:./",
+  "dec:repo_api:docs/adr/0007-domain-logic-in-services.md INFLUENCES svc:repo_api:src",
   "dec:repo_api:docs/adr/0007-domain-logic-in-services.md MENTIONS fil:repo_api:src/http/createUser.ts",
   "dec:repo_api:docs/adr/0007-domain-logic-in-services.md SUPERSEDES dec:repo_api:docs/adr/0003-old-handler-layering.md",
   "fil:repo_api:.github/CODEOWNERS PART_OF repo_api",

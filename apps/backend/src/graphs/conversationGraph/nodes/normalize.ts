@@ -1,4 +1,7 @@
-import type { CodeSearchResult } from "../../../retrieval/index.js"
+import type {
+  CodeSearchResult,
+  TraversalNode,
+} from "../../../retrieval/index.js"
 import {
   mergeCandidates,
   parseCodeSearchResults,
@@ -33,7 +36,7 @@ export async function normalizeNode(
     })),
     (traversalResults ?? []).map((t) => ({
       nodeIds: (t as { nodeIds?: string[] }).nodeIds ?? [],
-      edgeClaimIds: (t as { edgeClaimIds?: string[] }).edgeClaimIds ?? [],
+      nodes: (t as { nodes?: TraversalNode[] }).nodes ?? [],
     })),
   )
 

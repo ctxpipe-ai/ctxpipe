@@ -215,6 +215,7 @@ type WorkflowInput = {
   repositoryId: string
   orgId: string
   fullReingest?: boolean
+  deterministicOnly?: boolean
 }
 
 async function runWorkflow(
@@ -343,6 +344,26 @@ describe("repository-ingestion index workflow boundary", () => {
       makeStep(repositoryIndexResult, full),
     )
     expect(full.input).not.toHaveProperty("fromHash")
+  })
+
+  it("re-reads the whole repository with only deterministic extractors and never sweeps on a deterministic-only run", async () => {
+    repositoryRow.lastIngestedHash = "old"
+    const index: { input?: unknown } = {}
+
+    await runWorkflow(
+      { repositoryId: "repo_1", orgId: "org_1", deterministicOnly: true },
+      makeStep(repositoryIndexResult, index),
+    )
+
+    expect(index.input).not.toHaveProperty("fromHash")
+    expect(runIdentifyPhaseForRootMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "src",
+      expect.anything(),
+      { deterministicOnly: true },
+    )
+    expect(retractUnobservedMock).not.toHaveBeenCalled()
+    expect(markRepositoryIndexingReady).toHaveBeenCalled()
   })
 
   it("runs repository-index via runWorkflow outside withOrgDbContext", async () => {

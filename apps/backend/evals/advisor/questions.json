@@ -1,0 +1,95 @@
+[
+  {
+    "id": "why-bun",
+    "kind": "lookup",
+    "prompt": "Why does the ctxpipe backend run on Bun rather than Node? Cite the architecture decision record if there is one.",
+    "expect": { "adrs": [2], "terms": ["Bun"] }
+  },
+  {
+    "id": "why-falkordb",
+    "kind": "lookup",
+    "prompt": "Why is FalkorDB the default graph database, and which other graph engines are supported? Cite the architecture decision record if there is one.",
+    "expect": { "adrs": [10], "terms": ["FalkorDB", "Neptune"] }
+  },
+  {
+    "id": "why-terraform",
+    "kind": "lookup",
+    "prompt": "What do we use for infrastructure as code, and why did we choose it over the alternative we used before? Cite the architecture decision record if there is one.",
+    "expect": { "adrs": [13], "terms": ["Terraform", "Pulumi"] }
+  },
+  {
+    "id": "railway-region",
+    "kind": "lookup",
+    "prompt": "Which region does our Railway compute run in, and why? Cite the architecture decision record if there is one.",
+    "expect": { "adrs": [29], "terms": ["US East|us-east", "Neon"] }
+  },
+  {
+    "id": "local-memory",
+    "kind": "lookup",
+    "prompt": "Is AgentMemory still part of our local agent memory setup? What is the current approach? Cite the architecture decision record if there is one.",
+    "expect": {
+      "adrs": [24, 21],
+      "terms": ["Markdown", "supersed|no longer|replaced"]
+    }
+  },
+  {
+    "id": "compose",
+    "kind": "lookup",
+    "prompt": "How is local development with Docker Compose organised today? Which decision is current? Cite the architecture decision record if there is one.",
+    "expect": { "adrs": [15, 4], "terms": ["profile", "supersed"] }
+  },
+  {
+    "id": "codesearch-adrs",
+    "kind": "aggregation",
+    "prompt": "Which architecture decisions govern the codesearch service? List the ADRs.",
+    "expect": { "adrs": [8, 27] }
+  },
+  {
+    "id": "ui-stack",
+    "kind": "lookup",
+    "prompt": "What is the frontend stack for the ui app, and where is it decided? Cite the architecture decision record if there is one.",
+    "expect": { "adrs": [1], "terms": ["TanStack", "React Aria"] }
+  },
+  {
+    "id": "orm",
+    "kind": "lookup",
+    "prompt": "Which ORM does the backend use, and which release channel of it? Cite the architecture decision record if there is one.",
+    "expect": { "adrs": [3], "terms": ["Drizzle", "beta"] }
+  },
+  {
+    "id": "connections",
+    "kind": "lookup",
+    "prompt": "How are GitHub, Slack, Linear and Notion integrations stored in the data model? Cite the architecture decision record if there is one.",
+    "expect": { "adrs": [18], "terms": ["connections"] }
+  },
+  {
+    "id": "mcp-keys",
+    "kind": "lookup",
+    "prompt": "How do non-interactive MCP clients authenticate to an organisation? Cite the architecture decision record if there is one.",
+    "expect": { "adrs": [30], "terms": ["x-api-key"] }
+  },
+  {
+    "id": "observability",
+    "kind": "lookup",
+    "prompt": "How does the backend do logging and tracing? Cite the architecture decision record if there is one.",
+    "expect": { "adrs": [11], "terms": ["evlog", "OpenTelemetry"] }
+  },
+  {
+    "id": "ui-adrs",
+    "kind": "aggregation",
+    "prompt": "Which architecture decisions affect the ui app? List the ADRs.",
+    "expect": { "adrs": [1, 9, 17] }
+  },
+  {
+    "id": "superseded",
+    "kind": "aggregation",
+    "prompt": "Which of our ADRs have been superseded, and by which ADR? List them.",
+    "expect": { "pairs": [[15, 4], [24, 21]] }
+  },
+  {
+    "id": "backend-adrs",
+    "kind": "aggregation",
+    "prompt": "Which architecture decisions affect the backend service? List the ADRs.",
+    "expect": { "adrs": [2, 3, 11, 18, 29] }
+  }
+]

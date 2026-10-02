@@ -1,5 +1,6 @@
 import type { Candidate } from "../schema/candidate.js"
 import type { SourceChannel } from "../schema/candidate.js"
+import type { TraversalNode } from "./graphTraversal.js"
 
 /** Corroboration boost when same entity appears in multiple sources */
 const CORROBORATION_BOOST = 0.1
@@ -46,7 +47,7 @@ export function mergeCandidates(
   semantic: Array<{ objectId: string; kind?: string; payload?: Record<string, unknown>; score?: number }>,
   code: CodeCandidateInput[],
   graph: Array<{ id: string; [key: string]: unknown }>,
-  traversal: Array<{ nodeIds: string[]; edgeClaimIds: string[] }>,
+  traversal: Array<{ nodeIds: string[]; nodes: TraversalNode[] }>,
 ): Candidate[] {
   const byId = new Map<string, Candidate>()
 
@@ -100,14 +101,20 @@ export function mergeCandidates(
   }
 
   for (const t of traversal) {
+    const nodesById = new Map(t.nodes.map((node) => [node.id, node]))
     for (const nodeId of t.nodeIds) {
       if (!nodeId) continue
       const id = `cand_trav_${nodeId}`
+      const node = nodesById.get(nodeId)
+      const payload: Record<string, unknown> = { fromTraversal: true }
+      if (node?.kind) payload.kind = node.kind
+      if (node?.name) payload.name = node.name
+      if (node?.status) payload.status = node.status
       const candidate: Candidate = {
         id,
         sourceChannels: ["graph"],
         objectId: nodeId,
-        payload: { fromTraversal: true, edgeClaimIds: t.edgeClaimIds },
+        payload,
       }
       const existing = byId.get(nodeId)
       byId.set(nodeId, existing ? mergeCandidate(existing, candidate) : candidate)
