@@ -8,9 +8,8 @@ builds search indexes and graph claims, and exposes that context through
 git-backed Workspaces (Workspace chat, Files, Graph) and the product MCP
 ([workspaces PRD](PRDs/workspaces.md)).
 
-The monorepo uses pnpm workspaces, Turbo, and Biome. The root project is licensed
-under Elastic License 2.0 by default; package-specific exceptions such as the
-CLI and Confluence Forge app declare their own licenses.
+The monorepo uses pnpm workspaces, Turbo, and Biome. The repository is licensed
+under the MIT License.
 
 ## Applications and packages
 

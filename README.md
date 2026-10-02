@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://img.shields.io/badge/License-ELv2-0f766e.svg"><img src="https://img.shields.io/badge/License-ELv2-0f766e.svg" alt="License: ELv2" /></a>
+  <a href="https://img.shields.io/badge/License-MIT-0f766e.svg"><img src="https://img.shields.io/badge/License-MIT-0f766e.svg" alt="License: MIT" /></a>
   <a href="https://x.com/ctxpipe"><img src="https://img.shields.io/badge/X-@ctxpipe-111827.svg?logo=x&logoColor=white" alt="X: @ctxpipe" /></a>
   <a href="https://ctxpipe.ai/discord"><img src="https://img.shields.io/badge/chat-Discord-5865F2.svg?logo=discord&logoColor=white" alt="Chat: Discord" /></a>
 </p>
@@ -189,8 +189,8 @@ please open an issue first so the design and product direction can be aligned.
 
 ## License
 
-This project is released under **Elastic License 2.0 (ELv2)**. See
-[LICENSE](LICENSE) for the binding terms.
+This project is released under the **MIT License**. See [LICENSE](LICENSE)
+for the binding terms.
 
 See the open-source guide:
 [docs.ctxpipe.ai/docs/resources/open-source](https://docs.ctxpipe.ai/docs/resources/open-source)

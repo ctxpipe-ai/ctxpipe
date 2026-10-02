@@ -9,36 +9,36 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as OnboardingRouteImport } from './routes/onboarding'
-import { Route as OrgSlugRouteImport } from './routes/$orgSlug'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as OrgSlugRouteImport } from './routes/$orgSlug'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as OrgSlugIndexRouteImport } from './routes/$orgSlug.index'
-import { Route as DotslackSetupRouteImport } from './routes/[.]slack.setup'
-import { Route as DotnotionSetupRouteImport } from './routes/[.]notion.setup'
-import { Route as DotgithubSetupRouteImport } from './routes/[.]github.setup'
-import { Route as DotauthSignInRouteImport } from './routes/[.]auth.sign-in'
-import { Route as DotauthSelectOrganizationRouteImport } from './routes/[.]auth.select-organization'
-import { Route as DotauthResetPasswordRouteImport } from './routes/[.]auth.reset-password'
-import { Route as DotauthDeviceRouteImport } from './routes/[.]auth.device'
-import { Route as DotauthConsentRouteImport } from './routes/[.]auth.consent'
-import { Route as DotauthAccountRouteImport } from './routes/[.]auth.account'
-import { Route as DotauthAuthViewRouteImport } from './routes/[.]auth.$authView'
-import { Route as OrgSlugSetupRouteImport } from './routes/$orgSlug.setup'
 import { Route as OrgSlugConnectorsRouteImport } from './routes/$orgSlug.connectors'
-import { Route as DotauthAccountIndexRouteImport } from './routes/[.]auth.account.index'
-import { Route as DototelV1SignalRouteImport } from './routes/[.]otel.v1.$signal'
-import { Route as DotauthOrganizationOrganizationViewRouteImport } from './routes/[.]auth.organization.$organizationView'
-import { Route as DotauthAccountAccountViewRouteImport } from './routes/[.]auth.account.$accountView'
-import { Route as OrgSlugWsWorkspaceSlugRouteImport } from './routes/$orgSlug.ws.$workspaceSlug'
-import { Route as OrgSlugWorkspacesNewRouteImport } from './routes/$orgSlug.workspaces.new'
-import { Route as OrgSlugOrganizationOrganizationViewRouteImport } from './routes/$orgSlug.organization.$organizationView'
+import { Route as OrgSlugSetupRouteImport } from './routes/$orgSlug.setup'
+import { Route as DotauthAuthViewRouteImport } from './routes/[.]auth.$authView'
+import { Route as DotauthAccountRouteImport } from './routes/[.]auth.account'
+import { Route as DotauthConsentRouteImport } from './routes/[.]auth.consent'
+import { Route as DotauthDeviceRouteImport } from './routes/[.]auth.device'
+import { Route as DotauthResetPasswordRouteImport } from './routes/[.]auth.reset-password'
+import { Route as DotauthSelectOrganizationRouteImport } from './routes/[.]auth.select-organization'
+import { Route as DotauthSignInRouteImport } from './routes/[.]auth.sign-in'
+import { Route as DotgithubSetupRouteImport } from './routes/[.]github.setup'
+import { Route as DotnotionSetupRouteImport } from './routes/[.]notion.setup'
+import { Route as DotslackSetupRouteImport } from './routes/[.]slack.setup'
 import { Route as OrgSlugGithubSetupRouteImport } from './routes/$orgSlug.github.setup'
+import { Route as OrgSlugOrganizationOrganizationViewRouteImport } from './routes/$orgSlug.organization.$organizationView'
+import { Route as OrgSlugWorkspacesNewRouteImport } from './routes/$orgSlug.workspaces.new'
+import { Route as OrgSlugWsWorkspaceSlugRouteImport } from './routes/$orgSlug.ws.$workspaceSlug'
+import { Route as DotauthAccountIndexRouteImport } from './routes/[.]auth.account.index'
+import { Route as DotauthAccountAccountViewRouteImport } from './routes/[.]auth.account.$accountView'
+import { Route as DotauthOrganizationOrganizationViewRouteImport } from './routes/[.]auth.organization.$organizationView'
+import { Route as DototelV1SignalRouteImport } from './routes/[.]otel.v1.$signal'
 import { Route as OrgSlugWsWorkspaceSlugIndexRouteImport } from './routes/$orgSlug.ws.$workspaceSlug.index'
 import { Route as OrgSlugWsWorkspaceSlugConversationIdRouteImport } from './routes/$orgSlug.ws.$workspaceSlug.$conversationId'
 
-const OnboardingRoute = OnboardingRouteImport.update({
-  id: '/onboarding',
-  path: '/onboarding',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OrgSlugRoute = OrgSlugRouteImport.update({
@@ -46,9 +46,9 @@ const OrgSlugRoute = OrgSlugRouteImport.update({
   path: '/$orgSlug',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OrgSlugIndexRoute = OrgSlugIndexRouteImport.update({
@@ -56,24 +56,39 @@ const OrgSlugIndexRoute = OrgSlugIndexRouteImport.update({
   path: '/',
   getParentRoute: () => OrgSlugRoute,
 } as any)
-const DotslackSetupRoute = DotslackSetupRouteImport.update({
-  id: '/.slack/setup',
-  path: '/.slack/setup',
+const OrgSlugConnectorsRoute = OrgSlugConnectorsRouteImport.update({
+  id: '/connectors',
+  path: '/connectors',
+  getParentRoute: () => OrgSlugRoute,
+} as any)
+const OrgSlugSetupRoute = OrgSlugSetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
+  getParentRoute: () => OrgSlugRoute,
+} as any)
+const DotauthAuthViewRoute = DotauthAuthViewRouteImport.update({
+  id: '/.auth/$authView',
+  path: '/.auth/$authView',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DotnotionSetupRoute = DotnotionSetupRouteImport.update({
-  id: '/.notion/setup',
-  path: '/.notion/setup',
+const DotauthAccountRoute = DotauthAccountRouteImport.update({
+  id: '/.auth/account',
+  path: '/.auth/account',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DotgithubSetupRoute = DotgithubSetupRouteImport.update({
-  id: '/.github/setup',
-  path: '/.github/setup',
+const DotauthConsentRoute = DotauthConsentRouteImport.update({
+  id: '/.auth/consent',
+  path: '/.auth/consent',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DotauthSignInRoute = DotauthSignInRouteImport.update({
-  id: '/.auth/sign-in',
-  path: '/.auth/sign-in',
+const DotauthDeviceRoute = DotauthDeviceRouteImport.update({
+  id: '/.auth/device',
+  path: '/.auth/device',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DotauthResetPasswordRoute = DotauthResetPasswordRouteImport.update({
+  id: '/.auth/reset-password',
+  path: '/.auth/reset-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DotauthSelectOrganizationRoute =
@@ -82,71 +97,29 @@ const DotauthSelectOrganizationRoute =
     path: '/.auth/select-organization',
     getParentRoute: () => rootRouteImport,
   } as any)
-const DotauthResetPasswordRoute = DotauthResetPasswordRouteImport.update({
-  id: '/.auth/reset-password',
-  path: '/.auth/reset-password',
+const DotauthSignInRoute = DotauthSignInRouteImport.update({
+  id: '/.auth/sign-in',
+  path: '/.auth/sign-in',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DotauthDeviceRoute = DotauthDeviceRouteImport.update({
-  id: '/.auth/device',
-  path: '/.auth/device',
+const DotgithubSetupRoute = DotgithubSetupRouteImport.update({
+  id: '/.github/setup',
+  path: '/.github/setup',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DotauthConsentRoute = DotauthConsentRouteImport.update({
-  id: '/.auth/consent',
-  path: '/.auth/consent',
+const DotnotionSetupRoute = DotnotionSetupRouteImport.update({
+  id: '/.notion/setup',
+  path: '/.notion/setup',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DotauthAccountRoute = DotauthAccountRouteImport.update({
-  id: '/.auth/account',
-  path: '/.auth/account',
+const DotslackSetupRoute = DotslackSetupRouteImport.update({
+  id: '/.slack/setup',
+  path: '/.slack/setup',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DotauthAuthViewRoute = DotauthAuthViewRouteImport.update({
-  id: '/.auth/$authView',
-  path: '/.auth/$authView',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OrgSlugSetupRoute = OrgSlugSetupRouteImport.update({
-  id: '/setup',
-  path: '/setup',
-  getParentRoute: () => OrgSlugRoute,
-} as any)
-const OrgSlugConnectorsRoute = OrgSlugConnectorsRouteImport.update({
-  id: '/connectors',
-  path: '/connectors',
-  getParentRoute: () => OrgSlugRoute,
-} as any)
-const DotauthAccountIndexRoute = DotauthAccountIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => DotauthAccountRoute,
-} as any)
-const DototelV1SignalRoute = DototelV1SignalRouteImport.update({
-  id: '/.otel/v1/$signal',
-  path: '/.otel/v1/$signal',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DotauthOrganizationOrganizationViewRoute =
-  DotauthOrganizationOrganizationViewRouteImport.update({
-    id: '/.auth/organization/$organizationView',
-    path: '/.auth/organization/$organizationView',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const DotauthAccountAccountViewRoute =
-  DotauthAccountAccountViewRouteImport.update({
-    id: '/$accountView',
-    path: '/$accountView',
-    getParentRoute: () => DotauthAccountRoute,
-  } as any)
-const OrgSlugWsWorkspaceSlugRoute = OrgSlugWsWorkspaceSlugRouteImport.update({
-  id: '/ws/$workspaceSlug',
-  path: '/ws/$workspaceSlug',
-  getParentRoute: () => OrgSlugRoute,
-} as any)
-const OrgSlugWorkspacesNewRoute = OrgSlugWorkspacesNewRouteImport.update({
-  id: '/workspaces/new',
-  path: '/workspaces/new',
+const OrgSlugGithubSetupRoute = OrgSlugGithubSetupRouteImport.update({
+  id: '/github/setup',
+  path: '/github/setup',
   getParentRoute: () => OrgSlugRoute,
 } as any)
 const OrgSlugOrganizationOrganizationViewRoute =
@@ -155,10 +128,37 @@ const OrgSlugOrganizationOrganizationViewRoute =
     path: '/organization/$organizationView',
     getParentRoute: () => OrgSlugRoute,
   } as any)
-const OrgSlugGithubSetupRoute = OrgSlugGithubSetupRouteImport.update({
-  id: '/github/setup',
-  path: '/github/setup',
+const OrgSlugWorkspacesNewRoute = OrgSlugWorkspacesNewRouteImport.update({
+  id: '/workspaces/new',
+  path: '/workspaces/new',
   getParentRoute: () => OrgSlugRoute,
+} as any)
+const OrgSlugWsWorkspaceSlugRoute = OrgSlugWsWorkspaceSlugRouteImport.update({
+  id: '/ws/$workspaceSlug',
+  path: '/ws/$workspaceSlug',
+  getParentRoute: () => OrgSlugRoute,
+} as any)
+const DotauthAccountIndexRoute = DotauthAccountIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => DotauthAccountRoute,
+} as any)
+const DotauthAccountAccountViewRoute =
+  DotauthAccountAccountViewRouteImport.update({
+    id: '/$accountView',
+    path: '/$accountView',
+    getParentRoute: () => DotauthAccountRoute,
+  } as any)
+const DotauthOrganizationOrganizationViewRoute =
+  DotauthOrganizationOrganizationViewRouteImport.update({
+    id: '/.auth/organization/$organizationView',
+    path: '/.auth/organization/$organizationView',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const DototelV1SignalRoute = DototelV1SignalRouteImport.update({
+  id: '/.otel/v1/$signal',
+  path: '/.otel/v1/$signal',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const OrgSlugWsWorkspaceSlugIndexRoute =
   OrgSlugWsWorkspaceSlugIndexRouteImport.update({
@@ -359,11 +359,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/onboarding': {
-      id: '/onboarding'
-      path: '/onboarding'
-      fullPath: '/onboarding'
-      preLoaderRoute: typeof OnboardingRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$orgSlug': {
@@ -373,11 +373,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrgSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$orgSlug/': {
@@ -387,60 +387,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrgSlugIndexRouteImport
       parentRoute: typeof OrgSlugRoute
     }
-    '/.slack/setup': {
-      id: '/.slack/setup'
-      path: '/.slack/setup'
-      fullPath: '/.slack/setup'
-      preLoaderRoute: typeof DotslackSetupRouteImport
-      parentRoute: typeof rootRouteImport
+    '/$orgSlug/connectors': {
+      id: '/$orgSlug/connectors'
+      path: '/connectors'
+      fullPath: '/$orgSlug/connectors'
+      preLoaderRoute: typeof OrgSlugConnectorsRouteImport
+      parentRoute: typeof OrgSlugRoute
     }
-    '/.notion/setup': {
-      id: '/.notion/setup'
-      path: '/.notion/setup'
-      fullPath: '/.notion/setup'
-      preLoaderRoute: typeof DotnotionSetupRouteImport
-      parentRoute: typeof rootRouteImport
+    '/$orgSlug/setup': {
+      id: '/$orgSlug/setup'
+      path: '/setup'
+      fullPath: '/$orgSlug/setup'
+      preLoaderRoute: typeof OrgSlugSetupRouteImport
+      parentRoute: typeof OrgSlugRoute
     }
-    '/.github/setup': {
-      id: '/.github/setup'
-      path: '/.github/setup'
-      fullPath: '/.github/setup'
-      preLoaderRoute: typeof DotgithubSetupRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/.auth/sign-in': {
-      id: '/.auth/sign-in'
-      path: '/.auth/sign-in'
-      fullPath: '/.auth/sign-in'
-      preLoaderRoute: typeof DotauthSignInRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/.auth/select-organization': {
-      id: '/.auth/select-organization'
-      path: '/.auth/select-organization'
-      fullPath: '/.auth/select-organization'
-      preLoaderRoute: typeof DotauthSelectOrganizationRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/.auth/reset-password': {
-      id: '/.auth/reset-password'
-      path: '/.auth/reset-password'
-      fullPath: '/.auth/reset-password'
-      preLoaderRoute: typeof DotauthResetPasswordRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/.auth/device': {
-      id: '/.auth/device'
-      path: '/.auth/device'
-      fullPath: '/.auth/device'
-      preLoaderRoute: typeof DotauthDeviceRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/.auth/consent': {
-      id: '/.auth/consent'
-      path: '/.auth/consent'
-      fullPath: '/.auth/consent'
-      preLoaderRoute: typeof DotauthConsentRouteImport
+    '/.auth/$authView': {
+      id: '/.auth/$authView'
+      path: '/.auth/$authView'
+      fullPath: '/.auth/$authView'
+      preLoaderRoute: typeof DotauthAuthViewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/.auth/account': {
@@ -450,67 +415,67 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DotauthAccountRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/.auth/$authView': {
-      id: '/.auth/$authView'
-      path: '/.auth/$authView'
-      fullPath: '/.auth/$authView'
-      preLoaderRoute: typeof DotauthAuthViewRouteImport
+    '/.auth/consent': {
+      id: '/.auth/consent'
+      path: '/.auth/consent'
+      fullPath: '/.auth/consent'
+      preLoaderRoute: typeof DotauthConsentRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/$orgSlug/setup': {
-      id: '/$orgSlug/setup'
-      path: '/setup'
-      fullPath: '/$orgSlug/setup'
-      preLoaderRoute: typeof OrgSlugSetupRouteImport
-      parentRoute: typeof OrgSlugRoute
-    }
-    '/$orgSlug/connectors': {
-      id: '/$orgSlug/connectors'
-      path: '/connectors'
-      fullPath: '/$orgSlug/connectors'
-      preLoaderRoute: typeof OrgSlugConnectorsRouteImport
-      parentRoute: typeof OrgSlugRoute
-    }
-    '/.auth/account/': {
-      id: '/.auth/account/'
-      path: '/'
-      fullPath: '/.auth/account/'
-      preLoaderRoute: typeof DotauthAccountIndexRouteImport
-      parentRoute: typeof DotauthAccountRoute
-    }
-    '/.otel/v1/$signal': {
-      id: '/.otel/v1/$signal'
-      path: '/.otel/v1/$signal'
-      fullPath: '/.otel/v1/$signal'
-      preLoaderRoute: typeof DototelV1SignalRouteImport
+    '/.auth/device': {
+      id: '/.auth/device'
+      path: '/.auth/device'
+      fullPath: '/.auth/device'
+      preLoaderRoute: typeof DotauthDeviceRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/.auth/organization/$organizationView': {
-      id: '/.auth/organization/$organizationView'
-      path: '/.auth/organization/$organizationView'
-      fullPath: '/.auth/organization/$organizationView'
-      preLoaderRoute: typeof DotauthOrganizationOrganizationViewRouteImport
+    '/.auth/reset-password': {
+      id: '/.auth/reset-password'
+      path: '/.auth/reset-password'
+      fullPath: '/.auth/reset-password'
+      preLoaderRoute: typeof DotauthResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/.auth/account/$accountView': {
-      id: '/.auth/account/$accountView'
-      path: '/$accountView'
-      fullPath: '/.auth/account/$accountView'
-      preLoaderRoute: typeof DotauthAccountAccountViewRouteImport
-      parentRoute: typeof DotauthAccountRoute
+    '/.auth/select-organization': {
+      id: '/.auth/select-organization'
+      path: '/.auth/select-organization'
+      fullPath: '/.auth/select-organization'
+      preLoaderRoute: typeof DotauthSelectOrganizationRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/$orgSlug/ws/$workspaceSlug': {
-      id: '/$orgSlug/ws/$workspaceSlug'
-      path: '/ws/$workspaceSlug'
-      fullPath: '/$orgSlug/ws/$workspaceSlug'
-      preLoaderRoute: typeof OrgSlugWsWorkspaceSlugRouteImport
-      parentRoute: typeof OrgSlugRoute
+    '/.auth/sign-in': {
+      id: '/.auth/sign-in'
+      path: '/.auth/sign-in'
+      fullPath: '/.auth/sign-in'
+      preLoaderRoute: typeof DotauthSignInRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/$orgSlug/workspaces/new': {
-      id: '/$orgSlug/workspaces/new'
-      path: '/workspaces/new'
-      fullPath: '/$orgSlug/workspaces/new'
-      preLoaderRoute: typeof OrgSlugWorkspacesNewRouteImport
+    '/.github/setup': {
+      id: '/.github/setup'
+      path: '/.github/setup'
+      fullPath: '/.github/setup'
+      preLoaderRoute: typeof DotgithubSetupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.notion/setup': {
+      id: '/.notion/setup'
+      path: '/.notion/setup'
+      fullPath: '/.notion/setup'
+      preLoaderRoute: typeof DotnotionSetupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.slack/setup': {
+      id: '/.slack/setup'
+      path: '/.slack/setup'
+      fullPath: '/.slack/setup'
+      preLoaderRoute: typeof DotslackSetupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$orgSlug/github/setup': {
+      id: '/$orgSlug/github/setup'
+      path: '/github/setup'
+      fullPath: '/$orgSlug/github/setup'
+      preLoaderRoute: typeof OrgSlugGithubSetupRouteImport
       parentRoute: typeof OrgSlugRoute
     }
     '/$orgSlug/organization/$organizationView': {
@@ -520,12 +485,47 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrgSlugOrganizationOrganizationViewRouteImport
       parentRoute: typeof OrgSlugRoute
     }
-    '/$orgSlug/github/setup': {
-      id: '/$orgSlug/github/setup'
-      path: '/github/setup'
-      fullPath: '/$orgSlug/github/setup'
-      preLoaderRoute: typeof OrgSlugGithubSetupRouteImport
+    '/$orgSlug/workspaces/new': {
+      id: '/$orgSlug/workspaces/new'
+      path: '/workspaces/new'
+      fullPath: '/$orgSlug/workspaces/new'
+      preLoaderRoute: typeof OrgSlugWorkspacesNewRouteImport
       parentRoute: typeof OrgSlugRoute
+    }
+    '/$orgSlug/ws/$workspaceSlug': {
+      id: '/$orgSlug/ws/$workspaceSlug'
+      path: '/ws/$workspaceSlug'
+      fullPath: '/$orgSlug/ws/$workspaceSlug'
+      preLoaderRoute: typeof OrgSlugWsWorkspaceSlugRouteImport
+      parentRoute: typeof OrgSlugRoute
+    }
+    '/.auth/account/': {
+      id: '/.auth/account/'
+      path: '/'
+      fullPath: '/.auth/account/'
+      preLoaderRoute: typeof DotauthAccountIndexRouteImport
+      parentRoute: typeof DotauthAccountRoute
+    }
+    '/.auth/account/$accountView': {
+      id: '/.auth/account/$accountView'
+      path: '/$accountView'
+      fullPath: '/.auth/account/$accountView'
+      preLoaderRoute: typeof DotauthAccountAccountViewRouteImport
+      parentRoute: typeof DotauthAccountRoute
+    }
+    '/.auth/organization/$organizationView': {
+      id: '/.auth/organization/$organizationView'
+      path: '/.auth/organization/$organizationView'
+      fullPath: '/.auth/organization/$organizationView'
+      preLoaderRoute: typeof DotauthOrganizationOrganizationViewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.otel/v1/$signal': {
+      id: '/.otel/v1/$signal'
+      path: '/.otel/v1/$signal'
+      fullPath: '/.otel/v1/$signal'
+      preLoaderRoute: typeof DototelV1SignalRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/$orgSlug/ws/$workspaceSlug/': {
       id: '/$orgSlug/ws/$workspaceSlug/'

@@ -10,6 +10,6 @@
   },
   "homepage": "https://docs.ctxpipe.ai/docs/mcp/claude-plugin",
   "repository": "https://github.com/ctxpipe-ai/ctxpipe",
-  "license": "Elastic-2.0",
+  "license": "MIT",
   "keywords": ["mcp", "ctxpipe", "context", "advisor", "engineering"]
 }
