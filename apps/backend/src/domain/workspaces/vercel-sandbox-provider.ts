@@ -17,7 +17,7 @@ export const GIT_TOKEN_ROTATE_MS = 10 * 60_000
 /** In-flight git calls finish on the old token before it is revoked. */
 const GIT_TOKEN_REVOKE_GRACE_MS = 30_000
 /** Sandbox tag holding when its GitHub token was minted ("0" once revoked). */
-const GIT_TOKEN_TAG = "git-token-at"
+export const GIT_TOKEN_TAG = "git-token-at"
 
 export type VercelCredentials = {
   token: string
@@ -110,12 +110,13 @@ export function conversationNetworkPolicy(input: {
 function policyGitToken(policy: NetworkPolicy | undefined): string | undefined {
   if (!policy || typeof policy === "string" || Array.isArray(policy.allow))
     return undefined
-  const header = policy.allow?.["api.github.com"]?.[0]?.transform?.[0]?.headers
-    ?.authorization
+  const header =
+    policy.allow?.["api.github.com"]?.[0]?.transform?.[0]?.headers
+      ?.authorization
   return header?.startsWith("Bearer ") ? header.slice(7) : undefined
 }
 
-async function revokeGithubToken(token: string): Promise<void> {
+export async function revokeGithubToken(token: string): Promise<void> {
   const response = await fetch("https://api.github.com/installation/token", {
     method: "DELETE",
     headers: {
@@ -128,10 +129,14 @@ async function revokeGithubToken(token: string): Promise<void> {
     throw new Error(`GitHub token revoke failed with ${response.status}`)
 }
 
-function revokeLater(token: string | undefined, sandboxId: string) {
+function revokeLater(
+  token: string | undefined,
+  sandboxId: string,
+  revoke: (token: string) => Promise<void>,
+) {
   if (!token) return
   setTimeout(() => {
-    revokeGithubToken(token).catch((error: unknown) =>
+    revoke(token).catch((error: unknown) =>
       log.warn({
         step: "workspace-chat-git-token-revoke",
         message: `Revoking a replaced sandbox GitHub token failed: ${String(error)}`,
@@ -144,19 +149,28 @@ function revokeLater(token: string | undefined, sandboxId: string) {
 export type ConversationSandboxAccess = {
   /** Mints a fresh read token for the Workspace (never a cached one). */
   mintGitToken: () => Promise<string>
+  /** Defaults to GitHub's revoke endpoint. */
+  revokeGitToken?: (token: string) => Promise<void>
   backendHost: string
   extraHosts?: string[]
 }
 
 /** Replace the sandbox's GitHub token and revoke the old one after a grace. */
-async function rotateGitToken(sandbox: Sandbox, access: ConversationSandboxAccess) {
+async function rotateGitToken(
+  sandbox: Sandbox,
+  access: ConversationSandboxAccess,
+) {
   const previous = policyGitToken(sandbox.networkPolicy)
   const gitToken = await access.mintGitToken()
   await sandbox.update({
     networkPolicy: conversationNetworkPolicy({ ...access, gitToken }),
     tags: { ...sandbox.tags, [GIT_TOKEN_TAG]: String(Date.now()) },
   })
-  revokeLater(previous, sandbox.name)
+  revokeLater(
+    previous,
+    sandbox.name,
+    access.revokeGitToken ?? revokeGithubToken,
+  )
 }
 
 /**
@@ -270,7 +284,11 @@ export function vercelConversationProvider(input: {
       return conversationHandle(sandbox, input.agentPassword)
     },
     async destroy({ id }) {
-      await deleteVercelSandbox(credentials, id)
+      await deleteVercelSandbox(
+        credentials,
+        id,
+        input.access.revokeGitToken ?? revokeGithubToken,
+      )
     },
   }
 }
@@ -279,18 +297,20 @@ export function vercelConversationProvider(input: {
 export async function stopVercelSandbox(
   credentials: VercelCredentials,
   name: string,
+  revoke: (token: string) => Promise<void> = revokeGithubToken,
 ): Promise<void> {
   const sandbox = await Sandbox.get({ ...credentials, name, resume: false })
   const token = policyGitToken(sandbox.networkPolicy)
   await sandbox.update({ tags: { ...sandbox.tags, [GIT_TOKEN_TAG]: "0" } })
   await sandbox.stop()
-  if (token) await revokeGithubToken(token)
+  if (token) await revoke(token)
 }
 
 /** Delete a sandbox and its saved state; already gone counts as deleted. */
 export async function deleteVercelSandbox(
   credentials: VercelCredentials,
   name: string,
+  revoke: (token: string) => Promise<void> = revokeGithubToken,
 ): Promise<void> {
   let sandbox: Sandbox
   try {
@@ -302,5 +322,5 @@ export async function deleteVercelSandbox(
   }
   const token = policyGitToken(sandbox.networkPolicy)
   await sandbox.delete()
-  if (token) await revokeGithubToken(token)
+  if (token) await revoke(token)
 }

@@ -288,6 +288,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+      # Stands in for a minted Workspace read token in the firewall contract.
+      GITHUB_TOKEN: ${{ github.token }}
       VERCEL_TEAM: ctxpipe
       VERCEL_PROJECT: ctxpipe
     steps:

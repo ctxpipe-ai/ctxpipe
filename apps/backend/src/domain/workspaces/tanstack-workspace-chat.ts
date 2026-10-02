@@ -27,9 +27,11 @@ import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import Docker from "dockerode"
 import { eq } from "drizzle-orm"
+import { parseEnv } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
+import { getRepoReadCloneToken } from "../../models/github-installation.js"
 import { SandboxInstanceOwnershipConflict } from "../../models/workspace-sandboxes.js"
 import { getLogger, log } from "../../observability/logger.js"
 import {
@@ -43,6 +45,7 @@ import {
   WORKSPACE_CHAT_SANDBOX_SETUP,
   WORKSPACE_CHAT_SESSION_BRANCH_SECRET,
   WORKSPACE_CHAT_THREAD_SETUP,
+  WORKSPACE_CHAT_VERCEL_SETUP,
   workspaceChatDockerImage,
   workspaceChatRuntimeConfig,
 } from "./chat-runtime.js"
@@ -62,8 +65,14 @@ import {
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import {
   discoverSandboxProvider,
+  type SandboxProvider as SandboxProviderName,
   withSessionOnlyEnv,
 } from "./sandbox-provider.js"
+import {
+  conversationAgentPassword,
+  vercelConversationProvider,
+  vercelCredentials,
+} from "./vercel-sandbox-provider.js"
 import {
   aguiTextDelta,
   conversationRenameChunk,
@@ -99,6 +108,7 @@ import { mintWorkspaceChatRunCapability } from "./workspace-chat-run-capability.
 import { workspaceChatThreadLock } from "./workspace-chat-thread-lock.js"
 import { mintWorkspaceChatToken } from "./workspace-chat-token.js"
 import { WORKSPACE_CHAT_TOOLS } from "./workspace-chat-tools.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 export type TanstackWorkspaceChatMessage = {
   id?: string
@@ -209,8 +219,13 @@ async function workspaceChatImageId(): Promise<string> {
 }
 
 function conversationSandboxProvider(
-  isolation: "docker" | "unsandboxed",
+  isolation: SandboxProviderName,
+  vercel?: Parameters<typeof vercelConversationProvider>[0],
 ): SandboxProvider {
+  if (isolation === "vercel") {
+    if (!vercel) throw new Error("Vercel sandbox options are missing")
+    return vercelConversationProvider(vercel)
+  }
   if (isolation === "unsandboxed")
     return localProcessSandbox({
       scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
@@ -554,7 +569,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
           }
         },
       }),
-      workspaceChatCallbackMiddleware(callbackHost),
+      workspaceChatCallbackMiddleware(callbackHost, built.publicBaseUrl),
       defineChatMiddleware({
         name: "workspace-chat-permissions",
         requires: [SandboxCapability],
@@ -614,8 +629,10 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
 
 async function resolveWorkspaceChatSession(
   input: TanstackWorkspaceChatInput,
-  isolation: "docker" | "unsandboxed" | "railway",
+  isolation: SandboxProviderName,
   callbackHost?: string,
+  /** Remote sandboxes reach the model proxy at the backend's public origin. */
+  publicBaseUrl?: string,
 ): Promise<
   | { ok: true; runToken: string; proxyUrl: string; orgSlug: string }
   | { ok: false; status: 503; error: string }
@@ -646,12 +663,14 @@ async function resolveWorkspaceChatSession(
       conversationId: input.conversationId,
       runId: input.runId,
     }),
-    proxyUrl: workspaceChatCompletionsBaseUrl({
-      isolation,
-      orgSlug,
-      port: Number(process.env.PORT) || 3000,
-      ...(callbackHost ? { callbackHost } : {}),
-    }),
+    proxyUrl: publicBaseUrl
+      ? `${publicBaseUrl}/${orgSlug}/api/v1/workspace-chat/openai/v1`
+      : workspaceChatCompletionsBaseUrl({
+          isolation,
+          orgSlug,
+          port: Number(process.env.PORT) || 3000,
+          ...(callbackHost ? { callbackHost } : {}),
+        }),
   }
 }
 
@@ -677,12 +696,14 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
       error: "workspace_required",
     }
   }
-  const selectedProvider = await discoverSandboxProvider()
-  if (selectedProvider !== "docker" && selectedProvider !== "unsandboxed") {
+  let selectedProvider: SandboxProviderName
+  try {
+    selectedProvider = await discoverSandboxProvider()
+  } catch (error) {
     return {
       ok: false as const,
       status: 503 as const,
-      error: `TanStack sandbox provider ${selectedProvider} is not available`,
+      error: error instanceof Error ? error.message : String(error),
     }
   }
   const contract = workspaceChatOpenCodeContract(process.env)
@@ -708,6 +729,12 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
       error: "Workspace chat needs a stored desired SHA",
     }
   }
+  const vercel =
+    selectedProvider === "vercel"
+      ? await hostedSandboxOptions(input, desiredUrl)
+      : undefined
+  if (vercel && !vercel.ok) return vercel
+  const publicBaseUrl = vercel?.ok ? vercel.publicBaseUrl : undefined
   const callbackHost = sandboxCallbackHost()
   const session = await resolveWorkspaceChatSession(
     input,
@@ -715,9 +742,11 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
     selectedProvider === "docker"
       ? process.env.SANDBOX_MODEL_PROXY_HOST?.trim() || callbackHost
       : callbackHost,
+    publicBaseUrl,
   )
   if (!session.ok) return session
-  let image = "local-process"
+  // Part of the sandbox key: a new agent image or base gets new sandboxes.
+  let image = selectedProvider === "vercel" ? "vercel-node24" : "local-process"
   if (selectedProvider === "docker") {
     try {
       image = await workspaceChatImageId()
@@ -744,8 +773,12 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
   return {
     ok: true as const,
     isolation: selectedProvider,
+    publicBaseUrl,
     definition: conversationSandboxDefinition({
-      provider: conversationSandboxProvider(selectedProvider),
+      provider: conversationSandboxProvider(
+        selectedProvider,
+        vercel?.ok ? vercel.options : undefined,
+      ),
       workspace,
       image,
       revision: revision.data,
@@ -761,13 +794,70 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
       conversationId: input.conversationId,
       revision: revision.data,
       image,
-      provider: selectedProvider === "docker" ? "docker" : "local-process",
+      provider:
+        selectedProvider === "unsandboxed" ? "local-process" : selectedProvider,
     }),
   }
 }
 
+/**
+ * Hosted sandboxes fail closed: without Vercel credentials, a GitHub
+ * Workspace repository, or a public backend origin there is no chat.
+ */
+async function hostedSandboxOptions(
+  input: TanstackWorkspaceChatInput,
+  desiredUrl: string,
+): Promise<
+  | {
+      ok: true
+      publicBaseUrl: string
+      options: Parameters<typeof vercelConversationProvider>[0]
+    }
+  | { ok: false; status: 503; error: string }
+> {
+  const unavailable = (error: string) => ({
+    ok: false as const,
+    status: 503 as const,
+    error,
+  })
+  const credentials = await vercelCredentials().catch(() => null)
+  if (!credentials) return unavailable("Hosted chat sandboxes are not configured")
+  const authSecret = process.env.AUTH_SECRET?.trim() ?? ""
+  if (authSecret.length < 32)
+    return unavailable("Workspace chat needs AUTH_SECRET")
+  const repoFullName = githubRepoFullNameFromWorkspaceUrl(desiredUrl)
+  if (!repoFullName)
+    return unavailable("Hosted chat needs a GitHub Workspace repository")
+  const env = parseEnv(process.env as Record<string, string | undefined>)
+  const publicBaseUrl = new URL(env.AUTH_BASE_URL).origin
+  return {
+    ok: true,
+    publicBaseUrl,
+    options: {
+      credentials,
+      agentPassword: conversationAgentPassword(authSecret, input.conversationId),
+      access: {
+        backendHost: new URL(publicBaseUrl).hostname,
+        mintGitToken: async () => {
+          const token = await getRepoReadCloneToken(input.orgId, env, {
+            githubConnectionId: input.githubConnectionId ?? undefined,
+            repoFullName,
+            fresh: true,
+          })
+          if (!token) throw new Error("Workspace GitHub read access is unavailable")
+          return token
+        },
+      },
+      tags: {
+        ctxpipe: "workspace-chat",
+        environment: process.env.RAILWAY_ENVIRONMENT_NAME?.trim() || "local",
+      },
+    },
+  }
+}
+
 function conversationSandboxWorkspace(input: {
-  isolation: "docker" | "unsandboxed"
+  isolation: SandboxProviderName
   input: TanstackWorkspaceChatInput
   desiredUrl: string
   runToken: string
@@ -780,7 +870,9 @@ function conversationSandboxWorkspace(input: {
     modelBase: input.modelBase,
     isolation: input.isolation,
   })
-  const cloneToken = chatInput.cloneToken ?? ""
+  // Hosted sandboxes never hold the token: the firewall adds it to GitHub calls.
+  const cloneToken =
+    input.isolation === "vercel" ? "" : (chatInput.cloneToken ?? "")
   const secrets = createSecrets({
     ...(input.isolation === "unsandboxed"
       ? { CTXPIPE_OPENCODE_RUN_TOKEN: input.runToken }
@@ -802,7 +894,9 @@ function conversationSandboxWorkspace(input: {
   const setup = [
     ...(input.isolation === "docker"
       ? WORKSPACE_CHAT_DOCKER_SETUP
-      : WORKSPACE_CHAT_SANDBOX_SETUP),
+      : input.isolation === "vercel"
+        ? WORKSPACE_CHAT_VERCEL_SETUP
+        : WORKSPACE_CHAT_SANDBOX_SETUP),
     ...WORKSPACE_CHAT_THREAD_SETUP,
   ]
   const setupNames = [

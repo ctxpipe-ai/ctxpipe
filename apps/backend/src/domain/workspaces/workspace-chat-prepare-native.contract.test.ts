@@ -30,7 +30,7 @@ import { resolveWorkspaceChatTurnRuntime } from "./workspace-chat-turn-runtime.j
 import { destroySandboxesForConversation } from "./workspace-sandbox-cleanup.js"
 
 it(
-  "rejects locked sbx without allocating a weaker fallback",
+  "rejects a retired provider lock without allocating a weaker fallback",
   { timeout: 30_000 },
   async () => {
     await withNativeChatFixture(async (f) => {
@@ -49,7 +49,7 @@ it(
       expect(result).toEqual({
         ok: false,
         status: 503,
-        error: "TanStack sandbox provider sbx is not available",
+        error: 'Unknown SANDBOX_PROVIDER "sbx"',
       })
       expect(f.modelRequests).toHaveLength(0)
       expect(
@@ -65,11 +65,12 @@ it(
 )
 
 it(
-  "fails closed for railway without a production provider",
+  "fails closed for hosted Vercel without credentials",
   { timeout: 30_000 },
   async () => {
     await withNativeChatFixture(async (f) => {
-      process.env.SANDBOX_PROVIDER = "railway"
+      process.env.SANDBOX_PROVIDER = "vercel"
+      delete process.env.VERCEL_TOKEN
       const result = await warmTanstackWorkspaceChat({
         conversationId: f.conversationId,
         orgId: f.orgId,
@@ -84,7 +85,7 @@ it(
       expect(result).toEqual({
         ok: false,
         status: 503,
-        error: "TanStack sandbox provider railway is not available",
+        error: "Hosted chat sandboxes are not configured",
       })
       expect(f.modelRequests).toHaveLength(0)
       expect(
@@ -99,7 +100,7 @@ it(
   },
 )
 
-it.each(["railway", "docker"] as const)(
+it.each(["vercel", "docker"] as const)(
   "fails closed for unavailable locked %s without sandbox allocation",
   { timeout: 30_000 },
   async (provider) => {

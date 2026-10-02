@@ -5,7 +5,10 @@ import {
 } from "./chat-sandbox-policy.js"
 import { CONVERSATION_SANDBOX_GIT_EXCLUDE_LINES } from "./conversation-files.js"
 import { detectSandboxProviderFromEnv } from "./sandbox-provider.js"
-import { WORKSPACE_CHAT_OPENCODE_CLI } from "./workspace-chat-opencode-contract.js"
+import {
+  VERCEL_AGENT_ROOT,
+  WORKSPACE_CHAT_OPENCODE_CLI,
+} from "./workspace-chat-opencode-contract.js"
 
 /** Locked product chat path: TanStack `chat()` + `withSandbox` + `opencodeText`. */
 export const WORKSPACE_CHAT_RUNTIME = {
@@ -55,6 +58,16 @@ true`,
 /** Docker images are initialized at deployment, never installed during a turn. */
 export const WORKSPACE_CHAT_DOCKER_SETUP = [
   `PATH="/usr/local/bin:/usr/bin:/bin:$PATH"; command -v opencode >/dev/null 2>&1`,
+  ...WORKSPACE_CHAT_SANDBOX_SETUP.slice(1),
+] as const
+
+/**
+ * Vercel's `node24` runtime has no OpenCode, and its user cannot write the
+ * global npm prefix, so the CLI goes under the user's home (kept on stop).
+ * The Workspace base snapshot (ticket 02) will carry it instead.
+ */
+export const WORKSPACE_CHAT_VERCEL_SETUP = [
+  `command -v opencode >/dev/null 2>&1 || npm install -g --prefix "${VERCEL_AGENT_ROOT}/.local" ${WORKSPACE_CHAT_OPENCODE_CLI}`,
   ...WORKSPACE_CHAT_SANDBOX_SETUP.slice(1),
 ] as const
 

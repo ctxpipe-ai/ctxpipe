@@ -15,6 +15,9 @@ import type {
   ModelTier,
 } from "../../retrieval/services/providers/providerTypes.js"
 
+/** Home of the Vercel sandbox user; the agent CLI and its home live under it. */
+export const VERCEL_AGENT_ROOT = "/home/vercel-sandbox"
+
 export const WORKSPACE_CHAT_OPENCODE_PROVIDER_ID = "ctxpipe" as const
 
 const DEFAULT_OPENROUTER_BASE = "https://openrouter.ai/api/v1"
@@ -180,7 +183,9 @@ export function writeWorkspaceChatOpenCodeConfig(input: {
     // Container paths belong to its nonroot user, never the backend host's
     // temporary directory or PATH. Native thread setup writes this config.
     const slug = workspaceChatOpenCodeHomeSlug(input.conversationId)
-    const home = `/home/node/ctxpipe-opencode/${slug}`
+    const user =
+      input.isolation === "vercel" ? VERCEL_AGENT_ROOT : "/home/node"
+    const home = `${user}/ctxpipe-opencode/${slug}`
     return {
       configJson,
       homeEnv: {
@@ -190,7 +195,10 @@ export function writeWorkspaceChatOpenCodeConfig(input: {
         XDG_STATE_HOME: `${home}/state`,
         XDG_CACHE_HOME: `${home}/cache`,
         OPENCODE_CONFIG: `${home}/opencode.json`,
-        PATH: "/usr/local/bin:/usr/bin:/bin",
+        PATH:
+          input.isolation === "vercel"
+            ? `${VERCEL_AGENT_ROOT}/.local/bin:/usr/local/bin:/usr/bin:/bin`
+            : "/usr/local/bin:/usr/bin:/bin",
       },
     }
   }

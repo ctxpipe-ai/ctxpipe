@@ -287,7 +287,8 @@ fi
             }).toMatchObject({ status: 200 })
           }
           if (scenario.startsWith("provider_unavailable")) {
-            process.env.SANDBOX_PROVIDER = "railway"
+            process.env.SANDBOX_PROVIDER = "vercel"
+            delete process.env.VERCEL_TOKEN
             if (scenario === "provider_unavailable") {
               for (const path of [
                 "tree",
@@ -304,7 +305,7 @@ fi
                 }).toEqual({
                   status: 503,
                   body: {
-                    error: "TanStack sandbox provider railway is not available",
+                    error: "Hosted chat sandboxes are not configured",
                   },
                 })
               }
@@ -351,7 +352,7 @@ fi
             expect({ status: response.status, body }).toEqual({
               status: 503,
               body: {
-                error: "TanStack sandbox provider railway is not available",
+                error: "Hosted chat sandboxes are not configured",
               },
             })
             expect(pullRequests).toEqual([])

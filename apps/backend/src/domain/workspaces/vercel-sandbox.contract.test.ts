@@ -1,6 +1,12 @@
 import { VercelHandle } from "@tanstack/ai-sandbox-vercel"
 import { type NetworkPolicy, Sandbox, Snapshot } from "@vercel/sandbox"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import {
+  GIT_TOKEN_ROTATE_MS,
+  GIT_TOKEN_TAG,
+  stopVercelSandbox,
+  vercelConversationProvider,
+} from "./vercel-sandbox-provider.js"
 
 /**
  * Real Vercel Sandbox behaviour the hosted provider relies on (ticket 02).
@@ -102,7 +108,7 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
       "/vercel/ctxpipe-probe",
     ]
     const write = await handle(sandbox).process.exec(
-      `id; echo "HOME=$HOME"; for p in ${places.join(" ")}; do mkdir -p "$(dirname "$p")" 2>/dev/null; echo kept > "$p" 2>/dev/null && echo "wrote $p" || echo "cannot write $p"; done`,
+      `id; echo "HOME=$HOME"; echo "PATH=$PATH"; command -v node npm git; for p in ${places.join(" ")}; do mkdir -p "$(dirname "$p")" 2>/dev/null; echo kept > "$p" 2>/dev/null && echo "wrote $p" || echo "cannot write $p"; done`,
     )
     report(`[vercel] places before stop: ${write.stdout.replace(/\n/g, " | ")}`)
     let started = Date.now()
@@ -265,5 +271,88 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
     report(`[vercel] kill: tail processes before=${before} after=${after}`)
     expect(before).toBe("1")
     expect(after).toBe("0")
+  })
+})
+
+describe("hosted conversation provider", { timeout: 600_000 }, () => {
+  it("authenticates GitHub only through the firewall and rotates the token", async () => {
+    // The Actions token stands in for a minted Workspace read token; revoking
+    // it would end the job, so revocations are recorded instead.
+    const githubToken = process.env.GITHUB_TOKEN?.trim()
+    if (!githubToken)
+      throw new Error("GITHUB_TOKEN is required for the hosted sandbox lane")
+    let mints = 0
+    const revoked: string[] = []
+    const access = {
+      backendHost: "ctxpipe-contract.invalid",
+      mintGitToken: async () => {
+        mints += 1
+        return githubToken
+      },
+      revokeGitToken: async (token: string) => {
+        revoked.push(token)
+      },
+    }
+    const provider = vercelConversationProvider({
+      credentials,
+      agentPassword: "contract-agent-password",
+      access,
+      tags,
+    })
+    const handle = await provider.create({
+      workspace: { source: { type: "none" } },
+    } as Parameters<typeof provider.create>[0])
+    created.push(handle.id)
+    const coreLimit = async (sandboxHandle: typeof handle) => {
+      const result = await sandboxHandle.process.exec(
+        "curl -sS https://api.github.com/rate_limit",
+      )
+      return (
+        JSON.parse(result.stdout) as { resources: { core: { limit: number } } }
+      ).resources.core.limit
+    }
+    // Unauthenticated callers get 60 requests an hour.
+    expect(await coreLimit(handle)).toBeGreaterThan(60)
+    const environment = await handle.process.exec(
+      "env; cat /proc/1/environ 2>/dev/null | tr '\\0' '\\n'",
+    )
+    expect(environment.stdout.includes(githubToken)).toBe(false)
+    const clone = await handle.process.exec(
+      "GIT_TERMINAL_PROMPT=0 git ls-remote https://github.com/ctxpipe-ai/ctxpipe.git HEAD",
+    )
+    expect(clone.exitCode, clone.stderr).toBe(0)
+    const connected = await handle.ports.connect(4096)
+    expect(connected.headers?.Authorization).toMatch(/^Basic /)
+    expect(mints).toBe(1)
+
+    // A token younger than 10 minutes is left alone on resume.
+    let started = Date.now()
+    await provider.resume({ id: handle.id })
+    report(`[vercel] resume with a fresh token ${Date.now() - started}ms`)
+    expect(mints).toBe(1)
+
+    // An older one is replaced in the background; resume does not wait.
+    const sandbox = await Sandbox.get({ ...credentials, name: handle.id })
+    await sandbox.update({
+      tags: {
+        ...sandbox.tags,
+        [GIT_TOKEN_TAG]: String(Date.now() - GIT_TOKEN_ROTATE_MS - 1_000),
+      },
+    })
+    started = Date.now()
+    await provider.resume({ id: handle.id })
+    report(`[vercel] resume with an aged token ${Date.now() - started}ms`)
+    await expect.poll(() => mints, { timeout: 30_000 }).toBe(2)
+    await expect.poll(() => revoked.length, { timeout: 60_000 }).toBe(1)
+
+    // A stop revokes the token; the next resume replaces it before use.
+    await stopVercelSandbox(credentials, handle.id, access.revokeGitToken)
+    expect(revoked).toHaveLength(2)
+    started = Date.now()
+    const resumed = await provider.resume({ id: handle.id })
+    report(`[vercel] resume after stop ${Date.now() - started}ms`)
+    expect(mints).toBe(3)
+    if (!resumed) throw new Error("Stopped sandbox did not resume")
+    expect(await coreLimit(resumed)).toBeGreaterThan(60)
   })
 })
