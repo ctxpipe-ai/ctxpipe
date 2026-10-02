@@ -1,1 +1,0 @@
-export const GITHUB_FINALISING_MIN_MS = 1800

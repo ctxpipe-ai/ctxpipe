@@ -113,6 +113,19 @@ describeWithDatabase("ingestion preview", () => {
     )
     expect(preview.edges).toHaveLength(2)
 
+    // A claim's placeholder endpoint gains its name when the extractor that
+    // owns it reports later.
+    await recordIngestionPreview({
+      orgId,
+      repositoryId: runningId,
+      objects: [object("db:orders", "Database", "orders")],
+      claims: [],
+    })
+    const named = await listIngestionPreview({ orgId, nodeLimit: 100 })
+    expect(named.nodes.find((node) => node.id === "db:orders")?.name).toBe(
+      "orders",
+    )
+
     await clearIngestionPreview({ orgId, repositoryId: runningId })
     const cleared = await listIngestionPreview({ orgId, nodeLimit: 100 })
     expect(cleared).toEqual({ nodes: [], edges: [] })

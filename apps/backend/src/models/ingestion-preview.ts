@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
 import { withOrgDbContext } from "../db/client.js"
 import {
   ingestionPreviewLinks,
@@ -12,7 +12,9 @@ import type {
 
 /**
  * Adds what an extractor just found to the repository's provisional graph.
- * Safe to repeat (step retries): rows already present are left as they are.
+ * Safe to repeat (step retries): a row already present only gains a name.
+ * Rows go in sorted, in chunks: parallel extractors then lock in the same
+ * order, and a large extractor stays under Postgres's bind-parameter cap.
  */
 export async function recordIngestionPreview(input: {
   orgId: string
@@ -38,33 +40,54 @@ export async function recordIngestionPreview(input: {
     }
   }
   if (nodes.size === 0) return
+  const nodeRows = [...nodes]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([nodeKey, node]) => ({
+      repositoryId: input.repositoryId,
+      orgId: input.orgId,
+      nodeKey,
+      kind: node.kind,
+      name: node.name,
+    }))
+  const linkRows = input.claims
+    .map((claim) => ({
+      repositoryId: input.repositoryId,
+      orgId: input.orgId,
+      sourceKey: claim.subjectRef,
+      targetKey: claim.objectRef,
+      predicate: claim.predicate,
+    }))
+    .sort((a, b) => {
+      const ka = `${a.sourceKey}\0${a.targetKey}\0${a.predicate}`
+      const kb = `${b.sourceKey}\0${b.targetKey}\0${b.predicate}`
+      return ka < kb ? -1 : ka > kb ? 1 : 0
+    })
   await withOrgDbContext(input.orgId, async (db) => {
-    await db
-      .insert(ingestionPreviewNodes)
-      .values(
-        [...nodes].map(([nodeKey, node]) => ({
-          repositoryId: input.repositoryId,
-          orgId: input.orgId,
-          nodeKey,
-          kind: node.kind,
-          name: node.name,
-        })),
-      )
-      .onConflictDoNothing()
-    if (input.claims.length === 0) return
-    await db
-      .insert(ingestionPreviewLinks)
-      .values(
-        input.claims.map((claim) => ({
-          repositoryId: input.repositoryId,
-          orgId: input.orgId,
-          sourceKey: claim.subjectRef,
-          targetKey: claim.objectRef,
-          predicate: claim.predicate,
-        })),
-      )
-      .onConflictDoNothing()
+    for (const chunk of chunks(nodeRows)) {
+      // A claim endpoint can land before the extractor that names it.
+      await db
+        .insert(ingestionPreviewNodes)
+        .values(chunk)
+        .onConflictDoUpdate({
+          target: [
+            ingestionPreviewNodes.repositoryId,
+            ingestionPreviewNodes.nodeKey,
+          ],
+          set: {
+            name: sql`coalesce(${ingestionPreviewNodes.name}, excluded.name)`,
+          },
+        })
+    }
+    for (const chunk of chunks(linkRows)) {
+      await db.insert(ingestionPreviewLinks).values(chunk).onConflictDoNothing()
+    }
   })
+}
+
+function chunks<T>(rows: readonly T[], size = 2000): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < rows.length; i += size) out.push(rows.slice(i, i + size))
+  return out
 }
 
 /** Drops a repository's provisional graph (run start, and after projection). */
@@ -117,9 +140,15 @@ export async function listIngestionPreview(input: {
           inArray(ingestionPreviewNodes.repositoryId, running),
         ),
       )
+      // The named row wins when repositories share a key.
+      .orderBy(
+        ingestionPreviewNodes.nodeKey,
+        sql`${ingestionPreviewNodes.name} is null`,
+      )
       .limit(input.nodeLimit)
-    const ids = new Set(nodeRows.map((node) => node.id))
-    const linkRows = await db
+    if (nodeRows.length === 0) return { nodes: [], edges: [] }
+    const ids = nodeRows.map((node) => node.id)
+    const edges = await db
       .selectDistinct({
         sourceId: ingestionPreviewLinks.sourceKey,
         targetId: ingestionPreviewLinks.targetKey,
@@ -130,13 +159,10 @@ export async function listIngestionPreview(input: {
         and(
           eq(ingestionPreviewLinks.orgId, input.orgId),
           inArray(ingestionPreviewLinks.repositoryId, running),
+          inArray(ingestionPreviewLinks.sourceKey, ids),
+          inArray(ingestionPreviewLinks.targetKey, ids),
         ),
       )
-    return {
-      nodes: nodeRows,
-      edges: linkRows.filter(
-        (link) => ids.has(link.sourceId) && ids.has(link.targetId),
-      ),
-    }
+    return { nodes: nodeRows, edges }
   })
 }

@@ -464,28 +464,24 @@ export const repositoryIngestion = defineWorkflow(
               orgId: baseIngestState.orgId,
               repositoryId: input.repositoryId,
             }
-            const recordPreview = async (part: Partial<CodeIngestionState>) => {
-              try {
-                await recordIngestionPreview({
+            const bestEffort = (event: string, write: () => Promise<void>) =>
+              write().catch((error) => {
+                getLogger().warn(event, {
+                  error: error instanceof Error ? error.message : String(error),
+                })
+              })
+            const recordPreview = (part: Partial<CodeIngestionState>) =>
+              bestEffort("ingestion_preview_record_failed", () =>
+                recordIngestionPreview({
                   ...previewRepository,
                   objects: part.extractedObjects ?? [],
                   claims: part.extractedClaims ?? [],
-                })
-              } catch (error) {
-                getLogger().warn("ingestion_preview_record_failed", {
-                  error: error instanceof Error ? error.message : String(error),
-                })
-              }
-            }
-            const clearPreview = async () => {
-              try {
-                await clearIngestionPreview(previewRepository)
-              } catch (error) {
-                getLogger().warn("ingestion_preview_clear_failed", {
-                  error: error instanceof Error ? error.message : String(error),
-                })
-              }
-            }
+                }),
+              )
+            const clearPreview = () =>
+              bestEffort("ingestion_preview_clear_failed", () =>
+                clearIngestionPreview(previewRepository),
+              )
 
             const extractResult = await runWithLangfuseContext(
               langfuseAttrs,
