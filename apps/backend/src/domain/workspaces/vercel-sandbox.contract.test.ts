@@ -108,7 +108,12 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
     const base = await create({ runtime: "node24" })
     await handle(base).fs.write("/workspace/base.txt", "prepared")
     let started = Date.now()
-    const snapshot = await base.snapshot({ expiration: 60 * 60_000 })
+    const snapshot = await base.snapshot().catch((error: unknown) => {
+      const body = (error as { json?: unknown }).json
+      throw new Error(
+        `snapshot failed: ${JSON.stringify(body ?? String(error))}`,
+      )
+    })
     snapshots.push(snapshot.snapshotId)
     report(`[vercel] snapshot ${Date.now() - started}ms`)
     started = Date.now()
@@ -145,26 +150,39 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
     expect(install.exitCode, install.stderr).toBe(0)
     report(`[vercel] install opencode ${Date.now() - started}ms`)
     await agent.env.set({ OPENCODE_SERVER_PASSWORD: "contract-secret" })
-    await agent.process.spawn(
+    const server = await agent.process.spawn(
       '"$HOME/.local/bin/opencode" serve --port 4096 --hostname 0.0.0.0',
     )
+    let output = ""
+    void (async () => {
+      for await (const chunk of server.stdout) output += chunk
+    })()
+    void (async () => {
+      for await (const chunk of server.stderr) output += chunk
+    })()
     const { url } = await agent.ports.connect(4096)
     const basic = `Basic ${Buffer.from("opencode:contract-secret").toString("base64")}`
     started = Date.now()
     let authorized = 0
-    while (Date.now() - started < 60_000) {
-      authorized = (
-        await fetch(`${url}/session`, { headers: { Authorization: basic } })
-      ).status
+    while (Date.now() - started < 90_000) {
+      authorized = await fetch(`${url}/session`, {
+        headers: { Authorization: basic },
+        signal: AbortSignal.timeout(5_000),
+      }).then(
+        (response) => response.status,
+        () => 0,
+      )
       if (authorized === 200) break
       await new Promise((resolve) => setTimeout(resolve, 1_000))
     }
-    report(`[vercel] opencode ready ${Date.now() - started}ms`)
+    report(
+      `[vercel] opencode ready=${authorized} ${Date.now() - started}ms; server output: ${output.slice(-1_000)}`,
+    )
     expect(authorized).toBe(200)
     expect((await fetch(`${url}/session`)).status).toBe(401)
   })
 
-  it("measures whether killing a command stops its child processes", async () => {
+  it("kills a command together with its child processes", async () => {
     const sandbox = await create({ runtime: "node24" })
     const command = await sandbox.runCommand({
       cmd: "sh",
@@ -184,5 +202,6 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
     const after = await tails()
     report(`[vercel] kill: tail processes before=${before} after=${after}`)
     expect(before).toBe("1")
+    expect(after).toBe("0")
   })
 })
