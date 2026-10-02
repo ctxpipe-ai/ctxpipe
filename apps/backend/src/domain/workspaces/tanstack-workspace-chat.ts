@@ -32,6 +32,7 @@ import { getSystemDb } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
 import { getRepoReadCloneToken } from "../../models/github-installation.js"
+import { sandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
 import { SandboxInstanceOwnershipConflict } from "../../models/workspace-sandboxes.js"
 import { getLogger, log } from "../../observability/logger.js"
 import {
@@ -821,7 +822,8 @@ async function hostedSandboxOptions(
     error,
   })
   const credentials = await vercelCredentials().catch(() => null)
-  if (!credentials) return unavailable("Hosted chat sandboxes are not configured")
+  if (!credentials)
+    return unavailable("Hosted chat sandboxes are not configured")
   const authSecret = process.env.AUTH_SECRET?.trim() ?? ""
   if (authSecret.length < 32)
     return unavailable("Workspace chat needs AUTH_SECRET")
@@ -835,16 +837,21 @@ async function hostedSandboxOptions(
     publicBaseUrl,
     options: {
       credentials,
-      agentPassword: conversationAgentPassword(authSecret, input.conversationId),
+      agentPassword: conversationAgentPassword(
+        authSecret,
+        input.conversationId,
+      ),
       access: {
         backendHost: new URL(publicBaseUrl).hostname,
+        tokens: sandboxGitTokenStore(input.orgId, env),
         mintGitToken: async () => {
           const token = await getRepoReadCloneToken(input.orgId, env, {
             githubConnectionId: input.githubConnectionId ?? undefined,
             repoFullName,
             fresh: true,
           })
-          if (!token) throw new Error("Workspace GitHub read access is unavailable")
+          if (!token)
+            throw new Error("Workspace GitHub read access is unavailable")
           return token
         },
       },

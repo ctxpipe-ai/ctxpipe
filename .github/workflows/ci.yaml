@@ -286,7 +286,22 @@ jobs:
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: ctxpipe
+          POSTGRES_PASSWORD: ctxpipe
+          POSTGRES_DB: ctxpipe
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ctxpipe -d ctxpipe"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
+      AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
       VERCEL_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
       # Stands in for a minted Workspace read token in the firewall contract.
       GITHUB_TOKEN: ${{ github.token }}
@@ -302,7 +317,17 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Migrate backend schema
+        env:
+          DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5432/ctxpipe
+          DATABASE_APP_PASSWORD: ctxpipe
+        working-directory: apps/backend
+        run: |
+          pnpm exec drizzle-kit migrate
+          pnpm exec tsx src/db/provision-app-role-cli.ts
       - name: Required real Vercel sandbox contracts
+        env:
+          DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
         run: node scripts/ci/test-suite.mjs vercel
 
   terraform-validate:

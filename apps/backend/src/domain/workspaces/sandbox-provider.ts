@@ -76,6 +76,8 @@ export async function discoverSandboxProvider(): Promise<SandboxProvider> {
 }
 
 export async function destroyDetachedProviderSandbox(input: {
+  /** Required for Vercel, whose token record is org-scoped. */
+  orgId?: string
   provider?: string | null
   providerSandboxId: string
   snapshotId?: string
@@ -93,10 +95,19 @@ export async function destroyDetachedProviderSandbox(input: {
   }
   if (input.provider === "vercel") {
     // Deleting also removes the saved state and revokes the GitHub token.
+    if (!input.orgId) throw new Error("Deleting a Vercel sandbox needs its org")
     const { deleteVercelSandbox, vercelCredentials } = await import(
       "./vercel-sandbox-provider.js"
     )
-    await deleteVercelSandbox(await vercelCredentials(), input.providerSandboxId)
+    const { sandboxGitTokenStore } = await import(
+      "../../models/sandbox-git-tokens.js"
+    )
+    const { parseEnv } = await import("../../config/env.js")
+    await deleteVercelSandbox({
+      credentials: await vercelCredentials(),
+      name: input.providerSandboxId,
+      tokens: sandboxGitTokenStore(input.orgId, parseEnv(process.env)),
+    })
     return
   }
   if (

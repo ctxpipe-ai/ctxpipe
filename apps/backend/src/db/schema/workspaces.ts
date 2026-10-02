@@ -280,6 +280,25 @@ export const workspaceSandboxInstances = pgTable.withRLS(
 )
 
 /**
+ * Each hosted sandbox's current GitHub read token, encrypted. The firewall
+ * rule carries the token and Vercel redacts it, so this is the only copy we
+ * can rotate after 10 minutes and revoke on replace, stop and delete.
+ */
+export const workspaceSandboxGitTokens = pgTable.withRLS(
+  "workspace_sandbox_git_tokens",
+  {
+    sandboxId: text("sandbox_id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    tokenCiphertext: text("token_ciphertext").notNull(),
+    mintedAt: timestamp("minted_at", {
+      withTimezone: true,
+      mode: "date",
+    }).notNull(),
+  },
+  (t) => [orgIsolationPolicy(t.orgId)],
+)
+
+/**
  * Durable first connector-target Workspace per org (source repo created_at, id).
  * Used by migration export assignment; not recomputed from random Workspace rows.
  */

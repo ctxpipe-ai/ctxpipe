@@ -1,9 +1,13 @@
 import { VercelHandle } from "@tanstack/ai-sandbox-vercel"
 import { type NetworkPolicy, Sandbox, Snapshot } from "@vercel/sandbox"
+import { eq } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { parseEnv } from "../../config/env.js"
+import { closeDb, initDb, withOrgDbContext } from "../../db/client.js"
+import { workspaceSandboxGitTokens } from "../../db/schema/workspaces.js"
+import { sandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
 import {
   GIT_TOKEN_ROTATE_MS,
-  GIT_TOKEN_TAG,
   stopVercelSandbox,
   vercelConversationProvider,
 } from "./vercel-sandbox-provider.js"
@@ -281,10 +285,17 @@ describe("hosted conversation provider", { timeout: 600_000 }, () => {
     const githubToken = process.env.GITHUB_TOKEN?.trim()
     if (!githubToken)
       throw new Error("GITHUB_TOKEN is required for the hosted sandbox lane")
+    const databaseUrl = process.env.DATABASE_URL?.trim()
+    if (!databaseUrl)
+      throw new Error("DATABASE_URL is required for the hosted sandbox lane")
+    initDb(databaseUrl)
+    const orgId = `org_vercel_contract_${Date.now()}`
+    const tokens = sandboxGitTokenStore(orgId, parseEnv(process.env))
     let mints = 0
     const revoked: string[] = []
     const access = {
       backendHost: "ctxpipe-contract.invalid",
+      tokens,
       mintGitToken: async () => {
         mints += 1
         return githubToken
@@ -332,13 +343,12 @@ describe("hosted conversation provider", { timeout: 600_000 }, () => {
     expect(mints).toBe(1)
 
     // An older one is replaced in the background; resume does not wait.
-    const sandbox = await Sandbox.get({ ...credentials, name: handle.id })
-    await sandbox.update({
-      tags: {
-        ...sandbox.tags,
-        [GIT_TOKEN_TAG]: String(Date.now() - GIT_TOKEN_ROTATE_MS - 1_000),
-      },
-    })
+    await withOrgDbContext(orgId, (db) =>
+      db
+        .update(workspaceSandboxGitTokens)
+        .set({ mintedAt: new Date(Date.now() - GIT_TOKEN_ROTATE_MS - 1_000) })
+        .where(eq(workspaceSandboxGitTokens.sandboxId, handle.id)),
+    )
     started = Date.now()
     await provider.resume({ id: handle.id })
     report(`[vercel] resume with an aged token ${Date.now() - started}ms`)
@@ -346,13 +356,23 @@ describe("hosted conversation provider", { timeout: 600_000 }, () => {
     await expect.poll(() => revoked.length, { timeout: 60_000 }).toBe(1)
 
     // A stop revokes the token; the next resume replaces it before use.
-    await stopVercelSandbox(credentials, handle.id, access.revokeGitToken)
+    await stopVercelSandbox({
+      credentials,
+      name: handle.id,
+      tokens,
+      revoke: access.revokeGitToken,
+    })
     expect(revoked).toHaveLength(2)
+    expect(await tokens.get(handle.id)).toBeNull()
     started = Date.now()
     const resumed = await provider.resume({ id: handle.id })
     report(`[vercel] resume after stop ${Date.now() - started}ms`)
     expect(mints).toBe(3)
     if (!resumed) throw new Error("Stopped sandbox did not resume")
     expect(await coreLimit(resumed)).toBeGreaterThan(60)
+    await provider.destroy({ id: handle.id })
+    expect(revoked).toHaveLength(3)
+    expect(await tokens.get(handle.id)).toBeNull()
+    await closeDb()
   })
 })

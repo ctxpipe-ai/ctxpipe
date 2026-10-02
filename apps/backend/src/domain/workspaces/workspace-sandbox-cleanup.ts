@@ -148,6 +148,7 @@ async function destroyWorkspaceSandboxUnderFence(
             )
           if (stored.providerSandboxId)
             await destroyDetachedProviderSandbox({
+              orgId: stored.orgId,
               provider: stored.provider,
               providerSandboxId: stored.providerSandboxId,
               snapshotId: lastSnapshotOwner
