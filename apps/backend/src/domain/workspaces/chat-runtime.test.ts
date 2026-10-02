@@ -11,7 +11,6 @@ import {
   WORKSPACE_CHAT_SANDBOX_SETUP,
   WORKSPACE_CHAT_THREAD_SETUP,
   workspaceChatRuntimeConfig,
-  workspaceChatSandboxSpec,
 } from "./chat-runtime.js"
 import { CONVERSATION_SANDBOX_GIT_EXCLUDE_LINES } from "./conversation-files.js"
 
@@ -118,55 +117,5 @@ describe("workspace chat runtime", () => {
         title: "apply_patch",
       }),
     ).resolves.toBe("once")
-  })
-
-  it("builds a thread-reuse sandbox spec for docker and the unset hosted fallback", () => {
-    expect(
-      workspaceChatSandboxSpec({
-        sandboxId: "sbx_1",
-        provider: "docker",
-        gitUrl: "https://github.com/acme/docs",
-        ref: "abc",
-      }),
-    ).toMatchObject({
-      ok: true,
-      isolation: "docker",
-      source: { type: "git", url: "https://github.com/acme/docs", ref: "abc" },
-      lifecycle: {
-        reuse: "thread",
-        snapshot: "after-setup",
-        keepAlive: "30m",
-        destroyOnComplete: false,
-      },
-    })
-    expect(
-      workspaceChatSandboxSpec({
-        sandboxId: "sbx_1",
-        provider: "unsandboxed",
-        gitUrl: "https://github.com/acme/docs",
-        ref: "abc",
-      }),
-    ).toMatchObject({
-      ok: true,
-      isolation: "unsandboxed",
-      source: { type: "git", url: "https://github.com/acme/docs", ref: "abc" },
-      lifecycle: {
-        reuse: "thread",
-        snapshot: "after-setup",
-        keepAlive: "30m",
-        destroyOnComplete: false,
-      },
-    })
-    expect(
-      workspaceChatSandboxSpec({
-        sandboxId: "sbx_1",
-        provider: "railway",
-        gitUrl: "https://github.com/acme/docs",
-        ref: "abc",
-      }),
-    ).toMatchObject({
-      ok: true,
-      isolation: "railway",
-    })
   })
 })

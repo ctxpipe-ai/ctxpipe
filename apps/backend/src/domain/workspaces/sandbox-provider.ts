@@ -1,18 +1,13 @@
 import type { SandboxProvider as TanstackSandboxProvider } from "@tanstack/ai-sandbox"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 
-export const SANDBOX_PROVIDERS = [
-  "sbx",
-  "docker",
-  "railway",
-  "unsandboxed",
-] as const
+/** Hosted runs Vercel, self-host runs Docker; unsandboxed is explicit only. */
+export const SANDBOX_PROVIDERS = ["docker", "vercel", "unsandboxed"] as const
 
 export type SandboxProvider = (typeof SANDBOX_PROVIDERS)[number]
 
 export function detectSandboxProvider(input: {
   locked?: string | null
-  hasSbx?: boolean
   hasDocker?: boolean
 }): SandboxProvider {
   const locked = input.locked?.trim()
@@ -22,20 +17,17 @@ export function detectSandboxProvider(input: {
     }
     throw new Error(`Unknown SANDBOX_PROVIDER "${locked}"`)
   }
-  if (input.hasSbx) return "sbx"
   if (input.hasDocker) return "docker"
   return "unsandboxed"
 }
 
 export function detectSandboxProviderFromEnv(input?: {
-  hasSbx?: boolean
   hasDocker?: boolean
   env?: Record<string, string | undefined>
 }): SandboxProvider {
   const env = input?.env ?? process.env
   return detectSandboxProvider({
     locked: env.SANDBOX_PROVIDER,
-    hasSbx: input?.hasSbx,
     hasDocker: input?.hasDocker,
   })
 }
@@ -69,9 +61,7 @@ export function withSessionOnlyEnv(
 export async function discoverSandboxProvider(): Promise<SandboxProvider> {
   if (process.env.SANDBOX_PROVIDER?.trim())
     return detectSandboxProviderFromEnv()
-  // The pinned sbx adapter cannot enforce the required disk/PID limits, so
-  // it is ineligible for automatic selection even if its CLI is installed.
-  // Explicit locks still reach the caller's fail-closed provider check.
+  // Vercel is never discovered: hosted deployments lock SANDBOX_PROVIDER.
   const { default: Docker } = await import("dockerode")
   // docker-modem accepts a connection deadline beyond Dockerode's declarations.
   const options = {
@@ -101,14 +91,12 @@ export async function destroyDetachedProviderSandbox(input: {
     })
     return
   }
-  if (input.provider === "sbx") {
-    const docker = await import("@tanstack/ai-sandbox-docker").catch(() => null)
-    await destroyWithProviderFactory({
-      factory: docker?.sbxSandbox?.(),
-      provider: "sbx",
-      providerSandboxId: input.providerSandboxId,
-      snapshotId: input.snapshotId,
-    })
+  if (input.provider === "vercel") {
+    // Deleting also removes the saved state and revokes the GitHub token.
+    const { deleteVercelSandbox, vercelCredentials } = await import(
+      "./vercel-sandbox-provider.js"
+    )
+    await deleteVercelSandbox(await vercelCredentials(), input.providerSandboxId)
     return
   }
   if (

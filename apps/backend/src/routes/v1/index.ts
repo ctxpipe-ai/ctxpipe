@@ -7,6 +7,7 @@ import {
   withCookieAuth,
   withNetworkOrgContext,
 } from "../../auth/withAuth.js"
+import { workspaceChatToolBridgeRoutes } from "../../domain/workspaces/workspace-chat-callback.js"
 import { atlassianOauthCallbackRoutes } from "./atlassian-oauth-callback.js"
 import { orgCapabilitiesRoutes } from "./capabilities.js"
 import { atlassianConnectorRoutes } from "./connectors-atlassian.js"
@@ -138,6 +139,8 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>): OrgScopedV1Rpc {
     .route("/onboarding", userOnboardingRoutes)
 
   app.route("/", workspaceChatOpenai)
+  // Per-run tool bridges for remote (Vercel) sandboxes; bearer token per run.
+  app.route("/", workspaceChatToolBridgeRoutes)
   app.route("/", orgScopedMounted)
   app.route("/", nonOrgScopedV1)
   return orgScopedMounted as unknown as OrgScopedV1Rpc

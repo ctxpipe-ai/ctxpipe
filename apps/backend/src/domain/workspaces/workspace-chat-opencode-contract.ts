@@ -169,7 +169,7 @@ export function workspaceChatOpenCodeHomeEnv(
 export function writeWorkspaceChatOpenCodeConfig(input: {
   conversationId: string
   modelBase: string
-  isolation?: "docker" | "unsandboxed" | "railway"
+  isolation?: "docker" | "unsandboxed" | "vercel"
 }): { homeEnv: Record<string, string>; configJson: string } {
   const configJson = `${JSON.stringify(
     workspaceChatOpenCodeConfig({ modelBase: input.modelBase }),

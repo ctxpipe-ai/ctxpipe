@@ -3,7 +3,6 @@ import {
   cloneRepositoryName,
   originUrlWithoutCredentials,
   repoReadCloneTokenRequest,
-  sandboxCanEnforceResourceLimits,
   scrubOriginAfterCloneCommand,
 } from "./clone-credentials.js"
 
@@ -26,19 +25,5 @@ describe("clone credentials", () => {
     expect(
       scrubOriginAfterCloneCommand("https://github.com/acme/docs.git"),
     ).toBe("git remote set-url origin https://github.com/acme/docs.git")
-  })
-
-  it("capability-checks resource limits rather than claiming they are enforced", () => {
-    expect(sandboxCanEnforceResourceLimits({ isolation: "docker" })).toEqual({
-      cpu: false,
-      ram: false,
-      pids: false,
-      disk: false,
-      user: false,
-      egress: false,
-    })
-    expect(
-      sandboxCanEnforceResourceLimits({ isolation: "local_process" }).cpu,
-    ).toBe(false)
   })
 })

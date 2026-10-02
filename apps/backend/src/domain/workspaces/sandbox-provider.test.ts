@@ -6,12 +6,10 @@ import {
 } from "./sandbox-provider.js"
 
 const dockerSandbox = vi.hoisted(() => vi.fn())
-const sbxSandbox = vi.hoisted(() => vi.fn())
 const dockerPing = vi.hoisted(() => vi.fn(async () => undefined))
 
 vi.mock("@tanstack/ai-sandbox-docker", () => ({
   dockerSandbox,
-  sbxSandbox,
 }))
 
 vi.mock("dockerode", () => ({
@@ -22,17 +20,14 @@ vi.mock("dockerode", () => ({
 
 describe("detectSandboxProvider", () => {
   it("locks a known provider and fail-closes on an unknown lock", () => {
-    expect(detectSandboxProvider({ locked: "railway" })).toBe("railway")
-    expect(detectSandboxProvider({ locked: "sbx", hasDocker: true })).toBe(
-      "sbx",
+    expect(detectSandboxProvider({ locked: "vercel", hasDocker: true })).toBe(
+      "vercel",
     )
-    expect(detectSandboxProvider({ hasSbx: true, hasDocker: true })).toBe("sbx")
-    expect(detectSandboxProvider({ locked: "docker", hasSbx: true })).toBe(
-      "docker",
-    )
-    expect(() => detectSandboxProvider({ locked: "heroku" })).toThrow(
-      /Unknown SANDBOX_PROVIDER/,
-    )
+    expect(detectSandboxProvider({ locked: "docker" })).toBe("docker")
+    for (const retired of ["sbx", "railway", "heroku"])
+      expect(() => detectSandboxProvider({ locked: retired })).toThrow(
+        /Unknown SANDBOX_PROVIDER/,
+      )
     expect(detectSandboxProvider({ hasDocker: true })).toBe("docker")
     expect(detectSandboxProvider({})).toBe("unsandboxed")
     expect(
@@ -51,12 +46,11 @@ describe("detectSandboxProvider", () => {
 describe("destroyDetachedProviderSandbox", () => {
   beforeEach(() => {
     dockerSandbox.mockReset()
-    sbxSandbox.mockReset()
     dockerPing.mockReset()
     dockerPing.mockResolvedValue(undefined)
   })
 
-  it("refuses railway, unsandboxed, and missing providers instead of routing to local-process", async () => {
+  it("refuses unknown, unsandboxed, and missing providers instead of routing to local-process", async () => {
     await expect(
       destroyDetachedProviderSandbox({
         provider: "railway",
@@ -75,20 +69,6 @@ describe("destroyDetachedProviderSandbox", () => {
         providerSandboxId: "sbx_1",
       }),
     ).rejects.toThrow(/provider unknown/)
-  })
-
-  it("destroys sbx through sbxSandbox instead of dockerSandbox", async () => {
-    const destroy = vi.fn(async () => undefined)
-    const resume = vi.fn(async () => null)
-    sbxSandbox.mockReturnValue({ destroy, resume })
-    await destroyDetachedProviderSandbox({
-      provider: "sbx",
-      providerSandboxId: "sbx_vm",
-    })
-    expect(sbxSandbox).toHaveBeenCalled()
-    expect(dockerSandbox).not.toHaveBeenCalled()
-    expect(destroy).toHaveBeenCalledWith({ id: "sbx_vm" })
-    expect(resume).toHaveBeenCalledWith({ id: "sbx_vm" })
   })
 
   it("does not treat a Docker outage as a successful destroy", async () => {

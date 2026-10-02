@@ -95,12 +95,26 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
       keepLastSnapshots: { count: 1 },
     })
     await handle(sandbox).fs.write("/workspace/state.txt", "kept")
+    // Where the agent's tools and home can live: writable and kept on stop.
+    const places = [
+      "$HOME/.ctxpipe-probe",
+      "/tmp/ctxpipe-probe",
+      "/vercel/ctxpipe-probe",
+    ]
+    const write = await handle(sandbox).process.exec(
+      `id; echo "HOME=$HOME"; for p in ${places.join(" ")}; do mkdir -p "$(dirname "$p")" 2>/dev/null; echo kept > "$p" 2>/dev/null && echo "wrote $p" || echo "cannot write $p"; done`,
+    )
+    report(`[vercel] places before stop: ${write.stdout.replace(/\n/g, " | ")}`)
     let started = Date.now()
     await sandbox.stop()
     report(`[vercel] stop ${Date.now() - started}ms`)
     started = Date.now()
     const resumed = await Sandbox.get({ ...credentials, name: sandbox.name })
     expect(await handle(resumed).fs.read("/workspace/state.txt")).toBe("kept")
+    const kept = await handle(resumed).process.exec(
+      `for p in ${places.join(" ")}; do [ "$(cat "$p" 2>/dev/null)" = kept ] && echo "kept $p" || echo "lost $p"; done`,
+    )
+    report(`[vercel] places after resume: ${kept.stdout.replace(/\n/g, " | ")}`)
     report(`[vercel] resume and read ${Date.now() - started}ms`)
   })
 

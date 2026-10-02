@@ -94,48 +94,7 @@ export const WORKSPACE_CHAT_CLONE_SHA_SECRET = "CTXPIPE_CLONE_SHA" as const
 export const WORKSPACE_CHAT_SESSION_BRANCH_SECRET =
   "CTXPIPE_SESSION_BRANCH" as const
 
-export function workspaceChatSandboxSpec(input: {
-  sandboxId: string
-  provider: ReturnType<typeof detectSandboxProviderFromEnv>
-  gitUrl: string
-  ref: string
-}):
-  | {
-      ok: true
-      id: string
-      isolation: "docker" | "unsandboxed" | "railway"
-      source: { type: "git"; url: string; ref: string }
-      lifecycle: {
-        reuse: "thread"
-        snapshot: "after-setup"
-        keepAlive: typeof CHAT_SANDBOX_KEEP_ALIVE
-        destroyOnComplete: false
-      }
-    }
-  | { ok: false; reason: "no_isolated_provider" } {
-  if (
-    input.provider !== "docker" &&
-    input.provider !== "unsandboxed" &&
-    input.provider !== "railway"
-  ) {
-    return { ok: false, reason: "no_isolated_provider" }
-  }
-  return {
-    ok: true,
-    id: input.sandboxId,
-    isolation: input.provider,
-    source: { type: "git", url: input.gitUrl, ref: input.ref },
-    lifecycle: {
-      reuse: "thread",
-      snapshot: "after-setup",
-      keepAlive: CHAT_SANDBOX_KEEP_ALIVE,
-      destroyOnComplete: false,
-    },
-  }
-}
-
 export function workspaceChatRuntimeConfig(input?: {
-  hasSbx?: boolean
   hasDocker?: boolean
   env?: Record<string, string | undefined>
   writeStatus?: string
@@ -148,7 +107,6 @@ export function workspaceChatRuntimeConfig(input?: {
   ) => Promise<"allow" | "deny" | "timeout" | "garbage">
 }) {
   const provider = detectSandboxProviderFromEnv({
-    hasSbx: input?.hasSbx,
     hasDocker: input?.hasDocker,
     env: input?.env,
   })

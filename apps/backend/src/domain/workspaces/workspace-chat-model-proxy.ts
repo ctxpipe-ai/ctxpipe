@@ -4,7 +4,7 @@ import { recordWorkspaceChatProxyGeneration } from "./workspace-chat-otel.js"
 
 /** Use an explicit sandbox callback route, otherwise retain provider-local defaults. */
 export function workspaceChatModelProxyAdvertisedHost(
-  isolation: "docker" | "unsandboxed" | "railway" | string,
+  isolation: string,
   callbackHost = sandboxCallbackHost(),
 ): string {
   if (callbackHost) return callbackHost

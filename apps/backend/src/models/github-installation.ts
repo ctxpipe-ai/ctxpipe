@@ -870,7 +870,12 @@ export async function getGithubAppInstallationPermissions(
 export async function getRepoReadCloneToken(
   orgId: string,
   env: Env,
-  input: { githubConnectionId?: string; repoFullName: string },
+  input: {
+    githubConnectionId?: string
+    repoFullName: string
+    /** Mint a new token instead of reusing a cached one (it may be revoked). */
+    fresh?: boolean
+  },
 ): Promise<string | undefined> {
   const installation = input.githubConnectionId
     ? await getGithubInstallationByConnectionId(orgId, input.githubConnectionId)
@@ -886,6 +891,7 @@ export async function getRepoReadCloneToken(
     type: "installation",
     repositoryNames: request.repositoryNames,
     permissions: request.permissions,
+    ...(input.fresh ? { refresh: true } : {}),
   })) as { token: string }
   return token
 }
