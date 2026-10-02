@@ -111,6 +111,11 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
         }}
         persistClient={false}
         credentials={{ forgotPassword: true }}
+        // Signing in unverified sends a fresh link (sendOnSignIn).
+        localization={{
+          EMAIL_NOT_VERIFIED:
+            "Verify your email to sign in. We sent a new link to your inbox.",
+        }}
         twoFactor={["totp"]}
         account={{ basePath: "/.auth/account" }}
         // Keep the library's API-key navigation on organisation settings while

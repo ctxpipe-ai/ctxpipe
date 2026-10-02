@@ -76,6 +76,9 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
+  // Set when sign-up needs the address verified first: there is no session
+  // until they click the emailed link, which returns here to finish joining.
+  const [verifyEmailFor, setVerifyEmailFor] = useState<string | null>(null)
   const autoAcceptAttemptedRef = useRef(false)
 
   const invitationEmailQuery = useQuery({
@@ -111,13 +114,17 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
       password: string
     }) => {
       autoAcceptAttemptedRef.current = true
-      await authClient.signUp.email({
+      const result = await authClient.signUp.email({
         email: input.email,
         password: input.password,
         name: input.name,
         callbackURL: currentLocation,
         fetchOptions: { throw: true },
       })
+      if (!result.token) {
+        setVerifyEmailFor(input.email)
+        return
+      }
       await acceptInvitationThenRedirect(
         () => acceptInviteMutation.mutateAsync(invitationId),
         () => window.location.assign(redirectTo),
@@ -186,6 +193,19 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   }
   if (session && error) {
     return <p className="text-sm text-red-400">{error}</p>
+  }
+  if (verifyEmailFor) {
+    return (
+      <p className="text-sm text-zinc-300">
+        We sent a link to{" "}
+        <span className="font-medium text-zinc-100">{verifyEmailFor}</span>.
+        Open it to verify your address and finish joining
+        {invitationEmailQuery.data?.organizationName
+          ? ` ${invitationEmailQuery.data.organizationName}`
+          : " the organisation"}
+        .
+      </p>
+    )
   }
   if (
     decision.kind === "accept" ||

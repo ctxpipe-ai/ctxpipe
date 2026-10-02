@@ -32,6 +32,7 @@ import {
   resolveOAuthConsentReferenceId,
   selectOAuthOrganizationBinding,
 } from "./oauth-organization.js"
+import { resolveEmailVerificationUrl } from "./verification-email-url.js"
 
 export type BetterAuthInstance = ReturnType<typeof createBetterAuth>
 export type AuthUser = BetterAuthInstance["$Infer"]["Session"]["user"]
@@ -125,6 +126,12 @@ export function createBetterAuth() {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean)
+  // Email/password accounts verify their address before signing in. Not on
+  // PR previews (throwaway test accounts), and not without SMTP, where mail
+  // is only logged and nobody could verify.
+  const requireEmailVerification =
+    Boolean(env.SMTP_CONNECTION_URL && env.EMAIL_FROM_ADDRESS) &&
+    !process.env.RAILWAY_ENVIRONMENT_NAME?.trim().startsWith("pr-")
 
   return betterAuth({
     appName: "ctx|",
@@ -162,8 +169,31 @@ export function createBetterAuth() {
         generateId: ({ model }) => generateObjectId(toTypeSlug(model)),
       },
     },
+    emailVerification: {
+      sendOnSignUp: requireEmailVerification,
+      // An unverified account that signs in gets a fresh link instead of a
+      // dead end; existing accounts verify this way on their next sign-in.
+      sendOnSignIn: true,
+      autoSignInAfterVerification: true,
+      sendVerificationEmail: async ({ user, url }) => {
+        const [{ sendEmail }, { VerifyEmail }] = await Promise.all([
+          import("../email/index.js"),
+          import("../email/templates/verify-email.js"),
+        ])
+        await sendEmail(
+          user.email,
+          "Verify your email address",
+          VerifyEmail({
+            url: resolveEmailVerificationUrl(env.AUTH_BASE_URL, url),
+            userEmail: user.email,
+          }),
+        )
+      },
+    },
     emailAndPassword: {
       enabled: true,
+      requireEmailVerification,
+      autoSignIn: !requireEmailVerification,
       sendResetPassword: async ({ user, url }) => {
         const [{ sendEmail }, { ResetPasswordEmail }] = await Promise.all([
           import("../email/index.js"),
