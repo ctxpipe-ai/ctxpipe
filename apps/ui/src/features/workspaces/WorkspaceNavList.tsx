@@ -1,9 +1,12 @@
+import { IconPlus } from "@tabler/icons-react"
 import { useSuspenseQuery } from "@tanstack/react-query"
 import { Suspense, useState } from "react"
 import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
+import { Button } from "@/components/ui/Button"
 import { SkeletonRow } from "@/components/ui/Skeleton"
 import { isWorkspaceNavOpen } from "./nav"
 import { workspaceListOptions } from "./queries"
+import { WorkspaceCreateModal } from "./WorkspaceCreateModal"
 import { WorkspaceNavRow } from "./WorkspaceNavRow"
 
 export function WorkspaceNavList(props: {
@@ -66,6 +69,7 @@ function WorkspaceNavListReady(props: {
   const n = workspaces.length
   const [expandedIds, setExpandedIds] = useState<string[]>([])
   const [syncedSlug, setSyncedSlug] = useState<string | undefined>(undefined)
+  const [createOpen, setCreateOpen] = useState(false)
   const currentWorkspace = workspaces.find(
     (workspace) => workspace.slug === currentWorkspaceSlug,
   )
@@ -81,10 +85,27 @@ function WorkspaceNavListReady(props: {
   return (
     <>
       {expanded ? (
-        <li className="mx-1.5 mt-2.5 mb-0.5 flex h-8 w-[calc(100%-0.75rem)] items-center px-2">
+        <li className="mx-1.5 mt-2.5 mb-0.5 flex h-8 w-[calc(100%-0.75rem)] items-center justify-between pl-2">
           <p className="text-[10px] font-normal uppercase tracking-tighter text-muted-foreground">
             Workspaces
           </p>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Add Workspace"
+            onPress={() => setCreateOpen(true)}
+          >
+            <IconPlus
+              className="size-4 text-muted-foreground"
+              stroke={1.4}
+              aria-hidden
+            />
+          </Button>
+          <WorkspaceCreateModal
+            orgSlug={orgSlug}
+            isOpen={createOpen}
+            onOpenChange={setCreateOpen}
+          />
         </li>
       ) : null}
       {workspaces.map((workspace) => {

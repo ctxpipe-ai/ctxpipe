@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   conversationsListHandler,
   githubInstallationReposHandler,
@@ -103,5 +104,33 @@ export const Loading: Story = {
         ],
       },
     },
+  },
+}
+
+export const AddWorkspace: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceListHandler([docsWorkspace]),
+          conversationsListHandler(docsConversations),
+          githubInstallationReposHandler(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Add Workspace" }),
+    )
+    const dialog = await within(canvasElement.ownerDocument.body).findByRole(
+      "dialog",
+    )
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("heading", { name: "Add Workspace" }),
+      ).toBeVisible(),
+    )
   },
 }
