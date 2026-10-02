@@ -222,7 +222,9 @@ it.each(["entity", "full", "no_workspace", "read_only", "not_live"] as const)(
           })
           expect(
             (await f.backend.listWorkflowRuns({ limit: 100 })).data.filter(
-              (run) => run.workflowName === "repository-ingestion-orchestrator",
+              (run) =>
+                run.workflowName === "repository-ingestion-orchestrator" &&
+                (run.input as { orgId?: string } | null)?.orgId === f.org.id,
             ),
           ).toHaveLength(0)
           expect(

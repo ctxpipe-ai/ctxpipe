@@ -10,12 +10,7 @@ import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
-import {
-  createMergeSandbox,
-  destroyMergeSandbox,
-  planMergeSandbox,
-  resolveSemanticConflicts,
-} from "../../domain/workspaces/semantic-merge.js"
+import { resolveSemanticConflicts } from "../../domain/workspaces/semantic-merge.js"
 import {
   attemptWorkspaceCommit,
   publishWorkspaceWriteRevision,
@@ -53,7 +48,6 @@ import {
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
-import { workspaceSemanticCleanup } from "./workspace-semantic-cleanup.js"
 
 export const semanticMergeContentSchema = z
   .object({
@@ -214,58 +208,13 @@ export const workspaceSemanticMerge = defineWorkflow(
             }
           }
           const resolved = merged.conflicts.length
-            ? await (async () => {
-                const planned = await step.run(
-                  { name: "plan-merge-sandbox" },
-                  () => planMergeSandbox(`${run.id}:${refreshAttempt}`),
-                )
-                const locator = await step.run(
-                  { name: "bound-resource-deadline" },
-                  () => ({
-                    ...planned,
-                    // An in-flight pre-upgrade plan has no deadline yet.
-                    expiresAt:
-                      planned.expiresAt ??
-                      new Date(
-                        new Date(run.createdAt).getTime() + 120_000,
-                      ).toISOString(),
-                  }),
-                )
-                await step.run(
-                  { name: "schedule-resource-cleanup" },
-                  async () => {
-                    await runWorkflowWithWorkerWake(
-                      workspaceSemanticCleanup.spec,
-                      {
-                        orgId: input.orgId,
-                        workspaceId: input.workspaceId,
-                        locator,
-                      },
-                      {
-                        availableAt: new Date(locator.expiresAt),
-                        idempotencyKey: `${run.id}:${refreshAttempt}:cleanup`,
-                      },
-                    )
-                  },
-                )
-                const sandbox = await step.run(
-                  { name: "create-merge-sandbox" },
-                  () => createMergeSandbox(locator),
-                )
-                try {
-                  return await step.run(
-                    {
-                      name: "resolve-semantic-conflicts",
-                      retryPolicy: { maximumAttempts: 3 },
-                    },
-                    () => resolveSemanticConflicts(sandbox, merged.conflicts),
-                  )
-                } finally {
-                  await step.run({ name: "destroy-merge-sandbox" }, () =>
-                    destroyMergeSandbox(sandbox),
-                  )
-                }
-              })()
+            ? await step.run(
+                {
+                  name: "resolve-semantic-conflicts",
+                  retryPolicy: { maximumAttempts: 3 },
+                },
+                () => resolveSemanticConflicts(merged.conflicts),
+              )
             : null
           const staged = await step.run({ name: "stage" }, () =>
             resolved ? resolveGitMergeTree(merged, resolved) : merged.staged,

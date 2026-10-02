@@ -58,9 +58,13 @@ export const WORKSPACE_CHAT_DOCKER_SETUP = [
   ...WORKSPACE_CHAT_SANDBOX_SETUP.slice(1),
 ] as const
 
-/** Applied only to each thread, after restoring the credential-free base. */
+/** Checks out the conversation: the desired commit, then its session branch if published. */
 export const WORKSPACE_CHAT_THREAD_SETUP = [
-  `(git checkout -B "$CTXPIPE_CLONE_BRANCH" "$CTXPIPE_CLONE_SHA" &&
+  `(git rev-parse --git-dir >/dev/null 2>&1 || { echo "Workspace clone failed: $CTXPIPE_CLONE_URL" >&2; exit 1; }
+# The stock clone is shallow; fetch the desired commit when the tip has moved on.
+git cat-file -e "$CTXPIPE_CLONE_SHA^{commit}" 2>/dev/null ||
+  git -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f' fetch --depth 1 origin "$CTXPIPE_CLONE_SHA" || exit 1
+git checkout -B "$CTXPIPE_CLONE_BRANCH" "$CTXPIPE_CLONE_SHA" &&
 if [ -n "\${CTXPIPE_SESSION_BRANCH:-}" ]; then
   git check-ref-format "refs/heads/$CTXPIPE_SESSION_BRANCH" || exit 1
   git -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f' ls-remote --exit-code --heads origin "refs/heads/$CTXPIPE_SESSION_BRANCH" >/dev/null

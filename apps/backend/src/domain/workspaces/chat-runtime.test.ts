@@ -36,7 +36,7 @@ describe("workspace chat runtime", () => {
       /command -v opencode/,
     )
     expect(WORKSPACE_CHAT_SANDBOX_SETUP.join("\n")).toMatch(
-      /opencode-ai@1\.18\.18/,
+      /opencode-ai@1\.18\.34/,
     )
   })
 
@@ -92,7 +92,7 @@ describe("workspace chat runtime", () => {
       join(dirname(fileURLToPath(import.meta.url)), "../../../Dockerfile"),
       "utf8",
     )
-    expect(dockerfile).toMatch(/opencode-ai@1\.18\.18/)
+    expect(dockerfile).toMatch(/opencode-ai@1\.18\.34/)
     expect(dockerfile).toMatch(/findutils/)
   })
 

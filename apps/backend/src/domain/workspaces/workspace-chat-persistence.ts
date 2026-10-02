@@ -107,7 +107,12 @@ function createMessageStore(): MessageStore {
   }
 }
 
-function createRunStore(): RunStore {
+/**
+ * `threadId` scopes writes to one conversation's runs. Stock persistence also
+ * fails a run whose `createOrResume` was rejected, which would otherwise
+ * rewrite another conversation's run that happens to share the run id.
+ */
+function createRunStore(threadId?: string): RunStore {
   async function get(runId: string) {
     return orgSql(async () => {
       const rows = await getOrgDb()
@@ -171,7 +176,11 @@ function createRunStore(): RunStore {
         await getOrgDb()
           .update(chatRuns)
           .set(set)
-          .where(eq(chatRuns.runId, runId))
+          .where(
+            threadId === undefined
+              ? eq(chatRuns.runId, runId)
+              : and(eq(chatRuns.runId, runId), eq(chatRuns.threadId, threadId)),
+          )
       })
     },
     async findActiveRun(threadId) {
@@ -379,12 +388,15 @@ const chatStores: ChatPersistence = defineAIPersistence({
 })
 
 /** Postgres transcript/runs plus in-memory artifacts/blobs for sandbox snapshots. */
-export function workspaceChatPersistence() {
+export function workspaceChatPersistence(input?: { threadId?: string }) {
   const memory = memoryPersistence()
   return composePersistence(memory, {
     overrides: {
       messages: chatStores.stores.messages,
-      runs: chatStores.stores.runs,
+      runs:
+        input?.threadId === undefined
+          ? chatStores.stores.runs
+          : createRunStore(input.threadId),
       interrupts: chatStores.stores.interrupts,
       metadata: chatStores.stores.metadata,
     },

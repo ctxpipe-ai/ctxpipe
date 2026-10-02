@@ -1,14 +1,8 @@
-import { type ChildProcess, execFileSync, spawn } from "node:child_process"
-import { randomUUID } from "node:crypto"
+import { execFileSync } from "node:child_process"
 import { writeFile } from "node:fs/promises"
-import { createServer, type Socket } from "node:net"
-import { networkInterfaces } from "node:os"
 import { join } from "node:path"
-import { PassThrough } from "node:stream"
-import { finished } from "node:stream/promises"
-import { fileURLToPath } from "node:url"
 import Docker from "dockerode"
-import { eq, sql } from "drizzle-orm"
+import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
@@ -23,19 +17,15 @@ import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
 import { withNativeHttpsGitFixture } from "../../test/native-https-git-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
-import {
-  WORKSPACE_CHAT_DOCKER_SANDBOX,
-  WORKSPACE_CHAT_OPENCODE_PORT,
-  workspaceChatRuntimeConfig,
-} from "./chat-runtime.js"
+import { workspaceChatRuntimeConfig } from "./chat-runtime.js"
 import { workspaceChatInstanceAccess } from "./sandbox-instance-store.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import {
   streamTanstackWorkspaceChat,
   warmTanstackWorkspaceChat,
-  workspaceChatDockerOwnership,
 } from "./tanstack-workspace-chat.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
+import { advanceConversationWorktree } from "./workspace-chat-revision-transition.js"
 import { resolveWorkspaceChatTurnRuntime } from "./workspace-chat-turn-runtime.js"
 import { destroySandboxesForConversation } from "./workspace-sandbox-cleanup.js"
 
@@ -59,8 +49,7 @@ it(
       expect(result).toEqual({
         ok: false,
         status: 503,
-        error:
-          "The sbx adapter cannot enforce the required 4 GiB disk and 128 PID limits. Workspace chat is unavailable for this provider.",
+        error: "TanStack sandbox provider sbx is not available",
       })
       expect(f.modelRequests).toHaveLength(0)
       expect(
@@ -153,7 +142,6 @@ it(
   { timeout: 30_000 },
   async () => {
     await withNativeChatFixture(async (f) => {
-      workspaceChatDockerOwnership.reset()
       process.env.SANDBOX_PROVIDER = "docker"
       process.env.SANDBOX_CHAT_IMAGE = `ctxpipe-missing-${f.orgId}:unavailable`
       const input = {
@@ -169,27 +157,11 @@ it(
       }
       const first = await warmTanstackWorkspaceChat(input)
       expect(first).toMatchObject({ ok: false, status: 503 })
-      expect(workspaceChatDockerOwnership.imageInspects).toBe(1)
       const second = await warmTanstackWorkspaceChat(input)
       expect(second).toMatchObject({ ok: false, status: 503 })
-      expect(workspaceChatDockerOwnership.imageInspects).toBe(2)
     })
   },
 )
-
-it("refuses nested OpenCode forwards that collide with the quota Docker API", async () => {
-  const previous = process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT
-  process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT = "32768"
-  try {
-    await expect(
-      startNestedPortForward({ runnerId: "unused", port: 32768 }),
-    ).rejects.toThrow(/quota Docker API/)
-  } finally {
-    if (previous === undefined)
-      delete process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT
-    else process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT = previous
-  }
-})
 
 it(
   "prepare preserves the native worktree while refreshing its credentials",
@@ -387,34 +359,19 @@ it(
 )
 
 it(
-  "prepare discovers quota Docker and reuses its HTTPS-cloned isolated worktree",
+  "prepare discovers Docker and keeps its HTTPS-cloned worktree while the default branch moves",
   { timeout: 300_000 },
   async () => {
-    const quotaHost = process.env.CTXPIPE_TEST_QUOTA_DOCKER_HOST?.trim()
-    const quotaPort = Number(process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT)
-    if (!quotaHost || !Number.isInteger(quotaPort) || quotaPort < 1)
-      throw new Error(
-        "CTXPIPE_TEST_QUOTA_DOCKER_HOST and CTXPIPE_TEST_QUOTA_DOCKER_PORT are required",
-      )
     const previous = Object.fromEntries(
-      [
-        "DOCKER_HOST",
-        "DOCKER_TLS_VERIFY",
-        "DOCKER_CERT_PATH",
-        "SANDBOX_CHAT_IMAGE",
-      ].map((key) => [key, process.env[key]]),
+      ["SANDBOX_CHAT_IMAGE"].map((key) => [key, process.env[key]]),
     )
-    process.env.DOCKER_HOST = `tcp://${quotaHost}:${quotaPort}`
-    delete process.env.DOCKER_TLS_VERIFY
-    delete process.env.DOCKER_CERT_PATH
     const docker = new Docker({ timeout: 30_000 })
     try {
-      await docker.getImage(WORKSPACE_CHAT_DOCKER_SANDBOX.image).inspect()
       await withNativeHttpsGitFixture(
         {
           baseImage:
             process.env.CTXPIPE_TEST_CHAT_SANDBOX_IMAGE?.trim() ||
-            "ctxpipe-chat-sandbox:opencode-1.18.18",
+            "ctxpipe-chat-sandbox:opencode-1.18.34",
           docker,
         },
         async (gitFixture) => {
@@ -440,38 +397,21 @@ it(
                   writeStatus: "read_only",
                   prompt: "prepare",
                 }
-                workspaceChatDockerOwnership.reset()
                 const first = await warmTanstackWorkspaceChat(input)
                 if (!first.ok) throw new Error(first.error)
                 expect(
                   (await first.handle.process.exec("uname -s")).stdout.trim(),
                 ).toBe("Linux")
                 expect(
-                  (await first.handle.process.exec("printenv HOME PATH")).stdout
-                    .trim()
-                    .split("\n"),
-                ).toEqual([
-                  `/home/node/ctxpipe-opencode/${f.conversationId}`,
-                  "/usr/local/bin:/usr/bin:/bin",
-                ])
+                  (
+                    await first.handle.process.exec("printenv HOME")
+                  ).stdout.trim(),
+                ).toBe(`/home/node/ctxpipe-opencode/${f.conversationId}`)
                 expect(
                   (
                     await first.handle.process.exec("git remote get-url origin")
                   ).stdout.trim(),
                 ).toBe(remote.url)
-                const container = await docker
-                  .getContainer(first.handle.id)
-                  .inspect()
-                expect(container.Config.User).toBe("1000:1000")
-                expect(container.HostConfig).toMatchObject({
-                  NanoCpus: 1_000_000_000,
-                  Memory: 1024 ** 3,
-                  MemorySwap: 1024 ** 3,
-                  PidsLimit: 128,
-                  StorageOpt: { size: "4G" },
-                  CapDrop: ["ALL"],
-                  SecurityOpt: ["no-new-privileges:true"],
-                })
                 expect(await first.handle.fs.read("/workspace/README.md")).toBe(
                   "# Native chat workspace\n",
                 )
@@ -568,43 +508,22 @@ it(
 )
 
 it(
-  "quota Docker chat turn reaches the production model broker and Git remote",
+  "Docker chat turn reaches the production model broker and Git remote",
   { timeout: 300_000 },
   async () => {
-    const quotaHost = process.env.CTXPIPE_TEST_QUOTA_DOCKER_HOST?.trim()
-    const quotaPort = Number(process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT)
-    const quotaRunner = process.env.CTXPIPE_TEST_QUOTA_RUNNER_ID?.trim()
-    if (
-      !quotaHost ||
-      !quotaRunner ||
-      !Number.isInteger(quotaPort) ||
-      quotaPort < 1
-    )
-      throw new Error(
-        "CTXPIPE_TEST_QUOTA_DOCKER_HOST, CTXPIPE_TEST_QUOTA_DOCKER_PORT, and CTXPIPE_TEST_QUOTA_RUNNER_ID are required",
-      )
     const previous = Object.fromEntries(
-      [
-        "DOCKER_HOST",
-        "DOCKER_TLS_VERIFY",
-        "DOCKER_CERT_PATH",
-        "SANDBOX_CHAT_IMAGE",
-        "SANDBOX_MODEL_PROXY_HOST",
-      ].map((key) => [key, process.env[key]]),
+      ["SANDBOX_CHAT_IMAGE", "SANDBOX_MODEL_PROXY_HOST"].map((key) => [
+        key,
+        process.env[key],
+      ]),
     )
-    process.env.DOCKER_HOST = `tcp://${quotaHost}:${quotaPort}`
-    delete process.env.DOCKER_TLS_VERIFY
-    delete process.env.DOCKER_CERT_PATH
     const docker = new Docker({ timeout: 30_000 })
     try {
-      const proxyImage = await docker
-        .getImage(WORKSPACE_CHAT_DOCKER_SANDBOX.image)
-        .inspect()
       await withNativeHttpsGitFixture(
         {
           baseImage:
             process.env.CTXPIPE_TEST_CHAT_SANDBOX_IMAGE?.trim() ||
-            "ctxpipe-chat-sandbox:opencode-1.18.18",
+            "ctxpipe-chat-sandbox:opencode-1.18.34",
           docker,
         },
         async (gitFixture) => {
@@ -612,224 +531,158 @@ it(
           await withNativeChatFixture(
             async (f) => {
               delete process.env.SANDBOX_PROVIDER
-              const listenPort = Number(process.env.PORT)
-              if (!Number.isInteger(listenPort) || listenPort < 1)
-                throw new Error("Native chat fixture PORT missing")
-              const destHost = ghaReachableIpv4()
-              await nestedBridgeGateway(docker)
-              const relay = await startNestedModelRelay({
-                docker,
-                image: proxyImage.Id,
-                destHost,
-                destPort: listenPort,
-                listenPort,
-              })
+              // Stock Docker sandboxes reach the backend on the host gateway.
               process.env.SANDBOX_MODEL_PROXY_HOST = "host.docker.internal"
-              const forwards = new Map<number, { stop: () => Promise<void> }>()
-              const publishOpenCode = async () => {
-                const ports = await publishedOpencodePorts(docker)
-                if (ports.length === 0)
-                  throw new Error(
-                    "Quota Docker chat published no OpenCode ingress port",
+              await gitFixture.serve(f.directory, async (remote) => {
+                let phase = "first prepare"
+                try {
+                  await withOrgDbContext(f.orgId, (db) =>
+                    db
+                      .update(workspaces)
+                      .set({ workspaceRepositoryUrl: remote.url })
+                      .where(eq(workspaces.id, f.workspaceId)),
                   )
-                for (const port of ports) {
-                  if (forwards.has(port)) continue
-                  forwards.set(
-                    port,
-                    await startNestedPortForward({
-                      runnerId: quotaRunner,
-                      port,
-                    }),
+                  const input = {
+                    conversationId: f.conversationId,
+                    orgId: f.orgId,
+                    orgSlug: f.orgSlug,
+                    workspaceId: f.workspaceId,
+                    desiredUrl: remote.url,
+                    desiredSha: f.sha,
+                    defaultBranch: "main",
+                    writeStatus: "read_only" as const,
+                  }
+                  workspaceChatInstanceAccess.reset()
+                  const first = await warmTanstackWorkspaceChat({
+                    ...input,
+                    prompt: "prepare",
+                  })
+                  if (!first.ok) throw new Error(first.error)
+                  await first.handle.fs.write(
+                    "/workspace/unsaved.txt",
+                    "Docker chat preserves unsaved work",
+                  )
+                  phase = "first chat"
+                  const persistence = workspaceChatPersistence()
+                  const firstEvents: string[] = []
+                  let firstText = ""
+                  for await (const chunk of streamTanstackWorkspaceChat({
+                    ...input,
+                    prompt: "First question",
+                    runId: `${f.conversationId}-docker-chat-1`,
+                    messages: [
+                      ...(await persistence.stores.messages.loadThread(
+                        f.conversationId,
+                      )),
+                      {
+                        id: "user-docker-chat-1",
+                        role: "user",
+                        content: "First question",
+                      },
+                    ],
+                  })) {
+                    firstEvents.push(chunk.type)
+                    if (chunk.type === "TEXT_MESSAGE_CONTENT")
+                      firstText += chunk.delta
+                  }
+                  expect(firstEvents).toContain("RUN_FINISHED")
+                  expect(firstEvents).not.toContain("RUN_ERROR")
+                  expect(firstText).toBe("Native reply completed.")
+                  expect(f.modelRequests.length).toBeGreaterThanOrEqual(1)
+                  expect(
+                    await first.handle.fs.read("/workspace/unsaved.txt"),
+                  ).toBe("Docker chat preserves unsaved work")
+                  phase = "git ls-remote"
+                  const remoteHeads = await first.handle.process.exec(
+                    "git ls-remote --heads origin refs/heads/main",
+                  )
+                  expect(remoteHeads.exitCode).toBe(0)
+                  expect(remoteHeads.stdout).toContain(f.sha)
+                  phase = "warm chat"
+                  const instanceCreatesBeforeWarm =
+                    workspaceChatInstanceAccess.creates
+                  const hitsBeforeWarm = workspaceChatInstanceAccess.hits
+                  const modelRequestsBeforeWarm = f.modelRequests.length
+                  const warmEvents: string[] = []
+                  let warmText = ""
+                  const warmStarted = Date.now()
+                  for await (const chunk of streamTanstackWorkspaceChat({
+                    ...input,
+                    prompt: "Warm question",
+                    runId: `${f.conversationId}-docker-chat-warm`,
+                    messages: [
+                      ...(await persistence.stores.messages.loadThread(
+                        f.conversationId,
+                      )),
+                      {
+                        id: "user-docker-chat-warm",
+                        role: "user",
+                        content: "Warm question",
+                      },
+                    ],
+                  })) {
+                    warmEvents.push(chunk.type)
+                    if (chunk.type === "TEXT_MESSAGE_CONTENT")
+                      warmText += chunk.delta
+                  }
+                  expect(Date.now() - warmStarted).toBeLessThan(30_000)
+                  expect(warmEvents).toContain("RUN_FINISHED")
+                  expect(warmEvents).not.toContain("RUN_ERROR")
+                  expect(warmText).toBe("Native reply completed.")
+                  expect(f.modelRequests.length).toBeGreaterThan(
+                    modelRequestsBeforeWarm,
+                  )
+                  expect(workspaceChatInstanceAccess.creates).toBe(
+                    instanceCreatesBeforeWarm,
+                  )
+                  expect(
+                    workspaceChatInstanceAccess.hits - hitsBeforeWarm,
+                  ).toBeGreaterThanOrEqual(1)
+                  phase = "provider loss"
+                  await first.handle.destroy()
+                  phase = "recovery prepare"
+                  const recovered = await warmTanstackWorkspaceChat({
+                    ...input,
+                    prompt: "prepare",
+                  })
+                  if (!recovered.ok) throw new Error(recovered.error)
+                  expect(recovered.handle.id).not.toBe(first.handle.id)
+                  expect(
+                    await recovered.handle.fs.exists("/workspace/unsaved.txt"),
+                  ).toBe(false)
+                  phase = "recovery chat"
+                  const recoveredEvents: string[] = []
+                  let recoveredText = ""
+                  for await (const chunk of streamTanstackWorkspaceChat({
+                    ...input,
+                    prompt: "Second question",
+                    runId: `${f.conversationId}-docker-chat-2`,
+                    messages: [
+                      ...(await persistence.stores.messages.loadThread(
+                        f.conversationId,
+                      )),
+                      {
+                        id: "user-docker-chat-2",
+                        role: "user",
+                        content: "Second question",
+                      },
+                    ],
+                  })) {
+                    recoveredEvents.push(chunk.type)
+                    if (chunk.type === "TEXT_MESSAGE_CONTENT")
+                      recoveredText += chunk.delta
+                  }
+                  expect(recoveredEvents).toContain("RUN_FINISHED")
+                  expect(recoveredEvents).not.toContain("RUN_ERROR")
+                  expect(recoveredText).toBe("Native reply completed.")
+                  expect(f.modelRequests.length).toBeGreaterThanOrEqual(2)
+                } catch (error) {
+                  throw new Error(
+                    `Docker chat fixture ${phase} failed: ${String(error)}`,
+                    { cause: error },
                   )
                 }
-              }
-              try {
-                await gitFixture.serve(f.directory, async (remote) => {
-                  let phase = "first prepare"
-                  try {
-                    await withOrgDbContext(f.orgId, (db) =>
-                      db
-                        .update(workspaces)
-                        .set({ workspaceRepositoryUrl: remote.url })
-                        .where(eq(workspaces.id, f.workspaceId)),
-                    )
-                    const input = {
-                      conversationId: f.conversationId,
-                      orgId: f.orgId,
-                      orgSlug: f.orgSlug,
-                      workspaceId: f.workspaceId,
-                      desiredUrl: remote.url,
-                      desiredSha: f.sha,
-                      defaultBranch: "main",
-                      writeStatus: "read_only" as const,
-                    }
-                    workspaceChatDockerOwnership.reset()
-                    workspaceChatInstanceAccess.reset()
-                    const first = await warmTanstackWorkspaceChat({
-                      ...input,
-                      prompt: "prepare",
-                    })
-                    if (!first.ok) throw new Error(first.error)
-                    expect(workspaceChatDockerOwnership.imageInspects).toBe(1)
-                    const container = await docker
-                      .getContainer(first.handle.id)
-                      .inspect()
-                    expect(container.HostConfig).toMatchObject({
-                      NanoCpus: 1_000_000_000,
-                      Memory: 1024 ** 3,
-                      MemorySwap: 1024 ** 3,
-                      PidsLimit: 128,
-                      StorageOpt: { size: "4G" },
-                    })
-                    await first.handle.fs.write(
-                      "/workspace/unsaved.txt",
-                      "Docker chat preserves unsaved work",
-                    )
-                    phase = "opencode ingress"
-                    await publishOpenCode()
-                    phase = "first chat"
-                    const persistence = workspaceChatPersistence()
-                    const firstEvents: string[] = []
-                    let firstText = ""
-                    for await (const chunk of streamTanstackWorkspaceChat({
-                      ...input,
-                      prompt: "First question",
-                      runId: `${f.conversationId}-quota-chat-1`,
-                      messages: [
-                        ...(await persistence.stores.messages.loadThread(
-                          f.conversationId,
-                        )),
-                        {
-                          id: "user-quota-chat-1",
-                          role: "user",
-                          content: "First question",
-                        },
-                      ],
-                    })) {
-                      firstEvents.push(chunk.type)
-                      if (chunk.type === "TEXT_MESSAGE_CONTENT")
-                        firstText += chunk.delta
-                    }
-                    expect(firstEvents).toContain("RUN_FINISHED")
-                    expect(firstEvents).not.toContain("RUN_ERROR")
-                    expect(firstText).toBe("Native reply completed.")
-                    expect(f.modelRequests.length).toBeGreaterThanOrEqual(1)
-                    expect(
-                      await first.handle.fs.read("/workspace/unsaved.txt"),
-                    ).toBe("Docker chat preserves unsaved work")
-                    phase = "git ls-remote"
-                    const remoteHeads = await first.handle.process.exec(
-                      "git ls-remote --heads origin refs/heads/main",
-                    )
-                    expect(remoteHeads.exitCode).toBe(0)
-                    expect(remoteHeads.stdout).toContain(f.sha)
-                    phase = "warm chat"
-                    const instanceCreatesBeforeWarm =
-                      workspaceChatInstanceAccess.creates
-                    const hitsBeforeWarm = workspaceChatInstanceAccess.hits
-                    const providerCreatesBeforeWarm =
-                      workspaceChatDockerOwnership.providerCreates
-                    const inspectsBeforeWarm =
-                      workspaceChatDockerOwnership.imageInspects
-                    const modelRequestsBeforeWarm = f.modelRequests.length
-                    const warmEvents: string[] = []
-                    let warmText = ""
-                    const warmStarted = Date.now()
-                    for await (const chunk of streamTanstackWorkspaceChat({
-                      ...input,
-                      prompt: "Warm question",
-                      runId: `${f.conversationId}-quota-chat-warm`,
-                      messages: [
-                        ...(await persistence.stores.messages.loadThread(
-                          f.conversationId,
-                        )),
-                        {
-                          id: "user-quota-chat-warm",
-                          role: "user",
-                          content: "Warm question",
-                        },
-                      ],
-                    })) {
-                      warmEvents.push(chunk.type)
-                      if (chunk.type === "TEXT_MESSAGE_CONTENT")
-                        warmText += chunk.delta
-                    }
-                    expect(Date.now() - warmStarted).toBeLessThan(30_000)
-                    expect(warmEvents).toContain("RUN_FINISHED")
-                    expect(warmEvents).not.toContain("RUN_ERROR")
-                    expect(warmText).toBe("Native reply completed.")
-                    expect(f.modelRequests.length).toBeGreaterThan(
-                      modelRequestsBeforeWarm,
-                    )
-                    expect(workspaceChatDockerOwnership.providerCreates).toBe(
-                      providerCreatesBeforeWarm,
-                    )
-                    expect(workspaceChatDockerOwnership.imageInspects).toBe(
-                      inspectsBeforeWarm,
-                    )
-                    expect(workspaceChatInstanceAccess.creates).toBe(
-                      instanceCreatesBeforeWarm,
-                    )
-                    expect(
-                      workspaceChatInstanceAccess.hits - hitsBeforeWarm,
-                    ).toBeGreaterThanOrEqual(1)
-                    phase = "provider loss"
-                    await first.handle.destroy()
-                    phase = "recovery prepare"
-                    const recovered = await warmTanstackWorkspaceChat({
-                      ...input,
-                      prompt: "prepare",
-                    })
-                    if (!recovered.ok) throw new Error(recovered.error)
-                    expect(recovered.handle.id).not.toBe(first.handle.id)
-                    expect(
-                      await recovered.handle.fs.exists(
-                        "/workspace/unsaved.txt",
-                      ),
-                    ).toBe(false)
-                    phase = "recovery ingress"
-                    await publishOpenCode()
-                    phase = "recovery chat"
-                    const recoveredEvents: string[] = []
-                    let recoveredText = ""
-                    for await (const chunk of streamTanstackWorkspaceChat({
-                      ...input,
-                      prompt: "Second question",
-                      runId: `${f.conversationId}-quota-chat-2`,
-                      messages: [
-                        ...(await persistence.stores.messages.loadThread(
-                          f.conversationId,
-                        )),
-                        {
-                          id: "user-quota-chat-2",
-                          role: "user",
-                          content: "Second question",
-                        },
-                      ],
-                    })) {
-                      recoveredEvents.push(chunk.type)
-                      if (chunk.type === "TEXT_MESSAGE_CONTENT")
-                        recoveredText += chunk.delta
-                    }
-                    expect(recoveredEvents).toContain("RUN_FINISHED")
-                    expect(recoveredEvents).not.toContain("RUN_ERROR")
-                    expect(recoveredText).toBe("Native reply completed.")
-                    expect(f.modelRequests.length).toBeGreaterThanOrEqual(2)
-                    expect(workspaceChatDockerOwnership.imageInspects).toBe(1)
-                    expect(workspaceChatDockerOwnership.providerCreates).toBe(1)
-                  } catch (error) {
-                    throw new Error(
-                      `Docker chat fixture ${phase} failed: ${String(error)}`,
-                      { cause: error },
-                    )
-                  }
-                })
-              } finally {
-                await Promise.all(
-                  [...forwards.values()].map((forward) => forward.stop()),
-                )
-                await relay.stop()
-              }
+              })
             },
             undefined,
             { listenHost: "0.0.0.0" },
@@ -1294,7 +1147,7 @@ it.each(["main", "published"] as const)(
 )
 
 it(
-  "recovers a process lost after Git advanced but before its native record moved",
+  "recovers a process lost after Git advanced but before its sandbox record moved",
   { timeout: 90_000 },
   async () => {
     await withNativeChatFixture(async (f) => {
@@ -1342,83 +1195,28 @@ it(
           .set({ desiredSha: sha })
           .where(eq(workspaces.id, f.workspaceId)),
       )
-      let release!: () => void
-      let entered!: () => void
-      const barrier = new Promise<void>((resolve) => {
-        release = resolve
-      })
-      const ready = new Promise<void>((resolve) => {
-        entered = resolve
-      })
-      // A real row lock blocks only the final native ownership move. Provider
-      // IO runs in the separate process, with no held application transaction.
-      const holding = withOrgDbContext(f.orgId, (db) =>
-        db.transaction(async (tx) => {
-          await tx.execute(
-            sql`SELECT id FROM workspace_sandbox_instances WHERE conversation_id = ${f.conversationId} FOR UPDATE`,
-          )
-          entered()
-          await barrier
+      // A process finishes the Git update, then dies before recording the
+      // sandbox's new commit.
+      const [row] = await withOrgDbContext(f.orgId, () =>
+        listSandboxInstances({
+          conversationId: f.conversationId,
+          kind: "chat",
+          state: "live",
         }),
       )
-      await ready
-      const child = spawn(
-        "bun",
-        [
-          fileURLToPath(
-            new URL(
-              "../../test/native-chat-revision-client.ts",
-              import.meta.url,
-            ),
-          ),
-          f.orgId,
-          f.workspaceId,
-          f.conversationId,
-          f.directory,
-          sha,
-        ],
-        { detached: true, stdio: ["ignore", "pipe", "pipe"] },
+      if (!row?.revision) throw new Error("Sandbox row missing")
+      expect(
+        await advanceConversationWorktree({
+          handle: first.handle,
+          from: row.revision,
+          to: { ...row.revision, sha },
+        }),
+      ).toBe("moved")
+      const state = await first.handle.fs.read(
+        ".git/ctxpipe-revision-transition",
       )
-      let errors = ""
-      child.stderr.on("data", (data) => {
-        errors += String(data)
-      })
-      const exited = new Promise<void>((resolve, reject) => {
-        child.once("error", reject)
-        child.once("exit", () => resolve())
-      })
-      try {
-        const deadline = Date.now() + 20_000
-        let completed = false
-        while (Date.now() < deadline) {
-          if (child.exitCode !== null)
-            throw new Error(`Revision client exited before its move: ${errors}`)
-          if (
-            await first.handle.fs.exists(".git/ctxpipe-revision-transition")
-          ) {
-            const state = await first.handle.fs.read(
-              ".git/ctxpipe-revision-transition",
-            )
-            if (
-              typeof state === "string" &&
-              state.split("\n")[4] === "complete"
-            ) {
-              completed = true
-              break
-            }
-          }
-          await new Promise((resolve) => setTimeout(resolve, 25))
-        }
-        expect(completed).toBe(true)
-      } finally {
-        if (child.pid && child.exitCode === null)
-          process.kill(-child.pid, "SIGKILL")
-        await exited
-        release()
-        await holding
-      }
-      // The crashed owner's native lease expires; the next process/caller
-      // resumes the completed Git phase and performs only the atomic move.
+      expect(state.split("\n")[4]).toBe("complete")
+      // The next caller resumes the completed Git phase and only records it.
       await withOrgDbContext(f.orgId, (db) =>
         db
           .update(workspaces)
@@ -1452,57 +1250,7 @@ it(
 )
 
 it(
-  "identifies a legacy live worktree instead of silently allocating over saved edits",
-  { timeout: 45_000 },
-  async () => {
-    await withNativeChatFixture(async (f) => {
-      const input = {
-        conversationId: f.conversationId,
-        orgId: f.orgId,
-        orgSlug: f.orgSlug,
-        workspaceId: f.workspaceId,
-        desiredUrl: f.directory,
-        desiredSha: f.sha,
-        defaultBranch: "main",
-        writeStatus: "read_only",
-        prompt: "prepare",
-      }
-      const first = await warmTanstackWorkspaceChat(input)
-      if (!first.ok) throw new Error(first.error)
-      await first.handle.fs.write("notes.txt", "Pre-upgrade saved edits\n")
-      const legacyId = `legacy-${f.conversationId}`
-      // Fixture represents a pre-upgrade identity whose setup/image cannot
-      // safely be inferred from the newly introduced transition metadata.
-      await withOrgDbContext(f.orgId, (db) =>
-        db.execute(sql`
-        UPDATE workspace_sandbox_instances SET id = ${legacyId}, transition_key = NULL
-        WHERE conversation_id = ${f.conversationId}
-      `),
-      )
-      const resumed = await warmTanstackWorkspaceChat(input)
-      expect(resumed.ok).toBe(false)
-      if (resumed.ok) throw new Error("Legacy worktree was silently replaced")
-      expect(resumed.status).toBe(409)
-      expect(resumed.error).toContain(legacyId)
-      expect(resumed.error).toContain(first.handle.id)
-      expect(await first.handle.fs.read("notes.txt")).toBe(
-        "Pre-upgrade saved edits\n",
-      )
-      const owners = await withOrgDbContext(f.orgId, () =>
-        listSandboxInstances({
-          conversationId: f.conversationId,
-          kind: "chat",
-          state: "live",
-        }),
-      )
-      expect(owners).toHaveLength(1)
-      expect(owners[0]?.id).toBe(legacyId)
-    })
-  },
-)
-
-it(
-  "reconciles a newer workspace tip when Git completes before the ownership compare-and-swap",
+  "moves through an intermediate target to a newer tip and never back",
   { timeout: 60_000 },
   async () => {
     await withNativeChatFixture(async (f) => {
@@ -1551,68 +1299,26 @@ it(
           .set({ desiredSha: middleSha })
           .where(eq(workspaces.id, f.workspaceId)),
       )
-      let release!: () => void
-      let entered!: () => void
-      const barrier = new Promise<void>((resolve) => {
-        release = resolve
-      })
-      const ready = new Promise<void>((resolve) => {
-        entered = resolve
-      })
-      // MVCC readers see the middle target; only the final ownership CAS waits.
-      const holding = withOrgDbContext(f.orgId, (db) =>
-        db.transaction(async (tx) => {
-          await tx.execute(
-            sql`SELECT id FROM workspaces WHERE id = ${f.workspaceId} FOR UPDATE`,
-          )
-          entered()
-          await barrier
-          await tx
-            .update(workspaces)
-            .set({ desiredSha: newestSha })
-            .where(eq(workspaces.id, f.workspaceId))
-        }),
-      )
-      await ready
-      const pending = warmTanstackWorkspaceChat({
+      const middle = await warmTanstackWorkspaceChat({
         ...input,
         desiredSha: middleSha,
       })
-      try {
-        const deadline = Date.now() + 20_000
-        let completed = false
-        while (Date.now() < deadline) {
-          if (
-            await first.handle.fs.exists(".git/ctxpipe-revision-transition")
-          ) {
-            const state = await first.handle.fs.read(
-              ".git/ctxpipe-revision-transition",
-            )
-            if (
-              typeof state === "string" &&
-              state.split("\n")[4] === "complete"
-            ) {
-              completed = true
-              break
-            }
-          }
-          await new Promise((resolve) => setTimeout(resolve, 25))
-        }
-        expect(completed).toBe(true)
-      } finally {
-        release()
-        await holding
-      }
-      expect(await pending).toMatchObject({ ok: false, status: 503 })
-      const retained = await withOrgDbContext(f.orgId, () =>
+      if (!middle.ok) throw new Error(middle.error)
+      expect(middle).not.toHaveProperty("effectiveRevision")
+      const [recorded] = await withOrgDbContext(f.orgId, () =>
         listSandboxInstances({
           conversationId: f.conversationId,
           kind: "chat",
           state: "live",
         }),
       )
-      expect(retained).toHaveLength(1)
-      expect(retained[0]?.revision?.sha).toBe(f.sha)
+      expect(recorded?.revision?.sha).toBe(middleSha)
+      await withOrgDbContext(f.orgId, (db) =>
+        db
+          .update(workspaces)
+          .set({ desiredSha: newestSha })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
       const current = await warmTanstackWorkspaceChat({
         ...input,
         desiredSha: newestSha,
@@ -1628,184 +1334,18 @@ it(
       expect(await current.handle.fs.read("notes.txt")).toBe(
         "Retain across a superseded move\n",
       )
+      // A queued request for the superseded target never moves it back.
+      const stale = await warmTanstackWorkspaceChat({
+        ...input,
+        desiredSha: middleSha,
+      })
+      expect(stale).toMatchObject({
+        ok: true,
+        effectiveRevision: { sha: newestSha },
+      })
+      expect(
+        (await current.handle.process.exec("git rev-parse HEAD")).stdout.trim(),
+      ).toBe(newestSha)
     })
   },
 )
-
-function ghaReachableIpv4(): string {
-  for (const entries of Object.values(networkInterfaces())) {
-    for (const entry of entries ?? []) {
-      if (entry.internal) continue
-      if (entry.family !== "IPv4") continue
-      if (entry.address.startsWith("172.17.")) continue
-      return entry.address
-    }
-  }
-  throw new Error(
-    "GHA has no non-docker0 IPv4 for the nested model relay destination",
-  )
-}
-
-async function nestedBridgeGateway(docker: Docker): Promise<string> {
-  const bridge = await docker.getNetwork("bridge").inspect()
-  const gateway = bridge.IPAM?.Config?.[0]?.Gateway
-  if (!gateway || !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(gateway))
-    throw new Error("Nested Docker bridge gateway missing")
-  return gateway
-}
-
-async function startNestedModelRelay(input: {
-  docker: Docker
-  image: string
-  destHost: string
-  destPort: number
-  listenPort: number
-}): Promise<{ stop: () => Promise<void> }> {
-  const container = await input.docker.createContainer({
-    name: `ctxpipe-model-relay-${randomUUID()}`,
-    Image: input.image,
-    User: "1000:1000",
-    Entrypoint: ["node"],
-    Cmd: [
-      "-e",
-      `const net=require("node:net");net.createServer((client)=>{const dest=net.connect(${input.destPort},${JSON.stringify(input.destHost)});client.pipe(dest);dest.pipe(client);const close=()=>{client.destroy();dest.destroy()};dest.on("error",close);client.on("error",close)}).listen(${input.listenPort},"0.0.0.0")`,
-    ],
-    HostConfig: { NetworkMode: "host" },
-    Labels: { "ai.ctxpipe.purpose": "native-model-relay" },
-  })
-  try {
-    await container.start()
-    await waitForNestedTcp(container, "127.0.0.1", input.listenPort)
-    await waitForNestedTcp(container, input.destHost, input.destPort)
-  } catch (error) {
-    const logs = (await container.logs({ stdout: true, stderr: true }))
-      .toString()
-      .trim()
-    await container.remove({ force: true, v: true }).catch(() => undefined)
-    throw new Error(
-      `Nested model relay failed: ${String(error)}; logs: ${logs || "<empty>"}`,
-      { cause: error },
-    )
-  }
-  return {
-    async stop() {
-      await container.remove({ force: true, v: true })
-    },
-  }
-}
-
-async function waitForNestedTcp(
-  container: Docker.Container,
-  host: string,
-  port: number,
-): Promise<void> {
-  const deadline = Date.now() + 15_000
-  while (true) {
-    const execution = await container.exec({
-      Cmd: [
-        "node",
-        "-e",
-        `const socket=require("node:net").connect({host:${JSON.stringify(host)},port:${port}});socket.setTimeout(250);socket.once("connect",()=>{socket.destroy();process.exit(0)});socket.once("error",()=>process.exit(1));socket.once("timeout",()=>process.exit(1))`,
-      ],
-      AttachStdout: true,
-      AttachStderr: true,
-    })
-    const stream = await execution.start({ hijack: true })
-    const stdout = new PassThrough()
-    const stderr = new PassThrough()
-    container.modem.demuxStream(stream, stdout, stderr)
-    await finished(stream)
-    if ((await execution.inspect()).ExitCode === 0) return
-    const info = await container.inspect()
-    if (!info.State.Running)
-      throw new Error(
-        `Nested model relay exited before ${host}:${port} was reachable`,
-      )
-    if (Date.now() >= deadline)
-      throw new Error(`Nested model relay did not reach ${host}:${port}`)
-    await new Promise((resolve) => setTimeout(resolve, 100))
-  }
-}
-
-async function publishedOpencodePorts(docker: Docker): Promise<number[]> {
-  const ports = new Set<number>()
-  for (const summary of await docker.listContainers({
-    filters: { label: ["com.tanstack.ai.sandbox.role=proxy"] },
-  })) {
-    const info = await docker.getContainer(summary.Id).inspect()
-    const port = Number(
-      info.NetworkSettings.Ports[`${WORKSPACE_CHAT_OPENCODE_PORT}/tcp`]?.[0]
-        ?.HostPort,
-    )
-    if (Number.isInteger(port) && port > 0) ports.add(port)
-  }
-  return [...ports]
-}
-
-async function startNestedPortForward(input: {
-  runnerId: string
-  port: number
-}): Promise<{ stop: () => Promise<void> }> {
-  const quotaPort = Number(process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT)
-  if (quotaPort === input.port) {
-    throw new Error(
-      `Nested OpenCode host port ${input.port} collides with the quota Docker API`,
-    )
-  }
-  const children = new Set<ChildProcess>()
-  const sockets = new Set<Socket>()
-  const server = createServer((socket) => {
-    sockets.add(socket)
-    const env = { ...process.env }
-    delete env.DOCKER_HOST
-    delete env.DOCKER_TLS_VERIFY
-    delete env.DOCKER_CERT_PATH
-    const child = spawn(
-      "docker",
-      [
-        "exec",
-        "-i",
-        input.runnerId,
-        "socat",
-        "STDIO",
-        `TCP:127.0.0.1:${input.port}`,
-      ],
-      { env, stdio: ["pipe", "pipe", "pipe"] },
-    )
-    children.add(child)
-    if (!child.stdin || !child.stdout)
-      throw new Error("Nested OpenCode forward missing stdio")
-    socket.pipe(child.stdin)
-    child.stdout.pipe(socket)
-    child.stderr?.resume()
-    const close = () => {
-      socket.destroy()
-      if (child.exitCode === null) child.kill()
-    }
-    child.on("error", close)
-    child.on("close", () => {
-      children.delete(child)
-      socket.destroy()
-    })
-    socket.on("error", close)
-    socket.on("close", () => {
-      sockets.delete(socket)
-      child.stdin?.end()
-    })
-  })
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject)
-    server.listen(input.port, "127.0.0.1", resolve)
-  })
-  return {
-    async stop() {
-      for (const socket of sockets) socket.destroy()
-      for (const child of children) {
-        if (child.exitCode === null) child.kill()
-      }
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()))
-      })
-    },
-  }
-}

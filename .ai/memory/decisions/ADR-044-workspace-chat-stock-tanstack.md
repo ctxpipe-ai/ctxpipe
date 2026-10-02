@@ -17,7 +17,7 @@ Workspace chat runs OpenCode inside a per-conversation sandbox. A homemade attac
 ## Consequences
 
 - Persistence, streaming and resume behave as upstream documents; fixes go upstream or into our wiring, not into vendored package code.
-- Until ticket 01 lands, the branch carries patches that this ADR does not endorse.
+- One patch remains, on `@tanstack/ai-opencode` 0.4.14: it classifies streamed parts by message role, waits for the event stream before prompting and for the assistant's final update before finishing, and bounds dispose. It is accepted until an upstream PR merges, raised after the production launch.
 
 ## Alternatives considered
 

@@ -6,25 +6,19 @@ import { postgresSandboxInstanceStore } from "../domain/workspaces/sandbox-insta
 import { postgresSandboxLocks } from "../domain/workspaces/sandbox-lock-store.js"
 
 initLogger({ enabled: false })
-const [orgId, workspaceId, containerName, mode] = process.argv.slice(2)
-if (
-  !orgId ||
-  !workspaceId ||
-  !containerName ||
-  !mode ||
-  !process.env.DATABASE_URL
-)
+const [orgId, workspaceId, runId, mode] = process.argv.slice(2)
+if (!orgId || !workspaceId || !runId || !mode || !process.env.DATABASE_URL)
   throw new Error("Native sandbox owner fixture arguments missing")
 initDb(process.env.DATABASE_URL)
 const controller = new AbortController()
 const definition = defineSandbox({
   id: "native-replica-proof",
-  provider: dockerSandbox({ image: "node:22", containerName }),
+  provider: dockerSandbox({ image: "node:22" }),
   lifecycle: { reuse: "thread", snapshot: "none" },
 })
 const context = {
   threadId: "shared-thread",
-  runId: containerName,
+  runId,
   tenant: { orgId },
   store: postgresSandboxInstanceStore({ orgId, workspaceId }),
   locks: postgresSandboxLocks(orgId, controller),

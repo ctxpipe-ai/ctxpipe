@@ -79,6 +79,38 @@ Phase 1 only until the user approves the ledger. Do not add new patches or wrapp
 
 ## Comments
 
+- 2026-10-02 (claude): **Phases 2–3 done on stock packages; one patch left.**
+
+  Upgraded to `@tanstack/ai` 0.63.0, `ai-sandbox` 0.5.17, `ai-opencode` 0.4.14, `ai-persistence` 0.7.1, `ai-sandbox-local-process` 0.2.6, `ai-react` 0.29.3 and `opencode-ai` / `@opencode-ai/sdk` 1.18.34. All six old patches are removed.
+
+  **Surviving patch:** `@tanstack/ai-opencode@0.4.14` (113 lines, `dist` only). The stock contracts failed without it:
+  - it classifies parts by message role, because stock echoes the user's text as assistant text;
+  - it waits for the first SSE event before prompting, because stock can prompt before the subscription is connected and miss the reply;
+  - it waits for the assistant's terminal `message.updated` before finishing, because stock can finish early;
+  - dispose races `stream.return` against one second, because a pending read can hang dispose. Aborting the subscription instead crashes Bun with an unhandled `reader.cancel` rejection.
+
+  Removal condition: an upstream `ai-opencode` PR covering all four, raised after the production launch (same policy as the Vercel patches). No `@opencode-ai/sdk` patch is needed.
+
+  **Ledger outcomes:**
+  - *Docker create:* stock sends every create option, including `Env`, in the query string. `withSessionOnlyEnv` (in `sandbox-provider.ts`) drops `env` on create and restore; secrets reach the session through `env.set`. Contract: "keeps sandbox secrets out of Docker create requests".
+  - *Exec env:* stock defaults `HOME=/root`; we set `HOME` through workspace secrets. Contract: "applies session environment, including HOME".
+  - *Stock git clone* is shallow and ignores its exit code. The thread setup now verifies the clone and fetches the desired commit when missing.
+  - *Thread lock:* our `workspaceChatThreadLock` middleware holds the Postgres `chat-thread:<id>` lock for the whole run and rejects a stale history (`ConversationChangedError`).
+  - *Run store* is scoped by conversation, so a rejected colliding run cannot mark another conversation's run as failed.
+  - *Option D:* the sandbox key has no commit; `updateConversationSandboxRevision` moves the sandbox to the current target before a turn, recorded by compare-and-swap on the instance row, and never back to a superseded target.
+  - *Semantic merge* no longer uses a sandbox (the sandbox only round-tripped JSON; the model already ran in the backend). It is one schema-validated model call. The `workspace-semantic-cleanup` workflow is deleted.
+  - *Stock Docker* resumes stopped containers, so idle stop works without changes.
+
+  **Deletion ledger** (against `ed5327e9`):
+  - patches: −9,839 / +113;
+  - backend source: −1,455 / +581 (deleted `workspace-chat-docker-policy.ts`, `workspace-semantic-cleanup.ts`, transition and move code in the instance store and models);
+  - tests, CI and scripts: −4,047 / +311 (quota runner, egress and snapshot contracts, Docker ack-loss and diagnostics helpers, `native-chat-revision-client.ts`);
+  - migration dropping `workspace_sandbox_instances.transition_key`.
+
+  **Verified locally:** typecheck for all projects within the allowlists; lint; sandbox ownership, replica, prepare (16 of 18), OpenCode SSE, chat (two turns, cancel, replay, MCP, colliding run), Files and publish, write-merge and worker-loss contracts. The two HTTPS-fixture Docker tests in the prepare contract only run on Linux (`host.docker.internal` maps to the Mac on Docker Desktop); CI runs them.
+
+  **Remaining:** CI lanes, preview `chat` and `files-publish` sweeps, first-answer latency against the PRD, ADR-044/048 wording.
+
 - 2026-10-02 (user): Docker fast start uses option B, the per-Workspace base image built by our code (ticket 03). The shared-base hunk in `ai-sandbox` is deleted, not replaced by a patch. Hosted gets the same Workspace base via the Vercel snapshot patch (ticket 02).
 
 - 2026-10-02 (user): phase 1 ledger approved. Exception: the three `@tanstack/ai-sandbox-vercel` gaps (start from snapshot, authenticated agent port, process kill) are temporary patches, upstreamed after production launch (ticket 02). Self-host Docker fast start: decision pending on the app-level per-Workspace base image (no patch).

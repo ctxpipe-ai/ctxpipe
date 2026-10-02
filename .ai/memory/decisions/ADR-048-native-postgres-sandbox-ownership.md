@@ -51,7 +51,7 @@ Hosted needs CPU billed only while busy (an agent mostly waits on the model), a 
 - An interactive sandbox stops after **5 minutes idle**; files are saved (Vercel snapshot on stop; Docker `stop`) and the next message resumes it.
 - A conversation's saved state is kept **30 days** after last use, then deleted; pushed work stays in git.
 - Each organization runs at most **50 sandboxes** at once; the limit is checked before create, with a clear "at capacity" error.
-- Runs nobody is watching (MCP `ctx_advisor` turns, Slack agent turns, semantic merge) stop their sandbox as soon as the run ends, so they never hold a slot.
+- Runs nobody is watching (MCP `ctx_advisor` turns, Slack agent turns) stop their sandbox as soon as the run ends, so they never hold a slot.
 - Cancel kills the agent process where the provider supports it; otherwise (Vercel, until proven) it stops the sandbox.
 
 ### Cleanup
@@ -64,7 +64,8 @@ Hosted needs CPU billed only while busy (an agent mostly waits on the model), a 
 - Replicas can restart or hand over mid-conversation; the lock and store carry ownership, git carries the work.
 - Losing a sandbox costs one cold start, never user work that was pushed.
 - Isolation is whatever the provider plus stock policy gives. Vercel provides microVM isolation for hosted. Self-hosters rely on Docker.
-- Until ticket 01 lands, the branch still carries the patched runtime-workspace, transition and isolation code this ADR retires.
+- Semantic merge needs no sandbox: it is one schema-checked model call whose output native Git stages.
+- Stock Docker passes create options, including the environment, in the request URL, so our provider wrapper (`withSessionOnlyEnv`) drops them from create and sets secrets on the session instead.
 
 ## Alternatives considered
 

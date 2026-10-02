@@ -5,27 +5,11 @@ import { join } from "node:path"
 import Docker from "dockerode"
 import { expect, it } from "vitest"
 import { withNativeHttpsGitFixture } from "../../test/native-https-git-fixture.js"
-import { WORKSPACE_CHAT_DOCKER_SANDBOX } from "./chat-runtime.js"
 
 it(
   "serves authenticated github.com HTTPS and records read observations",
   { timeout: 180_000 },
   async () => {
-    const quotaHost = process.env.CTXPIPE_TEST_QUOTA_DOCKER_HOST?.trim()
-    const quotaPort = Number(process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT)
-    if (!quotaHost || !Number.isInteger(quotaPort) || quotaPort < 1)
-      throw new Error(
-        "CTXPIPE_TEST_QUOTA_DOCKER_HOST and CTXPIPE_TEST_QUOTA_DOCKER_PORT are required",
-      )
-    const previous = Object.fromEntries(
-      ["DOCKER_HOST", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"].map((key) => [
-        key,
-        process.env[key],
-      ]),
-    )
-    process.env.DOCKER_HOST = `tcp://${quotaHost}:${quotaPort}`
-    delete process.env.DOCKER_TLS_VERIFY
-    delete process.env.DOCKER_CERT_PATH
     const docker = new Docker({ timeout: 120_000 })
     const directory = await mkdtemp(join(tmpdir(), "ctxpipe-https-git-auth-"))
     const git = (...args: string[]) =>
@@ -44,7 +28,6 @@ it(
     )
     const sha = git("rev-parse", "HEAD")
     try {
-      await docker.getImage(WORKSPACE_CHAT_DOCKER_SANDBOX.image).inspect()
       await withNativeHttpsGitFixture(
         {
           baseImage:
@@ -100,10 +83,6 @@ it(
       )
     } finally {
       await rm(directory, { recursive: true, force: true })
-      for (const [key, value] of Object.entries(previous)) {
-        if (value === undefined) delete process.env[key]
-        else process.env[key] = value
-      }
     }
   },
 )

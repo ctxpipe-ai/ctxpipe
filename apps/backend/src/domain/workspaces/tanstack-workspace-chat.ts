@@ -155,10 +155,12 @@ function conversationSandboxDefinition(input: {
   provider: SandboxProvider
   workspace: WorkspaceDefinition
   image: string
+  revision: WorkspaceRevision
   conversationId: string
 }) {
   const definition = defineSandbox({
-    id: `workspace-chat:${input.image}`,
+    // A relinked Workspace (new generation or connection) gets new sandboxes.
+    id: `workspace-chat:${input.image}:${input.revision.generation}:${input.revision.remote.connectionId ?? ""}`,
     provider: timedSandboxProvider(input.provider),
     workspace: input.workspace,
     lifecycle: {
@@ -392,7 +394,7 @@ export async function warmTanstackWorkspaceChat(
         desired: built.revision,
         signal: abortController.signal,
       })
-      effectiveRevision = updated.conflict
+      effectiveRevision = updated.effective
     }
     log.info({
       step: "workspace-chat-timing",
@@ -466,7 +468,9 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     }
   }
   let revisionConflict: WorkspaceRevision | undefined
-  const persistence = workspaceChatPersistence()
+  const persistence = workspaceChatPersistence({
+    threadId: input.conversationId,
+  })
   const chatStarted = Date.now()
   const abortController = abortControllerFrom(input.abortSignal)
   let transcriptOwner: string | undefined
@@ -531,7 +535,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
               desired: built.revision,
               signal: abortController.signal,
             })
-            revisionConflict = updated.conflict
+            if (updated.conflict) revisionConflict = updated.effective
           })
         },
         onConfig(_ctx, config) {
@@ -744,6 +748,7 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
       provider: conversationSandboxProvider(selectedProvider),
       workspace,
       image,
+      revision: revision.data,
       conversationId: input.conversationId,
     }),
     contract,
@@ -810,7 +815,9 @@ function conversationSandboxWorkspace(input: {
     source: gitSource({
       url: originUrlWithoutCredentials(input.desiredUrl),
       ref: chatInput.defaultBranch?.trim() || "main",
-      ...(cloneToken ? { auth: { token: cloneToken } } : {}),
+      // Always present: the sandbox key covers whether auth exists, not the
+      // token, and stock clone only authenticates when the token is non-empty.
+      auth: { token: cloneToken },
     }),
     setup: setup.map((command, index) =>
       wrapSandboxSetupCommand(setupNames[index] ?? `setup-${index}`, command),

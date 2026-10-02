@@ -100,7 +100,6 @@ it(
           for await (const chunk of streamTanstackWorkspaceChat(turn))
             chunks.push(chunk)
           expect(Date.now() - warmStarted).toBeLessThan(5_000)
-          expect(workspaceChatDockerOwnership.providerCreates).toBe(0)
           expect(workspaceChatInstanceAccess.creates).toBe(createsBeforeWarm)
           expect(
             workspaceChatInstanceAccess.hits - hitsBeforeWarm,

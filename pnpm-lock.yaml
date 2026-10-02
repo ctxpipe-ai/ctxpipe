@@ -25,6 +25,9 @@ patchedDependencies:
   '@langchain/langgraph@1.4.7':
     hash: bee7d9372edcc4665710c63d5c07e1c076fa62824d6b2f5bb9efb66ee2af0114
     path: patches/@langchain__langgraph@1.4.7.patch
+  '@tanstack/ai-opencode@0.4.14':
+    hash: aa6b4fcc0ea53d258373a0a35f626f52139c4facde123edb33e0e138a02c639d
+    path: patches/@tanstack__ai-opencode@0.4.14.patch
 
 importers:
 
@@ -35,7 +38,7 @@ importers:
         version: 2.4.4
       '@changesets/cli':
         specifier: ^2.29.7
-        version: 2.31.0(@types/node@25.6.0)
+        version: 2.31.0(@types/node@25.9.9)
       concurrently:
         specifier: ^9.1.0
         version: 9.2.1
@@ -170,7 +173,7 @@ importers:
         version: 0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6)
       '@tanstack/ai-opencode':
         specifier: ^0.4.14
-        version: 0.4.14(@tanstack/ai-sandbox@0.5.17(@cfworker/json-schema@4.1.1)(@tanstack/ai-persistence@0.7.1(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))(vitest@4.0.18(@opentelemetry/api@1.9.1)(@types/node@25.3.0)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.0.1))(lightningcss@1.31.1)(msw@2.13.6(@types/node@25.3.0)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)))(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))(vitest@4.0.18(@opentelemetry/api@1.9.1)(@types/node@25.3.0)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.0.1))(lightningcss@1.31.1)(msw@2.13.6(@types/node@25.3.0)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))(zod@4.3.6))(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))
+        version: 0.4.14(patch_hash=aa6b4fcc0ea53d258373a0a35f626f52139c4facde123edb33e0e138a02c639d)(@tanstack/ai-sandbox@0.5.17(@cfworker/json-schema@4.1.1)(@tanstack/ai-persistence@0.7.1(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))(vitest@4.0.18(@opentelemetry/api@1.9.1)(@types/node@25.3.0)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.0.1))(lightningcss@1.31.1)(msw@2.13.6(@types/node@25.3.0)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)))(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))(vitest@4.0.18(@opentelemetry/api@1.9.1)(@types/node@25.3.0)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.0.1))(lightningcss@1.31.1)(msw@2.13.6(@types/node@25.3.0)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))(zod@4.3.6))(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))
       '@tanstack/ai-persistence':
         specifier: ^0.7.1
         version: 0.7.1(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))(vitest@4.0.18(@opentelemetry/api@1.9.1)(@types/node@25.3.0)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.0.1))(lightningcss@1.31.1)(msw@2.13.6(@types/node@25.3.0)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))
@@ -434,7 +437,7 @@ importers:
     devDependencies:
       '@forge/cli':
         specifier: ^13.4.0
-        version: 13.4.0(@types/express@4.17.25)(@types/node@25.6.0)(typescript@5.9.3)(webpack@5.105.4)
+        version: 13.4.0(@types/express@4.17.25)(@types/node@25.9.9)(typescript@5.9.3)(webpack@5.105.4)
 
   apps/otel-collector: {}
 
@@ -502,7 +505,7 @@ importers:
         version: 0.15.0(preact@11.0.0-beta.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(solid-js@1.9.11)
       '@tanstack/nitro-v2-vite-plugin':
         specifier: ^1.154.7
-        version: 1.154.7(@azure/identity@4.13.1)(vite@7.3.1(@types/node@25.3.0)(jiti@2.7.0)(lightningcss@1.31.1)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))
+        version: 1.154.7(@azure/identity@4.13.3)(vite@7.3.1(@types/node@25.3.0)(jiti@2.7.0)(lightningcss@1.31.1)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))
       '@tanstack/react-devtools':
         specifier: ^0.9.6
         version: 0.9.6(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(csstype@3.2.3)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(solid-js@1.9.11)
@@ -745,7 +748,7 @@ importers:
         version: 1.3.9
       msw:
         specifier: ^2.13.6
-        version: 2.13.6(@types/node@25.6.0)(typescript@5.9.3)
+        version: 2.13.6(@types/node@25.9.9)(typescript@5.9.3)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -1260,10 +1263,6 @@ packages:
     resolution: {integrity: sha512-9n2pWK61veAuN0V20t9lOuoV4CFMdyAZ1ygZzvBGk/pBBJRib/PjL9PLXa/aI2CcPpyHfqVsxxqLCYl6uZlfDw==}
     engines: {node: '>=22.0.0'}
 
-  '@azure/identity@4.13.1':
-    resolution: {integrity: sha512-5C/2WD5Vb1lHnZS16dNQRPMjN6oV/Upba+C9nBIs15PmOi6A3ZGs4Lr2u60zw4S04gi+u3cEXiqTVP7M4Pz3kw==}
-    engines: {node: '>=20.0.0'}
-
   '@azure/identity@4.13.3':
     resolution: {integrity: sha512-zGQPtqvXPgSA8yfV2CkIQ1qirqk0p9AIVpC5uEkdXQYcKl07QHvyaGYRnZOk0AsQUmxNb4wfkcwY5di8Z5xa9A==}
     engines: {node: '>=22.0.0'}
@@ -1284,17 +1283,9 @@ packages:
     resolution: {integrity: sha512-IRCwkRCK47hBXK+7bu67UZWY7HS0Jx1dZgi4C1HVbjlBum8Jy8fb2l87xFr6HxdQJWy951zRUHtwwDITHFAtaA==}
     engines: {node: '>=0.8.0'}
 
-  '@azure/msal-common@16.13.0':
-    resolution: {integrity: sha512-rOAy0KUcyBbdwVJ+f3uPpthXatFLLZN+/KWAsTLzk1aB23Xl9DRmmXYwSvBFOZyXj4jUQQ5FKxxRkhAFW1fOow==}
-    engines: {node: '>=0.8.0'}
-
   '@azure/msal-common@16.14.1':
     resolution: {integrity: sha512-Or6xhPNyi4zHW25158yxBoyxuCqNSPa5YBVqfF1J5Ks4MJWBo/USXdp05DQIPu1Zli00YZu6t0+h6KvHJealxQ==}
     engines: {node: '>=0.8.0'}
-
-  '@azure/msal-node@5.6.0':
-    resolution: {integrity: sha512-uFY9NxrWHw8PwZx7gAX6PDn+9vdfS05+levc/kwkx77IkjfaldnQbbcQzzDIZ5Hq5Zdr6/z92oAIoRWKp6MnOA==}
-    engines: {node: '>=20'}
 
   '@azure/msal-node@6.0.1':
     resolution: {integrity: sha512-ixSO1Y/kCVRthRs+hSx/5qkwaunX1/RAePhlMN0wIpIQ4WEZ6AREGGnGd1AP0qspHVsAwzWQKGubpjh50JyJIQ==}
@@ -7545,9 +7536,6 @@ packages:
 
   '@types/node@25.3.0':
     resolution: {integrity: sha512-4K3bqJpXpqfg2XKGK9bpDTc6xO/xoUP/RBWS7AtRMug6zZFaRekiLzjVtAoZMquxoAbzBvy5nxQ7veS5eYzf8A==}
-
-  '@types/node@25.6.0':
-    resolution: {integrity: sha512-+qIYRKdNYJwY3vRCZMdJbPLJAtGjQBudzZzdzwQYkEPQd+PJGixUL5QfvCLDaULoLv+RhT3LDkwEfKaAkgSmNQ==}
 
   '@types/node@25.9.9':
     resolution: {integrity: sha512-b4e2xxj/yMeT2hNlD6x7zNFiQK2Dlmkb9CQ6v3/1G2RezKN4YS2lcEv8lzGm1mhs4f2lM4yNAMI/zUDBZBBt7w==}
@@ -13977,9 +13965,6 @@ packages:
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
 
-  undici-types@7.19.2:
-    resolution: {integrity: sha512-qYVnV5OEm2AW8cJMCpdV20CDyaN3g0AjDlOGf1OW4iaDEx8MwdtChUp4zu4H0VP3nDRF/8RKWH+IPp9uW0YGZg==}
-
   undici-types@7.24.6:
     resolution: {integrity: sha512-WRNW+sJgj5OBN4/0JpHFqtqzhpbnV0GuB+OozA9gCL7a993SmU+1JBZCzLNxYsbMfIeDL+lTsphD5jN5N+n0zg==}
 
@@ -15628,23 +15613,6 @@ snapshots:
       - supports-color
     optional: true
 
-  '@azure/identity@4.13.1':
-    dependencies:
-      '@azure/abort-controller': 2.2.0
-      '@azure/core-auth': 1.11.0
-      '@azure/core-client': 1.11.1
-      '@azure/core-rest-pipeline': 1.25.0
-      '@azure/core-tracing': 1.4.0
-      '@azure/core-util': 1.14.0
-      '@azure/logger': 1.4.0
-      '@azure/msal-browser': 5.23.0
-      '@azure/msal-node': 5.6.0
-      open: 10.2.0
-      tslib: 2.8.1
-    transitivePeerDependencies:
-      - supports-color
-    optional: true
-
   '@azure/identity@4.13.3':
     dependencies:
       '@azure/abort-controller': 2.2.0
@@ -15707,16 +15675,7 @@ snapshots:
       '@azure/msal-common': 16.14.1
     optional: true
 
-  '@azure/msal-common@16.13.0':
-    optional: true
-
   '@azure/msal-common@16.14.1':
-    optional: true
-
-  '@azure/msal-node@5.6.0':
-    dependencies:
-      '@azure/msal-common': 16.13.0
-      jsonwebtoken: 9.0.3
     optional: true
 
   '@azure/msal-node@6.0.1':
@@ -16307,7 +16266,7 @@ snapshots:
     dependencies:
       '@changesets/types': 6.1.0
 
-  '@changesets/cli@2.31.0(@types/node@25.6.0)':
+  '@changesets/cli@2.31.0(@types/node@25.9.9)':
     dependencies:
       '@changesets/apply-release-plan': 7.1.1
       '@changesets/assemble-release-plan': 6.0.10
@@ -16323,7 +16282,7 @@ snapshots:
       '@changesets/should-skip-package': 0.1.2
       '@changesets/types': 6.1.0
       '@changesets/write': 0.4.0
-      '@inquirer/external-editor': 1.0.3(@types/node@25.6.0)
+      '@inquirer/external-editor': 1.0.3(@types/node@25.9.9)
       '@manypkg/get-packages': 1.1.3
       ansi-colors: 4.1.3
       enquirer: 2.4.1
@@ -16976,7 +16935,7 @@ snapshots:
       - utf-8-validate
       - webpack-cli
 
-  '@forge/bundler@7.2.0(@types/node@25.6.0)(typescript@5.9.3)':
+  '@forge/bundler@7.2.0(@types/node@25.9.9)(typescript@5.9.3)':
     dependencies:
       '@babel/core': 7.29.0
       '@babel/parser': 7.28.0
@@ -16987,9 +16946,9 @@ snapshots:
       '@babel/plugin-transform-react-jsx': 7.28.6(@babel/core@7.29.0)
       '@babel/traverse': 7.29.0
       '@babel/types': 7.29.0
-      '@forge/cli-shared': 9.4.0(@types/node@25.6.0)(typescript@5.9.3)
+      '@forge/cli-shared': 9.4.0(@types/node@25.9.9)(typescript@5.9.3)
       '@forge/i18n': 1.0.0(typescript@5.9.3)
-      '@forge/lint': 6.2.0(@types/node@25.6.0)(cheerio@1.2.0)(typescript@5.9.3)
+      '@forge/lint': 6.2.0(@types/node@25.9.9)(cheerio@1.2.0)(typescript@5.9.3)
       '@forge/manifest': 13.3.1(typescript@5.9.3)
       babel-loader: 8.4.1(@babel/core@7.29.0)(webpack@5.105.4)
       cheerio: 1.2.0
@@ -17064,7 +17023,7 @@ snapshots:
       - bare-buffer
       - react-native-b4a
 
-  '@forge/cli-shared@9.4.0(@types/node@25.6.0)(typescript@5.9.3)':
+  '@forge/cli-shared@9.4.0(@types/node@25.9.9)(typescript@5.9.3)':
     dependencies:
       '@forge/i18n': 1.0.0(typescript@5.9.3)
       '@forge/manifest': 13.3.1(typescript@5.9.3)
@@ -17089,8 +17048,8 @@ snapshots:
       glob: 13.0.6
       graphql: 16.13.2
       graphql-request: 7.4.0(graphql@16.13.2)
-      inquirer: 8.2.7(@types/node@25.6.0)
-      inquirer-autocomplete-prompt: 2.0.1(inquirer@8.2.7(@types/node@25.6.0))
+      inquirer: 8.2.7(@types/node@25.9.9)
+      inquirer-autocomplete-prompt: 2.0.1(inquirer@8.2.7(@types/node@25.9.9))
       io-ts: 2.2.22(fp-ts@2.16.11)
       keytar: 7.9.0
       ora: 5.4.1
@@ -17171,16 +17130,16 @@ snapshots:
       - webpack
       - webpack-cli
 
-  '@forge/cli@13.4.0(@types/express@4.17.25)(@types/node@25.6.0)(typescript@5.9.3)(webpack@5.105.4)':
+  '@forge/cli@13.4.0(@types/express@4.17.25)(@types/node@25.9.9)(typescript@5.9.3)(webpack@5.105.4)':
     dependencies:
-      '@forge/bundler': 7.2.0(@types/node@25.6.0)(typescript@5.9.3)
-      '@forge/cli-shared': 9.4.0(@types/node@25.6.0)(typescript@5.9.3)
+      '@forge/bundler': 7.2.0(@types/node@25.9.9)(typescript@5.9.3)
+      '@forge/cli-shared': 9.4.0(@types/node@25.9.9)(typescript@5.9.3)
       '@forge/egress': 3.0.0(typescript@5.9.3)
       '@forge/i18n': 1.0.0(typescript@5.9.3)
-      '@forge/lint': 6.2.0(@types/node@25.6.0)(cheerio@1.2.0)(typescript@5.9.3)
+      '@forge/lint': 6.2.0(@types/node@25.9.9)(cheerio@1.2.0)(typescript@5.9.3)
       '@forge/manifest': 13.3.1(typescript@5.9.3)
       '@forge/runtime': 7.0.0(typescript@5.9.3)
-      '@forge/tunnel': 7.1.1(@types/express@4.17.25)(@types/node@25.6.0)(typescript@5.9.3)(webpack@5.105.4)
+      '@forge/tunnel': 7.1.1(@types/express@4.17.25)(@types/node@25.9.9)(typescript@5.9.3)(webpack@5.105.4)
       '@forge/util': 3.0.0(typescript@5.9.3)
       '@sentry/node': 7.106.0
       ajv: 8.18.0
@@ -17273,10 +17232,10 @@ snapshots:
       - react-native-b4a
       - supports-color
 
-  '@forge/lint@6.2.0(@types/node@25.6.0)(cheerio@1.2.0)(typescript@5.9.3)':
+  '@forge/lint@6.2.0(@types/node@25.9.9)(cheerio@1.2.0)(typescript@5.9.3)':
     dependencies:
       '@atlassian/atlassian-openapi': 1.0.6
-      '@forge/cli-shared': 9.4.0(@types/node@25.6.0)(typescript@5.9.3)
+      '@forge/cli-shared': 9.4.0(@types/node@25.9.9)(typescript@5.9.3)
       '@forge/csp': 6.3.1(cheerio@1.2.0)(typescript@5.9.3)
       '@forge/egress': 3.0.0(typescript@5.9.3)
       '@forge/manifest': 13.3.1(typescript@5.9.3)
@@ -17353,10 +17312,10 @@ snapshots:
       - webpack
       - webpack-cli
 
-  '@forge/tunnel@7.1.1(@types/express@4.17.25)(@types/node@25.6.0)(typescript@5.9.3)(webpack@5.105.4)':
+  '@forge/tunnel@7.1.1(@types/express@4.17.25)(@types/node@25.9.9)(typescript@5.9.3)(webpack@5.105.4)':
     dependencies:
-      '@forge/bundler': 7.2.0(@types/node@25.6.0)(typescript@5.9.3)
-      '@forge/cli-shared': 9.4.0(@types/node@25.6.0)(typescript@5.9.3)
+      '@forge/bundler': 7.2.0(@types/node@25.9.9)(typescript@5.9.3)
+      '@forge/cli-shared': 9.4.0(@types/node@25.9.9)(typescript@5.9.3)
       '@forge/csp': 6.3.1(cheerio@1.2.0)(typescript@5.9.3)
       '@forge/runtime': 7.0.0(typescript@5.9.3)
       '@forge/util': 3.0.0(typescript@5.9.3)
@@ -18079,12 +18038,12 @@ snapshots:
     optionalDependencies:
       '@types/node': 25.3.0
 
-  '@inquirer/confirm@6.0.12(@types/node@25.6.0)':
+  '@inquirer/confirm@6.0.12(@types/node@25.9.9)':
     dependencies:
-      '@inquirer/core': 11.1.9(@types/node@25.6.0)
-      '@inquirer/type': 4.0.5(@types/node@25.6.0)
+      '@inquirer/core': 11.1.9(@types/node@25.9.9)
+      '@inquirer/type': 4.0.5(@types/node@25.9.9)
     optionalDependencies:
-      '@types/node': 25.6.0
+      '@types/node': 25.9.9
 
   '@inquirer/confirm@6.3.2(@types/node@25.3.0)':
     dependencies:
@@ -18105,17 +18064,17 @@ snapshots:
     optionalDependencies:
       '@types/node': 25.3.0
 
-  '@inquirer/core@11.1.9(@types/node@25.6.0)':
+  '@inquirer/core@11.1.9(@types/node@25.9.9)':
     dependencies:
       '@inquirer/ansi': 2.0.5
       '@inquirer/figures': 2.0.5
-      '@inquirer/type': 4.0.5(@types/node@25.6.0)
+      '@inquirer/type': 4.0.5(@types/node@25.9.9)
       cli-width: 4.1.0
       fast-wrap-ansi: 0.2.0
       mute-stream: 3.0.0
       signal-exit: 4.1.0
     optionalDependencies:
-      '@types/node': 25.6.0
+      '@types/node': 25.9.9
 
   '@inquirer/core@12.0.3(@types/node@25.3.0)':
     dependencies:
@@ -18151,12 +18110,12 @@ snapshots:
     optionalDependencies:
       '@types/node': 25.3.0
 
-  '@inquirer/external-editor@1.0.3(@types/node@25.6.0)':
+  '@inquirer/external-editor@1.0.3(@types/node@25.9.9)':
     dependencies:
       chardet: 2.1.1
       iconv-lite: 0.7.2
     optionalDependencies:
-      '@types/node': 25.6.0
+      '@types/node': 25.9.9
 
   '@inquirer/external-editor@3.0.5(@types/node@25.3.0)':
     dependencies:
@@ -18234,9 +18193,9 @@ snapshots:
     optionalDependencies:
       '@types/node': 25.3.0
 
-  '@inquirer/type@4.0.5(@types/node@25.6.0)':
+  '@inquirer/type@4.0.5(@types/node@25.9.9)':
     optionalDependencies:
-      '@types/node': 25.6.0
+      '@types/node': 25.9.9
 
   '@inquirer/type@4.1.1(@types/node@25.3.0)':
     optionalDependencies:
@@ -22607,7 +22566,7 @@ snapshots:
     dependencies:
       '@tanstack/devtools-event-client': 0.4.4
 
-  '@tanstack/ai-opencode@0.4.14(@tanstack/ai-sandbox@0.5.17(@cfworker/json-schema@4.1.1)(@tanstack/ai-persistence@0.7.1(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))(vitest@4.0.18(@opentelemetry/api@1.9.1)(@types/node@25.3.0)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.0.1))(lightningcss@1.31.1)(msw@2.13.6(@types/node@25.3.0)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)))(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))(vitest@4.0.18(@opentelemetry/api@1.9.1)(@types/node@25.3.0)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.0.1))(lightningcss@1.31.1)(msw@2.13.6(@types/node@25.3.0)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))(zod@4.3.6))(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))':
+  '@tanstack/ai-opencode@0.4.14(patch_hash=aa6b4fcc0ea53d258373a0a35f626f52139c4facde123edb33e0e138a02c639d)(@tanstack/ai-sandbox@0.5.17(@cfworker/json-schema@4.1.1)(@tanstack/ai-persistence@0.7.1(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))(vitest@4.0.18(@opentelemetry/api@1.9.1)(@types/node@25.3.0)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.0.1))(lightningcss@1.31.1)(msw@2.13.6(@types/node@25.3.0)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)))(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))(vitest@4.0.18(@opentelemetry/api@1.9.1)(@types/node@25.3.0)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.0.1))(lightningcss@1.31.1)(msw@2.13.6(@types/node@25.3.0)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))(zod@4.3.6))(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))':
     dependencies:
       '@opencode-ai/sdk': 1.18.34
       '@tanstack/ai': 0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6)
@@ -22769,9 +22728,9 @@ snapshots:
     optionalDependencies:
       react: 19.2.4
 
-  '@tanstack/nitro-v2-vite-plugin@1.154.7(@azure/identity@4.13.1)(vite@7.3.1(@types/node@25.3.0)(jiti@2.7.0)(lightningcss@1.31.1)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))':
+  '@tanstack/nitro-v2-vite-plugin@1.154.7(@azure/identity@4.13.3)(vite@7.3.1(@types/node@25.3.0)(jiti@2.7.0)(lightningcss@1.31.1)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))':
     dependencies:
-      nitropack: 2.13.1(@azure/identity@4.13.1)
+      nitropack: 2.13.1(@azure/identity@4.13.3)
       pathe: 2.0.3
       vite: 7.3.1(@types/node@25.3.0)(jiti@2.7.0)(lightningcss@1.31.1)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)
     transitivePeerDependencies:
@@ -23504,7 +23463,7 @@ snapshots:
 
   '@types/mssql@9.1.9':
     dependencies:
-      '@types/node': 25.9.9
+      '@types/node': 22.19.15
       tarn: 3.1.2
       tedious: 20.0.0
     transitivePeerDependencies:
@@ -23528,11 +23487,6 @@ snapshots:
   '@types/node@25.3.0':
     dependencies:
       undici-types: 7.18.2
-
-  '@types/node@25.6.0':
-    dependencies:
-      undici-types: 7.19.2
-    optional: true
 
   '@types/node@25.9.9':
     dependencies:
@@ -23568,7 +23522,7 @@ snapshots:
 
   '@types/readable-stream@4.0.25':
     dependencies:
-      '@types/node': 25.9.9
+      '@types/node': 22.19.15
     optional: true
 
   '@types/resolve@1.20.2': {}
@@ -26924,11 +26878,11 @@ snapshots:
       run-async: 2.4.1
       rxjs: 7.8.2
 
-  inquirer-autocomplete-prompt@2.0.1(inquirer@8.2.7(@types/node@25.6.0)):
+  inquirer-autocomplete-prompt@2.0.1(inquirer@8.2.7(@types/node@25.9.9)):
     dependencies:
       ansi-escapes: 4.3.2
       figures: 3.2.0
-      inquirer: 8.2.7(@types/node@25.6.0)
+      inquirer: 8.2.7(@types/node@25.9.9)
       picocolors: 1.1.1
       run-async: 2.4.1
       rxjs: 7.8.2
@@ -26953,9 +26907,9 @@ snapshots:
     transitivePeerDependencies:
       - '@types/node'
 
-  inquirer@8.2.7(@types/node@25.6.0):
+  inquirer@8.2.7(@types/node@25.9.9):
     dependencies:
-      '@inquirer/external-editor': 1.0.3(@types/node@25.6.0)
+      '@inquirer/external-editor': 1.0.3(@types/node@25.9.9)
       ansi-escapes: 4.3.2
       chalk: 4.1.2
       cli-cursor: 3.1.0
@@ -28440,9 +28394,9 @@ snapshots:
     transitivePeerDependencies:
       - '@types/node'
 
-  msw@2.13.6(@types/node@25.6.0)(typescript@5.9.3):
+  msw@2.13.6(@types/node@25.9.9)(typescript@5.9.3):
     dependencies:
-      '@inquirer/confirm': 6.0.12(@types/node@25.6.0)
+      '@inquirer/confirm': 6.0.12(@types/node@25.9.9)
       '@mswjs/interceptors': 0.41.3
       '@open-draft/deferred-promise': 3.0.0
       '@types/statuses': 2.0.6
@@ -28545,7 +28499,7 @@ snapshots:
       - '@babel/core'
       - babel-plugin-macros
 
-  nitropack@2.13.1(@azure/identity@4.13.1):
+  nitropack@2.13.1(@azure/identity@4.13.3):
     dependencies:
       '@cloudflare/kv-asset-handler': 0.4.2
       '@rollup/plugin-alias': 6.0.0(rollup@4.59.0)
@@ -28612,7 +28566,7 @@ snapshots:
       unenv: 2.0.0-rc.24
       unimport: 5.7.0
       unplugin-utils: 0.3.1
-      unstorage: 1.17.4(@azure/identity@4.13.1)(db0@0.3.4)(ioredis@5.10.0)
+      unstorage: 1.17.4(@azure/identity@4.13.3)(db0@0.3.4)(ioredis@5.10.0)
       untyped: 2.0.0
       unwasm: 0.5.3
       youch: 4.1.0
@@ -30766,7 +30720,7 @@ snapshots:
       '@azure/identity': 4.13.3
       '@azure/keyvault-keys': 4.10.2
       '@js-joda/core': 5.7.0
-      '@types/node': 25.9.9
+      '@types/node': 22.19.15
       bl: 6.1.6
       iconv-lite: 0.6.3
       js-md4: 0.3.2
@@ -30782,7 +30736,7 @@ snapshots:
       '@azure/identity': 4.13.3
       '@azure/keyvault-keys': 4.10.2
       '@js-joda/core': 6.2.0
-      '@types/node': 25.9.9
+      '@types/node': 22.19.15
       bl: 6.1.6
       iconv-lite: 0.7.3
       js-md4: 0.3.2
@@ -31092,9 +31046,6 @@ snapshots:
 
   undici-types@7.18.2: {}
 
-  undici-types@7.19.2:
-    optional: true
-
   undici-types@7.24.6:
     optional: true
 
@@ -31205,7 +31156,7 @@ snapshots:
       picomatch: 4.0.4
       webpack-virtual-modules: 0.6.2
 
-  unstorage@1.17.4(@azure/identity@4.13.1)(db0@0.3.4)(ioredis@5.10.0):
+  unstorage@1.17.4(@azure/identity@4.13.3)(db0@0.3.4)(ioredis@5.10.0):
     dependencies:
       anymatch: 3.1.3
       chokidar: 5.0.0
@@ -31216,7 +31167,7 @@ snapshots:
       ofetch: 1.5.1
       ufo: 1.6.3
     optionalDependencies:
-      '@azure/identity': 4.13.1
+      '@azure/identity': 4.13.3
       db0: 0.3.4
       ioredis: 5.10.0
 

@@ -1,16 +1,25 @@
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
+import { withOrgDbContext } from "../../db/client.js"
 import {
   advanceSandboxInstanceRevision,
   getSandboxInstance,
 } from "../../models/workspace-sandboxes.js"
-import { sameWorkspaceBinding, type WorkspaceRevision } from "./revision.js"
+import { getDesiredWorkspaceRevision } from "../../models/workspaces.js"
+import {
+  sameWorkspaceBinding,
+  sameWorkspaceRevision,
+  type WorkspaceRevision,
+} from "./revision.js"
 
 /**
  * Bring a conversation's sandbox to the Workspace's current commit before a
  * turn (option D). The sandbox keeps its identity; Git stashes the
  * conversation's edits, rebases its branch onto the new commit, and restores
  * them. A conflict leaves the sandbox on its previous commit and is reported
- * so the turn can ask the agent to repair the branch.
+ * so the turn can ask the agent to repair the branch. A request whose target
+ * the Workspace has already moved past leaves the sandbox where it is.
+ *
+ * `effective` is set whenever the sandbox is not on `desired` afterwards.
  */
 export async function updateConversationSandboxRevision(input: {
   handle: SandboxHandle
@@ -18,13 +27,50 @@ export async function updateConversationSandboxRevision(input: {
   sandboxKey: string
   desired: WorkspaceRevision
   signal?: AbortSignal
-}): Promise<{ conflict?: WorkspaceRevision }> {
+}): Promise<{ effective?: WorkspaceRevision; conflict?: boolean }> {
   const { handle, desired } = input
   const row = await getSandboxInstance(input.sandboxKey, input.orgId)
   const previousRevision = row?.revision
   if (!previousRevision || !sameWorkspaceBinding(previousRevision, desired))
     throw new Error("Conversation sandbox revision is missing")
   if (previousRevision.sha === desired.sha) return {}
+  const current = await withOrgDbContext(input.orgId, () =>
+    getDesiredWorkspaceRevision(desired.workspaceId),
+  )
+  if (!current || !sameWorkspaceRevision(current, desired))
+    return { effective: previousRevision }
+  const moved = await advanceConversationWorktree({
+    handle,
+    from: previousRevision,
+    to: desired,
+    signal: input.signal,
+  })
+  if (moved === "conflict")
+    return { effective: previousRevision, conflict: true }
+  await advanceSandboxInstanceRevision({
+    id: input.sandboxKey,
+    orgId: input.orgId,
+    from: previousRevision,
+    to: desired,
+  })
+  return {}
+}
+
+/**
+ * The Git half of the update: stash the conversation's edits, rebase its
+ * branch onto `to`, restore the edits. Progress is recorded in
+ * `.git/ctxpipe-revision-transition`, so a process lost after Git finished
+ * resumes as a no-op and only the sandbox record still needs updating.
+ */
+export async function advanceConversationWorktree(input: {
+  handle: SandboxHandle
+  from: WorkspaceRevision
+  to: WorkspaceRevision
+  signal?: AbortSignal
+}): Promise<"moved" | "conflict"> {
+  const { handle } = input
+  const previousRevision = input.from
+  const desired = input.to
   const result = await handle.process.exec(
     `(set -eu
 STATE=$(git rev-parse --git-path ctxpipe-revision-transition)
@@ -132,13 +178,7 @@ write_state
       },
     },
   )
-  if (result.exitCode === 42) return { conflict: previousRevision }
+  if (result.exitCode === 42) return "conflict"
   if (result.exitCode !== 0) throw new Error("Workspace branch update failed")
-  await advanceSandboxInstanceRevision({
-    id: input.sandboxKey,
-    orgId: input.orgId,
-    from: previousRevision,
-    to: desired,
-  })
-  return {}
+  return "moved"
 }

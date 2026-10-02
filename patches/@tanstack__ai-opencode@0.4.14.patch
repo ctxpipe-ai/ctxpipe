@@ -1,0 +1,113 @@
+diff --git a/dist/esm/process/server.js b/dist/esm/process/server.js
+index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..e46983d0b02d5a9583fbb8f097c7427863961289 100644
+--- a/dist/esm/process/server.js
++++ b/dist/esm/process/server.js
+@@ -54,6 +54,16 @@ async function startOpencodeSession(options) {
+ 		ownedServer = result.server;
+ 	}
+ 	const lifecycle = { disposed: false };
++	// ctxpipe patch (upstream PR pending): wait for the event stream before the
++	// first prompt, wait for each assistant's terminal update before resolving
++	// it, and never let disposal wait on a pending stream read.
++	const terminal = new Set();
++	const terminalWaiters = new Map();
++	let subscriptionFailure;
++	const waitFor = (ready, what) => new Promise((resolve, reject) => {
++		const timer = setTimeout(() => reject(new Error(`OpenCode ${what} was not observed within 10000ms`)), 1e4);
++		ready.then((value) => { clearTimeout(timer); resolve(value); }, (error) => { clearTimeout(timer); reject(error); });
++	});
+ 	const teardown = async () => {
+ 		if (lifecycle.disposed) return;
+ 		lifecycle.disposed = true;
+@@ -101,10 +111,19 @@ async function startOpencodeSession(options) {
+ 			}
+ 		};
+ 		const stream = (await client.event.subscribe()).stream;
++		let connected;
++		let connectFailed;
++		const ready = new Promise((resolve, reject) => { connected = resolve; connectFailed = reject; });
++		ready.catch(() => {});
+ 		(async () => {
+ 			try {
+ 				for await (const event of stream) {
+ 					if (lifecycle.disposed) break;
++					connected();
++					if (event.type === "message.updated" && event.properties.info.role === "assistant" && (event.properties.info.time?.completed !== void 0 || event.properties.info.error !== void 0)) {
++						terminal.add(event.properties.info.id);
++						terminalWaiters.get(event.properties.info.id)?.();
++					}
+ 					const sid = sessionIdOf(event);
+ 					if (sid !== void 0 && sid !== resolvedSessionId) continue;
+ 					if (event.type === "permission.updated") {
+@@ -114,9 +133,12 @@ async function startOpencodeSession(options) {
+ 					options.onEvent(event);
+ 				}
+ 			} catch (error) {
++				subscriptionFailure = error instanceof Error ? error : new Error(String(error));
++				connectFailed(subscriptionFailure);
+ 				if (!lifecycle.disposed) options.onError?.(error);
+ 			}
+ 		})();
++		await waitFor(ready, "event subscription");
+ 		return {
+ 			sessionId: resolvedSessionId,
+ 			resumed,
+@@ -136,6 +158,9 @@ async function startOpencodeSession(options) {
+ 					},
+ 					throwOnError: true
+ 				})).data;
++				if (subscriptionFailure) throw subscriptionFailure;
++				if (!terminal.has(data.info.id)) await waitFor(new Promise((resolve) => terminalWaiters.set(data.info.id, resolve)), "assistant completion").finally(() => terminalWaiters.delete(data.info.id));
++				terminal.delete(data.info.id);
+ 				return {
+ 					message: data.info,
+ 					text: data.parts.filter((part) => part.type === "text").map((part) => part.text).join("")
+@@ -151,9 +176,7 @@ async function startOpencodeSession(options) {
+ 			},
+ 			dispose: async () => {
+ 				lifecycle.disposed = true;
+-				try {
+-					await stream.return(void 0);
+-				} catch {}
++				await Promise.race([stream.return(void 0).catch(() => {}), new Promise((resolve) => setTimeout(resolve, 1e3))]);
+ 				ownedServer?.close();
+ 			}
+ 		};
+diff --git a/dist/esm/stream/translate.js b/dist/esm/stream/translate.js
+index a63df2314be1bf53f30f08bf21b6d56a6408122f..85a5899f0c35813b406d064445f21fd78053ea5b 100644
+--- a/dist/esm/stream/translate.js
++++ b/dist/esm/stream/translate.js
+@@ -62,6 +62,10 @@ function messageError(message) {
+ async function* translateOpencodeStream(events, ctx) {
+ 	const { model, runId, threadId, genId } = ctx;
+ 	const now = () => Date.now();
++	// ctxpipe patch (upstream PR pending): OpenCode streams user and assistant
++	// parts on one session stream; translate only parts of assistant messages.
++	const messageRoles = new Map();
++	const pendingParts = new Map();
+ 	let runStarted = false;
+ 	/** Tool calls started but with no result yet, keyed by callID. */
+ 	const unresolvedToolCalls = /* @__PURE__ */ new Set();
+@@ -249,8 +253,21 @@ async function* translateOpencodeStream(events, ctx) {
+ 		};
+ 	}
+ 	function* handleEvent(event) {
+-		if (event.type === "message.part.updated") {
++		if (event.type === "message.updated") {
++			const { id, role } = event.properties.info;
++			messageRoles.set(id, role);
++			const pending = pendingParts.get(id) ?? [];
++			pendingParts.delete(id);
++			for (const partEvent of pending) yield* handleEvent(partEvent);
++		} else if (event.type === "message.part.updated") {
+ 			const { part, delta } = event.properties;
++			if (!part.messageID) return;
++			const role = messageRoles.get(part.messageID);
++			if (role === void 0) {
++				pendingParts.set(part.messageID, [...pendingParts.get(part.messageID) ?? [], event]);
++				return;
++			}
++			if (role !== "assistant") return;
+ 			if (isTextPart(part)) yield* handleTextPart(part, delta);
+ 			else if (isReasoningPart(part)) yield* handleReasoningPart(part, delta);
+ 			else if (isToolPart(part)) yield* handleToolPart(part);

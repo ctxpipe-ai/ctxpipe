@@ -11,7 +11,6 @@ import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
-import Docker from "dockerode"
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
@@ -20,8 +19,6 @@ import { workspaces } from "../../db/schema/workspaces.js"
 import { getWriteJobCommitSha } from "../../models/workspace-write-jobs.js"
 import { workspaceBootstrap } from "../../openworkflow/workflows/workspace-bootstrap.js"
 import { workspaceSemanticMerge } from "../../openworkflow/workflows/workspace-semantic-merge.js"
-import { holdDockerAllocationReply } from "../../test/native-docker-ack-loss.js"
-import { nativeDockerFailureDiagnostics } from "../../test/native-docker-failure-diagnostics.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { withHeldSemanticHandoffCommit } from "../../test/native-workflow-ack-loss.js"
 
@@ -29,14 +26,12 @@ it.each([
   "Git staging",
   "semantic handoff",
   "unborn push",
-  "sandbox allocation",
   "semantic model",
 ] as const)(
   "two replacement processes recover a writer killed after %s",
   { timeout: 210_000 },
   async (boundary) => {
-    const resourceBoundary =
-      boundary === "sandbox allocation" || boundary === "semantic model"
+    const resourceBoundary = boundary === "semantic model"
     await withNativeHydrationFixture(
       {
         github: true,
@@ -45,7 +40,6 @@ it.each([
         ...(resourceBoundary
           ? {
               namespaceId: "default",
-              nativeDocker: true,
               files: [{ path: "notes.md", body: "# Owners\nAlice\n" }],
             }
           : {}),
@@ -61,18 +55,6 @@ it.each([
         const replacementModelReleased = new Promise<void>((resolve) => {
           releaseReplacementModel = resolve
         })
-        const dockerFault =
-          boundary === "sandbox allocation"
-            ? await holdDockerAllocationReply(join(f.directory, "docker.sock"))
-            : null
-        let allocation: { id: string; name: string } | undefined
-        if (dockerFault)
-          void dockerFault.allocation.then((value) => {
-            allocation = value
-          })
-        const docker = new Docker()
-        let resourceId: string | undefined
-        let resourceName: string | undefined
         const unexpectedRequests: string[] = []
         // Only paid/third-party HTTP is substituted. Both child processes execute
         // the real workflow, database, model client, credential broker and Git.
@@ -188,13 +170,11 @@ const { BackendPostgres } = await import(${JSON.stringify(pathToFileURL(require.
 const { initDb } = await import(${JSON.stringify(new URL("../../db/client.ts", import.meta.url).href)});
 const { workspaceBootstrap } = await import(${JSON.stringify(new URL("../../openworkflow/workflows/workspace-bootstrap.ts", import.meta.url).href)});
 const { workspaceSemanticMerge } = await import(${JSON.stringify(new URL("../../openworkflow/workflows/workspace-semantic-merge.ts", import.meta.url).href)});
-const { workspaceSemanticCleanup } = await import(${JSON.stringify(new URL("../../openworkflow/workflows/workspace-semantic-cleanup.ts", import.meta.url).href)});
 initDb(process.env.DATABASE_URL);
 const backend = await BackendPostgres.connect(process.env.DATABASE_URL, { namespaceId: ${JSON.stringify(resourceBoundary ? "default" : f.id)}, runMigrations: false });
 const runner = new OpenWorkflow({ backend });
 runner.implementWorkflow(workspaceBootstrap.spec, workspaceBootstrap.fn);
 runner.implementWorkflow(workspaceSemanticMerge.spec, workspaceSemanticMerge.fn);
-runner.implementWorkflow(workspaceSemanticCleanup.spec, workspaceSemanticCleanup.fn);
 const worker = runner.newWorker({ concurrency: 1 });
 await worker.start();
 await new Promise(() => {});
@@ -234,10 +214,6 @@ process.exit(result.status ?? 1);
               DATABASE_URL: databaseUrl,
               ...(crash && !resourceBoundary
                 ? { PATH: `${bin}:${process.env.PATH}` }
-                : {}),
-              ...(resourceBoundary ? { SANDBOX_PROVIDER: "docker" } : {}),
-              ...(crash && dockerFault
-                ? { DOCKER_HOST: `unix://${dockerFault.socketPath}` }
                 : {}),
             },
             stdio: ["ignore", "ignore", "pipe"],
@@ -339,38 +315,15 @@ process.exit(result.status ?? 1);
             const original = launch(true, databaseUrl)
             if (resourceBoundary) {
               await expect
-                .poll(
-                  () =>
-                    boundary === "sandbox allocation"
-                      ? Boolean(allocation)
-                      : semanticCalls === 1,
-                  { timeout: 30_000 },
-                )
+                .poll(() => semanticCalls === 1, { timeout: 30_000 })
                 .toBe(true)
-              const steps = (
-                await f.backend.listStepAttempts({
-                  workflowRunId: handle.workflowRun.id,
-                  limit: 100,
-                })
-              ).data
-              const locator = steps.find(
-                (step) => step.stepName === "plan-merge-sandbox",
-              )?.output as { id: string; expiresAt: string }
-              resourceName = locator.id
-              expect(locator.id).toContain("ctxpipe-semantic-merge-")
-              resourceId = (await docker.getContainer(locator.id).inspect()).Id
-              if (allocation) expect(resourceId).toBe(allocation.id)
               await kill(original)
-              dockerFault?.release()
               releaseOriginalModel()
               launch(false)
               launch(false)
               await expect
                 .poll(() => semanticCalls, { timeout: 55_000 })
-                .toBe(boundary === "semantic model" ? 2 : 1)
-              expect((await docker.getContainer(locator.id).inspect()).Id).toBe(
-                resourceId,
-              )
+                .toBe(2)
               releaseReplacementModel()
               const result = await handle.result({ timeoutMs: 25_000 })
               const tip = f.git("--git-dir", f.remote, "rev-parse", "main")
@@ -387,23 +340,6 @@ process.exit(result.status ?? 1);
                   `${f.sha}..main`,
                 ),
               ).toBe("2")
-              await expect(
-                docker.getContainer(resourceId).inspect(),
-              ).rejects.toMatchObject({ statusCode: 404 })
-              await expect
-                .poll(
-                  async () =>
-                    (
-                      await f.backend.listWorkflowRuns({ limit: 100 })
-                    ).data.find(
-                      (run) =>
-                        run.workflowName === "workspace-semantic-cleanup" &&
-                        (run.input as { workspaceId?: string })?.workspaceId ===
-                          f.workspaceId,
-                    )?.status,
-                  { timeout: 150_000 },
-                )
-                .toBe("completed")
               expect(writeCredentials).toBe(1)
               expect(unexpectedRequests).toEqual([])
               return
@@ -525,16 +461,6 @@ process.exit(result.status ?? 1);
             expect(fault.lostAcknowledgement).toBe(true)
           } else await exercise(f.databaseUrl)
         } catch (error) {
-          const dockerDiagnostics = resourceBoundary
-            ? await nativeDockerFailureDiagnostics({
-                childRuntime: "bun",
-                ownedName: resourceName,
-                proxyTrace: dockerFault?.trace(),
-                transport: dockerFault
-                  ? "allocation fault proxy, then default host Docker socket"
-                  : "default host Docker socket",
-              })
-            : undefined
           const runs = await f.backend.listWorkflowRuns({ limit: 100 })
           const failures = await Promise.all(
             runs.data
@@ -557,39 +483,17 @@ process.exit(result.status ?? 1);
           )
           childErrors += JSON.stringify(failures)
           testError = new Error(
-            `${error instanceof Error ? error.message : String(error)}\nNative child diagnostics: ${childErrors}${dockerDiagnostics ? `\nNative Docker diagnostics: ${JSON.stringify(dockerDiagnostics)}` : ""}`,
+            `${error instanceof Error ? error.message : String(error)}\nNative child diagnostics: ${childErrors}`,
             { cause: error },
           )
         } finally {
           releaseOriginalModel()
           releaseReplacementModel()
-          dockerFault?.release()
           for (const child of children) {
             try {
               await kill(child)
             } catch (error) {
               cleanupErrors.push(error)
-            }
-          }
-          try {
-            await dockerFault?.close()
-          } catch (error) {
-            cleanupErrors.push(error)
-          }
-          const ownedResourceId = resourceId ?? allocation?.id
-          if (ownedResourceId) {
-            try {
-              await docker
-                .getContainer(ownedResourceId)
-                .remove({ force: true, v: true })
-            } catch (error) {
-              if (
-                !error ||
-                typeof error !== "object" ||
-                !("statusCode" in error) ||
-                error.statusCode !== 404
-              )
-                cleanupErrors.push(error)
             }
           }
           try {

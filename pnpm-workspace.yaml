@@ -11,3 +11,5 @@ patchedDependencies:
   '@cosmograph/cosmograph@2.2.1': patches/@cosmograph__cosmograph@2.2.1.patch
   '@hono/zod-openapi@1.2.2': patches/@hono__zod-openapi@1.2.2.patch
   '@langchain/langgraph@1.4.7': patches/@langchain__langgraph@1.4.7.patch
+  # Temporary, upstream PR pending (ticket 01): assistant-only parts, SSE readiness and completion, abort on dispose.
+  '@tanstack/ai-opencode@0.4.14': patches/@tanstack__ai-opencode@0.4.14.patch

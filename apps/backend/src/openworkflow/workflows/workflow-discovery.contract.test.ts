@@ -58,7 +58,6 @@ it(
         "workspace-write-extract-ingest",
         "workspace-write-connector-mirror",
         "workspace-write-semantic-merge",
-        "workspace-semantic-cleanup",
       ]),
     )
   },

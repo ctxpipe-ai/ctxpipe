@@ -84,6 +84,8 @@ Do not add TanStack patches or an application-level sandbox registry. Keep const
 
 ## Comments
 
+- 2026-10-02 (claude): from ticket 01. Stock `dockerSandbox` sets no container labels, ignores the requested name, and uses a random Docker name, so host cleanup cannot find our containers by label. Cleanup should work from `workspace_sandbox_instances.provider_sandbox_id` (the container id), and images we build for the Workspace base can carry our own labels. Local test runs leaked idle `node:22` containers this way; a host sweep needs the same id-based approach.
+
 - 2026-10-02 (user): Docker fast start uses option B (per-Workspace base image built by our code, stock `dockerSandbox({ image })`, no patch). Same lifecycle as hosted: 5-minute idle stop, 30-day state, 50 per org, non-interactive runs stop immediately.
 
 - 2026-10-02 (claude, ticket 07 docs): self-hosting docs do not yet mention chat sandboxes. Add the Docker sandbox host to `self-hosting/(getting-started)/architecture.mdx`, the Compose and AWS deployment pages, and the operations checks (disk cleanup, health).

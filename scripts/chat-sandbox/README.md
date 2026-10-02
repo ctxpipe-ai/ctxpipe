@@ -1,7 +1,7 @@
 # Workspace chat image
 
 Build with `docker build -t ctxpipe-chat-sandbox:local scripts/chat-sandbox`.
-The image pins its Node base and OpenCode 1.18.18, includes Git and GitHub CLI,
+The image pins its Node base and OpenCode 1.18.34, includes Git and GitHub CLI,
 and runs as UID/GID 1000 with a writable workspace and home. Resolve the built
 image to an immutable digest or local image ID before using it in a native
 sandbox definition, because that identity controls base-snapshot reuse.
