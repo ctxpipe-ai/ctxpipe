@@ -83,7 +83,7 @@ export const FirstMessageSendsOnce: Story = {
     firstMessagePosts.count = 0
     const canvas = within(canvasElement)
     await userEvent.type(
-      canvas.getByPlaceholderText(/ask about this workspace/i),
+      await canvas.findByPlaceholderText(/ask about this workspace/i),
       "What changed this week?",
     )
     await userEvent.click(canvas.getByRole("button", { name: /send/i }))

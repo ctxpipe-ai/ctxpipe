@@ -214,7 +214,7 @@ export const SocketCleansUpOnLeave: Story = {
     }
     try {
       await userEvent.click(
-        canvas.getByRole("button", { name: "Open conversation" }),
+        await canvas.findByRole("button", { name: "Open conversation" }),
       )
       await waitFor(() => {
         expect(conversationSockets().length).toBeGreaterThan(0)
@@ -438,7 +438,9 @@ export const RapidRouteChanges: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await userEvent.click(canvas.getByRole("button", { name: "Open missing" }))
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Open missing" }),
+    )
     await userEvent.click(canvas.getByRole("button", { name: "Open foreign" }))
     expect(
       await canvas.findByRole("heading", { name: "Conversation not found" }),
@@ -618,7 +620,7 @@ export const LateErrorDoesNotClobberSuccess: Story = {
     window.WebSocket = FailedWebSocket as unknown as typeof WebSocket
     try {
       await userEvent.type(
-        canvas.getByPlaceholderText(/ask about this workspace/i),
+        await canvas.findByPlaceholderText(/ask about this workspace/i),
         "What is in this Workspace?",
       )
       await userEvent.click(canvas.getByRole("button", { name: /send/i }))

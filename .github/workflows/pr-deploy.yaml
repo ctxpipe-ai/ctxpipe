@@ -666,9 +666,9 @@ jobs:
               echo "Smoke-testing preview UI via $backend_url (JS hash vs production; workspace routes in bundle)"
               while true; do
                 html="$(curl -fsS --compressed --max-time 25 "$backend_url/" || true)"
-                js_path="$(printf '%s' "$html" | grep -oE '/assets/main-[A-Za-z0-9._-]+\.js' | head -1 || true)"
+                js_path="$(printf '%s' "$html" | grep -aoE '<script type="module"[^>]* src="/assets/[A-Za-z0-9._-]+\.js"' | grep -oE '/assets/[A-Za-z0-9._-]+\.js' | head -1 || true)"
                 prod_html="$(curl -fsS --compressed --max-time 25 "$prod_url/" || true)"
-                prod_js_path="$(printf '%s' "$prod_html" | grep -oE '/assets/main-[A-Za-z0-9._-]+\.js' | head -1 || true)"
+                prod_js_path="$(printf '%s' "$prod_html" | grep -aoE '<script type="module"[^>]* src="/assets/[A-Za-z0-9._-]+\.js"' | grep -oE '/assets/[A-Za-z0-9._-]+\.js' | head -1 || true)"
                 # SSR of / only serializes matched routes. ws/$workspaceSlug is in the
                 # JS route tree, not reliably in the HTML. Fail immediately if the
                 # hashed bundle is the same file production is serving.
