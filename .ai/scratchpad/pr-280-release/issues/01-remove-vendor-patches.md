@@ -79,6 +79,8 @@ Phase 1 only until the user approves the ledger. Do not add new patches or wrapp
 
 ## Comments
 
+- 2026-10-02 (user): phase 1 ledger approved. Exception: the three `@tanstack/ai-sandbox-vercel` gaps (start from snapshot, authenticated agent port, process kill) are temporary patches, upstreamed after production launch (ticket 02). Self-host Docker fast start: decision pending on the app-level per-Workspace base image (no patch).
+
 - 2026-10-02 (claude): **Phase 1 ledger (for review before phase 2).**
 
   Sources: our patch files compared with the packages at the pinned versions and at current releases (`ai-sandbox` 0.5.17, `ai-opencode` 0.4.14, `ai-persistence` 0.7.1, `ai` 0.63.0, `@opencode-ai/sdk` 1.18.34; `ai-sandbox-docker` is still 0.3.2). "Verify" means phase 2 runs the contract test on stock packages and keeps a fix only if the test fails.

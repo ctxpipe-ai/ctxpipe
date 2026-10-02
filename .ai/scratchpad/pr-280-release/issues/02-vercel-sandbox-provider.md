@@ -81,6 +81,12 @@ Phase 1 output (ADR draft) goes to the user before building; phases 2–9 follow
 
 ## Comments
 
+- 2026-10-02 (user decisions):
+  - **Egress:** use Vercel's firewall allowlist (our backend, GitHub, whatever OpenCode needs), because the sandbox can read its Workspace read token.
+  - **Lifecycle:** stop a sandbox after **5 minutes idle**. Keep a conversation's saved state **30 days** after last use. Cap each organization at **50 running sandboxes**.
+  - **Non-interactive runs** (MCP `ctx_advisor` turns, Slack agent turns, semantic merge, anything not driven by a person in the UI) stop their sandbox **as soon as the run ends**, so they never hold a slot for the idle period.
+  - **Credentials and target:** the Vercel access token is the GitHub Actions secret `VERCEL_ACCESS_TOKEN`; project `ctxpipe` in team `ctxpipe`. Deploy must pass it to the Railway backend and worker.
+
 - 2026-10-02 (claude, ticket 07 docs): public docs now describe the target chat. Before closing:
   - add Cloudflare to the sub-processor table in `apps/docs/content/docs/(guide)/resources/data-processing.mdx`;
   - re-check `workspaces/chat.mdx` ("Where the agent runs", Create PR / Show PR, no Commit+Push) against what ships.

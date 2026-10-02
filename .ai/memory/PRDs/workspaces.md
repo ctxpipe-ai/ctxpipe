@@ -27,7 +27,7 @@ ctxpipe is a job engine over **Workspaces**. An organization's portable knowledg
 - Every write to the default branch is a typed OpenWorkflow job (bootstrap, migration export, extraction, connector mirror, claims upgrade, rename rewrite, `valid_from` persist, semantic merge, folder map, link/unlink, file edit). One job → at most one commit, with a model-written subject (template fallback).
 - Jobs run deterministic transforms on captured git data. Only the broker push step holds a write credential; it pushes fast-forward only and never force-pushes the default branch. A non-fast-forward is rebased and, on overlap, merged by an isolated semantic-merge step.
 - Writes are GitHub-only in v1. If ctxpipe cannot push, the Workspace is **read-only**: hydrate, search and chat continue; jobs for that repository pause and resume when access returns.
-- Connectors fetch provider content, then hand it to a typed mirror job that commits it. Provider config (`<connector>/config.yaml`) changes go through PRs.
+- Connectors fetch provider content, then hand it to a typed mirror job that commits it. Merged GitHub pull requests of a repository are mirrored into every Workspace that links it. Provider config (`<connector>/config.yaml`) changes go through PRs.
 
 ## Workspace chat
 
@@ -43,6 +43,7 @@ ctxpipe is a job engine over **Workspaces**. An organization's portable knowledg
 - **Hosted:** Vercel Sandbox (Firecracker microVM, active-CPU billing, durable files per conversation, starts from a prepared snapshot) *(ticket 02)*. Integration gaps in `@tanstack/ai-sandbox-vercel` (start from snapshot, authenticated agent port, process kill) are closed with temporary patches, then upstreamed after production launch.
 - **Self-host:** stock TanStack `dockerSandbox` — Compose uses a DinD sidecar; AWS CDK creates a small Graviton EC2 Docker host (always on, no opt-out) *(ticket 03)*. Containers and snapshot images are cleaned up so the host never fills its disk.
 - **Isolation** is what stock TanStack sandbox policy supports (`commands`, `capabilities.fileWrite/network`, `default`). No custom quotas, egress proxy, or patched providers *(ticket 01)*.
+- **Hosted lifecycle:** a sandbox stops after 5 minutes idle (files saved; next message resumes), saved state is kept 30 days after last use, and each organization runs at most 50 sandboxes at once. Runs nobody is watching (MCP, Slack, write jobs) stop their sandbox as soon as they finish. Egress is an allowlist (our backend, GitHub, what OpenCode needs).
 - **Unsandboxed** runs only when explicitly locked (`SANDBOX_PROVIDER=unsandboxed`); it is never a default or a recommendation.
 
 ## UI

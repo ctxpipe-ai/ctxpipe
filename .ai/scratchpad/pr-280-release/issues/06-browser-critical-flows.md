@@ -67,6 +67,8 @@ Phase 1 only until the user approves the catalogue. Never point flows at product
 
 ## Comments
 
+- 2026-10-02 (user): GitHub merged-PR mirroring goes into **every Workspace that links the repository** (option A); replaces the old context-repository targeting (ledger row 15).
+
 - 2026-10-01 (user): will provide the GitHub test org and connector credentials when the run reaches that point.
 
 - 2026-10-01 (user): flows start with registration and onboarding, creating accounts as needed. Email sign-up currently needs no verification (`emailAndPassword` without `requireEmailVerification`); if that changes, the run needs a test inbox.
