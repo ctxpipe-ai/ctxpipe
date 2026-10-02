@@ -1,8 +1,8 @@
 # Add a second Workspace from the UI
 
-Status: needs-triage
+Status: done
 Priority: P1
-Owner: unassigned
+Owner: claude
 Blocked by: none
 Created: 2026-10-02
 Updated: 2026-10-02
@@ -53,3 +53,5 @@ Read the PRD § UI, `routes/$orgSlug.organization.$organizationView.tsx`, `featu
 - 2026-10-02 (claude): found while rewriting public docs (ticket 07 row 11). The docs currently name the paths that exist today.
 
 ## Resolution
+
+User decision (2026-10-02): a **+** next to the Workspaces label in the left nav. `WorkspaceNavList` renders it and opens `WorkspaceCreateModal`. Story `AddWorkspace` play opens the dialog. Docs and PRD updated.

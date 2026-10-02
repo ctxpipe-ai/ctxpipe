@@ -1,6 +1,6 @@
 # Consolidate intent and ADRs
 
-Status: review
+Status: done
 Priority: P0
 Order: 2 (after 07)
 Owner: claude
@@ -70,3 +70,5 @@ Verify every claim in code before keeping it. Write short, plain decisions; no i
 - 2026-10-01 (user): approved; this ticket goes first. Plan expanded from the sketch.
 
 ## Resolution
+
+User approved the PRD and the rewritten ADRs (2026-10-02). Re-check the sandbox and chat ADRs when tickets 01–03 close.
