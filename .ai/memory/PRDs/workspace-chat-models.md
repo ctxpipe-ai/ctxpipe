@@ -11,4 +11,4 @@ Workspace chat (TanStack `opencodeText` + `withSandbox`) must use the same model
 
 ## Not this document
 
-Sandbox providers (Cloudflare hosted, Docker self-host) are in [ADR-048](../decisions/ADR-048-native-postgres-sandbox-ownership.md); they do not change the model rule.
+Sandbox providers (Vercel hosted, Docker self-host) are in [ADR-048](../decisions/ADR-048-native-postgres-sandbox-ownership.md); they do not change the model rule.

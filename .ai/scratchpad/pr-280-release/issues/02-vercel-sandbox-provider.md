@@ -1,13 +1,21 @@
-# Cloudflare Sandboxes for hosted chat
+# Vercel Sandbox for hosted chat
 
-Status: plan-review
+Status: needs-replan
 Priority: P0
 Owner: unassigned
 Blocked by: 01
 Created: 2026-10-01
-Updated: 2026-10-01
+Updated: 2026-10-02
 
 ## Context
+
+> **2026-10-02 (user): the hosted provider is Vercel Sandbox, not Cloudflare.** Reasons: maturity, and we already use Vercel. CPU billed only while busy is a hard requirement. Close the `@tanstack/ai-sandbox-vercel` gaps with patches first, then raise upstream PRs after production launch:
+> - start a new sandbox from a prepared snapshot (`source: snapshot`, snapshots and fork capabilities);
+> - authenticated agent port (OpenCode server password + channel headers), because Vercel ports are public URLs;
+> - process kill, measured against a real sandbox.
+>
+> The Cloudflare text below is history; the plan must be rewritten for Vercel before work starts.
+
 
 Hosted ctxpipe runs on Railway. Today workspace chat there falls back to `unsandboxed`: OpenCode runs inside the shared backend container across tenants.
 

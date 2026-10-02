@@ -19,13 +19,13 @@ Every Workspace conversation runs OpenCode in its own sandbox with a checkout of
 
 | Deployment | Provider |
 | --- | --- |
-| Hosted | `@tanstack/ai-sandbox-cloudflare` *(ticket 02)* |
+| Hosted | `@tanstack/ai-sandbox-vercel` *(ticket 02)* |
 | Self-host (Compose) | stock `dockerSandbox` against a Docker-in-Docker service *(ticket 03)* |
 | Self-host (AWS CDK) | stock `dockerSandbox` against an always-created EC2 Graviton Docker host *(ticket 03)* |
 | Local dev | stock `dockerSandbox` against the developer's Docker |
 | Unsandboxed | explicit `SANDBOX_PROVIDER=unsandboxed` only; never chosen automatically, never recommended |
 
-Hosted does not run its own Docker fleet; Railway Sandboxes and sbx were ruled out (see Alternatives).
+Hosted needs CPU billed only while busy (an agent mostly waits on the model), a TanStack provider, fast start and durable files. Vercel is the chosen vendor: microVM isolation, an existing vendor, and 10,000 concurrent sandboxes. Its provider gaps (start from snapshot, authenticated agent port, process kill) are temporary patches, upstreamed after launch.
 
 ### Isolation
 
@@ -46,12 +46,16 @@ Only stock TanStack sandbox policy: `commands`, `capabilities.fileWrite`, `capab
 
 - Replicas can restart or hand over mid-conversation; the lock and store carry ownership, git carries the work.
 - Losing a sandbox costs one cold start, never user work that was pushed.
-- Isolation is whatever the provider plus stock policy gives. Cloudflare provides VM-level isolation for hosted. Self-hosters rely on Docker.
+- Isolation is whatever the provider plus stock policy gives. Vercel provides microVM isolation for hosted. Self-hosters rely on Docker.
 - Until ticket 01 lands, the branch still carries the patched runtime-workspace, transition and isolation code this ADR retires.
 
 ## Alternatives considered
 
-- **Railway Sandboxes for hosted.** Rejected: capped at 100 concurrent sandboxes without Enterprise.
+- **Railway Sandboxes for hosted.** Rejected: capped at 100 concurrent sandboxes per environment, no TanStack provider.
+- **Cloudflare Sandboxes.** Rejected: TanStack's provider only runs inside a Cloudflare Worker, files are lost when the container sleeps, no snapshots or process kill.
+- **Upstash Box.** Rejected: container isolation (shared kernel across tenants), SOC 2 in progress, no custom images, despite the best price and TanStack integration.
+- **E2B, Daytona.** Rejected: CPU and memory billed while reserved, not only while busy. Daytona is also closed source since June 2026, and its lower tiers cannot reach our backend.
+- **Fly.io Sprites.** Fallback: microVM, durable files, idle is free, but no shared snapshot start and concurrency bought by plan.
 - **ECS RunTask per conversation for AWS CDK.** Rejected: start time and per-task cost are worse than one shared Docker host.
 - **sbx.** Parked: it adds a second runtime without a need stock policy leaves unmet.
 - **Moving a sandbox between SHA-keyed records (the patched transition hooks).** Rejected in favour of option D, which needs no patch.

@@ -40,7 +40,7 @@ ctxpipe is a job engine over **Workspaces**. An organization's portable knowledg
 
 ## Sandboxes
 
-- **Hosted:** Cloudflare Sandboxes behind a gateway Worker; instance type `basic` to start *(ticket 02)*.
+- **Hosted:** Vercel Sandbox (Firecracker microVM, active-CPU billing, durable files per conversation, starts from a prepared snapshot) *(ticket 02)*. Integration gaps in `@tanstack/ai-sandbox-vercel` (start from snapshot, authenticated agent port, process kill) are closed with temporary patches, then upstreamed after production launch.
 - **Self-host:** stock TanStack `dockerSandbox` — Compose uses a DinD sidecar; AWS CDK creates a small Graviton EC2 Docker host (always on, no opt-out) *(ticket 03)*. Containers and snapshot images are cleaned up so the host never fills its disk.
 - **Isolation** is what stock TanStack sandbox policy supports (`commands`, `capabilities.fileWrite/network`, `default`). No custom quotas, egress proxy, or patched providers *(ticket 01)*.
 - **Unsandboxed** runs only when explicitly locked (`SANDBOX_PROVIDER=unsandboxed`); it is never a default or a recommendation.
