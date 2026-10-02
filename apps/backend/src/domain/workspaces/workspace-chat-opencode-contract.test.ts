@@ -167,7 +167,7 @@ describe("workspaceChatOpenCodeContract", () => {
         "GITHUB_PRIVATE_KEY",
       ]),
     )
-    expect(WORKSPACE_CHAT_OPENCODE_CLI).toBe("opencode-ai@1.18.18")
+    expect(WORKSPACE_CHAT_OPENCODE_CLI).toBe("opencode-ai@1.18.34")
   })
 
   it("isolates OpenCode HOME away from the host config dir", () => {

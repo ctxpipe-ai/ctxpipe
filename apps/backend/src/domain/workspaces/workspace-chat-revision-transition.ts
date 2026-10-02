@@ -1,46 +1,30 @@
-import type {
-  SandboxEnsureContext,
-  SandboxHandle,
-  SandboxInstanceRecord,
-} from "@tanstack/ai-sandbox"
-import { withOrgDbContext } from "../../db/client.js"
+import type { SandboxHandle } from "@tanstack/ai-sandbox"
 import {
-  getDesiredWorkspaceRevision,
+  advanceSandboxInstanceRevision,
   getSandboxInstance,
-} from "../../models/workspaces.js"
-import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
+} from "../../models/workspace-sandboxes.js"
+import { sameWorkspaceBinding, type WorkspaceRevision } from "./revision.js"
 
-export class WorkspaceChatRevisionConflict extends Error {
-  constructor(readonly revision: WorkspaceRevision) {
-    super(
-      "The conversation branch conflicts with the updated workspace. Rebase it before continuing; saved edits remain in Git's stash.",
-    )
-  }
-}
-
-/** Git updates the same branch; native ensure owns the lock and exact-record move. */
-export async function transitionWorkspaceChatRevision(
-  handle: SandboxHandle,
-  previous: SandboxInstanceRecord,
-  ctx: SandboxEnsureContext,
-): Promise<void> {
-  const source = ctx.workspace?.source
-  const orgId = ctx.tenant?.orgId
-  if (!orgId || source?.type !== "git" || !source.commit)
-    throw new Error("Workspace transition requires a captured Git revision")
-  const stored = await getSandboxInstance(previous.key, orgId)
-  const previousRevision = stored?.revision
-  if (!previousRevision)
-    throw new Error("Previous workspace revision is missing")
-  const current = await withOrgDbContext(orgId, () =>
-    getDesiredWorkspaceRevision(previousRevision.workspaceId),
-  )
-  if (
-    !current ||
-    !sameWorkspaceRevision(current, { ...previousRevision, sha: source.commit })
-  )
-    throw new WorkspaceChatRevisionConflict(previousRevision)
-
+/**
+ * Bring a conversation's sandbox to the Workspace's current commit before a
+ * turn (option D). The sandbox keeps its identity; Git stashes the
+ * conversation's edits, rebases its branch onto the new commit, and restores
+ * them. A conflict leaves the sandbox on its previous commit and is reported
+ * so the turn can ask the agent to repair the branch.
+ */
+export async function updateConversationSandboxRevision(input: {
+  handle: SandboxHandle
+  orgId: string
+  sandboxKey: string
+  desired: WorkspaceRevision
+  signal?: AbortSignal
+}): Promise<{ conflict?: WorkspaceRevision }> {
+  const { handle, desired } = input
+  const row = await getSandboxInstance(input.sandboxKey, input.orgId)
+  const previousRevision = row?.revision
+  if (!previousRevision || !sameWorkspaceBinding(previousRevision, desired))
+    throw new Error("Conversation sandbox revision is missing")
+  if (previousRevision.sha === desired.sha) return {}
   const result = await handle.process.exec(
     `(set -eu
 STATE=$(git rev-parse --git-path ctxpipe-revision-transition)
@@ -140,15 +124,21 @@ PHASE=complete
 write_state
 )`,
     {
-      signal: ctx.signal,
+      signal: input.signal,
       env: {
         OLD_SHA: previousRevision.sha,
-        NEW_SHA: source.commit,
+        NEW_SHA: desired.sha,
         DEFAULT_BRANCH: previousRevision.defaultBranch,
       },
     },
   )
-  if (result.exitCode === 42)
-    throw new WorkspaceChatRevisionConflict(previousRevision)
+  if (result.exitCode === 42) return { conflict: previousRevision }
   if (result.exitCode !== 0) throw new Error("Workspace branch update failed")
+  await advanceSandboxInstanceRevision({
+    id: input.sandboxKey,
+    orgId: input.orgId,
+    from: previousRevision,
+    to: desired,
+  })
+  return {}
 }

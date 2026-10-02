@@ -96,7 +96,7 @@ export const WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV = [
   "AMPLITUDE_API_KEY",
 ] as const
 
-export const WORKSPACE_CHAT_OPENCODE_CLI = "opencode-ai@1.18.18" as const
+export const WORKSPACE_CHAT_OPENCODE_CLI = "opencode-ai@1.18.34" as const
 
 export const WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV =
   "{env:CTXPIPE_MODEL_PROXY_URL}" as const

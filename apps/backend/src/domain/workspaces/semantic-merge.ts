@@ -5,7 +5,10 @@ import type { SandboxProvider } from "@tanstack/ai-sandbox"
 import { z } from "zod"
 import { repositoryFilePathSchema } from "../../services/git/file-change.js"
 import type { GitMergeConflict } from "../../services/git/merge-tree.js"
-import { discoverSandboxProvider } from "./sandbox-provider.js"
+import {
+  discoverSandboxProvider,
+  withSessionOnlyEnv,
+} from "./sandbox-provider.js"
 
 export const mergeSandboxSchema = z
   .object({
@@ -23,11 +26,12 @@ async function mergeProvider(
   if (provider === "docker") {
     const { dockerSandbox } = await import("@tanstack/ai-sandbox-docker")
     const options = { timeout: 30_000 }
-    return dockerSandbox({
-      image: "node:22",
-      containerName: id,
-      dockerodeOptions: options,
-    })
+    return withSessionOnlyEnv(
+      dockerSandbox({
+        image: "node:22",
+        dockerodeOptions: options,
+      }),
+    )
   }
   const { localProcessSandbox } = await import(
     "@tanstack/ai-sandbox-local-process"

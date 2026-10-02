@@ -16,7 +16,6 @@ export type SandboxInstanceRecord = {
   provider?: string | null
   providerSandboxId?: string | null
   image?: string | null
-  transitionKey?: string | null
   revision?: WorkspaceRevision | null
   latestSnapshotId?: string | null
   latestRunId?: string | null
@@ -58,7 +57,6 @@ function toSandboxInstanceRecord(
     provider: row.provider,
     providerSandboxId: row.providerSandboxId,
     image: row.image,
-    transitionKey: row.transitionKey,
     revision: row.revision,
     latestSnapshotId: row.latestSnapshotId,
     latestRunId: row.latestRunId,
@@ -101,7 +99,6 @@ export async function persistSandboxInstance(
         provider: input.provider ?? null,
         providerSandboxId: input.providerSandboxId ?? null,
         image: input.image ?? null,
-        transitionKey: input.transitionKey ?? null,
         revision: input.revision ?? null,
         latestSnapshotId: input.latestSnapshotId ?? null,
         latestRunId: input.latestRunId ?? null,
@@ -143,8 +140,7 @@ export async function persistSandboxInstance(
           provider: input.provider ?? null,
           providerSandboxId: input.providerSandboxId ?? null,
           image: input.image ?? null,
-          transitionKey: input.transitionKey ?? null,
-          revision: input.revision ?? null,
+            revision: input.revision ?? null,
           latestSnapshotId: input.latestSnapshotId ?? null,
           latestRunId: input.latestRunId ?? null,
           state: input.state,
@@ -294,5 +290,28 @@ export async function deleteSandboxInstance(
       )
       .limit(1)
     if (collision) throw new SandboxInstanceOwnershipConflict(id)
+  })
+}
+
+/** Record that a conversation sandbox moved to a new commit, if it was still on `from`. */
+export async function advanceSandboxInstanceRevision(input: {
+  id: string
+  orgId: string
+  from: WorkspaceRevision
+  to: WorkspaceRevision
+}): Promise<void> {
+  await withSandboxInstanceDb(input.orgId, async () => {
+    const moved = await getOrgDb()
+      .update(workspaceSandboxInstances)
+      .set({ revision: input.to, updatedAt: new Date() })
+      .where(
+        and(
+          eq(workspaceSandboxInstances.id, input.id),
+          eq(workspaceSandboxInstances.orgId, input.orgId),
+          eq(workspaceSandboxInstances.revision, input.from),
+        ),
+      )
+      .returning({ id: workspaceSandboxInstances.id })
+    if (moved.length !== 1) throw new SandboxInstanceOwnershipConflict(input.id)
   })
 }

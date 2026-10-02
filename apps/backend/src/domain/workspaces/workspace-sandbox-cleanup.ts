@@ -15,7 +15,6 @@ import {
   shouldDestroyJobSandbox,
 } from "./chat-lifecycle.js"
 import { workspaceChatDockerImage } from "./chat-runtime.js"
-import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import { destroyDetachedProviderSandbox } from "./sandbox-provider.js"
 
@@ -166,12 +165,7 @@ async function destroyWorkspaceSandboxUnderFence(
           return false
         }
         signal.throwIfAborted()
-        if (stored.kind === "chat")
-          await postgresSandboxInstanceStore({
-            orgId: stored.orgId,
-            workspaceId: stored.workspaceId,
-          }).delete(id)
-        else await deleteSandboxInstance(id, stored.orgId, ownershipOf(stored))
+        await deleteSandboxInstance(id, stored.orgId, ownershipOf(stored))
         return true
       }
       return stored.latestSnapshotId

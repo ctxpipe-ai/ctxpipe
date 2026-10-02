@@ -1,3 +1,4 @@
+import type { SandboxProvider as TanstackSandboxProvider } from "@tanstack/ai-sandbox"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 
 export const SANDBOX_PROVIDERS = [
@@ -37,6 +38,31 @@ export function detectSandboxProviderFromEnv(input?: {
     hasSbx: input?.hasSbx,
     hasDocker: input?.hasDocker,
   })
+}
+
+/**
+ * Keep secrets out of provider create requests. Docker's create endpoint takes
+ * its options as a query string, so environment values would appear in request
+ * URLs. Stock `ensure` sets the same secrets on the sandbox session after
+ * create, so the create call does not need them.
+ */
+export function withSessionOnlyEnv(
+  provider: TanstackSandboxProvider,
+): TanstackSandboxProvider {
+  const { restoreSnapshot } = provider
+  return {
+    name: provider.name,
+    capabilities: () => provider.capabilities(),
+    create: (input) => provider.create({ ...input, env: undefined }),
+    resume: (input) => provider.resume(input),
+    destroy: (input) => provider.destroy(input),
+    ...(restoreSnapshot
+      ? {
+          restoreSnapshot: (input) =>
+            restoreSnapshot.call(provider, { ...input, env: undefined }),
+        }
+      : {}),
+  }
 }
 
 /** Discover an eligible provider using the native Docker client/environment. */

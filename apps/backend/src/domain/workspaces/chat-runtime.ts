@@ -31,7 +31,7 @@ export const WORKSPACE_CHAT_DOCKER_SANDBOX: {
 export function workspaceChatDockerImage(): string {
   return (
     process.env.SANDBOX_CHAT_IMAGE?.trim() ||
-    "ctxpipe-chat-sandbox:opencode-1.18.18"
+    "ctxpipe-chat-sandbox:opencode-1.18.34"
   )
 }
 
