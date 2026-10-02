@@ -254,6 +254,9 @@ export function OnboardingPageContent({
   // and org list; showing it then would unmount the picture and replay its
   // fade-in between step 1 and step 2.
   const arrivingWithOrg = orgSlug !== null && createdOrgSlug === null
+  // Signed out (e.g. an expired verification link landed here): the role
+  // and org data never arrive, so do not wait for them.
+  if (!isPending && !session) return <Navigate to="/.auth/sign-in" replace />
   if (
     isJoiner === null ||
     (isPending && !session) ||
