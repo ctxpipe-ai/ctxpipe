@@ -40,7 +40,7 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
       neptuneInstanceClass: "db.t4g.medium",
     },
     tasks: {
-      backend: { cpu: 256, memoryLimitMiB: 512 },
+      backend: { cpu: 1024, memoryLimitMiB: 2048 },
       worker: { cpu: 512, memoryLimitMiB: 1024 },
       ui: { cpu: 256, memoryLimitMiB: 512 },
       codesearch: { cpu: 512, memoryLimitMiB: 4096 },
@@ -71,7 +71,7 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
       neptuneInstanceClass: "db.r6g.large",
     },
     tasks: {
-      backend: { cpu: 512, memoryLimitMiB: 1024 },
+      backend: { cpu: 1024, memoryLimitMiB: 2048 },
       worker: { cpu: 1024, memoryLimitMiB: 2048 },
       ui: { cpu: 256, memoryLimitMiB: 512 },
       codesearch: { cpu: 1024, memoryLimitMiB: 8192 },
@@ -238,8 +238,23 @@ export class CtxPipe extends Construct {
   }
 
   private resolveSizeProfile(props: CtxPipeProps): CtxPipeSizeProfile {
-    const size = props.size ?? DEFAULT_SIZE;
-    return SIZE_PROFILES[size];
+    const profile = SIZE_PROFILES[props.size ?? DEFAULT_SIZE];
+    const backend = {
+      cpu: props.backend?.cpu ?? profile.tasks.backend.cpu,
+      memoryLimitMiB:
+        props.backend?.memoryLimitMiB ?? profile.tasks.backend.memoryLimitMiB,
+    };
+    const backendDesiredCount =
+      props.backend?.desiredCount ?? profile.services.backendDesiredCount;
+
+    if (!Number.isInteger(backendDesiredCount) || backendDesiredCount < 1) {
+      throw new Error("backend.desiredCount must be an integer of at least 1");
+    }
+    return {
+      ...profile,
+      tasks: { ...profile.tasks, backend },
+      services: { ...profile.services, backendDesiredCount },
+    };
   }
 
   private resolveCustomDomain(props: CtxPipeProps): ResolvedCtxPipeCustomDomainProps {

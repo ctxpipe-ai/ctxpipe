@@ -2,7 +2,7 @@ import { once } from "node:events"
 import { createServer, type IncomingMessage } from "node:http"
 import type { AddressInfo } from "node:net"
 import { AIMessage, HumanMessage, ToolMessage } from "@langchain/core/messages"
-import { END, START, StateGraph } from "@langchain/langgraph"
+import { END, MemorySaver, START, StateGraph } from "@langchain/langgraph"
 import { initLogger } from "evlog"
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { ConversationGraphStateSchema } from "../state.js"
@@ -185,6 +185,34 @@ describe("agentNode", () => {
           ),
         })),
       }),
+    )
+  })
+
+  it("checkpoints only the parent graph, not each step of the tool loop", async () => {
+    const checkpointer = new MemorySaver()
+    const checkpointed = new StateGraph(ConversationGraphStateSchema)
+      .addNode("agent", agentNode)
+      .addEdge(START, "agent")
+      .addEdge("agent", END)
+      .compile({ checkpointer })
+    const config = { configurable: { thread_id: "thr_ckpt", source: "mcp" } }
+
+    await checkpointed.invoke(
+      { messages: [new HumanMessage("Which database does order-service use?")] },
+      config,
+    )
+
+    const namespaces = new Set<string>()
+    for await (const tuple of checkpointer.list({
+      configurable: { thread_id: "thr_ckpt" },
+    })) {
+      namespaces.add(String(tuple.config.configurable?.checkpoint_ns ?? ""))
+    }
+    expect([...namespaces]).toEqual([""])
+
+    const saved = await checkpointed.getState(config)
+    expect(saved.values.messages.at(-1)?.text).toContain(
+      "Postgres, per ADR-003.",
     )
   })
 
