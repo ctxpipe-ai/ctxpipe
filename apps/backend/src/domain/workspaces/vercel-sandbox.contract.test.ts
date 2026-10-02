@@ -24,7 +24,9 @@ async function vercelApi<T>(path: string, token: string): Promise<T> {
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!response.ok)
-    throw new Error(`Vercel ${path} failed with ${response.status}`)
+    throw new Error(
+      `Vercel ${path} failed with ${response.status}: ${(await response.text()).slice(0, 300)}`,
+    )
   return (await response.json()) as T
 }
 
@@ -55,17 +57,14 @@ beforeAll(async () => {
     throw new Error(
       "VERCEL_TOKEN, VERCEL_TEAM and VERCEL_PROJECT are required for the hosted sandbox lane",
     )
-  const teamId = team.startsWith("team_")
-    ? team
-    : (await vercelApi<{ id: string }>(`/v2/teams/${team}`, token)).id
-  const projectId = project.startsWith("prj_")
-    ? project
-    : (
-        await vercelApi<{ id: string }>(
-          `/v9/projects/${project}?teamId=${teamId}`,
-          token,
-        )
-      ).id
+  // Team-scoped tokens may not read the team itself; the project carries its
+  // owning team id, and the slug query selects the team.
+  const scoped = await vercelApi<{ id: string; accountId: string }>(
+    `/v9/projects/${project}?${team.startsWith("team_") ? "teamId" : "slug"}=${team}`,
+    token,
+  )
+  const teamId = scoped.accountId
+  const projectId = scoped.id
   credentials = { token, teamId, projectId }
 })
 
