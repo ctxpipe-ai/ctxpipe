@@ -124,6 +124,54 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
     report(`[vercel] start from snapshot ${Date.now() - started}ms`)
   })
 
+  it("adds and rotates a credential header outside the sandbox", async () => {
+    // The hosted GitHub read token is added by the firewall, so it never
+    // enters the sandbox; each session's rule is replaced as tokens rotate.
+    const policy = (value: string): NetworkPolicy => ({
+      allow: {
+        "postman-echo.com": [
+          { transform: [{ headers: { "x-ctxpipe-probe": value } }] },
+        ],
+      },
+    })
+    const sandbox = await create({
+      runtime: "node24",
+      networkPolicy: policy("token-1"),
+    })
+    const echo = async () => {
+      const result = await handle(sandbox).process.exec(
+        `node -e "fetch('https://postman-echo.com/headers').then(r=>r.text()).then(t=>console.log(t),e=>console.log('failed',e.cause?.code??e.message))"`,
+      )
+      return result.stdout
+    }
+    const curl = async () =>
+      (
+        await handle(sandbox).process.exec(
+          "command -v curl >/dev/null && curl -sS https://postman-echo.com/headers || echo no-curl",
+        )
+      ).stdout
+    expect(await echo()).toContain("token-1")
+    const viaCurl = await curl()
+    report(`[vercel] header via curl: ${viaCurl.slice(0, 300)}`)
+    const environment = await handle(sandbox).process.exec(
+      "env; cat /proc/1/environ 2>/dev/null | tr '\\0' '\\n'",
+    )
+    expect(environment.stdout).not.toContain("token-1")
+    const started = Date.now()
+    await sandbox.update({ networkPolicy: policy("token-2") })
+    report(`[vercel] network policy update ${Date.now() - started}ms`)
+    const rotated = Date.now()
+    let body = ""
+    while (Date.now() - rotated < 30_000) {
+      body = await echo()
+      if (body.includes("token-2")) break
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+    report(`[vercel] rotated header visible after ${Date.now() - rotated}ms`)
+    expect(body).toContain("token-2")
+    expect(body).not.toContain("token-1")
+  })
+
   it("allows only allowlisted hosts", async () => {
     const networkPolicy: NetworkPolicy = { allow: ["github.com"] }
     const sandbox = await create({ runtime: "node24", networkPolicy })
