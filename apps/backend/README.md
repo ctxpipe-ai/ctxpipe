@@ -145,4 +145,4 @@ For **local development**, GitHub cannot deliver webhooks to `localhost`; use an
 
 ## Licence
 
-Released under **Elastic License 2.0 (ELv2)** — same terms as the parent repo; details: [open-source (docs)](https://docs.ctxpipe.ai/docs/resources/open-source).
+Released under the **MIT License**, the same terms as the parent repo. Details: [open-source (docs)](https://docs.ctxpipe.ai/docs/resources/open-source).
