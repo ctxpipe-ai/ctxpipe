@@ -11,9 +11,9 @@ export function sanitizePostgresJson<T>(value: T): T {
     return value.map((item) => sanitizePostgresJson(item)) as T
   }
   if (value !== null && typeof value === "object") {
-    const out: Record<string, unknown> = {}
+    const out: Record<string, unknown> = Object.create(null)
     for (const [key, item] of Object.entries(value)) {
-      out[key] = sanitizePostgresJson(item)
+      out[stripUnsafe(key)] = sanitizePostgresJson(item)
     }
     return out as T
   }
