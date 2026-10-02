@@ -7,7 +7,6 @@ import { agentSetup } from "./onboarding-state"
 
 type OnboardingAgentStepProps = {
   orgSlug: string
-  hasSource: boolean
   firstRepository: string | null
   /** Set once their agent has called ctx| (the step was reopened). */
   connectedClient: string | null
@@ -48,7 +47,6 @@ const METHODS: Array<{ id: Method; title: string; description: string }> = [
 
 export function OnboardingAgentStep({
   orgSlug,
-  hasSource,
   firstRepository,
   connectedClient,
   onSkip,
@@ -127,7 +125,7 @@ export function OnboardingAgentStep({
               <span className="ctx-indexing-dot" aria-hidden />
               Listening for your agent’s first call
             </span>
-            {hasSource && firstRepository ? (
+            {firstRepository ? (
               <span className="flex flex-col gap-1.5">
                 <span className="text-sm text-muted-foreground">
                   Paste this into your agent:

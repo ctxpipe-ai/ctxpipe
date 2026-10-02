@@ -388,6 +388,7 @@ function PanelHeader({
 }
 
 function Wire({ beat, rows }: { beat: BeatState; rows: 1 | 2 }) {
+  const stroke = `fill-none transition-[stroke] duration-500 [stroke-width:1.25] ${WIRE[beat]}`
   return (
     <svg
       className="h-full w-full"
@@ -402,7 +403,7 @@ function Wire({ beat, rows }: { beat: BeatState; rows: 1 | 2 }) {
           x2="40"
           y2="50"
           vectorEffect="non-scaling-stroke"
-          className={`fill-none transition-[stroke] duration-500 [stroke-width:1.25] ${WIRE[beat]}`}
+          className={stroke}
         />
       ) : (
         <>
@@ -412,7 +413,7 @@ function Wire({ beat, rows }: { beat: BeatState; rows: 1 | 2 }) {
             x2="0"
             y2="46"
             vectorEffect="non-scaling-stroke"
-            className={`fill-none transition-[stroke] duration-500 [stroke-width:1.25] ${WIRE[beat]}`}
+            className={stroke}
           />
           <line
             x1="0"
@@ -420,7 +421,7 @@ function Wire({ beat, rows }: { beat: BeatState; rows: 1 | 2 }) {
             x2="40"
             y2="54"
             vectorEffect="non-scaling-stroke"
-            className={`fill-none transition-[stroke] duration-500 [stroke-width:1.25] ${WIRE[beat]}`}
+            className={stroke}
           />
         </>
       )}

@@ -24,9 +24,9 @@ export type OnboardingFacts = {
     /** Saved a selection this session; the list may not show it yet. */
     queued: boolean
     /**
-     * They pressed Continue on the GitHub step, or arrived with repositories
-     * already indexed. Indexing starts on its own, so the step stays open for
-     * the context repository until then.
+     * They pressed Continue (or Set up later) on the GitHub step, or arrived
+     * with a context repository already set. Indexing starts on its own, so
+     * the step stays open for the context repository until then.
      */
     continued: boolean
     activeCount: number
@@ -53,7 +53,7 @@ export type OnboardingView = {
   caption: string
 }
 
-function repositoryCount(n: number) {
+export function repositoryCount(n: number) {
   return `${n} ${n === 1 ? "repository" : "repositories"}`
 }
 

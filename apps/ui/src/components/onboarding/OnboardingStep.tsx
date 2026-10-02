@@ -8,10 +8,8 @@ type OnboardingStepProps = {
   beat: BeatState
   /** Mono summary on the right once the step is done or skipped. */
   summary?: string
-  /** e.g. "Connect now" on a skipped step, "Change" on a done one. */
-  action?: ReactNode
-  /** Shows the body. Defaults to the current step; a done step can reopen. */
-  open?: boolean
+  /** Shows the body: the current step, or a done one reopened. */
+  open: boolean
   /** Makes the title a button that opens or closes a done step. */
   onSelect?: () => void
   children?: ReactNode
@@ -22,8 +20,7 @@ export function OnboardingStep({
   title,
   beat,
   summary,
-  action,
-  open = beat === "current",
+  open,
   onSelect,
   children,
 }: OnboardingStepProps) {
@@ -85,7 +82,6 @@ export function OnboardingStep({
               {summary}
             </span>
           ) : null}
-          {action}
         </span>
       </div>
       {open && children ? (

@@ -3,7 +3,10 @@ import { createFileRoute, Navigate, useRouter } from "@tanstack/react-router"
 import { useState } from "react"
 import { OnboardingAgentStep } from "@/components/onboarding/OnboardingAgentStep"
 import { OnboardingDiagram } from "@/components/onboarding/OnboardingDiagram"
-import { OnboardingGithubStep } from "@/components/onboarding/OnboardingGithubStep"
+import {
+  githubSetupQuery,
+  OnboardingGithubStep,
+} from "@/components/onboarding/OnboardingGithubStep"
 import { OnboardingIndexingStatus } from "@/components/onboarding/OnboardingIndexingStatus"
 import { OnboardingOrgStep } from "@/components/onboarding/OnboardingOrgStep"
 import {
@@ -15,6 +18,7 @@ import {
   type OnboardingStepId,
   orgNameFromEmail,
   reopenAs,
+  repositoryCount,
   slugify,
   stepBefore,
   titleAction,
@@ -61,15 +65,11 @@ export function OnboardingPageContent({
   const { data: organizations, isPending: orgsPending } = useListOrganizations()
   const [, setPreferences] = useUserPreferences()
   const [createdOrgSlug, setCreatedOrgSlug] = useState<string | null>(null)
-  const [typedSlug, setTypedSlug] = useState("")
   // Their work email's domain names the organisation to start with; the
-  // slug follows once the session is known, and they can change both.
+  // slug follows it until they type one.
   const suggestedOrgName = orgNameFromEmail(session?.user.email)
-  const [slugSeeded, setSlugSeeded] = useState(false)
-  if (!slugSeeded && session) {
-    setSlugSeeded(true)
-    if (suggestedOrgName && !typedSlug) setTypedSlug(slugify(suggestedOrgName))
-  }
+  const [typedSlugState, setTypedSlug] = useState<string | null>(null)
+  const typedSlug = typedSlugState ?? slugify(suggestedOrgName)
   // What was just queued, so the picture fills before indexing rows exist.
   const [queuedRepositories, setQueuedRepositories] = useState<string[] | null>(
     null,
@@ -141,15 +141,7 @@ export function OnboardingPageContent({
   })
   const installation = installationQuery.data
   const setupQuery = useQuery({
-    queryKey: ["github-installation-setup", orgSlug],
-    queryFn: async () => {
-      if (!orgSlug) throw new Error("Missing organisation")
-      const res = await fetch(`/${orgSlug}/api/v1/github/installation/setup`, {
-        credentials: "include",
-      })
-      if (!res.ok) throw new Error("Failed to fetch GitHub setup data")
-      return (await res.json()) as { contextRepository?: string | null }
-    },
+    ...githubSetupQuery(orgSlug ?? ""),
     enabled: Boolean(orgSlug && session && installation),
   })
   // Decided once on arrival: GitHub counts as done only if they come back
@@ -283,8 +275,7 @@ export function OnboardingPageContent({
   // Only for people who arrived with an org, before the steps show. Someone
   // creating their org here never needs it: the refetched list can arrive
   // before createdOrgSlug is set, and rendering Navigate then unmounted the
-  // whole page and replayed its fade-in (the old create-org slide skipped
-  // this for the same reason).
+  // whole page and replayed its fade-in.
   if (
     arrivedWithOrgs === true &&
     createdOrgSlug === null &&
@@ -344,11 +335,15 @@ export function OnboardingPageContent({
       // best-effort: the app shell re-checks completion on arrival
     }
     window.setTimeout(() => {
-      sessionStorage.setItem(
-        "ctxpipe:onboarding-transition-pending-at",
-        String(Date.now()),
-      )
-      sessionStorage.setItem("ctxpipe:app-shell-fade-in", "1")
+      // Only the fade into the app needs these; blocked storage must not
+      // stop the navigation.
+      try {
+        sessionStorage.setItem(
+          "ctxpipe:onboarding-transition-pending-at",
+          String(Date.now()),
+        )
+        sessionStorage.setItem("ctxpipe:app-shell-fade-in", "1")
+      } catch {}
       void router.navigate({
         to: "/$orgSlug",
         params: { orgSlug },
@@ -390,8 +385,6 @@ export function OnboardingPageContent({
     return undefined
   }
 
-  const repoWord = (n: number) =>
-    `${n} ${n === 1 ? "repository" : "repositories"}`
   const skipNote =
     view.beats.source === "skipped"
       ? "GitHub is not connected. Your agent has nothing to answer from until it is."
@@ -477,7 +470,7 @@ export function OnboardingPageContent({
               summary={
                 view.beats.source === "done"
                   ? repositoryNames.length > 0
-                    ? `${repoWord(repositoryNames.length)}${activeCount > 0 ? ", indexing" : ""}`
+                    ? `${repositoryCount(repositoryNames.length)}${activeCount > 0 ? ", indexing" : ""}`
                     : "indexing"
                   : view.beats.source === "skipped"
                     ? "Skipped"
@@ -523,7 +516,6 @@ export function OnboardingPageContent({
               {orgSlug ? (
                 <OnboardingAgentStep
                   orgSlug={orgSlug}
-                  hasSource={view.hasSource}
                   firstRepository={repositoryNames[0] ?? null}
                   connectedClient={
                     firstCall ? (firstCall.client ?? "Your agent") : null

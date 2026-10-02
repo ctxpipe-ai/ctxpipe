@@ -56,7 +56,7 @@ export type GitHubRepositorySetupFormProps = {
   /** Affects the small section label above the title (default: repositories). */
   pageContext?: "repositories" | "connectors"
   /** `step`: inside an onboarding step that already carries the title. */
-  variant?: "page" | "onboarding" | "step"
+  variant?: "page" | "step"
   /** Storybook / tests: start on the context-repository step. */
   initialStep?: GitHubRepositorySetupStep
   onSaveSuccess: () => void
@@ -351,28 +351,16 @@ export function GitHubRepositorySetupForm({
         </header>
       ) : null}
       {variant === "step" ? null : (
-        <section
-          className={variant === "onboarding" ? "text-center" : undefined}
-        >
-          <h1
-            className={
-              variant === "onboarding"
-                ? "onb-in-1 text-3xl font-semibold text-zinc-100 sm:text-4xl"
-                : "text-3xl font-medium tracking-tight text-foreground"
-            }
-          >
+        <section>
+          <h1 className="text-3xl font-medium tracking-tight text-foreground">
             {step === "context"
               ? "Choose a context repository"
-              : variant === "onboarding"
-                ? "Choose repositories to index"
-                : "GitHub repository setup"}
+              : "GitHub repository setup"}
           </h1>
           <p className="mt-3 text-balance leading-relaxed text-muted-foreground">
             {step === "context"
               ? "ctx| writes pull-request capture and later connector content here. Prefer ctxpipe-context, or pick another repository the App can see."
-              : variant === "onboarding"
-                ? "GitHub controls which repositories ctx| can access. Now choose which of those repositories to index into your knowledge graph."
-                : "Choose which repositories to ingest. Already indexed repositories stay selected even if you search or have not scrolled the list."}
+              : "Choose which repositories to ingest. Already indexed repositories stay selected even if you search or have not scrolled the list."}
           </p>
         </section>
       )}
@@ -490,7 +478,7 @@ export function GitHubRepositorySetupForm({
                 className="rounded-none"
                 onPress={onCancel}
               >
-                {variant === "page" ? "Cancel" : "Skip for now"}
+                Cancel
               </Button>
             </div>
           </>
@@ -557,9 +545,7 @@ export function GitHubRepositorySetupForm({
               >
                 {updateOptionsMutation.isPending
                   ? "Saving…"
-                  : variant !== "page"
-                    ? "Save and continue"
-                    : "Save and queue indexing"}
+                  : "Save and queue indexing"}
               </Button>
               <Button
                 type="button"

@@ -56,6 +56,12 @@ export const AdminCreateOrganisation: Story = {
     const name = await canvas.findByRole("textbox", {
       name: /organisation name/i,
     })
+    // Prefilled from the work email's domain (owner@story.example).
+    await expect(name).toHaveValue("Story")
+    await expect(canvas.getByRole("textbox", { name: /slug/i })).toHaveValue(
+      "story",
+    )
+    await userEvent.clear(name)
     await userEvent.type(name, "Acme Engineering")
     await expect(canvas.getByRole("textbox", { name: /slug/i })).toHaveValue(
       "acme-engineering",
@@ -214,10 +220,11 @@ export const AdminCreateThenGithub: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await userEvent.type(
-      await canvas.findByRole("textbox", { name: /organisation name/i }),
-      "Acme Engineering",
-    )
+    const name = await canvas.findByRole("textbox", {
+      name: /organisation name/i,
+    })
+    await userEvent.clear(name)
+    await userEvent.type(name, "Acme Engineering")
     const picture = canvasElement.querySelector("figure")
     await userEvent.click(
       canvas.getByRole("button", { name: /create organisation/i }),

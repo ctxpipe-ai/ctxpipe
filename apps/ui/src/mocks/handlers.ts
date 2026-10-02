@@ -83,15 +83,6 @@ export function organizationCreateSuccessHandler() {
   })
 }
 
-export function organizationCreateErrorHandler(
-  message = "Failed to create organisation",
-) {
-  return http.post(`${authBase}/organization/create`, async () => {
-    await delay("real")
-    return HttpResponse.json({ message }, { status: 400 })
-  })
-}
-
 /** `POST /.auth/api/v1/auth/organization/invite-member` — per-email success. */
 export function organizationInviteSuccessHandler() {
   return http.post(

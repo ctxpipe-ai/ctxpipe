@@ -2,7 +2,6 @@ import HyperDX from "@hyperdx/browser"
 import { IconCheck, IconExternalLink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useRef, useState } from "react"
-import { GITHUB_FINALISING_MIN_MS } from "@/components/onboarding/constants"
 import { StepActions } from "@/components/onboarding/OnboardingStep"
 import { Button } from "@/components/ui/Button"
 import { ComboBox, ComboBoxItem } from "@/components/ui/ComboBox"
@@ -29,6 +28,7 @@ import {
   type ContextRepoProgress,
   contextRepoStage,
   findCreatedContextRepo,
+  repositoryCount,
 } from "./onboarding-state"
 
 type OnboardingGithubStepProps = {
@@ -69,19 +69,8 @@ export function OnboardingGithubStep({
   const installed = hasInstallation || connectOptimistic
 
   // What is saved now: GitHub's grant after auto-indexing, or their edit.
-  const setupKey = ["github-installation-setup", orgSlug]
-  const fetchSetup = async () => {
-    const res = await (
-      client[":orgSlug"].api.v1.github.installation.setup.$get as (arg: {
-        param: { orgSlug: string }
-      }) => Promise<Response>
-    )({ param: { orgSlug } })
-    if (!res.ok) throw new Error("Failed to fetch GitHub setup data")
-    return (await res.json()) as GitHubRepositorySetupData
-  }
   const { data: setupData, isPending: setupPending } = useQuery({
-    queryKey: setupKey,
-    queryFn: fetchSetup,
+    ...githubSetupQuery(orgSlug),
     enabled: installed,
   })
 
@@ -229,7 +218,7 @@ export function OnboardingGithubStep({
         queryKey: ["repositories", orgSlug],
       })
       await queryClient.invalidateQueries({
-        queryKey: ["github-installation-setup", orgSlug],
+        queryKey: githubSetupQuery(orgSlug).queryKey,
       })
       HyperDX.addAction("repository_index_started")
       onRepositoriesQueued(grantedRepos.map((repo) => repo.full_name))
@@ -264,8 +253,7 @@ export function OnboardingGithubStep({
       // an empty selection and drop the repositories just queued.
       await autoIndexRun.current
       const setup = await queryClient.fetchQuery({
-        queryKey: setupKey,
-        queryFn: fetchSetup,
+        ...githubSetupQuery(orgSlug),
         staleTime: 0,
       })
       const selection = setup.ingestAllRepositories
@@ -286,7 +274,7 @@ export function OnboardingGithubStep({
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: ["github-installation-setup", orgSlug],
+        queryKey: githubSetupQuery(orgSlug).queryKey,
       })
       setProgress(null)
       onContinue()
@@ -296,7 +284,7 @@ export function OnboardingGithubStep({
   const { start, isPending, isSyncing, hasHostedApp, SelfHostedWizardModal } =
     useGithubConnectFlow({
       orgSlug,
-      minFinalizeAfterRegistrationMs: GITHUB_FINALISING_MIN_MS,
+      minFinalizeAfterRegistrationMs: 1800,
       onAlreadyInstalled: () => setConnectOptimistic(true),
       onRegistered: () => {
         setConnectOptimistic(true)
@@ -320,10 +308,9 @@ export function OnboardingGithubStep({
         setupData={setupData}
         variant="step"
         onSaveSuccess={() => {
-          const saved = queryClient.getQueryData<GitHubRepositorySetupData>([
-            "github-installation-setup",
-            orgSlug,
-          ])
+          const saved = queryClient.getQueryData<GitHubRepositorySetupData>(
+            githubSetupQuery(orgSlug).queryKey,
+          )
           onRepositoriesQueued(
             saved?.ingestAllRepositories
               ? grantedRepos.map((repo) => repo.full_name)
@@ -346,7 +333,6 @@ export function OnboardingGithubStep({
     }
     const count = grantedRepos.length
     const shown = grantedRepos.slice(0, 5)
-    const repoWord = count === 1 ? "repository" : "repositories"
 
     if (granted.isError || count === 0) {
       return (
@@ -415,8 +401,8 @@ export function OnboardingGithubStep({
             <p className="m-0 inline-flex items-center gap-2 text-sm text-muted-foreground">
               <span className="ctx-indexing-dot" aria-hidden />
               {grantsAll
-                ? `Indexing all ${count} ${repoWord} you shared in GitHub, and any you add later.`
-                : `Indexing the ${count} ${repoWord} you shared in GitHub.`}
+                ? `Indexing all ${repositoryCount(count)} you shared in GitHub, and any you add later.`
+                : `Indexing the ${repositoryCount(count)} you shared in GitHub.`}
             </p>
           )}
           <ul className="m-0 flex list-none flex-col gap-1 p-0">
@@ -593,7 +579,7 @@ export function OnboardingGithubStep({
             )
           }
           primary={
-            stage === "found" && contextRepo ? (
+            contextRepo ? (
               <Button
                 variant="primary"
                 className="rounded-none"
@@ -778,5 +764,24 @@ function writeProgress(
     else localStorage.removeItem(key)
   } catch {
     // Not remembered; nothing else depends on it.
+  }
+}
+
+/**
+ * What is saved now: GitHub's grant after auto-indexing, or their edit. The
+ * onboarding page reads the same query for the bound context repository.
+ */
+export function githubSetupQuery(orgSlug: string) {
+  return {
+    queryKey: ["github-installation-setup", orgSlug],
+    queryFn: async () => {
+      const res = await (
+        client[":orgSlug"].api.v1.github.installation.setup.$get as (arg: {
+          param: { orgSlug: string }
+        }) => Promise<Response>
+      )({ param: { orgSlug } })
+      if (!res.ok) throw new Error("Failed to fetch GitHub setup data")
+      return (await res.json()) as GitHubRepositorySetupData
+    },
   }
 }

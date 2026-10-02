@@ -9,6 +9,7 @@ import {
   type Repository,
 } from "@/features/repositories/types"
 import { client } from "@/lib/api"
+import { repositoryCount } from "./onboarding-state"
 
 type OnboardingIndexingStatusProps = {
   orgSlug: string | null
@@ -62,7 +63,6 @@ export function OnboardingIndexingStatus({
   const failed = statuses.filter(
     ({ status }) => status === "failed" || status === "complete_with_issues",
   )
-  const repoWord = (n: number) => (n === 1 ? "repository" : "repositories")
 
   if (failed.length > 0) {
     return (
@@ -72,8 +72,7 @@ export function OnboardingIndexingStatus({
           className="h-auto rounded-none border border-red-400/30 bg-zinc-950/90 px-3 py-2 font-mono text-xs text-red-200 hover:bg-red-400/10"
         >
           <span aria-hidden className="ctx-indexing-failed-dot" />
-          {failed.length} {repoWord(failed.length)} did not finish indexing ·
-          Review
+          {repositoryCount(failed.length)} did not finish indexing · Review
         </Button>
         <Popover placement="bottom end" className="w-96 max-w-[90vw]">
           <Dialog aria-label="Repositories that did not finish indexing">
@@ -130,7 +129,7 @@ export function OnboardingIndexingStatus({
 
   const label =
     active.length > 0
-      ? `${running.length > 0 ? "Indexing" : "Preparing"} ${active.length} ${repoWord(active.length)}`
+      ? `${running.length > 0 ? "Indexing" : "Preparing"} ${repositoryCount(active.length)}`
       : starting && repositories.length === 0
         ? "Starting repository indexing"
         : null
