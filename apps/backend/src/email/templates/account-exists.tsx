@@ -4,7 +4,6 @@ import {
   Container,
   Head,
   Heading,
-  Hr,
   Html,
   Preview,
   Section,
@@ -12,39 +11,39 @@ import {
 } from "@react-email/components"
 import * as React from "react"
 
-interface VerifyEmailProps {
-  url: string
+interface AccountExistsEmailProps {
+  signInUrl: string
+  resetUrl: string
   userEmail: string
 }
 
-export function VerifyEmail({ url, userEmail }: VerifyEmailProps) {
+/** Sent when someone signs up with an address that already has an account. */
+export function AccountExistsEmail({
+  signInUrl,
+  resetUrl,
+  userEmail,
+}: AccountExistsEmailProps) {
   return (
     <Html>
       <Head />
-      <Preview>Verify your email address — ctx|</Preview>
+      <Preview>You already have a ctx| account</Preview>
       <Body style={main}>
         <Container style={container}>
           <Text style={logo}>ctx|</Text>
-          <Heading style={heading}>Verify your email address</Heading>
+          <Heading style={heading}>You already have an account</Heading>
           <Text style={paragraph}>
-            Welcome to <strong>ctx|</strong>. Confirm that{" "}
-            <strong>{userEmail}</strong> is yours to finish setting up your
-            account.
+            Someone tried to create a <strong>ctx|</strong> account for{" "}
+            <strong>{userEmail}</strong>, which already has one. Sign in
+            instead, or reset your password if you have forgotten it.
           </Text>
           <Section style={buttonContainer}>
-            <Button href={url} style={button}>
-              Verify email address
+            <Button href={signInUrl} style={button}>
+              Sign in
             </Button>
           </Section>
           <Text style={paragraph}>
-            The link works for one hour. If it has expired, sign in and we will
-            send you a new one. If you did not create an account, you can ignore
-            this email.
-          </Text>
-          <Hr style={hr} />
-          <Text style={footer}>
-            If the button doesn&apos;t work, copy and paste this link into your
-            browser: {url}
+            Forgot your password? <a href={resetUrl}>Reset it</a>. If this
+            wasn&apos;t you, you can ignore this email.
           </Text>
           <Text style={brandFooter}>
             ctx| - the self-learning context layer for engineering AI agents &
@@ -107,18 +106,6 @@ const button: React.CSSProperties = {
   padding: "12px 24px",
   textDecoration: "none",
   display: "inline-block",
-}
-
-const hr: React.CSSProperties = {
-  borderColor: "#e6e6e6",
-  margin: "32px 0 24px",
-}
-
-const footer: React.CSSProperties = {
-  fontSize: "12px",
-  lineHeight: "18px",
-  color: "#888888",
-  wordBreak: "break-all",
 }
 
 const brandFooter: React.CSSProperties = {
