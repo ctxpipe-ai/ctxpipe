@@ -36,6 +36,8 @@ export function SignInRoutePage() {
             <AuthView
               pathname="sign-in"
               redirectTo={continuation?.redirectTo ?? "/onboarding"}
+              // A fresh verification link sent at sign-in returns here too.
+              callbackURL={continuation?.redirectTo}
               className="pt-24"
               classNames={betterAuthAuthViewClassNames}
             />

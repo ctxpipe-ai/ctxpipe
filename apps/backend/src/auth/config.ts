@@ -4,7 +4,7 @@ import { oauthProvider } from "@better-auth/oauth-provider"
 import { passkey } from "@better-auth/passkey"
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
-import { APIError } from "better-auth/api"
+import { APIError, createEmailVerificationToken } from "better-auth/api"
 import {
   bearer,
   deviceAuthorization,
@@ -22,7 +22,7 @@ import {
 import { eq } from "drizzle-orm"
 import { parseEnv } from "../config/env.js"
 import { type Db, initDb } from "../db/client.js"
-import { members } from "../db/schema/auth.js"
+import { members, users } from "../db/schema/auth.js"
 import { schema } from "../db/schema.js"
 import { generateObjectId } from "../lib/id.js"
 import { invitationEmailLink } from "./invitation-email-url.js"
@@ -132,6 +132,20 @@ export function createBetterAuth() {
   const requireEmailVerification =
     Boolean(env.SMTP_CONNECTION_URL && env.EMAIL_FROM_ADDRESS) &&
     !process.env.RAILWAY_ENVIRONMENT_NAME?.trim().startsWith("pr-")
+  const sendVerificationLink = async (email: string, url: string) => {
+    const [{ sendEmail }, { VerifyEmail }] = await Promise.all([
+      import("../email/index.js"),
+      import("../email/templates/verify-email.js"),
+    ])
+    await sendEmail(
+      email,
+      "Verify your email address",
+      VerifyEmail({
+        url: resolveEmailVerificationUrl(env.AUTH_BASE_URL, url),
+        userEmail: email,
+      }),
+    )
+  }
 
   return betterAuth({
     appName: "ctx|",
@@ -175,25 +189,59 @@ export function createBetterAuth() {
       // dead end; existing accounts verify this way on their next sign-in.
       sendOnSignIn: true,
       autoSignInAfterVerification: true,
-      sendVerificationEmail: async ({ user, url }) => {
-        const [{ sendEmail }, { VerifyEmail }] = await Promise.all([
-          import("../email/index.js"),
-          import("../email/templates/verify-email.js"),
-        ])
-        await sendEmail(
-          user.email,
-          "Verify your email address",
-          VerifyEmail({
-            url: resolveEmailVerificationUrl(env.AUTH_BASE_URL, url),
-            userEmail: user.email,
-          }),
-        )
-      },
+      sendVerificationEmail: ({ user, url }) =>
+        sendVerificationLink(user.email, url),
     },
     emailAndPassword: {
       enabled: true,
       requireEmailVerification,
       autoSignIn: !requireEmailVerification,
+      // With verification on, signing up with a taken address answers as if
+      // it were new (no account enumeration), so the address's owner gets
+      // the email instead: a fresh link if it is still unverified, otherwise
+      // a pointer to sign in or reset the password.
+      onExistingUserSignUp: async ({ user }, request) => {
+        if (!user.emailVerified) {
+          const body = (await request?.json().catch(() => null)) as {
+            callbackURL?: unknown
+          } | null
+          const callbackURL =
+            typeof body?.callbackURL === "string" ? body.callbackURL : "/"
+          const token = await createEmailVerificationToken(
+            env.AUTH_SECRET,
+            user.email,
+          )
+          await sendVerificationLink(
+            user.email,
+            `${env.AUTH_BASE_URL}/.auth/api/v1/auth/verify-email?token=${token}&callbackURL=${encodeURIComponent(callbackURL)}`,
+          )
+          return
+        }
+        const [{ sendEmail }, { AccountExistsEmail }] = await Promise.all([
+          import("../email/index.js"),
+          import("../email/templates/account-exists.js"),
+        ])
+        await sendEmail(
+          user.email,
+          "You already have a ctx| account",
+          AccountExistsEmail({
+            signInUrl: new URL("/.auth/sign-in", env.AUTH_BASE_URL).toString(),
+            resetUrl: new URL(
+              "/.auth/forgot-password",
+              env.AUTH_BASE_URL,
+            ).toString(),
+            userEmail: user.email,
+          }),
+        )
+      },
+      // The reset link went to their inbox, which proves the address.
+      onPasswordReset: async ({ user }) => {
+        if (user.emailVerified) return
+        await db
+          .update(users)
+          .set({ emailVerified: true })
+          .where(eq(users.id, user.id))
+      },
       sendResetPassword: async ({ user, url }) => {
         const [{ sendEmail }, { ResetPasswordEmail }] = await Promise.all([
           import("../email/index.js"),

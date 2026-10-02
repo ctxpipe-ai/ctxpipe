@@ -2,6 +2,7 @@ import { AuthQueryProvider } from "@daveyplate/better-auth-tanstack"
 import { AuthUIProviderTanstack } from "@daveyplate/better-auth-ui/tanstack"
 import { Link, useRouter } from "@tanstack/react-router"
 import { type ComponentProps, type FC, useEffect, useRef } from "react"
+import { toast } from "sonner"
 import { authClient } from "@/lib/auth-client"
 import { useAuthEvlogIdentity } from "@/lib/useAuthEvlogIdentity"
 import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
@@ -48,6 +49,22 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
   const isOrganizationSettings = pathSegments[1] === "organization"
 
   const { data: config } = useGetAuthConfig()
+
+  // A spent or expired verification link sends them to its callback with
+  // ?error=…, on whichever page that was. Say so once, wherever they land.
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    const error = url.searchParams.get("error")
+    if (error !== "TOKEN_EXPIRED" && error !== "INVALID_TOKEN") return
+    // After this commit: the Toaster mounts later in the tree.
+    window.setTimeout(() =>
+      toast.error(
+        "That verification link has expired or was already used. Sign in and we will send a new one.",
+      ),
+    )
+    url.searchParams.delete("error")
+    window.history.replaceState(window.history.state, "", url)
+  }, [])
 
   useEffect(() => {
     const originalFetch = window.fetch.bind(window)
