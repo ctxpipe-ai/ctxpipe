@@ -1,48 +1,52 @@
 ---
 name: preview-env
 description: >-
-  preview-env sweep or debug of a Railway PR preview (backend-pr-N.up.railway.app).
-  Use for a full UI+MCP suite, or one area: auth, org-home, workspaces, hydrate,
-  chat, files-publish, graph, connectors, MCP.
+  preview-env critical-flow sweep of local host dev (https://app.ctxpipe.localhost)
+  or a Railway PR preview (backend-pr-N.up.railway.app), starting from a fresh
+  registration. Use for the full browser + MCP suite, or one area: onboarding,
+  auth, org-home, workspaces, hydrate, graph, chat, files-publish, connectors,
+  mcp, resilience.
 ---
 
 # preview-env
 
-Browser + HTTP sweep of a **hosted Railway PR preview** (`https://backend-pr-N.up.railway.app`). Product UI through the backend origin; hosted MCP at `{BASE_URL}/mcp?orgSlug={org}`. This is not Storybook `workspace-golden` and not Playwright CI.
+Browser + HTTP run of the **critical flows** against a **disposable** target: local host dev or a Railway PR preview. The product UI is driven through the backend origin; hosted MCP is `{BASE_URL}/mcp?orgSlug={org}`. This is not Storybook `workspace-golden` and not Playwright CI.
+
+Every run **starts from registration**: it creates its own accounts, organization, and Workspaces. There are no pre-seeded users. Never point a run at production.
 
 ## 1. Collect inputs
 
-Required unless already in the prompt:
-
 | Input | Example |
 | --- | --- |
-| `BASE_URL` | `https://backend-pr-280.up.railway.app` |
-| email | session that can sign in on this preview |
-| password | same |
-| `orgSlug` | org the account is a member of |
+| `BASE_URL` | `https://app.ctxpipe.localhost` or `https://backend-pr-280.up.railway.app` |
+| `mode` | `local` or `preview`, derived from `BASE_URL` in [run-setup](run-setup.md#target-guard) |
+| `run-id` | UTC `YYYYMMDD-HHMMSS`, minted once per run |
+| `GH_TEST_ORG`, `TEST_EMAIL_DOMAIN` | provided by the user; see [run-setup](run-setup.md#test-data) |
 
-Optional: `workspaceSlug` (else first `writeStatus === writable` workspace after login); `section` (one area name); `run-id` (else UTC `YYYYMMDD-HHMMSS`); flags `live-oauth`, `create-workspace`, `default-branch-write`.
+Optional: `section` (one or more area names); flags `live-oauth`, `merge-pr`, `default-branch-write`, `restart-ok`, `capacity` (each defined where it is used). Without a value for a required input, ask; do not invent one.
 
-Mint `run-id` once per sweep. **Done when:** every required input is a concrete string.
+**Done when:** every required input is a concrete string and the [target guard](run-setup.md#target-guard) passed.
 
-## 2. Run the harness
+## 2. Run setup and harness
 
-Read and complete every step in [harness.md](harness.md).
+Read [run-setup.md](run-setup.md) (accounts, test data, flow format, evidence, human checkpoints), then complete [harness.md](harness.md) (wake, canary).
 
-**Done when:** harness is `PASS` (status ok, UI is this preview, session on `{BASE_URL}/{orgSlug}/` or a workspace URL). A harness `FAIL` is a **blocker** — stop the sweep and report only harness.
+**Done when:** harness is `PASS`. A harness `FAIL` is a **blocker**: stop and report only the harness.
 
 ## 3. Choose areas
 
 | Prompt | Areas |
 | --- | --- |
-| Full sweep / “run preview-env” / no `section` | all, in order |
-| One named area (“debug chat”, “run preview-env hydrate”, `section=mcp`) | that area only |
-| Several named areas | those areas, still in suite order |
+| Full run / "run preview-env" / no `section` | all, in suite order |
+| One or several named areas | those areas, still in suite order |
 
-Suite order: `auth` → `org-home` → `workspaces` → `hydrate` → `graph` → `chat` → `files-publish` → `connectors` → `mcp`.
+Suite order: `onboarding` → `auth` → `org-home` → `workspaces` → `hydrate` → `graph` → `chat` → `files-publish` → `connectors` → `mcp` → `resilience`.
 
-Load **only** the matching file; the steps live there:
+`onboarding` creates the state every later area reads (accounts, org, first Workspace). A run that names a later area alone still runs `onboarding` first.
 
+Load **only** the chosen area files; each lists its flows in the [fixed format](run-setup.md#flow-format):
+
+- [onboarding](onboarding/SKILL.md)
 - [auth](auth/SKILL.md)
 - [org-home](org-home/SKILL.md)
 - [workspaces](workspaces/SKILL.md)
@@ -52,13 +56,14 @@ Load **only** the matching file; the steps live there:
 - [files-publish](files-publish/SKILL.md)
 - [connectors](connectors/SKILL.md)
 - [mcp](mcp/SKILL.md)
+- [resilience](resilience/SKILL.md)
 
-An area `FAIL` stops **that** area. Continue the suite unless the failure is a harness-class blocker (session gone, production UI leak, worker never wakes when the next area needs it).
+A flow `FAIL` stops **that flow**; continue with the next flow unless it `Requires` the failed one (then `SKIP(blocked-by FLOW-ID)`). Stop the suite only for a harness-class blocker (session gone, production UI leak, worker never wakes while a later area needs it).
 
-**Done when:** every chosen area file has been executed and has a `PASS` / `FAIL` / `SKIP`.
+**Done when:** every flow in every chosen area has `PASS`, `FAIL`, or `SKIP(reason)`.
 
 ## 4. Report
 
-Use the template in [harness.md](harness.md#report). One line per area: status, one-line evidence, artifact path if any.
+Fill the template in [harness.md](harness.md#report): one row per flow with measured time against budget, evidence path, and trace.
 
-**Done when:** the report lists every chosen area and names the worst `FAIL` (or `all PASS`).
+**Done when:** the report lists every chosen flow and names the worst `FAIL` (or `all PASS`).

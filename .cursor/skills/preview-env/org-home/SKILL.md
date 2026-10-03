@@ -1,47 +1,66 @@
 ---
 name: preview-env-org-home
-description: SideNav, Home composer, command palette, and org settings on a Railway PR preview.
+description: SideNav, Home composer and activity, command palette, and org settings (preview-env).
 disable-model-invocation: true
 ---
 
 # preview-env org-home
 
-Shell and Home. [Harness](../harness.md) is already `PASS`. One `computerUse` task.
+Shell and Home for the run's org. [Harness](../harness.md) is `PASS`; [onboarding](../onboarding/SKILL.md) created the org and Workspace 1. Flow format: [run-setup](../run-setup.md#flow-format). Home is `/{orgSlug}/` (a page); sign-in lands on a Workspace composer, not Home.
 
-## 1. SideNav
+### HOME-1 SideNav regions
+**Requires** ONB-5.
+**Steps**
+1. On `/{orgSlug}/` or a Workspace, expand the rail if collapsed.
 
-On `/{orgSlug}/` or a workspace, the rail shows **Home**, Search (⌘K control), **Connectors**, a Workspaces list, an org switcher, and an account control.
+**Expect (UI)** visible: **Home**, **Search** (⌘K), **Connectors**, a **Workspaces** label with a **+** button (`aria-label` "Add Workspace") and Workspace rows, the organization switcher, and the account control. No org-wide **Chat**, **Repositories**, or **Knowledge graph** entries.
+**Expect (backend)** none.
+**Budget** 3 s / 10 s, navigation to rail visible.
+**Evidence** `HOME-1-1.png`.
 
-**Done when:** each of those five regions is visible (expanded nav if the rail is collapsed).
+### HOME-2 Home dashboard
+**Requires** ONB-5.
+**Steps**
+1. Open **Home** (`/{orgSlug}/`, no extra segment).
 
-## 2. Home
+**Expect (UI)** a Workspace picker (`aria-label` "Select workspace") showing Workspace 1, the composer (placeholder **Ask about this Workspace…**), and the activity region (heatmap and recent commits, or **No commits on the default branch yet.**). In an org with no Workspace, the body is a **Create a workspace** button instead.
+**Expect (backend)** `GET /{orgSlug}/api/v1/workspaces/{slug}/activity` returns 200.
+**Budget** 3 s / 10 s, navigation to composer visible.
+**Evidence** `HOME-2-1.png`; trace of the activity request.
 
-Open **Home** (`/{orgSlug}/`). Either:
+### HOME-3 Send from Home opens a conversation
+**Requires** HOME-2; hydrate need not be ready (the answer is timed in [CHAT-1](../chat/SKILL.md)).
+**Steps**
+1. On Home, pick Workspace 1, type a real question about its repository, and send.
 
-- a workspace picker + composer, and a **Recent** / activity region, or
-- empty copy offering **Create a workspace**.
+**Expect (UI)** the URL becomes `/{orgSlug}/ws/{workspace1Slug}/conv_…` immediately; the user bubble is shown with **Setting up sandbox** or **Thinking…**; the sidebar lists the conversation as **New conversation**, then a model-written title after the first turn.
+**Expect (backend)** `conversations` row (source `ui`) for the Workspace; `chat_threads` row; first message in `conversation_messages` after the turn.
+**Budget** 1 s / 2 s, Send to the URL containing `conv_`.
+**Evidence** `HOME-3-1.png`; the new conversation id; trace of the conversation-create request.
 
-**Done when:** the path is `/{orgSlug}/` (no extra segment) and one of those two bodies is visible.
+### HOME-4 Command palette
+**Requires** HOME-1.
+**Steps**
+1. Press ⌘K (Ctrl+K). Choose **Connectors**.
+2. Press ⌘K again and choose **Home**.
 
-## 3. Command palette
+**Expect (UI)** the palette lists **Home**, **Connectors**, and Workspace 1; the URL goes to `/{orgSlug}/connectors` then back to `/{orgSlug}/`.
+**Expect (backend)** none.
+**Budget** 1 s / 3 s per navigation.
+**Evidence** `HOME-4-1.png`.
 
-Press ⌘K (Ctrl+K). The palette lists **Home**, **Connectors**, and at least one workspace if the org has any. Choose **Connectors**, then ⌘K again and choose **Home**.
+### HOME-5 Org settings
+**Requires** ONB-2.
+**Steps**
+1. Open `/{orgSlug}/organization/settings` from the organization menu.
+2. Open **Members** and **API Keys** from the settings nav (`/organization/members`, `/organization/api-keys`).
 
-**Done when:** URL becomes `/{orgSlug}/connectors` then returns to `/{orgSlug}/`.
-
-## 4. Org settings
-
-Open `/{orgSlug}/organization/settings` (org menu). Members/invites chrome is visible. View only.
-
-**Done when:** the path contains `/organization/` and the settings view rendered.
-
-## 5. Onboarding (only if redirected)
-
-If login landed on `/onboarding` or `/{orgSlug}/setup`, walk the slides. Leave GitHub, **Install via PR**, and invite incomplete.
-
-**Done when:** every slide in that carousel was shown, or this step is N/A.
+**Expect (UI)** heading **organisation settings**; **Settings**, **Members**, **API Keys** tabs render. There is **no** Add Workspace entry here (Add Workspace is the sidebar **+**, decision 2026-10-02).
+**Expect (backend)** none for viewing.
+**Budget** 3 s / 10 s per view.
+**Evidence** `HOME-5-1.png`.
 
 ## Status
 
-- **PASS** — steps 1–4 (and 5 if it applied) met their criteria.
-- **FAIL** — missing SideNav region, Home blank/error, palette does not navigate, org settings error.
+- **PASS** HOME-1 to HOME-5 `PASS`.
+- **FAIL** a missing SideNav region, Home blank or error, the palette not navigating, an org settings error, or an Add Workspace entry in org settings.
