@@ -63,11 +63,9 @@ export async function maybeEnqueueNotionSyncOnConfigPush(input: {
 
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const compareConfigPathCache = new Map<string, Promise<boolean>>()
-  const installationRows = (
-    await listInstallationsByGithubInstallationId(input.installationId)
-  ).filter(
-    (installation) =>
-      !input.githubConnectionId || installation.id === input.githubConnectionId,
+  const installationRows = await listInstallationsByGithubInstallationId(
+    input.installationId,
+    input.githubConnectionId,
   )
 
   for (const installationRow of installationRows) {

@@ -8,6 +8,7 @@ import { parseGithubConnectionStored } from "../../../lib/connection-config.js"
 import {
   getGithubConnectionRowByConnectionId,
   getWebhookSecretForGithubConnection,
+  githubAppOwnsInstallation,
   listInstallationsByGithubInstallationId,
   registerInstallationOnConnection,
 } from "../../../models/github-installation.js"
@@ -99,6 +100,14 @@ async function registerInstallationFromConnectionWebhook(
     })
     return
   }
+  // A draft's webhook secret is whatever its creator saved, so a signed
+  // event proves nothing: the connection's App must own the installation.
+  if (!(await githubAppOwnsInstallation(row, installationId, ctx.env))) {
+    ctx.log.info("github_installation_webhook_installation_not_owned", {
+      connectionId,
+    })
+    return
+  }
 
   await registerInstallationOnConnection({
     orgId: row.orgId,
@@ -117,11 +126,9 @@ async function enqueueIngestionForInstallationRepos(
     githubConnectionId?: string
   },
 ) {
-  const installationRows = (
-    await listInstallationsByGithubInstallationId(installationId)
-  ).filter(
-    (installation) =>
-      !opts?.githubConnectionId || installation.id === opts.githubConnectionId,
+  const installationRows = await listInstallationsByGithubInstallationId(
+    installationId,
+    opts?.githubConnectionId,
   )
   if (installationRows.length === 0) {
     return
@@ -251,11 +258,9 @@ async function processRepositoryEvent(
   }
   const { repository: repo, installation } = parsed.data
 
-  const installationRows = (
-    await listInstallationsByGithubInstallationId(installation.id)
-  ).filter(
-    (installationRow) =>
-      !githubConnectionId || installationRow.id === githubConnectionId,
+  const installationRows = await listInstallationsByGithubInstallationId(
+    installation.id,
+    githubConnectionId,
   )
 
   noteResolvedWebhookConnections(installationRows)

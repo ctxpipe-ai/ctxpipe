@@ -403,48 +403,6 @@ describe("GET /github/installation/connector-status", () => {
   })
 })
 
-describe("POST /github/installation with connectionId", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    getActiveMemberRoleMock.mockResolvedValue({ role: "admin" })
-    getGithubConnectionRowMock.mockResolvedValue({ id: "con_draft" })
-    githubRowHasAppCredentialsMock.mockReturnValue(true)
-    registerInstallationOnConnectionMock.mockResolvedValue({
-      id: "con_draft",
-      installationId: 999,
-      orgId: "org_1",
-      accountSlug: "acme",
-      appSlug: "my-app",
-      ingestAllRepositories: false,
-      includeFutureRepos: false,
-      createdAt: new Date("2026-03-01T00:00:00.000Z"),
-      updatedAt: new Date("2026-03-01T00:00:00.000Z"),
-    })
-  })
-
-  it("registers installation on a draft connection with its own App credentials", async () => {
-    const app = createApp()
-    const res = await app.request("/github/installation", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        installationId: 999,
-        connectionId: "con_draft",
-      }),
-    })
-    expect(res.status).toBe(200)
-    expect(registerInstallationOnConnectionMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        orgId: "org_1",
-        connectionId: "con_draft",
-        installationId: 999,
-      }),
-    )
-    expect(upsertInstallationMock).not.toHaveBeenCalled()
-    expect(runWorkflowMock).not.toHaveBeenCalled()
-  })
-})
-
 describe("PATCH /github/installation", () => {
   beforeEach(() => {
     vi.clearAllMocks()

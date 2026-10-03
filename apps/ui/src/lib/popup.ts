@@ -3,7 +3,6 @@ import { useEffect, useRef } from "react"
 import { githubConnectorKeys } from "@/features/connectors/queries/github-connector"
 import { orgConnectionsKeys } from "@/features/connectors/queries/org-connections"
 import { client } from "@/lib/api"
-import { authClient } from "@/lib/auth-client"
 
 /**
  * Shared key for the GitHub setup popup to relay `installation_id` back to the
@@ -28,8 +27,8 @@ export type GithubSetupRegistrationStatus =
   | "no_result"
   | "registered"
   | "registration_failed"
-  /** The page is leaving to link a GitHub account, then finishes on `/.github/setup`. */
-  | "linking_github"
+  /** Left for `/.github/setup` to link a GitHub account; callers do nothing. */
+  | "redirected"
 
 export type NotionSetupPopupResult =
   | { status: "no_result" }
@@ -270,7 +269,6 @@ export async function handleGithubSetupPopupResult(
   const activePopupFlow = getActiveGithubPopupFlowState()
 
   let status: GithubSetupRegistrationStatus = "no_result"
-  let linkGithubThenReturnTo: string | null = null
 
   if (raw) {
     try {
@@ -302,12 +300,15 @@ export async function handleGithubSetupPopupResult(
               why?: string
             } | null
             if (body?.why === "github_not_linked") {
-              status = "linking_github"
-              linkGithubThenReturnTo = `/.github/setup?${new URLSearchParams({
-                installation_id: String(installationId),
-                orgSlug,
-                ...(connectionId ? { connectionId } : {}),
-              })}`
+              // Its not-linked view links GitHub, then registers again.
+              status = "redirected"
+              window.location.assign(
+                `/.github/setup?${new URLSearchParams({
+                  installation_id: String(installationId),
+                  orgSlug,
+                  ...(connectionId ? { connectionId } : {}),
+                })}`,
+              )
             }
           }
         }
@@ -367,15 +368,6 @@ export async function handleGithubSetupPopupResult(
   }
 
   clearGithubPopupFlow()
-
-  if (linkGithubThenReturnTo) {
-    // Attaching an installation needs proof the user can see it on GitHub.
-    // `/.github/setup` registers it again once the account is linked.
-    await authClient.linkSocial({
-      provider: "github",
-      callbackURL: linkGithubThenReturnTo,
-    })
-  }
 
   return { status }
 }
