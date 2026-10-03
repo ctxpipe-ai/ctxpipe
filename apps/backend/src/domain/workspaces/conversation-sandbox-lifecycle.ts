@@ -2,7 +2,8 @@ import type {
   SandboxHandle,
   SandboxProvider as TanstackSandboxProvider,
 } from "@tanstack/ai-sandbox"
-import { withOrgDbContext } from "../../db/client.js"
+import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { organizations } from "../../db/schema/auth.js"
 import { listOrgConversationsForSandboxGc } from "../../models/conversations.js"
 import {
   countRunningSandboxes,
@@ -250,6 +251,50 @@ export async function* stoppingSandboxWhenDone<T>(
   } finally {
     await stopConversationSandboxes(target)
   }
+}
+
+/**
+ * Orgs whose sandbox rows need a sweep: any with a conversation sandbox past
+ * 30 days or a failed delete (their chain may have ended), and with
+ * `includeRunning` also any running a sandbox or holding a Workspace base.
+ * The worker-start backstop schedules all of them; the Docker host prune
+ * sweeps the dormant ones.
+ */
+export async function orgsNeedingSweep(input: {
+  now: Date
+  includeRunning: boolean
+}): Promise<string[]> {
+  const orgs = await getSystemDb()
+    .select({ id: organizations.id })
+    .from(organizations)
+  const due: string[] = []
+  for (const { id } of orgs) {
+    try {
+      const rows = await withOrgDbContext(id, () => listSandboxInstances({}))
+      const expired = rows.some(
+        (row) =>
+          row.kind === "chat" &&
+          (row.state === "destroy_failed" ||
+            input.now.getTime() - row.lastHeartbeatAt.getTime() >=
+              CHAT_SANDBOX_RETENTION_MS),
+      )
+      const active =
+        input.includeRunning &&
+        rows.some(
+          (row) =>
+            row.kind === "base" ||
+            (row.state === "live" && isRunningSandboxProvider(row.provider)),
+        )
+      if (expired || active) due.push(id)
+    } catch (error) {
+      log.error({
+        step: "conversation-sandbox-sweep-backstop",
+        message: `Reading an org's sandboxes failed: ${String(error)}`,
+        orgId: id,
+      })
+    }
+  }
+  return due
 }
 
 /**

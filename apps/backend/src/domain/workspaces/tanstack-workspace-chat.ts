@@ -69,7 +69,6 @@ import {
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import {
   discoverSandboxProvider,
-  dockerImageId,
   remoteDockerHost,
   type SandboxProvider as SandboxProviderName,
   withDockerAgentPort,
@@ -78,9 +77,10 @@ import {
 import {
   conversationAgentPassword,
   conversationSandboxTags,
+  vercelAgentSnapshot,
   vercelConversationProvider,
 } from "./vercel-sandbox-provider.js"
-import { VERCEL_AGENT_IMAGE } from "./workspace-base-providers.js"
+import { sandboxAgentImage } from "./workspace-base-providers.js"
 import {
   aguiTextDelta,
   conversationRenameChunk,
@@ -116,7 +116,10 @@ import { mintWorkspaceChatRunCapability } from "./workspace-chat-run-capability.
 import { workspaceChatThreadLock } from "./workspace-chat-thread-lock.js"
 import { mintWorkspaceChatToken } from "./workspace-chat-token.js"
 import { WORKSPACE_CHAT_TOOLS } from "./workspace-chat-tools.js"
-import { chooseConversationSandboxBase } from "./workspace-sandbox-base.js"
+import {
+  baseForNewSandbox,
+  startingFromBase,
+} from "./workspace-sandbox-base.js"
 
 export type TanstackWorkspaceChatMessage = {
   id?: string
@@ -218,17 +221,12 @@ function conversationSandboxDefinition(input: {
   return definition
 }
 
-/** The image's content id, so a rebuilt image gets new sandboxes. */
-function workspaceChatImageId(): Promise<string> {
-  return dockerImageId(workspaceChatDockerImage())
-}
-
 function conversationSandboxProvider(
   isolation: SandboxProviderName,
   conversationId: string,
+  /** Docker: the Workspace base image a new sandbox starts from, if any. */
+  baseImage: () => Promise<string | undefined>,
   vercel?: Parameters<typeof vercelConversationProvider>[0],
-  /** Docker: the Workspace base image to start from instead of the chat image. */
-  baseImage?: string,
 ): SandboxProvider {
   if (isolation === "vercel") {
     if (!vercel) throw new Error("Vercel sandbox options are missing")
@@ -240,10 +238,14 @@ function conversationSandboxProvider(
     })
   return withSessionOnlyEnv(
     withDockerAgentPort(
-      dockerSandbox({
-        image: baseImage ?? workspaceChatDockerImage(),
-        publishPorts: [WORKSPACE_CHAT_OPENCODE_PORT],
-        dockerodeOptions: { timeout: 120_000 },
+      startingFromBase({
+        make: (image) =>
+          dockerSandbox({
+            image: image ?? workspaceChatDockerImage(),
+            publishPorts: [WORKSPACE_CHAT_OPENCODE_PORT],
+            dockerodeOptions: { timeout: 120_000 },
+          }),
+        baseImage,
       }),
       {
         // AUTH_SECRET is checked before the provider is built.
@@ -454,9 +456,7 @@ export async function warmTanstackWorkspaceChat(
   }
   enterSandboxLifecycleContext(input.conversationId)
   const prepareStarted = Date.now()
-  const built = await buildWorkspaceChatSandbox(input, {
-    existingOnly: options?.existingOnly,
-  })
+  const built = await buildWorkspaceChatSandbox(input)
   if (!built.ok) return built
   const abortController = abortControllerFrom(input.abortSignal)
   try {
@@ -790,10 +790,7 @@ async function resolveWorkspaceChatOrgSlug(
   return row?.slug ?? null
 }
 
-async function buildWorkspaceChatSandbox(
-  input: TanstackWorkspaceChatInput,
-  options?: { existingOnly?: boolean },
-) {
+async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
   const desiredUrl = input.desiredUrl?.trim() ?? ""
   if (!desiredUrl) {
     return {
@@ -858,12 +855,11 @@ async function buildWorkspaceChatSandbox(
     publicBaseUrl,
   )
   if (!session.ok) return session
-  // Part of the sandbox key: a new agent image or base gets new sandboxes.
-  let image =
-    selectedProvider === "vercel" ? VERCEL_AGENT_IMAGE : "local-process"
-  if (selectedProvider === "docker") {
+  // Part of the sandbox key: a new agent image gets new sandboxes.
+  let image = "local-process"
+  if (selectedProvider !== "unsandboxed") {
     try {
-      image = await workspaceChatImageId()
+      image = await sandboxAgentImage(selectedProvider)
     } catch (error) {
       getLogger().error(
         error instanceof Error ? error : new Error(String(error)),
@@ -876,23 +872,20 @@ async function buildWorkspaceChatSandbox(
       }
     }
   }
-  // New conversations start from the Workspace base; existing ones keep the
-  // sandbox (and base) they have.
-  let baseRef: string | undefined
-  if (selectedProvider !== "unsandboxed") {
-    const choice = await chooseConversationSandboxBase({
+  // A new sandbox starts from the Workspace base, chosen at create (under the
+  // Workspace lock); an existing one is resumed whatever it started from.
+  const agentImage = image
+  const baseImage = async (): Promise<string | undefined> => {
+    if (selectedProvider === "unsandboxed") return undefined
+    const choice = await baseForNewSandbox({
       orgId: input.orgId,
       workspaceId: input.workspaceId,
-      conversationId: input.conversationId,
-      provider: selectedProvider,
-      agentImage: image,
+      agent: { provider: selectedProvider, image: agentImage },
       revision: revision.data,
-      existingOnly: options?.existingOnly,
     })
-    image = choice.identity
-    baseRef = choice.baseRef
     if (choice.requestBuild)
       void requestBaseBuild(input.orgId, input.workspaceId)
+    return choice.ref
   }
   const workspace = conversationSandboxWorkspace({
     isolation: selectedProvider,
@@ -905,10 +898,19 @@ async function buildWorkspaceChatSandbox(
   const provider = conversationSandboxProvider(
     selectedProvider,
     input.conversationId,
+    baseImage,
     vercel?.ok
-      ? { ...vercel.options, ...(baseRef ? { baseSnapshotId: baseRef } : {}) }
+      ? {
+          ...vercel.options,
+          // No base yet: the agent snapshot (OpenCode only), never npm.
+          startSnapshot: async () =>
+            (await baseImage()) ??
+            vercelAgentSnapshot({
+              credentials: vercel.options.credentials,
+              environment: vercel.environment,
+            }),
+        }
       : undefined,
-    baseRef,
   )
   return {
     ok: true as const,
@@ -958,7 +960,11 @@ async function hostedSandboxOptions(
   | {
       ok: true
       publicBaseUrl: string
-      options: Parameters<typeof vercelConversationProvider>[0]
+      environment: string
+      options: Omit<
+        Parameters<typeof vercelConversationProvider>[0],
+        "startSnapshot"
+      >
     }
   | { ok: false; status: 503; error: string }
 > {
@@ -978,6 +984,7 @@ async function hostedSandboxOptions(
   return {
     ok: true,
     publicBaseUrl: hosted.publicBaseUrl,
+    environment: hosted.environment,
     options: {
       credentials: hosted.credentials,
       agentPassword: conversationAgentPassword(

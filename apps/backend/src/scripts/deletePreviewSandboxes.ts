@@ -1,6 +1,7 @@
 import { Sandbox } from "@vercel/sandbox"
 import {
   conversationSandboxTags,
+  deleteVercelBuilder,
   deleteVercelSandbox,
   type VercelCredentials,
   vercelCredentials,
@@ -9,8 +10,9 @@ import {
 import { log } from "../observability/logger.js"
 
 /**
- * Delete every hosted chat sandbox a closed PR preview created, with its
- * saved state, and every Workspace base builder with its base snapshot.
+ * Delete every hosted sandbox a closed PR preview created: chat sandboxes
+ * with their saved state, and the builders of Workspace bases and agent
+ * snapshots (any OpenCode version) with the snapshots taken from them.
  * Sandboxes are tagged with the Railway environment name, so the filter
  * never reaches production. Already deleted counts as deleted; any other API
  * error fails the run. Returns how many sandboxes were deleted.
@@ -25,28 +27,24 @@ export async function deletePreviewSandboxes(input: {
     throw new Error(
       `Refusing to delete sandboxes outside a PR preview: "${environment}"`,
     )
-  const names: string[] = []
-  for (const tags of [
-    conversationSandboxTags(environment),
-    workspaceBaseTags(environment),
-  ]) {
-    const listed = await (
-      await Sandbox.list({ ...credentials, tags })
-    ).toArray()
-    // The tag filter is the server's; check it again before deleting anything.
-    names.push(
-      ...listed
-        .filter((sandbox) =>
-          Object.entries(tags).every(
-            ([key, value]) => sandbox.tags?.[key] === value,
-          ),
-        )
-        .map((sandbox) => sandbox.name),
-    )
-  }
-  // A base builder's snapshots (the base itself) are listed under its name.
-  for (const name of names) await deleteVercelSandbox({ credentials, name })
-  return names.length
+  const tagged = async (tags: Record<string, string>) =>
+    (await (await Sandbox.list({ ...credentials, tags })).toArray())
+      // The tag filter is the server's; check it again before deleting anything.
+      .filter((sandbox) =>
+        Object.entries(tags).every(
+          ([key, value]) => sandbox.tags?.[key] === value,
+        ),
+      )
+      .map((sandbox) => sandbox.name)
+  const chats = await tagged(conversationSandboxTags(environment))
+  const builders = [
+    ...(await tagged(workspaceBaseTags(environment))),
+    ...(await tagged({ ctxpipe: "workspace-agent", environment })),
+  ]
+  for (const name of chats) await deleteVercelSandbox({ credentials, name })
+  for (const builderName of builders)
+    await deleteVercelBuilder({ credentials, builderName })
+  return chats.length + builders.length
 }
 
 if (import.meta.main) {

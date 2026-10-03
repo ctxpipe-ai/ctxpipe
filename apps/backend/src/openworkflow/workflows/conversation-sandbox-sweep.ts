@@ -1,23 +1,23 @@
 import { z } from "zod"
-import { getSystemDb, withOrgDbContext } from "../../db/client.js"
-import { organizations } from "../../db/schema/auth.js"
 import { CHAT_SANDBOX_IDLE_STOP_MS } from "../../domain/workspaces/chat-lifecycle.js"
-import { sweepConversationSandboxes } from "../../domain/workspaces/conversation-sandbox-lifecycle.js"
 import {
-  countRunningSandboxes,
-  listSandboxInstances,
-} from "../../models/workspaces.js"
+  orgsNeedingSweep,
+  sweepConversationSandboxes,
+} from "../../domain/workspaces/conversation-sandbox-lifecycle.js"
+import { pruneDockerSandboxHost } from "../../domain/workspaces/docker-sandbox-host-prune.js"
+import { discoverSandboxProvider } from "../../domain/workspaces/sandbox-provider.js"
 import { log } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { requestDockerSandboxHostPrune } from "./docker-sandbox-host-prune.js"
 
 /**
  * One organization's conversation sandbox lifecycle (idle stop, 30-day
- * deletion). Each run schedules the next for when a running sandbox is next
- * due, so the chain lasts while the org runs sandboxes. The schedule step is
- * separate, so a retried run reuses the swept result instead of computing a
- * second next time.
+ * deletion, unused Workspace bases). Each run schedules the next for when a
+ * running sandbox is next due, so the chain lasts while the org runs
+ * sandboxes. The schedule step is separate, so a retried run reuses the
+ * swept result instead of computing a second next time. On Docker hosts each
+ * run also prunes what no chain will remove, so the prune follows the sweep
+ * cadence (the host's disk only grows while sandboxes run).
  */
 export const conversationSandboxSweep = defineWorkflow(
   {
@@ -38,14 +38,16 @@ export const conversationSandboxSweep = defineWorkflow(
       await step.run({ name: "schedule-next" }, () =>
         scheduleConversationSandboxSweep(input.orgId, new Date(nextSweepAt)),
       )
-    // Docker hosts: while sandboxes run, prune what dormant orgs left behind.
-    await step.run({ name: "request-host-prune" }, async () => {
+    await step.run({ name: "prune-host" }, async () => {
       try {
-        await requestDockerSandboxHostPrune()
+        if ((await discoverSandboxProvider()) === "docker")
+          await pruneDockerSandboxHost()
       } catch (error) {
+        // The next sweep prunes again; the org's own sweep is done.
         log.error({
           step: "docker-sandbox-host-prune",
-          message: `Requesting the Docker host prune failed: ${String(error)}`,
+          message: `Pruning the Docker host failed: ${String(error)}`,
+          orgId: input.orgId,
         })
       }
     })
@@ -96,28 +98,18 @@ export async function scheduleIdleSandboxStop(
 
 /**
  * Backstop for a lost chain (a failed schedule, a crashed replica): on worker
- * start, sweep every org that still has a running sandbox or a Workspace
- * base (whose sweep deletes the bases nothing uses any more).
+ * start, sweep every org that needs it (`orgsNeedingSweep`).
  */
-export async function scheduleSweepsForRunningSandboxes(): Promise<void> {
-  const orgs = await getSystemDb()
-    .select({ id: organizations.id })
-    .from(organizations)
-  for (const { id } of orgs) {
+export async function scheduleSweepsForOrgsNeedingIt(): Promise<void> {
+  const now = new Date()
+  for (const orgId of await orgsNeedingSweep({ now, includeRunning: true })) {
     try {
-      const hasBases = async () =>
-        (
-          await withOrgDbContext(id, () =>
-            listSandboxInstances({ kind: "base" }),
-          )
-        ).length > 0
-      if ((await countRunningSandboxes(id, "")) > 0 || (await hasBases()))
-        await scheduleConversationSandboxSweep(id, new Date())
+      await scheduleConversationSandboxSweep(orgId, now)
     } catch (error) {
       log.error({
         step: "conversation-sandbox-sweep-backstop",
         message: `Scheduling the startup sandbox sweep failed: ${String(error)}`,
-        orgId: id,
+        orgId,
       })
     }
   }

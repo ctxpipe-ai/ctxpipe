@@ -3,11 +3,11 @@ import {
   bootstrapWorkspace,
   defineWorkspace,
   gitSource,
+  type SandboxProvider,
 } from "@tanstack/ai-sandbox"
-import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
-import { getRepoReadCloneToken } from "../../models/github-installation.js"
 import {
+  countRunningSandboxes,
   deleteSandboxInstance,
   getDesiredWorkspaceRevision,
   getSandboxInstance,
@@ -20,203 +20,130 @@ import {
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import {
+  CHAT_SANDBOX_RETENTION_MS,
+  ORG_RUNNING_SANDBOX_LIMIT,
+} from "./chat-lifecycle.js"
+import {
   WORKSPACE_CHAT_DOCKER_SETUP,
   WORKSPACE_CHAT_VERCEL_SETUP,
 } from "./chat-runtime.js"
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
 import { sameWorkspaceBinding, type WorkspaceRevision } from "./revision.js"
-import {
-  postgresSandboxLocks,
-  withSandboxLockIfFree,
-} from "./sandbox-lock-store.js"
-import { discoverSandboxProvider } from "./sandbox-provider.js"
+import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import {
   deleteWorkspaceBaseArtifacts,
+  type SandboxAgent,
   type WorkspaceBaseBuilder,
   workspaceBaseBuilder,
+  workspaceBaseExists,
 } from "./workspace-base-providers.js"
-import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
-/** A base is stale once its commit is this old and the default branch has moved. */
+/** A base is rebuilt once the default branch moved and it is this old. */
 export const BASE_STALE_AGE_MS = 24 * 60 * 60_000
 /**
- * ...or once the default branch is this many commits ahead of it. Workspace
- * repositories take many small automated commits (hydrate, connector
- * mirrors), so fifty is about a busy day. Below that, the pre-turn fetch of
- * one commit stays small; above it, a rebuild (seconds, off the critical
- * path) is cheaper than every new conversation fetching the backlog.
+ * A `building` row is the build's lease: a build older than this is treated
+ * as lost; its steps stop at their next check and cleanup removes it.
  */
-export const BASE_STALE_COMMITS = 50
-/**
- * A base chosen for a new conversation is kept at least this long, so the
- * conversation's create never finds it deleted between choice and start.
- */
-export const BASE_START_GRACE_MS = 10 * 60_000
-/** The Workspace's current base is deleted once no conversation started from it for this long. */
-export const BASE_UNUSED_MS = 7 * 24 * 60 * 60_000
+export const BASE_BUILD_LEASE_MS = 60 * 60_000
 
-const BASE_MARK = "+base:"
-
-/**
- * A conversation sandbox's image identity, part of its sandbox key and kept
- * in its row: the agent image, plus the base it started from. A new base
- * gives new conversations new sandboxes; existing ones keep theirs.
- */
-export function conversationImageIdentity(
-  agentImage: string,
-  baseRef?: string,
-): string {
-  return baseRef ? `${agentImage}${BASE_MARK}${baseRef}` : agentImage
-}
-
-/** The base a conversation sandbox started from, if any. */
-export function baseRefOfIdentity(
-  identity: string | null | undefined,
-): string | undefined {
-  const at = identity?.indexOf(BASE_MARK) ?? -1
-  return identity && at >= 0 ? identity.slice(at + BASE_MARK.length) : undefined
-}
-
-function agentImageOfIdentity(identity: string | null | undefined) {
-  const at = identity?.indexOf(BASE_MARK) ?? -1
-  return identity && at >= 0 ? identity.slice(0, at) : identity
-}
-
+/** Ready bases for this agent image and Workspace binding, newest first. */
 function readyBases(
   rows: SandboxInstanceRecord[],
-  input: {
-    provider: string
-    agentImage?: string
-    revision: WorkspaceRevision
-  },
+  agent: SandboxAgent,
+  revision: WorkspaceRevision,
 ): SandboxInstanceRecord[] {
   return rows
     .filter(
       (row) =>
         row.kind === "base" &&
         row.state === "live" &&
-        row.provider === input.provider &&
+        row.provider === agent.provider &&
+        row.image === agent.image &&
         row.latestSnapshotId &&
-        (input.agentImage === undefined || row.image === input.agentImage) &&
-        sameWorkspaceBinding(row.revision, input.revision),
+        sameWorkspaceBinding(row.revision, revision),
     )
     .sort(
       (a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0),
     )
 }
 
-/**
- * Which image a conversation's sandbox uses. A conversation that already has
- * a sandbox for this agent image and Workspace binding keeps it (and the base
- * it started from). A new one starts from the Workspace's newest base; when
- * there is none, or it is behind, it starts as before and a build is
- * requested in the background. Never waits for a build.
- */
-export async function chooseConversationSandboxBase(input: {
-  orgId: string
-  workspaceId: string
-  conversationId: string
-  provider: RunningSandboxProvider
-  agentImage: string
-  revision: WorkspaceRevision
-  /** Files reads attach to an existing sandbox; they never start one. */
-  existingOnly?: boolean
-  now?: Date
-}): Promise<{ identity: string; baseRef?: string; requestBuild: boolean }> {
-  const rows = await withOrgDbContext(input.orgId, () =>
-    listSandboxInstances({ workspaceId: input.workspaceId }),
-  )
-  const [existing] = rows
-    .filter(
-      (row) =>
-        row.kind === "chat" &&
-        row.conversationId === input.conversationId &&
-        row.provider === input.provider &&
-        agentImageOfIdentity(row.image) === input.agentImage &&
-        sameWorkspaceBinding(row.revision, input.revision),
-    )
-    // Most recently used, should a race have left two.
-    .sort((a, b) => b.lastHeartbeatAt.getTime() - a.lastHeartbeatAt.getTime())
-  if (existing?.image) {
-    const baseRef = baseRefOfIdentity(existing.image)
-    return {
-      identity: existing.image,
-      ...(baseRef ? { baseRef } : {}),
-      requestBuild: false,
-    }
-  }
-  if (input.existingOnly)
-    return { identity: input.agentImage, requestBuild: false }
-  const [base] = readyBases(rows, input)
-  if (!base?.latestSnapshotId)
-    return { identity: input.agentImage, requestBuild: true }
-  // Chosen: keeps it from cleanup while the conversation starts from it.
-  await heartbeatSandboxInstance(base.id, input.now ?? new Date(), input.orgId)
-  return {
-    identity: conversationImageIdentity(
-      input.agentImage,
-      base.latestSnapshotId,
-    ),
-    baseRef: base.latestSnapshotId,
-    requestBuild: base.revision?.sha !== input.revision.sha,
-  }
-}
-
-/** Whether a base has fallen well behind the Workspace's default branch. */
+/** Whether the default branch moved and the base is a day old. */
 export function workspaceBaseIsStale(input: {
   base: Pick<SandboxInstanceRecord, "revision" | "createdAt">
   desiredSha: string
   now: Date
-  /** Commits the default branch is ahead of the base; null when unknown. */
-  commitsBehind: number | null
 }): boolean {
   if (input.base.revision?.sha === input.desiredSha) return false
   const builtAt = input.base.createdAt?.getTime() ?? 0
-  if (input.now.getTime() - builtAt >= BASE_STALE_AGE_MS) return true
-  return (
-    input.commitsBehind !== null && input.commitsBehind > BASE_STALE_COMMITS
-  )
+  return input.now.getTime() - builtAt >= BASE_STALE_AGE_MS
 }
 
 /**
- * Commits on the default branch since the base's commit, from GitHub's
- * compare API; null for other hosts or when GitHub cannot say.
+ * The base a new sandbox starts from, chosen when it is created. The caller
+ * holds the Workspace lock (stock `ensure` takes it before create), which is
+ * also the lock base cleanup holds, so the chosen base cannot be deleted
+ * before the sandbox exists. A base whose image or snapshot is gone is
+ * marked failed (cleanup removes it) and the sandbox starts without one.
+ * `requestBuild`: there is no usable base, or it is behind the desired commit.
  */
-export async function githubCommitsBehind(input: {
+export async function baseForNewSandbox(input: {
   orgId: string
+  workspaceId: string
+  agent: SandboxAgent
   revision: WorkspaceRevision
-  baseSha: string
-}): Promise<number | null> {
-  const repo = githubRepoFullNameFromWorkspaceUrl(input.revision.remote.url)
-  if (!repo) return null
-  try {
-    const token = await getRepoReadCloneToken(
-      input.orgId,
-      parseEnv(process.env as Record<string, string | undefined>),
-      {
-        githubConnectionId: input.revision.remote.connectionId ?? undefined,
-        repoFullName: repo,
-      },
+  now?: Date
+}): Promise<{ ref?: string; requestBuild: boolean }> {
+  const rows = await withOrgDbContext(input.orgId, () =>
+    listSandboxInstances({ workspaceId: input.workspaceId, kind: "base" }),
+  )
+  const [base] = readyBases(rows, input.agent, input.revision)
+  if (!base?.latestSnapshotId) return { requestBuild: true }
+  if (
+    !(await workspaceBaseExists(base.provider ?? "", base.latestSnapshotId))
+  ) {
+    log.warn({
+      step: "workspace-base-missing",
+      message:
+        "A Workspace base's image or snapshot is gone; starting without it",
+      orgId: input.orgId,
+      workspaceId: input.workspaceId,
+      sandboxId: base.id,
+    })
+    await persistSandboxInstance(
+      { ...base, state: "destroy_failed" },
+      ownershipOf(base),
     )
-    if (!token) return null
-    const response = await fetch(
-      `https://api.github.com/repos/${repo}/compare/${input.baseSha}...${input.revision.sha}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/vnd.github+json",
-        },
-      },
-    )
-    if (!response.ok) return null
-    const body = (await response.json()) as { ahead_by?: unknown }
-    return typeof body.ahead_by === "number" ? body.ahead_by : null
-  } catch {
-    return null
+    return { requestBuild: true }
+  }
+  // Last start from it: cleanup keeps a current base 30 days after this.
+  await heartbeatSandboxInstance(base.id, input.now ?? new Date(), input.orgId)
+  return {
+    ref: base.latestSnapshotId,
+    requestBuild: base.revision?.sha !== input.revision.sha,
   }
 }
 
-/** What the base sandbox runs: the stock clone, then the provider's setup. */
+/**
+ * Docker conversation sandboxes start from the Workspace base image when
+ * there is one (stock `dockerSandbox({ image })`), else from the chat image.
+ * Resume and destroy do not depend on the image.
+ */
+export function startingFromBase(input: {
+  make: (image?: string) => SandboxProvider
+  baseImage: () => Promise<string | undefined>
+}): SandboxProvider {
+  const plain = input.make()
+  return {
+    name: plain.name,
+    capabilities: () => plain.capabilities(),
+    create: async (options) =>
+      input.make(await input.baseImage()).create(options),
+    resume: (options) => plain.resume(options),
+    destroy: (options) => plain.destroy(options),
+  }
+}
+
+/** What the base builder runs: the stock clone, then the provider's setup. */
 function workspaceBaseDefinition(input: {
   provider: RunningSandboxProvider
   revision: WorkspaceRevision
@@ -236,242 +163,293 @@ function workspaceBaseDefinition(input: {
   })
 }
 
-export type WorkspaceBaseBuildOutcome =
-  | "built"
-  | "fresh"
-  | "busy"
-  | "skipped"
-  | "failed"
-
-/**
- * Build the Workspace's base if it has none for the current agent image and
- * binding, or if the one it has is stale. One build at a time per Workspace:
- * a build holds `workspace-base:<workspace>`; a second caller returns `busy`
- * at once. The Workspace lock `workspace-sandboxes:<workspace>` is held only
- * to record the build and its builder, and to publish the result, so Workspace
- * deletion and relink (which destroy every row under that lock) either see
- * the builder or are seen by the publish step, which then deletes what it
- * built. Conversation starts never wait for a build.
- */
-export async function buildWorkspaceSandboxBase(input: {
-  orgId: string
-  workspaceId: string
-  /** Tests pass their own; production uses the deployment's provider. */
-  builder?: WorkspaceBaseBuilder
-  commitsBehind?: (input: {
-    revision: WorkspaceRevision
-    baseSha: string
-  }) => Promise<number | null>
-  now?: () => Date
-}): Promise<WorkspaceBaseBuildOutcome> {
-  const { orgId, workspaceId } = input
-  const now = input.now ?? (() => new Date())
-  const outcome = await withSandboxLockIfFree(
-    orgId,
-    `workspace-base:${workspaceId}`,
-    async (): Promise<WorkspaceBaseBuildOutcome> => {
-      const desired = await withOrgDbContext(orgId, () =>
-        getDesiredWorkspaceRevision(workspaceId),
-      )
-      if (!desired) return "skipped"
-      const builder =
-        input.builder ??
-        (await workspaceBaseBuilder({
-          provider: await discoverSandboxProvider(),
-          orgId,
-          revision: desired,
-        }))
-      if (!builder) return "skipped"
-      const rows = await withOrgDbContext(orgId, () =>
-        listSandboxInstances({ workspaceId, kind: "base" }),
-      )
-      const [current] = readyBases(rows, {
-        provider: builder.provider,
-        agentImage: builder.agentImage,
-        revision: desired,
-      })
-      if (current?.revision) {
-        const baseSha = current.revision.sha
-        const commitsBehind =
-          baseSha === desired.sha
-            ? 0
-            : await (
-                input.commitsBehind ??
-                ((args) => githubCommitsBehind({ orgId, ...args }))
-              )({ revision: desired, baseSha })
-        if (
-          !workspaceBaseIsStale({
-            base: current,
-            desiredSha: desired.sha,
-            now: now(),
-            commitsBehind,
-          })
-        )
-          return "fresh"
-      }
-      const id = `base:${workspaceId}:${randomUUID()}`
-      const reserved: SandboxInstanceRecord = {
-        id,
-        kind: "base",
-        orgId,
-        workspaceId,
-        conversationId: null,
-        provider: builder.provider,
-        providerSandboxId: null,
-        image: builder.agentImage,
-        revision: desired,
-        state: "building",
-        lastHeartbeatAt: now(),
-      }
-      const build = await postgresSandboxLocks(orgId).withLock(
-        `workspace-sandboxes:${workspaceId}`,
-        async () => {
-          await persistSandboxInstance(reserved)
-          try {
-            const started = await builder.start({ id, orgId, workspaceId })
-            await persistSandboxInstance(
-              { ...reserved, providerSandboxId: started.builderId },
-              ownershipOf(reserved),
-            )
-            return started
-          } catch (error) {
-            await deleteSandboxInstance(id, orgId, ownershipOf(reserved))
-            throw error
-          }
-        },
-      )
-      const building = { ...reserved, providerSandboxId: build.builderId }
-      let captured: { ref: string; providerSandboxId: string }
-      let sha: string
-      const started = Date.now()
-      try {
-        await bootstrapWorkspace(
-          build.handle,
-          workspaceBaseDefinition({
-            provider: builder.provider,
-            revision: desired,
-            cloneToken: builder.cloneToken,
-          }),
-        )
-        const head = await build.handle.process.exec("git rev-parse HEAD")
-        sha = head.stdout.trim()
-        if (head.exitCode !== 0 || !sha)
-          throw new Error("The base clone has no commit")
-        captured = await build.capture()
-      } catch (error) {
-        log.error({
-          step: "workspace-base-build",
-          message: `Building the Workspace base failed: ${String(error)}`,
-          orgId,
-          workspaceId,
-        })
-        await build.abandon().catch(() => undefined)
-        await deleteSandboxInstance(id, orgId, ownershipOf(building)).catch(
-          () => undefined,
-        )
-        return "failed"
-      }
-      const published = await postgresSandboxLocks(orgId).withLock(
-        `workspace-sandboxes:${workspaceId}`,
-        async () => {
-          const row = await getSandboxInstance(id, orgId)
-          // Destroyed meanwhile (Workspace deleted or relinked).
-          if (!row) return false
-          await persistSandboxInstance(
-            {
-              ...row,
-              state: "live",
-              providerSandboxId: captured.providerSandboxId,
-              latestSnapshotId: captured.ref,
-              revision: { ...desired, sha },
-              lastHeartbeatAt: now(),
-            },
-            ownershipOf(row),
-          )
-          return true
-        },
-      )
-      if (!published) {
-        await deleteWorkspaceBaseArtifacts({
-          provider: builder.provider,
-          providerSandboxId: captured.providerSandboxId,
-          latestSnapshotId: captured.ref,
-        })
-        return "skipped"
-      }
-      log.info({
-        step: "workspace-base-build",
-        message: `Built the Workspace base in ${Date.now() - started}ms`,
-        orgId,
-        workspaceId,
-        ms: Date.now() - started,
-      })
-      return "built"
-    },
+function leaseHeld(row: SandboxInstanceRecord | null, now: number) {
+  return (
+    row?.state === "building" &&
+    now - row.lastHeartbeatAt.getTime() < BASE_BUILD_LEASE_MS
   )
-  return outcome.busy ? "busy" : outcome.value
 }
 
 /**
- * Delete the Workspace's bases that are no longer needed:
- * - superseded or obsolete (a newer base, another agent image or provider,
- *   a relinked Workspace) once no conversation sandbox started from them;
- * - the current base once no conversation started from it for 7 days;
- * - builds that were lost, and deletes that failed.
- * Skipped while a build runs (which also makes any `building` row a lost
- * build). `destroy` deletes one row and its provider artifacts; the caller's
- * Workspace lock is held.
+ * Build step 1 (`reserve`): decide whether the Workspace needs a base and
+ * reserve the build. One build at a time per Workspace: the `building` row
+ * is the lease, recorded under the Workspace lock. A builder runs a sandbox,
+ * so it takes one of the org's 50 slots; at capacity there is no build.
+ * Returns the base row id, or null when nothing is to be built.
+ */
+export async function reserveWorkspaceBaseBuild(input: {
+  orgId: string
+  workspaceId: string
+  agent: SandboxAgent
+  now?: Date
+}): Promise<string | null> {
+  const { orgId, workspaceId } = input
+  const now = input.now ?? new Date()
+  return postgresSandboxLocks(orgId).withLock(
+    `workspace-sandboxes:${workspaceId}`,
+    async () => {
+      const { desired, rows } = await withOrgDbContext(orgId, async () => ({
+        desired: await getDesiredWorkspaceRevision(workspaceId),
+        rows: await listSandboxInstances({ workspaceId, kind: "base" }),
+      }))
+      if (!desired) return null
+      if (rows.some((row) => leaseHeld(row, now.getTime()))) return null
+      const [current] = readyBases(rows, input.agent, desired)
+      if (
+        current &&
+        !workspaceBaseIsStale({ base: current, desiredSha: desired.sha, now })
+      )
+        return null
+      const id = `base:${workspaceId}:${randomUUID()}`
+      return postgresSandboxLocks(orgId).withLock(
+        "org-sandbox-slots",
+        async () => {
+          if (
+            (await countRunningSandboxes(orgId, id)) >=
+            ORG_RUNNING_SANDBOX_LIMIT
+          ) {
+            log.warn({
+              step: "workspace-base-build",
+              message:
+                "No Workspace base build: the org is at its sandbox limit",
+              orgId,
+              workspaceId,
+            })
+            return null
+          }
+          await persistSandboxInstance({
+            id,
+            kind: "base",
+            orgId,
+            workspaceId,
+            conversationId: null,
+            provider: input.agent.provider,
+            providerSandboxId: null,
+            image: input.agent.image,
+            revision: desired,
+            state: "building",
+            lastHeartbeatAt: now,
+          })
+          return id
+        },
+      )
+    },
+  )
+}
+
+/**
+ * Build step 2 (`build`): start the builder, clone and set up, capture.
+ * The builder id and then the captured image or snapshot are written to the
+ * row as soon as they exist, so a crash at any point leaves them findable.
+ * Between phases the step checks it still holds the lease; a lapsed or
+ * deleted lease stops it and it deletes what it made. Throws for OpenWorkflow
+ * to retry; a retry first deletes the builder a failed attempt left, or
+ * reuses a capture that finished. Returns null when the lease is gone.
+ */
+export async function runWorkspaceBaseBuild(input: {
+  orgId: string
+  baseId: string
+  /** Tests pass their own; production uses the deployment's provider. */
+  builder?: WorkspaceBaseBuilder
+}): Promise<{ ref: string; providerSandboxId: string } | null> {
+  const { orgId, baseId } = input
+  const initial = await getSandboxInstance(baseId, orgId)
+  if (!initial || !leaseHeld(initial, Date.now()) || !initial.revision)
+    return null
+  const { workspaceId } = initial
+  /**
+   * Move the row from `from` to `to` if this build still holds the lease.
+   * Under the Workspace lock, which every delete of the row also takes, so a
+   * row deleted meanwhile is never written back.
+   */
+  const advance = (from: SandboxInstanceRecord, to: SandboxInstanceRecord) =>
+    postgresSandboxLocks(orgId).withLock(
+      `workspace-sandboxes:${workspaceId}`,
+      async () => {
+        const stored = await getSandboxInstance(baseId, orgId)
+        if (
+          !stored ||
+          !leaseHeld(stored, Date.now()) ||
+          stored.providerSandboxId !== from.providerSandboxId ||
+          stored.latestSnapshotId !== from.latestSnapshotId
+        )
+          return false
+        await persistSandboxInstance(to, ownershipOf(stored))
+        return true
+      },
+    )
+  if (initial.latestSnapshotId && initial.providerSandboxId)
+    return {
+      ref: initial.latestSnapshotId,
+      providerSandboxId: initial.providerSandboxId,
+    }
+  let row = initial
+  if (row.providerSandboxId) {
+    // A failed attempt's builder.
+    await deleteWorkspaceBaseArtifacts(row)
+    const cleared = { ...row, providerSandboxId: null }
+    if (!(await advance(row, cleared))) return null
+    row = cleared
+  }
+  const revision = initial.revision
+  const builder =
+    input.builder ??
+    (await workspaceBaseBuilder({
+      provider: row.provider ?? "",
+      orgId,
+      revision,
+    }))
+  if (!builder || builder.agentImage !== row.image) {
+    // The deployment changed under the build: drop it.
+    await deleteSandboxInstance(baseId, orgId, ownershipOf(row))
+    return null
+  }
+  const build = await builder.start({ id: baseId, orgId, workspaceId })
+  let current: SandboxInstanceRecord = {
+    ...row,
+    providerSandboxId: build.builderId,
+  }
+  /** The lease is gone: delete what this build made and stop. */
+  const lapsed = async () => {
+    await deleteWorkspaceBaseArtifacts(current)
+    log.warn({
+      step: "workspace-base-build",
+      message: "A Workspace base build lost its lease and stopped",
+      orgId,
+      workspaceId,
+    })
+    return null
+  }
+  try {
+    if (!(await advance(row, current))) return await lapsed()
+    const started = Date.now()
+    await bootstrapWorkspace(
+      build.handle,
+      workspaceBaseDefinition({
+        provider: builder.provider,
+        revision,
+        cloneToken: builder.cloneToken,
+      }),
+    )
+    const head = await build.handle.process.exec("git rev-parse HEAD")
+    const sha = head.stdout.trim()
+    if (head.exitCode !== 0 || !sha)
+      throw new Error("The base clone has no commit")
+    // Still ours before taking a snapshot nobody would publish.
+    if (!(await advance(current, current))) return await lapsed()
+    const ref = await build.capture()
+    const captured: SandboxInstanceRecord = {
+      ...current,
+      latestSnapshotId: ref,
+      revision: { ...revision, sha },
+    }
+    // Recorded at once, so a crash from here on leaves the capture findable.
+    if (!(await advance(current, captured))) {
+      current = captured
+      return await lapsed()
+    }
+    current = captured
+    log.info({
+      step: "workspace-base-build",
+      message: `Built the Workspace base in ${Date.now() - started}ms`,
+      orgId,
+      workspaceId,
+      ms: Date.now() - started,
+    })
+    // Docker's builder is removed after capture; the image is the base.
+    return {
+      ref,
+      providerSandboxId: builder.provider === "docker" ? ref : build.builderId,
+    }
+  } finally {
+    await build.finish()
+  }
+}
+
+/**
+ * Build step 3 (`publish`): make the base the Workspace's current one. If
+ * its row was deleted meanwhile (Workspace deleted or relinked under the
+ * Workspace lock), delete what was built instead.
+ */
+export async function publishWorkspaceBase(input: {
+  orgId: string
+  workspaceId: string
+  baseId: string
+  built: { ref: string; providerSandboxId: string }
+  provider: RunningSandboxProvider
+}): Promise<boolean> {
+  const { orgId, workspaceId, baseId, built } = input
+  const published = await postgresSandboxLocks(orgId).withLock(
+    `workspace-sandboxes:${workspaceId}`,
+    async () => {
+      const row = await getSandboxInstance(baseId, orgId)
+      if (row?.state !== "building" || row.latestSnapshotId !== built.ref)
+        return false
+      await persistSandboxInstance(
+        {
+          ...row,
+          state: "live",
+          providerSandboxId: built.providerSandboxId,
+          lastHeartbeatAt: new Date(),
+        },
+        ownershipOf(row),
+      )
+      return true
+    },
+  )
+  if (!published)
+    await deleteWorkspaceBaseArtifacts({
+      provider: input.provider,
+      providerSandboxId: built.providerSandboxId,
+      latestSnapshotId: built.ref,
+    })
+  return published
+}
+
+/**
+ * Delete the Workspace's bases no new conversation should start from:
+ * - every base but the current one (newest ready base for the current agent
+ *   image and Workspace binding). Sandboxes started from it keep working
+ *   without it: measured for Docker (a stopped container restarts after
+ *   `rmi --force` of its image; a running one makes the daemon refuse, so
+ *   the row waits for a later sweep);
+ * - the current base once no conversation started from it for 30 days;
+ * - builds past their lease, and deletes that failed.
+ * Runs under the Workspace lock, which new sandboxes take to choose their
+ * base, so what it reads is what starts see. `destroy` deletes one row and
+ * its provider artifacts.
  */
 export async function collectUnusedWorkspaceSandboxBases(input: {
   orgId: string
   workspaceId: string
+  agent: SandboxAgent
   destroy: (row: SandboxInstanceRecord) => Promise<boolean>
-  /** The deployment's provider and agent image; image undefined when unreadable. */
-  agent?: { provider: string; image?: string }
   now?: Date
 }): Promise<number> {
   const { orgId, workspaceId } = input
   const now = (input.now ?? new Date()).getTime()
-  const outcome = await withSandboxLockIfFree(
-    orgId,
-    `workspace-base:${workspaceId}`,
-    () =>
-      postgresSandboxLocks(orgId).withLock(
-        `workspace-sandboxes:${workspaceId}`,
-        async () => {
-          const { rows, desired } = await withOrgDbContext(orgId, async () => ({
-            rows: await listSandboxInstances({ workspaceId }),
-            desired: await getDesiredWorkspaceRevision(workspaceId),
-          }))
-          const bases = rows.filter((row) => row.kind === "base")
-          const current =
-            desired && input.agent
-              ? readyBases(bases, {
-                  provider: input.agent.provider,
-                  agentImage: input.agent.image,
-                  revision: desired,
-                })[0]
-              : undefined
-          let deleted = 0
-          for (const base of bases) {
-            const used = now - base.lastHeartbeatAt.getTime()
-            const due =
-              base.state === "destroy_failed" ||
-              base.state === "building" ||
-              (base.state === "live" &&
-                used >= BASE_START_GRACE_MS &&
-                !rows.some(
-                  (row) =>
-                    row.kind === "chat" &&
-                    base.latestSnapshotId &&
-                    baseRefOfIdentity(row.image) === base.latestSnapshotId,
-                ) &&
-                (base.id !== current?.id || used >= BASE_UNUSED_MS))
-            if (due && (await input.destroy(base))) deleted += 1
-          }
-          return deleted
-        },
-      ),
+  return postgresSandboxLocks(orgId).withLock(
+    `workspace-sandboxes:${workspaceId}`,
+    async () => {
+      const { rows, desired } = await withOrgDbContext(orgId, async () => ({
+        rows: await listSandboxInstances({ workspaceId, kind: "base" }),
+        desired: await getDesiredWorkspaceRevision(workspaceId),
+      }))
+      const current = desired
+        ? readyBases(rows, input.agent, desired)[0]
+        : undefined
+      let deleted = 0
+      for (const base of rows) {
+        const due =
+          base.state === "destroy_failed" ||
+          (base.state === "building" && !leaseHeld(base, now)) ||
+          (base.state === "live" &&
+            (base.id !== current?.id ||
+              now - base.lastHeartbeatAt.getTime() >=
+                CHAT_SANDBOX_RETENTION_MS))
+        if (due && (await input.destroy(base))) deleted += 1
+      }
+      return deleted
+    },
   )
-  return outcome.busy ? 0 : outcome.value
 }

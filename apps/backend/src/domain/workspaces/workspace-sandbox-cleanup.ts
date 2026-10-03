@@ -1,4 +1,3 @@
-import Docker from "dockerode"
 import { assertNotInOrgDbContext, withOrgDbContext } from "../../db/client.js"
 import {
   deleteSandboxInstance,
@@ -10,45 +9,43 @@ import {
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { shouldDestroyJobSandbox } from "./chat-lifecycle.js"
-import { workspaceChatDockerImage } from "./chat-runtime.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
+import { destroyDetachedProviderSandbox } from "./sandbox-provider.js"
 import {
-  destroyDetachedProviderSandbox,
-  discoverSandboxProvider,
-} from "./sandbox-provider.js"
-import {
+  currentSandboxAgent,
   deleteWorkspaceBaseArtifacts,
-  VERCEL_AGENT_IMAGE,
+  type SandboxAgent,
 } from "./workspace-base-providers.js"
 import { collectUnusedWorkspaceSandboxBases } from "./workspace-sandbox-base.js"
 
 /**
- * Delete the Workspace's bases no conversation needs any more (see
- * `collectUnusedWorkspaceSandboxBases`). Skipped where this deployment has no
- * sandbox provider, so a daemon that is briefly unreachable never costs the
- * Workspace its current base.
+ * Delete the Workspace's bases no new conversation should start from (see
+ * `collectUnusedWorkspaceSandboxBases`). Skipped when the deployment's
+ * provider and agent image cannot be read (a daemon briefly unreachable),
+ * so a blip never deletes the base new conversations should use.
  */
 export async function collectUnusedWorkspaceChatBases(
   orgId: string,
   workspaceId: string,
   now?: Date,
 ): Promise<number> {
-  const provider = await discoverSandboxProvider().catch(() => undefined)
-  if (provider !== "docker" && provider !== "vercel") return 0
-  const image =
-    provider === "vercel"
-      ? VERCEL_AGENT_IMAGE
-      : await new Docker({ timeout: 30_000 })
-          .getImage(workspaceChatDockerImage())
-          .inspect()
-          .then(
-            (info) => info.Id,
-            () => undefined,
-          )
+  let agent: SandboxAgent | null
+  try {
+    agent = await currentSandboxAgent()
+  } catch (error) {
+    log.warn({
+      step: "workspace-base-cleanup",
+      message: `Skipping base cleanup: the agent image is unreadable: ${String(error)}`,
+      orgId,
+      workspaceId,
+    })
+    return 0
+  }
+  if (!agent) return 0
   return collectUnusedWorkspaceSandboxBases({
     orgId,
     workspaceId,
-    agent: { provider, image },
+    agent,
     ...(now ? { now } : {}),
     destroy: async (row) =>
       (await destroyWorkspaceSandboxUnderFence(row.id, orgId)) === true,
@@ -113,7 +110,9 @@ async function destroyWorkspaceSandboxUnderFence(
       if (keep?.(stored)) return "kept"
       if (stored.kind === "base") {
         try {
-          await deleteWorkspaceBaseArtifacts(stored)
+          // A running container still uses the image: kept for a later sweep.
+          if ((await deleteWorkspaceBaseArtifacts(stored)) === "in-use")
+            return false
         } catch (error) {
           signal.throwIfAborted()
           await persistSandboxInstance(

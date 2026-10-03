@@ -2,9 +2,6 @@ import { describe, expect, it } from "vitest"
 import type { WorkspaceRevision } from "./revision.js"
 import {
   BASE_STALE_AGE_MS,
-  BASE_STALE_COMMITS,
-  baseRefOfIdentity,
-  conversationImageIdentity,
   workspaceBaseIsStale,
 } from "./workspace-sandbox-base.js"
 
@@ -29,7 +26,6 @@ describe("workspaceBaseIsStale", () => {
         base: builtAgo(10 * BASE_STALE_AGE_MS),
         desiredSha: "a".repeat(40),
         now,
-        commitsBehind: 0,
       }),
     ).toBe(false)
   })
@@ -40,36 +36,8 @@ describe("workspaceBaseIsStale", () => {
         base: builtAgo(age),
         desiredSha: "b".repeat(40),
         now,
-        commitsBehind: 1,
       })
     expect(stale(BASE_STALE_AGE_MS - 1)).toBe(false)
     expect(stale(BASE_STALE_AGE_MS)).toBe(true)
-  })
-
-  it(`rebuilds sooner once more than ${BASE_STALE_COMMITS} commits behind`, () => {
-    const stale = (commitsBehind: number | null) =>
-      workspaceBaseIsStale({
-        base: builtAgo(60_000),
-        desiredSha: "b".repeat(40),
-        now,
-        commitsBehind,
-      })
-    expect(stale(BASE_STALE_COMMITS)).toBe(false)
-    expect(stale(BASE_STALE_COMMITS + 1)).toBe(true)
-    // Unknown (not GitHub): only age counts.
-    expect(stale(null)).toBe(false)
-  })
-})
-
-describe("conversation image identity", () => {
-  it("records the base a conversation started from", () => {
-    const identity = conversationImageIdentity("sha256:agent", "sha256:base")
-    expect(baseRefOfIdentity(identity)).toBe("sha256:base")
-    expect(baseRefOfIdentity(conversationImageIdentity("sha256:agent"))).toBe(
-      undefined,
-    )
-    expect(baseRefOfIdentity("vercel-node24/opencode-ai@1.18.34")).toBe(
-      undefined,
-    )
   })
 })

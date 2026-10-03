@@ -9,7 +9,6 @@ import {
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
 import { shouldEnqueueCronHydrate } from "../../domain/workspaces/tip-resolve.js"
 import {
-  collectUnusedWorkspaceChatBases,
   destroySandboxesForWorkspace,
   jobSandboxesDueForDestroy,
 } from "../../domain/workspaces/workspace-sandbox-cleanup.js"
@@ -216,9 +215,6 @@ export const workspaceTipCheck = defineWorkflow(
       })
       for (const workspaceId of idleJobs) {
         await destroySandboxesForWorkspace(workspaceId, "job")
-      }
-      for (const workspace of workspaces) {
-        await collectUnusedWorkspaceChatBases(input.orgId, workspace.id)
       }
       return { updated: updated.length, linkedUpdated }
     })

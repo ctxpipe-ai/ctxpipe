@@ -7,8 +7,7 @@ import { createLogger, flushEvlog, log } from "./src/observability/logger.js"
 import { shutdownOtel } from "./src/observability/otel.js"
 import { parseOpenWorkflowConcurrency } from "./src/openworkflow/codesearchCapacity.js"
 import { openWorkflowNamespaceId } from "./src/openworkflow/namespace.js"
-import { scheduleSweepsForRunningSandboxes } from "./src/openworkflow/workflows/conversation-sandbox-sweep.js"
-import { requestDockerSandboxHostPrune } from "./src/openworkflow/workflows/docker-sandbox-host-prune.js"
+import { scheduleSweepsForOrgsNeedingIt } from "./src/openworkflow/workflows/conversation-sandbox-sweep.js"
 import { backfillGithubAppSecretsFromEnv } from "./src/scripts/backfillGithubConnectionSecrets.js"
 
 const databaseUrl = process.env.DATABASE_URL
@@ -16,18 +15,12 @@ if (!databaseUrl) throw new Error("DATABASE_URL is required for the worker")
 initDb(databaseUrl)
 const env = parseEnv(process.env as Record<string, string | undefined>)
 await backfillGithubAppSecretsFromEnv(env)
-// Restart sandbox sweep chains that a failed schedule or crash left behind.
-void scheduleSweepsForRunningSandboxes().catch((error: unknown) =>
+// Restart sandbox sweep chains that a failed schedule or crash left behind,
+// and sweep dormant orgs (on Docker each sweep also prunes the host).
+void scheduleSweepsForOrgsNeedingIt().catch((error: unknown) =>
   log.error({
     step: "conversation-sandbox-sweep-backstop",
     message: `Startup sandbox sweep failed: ${String(error)}`,
-  }),
-)
-// Docker hosts: remove what dormant orgs and lost bases left on the daemon.
-void requestDockerSandboxHostPrune().catch((error: unknown) =>
-  log.error({
-    step: "docker-sandbox-host-prune",
-    message: `Requesting the startup Docker host prune failed: ${String(error)}`,
   }),
 )
 

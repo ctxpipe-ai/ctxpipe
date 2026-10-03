@@ -1,4 +1,4 @@
-import { and, count, eq, inArray, isNull, ne } from "drizzle-orm"
+import { and, count, eq, inArray, isNull, ne, or } from "drizzle-orm"
 import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { workspaceSandboxInstances } from "../db/schema/workspaces.js"
 import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
@@ -262,10 +262,10 @@ export function isRunningSandboxProvider(
 
 /**
  * Sandboxes the org is running now: live conversation and job rows of a
- * running provider, including slots reserved for a create in progress.
- * Workspace bases run nothing (an image or a snapshot), so they never count.
- * `excludingId` leaves out the sandbox about to start, so starting it again
- * never counts twice.
+ * running provider, including slots reserved for a create in progress, and
+ * Workspace base builds (their builder runs). A finished base is an image or
+ * a snapshot and runs nothing, so it does not count. `excludingId` leaves out
+ * the sandbox about to start, so starting it again never counts twice.
  */
 export async function countRunningSandboxes(
   orgId: string,
@@ -278,8 +278,16 @@ export async function countRunningSandboxes(
       .where(
         and(
           eq(workspaceSandboxInstances.orgId, orgId),
-          eq(workspaceSandboxInstances.state, "live"),
-          ne(workspaceSandboxInstances.kind, "base"),
+          or(
+            and(
+              eq(workspaceSandboxInstances.state, "live"),
+              ne(workspaceSandboxInstances.kind, "base"),
+            ),
+            and(
+              eq(workspaceSandboxInstances.state, "building"),
+              eq(workspaceSandboxInstances.kind, "base"),
+            ),
+          ),
           inArray(workspaceSandboxInstances.provider, [
             ...RUNNING_SANDBOX_PROVIDERS,
           ]),

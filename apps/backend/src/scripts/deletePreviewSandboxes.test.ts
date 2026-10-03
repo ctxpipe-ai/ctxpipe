@@ -13,7 +13,10 @@ const credentials = {
 function sandbox(
   name: string,
   environment: string,
-  kind: "workspace-chat" | "workspace-base" = "workspace-chat",
+  kind:
+    | "workspace-chat"
+    | "workspace-base"
+    | "workspace-agent" = "workspace-chat",
 ) {
   return {
     name,
@@ -164,16 +167,18 @@ describe("deletePreviewSandboxes", () => {
     expect(project.requests).not.toContain("delete sandbox chat-prod")
   })
 
-  it("deletes the preview's Workspace base builders with their base snapshots", async () => {
+  it("deletes the preview's base and agent builders, their snapshots first", async () => {
     const project = vercelProject({
       sandboxes: [
         sandbox("chat-a", "pr-7"),
         sandbox("base-a", "pr-7", "workspace-base"),
+        sandbox("agent-a", "pr-7", "workspace-agent"),
         sandbox("base-prod", "production", "workspace-base"),
       ],
       snapshots: {
         "chat-a": [],
         "base-a": [snapshot("snap_base_a")],
+        "agent-a": [snapshot("snap_agent_a")],
         "base-prod": [snapshot("snap_base_prod")],
       },
     })
@@ -184,12 +189,19 @@ describe("deletePreviewSandboxes", () => {
       environment: "pr-7",
     })
 
-    expect(deleted).toBe(2)
+    expect(deleted).toBe(3)
     expect(project.requests).toContain(
       "list sandboxes prj_test ctxpipe:workspace-base,environment:pr-7",
     )
+    expect(project.requests).toContain(
+      "list sandboxes prj_test ctxpipe:workspace-agent,environment:pr-7",
+    )
     expect([...project.sandboxes.keys()]).toEqual(["base-prod"])
     expect([...project.snapshots.keys()]).toEqual(["snap_base_prod"])
+    // A builder whose delete fails never leaves an unowned snapshot.
+    expect(
+      project.requests.indexOf("delete snapshot snap_base_a"),
+    ).toBeLessThan(project.requests.indexOf("delete sandbox base-a"))
   })
 
   it("is idempotent: a second run finds nothing left to delete", async () => {
