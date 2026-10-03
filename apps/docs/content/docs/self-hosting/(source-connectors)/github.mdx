@@ -80,8 +80,10 @@ Subscribe to these events:
 - **Push**
 - **Repository**
 
-Optional for richer PR conversation: **Issues: Read**. Required-check
-conclusions are not mirrored in v1.
+The pull request events mirror merged pull requests of every linked repository
+into the Workspaces that link it. The App installation must be able to read
+those linked repositories. Optional for richer PR conversation: **Issues:
+Read**. Required-check conclusions are not mirrored in v1.
 
 Write access is required because ctx| commits to workspace repositories and
 opens pull requests for connector configuration and Workspace chat. Limit the App

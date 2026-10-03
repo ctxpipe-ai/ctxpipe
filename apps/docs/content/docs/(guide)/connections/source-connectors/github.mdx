@@ -72,11 +72,24 @@ You can connect GitHub during onboarding, or later from the **Connectors** page.
   repository is already classified, and `PullRequest REFERENCES Issue` when
   the title, body, or branch names a Linear issue.
 
-Merged pull requests are captured into the Workspace your Linear, Notion, or
-Slack connector writes to. ctx| writes `github/config.yaml` there and
-backfills up to 200 of the most recently updated merged pull requests per
-repository. There is no separate toggle. If no connector writes to a Workspace
-yet, capture starts once one does.
+### Merged pull requests follow linked repositories
+
+Linking a GitHub repository to a Workspace is the only setup. Its merged pull
+requests are written under `github/pulls/<owner>/<repo>/` in that Workspace's
+repository:
+
+- **When you link** the repository, ctx| backfills up to 200 of its most
+  recently updated merged pull requests.
+- **After that**, each merged pull request, and each later review or comment on
+  it, is mirrored as GitHub reports it.
+- **Several Workspaces** can link the same repository. Each one gets its own
+  copy of the pull requests.
+- **When you unlink** the repository, new pull requests stop arriving. Files
+  already mirrored stay in the Workspace's git history and tree until you
+  delete them.
+
+Draft and unmerged pull requests are not mirrored. There is no toggle and no
+configuration file.
 
 ## After you connect
 

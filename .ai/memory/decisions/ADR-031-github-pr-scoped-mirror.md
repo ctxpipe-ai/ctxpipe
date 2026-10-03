@@ -1,6 +1,36 @@
 # ADR-031: GitHub pull-request scoped mirror
 
-**Status:** Accepted | **Date:** 2026-09-16 | **Tags:** connectors, github, git, graph, ingestion
+**Status:** Accepted (revised 2026-10-03) | **Date:** 2026-09-16 | **Tags:** connectors, github, git, graph, ingestion, workspaces
+
+## Revision (2026-10-03): mirror follows linked repositories
+
+Workspaces replaced the context repository, so the target and scope below
+(decisions 1–2, the `ctxpipe-context` setup step, the startup sweep and the
+connector-preselect consequence) are superseded:
+
+- **Target:** merged pull requests of a repository are mirrored into **every
+  Workspace that links it** as a linked repository. Webhooks find those
+  Workspaces in `workspace_linked_repositories` (normalized URL, org-scoped)
+  and start one `github-sync-pull-request` run per Workspace; the idempotency
+  key includes the Workspace id, so a replayed delivery is one run per
+  Workspace. A repository no Workspace links mirrors nowhere.
+- **Git decides at write time:** each run captures the Workspace tree and skips
+  (`unlinked`) unless a `repositories/*.md` declaration still links the
+  repository; the write broker re-checks that on push. Unlinking therefore
+  stops new mirrors before hydrate updates the table. Mirrored files stay in
+  git.
+- **Backfill:** the link workflow (`workspace-write-link-unlink`) starts
+  `github-backfill-pull-requests` after a successful link: the 200 most
+  recently updated merged pull requests, rendered 20 per durable step and
+  published as one commit. A declaration added directly with git receives
+  webhooks but no backfill.
+- **No setup:** no `connections.config.prMirror` binding, no
+  `github/config.yaml`, no setup phases, no name heuristic. Policy is fixed:
+  merged and not draft. The source repository's org `repositories` row
+  supplies the GitHub connection that reads it.
+
+Decisions 3–6 (paths, ingestion, deterministic graph, entity webhooks) stand,
+with "context repository" read as "the Workspace repository".
 
 ## Context
 
