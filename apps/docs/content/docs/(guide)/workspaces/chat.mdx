@@ -75,11 +75,25 @@ the agent resolves the conflict before you publish.
 Each conversation runs in its own isolated sandbox with a copy of the
 workspace repository. The first message in a conversation may take a little
 longer while the sandbox starts (**Setting up sandbox**); later messages reuse
-it. The conversation's work is saved to its git branch, so nothing is lost
-when an idle sandbox is shut down.
+it.
+
+On hosted ctx|, each conversation gets its own
+[Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) microVM, never shared
+with another conversation or organization:
+
+- **Your files are saved.** When a conversation goes idle, its sandbox stops
+  and saves its files. Your next message resumes it with the files where the
+  agent left them. Saved files are deleted 30 days after the conversation was
+  last used.
+- **Network access is limited.** The sandbox can reach GitHub and ctx| only;
+  every other host is blocked.
+- **The GitHub token stays outside.** Read access to the workspace repository
+  is added to the sandbox's GitHub requests on the way out, so the agent never
+  sees the token. The token is short-lived, replaced regularly, and revoked
+  when the sandbox stops.
 
 The sandbox never holds a credential that can push to your default branch.
-Model calls and git access go through ctx|, scoped to that conversation.
+Model calls and Workspace tools go through ctx|, scoped to that conversation.
 
 ## Know the limits
 

@@ -27,10 +27,11 @@ This page describes **data handling for the hosted SaaS product** (ctxpipe). It 
 | Railway     | Compute, hosting, and our self-hosted observability (logs, traces, LLM traces) |
 | Neon        | Postgres database       |
 | OpenRouter  | LLM routing ([ZDR](https://openrouter.ai/docs/guides/features/zdr)-only models on hosted) |
+| Vercel      | Isolated sandboxes (microVMs) where Workspace chat agents run, holding a copy of the workspace repository and the conversation's files |
 
 ## LLM calls
 
-- **Workspace chat (in-app or via MCP `ctx_advisor`):** Models run when you use the conversational experience. Each conversation's agent runs in an isolated sandbox holding a copy of the workspace repository; its changes stay on a conversation branch until you open a pull request. Your **message and retrieved context** (for example search snippets, file excerpts the agent retrieved, and graph-backed context) are sent to the configured model provider. On hosted deployments this is **OpenRouter** (see backend `MODEL_PROVIDER_URL` defaults in the open-source tree). We use **only [Zero Data Retention (ZDR)](https://openrouter.ai/docs/guides/features/zdr)** model endpoints - OpenRouter routes requests to providers it classifies as ZDR; see their docs for how that is enforced and which endpoints qualify.
+- **Workspace chat (in-app or via MCP `ctx_advisor`):** Models run when you use the conversational experience. Each conversation's agent runs in an isolated sandbox (on hosted, a [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) microVM) holding a copy of the workspace repository; its changes stay on a conversation branch until you open a pull request. Your **message and retrieved context** (for example search snippets, file excerpts the agent retrieved, and graph-backed context) are sent to the configured model provider. On hosted deployments this is **OpenRouter** (see backend `MODEL_PROVIDER_URL` defaults in the open-source tree). We use **only [Zero Data Retention (ZDR)](https://openrouter.ai/docs/guides/features/zdr)** model endpoints - OpenRouter routes requests to providers it classifies as ZDR; see their docs for how that is enforced and which endpoints qualify.
 - **Indexing:** Indexing linked repositories can also call models for **knowledge extraction** and related steps over parts of your tree - this is **not** the same as a single chat reply. See [How indexing works](/docs/connections/ingestion) for the stages (clone, index, extraction).
 - **OpenRouter:** For their handling of prompts, logging, and training, see **[OpenRouter’s privacy policy](https://openrouter.ai/privacy)** and their **[privacy & logging](https://openrouter.ai/docs/features/privacy-and-logging)** documentation (the hosted product routes via OpenRouter and is subject to their terms and your account settings).
 - The product does **not** ship your entire repository as one flat paste into chat; context is **selected** by retrieval and tools. Ingestion still uses models on **bounded excerpts or representations** as part of extraction - again, see [How indexing works](/docs/connections/ingestion).
@@ -49,7 +50,7 @@ We do **not** publish fixed customer-data retention periods in this documentatio
 ## Certifications
 
 - **SOC 2** and **ISO 27001** for ctx| as a company are **on the roadmap**.
-- Infrastructure sub-processors (**Railway**, **Neon**, and others you use) publish their **own** compliance and security materials - review those for hosting and database assurances.
+- Infrastructure sub-processors (**Railway**, **Neon**, **Vercel**, and others you use) publish their **own** compliance and security materials - review those for hosting and database assurances.
 
 ---
 
