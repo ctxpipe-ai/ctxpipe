@@ -10,7 +10,7 @@ The backend needs traces, structured logs, and LLM spans. Hosted ingest is Click
 
 1. **Traces.** `@opentelemetry/sdk-node` exports OTLP HTTP when `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set. LLM spans come from the Langfuse LangChain `CallbackHandler` (`awaitHandlers` so a generation stays on the active span) inside `propagateAttributes` (`runWithLangfuseContext`). There is no LangSmith tracing and no app-side Langfuse exporter.
 
-2. **Logs.** evlog on Hono. When `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is set, logs drain through evlog's `createOTLPDrain` (5s timeout). Otherwise stdout.
+2. **Logs.** evlog on Hono. When `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is set, logs drain through evlog's `createOTLPDrain` (5s timeout) wrapped in `createDrainPipeline`, which batches in the background so a request never waits on the collector. Otherwise stdout.
 
 3. **One endpoint per signal.** Fan-out is a collector's job. Hosted ingest keeps full traces in ClickHouse and sends LLM spans to Langfuse via `filter/llm_only` ([ADR-038](ADR-038-self-hosted-clickstack-langfuse.md)). [`apps/otel-collector`](../../../apps/otel-collector/config.yaml) is a laptop debug sink. The app does not fan out.
 

@@ -167,6 +167,78 @@ describe("codesearchIndexScipLang", () => {
   })
 })
 
+describe("codesearchIndexScipLang when the phase is accepted", () => {
+  it("waits out a headers timeout and returns when the phase succeeds", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    let polls = 0
+    server.use(
+      http.post(`${base}/:repositoryId/index/scip/:language`, () =>
+        HttpResponse.json({ ok: true, status: "running" }, { status: 202 }),
+      ),
+      http.get(`${base}/:repositoryId/index/scip/:language`, () => {
+        polls += 1
+        if (polls === 1) {
+          const error = nodeError("fetch failed", "UND_ERR_HEADERS_TIMEOUT")
+          error.cause = nodeError(
+            "Headers Timeout Error",
+            "UND_ERR_HEADERS_TIMEOUT",
+          )
+          throw error
+        }
+        return HttpResponse.json({ status: "succeeded" })
+      }),
+    )
+    await expect(
+      codesearchIndexScipLang(
+        { repositoryId: "repo_1", orgId: "org_1" },
+        "typescript",
+        ["typescript"],
+      ),
+    ).resolves.toEqual({})
+    expect(polls).toBe(2)
+  })
+
+  it("returns the incomplete-shard note from a settled phase", async () => {
+    server.use(
+      http.post(`${base}/:repositoryId/index/scip/:language`, () =>
+        HttpResponse.json({ ok: true, status: "running" }, { status: 202 }),
+      ),
+      http.get(`${base}/:repositoryId/index/scip/:language`, () =>
+        HttpResponse.json({
+          status: "succeeded",
+          issue: "1 of 44 projects could not be indexed",
+        }),
+      ),
+    )
+    await expect(
+      codesearchIndexScipLang(
+        { repositoryId: "repo_1", orgId: "org_1" },
+        "typescript",
+        ["typescript"],
+      ),
+    ).resolves.toEqual({
+      issue: "1 of 44 projects could not be indexed",
+    })
+  })
+})
+
+describe("codesearchIndexScipLang result", () => {
+  it("returns the public issue of an incomplete shard", async () => {
+    server.use(
+      http.post(`${base}/:repositoryId/index/scip/:language`, () =>
+        HttpResponse.json({ ok: true, issue: "1 of 3 projects failed" }),
+      ),
+    )
+    await expect(
+      codesearchIndexScipLang(
+        { repositoryId: "repo_1", orgId: "org_1" },
+        "typescript",
+        ["typescript"],
+      ),
+    ).resolves.toEqual({ issue: "1 of 3 projects failed" })
+  })
+})
+
 describe("codesearchIndexMergeScip", () => {
   it("sends an empty languagesToMerge array so merge omits leftover shards", async () => {
     let body: unknown

@@ -6,6 +6,7 @@ import { isRepositoryGoneError } from "../../domain/codeIngestion/repositoryGone
 import { deduplicateAndStore } from "../../graphs/codeIngestionGraph/nodes/deduplicateAndStore.js"
 import { embed } from "../../graphs/codeIngestionGraph/nodes/embed.js"
 import { identifyRoots } from "../../graphs/codeIngestionGraph/nodes/identifyRoots.js"
+import { linkPackageHierarchy } from "../../graphs/codeIngestionGraph/nodes/linkLocatedPaths.js"
 import { project } from "../../graphs/codeIngestionGraph/nodes/project.js"
 import { retractStaleEvidence } from "../../graphs/codeIngestionGraph/nodes/retractStaleEvidence.js"
 import {
@@ -532,12 +533,21 @@ export const repositoryIngestion = defineWorkflow(
                   concatenatedClaims.push(...part.extractedClaims)
                   extractionSkippedFiles += part.extractionSkippedFiles ?? 0
                 }
-                const { extractedObjects, extractedClaims } =
-                  await finalizeExtractedReferences({
-                    orgId: baseIngestState.orgId,
-                    extractedObjects: concatenatedObjects,
-                    extractedClaims: concatenatedClaims,
-                  })
+                const finalized = await finalizeExtractedReferences({
+                  orgId: baseIngestState.orgId,
+                  extractedObjects: concatenatedObjects,
+                  extractedClaims: concatenatedClaims,
+                })
+                const extractedObjects = finalized.extractedObjects
+                const extractedClaims = [
+                  ...finalized.extractedClaims,
+                  ...linkPackageHierarchy({
+                    repositoryId: input.repositoryId,
+                    targetHash: baseIngestState.targetHash,
+                    objects: finalized.extractedObjects,
+                    claims: finalized.extractedClaims,
+                  }),
+                ]
 
                 const afterExtract: CodeIngestionState = {
                   ...baseIngestState,

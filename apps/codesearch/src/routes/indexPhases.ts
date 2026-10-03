@@ -110,6 +110,29 @@ const detectLanguagesResponseSchema = z
   })
   .openapi("IndexDetectLanguagesResponse")
 
+const scipLangResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    /** Public-facing note when the shard is incomplete (some projects failed). */
+    issue: z.string().optional(),
+  })
+  .openapi("IndexScipLangResponse")
+
+const scipLangAcceptedSchema = z
+  .object({
+    ok: z.literal(true),
+    status: z.literal("running"),
+  })
+  .openapi("IndexScipLangAccepted")
+
+const scipLangStatusSchema = z
+  .object({
+    status: z.enum(["running", "succeeded", "failed"]),
+    issue: z.string().optional(),
+    error: z.string().optional(),
+  })
+  .openapi("IndexScipLangStatus")
+
 const scipLangRequestSchema = z
   .object({
     detectedLanguages: z.array(z.string()).min(1),
@@ -212,13 +235,36 @@ const scipLangRoute = createRoute({
   },
   responses: {
     200: {
-      content: { "application/json": { schema: okResponseSchema } },
+      content: { "application/json": { schema: scipLangResponseSchema } },
       description: "Per-language SCIP shard built",
+    },
+    202: {
+      content: { "application/json": { schema: scipLangAcceptedSchema } },
+      description:
+        "SCIP language phase accepted; read it back until it settles",
     },
     404: repositoryNotFoundResponse,
     429: { description: "Index pipeline capacity exceeded" },
     503: { description: "Database not available" },
     500: { description: "SCIP indexing failed" },
+  },
+})
+
+const scipLangStatusRoute = createRoute({
+  method: "get",
+  path: "/{repoId}/index/scip/{lang}",
+  request: {
+    params: z.object({
+      repoId: repoIdParam,
+      lang: z.string().min(1).max(64),
+    }),
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: scipLangStatusSchema } },
+      description: "In-flight or settled SCIP language phase",
+    },
+    404: { description: "SCIP language phase has not been started" },
   },
 })
 
@@ -293,6 +339,57 @@ async function withIndexPipelineAdmission(
     return await fn()
   } finally {
     releaseIndexPipelineReference(repoId)
+  }
+}
+
+type ScipPhaseRun =
+  | { status: "running" }
+  | { status: "succeeded"; issue?: string }
+  | { status: "failed"; error: string }
+
+const scipPhaseRuns = new Map<string, ScipPhaseRun>()
+
+function scipPhaseKey(repoId: string, lang: string): string {
+  return `${repoId}:${lang}`
+}
+
+export function resetScipPhaseRunsForTests(): void {
+  scipPhaseRuns.clear()
+}
+
+async function runDetachedScipPhase(input: {
+  key: string
+  repoId: string
+  lang: string
+  ctx: IndexPhaseRepoContext
+  detectedLanguages: string[]
+}): Promise<void> {
+  try {
+    const result = await withRepositoryIndexOperation(input.repoId, () =>
+      withLogger(
+        createLogger({
+          repositoryId: input.ctx.repoId,
+          phase: `scip:${input.lang}`,
+        }),
+        () =>
+          phaseScipLanguage(input.ctx, {
+            language: input.lang,
+            detectedLanguages: input.detectedLanguages,
+          }),
+      ),
+    )
+    const issue = result?.issue
+    scipPhaseRuns.set(input.key, {
+      status: "succeeded",
+      ...(issue ? { issue } : {}),
+    })
+  } catch (error) {
+    scipPhaseRuns.set(input.key, {
+      status: "failed",
+      error: userFacingIndexingError(error, "SCIP indexing failed"),
+    })
+  } finally {
+    releaseIndexPipelineReference(input.repoId)
   }
 }
 
@@ -451,31 +548,50 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId, lang } = c.req.valid("param")
     const body = c.req.valid("json")
-    return withIndexPipelineAdmission(c, repoId, () =>
-      withRepositoryIndexOperation(repoId, async () => {
-        const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
-        if (!resolved.ok) {
-          return c.json(resolved.body, 404)
-        }
-        try {
-          await withLogger(
-            createLogger({
-              repositoryId: resolved.ctx.repoId,
-              phase: `scip:${lang}`,
-            }),
-            () =>
-              phaseScipLanguage(resolved.ctx, {
-                language: lang,
-                detectedLanguages: body.detectedLanguages,
-              }),
-          )
-          return c.json({ ok: true as const }, 200)
-        } catch (error) {
-          const message = userFacingIndexingError(error, "SCIP indexing failed")
-          return c.json({ error: message }, 500)
-        }
-      }),
-    )
+    const key = scipPhaseKey(repoId, lang)
+    if (scipPhaseRuns.get(key)?.status === "running") {
+      return c.json({ ok: true as const, status: "running" as const }, 202)
+    }
+    const acquired = tryAcquireIndexPipeline(repoId)
+    if (!acquired.ok) {
+      return c.json({ error: "Index pipeline capacity exceeded" }, 429)
+    }
+    scipPhaseRuns.set(key, { status: "running" })
+    const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
+    if (!resolved.ok) {
+      scipPhaseRuns.delete(key)
+      releaseIndexPipelineReference(repoId)
+      return c.json(resolved.body, 404)
+    }
+    void runDetachedScipPhase({
+      key,
+      repoId,
+      lang,
+      ctx: resolved.ctx,
+      detectedLanguages: body.detectedLanguages,
+    })
+    return c.json({ ok: true as const, status: "running" as const }, 202)
+  })
+
+  app.openapi(scipLangStatusRoute, async (c) => {
+    const { repoId, lang } = c.req.valid("param")
+    const run = scipPhaseRuns.get(scipPhaseKey(repoId, lang))
+    if (!run) {
+      return c.json({ error: "SCIP index has not been started" }, 404)
+    }
+    if (run.status === "failed") {
+      return c.json({ status: "failed" as const, error: run.error }, 200)
+    }
+    if (run.status === "succeeded") {
+      return c.json(
+        {
+          status: "succeeded" as const,
+          ...(run.issue ? { issue: run.issue } : {}),
+        },
+        200,
+      )
+    }
+    return c.json({ status: "running" as const }, 200)
   })
 
   app.openapi(mergeScipRoute, async (c) => {

@@ -7,9 +7,8 @@ agents. It ingests selected Git repositories and Git-backed connector content,
 builds search indexes and graph claims, and exposes that context through Chat,
 the knowledge graph UI, and the `ctx_advisor` MCP tool.
 
-The monorepo uses pnpm workspaces, Turbo, and Biome. The root project is licensed
-under Elastic License 2.0 by default; package-specific exceptions such as the
-CLI and Confluence Forge app declare their own licenses.
+The monorepo uses pnpm workspaces, Turbo, and Biome. The repository is licensed
+under the MIT License.
 
 ## Applications and packages
 

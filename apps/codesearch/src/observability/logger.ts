@@ -166,10 +166,15 @@ function moveAlias(
 
 // --- Logger context (AsyncLocalStorage + getLogger) ---
 
-export const loggerStorage = new AsyncLocalStorage<RequestLogger>()
+/**
+ * The stored value is a mutable holder, not the logger: `flushWorkflowLog`
+ * swaps `holder.logger`, and timers or branches created before the flush
+ * (heartbeats, phase ends) share the holder, so they write to the fresh
+ * logger instead of the sealed one.
+ */
+type LoggerHolder = { logger: RequestLogger; base: Record<string, unknown> }
 
-/** Base workflow fields preserved across milestone flushes inside `withLogger`. */
-const workflowBaseContext = new AsyncLocalStorage<Record<string, unknown>>()
+const loggerStorage = new AsyncLocalStorage<LoggerHolder>()
 
 function workflowLoggerHasMilestoneContent(logger: RequestLogger): boolean {
   const ctx = logger.getContext()
@@ -186,43 +191,35 @@ export async function withLogger<T>(
   logger: RequestLogger,
   handler: () => Promise<T>,
 ): Promise<T> {
-  const baseContext = { ...logger.getContext() }
-  return workflowBaseContext.run(baseContext, () =>
-    loggerStorage.run(logger, async () => {
-      try {
-        return await handler()
-      } finally {
-        const current = loggerStorage.getStore()
-        if (current) {
-          const spanContext = trace.getActiveSpan()?.spanContext()
-          if (spanContext?.traceId) {
-            current.set({
-              traceId: spanContext.traceId,
-              spanId: spanContext.spanId,
-            })
-          }
-        }
-        if (current && workflowLoggerHasMilestoneContent(current)) {
-          current.emit()
-        }
+  const holder: LoggerHolder = { logger, base: { ...logger.getContext() } }
+  return loggerStorage.run(holder, async () => {
+    try {
+      return await handler()
+    } finally {
+      const spanContext = trace.getActiveSpan()?.spanContext()
+      if (spanContext?.traceId) {
+        holder.logger.set({
+          traceId: spanContext.traceId,
+          spanId: spanContext.spanId,
+        })
       }
-    }),
-  )
+      if (workflowLoggerHasMilestoneContent(holder.logger)) {
+        holder.logger.emit()
+      }
+    }
+  })
 }
 
 /**
  * Flush the current workflow/job logger to stdout/drain immediately.
  * After emit the logger is sealed; this rotates a fresh logger (same base
- * workflow context) into AsyncLocalStorage so later `getLogger()` calls work.
+ * workflow context) into the shared holder so later `getLogger()` calls work.
  */
 export function flushWorkflowLog(): void {
-  const current = loggerStorage.getStore()
-  const base = workflowBaseContext.getStore()
-  if (!current) return
-  current.emit()
-  if (base) {
-    loggerStorage.enterWith(createLogger({ ...base }))
-  }
+  const holder = loggerStorage.getStore()
+  if (!holder) return
+  holder.logger.emit()
+  holder.logger = createLogger({ ...holder.base })
 }
 
 /**
@@ -230,7 +227,7 @@ export function flushWorkflowLog(): void {
  * @throws if neither context has a logger
  */
 export function getLogger(): RequestLogger {
-  const fromStorage = loggerStorage.getStore()
+  const fromStorage = loggerStorage.getStore()?.logger
   if (fromStorage) return fromStorage
   try {
     const ctx = getContext<AppEnv>()

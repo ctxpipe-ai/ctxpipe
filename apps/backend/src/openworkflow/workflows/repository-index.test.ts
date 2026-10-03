@@ -16,7 +16,7 @@ const detectMock = vi.hoisted(() =>
     languagesToIndex: ["go", "typescript"],
   }),
 )
-const scipMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
+const scipMock = vi.hoisted(() => vi.fn().mockResolvedValue({}))
 const mergeMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 const admissionBusy = vi.hoisted(() => {
   class CodesearchAdmissionBusyError extends Error {
@@ -120,7 +120,7 @@ describe("repositoryIndex workflow", () => {
       detectedLanguages: ["go", "typescript"],
       languagesToIndex: ["go", "typescript"],
     })
-    scipMock.mockResolvedValue(undefined)
+    scipMock.mockResolvedValue({})
     mergeMock.mockResolvedValue({ shardCount: 2 })
   })
 
@@ -314,6 +314,7 @@ describe("repositoryIndex workflow", () => {
     scipMock.mockImplementation(
       async (_auth: CodesearchIndexAuth, lang: string) => {
         if (lang === "go") throw new Error("scip-go failed")
+        return {}
       },
     )
     const step = passthroughStep()
@@ -344,6 +345,42 @@ describe("repositoryIndex workflow", () => {
       scipIndexOk: false,
       scipIndexError: "scip-go failed",
     })
+  })
+
+  it("keeps an incomplete SCIP shard but reports its issue for the repository status", async () => {
+    const issue =
+      "TypeScript code intelligence is incomplete: 1 of 4 projects could not be indexed (packages/web)"
+    scipMock.mockImplementation(
+      async (_auth: CodesearchIndexAuth, lang: string) =>
+        lang === "typescript" ? { issue } : {},
+    )
+    const step = passthroughStep()
+    const wf = repositoryIndex as unknown as {
+      fn: (args: {
+        input: {
+          repositoryId: string
+          orgId: string
+          targetHash: string
+        }
+        step: typeof step
+      }) => Promise<unknown>
+    }
+
+    const result = await wf.fn({
+      input: {
+        repositoryId: "repo_1",
+        orgId: "org_1",
+        targetHash: "abc",
+      },
+      step,
+    })
+
+    expect(mergeMock).toHaveBeenCalledWith(
+      expect.anything(),
+      ["go", "typescript"],
+      undefined,
+    )
+    expect(result).toMatchObject({ scipIndexOk: false, scipIndexError: issue })
   })
 
   it("marks scipIndexOk false when merge publishes zero shards for detected languages", async () => {
@@ -614,6 +651,7 @@ describe("repositoryIndex workflow", () => {
       maxConcurrent = Math.max(maxConcurrent, concurrent)
       await Promise.resolve()
       concurrent -= 1
+      return {}
     })
     const step = passthroughStep()
     const wf = repositoryIndex as unknown as {

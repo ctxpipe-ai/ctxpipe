@@ -126,6 +126,7 @@ describe("connector asset boundary", () => {
       expect.objectContaining({
         headers: {
           "accept-encoding": "identity",
+          "user-agent": "ctxpipe",
           authorization: "Bearer provider-secret",
         },
         rejectUnauthorized: true,
@@ -163,7 +164,7 @@ describe("connector asset boundary", () => {
     expect(network.request).toHaveBeenCalledTimes(2)
     expect(network.request.mock.calls[1]?.[1]).toEqual(
       expect.objectContaining({
-        headers: { "accept-encoding": "identity" },
+        headers: { "accept-encoding": "identity", "user-agent": "ctxpipe" },
         servername: "cdn.example",
       }),
     )
@@ -534,6 +535,7 @@ describe("connector asset boundary", () => {
       family: 4,
     })
     expect(options).toMatchObject({
+      agent: false,
       rejectUnauthorized: true,
       servername: "files.example.com",
     })

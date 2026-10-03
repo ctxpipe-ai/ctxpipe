@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises"
 import { resolve } from "node:path"
-import { decodeScipIndex, type ScipWireIndex } from "./scipProto.js"
+import { decodeScipField, scipIndexFields } from "./scipProto.js"
 
 export type GraphPrimitiveName =
   | "find_symbol"
@@ -43,18 +43,6 @@ type WireMultiLineRange = {
   endCharacter?: number
 }
 
-type WireOccurrence = {
-  range?: number[]
-  symbol?: string
-  symbolRoles?: number
-  syntaxKind?: number
-  enclosingRange?: number[]
-  singleLineRange?: WireSingleLineRange
-  multiLineRange?: WireMultiLineRange
-  singleLineEnclosingRange?: WireSingleLineRange
-  multiLineEnclosingRange?: WireMultiLineRange
-}
-
 type WireRelationship = {
   symbol?: string
   isReference?: boolean
@@ -70,6 +58,18 @@ type WireSymbolInformation = {
   kind?: number
   displayName?: string
   enclosingSymbol?: string
+}
+
+type WireOccurrence = {
+  range?: number[]
+  symbol?: string
+  symbolRoles?: number
+  syntaxKind?: number
+  enclosingRange?: number[]
+  singleLineRange?: WireSingleLineRange
+  multiLineRange?: WireMultiLineRange
+  singleLineEnclosingRange?: WireSingleLineRange
+  multiLineEnclosingRange?: WireMultiLineRange
 }
 
 type WireDocument = {
@@ -166,52 +166,69 @@ function rangeFromWire(
   return undefined
 }
 
+/**
+ * Build the query index one document at a time. Decoding the whole file into
+ * one protobufjs object tree cost more than the index itself on a large
+ * monorepo (1.7M occurrences), and every occurrence held its own copy of its
+ * symbol string; symbols and paths are interned instead.
+ */
 function decodeIndex(bytes: Uint8Array): ScipIndex {
-  const wire = decodeScipIndex(bytes) as {
-    documents?: WireDocument[]
-    externalSymbols?: WireSymbolInformation[]
-  } & ScipWireIndex
   const occurrences: IndexedOccurrence[] = []
   const definitions: IndexedOccurrence[] = []
   const symbols = new Map<string, IndexedSymbol>()
+  const strings = new Map<string, string>()
+  const intern = (value: string): string => {
+    const existing = strings.get(value)
+    if (existing !== undefined) return existing
+    strings.set(value, value)
+    return value
+  }
 
   const addSymbol = (
     raw: WireSymbolInformation,
     documentPath?: string,
   ): void => {
     if (!raw.symbol) return
-    const existing = symbols.get(raw.symbol)
+    const symbol = intern(raw.symbol)
+    const existing = symbols.get(symbol)
     const relationships =
       raw.relationships && raw.relationships.length > 0
         ? raw.relationships
         : (existing?.relationships ?? [])
-    symbols.set(raw.symbol, {
-      symbol: raw.symbol,
+    symbols.set(symbol, {
+      symbol,
       displayName:
-        raw.displayName || existing?.displayName || symbolName(raw.symbol),
+        raw.displayName || existing?.displayName || symbolName(symbol),
       documentation:
         raw.documentation && raw.documentation.length > 0
           ? raw.documentation
           : (existing?.documentation ?? []),
       relationships: relationships.map((relationship) => ({
-        symbol: relationship.symbol ?? "",
+        symbol: intern(relationship.symbol ?? ""),
         isReference: relationship.isReference ?? false,
         isImplementation: relationship.isImplementation ?? false,
         isTypeDefinition: relationship.isTypeDefinition ?? false,
         isDefinition: relationship.isDefinition ?? false,
       })),
       kind: raw.kind ?? existing?.kind ?? 0,
-      enclosingSymbol: raw.enclosingSymbol || existing?.enclosingSymbol,
+      enclosingSymbol: raw.enclosingSymbol
+        ? intern(raw.enclosingSymbol)
+        : existing?.enclosingSymbol,
       documentPath: documentPath ?? existing?.documentPath,
     })
   }
 
-  for (const raw of wire.externalSymbols ?? []) addSymbol(raw)
-  for (const document of wire.documents ?? []) {
+  // External symbols first, so document symbols take precedence.
+  const documents: Uint8Array[] = []
+  for (const { field, body } of scipIndexFields(bytes)) {
+    if (body && field === 3) addSymbol(decodeScipField(3, body))
+    else if (body && field === 2) documents.push(body)
+  }
+  for (const body of documents) {
+    const document = decodeScipField(2, body) as WireDocument
     if (!document.relativePath) continue
-    for (const raw of document.symbols ?? []) {
-      addSymbol(raw, document.relativePath)
-    }
+    const documentPath = intern(document.relativePath)
+    for (const raw of document.symbols ?? []) addSymbol(raw, documentPath)
     for (const raw of document.occurrences ?? []) {
       const occurrenceRange = rangeFromWire(
         raw.range,
@@ -220,8 +237,8 @@ function decodeIndex(bytes: Uint8Array): ScipIndex {
       )
       if (!raw.symbol || !occurrenceRange) continue
       const occurrence: IndexedOccurrence = {
-        documentPath: document.relativePath,
-        symbol: raw.symbol,
+        documentPath,
+        symbol: intern(raw.symbol),
         symbolRoles: raw.symbolRoles ?? 0,
         syntaxKind: raw.syntaxKind ?? 0,
         range: occurrenceRange,
