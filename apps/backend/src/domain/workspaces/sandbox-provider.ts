@@ -4,6 +4,7 @@ import type {
 } from "@tanstack/ai-sandbox"
 import Docker from "dockerode"
 import { assertNotInOrgDbContext } from "../../db/client.js"
+import type { RunningSandboxProvider } from "../../models/workspace-sandboxes.js"
 
 /** Hosted runs Vercel, self-host runs Docker; unsandboxed is explicit only. */
 export const SANDBOX_PROVIDERS = ["docker", "vercel", "unsandboxed"] as const
@@ -195,18 +196,10 @@ export async function destroyDetachedProviderSandbox(input: {
   if (input.provider === "vercel") {
     // Deleting also removes the saved state and revokes the GitHub token.
     if (!input.orgId) throw new Error("Deleting a Vercel sandbox needs its org")
-    const { deleteVercelSandbox, vercelCredentials } = await import(
-      "./vercel-sandbox-provider.js"
+    const { deleteVercelSandbox } = await import("./vercel-sandbox-provider.js")
+    await deleteVercelSandbox(
+      await vercelSandboxTarget(input.orgId, input.providerSandboxId),
     )
-    const { sandboxGitTokenStore } = await import(
-      "../../models/sandbox-git-tokens.js"
-    )
-    const { parseEnv } = await import("../../config/env.js")
-    await deleteVercelSandbox({
-      credentials: await vercelCredentials(),
-      name: input.providerSandboxId,
-      tokens: sandboxGitTokenStore(input.orgId, parseEnv(process.env)),
-    })
     return
   }
   if (
@@ -237,11 +230,10 @@ export async function destroyDetachedProviderSandbox(input: {
  */
 export async function stopDetachedProviderSandbox(input: {
   orgId: string
-  provider: SandboxProvider
+  provider: RunningSandboxProvider
   providerSandboxId: string
 }): Promise<void> {
   if (input.provider === "docker") {
-    const { default: Docker } = await import("dockerode")
     try {
       // PID 1 is the stock keep-alive command, which ignores SIGTERM.
       await new Docker({ timeout: 30_000 })
@@ -254,22 +246,24 @@ export async function stopDetachedProviderSandbox(input: {
     }
     return
   }
-  if (input.provider === "vercel") {
-    const { stopVercelSandbox, vercelCredentials } = await import(
-      "./vercel-sandbox-provider.js"
-    )
-    const { sandboxGitTokenStore } = await import(
-      "../../models/sandbox-git-tokens.js"
-    )
-    const { parseEnv } = await import("../../config/env.js")
-    await stopVercelSandbox({
-      credentials: await vercelCredentials(),
-      name: input.providerSandboxId,
-      tokens: sandboxGitTokenStore(input.orgId, parseEnv(process.env)),
-    })
-    return
+  const { stopVercelSandbox } = await import("./vercel-sandbox-provider.js")
+  await stopVercelSandbox(
+    await vercelSandboxTarget(input.orgId, input.providerSandboxId),
+  )
+}
+
+/** A Vercel sandbox by name, with the org's record of its GitHub token. */
+async function vercelSandboxTarget(orgId: string, name: string) {
+  const { vercelCredentials } = await import("./vercel-sandbox-provider.js")
+  const { sandboxGitTokenStore } = await import(
+    "../../models/sandbox-git-tokens.js"
+  )
+  const { parseEnv } = await import("../../config/env.js")
+  return {
+    credentials: await vercelCredentials(),
+    name,
+    tokens: sandboxGitTokenStore(orgId, parseEnv(process.env)),
   }
-  throw new Error(`Provider ${input.provider} has no sandbox to stop`)
 }
 
 async function assertDockerDaemonReachable(): Promise<void> {

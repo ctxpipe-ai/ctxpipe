@@ -68,6 +68,7 @@ import {
   conversationPublicPrUrl,
   conversationPublicTreeUrl,
   readySandboxHandle,
+  sandboxAtCapacityResponse,
 } from "./conversation-files-routes.js"
 
 const ErrorResponseSchema = z
@@ -430,11 +431,7 @@ const postConversationPrepareRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
     },
-    429: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description:
-        "At capacity: the organization already runs its maximum number of chat sandboxes",
-    },
+    429: sandboxAtCapacityResponse,
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Prepare failed",
@@ -510,11 +507,7 @@ const postConversationPullRequestRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
     },
-    429: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description:
-        "At capacity: the organization runs its maximum number of chat sandboxes",
-    },
+    429: sandboxAtCapacityResponse,
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Sandbox provider unavailable",
@@ -564,6 +557,7 @@ function workspaceConversationStream(
   parsed: ConversationChatRequest,
   request: Request,
   orgSlug: string | null | undefined,
+  orgId: string | null | undefined,
 ) {
   return withConversationIdHeader(
     workspaceChatStreamResponse(
@@ -576,7 +570,7 @@ function workspaceConversationStream(
         runId: parsed.runId,
         source: parsed.source ?? null,
         workspaceId: parsed.workspaceId,
-        orgId: "",
+        orgId,
         orgSlug,
         resolveRuntime: () =>
           resolveWorkspaceChatSendRuntime({
@@ -837,6 +831,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       parsed,
       c.req.raw,
       c.get("orgSlug"),
+      c.get("orgId"),
     )
   })
   .openapi(postConversationMessageRoute, async (c) => {
@@ -864,6 +859,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       parsed,
       c.req.raw,
       c.get("orgSlug"),
+      c.get("orgId"),
     )
   })
   .openapi(postConversationPrepareRoute, async (c) => {

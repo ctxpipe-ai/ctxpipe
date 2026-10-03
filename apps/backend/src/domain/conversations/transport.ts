@@ -6,6 +6,7 @@ import {
 import { loadConversationTurns } from "../../models/conversation-messages.js"
 import { runWithLangfuseContext } from "../../observability/langfuse.js"
 import { log } from "../../observability/logger.js"
+import { stoppingSandboxWhenDone } from "../workspaces/conversation-sandbox-lifecycle.js"
 import {
   streamTanstackWorkspaceChat,
   type TanstackWorkspaceChatInput,
@@ -157,8 +158,15 @@ export function workspaceChatStreamResponse(
   }
   const format =
     input.wireFormat ?? (request ? workspaceChatWireFormat(request) : "sse")
+  const stream = streamWorkspaceChatWithLangfuseContext(input, chatInput)
   return workspaceChatHttpResponse(
-    streamWorkspaceChatWithLangfuseContext(input, chatInput),
+    // Only the UI is a person watching; any other caller frees its slot.
+    input.source === "ui"
+      ? stream
+      : stoppingSandboxWhenDone(
+          { orgId: chatInput.orgId, conversationId: chatInput.conversationId },
+          stream,
+        ),
     format,
     request,
   )

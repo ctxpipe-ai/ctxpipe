@@ -1,4 +1,4 @@
-import { and, count, eq, inArray, isNotNull, isNull, ne } from "drizzle-orm"
+import { and, count, eq, inArray, isNull, ne } from "drizzle-orm"
 import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { workspaceSandboxInstances } from "../db/schema/workspaces.js"
 import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
@@ -33,6 +33,21 @@ export type SandboxInstanceOwnership = Pick<
 
 export type SandboxInstanceDeleteOwnership = SandboxInstanceOwnership &
   Pick<SandboxInstanceRecord, "providerSandboxId">
+
+/** The identity a write must still match, so it never takes over another owner's row. */
+export function ownershipOf(
+  row: SandboxInstanceRecord,
+): SandboxInstanceDeleteOwnership {
+  return {
+    kind: row.kind,
+    workspaceId: row.workspaceId,
+    conversationId: row.conversationId,
+    provider: row.provider,
+    image: row.image,
+    revision: row.revision,
+    providerSandboxId: row.providerSandboxId,
+  }
+}
 
 export class SandboxInstanceOwnershipConflict extends Error {
   constructor(readonly sandboxKey: string) {
@@ -213,11 +228,28 @@ export async function listSandboxInstances(input: {
 }
 
 /**
- * Conversation sandboxes the org is running now: live Docker or Vercel rows,
- * including slots reserved for a create in progress. `excludingId` leaves out
- * the sandbox about to start, so starting it again never counts twice.
+ * Providers whose sandboxes keep running (and cost) until they are stopped.
+ * Unsandboxed runs have no sandbox.
  */
-export async function countRunningConversationSandboxes(
+export const RUNNING_SANDBOX_PROVIDERS = ["docker", "vercel"] as const
+
+export type RunningSandboxProvider = (typeof RUNNING_SANDBOX_PROVIDERS)[number]
+
+export function isRunningSandboxProvider(
+  provider: string | null | undefined,
+): provider is RunningSandboxProvider {
+  return (
+    RUNNING_SANDBOX_PROVIDERS as readonly (string | null | undefined)[]
+  ).includes(provider)
+}
+
+/**
+ * Sandboxes the org is running now, of any kind: live rows of a running
+ * provider, including slots reserved for a create in progress. `excludingId`
+ * leaves out the sandbox about to start, so starting it again never counts
+ * twice.
+ */
+export async function countRunningSandboxes(
   orgId: string,
   excludingId: string,
 ): Promise<number> {
@@ -228,10 +260,10 @@ export async function countRunningConversationSandboxes(
       .where(
         and(
           eq(workspaceSandboxInstances.orgId, orgId),
-          eq(workspaceSandboxInstances.kind, "chat"),
           eq(workspaceSandboxInstances.state, "live"),
-          isNotNull(workspaceSandboxInstances.conversationId),
-          inArray(workspaceSandboxInstances.provider, ["docker", "vercel"]),
+          inArray(workspaceSandboxInstances.provider, [
+            ...RUNNING_SANDBOX_PROVIDERS,
+          ]),
           ne(workspaceSandboxInstances.id, excludingId),
         ),
       )

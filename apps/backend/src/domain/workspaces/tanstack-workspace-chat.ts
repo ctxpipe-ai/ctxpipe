@@ -38,7 +38,6 @@ import {
 } from "../../models/workspace-sandboxes.js"
 import { getLogger, log } from "../../observability/logger.js"
 import {
-  CHAT_SANDBOX_KEEP_ALIVE,
   WORKSPACE_CHAT_CLONE_BRANCH_SECRET,
   WORKSPACE_CHAT_CLONE_SHA_SECRET,
   WORKSPACE_CHAT_CLONE_TOKEN_SECRET,
@@ -55,7 +54,6 @@ import {
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
 import {
   SandboxCapacityError,
-  stopConversationSandboxes,
   withConversationSandboxSlots,
 } from "./conversation-sandbox-lifecycle.js"
 import { nameConversationIfUnnamed } from "./conversation-title.js"
@@ -155,11 +153,6 @@ export type TanstackWorkspaceChatInput = {
   onDelta?: (delta: string) => Promise<void> | void
   resolveRuntime?: () => Promise<Partial<TanstackWorkspaceChatInput>>
   wireFormat?: WorkspaceChatWireFormat
-  /**
-   * Nobody is watching this run (an MCP turn): stop its sandbox as soon as
-   * the run ends, so it never holds one of the org's slots while idle.
-   */
-  stopSandboxWhenDone?: boolean
 }
 
 export { conversationRenameChunk } from "./workspace-chat-agui.js"
@@ -193,7 +186,6 @@ function conversationSandboxDefinition(input: {
     lifecycle: {
       reuse: "thread",
       snapshot: "none",
-      keepAlive: CHAT_SANDBOX_KEEP_ALIVE,
       destroyOnComplete: false,
     },
     hooks: {
@@ -330,44 +322,50 @@ async function* streamTanstackWorkspaceChatBody(
   yield workspaceChatSandboxSetupChunk("starting")
   const resolved = input.resolveRuntime ? await input.resolveRuntime() : {}
   const turn: TanstackWorkspaceChatInput = { ...input, ...resolved }
-  try {
-    await turn.onUserPersist?.()
-    const prepared = await startWorkspaceChat(turn)
-    if (!prepared.ok) throw new Error(prepared.error)
-    yield workspaceChatSandboxSetupChunk("ready")
-    for await (const chunk of prepared.stream) {
-      const typed = chunk as StreamChunk
-      if (typed.type === "RUN_STARTED") continue
-      if (typed.type === "RUN_ERROR") await turn.onError?.()
-      if (typed.type === "RUN_FINISHED") {
-        const name = await nameConversationIfUnnamed({
-          conversationId: turn.conversationId,
-          prompt: turn.prompt,
-        })
-        if (name) yield conversationRenameChunk(name)
-        await turn.onFinish?.()
-      }
-      if (
-        typed.type === "TEXT_MESSAGE_CONTENT" ||
-        typed.type === "REASONING_MESSAGE_CONTENT" ||
-        typed.type === "TOOL_CALL_START"
-      )
-        markWorkspaceChatFirstShownToken(turnId)
-      yield typed
-    }
-  } finally {
-    // Success, error or abort: the run released the conversation by now.
-    if (turn.stopSandboxWhenDone)
-      await stopConversationSandboxes({
-        orgId: turn.orgId,
+  await turn.onUserPersist?.()
+  const prepared = await startWorkspaceChat(turn)
+  if (!prepared.ok) throw new Error(prepared.error)
+  yield workspaceChatSandboxSetupChunk("ready")
+  for await (const chunk of prepared.stream) {
+    const typed = chunk as StreamChunk
+    if (typed.type === "RUN_STARTED") continue
+    if (typed.type === "RUN_ERROR") await turn.onError?.()
+    if (typed.type === "RUN_FINISHED") {
+      const name = await nameConversationIfUnnamed({
         conversationId: turn.conversationId,
-      }).catch((error: unknown) =>
-        log.error({
-          step: "workspace-chat-stop-sandbox",
-          message: `Stopping the sandbox after an unattended run failed: ${String(error)}`,
-          conversationId: turn.conversationId,
-        }),
-      )
+        prompt: turn.prompt,
+      })
+      if (name) yield conversationRenameChunk(name)
+      await turn.onFinish?.()
+    }
+    if (
+      typed.type === "TEXT_MESSAGE_CONTENT" ||
+      typed.type === "REASONING_MESSAGE_CONTENT" ||
+      typed.type === "TOOL_CALL_START"
+    )
+      markWorkspaceChatFirstShownToken(turnId)
+    yield typed
+  }
+}
+
+/**
+ * Schedule the sweep that stops a sandbox once it has been idle. The
+ * scheduler sits next to its workflow, which connects to OpenWorkflow on
+ * import, so it is loaded only when a sandbox is used.
+ */
+async function scheduleIdleStop(orgId: string, usedAt: Date): Promise<void> {
+  try {
+    const { scheduleIdleSandboxStop } = await import(
+      "../../openworkflow/workflows/conversation-sandbox-sweep.js"
+    )
+    await scheduleIdleSandboxStop(orgId, usedAt)
+  } catch (error) {
+    // The worker-start backstop restarts a lost sweep.
+    log.error({
+      step: "conversation-sandbox-sweep-schedule",
+      message: `Scheduling the sandbox sweep failed: ${String(error)}`,
+      orgId,
+    })
   }
 }
 
@@ -473,6 +471,11 @@ export async function warmTanstackWorkspaceChat(
       { step: "workspace-chat-prepare-ensure" },
     )
     return { ok: false, status: 503, error: "workspace chat prepare failed" }
+  } finally {
+    // Opening or reading a conversation counts as use; also covers a start
+    // that failed after its sandbox began running.
+    if (built.isolation !== "unsandboxed")
+      await scheduleIdleStop(input.orgId, new Date())
   }
 }
 
@@ -533,7 +536,9 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   let transcriptOwner: string | undefined
   // The idle clock starts when the turn ends. Runs before the conversation
   // lock is released, so the sweep never sees a free lock with a stale time.
+  // The sweep it schedules is due exactly 5 minutes after this use.
   const markSandboxUsed = async (ctx: { runId: string }) => {
+    const usedAt = new Date()
     try {
       await heartbeatSandboxInstance(
         definition.key({
@@ -541,7 +546,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
           runId: ctx.runId,
           tenant: { userId: undefined, orgId: input.orgId },
         }),
-        new Date(),
+        usedAt,
         input.orgId,
       )
     } catch (error) {
@@ -551,6 +556,8 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         conversationId: input.conversationId,
       })
     }
+    if (built.isolation !== "unsandboxed")
+      await scheduleIdleStop(input.orgId, usedAt)
   }
   const stream = await chat({
     adapter: opencodeText(built.contract.opencodeModel, {

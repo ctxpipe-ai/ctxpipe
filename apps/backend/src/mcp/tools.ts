@@ -4,7 +4,10 @@ import { createError } from "evlog"
 import { z } from "zod"
 import { currentMcpActor, requireCurrentOrgId } from "../auth/context.js"
 import { advisorWorkspaceId } from "../domain/workspaces/chat-sandbox-policy.js"
-import { SandboxCapacityError } from "../domain/workspaces/conversation-sandbox-lifecycle.js"
+import {
+  SandboxCapacityError,
+  stopConversationSandboxes,
+} from "../domain/workspaces/conversation-sandbox-lifecycle.js"
 import { collectTanstackWorkspaceChatText } from "../domain/workspaces/tanstack-workspace-chat.js"
 import {
   persistWorkspaceChatUserTurnListed,
@@ -135,7 +138,6 @@ export function registerMcpTools(server: McpServer): void {
                 orgId,
                 workspaceId,
                 writeStatus: "read_only",
-                stopSandboxWhenDone: true,
                 resolveRuntime: () =>
                   resolveWorkspaceChatSendRuntime({
                     conversationId: threadId,
@@ -179,6 +181,9 @@ export function registerMcpTools(server: McpServer): void {
               why: "The organization runs its maximum number of chat sandboxes",
             })
           throw error
+        } finally {
+          // Nobody watches an MCP turn: free its sandbox slot right away.
+          await stopConversationSandboxes({ orgId, conversationId: threadId })
         }
       }),
   )

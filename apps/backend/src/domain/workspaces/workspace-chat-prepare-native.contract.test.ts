@@ -19,7 +19,10 @@ import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.
 import { withTestLogger } from "../../test/with-test-logger.js"
 import { CHAT_SANDBOX_IDLE_STOP_MS } from "./chat-lifecycle.js"
 import { workspaceChatRuntimeConfig } from "./chat-runtime.js"
-import { sweepConversationSandboxes } from "./conversation-sandbox-lifecycle.js"
+import {
+  stoppingSandboxWhenDone,
+  sweepConversationSandboxes,
+} from "./conversation-sandbox-lifecycle.js"
 import { workspaceChatInstanceAccess } from "./sandbox-instance-store.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import {
@@ -726,15 +729,11 @@ it(
                   const containerRunning = async () =>
                     (await docker.getContainer(recovered.handle.id).inspect())
                       .State.Running
-                  const chatTurn = async (
-                    name: string,
-                    extra: { stopSandboxWhenDone?: boolean } = {},
-                  ) => {
+                  const chatTurn = async (name: string, unattended = false) => {
                     const events: string[] = []
                     let text = ""
-                    for await (const chunk of streamTanstackWorkspaceChat({
+                    const stream = streamTanstackWorkspaceChat({
                       ...input,
-                      ...extra,
                       prompt: name,
                       runId: `${f.conversationId}-${name}`,
                       messages: [
@@ -743,7 +742,13 @@ it(
                         )),
                         { id: `user-${name}`, role: "user", content: name },
                       ],
-                    })) {
+                    })
+                    for await (const chunk of unattended
+                      ? stoppingSandboxWhenDone(
+                          { orgId: f.orgId, conversationId: f.conversationId },
+                          stream,
+                        )
+                      : stream) {
                       events.push(chunk.type)
                       if (chunk.type === "TEXT_MESSAGE_CONTENT")
                         text += chunk.delta
@@ -776,7 +781,7 @@ it(
                     await resumed.handle.fs.read("/workspace/idle.txt"),
                   ).toBe("kept through the idle stop")
                   phase = "unattended chat"
-                  await chatTurn("unattended", { stopSandboxWhenDone: true })
+                  await chatTurn("unattended", true)
                   expect(await containerRunning()).toBe(false)
                   expect(
                     (
