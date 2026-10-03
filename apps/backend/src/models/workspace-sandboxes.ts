@@ -4,9 +4,16 @@ import { workspaceSandboxInstances } from "../db/schema/workspaces.js"
 import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
 import { orgSql } from "./workspace-sql.js"
 
+/**
+ * `base`: a Workspace base (ADR-048, "Fast start"): a provider snapshot of a
+ * sandbox that cloned the Workspace repository and ran setup. New
+ * conversations start from it; it runs nothing itself.
+ */
+export type SandboxInstanceKind = "chat" | "job" | "base"
+
 export type SandboxInstanceRecord = {
   id: string
-  kind: "chat" | "job"
+  kind: SandboxInstanceKind
   orgId: string
   workspaceId: string
   conversationId?: string | null
@@ -22,9 +29,16 @@ export type SandboxInstanceRecord = {
   /** `stopped`: the provider sandbox is stopped with its files kept; the next turn resumes it. */
   state: SandboxInstanceState
   lastHeartbeatAt: Date
+  /** Set when read; a Workspace base's build time. Never written. */
+  createdAt?: Date
 }
 
-export type SandboxInstanceState = "live" | "stopped" | "destroy_failed"
+/** `building`: a Workspace base whose build has not finished. */
+export type SandboxInstanceState =
+  | "live"
+  | "stopped"
+  | "destroy_failed"
+  | "building"
 
 export type SandboxInstanceOwnership = Pick<
   SandboxInstanceRecord,
@@ -61,11 +75,13 @@ export class SandboxInstanceOwnershipConflict extends Error {
 function toSandboxInstanceRecord(
   row: typeof workspaceSandboxInstances.$inferSelect,
 ): SandboxInstanceRecord | null {
-  if (row.kind !== "chat" && row.kind !== "job") return null
+  if (row.kind !== "chat" && row.kind !== "job" && row.kind !== "base")
+    return null
   if (
     row.state !== "live" &&
     row.state !== "stopped" &&
-    row.state !== "destroy_failed"
+    row.state !== "destroy_failed" &&
+    row.state !== "building"
   )
     return null
   return {
@@ -85,6 +101,7 @@ function toSandboxInstanceRecord(
     latestRunId: row.latestRunId,
     state: row.state,
     lastHeartbeatAt: row.lastHeartbeatAt,
+    createdAt: row.createdAt,
   }
 }
 
@@ -199,7 +216,7 @@ export async function heartbeatSandboxInstance(
 export async function listSandboxInstances(input: {
   workspaceId?: string
   conversationId?: string
-  kind?: "chat" | "job"
+  kind?: SandboxInstanceKind
   state?: SandboxInstanceState
 }): Promise<SandboxInstanceRecord[]> {
   return orgSql(async () => {
@@ -244,10 +261,11 @@ export function isRunningSandboxProvider(
 }
 
 /**
- * Sandboxes the org is running now, of any kind: live rows of a running
- * provider, including slots reserved for a create in progress. `excludingId`
- * leaves out the sandbox about to start, so starting it again never counts
- * twice.
+ * Sandboxes the org is running now: live conversation and job rows of a
+ * running provider, including slots reserved for a create in progress.
+ * Workspace bases run nothing (an image or a snapshot), so they never count.
+ * `excludingId` leaves out the sandbox about to start, so starting it again
+ * never counts twice.
  */
 export async function countRunningSandboxes(
   orgId: string,
@@ -261,6 +279,7 @@ export async function countRunningSandboxes(
         and(
           eq(workspaceSandboxInstances.orgId, orgId),
           eq(workspaceSandboxInstances.state, "live"),
+          ne(workspaceSandboxInstances.kind, "base"),
           inArray(workspaceSandboxInstances.provider, [
             ...RUNNING_SANDBOX_PROVIDERS,
           ]),

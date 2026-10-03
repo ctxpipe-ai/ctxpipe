@@ -64,7 +64,8 @@ export const WORKSPACE_CHAT_DOCKER_SETUP = [
 /**
  * Vercel's `node24` runtime has no OpenCode, and its user cannot write the
  * global npm prefix, so the CLI goes under the user's home (kept on stop).
- * The Workspace base snapshot (ticket 02) will carry it instead.
+ * The Workspace base snapshot carries it, so only the base builder and a
+ * conversation that starts before its Workspace has a base install it.
  */
 export const WORKSPACE_CHAT_VERCEL_SETUP = [
   `command -v opencode >/dev/null 2>&1 || npm install -g --prefix "${VERCEL_AGENT_ROOT}/.local" ${WORKSPACE_CHAT_OPENCODE_CLI}`,

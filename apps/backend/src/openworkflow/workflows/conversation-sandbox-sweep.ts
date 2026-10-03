@@ -1,12 +1,16 @@
 import { z } from "zod"
-import { getSystemDb } from "../../db/client.js"
+import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { CHAT_SANDBOX_IDLE_STOP_MS } from "../../domain/workspaces/chat-lifecycle.js"
 import { sweepConversationSandboxes } from "../../domain/workspaces/conversation-sandbox-lifecycle.js"
-import { countRunningSandboxes } from "../../models/workspaces.js"
+import {
+  countRunningSandboxes,
+  listSandboxInstances,
+} from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { requestDockerSandboxHostPrune } from "./docker-sandbox-host-prune.js"
 
 /**
  * One organization's conversation sandbox lifecycle (idle stop, 30-day
@@ -34,6 +38,17 @@ export const conversationSandboxSweep = defineWorkflow(
       await step.run({ name: "schedule-next" }, () =>
         scheduleConversationSandboxSweep(input.orgId, new Date(nextSweepAt)),
       )
+    // Docker hosts: while sandboxes run, prune what dormant orgs left behind.
+    await step.run({ name: "request-host-prune" }, async () => {
+      try {
+        await requestDockerSandboxHostPrune()
+      } catch (error) {
+        log.error({
+          step: "docker-sandbox-host-prune",
+          message: `Requesting the Docker host prune failed: ${String(error)}`,
+        })
+      }
+    })
     return swept
   },
 )
@@ -81,7 +96,8 @@ export async function scheduleIdleSandboxStop(
 
 /**
  * Backstop for a lost chain (a failed schedule, a crashed replica): on worker
- * start, sweep every org that still has a running sandbox.
+ * start, sweep every org that still has a running sandbox or a Workspace
+ * base (whose sweep deletes the bases nothing uses any more).
  */
 export async function scheduleSweepsForRunningSandboxes(): Promise<void> {
   const orgs = await getSystemDb()
@@ -89,7 +105,13 @@ export async function scheduleSweepsForRunningSandboxes(): Promise<void> {
     .from(organizations)
   for (const { id } of orgs) {
     try {
-      if ((await countRunningSandboxes(id, "")) > 0)
+      const hasBases = async () =>
+        (
+          await withOrgDbContext(id, () =>
+            listSandboxInstances({ kind: "base" }),
+          )
+        ).length > 0
+      if ((await countRunningSandboxes(id, "")) > 0 || (await hasBases()))
         await scheduleConversationSandboxSweep(id, new Date())
     } catch (error) {
       log.error({

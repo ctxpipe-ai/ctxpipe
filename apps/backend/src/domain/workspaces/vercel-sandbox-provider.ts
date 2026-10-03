@@ -33,6 +33,21 @@ export function conversationSandboxTags(
   return { ctxpipe: "workspace-chat", environment }
 }
 
+/**
+ * Tags on the sandbox that builds a Workspace base. It stays (stopped) while
+ * the base is kept, so the PR-close cleanup finds it by environment and
+ * deletes it together with the base snapshot.
+ */
+export function workspaceBaseTags(environment: string): Record<string, string> {
+  return { ctxpipe: "workspace-base", environment }
+}
+
+/**
+ * Installing OpenCode needs the npm registry. Only base builders and
+ * sandboxes that start without a base (which carries OpenCode) reach it.
+ */
+const NPM_REGISTRY_HOST = "registry.npmjs.org"
+
 export type VercelCredentials = {
   token: string
   teamId: string
@@ -251,16 +266,25 @@ export function vercelConversationProvider(input: {
   agentPassword: string
   access: ConversationSandboxAccess
   tags: Record<string, string>
-  /** The Workspace base snapshot; without one the sandbox starts empty. */
+  /**
+   * The Workspace base snapshot (clone and OpenCode already in place).
+   * Without one the sandbox starts empty and installs OpenCode itself.
+   */
   baseSnapshotId?: string
 }): SandboxProvider {
   const { credentials } = input
+  const access: ConversationSandboxAccess = input.baseSnapshotId
+    ? input.access
+    : {
+        ...input.access,
+        extraHosts: [...(input.access.extraHosts ?? []), NPM_REGISTRY_HOST],
+      }
   return {
     name: "vercel",
     capabilities: () => ({ ...VERCEL_CAPS, killableProcesses: true }),
     async create() {
       // Secrets reach the session through `env.set`, not the create request.
-      const gitToken = await input.access.mintGitToken()
+      const gitToken = await access.mintGitToken()
       const sandbox = await Sandbox.create({
         ...credentials,
         ...(input.baseSnapshotId
@@ -276,10 +300,10 @@ export function vercelConversationProvider(input: {
         timeout: SESSION_TIMEOUT_MS,
         snapshotExpiration: STATE_RETENTION_MS,
         keepLastSnapshots: { count: 1, expiration: STATE_RETENTION_MS },
-        networkPolicy: conversationNetworkPolicy({ ...input.access, gitToken }),
+        networkPolicy: conversationNetworkPolicy({ ...access, gitToken }),
         tags: input.tags,
       })
-      await input.access.tokens.put(sandbox.name, gitToken)
+      await access.tokens.put(sandbox.name, gitToken)
       return conversationHandle(sandbox, input.agentPassword)
     },
     async resume({ id }) {
@@ -290,17 +314,15 @@ export function vercelConversationProvider(input: {
         // Deleted or past retention: TanStack creates a new one.
         return null
       }
-      await refreshGitAccess(sandbox, input.access)
+      await refreshGitAccess(sandbox, access)
       return conversationHandle(sandbox, input.agentPassword)
     },
     async destroy({ id }) {
       await deleteVercelSandbox({
         credentials,
         name: id,
-        tokens: input.access.tokens,
-        ...(input.access.revokeGitToken
-          ? { revoke: input.access.revokeGitToken }
-          : {}),
+        tokens: access.tokens,
+        ...(access.revokeGitToken ? { revoke: access.revokeGitToken } : {}),
       })
     },
   }
@@ -367,4 +389,99 @@ export async function deleteVercelSandbox(
     }
   }
   await revokeSandboxToken(target)
+}
+
+/** A base build that has not finished by then is abandoned. */
+const BASE_BUILD_TIMEOUT_MS = 15 * 60_000
+
+/**
+ * Start the sandbox that builds a Workspace base: `node24` reaching GitHub
+ * (token in the firewall rule, as for conversations) and the npm registry.
+ * The caller clones and runs setup on `handle`; `capture` snapshots it with
+ * no expiry (which stops it) and revokes its token. The stopped builder is
+ * kept, tagged, as the snapshot's owner until the base is deleted.
+ */
+export async function startVercelWorkspaceBase(input: {
+  credentials: VercelCredentials
+  mintGitToken: () => Promise<string>
+  /** Defaults to GitHub's revoke endpoint. */
+  revokeGitToken?: (token: string) => Promise<void>
+  backendHost: string
+  tags: Record<string, string>
+}): Promise<{
+  name: string
+  handle: SandboxHandle
+  capture: () => Promise<{ snapshotId: string }>
+  abandon: () => Promise<void>
+}> {
+  const gitToken = await input.mintGitToken()
+  const revoke = () =>
+    (input.revokeGitToken ?? revokeGithubToken)(gitToken).catch(
+      (error: unknown) =>
+        log.warn({
+          step: "workspace-base-token-revoke",
+          message: `Revoking a base builder's GitHub token failed: ${String(error)}`,
+        }),
+    )
+  let sandbox: Sandbox
+  try {
+    sandbox = await Sandbox.create({
+      ...input.credentials,
+      runtime: "node24",
+      timeout: BASE_BUILD_TIMEOUT_MS,
+      networkPolicy: conversationNetworkPolicy({
+        gitToken,
+        backendHost: input.backendHost,
+        extraHosts: [NPM_REGISTRY_HOST],
+      }),
+      tags: input.tags,
+    })
+  } catch (error) {
+    await revoke()
+    throw error
+  }
+  return {
+    name: sandbox.name,
+    handle: new VercelHandle({ sandbox, workdir: WORKDIR, ports: [] }),
+    capture: async () => {
+      const snapshot = await sandbox.snapshot({ expiration: 0 })
+      await revoke()
+      return { snapshotId: snapshot.snapshotId }
+    },
+    abandon: async () => {
+      await deleteVercelSandbox({
+        credentials: input.credentials,
+        name: sandbox.name,
+      })
+      await revoke()
+    },
+  }
+}
+
+/**
+ * Delete a Workspace base: its snapshot, then its stopped builder with
+ * anything else saved under it. Already deleted counts as deleted.
+ */
+export async function deleteVercelWorkspaceBase(input: {
+  credentials: VercelCredentials
+  snapshotId?: string | null
+  builderName?: string | null
+}): Promise<void> {
+  if (input.snapshotId) {
+    try {
+      await (
+        await Snapshot.get({
+          ...input.credentials,
+          snapshotId: input.snapshotId,
+        })
+      ).delete()
+    } catch (error) {
+      if (!notFound(error)) throw error
+    }
+  }
+  if (input.builderName)
+    await deleteVercelSandbox({
+      credentials: input.credentials,
+      name: input.builderName,
+    })
 }

@@ -27,7 +27,10 @@ import {
   withSandboxLockIfFree,
 } from "./sandbox-lock-store.js"
 import { stopDetachedProviderSandbox } from "./sandbox-provider.js"
-import { destroyUnusedSandbox } from "./workspace-sandbox-cleanup.js"
+import {
+  collectUnusedWorkspaceChatBases,
+  destroyUnusedSandbox,
+} from "./workspace-sandbox-cleanup.js"
 
 /**
  * Retries (a turn holds the conversation, a stop or delete failed) land on
@@ -263,12 +266,16 @@ export async function sweepConversationSandboxes(
   orgId: string,
   now: Date = new Date(),
 ): Promise<{ stopped: number; deleted: number; nextSweepAt: Date | null }> {
-  const { rows, conversations } = await withOrgDbContext(orgId, async () => ({
-    rows: await listSandboxInstances({ kind: "chat" }),
-    conversations: new Set(
-      (await listOrgConversationsForSandboxGc(orgId)).map((row) => row.id),
-    ),
-  }))
+  const { rows, bases, conversations } = await withOrgDbContext(
+    orgId,
+    async () => ({
+      rows: await listSandboxInstances({ kind: "chat" }),
+      bases: await listSandboxInstances({ kind: "base" }),
+      conversations: new Set(
+        (await listOrgConversationsForSandboxGc(orgId)).map((row) => row.id),
+      ),
+    }),
+  )
   let stopped = 0
   let deleted = 0
   let next: number | null = null
@@ -316,6 +323,18 @@ export async function sweepConversationSandboxes(
         sandboxId: row.id,
       })
       dueAt(retryAt)
+    }
+  }
+  // Bases whose conversations are gone (deleted above, or long ago) go too.
+  for (const workspaceId of new Set(bases.map((row) => row.workspaceId))) {
+    try {
+      await collectUnusedWorkspaceChatBases(orgId, workspaceId, now)
+    } catch (error) {
+      log.error({
+        step: "conversation-sandbox-sweep",
+        message: `Deleting unused Workspace bases failed: ${String(error)}`,
+        workspaceId,
+      })
     }
   }
   if (stopped || deleted)

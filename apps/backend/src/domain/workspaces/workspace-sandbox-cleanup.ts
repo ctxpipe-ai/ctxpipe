@@ -3,94 +3,56 @@ import { assertNotInOrgDbContext, withOrgDbContext } from "../../db/client.js"
 import {
   deleteSandboxInstance,
   getSandboxInstance,
-  getWorkspaceById,
   listSandboxInstances,
   ownershipOf,
   persistSandboxInstance,
   type SandboxInstanceRecord,
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
-import {
-  CHAT_SESSION_TTL_MS,
-  shouldDestroyJobSandbox,
-} from "./chat-lifecycle.js"
+import { shouldDestroyJobSandbox } from "./chat-lifecycle.js"
 import { workspaceChatDockerImage } from "./chat-runtime.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
-import { destroyDetachedProviderSandbox } from "./sandbox-provider.js"
+import {
+  destroyDetachedProviderSandbox,
+  discoverSandboxProvider,
+} from "./sandbox-provider.js"
+import {
+  deleteWorkspaceBaseArtifacts,
+  VERCEL_AGENT_IMAGE,
+} from "./workspace-base-providers.js"
+import { collectUnusedWorkspaceSandboxBases } from "./workspace-sandbox-base.js"
 
-/** Bases retain image ownership until every fork has released that image. */
+/**
+ * Delete the Workspace's bases no conversation needs any more (see
+ * `collectUnusedWorkspaceSandboxBases`). Skipped where this deployment has no
+ * sandbox provider, so a daemon that is briefly unreachable never costs the
+ * Workspace its current base.
+ */
 export async function collectUnusedWorkspaceChatBases(
   orgId: string,
   workspaceId: string,
+  now?: Date,
 ): Promise<number> {
-  return postgresSandboxLocks(orgId).withLock(
-    `workspace-sandboxes:${workspaceId}`,
-    async () => {
-      const { workspace, rows } = await withOrgDbContext(orgId, async () => ({
-        workspace: await getWorkspaceById(workspaceId),
-        rows: await listSandboxInstances({ workspaceId, kind: "chat" }),
-      }))
-      if (!workspace) return 0
-      const bases = rows.filter(
-        (row) => !row.conversationId && row.id.startsWith("base:"),
-      )
-      let destroyed = 0
-      let dockerImage: string | undefined
-      for (const base of bases) {
-        if (
-          base.latestSnapshotId &&
-          rows.some(
-            (row) =>
-              row.id !== base.id &&
-              row.latestSnapshotId === base.latestSnapshotId,
+  const provider = await discoverSandboxProvider().catch(() => undefined)
+  if (provider !== "docker" && provider !== "vercel") return 0
+  const image =
+    provider === "vercel"
+      ? VERCEL_AGENT_IMAGE
+      : await new Docker({ timeout: 30_000 })
+          .getImage(workspaceChatDockerImage())
+          .inspect()
+          .then(
+            (info) => info.Id,
+            () => undefined,
           )
-        )
-          continue
-        const obsoleteRevision = base.revision
-          ? base.revision.sha !== workspace.desiredSha ||
-            base.revision.generation !== workspace.desiredGeneration ||
-            base.revision.remote.url !== workspace.workspaceRepositoryUrl
-          : false
-        if (
-          base.provider === "docker" &&
-          base.image !== null &&
-          dockerImage === undefined
-        ) {
-          dockerImage = (
-            await new Docker({ timeout: 30_000 })
-              .getImage(workspaceChatDockerImage())
-              .inspect()
-          ).Id
-        }
-        const currentImage =
-          base.provider === "docker"
-            ? (dockerImage ?? null)
-            : base.provider === "local-process" ||
-                base.provider === "local_process" ||
-                base.provider === "unsandboxed"
-              ? "1"
-              : null
-        const obsoleteImage =
-          currentImage !== null &&
-          base.image !== null &&
-          base.image !== currentImage
-        const obsolete = obsoleteRevision || obsoleteImage
-        const superseded = bases.some(
-          (other) =>
-            other.id !== base.id &&
-            other.lastHeartbeatAt > base.lastHeartbeatAt,
-        )
-        const idle =
-          Date.now() - base.lastHeartbeatAt.getTime() >= CHAT_SESSION_TTL_MS
-        if (
-          (obsolete || superseded || idle) &&
-          (await destroyWorkspaceSandboxUnderFence(base.id, orgId))
-        )
-          destroyed++
-      }
-      return destroyed
-    },
-  )
+  return collectUnusedWorkspaceSandboxBases({
+    orgId,
+    workspaceId,
+    agent: { provider, image },
+    ...(now ? { now } : {}),
+    destroy: async (row) =>
+      (await destroyWorkspaceSandboxUnderFence(row.id, orgId)) === true,
+  })
 }
 
 /** Share allocation's workspace fence, including idle and direct cleanup calls. */
@@ -149,6 +111,26 @@ async function destroyWorkspaceSandboxUnderFence(
       const stored = await getSandboxInstance(id, initial.orgId)
       if (!stored) return true
       if (keep?.(stored)) return "kept"
+      if (stored.kind === "base") {
+        try {
+          await deleteWorkspaceBaseArtifacts(stored)
+        } catch (error) {
+          signal.throwIfAborted()
+          await persistSandboxInstance(
+            { ...stored, state: "destroy_failed" },
+            ownershipOf(stored),
+          )
+          log.error({
+            step: "destroy-workspace-base",
+            sandboxId: id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          return false
+        }
+        signal.throwIfAborted()
+        await deleteSandboxInstance(id, stored.orgId, ownershipOf(stored))
+        return true
+      }
       const destroyOwned = async () => {
         signal.throwIfAborted()
         try {
@@ -203,7 +185,12 @@ async function destroyRows(
   underFence = false,
 ): Promise<number> {
   let destroyed = 0
-  for (const row of rows) {
+  // Bases last: a Docker daemon keeps an image that a container still uses.
+  const ordered = [
+    ...rows.filter((row) => row.kind !== "base"),
+    ...rows.filter((row) => row.kind === "base"),
+  ]
+  for (const row of ordered) {
     const destroy = underFence
       ? destroyWorkspaceSandboxUnderFence
       : destroyWorkspaceSandbox

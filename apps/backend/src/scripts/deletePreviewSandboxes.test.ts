@@ -10,7 +10,11 @@ const credentials = {
   projectId: "prj_test",
 }
 
-function sandbox(name: string, environment: string) {
+function sandbox(
+  name: string,
+  environment: string,
+  kind: "workspace-chat" | "workspace-base" = "workspace-chat",
+) {
   return {
     name,
     persistent: true,
@@ -18,7 +22,7 @@ function sandbox(name: string, environment: string) {
     updatedAt: 1,
     currentSessionId: `sess_${name}`,
     status: "stopped",
-    tags: { ctxpipe: "workspace-chat", environment },
+    tags: { ctxpipe: kind, environment },
   }
 }
 
@@ -158,6 +162,34 @@ describe("deletePreviewSandboxes", () => {
     expect([...project.sandboxes.keys()]).toEqual(["chat-prod"])
     expect([...project.snapshots.keys()]).toEqual(["snap_a0", "snap_prod"])
     expect(project.requests).not.toContain("delete sandbox chat-prod")
+  })
+
+  it("deletes the preview's Workspace base builders with their base snapshots", async () => {
+    const project = vercelProject({
+      sandboxes: [
+        sandbox("chat-a", "pr-7"),
+        sandbox("base-a", "pr-7", "workspace-base"),
+        sandbox("base-prod", "production", "workspace-base"),
+      ],
+      snapshots: {
+        "chat-a": [],
+        "base-a": [snapshot("snap_base_a")],
+        "base-prod": [snapshot("snap_base_prod")],
+      },
+    })
+    server.use(...project.handlers)
+
+    const deleted = await deletePreviewSandboxes({
+      credentials,
+      environment: "pr-7",
+    })
+
+    expect(deleted).toBe(2)
+    expect(project.requests).toContain(
+      "list sandboxes prj_test ctxpipe:workspace-base,environment:pr-7",
+    )
+    expect([...project.sandboxes.keys()]).toEqual(["base-prod"])
+    expect([...project.snapshots.keys()]).toEqual(["snap_base_prod"])
   })
 
   it("is idempotent: a second run finds nothing left to delete", async () => {
