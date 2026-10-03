@@ -18,8 +18,8 @@ The Compose `deploy` profile starts:
 | `ui` | Product web app, proxied through the backend |
 | `worker` | Background workflows for ingestion and connector jobs |
 | `codesearch` | Repository clone cache and Zoekt indexes. Stay at one replica. |
-| `postgres` | Primary application database |
-| `falkordb` | Default graph database |
+| `postgres` | Primary application database (no host port) |
+| `falkordb` | Default graph database (no host port) |
 | `dind` | Docker daemon for Workspace chat sandboxes (stock `docker:dind`) |
 | `chat-sandbox-image` | One-shot: builds the chat sandbox image inside `dind` |
 
@@ -78,15 +78,18 @@ app, and wires the backend and worker to it. It needs no settings.
 |---|---|
 | Daemon | Stock `docker:dind`. It is the only privileged container in the stack; sandboxes are not privileged. The backend never mounts the host's Docker socket. |
 | Docker API | Port 2376 inside Compose with mutual TLS. `dind` creates its certificates on first start; backend and worker read the client certificates from the `sandbox_client_certs` volume. The API is not published on the host. |
-| Network | `dind`, `backend`, and `worker` share a separate `sandbox` network. Sandboxes reach the backend there (model proxy and per-run tool bridges), plus Git hosts and the internet. A firewall rule in `dind` blocks the rest: the Compose host (so its published ports, such as Postgres), private address ranges (10/8, 172.16/12, 192.168/16, 100.64/10), and link-local addresses. Sandboxes cannot reach Postgres, FalkorDB, codesearch, or the UI. |
-| Isolation | Each agent port needs a per-conversation password. Sandboxes cannot reach each other, the daemon's own ports, or cloud instance metadata. |
-| Limits | All sandboxes share one cgroup capped at 85% of the memory `dind` may use, and 8192 processes. Container logs rotate at 3 × 10 MB. |
-| Chat image | `chat-sandbox-image` builds `scripts/chat-sandbox` inside `dind` on every `pnpm start`, from the same checkout as the other images. Builds after the first are cached. |
+| Network | `dind`, `backend`, and `worker` share a separate `sandbox` network. Sandboxes follow the [chat sandbox network policy](/docs/self-hosting/architecture#chat-sandbox-network-policy): the deploy profile never publishes Postgres or FalkorDB, and `dind` drops traffic to instance metadata. |
+| Isolation | Each agent port needs a per-conversation password, and sandboxes cannot reach each other over the bridge. |
+| Limits | On cgroup v2 hosts, all sandboxes share one cgroup capped at 85% of the memory `dind` may use, and 8192 processes. Without cgroup v2 the caps are skipped and `dind` logs a warning. Container logs rotate at 3 × 10 MB. |
+| Chat image | `chat-sandbox-image` builds `scripts/chat-sandbox` inside `dind` on every `pnpm start`, from the same checkout as the other images. Builds after the first are cached. Nothing waits for it: until it exists, chat answers 503 and the rest of the app works. Once the published `ghcr.io/ctxpipe-ai/chat-sandbox` image is public, Compose will pull it instead. |
 | Storage | The `sandbox_docker` volume holds sandboxes and the chat image. It is disposable: conversations keep their work in their git branch. |
 
-Sandboxes are the same as on AWS (see
-[AWS: Chat sandbox host](/docs/self-hosting/deployment/aws#chat-sandbox-host));
-the AWS host is a dedicated EC2 instance instead of a container.
+<Callout type="warn" title="The Docker client certificate is root on dind">
+  Anyone with the files in `sandbox_client_certs` can start privileged
+  containers on `dind`, which amounts to root on the Docker host. Only
+  `backend` and `worker` mount that volume; do not mount it anywhere else or
+  copy it off the host.
+</Callout>
 
 To cap sandboxes below the host's memory, limit `dind` in a
 `docker-compose.override.yml`; the sandbox cap follows at 85% of it:
@@ -97,22 +100,19 @@ services:
     mem_limit: 8g
 ```
 
-Because private ranges are blocked, sandboxes cannot clone from a Git server
-on your private network. To allow one, add an `ACCEPT` rule for its address
-ahead of the private ranges in `scripts/sandbox-dind/entrypoint.sh`, then
-recreate `dind`.
-
-If `dind` restarts, running sandboxes stop with it. The next turn of each
-conversation starts its container again, or creates a new one from the
-conversation's git branch if the container is gone.
+If `dind` stops, chat answers 503 until it is back; it never falls back to
+running agents without a sandbox. When `dind` restarts, running sandboxes stop
+with it. The next turn of each conversation starts its container again, or
+creates a new one from the conversation's git branch if the container is gone.
 
 <Callout type="warn" title="Unsandboxed chat is a last resort">
   If your Docker host cannot run privileged containers, the backend can run
   chat without a sandbox: set `SANDBOX_PROVIDER: unsandboxed` on `backend` and
-  `worker` in a `docker-compose.override.yml`. The agent then runs as a process
-  inside the backend container with the backend's network access and
-  credentials. Use it only where Docker-in-Docker cannot run at all, and treat
-  every Workspace user as trusted with the backend.
+  `worker` in a `docker-compose.override.yml`. The backend logs a warning at
+  startup. The agent then runs as a process inside the backend container with
+  the backend's network access and credentials. Use it only where
+  Docker-in-Docker cannot run at all, and treat every Workspace user as
+  trusted with the backend.
 </Callout>
 
 ## Persistent state
@@ -126,6 +126,10 @@ Do not treat these as disposable once users depend on the deployment:
 | Repository clone cache | `repo_cache` volume |
 | Zoekt index | `zoekt_index_deploy` volume |
 | Secrets | `.env`, or your platform secret store |
+
+Postgres and FalkorDB have no host ports in the deploy profile. Reach them
+through Compose, for example
+`docker compose exec postgres pg_dump -U ctxpipe ctxpipe > backup.sql`.
 
 `sandbox_docker`, `sandbox_ca`, and `sandbox_client_certs` need no backup.
 Removing `sandbox_ca` makes `dind` issue new certificates; restart `backend`

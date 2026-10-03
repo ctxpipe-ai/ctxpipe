@@ -122,7 +122,9 @@ the repository root:
 | Sandbox disk | `docker compose exec dind df -h /var/lib/docker` | Room left on the host disk that holds the Docker volumes |
 | What uses the disk | `docker compose exec dind docker system df` | Images, containers, and build cache sizes |
 | Sandboxes | `docker compose exec dind docker ps -a` | One container per recent conversation; stopped ones are idle sandboxes |
-| Memory cap | `docker compose exec dind cat /sys/fs/cgroup/ctxpipe-sandboxes/memory.current /sys/fs/cgroup/ctxpipe-sandboxes/memory.max` | Memory in use stays below the cap |
+| Memory cap | `docker compose exec dind cat /sys/fs/cgroup/ctxpipe-sandboxes/memory.current /sys/fs/cgroup/ctxpipe-sandboxes/memory.max` | Memory in use stays below the cap. Missing on hosts without cgroup v2 (`dind` logs a warning). |
+| Metadata block | `docker compose exec dind iptables -t raw -S PREROUTING` | Includes `-d 169.254.169.254/32 -j DROP` |
+| No published data stores | `docker port $(docker compose ps -q postgres falkordb)` | Prints nothing |
 | No host socket | `docker inspect --format '{{range .Mounts}}{{.Source}} {{end}}' $(docker compose ps -q backend worker)` | No `/var/run/docker.sock` |
 
 Sandboxes stop and are removed on the same schedule as on AWS. To free disk
@@ -142,10 +144,12 @@ would resume.
 
 ### Workspace chat fails to start on Docker Compose
 
-- Confirm `dind` is healthy and `chat-sandbox-image` exited with code 0
-  (`docker compose --profile deploy ps -a`).
-- If the backend reports that the chat sandbox image is missing (for example
-  after removing the `sandbox_docker` volume), rebuild it:
+- A 503 saying the Docker daemon is not reachable means `dind` is down:
+  confirm it is healthy (`docker compose --profile deploy ps -a`) and check
+  `docker compose logs dind`.
+- A 503 saying the chat sandbox image is missing means `chat-sandbox-image`
+  has not finished or failed (for example a package mirror was unreachable,
+  or the `sandbox_docker` volume was removed). Check its logs and rerun it:
   `docker compose --profile deploy up -d chat-sandbox-image`.
 - Check backend logs for Docker TLS errors. After the `sandbox_ca` volume is
   removed, restart `backend` and `worker` so they read the new certificates.
