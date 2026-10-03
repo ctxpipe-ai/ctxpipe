@@ -1,11 +1,10 @@
 import { log } from "../../observability/logger.js"
-import { sandboxCallbackHost } from "./workspace-chat-callback.js"
 import { recordWorkspaceChatProxyGeneration } from "./workspace-chat-otel.js"
 
-/** Use an explicit sandbox callback route, otherwise retain provider-local defaults. */
+/** Use the sandbox callback host when there is one, otherwise provider-local defaults. */
 export function workspaceChatModelProxyAdvertisedHost(
   isolation: string,
-  callbackHost = sandboxCallbackHost(),
+  callbackHost?: string,
 ): string {
   if (callbackHost) return callbackHost
   return isolation === "docker" ? "host.docker.internal" : "127.0.0.1"

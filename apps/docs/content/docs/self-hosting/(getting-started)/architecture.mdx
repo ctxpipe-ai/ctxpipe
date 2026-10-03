@@ -37,6 +37,23 @@ backend origin.
 | `codesearch` | `3001` | Yes | Repository clone cache and Zoekt index. Stay at one replica. |
 | `postgres` | `5432` in container, `5433` on host by default | Yes | Primary relational state |
 | `falkordb` | `6379` Redis, `7687` Bolt | Yes | Default graph database |
+| `dind` (Docker Compose) | `2376` internal | No | Docker daemon for Workspace chat sandboxes |
+
+### Chat sandboxes on Docker Compose
+
+Compose runs each Workspace conversation's agent in its own container inside
+`dind`, a stock Docker-in-Docker service. `dind`, `backend`, and `worker` share
+a separate `sandbox` network:
+
+| Component | Port | Reached by | Purpose |
+|---|---:|---|---|
+| Docker API (mutual TLS) | `2376` | `backend`, `worker` | Create, stop, resume, and remove sandboxes |
+| Sandbox agent ports (password per conversation) | `32768`–`60999` on `dind` | `backend` | The backend talks to the agent in each sandbox |
+| Backend model proxy and tool bridges | `3000` and per-run ports on the backend's `sandbox` address | Sandboxes | Model calls and tool calls go back to the backend |
+
+Sandboxes also reach Git hosts and the internet. They cannot reach Postgres,
+FalkorDB, codesearch, the UI, each other, or `dind`'s own ports. See
+[Docker: Chat sandboxes](/docs/self-hosting/deployment/docker#chat-sandboxes).
 
 ### Chat sandbox host on AWS
 

@@ -1,61 +1,51 @@
-import type { networkInterfaces } from "node:os"
+import { networkInterfaces } from "node:os"
 import { describe, expect, it } from "vitest"
 import { sandboxCallbackHost } from "./workspace-chat-callback.js"
 
-type Interfaces = ReturnType<typeof networkInterfaces>
-
-function entry(address: string, family: "IPv4" | "IPv6", internal = false) {
-  return {
-    address,
-    family,
-    internal,
-    netmask: family === "IPv4" ? "255.255.255.0" : "ffff:ffff:ffff:ffff::",
-    mac: "00:00:00:00:00:00",
-    cidr: null,
-    ...(family === "IPv6" ? { scopeid: 0 } : {}),
-  } as Interfaces[string] extends Array<infer T> | undefined ? T : never
-}
-
-const remote = { DOCKER_HOST: "tcp://sandbox-host.ctxpipe.local:2376" }
-
 describe("sandbox callback host for a remote Docker daemon", () => {
-  it("uses the one non-loopback IPv4 address of this process", () => {
-    const interfaces: Interfaces = {
-      lo: [entry("127.0.0.1", "IPv4", true), entry("::1", "IPv6", true)],
-      eth1: [entry("10.0.3.17", "IPv4"), entry("fe80::1", "IPv6")],
+  it("uses the address this process reaches the daemon from", async () => {
+    // A daemon on one of this machine's own addresses: the kernel routes to
+    // it from that address, as a dual-homed Compose backend reaches DinD
+    // from its sandbox-network address.
+    const addresses = Object.values(networkInterfaces())
+      .flatMap((entries) => entries ?? [])
+      .filter((entry) => entry.family === "IPv4" && !entry.internal)
+      .map((entry) => entry.address)
+    expect(addresses.length).toBeGreaterThan(0)
+    for (const address of addresses) {
+      await expect(
+        sandboxCallbackHost({ DOCKER_HOST: `tcp://${address}:2376` }),
+      ).resolves.toBe(address)
     }
-    expect(sandboxCallbackHost(remote, interfaces)).toBe("10.0.3.17")
   })
 
-  it("fails closed when the address is ambiguous or missing", () => {
-    expect(() =>
-      sandboxCallbackHost(remote, {
-        eth0: [entry("10.0.3.17", "IPv4")],
-        eth1: [entry("172.17.0.1", "IPv4")],
+  it("leaves a daemon on loopback to the provider's local defaults", async () => {
+    await expect(
+      sandboxCallbackHost({ DOCKER_HOST: "tcp://127.0.0.1:2376" }),
+    ).resolves.toBeUndefined()
+    await expect(
+      sandboxCallbackHost({ DOCKER_HOST: "tcp://localhost:2376" }),
+    ).resolves.toBeUndefined()
+  })
+
+  it("fails closed when the daemon host does not resolve", async () => {
+    await expect(
+      sandboxCallbackHost({ DOCKER_HOST: "tcp://sandbox-host.invalid:2376" }),
+    ).rejects.toThrow(
+      /Cannot resolve Docker host sandbox-host.invalid.*set SANDBOX_CALLBACK_HOST/,
+    )
+  })
+
+  it("keeps an explicit host and leaves local daemons on their defaults", async () => {
+    await expect(
+      sandboxCallbackHost({
+        DOCKER_HOST: "tcp://sandbox-host.invalid:2376",
+        SANDBOX_CALLBACK_HOST: "10.0.9.9",
       }),
-    ).toThrow(/2 non-loopback IPv4 addresses; set SANDBOX_CALLBACK_HOST/)
-    expect(() =>
-      sandboxCallbackHost(remote, { lo: [entry("127.0.0.1", "IPv4", true)] }),
-    ).toThrow(/0 non-loopback IPv4 addresses/)
-  })
-
-  it("keeps an explicit host and leaves local daemons on their defaults", () => {
-    const interfaces: Interfaces = {
-      eth0: [entry("10.0.3.17", "IPv4")],
-      eth1: [entry("172.17.0.1", "IPv4")],
-    }
-    expect(
-      sandboxCallbackHost(
-        { ...remote, SANDBOX_CALLBACK_HOST: "10.0.9.9" },
-        interfaces,
-      ),
-    ).toBe("10.0.9.9")
-    expect(sandboxCallbackHost({}, interfaces)).toBeUndefined()
-    expect(
-      sandboxCallbackHost(
-        { DOCKER_HOST: "unix:///var/run/docker.sock" },
-        interfaces,
-      ),
-    ).toBeUndefined()
+    ).resolves.toBe("10.0.9.9")
+    await expect(sandboxCallbackHost({})).resolves.toBeUndefined()
+    await expect(
+      sandboxCallbackHost({ DOCKER_HOST: "unix:///var/run/docker.sock" }),
+    ).resolves.toBeUndefined()
   })
 })

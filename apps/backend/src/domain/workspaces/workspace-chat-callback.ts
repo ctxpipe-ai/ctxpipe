@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto"
+import { createSocket } from "node:dgram"
 import { lookup } from "node:dns/promises"
 import { isIP } from "node:net"
 import { networkInterfaces } from "node:os"
@@ -22,16 +23,19 @@ import { remoteDockerHost } from "./sandbox-provider.js"
  * Hostname or IP that a remotely hosted sandbox uses to call this backend.
  * A port or URL is rejected because the model proxy and per-run tool bridge
  * each select their own port. With a remote Docker daemon and no explicit
- * host, it is this process's own address: the tool bridge lives in the replica
- * running the turn, so a shared service name could reach another replica.
+ * host, it is the address this process reaches the daemon from: the daemon's
+ * host routes sandbox traffic back to it, and the tool bridge lives in the
+ * replica running the turn, so a shared service name could reach another
+ * replica. A backend on several networks (Compose) gets the sandbox one.
  */
-export function sandboxCallbackHost(
+export async function sandboxCallbackHost(
   env: NodeJS.ProcessEnv = process.env,
-  interfaces: ReturnType<typeof networkInterfaces> = networkInterfaces(),
-): string | undefined {
+): Promise<string | undefined> {
   const raw = env.SANDBOX_CALLBACK_HOST?.trim()
-  if (!raw)
-    return remoteDockerHost(env) ? soleIpv4Address(interfaces) : undefined
+  if (!raw) {
+    const daemonHost = remoteDockerHost(env)
+    return daemonHost ? localAddressTowards(daemonHost) : undefined
+  }
 
   const unwrapped =
     raw.startsWith("[") && raw.endsWith("]") ? raw.slice(1, -1) : raw
@@ -64,23 +68,32 @@ export function sandboxCallbackHost(
   return parsed.host
 }
 
-function soleIpv4Address(
-  interfaces: ReturnType<typeof networkInterfaces>,
-): string {
-  const addresses = [
-    ...new Set(
-      Object.values(interfaces)
-        .flatMap((entries) => entries ?? [])
-        .filter((entry) => entry.family === "IPv4" && !entry.internal)
-        .map((entry) => entry.address),
-    ),
-  ]
-  const [address] = addresses
-  if (addresses.length !== 1 || !address)
+/**
+ * The local address the kernel picks to reach `host` (a UDP connect sends
+ * nothing). Undefined for a daemon on this machine, whose sandboxes use the
+ * provider's local defaults.
+ */
+async function localAddressTowards(host: string): Promise<string | undefined> {
+  let target: { address: string; family: number }
+  try {
+    target = await lookup(host)
+  } catch {
     throw new Error(
-      `Sandboxes on a remote Docker host call this backend back, but it has ${addresses.length} non-loopback IPv4 addresses; set SANDBOX_CALLBACK_HOST`,
+      `Cannot resolve Docker host ${host} to pick the address sandboxes call back on; set SANDBOX_CALLBACK_HOST`,
     )
-  return address
+  }
+  const socket = createSocket(target.family === 6 ? "udp6" : "udp4")
+  try {
+    await new Promise<void>((resolve, reject) => {
+      socket.once("error", reject)
+      socket.connect(9, target.address, resolve)
+    })
+    const { address } = socket.address()
+    if (address === "::1" || address.startsWith("127.")) return undefined
+    return target.family === 6 ? `[${address}]` : address
+  } finally {
+    socket.close()
+  }
 }
 
 /** Native per-run bridge server/token ownership on one reachable interface. */

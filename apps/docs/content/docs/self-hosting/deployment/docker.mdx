@@ -20,6 +20,8 @@ The Compose `deploy` profile starts:
 | `codesearch` | Repository clone cache and Zoekt indexes. Stay at one replica. |
 | `postgres` | Primary application database |
 | `falkordb` | Default graph database |
+| `dind` | Docker daemon for Workspace chat sandboxes (stock `docker:dind`) |
+| `chat-sandbox-image` | One-shot: builds the chat sandbox image inside `dind` |
 
 ## Start the stack
 
@@ -66,6 +68,48 @@ Optional connectors use additional values from the same `.env`. Slack requires
 [Self-host Slack](/docs/self-hosting/slack) before exposing its OAuth and Events
 API callbacks.
 
+## Chat sandboxes
+
+Each Workspace conversation's agent runs in its own container. The deploy
+profile runs those containers in `dind`, a Docker-in-Docker daemon next to the
+app, and wires the backend and worker to it. It needs no settings.
+
+| Piece | Behavior |
+|---|---|
+| Daemon | Stock `docker:dind`. It is the only privileged container in the stack; sandboxes are not privileged. The backend never mounts the host's Docker socket. |
+| Docker API | Port 2376 inside Compose with mutual TLS. `dind` creates its certificates on first start; backend and worker read the client certificates from the `sandbox_client_certs` volume. The API is not published on the host. |
+| Network | `dind`, `backend`, and `worker` share a separate `sandbox` network. Sandboxes reach the backend there (model proxy and per-run tool bridges), plus Git hosts and the internet. They cannot reach Postgres, FalkorDB, codesearch, or the UI. |
+| Isolation | Each agent port needs a per-conversation password. Sandboxes cannot reach each other, the daemon's own ports, or cloud instance metadata. |
+| Limits | All sandboxes share one cgroup capped at 85% of the memory `dind` may use, and 8192 processes. Container logs rotate at 3 × 10 MB. |
+| Chat image | `chat-sandbox-image` builds `scripts/chat-sandbox` inside `dind` on every `pnpm start`, from the same checkout as the other images. Builds after the first are cached. |
+| Storage | The `sandbox_docker` volume holds sandboxes and the chat image. It is disposable: conversations keep their work in their git branch. |
+
+Sandboxes are the same as on AWS (see
+[AWS: Chat sandbox host](/docs/self-hosting/deployment/aws#chat-sandbox-host));
+the AWS host is a dedicated EC2 instance instead of a container.
+
+To cap sandboxes below the host's memory, limit `dind` in a
+`docker-compose.override.yml`; the sandbox cap follows at 85% of it:
+
+```yaml
+services:
+  dind:
+    mem_limit: 8g
+```
+
+If `dind` restarts, running sandboxes stop with it. The next turn of each
+conversation starts its container again, or creates a new one from the
+conversation's git branch if the container is gone.
+
+<Callout type="warn" title="Unsandboxed chat is a last resort">
+  If your Docker host cannot run privileged containers, the backend can run
+  chat without a sandbox: set `SANDBOX_PROVIDER: unsandboxed` on `backend` and
+  `worker` in a `docker-compose.override.yml`. The agent then runs as a process
+  inside the backend container with the backend's network access and
+  credentials. Use it only where Docker-in-Docker cannot run at all, and treat
+  every Workspace user as trusted with the backend.
+</Callout>
+
 ## Persistent state
 
 Do not treat these as disposable once users depend on the deployment:
@@ -78,14 +122,22 @@ Do not treat these as disposable once users depend on the deployment:
 | Zoekt index | `zoekt_index_deploy` volume |
 | Secrets | `.env`, or your platform secret store |
 
+`sandbox_docker`, `sandbox_ca`, and `sandbox_client_certs` need no backup.
+Removing `sandbox_ca` makes `dind` issue new certificates; restart `backend`
+and `worker` afterwards.
+
 ## Operational checks
 
-- `docker compose --profile deploy ps` shows healthy app services.
+- `docker compose --profile deploy ps` shows healthy app services and a healthy `dind`.
 - `curl https://<public-origin>/.status` returns an `ok` status.
 - Sign-in works through the public origin.
 - A repository can be connected and indexed.
+- A Workspace chat answers; `docker compose exec dind docker ps` shows its sandbox.
 - MCP can reach `{AUTH_BASE_URL}/mcp?orgSlug=<org-slug>`.
 - Backend, worker, codesearch, Postgres, and graph database logs are collected.
+
+See [Operations](/docs/self-hosting/operations#chat-sandboxes-docker-compose)
+for sandbox disk and health checks.
 
 ## Next steps
 

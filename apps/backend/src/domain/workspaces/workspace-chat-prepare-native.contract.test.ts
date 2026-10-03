@@ -557,10 +557,7 @@ it(
   { timeout: 300_000 },
   async () => {
     const previous = Object.fromEntries(
-      ["SANDBOX_CHAT_IMAGE", "SANDBOX_MODEL_PROXY_HOST"].map((key) => [
-        key,
-        process.env[key],
-      ]),
+      ["SANDBOX_CHAT_IMAGE"].map((key) => [key, process.env[key]]),
     )
     const docker = new Docker({ timeout: 30_000 })
     try {
@@ -576,8 +573,6 @@ it(
           await withNativeChatFixture(
             async (f) => {
               delete process.env.SANDBOX_PROVIDER
-              // Stock Docker sandboxes reach the backend on the host gateway.
-              process.env.SANDBOX_MODEL_PROXY_HOST = "host.docker.internal"
               await gitFixture.serve(f.directory, async (remote) => {
                 let phase = "first prepare"
                 try {
