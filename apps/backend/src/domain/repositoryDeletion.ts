@@ -18,7 +18,6 @@ import {
   TransientHttpError,
   withTransientHttpRetry,
 } from "../lib/withTransientHttpRetry.js"
-import { clearGithubPrMirrorBindingsForRepository } from "../models/github-pr-mirror.js"
 import { clearLinearSyncBindingsForRepository } from "../models/linear-connector.js"
 import { clearNotionSyncBindingsForRepository } from "../models/notion-connector.js"
 import { clearPagerdutySyncBindingsForRepository } from "../models/pagerduty-connector.js"
@@ -277,8 +276,6 @@ export async function deleteRepositoryRowPostgres(params: {
   const notionCleared = await clearNotionSyncBindingsForRepository(params)
   const slackCleared = await clearSlackSyncBindingsForRepository(params)
   const pagerdutyCleared = await clearPagerdutySyncBindingsForRepository(params)
-  const githubPrMirrorCleared =
-    await clearGithubPrMirrorBindingsForRepository(params)
   const del = await db
     .delete(repositories)
     .where(
@@ -295,7 +292,6 @@ export async function deleteRepositoryRowPostgres(params: {
     notionCleared,
     slackCleared,
     pagerdutyCleared,
-    githubPrMirrorCleared,
   })
   return deleted
 }

@@ -48,9 +48,6 @@ const extraMocks = vi.hoisted(() => ({
   saveOauthApp: vi.fn(),
 }))
 
-vi.mock("../../openworkflow/workflows/github-ensure-pr-mirror.js", () => ({
-  enqueueGithubPrMirrorEnsureForOrg: vi.fn().mockResolvedValue(undefined),
-}))
 vi.mock("../../models/linear-connector.js", () => ({
   deleteLinearConnectionById: vi.fn(),
   getLinearBindingWithRepoByConnectionId: mocks.getTarget,

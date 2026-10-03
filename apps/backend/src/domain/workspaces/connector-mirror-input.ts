@@ -18,7 +18,6 @@ export const connectorMirrorSourceSchema = z
     connectionId: z.string().min(1),
     repositoryId: z.string().min(1),
     configBlobSha: gitObjectIdSchema.nullable(),
-    contentSyncGeneration: z.number().int().nonnegative().optional(),
   })
   .strict()
 export type ConnectorMirrorSource = z.infer<typeof connectorMirrorSourceSchema>
@@ -33,16 +32,9 @@ export const connectorMirrorContentSchema = z
   .refine(
     (input) =>
       [...input.files.map((file) => file.path), ...input.deletePaths].every(
-        (path) => {
-          if (!path.startsWith(`${input.mirror.provider}/`)) return false
-          // ADR-031 writes github/config.yaml on the dest default branch (no
-          // config PR). The GitHub contents API cannot target that branch, so
-          // the workspace broker is the remaining publication path.
-          if (path === `${input.mirror.provider}/config.yaml`) {
-            return input.mirror.provider === "github"
-          }
-          return true
-        },
+        (path) =>
+          path.startsWith(`${input.mirror.provider}/`) &&
+          path !== `${input.mirror.provider}/config.yaml`,
       ),
     "A mirror may only change content under its managed provider root",
   )

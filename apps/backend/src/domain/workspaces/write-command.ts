@@ -117,7 +117,8 @@ export async function acquireWorkspaceWriteRevision(
     additionalShas: previousSha ? [previousSha] : [],
     token,
   })
-  if (input.mirror) await assertConnectorMirrorScope(input.mirror, pack)
+  if (input.mirror)
+    await assertConnectorMirrorScope(input.orgId, input.mirror, pack)
   if (input.extraction)
     await assertExtractionSource(input.orgId, input.extraction, revision, pack)
   return { pack, displayName: workspace.displayName }

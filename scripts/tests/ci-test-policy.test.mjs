@@ -216,7 +216,6 @@ test("imported main mocks and exact skipIf are counted; fresh ones stay proof", 
   assert.equal(gate0Characterization.status, 0, gate0Characterization.stderr)
 
   for (const relativePath of [
-    "apps/backend/src/models/github-pr-mirror.integration.test.ts",
     "apps/backend/src/models/repositories.integration.test.ts",
     "apps/backend/src/observability/dbTrace.integration.test.ts",
     "apps/codesearch/src/routes/repo.test.ts",
@@ -285,7 +284,7 @@ test("imported main mocks and exact skipIf are counted; fresh ones stay proof", 
       spawnSync(process.execPath, [worktreePolicy, file], { encoding: "utf8" })
 
     const relativePath =
-      "apps/backend/src/models/github-pr-mirror.integration.test.ts"
+      "apps/backend/src/models/repositories.integration.test.ts"
     const target = join(worktree, relativePath)
     const imported = readFileSync(join(root, relativePath), "utf8")
     const skipIfCall = "describe.skipIf(!connectionString)"
@@ -309,13 +308,13 @@ test("imported main mocks and exact skipIf are counted; fresh ones stay proof", 
     assert.equal(duplicate.status, 1, duplicate.stderr)
     assert.match(duplicate.stderr, /skipIf/)
 
-    const importedMockPath = "apps/backend/src/models/github-pr-mirror.test.ts"
+    const importedMockPath = "apps/backend/src/auth/config.test.ts"
     const importedMockTarget = join(worktree, importedMockPath)
     const importedMock = readFileSync(join(root, importedMockPath), "utf8")
-    const existingOwnedMock = 'vi.mock("../db/client.js"'
+    const existingOwnedMock = 'vi.mock("../domain/repositoryDeletion.js"'
     assert.match(
       importedMock,
-      /vi\.mock\("\.\.\/db\/client\.js"/,
+      /vi\.mock\("\.\.\/domain\/repositoryDeletion\.js"/,
       "imported fixture must keep a pinned owned mock",
     )
     writeFileSync(importedMockTarget, importedMock)
@@ -329,23 +328,33 @@ test("imported main mocks and exact skipIf are counted; fresh ones stay proof", 
     const newOwnedMock = checkWorktree(importedMockTarget)
     assert.equal(newOwnedMock.status, 1, newOwnedMock.stderr)
     assert.match(newOwnedMock.stderr, /owned collaborators/)
-    assert.doesNotMatch(newOwnedMock.stderr, /client\.js/)
+    assert.doesNotMatch(newOwnedMock.stderr, /repositoryDeletion\.js/)
     assert.ok(
       importedMock.includes(existingOwnedMock),
       "existing imported mock text must remain in the isolated copy",
     )
 
-    const exceptionPath =
-      "apps/backend/src/services/github/pull-request-mirror/ensure.test.ts"
+    const exceptionPath = "apps/backend/src/models/linear-oauth-setup.test.ts"
     const exceptionTarget = join(worktree, exceptionPath)
     mkdirSync(join(exceptionTarget, ".."), { recursive: true })
     const exceptionSource = readFileSync(join(root, exceptionPath), "utf8")
-    const existingSyncMock = `vi.mock("./sync.js", () => ({
-  prepareGithubPrMirrorConfigYaml: mocks.prepareYaml,
-}))`
+    const existingSyncMock = `vi.mock("../db/client.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../db/client.js")>()
+  return {
+    ...actual,
+    getOrgDb: dbMocks.getOrgDb,
+    getSystemDb: dbMocks.getSystemDb,
+    // Real withOrgDbContext closes over unmocked getSystemDb; keep org-SQL
+    // on the same fixture as getOrgDb / getSystemDb.
+    withOrgDbContext: async (
+      _orgId: string,
+      fn: (db: Db) => Promise<unknown>,
+    ) => fn(dbMocks.getOrgDb()),
+  }
+})`
     assert.ok(
       exceptionSource.includes(existingSyncMock),
-      "exception fixture must keep the merge-resolved sync mock",
+      "exception fixture must keep the merge-resolved db client mock",
     )
     writeFileSync(exceptionTarget, exceptionSource)
     const existingException = checkWorktree(exceptionTarget)
@@ -355,14 +364,14 @@ test("imported main mocks and exact skipIf are counted; fresh ones stay proof", 
       exceptionTarget,
       exceptionSource.replace(
         existingSyncMock,
-        `vi.mock("./sync.js", () => ({
+        `vi.mock("../db/client.js", () => ({
 }))`,
       ),
     )
     const rewrittenFactory = checkWorktree(exceptionTarget)
     assert.equal(rewrittenFactory.status, 1, rewrittenFactory.stderr)
     assert.match(rewrittenFactory.stderr, /owned collaborators/)
-    assert.match(rewrittenFactory.stderr, /ensure\.test\.ts/)
+    assert.match(rewrittenFactory.stderr, /linear-oauth-setup\.test\.ts/)
     assert.ok(
       exceptionSource.includes(existingSyncMock),
       "current exception call text must remain in the isolated copy",

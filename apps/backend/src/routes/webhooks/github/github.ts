@@ -4,6 +4,7 @@ import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
 import type { Env } from "../../../config/env.js"
 import { withOrgDbContext } from "../../../db/client.js"
+import { ensureOrgRepositoryAndIngest } from "../../../domain/workspaces/ensure-org-repository.js"
 import { isDefaultBranchPush } from "../../../domain/workspaces/tip-resolve.js"
 import { parseGithubConnectionStored } from "../../../lib/connection-config.js"
 import {
@@ -12,7 +13,6 @@ import {
   listInstallationsByGithubInstallationId,
   registerInstallationOnConnection,
 } from "../../../models/github-installation.js"
-import { ensureOrgRepositoryAndIngest } from "../../../domain/workspaces/ensure-org-repository.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
 import { enqueueWorkspaceTipCheck } from "../../../openworkflow/enqueue-workspace-tip-check.js"
@@ -22,7 +22,6 @@ import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
 import { maybeActivatePagerdutySyncOnConfigPush } from "./github-pagerduty-push.js"
 import { maybeEnqueueGithubPrMirror } from "./github-pr-mirror-events.js"
-import { maybeActivateGithubPrMirrorOnConfigPush } from "./github-pr-mirror-push.js"
 
 const pushPayloadSchema = z.object({
   ref: z.string(),
@@ -210,16 +209,6 @@ async function processPushEvent(
     after,
     log: ctx.log,
   })
-  await maybeActivateGithubPrMirrorOnConfigPush({
-    installationId: installation.id,
-    githubConnectionId,
-    repoFullName: repo.full_name,
-    ref,
-    commits,
-    before,
-    after,
-  })
-
   const onDefaultBranch = isDefaultBranchPush(ref, defaultBranch)
   const installationRows = await listInstallationsByGithubInstallationId(
     installation.id,
