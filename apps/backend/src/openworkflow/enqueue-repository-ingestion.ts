@@ -3,38 +3,41 @@ import { withOrgDbContext } from "../db/client.js"
 import { resolveRepositoryRef } from "../domain/codeIngestion/queue.js"
 import {
   getRepositoryForOrg,
-  markRepositoryIndexingFailed,
-  markRepositoryIndexingReady,
   tryClaimRepositoryIndexingEnqueue,
 } from "../models/repositories.js"
+import {
+  activateRepositoryIngestionRequest,
+  findRepositoryIngestionOwner,
+  prepareRepositoryIngestionRequest,
+  type RepositoryIngestionIntent,
+} from "../models/repository-ingestion-requests.js"
+import type { JobTelemetry } from "../observability/jobTelemetry.js"
 import { createLogger, withLogger } from "../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
-import { enqueueFollowUpIfTipAhead } from "./enqueue-follow-up-if-tip-ahead.js"
 import { isWorkflowControlSignal } from "./isSleepSignal.js"
+import { scheduleEnsureWorkerRunning } from "./railway-wake.js"
 import { repositoryIngestionOrchestrator } from "./workflows/repository-ingestion-orchestrator.js"
 
-export type RepositoryIngestionEnqueueInput = {
-  repositoryId: string
-  orgId: string
-  /** Prefer the connector binding branch over resolving remote HEAD. */
-  targetBranch?: string | null
-  /** Shown in the repositories UI while ingestion runs; cleared on success. */
-  indexingReason?: string | null
-  /** Stable source-tip identity used to deduplicate ambiguous enqueue retries. */
-  idempotencyKey?: string
-  /** Used only to resolve the correct repository tip after a duplicate run. */
-  githubConnectionId?: string | null
+export type RepositoryIngestionEnqueueInput = RepositoryIngestionIntent & {
+  afterRequestId?: string
   /**
    * Ignore the last ingested commit: codesearch runs in full mode and the
    * workflow sweeps evidence the run did not re-observe. Manual re-index only;
    * webhook-driven ingests stay incremental.
    */
   fullReingest?: boolean
+  /** Used only to resolve the correct repository tip after a duplicate run. */
+  githubConnectionId?: string | null
+  /**
+   * Job telemetry of the run that caused this one (a follow-up's parent).
+   * Explicit, so it does not depend on an OTel context manager being active.
+   */
+  telemetry?: JobTelemetry
 }
 
 export type ConnectorRepositoryIngestionInput = Omit<
   RepositoryIngestionEnqueueInput,
-  "githubConnectionId" | "idempotencyKey"
+  "githubConnectionId" | "telemetry"
 >
 
 /** OpenWorkflow `step` from a workflow handler (`run` / `runWorkflow` / `sleep`). */
@@ -42,225 +45,58 @@ export type RepositoryIngestionChildStep = Parameters<
   Workflow<unknown, unknown, unknown>["fn"]
 >[0]["step"]
 
-async function failRepositoryIngestionClaim(
+/** Acknowledge one native owner before publishing queued state; retry a lost acknowledgement by its key. */
+export async function enqueueRepositoryIngestionWorkflow(
   input: RepositoryIngestionEnqueueInput,
-  error: Error,
   log: { error: (err: Error) => void },
-): Promise<void> {
-  try {
-    await withOrgDbContext(input.orgId, () =>
-      markRepositoryIndexingFailed({
-        repositoryId: input.repositoryId,
-        error,
-      }),
-    )
-  } catch (claimError) {
-    log.error(
-      claimError instanceof Error ? claimError : new Error(String(claimError)),
-    )
-    return
-  }
-  try {
-    await enqueueFollowUpIfTipAhead(
-      {
-        orgId: input.orgId,
-        repositoryId: input.repositoryId,
-        githubConnectionId: input.githubConnectionId,
-        targetBranch: input.targetBranch,
-        pendingOnly: true,
-      },
-      log,
-    )
-  } catch (followUpError) {
-    log.error(
-      followUpError instanceof Error
-        ? followUpError
-        : new Error(String(followUpError)),
-    )
-  }
-}
-
-function startRepositoryIngestionWorkflow(
-  input: RepositoryIngestionEnqueueInput,
-) {
-  const workflowInput = {
-    repositoryId: input.repositoryId,
+): Promise<{ workflowRunId: string }> {
+  const intent = await prepareRepositoryIngestionRequest({
     orgId: input.orgId,
-    ...(input.targetBranch !== undefined
-      ? { targetBranch: input.targetBranch }
-      : {}),
-    ...(input.indexingReason !== undefined
-      ? { indexingReason: input.indexingReason }
+    repositoryId: input.repositoryId,
+    targetBranch: input.targetBranch,
+    indexingReason: input.indexingReason,
+    afterRequestId: input.afterRequestId,
+  })
+  const captured = {
+    orgId: intent.orgId,
+    repositoryId: intent.repositoryId,
+    targetBranch: intent.targetBranch,
+    indexingReason: intent.indexingReason,
+    requestId: intent.requestId,
+    ...(input.fullReingest !== undefined
+      ? { fullReingest: input.fullReingest }
       : {}),
     ...(input.githubConnectionId !== undefined
       ? { githubConnectionId: input.githubConnectionId }
       : {}),
-    ...(input.fullReingest !== undefined
-      ? { fullReingest: input.fullReingest }
-      : {}),
   }
-  return input.idempotencyKey
-    ? runWorkflowWithWorkerWake(
-        repositoryIngestionOrchestrator.spec,
-        workflowInput,
-        { idempotencyKey: input.idempotencyKey },
-      )
-    : runWorkflowWithWorkerWake(
-        repositoryIngestionOrchestrator.spec,
-        workflowInput,
-      )
-}
-
-type RepositoryIngestionWorkflowHandle = Awaited<
-  ReturnType<typeof startRepositoryIngestionWorkflow>
->
-
-async function reconcileTerminalIngestionRun(
-  input: RepositoryIngestionEnqueueInput,
-  handle: RepositoryIngestionWorkflowHandle,
-  log: { error: (err: Error) => void },
-): Promise<
-  | { status: "accepted" }
-  | { status: "failed"; error: Error; workflowRunId: string }
-> {
-  const workflowRun = handle.workflowRun
-  switch (workflowRun.status) {
-    case "pending":
-    case "running":
-    case "sleeping":
-      return { status: "accepted" }
-    case "succeeded":
-    case "completed": {
-      const output = workflowRun.output
-      const targetHash =
-        output &&
-        typeof output === "object" &&
-        "targetHash" in output &&
-        typeof output.targetHash === "string"
-          ? output.targetHash
-          : undefined
-      if (!targetHash) {
-        throw new Error(
-          `Completed repository ingestion has no target hash for ${input.repositoryId}`,
-        )
-      }
-      await withOrgDbContext(input.orgId, () =>
-        markRepositoryIndexingReady({
-          repositoryId: input.repositoryId,
-          targetHash,
-        }),
-      )
-      await enqueueFollowUpIfTipAhead(
-        {
-          orgId: input.orgId,
-          repositoryId: input.repositoryId,
-          ingestedHash: targetHash,
-          githubConnectionId: input.githubConnectionId,
-          targetBranch: input.targetBranch,
-        },
-        log,
-      )
-      return { status: "accepted" }
-    }
-    case "failed":
-    case "canceled": {
-      const serializedError = workflowRun.error
-      const message =
-        serializedError &&
-        typeof serializedError === "object" &&
-        "message" in serializedError &&
-        typeof serializedError.message === "string"
-          ? serializedError.message
-          : `Repository ingestion workflow is already ${workflowRun.status}`
-      return {
-        status: "failed",
-        error: new Error(message),
-        workflowRunId: workflowRun.id,
-      }
-    }
-    default: {
-      const unhandledStatus: never = workflowRun.status
-      throw new Error(
-        `Unhandled repository ingestion status: ${unhandledStatus}`,
-      )
-    }
-  }
-}
-
-async function startActiveRepositoryIngestionWorkflow(
-  input: RepositoryIngestionEnqueueInput,
-  log: { error: (err: Error) => void },
-): Promise<void> {
-  let idempotencyKey = input.idempotencyKey
-  const failedWorkflowRunIds = new Set<string>()
-  for (;;) {
-    const handle = await startRepositoryIngestionWorkflow({
-      ...input,
-      idempotencyKey,
-    })
-    const result = await reconcileTerminalIngestionRun(input, handle, log)
-    if (result.status === "accepted") return
-    if (
-      !input.idempotencyKey ||
-      failedWorkflowRunIds.has(result.workflowRunId)
-    ) {
-      throw result.error
-    }
-    failedWorkflowRunIds.add(result.workflowRunId)
-    idempotencyKey = `${input.idempotencyKey}:retry:${result.workflowRunId}`
-  }
-}
-
-/**
- * Start a repository ingestion after the caller has acquired the single-flight
- * database claim. Stable idempotency keys reconcile ambiguous workflow-create
- * retries without claiming the repository twice.
- */
-export async function startClaimedRepositoryIngestionWorkflow(
-  input: RepositoryIngestionEnqueueInput,
-  log: { error: (err: Error) => void },
-): Promise<void> {
-  await startActiveRepositoryIngestionWorkflow(input, log)
-}
-
-/**
- * Marks the repo as mid-ingestion for the UI, then enqueues repository-ingestion-orchestrator.
- * Skips starting another orchestrator when indexing is already `queued` or `running`.
- * Awaits the DB claim and durable workflow creation before returning.
- * Does not await workflow completion; terminal failures are handled inside the workflow.
- *
- * External entry only (HTTP/webhooks). In-workflow callers use
- * {@link claimAndRunRepositoryIngestionChild} or
- * {@link runConnectorRepositoryIngestionWorkflow}.
- */
-export async function enqueueRepositoryIngestionWorkflow(
-  input: RepositoryIngestionEnqueueInput,
-  log: { error: (err: Error) => void },
-): Promise<void> {
-  // Enqueue is the network-level entry for webhooks (no request context), so
-  // we establish org DB context here before calling the model.
-  const shouldEnqueue = await withOrgDbContext(input.orgId, () =>
-    tryClaimRepositoryIndexingEnqueue({
-      repositoryId: input.repositoryId,
-      reason: input.indexingReason ?? null,
-    }),
-  )
-  if (!shouldEnqueue) {
-    return
-  }
-
+  let workflowRunId: string
   try {
-    await startActiveRepositoryIngestionWorkflow(input, log)
-  } catch (err: unknown) {
-    const normalized = err instanceof Error ? err : new Error(String(err))
-    await failRepositoryIngestionClaim(input, normalized, log)
-    log.error(normalized)
+    const handle = await runWorkflowWithWorkerWake(
+      repositoryIngestionOrchestrator.spec,
+      input.telemetry ? { ...captured, telemetry: input.telemetry } : captured,
+      { idempotencyKey: intent.requestId },
+    )
+    workflowRunId = handle.workflowRun.id
+  } catch (error) {
+    const recovered = await findRepositoryIngestionOwner(captured)
+    if (!recovered) {
+      log.error(error instanceof Error ? error : new Error(String(error)))
+      throw error
+    }
+    workflowRunId = recovered
+    scheduleEnsureWorkerRunning()
   }
+  await activateRepositoryIngestionRequest(captured, workflowRunId)
+  return { workflowRunId }
 }
+
+/** Parent callbacks await durable admission, while OpenWorkflow owns subsequent execution. */
+export const runRepositoryIngestionWorkflow = enqueueRepositoryIngestionWorkflow
 
 /**
  * Claim indexing, then start repository-ingestion-orchestrator as a durable
- * child via `step.runWorkflow` so the parent sleeps and frees its concurrency
+ * child via `step.runWorkflow` so the parent parks and frees its concurrency
  * slot while ingestion runs.
  *
  * In-workflow entry only. External callers use {@link enqueueRepositoryIngestionWorkflow}.
@@ -295,7 +131,6 @@ export async function claimAndRunRepositoryIngestionChild(
       throw err
     }
     const normalized = err instanceof Error ? err : new Error(String(err))
-    await failRepositoryIngestionClaim(input, normalized, log)
     log.error(normalized)
     throw normalized
   }
@@ -345,6 +180,9 @@ export async function runConnectorRepositoryIngestionWorkflow(
             : {}),
           ...(input.indexingReason !== undefined
             ? { indexingReason: input.indexingReason }
+            : {}),
+          ...(input.fullReingest !== undefined
+            ? { fullReingest: input.fullReingest }
             : {}),
           githubConnectionId: repository.githubConnectionId,
         },

@@ -73,6 +73,19 @@ Export stays off the request and job path. evlog logs go through `createDrainPip
 
 Tests sit next to the module. Assert telemetry through the OTel SDK in-memory exporters and outbound calls through msw: attribute names present; params, query strings, emails, and secrets absent. Mocking rules: root AGENTS.md → Testing.
 
+### Workspace chat hang (composer spins, no assistant text)
+
+Do **not** export Better Stack **CSV**. Mixed-service CSV drops HTTP `message`, splits TanStack ANSI across `info` rows, and hides the OpenCode 500 body.
+
+1. Prefer HyperDX (MCP `hyperdx`) JSON/JSONL for `ServiceName=backend`, or Railway MCP JSON/JSONL when the process never exported. Better Stack only if you can export **JSON or JSONL**.
+2. Filter `step` in (`opencode.chatStream`, `tanstack-workspace-chat`, `attach-chat-sandbox-handle`) plus the conversation `POST /:orgSlug/api/v1/conversations/:conversationId` `request.id`.
+3. The conversation `POST` is **200** when the stream opens (~17–18s). That is not a successful turn. The chat-attempt event is a **second** row with `step=opencode.chatStream` after Hono emits the HTTP event.
+4. If you see `[evlog] log.set() called after the wide event was emitted` dropping `step, conversationId, workspaceId, status, bodyExcerpt`, that deploy still writes to the sealed request logger — the chat-attempt fields never land.
+5. The chat-attempt event must include `conversationId`, `status`, and `bodyExcerpt` (OpenCode/TanStack fatal). Grep `opencode.chatStream`, not `message == ""`.
+6. Redact session tokens and emails before pasting. Do not add a second drain or a new env var.
+
+Out of scope unless that body names them: codesearch `POST /search` 503 (Zoekt warmup) and `SANDBOX_PROVIDER=railway` fail-closed.
+
 ## Gotchas
 
 - `@opentelemetry/sdk-node` does not patch `Bun.serve` or Bun's `fetch`. The server span is `backendOtelMiddleware`. The client span is `tracedOutgoingFetch`. pg, undici, net, dns, and fs auto-instrumentation is off; Postgres spans come from `dbTrace`.

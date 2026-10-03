@@ -1,7 +1,7 @@
 import { tryGetOrgDb, withOrgDbContext } from "../../db/client.js"
-import { getLogger } from "../../observability/logger.js"
 import type { IndexingStepKey } from "../../domain/indexingSteps.js"
 import { setRepositoryIndexingStep } from "../../models/repositories.js"
+import { getLogger } from "../../observability/logger.js"
 
 /**
  * Best-effort step tracker for code-ingestion graph nodes.
@@ -15,13 +15,14 @@ import { setRepositoryIndexingStep } from "../../models/repositories.js"
  * in `setRepositoryIndexingStep` prevents any node from regressing the counter.
  */
 export async function setIngestionIndexingStep(
-  state: { repositoryId: string; orgId: string },
+  state: { repositoryId: string; orgId: string; requestId?: string },
   key: IndexingStepKey,
 ): Promise<void> {
   try {
     const write = () =>
       setRepositoryIndexingStep({
         repositoryId: state.repositoryId,
+        ...(state.requestId ? { requestId: state.requestId } : {}),
         key,
         monotonic: true,
       })

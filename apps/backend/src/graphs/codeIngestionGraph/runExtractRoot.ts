@@ -1,4 +1,5 @@
 import { isUnresolvedProviderIdentity } from "../../domain/codeIngestion/referenceResolver.js"
+import { extractionCaptureBudgetSchema } from "../../domain/workspaces/extraction.js"
 import { CONNECTOR_EXTRACTORS } from "./nodes/connectorExtractors.js"
 import { extractCodeowners } from "./nodes/extractCodeowners.js"
 import { extractDecisions } from "./nodes/extractDecisions.js"
@@ -47,13 +48,17 @@ function concatExtracted(parts: Array<Partial<CodeIngestionState>>): {
       extractedClaims.push(...part.extractedClaims)
     }
   }
+  extractionCaptureBudgetSchema.parse({
+    objects: extractedObjects,
+    claims: extractedClaims,
+  })
   return { extractedObjects, extractedClaims }
 }
 
 /**
- * Per-root extract DAG (same shape as extractionSubgraph):
- * extractKind, then parallel identify_* + extractInstructionUnits + decisions +
- * CODEOWNERS + the connector extractor registry, then path locating.
+ * Per-root extract sequence: extractKind, then parallel identify_* +
+ * extractInstructionUnits + decisions + CODEOWNERS + the connector extractor
+ * registry, then path locating.
  *
  * Used by OpenWorkflow `repository-ingestion` so each phase is a durable step
  * boundary when callers wrap these in `step.run`.
@@ -62,7 +67,12 @@ export async function runExtractKindForRoot(
   state: CodeIngestionState,
   root: string,
 ): Promise<Partial<CodeIngestionState>> {
-  return extractKind({ ...state, roots: [root] })
+  const result = await extractKind({ ...state, roots: [root] })
+  extractionCaptureBudgetSchema.parse({
+    objects: result.extractedObjects ?? [],
+    claims: result.extractedClaims ?? [],
+  })
+  return result
 }
 
 export async function runIdentifyPhaseForRoot(

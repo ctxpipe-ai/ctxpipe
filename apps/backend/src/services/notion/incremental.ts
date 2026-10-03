@@ -22,7 +22,7 @@ import {
 } from "./converter.js"
 import { listBlocksDeep, listNotionPageTree } from "./page-tree.js"
 
-/** File the mirror wants to write, matching the shape `commitFiles` expects. */
+/** File captured by the Notion mirror for its typed workspace write. */
 export type NotionMirrorFile = CommitFile
 
 /**

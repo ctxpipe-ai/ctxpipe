@@ -1,6 +1,7 @@
 import { and, eq, sql } from "drizzle-orm"
 import type { Env } from "../config/env.js"
 import { getSystemDb } from "../db/client.js"
+import { upsertConnectionDirectory } from "../models/connection-directory.js"
 import {
   CONNECTION_TYPE_GITHUB,
   connections,
@@ -14,18 +15,22 @@ import { log } from "../observability/logger.js"
 
 const HOSTED_FALLBACK_APP_SLUG = "ctxpipe-agent"
 
-/** One-time migration: copy global GitHub App env into each legacy github `connections` row. */
+/**
+ * Owner-role only (called from db-migrate). Copies global GitHub App env into
+ * legacy github `connections` rows. Must not run as ctxpipe_app — ENABLE RLS
+ * would make the SELECT/UPDATE match 0 rows.
+ */
 export async function backfillGithubAppSecretsFromEnv(env: Env): Promise<void> {
   const appId = env.GITHUB_APP_ID?.trim()
   const keyRaw = env.GITHUB_PRIVATE_KEY?.trim()
   const webhook = env.GITHUB_WEBHOOK_SECRET?.trim()
-  const appSlug =
-    env.GITHUB_APP_SLUG?.trim() || HOSTED_FALLBACK_APP_SLUG
+  const appSlug = env.GITHUB_APP_SLUG?.trim() || HOSTED_FALLBACK_APP_SLUG
 
   if (!appId || !keyRaw || !webhook) {
     log.info({
       step: "backfill.github_connection_secrets",
-      message: "skip: GITHUB_APP_ID, GITHUB_PRIVATE_KEY, or GITHUB_WEBHOOK_SECRET not all set",
+      message:
+        "skip: GITHUB_APP_ID, GITHUB_PRIVATE_KEY, or GITHUB_WEBHOOK_SECRET not all set",
     })
     return
   }
@@ -51,7 +56,9 @@ export async function backfillGithubAppSecretsFromEnv(env: Env): Promise<void> {
       {
         githubAppId: appId,
         appSlug,
-        privateKey: keyRaw.includes("\\n") ? keyRaw.replace(/\\n/g, "\n") : keyRaw,
+        privateKey: keyRaw.includes("\\n")
+          ? keyRaw.replace(/\\n/g, "\n")
+          : keyRaw,
         webhookSecret: webhook,
       },
       env,
@@ -60,10 +67,15 @@ export async function backfillGithubAppSecretsFromEnv(env: Env): Promise<void> {
       ...stored,
       ...enc,
     })
-    await db
+    const [updatedRow] = await db
       .update(connections)
       .set({ config: merged, updatedAt: new Date() })
       .where(eq(connections.id, row.id))
+      .returning()
+    if (!updatedRow) {
+      throw new Error(`backfillGithubAppSecretsFromEnv: UPDATE 0 for ${row.id}`)
+    }
+    await upsertConnectionDirectory(updatedRow)
     updated += 1
   }
 

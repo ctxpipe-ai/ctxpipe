@@ -34,13 +34,14 @@ describe("repositoryMatchesStatusFilter", () => {
   it("treats ready as indexed and running-with-hash as indexing", () => {
     expect(
       repositoryMatchesStatusFilter(
-        { indexingStatus: "ready", lastIngestedHash: "abc" },
+        { indexReady: true, indexingStatus: "ready", lastIngestedHash: "abc" },
         "indexed",
       ),
     ).toBe(true)
     expect(
       repositoryMatchesStatusFilter(
         {
+          indexReady: false,
           indexingStatus: "running",
           lastIngestedHash: "abc",
         },
@@ -49,13 +50,17 @@ describe("repositoryMatchesStatusFilter", () => {
     ).toBe(true)
     expect(
       repositoryMatchesStatusFilter(
-        { indexingStatus: "failed", lastIngestedHash: "abc" },
+        {
+          indexReady: false,
+          indexingStatus: "failed",
+          lastIngestedHash: "abc",
+        },
         "failed",
       ),
     ).toBe(true)
     expect(
       repositoryMatchesStatusFilter(
-        { indexingStatus: "ready", lastIngestedHash: "abc" },
+        { indexReady: true, indexingStatus: "ready", lastIngestedHash: "abc" },
         "pending",
       ),
     ).toBe(false)
@@ -65,6 +70,7 @@ describe("repositoryMatchesStatusFilter", () => {
     expect(
       repositoryMatchesStatusFilter(
         {
+          indexReady: true,
           indexingStatus: "complete_with_issues",
           lastIngestedHash: "abc",
         },
@@ -74,6 +80,7 @@ describe("repositoryMatchesStatusFilter", () => {
     expect(
       repositoryMatchesStatusFilter(
         {
+          indexReady: true,
           indexingStatus: "complete_with_issues",
           lastIngestedHash: "abc",
         },
@@ -86,12 +93,21 @@ describe("repositoryMatchesStatusFilter", () => {
     expect(
       gitSourceFilterCounts(
         [
-          { indexingStatus: "ready", lastIngestedHash: "abc" },
           {
+            indexReady: true,
+            indexingStatus: "ready",
+            lastIngestedHash: "abc",
+          },
+          {
+            indexReady: true,
             indexingStatus: "complete_with_issues",
             lastIngestedHash: "abc",
           },
-          { indexingStatus: "failed", lastIngestedHash: null },
+          {
+            indexReady: false,
+            indexingStatus: "failed",
+            lastIngestedHash: null,
+          },
         ],
         0,
       ),

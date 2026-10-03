@@ -3,6 +3,9 @@ import { defineConfig } from "vitest/config"
 export default defineConfig({
   test: {
     environment: "node",
+    // Native OpenWorkflow/Postgres proof — needs DATABASE_URL and is not
+    // part of the unit-level connector-asset gate.
+    exclude: ["**/*.contract.test.ts"],
     include: [
       "src/services/*/{assets,client,converter,incremental,markdown-images,page-tree,signature,sync}.test.ts",
       "src/config/env-pagerduty.test.ts",

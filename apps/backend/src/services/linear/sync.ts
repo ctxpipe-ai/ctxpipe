@@ -1,9 +1,8 @@
 import type { Env } from "../../config/env.js"
-import {
-  type LinearBindingWithRepo,
-  type LinearConnection,
-  type LinearScope,
-  withLinearBindingSnapshot,
+import type {
+  LinearBindingWithRepo,
+  LinearConnection,
+  LinearScope,
 } from "../../models/linear-connector.js"
 import {
   linearAccessToken,
@@ -12,11 +11,9 @@ import {
 import { connectorPathMatchesPreservation } from "../connectors/assets.js"
 import {
   closePullRequest,
-  commitFiles,
   createPullRequestWithFiles,
   getFileContent,
   getPullRequestHeadBranch,
-  listFilesInTree,
   parseGithubPullNumberFromUrl,
 } from "../github/installation-write-client.js"
 import {
@@ -121,42 +118,36 @@ export async function syncLinearConfigYaml(input: {
   }
 }
 
-export async function commitLinearMirror(input: {
-  orgId: string
+function existingPathsFromCapture(input: {
+  existingPaths: string[]
+  existingBlobs?: ReadonlyArray<{ path: string; sha: string }>
+}): string[] {
+  return input.existingBlobs
+    ? input.existingBlobs.map((file) => file.path)
+    : input.existingPaths
+}
+
+/**
+ * Download assets for the collected mirror pages and diff them against the
+ * captured workspace tree. The calling workflow owns the native Git child.
+ */
+export async function captureLinearContent(input: {
   env: Env
   connection: LinearConnection
-  target: LinearBindingWithRepo
   files: Array<{ path: string; content: string; encoding?: "utf-8" | "base64" }>
   failures: Array<{ type: string; id: string; message: string }>
-  preservePathPrefixes?: string[]
+  existingPaths: string[]
+  existingBlobs?: ReadonlyArray<{ path: string; sha: string }>
   onTokenRefresh?: LinearTokenRefreshHandler
-}): Promise<{
-  status: "completed" | "partial_failed" | "failed"
-  written: number
-  deleted: number
-  commitSha?: string
-  failures: Array<{ type: string; id: string; message: string }>
-}> {
-  const githubConnectionId = input.target.githubConnectionId
-  if (!githubConnectionId) {
-    throw new Error("Linear sync repository has no GitHub connection")
-  }
+}) {
   if (input.files.length === 0 && input.failures.length > 0) {
     return {
-      status: "failed",
-      written: 0,
-      deleted: 0,
+      status: "failed" as const,
+      files: [],
+      deletePaths: [],
       failures: input.failures,
     }
   }
-
-  const existing = await listFilesInTree({
-    orgId: input.orgId,
-    env: input.env,
-    repositoryName: input.target.repositoryName,
-    githubConnectionId,
-    branch: input.target.branch,
-  })
   await withLinearClient(
     {
       env: input.env,
@@ -165,128 +156,68 @@ export async function commitLinearMirror(input: {
     },
     async () => undefined,
   )
+  const existingPaths = existingPathsFromCapture(input)
   const downloaded = await downloadLinearMirrorAssets({
     files: input.files,
     accessToken: linearAccessToken(input.connection),
-    existingShaByPath: new Map(existing.map((file) => [file.path, file.sha])),
+    existingShaByPath: input.existingBlobs
+      ? new Map(input.existingBlobs.map((file) => [file.path, file.sha]))
+      : undefined,
   })
-  const preservePathPrefixes = [
-    ...(input.preservePathPrefixes ?? []),
-    ...downloaded.preservePathPrefixes,
-  ]
   const nextPaths = new Set(downloaded.files.map((file) => file.path))
   const deletePaths =
     input.failures.length === 0
-      ? existing
-          .map((file) => file.path)
-          .filter(
-            (path) =>
-              path.startsWith("linear/") &&
-              path !== LINEAR_CONFIG_PATH &&
-              !nextPaths.has(path) &&
-              !preservePathPrefixes.some((prefix) =>
-                connectorPathMatchesPreservation(path, prefix),
-              ),
-          )
+      ? existingPaths.filter(
+          (path) =>
+            path.startsWith("linear/") &&
+            path !== LINEAR_CONFIG_PATH &&
+            !nextPaths.has(path) &&
+            !downloaded.preservePathPrefixes.some((prefix) =>
+              connectorPathMatchesPreservation(path, prefix),
+            ),
+        )
       : []
-  const filesToWrite = omitUnchangedLinearFiles(downloaded.files, existing)
-  let commitSha: string | undefined
-
-  await withLinearBindingSnapshot(
-    {
-      connectionId: input.connection.id,
-      repositoryId: input.target.repositoryId,
-      branch: input.target.branch,
-      setupPhase: "initial_sync",
-    },
-    async () => {
-      if (filesToWrite.length > 0 || deletePaths.length > 0) {
-        const commit = await commitFiles({
-          orgId: input.orgId,
-          env: input.env,
-          repositoryName: input.target.repositoryName,
-          githubConnectionId,
-          branch: input.target.branch,
-          message: "chore(linear): sync workspace content",
-          files: filesToWrite,
-          deletePaths,
-        })
-        commitSha = commit.commitSha
-      }
-    },
-  )
+  const files = input.existingBlobs
+    ? omitUnchangedLinearFiles(downloaded.files, input.existingBlobs)
+    : downloaded.files
   return {
-    status: input.failures.length > 0 ? "partial_failed" : "completed",
-    written: filesToWrite.length,
-    deleted: deletePaths.length,
-    commitSha,
+    status:
+      input.failures.length > 0
+        ? ("partial_failed" as const)
+        : ("completed" as const),
+    files,
+    deletePaths,
     failures: input.failures,
   }
 }
 
-export async function syncLinearIncrementalContent(input: {
-  orgId: string
+export async function captureLinearIncrementalContent(input: {
   env: Env
   connection: LinearConnection
-  target: LinearBindingWithRepo
   config: ParsedLinearRepoConfig
+  existingPaths: string[]
+  existingBlobs?: ReadonlyArray<{ path: string; sha: string }>
   entity: LinearEntityChange
   onTokenRefresh?: LinearTokenRefreshHandler
-}): Promise<{
-  written: number
-  deleted: number
-  commitSha?: string
-  failures: Array<{ type: string; id: string; message: string }>
-}> {
-  const githubConnectionId = input.target.githubConnectionId
-  if (!githubConnectionId) {
-    throw new Error("Linear sync repository has no GitHub connection")
-  }
-  const existing = await listFilesInTree({
-    orgId: input.orgId,
-    env: input.env,
-    repositoryName: input.target.repositoryName,
-    githubConnectionId,
-    branch: input.target.branch,
-  })
+}) {
+  const existingPaths = existingPathsFromCapture(input)
   const changes = await buildLinearIncrementalChanges({
     env: input.env,
     connection: input.connection,
     config: input.config,
     entities: [input.entity],
-    existingPaths: existing.map((file) => file.path),
-    existingShaByPath: new Map(existing.map((file) => [file.path, file.sha])),
+    existingPaths,
+    existingShaByPath: input.existingBlobs
+      ? new Map(input.existingBlobs.map((file) => [file.path, file.sha]))
+      : undefined,
     onTokenRefresh: input.onTokenRefresh,
   })
-  const filesToWrite = omitUnchangedLinearFiles(changes.files, existing)
-  let commitSha: string | undefined
-  await withLinearBindingSnapshot(
-    {
-      connectionId: input.connection.id,
-      repositoryId: input.target.repositoryId,
-      branch: input.target.branch,
-      setupPhase: "live",
-    },
-    async () => {
-      if (filesToWrite.length > 0 || changes.deletePaths.length > 0) {
-        const commit = await commitFiles({
-          orgId: input.orgId,
-          env: input.env,
-          repositoryName: input.target.repositoryName,
-          githubConnectionId,
-          branch: input.target.branch,
-          message: "chore(linear): apply incremental updates",
-          files: filesToWrite,
-          deletePaths: changes.deletePaths,
-        })
-        commitSha = commit.commitSha
-      }
-    },
-  )
+  const files = input.existingBlobs
+    ? omitUnchangedLinearFiles(changes.files, input.existingBlobs)
+    : changes.files
   return {
-    written: filesToWrite.length,
-    deleted: changes.deletePaths.length,
-    commitSha,
+    files,
+    deletePaths: changes.deletePaths,
     failures: changes.failures,
   }
 }

@@ -1,0 +1,119 @@
+import { execFileSync } from "node:child_process"
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
+import { describe, expect, it } from "vitest"
+import {
+  WORKSPACE_CHAT_DOCKER_SANDBOX,
+  WORKSPACE_CHAT_OPENCODE_PORT,
+  WORKSPACE_CHAT_RUNTIME,
+  WORKSPACE_CHAT_SANDBOX_SETUP,
+  WORKSPACE_CHAT_THREAD_SETUP,
+  workspaceChatRuntimeConfig,
+} from "./chat-runtime.js"
+import { CONVERSATION_SANDBOX_GIT_EXCLUDE_LINES } from "./conversation-files.js"
+
+describe("workspace chat runtime", () => {
+  it("locks TanStack chat + withSandbox + opencodeText", () => {
+    expect(WORKSPACE_CHAT_RUNTIME).toMatchObject({
+      transport: "tanstack_chat",
+      sandbox: "withSandbox",
+      harness: "opencodeText",
+      permissionMode: "acceptEdits",
+    })
+  })
+
+  it("installs opencode in the sandbox and publishes the serve port", () => {
+    expect(WORKSPACE_CHAT_OPENCODE_PORT).toBe(4096)
+    expect(WORKSPACE_CHAT_DOCKER_SANDBOX).toEqual({
+      image:
+        "node@sha256:8a34c4ab3ea2c5cd194f07e317b2a8f09461d3c8b05c4e34c8ccd56d56024c4d",
+      publishPorts: [4096],
+    })
+    expect(WORKSPACE_CHAT_SANDBOX_SETUP.join("\n")).toMatch(
+      /command -v opencode/,
+    )
+    expect(WORKSPACE_CHAT_SANDBOX_SETUP.join("\n")).toMatch(
+      /opencode-ai@1\.18\.34/,
+    )
+  })
+
+  it("writes OpenCode config under HOME and excludes harness paths from git", () => {
+    const cloneSetup = [
+      WORKSPACE_CHAT_SANDBOX_SETUP[1],
+      WORKSPACE_CHAT_THREAD_SETUP[1],
+    ].join("\n")
+    const repo = mkdtempSync(join(tmpdir(), "ws-chat-exclude-"))
+    const home = mkdtempSync(join(tmpdir(), "ws-chat-opencode-home-"))
+    execFileSync("git", ["init", "-b", "main"], { cwd: repo })
+    writeFileSync(join(repo, "README.md"), "already cloned\n")
+    execFileSync("git", ["add", "README.md"], { cwd: repo })
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "user.email=setup@ctxpipe.test",
+        "-c",
+        "user.name=setup",
+        "commit",
+        "-m",
+        "init",
+      ],
+      { cwd: repo },
+    )
+    const out = execFileSync(
+      "sh",
+      ["-c", `{ ${cloneSetup} ; } 2>&1; printf "\\n__BSSH_0__ $?\\n"`],
+      {
+        cwd: repo,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HOME: home,
+          CTXPIPE_OPENCODE_JSON: '{"enabled_providers":["ctxpipe"]}',
+        },
+      },
+    )
+    expect(out).toMatch(/__BSSH_0__ 0/)
+    expect(existsSync(join(repo, "opencode.json"))).toBe(false)
+    expect(readFileSync(join(home, "opencode.json"), "utf8")).toContain(
+      "enabled_providers",
+    )
+    const exclude = readFileSync(join(repo, ".git/info/exclude"), "utf8")
+    for (const line of CONVERSATION_SANDBOX_GIT_EXCLUDE_LINES) {
+      expect(exclude).toContain(line)
+    }
+  })
+
+  it("puts opencode and GNU find on the backend image PATH", () => {
+    const dockerfile = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "../../../Dockerfile"),
+      "utf8",
+    )
+    expect(dockerfile).toMatch(/opencode-ai@1\.18\.34/)
+    expect(dockerfile).toMatch(/findutils/)
+  })
+
+  it("exposes onPermissionRequest", async () => {
+    const runtime = workspaceChatRuntimeConfig({
+      writeStatus: "writable",
+    })
+    await expect(
+      runtime.onPermissionRequest({
+        id: "perm_1",
+        sessionID: "sess_1",
+        type: "git_push",
+        title: "git_push",
+      }),
+    ).resolves.toBe("reject")
+    await expect(
+      runtime.onPermissionRequest({
+        id: "perm_2",
+        sessionID: "sess_1",
+        type: "apply_patch",
+        title: "apply_patch",
+      }),
+    ).resolves.toBe("once")
+  })
+})

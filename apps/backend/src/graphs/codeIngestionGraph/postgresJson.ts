@@ -28,7 +28,7 @@ function stripUnsafe(text: string): string {
     const next = text.charCodeAt(i + 1)
     if (code >= 0xd800 && code <= 0xdbff) {
       if (next >= 0xdc00 && next <= 0xdfff) {
-        out += text[i] + text[i + 1]
+        out += text.slice(i, i + 2)
         i += 1
       }
       continue

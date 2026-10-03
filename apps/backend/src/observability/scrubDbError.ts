@@ -45,22 +45,22 @@ export function flattenDbErrorCause(event: Record<string, unknown>): void {
  * Messages that carried bound values are also capped, matching `dbErrorException`.
  */
 export function scrubExportedSpan(span: {
-  events: { name: string; attributes: Record<string, unknown> }[]
+  events: { name: string; attributes?: Record<string, unknown> }[]
   status: { code: number; message?: string }
   setStatus(status: { code: number; message?: string }): void
 }): void {
   for (const event of span.events) {
-    if (event.name !== "exception") continue
-    const message = event.attributes["exception.message"]
+    const attributes = event.attributes
+    if (event.name !== "exception" || !attributes) continue
+    const message = attributes["exception.message"]
     if (typeof message === "string") {
-      event.attributes["exception.message"] = scrubDbMessage(message)
+      attributes["exception.message"] = scrubDbMessage(message)
     }
-    const stack = event.attributes["exception.stacktrace"]
+    const stack = attributes["exception.stacktrace"]
     if (typeof stack === "string") {
       const scrubbed = scrubDbStack(stack)
-      if (scrubbed === undefined)
-        delete event.attributes["exception.stacktrace"]
-      else event.attributes["exception.stacktrace"] = scrubbed
+      if (scrubbed === undefined) delete attributes["exception.stacktrace"]
+      else attributes["exception.stacktrace"] = scrubbed
     }
   }
   const statusMessage = span.status.message

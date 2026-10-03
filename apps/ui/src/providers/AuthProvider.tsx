@@ -3,8 +3,10 @@ import { AuthUIProviderTanstack } from "@daveyplate/better-auth-ui/tanstack"
 import { Link, useRouter } from "@tanstack/react-router"
 import { type ComponentProps, type FC, useEffect, useRef } from "react"
 import { authClient } from "@/lib/auth-client"
+import { orgGateKeys } from "@/lib/org-gate"
 import { useAuthEvlogIdentity } from "@/lib/useAuthEvlogIdentity"
 import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
+import type { RouterContext } from "@/router"
 
 /**
  * better-auth-ui's SignUpForm navigates to sign-in after a successful link-based
@@ -60,35 +62,39 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
       return new URL(input.url, window.location.origin)
     }
 
-    window.fetch = async (input, init) => {
-      const response = await originalFetch(input, init)
-      try {
-        const requestUrl = resolveRequestUrl(input)
-        if (
-          requestUrl.pathname ===
-          "/.auth/api/v1/auth/organization/get-full-organization"
-        ) {
-          if (response.status === 400) {
-            organizationFetch400CountRef.current += 1
-          } else {
-            organizationFetch400CountRef.current = 0
-          }
-
-          // Circuit-break repeated invalid-org auth state to avoid infinite query churn.
+    // Keep fetch's static members (Bun's types add `preconnect`).
+    window.fetch = Object.assign(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const response = await originalFetch(input, init)
+        try {
+          const requestUrl = resolveRequestUrl(input)
           if (
-            organizationFetch400CountRef.current >= 3 &&
-            !redirectScheduled &&
-            !window.location.pathname.startsWith("/.auth/sign-out")
+            requestUrl.pathname ===
+            "/.auth/api/v1/auth/organization/get-full-organization"
           ) {
-            redirectScheduled = true
-            window.location.replace("/.auth/sign-out")
+            if (response.status === 400) {
+              organizationFetch400CountRef.current += 1
+            } else {
+              organizationFetch400CountRef.current = 0
+            }
+
+            // Circuit-break repeated invalid-org auth state to avoid infinite query churn.
+            if (
+              organizationFetch400CountRef.current >= 3 &&
+              !redirectScheduled &&
+              !window.location.pathname.startsWith("/.auth/sign-out")
+            ) {
+              redirectScheduled = true
+              window.location.replace("/.auth/sign-out")
+            }
           }
+        } catch {
+          // Best-effort guard only.
         }
-      } catch {
-        // Best-effort guard only.
-      }
-      return response
-    }
+        return response
+      },
+      window.fetch,
+    )
 
     return () => {
       window.fetch = originalFetch
@@ -129,6 +135,10 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
               }
         }
         onSessionChange={() => {
+          const queryClient = (
+            router?.options.context as RouterContext | undefined
+          )?.queryClient
+          void queryClient?.invalidateQueries({ queryKey: orgGateKeys.all })
           void router?.invalidate()
         }}
         Link={

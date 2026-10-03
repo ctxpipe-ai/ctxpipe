@@ -1,4 +1,7 @@
 # Build from monorepo root: docker build -f apps/backend/Dockerfile .
+FROM node:22-alpine AS opencode
+RUN npm install -g opencode-ai@1.18.34
+
 FROM oven/bun:1.4.2-alpine AS deps
 WORKDIR /app
 ENV CI=true
@@ -15,9 +18,17 @@ FROM oven/bun:1.4.2-alpine
 WORKDIR /app
 ENV CI=true
 ENV NODE_ENV=production
+ENV PATH="/usr/local/bin:${PATH}"
+# GNU find: TanStack sandbox watch on Linux exec-polls with `find -printf`.
+# OpenCode: `opencodeText` spawns `opencode serve` in the local-process sandbox.
+# git: clone-tree and paste-URL hydrate/explorer spawn the git CLI.
+RUN apk add --no-cache findutils git
+COPY --from=opencode /usr/local/bin/ /usr/local/bin/
+COPY --from=opencode /usr/local/lib/node_modules/ /usr/local/lib/node_modules/
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/backend/node_modules ./apps/backend/node_modules
 COPY tsconfig.json ./
+COPY shared ./shared
 COPY apps/backend/src ./apps/backend/src
 COPY apps/backend/public ./apps/backend/public
 COPY apps/backend/migrations ./apps/backend/migrations

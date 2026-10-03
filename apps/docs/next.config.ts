@@ -33,8 +33,28 @@ const config = withMDX({
         permanent: false,
       },
       {
-        source: "/docs/knowledge-graph/monitoring",
-        destination: "/docs/knowledge-graph/exploring#reading-graph-status",
+        source: "/docs/knowledge-graph/:path*",
+        destination: "/docs/workspaces/graph",
+        permanent: false,
+      },
+      {
+        source: "/docs/chat/:path*",
+        destination: "/docs/workspaces/chat",
+        permanent: false,
+      },
+      {
+        source: "/docs/git-repositories/install-mcps-via-pr",
+        destination: "/docs/mcp/install-mcps-via-pr",
+        permanent: false,
+      },
+      {
+        source: "/docs/git-repositories/:path*",
+        destination: "/docs/workspaces/linked-repositories",
+        permanent: false,
+      },
+      {
+        source: "/docs/connections/context-repository",
+        destination: "/docs/workspaces/create-workspace",
         permanent: false,
       },
       {

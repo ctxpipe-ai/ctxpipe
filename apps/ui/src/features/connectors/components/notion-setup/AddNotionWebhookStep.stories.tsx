@@ -10,6 +10,11 @@ const connectionId = "con_story_notion"
 const meta = {
   title: "Components/Connections/Notion/Steps/AddWebhook",
   component: AddNotionWebhookStep,
+  args: {
+    orgSlug,
+    connectionId,
+    onContinue: () => {},
+  },
   decorators: [
     (Story) => (
       <div className="w-full max-w-md p-2">

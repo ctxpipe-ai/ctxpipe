@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  formatSlackMentionStatusText,
+  isSlackModelConfigured,
+  selectSlackMentionIntent,
+  stripSlackMentionText,
+} from "./mention-agent.js"
 
-const captureSlackThreadMock = vi.hoisted(() => vi.fn())
 const getModelMock = vi.hoisted(() => vi.fn())
 const createAgentMock = vi.hoisted(() => vi.fn())
 
@@ -10,32 +15,6 @@ vi.mock("../../graphs/createAgent.js", () => ({
 vi.mock("../../retrieval/services/modelProvider.js", () => ({
   getModel: getModelMock,
 }))
-vi.mock("../../observability/logger.js", () => ({
-  getLogger: () => ({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
-}))
-vi.mock("./sync.js", () => ({
-  captureSlackThread: captureSlackThreadMock,
-}))
-
-import {
-  formatSlackMentionStatusText,
-  isSlackModelConfigured,
-  runSlackMentionAgent,
-  stripSlackMentionText,
-} from "./mention-agent.js"
-
-const connection = { id: "con_1", orgId: "org_1", teamId: "T1" }
-const target = {
-  connectionId: "con_1",
-  orgId: "org_1",
-  enabled: true,
-}
-const captured = {
-  status: "completed" as const,
-  messageCount: 2,
-  githubUrl: "https://github.com/acme/context/blob/sha/slack/thread.md",
-  truncated: false,
-}
 
 describe("stripSlackMentionText", () => {
   it("treats a bare mention as empty remainder", () => {
@@ -60,29 +39,20 @@ describe("isSlackModelConfigured", () => {
   })
 })
 
-describe("runSlackMentionAgent", () => {
+describe("selectSlackMentionIntent", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    captureSlackThreadMock.mockResolvedValue(captured)
     getModelMock.mockReturnValue({})
   })
 
   it("captures a bare mention without calling the model", async () => {
-    const result = await runSlackMentionAgent({
-      orgId: "org_1",
-      env: {} as never,
-      connection: connection as never,
-      target: target as never,
-      channelId: "C1",
-      threadTs: "1710000000.000100",
-      mentionText: "<@U_BOT>",
-      mentionUserId: "U1",
-    })
-
-    expect(result).toEqual({ kind: "captured", capture: captured })
-    expect(captureSlackThreadMock).toHaveBeenCalledWith(
-      expect.objectContaining({ capturedByUserId: "U1" }),
-    )
+    await expect(
+      selectSlackMentionIntent({
+        env: {} as never,
+        connectionId: "con_1",
+        mentionText: "<@U_BOT>",
+      }),
+    ).resolves.toEqual({ kind: "capture" })
     expect(createAgentMock).not.toHaveBeenCalled()
   })
 
@@ -100,56 +70,42 @@ describe("runSlackMentionAgent", () => {
       }),
     )
 
-    const result = await runSlackMentionAgent({
-      orgId: "org_1",
-      env: { MODEL_PROVIDER_API_KEY: "sk" } as never,
-      connection: connection as never,
-      target: target as never,
-      channelId: "C1",
-      threadTs: "1710000000.000100",
-      mentionText: "<@U_BOT> capture this",
-    })
-
-    expect(result.kind).toBe("captured")
-    expect(captureSlackThreadMock).toHaveBeenCalledTimes(1)
+    await expect(
+      selectSlackMentionIntent({
+        env: { MODEL_PROVIDER_API_KEY: "sk" } as never,
+        connectionId: "con_1",
+        mentionText: "<@U_BOT> capture this",
+      }),
+    ).resolves.toEqual({ kind: "capture" })
   })
 
-  it("does not write git for unknown intent", async () => {
+  it("returns capability for unknown intent", async () => {
     createAgentMock.mockReturnValue({
       invoke: async () => ({ messages: [] }),
     })
 
-    const result = await runSlackMentionAgent({
-      orgId: "org_1",
+    const result = await selectSlackMentionIntent({
       env: { MODEL_PROVIDER_API_KEY: "sk" } as never,
-      connection: connection as never,
-      target: target as never,
-      channelId: "C1",
-      threadTs: "1710000000.000100",
+      connectionId: "con_1",
       mentionText: "<@U_BOT> what is ctxpipe?",
     })
 
     expect(result).toEqual({ kind: "capability" })
-    expect(captureSlackThreadMock).not.toHaveBeenCalled()
+    if (result.kind !== "capability") throw new Error("expected capability")
     expect(formatSlackMentionStatusText(result)).toMatch(/Ask me to capture/)
   })
 
   it("fails when remainder needs a model that is not configured", async () => {
-    const result = await runSlackMentionAgent({
-      orgId: "org_1",
-      env: {} as never,
-      connection: connection as never,
-      target: target as never,
-      channelId: "C1",
-      threadTs: "1710000000.000100",
-      mentionText: "<@U_BOT> capture this",
-    })
-
-    expect(result).toMatchObject({
+    await expect(
+      selectSlackMentionIntent({
+        env: {} as never,
+        connectionId: "con_1",
+        mentionText: "<@U_BOT> capture this",
+      }),
+    ).resolves.toMatchObject({
       kind: "failed",
       errorCode: "model_not_configured",
     })
     expect(createAgentMock).not.toHaveBeenCalled()
-    expect(captureSlackThreadMock).not.toHaveBeenCalled()
   })
 })

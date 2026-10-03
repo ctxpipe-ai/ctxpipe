@@ -4,6 +4,7 @@ import { isWorkflowControlSignal } from "./isSleepSignal.js"
 /**
  * Wraps an async workflow step fn; on throw, logs the failure to evlog (with
  * structured fields) and flushes the workflow log before rethrowing.
+ * Only ordinary I/O callbacks belong here; native steps stay in the workflow.
  *
  * SleepSignal / SleepSignalError is never treated as an attempt failure — it
  * is rethrown silently because it is a workflow control signal, not a real

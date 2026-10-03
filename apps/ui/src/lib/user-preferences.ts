@@ -2,9 +2,22 @@ import { useCallback, useEffect, useState } from "react"
 
 const USER_PREFERENCES_KEY = "ctxpipe:userPreferences"
 
+export const SIDE_NAV_COLLAPSED_WIDTH = 44
+export const SIDE_NAV_DEFAULT_WIDTH = 224
+export const SIDE_NAV_MIN_WIDTH = 180
+export const SIDE_NAV_MAX_WIDTH = 360
+
 type UserPreferences = {
   selectedOrganizationSlug: string | null
   isSideNavExpanded: boolean | null
+  sideNavWidth: number
+}
+
+export function clampSideNavWidth(width: number): number {
+  return Math.min(
+    SIDE_NAV_MAX_WIDTH,
+    Math.max(SIDE_NAV_MIN_WIDTH, Math.round(width)),
+  )
 }
 
 function readStoredPreferences(): UserPreferences {
@@ -13,6 +26,7 @@ function readStoredPreferences(): UserPreferences {
     return {
       selectedOrganizationSlug: null,
       isSideNavExpanded: true,
+      sideNavWidth: SIDE_NAV_DEFAULT_WIDTH,
     }
   }
 
@@ -21,11 +35,16 @@ function readStoredPreferences(): UserPreferences {
     return {
       selectedOrganizationSlug: parsed.selectedOrganizationSlug ?? null,
       isSideNavExpanded: parsed.isSideNavExpanded ?? true,
+      sideNavWidth:
+        typeof parsed.sideNavWidth === "number"
+          ? clampSideNavWidth(parsed.sideNavWidth)
+          : SIDE_NAV_DEFAULT_WIDTH,
     }
   } catch {
     return {
       selectedOrganizationSlug: null,
       isSideNavExpanded: true,
+      sideNavWidth: SIDE_NAV_DEFAULT_WIDTH,
     }
   }
 }
@@ -35,6 +54,7 @@ export function useUserPreferences() {
   const [preferences, setPreferences] = useState<UserPreferences>({
     selectedOrganizationSlug: null,
     isSideNavExpanded: true,
+    sideNavWidth: SIDE_NAV_DEFAULT_WIDTH,
   })
 
   useEffect(() => {

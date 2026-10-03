@@ -4,13 +4,12 @@ Naming: `ADR-NNN-title-slug.md`. Status | Date | Tags; Context; Decision; Conseq
 
 Parent: [`.ai/memory/README.md`](../README.md).
 
-**Updated:** 2026-09-29
+**Updated:** 2026-10-01
 
 ## Index
 
 | ADR | Title | Status |
 |-----|-------|--------|
-
 | [ADR-001](ADR-001-frontend-ui-app-stack.md) | Frontend UI app stack | Accepted |
 | [ADR-002](ADR-002-backend-service-stack-and-runtime.md) | Backend service stack and runtime | Accepted |
 | [ADR-003](ADR-003-drizzle-beta.md) | Drizzle ORM beta (v1.x) | Accepted |
@@ -18,7 +17,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-005](ADR-005-langgraph-integration.md) | LangGraph + LangChain integration | Superseded |
 | [ADR-006](ADR-006-langsmith-studio-dev-routes.md) | LangSmith Studio dev routes | Superseded — LangSmith removed; no replacement |
 | [ADR-007](ADR-007-remove-cloudflare-workers-runtime.md) | Remove Cloudflare Workers runtime | Accepted |
-| [ADR-008](ADR-008-codesearch-zoekt-orchestration.md) | Codesearch service and Zoekt orchestration | Accepted |
+| [ADR-008](ADR-008-codesearch-zoekt-orchestration.md) | Codesearch Zoekt, SCIP, and ast-grep | Accepted |
 | [ADR-009](ADR-009-ui-src-folder-structure.md) | UI src folder structure | Accepted |
 | [ADR-010](ADR-010-opencypher-graph-db-falkordb-default.md) | OpenCypher Graph DB and FalkorDB as Default | Accepted |
 | [ADR-011](ADR-011-backend-observability-otel.md) | Backend Observability via OpenTelemetry and evlog | Accepted |
@@ -40,11 +39,22 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-027](ADR-027-codesearch-openworkflow-concurrency.md) | Size-based OpenWorkflow concurrency for single-instance codesearch | Accepted |
 | [ADR-028](ADR-028-git-native-connector-assets.md) | Git-native connector assets | Accepted |
 | [ADR-029](ADR-029-railway-us-east-next-to-neon.md) | Railway compute in US East next to Neon | Accepted |
-| [ADR-030](ADR-030-organization-owned-mcp-api-keys.md) | Organization-owned MCP API keys | Accepted (amended 2026-09-22) |
-| [ADR-031](ADR-031-github-pr-scoped-mirror.md) | GitHub pull-request scoped mirror | Accepted |
+| [ADR-030](ADR-030-organization-owned-mcp-api-keys.md) | Organization-owned MCP API keys | Accepted (amended 2026-09-27: OpenCode HOME hashing) |
+| [ADR-031](ADR-031-github-pr-scoped-mirror.md) | GitHub pull-request scoped mirror (revised: follows linked repositories) | Accepted (revised 2026-10-03) |
 | [ADR-032](ADR-032-path-located-graph-edges.md) | Path-located graph edges | Accepted (amended by ADR-033) |
 | [ADR-033](ADR-033-graph-ontology-v2.md) | Graph ontology v2: relation families, shared identity, deterministic connector extraction | Accepted (amended by ADR-037) |
 | [ADR-034](ADR-034-pagerduty-connector-git-native-mirror.md) | PagerDuty connector Git-native mirror | Accepted |
 | [ADR-037](ADR-037-committed-memory-reaches-the-graph.md) | Committed memory reaches the graph | Accepted |
 | [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md) | Self-hosted ClickStack + Langfuse (ops observability) | Accepted (amended 2026-09-29) |
 | [ADR-039](ADR-039-production-image-deploys-one-environment.md) | Production image deploys stay on one Railway environment | Accepted |
+| [ADR-040](ADR-040-pierre-files-pane-chrome.md) | Pierre trees/diffs as Workspace Files explorer chrome | Accepted |
+| [ADR-041](ADR-041-short-org-sql-unique-sandbox-rows.md) | Short org SQL transactions, no held connections | Accepted |
+| [ADR-042](ADR-042-postgres-rls-app-role.md) | Postgres RLS with a non-owner app role | Accepted |
+| [ADR-043](ADR-043-workspace-chat-keep-alive-serve.md) | In-sandbox keep-alive OpenCode serve | Superseded by [ADR-044](ADR-044-workspace-chat-stock-tanstack.md) |
+| [ADR-044](ADR-044-workspace-chat-stock-tanstack.md) | Stock TanStack workspace chat | Accepted |
+| [ADR-045](ADR-045-required-recovery-ci.md) | CI proves what ran | Accepted |
+| [ADR-046](ADR-046-workspace-revision-projection-identity.md) | Workspace revision and projection identity | Accepted |
+| [ADR-047](ADR-047-native-durable-write-workflows.md) | Durable write workflows | Accepted |
+| [ADR-048](ADR-048-native-postgres-sandbox-ownership.md) | Conversation sandboxes: stock providers, Postgres ownership, git as durable state | Accepted |
+
+Numbers 035 and 036 are unused. The next new ADR is 049.

@@ -1,0 +1,362 @@
+import { createHash } from "node:crypto"
+import { mkdirSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import {
+  type ModelParams,
+  restrictModelParamsForProvider,
+} from "../../retrieval/services/modelParams.js"
+import {
+  modelParamsFromSpec,
+  modelSpecBase,
+} from "../../retrieval/services/parseModelSpec.js"
+import type {
+  ModelProviderKind,
+  ModelTier,
+} from "../../retrieval/services/providers/providerTypes.js"
+
+/** Home of the Vercel sandbox user; the agent CLI and its home live under it. */
+export const VERCEL_AGENT_ROOT = "/home/vercel-sandbox"
+
+export const WORKSPACE_CHAT_OPENCODE_PROVIDER_ID = "ctxpipe" as const
+
+const DEFAULT_OPENROUTER_BASE = "https://openrouter.ai/api/v1"
+
+const DEFAULT_TIER_SPECS = {
+  fast: "openai/gpt-5.6-terra?reasoning.effort=low",
+  medium: "openai/gpt-5.6-terra?reasoning.effort=medium",
+  high: "openai/gpt-5.6-terra?reasoning.effort=high",
+} as const
+
+type WorkspaceChatOpenCodeProvider = "openai-like" | "openrouter"
+
+function isWorkspaceChatOpenCodeProvider(
+  provider: ModelProviderKind,
+): provider is WorkspaceChatOpenCodeProvider {
+  return provider === "openai-like" || provider === "openrouter"
+}
+
+export type WorkspaceChatOpenCodeContract =
+  | {
+      ok: true
+      tier: ModelTier
+      modelSpec: string
+      modelBase: string
+      opencodeModel: string
+      provider: "openai-like" | "openrouter"
+      upstreamBaseUrl: string
+      modelParams: ModelParams | undefined
+      apiKey: string
+    }
+  | {
+      ok: false
+      status: 503
+      reason: "missing_provider_key" | "unsupported_provider"
+      error: string
+    }
+
+function resolveProvider(raw: string | undefined): ModelProviderKind {
+  const value = raw?.trim()
+  if (
+    value === "openai-like" ||
+    value === "openrouter" ||
+    value === "azure" ||
+    value === "bedrock"
+  ) {
+    return value
+  }
+  return "openai-like"
+}
+
+function resolveTierSpec(env: NodeJS.ProcessEnv, tier: ModelTier): string {
+  const fromEnv =
+    tier === "fast"
+      ? env.MODEL_FAST_NAME
+      : tier === "medium"
+        ? env.MODEL_MEDIUM_NAME
+        : env.MODEL_HIGH_NAME
+  const trimmed = fromEnv?.trim()
+  return trimmed || DEFAULT_TIER_SPECS[tier]
+}
+
+export function workspaceChatOpenCodeModel(modelBase: string): string {
+  return `${WORKSPACE_CHAT_OPENCODE_PROVIDER_ID}/${modelBase}`
+}
+
+export const WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV = [
+  "AUTH_SECRET",
+  "DATABASE_URL",
+  "MODEL_PROVIDER_API_KEY",
+  "GITHUB_PRIVATE_KEY",
+  "GITHUB_WEBHOOK_SECRET",
+  "SMTP_PASS",
+  "SMTP_PASSWORD",
+  "LANGSMITH_API_KEY",
+  "LANGFUSE_SECRET_KEY",
+  "ANTHROPIC_API_KEY",
+  "OPENAI_API_KEY",
+  "OPENROUTER_API_KEY",
+  "AMPLITUDE_API_KEY",
+] as const
+
+export const WORKSPACE_CHAT_OPENCODE_CLI = "opencode-ai@1.18.34" as const
+
+export const WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV =
+  "{env:CTXPIPE_MODEL_PROXY_URL}" as const
+
+export const WORKSPACE_CHAT_OPENCODE_JSON_SECRET =
+  "CTXPIPE_OPENCODE_JSON" as const
+
+/** Single path component under typical NAME_MAX, with room for HOME suffixes. */
+export const WORKSPACE_CHAT_OPENCODE_HOME_SLUG_MAX_LENGTH = 80
+
+const PATH_SAFE_RUNTIME_ID = /^[A-Za-z0-9_-]+$/
+
+export function workspaceChatOpenCodeHomeSlug(conversationId: string): string {
+  if (
+    PATH_SAFE_RUNTIME_ID.test(conversationId) &&
+    conversationId.length > 0 &&
+    conversationId.length <= WORKSPACE_CHAT_OPENCODE_HOME_SLUG_MAX_LENGTH
+  ) {
+    return conversationId
+  }
+  const digest = createHash("sha256")
+    .update(`${conversationId.length}:${conversationId}`, "utf8")
+    .digest("hex")
+    .slice(0, 32)
+  const prefix = conversationId
+    .replace(/[^A-Za-z0-9_-]/g, "_")
+    .replace(/_+/g, "_")
+  const readable = prefix.replace(/^_+|_+$/g, "").slice(0, 24) || "conversation"
+  return `${readable}_${digest}`.slice(
+    0,
+    WORKSPACE_CHAT_OPENCODE_HOME_SLUG_MAX_LENGTH,
+  )
+}
+
+export function workspaceChatOpenCodeHomeDir(conversationId: string): string {
+  return join(
+    tmpdir(),
+    "ctxpipe-opencode-home",
+    workspaceChatOpenCodeHomeSlug(conversationId),
+  )
+}
+
+export function workspaceChatOpenCodeConfigPath(
+  conversationId: string,
+): string {
+  return join(workspaceChatOpenCodeHomeDir(conversationId), "opencode.json")
+}
+
+/** Isolate local-process OpenCode from the host ~/.config/opencode + shared db. */
+export function workspaceChatOpenCodeHomeEnv(
+  conversationId: string,
+): Record<string, string> {
+  const home = workspaceChatOpenCodeHomeDir(conversationId)
+  const config = join(home, "config")
+  mkdirSync(config, { recursive: true })
+  mkdirSync(join(home, "data"), { recursive: true })
+  mkdirSync(join(home, "state"), { recursive: true })
+  mkdirSync(join(home, "cache"), { recursive: true })
+  return {
+    HOME: home,
+    XDG_CONFIG_HOME: config,
+    XDG_DATA_HOME: join(home, "data"),
+    XDG_STATE_HOME: join(home, "state"),
+    XDG_CACHE_HOME: join(home, "cache"),
+    OPENCODE_CONFIG: workspaceChatOpenCodeConfigPath(conversationId),
+    PATH: unixLoginPath(),
+  }
+}
+
+export function writeWorkspaceChatOpenCodeConfig(input: {
+  conversationId: string
+  modelBase: string
+  isolation?: "docker" | "unsandboxed" | "vercel"
+}): { homeEnv: Record<string, string>; configJson: string } {
+  const configJson = `${JSON.stringify(
+    workspaceChatOpenCodeConfig({ modelBase: input.modelBase }),
+    null,
+    2,
+  )}\n`
+  if (input.isolation && input.isolation !== "unsandboxed") {
+    // Container paths belong to its nonroot user, never the backend host's
+    // temporary directory or PATH. Native thread setup writes this config.
+    const slug = workspaceChatOpenCodeHomeSlug(input.conversationId)
+    const user =
+      input.isolation === "vercel" ? VERCEL_AGENT_ROOT : "/home/node"
+    const home = `${user}/ctxpipe-opencode/${slug}`
+    return {
+      configJson,
+      homeEnv: {
+        HOME: home,
+        XDG_CONFIG_HOME: `${home}/config`,
+        XDG_DATA_HOME: `${home}/data`,
+        XDG_STATE_HOME: `${home}/state`,
+        XDG_CACHE_HOME: `${home}/cache`,
+        OPENCODE_CONFIG: `${home}/opencode.json`,
+        PATH:
+          input.isolation === "vercel"
+            ? `${VERCEL_AGENT_ROOT}/.local/bin:/usr/local/bin:/usr/bin:/bin`
+            : "/usr/local/bin:/usr/bin:/bin",
+      },
+    }
+  }
+  const homeEnv = workspaceChatOpenCodeHomeEnv(input.conversationId)
+  writeFileSync(
+    workspaceChatOpenCodeConfigPath(input.conversationId),
+    configJson,
+  )
+  return { homeEnv, configJson }
+}
+
+function unixLoginPath(): string {
+  const extras = ["/usr/local/bin", "/usr/bin", "/bin"]
+  const current = (process.env.PATH ?? "").split(":").filter(Boolean)
+  return [...extras, ...current]
+    .filter((dir, index, all) => all.indexOf(dir) === index)
+    .join(":")
+}
+
+export const WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT = [
+  "Prefer the smallest tool set that answers the question.",
+  "Issue independent glob, grep, and read calls in one step when they do not depend on each other.",
+  "Do not use subagents or the web.",
+  "After the first useful files, answer. Do not keep searching for completeness.",
+].join(" ")
+
+export function workspaceChatOpenCodeConfig(input: {
+  modelBase: string
+  mcp?: { name: string; url: string; token: string }
+}): {
+  $schema: "https://opencode.ai/config.json"
+  enabled_providers: readonly ["ctxpipe"]
+  provider: {
+    ctxpipe: {
+      npm: "@ai-sdk/openai-compatible"
+      name: "ctxpipe"
+      options: {
+        baseURL: typeof WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV
+        apiKey: "{env:CTXPIPE_OPENCODE_RUN_TOKEN}"
+      }
+      models: Record<string, { name: string }>
+    }
+  }
+  model: string
+  permission: {
+    task: "deny"
+    webfetch: "deny"
+    websearch: "deny"
+  }
+  agent: {
+    title: { disable: true }
+    build: {
+      prompt: string
+    }
+  }
+  mcp?: Record<
+    string,
+    {
+      type: "remote"
+      url: string
+      enabled: true
+      headers: { Authorization: string }
+    }
+  >
+} {
+  return {
+    $schema: "https://opencode.ai/config.json",
+    enabled_providers: ["ctxpipe"],
+    provider: {
+      ctxpipe: {
+        npm: "@ai-sdk/openai-compatible",
+        name: "ctxpipe",
+        options: {
+          baseURL: WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV,
+          apiKey: "{env:CTXPIPE_OPENCODE_RUN_TOKEN}",
+        },
+        models: {
+          [input.modelBase]: { name: input.modelBase },
+        },
+      },
+    },
+    model: workspaceChatOpenCodeModel(input.modelBase),
+    // Subagents and outbound web tools burn TTFT and send tokens off the
+    // configured model proxy. Direct read/grep/glob/bash stay allowed.
+    permission: {
+      task: "deny",
+      webfetch: "deny",
+      websearch: "deny",
+    },
+    // Title generation is a parallel completion that contends for the same
+    // model as the first user turn.
+    agent: {
+      title: { disable: true },
+      build: {
+        prompt: WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT,
+      },
+    },
+    ...(input.mcp
+      ? {
+          mcp: {
+            [input.mcp.name]: {
+              type: "remote" as const,
+              url: input.mcp.url,
+              enabled: true as const,
+              headers: {
+                Authorization: `Bearer ${input.mcp.token}`,
+              },
+            },
+          },
+        }
+      : {}),
+  }
+}
+
+export function workspaceChatOpenCodeContract(
+  env: NodeJS.ProcessEnv = process.env,
+  tier: ModelTier = "fast",
+): WorkspaceChatOpenCodeContract {
+  const provider = resolveProvider(env.MODEL_PROVIDER)
+  if (!isWorkspaceChatOpenCodeProvider(provider)) {
+    return {
+      ok: false,
+      status: 503,
+      reason: "unsupported_provider",
+      error: `Workspace chat does not support MODEL_PROVIDER=${provider}.`,
+    }
+  }
+
+  const apiKey = env.MODEL_PROVIDER_API_KEY?.trim() ?? ""
+  if (!apiKey) {
+    return {
+      ok: false,
+      status: 503,
+      reason: "missing_provider_key",
+      error:
+        "Workspace chat needs MODEL_PROVIDER_API_KEY for the configured model provider.",
+    }
+  }
+
+  const modelSpec = resolveTierSpec(env, tier)
+  const modelBase = modelSpecBase(modelSpec)
+  const parsedParams = modelParamsFromSpec(modelSpec)
+  const modelParams = restrictModelParamsForProvider(
+    Object.keys(parsedParams).length > 0 ? parsedParams : undefined,
+    provider,
+  )
+  const upstreamBaseUrl =
+    env.MODEL_PROVIDER_URL?.trim() || DEFAULT_OPENROUTER_BASE
+
+  return {
+    ok: true,
+    tier,
+    modelSpec,
+    modelBase,
+    opencodeModel: workspaceChatOpenCodeModel(modelBase),
+    provider,
+    upstreamBaseUrl,
+    modelParams,
+    apiKey,
+  }
+}

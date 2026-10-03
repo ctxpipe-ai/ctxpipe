@@ -224,15 +224,18 @@ export async function runScipIndexer(input: {
 }): Promise<{ issue?: string }> {
   const shardPath = resolve(input.shardPath)
   const outputFlag = SCIP_INDEXER_OUTPUT_FLAG[input.indexerId]
-  await mkdir(dirname(shardPath), { recursive: true })
 
+  // Join the checkout queue before any await, so runs on one checkout start
+  // in the order they were requested.
   if (input.indexerId === "typescript") {
-    return withCheckoutMutex(input.checkoutPath, () =>
-      runTypeScriptIndexer({ ...input, shardPath }),
-    )
+    return withCheckoutMutex(input.checkoutPath, async () => {
+      await mkdir(dirname(shardPath), { recursive: true })
+      return runTypeScriptIndexer({ ...input, shardPath })
+    })
   }
 
   if (outputFlag) {
+    await mkdir(dirname(shardPath), { recursive: true })
     const argv = [...SCIP_INDEXER_ARGV[input.indexerId], outputFlag, shardPath]
     await rm(shardPath, { force: true })
     try {
@@ -246,6 +249,7 @@ export async function runScipIndexer(input: {
   }
 
   await withCheckoutMutex(input.checkoutPath, async () => {
+    await mkdir(dirname(shardPath), { recursive: true })
     const generatedPath = join(resolve(input.checkoutPath), "index.scip")
     const temporaryPath = join(
       dirname(shardPath),

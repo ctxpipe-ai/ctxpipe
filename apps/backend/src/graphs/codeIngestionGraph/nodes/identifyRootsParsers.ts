@@ -19,14 +19,16 @@ function extractTomlStringArray(
   const sectionMatch = content.match(sectionPattern)
   if (!sectionMatch) return []
   const block = sectionMatch[1]
+  if (!block) return []
   const keyPattern = new RegExp(
     String.raw`\b${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\b\s*=\s*\[([\s\S]*?)\]`,
     "m",
   )
   const keyMatch = block.match(keyPattern)
-  if (!keyMatch) return []
+  const values = keyMatch?.[1]
+  if (!values) return []
 
-  return Array.from(keyMatch[1].matchAll(/"([^"]+)"/g))
+  return Array.from(values.matchAll(/"([^"]+)"/g))
     .map((match) => normalizePathValue(match[1] ?? ""))
     .filter((value) => value.length > 0)
 }
@@ -112,7 +114,7 @@ export function parseCargoWorkspaceMembers(content: string): string[] {
 export function parseGoWorkUsePaths(content: string): string[] {
   const roots: string[] = []
   const useBlockMatch = content.match(/\buse\s*\(([\s\S]*?)\)/m)
-  if (useBlockMatch) {
+  if (useBlockMatch?.[1]) {
     const block = useBlockMatch[1]
     const lines = block
       .split("\n")

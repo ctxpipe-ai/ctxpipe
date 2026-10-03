@@ -32,6 +32,8 @@ cdk deploy
 
 `cdk deploy` runs the migrate task, then updates ECS services. Do not retag services to `:latest` or mix image SHAs from different package versions. See [AWS](/docs/self-hosting/deployment/aws).
 
+This release’s migrate task also creates the `ctxpipe_app` runtime role and rewrites the injected `DATABASE_URL` secret. You do not run `psql` or add `CtxPipe` props. Image-only retags without a package bump skip that role split.
+
 ## Docker Compose flow
 
 For source-based Compose deployments:
@@ -43,8 +45,10 @@ docker compose --profile deploy build
 docker compose --profile deploy up -d
 ```
 
-The `deploy` profile runs the `migrate` service before app services. Check the
-migrator logs before validating the app.
+The `deploy` profile runs the `migrate` service before app services. Migrate
+connects as the Postgres owner (`ctxpipe` by default) and provisions
+`ctxpipe_app`. Backend, worker, and codesearch use the app-role `DATABASE_URL`.
+Check the migrator logs before validating the app.
 
 ```bash
 docker compose logs migrate
@@ -57,7 +61,9 @@ For platforms that run prebuilt images:
 
 1. Build images for backend, worker, UI, and codesearch from the same commit.
 2. Push images with an immutable tag, such as a commit SHA.
-3. Run migrations using the backend image for that same commit.
+3. Run migrations using the backend image for that same commit, with the
+   **owner** Postgres URL. Then point backend, worker, and codesearch at the
+   `ctxpipe_app` URL (AWS CDK does this inside `cdk deploy`).
 4. Update all app services to the new image tags.
 5. Keep the previous image tags available until validation completes.
 

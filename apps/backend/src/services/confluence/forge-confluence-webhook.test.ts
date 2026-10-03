@@ -4,6 +4,10 @@ const resetMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 const runWorkflowMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../db/client.js", () => ({
+    tryGetOrgDb: () => ({}),
+    tryGetOrgDbOrgId: () => "org_test",
+    assertNotInOrgDbContext: () => undefined,
+
   withOrgDbContext: (_orgId: string, fn: () => unknown) => fn(),
 }))
 

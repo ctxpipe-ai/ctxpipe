@@ -2,12 +2,13 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { formatUnknownError } from "../../db/transientDbRetry.js"
 import {
-  createRepository,
+  createOrGetRepository,
   deriveRepositoryIndexingStatus,
   getRepository,
   listRepositories,
   type RepositoryWithSearch,
 } from "../../models/repositories.js"
+import { applyAttribution } from "../../observability/attribution.js"
 import { getLogger } from "../../observability/logger.js"
 import { enqueueRepositoryDeletionWorkflow } from "../../openworkflow/enqueue-repository-deletion.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
@@ -315,6 +316,7 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
     if (!repository) {
       return c.json({ error: "Not found" }, 404)
     }
+    applyAttribution({ "ctxpipe.repository.id": repository.id })
     return c.json(serializeRepository(repository), 200)
   })
   .openapi(createRepositoryRoute, async (c) => {
@@ -325,26 +327,37 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
     }
     const body = c.req.valid("json")
     try {
-      const { repository, created } = await createRepository({
+      const { repository, created } = await createOrGetRepository({
         name: body.name,
         gitUrl: body.gitUrl,
       })
-      if (!created) {
-        if (repository.indexingStatus === "unindexing") {
-          return c.json({ error: "Repository is being deleted" }, 409)
-        }
-        return c.json(serializeRepository(repository), 200)
+      applyAttribution({ "ctxpipe.repository.id": repository.id })
+      if (repository.indexingStatus === "unindexing") {
+        return c.json({ error: "Repository is being deleted" }, 409)
       }
-      void enqueueRepositoryIngestionWorkflow(
-        { repositoryId: repository.id, orgId: repository.orgId },
-        {
-          error: (err) =>
-            getLogger().error(err, {
-              step: "repositories.create.enqueue-ingestion",
-            }),
-        },
+      try {
+        await enqueueRepositoryIngestionWorkflow(
+          { repositoryId: repository.id, orgId: repository.orgId },
+          {
+            error: (error) =>
+              getLogger().error(error, {
+                step: "repositories.create.enqueue-ingestion",
+              }),
+          },
+        )
+      } catch {
+        return c.json(
+          {
+            error:
+              "Repository ingestion admission unavailable; retry this request",
+          },
+          503,
+        )
+      }
+      return c.json(
+        serializeRepository((await getRepository(repository.id)) ?? repository),
+        created ? 201 : 200,
       )
-      return c.json(serializeRepository(repository), 201)
     } catch (e) {
       getLogger().error(e instanceof Error ? e : new Error(String(e)), {
         step: "repositories.create",
@@ -364,6 +377,7 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
       if (!repository) {
         return c.json({ error: "Not found" }, 404)
       }
+      applyAttribution({ "ctxpipe.repository.id": repository.id })
       await enqueueRepositoryIngestionWorkflow(
         {
           repositoryId: repository.id,
@@ -400,6 +414,7 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
       if (!repository) {
         return c.json({ error: "Not found" }, 404)
       }
+      applyAttribution({ "ctxpipe.repository.id": repository.id })
       const result = await enqueueRepositoryDeletionWorkflow(
         {
           repositoryId: id,

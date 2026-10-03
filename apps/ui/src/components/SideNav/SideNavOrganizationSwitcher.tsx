@@ -7,8 +7,8 @@ import {
   useCurrentOrganization,
 } from "@daveyplate/better-auth-ui"
 import HyperDX from "@hyperdx/browser"
+import { IconPlus, IconSelector, IconSettings } from "@tabler/icons-react"
 import type { Organization } from "better-auth/plugins/organization"
-import { ChevronsUpDown, PlusCircleIcon, SettingsIcon } from "lucide-react"
 import { useCallback, useContext, useEffect, useMemo, useState } from "react"
 import {
   DropdownMenu,
@@ -17,11 +17,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
 import { SideNavOrganizationCreateDialog } from "./SideNavOrganizationCreateDialog"
-
-const triggerClassName =
-  "flex w-full items-center bg-transparent text-zinc-300 hover:bg-transparent hover:text-white hover:bg-teal-900/30 py-1.5 rounded-none !size-full"
+import {
+  sideNavAccountAvatarClassNames,
+  sideNavAccountOrgViewClassNames,
+  sideNavAccountTriggerClassName,
+  sideNavTrailingSlotClassName,
+} from "./sideNavStyles"
 
 type SideNavOrganizationSwitcherProps = {
   expanded: boolean
@@ -43,18 +47,6 @@ export function SideNavOrganizationSwitcher({
     Link,
   } = useContext(AuthUIContext)
 
-  const classNames = {
-    trigger: {
-      base: triggerClassName,
-    },
-    content: {
-      base: "!rounded-none",
-      menuItem: "!rounded-none",
-      separator: "!rounded-none",
-      organization: undefined,
-    },
-  }
-
   const [activeOrganizationPending, setActiveOrganizationPending] =
     useState(false)
   const [isCreateOrgDialogOpen, setIsCreateOrgDialogOpen] = useState(false)
@@ -70,13 +62,22 @@ export function SideNavOrganizationSwitcher({
     refetch: organizationRefetch,
   } = useCurrentOrganization({ slug: organizationOptions?.slug })
 
+  const [urgentOrgSlug, setUrgentOrgSlug] = useUrgentValue(
+    routeOrgSlug,
+    routeOrgSlug ?? "",
+  )
+
   const displayedOrganization = useMemo(() => {
+    if (urgentOrgSlug && organizations) {
+      const fromUrgent = organizations.find((org) => org.slug === urgentOrgSlug)
+      if (fromUrgent) return fromUrgent
+    }
     if (routeOrgSlug && organizations) {
       const fromRoute = organizations.find((org) => org.slug === routeOrgSlug)
       if (fromRoute) return fromRoute
     }
     return activeOrganization
-  }, [routeOrgSlug, organizations, activeOrganization])
+  }, [urgentOrgSlug, routeOrgSlug, organizations, activeOrganization])
 
   const isPending =
     organizationsPending ||
@@ -122,6 +123,7 @@ export function SideNavOrganizationSwitcher({
 
   const switchOrganization = useCallback(
     async (organization: Organization): Promise<boolean> => {
+      setUrgentOrgSlug(organization.slug)
       setActiveOrganizationPending(true)
       try {
         onSetActive(organization)
@@ -132,6 +134,7 @@ export function SideNavOrganizationSwitcher({
         organizationRefetch?.()
         return true
       } catch (error) {
+        setUrgentOrgSlug(routeOrgSlug)
         toast({
           variant: "error",
           message:
@@ -143,7 +146,14 @@ export function SideNavOrganizationSwitcher({
         return false
       }
     },
-    [authClient, onSetActive, organizationRefetch, toast],
+    [
+      authClient,
+      onSetActive,
+      organizationRefetch,
+      toast,
+      routeOrgSlug,
+      setUrgentOrgSlug,
+    ],
   )
 
   useEffect(() => {
@@ -175,8 +185,6 @@ export function SideNavOrganizationSwitcher({
     return `${organizationOptions?.basePath ?? "/.auth/organization"}/${organizationOptions?.viewPaths?.SETTINGS ?? "settings"}`
   }, [displayedOrganization, organizationOptions])
 
-  const size = expanded ? "default" : "icon"
-
   return (
     <>
       <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
@@ -185,47 +193,42 @@ export function SideNavOrganizationSwitcher({
           render={
             <button
               type="button"
-              className={cn(
-                size === "icon"
-                  ? "size-fit rounded-full"
-                  : "!p-2 h-fit items-center",
-                classNames.trigger.base,
-              )}
+              className={cn(sideNavAccountTriggerClassName(expanded))}
             />
           }
         >
-          {size === "icon" ? (
+          {expanded ? (
+            <>
+              <OrganizationCellView
+                classNames={sideNavAccountOrgViewClassNames}
+                isPending={isPending}
+                localization={contextLocalization}
+                organization={displayedOrganization}
+              />
+              <span className={sideNavTrailingSlotClassName}>
+                <IconSelector
+                  className="size-4 text-zinc-400"
+                  stroke={1.4}
+                  aria-hidden
+                />
+              </span>
+            </>
+          ) : (
             <OrganizationLogo
               key={displayedOrganization?.logo}
+              classNames={sideNavAccountAvatarClassNames}
               isPending={isPending}
               organization={displayedOrganization}
               aria-label={contextLocalization.ORGANIZATION}
               localization={contextLocalization}
             />
-          ) : (
-            <span className="flex w-full min-w-0 items-center gap-2">
-              <OrganizationCellView
-                classNames={classNames.content.organization}
-                isPending={isPending}
-                localization={contextLocalization}
-                organization={displayedOrganization}
-                size={size}
-              />
-              <ChevronsUpDown className="ml-auto size-4 shrink-0 self-center" />
-            </span>
           )}
         </DropdownMenuTrigger>
 
-        <DropdownMenuContent
-          className={classNames.content.base}
-          align="end"
-          side="right"
-        >
-          <div
-            className={`flex items-center justify-between gap-2 p-2 ${classNames.content.menuItem}`}
-          >
+        <DropdownMenuContent className="rounded-md" align="end" side="right">
+          <div className="flex items-center justify-between gap-2 p-2">
             <OrganizationCellView
-              classNames={classNames.content.organization}
+              classNames={sideNavAccountOrgViewClassNames}
               isPending={isPending || activeOrganizationPending}
               organization={displayedOrganization}
               localization={contextLocalization}
@@ -235,23 +238,23 @@ export function SideNavOrganizationSwitcher({
                 <button
                   type="button"
                   aria-label="Organization settings"
-                  className="ml-auto inline-flex size-8 shrink-0 items-center justify-center rounded-none bg-transparent text-zinc-300 transition-colors hover:bg-zinc-800/60 hover:text-zinc-100"
+                  className="ml-auto inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md bg-transparent text-zinc-400 transition-colors hover:bg-zinc-800/60 hover:text-zinc-100"
                   onClick={() => setDropdownOpen(false)}
                 >
-                  <SettingsIcon className="size-4" />
+                  <IconSettings className="size-4" stroke={1.4} aria-hidden />
                 </button>
               </Link>
             ) : null}
           </div>
 
-          <DropdownMenuSeparator className={classNames.content.separator} />
+          <DropdownMenuSeparator />
 
           {organizations?.map(
             (organization) =>
               organization.id !== displayedOrganization?.id && (
                 <DropdownMenuItem
                   key={organization.id}
-                  className={classNames.content.menuItem}
+                  className="rounded-md"
                   onClick={() => {
                     void switchOrganization(organization).then((switched) => {
                       if (switched) HyperDX.addAction("org_switch")
@@ -259,7 +262,7 @@ export function SideNavOrganizationSwitcher({
                   }}
                 >
                   <OrganizationCellView
-                    classNames={classNames.content.organization}
+                    classNames={sideNavAccountOrgViewClassNames}
                     isPending={isPending}
                     localization={contextLocalization}
                     organization={organization}
@@ -269,15 +272,15 @@ export function SideNavOrganizationSwitcher({
           )}
 
           {organizations && organizations.length > 1 ? (
-            <DropdownMenuSeparator className={classNames.content.separator} />
+            <DropdownMenuSeparator />
           ) : null}
 
           {!isPending && sessionData ? (
             <DropdownMenuItem
-              className={classNames.content.menuItem}
+              className="rounded-md"
               onClick={() => setIsCreateOrgDialogOpen(true)}
             >
-              <PlusCircleIcon className="size-4" />
+              <IconPlus className="size-4" stroke={1.4} aria-hidden />
               {contextLocalization.CREATE_ORGANIZATION}
             </DropdownMenuItem>
           ) : null}

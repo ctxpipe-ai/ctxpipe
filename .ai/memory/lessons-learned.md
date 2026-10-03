@@ -166,6 +166,18 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
 
+### `@ctxpipe/aws-cdk` self-host upgrades stay `cdk deploy`
+- **Rule:** AWS self-hosters pick up construct-managed infra (new DB roles, secret rewrites, migrate-time provisioning) by bumping `@ctxpipe/aws-cdk` and running `cdk deploy`. Do not add `CtxPipe` props, a second connection string in the operator CDK app, or operator `psql` for work the construct can do. When that operator-visible behavior changes, update [`packages/aws-cdk/README.md`](../../packages/aws-cdk/README.md) and `apps/docs` self-hosting upgrade/AWS pages so the story remains bump-package-then-deploy.
+- **Category:** convention
+- **Date:** 2026-08-21
+- **Source:** user requirement (RLS two-role split; candidate `2f0d95e99ba317d8`)
+
+### `@ctxpipe/aws-cdk` self-host upgrades stay `cdk deploy`
+- **Rule:** AWS self-hosters pick up construct-managed infra (new DB roles, secret rewrites, migrate-time provisioning) by bumping `@ctxpipe/aws-cdk` and running `cdk deploy`. Do not add `CtxPipe` props, a second connection string in the operator CDK app, or operator `psql` for work the construct can do. When that operator-visible behavior changes, update [`packages/aws-cdk/README.md`](../../packages/aws-cdk/README.md) and `apps/docs` self-hosting upgrade/AWS pages so the story remains bump-package-then-deploy.
+- **Category:** convention
+- **Date:** 2026-08-21
+- **Source:** user requirement (RLS two-role split; candidate `2f0d95e99ba317d8`)
+
 ### `@ctxpipe/aws-cdk-self-host` CDK command orchestration
 - **Rule:** define Turbo task `cdk:exec` with `dependsOn: ["^build"]` and wrap user-facing `pnpm cdk ...` to run through Turbo so workspace dependency `@ctxpipe/aws-cdk` is built automatically before synth/deploy/destroy flows.
 - **Category:** convention
@@ -455,16 +467,22 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### UI copy language
-- **Rule:** use UK English spelling in user-facing UI copy, for example `organisation` rather than `organization`
+- **Rule:** use US English spelling in user-facing UI copy, for example `organization` rather than `organisation`. Keep the same register in design instructions (`apps/ui/DESIGN.md`, product-ui skill, ai-tells).
 - **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
+- **Date:** 2026-08-22
+- **Source:** GitHub workspace destination flow; supersedes 2026-08-11 UK English rule; candidate `ba616391f38e94cf`
+
+### GitHub setup copy after connect
+- **Rule:** After the GitHub App is installed, tell the user the connection is complete, then offer create a workspace, add repositories to an existing one (listed), or close the wizard. Do **not** explain that the connection is organization-wide or that repositories are linked per workspace.
+- **Category:** product
+- **Date:** 2026-08-22
+- **Source:** user correction (GitHub workspace destination); candidate `ba616391f38e94cf`
 
 ### Product UI corners
-- **Rule:** Product chrome is square. Use `rounded-none` for new or touched controls, menus, cards, dialogs, and data surfaces.
+- **Rule:** Product chrome uses `rounded-md`. Apply it to new or touched controls, menus, cards, dialogs, and data surfaces; do not add `rounded-none`.
 - **Category:** convention
-- **Date:** 2026-08-24
-- **Source:** user correction on repository selector
+- **Date:** 2026-10-01
+- **Source:** user correction (supersedes the 2026-08-24 square-chrome rule)
 
 ### UI icon library
 - **Rule:** use `@tabler/icons-react` (not lucide-react); map Tabler `Icon*` names semantically from prior Lucide glyphs; keep size/class/ARIA props
@@ -533,10 +551,10 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** user correction
 
 ### Git sources vs GitHub picker
-- **Rule:** the repositories page is an inventory of what is indexed (search, status, relative `lastIngestedAt`). Changing *which* GitHub App repos are ingested is the setup form. Do not mix connector types (docs/tools) onto Git sources. Picker save merges already-indexed URLs with the selected GitHub ids — never “whatever was visible”. Logic lives in `githubRepoSelection.ts`. Large-list UX is verified with Storybook + MSW (400-repo stories), not a DB/GitHub seed script.
+- **Rule:** GitHub App install grants **access** only. The post-install setup page is a **workspace destination** (create / pick existing / close), not an org ingest picker. Link remotes from workspace Settings; ingest is on-attach. Do not mix connector types (docs/tools) onto Git sources. Large-list UX for remaining GitHub repo pickers (workspace Settings add) is verified with Storybook + MSW, not a DB/GitHub seed script.
 - **Category:** pattern
-- **Date:** 2026-08-13
-- **Source:** repo-page-ux
+- **Date:** 2026-08-13; updated 2026-08-22
+- **Source:** repo-page-ux; GitHub workspace destination (candidate `ba616391f38e94cf`)
 
 ### Git sources list virtualisation
 - **Rule:** `/$orgSlug/repositories` uses `@tanstack/react-virtual` `useWindowVirtualizer` (`GitSourcesVirtualList`). Do not mount every `RepositoryCard`/React Aria menu. Row order is `buildGitSourceListRows` (pending then indexed). Scroll is still the document. Use a **fixed row size** — do not `measureElement`. While `isScrolling`, skip menus/tooltips and raise overscan. Hairline dividers (`border-white/[0.06]` / 1px repeating gradient), not a painted `gap`. Verify with **Pages / Repositories / Four Hundred Sources**.
@@ -557,7 +575,7 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** repo-page-ux
 
 ### Connector setup wizards
-- **Rule:** Linear, Notion, and Confluence share the same chrome: `ctx-node` mark in the header, semantic colour tokens, no nested zinc cards. New or touched chrome follows [apps/ui/DESIGN.md](../../apps/ui/DESIGN.md) with square corners. Do not leave Atlassian/Confluence on rounded callback boxes or filled `bg-zinc-900` panels.
+- **Rule:** Linear, Notion, and Confluence share the same chrome: `ctx-node` mark in the header, semantic colour tokens, no nested zinc cards. Existing `rounded-none` on those wizards stays until a dedicated pass; **new or touched** chrome follows [apps/ui/DESIGN.md](../../apps/ui/DESIGN.md) (`rounded-md`). Do not add more square overrides. Do not leave Atlassian/Confluence on leftover `rounded-lg` callback boxes or filled `bg-zinc-900` panels.
 - **Category:** convention
 - **Date:** 2026-08-13
 - **Source:** repo-page-ux; updated 2026-08-24 for square product chrome
@@ -573,6 +591,48 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** convention
 - **Date:** 2026-09-29
 - **Source:** user preference (Opus replaces Grok for implementation and Sol for review)
+
+### Scope shared UI class helpers
+- **Rule:** when iterating on one region of a surface (footer vs list, one panel vs another), do **not** put hover/focus/outline experiments on shared class helpers that restyle siblings. Keep shared layout tokens shared; keep region-only treatments on region helpers.
+- **Category:** convention
+- **Date:** 2026-08-18
+- **Source:** SideNav polish session (generalized)
+
+### CSS outlines — never `outline-none` if you need a ring
+- **Rule:** `outline-none` sets `outline-style: none`, so later `outline-*` **color** utilities (hover wash, focus) paint nothing. Prefer `outline-solid outline-0` (or a persistent transparent width) and grow/recolor on `hover` / `focus-visible`. Toggling outline on only on hover flashes a bright default ring — keep width always on, change color only.
+- **Category:** convention
+- **Date:** 2026-08-18
+- **Source:** SideNav polish session (generalized)
+
+### Product focus-visible + hover rings
+- **Rule:** keyboard focus ring is `outline-2` / `outline-offset-1` / `outline-teal-400/60`, with `focus-visible:relative focus-visible:z-10` so it stacks over neighbors. Soft hover washes (fill and/or a wider transparent outline) stay separate and must survive focus styling. Tokens: [`apps/ui/src/lib/focus-styles.ts`](../../apps/ui/src/lib/focus-styles.ts) (`focusVisibleClassName`, `focusVisibleRingClassName`, RAC `focusRing`). Edge controls: trade padding for equal margin so the ring stays inside the viewport; avoid parent `overflow-hidden` that clips rings (clip labels locally). Nested focusables need the same radius as the painted hit target. Resize/splitter: no focus box outline — same line as hover; arrow keys nudge.
+- **Category:** pattern
+- **Date:** 2026-08-18
+- **Source:** SideNav polish session (generalized)
+
+### Responsive UI — CSS-first
+- **Rule:** Prefer Tailwind responsive classes for layout and chrome. Use JS (`matchMedia`, `useMediaQuery`, resize listeners) for responsive design **only when CSS cannot express it** (e.g. open/closed overlay state). Do not drive show/hide, padding, borders, or column layout from reactive media-query state when `md:` / `lg:` / `max-md:` would suffice. Documented in [apps/ui/AGENTS.md](../../apps/ui/AGENTS.md) and product-ui Build.
+- **Category:** convention
+- **Date:** 2026-08-18
+- **Source:** workspace responsive layout feedback
+
+### React Aria first for interactive chrome
+- **Rule:** New or restyled interactive controls in `apps/ui` start from React Aria Components (`src/components/ui/*` when the primitive exists, otherwise `react-aria-components`). Tab strips use RAC `Tabs` / `TabList` / `Tab` / `TabPanel` (keyboard + ARIA), not a row of raw `<button>`s. Documented in [apps/ui/AGENTS.md](../../apps/ui/AGENTS.md) and product-ui Build. **Exception:** the Workspace Files explorer tree and file/diff surfaces are Pierre (`@pierre/trees`, `@pierre/diffs`) — same class of exception as Cosmograph. Context menus on that pane stay RAC.
+- **Category:** convention
+- **Date:** 2026-08-18
+- **Source:** workspace pane tabs accessibility
+
+### Workspace write jobs and native OpenWorkflow ownership
+- **Rule:** Each typed write is a native OpenWorkflow workflow with explicit steps. OpenWorkflow owns retries, waits and resume; a paused command keeps its native owner. `workspace_write_jobs` stores bound command/result metadata, per-concern planning limits and path assignments. Public projections may reconcile the matching native owner's terminal state in short tenant-scoped SQL; do not create a second runner or scheduler. Brokered native Git is the default-branch write authority. See [ADR-047](decisions/ADR-047-native-durable-write-workflows.md).
+- **Category:** convention
+- **Date:** 2026-09-08
+- **Source:** accepted workspace recovery Gate 3 and ADR-047; supersedes the 2026-08-20 generic-runner instruction from issue 10.
+
+### Workspace Files pane — Pierre trees and diffs, not a homemade explorer
+- **Rule:** Do not keep growing a custom RAC file tree / `<pre>` preview for the Files pane. Use `@pierre/trees` (explorer) and `@pierre/diffs` (`File` / `FileDiff`). Pierre is chrome only — persist via workspace **write jobs**. The pane is a **workspace-repository** explorer (full git tree), not hydrate `.md` units only. Theme via host `--trees-theme-*`; use `unsafeCSS` only when variables cannot express a rule. See [ADR-040](decisions/ADR-040-pierre-files-pane-chrome.md).
+- **Category:** convention
+- **Date:** 2026-08-19
+- **Source:** user product choice (Pierre as Files chrome)
 
 ### Do not squash migrations already applied to PR Neon
 - **Rule:** PR preview DBs are reused (`preview/pr-N` from production, not reset each deploy). Deleting applied Drizzle folders and regenerating the same DDL under a new tag re-runs `CREATE UNIQUE INDEX` and fails with `42P07`. Keep the original folders, or make the replacement DDL idempotent (`IF NOT EXISTS`) like `clean_lyja` / `smart_nextwave`. Never squash unreleased history that a long-lived PR branch may already have applied.
@@ -597,6 +657,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** convention
 - **Date:** 2026-08-19
 - **Source:** slack-connector live test (PR-267); zero webhook logs on mention
+
+### Railway PR preview UI is not production’s UI
+- **Rule:** Duplicate-from-production copies `UI_PROXY_URL` as `${{ui.RAILWAY_PRIVATE_DOMAIN}}`. That private hostname can still reach the warm production UI, so `https://backend-pr-N.up.railway.app` serves main even when Railway reports the PR UI image SUCCESS. Pin backend `UI_PROXY_URL` to a PR-specific public UI domain (`ui-pr-N.up.railway.app`). Smoke-test by comparing the proxied `/assets/main-*.js` hash to `app.ctxpipe.ai` (identical hash = production leak) and grepping the **JS bundle** for a branch-only route (`ws/$workspaceSlug` / `_orgSlug.ws._workspaceSlug`, fixed-string `grep -Fq` in single quotes under `set -u`). Do **not** grep `/` HTML — TanStack SSR of `/` only serializes matched routes, so a correct PR UI fails that canary too. Separately: production Terraform `railway_service.source_image` is service-global; provider `Update()` runs `serviceConnect` + `redeployAllInstances` and overwrites every `pr-*` instance. Ignore `source_image` after create; roll images with environment-scoped GraphQL (`serviceInstanceUpdate` on production or `pr-N` only), then assert each `pr-*` ui/backend `source.image` is still `pr-N-*` (fail if it equals this production SHA or `latest`). Cursor Agent pushes often skip `pull_request` `synchronize`; PR Deploy and CI also run on `push` to the PR branch. **Do not `cancel-in-progress` PR Deploy** — cancelling the GH job leaves Railway still DEPLOYING; the next run times out on leftover rolls and never reaches the UI canary. Cancelled Actions ≠ cancelled Railway. Do not wrap the whole GraphQL deploy script in `nick-fields/retry` (that stacks a second `serviceInstanceDeployV2` on a still-DEPLOYING instance); retry GraphQL HTTP only; stop in-flight deployments before a new roll; treat serverless `SLEEPING` as success. Railway canvas image tags and Terraform plans for production `source_image` are not the preview. UI Nitro SSR must use runtime `AUTH_BASE_URL` (the preview backend origin), not Docker-baked `VITE_PUBLIC_API_URL=http://localhost:3000`.
+- **Category:** workflow
+- **Date:** 2026-08-22
+- **Source:** PR-280 served `main-D0MgC9_q.js` (same as app.ctxpipe.ai) after a streak of cancelled PR Deploys + production Deploy; HTML `ws/$workspaceSlug` canary cannot see the JS route tree
 
 ### PR preview codesearch and worker sleep
 - **Rule:** Railway `pr-N` codesearch often SLEEPING minutes after boot; GitHub ingest then fails (connection refused / mid-job kill). Openworkflow idle-exits after `OPENWORKFLOW_IDLE_EXIT_SECONDS` (180 on previews) with a **clean shutdown**, so `environment_status` still shows SUCCESS. Proof of a restart is a **new deploy timestamp**, not the SUCCESS badge — do not wait 10 minutes, it will sleep again. Backend `RAILWAY_TOKEN` is supposed to `serviceInstanceDeployV2` after enqueue (`railway-wake.ts`); if no new worker deploy appears, the job did not run. Slack Events time out in ~3s; a sleeping PR backend can take ~12s to accept `POST /api/v1/webhook/slack`, so a real `app_mention` pill vanishes with **no 200** — wake backend (hit the app) and worker **before** mentioning. Do not treat a failed chip as a Slack-connector bug without checking sleep first.
@@ -658,6 +724,107 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-21
 - **Source:** user-confirmed Slack connector production incident (ctxpipe workspace passed because its historical grant masked the fresh Tru Rec installation path)
 
+### Workspace add is + from GitHub, uniqueness only
+- **Rule:** Creating a Workspace is click **+** → pick a GitHub repo → go. The only extra check is whether a Workspace already uses that repo as its workspace repository (return the existing row). Do **not** auto-create Workspaces from Linear/Notion/Confluence/Slack dests at runtime. Existing dest Workspaces are a one-shot SQL migrate. Do not add sourcing-repo, unbind-first, or identity-FK special cases to that flow.
+- **Category:** product
+- **Date:** 2026-08-20
+- **Source:** user correction (git-backed workspaces add flow)
+
+### Product row backfills are SQL, not OpenWorkflow enqueue
+- **Rule:** Do not copy `t08_enqueue_scip_migration_workflows` (`INSERT INTO openworkflow.workflow_runs`) for product data backfills. That migration existed to reindex every repo. Dest Workspace create/link is `INSERT` into `workspaces` / `workspace_linked_repositories` only — no job start from `db:migrate`.
+- **Category:** convention
+- **Date:** 2026-08-20
+- **Source:** user correction (git-backed workspaces dest backfill)
+
+### Org SQL is a short GUC transaction
+- **Rule:** Org SQL is a short `BEGIN` + `SET LOCAL app.organization_id` (`set_config(..., true)`) + `COMMIT` on the Neon transaction-mode pooler. That GUC is the RLS hook ([ADR-042](decisions/ADR-042-postgres-rls-app-role.md)): tenant tables use `ENABLE` (not FORCE) and the runtime role is `ctxpipe_app` (no `BYPASSRLS`). Tenant reads/writes go through `withOrgDbContext` / `orgSql` / `getOrgDb()`. Keep `getSystemDb()` for Better Auth tables, `organizations`, `members`, `invitations`, and unRLS’d `connection_directory` only — not LangGraph `checkpoint_*`, not `openworkflow.*`, not disk shards. Do not `SET SESSION` on the pooled URL. Do not hold a `PoolClient` until the HTTP response. Do not add `connect()` retries as a substitute for releasing the client. Nested same-org calls reuse the open tx; nested different-org or nested idle-timeout throws; inner throw aborts the outer (no savepoints). GitHub, sandbox **provider** I/O (Docker / Cloudflare), codesearch, FalkorDB, connector HTTP, embeddings, and `enqueueWorkspace*` must run after COMMIT — `assertNotInOrgDbContext()` at those gateways. Session advisory locks and a second lock pool are forbidden; sandbox ownership is an expiring owner-token row, not a held connection. AWS self-host upgrade stays `pnpm update @ctxpipe/aws-cdk` then `cdk deploy` (no new props, no `psql`).
+- **Category:** convention
+- **Date:** 2026-08-21
+- **Source:** user correction (RLS is a hard requirement; lock pool caused DELETE 500; ADR-042 enablement)
+
+### Enable RLS in the same PR as the org-SQL work
+- **Rule:** Do not split RLS enablement into a follow-up because the org-SQL / workspace PR already needs a full preview pass. Enabling policies does not add a second product-surface test matrix; ship the audit and enablement on that branch. A role-split `DATABASE_URL` still needs one preview smoke (sign-in, list, webhook, index) as deploy verification, not extra feature testing.
+- **Category:** convention
+- **Date:** 2026-08-21
+- **Source:** user correction (RLS in this branch; does not expand manual-test scope)
+
+### Selected chrome is urgent; SSR still includes the landing region
+- **Rule:** TanStack Router commits location inside `startTransition`, so `selectedKey` / `aria-current` / current workspace driven only from `useSearch`, `useMatchRoute`, or `pathname` waits for the new body. Set selection in the click handler (`useUrgentValue`); write the URL afterwards. `Link` does not make the highlight instant. SSR `ensureQueryData`s the landing region (workspace default is files when `?pane=` is empty) so first HTML is not “Loading files…”. Client page enter (Home / Connectors / Workspace) `prefetchQuery`s and does not `await`. Do not put in-page chrome in `loaderDeps`.
+- **Category:** convention
+- **Date:** 2026-08-22
+- **Source:** workspace pane tab lag in PR preview; Home / Connectors / Workspace page enter still awaited files
+
+### Org pages and in-page identity must not remount the shell
+- **Rule:** `AppShell` lives on `/$orgSlug`. Home, Connectors, and Workspace leaves render main content only. Compose vs thread belongs on the workspace **layout** that stays mounted; children return `null`. Client loaders `prefetchQuery` landing + in-page detail and do not `await` — sibling `enter` still runs the child loader. `useSuspenseQuery` for that detail sits under a **local** `Suspense`. Never wrap `AppShell` or a sibling pane in that boundary. Session-pending fallbacks are main-column skeletons. RAC `Link` does not preload; `prefetchQuery` on hover/press. In-page `navigate` keeps `?pane=`.
+- **Category:** convention
+- **Date:** 2026-08-22
+- **Source:** workspace nav audit; page switches remounted SideNav and awaited the files tree
+
+### Region loading is a skeleton; process loading is the teal bar
+- **Rule:** A wait whose populated UI is a list, tree, thread, or pane uses `Skeleton` / `SkeletonRow` that matches those rows — not `"Loading…"` and not a centered spinner. Long jobs or unknown structure (hydrate, OAuth wait, discovery) use `InlineLoader` / `ProgressLoader`. Button mutations use `isPending`. In-progress status on a known entity is a pulse-dot plus the word. Every fetch surface ships a `Loading` (or `Checking` / `Hydrating`) story with `delay("infinite")`.
+- **Category:** convention
+- **Date:** 2026-08-21
+- **Source:** skeleton loading backfill (Operate UI audit)
+
+### Product HTTP goes through the UI API gateway
+- **Rule:** Every product HTTP call in `apps/ui` goes through `apiFetch` / `readApiJson` (`apps/ui/src/lib/api-result.ts`). Bare `fetch` + `if (!res.ok) throw` is a bug. Hono clients (`getApiClient`, `client`) and `auth-ssr` use `apiFetch`. `readApiJson` treats listed `emptyOn` statuses (409/404 only where that is already the contract) as data; every other `!ok` is `ApiError` with `status`. QueryClient default `retry` is `retryQuery`: at most one retry, only for `status === 0` or `>= 500` — never 4xx. Every `refetchInterval` uses `pollWhileOk` (or equivalent: stop on error). Loaders/`beforeLoad` may `await` only queries required to choose the route; landing-region warmup only when that region can succeed. The backend UI proxy aborts at 15s and returns 504. No env flag for these timeouts.
+- **Category:** convention
+- **Date:** 2026-08-22
+- **Source:** workspace document-path 502 (files/tree 409 retried on SSR; connectors status 500 polled)
+
+### Prefer named Tailwind utilities over arbitrary values
+- **Rule:** Use the Tailwind scale (`tracking-tighter`, `p-2`, `text-sm`, `gap-3`). Write `tracking-[-0.5px]`, `text-[15px]`, or `p-[13px]` only when no named token is close.
+- **Category:** convention
+- **Date:** 2026-08-21
+- **Source:** user correction (Workspaces nav label tracking)
+
+### Workspace OpenCode chat uses the configured proxy, not native provider keys
+- **Rule:** OpenCode ignores `MODEL_PROVIDER_*`. Do not remap `MODEL_PROVIDER_API_KEY` to `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY`. Chat uses only `MODEL_FAST_NAME` / `MODEL_MEDIUM_NAME` / `MODEL_HIGH_NAME` (default **fast**) through the loopback ctxpipe OpenAI-compatible proxy. Pin `opencode-ai@1.18.18` with the locked SDK. When TanStack tools exist, the adapter overwrites `OPENCODE_CONFIG_CONTENT` — ship config as `opencode.json` plus `OPENCODE_CONFIG` via `createSecrets`. Model ids containing `gpt-5` still post `/v1/chat/completions` and require `chat.completion.chunk` SSE. Sandbox providers are in [ADR-048](decisions/ADR-048-native-postgres-sandbox-ownership.md); unsandboxed is never chosen automatically.
+- **Category:** convention
+- **Date:** 2026-08-22
+- **Source:** OpenCode chatStream 500 (H1: Claude fallback + empty Anthropic credentials)
+
+### Workspace chat streams first; conversation SSR is stored turns only
+- **Rule:** Product workspace chat is TanStack AI full stack (`@tanstack/ai-react` `useChat` + official `webSocket()` / `toWebSocketStream` + `chat()`). Take latest `@tanstack/ai` (caret, not an exact pin) unless there is a strong reason not to; helper-drift is not a reason. Do not patch `@tanstack/ai*`. Open the live connection and emit `RUN_STARTED` before GitHub, sandbox, or OpenCode. Persist the user turn and `lastMessageAt` on accept so SideNav can list the row before `RUN_FINISHED`. Conversation document SSR awaits workspace identity + stored turns only — never files, git, graph, or OpenCode. Do not raise the 15s UI proxy.
+- **Category:** convention
+- **Date:** 2026-08-24
+- **Source:** workspace chat TTFB ~20s; user correction to un-pin and use official WebSockets
+
+### Workspace chat reuses the sandbox; do not patch TanStack
+- **Rule:** Reuse one TanStack sandbox/workdir per conversation (`reuse: "thread"`). Do not reclone every turn (`reuse: "none"` / `destroyOnComplete`). Many conversations must run at once — do not serialize the host on one OpenCode port or a process-wide mutex. Fix ServeError / echo / resume in our wiring; do not patch `@tanstack/ai*`. See [workspace-chat-sandboxes](PRDs/workspace-chat-sandboxes.md).
+- **Category:** convention
+- **Date:** 2026-08-23
+- **Source:** user correction (PR-280 ServeError / turn latency; candidates `34215a9a726b6c6d`, `6591dda6936d90c4`)
+
+### Example questions are not product prompts
+- **Rule:** A user example such as “what’s in this repo?” is a stand-in for a class of questions. Do not bake that wording, or a precomputed inventory cheat sheet, into OpenCode instructions or the chat prompt. Hit latency by keeping the sandbox/serve warm, not by special-casing one question.
+- **Category:** convention
+- **Date:** 2026-08-24
+- **Source:** user correction (workspace-chat latency)
+
+### Proof uses a real collaborator
+- **Rule:** A product test is _proof_ only when the owned collaborator runs in this process and the assertion is an HTTP, status, or paths literal. See [tdd/mocking.md](../../.agents/skills/tdd/mocking.md).
+- **Category:** convention
+- **Date:** 2026-08-28
+- **Source:** user correction (sandbox tree listed a fresh clone after a write)
+
+### Agent writing stays out of root `docs/`
+- **Rule:** In-progress plans, tickets, ledgers, reviews, and logs go in [`.ai/scratchpad/`](../scratchpad/). Durable decisions, lessons, and PRDs go in [`.ai/memory/`](./). Customer-facing documentation lives in [`apps/docs/content/docs/`](../../apps/docs/content/docs/). Do not write those artifacts under root `docs/` or `docs/plans` — that tree is not the public docs app and is not an internal dump.
+- **Category:** convention
+- **Date:** 2026-09-11
+- **Source:** user correction (docs/plans used as a recovery dump)
+
+### Workspace proof owners
+- **Rule:** Native git owns repository, revision, branch, diff, and worktree. OpenWorkflow owns durable job orchestration. Stock TanStack AI owns chat, persistence, stream lifecycle, and OpenCode sandbox integration. Pierre owns file-tree and diff/editor chrome. ctxpipe code owns organisation authorization, Workspace identity, projection activation, credential brokering, and publish rules. Do not add a second chat or write engine beside those owners.
+- **Category:** convention
+- **Date:** 2026-09-11
+- **Source:** accepted Workspace recovery foundations (ADR-044, ADR-047, ADR-048)
+
+### workspace-golden is not live GitHub or Btrfs proof
+- **Rule:** Tagged Storybook `workspace-golden` plays are the required deterministic UI journey ([ADR-045](decisions/ADR-045-required-recovery-ci.md)). They are not live GitHub App publish proof and not sandbox provider proof ([ADR-048](decisions/ADR-048-native-postgres-sandbox-ownership.md)).
+- **Category:** convention
+- **Date:** 2026-09-11
+- **Source:** Gate 6 leftover after deleting docs/plans recovery ledgers
 
 ### Claim evidence source ids must be `extractor:repositoryId:…:targetHash`
 - **Rule:** Every extractor's `sourceId` must contain `:${repositoryId}:` and end with `:${targetHash}`. `deriveLogicalSourceKey` only strips a *trailing* hash, so a hash placed mid-string makes every re-ingest append a new evidence row to the same claim; retraction and repository purge select evidence by the `:${repositoryId}:` needle plus a `(^|:)path(:|$)` segment regex, so an id without the repository id can never be retracted or purged. A claim extracted in one repository about another (e.g. context-repo PR mirror → source-repo File) must carry both repository ids and the warehouse file path as segments. Add a render→extract→dedup round-trip test for any new extractor.

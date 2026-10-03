@@ -6,6 +6,7 @@ import {
   composeRenderProps,
 } from "react-aria-components"
 import React from "react"
+import { twMerge } from "tailwind-merge"
 import { tv } from "tailwind-variants"
 
 export interface PopoverProps extends Omit<AriaPopoverProps, "children"> {
@@ -37,7 +38,7 @@ export function Popover({
       offset={offset}
       {...props}
       className={composeRenderProps(className, (cls, renderProps) =>
-        styles({ ...renderProps, className: cls }),
+        twMerge(styles({ ...renderProps }), cls),
       )}
     >
       {showArrow && (

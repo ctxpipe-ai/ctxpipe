@@ -3,7 +3,6 @@ import { fileURLToPath } from "node:url"
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { config } from "dotenv"
 import { eq } from "drizzle-orm"
-import { contextStorage } from "hono/context-storage"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import type { AppEnv } from "../app/env.js"
 import { withOrgIdContext } from "../auth/withAuth.js"
@@ -12,6 +11,11 @@ import { organizations } from "../db/schema/auth.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { generateObjectId } from "../lib/id.js"
+import type { repositoryRoutes as RepositoryRoutes } from "../routes/v1/repositories.js"
+import {
+  contextStorage,
+  withTestRequestLogger,
+} from "../test/hono-test-logger.js"
 import {
   DEFAULT_CHECKOUT_KEY,
   markRepositoryIndexingRunning,
@@ -65,6 +69,7 @@ describe.skipIf(!connectionString)(
         ])
         await db.insert(repositoryCheckouts).values({
           id: generateObjectId("co"),
+          orgId,
           repositoryId: unindexingId,
           ref: "main",
           checkoutKey: DEFAULT_CHECKOUT_KEY,
@@ -74,22 +79,42 @@ describe.skipIf(!connectionString)(
 
     afterAll(async () => {
       if (!connectionString) return
-      const db = getSystemDb()
-      await db.delete(repositories).where(eq(repositories.orgId, orgId))
-      await db.delete(organizations).where(eq(organizations.id, orgId))
+      await withOrgDbContext(orgId, (db) =>
+        db.delete(repositories).where(eq(repositories.orgId, orgId)),
+      )
+      await getSystemDb()
+        .delete(organizations)
+        .where(eq(organizations.id, orgId))
       await closeDb()
     })
 
+    function appWithOrg(repositoryRoutes: typeof RepositoryRoutes) {
+      const app = new OpenAPIHono<AppEnv>()
+      app.use(contextStorage())
+      app.use(withTestRequestLogger)
+      app.use("*", async (c, next) => {
+        c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
+        c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
+        return withOrgIdContext({ id: orgId, slug: orgSlug }, () =>
+          withOrgDbContext(orgId, () => next()),
+        )
+      })
+      app.route("/repositories", repositoryRoutes)
+      return app
+    }
+
     async function readStatus(repositoryId: string) {
-      const [row] = await getSystemDb()
-        .select({
-          indexingStatus: repositories.indexingStatus,
-          indexingStep: repositories.indexingStep,
-          indexingStepKey: repositories.indexingStepKey,
-        })
-        .from(repositories)
-        .where(eq(repositories.id, repositoryId))
-        .limit(1)
+      const [row] = await withOrgDbContext(orgId, (db) =>
+        db
+          .select({
+            indexingStatus: repositories.indexingStatus,
+            indexingStep: repositories.indexingStep,
+            indexingStepKey: repositories.indexingStepKey,
+          })
+          .from(repositories)
+          .where(eq(repositories.id, repositoryId))
+          .limit(1),
+      )
       return row
     }
 
@@ -152,23 +177,7 @@ describe.skipIf(!connectionString)(
     it("returns the same repository with 201 then 200 for one git URL", async () => {
       const { repositoryRoutes } = await import("../routes/v1/repositories.js")
       const gitUrl = `https://github.com/acme/idempotent-${suffix}.git`
-      const app = new OpenAPIHono<AppEnv>()
-      app.use(contextStorage())
-      app.use("*", async (c, next) => {
-        c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
-        c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
-        c.set("log", {
-          error: () => {},
-          info: () => {},
-          warn: () => {},
-          debug: () => {},
-          child: () => c.get("log"),
-        } as unknown as AppEnv["Variables"]["log"])
-        return withOrgIdContext({ id: orgId, slug: orgSlug }, () =>
-          withOrgDbContext(orgId, () => next()),
-        )
-      })
-      app.route("/repositories", repositoryRoutes)
+      const app = appWithOrg(repositoryRoutes)
 
       const post = () =>
         app.request("/repositories", {
@@ -193,36 +202,43 @@ describe.skipIf(!connectionString)(
     })
 
     it("returns 409 when the existing repository is being deleted", async () => {
-      const { repositoryRoutes } = await import("../routes/v1/repositories.js")
-      const app = new OpenAPIHono<AppEnv>()
-      app.use(contextStorage())
-      app.use("*", async (c, next) => {
-        c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
-        c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
-        c.set("log", {
-          error: () => {},
-          info: () => {},
-          warn: () => {},
-          debug: () => {},
-          child: () => c.get("log"),
-        } as unknown as AppEnv["Variables"]["log"])
-        return withOrgIdContext({ id: orgId, slug: orgSlug }, () =>
-          withOrgDbContext(orgId, () => next()),
-        )
+      const deletingId = generateObjectId("repo")
+      const gitUrl = `https://github.com/acme/deleting-${suffix}.git`
+      await withOrgDbContext(orgId, async (db) => {
+        await db.insert(repositories).values({
+          id: deletingId,
+          orgId,
+          name: `acme/deleting-${suffix}`,
+          gitUrl,
+          indexReady: false,
+          indexingStatus: "unindexing",
+        })
+        await db.insert(repositoryCheckouts).values({
+          id: generateObjectId("co"),
+          orgId,
+          repositoryId: deletingId,
+          ref: "main",
+          checkoutKey: DEFAULT_CHECKOUT_KEY,
+        })
       })
-      app.route("/repositories", repositoryRoutes)
+
+      const { repositoryRoutes } = await import("../routes/v1/repositories.js")
+      const app = appWithOrg(repositoryRoutes)
 
       const res = await app.request("/repositories", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          name: `acme/unindexing-${suffix}`,
-          gitUrl: `https://github.com/acme/unindexing-${suffix}.git`,
+          name: `acme/deleting-${suffix}`,
+          gitUrl,
         }),
       })
       const text = await res.text()
       expect(res.status, text).toBe(409)
       expect(JSON.parse(text)).toEqual({ error: "Repository is being deleted" })
+      await expect(readStatus(deletingId)).resolves.toMatchObject({
+        indexingStatus: "unindexing",
+      })
     })
   },
 )

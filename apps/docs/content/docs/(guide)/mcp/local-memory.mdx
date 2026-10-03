@@ -31,9 +31,9 @@ memory keeps those lessons:
   it runs in Cursor, Claude Code, Codex, OpenCode, or VS Code.
 - **With your team.** Memory is committed and reviewed like code, so a lesson one
   engineer teaches reaches everyone once it merges.
-- **In ctx|.** When the repository is connected, merged lessons become part of
-  your organization's knowledge graph, and `ctx_advisor` passes them on to agents
-  working in other repositories too.
+- **In ctx|.** When the repository is linked to a Workspace, merged lessons
+  become part of that Workspace's knowledge, and `ctx_advisor` passes them on to
+  agents working in other repositories too.
 
 ## How it works
 
@@ -111,7 +111,7 @@ npx ctxpipe init --org acme --agents cursor,claude --scope repo --memory --non-i
 
 | | What it does |
 | --- | --- |
-| `ctxpipe` MCP (`ctx_advisor`) | Answers from your organization's knowledge graph: every connected repository, connector, and decision. |
+| `ctxpipe` MCP (`ctx_advisor`) | Answers from your organization's first Workspace: its knowledge files, connectors, and linked code. |
 | Local memory (this page) | Markdown in one repository plus agent hooks. It is not an MCP server. |
 
 You can use local memory on its own (`memory init`) or alongside the ctx| MCP

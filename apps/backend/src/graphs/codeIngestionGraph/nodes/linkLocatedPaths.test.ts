@@ -1,25 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 import { isConventionalEvidenceSourceId } from "../../../domain/codeIngestion/evidenceSourceId.js"
 import type { ExtractedClaim, ExtractedObject } from "../schemas.js"
-
-const mocks = vi.hoisted(() => ({
-  rows: [] as Array<{ deduplicationKey: string }>,
-  selectCalls: 0,
-}))
-
-vi.mock("../../../db/client.js", () => ({
-  getOrgDb: () => ({
-    select: () => {
-      mocks.selectCalls += 1
-      return {
-        from: () => ({
-          where: async () => mocks.rows,
-        }),
-      }
-    },
-  }),
-}))
-
 import {
   asLocatedPath,
   fileDedupKey,
@@ -305,11 +286,6 @@ describe("resolveReferenceClaims", () => {
     name: "ENG-1",
   }
 
-  beforeEach(() => {
-    mocks.rows = []
-    mocks.selectCalls = 0
-  })
-
   it("keeps references whose ends are objects of this run without touching the database", async () => {
     const pull: ExtractedObject = {
       kind: "PullRequest",
@@ -323,7 +299,6 @@ describe("resolveReferenceClaims", () => {
     })
     expect(claims).toHaveLength(1)
     expect(summary).toEqual({ REFERENCES: { kept: 1, dropped: 0, stubbed: 0 } })
-    expect(mocks.selectCalls).toBe(0)
   })
 
   it("stubs pull requests of connected repositories and issues of known teams, drops the rest", async () => {
@@ -388,36 +363,6 @@ describe("resolveReferenceClaims", () => {
     expect(claims).toHaveLength(0)
     expect(summary).toEqual({ REFERENCES: { kept: 0, dropped: 1, stubbed: 0 } })
     expect(stubs).toEqual([])
-  })
-
-  it("keeps references to existing graph objects and drops unresolved ones", async () => {
-    mocks.rows = [{ deduplicationKey: "prq:repo_api:7" }]
-    const nonReference: ExtractedClaim = {
-      subjectRef: "svc:repo_api:./",
-      subjectKind: "Service",
-      objectRef: "repo_api",
-      objectKind: "Repository",
-      predicate: "IMPLEMENTED_IN",
-      sourceId: "extractKind:repo_api:./:abc",
-      sourceType: "git",
-      extractionMethod: "deterministic",
-      confidence: 0.9,
-    }
-    const { claims, summary } = await resolveReferenceClaims({
-      orgId: "org_1",
-      objects: [issue],
-      claims: [
-        nonReference,
-        referenceClaim(issue.deduplicationKey, "prq:repo_api:7"),
-        referenceClaim(issue.deduplicationKey, "prq:github:acme/other:9"),
-      ],
-    })
-    expect(claims.map((claim) => claim.objectRef)).toEqual([
-      "repo_api",
-      "prq:repo_api:7",
-    ])
-    expect(summary).toEqual({ REFERENCES: { kept: 1, dropped: 1, stubbed: 0 } })
-    expect(mocks.selectCalls).toBe(1)
   })
 })
 

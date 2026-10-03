@@ -1,6 +1,59 @@
 # ADR-031: GitHub pull-request scoped mirror
 
-**Status:** Accepted | **Date:** 2026-09-16 | **Tags:** connectors, github, git, graph, ingestion
+**Status:** Accepted (revised 2026-10-03) | **Date:** 2026-09-16 | **Tags:** connectors, github, git, graph, ingestion, workspaces
+
+## Revision (2026-10-03): mirror follows linked repositories
+
+Workspaces replaced the context repository, so the target and scope below
+(decisions 1–2, the `ctxpipe-context` setup step, the startup sweep and the
+connector-preselect consequence) are superseded:
+
+- **Target:** merged pull requests of a repository are mirrored into **every
+  Workspace that links it** as a linked repository. Webhooks find those
+  Workspaces in `workspace_linked_repositories` (normalized URL, org-scoped)
+  and start one `github-sync-pull-request` run per Workspace with the
+  webhook's installation connection; the idempotency key includes the
+  Workspace id, so a replayed delivery is one run per Workspace. A failed
+  enqueue answers 5xx so a redelivery retries. A repository no Workspace links
+  mirrors nowhere. `issue_comment` events on unmerged pull requests are
+  dropped before fan-out.
+- **One workflow:** `github-sync-pull-request` mirrors the webhook's numbers,
+  or, without numbers, backfills the 200 most recently updated merged pull
+  requests. GitHub GraphQL returns a page of 20 with files, reviews, comments
+  and review threads inline (one request per page, one durable step per
+  page); REST reads one pull request only when a nested list overflows or a
+  file was renamed (GraphQL has no previous path). Everything publishes as one
+  commit, then `runConnectorRepositoryIngestionWorkflow` re-indexes the
+  Workspace repository.
+- **The link is the scope:** the mirror source is `{ provider: "github",
+  gitUrl }` with no binding. The write broker's scope check
+  (`assertConnectorMirrorScope`) is the single unlink authority: a write lands
+  only if the Workspace tree still declares the repository in
+  `repositories/*.md`. A mirror captured just before an unlink fails at that
+  check instead of writing. Mirrored files stay in git.
+- **Backfill trigger:** hydrate, before it records a revision's linked
+  repositories, starts a backfill for each GitHub repository not yet in the
+  Workspace's linked table (key `github-pr-backfill:<workspaceId>:<gitUrl>`).
+  Links added in Settings and declarations committed with git are treated
+  alike, and the step runs before the table changes so a replay still sees
+  the link as new.
+- **Connection:** the webhook's installation connection reads pull requests;
+  a backfill uses the Workspace's GitHub connection. Without one the run skips
+  as `no_source` and logs a warning.
+- **No setup (dropped by this decision):** the `github/config.yaml` scope
+  policy, the `connections.config.prMirror` binding with its setup phases, the
+  install-time `contextRepository` field and every `ctxpipe-context` name
+  heuristic are removed. Stale `prMirror` JSON in existing connection rows is
+  ignored. Policy is fixed: merged and not draft.
+- **Deploy:** queued runs of the retired `github-ensure-pr-mirror` and
+  `github-sync-content` workflows complete as skipped through
+  `github-pr-mirror-retired.ts` (delete it one release later). Queued
+  `github-sync-pull-request` runs with the old input fail schema validation;
+  accepted. Links that existed before this release get webhooks but no
+  backfill, because their linked rows already exist.
+
+Decisions 3–6 (paths, ingestion, deterministic graph, entity webhooks) stand,
+with "context repository" read as "the Workspace repository".
 
 ## Context
 

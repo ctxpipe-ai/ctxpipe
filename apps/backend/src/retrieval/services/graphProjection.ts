@@ -3,7 +3,7 @@ import {
   requireCurrentOrgId,
   requireCurrentOrgSlug,
 } from "../../auth/context.js"
-import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { getOrgDb, withOrgDbContext } from "../../db/client.js"
 import { claimEvidence } from "../../db/schema/claim_evidence.js"
 import { claims } from "../../db/schema/claims.js"
 import { objects } from "../../db/schema/objects.js"
@@ -106,16 +106,17 @@ async function loadEntityMapForProjection(
 
   if (uniqueIds.size === 0) return entityMap
 
-  const db = getSystemDb()
   const ids = [...uniqueIds]
-  const rows = await db
-    .select({
-      id: objects.id,
-      kind: objects.kind,
-      payload: objects.payload,
-    })
-    .from(objects)
-    .where(and(eq(objects.orgId, orgId), inArray(objects.id, ids)))
+  const rows = await withOrgDbContext(orgId, () =>
+    getOrgDb()
+      .select({
+        id: objects.id,
+        kind: objects.kind,
+        payload: objects.payload,
+      })
+      .from(objects)
+      .where(and(eq(objects.orgId, orgId), inArray(objects.id, ids))),
+  )
 
   for (const r of rows) {
     entityMap.set(r.id, {
@@ -190,9 +191,12 @@ function buildUnwindProjectionQuery(
     ...objectPropKeys.map((k) => `o.${k} = row.object_${k}`),
   ].join(", ")
 
+  const mergeKey = "{ id: row.subject_id, orgId: $orgId }"
+  const mergeObjectKey = "{ id: row.object_id, orgId: $orgId }"
+
   return `UNWIND $rows AS row
-MERGE (s:${subjectLabel} { id: row.subject_id, orgId: $orgId })
-MERGE (o:${objectLabel} { id: row.object_id, orgId: $orgId })
+MERGE (s:${subjectLabel} ${mergeKey})
+MERGE (o:${objectLabel} ${mergeObjectKey})
 SET ${subjectSet}, ${objectSet}
 MERGE (s)-[r:${edgeType}]->(o)
 SET r.claim_id = row.claim_id,
@@ -298,9 +302,12 @@ async function projectSingleClaim(
     ...Object.keys(prepared.objectProps).map((k) => `o.${k} = $object_${k}`),
   ].join(", ")
 
+  const mergeSubject = "{ id: $subject_id, orgId: $orgId }"
+  const mergeObject = "{ id: $object_id, orgId: $orgId }"
+
   await driver.executeQuery(
-    `MERGE (s:${subjectLabel} { id: $subject_id, orgId: $orgId })
-     MERGE (o:${objectLabel} { id: $object_id, orgId: $orgId })
+    `MERGE (s:${subjectLabel} ${mergeSubject})
+     MERGE (o:${objectLabel} ${mergeObject})
      SET ${subjectSetClauses}, ${objectSetClauses}
      MERGE (s)-[r:${edgeType}]->(o)
      SET r.claim_id = $claimId,
@@ -354,7 +361,7 @@ export async function projectClaimsFromState(
       claimsProjectedToGraph: 0,
       skippedInvalidPredicate: 0,
     })
-    logger.info("graph projection skipped (no claims)")
+    logger.info("graph projection replaced (no claims)")
     return { projected: 0, errors: [] }
   }
 

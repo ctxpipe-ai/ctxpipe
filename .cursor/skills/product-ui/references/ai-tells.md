@@ -26,7 +26,7 @@ Keep and reuse:
 | Glowing dot with no word | House pill + pulse/dot **and** the word |
 | Centered six-line empty essay + outline CTA + visible empty tabs | Short copy; primary CTA; hide chrome until there is data |
 | `list-disc` feature/benefit rows | Icon + title + one-line rows |
-| Cute or corporate-filler copy (“Let’s get you set up!”, “Utilize…”, “Unlock the power of…”) | Plain, specific UK English |
+| Cute or corporate-filler copy (“Let’s get you set up!”, “Utilize…”, “Unlock the power of…”) | Plain, specific US English |
 | A second icon library or custom SVG set | Tabler first; Lucide only if Tabler has no equivalent |
 
 ## Ceiling vs Operate

@@ -35,8 +35,63 @@ backend origin.
 | `ui` | `3002` | No | Product web app, proxied by backend |
 | `worker` | internal | No | Background workflows and connector jobs |
 | `codesearch` | `3001` | Yes | Repository clone cache and Zoekt index. Stay at one replica. |
-| `postgres` | `5432` in container, `5433` on host by default | Yes | Primary relational state |
-| `falkordb` | `6379` Redis, `7687` Bolt | Yes | Default graph database |
+| `postgres` | `5432` internal (no host port in the deploy profile) | Yes | Primary relational state |
+| `falkordb` | `6379` Redis, `7687` Bolt, internal | Yes | Default graph database |
+| `dind` (Docker Compose) | `2376` internal | No | Docker daemon for Workspace chat sandboxes |
+
+### Chat sandbox network policy
+
+The same policy holds on Docker Compose and AWS:
+
+- Sandboxes reach the internet (Git hosts, package registries) and the
+  backend's model proxy and per-run tool bridges.
+- Data stores are never exposed to sandboxes. Compose never publishes
+  Postgres or FalkorDB, because Docker routes to a container's published ports
+  from other networks; AWS admits only the app's security group to them.
+- Sandboxes cannot reach cloud instance metadata (`169.254.169.254`).
+- Each agent port needs a per-conversation password, and sandboxes cannot
+  reach each other over the Docker bridge.
+
+Sandboxes can reach anything else that is published on the Docker host or the
+network, so do not publish other unauthenticated services on a host that runs
+sandboxes.
+
+DNS inside a sandbox: on Compose, sandboxes use public resolvers (`8.8.8.8`,
+`8.8.4.4`), because Docker substitutes them on its default bridge when the
+daemon's own resolver is a loopback address, as Compose's is. Compose service
+names and private DNS zones do not resolve there. On AWS, sandboxes use the
+VPC resolver through the host.
+
+### Chat sandboxes on Docker Compose
+
+Compose runs each Workspace conversation's agent in its own container inside
+`dind`, a stock Docker-in-Docker service. `dind`, `backend`, and `worker` share
+a separate `sandbox` network:
+
+| Component | Port | Reached by | Purpose |
+|---|---:|---|---|
+| Docker API (mutual TLS) | `2376` | `backend`, `worker` | Create, stop, resume, and remove sandboxes |
+| Sandbox agent ports (password per conversation) | `32768`–`60999` on `dind` | `backend` | The backend talks to the agent in each sandbox |
+| Backend model proxy and tool bridges | `3000` and per-run ports on the backend's `sandbox` address | Sandboxes | Model calls and tool calls go back to the backend |
+
+See [Docker: Chat sandboxes](/docs/self-hosting/deployment/docker#chat-sandboxes).
+
+### Chat sandbox host on AWS
+
+On AWS, `@ctxpipe/aws-cdk` adds one EC2 Docker host next to the Fargate
+services. Each Workspace conversation's agent runs in its own container there.
+
+| Component | Port | Reached by | Purpose |
+|---|---:|---|---|
+| Docker API (mutual TLS) | `2376` | `backend`, `worker` | Create, stop, resume, and remove sandboxes |
+| Sandbox agent ports (password per conversation) | `32768`–`60999` | `backend` | The backend talks to the agent in each sandbox |
+| Backend model proxy and tool bridges | `3000`, `32768`–`60999` | Sandboxes | Model calls and tool calls go back to the backend task that runs the turn |
+
+Sandboxes reach the internet through NAT. Security groups keep Postgres,
+Neptune, EFS, codesearch, the UI, and the worker away from them. Agent ports
+are reachable inside the VPC, so the host also blocks sandboxes from the host
+itself. See
+[AWS: Chat sandbox host](/docs/self-hosting/deployment/aws#chat-sandbox-host).
 
 ## Public surface
 

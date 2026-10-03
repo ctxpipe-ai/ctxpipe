@@ -1,0 +1,52 @@
+import { describe, expect, it } from "vitest"
+import { landingPane, parsePane, serializePane, visiblePane } from "./pane"
+
+describe("parsePane", () => {
+  it("maps built-in ids", () => {
+    expect(parsePane("files")).toEqual({ kind: "files" })
+    expect(parsePane("graph")).toEqual({ kind: "graph" })
+    expect(parsePane("settings")).toEqual({ kind: "settings" })
+    expect(parsePane("diff")).toEqual({ kind: "diff" })
+  })
+
+  it("decodes file paths", () => {
+    expect(parsePane("file:knowledge%2Freadme.md")).toEqual({
+      kind: "file",
+      path: "knowledge/readme.md",
+    })
+  })
+
+  it("keeps unknown ids", () => {
+    expect(parsePane("jobs")).toEqual({ kind: "unknown", id: "jobs" })
+    expect(visiblePane(parsePane("jobs"))).toBeNull()
+    expect(visiblePane(parsePane("files"))).toEqual({ kind: "files" })
+  })
+
+  it("returns null when missing", () => {
+    expect(parsePane(undefined)).toBeNull()
+    expect(parsePane("")).toBeNull()
+  })
+})
+
+describe("landingPane", () => {
+  it("is closed when search is empty", () => {
+    expect(landingPane(undefined)).toBeNull()
+    expect(landingPane("")).toBeNull()
+  })
+
+  it("keeps a visible URL pane", () => {
+    expect(landingPane("diff")).toEqual({ kind: "diff" })
+    expect(landingPane("graph")).toEqual({ kind: "graph" })
+    expect(landingPane("file:README.md")).toEqual({
+      kind: "file",
+      path: "README.md",
+    })
+  })
+})
+
+describe("serializePane", () => {
+  it("round-trips file paths", () => {
+    const pane = parsePane(serializePane({ kind: "file", path: "a/b.md" }))
+    expect(pane).toEqual({ kind: "file", path: "a/b.md" })
+  })
+})

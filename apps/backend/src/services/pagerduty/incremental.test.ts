@@ -77,7 +77,7 @@ describe("PagerDuty incremental scope", () => {
         region: "us",
       } as never,
       config,
-      entity: { incidentId: "PT4KHLK", action: "upsert" },
+      entity: { incidentId: "PT4KHLK" },
       existingPaths: [
         "pagerduty/incidents/12--PT4KHLK.md",
         preserved,

@@ -38,6 +38,7 @@ const connectStart = vi.hoisted(() => vi.fn())
 const saveOauthApp = vi.hoisted(() => vi.fn())
 
 vi.mock("@tanstack/react-query", () => ({
+  queryOptions: (options: unknown) => options,
   useMutation: (options: {
     mutationFn: () => Promise<unknown>
     onSuccess?: () => Promise<void> | void

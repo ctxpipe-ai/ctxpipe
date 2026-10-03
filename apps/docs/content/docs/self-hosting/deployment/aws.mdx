@@ -153,9 +153,14 @@ cdk synth
 cdk deploy
 ```
 
-`cdk deploy` runs Postgres migrations, then rolls the ECS services. You do not set image tags in `CtxPipe` props, and you should not retag tasks to `:latest` yourself.
+`cdk deploy` runs Postgres migrations, then rolls the ECS services. You do not set image tags in `CtxPipe` props, and you should not retag tasks to `:latest` yourself. The migrate task provisions `ctxpipe_app` and rewrites the runtime `DATABASE_URL` secret; CDK operators do not set either URL by hand and do not run `psql`.
 
 This is how codesearch memory bumps (4 / 8 / 12 GiB) and ingest behavior land together. Updating only container images, or only task memory, leaves the stack split across releases.
+
+The first upgrade to a version with the [chat sandbox host](#chat-sandbox-host)
+adds it with no new required props. That deploy only adds resources and
+replaces nothing that holds data. It waits until the host reports ready,
+then rolls backend and worker.
 
 ### Bonus: automate upgrades with CI/CD
 
@@ -193,6 +198,7 @@ product onboarding flow.
 |---|---|
 | `size` | Capacity profile for single-tenant deployments. Valid values: `small`, `medium`, `large`. Defaults to `small` when omitted. |
 | `otel` | Optional OTLP export. Omit it and the tasks export nothing. The construct does not deploy a collector, Langfuse, or ClickStack. |
+| `sandboxHost` | Optional `instanceType` and `dockerVolumeSizeGiB` for the [chat sandbox host](#chat-sandbox-host). The host is always created; these only change its size. |
 
 ### `modelProvider` union
 
@@ -263,6 +269,7 @@ Browser telemetry and the signal URLs the apps read are in [Configuration](/docs
 | Network | VPC with public/private subnets and NAT egress | Isolates internal services while allowing controlled outbound access. |
 | Edge + ingress | Public ALB + ACM certificate + Route 53 records | Exposes one HTTPS origin and routes public traffic to backend. |
 | Compute | ECS cluster + Fargate services (`backend`, `worker`, `ui`, `codesearch`) | Runs application APIs, background jobs, UI, and code indexing/search workloads. |
+| Chat sandboxes | One EC2 Docker host in an Auto Scaling group, Docker volume, TLS secrets, CloudWatch alarms | Runs each Workspace conversation's agent in its own container. |
 | Stateful data | Aurora PostgreSQL, Neptune cluster, EFS for `/data` | Persists relational state, graph data, and codesearch cache/indexes. |
 | Secrets + identity | Secrets Manager secrets, generated `AUTH_SECRET`, optional connector secrets | Stores runtime credentials and injects them into tasks securely. |
 | Email delivery | SES domain identity, DKIM, SMTP credentials | Enables transactional email from backend (`ctxpipe-noreply@<hosted-zone-apex>`). |
@@ -271,11 +278,93 @@ Browser telemetry and the signal URLs the apps read are in [Configuration](/docs
 Only the backend is public. UI and codesearch stay internal and are reached
 through backend routing.
 
+## Chat sandbox host
+
+Workspace chat runs each conversation's agent (OpenCode) in its own Docker
+container. `CtxPipe` always creates one EC2 host for those containers. There is
+no opt-out: the sandbox keeps the agent's commands away from the backend and
+your data stores.
+
+### Sizes and cost
+
+The host mostly holds idle sandboxes, so it uses burstable Graviton (ARM)
+instances. Memory is the limit: an active sandbox uses about 0.3–0.5 GiB.
+Sandboxes stop after 5 minutes idle and resume on the next message. Stopped
+sandboxes are removed 30 days after last use. An organization runs at most 50
+sandboxes at once.
+
+| `size` | Instance | vCPU / RAM | Docker volume (gp3) | ~Cost/month | Running sandboxes (est.) |
+|---|---|---|---|---|---|
+| `small` (default) | `t4g.medium` | 2 / 4 GiB | 30 GB | ~$28 | ~6 |
+| `medium` | `t4g.large` | 2 / 8 GiB | 50 GB | ~$54 | ~14 |
+| `large` | `t4g.xlarge` | 4 / 16 GiB | 100 GB | ~$107 | ~30 |
+
+Costs are us-east-1 on-demand prices for the instance, the Docker volume, and
+a 16 GB root volume. `t4g` instances run in unlimited mode, so sustained CPU
+above baseline adds a small surcharge.
+
+Override either value with `sandboxHost`:
+
+```ts
+import * as ec2 from "aws-cdk-lib/aws-ec2";
+
+new CtxPipe(stack, "CtxPipe", {
+  // ...orgSlug, customDomain, modelProvider
+  sandboxHost: {
+    instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.XLARGE),
+    dockerVolumeSizeGiB: 150,
+  },
+});
+```
+
+The instance type must be Graviton (arm64); other architectures are rejected
+at synth.
+
+### What it sets up
+
+| Piece | Behavior |
+|---|---|
+| Instance | Amazon Linux 2023 in a single-instance Auto Scaling group in the private subnets. EC2 health checks replace a failed host. `cdk deploy` waits until the host reports ready. New AMIs apply when the host is replaced, not on every deploy. |
+| Docker volume | gp3 volume at `/var/lib/docker`. It belongs to the instance, so a replaced host starts empty. Conversations keep their work in their git branch and continue on the new host. |
+| Docker API | Port 2376 with mutual TLS at `sandbox-host.ctxpipe.local`, a Cloud Map name the host registers when it boots. The host creates the certificates on first boot and stores them in Secrets Manager; a replacement host reuses them. The CA key is not kept. |
+| Network | Backend and worker reach the Docker API. Only the backend reaches the sandboxes' agent ports, and only the backend accepts calls from sandboxes (model proxy and per-run tool bridges). Sandboxes also reach Git hosts and the internet through NAT, but not Postgres, Neptune, EFS, codesearch, the UI, or the worker. This is the [chat sandbox network policy](/docs/self-hosting/architecture#chat-sandbox-network-policy) shared with Docker Compose. |
+| Isolation | Each agent port needs a per-conversation password. Agent ports are reachable inside the VPC, so the host also blocks sandboxes from each other, from the host itself, and from instance metadata. |
+| Limits | All sandbox containers share one systemd slice capped at 85% of host memory. Container logs rotate at 3 × 10 MB. |
+| Chat image | `ghcr.io/ctxpipe-ai/chat-sandbox`, published for arm64 and amd64 with the same release tag as the service images. The backend pulls it through the host's Docker daemon on the first chat after a release, so releases never replace the host. |
+| Backend and worker | Get `SANDBOX_PROVIDER=docker`, `SANDBOX_CHAT_IMAGE`, `DOCKER_HOST=tcp://sandbox-host.ctxpipe.local:2376`, `DOCKER_TLS_VERIFY=1`, and `DOCKER_CERT_PATH`. A short init container in each task writes the client certificates there as files. Sandboxes call the backend back on its own task IP, so they reach the replica that runs their turn. |
+
+### Alarms
+
+| Alarm | Fires when | What to do |
+|---|---|---|
+| Docker disk | `/var/lib/docker` is 80% full or more for 10 minutes | Check `docker system df` on the host (see [Operations](/docs/self-hosting/operations#chat-sandbox-host-aws)). Raise `sandboxHost.dockerVolumeSizeGiB` if the volume fills with live sandboxes. |
+| Memory | Host memory is 85% used or more for 15 minutes | Sandboxes are near their cap. Move to a larger `size` or `sandboxHost.instanceType`. |
+
+The alarms have no actions. Subscribe them to your own topic through the
+construct:
+
+```ts
+import * as actions from "aws-cdk-lib/aws-cloudwatch-actions";
+
+const ctxPipe = new CtxPipe(stack, "CtxPipe", { /* ... */ });
+for (const alarm of ctxPipe.sandboxHostAlarms) {
+  alarm.addAlarmAction(new actions.SnsAction(opsTopic));
+}
+```
+
+<Callout type="warn" title="Unsandboxed chat is a last resort">
+  The backend can run chat without a sandbox (`SANDBOX_PROVIDER=unsandboxed`),
+  where the agent runs as a process inside the backend container with the
+  backend's network access. `CtxPipe` never configures this. Use it only where no
+  Docker host can run at all, and treat every Workspace user as trusted with
+  the backend.
+</Callout>
+
 ## What this gives you by default
 
 - `GRAPH_DB_PROVIDER=neptune` and graph URI wiring from Neptune endpoints
 - Internal service routing (`UI_PROXY_URL`, `CODESEARCH_URL`) so only backend is public
-- Generated `AUTH_SECRET` and managed `DATABASE_URL` / SMTP secrets
+- Generated `AUTH_SECRET` and managed `DATABASE_URL` (runtime `ctxpipe_app`) / SMTP secrets
 - Public app URL output and secret ARN outputs for operations
 
 ## How to choose `size`

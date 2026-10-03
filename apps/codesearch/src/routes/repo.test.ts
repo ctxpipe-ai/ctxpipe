@@ -42,6 +42,24 @@ const MOCK_REPO = {
   gitUrl: "https://github.com/appear/ctxpipe.git",
 }
 
+function createTreeTestApp() {
+  const app = new OpenAPIHono<AppEnv>()
+  app.use("*", async (c, next) => {
+    c.set("env", { NODE_ENV: "test", PORT: 3001 } as AppEnv["Variables"]["env"])
+    c.set("auth", {
+      sub: "repo:repo_abcdef27",
+      orgId: "org_mock123",
+      principal: "service",
+      repositoryRevisions: [
+        { repositoryId: "repo_abcdef27", sha: "a".repeat(40) },
+      ],
+    } as AppEnv["Variables"]["auth"])
+    await next()
+  })
+  registerRepoRoutes(app)
+  return app
+}
+
 function createTestApp() {
   const app = new OpenAPIHono<AppEnv>()
   app.use("*", async (c, next) => {
@@ -367,6 +385,57 @@ describe("POST /{repoId}/resolve-ref", () => {
   })
 })
 
+describe("GET /{repoId}/tree", () => {
+  let tmpDir: string
+  let repoCacheDir: string
+  let checkoutDir: string
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    tmpDir = await mkdtemp(join(tmpdir(), "list-tree-route-"))
+    repoCacheDir = join(tmpDir, "repo-cache")
+    checkoutDir = join(
+      repoCacheDir,
+      "org_mock123",
+      "repo_abcdef27",
+      "checkouts",
+      `rev:${"a".repeat(40)}`,
+    )
+    Object.defineProperty(paths, "REPO_CACHE_DIR", {
+      value: repoCacheDir,
+      writable: true,
+    })
+  })
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true })
+  })
+
+  it("lists captured revision files without querying Postgres", async () => {
+    await mkdir(join(checkoutDir, ".git", "objects"), { recursive: true })
+    await mkdir(join(checkoutDir, "src"), { recursive: true })
+    await writeFile(join(checkoutDir, "README.md"), "# root\n")
+    await writeFile(join(checkoutDir, "src", "a.ts"), "export {}\n")
+    await writeFile(join(checkoutDir, ".git", "objects", "pack.idx"), "idx\n")
+
+    const app = createTreeTestApp()
+    const res = await app.request("/repo_abcdef27/tree")
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { paths: string[] }
+    expect(body.paths.sort()).toEqual(["README.md", "src/a.ts"])
+    expect(getAccessibleRepositoryMock).not.toHaveBeenCalled()
+  })
+
+  it("returns 404 immediately when the checkout is missing", async () => {
+    const app = createTreeTestApp()
+    const started = performance.now()
+    const res = await app.request("/repo_abcdef27/tree")
+    expect(res.status).toBe(404)
+    expect(performance.now() - started).toBeLessThan(200)
+    expect(getAccessibleRepositoryMock).not.toHaveBeenCalled()
+  })
+})
+
 const hasBunGlob = Boolean(
   (globalThis as { Bun?: { Glob?: unknown } }).Bun?.Glob,
 )
@@ -398,34 +467,30 @@ describe("POST /{repoId}/glob", () => {
     await rm(tmpDir, { recursive: true, force: true })
   })
 
-  // Happy-path scanning needs Bun.Glob (Node vitest has no Bun global).
-  // Covered by globFiles.test.ts under `bun --bun vitest` in test:vitest.
-  it.skipIf(!hasBunGlob)(
-    "returns files and dirs for pattern * by default",
-    async () => {
-      await mkdir(join(checkoutDir, "src", "nested"), { recursive: true })
-      await writeFile(join(checkoutDir, "src", "a.ts"), "export {}\n")
+  // This route suite runs under Bun so the production Glob implementation executes.
+  it("returns files and dirs for pattern * by default", async () => {
+    await mkdir(join(checkoutDir, "src", "nested"), { recursive: true })
+    await writeFile(join(checkoutDir, "src", "a.ts"), "export {}\n")
 
-      const app = createTestApp()
-      const res = await app.request("/repo_abcdef27/glob", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ pattern: "*", path: "src" }),
-      })
+    const app = createTestApp()
+    const res = await app.request("/repo_abcdef27/glob", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pattern: "*", path: "src" }),
+    })
 
-      expect(res.status).toBe(200)
-      const body = (await res.json()) as {
-        entries: Array<{ name: string; path: string; type: string }>
-        truncated: boolean
-        matched: number
-      }
-      const names = body.entries.map((e) => e.name).sort()
-      expect(names).toContain("a.ts")
-      expect(names).toContain("nested")
-      expect(body.truncated).toBe(false)
-      expect(body.matched).toBe(body.entries.length)
-    },
-  )
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      entries: Array<{ name: string; path: string; type: string }>
+      truncated: boolean
+      matched: number
+    }
+    const names = body.entries.map((e) => e.name).sort()
+    expect(names).toContain("a.ts")
+    expect(names).toContain("nested")
+    expect(body.truncated).toBe(false)
+    expect(body.matched).toBe(body.entries.length)
+  })
 
   it.skipIf(!hasBunGlob)("matches dotpaths with default dot true", async () => {
     await mkdir(join(checkoutDir, ".cursor", "rules"), { recursive: true })

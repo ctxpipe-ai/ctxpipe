@@ -4,13 +4,11 @@ import type { ReactNode } from "react"
 import { RouterProvider } from "react-aria-components"
 import type { ConfluenceForgeRuntimeConfig } from "@/lib/confluenceForgeRuntimeConfig"
 import type { HyperDxSessionIdentity } from "@/lib/hyperdxAttributes"
-import { createHyperDxQueryClient } from "@/lib/hyperdxQueryErrors"
 import type { HyperDxRuntimeConfig } from "@/lib/hyperdxRuntimeConfig"
 import { AuthProvider } from "./providers/AuthProvider"
 import { ConfluenceForgeRuntimeProvider } from "./providers/ConfluenceForgeRuntimeContext"
 import { HyperDxProvider } from "./providers/HyperDxProvider"
-
-const queryClient = createHyperDxQueryClient()
+import type { RouterContext } from "./router"
 
 export function Providers({
   children,
@@ -24,6 +22,8 @@ export function Providers({
   confluenceForgeRuntimeConfig: ConfluenceForgeRuntimeConfig
 }) {
   const router = useRouter()
+  const { queryClient } = router.options.context as RouterContext
+
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>

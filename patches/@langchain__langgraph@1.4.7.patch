@@ -1,0 +1,68 @@
+diff --git a/dist/graph/zod/plugin.d.cts b/dist/graph/zod/plugin.d.cts
+index 8f5a44a95812028647c646c5712e7dba2c40a46a..6d8c5c01671279469d96c88303ceb6963007f309 100644
+--- a/dist/graph/zod/plugin.d.cts
++++ b/dist/graph/zod/plugin.d.cts
+@@ -9,15 +9,7 @@ interface ZodLangGraphTypesV3<T extends z.ZodTypeAny, Output> {
+     [key: string]: unknown;
+   }): T;
+ }
+-declare module "zod" {
+-  interface ZodType<Output> {
+-    /**
+-     * @deprecated Using the langgraph zod plugin is deprecated and will be removed in future versions
+-     * Consider upgrading to zod 4 and using the exported langgraph meta registry. {@link langgraphRegistry}
+-     */
+-    langgraph: ZodLangGraphTypesV3<any, Output>;
+-  }
+-}
++
+ declare module "zod/v3" {
+   interface ZodType<Output> {
+     /**
+diff --git a/dist/graph/zod/plugin.d.ts b/dist/graph/zod/plugin.d.ts
+index 0a0be6111804578a32be15a79204a60043bcc48b..c8aada72fca4af11b7c3a9a0b784f7064f7be0c6 100644
+--- a/dist/graph/zod/plugin.d.ts
++++ b/dist/graph/zod/plugin.d.ts
+@@ -9,15 +9,7 @@ interface ZodLangGraphTypesV3<T extends z.ZodTypeAny, Output> {
+     [key: string]: unknown;
+   }): T;
+ }
+-declare module "zod" {
+-  interface ZodType<Output> {
+-    /**
+-     * @deprecated Using the langgraph zod plugin is deprecated and will be removed in future versions
+-     * Consider upgrading to zod 4 and using the exported langgraph meta registry. {@link langgraphRegistry}
+-     */
+-    langgraph: ZodLangGraphTypesV3<any, Output>;
+-  }
+-}
++
+ declare module "zod/v3" {
+   interface ZodType<Output> {
+     /**
+diff --git a/dist/graph/zod/zod-registry.d.cts b/dist/graph/zod/zod-registry.d.cts
+index 9acbbf42cb4603ac006f18769e1a032aec5bc9db..b264ac7a92f968c69049a82657194c97ed39a655 100644
+--- a/dist/graph/zod/zod-registry.d.cts
++++ b/dist/graph/zod/zod-registry.d.cts
+@@ -32,7 +32,7 @@ declare class LanggraphZodMetaRegistry<Meta extends SchemaMeta = SchemaMeta, Sch
+     [key: string]: unknown;
+   }, S>]): this;
+ }
+-declare module "zod/v4" {
++declare module "zod" {
+   interface ZodType<out Output = unknown, out Input = unknown, out Internals extends core.$ZodTypeInternals<Output, Input> = core.$ZodTypeInternals<Output, Input>> extends core.$ZodType<Output, Input, Internals> {
+     register<R extends LanggraphZodMetaRegistry, TOutput = core.output<this>, TInput = core.input<this>, TInternals extends core.$ZodTypeInternals<TOutput, TInput> = core.$ZodTypeInternals<TOutput, TInput>>(registry: R, meta: SchemaMeta<TOutput, TInput>): ReducedZodChannel<this, ZodType<TOutput, TInput, TInternals>>;
+   }
+diff --git a/dist/graph/zod/zod-registry.d.ts b/dist/graph/zod/zod-registry.d.ts
+index 19805a4d60837c75a18de10fce246841b5f110a2..8fac958ccaa9f978a96e15c5d6e1d84d3da3c82b 100644
+--- a/dist/graph/zod/zod-registry.d.ts
++++ b/dist/graph/zod/zod-registry.d.ts
+@@ -32,7 +32,7 @@ declare class LanggraphZodMetaRegistry<Meta extends SchemaMeta = SchemaMeta, Sch
+     [key: string]: unknown;
+   }, S>]): this;
+ }
+-declare module "zod/v4" {
++declare module "zod" {
+   interface ZodType<out Output = unknown, out Input = unknown, out Internals extends core.$ZodTypeInternals<Output, Input> = core.$ZodTypeInternals<Output, Input>> extends core.$ZodType<Output, Input, Internals> {
+     register<R extends LanggraphZodMetaRegistry, TOutput = core.output<this>, TInput = core.input<this>, TInternals extends core.$ZodTypeInternals<TOutput, TInput> = core.$ZodTypeInternals<TOutput, TInput>>(registry: R, meta: SchemaMeta<TOutput, TInput>): ReducedZodChannel<this, ZodType<TOutput, TInput, TInternals>>;
+   }

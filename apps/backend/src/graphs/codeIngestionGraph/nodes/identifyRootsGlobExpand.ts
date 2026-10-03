@@ -13,6 +13,7 @@ function globToRegExp(glob: string): RegExp {
   let pattern = "^"
   for (let i = 0; i < glob.length; i += 1) {
     const char = glob[i]
+    if (char === undefined) continue
     if (char === "*") {
       const next = glob[i + 1]
       if (next === "*") {

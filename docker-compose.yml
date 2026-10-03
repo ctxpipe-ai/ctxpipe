@@ -2,9 +2,12 @@
 # Copy docker-compose.env.example → .env (Compose loads it from this directory).
 #
 # Profiles:
-#   infra  — Postgres, FalkorDB, contributor OTEL collector (host dev: pnpm dev:infra)
+#   infra  — Postgres, FalkorDB (host ports via infra-host-ports), contributor
+#            OTEL collector (host dev: pnpm dev:infra)
 #   deploy — App stack (pnpm start): postgres + falkordb + apps. No collector.
 #            Set OTEL_EXPORTER_OTLP_* in .env to export to your own endpoint.
+#            Workspace chat sandboxes run in the `dind` Docker-in-Docker
+#            service on its own `sandbox` network (see the self-hosting docs).
 #
 # Local Zoekt + codesearch API: use `pnpm dev` — Docker image runs start.sh (zoekt-webserver + Bun) with a random host port.
 
@@ -15,6 +18,16 @@ x-otel-env: &otel-env
   OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
   OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-}
 
+# The DinD daemon over mutual TLS; the client certificates come from `dind`.
+x-sandbox-docker-env: &sandbox-docker-env
+  SANDBOX_PROVIDER: docker
+  SANDBOX_CHAT_IMAGE: ctxpipe-chat-sandbox:local
+  DOCKER_HOST: tcp://dind:2376
+  DOCKER_TLS_VERIFY: "1"
+  DOCKER_CERT_PATH: /certs/client
+
+x-dind-image: &dind-image docker:29.8.2-dind@sha256:7dcdfc4a20246236f558175182ccace1eb15a41bd3eb119dd2284f393498b7c1
+
 services:
   postgres:
     profiles: [infra, deploy]
@@ -24,8 +37,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-ctxpipe}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ctxpipe}
       POSTGRES_DB: ${POSTGRES_DB:-ctxpipe}
-    ports:
-      - "${CTXPIPE_POSTGRES_HOST_PORT:-5433}:5432"
+    # Never published: Docker routes to a container's published ports from
+    # other networks, chat sandboxes included. Host dev uses `infra-host-ports`.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
       interval: 10s
@@ -38,10 +51,29 @@ services:
     restart: unless-stopped
     environment:
       FALKORDB_ARGS: "BOLT_PORT 7687"
+    # Never published, like postgres.
+
+  # Host dev only: Postgres and FalkorDB on host ports, forwarded so the data
+  # stores themselves stay unpublished in every profile.
+  infra-host-ports:
+    profiles: [infra]
+    image: alpine/socat:latest@sha256:82ad20f6f6e29b91ff33b6662d24063522b1378f08fd8569cd3ab412cac13f50
+    restart: unless-stopped
+    init: true
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        socat TCP-LISTEN:5432,fork,reuseaddr TCP:postgres:5432 &
+        socat TCP-LISTEN:6379,fork,reuseaddr TCP:falkordb:6379 &
+        socat TCP-LISTEN:7687,fork,reuseaddr TCP:falkordb:7687 &
+        socat TCP-LISTEN:3000,fork,reuseaddr TCP:falkordb:3000 &
+        wait
     ports:
+      - "${CTXPIPE_POSTGRES_HOST_PORT:-5433}:5432"
       - "${CTXPIPE_FALKOR_REDIS_HOST_PORT:-6379}:6379"
       - "${CTXPIPE_FALKOR_BOLT_HOST_PORT:-7687}:7687"
       - "${CTXPIPE_FALKOR_ADMIN_HOST_PORT:-3003}:3000"
+    depends_on: [postgres, falkordb]
 
   otel-collector:
     profiles: [infra]
@@ -61,9 +93,68 @@ services:
     restart: "no"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-ctxpipe}:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
+      DATABASE_APP_PASSWORD: ${POSTGRES_PASSWORD:-ctxpipe}
+      # The backend modules migrate imports parse the app env, which needs it.
+      AUTH_SECRET: ${AUTH_SECRET:-}
     command: ["bun", "run", "apps/backend/src/db/migrate.ts"]
     depends_on:
       postgres:
+        condition: service_healthy
+
+  # Docker daemon for Workspace chat sandboxes (stock docker:dind). Only this
+  # container is privileged; sandboxes are not, and the host Docker socket is
+  # never mounted. It sits only on the `sandbox` network with backend and
+  # worker. Sandboxes reach the internet and the backend; data stores are never
+  # published, and scripts/sandbox-dind/entrypoint.sh blocks instance metadata.
+  dind:
+    profiles: [deploy]
+    image: *dind-image
+    restart: unless-stopped
+    privileged: true
+    # The image's own cgroup-nesting wrapper, then the metadata block and
+    # sandbox cgroup caps in scripts/sandbox-dind/entrypoint.sh, then the stock entrypoint.
+    entrypoint: ["dind", "sh", "/sandbox-dind/entrypoint.sh"]
+    environment:
+      DOCKER_TLS_CERTDIR: /certs
+      DOCKER_TLS_SAN: DNS:dind
+    configs:
+      - source: sandbox-dind-entrypoint
+        target: /sandbox-dind/entrypoint.sh
+      - source: sandbox-dind-daemon
+        target: /etc/docker/daemon.json
+    volumes:
+      - sandbox_docker:/var/lib/docker
+      - sandbox_ca:/certs/ca
+      - sandbox_client_certs:/certs/client
+    networks: [sandbox]
+    healthcheck:
+      test: ["CMD", "docker", "--host", "unix:///var/run/docker.sock", "info"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # Builds the chat image inside DinD from this checkout, like the other
+  # deploy images. Cached after the first run; a changed Dockerfile gives a
+  # new image ID, and new sandboxes use it. Nothing waits for it: until it
+  # exists, chat answers 503 and the rest of the app works.
+  chat-sandbox-image:
+    profiles: [deploy]
+    image: *dind-image
+    restart: "no"
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        docker build --tag "$$SANDBOX_CHAT_IMAGE" /context
+        docker image inspect --format '{{.Id}}' "$$SANDBOX_CHAT_IMAGE"
+    environment:
+      <<: *sandbox-docker-env
+    volumes:
+      - ./scripts/chat-sandbox:/context:ro
+      - sandbox_client_certs:/certs/client:ro
+    networks: [sandbox]
+    depends_on:
+      dind:
         condition: service_healthy
 
   backend:
@@ -74,7 +165,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-ctxpipe}:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
+      DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       GRAPH_DB_URI: redis://falkordb:6379
       UI_PROXY_URL: http://ui:3002
       CODESEARCH_URL: http://codesearch:3001
@@ -82,8 +173,10 @@ services:
       AUTH_SECRET: ${AUTH_SECRET:-}
       AUTH_BASE_URL: ${AUTH_BASE_URL:-http://localhost:3000}
       AUTH_ALLOWED_ORIGINS: ${AUTH_ALLOWED_ORIGINS:-}
-      # Empty values are unset: no export, logs on stdout.
-      <<: *otel-env
+      # Unset, sandboxes call back on the backend's `sandbox` network address
+      # (the one it reaches `dind` from). Empty OTEL values are unset: no export.
+      SANDBOX_CALLBACK_HOST: ${SANDBOX_CALLBACK_HOST:-}
+      <<: [*otel-env, *sandbox-docker-env]
       OTEL_SERVICE_NAME: backend
       CONFLUENCE_FORGE_INSTALL_URL: ${CONFLUENCE_FORGE_INSTALL_URL:-}
       SLACK_CLIENT_ID: ${SLACK_CLIENT_ID:-}
@@ -104,6 +197,10 @@ services:
       PAGERDUTY_REDIRECT_URI: ${PAGERDUTY_REDIRECT_URI:-}
     ports:
       - "${CTXPIPE_BACKEND_HOST_PORT:-3000}:3000"
+    volumes:
+      - sandbox_client_certs:/certs/client:ro
+    networks: [default, sandbox]
+    # Not `dind` or `chat-sandbox-image`: without them only chat fails (503).
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -122,7 +219,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-ctxpipe}:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
+      DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       GRAPH_DB_URI: redis://falkordb:6379
       # Required to decrypt connection secrets (Slack bot tokens, GitHub App keys).
       AUTH_SECRET: ${AUTH_SECRET:-}
@@ -131,7 +228,8 @@ services:
       SLACK_CLIENT_ID: ${SLACK_CLIENT_ID:-}
       SLACK_CLIENT_SECRET: ${SLACK_CLIENT_SECRET:-}
       SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
-      <<: *otel-env
+      # The worker removes idle sandboxes through the same daemon.
+      <<: [*otel-env, *sandbox-docker-env]
       OTEL_SERVICE_NAME: openworkflow
       OPENWORKFLOW_CONCURRENCY: "6"
       CODESEARCH_INDEXER_CONCURRENCY: "1"
@@ -144,6 +242,9 @@ services:
       PAGERDUTY_CLIENT_ID: ${PAGERDUTY_CLIENT_ID:-}
       PAGERDUTY_CLIENT_SECRET: ${PAGERDUTY_CLIENT_SECRET:-}
       PAGERDUTY_REDIRECT_URI: ${PAGERDUTY_REDIRECT_URI:-}
+    volumes:
+      - sandbox_client_certs:/certs/client:ro
+    networks: [default, sandbox]
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -164,6 +265,8 @@ services:
       NODE_ENV: production
       PORT: "3002"
       HOST: "0.0.0.0"
+      AUTH_BASE_URL: ${AUTH_BASE_URL:-http://localhost:3000}
+      AUTH_ALLOWED_ORIGINS: ${AUTH_ALLOWED_ORIGINS:-}
       <<: *otel-env
       OTEL_SERVICE_NAME: ui
       CONFLUENCE_FORGE_INSTALL_URL: ${CONFLUENCE_FORGE_INSTALL_URL:-}
@@ -178,7 +281,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-ctxpipe}:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
+      DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       AUTH_SECRET: ${AUTH_SECRET:-}
       ZOEKT_WEBSERVER_URL: http://127.0.0.1:6070
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
@@ -198,6 +301,23 @@ services:
       postgres:
         condition: service_healthy
 
+networks:
+  # DinD, backend, and worker only: sandbox traffic leaves through `dind`
+  # onto this network, so it reaches nothing else in the stack.
+  sandbox:
+
+configs:
+  sandbox-dind-entrypoint:
+    file: ./scripts/sandbox-dind/entrypoint.sh
+  sandbox-dind-daemon:
+    file: ./scripts/sandbox-dind/daemon.json
+
 volumes:
+  # Sandbox containers and images. Disposable: conversations keep their work
+  # in git, and the chat image is rebuilt by `chat-sandbox-image`.
+  sandbox_docker:
+  # DinD's TLS CA, kept so restarts keep the client certificates valid.
+  sandbox_ca:
+  sandbox_client_certs:
   zoekt_index_deploy:
   repo_cache:

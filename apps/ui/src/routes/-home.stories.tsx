@@ -1,13 +1,25 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http } from "msw"
-import { githubInstallationNoneHandler } from "@/mocks/handlers"
-import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
+import { delay, HttpResponse, http } from "msw"
+import { expect, userEvent, waitFor, within } from "storybook/test"
+import { emptyWorkspaceActivity } from "@/features/workspaces/workspace-fixtures"
+import {
+  conversationAguiSseResponse,
+  conversationAguiTextEvents,
+  conversationPostPath,
+} from "@/mocks/conversation-agui"
+import {
+  workspaceActivityHandler,
+  workspaceActivityLoadingHandler,
+  workspaceListHandler,
+  workspaceShellHandlers,
+} from "@/mocks/workspace-handlers"
+import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { OrgHomePageContent } from "./$orgSlug.index"
 
 const meta = {
   title: "Pages/Home",
-  decorators: entryPageInnerDecorators,
+  decorators: orgPageDecorators,
   parameters: {
     layout: "fullscreen",
   },
@@ -17,135 +29,166 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Start: Story = {
-  render: () => <OrgHomePageContent orgSlug="acme" />,
-  parameters: {
-    storyRoute: {
-      pattern: "orgIndex",
-      orgSlug: "acme",
-    } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [githubInstallationNoneHandler],
-      },
-    },
-  },
-}
+const homeRoute = {
+  pattern: "orgIndex",
+  orgSlug: "acme",
+} satisfies StoryRouteParams
 
-export const IndexingRepositories: Story = {
+export const Loading: Story = {
   render: () => <OrgHomePageContent orgSlug="acme" />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      canvas.getByRole("navigation", { name: "Main navigation" }),
+    ).toBeVisible()
+    expect(canvas.getByText("Loading home")).toBeInTheDocument()
+  },
   parameters: {
-    storyRoute: {
-      pattern: "orgIndex",
-      orgSlug: "acme",
-    } satisfies StoryRouteParams,
+    storyRoute: homeRoute,
     msw: {
       handlers: {
         page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname ===
-              "/acme/api/v1/github/installation",
-            () =>
-              HttpResponse.json({
-                id: "github_connection_1",
-                appSlug: "ctxpipe",
-              }),
-          ),
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname === "/acme/api/v1/repositories",
-            () =>
-              HttpResponse.json({
-                items: [
-                  {
-                    id: "repo_1",
-                    name: "acme/web",
-                    gitUrl: "https://github.com/acme/web.git",
-                    indexReady: false,
-                    indexingStatus: "running",
-                    indexingStep: null,
-                    indexingStepTotal: null,
-                    indexingStepKey: null,
-                  },
-                  {
-                    id: "repo_2",
-                    name: "acme/api",
-                    gitUrl: "https://github.com/acme/api.git",
-                    indexReady: false,
-                    indexingStatus: "queued",
-                    indexingStep: null,
-                    indexingStepTotal: null,
-                    indexingStepKey: null,
-                  },
-                  {
-                    id: "repo_3",
-                    name: "acme/docs",
-                    gitUrl: "https://github.com/acme/docs.git",
-                    indexReady: true,
-                    indexingStatus: "ready",
-                    indexingStep: null,
-                    indexingStepTotal: null,
-                    indexingStepKey: null,
-                  },
-                ],
-              }),
-          ),
+          http.get("*/.auth/api/v1/auth/get-session", async () => {
+            await delay("infinite")
+            return HttpResponse.json(null)
+          }),
         ],
       },
     },
   },
 }
 
-export const IndexingSingleRepoWithStepLabel: Story = {
+export const Empty: Story = {
+  render: () => <OrgHomePageContent orgSlug="acme" />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      canvas.getByRole("navigation", { name: "Main navigation" }),
+    ).toBeVisible()
+    expect(
+      canvas.getByRole("button", { name: "Create a workspace" }),
+    ).toBeVisible()
+    expect(canvas.queryByText("Activity")).not.toBeInTheDocument()
+  },
+  parameters: {
+    storyRoute: homeRoute,
+    msw: {
+      handlers: {
+        page: [workspaceListHandler([])],
+      },
+    },
+  },
+}
+
+export const Populated: Story = {
+  render: () => <OrgHomePageContent orgSlug="acme" />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      canvas.getByRole("navigation", { name: "Main navigation" }),
+    ).toBeVisible()
+    expect(canvas.getByLabelText("Select workspace")).toBeVisible()
+    const activityHeading = await canvas.findByText("Activity")
+    expect(activityHeading).toBeVisible()
+    expect(activityHeading).toHaveClass("tracking-normal")
+    expect(activityHeading).not.toHaveClass("ctx-label")
+    expect(canvas.getByText("Recent")).toHaveClass("tracking-normal")
+    expect(canvas.getByText("Document billing ledger rules")).toBeVisible()
+  },
+  parameters: {
+    storyRoute: homeRoute,
+    msw: {
+      handlers: {
+        page: workspaceShellHandlers(),
+      },
+    },
+  },
+}
+
+export const ActivityLoading: Story = {
+  render: () => <OrgHomePageContent orgSlug="acme" />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      canvas.getByRole("navigation", { name: "Main navigation" }),
+    ).toBeVisible()
+    expect(canvas.getByLabelText("Select workspace")).toBeVisible()
+    expect(await canvas.findByText("Loading activity")).toBeInTheDocument()
+    expect(canvas.queryByText("Loading…")).not.toBeInTheDocument()
+  },
+  parameters: {
+    storyRoute: homeRoute,
+    msw: {
+      handlers: {
+        page: [workspaceActivityLoadingHandler(), ...workspaceShellHandlers()],
+      },
+    },
+  },
+}
+
+const firstMessagePosts = { count: 0 }
+
+export const FirstMessageSendsOnce: Story = {
   render: () => <OrgHomePageContent orgSlug="acme" />,
   parameters: {
-    storyRoute: {
-      pattern: "orgIndex",
-      orgSlug: "acme",
-    } satisfies StoryRouteParams,
+    storyRoute: homeRoute,
     msw: {
       handlers: {
         page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname ===
-              "/acme/api/v1/github/installation",
-            () =>
-              HttpResponse.json({
-                id: "github_connection_1",
-                appSlug: "ctxpipe",
+          http.post(conversationPostPath, () => {
+            firstMessagePosts.count += 1
+            return conversationAguiSseResponse(
+              conversationAguiTextEvents({
+                threadId: "conv_home",
+                messageId: "msg_home",
+                text: "Native reply completed.",
               }),
-          ),
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname === "/acme/api/v1/repositories",
-            () =>
-              HttpResponse.json({
-                items: [
-                  {
-                    id: "repo_1",
-                    name: "acme/web",
-                    gitUrl: "https://github.com/acme/web.git",
-                    indexReady: false,
-                    indexingStatus: "running",
-                    indexingStep: 7,
-                    indexingStepTotal: 22,
-                    indexingStepKey: "embedding",
-                  },
-                  {
-                    id: "repo_2",
-                    name: "acme/docs",
-                    gitUrl: "https://github.com/acme/docs.git",
-                    indexReady: true,
-                    indexingStatus: "ready",
-                    indexingStep: null,
-                    indexingStepTotal: null,
-                    indexingStepKey: null,
-                  },
-                ],
-              }),
-          ),
+            )
+          }),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    firstMessagePosts.count = 0
+    const canvas = within(canvasElement)
+    expect(
+      canvas.getByRole("navigation", { name: "Main navigation" }),
+    ).toBeVisible()
+    expect(await canvas.findByLabelText("Select workspace")).toBeVisible()
+    await userEvent.type(
+      await canvas.findByPlaceholderText(/ask about this workspace/i),
+      "What changed this week?",
+    )
+    await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+    await waitFor(() => expect(firstMessagePosts.count).toBe(1))
+    await waitFor(() =>
+      expect(
+        canvas.queryByPlaceholderText(/ask about this workspace/i),
+      ).toBeNull(),
+    )
+  },
+}
+
+export const NoHistory: Story = {
+  render: () => <OrgHomePageContent orgSlug="acme" />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      canvas.getByRole("navigation", { name: "Main navigation" }),
+    ).toBeVisible()
+    expect(
+      await canvas.findByText("No commits on the default branch yet."),
+    ).toBeVisible()
+  },
+  parameters: {
+    storyRoute: homeRoute,
+    msw: {
+      handlers: {
+        page: [
+          workspaceActivityHandler(emptyWorkspaceActivity),
+          ...workspaceShellHandlers(),
         ],
       },
     },

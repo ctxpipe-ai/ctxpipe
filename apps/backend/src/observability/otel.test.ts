@@ -305,7 +305,7 @@ describe("exported exceptions", () => {
     expect(dumped).not.toContain("user@example.com")
     expect(dumped).not.toContain("token=SECRET")
     expect(finished?.status.message).toContain("Failed query:")
-    expect(finished?.events[0]?.attributes["exception.message"]).toBe(
+    expect(finished?.events[0]?.attributes?.["exception.message"]).toBe(
       finished?.status.message,
     )
   })
@@ -319,7 +319,7 @@ describe("exported exceptions", () => {
       .getFinishedSpans()
       .find((candidate) => candidate.name === "sync")
     expect(finished?.status.message).toBe("sync failed")
-    expect(finished?.events[0]?.attributes["exception.message"]).toBe(
+    expect(finished?.events[0]?.attributes?.["exception.message"]).toBe(
       "sync failed",
     )
   })

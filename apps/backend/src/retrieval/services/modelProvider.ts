@@ -1,7 +1,10 @@
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { z } from "zod"
-
-import { withLangfuseGeneration } from "../../observability/langfuse.js"
+import { assertNotInOrgDbContext } from "../../db/client.js"
+import {
+  type LangfuseUsageDetails,
+  withLangfuseGeneration,
+} from "../../observability/langfuse.js"
 import {
   type ModelParams,
   mergeModelParams,
@@ -73,6 +76,8 @@ const modelEnvSchema = z
   })
 
 export type GetModelOptions = {
+  /** Fixed-purpose model selection; bypasses the configurable tier fallback chain. */
+  model?: string
   temperature?: number
   /** When false, merges reasoning.effort=none over the tier model spec. */
   reasoning?: boolean
@@ -97,7 +102,7 @@ function uniqueModelChain(ids: string[]): string[] {
   return out
 }
 
-function resolveChatBaseUrl(
+export function resolveChatBaseUrl(
   provider: ModelProviderKind,
   url: string | undefined,
 ): string {
@@ -139,9 +144,10 @@ export function getModel(
   const fast = env.MODEL_FAST_NAME
   const medium = env.MODEL_MEDIUM_NAME
   const high = env.MODEL_HIGH_NAME
-  const primarySpec = tierModelSpec(tier, env)
-  const rawModels =
-    tier === "fast"
+  const primarySpec = options?.model ?? tierModelSpec(tier, env)
+  const rawModels = options?.model
+    ? [options.model]
+    : tier === "fast"
       ? [fast, medium, high]
       : tier === "medium"
         ? [medium, fast, high]
@@ -221,6 +227,55 @@ function assertEmbeddingDims(embedding: number[], index?: number): number[] {
   return embedding
 }
 
+function nonNegativeInt(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? value
+    : undefined
+}
+
+/** OpenAI-compatible `/embeddings` usage. Omit keys the provider did not send. */
+function usageFromOpenAiCompatible(
+  usage: unknown,
+): LangfuseUsageDetails | undefined {
+  if (usage == null || typeof usage !== "object") return undefined
+  const record = usage as Record<string, unknown>
+  const input = nonNegativeInt(record.prompt_tokens)
+  const total = nonNegativeInt(record.total_tokens)
+  if (input === undefined && total === undefined) {
+    return undefined
+  }
+  return {
+    ...(input !== undefined ? { input } : {}),
+    ...(total !== undefined ? { total } : {}),
+  }
+}
+
+function addOptionalCount(
+  left: number | undefined,
+  right: number | undefined,
+): number | undefined {
+  if (left === undefined) return right
+  if (right === undefined) return left
+  return left + right
+}
+
+function addUsage(
+  left: LangfuseUsageDetails | undefined,
+  right: LangfuseUsageDetails | undefined,
+): LangfuseUsageDetails | undefined {
+  if (!left) return right
+  if (!right) return left
+  const input = addOptionalCount(left.input, right.input)
+  const total = addOptionalCount(left.total, right.total)
+  if (input === undefined && total === undefined) {
+    return undefined
+  }
+  return {
+    ...(input !== undefined ? { input } : {}),
+    ...(total !== undefined ? { total } : {}),
+  }
+}
+
 /**
  * Generates 2000-dimensional embeddings for many texts.
  * OpenAI-compatible providers receive `input: string[]` in chunks; providers that
@@ -228,6 +283,7 @@ function assertEmbeddingDims(embedding: number[], index?: number): number[] {
  */
 export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return []
+  assertNotInOrgDbContext()
 
   const env = modelEnvSchema.parse(process.env)
   const embedUrl = `${resolveChatBaseUrl(env.MODEL_PROVIDER, env.MODEL_PROVIDER_URL).replace(/\/$/, "")}/embeddings`
@@ -250,6 +306,7 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   if (env.MODEL_PROVIDER === "azure") providerFn = azureModelProvider
   if (env.MODEL_PROVIDER === "openrouter") providerFn = openrouterModelProvider
 
+  let usage: LangfuseUsageDetails | undefined
   return withLangfuseGeneration(
     {
       name: "modelProvider.generateEmbeddings",
@@ -267,6 +324,7 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
         embeddingCount: embeddings.length,
         dimensions: EMBEDDING_DIMENSIONS,
       }),
+      usageFromResult: () => usage,
     },
     async () => {
       const providerResult = providerFn(callOpts)
@@ -302,7 +360,9 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
 
         const data = (await res.json()) as {
           data?: { embedding?: number[]; index?: number }[]
+          usage?: unknown
         }
+        usage = addUsage(usage, usageFromOpenAiCompatible(data.usage))
         const rows = data.data ?? []
         if (rows.length !== chunk.length) {
           throw new Error(

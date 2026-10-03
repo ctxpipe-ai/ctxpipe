@@ -14,7 +14,7 @@ import { composeTailwindRenderProps, focusRing } from "@/lib/react-aria-utils"
 
 const itemStyles = tv({
   extend: focusRing,
-  base: "relative font-sans flex group gap-3 cursor-default select-none py-1 px-3 text-sm text-neutral-900 dark:text-neutral-200 bg-white dark:bg-neutral-900 border-t dark:border-t-neutral-700 border-transparent first:border-t-0 -outline-offset-2 first:rounded-t-lg last:rounded-b-lg",
+  base: "relative font-sans flex group gap-3 cursor-default select-none py-1 px-3 text-sm text-neutral-900 dark:text-neutral-200 bg-white dark:bg-neutral-900 border-t dark:border-t-neutral-700 border-transparent first:border-t-0 -outline-offset-2 first:rounded-t-md last:rounded-b-md",
   variants: {
     isSelected: {
       false:
@@ -33,7 +33,7 @@ export function Tree<T extends object>({ children, ...props }: TreeProps<T>) {
       {...props}
       className={composeTailwindRenderProps(
         props.className,
-        "w-48 max-w-full overflow-auto relative border border-neutral-200 dark:border-neutral-700 rounded-lg",
+        "w-48 max-w-full overflow-auto relative border border-neutral-200 dark:border-neutral-700 rounded-md",
       )}
     >
       {children}
@@ -43,7 +43,7 @@ export function Tree<T extends object>({ children, ...props }: TreeProps<T>) {
 
 const expandButton = tv({
   extend: focusRing,
-  base: "border-0 p-0 bg-transparent shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-start cursor-default [-webkit-tap-highlight-color:transparent]",
+  base: "border-0 p-0 bg-transparent shrink-0 w-8 h-8 rounded-md flex items-center justify-center text-start cursor-default [-webkit-tap-highlight-color:transparent]",
   variants: {
     isDisabled: {
       true: "text-neutral-300 dark:text-neutral-600 forced-colors:text-[GrayText]",

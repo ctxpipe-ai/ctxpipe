@@ -1,4 +1,5 @@
-import { isCtxpipeContextRepositoryName } from "@/features/connectors/components/ConnectorContextRepositoryGuidance"
+import { client } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 
 export type SavedGithubRepo = {
   name: string
@@ -11,8 +12,9 @@ export type GithubRepoItem = {
   html_url: string
   clone_url: string
   name: string
-  created_at: string | null
-  pushed_at: string | null
+  githubConnectionId?: string
+  created_at?: string | null
+  pushed_at?: string | null
   default_branch?: string
 }
 
@@ -29,7 +31,7 @@ export type SelectedGithubRepo = {
   clone_url: string
 }
 
-function githubDateValue(value: string | null): number | null {
+function githubDateValue(value: string | null | undefined): number | null {
   if (!value) return null
   const timestamp = Date.parse(value)
   return Number.isNaN(timestamp) ? null : timestamp
@@ -99,48 +101,86 @@ export async function collectInstallationRepoPages(
     hasMore: boolean
     repositorySelection: string
     manageUrl?: string | null
+    totalCount?: number
   }>,
 ): Promise<{
   repositories: GithubRepoItem[]
   repositorySelection: string
   manageUrl: string | null
+  totalCount: number
 }> {
   const repositories: GithubRepoItem[] = []
   let repositorySelection = "selected"
   let manageUrl: string | null = null
+  let totalCount = 0
   for (let page = 1; page <= MAX_INSTALLATION_PAGES; page += 1) {
     const result = await fetchPage(page)
     repositorySelection = result.repositorySelection
     if (!manageUrl && result.manageUrl) manageUrl = result.manageUrl
+    if (page === 1 && typeof result.totalCount === "number") {
+      totalCount = result.totalCount
+    }
     repositories.push(...result.repositories)
     if (!result.hasMore) break
   }
-  return { repositories, repositorySelection, manageUrl }
-}
-
-/** Poll GitHub while the context-repository step is open so a new repo can appear. */
-export function githubContextRepoPollMs(
-  step: "select" | "context",
-): number | false {
-  return step === "context" ? 4000 : false
-}
-
-export function suggestedContextRepository<T extends { name: string }>(
-  repos: readonly T[],
-): T | undefined {
-  return repos.find((repo) => isCtxpipeContextRepositoryName(repo.name))
-}
-
-export function resolvedContextRepository<
-  T extends { id: number; name: string },
->(
-  repos: readonly T[],
-  args: { picked: boolean; selectedId: number | null },
-): T | null {
-  if (args.picked) {
-    return repos.find((repo) => repo.id === args.selectedId) ?? null
+  return {
+    repositories,
+    repositorySelection,
+    manageUrl,
+    totalCount: totalCount > 0 ? totalCount : repositories.length,
   }
-  return suggestedContextRepository(repos) ?? null
+}
+
+export async function fetchGithubInstallationReposPage(
+  orgSlug: string,
+  page: number,
+  connectionId?: string,
+): Promise<{
+  repositories: GithubRepoItem[]
+  hasMore: boolean
+  repositorySelection: string
+  manageUrl: string | null
+  totalCount?: number
+}> {
+  const res = await (
+    client[":orgSlug"].api.v1.github.installation.repositories.$get as (arg: {
+      param: { orgSlug: string }
+      query: { page: string; per_page: string; connectionId?: string }
+    }) => Promise<Response>
+  )({
+    param: { orgSlug },
+    query: {
+      page: String(page),
+      per_page: "100",
+      ...(connectionId ? { connectionId } : {}),
+    },
+  })
+  const body = await readApiJson<{
+    repositories: Array<
+      Partial<GithubRepoItem> & { name: string; clone_url: string }
+    >
+    hasMore?: boolean
+    repositorySelection?: string
+    manageUrl?: string | null
+    totalCount?: number
+  }>(res, { message: "Failed to fetch repositories" })
+  return {
+    repositories: body.repositories.map((repo, index) => ({
+      id: repo.id ?? index + 1 + (page - 1) * 100,
+      name: repo.name,
+      full_name: repo.full_name ?? repo.name,
+      html_url: repo.html_url ?? repo.clone_url.replace(/\.git$/i, ""),
+      clone_url: repo.clone_url,
+      created_at: repo.created_at ?? null,
+      pushed_at: repo.pushed_at ?? null,
+      ...(repo.default_branch ? { default_branch: repo.default_branch } : {}),
+      ...(connectionId ? { githubConnectionId: connectionId } : {}),
+    })),
+    hasMore: body.hasMore === true,
+    repositorySelection: body.repositorySelection ?? "selected",
+    manageUrl: body.manageUrl ?? null,
+    totalCount: body.totalCount,
+  }
 }
 
 export function selectedCloneUrlKeys(

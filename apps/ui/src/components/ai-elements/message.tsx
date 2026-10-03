@@ -4,7 +4,8 @@ import { cjk } from "@streamdown/cjk"
 import { code } from "@streamdown/code"
 import { math } from "@streamdown/math"
 import { mermaid } from "@streamdown/mermaid"
-import type { UIMessage } from "ai"
+export type ChatMessageRole = "system" | "user" | "assistant"
+
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 import type { ComponentProps, HTMLAttributes, ReactElement } from "react"
 import {
@@ -28,7 +29,7 @@ import {
 import { cn } from "@/lib/utils"
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
-  from: UIMessage["role"]
+  from: ChatMessageRole
 }
 
 export const Message = ({ className, from, ...props }: MessageProps) => (
@@ -51,15 +52,15 @@ export const MessageContent = ({
 }: MessageContentProps) => (
   <div
     className={cn(
-      "flex w-full min-w-0 max-w-full flex-col gap-2 text-[15px] leading-relaxed",
+      "flex w-full min-w-0 max-w-full flex-col gap-2 text-sm leading-relaxed",
       /* User bubble: clip to rounded box. Assistant: no overflow-y clip so Streamdown code
          block sticky copy/download controls (negative top offset) stay visible and clickable. */
       "group-[.is-user]:overflow-hidden",
       "group-[.is-assistant]:overflow-visible",
-      "group-[.is-user]:rounded-none group-[.is-user]:border-0 group-[.is-user]:bg-white/[0.05] group-[.is-user]:p-4 group-[.is-user]:text-foreground",
+      "group-[.is-user]:rounded-md group-[.is-user]:bg-zinc-900 group-[.is-user]:px-3.5 group-[.is-user]:py-2.5 group-[.is-user]:text-foreground",
       /* Assistant: do not set text colour on this wrapper — it flattens Streamdown/Shiki token
          spans that use color: var(--sdm-c, inherit). Body copy colour comes from Streamdown + CSS. */
-      "group-[.is-assistant]:rounded-none group-[.is-assistant]:bg-transparent group-[.is-assistant]:p-0",
+      "group-[.is-assistant]:rounded-md group-[.is-assistant]:bg-transparent group-[.is-assistant]:p-0",
       className,
     )}
     {...props}
@@ -266,8 +267,8 @@ export const MessageBranchPrevious = ({
   return (
     <Button
       aria-label="Previous branch"
-      disabled={totalBranches <= 1}
-      onClick={goToPrevious}
+      isDisabled={totalBranches <= 1}
+      onPress={goToPrevious}
       size="icon-sm"
       type="button"
       variant="ghost"
@@ -289,8 +290,8 @@ export const MessageBranchNext = ({
   return (
     <Button
       aria-label="Next branch"
-      disabled={totalBranches <= 1}
-      onClick={goToNext}
+      isDisabled={totalBranches <= 1}
+      onPress={goToNext}
       size="icon-sm"
       type="button"
       variant="ghost"
@@ -330,11 +331,11 @@ const streamdownPlugins = { cjk, code, math, mermaid }
 const streamdownShikiTheme = ["github-light", "github-dark-dimmed"] as const
 
 export const MessageResponse = memo(
-  ({ className, ...props }: MessageResponseProps) => (
+  ({ className, isAnimating = false, ...props }: MessageResponseProps) => (
     <Streamdown
       {...props}
       className={cn(
-        "ctx-streamdown size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+        "ctx-streamdown size-full text-sm leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         /* Body copy only — fenced code blocks are not inside these, so Shiki keeps token colours */
         "[&_blockquote]:text-muted-foreground [&_h1]:text-foreground [&_h2]:text-foreground [&_h3]:text-foreground [&_h4]:text-foreground [&_li]:text-foreground/90 [&_ol]:text-foreground/90 [&_p]:text-foreground/90 [&_strong]:text-foreground [&_ul]:text-foreground/90",
         "*:data-[streamdown='table-wrapper']:bg-transparent",
@@ -347,7 +348,7 @@ export const MessageResponse = memo(
         className,
       )}
       controls={{ code: true, mermaid: true, table: true }}
-      isAnimating={false}
+      isAnimating={isAnimating}
       plugins={streamdownPlugins}
       shikiTheme={streamdownShikiTheme}
     />

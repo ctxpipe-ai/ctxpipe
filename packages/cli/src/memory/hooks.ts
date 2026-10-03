@@ -1,5 +1,6 @@
 import { join, resolve } from "node:path"
 import type { Client, Scope } from "../constants.js"
+import { isObject } from "../mcp/json.js"
 import type {
   Operation,
   OperationContext,
@@ -10,7 +11,6 @@ import {
   buildMemorySkillOperations,
   createOperationContext,
 } from "../mcp/mcp-operations.js"
-import { isObject } from "../mcp/json.js"
 import { relativePath, scopesFor } from "../mcp/paths.js"
 import { AI_MEMORY_RULE_BODY } from "./seed.js"
 
@@ -196,7 +196,9 @@ function dedupeHookEntries(existing: unknown[], ours: unknown[]): unknown[] {
   return [...filtered, ...ours]
 }
 
-function mergeCursorHooks(existing: Record<string, unknown>): Record<string, unknown> {
+function mergeCursorHooks(
+  existing: Record<string, unknown>,
+): Record<string, unknown> {
   const hooks = isObject(existing.hooks) ? { ...existing.hooks } : {}
   for (const [key, ours] of Object.entries(CURSOR_HOOKS)) {
     const prev = Array.isArray(hooks[key]) ? (hooks[key] as unknown[]) : []
@@ -218,7 +220,9 @@ function mergeCursorHooks(existing: Record<string, unknown>): Record<string, unk
   }
 }
 
-function mergeClaudeHooks(existing: Record<string, unknown>): Record<string, unknown> {
+function mergeClaudeHooks(
+  existing: Record<string, unknown>,
+): Record<string, unknown> {
   const existingHooks = isObject(existing.hooks) ? existing.hooks : {}
   const next: Record<string, unknown> = { ...existingHooks }
   for (const [key, ours] of Object.entries(CLAUDE_HOOK_BLOCK)) {
@@ -254,7 +258,7 @@ function upsertMarkedText(
   if (startIdx >= 0 && endIdx > startIdx) {
     const before = prev.slice(0, startIdx).trimEnd()
     const after = prev.slice(endIdx + end.length).trimStart()
-    return [before, block.trim(), after].filter(Boolean).join("\n\n") + "\n"
+    return `${[before, block.trim(), after].filter(Boolean).join("\n\n")}\n`
   }
   if (!prev.trim()) return `${block.trim()}\n`
   return `${prev.trimEnd()}\n\n${block.trim()}\n`
@@ -273,7 +277,9 @@ function upsertInstructionMarkdown(
 }
 
 /** Modular Copilot `*.instructions.md` with applyTo so the host auto-attaches. */
-function upsertCopilotInstructionsMd(existing: string | null | undefined): string {
+function upsertCopilotInstructionsMd(
+  existing: string | null | undefined,
+): string {
   const body = upsertInstructionMarkdown(existing, "vscode")
   // Idempotent: generated header is `---\napplyTo: ...` (no blank line after ---).
   if (/^---\r?\napplyTo:/m.test(body) || /^applyTo:/m.test(body)) return body
@@ -569,12 +575,7 @@ export function buildMemoryHookOperations({
         const instructionRel = "memory-capture.md"
         ops.push(
           buildInstructionFileOperation({
-            path: join(
-              context.homeDir,
-              ".config",
-              "opencode",
-              instructionRel,
-            ),
+            path: join(context.homeDir, ".config", "opencode", instructionRel),
             context,
             label: "OpenCode user",
             host: "opencode",

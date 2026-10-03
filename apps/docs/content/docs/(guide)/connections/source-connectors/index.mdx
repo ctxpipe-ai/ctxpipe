@@ -27,15 +27,15 @@ specific discussion into durable Git history only when it is worth keeping.
 
 Linear, Notion, Confluence, and PagerDuty propose source scope in a configuration pull
 request. After merge, generated Markdown is written under the connector's
-managed directory and the repository is ingested like any other Git source.
+managed directory in the Workspace's repository and indexed like any other
+knowledge file.
 
 Slack captures commit directly to the selected branch because the user action in
 the thread is the approval signal. Git history records the capture, but there is
 no configuration pull request for Slack.
 
-Use a dedicated [context repository](/docs/connections/context-repository) for a
-clear audit trail. Split repositories when different source content requires a
-different audience.
+Anyone who can read the Workspace's repository can read its mirrored content.
+Use separate Workspaces when different sources need different audiences.
 
 ## Pick a connector
 

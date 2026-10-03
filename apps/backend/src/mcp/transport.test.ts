@@ -9,6 +9,9 @@ import type { AppEnv } from "../app/env.js"
 import { backendOtelMiddleware } from "../observability/http.js"
 import { handleMcpTransportRequest } from "./transport.js"
 
+const memberThreadId = "org_acme_user_1_my-backend_conv-xyz"
+const orgServiceThreadId = "org_acme_org_my-backend_conv-org"
+
 const spans = recordSpans()
 
 beforeAll(() => {
@@ -96,13 +99,13 @@ describe("MCP request attribution", () => {
     const serverSpan = spans.spanNamed("POST /mcp")
     expect(serverSpan?.attributes).toMatchObject({
       "ctxpipe.mcp.tool": "ctx_advisor",
-      "ctxpipe.conversation.id": "org_acme_user_1_my-backend_conv-xyz",
+      "ctxpipe.conversation.id": memberThreadId,
       "request.id": "req_mcp_tool",
     })
     expect(events).toHaveLength(1)
     expect(events[0]).toMatchObject({
       "ctxpipe.mcp.tool": "ctx_advisor",
-      "ctxpipe.conversation.id": "org_acme_user_1_my-backend_conv-xyz",
+      "ctxpipe.conversation.id": memberThreadId,
       requestId: "req_mcp_tool",
     })
     const serialized = JSON.stringify({
@@ -137,5 +140,137 @@ describe("MCP request attribution", () => {
     )
     expect(JSON.stringify(longSpan?.attributes)).not.toContain(longName)
     await longResponse.body?.cancel()
+  })
+
+  it("attributes org-service ctx_advisor threads without a user id", async () => {
+    const app = new Hono<AppEnv>()
+    app.use(contextStorage())
+    app.use(
+      evlog({
+        drain: async () => undefined,
+      }),
+    )
+    app.use("*", backendOtelMiddleware())
+    app.use("*", async (c, next) => {
+      c.set("env", {
+        AUTH_BASE_URL: "https://localhost:3000",
+      } as AppEnv["Variables"]["env"])
+      c.set("user", null)
+      c.set("session", null)
+      c.set("oauthOrganizationId", null)
+      c.set("oauthClientId", null)
+      c.set("orgApiKey", {
+        id: "key_org",
+        orgId: "org_acme",
+        configId: "organization",
+      })
+      c.set("orgSlug", "acme")
+      c.set("orgId", "org_acme")
+      await next()
+    })
+    app.post("/mcp", (c) =>
+      handleMcpTransportRequest(c, (server) => {
+        server.registerTool(
+          "ctx_advisor",
+          {
+            inputSchema: z.object({
+              prompt: z.string(),
+              conversationId: z.string().optional(),
+              currentProjectName: z.string().optional(),
+            }),
+          },
+          async () => ({ content: [{ type: "text" as const, text: "ok" }] }),
+        )
+      }),
+    )
+
+    const response = await app.request("http://backend.test/mcp", {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "ctx_advisor",
+          arguments: {
+            prompt: "hello",
+            conversationId: "conv-org",
+            currentProjectName: "my-backend",
+          },
+        },
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(spans.spanNamed("POST /mcp")?.attributes).toMatchObject({
+      "ctxpipe.mcp.tool": "ctx_advisor",
+      "ctxpipe.conversation.id": orgServiceThreadId,
+    })
+    await response.body?.cancel()
+  })
+
+  it("omits conversation attribution when conversationId is blank", async () => {
+    const app = new Hono<AppEnv>()
+    app.use(contextStorage())
+    app.use(
+      evlog({
+        drain: async () => undefined,
+      }),
+    )
+    app.use("*", backendOtelMiddleware())
+    app.use("*", async (c, next) => {
+      c.set("env", {
+        AUTH_BASE_URL: "https://localhost:3000",
+      } as AppEnv["Variables"]["env"])
+      c.set("user", { id: "user_1" } as AppEnv["Variables"]["user"])
+      c.set("session", null)
+      c.set("oauthOrganizationId", null)
+      c.set("oauthClientId", null)
+      c.set("orgApiKey", null)
+      c.set("orgSlug", "acme")
+      c.set("orgId", "org_acme")
+      await next()
+    })
+    app.post("/mcp", (c) =>
+      handleMcpTransportRequest(c, (server) => {
+        server.registerTool(
+          "ctx_advisor",
+          {
+            inputSchema: z.object({
+              prompt: z.string(),
+              conversationId: z.string().optional(),
+            }),
+          },
+          async () => ({ content: [{ type: "text" as const, text: "ok" }] }),
+        )
+      }),
+    )
+
+    const response = await app.request("http://backend.test/mcp", {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "ctx_advisor",
+          arguments: { prompt: "hello", conversationId: "   " },
+        },
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(
+      spans.spanNamed("POST /mcp")?.attributes["ctxpipe.conversation.id"],
+    ).toBeUndefined()
+    await response.body?.cancel()
   })
 })

@@ -26,8 +26,6 @@ export const graphFindSymbolTool = tool(
       {
         id: repository.id,
         orgId: repository.orgId,
-        zoektRepoId: repository.zoektRepoId,
-        name: repository.name,
       },
       {
         primitive: "find_symbol",
@@ -42,10 +40,10 @@ export const graphFindSymbolTool = tool(
   {
     name: "graph_find_symbol",
     description: `Resolve symbols to definitions from the repository's SCIP index, not full-text search. SCIP uses compiler/indexer-produced symbol occurrences and reference semantics. Structural only — not for org memory or semantic recall.
-Requires checkoutKey (default branch uses checkoutKey "default"). Provide symbol and/or file/module anchors.`,
+Uses the captured source revision or the latest complete published index. Provide symbol and/or file/module anchors.`,
     schema: z.object({
       repositoryId: repositoryIdSchema,
-      checkoutKey: z.string().min(1).optional().default("default"),
+      checkoutKey: z.string().min(1).optional(),
       symbol: z.string().min(1).optional(),
       filePath: z.string().min(1).optional(),
       module: z.string().min(1).optional(),
@@ -67,8 +65,6 @@ export const graphCallersTool = tool(
       {
         id: repository.id,
         orgId: repository.orgId,
-        zoektRepoId: repository.zoektRepoId,
-        name: repository.name,
       },
       {
         primitive: "get_callers",
@@ -86,7 +82,7 @@ export const graphCallersTool = tool(
     description: `List callers of a function/method from SCIP references enclosed by callable definitions. Prefer when the question asks for callers and you have a symbol or file anchor and repositoryId — do not run Zoekt first. If anchors are missing, use search/sym to find them, then call this once. Requires symbol/file/module anchor.`,
     schema: anchorSchema.extend({
       repositoryId: repositoryIdSchema,
-      checkoutKey: z.string().min(1).optional().default("default"),
+      checkoutKey: z.string().min(1).optional(),
       limit: z.number().int().positive().max(200).optional(),
     }),
   },
@@ -106,8 +102,6 @@ export const graphCalleesTool = tool(
       {
         id: repository.id,
         orgId: repository.orgId,
-        zoektRepoId: repository.zoektRepoId,
-        name: repository.name,
       },
       {
         primitive: "get_callees",
@@ -125,7 +119,7 @@ export const graphCalleesTool = tool(
     description: `List callees from SCIP references enclosed by the anchored callable definition. Prefer when the question asks for callees and you have a symbol or file anchor and repositoryId. If anchors are missing, use search/sym first, then call this once.`,
     schema: anchorSchema.extend({
       repositoryId: repositoryIdSchema,
-      checkoutKey: z.string().min(1).optional().default("default"),
+      checkoutKey: z.string().min(1).optional(),
       limit: z.number().int().positive().max(200).optional(),
     }),
   },

@@ -78,9 +78,6 @@ function state(
     roots: ["./"],
     extractedObjects: [service("./"), service("apps/backend")],
     extractedClaims: [],
-    objectIds: [],
-    touchedObjectIds: [],
-    claimsForProjection: [],
     ...overrides,
   }
 }

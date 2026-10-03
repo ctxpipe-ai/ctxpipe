@@ -187,6 +187,7 @@ exports.isComplete = async (event) => {
 
     migrateResource.node.addDependency(props.dataPlane.dbCluster);
     migrateResource.node.addDependency(props.secrets.databaseUrlWriter);
+    props.secrets.runtimeDatabaseUrlWriter.node.addDependency(migrateResource);
 
     this.resources = {
       migrateResource,

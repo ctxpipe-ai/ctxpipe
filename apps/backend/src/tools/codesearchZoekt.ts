@@ -1,5 +1,6 @@
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"
+import { capturedSourceRevision } from "../domain/codeIngestion/source-revision-context.js"
 import { codesearchBaseUrl } from "../lib/agentToolRuntime.js"
 import { readCodesearchError } from "../lib/codesearchError.js"
 import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
@@ -39,6 +40,7 @@ export async function zoektSearchRepository(
   Q: string,
   opts: Record<string, unknown>,
 ): Promise<ZoektSearchResult> {
+  const source = capturedSourceRevision(repository.orgId, repository.id)
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const token = await signUpstreamJwt({
     env,
@@ -47,6 +49,13 @@ export async function zoektSearchRepository(
       sub: `repo:${repository.id}`,
       orgId: repository.orgId,
       principal: "service",
+      ...(source
+        ? {
+            repositoryRevisions: [
+              { repositoryId: source.repositoryId, sha: source.sha },
+            ],
+          }
+        : {}),
     },
   })
 
@@ -60,7 +69,7 @@ export async function zoektSearchRepository(
         },
         body: JSON.stringify({
           Q,
-          RepoIDs: [repository.zoektRepoId],
+          ...(source ? {} : { RepoIDs: [repository.zoektRepoId] }),
           Opts: opts,
         }),
         signal: AbortSignal.timeout(ZOEKT_FETCH_TIMEOUT_MS),

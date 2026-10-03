@@ -34,6 +34,7 @@ const input = {
   orgId: "org_1",
   repoId: "repo_1",
   repoGitUrl: "https://github.com/acme/web.git",
+  checkoutKey: "default",
   clonePath: "/tmp/clone",
   scipIndexPath: "/tmp/index.scip",
   zoektRepoId: 1,
