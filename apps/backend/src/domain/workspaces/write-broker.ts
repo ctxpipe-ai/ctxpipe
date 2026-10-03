@@ -109,7 +109,7 @@ export async function pushWorkspaceCommit(
     throw new WorkspaceTipAdvancedError()
   if (input.mirror) {
     await assertConnectorMirrorBinding(input.orgId, input.mirror, revision)
-    await assertConnectorMirrorScope(input.orgId, input.mirror, {
+    await assertConnectorMirrorScope(input.mirror, {
       ...committed,
       sha: revision.sha,
     })
@@ -301,7 +301,6 @@ export async function refreshWorkspaceWriteRevision(
       resolved.revision,
     )
     await assertConnectorMirrorScope(
-      input.orgId,
       input.mirror,
       await readGitPackFromRemote({
         url: resolved.revision.remote.url,

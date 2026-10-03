@@ -58,6 +58,10 @@ it(
         "workspace-write-extract-ingest",
         "workspace-write-connector-mirror",
         "workspace-write-semantic-merge",
+        "github-sync-pull-request",
+        // Retired names stay registered so queued runs complete.
+        "github-ensure-pr-mirror",
+        "github-sync-content",
       ]),
     )
   },

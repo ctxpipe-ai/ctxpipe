@@ -36,7 +36,6 @@ import {
 } from "../../services/git/write-tree.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { enqueueGithubPrBackfill } from "./github-backfill-pull-requests.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
@@ -84,20 +83,6 @@ export const workspaceLinkUnlink = defineWorkflow(
           run.id,
         )
         if (completed) return completed
-        // A linked GitHub repository's merged pull requests start mirroring
-        // with a backfill; webhooks keep it current. Unlink needs nothing:
-        // mirrors stop once the declaration is gone and files stay in git.
-        const backfillPullRequests = async () => {
-          if (input.linkAction === "link")
-            await step.run({ name: "enqueue-github-pr-backfill" }, () =>
-              enqueueGithubPrBackfill({
-                orgId: input.orgId,
-                workspaceId: input.workspaceId,
-                gitUrl: input.linkGitUrl,
-                jobId: input.jobId,
-              }),
-            )
-        }
         await step.run({ name: "claim-command" }, () =>
           persistBoundWriteJob({
             id: input.jobId,
@@ -152,7 +137,6 @@ export const workspaceLinkUnlink = defineWorkflow(
             await step.run({ name: "complete-no-op" }, () =>
               persistWriteJobStatus(input.jobId, "completed"),
             )
-            await backfillPullRequests()
             return {
               committed: false as const,
               reason: "no_changes" as const,
@@ -216,7 +200,6 @@ export const workspaceLinkUnlink = defineWorkflow(
                 result.committed ? result.commitSha : null,
               ),
             )
-            await backfillPullRequests()
             return result
           }
           const published = await step.run({ name: "publish-result" }, () =>
@@ -236,7 +219,6 @@ export const workspaceLinkUnlink = defineWorkflow(
           await step.run({ name: "complete" }, () =>
             persistWriteJobCommitSha(input.jobId, committed.sha),
           )
-          await backfillPullRequests()
           return { committed: true as const, commitSha: committed.sha }
         }
         throw new Error("Default branch kept changing during no-op validation")

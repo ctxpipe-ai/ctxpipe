@@ -2,7 +2,6 @@ import { getConfluenceSyncTargetWithRepoByConnectionId } from "../../models/conf
 import { getLinearBindingWithRepoByConnectionId } from "../../models/linear-connector.js"
 import { getNotionBindingWithRepoByConnectionId } from "../../models/notion-connector.js"
 import { getPagerdutyBindingWithRepoByConnectionId } from "../../models/pagerduty-connector.js"
-import { getRepositoryForOrg } from "../../models/repositories.js"
 import { getSlackBindingWithRepoByConnectionId } from "../../models/slack-connector.js"
 import {
   type GitPack,
@@ -10,34 +9,34 @@ import {
   readGitFiles,
   withGitDirectory,
 } from "../../services/git/pack.js"
-import type { ConnectorMirrorSource } from "./connector-mirror-input.js"
+import type {
+  ConfiguredConnectorMirrorSource,
+  ConnectorMirrorSource,
+} from "./connector-mirror-input.js"
 import { isLinkedRepositoryDeclaration } from "./layout.js"
 import { declaresLinkedRepository } from "./link-declarations.js"
 import type { WorkspaceRevision } from "./revision.js"
 
-export type { ConnectorMirrorSource } from "./connector-mirror-input.js"
+export type {
+  ConfiguredConnectorMirrorSource,
+  ConnectorMirrorSource,
+} from "./connector-mirror-input.js"
 
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
-/**
- * Read existing connector control-plane bindings; never resolve provider credentials here.
- * GitHub has no binding: its source is the linked repository's org row, and
- * {@link assertConnectorMirrorScope} checks the Workspace still links it.
- */
+/** Read existing connector control-plane bindings; never resolve provider credentials here. */
 export async function assertConnectorMirrorBinding(
   orgId: string,
-  source: Pick<
-    ConnectorMirrorSource,
-    "provider" | "connectionId" | "repositoryId"
-  >,
+  source:
+    | { provider: "github" }
+    | Pick<
+        ConfiguredConnectorMirrorSource,
+        "provider" | "connectionId" | "repositoryId"
+      >,
   revision: WorkspaceRevision,
 ): Promise<void> {
-  if (source.provider === "github") {
-    const repository = await getRepositoryForOrg(orgId, source.repositoryId)
-    if (repository?.githubConnectionId !== source.connectionId)
-      throw new Error("Connector mirror binding changed")
-    return
-  }
+  // GitHub has no binding; assertConnectorMirrorScope checks the link.
+  if (source.provider === "github") return
   const bindingReaders = {
     linear: getLinearBindingWithRepoByConnectionId,
     notion: getNotionBindingWithRepoByConnectionId,
@@ -65,30 +64,15 @@ export async function assertConnectorMirrorBinding(
     throw new Error("Connector mirror binding changed")
 }
 
-/** Whether the Workspace tree in `pack` declares `gitUrl` as a linked repository. */
-export async function workspaceLinksRepository(
-  pack: GitPack,
-  gitUrl: string,
-): Promise<boolean> {
-  return declaresLinkedRepository(
-    await readGitFiles(pack, isLinkedRepositoryDeclaration),
-    gitUrl,
-  )
-}
-
 /** Validate the activated scope without retaining credentials or provider state. */
 export async function assertConnectorMirrorScope(
-  orgId: string,
   source: ConnectorMirrorSource,
   pack: GitPack,
 ): Promise<void> {
   if (source.provider === "github") {
     // Unlinking is the GitHub scope change: a mirror never lands after it.
-    const repository = await getRepositoryForOrg(orgId, source.repositoryId)
-    if (
-      !repository ||
-      !(await workspaceLinksRepository(pack, repository.gitUrl))
-    )
+    const files = await readGitFiles(pack, isLinkedRepositoryDeclaration)
+    if (!declaresLinkedRepository(files, source.gitUrl))
       throw new Error(
         "GitHub repository is no longer linked to this Workspace; discard this capture",
       )

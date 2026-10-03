@@ -338,7 +338,7 @@ test("imported main mocks and exact skipIf are counted; fresh ones stay proof", 
     const exceptionTarget = join(worktree, exceptionPath)
     mkdirSync(join(exceptionTarget, ".."), { recursive: true })
     const exceptionSource = readFileSync(join(root, exceptionPath), "utf8")
-    const existingSyncMock = `vi.mock("../db/client.js", async (importOriginal) => {
+    const existingDbClientMock = `vi.mock("../db/client.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../db/client.js")>()
   return {
     ...actual,
@@ -353,7 +353,7 @@ test("imported main mocks and exact skipIf are counted; fresh ones stay proof", 
   }
 })`
     assert.ok(
-      exceptionSource.includes(existingSyncMock),
+      exceptionSource.includes(existingDbClientMock),
       "exception fixture must keep the merge-resolved db client mock",
     )
     writeFileSync(exceptionTarget, exceptionSource)
@@ -363,7 +363,7 @@ test("imported main mocks and exact skipIf are counted; fresh ones stay proof", 
     writeFileSync(
       exceptionTarget,
       exceptionSource.replace(
-        existingSyncMock,
+        existingDbClientMock,
         `vi.mock("../db/client.js", () => ({
 }))`,
       ),
@@ -373,7 +373,7 @@ test("imported main mocks and exact skipIf are counted; fresh ones stay proof", 
     assert.match(rewrittenFactory.stderr, /owned collaborators/)
     assert.match(rewrittenFactory.stderr, /linear-oauth-setup\.test\.ts/)
     assert.ok(
-      exceptionSource.includes(existingSyncMock),
+      exceptionSource.includes(existingDbClientMock),
       "current exception call text must remain in the isolated copy",
     )
   } finally {

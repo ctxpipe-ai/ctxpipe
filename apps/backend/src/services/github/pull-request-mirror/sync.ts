@@ -1,12 +1,17 @@
 import type { Env } from "../../../config/env.js"
 import { getInstallationOctokitForOrg } from "../../../models/github-installation.js"
 import {
-  fetchGithubPullRequestSnapshot,
-  listMergedPullRequestNumbers,
+  fetchMergedPullRequestPage,
+  fetchPullRequestsByNumber,
+  type GithubPrClient,
 } from "./client.js"
 import { renderGithubPullRequest } from "./converter.js"
 import { shouldMirrorGithubPullRequest } from "./policy.js"
-import type { GithubPrMirrorFile, GithubPrReview } from "./types.js"
+import type {
+  GithubPrMirrorFile,
+  GithubPrReview,
+  GithubPullRequestSnapshot,
+} from "./types.js"
 
 /**
  * Backfill size per linked repository. ADR-028 caps one Git write at 250
@@ -14,18 +19,8 @@ import type { GithubPrMirrorFile, GithubPrReview } from "./types.js"
  */
 export const GITHUB_PR_BACKFILL_MAX = 200
 
-type Octokit =
-  Awaited<ReturnType<typeof getInstallationOctokitForOrg>> extends infer T
-    ? T extends { octokit: infer O }
-      ? O
-      : never
-    : never
-
-function splitRepository(name: string): { owner: string; repo: string } {
-  const [owner, repo] = name.split("/")
-  if (!owner || !repo) throw new Error(`Invalid repository name "${name}"`)
-  return { owner, repo }
-}
+/** Merged pull requests per GraphQL page; each page is one durable step. */
+export const GITHUB_PR_PAGE_SIZE = 20
 
 /**
  * GitHub's review decision: only each reviewer's latest APPROVED or
@@ -62,7 +57,10 @@ type GithubPrSource = {
   repository: string
 }
 
-async function octokitFor(input: GithubPrSource): Promise<Octokit> {
+async function clientFor(input: GithubPrSource) {
+  const [owner, repo] = input.repository.split("/")
+  if (!owner || !repo)
+    throw new Error(`Invalid repository name "${input.repository}"`)
   const installation = await getInstallationOctokitForOrg(
     input.orgId,
     input.env,
@@ -76,58 +74,49 @@ async function octokitFor(input: GithubPrSource): Promise<Octokit> {
       },
     },
   )
-  if (!installation) {
-    throw new Error("GitHub installation is not available")
-  }
-  return installation.octokit
+  if (!installation) throw new Error("GitHub installation is not available")
+  const octokit: GithubPrClient = installation.octokit
+  return { octokit, owner, repo }
 }
 
-/** Fetch, decide, render. Null when the policy excludes the pull request. */
-async function renderMirroredPullRequest(input: {
-  octokit: Octokit
-  repository: string
-  number: number
-}): Promise<GithubPrMirrorFile | null> {
-  const { owner, repo } = splitRepository(input.repository)
-  const snapshot = await fetchGithubPullRequestSnapshot({
-    octokit: input.octokit,
-    owner,
-    repo,
-    number: input.number,
+function render(snapshots: GithubPullRequestSnapshot[]): GithubPrMirrorFile[] {
+  return snapshots.flatMap((snapshot) => {
+    if (!shouldMirrorGithubPullRequest(snapshot)) return []
+    snapshot.reviewDecision = reviewDecisionFromReviews(snapshot.reviews)
+    return [renderGithubPullRequest(snapshot)]
   })
-  snapshot.reviewDecision = reviewDecisionFromReviews(snapshot.reviews)
-  if (!shouldMirrorGithubPullRequest(snapshot)) return null
-  return renderGithubPullRequest(snapshot)
 }
 
-/** Render the mirrored pull requests among `numbers`; excluded ones are skipped. */
+/** Render the named pull requests that the policy mirrors, in one provider request. */
 export async function captureGithubPullRequests(
   input: GithubPrSource & { numbers: number[] },
 ): Promise<{ files: GithubPrMirrorFile[] }> {
-  const octokit = await octokitFor(input)
-  const files: GithubPrMirrorFile[] = []
-  for (const number of input.numbers) {
-    const file = await renderMirroredPullRequest({
-      octokit,
-      repository: input.repository,
-      number,
-    })
-    if (file) files.push(file)
+  return {
+    files: render(
+      await fetchPullRequestsByNumber({
+        ...(await clientFor(input)),
+        numbers: input.numbers,
+      }),
+    ),
   }
-  return { files }
 }
 
-/** The {@link GITHUB_PR_BACKFILL_MAX} most recently updated merged pull requests. */
-export async function listGithubPullRequestsToBackfill(
-  input: GithubPrSource,
-): Promise<{ numbers: number[] }> {
-  const { owner, repo } = splitRepository(input.repository)
+/** Render one page of merged pull requests, newest update first. */
+export async function captureMergedGithubPullRequestPage(
+  input: GithubPrSource & { after: string | null },
+): Promise<{
+  files: GithubPrMirrorFile[]
+  pulls: number
+  nextAfter: string | null
+}> {
+  const page = await fetchMergedPullRequestPage({
+    ...(await clientFor(input)),
+    first: GITHUB_PR_PAGE_SIZE,
+    after: input.after,
+  })
   return {
-    numbers: await listMergedPullRequestNumbers({
-      octokit: await octokitFor(input),
-      owner,
-      repo,
-      max: GITHUB_PR_BACKFILL_MAX,
-    }),
+    files: render(page.snapshots),
+    pulls: page.snapshots.length,
+    nextAfter: page.nextAfter,
   }
 }

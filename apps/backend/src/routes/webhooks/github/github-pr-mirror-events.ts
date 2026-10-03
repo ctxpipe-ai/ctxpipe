@@ -2,7 +2,6 @@ import { z } from "zod"
 import { normalizeWorkspaceRepositoryUrl } from "../../../domain/workspaces/slug.js"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
 import { listGithubPrMirrorWorkspaceIds } from "../../../models/github-pr-mirror.js"
-import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import {
   type GithubSyncPullRequestCandidate,
@@ -31,7 +30,9 @@ const pullRequestPayloadSchema = z.object({
 const issueCommentPayloadSchema = z.object({
   issue: z.object({
     number: z.number().int().positive(),
-    pull_request: z.unknown().optional(),
+    pull_request: z
+      .object({ merged_at: z.string().nullable().optional() })
+      .optional(),
   }),
   comment: z
     .object({
@@ -65,7 +66,11 @@ export function githubPrMirrorIdempotencyKey(input: {
   return `github-pr:${input.workspaceId}:${input.gitUrl}:${input.number}:${input.version ?? "unknown"}`
 }
 
-/** One mirror job per Workspace that links the repository; none when no Workspace does. */
+/**
+ * One mirror job per Workspace that links the repository; none when no
+ * Workspace does. A failed enqueue throws so the delivery answers 5xx and
+ * GitHub's redelivery retries; the idempotency key skips jobs already started.
+ */
 async function enqueueMirror(input: {
   installationId: number
   githubConnectionId?: string
@@ -83,39 +88,39 @@ async function enqueueMirror(input: {
     (installation) =>
       !input.githubConnectionId || installation.id === input.githubConnectionId,
   )
+  const failures: unknown[] = []
   for (const installation of installations) {
     const workspaceIds = await listGithubPrMirrorWorkspaceIds({
       orgId: installation.orgId,
       gitUrl,
     })
     for (const workspaceId of workspaceIds) {
-      try {
-        await runWorkflowWithWorkerWake(
-          githubSyncPullRequest.spec,
-          {
-            orgId: installation.orgId,
+      await runWorkflowWithWorkerWake(
+        githubSyncPullRequest.spec,
+        {
+          orgId: installation.orgId,
+          workspaceId,
+          gitUrl,
+          connectionId: installation.id,
+          numbers: [input.number],
+          ...(input.candidate ? { candidate: input.candidate } : {}),
+        },
+        {
+          idempotencyKey: githubPrMirrorIdempotencyKey({
             workspaceId,
             gitUrl,
             number: input.number,
-            ...(input.candidate ? { candidate: input.candidate } : {}),
-          },
-          {
-            idempotencyKey: githubPrMirrorIdempotencyKey({
-              workspaceId,
-              gitUrl,
-              number: input.number,
-              version: input.version,
-            }),
-          },
-        )
-      } catch (error) {
-        getLogger().error(
-          error instanceof Error ? error : new Error(String(error)),
-          { step: "github.pr-mirror.enqueue", workspaceId },
-        )
-      }
+            version: input.version,
+          }),
+        },
+      ).catch((error: unknown) => failures.push(error))
     }
   }
+  if (failures.length)
+    throw new AggregateError(
+      failures,
+      "GitHub pull request mirror could not be enqueued",
+    )
 }
 
 export async function maybeEnqueueGithubPrMirror(input: {
@@ -145,14 +150,22 @@ export async function maybeEnqueueGithubPrMirror(input: {
 
   if (input.eventName === "issue_comment") {
     const parsed = issueCommentPayloadSchema.safeParse(input.payload)
-    if (!parsed.success || parsed.data.issue.pull_request == null) return
+    // Only comments on merged pull requests reach the mirror.
+    const mergedAt = parsed.data?.issue.pull_request?.merged_at
+    if (!parsed.success || !mergedAt) return
+    const version =
+      parsed.data.comment?.updated_at ?? parsed.data.comment?.created_at
     await enqueueMirror({
       installationId: parsed.data.installation.id,
       githubConnectionId: input.githubConnectionId,
       repositoryFullName: parsed.data.repository.full_name,
       number: parsed.data.issue.number,
-      version:
-        parsed.data.comment?.updated_at ?? parsed.data.comment?.created_at,
+      candidate: {
+        merged: true,
+        draft: false,
+        updatedAt: version ?? mergedAt,
+      },
+      version,
     })
   }
 }

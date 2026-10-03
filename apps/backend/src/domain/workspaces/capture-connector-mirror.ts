@@ -12,7 +12,7 @@ import {
 } from "../../services/git/pack.js"
 import {
   assertConnectorMirrorBinding,
-  type ConnectorMirrorSource,
+  type ConfiguredConnectorMirrorSource,
 } from "./connector-mirror.js"
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
@@ -21,7 +21,7 @@ import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 export async function captureConnectorMirrorTarget(input: {
   orgId: string
   contentSyncGeneration?: number
-  mirror: Omit<ConnectorMirrorSource, "configBlobSha">
+  mirror: Omit<ConfiguredConnectorMirrorSource, "configBlobSha">
   env: Env
   repositoryGitUrl: string
 }) {

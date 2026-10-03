@@ -290,6 +290,23 @@ export const workspaceHydrate = defineWorkflow(
 
             let activated = !pending.postgres
             if (pending.postgres) {
+              // Before the linked table changes, so a replay still sees which
+              // GitHub links are new and the backfill key dedupes the enqueue.
+              await step.run(
+                { name: "enqueue-github-pr-backfills" },
+                async () => {
+                  // Import at the admission boundary: the mirror enqueues hydrate.
+                  const { enqueueGithubPrBackfillsForNewLinks } = await import(
+                    "./github-sync-pull-request.js"
+                  )
+                  await enqueueGithubPrBackfillsForNewLinks({
+                    orgId: input.orgId,
+                    workspaceId: workspace.id,
+                    workspaceUrl: revision.remote.url,
+                    gitUrls: parsed.linked.map((remote) => remote.git),
+                  })
+                },
+              )
               activated = await orgSql(() =>
                 commitHydrateProjection({
                   orgId: input.orgId,

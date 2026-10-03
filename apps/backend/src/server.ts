@@ -7,16 +7,16 @@ import { flushEvlog } from "./observability/logger.js"
 import { shutdownOtel } from "./observability/otel.js"
 import { shutdownGraphClients } from "./platform/graph/index.js"
 import {
+  conversationWebSocketHandlers,
+  handleConversationWebSocket,
+  isWorkspaceChatWebSocketRequest,
+  type ConversationWebSocketData,
+} from "./routes/v1/conversation-websocket.js"
+import {
   handleWebSocketProxy,
   type UiProxyWebSocketData,
   uiProxyWebSocketHandlers,
 } from "./routes/ui.js"
-import {
-  type ConversationWebSocketData,
-  conversationWebSocketHandlers,
-  handleConversationWebSocket,
-  isWorkspaceChatWebSocketRequest,
-} from "./routes/v1/conversation-websocket.js"
 
 const env = parseEnv(process.env as Record<string, string | undefined>)
 const app = createApp()
