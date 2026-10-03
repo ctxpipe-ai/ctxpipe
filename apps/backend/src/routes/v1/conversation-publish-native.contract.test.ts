@@ -26,23 +26,19 @@ import { withTestLogger } from "../../test/with-test-logger.js"
 import { conversationRoutes } from "./conversations.js"
 
 it.each([
-  "push",
   "sha_before_push",
   "other_revision_heartbeat",
   "warm_files",
   "provider_unavailable",
-  "provider_unavailable_push",
   "pull-request",
   "pr_collision",
   "missing",
   "stale",
-  "stale_push",
   "stale_connection",
   "stale_generation",
   "stale_sha",
   "stale_default_branch",
   "relink_after_push",
-  "relink_after_push_push",
   "relink_during_pr",
   "relink_before_pr",
 ])(
@@ -160,7 +156,7 @@ it.each([
                     access: "read",
                     remote: {
                       url:
-                        scenario === "stale" || scenario === "stale_push"
+                        scenario === "stale"
                           ? "https://github.com/fixture/other"
                           : f.workspaceUrl,
                       connectionId:
@@ -328,7 +324,7 @@ fi
             }
           }
           const pendingResponse = app.request(
-            `/conversations/${conversationId}/${scenario === "push" || scenario === "provider_unavailable_push" || scenario === "warm_files" || scenario === "stale_push" || scenario === "relink_after_push_push" ? "push" : "pull-request"}`,
+            `/conversations/${conversationId}/pull-request`,
             {
               method: "POST",
               headers: { "content-type": "application/json" },
@@ -391,7 +387,7 @@ fi
                 error:
                   scenario === "missing"
                     ? "missing_sandbox"
-                    : scenario === "stale" || scenario === "stale_push"
+                    : scenario === "stale"
                       ? "stale_url"
                       : scenario,
               },

@@ -176,7 +176,10 @@ export async function ensureConversation(input: {
         ),
       )
       .limit(1)
-    if (!winner || (input.workspaceId && winner.workspaceId !== input.workspaceId)) {
+    if (
+      !winner ||
+      (input.workspaceId && winner.workspaceId !== input.workspaceId)
+    ) {
       throw createError({
         message: "Conversation not found",
         status: 404,
@@ -228,6 +231,31 @@ export async function persistConversationPublication(input: {
       )
       .returning({ id: conversations.id })
     return row != null
+  })
+}
+
+/**
+ * Remember the session branch once a turn pushed it, so a recreated sandbox
+ * checks it out. Unlike {@link persistConversationPublication} this is not a
+ * publication: it holds for any actor that may run the conversation's turns.
+ */
+export async function recordConversationSessionBranch(input: {
+  conversationId: string
+  branch: string
+}): Promise<void> {
+  await orgSql(async () => {
+    const orgId = requireCurrentOrgId()
+    await getOrgDb()
+      .update(conversations)
+      .set({ lastBranch: input.branch, updatedAt: new Date() })
+      .where(
+        and(
+          eq(conversations.id, input.conversationId),
+          eq(conversations.orgId, orgId),
+          conversationActorWhere(),
+          sql`${conversations.lastBranch} is distinct from ${input.branch}`,
+        ),
+      )
   })
 }
 

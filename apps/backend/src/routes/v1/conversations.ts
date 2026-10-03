@@ -1013,6 +1013,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       revision,
       env,
       commitMessage: title,
+      squash: true,
     })
     if (!pushed.ok) return c.json({ error: pushed.error }, 400)
     const bindingIsCurrent = async () =>

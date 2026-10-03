@@ -108,6 +108,7 @@ import {
 } from "./workspace-chat-otel.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
 import { updateConversationSandboxRevision } from "./workspace-chat-revision-transition.js"
+import { workspaceChatSessionPush } from "./workspace-chat-session-push.js"
 import { mintWorkspaceChatRunCapability } from "./workspace-chat-run-capability.js"
 import { workspaceChatThreadLock } from "./workspace-chat-thread-lock.js"
 import { mintWorkspaceChatToken } from "./workspace-chat-token.js"
@@ -622,6 +623,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
           })
         },
       }),
+      workspaceChatSessionPush(input),
       openCodeTrailingUserMiddleware(input.prompt),
     ],
   })

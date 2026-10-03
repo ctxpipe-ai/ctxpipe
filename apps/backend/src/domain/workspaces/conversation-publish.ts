@@ -95,6 +95,51 @@ export function shellSingleQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`
 }
 
+/**
+ * Replace the session branch's turn commits with one commit on top of the
+ * captured default commit, for Create PR. A sandbox restored from the session
+ * branch holds only its tip, so the history is fetched once before checking
+ * that the session really builds on `base` (a squash onto any other commit
+ * would revert the default branch's newer changes).
+ */
+async function squashConversationSessionCommits(input: {
+  handle: JobSandboxHandle
+  base: string
+  branch: string
+  message: string
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const run = (command: string) => input.handle.exec(command, { env: {} })
+  const base = shellSingleQuote(input.base)
+  let ancestor = await run(`git merge-base --is-ancestor ${base} HEAD`)
+  if (ancestor.exitCode !== 0) {
+    const shallow = await run("git rev-parse --is-shallow-repository")
+    if (shallow.stdout.trim() === "true") {
+      // Same read credential as the sandbox setup; it can never push.
+      const fetched = await run(
+        `git -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f' fetch --unshallow origin ${shellSingleQuote(`+refs/heads/${input.branch}:refs/remotes/origin/${input.branch}`)}`,
+      )
+      if (fetched.exitCode !== 0)
+        return { ok: false, error: "Cannot read the session branch history" }
+      ancestor = await run(`git merge-base --is-ancestor ${base} HEAD`)
+    }
+  }
+  if (ancestor.exitCode !== 0)
+    return {
+      ok: false,
+      error:
+        "Session branch is not based on the default branch; send a message so the agent can rebase it",
+    }
+  const count = await run(`git rev-list --count ${base}..HEAD`)
+  if (count.exitCode !== 0) throw new Error("Cannot count the session commits")
+  if (Number(count.stdout.trim()) <= 1) return { ok: true }
+  const squashed = await run(
+    `git reset --soft ${base} && git -c user.email=workspace-chat@ctxpipe.local -c user.name=ctxpipe commit -m ${shellSingleQuote(input.message)}`,
+  )
+  if (squashed.exitCode !== 0)
+    throw new Error(squashed.stderr || "Cannot squash the session commits")
+  return { ok: true }
+}
+
 export async function pushConversationSessionBranch(input: {
   handle: JobSandboxHandle
   conversationId: string
@@ -103,6 +148,8 @@ export async function pushConversationSessionBranch(input: {
   revision: WorkspaceRevision
   env: Env
   commitMessage: string
+  /** Create PR: publish the turn commits as one commit. */
+  squash?: boolean
 }): Promise<
   | { ok: true; branch: string; pushed: boolean }
   | { ok: false; error: "no_changes" | "default_branch" | string }
@@ -149,6 +196,15 @@ export async function pushConversationSessionBranch(input: {
     defaultBranch: revision.defaultBranch,
     message: input.commitMessage,
   })
+  if (input.squash) {
+    const squashed = await squashConversationSessionCommits({
+      handle: input.handle,
+      base: revision.sha,
+      branch,
+      message: input.commitMessage,
+    })
+    if (!squashed.ok) return squashed
+  }
   // The agent supplies Git objects only. A fresh broker directory owns all remote I/O.
   const head = await input.handle.exec("git rev-parse HEAD", { env: {} })
   if (head.exitCode !== 0)
@@ -318,10 +374,4 @@ export function conversationGithubPullUrl(input: {
   prNumber: number
 }): string {
   return `https://github.com/${input.repositoryName}/pull/${input.prNumber}`
-}
-
-export function chromePullRequestAction(
-  prState: string | null,
-): "create" | "show" {
-  return prState === "open" ? "show" : "create"
 }
