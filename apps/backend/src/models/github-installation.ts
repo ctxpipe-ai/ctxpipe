@@ -127,6 +127,12 @@ export async function getGithubConnectionRowByConnectionId(
   return row?.type === CONNECTION_TYPE_GITHUB ? row : undefined
 }
 
+/**
+ * Secret for a connection's own webhook endpoint. Only a connection with its
+ * own complete App credentials has one; a connection on the deployment's App
+ * gets events only from the deployment webhook, so a deployment-signed body
+ * replayed to its URL is refused.
+ */
 export async function getWebhookSecretForGithubConnection(
   connectionId: string,
   env: Env,
@@ -136,9 +142,7 @@ export async function getWebhookSecretForGithubConnection(
   const stored = parseGithubConnectionStored(
     row.config as Record<string, unknown>,
   )
-  const creds = decodeGithubAppCredentials(stored, env)
-  if (creds?.webhookSecret) return creds.webhookSecret
-  return env.GITHUB_WEBHOOK_SECRET?.trim()
+  return decodeGithubAppCredentials(stored, env)?.webhookSecret
 }
 
 export async function createDraftGithubConnection(input: {
