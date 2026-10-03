@@ -6,6 +6,7 @@ import type { Env } from "../../../config/env.js"
 import { withOrgDbContext } from "../../../db/client.js"
 import { isDefaultBranchPush } from "../../../domain/workspaces/tip-resolve.js"
 import { parseGithubConnectionStored } from "../../../lib/connection-config.js"
+import { githubRowHasAppCredentials } from "../../../models/connection-rows.js"
 import {
   getGithubConnectionRowByConnectionId,
   getWebhookSecretForGithubConnection,
@@ -91,9 +92,14 @@ async function registerInstallationFromConnectionWebhook(
     })
     return
   }
-  // A draft's webhook secret is whatever its creator saved, so a signed
-  // event proves nothing: the connection's App must own the installation.
-  if (!(await githubAppOwnsInstallation(row, installationId, ctx.env))) {
+  // Only a connection with its own App attaches from its webhook; one on the
+  // deployment's App attaches through `POST /github/installation`. A draft's
+  // webhook secret is whatever its creator saved, so a signed event proves
+  // nothing either: the connection's own App must own the installation.
+  if (
+    !githubRowHasAppCredentials(row, ctx.env) ||
+    !(await githubAppOwnsInstallation(row, installationId, ctx.env))
+  ) {
     ctx.log.info("github_installation_webhook_installation_not_owned", {
       connectionId,
     })

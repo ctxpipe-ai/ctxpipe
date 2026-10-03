@@ -31,11 +31,14 @@ const installationId = 626_262
 const ownAppInstallationId = 737_373
 const deploymentSecret = "deployment-webhook-secret"
 const draftSecret = "draft-webhook-secret"
-const { privateKey: ownAppPrivateKey } = generateKeyPairSync("rsa", {
-  modulusLength: 2048,
-  privateKeyEncoding: { type: "pkcs1", format: "pem" },
-  publicKeyEncoding: { type: "spki", format: "pem" },
-})
+function rsaPrivateKey() {
+  return generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: "pkcs1", format: "pem" },
+    publicKeyEncoding: { type: "spki", format: "pem" },
+  }).privateKey
+}
+const ownAppPrivateKey = rsaPrivateKey()
 
 const spans = recordSpans()
 
@@ -64,8 +67,9 @@ describe("GitHub webhooks reach only the connections they belong to (Postgres)",
   let seed: SeededOrg
   const env = parseEnv({
     ...(process.env as Record<string, string | undefined>),
-    GITHUB_APP_ID: undefined,
-    GITHUB_PRIVATE_KEY: undefined,
+    // The deployment App can read every installation msw knows about.
+    GITHUB_APP_ID: "2",
+    GITHUB_PRIVATE_KEY: rsaPrivateKey(),
     GITHUB_WEBHOOK_SECRET: deploymentSecret,
   })
 
@@ -202,5 +206,25 @@ describe("GitHub webhooks reach only the connections they belong to (Postgres)",
     expect(res.status).toBe(200)
     const rows = await listGithubConnectionsForOrg(seed.orgId)
     expect(rows.map((row) => row.installationId)).toEqual([attached])
+  })
+
+  it.each([
+    ["installation", "created"],
+    ["installation_repositories", "added"],
+  ])("attaches nothing when a deployment-signed %s event is replayed to a connection on the deployment App", async (event, action) => {
+    const placeholder = await createPlaceholderGithubConnection({
+      orgId: seed.orgId,
+    })
+
+    const res = await deliver(
+      `/api/v1/webhook/github/${placeholder.id}`,
+      deploymentSecret,
+      event,
+      { action, installation: { id: ownAppInstallationId } },
+    )
+
+    expect(res.status).toBe(503)
+    const rows = await listGithubConnectionsForOrg(seed.orgId)
+    expect(rows.map((row) => row.installationId)).toEqual([null])
   })
 })
