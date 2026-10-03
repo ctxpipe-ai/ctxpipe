@@ -82,11 +82,9 @@ async function enqueueMirror(input: {
   const gitUrl = normalizeWorkspaceRepositoryUrl(
     `https://github.com/${input.repositoryFullName}`,
   )
-  const installations = (
-    await listInstallationsByGithubInstallationId(input.installationId)
-  ).filter(
-    (installation) =>
-      !input.githubConnectionId || installation.id === input.githubConnectionId,
+  const installations = await listInstallationsByGithubInstallationId(
+    input.installationId,
+    input.githubConnectionId,
   )
   const failures: unknown[] = []
   for (const installation of installations) {

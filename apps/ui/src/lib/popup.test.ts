@@ -14,20 +14,22 @@ import {
 import { GITHUB_SETUP_RESULT_KEY, handleGithubSetupPopupResult } from "./popup"
 
 const server = setupServer()
+const assign = vi.fn()
 
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "error" })
 })
 
 beforeEach(() => {
-  // Browser globals the opener page has: storage, and an origin for the
-  // API client's relative URLs.
+  // Browser globals the opener page has: storage, navigation, and an origin
+  // for the API client's relative URLs.
   const store = new Map<string, string>()
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => store.get(key) ?? null,
     setItem: (key: string, value: string) => store.set(key, value),
     removeItem: (key: string) => store.delete(key),
   })
+  vi.stubGlobal("window", { location: { assign } })
   const fetchWithOrigin = globalThis.fetch
   vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
     fetchWithOrigin(
@@ -40,43 +42,38 @@ beforeEach(() => {
 afterEach(() => {
   server.resetHandlers()
   vi.unstubAllGlobals()
+  assign.mockReset()
 })
 
 afterAll(() => {
   server.close()
 })
 
+function refuseRegistration(why: string) {
+  server.use(
+    http.post("*/acme/api/v1/github/installation", () =>
+      HttpResponse.json({ error: "Refused", why }, { status: 403 }),
+    ),
+  )
+}
+
 describe("handleGithubSetupPopupResult", () => {
-  it("sends a user without a linked GitHub account through linking, then back to setup", async () => {
+  it("sends a user without a linked GitHub account to /.github/setup to link it", async () => {
     localStorage.setItem(
       GITHUB_SETUP_RESULT_KEY,
       JSON.stringify({ installationId: 42, connectionId: "con_draft" }),
     )
-    let linkSocialBody: unknown
-    server.use(
-      http.post("*/acme/api/v1/github/installation", () =>
-        HttpResponse.json(
-          { error: "Connect GitHub", why: "github_not_linked" },
-          { status: 403 },
-        ),
-      ),
-      http.post("*/.auth/api/v1/auth/link-social", async ({ request }) => {
-        linkSocialBody = await request.json()
-        return HttpResponse.json({ url: "#linked", redirect: true })
-      }),
-    )
+    refuseRegistration("github_not_linked")
 
     const { status } = await handleGithubSetupPopupResult(
       "acme",
       new QueryClient(),
     )
 
-    expect(status).toBe("linking_github")
-    expect(linkSocialBody).toMatchObject({
-      provider: "github",
-      callbackURL:
-        "/.github/setup?installation_id=42&orgSlug=acme&connectionId=con_draft",
-    })
+    expect(status).toBe("redirected")
+    expect(assign).toHaveBeenCalledWith(
+      "/.github/setup?installation_id=42&orgSlug=acme&connectionId=con_draft",
+    )
   })
 
   it("reports a failed registration for any other refusal", async () => {
@@ -84,14 +81,7 @@ describe("handleGithubSetupPopupResult", () => {
       GITHUB_SETUP_RESULT_KEY,
       JSON.stringify({ installationId: 42 }),
     )
-    server.use(
-      http.post("*/acme/api/v1/github/installation", () =>
-        HttpResponse.json(
-          { error: "Forbidden", why: "github_installation_not_accessible" },
-          { status: 403 },
-        ),
-      ),
-    )
+    refuseRegistration("github_installation_not_accessible")
 
     const { status } = await handleGithubSetupPopupResult(
       "acme",
@@ -99,5 +89,6 @@ describe("handleGithubSetupPopupResult", () => {
     )
 
     expect(status).toBe("registration_failed")
+    expect(assign).not.toHaveBeenCalled()
   })
 })

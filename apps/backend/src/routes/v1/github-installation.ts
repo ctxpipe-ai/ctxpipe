@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { Context } from "hono"
+import { RequestError } from "octokit"
 import type { AppEnv } from "../../app/env.js"
 import type { GitHubInstallationShape } from "../../models/connection-rows.js"
 import {
@@ -13,6 +14,7 @@ import {
   deleteGithubConnectionById,
   getGithubConnectionRow,
   getGithubUserAccessToken,
+  githubAppOwnsInstallation,
   isGithubInstallationTokenError,
   listAllReposForInstallation,
   listGithubConnectionRowsForOrg,
@@ -71,12 +73,10 @@ const RegisterInstallationBodySchema = z
 
 const CreateGithubDraftBodySchema = z
   .object({
-    // Trimmed: blank credentials would make the connection fall back to the
-    // deployment's App while keeping an installation attached without proof.
-    githubAppId: z.string().trim().min(1),
-    appSlug: z.string().trim().min(1),
-    privateKey: z.string().trim().min(1),
-    webhookSecret: z.string().trim().min(1),
+    githubAppId: z.string().min(1),
+    appSlug: z.string().min(1),
+    privateKey: z.string().min(1),
+    webhookSecret: z.string().min(1),
   })
   .openapi("CreateGithubDraftBody")
 
@@ -965,8 +965,8 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     if (!orgId) return c.json({ error: "Not found" }, 404)
     const body = c.req.valid("json")
     try {
-      // A connection with its own App credentials reaches only that App's
-      // installations. Any other attach goes through the deployment's App, so
+      // A connection with its own App credentials proves the installation with
+      // that App's key. Any other attach goes through the deployment's App, so
       // the acting user's GitHub account must be able to see the installation.
       const connectionRow = body.connectionId
         ? await getGithubConnectionRow(orgId, body.connectionId)
@@ -975,14 +975,30 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         return c.json({ error: "Unknown GitHub connection" }, 404)
       }
       if (
-        !connectionRow ||
-        !githubRowHasAppCredentials(connectionRow, c.var.env)
+        connectionRow &&
+        githubRowHasAppCredentials(connectionRow, c.var.env)
       ) {
+        if (
+          !(await githubAppOwnsInstallation(
+            connectionRow,
+            body.installationId,
+            c.var.env,
+          ))
+        ) {
+          return c.json(
+            {
+              error:
+                "This connection's GitHub App does not own that installation",
+              why: "github_installation_not_accessible",
+            },
+            403,
+          )
+        }
+      } else {
         const githubNotLinked = {
           error: "Connect your GitHub account to link this installation",
           message: "Connect your GitHub account to link this installation",
           why: "github_not_linked",
-          fix: "Connect your GitHub account, then finish the GitHub App installation again.",
         }
         const user = c.get("user") as { id: string }
         const githubAccessToken = await getGithubUserAccessToken(user.id)
@@ -994,8 +1010,11 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
             body.installationId,
           )
         } catch (e) {
-          // GitHub rejects a revoked or expired user token: link again.
-          if (e instanceof Error && "status" in e && e.status === 401) {
+          // A revoked token, or one GitHub will not list installations for.
+          if (
+            e instanceof RequestError &&
+            (e.status === 401 || e.status === 403)
+          ) {
             return c.json(githubNotLinked, 403)
           }
           throw e

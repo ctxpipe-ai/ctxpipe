@@ -1,8 +1,17 @@
+import { generateKeyPairSync } from "node:crypto"
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { and, eq } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { HttpResponse, http } from "msw"
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import { useMswServer } from "../../../test/msw.js"
 import type { AppEnv } from "../../app/env.js"
@@ -23,9 +32,16 @@ import {
 import { registerV1Routes } from "./index.js"
 
 const installationId = 424_242
+const ownAppInstallationId = 515_151
 const visibleToken = "gho_can_see_installation"
 const otherToken = "gho_cannot_see_installation"
 const revokedToken = "gho_revoked"
+const oauthAppToken = "gho_oauth_app"
+const { privateKey: ownAppPrivateKey } = generateKeyPairSync("rsa", {
+  modulusLength: 2048,
+  privateKeyEncoding: { type: "pkcs1", format: "pem" },
+  publicKeyEncoding: { type: "spki", format: "pem" },
+})
 
 let installationLookups = 0
 
@@ -37,6 +53,9 @@ useMswServer(
     if (auth.endsWith(revokedToken)) {
       return HttpResponse.json({ message: "Bad credentials" }, { status: 401 })
     }
+    if (auth.endsWith(oauthAppToken)) {
+      return HttpResponse.json({ message: "Forbidden" }, { status: 403 })
+    }
     const installations = auth.endsWith(visibleToken)
       ? [{ id: installationId }]
       : [{ id: 1 }]
@@ -45,6 +64,27 @@ useMswServer(
       installations,
     })
   }),
+  // The own App's installation, asked with its JWT.
+  http.get(
+    "https://api.github.com/app/installations/:installationId",
+    ({ params }) =>
+      Number(params.installationId) === ownAppInstallationId
+        ? HttpResponse.json({ id: ownAppInstallationId, account: null })
+        : HttpResponse.json({ message: "Not Found" }, { status: 404 }),
+  ),
+  // Account-slug refresh after attaching; not under test here.
+  http.post(
+    "https://api.github.com/app/installations/:installationId/access_tokens",
+    () => HttpResponse.json({ message: "Not Found" }, { status: 404 }),
+  ),
+  http.post("https://github.com/login/oauth/access_token", () =>
+    HttpResponse.json({
+      access_token: visibleToken,
+      token_type: "bearer",
+      expires_in: 28_800,
+      refresh_token: "ghr_rotated",
+    }),
+  ),
   // Better Auth dashboard events when a local .env.local enables them.
   http.post(
     "https://dash.better-auth.com/*",
@@ -93,7 +133,10 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
     )
   }
 
-  async function linkGithub(accessToken: string) {
+  async function linkGithub(
+    accessToken: string,
+    refresh?: { refreshToken: string; accessTokenExpiresAt: Date },
+  ) {
     await getSystemDb()
       .insert(accounts)
       .values({
@@ -102,9 +145,21 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
         providerId: "github",
         userId: seed.userId,
         accessToken,
+        ...refresh,
         createdAt: new Date(),
         updatedAt: new Date(),
       })
+  }
+
+  function createOwnAppDraft() {
+    return createDraftGithubConnection({
+      orgId: seed.orgId,
+      env,
+      githubAppId: "1",
+      appSlug: "self-hosted-app",
+      privateKey: ownAppPrivateKey,
+      webhookSecret: "webhook-secret",
+    })
   }
 
   async function attachedInstallationIds() {
@@ -113,13 +168,15 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
   }
 
   beforeAll(async () => {
+    // GitHub sign-in configured, so Better Auth can refresh GitHub tokens.
+    vi.stubEnv("GITHUB_CLIENT_ID", "test-github-client")
+    vi.stubEnv("GITHUB_CLIENT_SECRET", "test-github-secret")
     seed = await seedOrg()
   })
 
   afterEach(async () => {
     installationLookups = 0
-    const db = getSystemDb()
-    await db
+    await getSystemDb()
       .delete(accounts)
       .where(
         and(
@@ -134,6 +191,7 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
 
   afterAll(async () => {
     if (seed) await cleanupSeededOrg(seed)
+    vi.unstubAllEnvs()
   })
 
   it("rejects a user without a linked GitHub account and writes nothing", async () => {
@@ -168,8 +226,11 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
     expect(await attachedInstallationIds()).toEqual([])
   })
 
-  it("asks to link GitHub again when GitHub rejects the stored token", async () => {
-    await linkGithub(revokedToken)
+  it.each([
+    ["rejects the stored token", revokedToken],
+    ["will not list installations for the token", oauthAppToken],
+  ])("asks to link GitHub again when GitHub %s", async (_, token) => {
+    await linkGithub(token)
 
     const res = await attach({ installationId })
 
@@ -189,49 +250,40 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
     expect(installationLookups).toBe(1)
   })
 
-  it("attaches to a connection with its own App credentials without a GitHub account", async () => {
-    const draft = await createDraftGithubConnection({
-      orgId: seed.orgId,
-      env,
-      githubAppId: "1",
-      appSlug: "self-hosted-app",
-      privateKey: "not-a-real-key",
-      webhookSecret: "webhook-secret",
+  it("refreshes an expired GitHub token before checking access", async () => {
+    await linkGithub("gho_expired", {
+      refreshToken: "ghr_refresh",
+      accessTokenExpiresAt: new Date(Date.now() - 60_000),
     })
 
-    const res = await attach({ installationId, connectionId: draft.id })
+    const res = await attach({ installationId })
 
     expect(res.status).toBe(200)
     expect(await attachedInstallationIds()).toEqual([installationId])
-    // Only the App's own key reaches this installation; no user check needed.
+  })
+
+  it("attaches to a connection whose own App owns the installation, without a GitHub account", async () => {
+    const draft = await createOwnAppDraft()
+
+    const res = await attach({
+      installationId: ownAppInstallationId,
+      connectionId: draft.id,
+    })
+
+    expect(res.status).toBe(200)
+    expect(await attachedInstallationIds()).toEqual([ownAppInstallationId])
     expect(installationLookups).toBe(0)
   })
 
-  it("rejects blank App credentials so a connection cannot fall back to the deployment App", async () => {
-    const draft = await createDraftGithubConnection({
-      orgId: seed.orgId,
-      env,
-      githubAppId: "1",
-      appSlug: "self-hosted-app",
-      privateKey: "not-a-real-key",
-      webhookSecret: "webhook-secret",
+  it("rejects attaching another App's installation to a connection with its own App", async () => {
+    const draft = await createOwnAppDraft()
+
+    const res = await attach({ installationId, connectionId: draft.id })
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toMatchObject({
+      why: "github_installation_not_accessible",
     })
-
-    const res = await createApp().request(
-      `http://backend.test/${seed.orgSlug}/api/v1/github/installation/draft`,
-      {
-        method: "PATCH",
-        headers: { cookie: seed.cookie, "content-type": "application/json" },
-        body: JSON.stringify({
-          connectionId: draft.id,
-          githubAppId: " ",
-          appSlug: " ",
-          privateKey: " ",
-          webhookSecret: " ",
-        }),
-      },
-    )
-
-    expect(res.status).toBe(400)
+    expect(await attachedInstallationIds()).toEqual([null])
   })
 })

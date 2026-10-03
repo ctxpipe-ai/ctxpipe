@@ -1,5 +1,7 @@
-import { and, eq, inArray, sql } from "drizzle-orm"
-import { App, Octokit } from "octokit"
+import { APIError } from "better-auth/api"
+import { and, desc, eq, inArray, sql } from "drizzle-orm"
+import { App, Octokit, RequestError } from "octokit"
+import { getAuth } from "../auth/config.js"
 import type { Env } from "../config/env.js"
 import { getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
 import { accounts, members, organizations } from "../db/schema/auth.js"
@@ -533,8 +535,15 @@ export async function orgHasAnyGithubConnection(
   })
 }
 
+/**
+ * Connections a GitHub webhook for `githubInstallationId` reaches. A
+ * connection-specific webhook reaches only that connection. The deployment
+ * webhook reaches only connections that use the deployment's App: a
+ * connection with its own App credentials gets events from its own endpoint.
+ */
 export async function listInstallationsByGithubInstallationId(
   githubInstallationId: number,
+  githubConnectionId?: string,
 ): Promise<GitHubInstallationShape[]> {
   const directoryRows =
     await listConnectionDirectoryByGithubInstallationId(githubInstallationId)
@@ -545,6 +554,18 @@ export async function listInstallationsByGithubInstallationId(
   )
   return rows
     .filter((row): row is ConnectionRow => row?.type === CONNECTION_TYPE_GITHUB)
+    .filter((row) => {
+      if (githubConnectionId) return row.id === githubConnectionId
+      const stored = parseGithubConnectionStored(
+        row.config as Record<string, unknown>,
+      )
+      return !(
+        stored.githubAppId &&
+        stored.appSlug &&
+        stored.privateKeyEnc &&
+        stored.webhookSecretEnc
+      )
+    })
     .map(githubConnectionToShape)
 }
 
@@ -601,16 +622,53 @@ export async function updateInstallationOptions(
   return githubConnectionToShape(updated)
 }
 
+/**
+ * A current GitHub user token for `userId` from their most recently linked
+ * GitHub account, refreshed when expired. `undefined` when no account is
+ * linked, GitHub sign-in is not configured, or the token cannot be refreshed.
+ */
 export async function getGithubUserAccessToken(
   userId: string,
 ): Promise<string | undefined> {
   const db = getSystemDb()
   const [row] = await db
-    .select({ accessToken: accounts.accessToken })
+    .select({ accountId: accounts.accountId })
     .from(accounts)
     .where(and(eq(accounts.userId, userId), eq(accounts.providerId, "github")))
+    .orderBy(desc(accounts.updatedAt), accounts.id)
     .limit(1)
-  return row?.accessToken ?? undefined
+  if (!row) return undefined
+  try {
+    const { accessToken } = await getAuth().api.getAccessToken({
+      body: { providerId: "github", userId, accountId: row.accountId },
+    })
+    return accessToken || undefined
+  } catch (e) {
+    if (e instanceof APIError) return undefined
+    throw e
+  }
+}
+
+/**
+ * Whether the App behind `row` (its own credentials, else the deployment's)
+ * owns `installationId`. Asked with the App's JWT, so it proves the caller
+ * holds that App's private key.
+ */
+export async function githubAppOwnsInstallation(
+  row: ConnectionRow,
+  installationId: number,
+  env: Env,
+): Promise<boolean> {
+  try {
+    await buildAppForConnection(row, env).octokit.rest.apps.getInstallation({
+      installation_id: installationId,
+    })
+    return true
+  } catch (e) {
+    // Another App's installation, or credentials GitHub (or JWT signing) rejects.
+    if (e instanceof RequestError && e.status >= 500) throw e
+    return false
+  }
 }
 
 export type GitHubRepoItem = {

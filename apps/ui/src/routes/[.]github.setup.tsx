@@ -4,13 +4,13 @@ import { parseError } from "evlog"
 import { useEffect, useMemo } from "react"
 import { toast } from "sonner"
 import { AppShell } from "@/components/AppShell"
-import { Button } from "@/components/ui/Button"
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { Spinner } from "@/components/ui/spinner"
+import { GithubNotLinkedNotice } from "@/features/connectors/components/GithubNotLinkedNotice"
 import { resolveGithubSetupOrganization } from "@/features/connectors/githubConnectFlow"
 import { client } from "@/lib/api"
 import { ApiError, apiFetch, readApiJson } from "@/lib/api-result"
-import { authClient, useListOrganizations } from "@/lib/auth-client"
+import { useListOrganizations } from "@/lib/auth-client"
 import {
   consumeGithubSetupOrgHint,
   GITHUB_DRAFT_CONNECTION_KEY,
@@ -19,6 +19,7 @@ import {
   GITHUB_SETUP_RESULT_MESSAGE,
   getActiveGithubPopupFlowState,
 } from "@/lib/popup"
+import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
 
 export const Route = createFileRoute("/.github/setup")({
   ssr: false,
@@ -205,6 +206,7 @@ function ConnectGithubView({
 
   const parsedErrorWhy =
     error instanceof ApiError ? error.body.why : parseError(error)?.why
+  const { data: authConfig } = useGetAuthConfig()
 
   if (parsedErrorWhy === "github_not_linked") {
     return (
@@ -215,31 +217,14 @@ function ConnectGithubView({
               Repositories
             </span>
           </header>
-          <section>
-            <h1 className="text-3xl font-medium tracking-tight text-foreground">
-              Connect your GitHub account to finish setup
-            </h1>
-            <p className="mt-3 text-sm text-zinc-400">
-              To securely link this GitHub App installation, we need to verify
-              that you have access to the GitHub App.
-            </p>
-
-            <div className="mt-6">
-              <Button
-                type="button"
-                variant="primary"
-                className="rounded-none"
-                onPress={async () => {
-                  await authClient.linkSocial({
-                    provider: "github",
-                    callbackURL: `/.github/setup${window.location.search ?? ""}`,
-                  })
-                }}
-              >
-                Connect GitHub
-              </Button>
-            </div>
-          </section>
+          <GithubNotLinkedNotice
+            githubSignInEnabled={
+              (
+                authConfig as { providers?: string[] } | undefined
+              )?.providers?.includes("github") ?? true
+            }
+            orgSlug={selectedOrganizationSlug}
+          />
         </main>
       </AppShell>
     )
