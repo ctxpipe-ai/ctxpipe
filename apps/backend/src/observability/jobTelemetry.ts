@@ -12,8 +12,6 @@ export const jobTelemetrySchema = z.object({
   "enduser.id": z.string().optional(),
   "ctxpipe.org.id": z.string().optional(),
   "ctxpipe.org.slug": z.string().optional(),
-  /** Ingestion validator run; carried to every child job so its spans are filterable. */
-  "ctxpipe.validator.run_id": z.string().optional(),
 })
 
 export type JobTelemetry = z.infer<typeof jobTelemetrySchema>
@@ -21,11 +19,24 @@ export type JobTelemetry = z.infer<typeof jobTelemetrySchema>
 function captureJobTelemetry(): JobTelemetry | undefined {
   const bag = readAttribution()
   const telemetry: JobTelemetry = {}
-  for (const key of jobTelemetrySchema.keyof().options) {
+  for (const key of [
+    "request.id",
+    "enduser.id",
+    "ctxpipe.org.id",
+    "ctxpipe.org.slug",
+  ] as const) {
     const value = bag[key]
     if (value) telemetry[key] = value
   }
-  return Object.keys(telemetry).length > 0 ? telemetry : undefined
+  if (
+    !telemetry["request.id"] &&
+    !telemetry["enduser.id"] &&
+    !telemetry["ctxpipe.org.id"] &&
+    !telemetry["ctxpipe.org.slug"]
+  ) {
+    return undefined
+  }
+  return telemetry
 }
 
 function stringField(
@@ -124,8 +135,6 @@ export async function restoreJobTelemetry<T>(
   }
   if (fields["request.id"]) bagPatch["request.id"] = fields["request.id"]
   if (fields["enduser.id"]) bagPatch["enduser.id"] = fields["enduser.id"]
-  if (fields["ctxpipe.validator.run_id"])
-    bagPatch["ctxpipe.validator.run_id"] = fields["ctxpipe.validator.run_id"]
   const inputRecord =
     input && typeof input === "object"
       ? (input as Record<string, unknown>)

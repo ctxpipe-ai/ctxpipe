@@ -287,39 +287,4 @@ describe("job telemetry", () => {
         .some((span) => span.name.startsWith("openworkflow.job")),
     ).toBe(false)
   })
-
-  it("carries the validator run id from enqueue to step spans and child jobs", async () => {
-    const tracer = trace.getTracer("test")
-    const { context: withBag, bag } = contextWithAttributionBag(
-      context.active(),
-    )
-    bag.set("ctxpipe.validator.run_id", "val_run_1")
-    const queued = context.with(withBag, () =>
-      attachJobTelemetry({ orgId: "org_val", repositoryId: "repo_val" }),
-    )
-    expect(queued.telemetry).toEqual({
-      "ctxpipe.validator.run_id": "val_run_1",
-    })
-
-    const execution = tracer.startSpan("workflow_run.execute")
-    const child = await context.with(
-      trace.setSpan(context.active(), execution),
-      () =>
-        restoreJobTelemetry(queued, async () => {
-          tracer.startSpan("step_attempt.execute").end()
-          return attachJobTelemetry({ orgId: "org_val", workspaceId: "ws_1" })
-        }),
-    )
-    execution.end()
-
-    expect(child.telemetry).toMatchObject({
-      "ctxpipe.validator.run_id": "val_run_1",
-    })
-    for (const name of ["workflow_run.execute", "step_attempt.execute"]) {
-      expect(spans.spanNamed(name)?.attributes).toMatchObject({
-        "ctxpipe.validator.run_id": "val_run_1",
-        "ctxpipe.repository.id": "repo_val",
-      })
-    }
-  })
 })

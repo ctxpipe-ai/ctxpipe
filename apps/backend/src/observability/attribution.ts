@@ -21,7 +21,6 @@ export const ATTRIBUTION_KEYS = [
   "ctxpipe.repository.id",
   "ctxpipe.workspace.id",
   "ctxpipe.connection.id",
-  "ctxpipe.validator.run_id",
 ] as const
 
 export type AttributionKey = (typeof ATTRIBUTION_KEYS)[number]

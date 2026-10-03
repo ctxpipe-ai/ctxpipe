@@ -87,9 +87,6 @@ export function runWithLangfuseContext<T>(
     ...(bag["ctxpipe.org.id"] ? { orgId: bag["ctxpipe.org.id"] } : {}),
     ...(orgSlug ? { orgSlug } : {}),
     ...(bag["request.id"] ? { requestId: bag["request.id"] } : {}),
-    ...(bag["ctxpipe.validator.run_id"]
-      ? { validatorRunId: bag["ctxpipe.validator.run_id"] }
-      : {}),
     environment,
   })
   return Promise.resolve(
