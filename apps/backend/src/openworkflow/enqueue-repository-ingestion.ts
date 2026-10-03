@@ -11,6 +11,7 @@ import {
   prepareRepositoryIngestionRequest,
   type RepositoryIngestionIntent,
 } from "../models/repository-ingestion-requests.js"
+import type { JobTelemetry } from "../observability/jobTelemetry.js"
 import { createLogger, withLogger } from "../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { isWorkflowControlSignal } from "./isSleepSignal.js"
@@ -27,11 +28,16 @@ export type RepositoryIngestionEnqueueInput = RepositoryIngestionIntent & {
   fullReingest?: boolean
   /** Used only to resolve the correct repository tip after a duplicate run. */
   githubConnectionId?: string | null
+  /**
+   * Job telemetry of the run that caused this one (a follow-up's parent).
+   * Explicit, so it does not depend on an OTel context manager being active.
+   */
+  telemetry?: JobTelemetry
 }
 
 export type ConnectorRepositoryIngestionInput = Omit<
   RepositoryIngestionEnqueueInput,
-  "githubConnectionId"
+  "githubConnectionId" | "telemetry"
 >
 
 /** OpenWorkflow `step` from a workflow handler (`run` / `runWorkflow` / `sleep`). */
@@ -68,7 +74,7 @@ export async function enqueueRepositoryIngestionWorkflow(
   try {
     const handle = await runWorkflowWithWorkerWake(
       repositoryIngestionOrchestrator.spec,
-      captured,
+      input.telemetry ? { ...captured, telemetry: input.telemetry } : captured,
       { idempotencyKey: intent.requestId },
     )
     workflowRunId = handle.workflowRun.id
