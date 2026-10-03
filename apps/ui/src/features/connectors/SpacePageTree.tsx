@@ -8,6 +8,8 @@ import {
 import { useQuery } from "@tanstack/react-query"
 import { useCallback, useEffect, useState } from "react"
 import { Checkbox } from "@/components/ui/Checkbox"
+import { SkeletonRow } from "@/components/ui/Skeleton"
+import { apiFetch, readApiJson } from "@/lib/api-result"
 import type { ConfluencePage, ConfluenceSpace, SpaceScopeItem } from "./types"
 
 function connectorsAtlassianUrl(
@@ -63,7 +65,7 @@ function PageNode({
       page.id,
     ],
     queryFn: async () => {
-      const res = await fetch(
+      const res = await apiFetch(
         connectorsAtlassianUrl(
           orgSlug,
           `/available-spaces/${encodeURIComponent(spaceKey)}/pages`,
@@ -72,8 +74,9 @@ function PageNode({
         ),
         { credentials: "include" },
       )
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const json = (await res.json()) as { items: ConfluencePage[] }
+      const json = await readApiJson<{ items: ConfluencePage[] }>(res, {
+        message: `HTTP ${res.status}`,
+      })
       return json.items
     },
     enabled: expanded,
@@ -200,7 +203,7 @@ function SpaceNode({
       space.key,
     ],
     queryFn: async () => {
-      const res = await fetch(
+      const res = await apiFetch(
         connectorsAtlassianUrl(
           orgSlug,
           `/available-spaces/${encodeURIComponent(space.key)}/pages`,
@@ -208,8 +211,9 @@ function SpaceNode({
         ),
         { credentials: "include" },
       )
-      if (!res.ok) throw new Error(`Failed to fetch pages (${res.status})`)
-      const json = (await res.json()) as { items: ConfluencePage[] }
+      const json = await readApiJson<{ items: ConfluencePage[] }>(res, {
+        message: `Failed to fetch pages (${res.status})`,
+      })
       return json.items
     },
     enabled: expanded && !isSearching,
@@ -225,7 +229,7 @@ function SpaceNode({
       search,
     ],
     queryFn: async () => {
-      const res = await fetch(
+      const res = await apiFetch(
         connectorsAtlassianUrl(
           orgSlug,
           `/available-spaces/${encodeURIComponent(space.key)}/search`,
@@ -234,8 +238,9 @@ function SpaceNode({
         ),
         { credentials: "include" },
       )
-      if (!res.ok) throw new Error(`Failed to search pages (${res.status})`)
-      const json = (await res.json()) as { items: ConfluencePage[] }
+      const json = await readApiJson<{ items: ConfluencePage[] }>(res, {
+        message: `Failed to search pages (${res.status})`,
+      })
       return json.items
     },
     enabled: isSearching,
@@ -313,7 +318,6 @@ function SpaceNode({
               </span>
             </p>
           ) : null}
-
           {isSpecific && !isSearching ? (
             <p className="px-4 pb-1 pt-2 text-xs text-zinc-600">
               Specific pages selected.{" "}
@@ -326,14 +330,16 @@ function SpaceNode({
               </button>
             </p>
           ) : null}
-
           {isFetching && displayPages.length === 0 ? (
-            <div className="flex items-center gap-2 px-4 py-2 text-xs text-zinc-500">
-              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-              {isSearching ? "Searching..." : "Loading pages..."}
+            <div className="space-y-0.5 px-2 py-1" aria-busy>
+              <span className="sr-only">
+                {isSearching ? "Searching pages" : "Loading pages"}
+              </span>
+              <SkeletonRow className="pl-4" />
+              <SkeletonRow className="pl-8" />
+              <SkeletonRow className="pl-8" />
             </div>
           ) : null}
-
           {!isFetching && displayPages.length === 0 ? (
             <p className="px-4 py-2 text-xs text-zinc-600">
               {isSearching
@@ -341,7 +347,6 @@ function SpaceNode({
                 : "No root-level pages found."}
             </p>
           ) : null}
-
           {isSearching
             ? displayPages.map((page) => (
                 <div
@@ -485,7 +490,7 @@ export function SpacePageTree({
       atlassianConnectionId ?? "default",
     ],
     queryFn: async () => {
-      const res = await fetch(
+      const res = await apiFetch(
         connectorsAtlassianUrl(
           orgSlug,
           "/available-spaces",
@@ -495,8 +500,9 @@ export function SpacePageTree({
           credentials: "include",
         },
       )
-      if (!res.ok) throw new Error("Failed to fetch spaces")
-      const json = (await res.json()) as { items: ConfluenceSpace[] }
+      const json = await readApiJson<{ items: ConfluenceSpace[] }>(res, {
+        message: "Failed to fetch spaces",
+      })
       return json.items
     },
     throwOnError: false,
@@ -566,9 +572,13 @@ export function SpacePageTree({
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 py-4 text-sm text-zinc-400">
-        <IconLoader2 className="h-4 w-4 animate-spin" />
-        Loading spaces...
+      <div className="space-y-0.5 py-2" aria-busy>
+        <span className="sr-only">Loading spaces</span>
+        <SkeletonRow />
+        <SkeletonRow className="pl-4" />
+        <SkeletonRow className="pl-4" />
+        <SkeletonRow />
+        <SkeletonRow className="pl-4" />
       </div>
     )
   }

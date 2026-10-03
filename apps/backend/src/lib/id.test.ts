@@ -1,6 +1,6 @@
 import { base32nopad } from "@scure/base"
 import { describe, expect, it } from "vitest"
-import { generateObjectId } from "./id.js"
+import { conversationIdFromIdempotencyKey, generateObjectId } from "./id.js"
 
 function readUuidV7TimestampMs(bytes: Uint8Array): bigint {
   return (
@@ -62,5 +62,17 @@ describe("id helpers", () => {
     expect(
       [...timestamps].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
     ).toEqual(timestamps)
+  })
+
+  it("maps the same scoped idempotency key to one conversation id", () => {
+    expect(conversationIdFromIdempotencyKey("start-1", "user_a:ws_1")).toBe(
+      conversationIdFromIdempotencyKey("start-1", "user_a:ws_1"),
+    )
+    expect(conversationIdFromIdempotencyKey("start-1", "user_a:ws_1")).not.toBe(
+      conversationIdFromIdempotencyKey("start-1", "user_b:ws_1"),
+    )
+    expect(conversationIdFromIdempotencyKey("start-1", "user_a:ws_1")).not.toBe(
+      conversationIdFromIdempotencyKey("start-1"),
+    )
   })
 })

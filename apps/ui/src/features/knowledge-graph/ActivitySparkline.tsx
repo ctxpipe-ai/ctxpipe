@@ -1,5 +1,8 @@
-import { useState } from "react"
-import { FloatingPanel, PanelLabel } from "./FloatingPanel"
+import { barY, defineChart, text } from "@tanstack/charts"
+import { Chart } from "@tanstack/charts/react"
+import { scaleBand } from "@tanstack/charts/scales/band"
+import { scaleLinear } from "@tanstack/charts/scales/linear"
+import { useMemo } from "react"
 
 export type ActivityBuckets = {
   counts: number[]
@@ -8,75 +11,113 @@ export type ActivityBuckets = {
   total: number
 }
 
-const BUCKET_FORMATTER = new Intl.DateTimeFormat(undefined, {
+const DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
   month: "short",
   day: "numeric",
 })
 
+const ZERO_BAR_FRACTION = 0.08
+const BAR_FILL = "#2dd4bf"
+const BAR_FILL_HOVER = "#5eead4"
+
+type ActivityRow = {
+  key: string
+  count: number
+  bar: number
+  start: number
+}
+
 export function ActivitySparkline({ buckets }: { buckets: ActivityBuckets }) {
-  const max = buckets.counts.reduce((m, v) => (v > m ? v : m), 0)
-  const [hovered, setHovered] = useState<number | null>(null)
-  const bucketCount = buckets.counts.length
-  const bucketSize =
-    bucketCount > 0 ? (buckets.rangeEnd - buckets.rangeStart) / bucketCount : 0
-  const hoveredStart =
-    hovered != null ? buckets.rangeStart + hovered * bucketSize : null
-  const hoveredEnd =
-    hovered != null ? buckets.rangeStart + (hovered + 1) * bucketSize : null
-  const hoveredCount = hovered != null ? (buckets.counts[hovered] ?? 0) : null
+  const rows = useMemo<ActivityRow[]>(() => {
+    const bucketCount = buckets.counts.length
+    const bucketSize =
+      bucketCount > 0
+        ? (buckets.rangeEnd - buckets.rangeStart) / bucketCount
+        : 0
+    const max = buckets.counts.reduce((m, v) => (m > v ? m : v), 0)
+    const floor = Math.max(max, 1) * ZERO_BAR_FRACTION
+    return buckets.counts.map((count, i) => ({
+      key: String(i),
+      count,
+      bar: count === 0 ? floor : count,
+      start: buckets.rangeStart + i * bucketSize,
+    }))
+  }, [buckets])
+
+  const definition = useMemo(() => {
+    const byKey = new Map(rows.map((row) => [row.key, row]))
+    const endKeys = [rows[0]?.key, rows.at(-1)?.key].filter(
+      (key): key is string => key != null,
+    )
+
+    return defineChart({
+      marks: [
+        barY(rows, {
+          x: "key",
+          y: "bar",
+          fill: BAR_FILL,
+          radius: 2,
+          states: [
+            {
+              when: { focus: "primary" },
+              style: { fill: BAR_FILL_HOVER },
+            },
+          ],
+        }),
+        text(
+          rows.filter((row) => row.count > 0),
+          {
+            x: "key",
+            y: "bar",
+            text: "count",
+            fill: "#000",
+            fontSize: 11,
+            fontWeight: 500,
+            anchor: "middle",
+            dy: 8,
+          },
+        ),
+      ],
+      x: {
+        scale: () => scaleBand<string>().padding(0.2),
+        axis: {
+          line: false,
+          ticks: {
+            values: endKeys,
+            size: 0,
+            padding: 4,
+            format: (key) => {
+              const row = byKey.get(key)
+              return row ? DATE_FORMATTER.format(new Date(row.start)) : ""
+            },
+          },
+        },
+      },
+      y: {
+        scale: scaleLinear,
+        grid: false,
+        axis: false,
+      },
+      theme: {
+        foreground: "rgb(161, 161, 170)",
+        muted: "rgb(161, 161, 170)",
+        grid: "transparent",
+        background: "transparent",
+      },
+      focusRing: false,
+      tooltip: false,
+      margin: { top: 0 },
+    })
+  }, [rows])
+
+  if (rows.length === 0) return null
 
   return (
-    <FloatingPanel
-      className="flex w-[200px] flex-col gap-1.5 p-3"
-      role="img"
-      ariaLabel={`Edge activity: ${buckets.total} observations across ${buckets.counts.length} buckets`}
-    >
-      <div className="flex items-baseline justify-between">
-        <PanelLabel>Activity</PanelLabel>
-        <p className="font-mono text-[12px] tabular-nums text-zinc-400">
-          {hoveredCount != null
-            ? hoveredCount.toLocaleString()
-            : buckets.total.toLocaleString()}
-        </p>
-      </div>
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: hover-group container clears hover when the pointer leaves the whole sparkline; the bars below are the real interactive targets */}
-      <div
-        className="flex h-8 items-end gap-[2px]"
-        onMouseLeave={() => setHovered(null)}
-      >
-        {buckets.counts.map((count, i) => {
-          const h = max > 0 ? Math.max(2, Math.round((count / max) * 100)) : 0
-          const isHovered = hovered === i
-          const dimmed = hovered != null && !isHovered
-          return (
-            <button
-              // biome-ignore lint/suspicious/noArrayIndexKey: fixed-order positional buckets
-              key={i}
-              type="button"
-              tabIndex={-1}
-              onMouseEnter={() => setHovered(i)}
-              onFocus={() => setHovered(i)}
-              onBlur={() => setHovered(null)}
-              className={`flex-1 cursor-default transition-opacity duration-100 ${isHovered ? "bg-teal-300" : "bg-teal-400/70"} ${dimmed ? "opacity-40" : ""}`}
-              style={{ height: `${h}%` }}
-              aria-label={`${count} edges`}
-            />
-          )
-        })}
-      </div>
-      <div className="flex min-h-[14px] justify-between text-[12px] tabular-nums text-zinc-600">
-        {hoveredStart != null && hoveredEnd != null ? (
-          <span className="w-full text-center text-zinc-400">
-            {BUCKET_FORMATTER.format(new Date(hoveredStart))} –{" "}
-            {BUCKET_FORMATTER.format(new Date(hoveredEnd))}
-          </span>
-        ) : (
-          <>
-            <span>{BUCKET_FORMATTER.format(new Date(buckets.rangeStart))}</span>
-            <span>{BUCKET_FORMATTER.format(new Date(buckets.rangeEnd))}</span>
-          </>
-        )}
-      </div>
-    </FloatingPanel>
+    <Chart
+      definition={definition}
+      height={96}
+      ariaLabel={`Edge activity: ${buckets.total} observations`}
+      className="text-xs text-muted-foreground"
+    />
   )
 }

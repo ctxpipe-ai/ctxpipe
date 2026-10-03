@@ -1,19 +1,37 @@
-import { createRouter as createTanStackRouter } from '@tanstack/react-router'
-import { routeTree } from './routeTree.gen'
+import type { QueryClient } from "@tanstack/react-query"
+import { createRouter as createTanStackRouter } from "@tanstack/react-router"
+import { setupRouterSsrQueryIntegration } from "@tanstack/react-router-ssr-query"
+import { createHyperDxQueryClient } from "./lib/hyperdxQueryErrors"
+import { routeTree } from "./routeTree.gen"
+
+export type RouterContext = {
+  queryClient: QueryClient
+}
 
 export function getRouter() {
+  const queryClient = createHyperDxQueryClient()
+
   const router = createTanStackRouter({
     routeTree,
-
+    context: {
+      queryClient,
+    } satisfies RouterContext,
     scrollRestoration: true,
-    defaultPreload: 'intent',
+    defaultPreload: "intent",
     defaultPreloadStaleTime: 0,
+  })
+
+  setupRouterSsrQueryIntegration({
+    router,
+    queryClient,
+    // Providers already wraps QueryClientProvider with this same client.
+    wrapQueryClient: false,
   })
 
   return router
 }
 
-declare module '@tanstack/react-router' {
+declare module "@tanstack/react-router" {
   interface Register {
     router: ReturnType<typeof getRouter>
   }

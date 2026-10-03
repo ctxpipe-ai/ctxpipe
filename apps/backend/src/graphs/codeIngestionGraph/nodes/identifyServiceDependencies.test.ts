@@ -68,8 +68,8 @@ describe("identifyServiceDependencies post-processing", () => {
     const claims = postProcessServiceDependencies(captured, state)
 
     expect(claims).toHaveLength(1)
-    expect(claims[0].subjectRef).toBe("svc:repo_abc:apps/web")
-    expect(claims[0].objectRef).toBe("svc:repo_abc:packages/shared")
+    expect(claims[0]?.subjectRef).toBe("svc:repo_abc:apps/web")
+    expect(claims[0]?.objectRef).toBe("svc:repo_abc:packages/shared")
   })
 
   it("filters out dependencies where consumer or provider is not in roots", () => {
@@ -81,7 +81,7 @@ describe("identifyServiceDependencies post-processing", () => {
     const claims = postProcessServiceDependencies(captured, state)
 
     expect(claims).toHaveLength(1)
-    expect(claims[0].objectRef).toBe("svc:repo_abc:packages/shared")
+    expect(claims[0]?.objectRef).toBe("svc:repo_abc:packages/shared")
   })
 
   it("filters out self-dependencies (consumer === provider)", () => {
@@ -102,8 +102,8 @@ describe("identifyServiceDependencies post-processing", () => {
     const claims = postProcessServiceDependencies(captured, state)
 
     expect(claims).toHaveLength(1)
-    expect(claims[0].subjectRef).toBe("svc:repo_abc:apps/web")
-    expect(claims[0].objectRef).toBe("svc:repo_abc:packages/shared")
+    expect(claims[0]?.subjectRef).toBe("svc:repo_abc:apps/web")
+    expect(claims[0]?.objectRef).toBe("svc:repo_abc:packages/shared")
   })
 
   it("produces no claims when roots exclude both consumer and provider", () => {

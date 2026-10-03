@@ -1,4 +1,4 @@
-import { client } from "@/lib/api"
+import { apiFetch, readApiJson } from "@/lib/api-result"
 
 export class PagerdutyOAuthNotConfiguredError extends Error {
   constructor() {
@@ -81,33 +81,38 @@ export const pagerdutyConnectorKeys = {
     ["pagerduty-connector-status", orgSlug] as const,
 }
 
-function connectionQuery(connectionId?: string) {
-  return connectionId ? ({ query: { connectionId } } as const) : ({} as const)
+function connectionSearch(connectionId?: string): string {
+  return connectionId
+    ? `?${new URLSearchParams({ connectionId }).toString()}`
+    : ""
 }
 
 export async function fetchPagerdutyConnectorStatus(
   orgSlug: string,
   connectionId?: string,
 ): Promise<PagerdutyConnectorStatus> {
-  const res = await client[":orgSlug"].api.v1.connectors.pagerduty.status.$get({
-    param: { orgSlug },
-    ...connectionQuery(connectionId),
+  const res = await apiFetch(
+    `/${orgSlug}/api/v1/connectors/pagerduty/status${connectionSearch(connectionId)}`,
+    { credentials: "include" },
+  )
+  return readApiJson<PagerdutyConnectorStatus>(res, {
+    message: "Failed to fetch PagerDuty connector status",
   })
-  if (!res.ok) throw new Error("Failed to fetch PagerDuty connector status")
-  return res.json() as Promise<PagerdutyConnectorStatus>
 }
 
 export async function fetchPagerdutyConnectorConfig(
   orgSlug: string,
   connectionId?: string,
 ): Promise<PagerdutyConnectorConfig | null> {
-  const res = await client[":orgSlug"].api.v1.connectors.pagerduty.config.$get({
-    param: { orgSlug },
-    ...connectionQuery(connectionId),
+  const res = await apiFetch(
+    `/${orgSlug}/api/v1/connectors/pagerduty/config${connectionSearch(connectionId)}`,
+    { credentials: "include" },
+  )
+  return readApiJson<PagerdutyConnectorConfig | null>(res, {
+    emptyOn: [409, 404],
+    empty: null,
+    message: "Failed to load PagerDuty connector config",
   })
-  if (res.status === 409 || res.status === 404) return null
-  if (!res.ok) throw new Error("Failed to load PagerDuty connector config")
-  return res.json() as Promise<PagerdutyConnectorConfig>
 }
 
 export async function startPagerdutySetup(

@@ -15,9 +15,11 @@ keep the same `/mcp` path and swap in your own base URL.
 
 ## What the MCP gives an agent
 
-The primary tool is **`ctx_advisor`**. It helps an agent discover organization
-standards, architecture decisions, connected systems, and likely source areas
-before the agent plans or edits code.
+The tool is **`ctx_advisor`**. It asks your organization's first
+[Workspace](/docs/workspaces) a question, using the same knowledge files,
+graph, and linked code as [Workspace chat](/docs/workspaces/chat). It helps an
+agent discover standards, architecture decisions, connected systems, and
+likely source areas before it plans or edits code.
 
 It is strongest at questions such as:
 
@@ -32,6 +34,11 @@ Which services depend on this API, and which source files should I verify?
 `ctx_advisor` is not a code-review guarantee or a substitute for current source.
 Ask it to separate verified evidence from inference, then inspect critical files
 with the coding agent's repository tools.
+
+Pass the same optional `conversationId` and `currentProjectName` to continue one
+MCP thread across tool calls. Omit `conversationId` to start a new thread.
+MCP threads do not appear in the Workspace sidebar. An organization with no
+Workspace gets an error until one is created.
 
 ## Choose Your Install Path
 
@@ -118,7 +125,7 @@ Read the full guide: [Local memory](/docs/mcp/local-memory).
 
 ## API-key auth
 
-OAuth remains the default for a developer on a laptop — the CLI without `--auth`, and [Install MCPs via PR](/docs/git-repositories/install-mcps-via-pr). Use an API key only when a client cannot complete the browser OAuth flow (CI, headless agents, a shared GUI environment, or a host that accepts a static custom header).
+OAuth remains the default for a developer on a laptop — the CLI without `--auth`, and [Install MCPs via PR](/docs/mcp/install-mcps-via-pr). Use an API key only when a client cannot complete the browser OAuth flow (CI, headless agents, a shared GUI environment, or a host that accepts a static custom header).
 
 Keys authenticate MCP with the **`x-api-key`** header, or as **`Authorization: Bearer <api-key>`** on `/mcp` when a host cannot set custom headers (for example CodeRabbit). Prefer `x-api-key` when the client supports it. OAuth access tokens continue to use Bearer as well; the server resolves OAuth first and tries API-key verification only when an opaque MCP Bearer is not an OAuth token. Bearer API keys do not authenticate REST routes.
 
@@ -310,11 +317,11 @@ The PR workflow currently supports:
 
 It does not currently raise PRs for Codex or VS Code config. Use the CLI for those clients.
 
-To use the PR workflow, open **Repositories**, choose **Install MCP via PRs**, select agent config formats and repositories, review the JSON preview, then raise the PRs. Each repository gets its own branch and pull request.
+To use the PR workflow, choose to raise pull requests on the MCP step of onboarding, select agent config formats and repositories, review the JSON preview, then raise the PRs. Each repository gets its own branch and pull request.
 
 You must have a connected GitHub App installation, the target repositories must be visible to that installation, and your ctx| user must be an organization admin or owner.
 
-Read the full team rollout guide: [Install MCPs via PR](/docs/git-repositories/install-mcps-via-pr).
+Read the full team rollout guide: [Install MCPs via PR](/docs/mcp/install-mcps-via-pr).
 
 ## Manual Configuration
 
@@ -426,10 +433,10 @@ If your client's docs only mention `http` or SSE, check the current client docum
   require `?orgSlug=`. Replace `your-org` with your organization slug when
   configuring a legacy or manual connection explicitly.
 - Do not commit secrets into repository MCP config. Environment-variable references are safe to commit; the secret stays in the client process environment.
-- For team-wide repo config, prefer [Install MCPs via PR](/docs/git-repositories/install-mcps-via-pr) over asking every developer to copy JSON by hand.
+- For team-wide repo config, prefer [Install MCPs via PR](/docs/mcp/install-mcps-via-pr) over asking every developer to copy JSON by hand.
 
 ## Related
 
 - [Managing your organization](/docs/managing-organization) - org slug and membership
-- [Install MCPs via PR](/docs/git-repositories/install-mcps-via-pr) - team rollout through GitHub pull requests
+- [Install MCPs via PR](/docs/mcp/install-mcps-via-pr) - team rollout through GitHub pull requests
 - [Local memory](/docs/mcp/local-memory) - repo-local Markdown memory with capture hooks

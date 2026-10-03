@@ -48,9 +48,6 @@ function state(
       pkg("Library", "lib", "packages/shared"),
     ],
     extractedClaims: [],
-    objectIds: [],
-    touchedObjectIds: [],
-    claimsForProjection: [],
     ...overrides,
   }
 }

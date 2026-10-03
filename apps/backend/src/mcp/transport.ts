@@ -9,7 +9,7 @@ import {
   applyAttribution,
 } from "../observability/attribution.js"
 import { getLogger } from "../observability/logger.js"
-import { mcpAdvisorThreadId } from "./advisorThread.js"
+import { mcpAdvisorThreadId, mcpClientConversationId } from "./advisorThread.js"
 import { getMcpServerImplementation } from "./mcp-server-info.js"
 
 function isLoopbackHostname(hostname: string): boolean {
@@ -164,9 +164,9 @@ function attributionFromToolsCall(
     if (!parsed.success) continue
     const name = parsed.data.params.name.slice(0, 100)
     const args = parsed.data.params.arguments ?? {}
-    const rawConversationId = args.conversationId
+    const rawConversationId = mcpClientConversationId(args.conversationId)
     let conversationId: string | undefined
-    if (name === "ctx_advisor" && typeof rawConversationId === "string") {
+    if (name === "ctx_advisor" && rawConversationId) {
       conversationId = mcpAdvisorThreadId({
         orgId: requireCurrentOrgId(),
         actor: currentMcpActor(),

@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query"
 import { ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/Button"
 import { Spinner } from "@/components/ui/spinner"
+import { pollWhileOk } from "@/lib/api-result"
 import {
   atlassianConnectorKeys,
   fetchAtlassianConnectorStatus,
@@ -24,10 +25,13 @@ export function MergeConfigStep({
       fetchAtlassianConnectorStatus(orgSlug, atlassianConnectionId),
     enabled: true,
     refetchInterval: (query) => {
+      const interval = pollWhileOk(2000)(query)
+      if (interval === false) return false
       const d = query.state.data
       if (d?.setupPhase === "live") return false
-      if (d?.setupPhase === "initial_sync") return 2000
-      if (d?.pendingConfigPrCreating || !d?.pendingConfigPullUrl) return 2000
+      if (d?.setupPhase === "initial_sync") return interval
+      if (d?.pendingConfigPrCreating || !d?.pendingConfigPullUrl)
+        return interval
       return false
     },
   })

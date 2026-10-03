@@ -1,12 +1,14 @@
 import { parseEnv } from "../config/env.js"
-import {
-  getOrganizationSlugByOrgId,
-  markConfluenceSyncTargetInitialSync,
-} from "../models/confluence-sync-target.js"
+import { getOrganizationSlugByOrgId } from "../models/confluence-sync-target.js"
 import { loadConfluenceScopeFromRepo } from "../services/confluence/config-from-repo.js"
-import type { ParsedConfluenceRepoConfig } from "../services/confluence/config-yaml.js"
-import { runWorkflowWithWorkerWake } from "./client.js"
-import { confluenceSyncContent } from "./workflows/confluence-sync-content.js"
+import {
+  confluenceSpaceSelection,
+  type ParsedConfluenceRepoConfig,
+} from "../services/confluence/config-yaml.js"
+import {
+  connectorConfigKey,
+  enqueueConnectorContentSync,
+} from "./enqueue-connector-content-sync.js"
 
 export async function enqueueConfluenceFullSyncAfterConfigPush(input: {
   orgId: string
@@ -25,22 +27,15 @@ export async function enqueueConfluenceFullSyncAfterConfigPush(input: {
     return
   }
 
-  await markConfluenceSyncTargetInitialSync({
-    connectionId: input.connectionId,
-  })
-
-  void runWorkflowWithWorkerWake(confluenceSyncContent.spec, {
+  await enqueueConnectorContentSync({
     orgId: input.orgId,
     orgSlug,
     connectionId: input.connectionId,
-    scopeFromRepo: {
-      spaces: input.scopeFromRepo.spaces.map((s) => ({
-        spaceKey: s.spaceKey,
-        selectedPageIds: s.selectedPageIds,
-      })),
-    },
-  }).catch((err: unknown) => {
-    input.log.error(err instanceof Error ? err : new Error(String(err)))
+    provider: "confluence",
+    branch: input.branch,
+    configKey: connectorConfigKey({
+      spaces: confluenceSpaceSelection(input.scopeFromRepo.spaces),
+    }),
   })
 }
 

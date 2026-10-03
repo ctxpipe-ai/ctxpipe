@@ -19,6 +19,12 @@ const hostedOauth = {
 const meta = {
   title: "Components/Connections/PagerdutySetupDialog",
   component: PagerdutySetupDialog,
+  args: {
+    orgSlug,
+    isOpen: true,
+    onOpenChange: () => {},
+    onConnectionIdChange: () => {},
+  },
   decorators: entryPageInnerDecorators,
   parameters: {
     layout: "fullscreen",
@@ -279,65 +285,35 @@ export const TargetRepository: Story = {
           ),
           http.get(
             ({ request }) =>
-              new URL(request.url).pathname ===
-              `/${orgSlug}/api/v1/repositories`,
+              new URL(request.url).pathname.endsWith(
+                `/${orgSlug}/api/v1/workspaces`,
+              ),
             () =>
               HttpResponse.json({
+                lastUsedWorkspaceId: "ws_context",
                 items: [
                   {
-                    id: "repo_context",
-                    name: "acme/context",
-                    gitUrl: "https://github.com/acme/context.git",
+                    id: "ws_context",
+                    orgId: "org_story",
+                    slug: "context",
+                    displayName: "Context",
+                    workspaceRepositoryUrl: "https://github.com/acme/context.git",
+                    githubConnectionId: "con_github",
+                    desiredGeneration: 1,
+                    desiredSha: null,
+                    activeProjectionUrl: null,
+                    activeProjectionSha: null,
+                    indexedSha: null,
+                    writeStatus: "ready",
+                    hydrateStatus: "ready",
+                    hydrateError: null,
+                    readOnlyReason: null,
+                    mostRecentConversationId: null,
+                    migrationExportSha: null,
+                    createdAt: "2025-01-01T00:00:00.000Z",
+                    updatedAt: "2025-01-01T00:00:00.000Z",
                   },
                 ],
-              }),
-          ),
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith(
-                "/connectors/suggested-sync-target",
-              ),
-            () =>
-              HttpResponse.json({
-                target: {
-                  repositoryId: "repo_context",
-                  repositoryName: "acme/context",
-                  gitUrl: "https://github.com/acme/context.git",
-                  branch: "main",
-                  githubConnectionId: "con_github",
-                  usedBy: ["confluence"],
-                },
-              }),
-          ),
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.includes(
-                "/github/installation/repositories",
-              ),
-            () =>
-              HttpResponse.json({
-                repositories: [
-                  {
-                    id: 100,
-                    full_name: "acme/context",
-                    html_url: "https://github.com/acme/context",
-                    clone_url: "https://github.com/acme/context.git",
-                    name: "context",
-                    default_branch: "main",
-                  },
-                  {
-                    id: 101,
-                    full_name: "acme/incidents",
-                    html_url: "https://github.com/acme/incidents",
-                    clone_url: "https://github.com/acme/incidents.git",
-                    name: "incidents",
-                    default_branch: "main",
-                  },
-                ],
-                repositorySelection: "selected",
-                manageUrl:
-                  "https://github.com/organizations/acme/settings/installations/123",
-                hasMore: false,
               }),
           ),
         ],

@@ -106,6 +106,7 @@ export async function maybeEnqueueNotionSyncOnConfigPush(input: {
     if (!(await resolveConfigPathTouchedForRepo())) continue
 
     const bindings = await listNotionBindingsWithRepoByRepositoryId(
+      installationRow.orgId,
       repositoryRow.id,
     )
     for (const binding of bindings) {

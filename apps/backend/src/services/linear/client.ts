@@ -1,6 +1,7 @@
 import { LinearClient } from "@linear/sdk"
 import { z } from "zod"
 import type { Env } from "../../config/env.js"
+import { assertNotInOrgDbContext } from "../../db/client.js"
 import type { LinearConnection } from "../../models/linear-connector.js"
 import {
   getLinearOauthAppCreds,
@@ -80,6 +81,7 @@ async function requestLinearOAuthToken(
   creds: LinearOauthAppCreds,
   body: URLSearchParams,
 ): Promise<LinearOAuthTokenResponse> {
+  assertNotInOrgDbContext()
   assertLinearOauthAppCreds(creds)
   body.set("client_id", creds.clientId)
   body.set("client_secret", creds.clientSecret)
@@ -141,18 +143,23 @@ async function refreshConnectionToken(input: {
   }
   const expectedRefreshToken = input.connection.refreshToken
   const expectedAccessToken = input.connection.accessToken
-  const creds = getLinearOauthAppCreds(input.connection, input.env)
+  const refreshWithAppCreds = async () => {
+    const creds = getLinearOauthAppCreds(input.connection, input.env)
+    assertLinearOauthAppCreds(creds)
+    const token = await refreshLinearOAuthToken({
+      env: input.env,
+      refreshToken: expectedRefreshToken,
+      creds,
+    })
+    return {
+      accessToken: token.access_token,
+      refreshToken: token.refresh_token ?? expectedRefreshToken,
+      accessTokenExpiresAt: linearTokenExpiresAt(token.expires_in),
+    }
+  }
   const tokens = input.onTokenRefresh
     ? await input.onTokenRefresh(expectedRefreshToken, expectedAccessToken)
-    : await refreshLinearOAuthToken({
-        env: input.env,
-        refreshToken: expectedRefreshToken,
-        creds: (assertLinearOauthAppCreds(creds), creds),
-      }).then((token) => ({
-        accessToken: token.access_token,
-        refreshToken: token.refresh_token ?? expectedRefreshToken,
-        accessTokenExpiresAt: linearTokenExpiresAt(token.expires_in),
-      }))
+    : await refreshWithAppCreds()
   input.connection.accessToken = tokens.accessToken
   input.connection.refreshToken = tokens.refreshToken
   input.connection.accessTokenExpiresAt = tokens.accessTokenExpiresAt
@@ -277,7 +284,7 @@ export async function discoverLinearScopes(input: {
       includeDocuments ||
       includeInitiatives
     ) {
-      const data = await linearGraphql(
+      const data: DiscoverScopesQuery = await linearGraphql(
         client,
         DiscoverScopesDocument,
         {

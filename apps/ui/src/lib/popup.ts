@@ -1,8 +1,12 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { useEffect, useRef } from "react"
-import { githubConnectorKeys } from "@/features/connectors/queries/github-connector"
+import {
+  githubConnectorKeys,
+  githubInstallationIsLinked,
+} from "@/features/connectors/queries/github-connector"
 import { orgConnectionsKeys } from "@/features/connectors/queries/org-connections"
 import { client } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 
 /**
  * Shared key for the GitHub setup popup to relay `installation_id` back to the
@@ -281,7 +285,7 @@ export async function handleGithubSetupPopupResult(
         (typeof popupFlowNonce === "string" &&
           popupFlowNonce.length > 0 &&
           popupFlowNonce === activePopupFlow.nonce)
-      if (installationId && orgSlug) {
+      if (githubInstallationIsLinked({ installationId }) && orgSlug) {
         if (nonceMatches) {
           const response = await client[
             ":orgSlug"
@@ -292,7 +296,8 @@ export async function handleGithubSetupPopupResult(
               ...(connectionId ? { connectionId } : {}),
             },
           })
-          status = response.ok ? "registered" : "registration_failed"
+          await readApiJson(response)
+          status = "registered"
         }
       }
     } catch {
@@ -338,12 +343,14 @@ export async function handleGithubSetupPopupResult(
       const response = await client[":orgSlug"].api.v1.github.installation.$get(
         {
           param: { orgSlug },
+          query: {},
         },
       )
-      if (response.ok) {
-        const linked = (await response.json()) as { id: string } | null
-        if (linked) status = "registered"
-      }
+      const linked = await readApiJson<{
+        id?: string
+        installationId?: number | null
+      } | null>(response)
+      if (githubInstallationIsLinked(linked)) status = "registered"
     } catch {
       // Keep "no_result" and let caller decide UX.
     }

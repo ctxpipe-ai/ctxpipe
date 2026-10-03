@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { TextField } from "@/components/ui/TextField"
+import { apiFetch, readApiJson } from "@/lib/api-result"
 import { displayOAuthCallbackUrl } from "../lib/display-oauth-callback-url"
 import {
   atlassianConnectorKeys,
@@ -185,7 +186,7 @@ export function OrgAtlassianOauthPanel({
   const save = useMutation({
     mutationFn: async () => {
       const q = new URLSearchParams({ connectionId })
-      const res = await fetch(
+      const res = await apiFetch(
         `/${orgSlug}/api/v1/org/atlassian-oauth?${q.toString()}`,
         {
           method: "PUT",
@@ -194,10 +195,7 @@ export function OrgAtlassianOauthPanel({
           body: JSON.stringify({ clientId, clientSecret }),
         },
       )
-      if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { error?: string }
-        throw new Error(j.error ?? res.statusText)
-      }
+      await readApiJson(res, { message: res.statusText })
     },
     onSuccess: async () => {
       setClientSecret("")

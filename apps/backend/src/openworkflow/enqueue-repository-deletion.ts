@@ -1,4 +1,4 @@
-import { withOrgDbContext } from "../db/client.js"
+import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
 import { formatUnknownError } from "../db/transientDbRetry.js"
 import { markRepositoryUnindexing } from "../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
@@ -41,6 +41,7 @@ export async function enqueueRepositoryDeletionWorkflow(
   input: RepositoryDeletionEnqueueInput,
   log: { error: (err: Error) => void },
 ): Promise<RepositoryDeletionEnqueueResult | null> {
+  assertNotInOrgDbContext()
   const marked = await withOrgDbContext(input.orgId, () =>
     markRepositoryUnindexing({ repositoryId: input.repositoryId }),
   )

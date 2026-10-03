@@ -20,18 +20,17 @@ import {
 import type { SeparatorProps } from "react-aria-components"
 import { dropdownItemStylesDark } from "@/components/ui/ListBox"
 import { Popover, type PopoverProps } from "@/components/ui/Popover"
+import { twMerge } from "tailwind-merge"
 
 export function Menu<T extends object>(props: MenuProps<T>) {
   return (
     <AriaMenu
       {...props}
       className={composeRenderProps(props.className, (className) =>
-        [
+        twMerge(
           "font-sans p-0.5 outline outline-0 max-h-[inherit] overflow-auto rounded-none",
           className,
-        ]
-          .filter(Boolean)
-          .join(" "),
+        ),
       )}
     />
   )

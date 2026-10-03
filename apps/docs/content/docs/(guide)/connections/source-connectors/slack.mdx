@@ -1,6 +1,6 @@
 ---
 title: Slack connector
-description: Capture specific Slack threads into a GitHub context repository by mentioning the ctx| bot.
+description: Capture specific Slack threads into a Workspace by mentioning the ctx| bot.
 ---
 
 <Callout title="Fully managed app flow">
@@ -10,12 +10,12 @@ description: Capture specific Slack threads into a GitHub context repository by 
 </Callout>
 
 The **Slack connector** promotes **durable engineering context** — decisions,
-incidents, and design debates — from Slack into a git-backed context repository.
+incidents, and design debates — from Slack into a [Workspace](/docs/workspaces).
 It does **not** mirror whole channels, index the workspace, or sync banter in
 the background. Captures are **auditable** (git history records who captured,
 when, and which Slack thread), not a reviewed pull-request gate.
 
-Connect Slack to ctx|, bind a context repository, then **@mention** the bot in
+Connect Slack to ctx|, choose a Workspace, then **@mention** the bot in
 Slack. Mentioning the bot starts a small in-thread agent. Ask it to **capture
 this**, or mention it with no extra text, to snapshot the thread as Markdown
 under `slack/channels/`. Later mentions on the same thread **update the same
@@ -40,7 +40,7 @@ git-native, ingested context that the connector does.
 ## Prerequisites
 
 - An active GitHub connection in ctx|.
-- A context repository (we recommend [`ctxpipe-context`](/docs/connections/context-repository)).
+- A [Workspace](/docs/workspaces) whose repository the ctx| GitHub App can write to.
 - Permission to install the ctx| Slack app in the workspace.
 - Ability to `/invite` the bot into any channel where you will capture threads.
 
@@ -61,12 +61,12 @@ git-native, ingested context that the connector does.
   </Step>
 
   <Step>
-    ### Bind a context repository
+    ### Select a workspace
 
-    Select the repository that should receive captured threads. ctx| commits
-    snapshots to its default branch. Prefer a separate private repo when captures
-    may include sensitive private-channel content. The ctx| GitHub App must have
-    access to the selected repository and permission to write contents.
+    Choose the Workspace that should receive captured threads. ctx| commits
+    snapshots to its repository's default branch. Prefer a separate Workspace
+    with a private repository when captures may include sensitive
+    private-channel content.
   </Step>
 
   <Step>
@@ -134,7 +134,7 @@ supported in v1.
 
 ## Related pages
 
-- [Connector context repository](/docs/connections/context-repository)
+- [Workspaces](/docs/workspaces)
 - [Self-host Slack](/docs/self-hosting/slack)
-- [Ingestion](/docs/connections/ingestion)
+- [Indexing](/docs/connections/ingestion)
 - [Slack MCP server (external)](https://docs.slack.dev/ai/slack-mcp-server)

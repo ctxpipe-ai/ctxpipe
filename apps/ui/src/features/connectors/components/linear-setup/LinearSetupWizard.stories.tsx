@@ -121,6 +121,21 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+export const Loading: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get(`/${orgSlug}/api/v1/connectors/linear/status`, async () => {
+            await delay("infinite")
+            return HttpResponse.json(baseStatus)
+          }),
+        ],
+      },
+    },
+  },
+}
+
 export const ConnectWorkspace: Story = {
   args: { connectionId: undefined },
   parameters: {
@@ -247,7 +262,7 @@ export const SelectRepository: Story = {
                 gitUrl: "https://github.com/acme/ctxpipe-context.git",
                 branch: "main",
                 githubConnectionId: "github_1",
-                usedBy: ["github"],
+                usedBy: ["notion"],
               },
             }),
           ),

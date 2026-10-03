@@ -5,6 +5,8 @@ import { REPO_CACHE_DIR } from "../../config/paths.js"
 /** Matches backend `DEFAULT_CHECKOUT_KEY` for the primary branch checkout. */
 export const DEFAULT_CHECKOUT_KEY = "default"
 
+export { workspaceCheckoutKey } from "../../../../../shared/workspace-checkout.js"
+
 /** Git working tree for a given ref checkout. */
 export function repoCheckoutPath(
   orgId: string,

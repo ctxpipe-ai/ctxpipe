@@ -1,18 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-const {
-  apiKeySpy,
-  withOrgDbContextMock,
-  withGraphClientMock,
-  purgeOrgDataBeforeAuthDeleteMock,
-} = vi.hoisted(() => ({
+const { apiKeySpy, purgeOrgDataBeforeAuthDeleteMock } = vi.hoisted(() => ({
   apiKeySpy: vi.fn(),
-  withOrgDbContextMock: vi.fn(
-    async (_orgId: string, handler: () => Promise<unknown>) => handler(),
-  ),
-  withGraphClientMock: vi.fn(
-    async (_ctx: unknown, handler: () => Promise<unknown>) => handler(),
-  ),
   purgeOrgDataBeforeAuthDeleteMock: vi.fn(async () => undefined),
 }))
 
@@ -24,15 +13,8 @@ vi.mock("@better-auth/api-key", async (importOriginal) => {
   return { ...actual, apiKey: apiKeySpy }
 })
 
-vi.mock("../db/client.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../db/client.js")>()
-  return { ...actual, withOrgDbContext: withOrgDbContextMock }
-})
-
-vi.mock("../platform/graph/client.js", () => ({
-  withGraphClient: withGraphClientMock,
-}))
-
+// Side-effect collaborator: Postgres + codesearch + Falkor. The hook's job is
+// to call it; wrappers live inside purge, not this module.
 vi.mock("../domain/repositoryDeletion.js", () => ({
   purgeOrgDataBeforeAuthDelete: purgeOrgDataBeforeAuthDeleteMock,
 }))
@@ -99,8 +81,6 @@ function getPluginOptions<T>(plugin: unknown): T | undefined {
 describe("createBetterAuth", () => {
   afterEach(() => {
     vi.unstubAllEnvs()
-    withOrgDbContextMock.mockClear()
-    withGraphClientMock.mockClear()
     purgeOrgDataBeforeAuthDeleteMock.mockClear()
   })
 
@@ -201,14 +181,6 @@ describe("createBetterAuth", () => {
       organization: { id: "org_acme", slug: "acme", name: "Acme" },
     })
 
-    expect(withOrgDbContextMock).toHaveBeenCalledWith(
-      "org_acme",
-      expect.any(Function),
-    )
-    expect(withGraphClientMock).toHaveBeenCalledWith(
-      { orgId: "org_acme", orgSlug: "acme" },
-      expect.any(Function),
-    )
     expect(purgeOrgDataBeforeAuthDeleteMock).toHaveBeenCalledWith("org_acme")
   })
 

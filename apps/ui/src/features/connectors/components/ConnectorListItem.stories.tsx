@@ -33,7 +33,7 @@ const shared = {
   workspace: "acme",
   scope: "12 repositories",
   syncRepository: "—",
-  actionLabel: "Manage repositories",
+  actionLabel: "Link to a workspace",
   onAction: () => {},
 }
 

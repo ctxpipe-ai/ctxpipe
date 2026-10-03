@@ -1,23 +1,77 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
-import type { Context } from "hono"
+import { reconstructChat } from "@tanstack/ai-persistence"
 import type { AppEnv } from "../../app/env.js"
 import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
-import { filterInternalNodeMessageChunks } from "../../domain/conversations/internalNodeMessageFilter.js"
-import { createRenameStreamEnhancer } from "../../domain/conversations/renameStream.js"
+import { parseEnv } from "../../config/env.js"
 import {
-  createDataStreamConversationTransport,
-  loadConversationUiMessages,
-  toPromptFromIncomingMessage,
+  type ConversationChatMessage,
+  type ConversationChatRequest,
+  ConversationUiMessagesTimeoutError,
+  loadConversationUiMessagesBounded,
+  parseConversationChatRequest,
+  resolveCreatedConversationId,
+  workspaceChatStreamResponse,
 } from "../../domain/conversations/transport.js"
+import {
+  conversationSessionBranch,
+  shouldDestroyChatSandbox,
+} from "../../domain/workspaces/chat-lifecycle.js"
+import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
+import { getConversationSandboxBinding } from "../../domain/workspaces/conversation-files.js"
+import {
+  planCapturedConversationPublication,
+  pushConversationSessionBranch,
+} from "../../domain/workspaces/conversation-publish.js"
+import {
+  sameWorkspaceBinding,
+  sameWorkspaceRevision,
+} from "../../domain/workspaces/revision.js"
+import {
+  conversationHasStoredTurns,
+  warmTanstackWorkspaceChat,
+} from "../../domain/workspaces/tanstack-workspace-chat.js"
+import { workspaceChatPersistence } from "../../domain/workspaces/workspace-chat-persistence.js"
+import {
+  persistWorkspaceChatUserTurnListed,
+  resolveWorkspaceChatSendRuntime,
+} from "../../domain/workspaces/workspace-chat-send-runtime.js"
+import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
+import {
+  destroySandboxesForConversation,
+  withDestroyedConversationSandboxes,
+} from "../../domain/workspaces/workspace-sandbox-cleanup.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
+import {
+  conversationIdFromIdempotencyKey,
+  generateObjectId,
+} from "../../lib/id.js"
 import { PageInfoSchema } from "../../lib/pagination.js"
 import {
+  type ConversationRecord,
   deleteConversation,
+  discardUnstartedConversation,
   ensureConversation,
   getConversation,
   listConversationsPaginated,
-  touchConversationLastMessage,
+  persistConversationPublication,
   updateConversation,
 } from "../../models/conversations.js"
+import {
+  getDesiredWorkspaceRevision,
+  getWorkspaceById,
+} from "../../models/workspaces.js"
+import { applyAttribution } from "../../observability/attribution.js"
+import { getLogger } from "../../observability/logger.js"
+import {
+  createPullRequestFromBranch,
+  getPullRequestState,
+} from "../../services/github/installation-write-client.js"
+import {
+  conversationFileRoutes,
+  conversationPublicPrUrl,
+  conversationPublicTreeUrl,
+  readySandboxHandle,
+} from "./conversation-files-routes.js"
 
 const ErrorResponseSchema = z
   .object({ error: z.string() })
@@ -28,13 +82,43 @@ const ConversationSchema = z
     id: z.string(),
     orgId: z.string(),
     userId: z.string().nullable(),
+    workspaceId: z.string().nullable(),
     name: z.string(),
     source: z.string().nullable(),
+    lastBranch: z.string().nullable().optional(),
+    lastChatPrNumber: z.number().int().nullable().optional(),
+    lastChatPrUrl: z.string().nullable().optional(),
+    prState: z.enum(["open", "closed", "merged"]).nullable().optional(),
+    branchTreeUrl: z.string().nullable().optional(),
     lastMessageAt: z.string().datetime().nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })
   .openapi("Conversation")
+
+function publicConversation(
+  row: ConversationRecord,
+  workspaceRepositoryUrl = "",
+) {
+  return ConversationSchema.parse({
+    ...row,
+    userId: row.userId ?? null,
+    workspaceId: row.workspaceId ?? null,
+    lastBranch: row.lastBranch ?? null,
+    lastChatPrNumber: row.lastChatPrNumber ?? null,
+    lastChatPrUrl: conversationPublicPrUrl({
+      workspaceRepositoryUrl: row.lastChatPrRevision?.remote.url ?? "",
+      lastChatPrNumber: row.lastChatPrNumber ?? null,
+    }),
+    branchTreeUrl: conversationPublicTreeUrl({
+      workspaceRepositoryUrl,
+      lastBranch: row.lastBranch ?? null,
+    }),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
+  })
+}
 
 const ConversationListResponseSchema = z
   .object({
@@ -45,6 +129,7 @@ const ConversationListResponseSchema = z
 
 const ListConversationsQuerySchema = z
   .object({
+    workspaceId: z.string().min(1).optional(),
     source: z.string().optional(),
     first: z.coerce.number().int().min(1).max(100).optional().default(10),
     after: z.string().optional(),
@@ -68,9 +153,19 @@ const IncomingMessageSchema = z
 
 const CreateConversationMessageRequestSchema = z
   .object({
-    message: IncomingMessageSchema,
+    message: IncomingMessageSchema.optional(),
+    messages: z.array(z.unknown()).optional(),
+    tools: z.array(z.unknown()).optional(),
+    context: z.array(z.unknown()).optional(),
+    state: z.record(z.string(), z.unknown()).optional(),
+    idempotencyKey: z.string().optional(),
     source: z.string().optional(),
+    workspaceId: z.string().optional(),
+    threadId: z.string().optional(),
+    runId: z.string().optional(),
+    forwardedProps: z.record(z.string(), z.unknown()).optional(),
   })
+  .passthrough()
   .openapi("CreateConversationMessageRequest")
 
 const ConversationDetailResponseSchema = z
@@ -93,6 +188,10 @@ const listConversationsRoute = createRoute({
       },
       description: "Conversation list",
     },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Bad request",
+    },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
@@ -104,11 +203,18 @@ const listConversationsRoute = createRoute({
   },
 })
 
+const GetConversationQuerySchema = z
+  .object({
+    workspaceId: z.string().optional(),
+  })
+  .openapi("GetConversationQuery")
+
 const getConversationRoute = createRoute({
   method: "get",
   path: "/{conversationId}",
   request: {
     params: ConversationParamsSchema,
+    query: GetConversationQuerySchema,
   },
   responses: {
     200: {
@@ -124,6 +230,10 @@ const getConversationRoute = createRoute({
     404: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
+    },
+    503: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Conversation messages timed out",
     },
   },
 })
@@ -184,6 +294,42 @@ const deleteConversationRoute = createRoute({
   },
 })
 
+const postConversationsRoute = createRoute({
+  method: "post",
+  path: "/",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: CreateConversationMessageRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Streaming response",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Bad request",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "Workspace required or conversation is already running a turn",
+    },
+    500: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Failed to start the conversation stream",
+    },
+  },
+})
+
 const postConversationMessageRoute = createRoute({
   method: "post",
   path: "/{conversationId}",
@@ -209,53 +355,309 @@ const postConversationMessageRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
     },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "Workspace required or conversation is already running a turn",
+    },
+    500: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Failed to start the conversation stream",
+    },
   },
 })
 
-async function isOrgAdminOrOwner(c: Context<AppEnv>): Promise<boolean> {
-  const orgId = c.get("orgId")
-  if (!orgId) return false
-  return hasOrgAdminOrOwnerRole({
-    headers: c.req.raw.headers,
-    orgId,
+const PrepareConversationRequestSchema = z
+  .object({
+    workspaceId: z.string().min(1),
+  })
+  .openapi("PrepareConversationRequest")
+
+const ReconstructChatResponseSchema = z
+  .object({
+    messages: z.array(z.unknown()),
+    activeRun: z.object({ runId: z.string() }).nullable(),
+    interrupts: z.unknown().nullable(),
+  })
+  .openapi("ReconstructChatResponse")
+
+const getConversationChatRoute = createRoute({
+  method: "get",
+  path: "/{conversationId}/chat",
+  request: {
+    params: ConversationParamsSchema,
+    query: GetConversationQuerySchema,
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: ReconstructChatResponseSchema },
+      },
+      description: "Persisted TanStack chat transcript",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    403: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Forbidden",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+  },
+})
+
+const postConversationPrepareRoute = createRoute({
+  method: "post",
+  path: "/{conversationId}/prepare",
+  request: {
+    params: ConversationParamsSchema,
+    body: {
+      content: {
+        "application/json": { schema: PrepareConversationRequestSchema },
+      },
+    },
+  },
+  responses: {
+    204: {
+      description: "Workspace chat sandbox is warming",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Bad request",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    503: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Prepare failed",
+    },
+  },
+})
+
+const CreateConversationPullRequestSchema = z
+  .object({
+    title: z.string().min(1).optional(),
+    body: z.string().optional(),
+  })
+  .openapi("CreateConversationPullRequest")
+
+const ConversationPullRequestResponseSchema = z
+  .object({
+    branch: z.string(),
+    prNumber: z.number().int(),
+    pullUrl: z.string(),
+    prState: z.enum(["open", "closed", "merged"]),
+  })
+  .openapi("ConversationPullRequestResponse")
+
+const getConversationPullRequestRoute = createRoute({
+  method: "get",
+  path: "/{conversationId}/pull-request",
+  request: { params: ConversationParamsSchema },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: ConversationPullRequestResponseSchema },
+      },
+      description: "Current conversation pull request",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+  },
+})
+
+const postConversationPullRequestRoute = createRoute({
+  method: "post",
+  path: "/{conversationId}/pull-request",
+  request: {
+    params: ConversationParamsSchema,
+    body: {
+      content: {
+        "application/json": { schema: CreateConversationPullRequestSchema },
+      },
+    },
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: ConversationPullRequestResponseSchema },
+      },
+      description: "Brokered pull request",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Refused",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+    503: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Sandbox provider unavailable",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Chat sandbox missing",
+    },
+  },
+})
+
+async function getReadableConversation(
+  conversationId: string,
+  input: { workspaceId?: string; orgId?: string | null; headers: Headers },
+) {
+  const conversation = await getConversation(conversationId, {
+    workspaceId: input.workspaceId,
+  })
+  if (conversation) return conversation
+  if (
+    !input.orgId ||
+    !(await hasOrgAdminOrOwnerRole({
+      headers: input.headers,
+      orgId: input.orgId,
+    }))
+  ) {
+    return null
+  }
+  return getConversation(conversationId, {
+    workspaceId: input.workspaceId,
+    orgService: true,
   })
 }
 
+function withConversationIdHeader(response: Response, conversationId: string) {
+  const headers = new Headers(response.headers)
+  headers.set("x-conversation-id", conversationId)
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
+}
+
+function workspaceConversationStream(
+  conversationId: string,
+  parsed: ConversationChatRequest,
+  request: Request,
+  orgSlug: string | null | undefined,
+) {
+  return withConversationIdHeader(
+    workspaceChatStreamResponse(
+      {
+        conversationId,
+        checkpointNamespace: "",
+        prompt: parsed.prompt,
+        messages: parsed.messages,
+        threadId: parsed.threadId ?? conversationId,
+        runId: parsed.runId,
+        source: parsed.source ?? null,
+        workspaceId: parsed.workspaceId,
+        orgId: "",
+        orgSlug,
+        resolveRuntime: () =>
+          resolveWorkspaceChatSendRuntime({
+            conversationId,
+            workspaceId: parsed.workspaceId,
+            source: parsed.source,
+          }),
+        onUserPersist: () => persistWorkspaceChatUserTurnListed(conversationId),
+        onError: async () => {
+          if (!(await conversationHasStoredTurns(conversationId))) {
+            await discardUnstartedConversation(conversationId)
+          }
+        },
+      },
+      request,
+    ),
+    conversationId,
+  )
+}
+
 export const conversationRoutes = new OpenAPIHono<AppEnv>()
+  .route("/", conversationFileRoutes)
   .openapi(listConversationsRoute, async (c) => {
     const user = c.get("user")
     const session = c.get("session")
     if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
 
     const query = ListConversationsQuerySchema.parse({
+      workspaceId: c.req.query("workspaceId"),
       source: c.req.query("source"),
       first: c.req.query("first"),
       after: c.req.query("after"),
     })
-
-    const orgService = query.source === "mcp-service"
-    if (orgService && !(await isOrgAdminOrOwner(c))) {
-      return c.json({ error: "Forbidden" }, 403)
+    const orgId = c.get("orgId")
+    if (query.source === "mcp-service") {
+      if (
+        !orgId ||
+        !(await hasOrgAdminOrOwnerRole({
+          headers: c.req.raw.headers,
+          orgId,
+        }))
+      ) {
+        return c.json({ error: "Forbidden" }, 403)
+      }
+      const { items: rows, pageInfo } = await listConversationsPaginated({
+        orgService: true,
+        workspaceId: query.workspaceId?.trim() || undefined,
+        first: query.first,
+        after: query.after,
+      })
+      const listedWorkspace = query.workspaceId?.trim()
+        ? await getWorkspaceById(query.workspaceId.trim())
+        : null
+      const items = rows.map((row) =>
+        publicConversation(row, listedWorkspace?.workspaceRepositoryUrl),
+      )
+      return c.json({ items, pageInfo }, 200)
     }
-
+    if (query.source === "mcp") {
+      const { items: rows, pageInfo } = await listConversationsPaginated({
+        source: "mcp",
+        orgService: false,
+        workspaceId: query.workspaceId?.trim() || undefined,
+        first: query.first,
+        after: query.after,
+      })
+      const listedWorkspace = query.workspaceId?.trim()
+        ? await getWorkspaceById(query.workspaceId.trim())
+        : null
+      const items = rows.map((row) =>
+        publicConversation(row, listedWorkspace?.workspaceRepositoryUrl),
+      )
+      return c.json({ items, pageInfo }, 200)
+    }
+    if (!query.workspaceId?.trim()) {
+      return c.json({ error: "workspace_required" }, 400)
+    }
     const { items: rows, pageInfo } = await listConversationsPaginated({
-      source: orgService
-        ? undefined
-        : query.source === "all"
-          ? undefined
-          : query.source,
-      orgService,
+      source: "ui",
+      workspaceId: query.workspaceId.trim(),
       first: query.first,
       after: query.after,
     })
+    const listedWorkspace = await getWorkspaceById(query.workspaceId.trim())
 
-    const items = rows.map((row) => ({
-      ...row,
-      userId: row.userId ?? null,
-      createdAt: row.createdAt.toISOString(),
-      updatedAt: row.updatedAt.toISOString(),
-      lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
-    }))
+    const items = rows.map((row) =>
+      publicConversation(row, listedWorkspace?.workspaceRepositoryUrl),
+    )
     return c.json({ items, pageInfo }, 200)
   })
   .openapi(getConversationRoute, async (c) => {
@@ -264,28 +666,74 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
 
     const conversationId = c.req.param("conversationId")
-    let conversation = await getConversation(conversationId)
-    if (!conversation && (await isOrgAdminOrOwner(c))) {
-      conversation = await getConversation(conversationId, { orgService: true })
-    }
-    if (!conversation) return c.json({ error: "Not found" }, 404)
-
-    const messages = await loadConversationUiMessages({
-      conversationId,
-      checkpointNamespace: "",
+    const workspaceId = c.req.query("workspaceId")
+    const conversation = await getReadableConversation(conversationId, {
+      workspaceId,
+      orgId: c.get("orgId"),
+      headers: c.req.raw.headers,
     })
+    if (!conversation) return c.json({ error: "Not found" }, 404)
+    applyAttribution({ "ctxpipe.conversation.id": conversation.id })
+
+    let messages: ConversationChatMessage[]
+    try {
+      messages = await loadConversationUiMessagesBounded({
+        conversationId,
+        checkpointNamespace: "",
+        workspaceId: conversation.workspaceId,
+      })
+    } catch (error) {
+      if (error instanceof ConversationUiMessagesTimeoutError) {
+        getLogger().error(error, {
+          step: "conversation.get.messages",
+          conversationId,
+        })
+        return c.json({ error: "Conversation messages unavailable" }, 503)
+      }
+      throw error
+    }
+    const detailWorkspace = conversation.workspaceId
+      ? await getWorkspaceById(conversation.workspaceId)
+      : null
 
     return c.json(
       {
-        conversation: {
-          ...conversation,
-          userId: conversation.userId ?? null,
-          createdAt: conversation.createdAt.toISOString(),
-          updatedAt: conversation.updatedAt.toISOString(),
-          lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null,
-        },
+        conversation: publicConversation(
+          conversation,
+          detailWorkspace?.workspaceRepositoryUrl,
+        ),
         messages,
       },
+      200,
+    )
+  })
+  .openapi(getConversationChatRoute, async (c) => {
+    const user = c.get("user")
+    const session = c.get("session")
+    if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
+
+    const conversationId = c.req.param("conversationId")
+    const workspaceId = c.req.query("workspaceId")
+    const conversation = await getReadableConversation(conversationId, {
+      workspaceId,
+      orgId: c.get("orgId"),
+      headers: c.req.raw.headers,
+    })
+    if (!conversation) return c.json({ error: "Not found" }, 404)
+    applyAttribution({ "ctxpipe.conversation.id": conversation.id })
+
+    const url = new URL(c.req.url)
+    url.searchParams.set("threadId", conversationId)
+    const reconstructed = await reconstructChat(
+      workspaceChatPersistence(),
+      new Request(url),
+      { authorize: async (threadId) => threadId === conversationId },
+    )
+    if (reconstructed.status === 403) {
+      return c.json({ error: "Forbidden" }, 403)
+    }
+    return c.json(
+      ReconstructChatResponseSchema.parse(await reconstructed.json()),
       200,
     )
   })
@@ -296,27 +744,12 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
 
     const conversationId = c.req.param("conversationId")
     const body = UpdateConversationRequestSchema.parse(await c.req.json())
-    let updated = await updateConversation(conversationId, {
+    const updated = await updateConversation(conversationId, {
       name: body.name,
     })
-    if (!updated && (await isOrgAdminOrOwner(c))) {
-      updated = await updateConversation(conversationId, {
-        name: body.name,
-        orgService: true,
-      })
-    }
     if (!updated) return c.json({ error: "Not found" }, 404)
 
-    return c.json(
-      {
-        ...updated,
-        userId: updated.userId ?? null,
-        createdAt: updated.createdAt.toISOString(),
-        updatedAt: updated.updatedAt.toISOString(),
-        lastMessageAt: updated.lastMessageAt?.toISOString() ?? null,
-      },
-      200,
-    )
+    return c.json(publicConversation(updated), 200)
   })
   .openapi(deleteConversationRoute, async (c) => {
     const user = c.get("user")
@@ -324,13 +757,88 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
 
     const conversationId = c.req.param("conversationId")
-    let deleted = await deleteConversation(conversationId)
-    if (!deleted && (await isOrgAdminOrOwner(c))) {
-      deleted = await deleteConversation(conversationId, { orgService: true })
+    const existing = await getConversation(conversationId)
+    if (!existing) return c.json({ error: "Not found" }, 404)
+    const shouldDestroy = shouldDestroyChatSandbox({
+      conversationDeleted: true,
+      lastTurnAt: existing.lastMessageAt ?? null,
+      now: new Date(),
+    })
+    if (shouldDestroy) {
+      const log = getLogger()
+      log.set({
+        conversationId,
+        workspaceId: existing.workspaceId ?? null,
+        sandbox: "chat",
+      })
+      log.info("destroy chat sandbox after conversation delete")
     }
+    const deleted =
+      shouldDestroy && existing.workspaceId
+        ? await withDestroyedConversationSandboxes(
+            {
+              conversationId,
+              orgId: existing.orgId,
+              workspaceId: existing.workspaceId,
+            },
+            () => deleteConversation(conversationId),
+          )
+        : await deleteConversation(conversationId)
     if (!deleted) return c.json({ error: "Not found" }, 404)
+    if (shouldDestroy && !existing.workspaceId) {
+      await destroySandboxesForConversation(conversationId)
+    }
 
     return c.body(null, 204)
+  })
+  .openapi(postConversationsRoute, async (c) => {
+    const user = c.get("user")
+    const session = c.get("session")
+    if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
+
+    const raw = await c.req.json()
+    let parsed: ConversationChatRequest
+    try {
+      parsed = await parseConversationChatRequest(raw)
+    } catch {
+      return c.json({ error: "Message text is required" }, 400)
+    }
+    if (parsed.prompt.length === 0) {
+      return c.json({ error: "Message text is required" }, 400)
+    }
+    if (!parsed.workspaceId.trim()) {
+      return c.json({ error: "workspace_required" }, 400)
+    }
+
+    const idempotencyKey =
+      c.req.header("Idempotency-Key")?.trim() ||
+      (raw &&
+      typeof raw === "object" &&
+      "idempotencyKey" in raw &&
+      typeof raw.idempotencyKey === "string"
+        ? raw.idempotencyKey.trim()
+        : "")
+    const conversationId = resolveCreatedConversationId({
+      conversationId: parsed.conversationId,
+      idempotencyKey,
+      userId: c.get("user")?.id ?? "",
+      workspaceId: parsed.workspaceId,
+      generateId: () => generateObjectId("conv"),
+      idFromIdempotencyKey: conversationIdFromIdempotencyKey,
+    })
+    applyAttribution({ "ctxpipe.conversation.id": conversationId })
+    if (idempotencyKey && (await conversationHasStoredTurns(conversationId))) {
+      return withConversationIdHeader(
+        new Response("", { status: 200 }),
+        conversationId,
+      )
+    }
+    return workspaceConversationStream(
+      conversationId,
+      parsed,
+      c.req.raw,
+      c.get("orgSlug"),
+    )
   })
   .openapi(postConversationMessageRoute, async (c) => {
     const user = c.get("user")
@@ -338,40 +846,244 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
 
     const conversationId = c.req.param("conversationId")
-    const body = CreateConversationMessageRequestSchema.parse(
-      await c.req.json(),
-    )
-    const prompt = toPromptFromIncomingMessage(body.message)
-    if (prompt.length === 0) {
+    applyAttribution({ "ctxpipe.conversation.id": conversationId })
+    let parsed: ConversationChatRequest
+    try {
+      parsed = await parseConversationChatRequest(await c.req.json())
+    } catch {
       return c.json({ error: "Message text is required" }, 400)
     }
-
-    await ensureConversation({ id: conversationId, source: body.source })
-    void touchConversationLastMessage(conversationId)
-
-    const transport = createDataStreamConversationTransport()
-    const internalFilterEnhancer = {
-      wrapGraphStream(stream: AsyncIterable<unknown>) {
-        return filterInternalNodeMessageChunks(stream)
-      },
-      getFlushTransform() {
-        return new TransformStream({
-          transform(chunk, controller) {
-            controller.enqueue(chunk)
-          },
-        })
-      },
+    if (parsed.prompt.length === 0) {
+      return c.json({ error: "Message text is required" }, 400)
     }
-    const renameEnhancer = createRenameStreamEnhancer({
-      source: body.source ?? undefined,
-    })
+    if (!parsed.workspaceId.trim()) {
+      return c.json({ error: "workspace_required" }, 400)
+    }
 
-    return transport.toResponse({
+    return workspaceConversationStream(
       conversationId,
-      checkpointNamespace: "",
-      prompt,
-      source: body.source ?? null,
-      userId: c.get("user")?.id,
-      streamEnhancers: [internalFilterEnhancer, renameEnhancer],
+      parsed,
+      c.req.raw,
+      c.get("orgSlug"),
+    )
+  })
+  .openapi(postConversationPrepareRoute, async (c) => {
+    const user = c.get("user")
+    const session = c.get("session")
+    if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
+
+    const conversationId = c.req.param("conversationId")
+    applyAttribution({ "ctxpipe.conversation.id": conversationId })
+    const body = PrepareConversationRequestSchema.parse(await c.req.json())
+    const conversation = await ensureConversation({
+      id: conversationId,
+      source: "ui",
+      workspaceId: body.workspaceId,
     })
+    const workspace = conversation.workspaceId
+      ? await getWorkspaceById(conversation.workspaceId)
+      : null
+    if (!workspace?.workspaceRepositoryUrl) {
+      return c.json({ error: "workspace_required" }, 400)
+    }
+    const env = parseEnv(process.env as Record<string, string | undefined>)
+    const runtime = await resolveWorkspaceChatTurnRuntime({
+      conversation,
+      workspace,
+      env,
+    })
+    if (!runtime.desiredUrl) {
+      return c.json({ error: "workspace_required" }, 400)
+    }
+    const warmed = await warmTanstackWorkspaceChat({
+      conversationId,
+      prompt: "prepare",
+      orgId: runtime.orgId,
+      workspaceId: runtime.workspaceId ?? workspace.id,
+      desiredUrl: runtime.desiredUrl,
+      desiredSha: runtime.desiredSha,
+      desiredGeneration: runtime.desiredGeneration,
+      defaultBranch: runtime.defaultBranch,
+      lastBranch: runtime.lastBranch,
+      ref: runtime.cloneRef || runtime.desiredSha || "HEAD",
+      writeStatus: runtime.writeStatus,
+      cloneToken: runtime.cloneToken,
+      githubConnectionId: runtime.githubConnectionId,
+    })
+    if (!warmed.ok) return c.json({ error: warmed.error }, 503)
+    return c.body(null, 204)
+  })
+  .openapi(getConversationPullRequestRoute, async (c) => {
+    const user = c.get("user")
+    const session = c.get("session")
+    if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
+    const conversationId = c.req.param("conversationId")
+    const conversation = await getConversation(conversationId)
+    if (!conversation?.workspaceId) {
+      return c.json({ error: "Not found" }, 404)
+    }
+    const revision = conversation.lastChatPrRevision
+    if (!revision || conversation.lastChatPrNumber == null)
+      return c.json({ error: "Not found" }, 404)
+    const env = parseEnv(process.env as Record<string, string | undefined>)
+    const repoName = githubRepoFullNameFromWorkspaceUrl(revision.remote.url)
+    if (!repoName) return c.json({ error: "Not found" }, 404)
+    const state = await getPullRequestState({
+      orgId: conversation.orgId,
+      repositoryName: repoName,
+      env,
+      githubConnectionId: revision.remote.connectionId ?? undefined,
+      pullNumber: conversation.lastChatPrNumber,
+    })
+    const current = await getConversation(conversationId)
+    if (
+      !state ||
+      state.branch !== conversationSessionBranch(conversationId) ||
+      current?.lastChatPrNumber !== conversation.lastChatPrNumber ||
+      !sameWorkspaceBinding(current?.lastChatPrRevision, revision)
+    )
+      return c.json({ error: "Not found" }, 404)
+    return c.json(
+      {
+        branch: state.branch,
+        prNumber: state.prNumber,
+        pullUrl: state.pullUrl,
+        prState: state.prState,
+      },
+      200,
+    )
+  })
+  .openapi(postConversationPullRequestRoute, async (c) => {
+    const user = c.get("user")
+    const session = c.get("session")
+    if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
+
+    const conversationId = c.req.param("conversationId")
+    const body = CreateConversationPullRequestSchema.parse(await c.req.json())
+    const conversation = await getConversation(conversationId)
+    if (!conversation?.workspaceId) {
+      return c.json({ error: "Not found" }, 404)
+    }
+    const workspace = await getWorkspaceById(conversation.workspaceId)
+    if (!workspace) return c.json({ error: "Not found" }, 404)
+    if (
+      !workspaceAllowsConversationEdits(
+        workspace.writeStatus,
+        workspace.readOnlyReason,
+      )
+    ) {
+      return c.json({ error: "read_only" }, 400)
+    }
+    const env = parseEnv(process.env as Record<string, string | undefined>)
+    const revision = await getDesiredWorkspaceRevision(
+      workspace.id,
+      "publish-session",
+    )
+    if (!revision) return c.json({ error: "missing_revision" }, 409)
+    const sandbox = await getConversationSandboxBinding(
+      conversationId,
+      revision,
+    )
+    if (!sandbox) return c.json({ error: "missing_sandbox" }, 409)
+    const repoName = githubRepoFullNameFromWorkspaceUrl(revision.remote.url)
+    if (!repoName) return c.json({ error: "not_github" }, 400)
+    const defaultBranch = revision.defaultBranch
+    const planned = planCapturedConversationPublication({
+      revision,
+      writeStatus: workspace.writeStatus,
+      readOnlyReason: workspace.readOnlyReason,
+      sandbox,
+    })
+    if (!planned.publish) {
+      return c.json({ error: planned.reason }, 400)
+    }
+    const ready = await readySandboxHandle({
+      conversation,
+      workspace,
+      existingOnly: true,
+    })
+    if (!ready.ok) return c.json({ error: ready.error }, ready.status)
+    const { handle } = ready
+    const title = body.title ?? conversation.name
+    const pushed = await pushConversationSessionBranch({
+      handle,
+      conversationId,
+      orgId: workspace.orgId,
+      workspaceId: workspace.id,
+      revision,
+      env,
+      commitMessage: title,
+    })
+    if (!pushed.ok) return c.json({ error: pushed.error }, 400)
+    const bindingIsCurrent = async () =>
+      sameWorkspaceRevision(
+        await getDesiredWorkspaceRevision(workspace.id, "publish-session"),
+        revision,
+      )
+    if (!(await bindingIsCurrent()))
+      return c.json({ error: "stale_binding" }, 409)
+    if (
+      conversation.lastChatPrNumber != null &&
+      sameWorkspaceBinding(conversation.lastChatPrRevision, revision)
+    ) {
+      const existing = await getPullRequestState({
+        orgId: workspace.orgId,
+        repositoryName: repoName,
+        env,
+        githubConnectionId: revision.remote.connectionId ?? undefined,
+        pullNumber: conversation.lastChatPrNumber,
+      })
+      if (existing?.prState === "open" && existing.branch === pushed.branch) {
+        if (
+          !(await persistConversationPublication({
+            conversationId,
+            lastChatPrNumber: existing.prNumber,
+            lastBranch: pushed.branch,
+            revision,
+          }))
+        )
+          return c.json({ error: "stale_binding" }, 409)
+        return c.json(
+          {
+            branch: pushed.branch,
+            prNumber: existing.prNumber,
+            pullUrl: existing.pullUrl,
+            prState: existing.prState,
+          },
+          200,
+        )
+      }
+    }
+    if (!(await bindingIsCurrent()))
+      return c.json({ error: "stale_binding" }, 409)
+    const created = await createPullRequestFromBranch({
+      revision,
+      orgId: workspace.orgId,
+      repositoryName: repoName,
+      env,
+      githubConnectionId: revision.remote.connectionId ?? undefined,
+      baseBranch: defaultBranch,
+      branch: pushed.branch,
+      title,
+      body: body.body ?? "",
+    })
+    if (!created) return c.json({ error: "stale_binding" }, 409)
+    if (
+      !(await persistConversationPublication({
+        conversationId,
+        lastChatPrNumber: created.pullNumber,
+        lastBranch: created.branch,
+        revision,
+      }))
+    )
+      return c.json({ error: "stale_binding" }, 409)
+    return c.json(
+      {
+        branch: created.branch,
+        prNumber: created.pullNumber,
+        pullUrl: created.pullUrl,
+        prState: created.prState,
+      },
+      200,
+    )
   })

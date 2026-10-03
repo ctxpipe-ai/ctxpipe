@@ -110,19 +110,38 @@ export function withLangfuseObservation<T>(
   },
   fn: () => Promise<T>,
 ): Promise<T> {
-  return startActiveObservation(
-    attrs.name,
-    async (span) => {
-      span.update({
-        ...(attrs.input !== undefined ? { input: attrs.input } : {}),
-        metadata: {
-          ...attrs.metadata,
-        },
-      })
-      return fn()
-    },
-    { asType: "span" },
+  return runWithLangfuseContext({}, () =>
+    startActiveObservation(
+      attrs.name,
+      async (span) => {
+        span.update({
+          ...(attrs.input !== undefined ? { input: attrs.input } : {}),
+          metadata: {
+            ...attrs.metadata,
+          },
+        })
+        return fn()
+      },
+      { asType: "span" },
+    ),
   )
+}
+
+export type LangfuseUsageDetails = {
+  input?: number
+  output?: number
+  total?: number
+}
+
+function usageDetailsOrUndefined(
+  usage: LangfuseUsageDetails | undefined,
+): LangfuseUsageDetails | undefined {
+  if (!usage) return undefined
+  const details: LangfuseUsageDetails = {}
+  if (usage.input !== undefined) details.input = usage.input
+  if (usage.output !== undefined) details.output = usage.output
+  if (usage.total !== undefined) details.total = usage.total
+  return Object.keys(details).length > 0 ? details : undefined
 }
 
 export function withLangfuseGeneration<T>(
@@ -132,33 +151,40 @@ export function withLangfuseGeneration<T>(
     input: Record<string, unknown>
     metadata?: Record<string, unknown>
     summarizeOutput?: (result: T) => Record<string, unknown>
+    usageFromResult?: (result: T) => LangfuseUsageDetails | undefined
   },
   fn: () => Promise<T>,
 ): Promise<T> {
-  return startActiveObservation(
-    attrs.name,
-    async (generation) => {
-      generation.update({
-        input: attrs.input,
-        ...(attrs.model ? { model: attrs.model } : {}),
-        metadata: {
-          ...attrs.metadata,
-        },
-      })
-      try {
-        const result = await fn()
+  return runWithLangfuseContext({}, () =>
+    startActiveObservation(
+      attrs.name,
+      async (generation) => {
         generation.update({
-          output: attrs.summarizeOutput?.(result) ?? { status: "ok" },
+          input: attrs.input,
+          ...(attrs.model ? { model: attrs.model } : {}),
+          metadata: {
+            ...attrs.metadata,
+          },
         })
-        return result
-      } catch (err) {
-        generation.update({
-          level: "ERROR",
-          statusMessage: err instanceof Error ? err.message : String(err),
-        })
-        throw err
-      }
-    },
-    { asType: "generation" },
+        try {
+          const result = await fn()
+          const usageDetails = usageDetailsOrUndefined(
+            attrs.usageFromResult?.(result),
+          )
+          generation.update({
+            output: attrs.summarizeOutput?.(result) ?? { status: "ok" },
+            ...(usageDetails ? { usageDetails } : {}),
+          })
+          return result
+        } catch (err) {
+          generation.update({
+            level: "ERROR",
+            statusMessage: err instanceof Error ? err.message : String(err),
+          })
+          throw err
+        }
+      },
+      { asType: "generation" },
+    ),
   )
 }

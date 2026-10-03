@@ -3,15 +3,16 @@ import { join } from "node:path"
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
+import { checkoutKeyFromAuth, indexCheckoutFromAuth } from "../auth/jwt.js"
 import { withRepositoryPurgeOperation } from "../domain/indexing/indexConcurrency.js"
 import { cloneAndIndexRepository } from "../domain/indexing/service.js"
 import {
   GlobInvalidRequestError,
   GlobPathNotFoundError,
   globFilesInCheckout,
+  listCheckoutFilePaths,
 } from "../domain/repositories/globFiles.js"
 import {
-  DEFAULT_CHECKOUT_KEY,
   repoCheckoutPath,
   resolveSafePath,
   resolveSafeReadableFilePath,
@@ -213,6 +214,29 @@ const globResponseSchema = z
   })
   .openapi("GlobFilesResponse")
 
+export const listTreeRoute = createRoute({
+  method: "get",
+  path: "/{repoId}/tree",
+  request: {
+    params: z.object({ repoId: repoIdParam }),
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            paths: z.array(z.string()),
+          }),
+        },
+      },
+      description: "File paths under the repository checkout on disk",
+    },
+    404: { description: "Checkout not found" },
+    403: { description: "Access denied" },
+    500: { description: "Tree listing failed" },
+  },
+})
+
 export const globFilesRoute = createRoute({
   method: "post",
   path: "/{repoId}/glob",
@@ -392,9 +416,15 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
+    const checkoutKey = indexCheckoutFromAuth(auth, repoId, body.targetHash)
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo) return c.json(repositoryNotFoundBody, 404)
-    const indexable = await getIndexableRepository(db, repoId, auth.orgId)
+    const indexable = await getIndexableRepository(
+      db,
+      repoId,
+      auth.orgId,
+      checkoutKey,
+    )
     if (!indexable) {
       return c.json(repositoryNotFoundBody, 404)
     }
@@ -420,16 +450,9 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
             orgId: repo.orgId,
             repoId: repo.id,
             repoGitUrl: repo.gitUrl,
-            clonePath: repoCheckoutPath(
-              repo.orgId,
-              repo.id,
-              DEFAULT_CHECKOUT_KEY,
-            ),
-            scipIndexPath: scipIndexPath(
-              repo.orgId,
-              repo.id,
-              DEFAULT_CHECKOUT_KEY,
-            ),
+            checkoutKey,
+            clonePath: repoCheckoutPath(repo.orgId, repo.id, checkoutKey),
+            scipIndexPath: scipIndexPath(repo.orgId, repo.id, checkoutKey),
             githubToken: body.githubToken,
             zoektRepoId: indexable.zoektRepoId,
             repoName: indexable.name,
@@ -497,7 +520,11 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     if (!repo) {
       return c.json(repositoryNotFoundBody, 404)
     }
-    const basePath = repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY)
+    const basePath = repoCheckoutPath(
+      repo.orgId,
+      repo.id,
+      checkoutKeyFromAuth(auth, repoId, repo.publishedCheckoutKey),
+    )
     let dirPath: string
     let names: string[]
     try {
@@ -521,6 +548,37 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     return c.json({ entries }, 200)
   })
 
+  app.openapi(listTreeRoute, async (c) => {
+    const auth = c.get("auth")
+    if (!auth) throw new Error("Missing auth context")
+    const { repoId } = c.req.valid("param")
+    let publishedCheckoutKey: string | undefined
+    if (!auth.workspaceId && !auth.repositoryRevisions) {
+      const db = c.get("db")
+      if (!db) return c.json({ error: "Database not configured" }, 503)
+      const repository = await getAccessibleRepository(db, repoId, auth.orgId)
+      if (!repository)
+        return c.json({ error: "Repository not found or access denied" }, 404)
+      publishedCheckoutKey = repository.publishedCheckoutKey
+    }
+    const checkoutRoot = repoCheckoutPath(
+      auth.orgId,
+      repoId,
+      checkoutKeyFromAuth(auth, repoId, publishedCheckoutKey),
+    )
+    try {
+      const paths = await listCheckoutFilePaths(checkoutRoot)
+      return c.json({ paths }, 200)
+    } catch (error) {
+      if (error instanceof GlobPathNotFoundError) {
+        return c.json({ error: error.message }, 404)
+      }
+      const message =
+        error instanceof Error ? error.message : "Tree listing failed"
+      return c.json({ error: message }, 500)
+    }
+  })
+
   app.openapi(globFilesRoute, async (c) => {
     const db = c.get("db")
     if (!db) return c.json({ error: "Database not configured" }, 503)
@@ -535,7 +593,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const checkoutRoot = repoCheckoutPath(
       repo.orgId,
       repo.id,
-      DEFAULT_CHECKOUT_KEY,
+      checkoutKeyFromAuth(auth, repoId, repo.publishedCheckoutKey),
     )
     try {
       const result = await globFilesInCheckout({
@@ -591,7 +649,11 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const { repoId, path: filePath } = c.req.valid("param")
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo) return c.json(repositoryNotFoundBody, 404)
-    const basePath = repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY)
+    const basePath = repoCheckoutPath(
+      repo.orgId,
+      repo.id,
+      checkoutKeyFromAuth(auth, repoId, repo.publishedCheckoutKey),
+    )
     let fullPath: string
     try {
       fullPath = await resolveSafeReadableFilePath(basePath, filePath)
@@ -623,7 +685,11 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const { paths } = c.req.valid("json")
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo) return c.json(repositoryNotFoundBody, 404)
-    const basePath = repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY)
+    const basePath = repoCheckoutPath(
+      repo.orgId,
+      repo.id,
+      checkoutKeyFromAuth(auth, repoId, repo.publishedCheckoutKey),
+    )
     const result: Record<string, string> = {}
     for (const p of paths) {
       try {

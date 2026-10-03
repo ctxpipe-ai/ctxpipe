@@ -3,9 +3,9 @@ title: Linear connector
 description: Connect a Linear workspace, review its Git-backed scope, and keep selected work context available to ctx|.
 ---
 
-The **Linear connector** mirrors selected workspace context into a GitHub
-repository, then sends that repository through the normal ctx| ingestion
-pipeline. The generated `linear/config.yaml` pull request makes the scope
+The **Linear connector** mirrors selected Linear context into a
+[Workspace's](/docs/workspaces) GitHub repository, where it is indexed like
+any other knowledge file. The generated `linear/config.yaml` pull request makes the scope
 reviewable before content sync begins.
 
 ctx| requests read-only Linear access. It does not create or update Linear
@@ -74,17 +74,15 @@ remains the source of truth for what Linear content is approved.
   <Step>
     ### Confirm GitHub
 
-    Linear content is stored in Git before ingestion. If GitHub is not connected
+    Linear content is stored in git before indexing. If GitHub is not connected
     for this ctx| organization, complete the GitHub App installation first.
   </Step>
 
   <Step>
-    ### Choose a context repository
+    ### Select a workspace
 
-    Select an existing connected repository. A dedicated private repository
-    usually gives the clearest ownership and access boundary; create it in
-    GitHub first, grant the ctx| GitHub App access, then refresh the repository
-    list in ctx|.
+    Choose the [Workspace](/docs/workspaces) that should receive Linear
+    content. ctx| writes it under `linear/` in that Workspace's repository.
   </Step>
 
   <Step>
@@ -107,12 +105,12 @@ remains the source of truth for what Linear content is approved.
   </Step>
 
   <Step>
-    ### Wait for initial sync and ingestion
+    ### Wait for initial sync and indexing
 
     After GitHub reports the merge, ctx| performs the first Linear mirror and
-    starts repository ingestion. The connector reaches **Connected** when the
+    starts indexing. The connector reaches **Connected** when the
     mirror succeeds. Repository indexing may continue afterwards; see
-    [Ingestion](/docs/connections/ingestion) for the indexing lifecycle.
+    [Indexing](/docs/connections/ingestion) for the indexing lifecycle.
   </Step>
 </Steps>
 
@@ -137,7 +135,7 @@ review the replacement configuration pull request.
 
 Linear sends signed webhook events to ctx| when supported entities change.
 While the connector is live, ctx| validates the event against the Git scope,
-updates the affected files, and starts another repository ingestion. Events that
+updates the affected files, and starts indexing again. Events that
 arrive before the connector is live, including during initial sync, are skipped
 rather than queued for later. Missed webhook events are not automatically
 backfilled: repair webhook delivery, then update the affected entities in Linear
@@ -152,7 +150,7 @@ failed initial mirror.
 4. Confirm the connector reaches **Connected** and the repository contains
    generated files under `linear/`.
 5. Edit a mirrored issue in Linear and confirm the matching Git file changes.
-6. Confirm the destination repository reaches an indexed state in ctx|.
+6. Confirm the Workspace index is ready in its **Settings**.
 
 Steps 3 and 4 test the GitHub push webhook and initial mirror. Step 5 separately
 tests Linear webhook delivery.

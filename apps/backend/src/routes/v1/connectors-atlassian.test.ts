@@ -28,6 +28,7 @@ const markAwaitingConfigMergeSetupMock = vi.hoisted(() => vi.fn())
 const markConfluenceSyncTargetInitialSyncMock = vi.hoisted(() => vi.fn())
 const loadConfluenceScopeFromRepoMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn())
+const enqueueConnectorConfigSyncMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../models/atlassian-connector.js", async (importOriginal) => {
   const actual =
@@ -82,6 +83,10 @@ vi.mock("../../openworkflow/client.js", () => ({
   runWorkflowWithWorkerWake: (...args: unknown[]) => runWorkflowMock(...args),
 }))
 
+vi.mock("../../openworkflow/enqueue-connector-config-sync.js", () => ({
+  enqueueConnectorConfigSync: enqueueConnectorConfigSyncMock,
+}))
+
 import { requireOrgAdminOrOwner } from "../../auth/withAuth.js"
 import { atlassianConnectorRoutes } from "./connectors-atlassian.js"
 
@@ -119,6 +124,10 @@ describe("Atlassian connector routes", () => {
         getConfluenceSyncTargetWithRepoByOrgIdMock(orgId),
     )
     runWorkflowMock.mockResolvedValue({ status: "completed" })
+    enqueueConnectorConfigSyncMock.mockResolvedValue({
+      accepted: true,
+      started: true,
+    })
     upsertPendingForgeInstallationMock.mockResolvedValue({
       id: "fgi_default",
       orgId: "org_1",
@@ -321,10 +330,14 @@ describe("Atlassian connector routes", () => {
         },
       ],
     })
-    expect(markAwaitingConfigMergeSetupMock).toHaveBeenCalledWith({
+    expect(markAwaitingConfigMergeSetupMock).not.toHaveBeenCalled()
+    expect(enqueueConnectorConfigSyncMock).toHaveBeenCalledWith({
+      provider: "confluence",
+      orgId: "org_1",
+      orgSlug: "acme",
       connectionId: "fgi_1",
+      spaces: [{ spaceKey: "ENG", selectedPageIds: null }],
     })
-    expect(runWorkflowMock).toHaveBeenCalled()
     const body = (await res.json()) as {
       configPrEnqueued: boolean
       workflowName?: string
@@ -386,6 +399,7 @@ describe("Atlassian connector routes", () => {
 
     expect(res.status).toBe(200)
     expect(markAwaitingConfigMergeSetupMock).not.toHaveBeenCalled()
+    expect(enqueueConnectorConfigSyncMock).not.toHaveBeenCalled()
     expect(markConfluenceSyncTargetInitialSyncMock).toHaveBeenCalledWith({
       connectionId: "fgi_1",
     })
@@ -446,10 +460,14 @@ describe("Atlassian connector routes", () => {
         enabled: false,
       },
     })
-    expect(markAwaitingConfigMergeSetupMock).toHaveBeenCalledWith({
+    expect(markAwaitingConfigMergeSetupMock).not.toHaveBeenCalled()
+    expect(enqueueConnectorConfigSyncMock).toHaveBeenCalledWith({
+      provider: "confluence",
+      orgId: "org_1",
+      orgSlug: "acme",
       connectionId: "fgi_1",
+      spaces: [{ spaceKey: "ENG", selectedPageIds: null }],
     })
-    expect(runWorkflowMock).toHaveBeenCalled()
     const body = (await res.json()) as {
       configPrEnqueued: boolean
       workflowName?: string

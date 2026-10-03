@@ -15,11 +15,11 @@ ctx|. Instead of reading every page in a site, you choose the spaces and pages
 that should be available to agents.
 
 ctx| connects to the selected Confluence site through Atlassian OAuth and the
-ctx| Forge app. It then syncs the selected pages into a GitHub repository you
-choose, stores the sync scope in that repository, and runs the same ingestion
-path used for other repository-backed sources. When pages or spaces change in
-Confluence, the Forge app can notify ctx| so the GitHub-backed source can be
-updated and ingested again.
+ctx| Forge app. It then syncs the selected pages into the
+[Workspace](/docs/workspaces) you choose, stores the sync scope in that
+Workspace's repository, and indexes them like any other knowledge file. When
+pages or spaces change in Confluence, the Forge app notifies ctx| so the
+mirror is updated and indexed again.
 
 Page attachments and explicit embedded external media are copied under
 `confluence/<spaceKey>/_assets/<pageId>/` and linked relatively from generated
@@ -128,25 +128,18 @@ Before starting, make sure you have:
   <Step>
     ### Link GitHub account
 
-    Confluence sync needs a GitHub-backed target in ctx|. If GitHub is not
-    already connected for the organization, the wizard sends you through the
-    GitHub App installation flow.
-
-    The GitHub connector controls which repositories ctx| can see and which
-    repositories are available as sync targets.
+    Confluence content is written to a Workspace's git repository. If GitHub
+    is not already connected for the organization, the wizard sends you
+    through the GitHub App installation flow.
 
   </Step>
 
   <Step>
-    ### Select sync repository
+    ### Select a workspace
 
-    Choose the repository that should act as the Confluence sync target in
-    ctx|. The wizard only shows repositories that are already connected to ctx|
-    and available to the selected organization.
-
-    Pick a repository that your team understands as the home for
-    Confluence-derived context. You can change the connector configuration later
-    from the Connectors page.
+    Choose the [Workspace](/docs/workspaces) that should receive Confluence
+    pages. ctx| writes them under `confluence/` in that Workspace's
+    repository. If you have no Workspace yet, create one first.
 
   </Step>
 
@@ -188,6 +181,6 @@ Before starting, make sure you have:
 
 ## Related pages
 
-- [Connector context repository](/docs/connections/context-repository)
-- [Ingestion](/docs/connections/ingestion)
+- [Workspaces](/docs/workspaces)
+- [Indexing](/docs/connections/ingestion)
 - [Self-host Confluence & Atlassian](/docs/self-hosting/confluence-atlassian)

@@ -94,7 +94,7 @@ export interface SuggestedConnectorSyncTarget {
   gitUrl: string
   branch: string
   githubConnectionId: string
-  usedBy: Array<"confluence" | "notion" | "linear" | "slack" | "github">
+  usedBy: Array<"confluence" | "notion" | "linear" | "slack">
 }
 
 export interface NotionConnectorStatus {

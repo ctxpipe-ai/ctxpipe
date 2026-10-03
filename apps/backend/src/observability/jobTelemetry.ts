@@ -60,10 +60,12 @@ function attributionPatchFromJobInput(
     stringField(record, "connectionId") ??
     stringField(record, "githubConnectionId")
   const repositoryId = stringField(record, "repositoryId")
+  const workspaceId = stringField(record, "workspaceId")
   if (orgId) patch["ctxpipe.org.id"] = orgId
   if (orgSlug) patch["ctxpipe.org.slug"] = orgSlug
   if (connectionId) patch["ctxpipe.connection.id"] = connectionId
   if (repositoryId) patch["ctxpipe.repository.id"] = repositoryId
+  if (workspaceId) patch["ctxpipe.workspace.id"] = workspaceId
   return patch
 }
 
@@ -80,6 +82,34 @@ export function attachJobTelemetry<T>(
   const telemetry = captureJobTelemetry()
   if (!telemetry) return input as T & { telemetry?: JobTelemetry }
   return { ...record, telemetry } as T & { telemetry: JobTelemetry }
+}
+
+type StandardSchema = {
+  readonly "~standard": {
+    readonly validate: (
+      value: unknown,
+    ) => { issues?: unknown } | Promise<{ issues?: unknown }>
+  }
+}
+
+function schemaAccepts(schema: StandardSchema, value: unknown): boolean {
+  const result = schema["~standard"].validate(value)
+  if (result instanceof Promise) {
+    void result.catch(() => {})
+    return false
+  }
+  return !result.issues
+}
+
+/** Attach telemetry only when the workflow's Standard Schema would accept it. */
+export function attachJobTelemetryForSchema<T>(
+  schema: StandardSchema | undefined,
+  input: T,
+): T {
+  const attached = attachJobTelemetry(input)
+  if (!schema || attached === input) return attached
+  if (schemaAccepts(schema, attached)) return attached
+  return input
 }
 
 function telemetryFromInput(input: unknown): JobTelemetry {

@@ -10,6 +10,7 @@ const orgSlug = "acme"
 const meta = {
   title: "Components/Connections/AddNotionConnectorButton",
   component: AddNotionConnectorButton,
+  args: { orgSlug },
   decorators: entryPageInnerDecorators,
   parameters: {
     layout: "centered",

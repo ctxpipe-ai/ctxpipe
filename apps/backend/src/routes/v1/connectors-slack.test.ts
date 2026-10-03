@@ -33,13 +33,14 @@ const SlackRepositoryNotFoundErrorMock = vi.hoisted(
 )
 
 vi.mock("../../db/client.js", () => ({
+    tryGetOrgDb: () => ({}),
+    tryGetOrgDbOrgId: () => "org_test",
+    assertNotInOrgDbContext: () => undefined,
+
   withOrgDbContext: (_orgId: string, fn: () => unknown) => fn(),
 }))
 vi.mock("../../models/github-installation.js", () => ({
   orgHasAnyGithubConnection: orgHasGithubMock,
-}))
-vi.mock("../../openworkflow/workflows/github-ensure-pr-mirror.js", () => ({
-  enqueueGithubPrMirrorEnsureForOrg: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock("../../models/slack-connector.js", () => ({
   bindSlackSyncTargetRepository: bindRepositoryMock,

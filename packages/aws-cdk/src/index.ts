@@ -8,5 +8,6 @@ export type {
   CtxPipeOpenAiLikeModelProviderProps,
   CtxPipeOtelProps,
   CtxPipeProps,
+  CtxPipeSandboxHostProps,
   CtxPipeSize,
 } from "./types";

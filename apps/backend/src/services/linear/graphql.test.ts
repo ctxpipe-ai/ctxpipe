@@ -112,12 +112,18 @@ describe("estimateLinearQueryComplexity", () => {
     expect(estimateLinearQueryComplexity(document)).toBeGreaterThan(
       linearQueryComplexityCeiling,
     )
+    let requests = 0
+    server.use(
+      http.post("https://api.linear.app/graphql", () => {
+        requests += 1
+        return HttpResponse.json({ data: {} })
+      }),
+    )
     const client = new LinearClient({ accessToken: "test-token" })
-    const rawRequest = vi.spyOn(client.client, "rawRequest")
     await expect(
       linearGraphql(client, document, {}, "test-token"),
     ).rejects.toBeInstanceOf(LinearQueryTooComplexError)
-    expect(rawRequest).not.toHaveBeenCalled()
+    expect(requests).toBe(0)
   })
 
   it.each(

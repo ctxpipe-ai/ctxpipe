@@ -76,69 +76,51 @@ export const linearConnectorKeys = {
     ["linear-oauth-app", orgSlug, connectionId ?? "default"] as const,
 }
 
+import { apiFetch, readApiJson } from "@/lib/api-result"
+
 function connectionQuery(connectionId?: string): string {
   return connectionId
     ? `?${new URLSearchParams({ connectionId }).toString()}`
     : ""
 }
 
-async function errorFromResponse(
-  response: Response,
-  fallback: string,
-): Promise<Error> {
-  const body = (await response.json().catch(() => ({}))) as {
-    error?: string
-    message?: string
-  }
-  return new Error(body.error ?? body.message ?? fallback)
-}
-
 export async function fetchLinearConnectorStatus(
   orgSlug: string,
   connectionId?: string,
 ): Promise<LinearConnectorStatus> {
-  const response = await fetch(
+  const response = await apiFetch(
     `/${orgSlug}/api/v1/connectors/linear/status${connectionQuery(connectionId)}`,
     { credentials: "include" },
   )
-  if (!response.ok) {
-    throw await errorFromResponse(
-      response,
-      "Failed to load Linear connector status",
-    )
-  }
-  return response.json() as Promise<LinearConnectorStatus>
+  return readApiJson<LinearConnectorStatus>(response, {
+    message: "Failed to load Linear connector status",
+  })
 }
 
 export async function fetchLinearConnectorConfig(
   orgSlug: string,
   connectionId: string,
 ): Promise<LinearConnectorConfig> {
-  const response = await fetch(
+  const response = await apiFetch(
     `/${orgSlug}/api/v1/connectors/linear/config${connectionQuery(connectionId)}`,
     { credentials: "include" },
   )
-  if (!response.ok) {
-    throw await errorFromResponse(
-      response,
-      "Failed to load Linear connector configuration",
-    )
-  }
-  return response.json() as Promise<LinearConnectorConfig>
+  return readApiJson<LinearConnectorConfig>(response, {
+    message: "Failed to load Linear connector configuration",
+  })
 }
 
 export async function fetchLinearAvailableScopes(
   orgSlug: string,
   connectionId: string,
 ): Promise<LinearScope[]> {
-  const response = await fetch(
+  const response = await apiFetch(
     `/${orgSlug}/api/v1/connectors/linear/available-scopes${connectionQuery(connectionId)}`,
     { credentials: "include" },
   )
-  if (!response.ok) {
-    throw await errorFromResponse(response, "Failed to discover Linear content")
-  }
-  const body = (await response.json()) as { items: LinearScope[] }
+  const body = await readApiJson<{ items: LinearScope[] }>(response, {
+    message: "Failed to discover Linear content",
+  })
   return body.items
 }
 
@@ -146,44 +128,38 @@ export async function fetchLinearOAuthStart(
   orgSlug: string,
   connectionId?: string,
 ): Promise<{ authorizationUrl: string }> {
-  const response = await fetch(
+  const response = await apiFetch(
     `/${orgSlug}/api/v1/connectors/linear/oauth/start${connectionQuery(connectionId)}`,
     { credentials: "include" },
   )
-  if (!response.ok) {
-    throw await errorFromResponse(response, "Failed to start Linear connection")
-  }
-  return response.json() as Promise<{ authorizationUrl: string }>
+  return readApiJson<{ authorizationUrl: string }>(response, {
+    message: "Failed to start Linear connection",
+  })
 }
 
 export async function fetchLinearOauthApp(
   orgSlug: string,
   connectionId?: string,
 ): Promise<LinearOauthApp> {
-  const response = await fetch(
+  const response = await apiFetch(
     `/${orgSlug}/api/v1/connectors/linear/oauth-app${connectionQuery(connectionId)}`,
     { credentials: "include" },
   )
-  if (!response.ok) {
-    throw await errorFromResponse(
-      response,
-      "Failed to load Linear OAuth app settings",
-    )
-  }
-  return response.json() as Promise<LinearOauthApp>
+  return readApiJson<LinearOauthApp>(response, {
+    message: "Failed to load Linear OAuth app settings",
+  })
 }
 
 export async function createLinearDraft(
   orgSlug: string,
 ): Promise<{ connectionId: string }> {
-  const response = await fetch(`/${orgSlug}/api/v1/connectors/linear/draft`, {
+  const response = await apiFetch(`/${orgSlug}/api/v1/connectors/linear/draft`, {
     method: "POST",
     credentials: "include",
   })
-  if (!response.ok) {
-    throw await errorFromResponse(response, "Failed to start Linear setup")
-  }
-  return response.json() as Promise<{ connectionId: string }>
+  return readApiJson<{ connectionId: string }>(response, {
+    message: "Failed to start Linear setup",
+  })
 }
 
 export async function saveLinearOauthApp(
@@ -191,7 +167,7 @@ export async function saveLinearOauthApp(
   connectionId: string,
   body: { clientId: string; clientSecret?: string; webhookSecret?: string },
 ): Promise<void> {
-  const response = await fetch(
+  const response = await apiFetch(
     `/${orgSlug}/api/v1/connectors/linear/oauth-app${connectionQuery(connectionId)}`,
     {
       method: "PUT",
@@ -200,9 +176,9 @@ export async function saveLinearOauthApp(
       body: JSON.stringify(body),
     },
   )
-  if (!response.ok) {
-    throw await errorFromResponse(response, "Failed to save Linear OAuth app")
-  }
+  await readApiJson<void>(response, {
+    message: "Failed to save Linear OAuth app",
+  })
 }
 
 export async function patchLinearConnectorConfig(
@@ -225,7 +201,7 @@ export async function patchLinearConnectorConfig(
   configPrEnqueued: boolean
   workflowName?: string
 }> {
-  const response = await fetch(
+  const response = await apiFetch(
     `/${orgSlug}/api/v1/connectors/linear/config${connectionQuery(connectionId)}`,
     {
       method: "PATCH",
@@ -234,31 +210,20 @@ export async function patchLinearConnectorConfig(
       body: JSON.stringify(body),
     },
   )
-  if (!response.ok) {
-    throw await errorFromResponse(
-      response,
-      "Failed to save Linear connector configuration",
-    )
-  }
-  return response.json() as Promise<{
-    accepted: true
-    savedCount: number
-    configPrEnqueued: boolean
-    workflowName?: string
-  }>
+  return readApiJson(response, {
+    message: "Failed to save Linear connector configuration",
+  })
 }
 
 export async function retryLinearSync(
   orgSlug: string,
   connectionId: string,
 ): Promise<void> {
-  const response = await fetch(
+  const response = await apiFetch(
     `/${orgSlug}/api/v1/connectors/linear/retry${connectionQuery(connectionId)}`,
     { method: "POST", credentials: "include" },
   )
-  if (!response.ok) {
-    throw await errorFromResponse(response, "Failed to retry Linear sync")
-  }
+  await readApiJson<void>(response, { message: "Failed to retry Linear sync" })
 }
 
 export async function retryLinearConfig(
@@ -266,7 +231,7 @@ export async function retryLinearConfig(
   connectionId: string,
   scopes?: LinearScope[],
 ): Promise<void> {
-  const response = await fetch(
+  const response = await apiFetch(
     `/${orgSlug}/api/v1/connectors/linear/retry-config?connectionId=${encodeURIComponent(connectionId)}`,
     {
       method: "POST",
@@ -279,23 +244,20 @@ export async function retryLinearConfig(
         : {}),
     },
   )
-  if (!response.ok) {
-    throw await errorFromResponse(
-      response,
-      "Failed to retry Linear configuration pull request",
-    )
-  }
+  await readApiJson<void>(response, {
+    message: "Failed to retry Linear configuration pull request",
+  })
 }
 
 export async function deleteLinearConnector(
   orgSlug: string,
   connectionId: string,
 ): Promise<void> {
-  const response = await fetch(
+  const response = await apiFetch(
     `/${orgSlug}/api/v1/connectors/linear${connectionQuery(connectionId)}`,
     { method: "DELETE", credentials: "include" },
   )
-  if (!response.ok) {
-    throw await errorFromResponse(response, "Failed to remove Linear connector")
-  }
+  await readApiJson<void>(response, {
+    message: "Failed to remove Linear connector",
+  })
 }

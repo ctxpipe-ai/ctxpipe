@@ -1,9 +1,6 @@
 import { asc, eq } from "drizzle-orm"
-import { getSystemDb } from "../db/client.js"
-import {
-  type ConnectionType,
-  connections,
-} from "../db/schema/connections.js"
+import { getOrgDb, withOrgDbContext } from "../db/client.js"
+import { type ConnectionType, connections } from "../db/schema/connections.js"
 
 export type OrgConnectionListItem = {
   id: string
@@ -16,15 +13,16 @@ export type OrgConnectionListItem = {
 export async function listOrgConnections(
   orgId: string,
 ): Promise<OrgConnectionListItem[]> {
-  const db = getSystemDb()
-  return db
-    .select({
-      id: connections.id,
-      type: connections.type,
-      createdAt: connections.createdAt,
-      updatedAt: connections.updatedAt,
-    })
-    .from(connections)
-    .where(eq(connections.orgId, orgId))
-    .orderBy(asc(connections.createdAt))
+  return withOrgDbContext(orgId, async () => {
+    return getOrgDb()
+      .select({
+        id: connections.id,
+        type: connections.type,
+        createdAt: connections.createdAt,
+        updatedAt: connections.updatedAt,
+      })
+      .from(connections)
+      .where(eq(connections.orgId, orgId))
+      .orderBy(asc(connections.createdAt))
+  })
 }

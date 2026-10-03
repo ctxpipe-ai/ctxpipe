@@ -81,9 +81,6 @@ describe("extractKind on a connector-only diff", () => {
       changedPaths: ["github/pulls/acme/api/42--1.md"],
       extractedObjects: [],
       extractedClaims: [],
-      objectIds: [],
-      touchedObjectIds: [],
-      claimsForProjection: [],
     })
     expect(result).toEqual({})
     expect(mocks.globFiles).not.toHaveBeenCalled()

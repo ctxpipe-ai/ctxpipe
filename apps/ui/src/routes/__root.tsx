@@ -1,7 +1,7 @@
 import HyperDX from "@hyperdx/browser"
 import { TanStackDevtools } from "@tanstack/react-devtools"
 import {
-  createRootRoute,
+  createRootRouteWithContext,
   type ErrorComponentProps,
   HeadContent,
   Scripts,
@@ -12,19 +12,19 @@ import { Toaster } from "sonner"
 import { getConfluenceForgeRuntimeConfig } from "@/lib/confluenceForgeRuntimeConfig"
 import { getHyperDxDocumentContext } from "@/lib/hyperdxRuntimeConfig"
 import { Providers } from "@/providers"
+import type { RouterContext } from "@/router"
 
 import appCss from "../styles.css?url"
 
-export const Route = createRootRoute({
+export const Route = createRootRouteWithContext<RouterContext>()({
   // Client navigations keep the document identity. `router.invalidate()` still
   // enters the loader; the client half returns undefined and the previous data stays.
   shouldReload: false,
   loader: async ({ location }) => {
     const hyperdx = await getHyperDxDocumentContext(location.pathname)
-    if (!hyperdx) return undefined
     return {
-      hyperdxRuntimeConfig: hyperdx.config,
-      hyperdxIdentity: hyperdx.identity,
+      hyperdxRuntimeConfig: hyperdx?.config ?? { enabled: false },
+      hyperdxIdentity: hyperdx?.identity ?? null,
       confluenceForgeRuntimeConfig: getConfluenceForgeRuntimeConfig(),
     }
   },

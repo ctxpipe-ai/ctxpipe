@@ -53,6 +53,9 @@ function installGithubGit(options?: {
   const blobStartedAt: number[] = []
 
   server.use(
+    http.get("https://api.github.com/repos/acme/docs", () =>
+      HttpResponse.json({ default_branch: "main" }),
+    ),
     http.get("https://api.github.com/repos/acme/docs/git/ref/*", () => {
       const fallback = { commit: "base", tree: "base-tree" }
       const head =
@@ -140,98 +143,27 @@ function installGithubGit(options?: {
 import {
   commitFiles,
   compareCommitsTouchesPath,
-  createPullRequestWithFiles,
+  getCommitTimestamp,
+  getFileContentBytes,
   getPullRequestHeadBranch,
+  listFilesAtSha,
   listFilesInTree,
   listFilesInTreeWithMetadata,
 } from "./installation-write-client.js"
 
-describe("createPullRequestWithFiles", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it("initializes an empty repository before creating the config pull request", async () => {
-    let initialized = false
-    const getRef = vi.fn(async ({ ref }: { ref: string }) => {
-      if (ref === "heads/main" && !initialized) {
-        throw Object.assign(new Error("Git Repository is empty."), {
-          status: 409,
-        })
-      }
-      return { data: { object: { sha: "base-commit" } } }
-    })
-    const createOrUpdateFileContents = vi.fn(async () => {
-      initialized = true
-      return { data: {} }
-    })
-    const createRef = vi.fn(async () => ({ data: {} }))
-    const pullsCreate = vi.fn(async () => ({
-      data: {
-        number: 1,
-        html_url: "https://github.com/acme/docs/pull/1",
-      },
-    }))
-
-    getInstallationOctokitForOrgMock.mockResolvedValue({
-      installation: { installationId: 123 },
-      octokit: {
-        rest: {
-          git: {
-            getRef,
-            getCommit: vi.fn(async () => ({
-              data: { tree: { sha: "base-tree" } },
-            })),
-            createRef,
-            createBlob: vi.fn(async () => ({ data: { sha: "blob" } })),
-            createTree: vi.fn(async () => ({ data: { sha: "tree" } })),
-            createCommit: vi.fn(async () => ({
-              data: { sha: "config-commit" },
-            })),
-            updateRef: vi.fn(async () => ({ data: {} })),
-          },
-          repos: {
-            createOrUpdateFileContents,
-          },
-          pulls: {
-            create: pullsCreate,
-          },
+function writeBranchOctokit(rest: Record<string, unknown>) {
+  return {
+    installation: { installationId: 123 },
+    octokit: {
+      rest: {
+        repos: {
+          get: vi.fn(async () => ({ data: { default_branch: "main" } })),
         },
+        ...rest,
       },
-    })
-
-    const env = {} as Env
-    const result = await createPullRequestWithFiles({
-      orgId: "org_test",
-      repositoryName: "acme/docs",
-      env,
-      githubConnectionId: "con_github",
-      baseBranch: "main",
-      title: "Configure Linear sync",
-      body: "Review and merge.",
-      commitMessage: "Configure Linear sync",
-      files: [{ path: "linear/config.yaml", content: "teams: []\n" }],
-      featureBranchPrefix: "ctxpipe/linear-config",
-    })
-
-    expect(createOrUpdateFileContents).toHaveBeenCalledWith({
-      owner: "acme",
-      repo: "docs",
-      path: ".gitkeep",
-      message: "Initialize repository for ctxpipe",
-      content: "Cg==",
-    })
-    expect(createRef).toHaveBeenCalled()
-    expect(pullsCreate).toHaveBeenCalled()
-    expect(result.pullUrl).toBe("https://github.com/acme/docs/pull/1")
-    expect(getInstallationOctokitForOrgMock).toHaveBeenNthCalledWith(
-      2,
-      "org_test",
-      env,
-      "con_github",
-    )
-  })
-})
+    },
+  }
+}
 
 describe("compareCommitsTouchesPath", () => {
   beforeEach(() => {
@@ -319,6 +251,60 @@ describe("getPullRequestHeadBranch", () => {
   })
 })
 
+describe("listFilesAtSha", () => {
+  it("reads the tree at a SHA without initializing an empty repository", async () => {
+    const getTree = vi.fn(async () => ({
+      data: {
+        tree: [{ type: "blob", path: "AGENTS.md", sha: "blob-1" }],
+      },
+    }))
+    const createOrUpdateFileContents = vi.fn()
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 1 },
+      octokit: {
+        rest: {
+          git: { getTree },
+          repos: { createOrUpdateFileContents },
+        },
+      },
+    })
+    await expect(
+      listFilesAtSha({
+        orgId: "org_test",
+        repositoryName: "acme/docs",
+        env: {} as Env,
+        sha: "desired-sha",
+      }),
+    ).resolves.toEqual([{ path: "AGENTS.md", sha: "blob-1" }])
+    expect(getTree).toHaveBeenCalledWith({
+      owner: "acme",
+      repo: "docs",
+      tree_sha: "desired-sha",
+      recursive: "true",
+    })
+    expect(createOrUpdateFileContents).not.toHaveBeenCalled()
+  })
+
+  it("rethrows a missing tree when the caller asks not to mask 404s", async () => {
+    const getTree = vi.fn(async () => {
+      throw Object.assign(new Error("Not Found"), { status: 404 })
+    })
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 1 },
+      octokit: { rest: { git: { getTree } } },
+    })
+    await expect(
+      listFilesAtSha({
+        orgId: "org_test",
+        repositoryName: "acme/docs",
+        env: {} as Env,
+        sha: "missing-sha",
+        missing: "throw",
+      }),
+    ).rejects.toMatchObject({ status: 404 })
+  })
+})
+
 describe("listFilesInTree", () => {
   it("falls back to walking non-recursive trees when GitHub truncates", async () => {
     const getTree = vi.fn(
@@ -396,7 +382,87 @@ describe("listFilesInTree", () => {
   })
 })
 
+describe("getFileContentBytes", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("returns omitted when GitHub withholds the blob body", async () => {
+    const getContent = vi.fn(async () => ({
+      data: { encoding: "none", size: 2_000_000, content: "" },
+    }))
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 1 },
+      octokit: { rest: { repos: { getContent } } },
+    })
+    await expect(
+      getFileContentBytes({
+        orgId: "org_test",
+        repositoryName: "acme/docs",
+        env: {} as Env,
+        branch: "abc",
+        path: "logo.png",
+      }),
+    ).resolves.toEqual({ kind: "omitted" })
+  })
+
+  it("returns raw bytes without UTF-8 decoding", async () => {
+    const getContent = vi.fn(async () => ({
+      data: {
+        encoding: "base64",
+        size: 4,
+        content: Buffer.from([0xff, 0xfe, 0x00, 0x01]).toString("base64"),
+      },
+    }))
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 1 },
+      octokit: { rest: { repos: { getContent } } },
+    })
+    const result = await getFileContentBytes({
+      orgId: "org_test",
+      repositoryName: "acme/docs",
+      env: {} as Env,
+      branch: "abc",
+      path: "logo.png",
+    })
+    expect(result).toEqual({
+      kind: "bytes",
+      bytes: Buffer.from([0xff, 0xfe, 0x00, 0x01]),
+    })
+  })
+})
+
+describe("getCommitTimestamp", () => {
+  it("returns the committer date as ISO", async () => {
+    const getCommit = vi.fn(async () => ({
+      data: {
+        committer: { date: "2026-08-16T12:00:00Z" },
+        author: { date: "2026-08-15T12:00:00Z" },
+      },
+    }))
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 1 },
+      octokit: { rest: { git: { getCommit } } },
+    })
+    await expect(
+      getCommitTimestamp({
+        orgId: "org_test",
+        repositoryName: "acme/docs",
+        env: {} as Env,
+        sha: "abc",
+      }),
+    ).resolves.toBe("2026-08-16T12:00:00.000Z")
+    expect(getCommit).toHaveBeenCalledWith({
+      owner: "acme",
+      repo: "docs",
+      commit_sha: "abc",
+    })
+  })
+})
+
 describe("commitFiles", () => {
+  const branch = "ctxpipe/session"
+
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -408,7 +474,7 @@ describe("commitFiles", () => {
       orgId: "org_test",
       repositoryName: "acme/docs",
       env: {} as never,
-      branch: "main",
+      branch,
       message: "Capture image",
       files: [
         {
@@ -448,7 +514,7 @@ describe("commitFiles", () => {
       orgId: "org_test",
       repositoryName: "acme/docs",
       env: {} as never,
-      branch: "main",
+      branch: "ctxpipe/config",
       message: "Sync Linear",
       files: [
         { path: "linear/a.md", content: "a" },
@@ -483,7 +549,7 @@ describe("commitFiles", () => {
       orgId: "org_test",
       repositoryName: "acme/docs",
       env: {} as never,
-      branch: "main",
+      branch: "ctxpipe/config",
       message: "Sync Linear",
       files: Array.from({ length: 51 }, (_, index) => ({
         path: `linear/issue-${index}.md`,
@@ -536,7 +602,7 @@ describe("commitFiles", () => {
       orgId: "org_test",
       repositoryName: "acme/docs",
       env: {} as never,
-      branch: "main",
+      branch: "ctxpipe/config",
       message: "Sync Linear",
       files: [
         { path: "linear/huge.md", content: "x".repeat(900 * 1024 + 1) },
@@ -580,7 +646,7 @@ describe("commitFiles", () => {
       orgId: "org_test",
       repositoryName: "acme/docs",
       env: {} as never,
-      branch: "main",
+      branch: "ctxpipe/config",
       message: "Capture images",
       files: [
         { path: "linear/a.png", content: "aaa", encoding: "base64" },
@@ -634,33 +700,30 @@ describe("commitFiles", () => {
         }),
       )
       .mockResolvedValue({ data: { sha: "blob" } })
-    getInstallationOctokitForOrgMock.mockResolvedValue({
-      installation: { installationId: 123 },
-      octokit: {
-        rest: {
-          git: {
-            getRef: vi.fn(async () => ({
-              data: { object: { sha: "base" } },
-            })),
-            getCommit: vi.fn(async () => ({
-              data: { tree: { sha: "base-tree" } },
-            })),
-            createBlob,
-            createTree: vi.fn(async () => ({ data: { sha: "tree" } })),
-            createCommit: vi.fn(async () => ({
-              data: { sha: "asset-commit" },
-            })),
-            updateRef: vi.fn(async () => ({ data: {} })),
-          },
+    getInstallationOctokitForOrgMock.mockResolvedValue(
+      writeBranchOctokit({
+        git: {
+          getRef: vi.fn(async () => ({
+            data: { object: { sha: "base" } },
+          })),
+          getCommit: vi.fn(async () => ({
+            data: { tree: { sha: "base-tree" } },
+          })),
+          createBlob,
+          createTree: vi.fn(async () => ({ data: { sha: "tree" } })),
+          createCommit: vi.fn(async () => ({
+            data: { sha: "asset-commit" },
+          })),
+          updateRef: vi.fn(async () => ({ data: {} })),
         },
-      },
-    })
+      }),
+    )
 
     const pending = commitFiles({
       orgId: "org_test",
       repositoryName: "acme/docs",
       env: {} as never,
-      branch: "main",
+      branch,
       message: "Capture image",
       files: [{ path: "asset.bin", content: "eA==", encoding: "base64" }],
     })
@@ -692,33 +755,30 @@ describe("commitFiles", () => {
         }),
       )
       .mockResolvedValue({ data: { sha: "blob" } })
-    getInstallationOctokitForOrgMock.mockResolvedValue({
-      installation: { installationId: 123 },
-      octokit: {
-        rest: {
-          git: {
-            getRef: vi.fn(async () => ({
-              data: { object: { sha: "base" } },
-            })),
-            getCommit: vi.fn(async () => ({
-              data: { tree: { sha: "base-tree" } },
-            })),
-            createBlob,
-            createTree: vi.fn(async () => ({ data: { sha: "tree" } })),
-            createCommit: vi.fn(async () => ({
-              data: { sha: "asset-commit" },
-            })),
-            updateRef: vi.fn(async () => ({ data: {} })),
-          },
+    getInstallationOctokitForOrgMock.mockResolvedValue(
+      writeBranchOctokit({
+        git: {
+          getRef: vi.fn(async () => ({
+            data: { object: { sha: "base" } },
+          })),
+          getCommit: vi.fn(async () => ({
+            data: { tree: { sha: "base-tree" } },
+          })),
+          createBlob,
+          createTree: vi.fn(async () => ({ data: { sha: "tree" } })),
+          createCommit: vi.fn(async () => ({
+            data: { sha: "asset-commit" },
+          })),
+          updateRef: vi.fn(async () => ({ data: {} })),
         },
-      },
-    })
+      }),
+    )
 
     const pending = commitFiles({
       orgId: "org_test",
       repositoryName: "acme/docs",
       env: {} as never,
-      branch: "main",
+      branch,
       message: "Capture image",
       files: [{ path: "asset.bin", content: "eA==", encoding: "base64" }],
     })
@@ -745,7 +805,7 @@ describe("commitFiles", () => {
       orgId: "org_test",
       repositoryName: "acme/docs",
       env: {} as never,
-      branch: "main",
+      branch,
       message: "Sync Notion",
       files: [{ path: "notion/page.md", content: "# Page\n" }],
     })
@@ -783,7 +843,7 @@ describe("commitFiles", () => {
       orgId: "org_test",
       repositoryName: "acme/docs",
       env: {} as never,
-      branch: "main",
+      branch: "ctxpipe/config",
       message: "Capture image",
       files: [
         { path: "linear/diagram.png", content: "iVBORw==", encoding: "base64" },
@@ -812,7 +872,7 @@ describe("commitFiles", () => {
       orgId: "org_test",
       repositoryName: "acme/docs",
       env: {} as never,
-      branch: "main",
+      branch: "ctxpipe/config",
       message: "Sync Linear",
       files: [],
     })

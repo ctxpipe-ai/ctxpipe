@@ -47,6 +47,7 @@ bootstrapLog.emit()
 export default defineConfig({
   backend: await BackendPostgres.connect(databaseUrl, {
     namespaceId: openWorkflowNamespaceId(),
+    runMigrations: false,
   }),
   dirs: ["./src/openworkflow/workflows"],
   // CLI imports every *.ts under dirs; skip Vitest files (dev-only deps).

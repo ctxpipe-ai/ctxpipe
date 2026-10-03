@@ -3,10 +3,11 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
-  GlobInvalidRequestError,
   assertSafeGlobPattern,
+  GlobInvalidRequestError,
   globFilesInCheckout,
   isSkippedGlobPath,
+  listCheckoutFilePaths,
   resolveGlobLimit,
 } from "./globFiles.js"
 
@@ -37,7 +38,9 @@ describe("resolveGlobLimit", () => {
 
 describe("assertSafeGlobPattern", () => {
   it("rejects parent-directory and absolute patterns", () => {
-    expect(() => assertSafeGlobPattern("../**")).toThrow(GlobInvalidRequestError)
+    expect(() => assertSafeGlobPattern("../**")).toThrow(
+      GlobInvalidRequestError,
+    )
     expect(() => assertSafeGlobPattern("foo/../../../**")).toThrow(
       GlobInvalidRequestError,
     )
@@ -142,5 +145,71 @@ describe("globFilesInCheckout", () => {
         path: "src",
       }),
     ).rejects.toThrow(GlobInvalidRequestError)
+  })
+
+  it("does not descend into .git while matching **/*", async () => {
+    const root = await setupCheckout()
+    await mkdir(join(root, ".git", "objects"), { recursive: true })
+    await writeFile(join(root, ".git", "objects", "pack.idx"), "idx\n")
+    const result = await globFilesInCheckout({
+      checkoutRoot: root,
+      pattern: "**/*",
+      onlyFiles: true,
+    })
+    expect(result.entries.map((e) => e.path).sort()).toEqual([
+      ".cursor/rules/x.mdc",
+      "README.md",
+      "src/a.ts",
+      "src/nested/b.ts",
+    ])
+  })
+})
+
+describe("listCheckoutFilePaths", () => {
+  let tmpDir: string
+
+  afterEach(async () => {
+    if (tmpDir) await rm(tmpDir, { recursive: true, force: true })
+  })
+
+  async function setupCheckout(): Promise<string> {
+    tmpDir = await mkdtemp(join(tmpdir(), "list-tree-"))
+    await mkdir(join(tmpDir, "src", "nested"), { recursive: true })
+    await mkdir(join(tmpDir, ".cursor", "rules"), { recursive: true })
+    await mkdir(join(tmpDir, ".git", "objects"), { recursive: true })
+    await mkdir(join(tmpDir, "node_modules", "pkg"), { recursive: true })
+    await writeFile(join(tmpDir, "README.md"), "# root\n")
+    await writeFile(join(tmpDir, "src", "a.ts"), "export {}\n")
+    await writeFile(join(tmpDir, "src", "nested", "b.ts"), "export {}\n")
+    await writeFile(join(tmpDir, ".cursor", "rules", "x.mdc"), "rule\n")
+    await writeFile(join(tmpDir, ".git", "objects", "pack.idx"), "idx\n")
+    await writeFile(join(tmpDir, "node_modules", "pkg", "index.js"), "1\n")
+    return tmpDir
+  }
+
+  it("lists working-tree files and never reads .git", async () => {
+    const root = await setupCheckout()
+    const paths = await listCheckoutFilePaths(root)
+    expect(paths.sort()).toEqual([
+      ".cursor/rules/x.mdc",
+      "README.md",
+      "src/a.ts",
+      "src/nested/b.ts",
+    ])
+  })
+
+  it("stays cheap when .git is large", async () => {
+    const root = await setupCheckout()
+    const objects = join(root, ".git", "objects")
+    await Promise.all(
+      Array.from({ length: 400 }, (_, i) =>
+        writeFile(join(objects, `obj-${i}`), "x\n"),
+      ),
+    )
+    const started = performance.now()
+    const paths = await listCheckoutFilePaths(root)
+    const elapsedMs = performance.now() - started
+    expect(paths).toHaveLength(4)
+    expect(elapsedMs).toBeLessThan(200)
   })
 })

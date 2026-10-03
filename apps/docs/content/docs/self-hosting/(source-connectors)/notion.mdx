@@ -115,7 +115,7 @@ do not commit them in stack code.
 After the integration is registered (UI or env):
 
 1. Authorize the Notion workspace.
-2. Choose or reuse a shared connector context repository.
+2. Select the Workspace that should receive Notion content.
 3. Select the Notion pages and databases to mirror.
 4. Review and merge the generated `notion/config.yaml` pull request.
 
@@ -132,11 +132,11 @@ unsafe, or oversized downloads leave a Notion page link or caption stub.
 1. Add Notion and save a private OAuth app (or confirm env is set).
 2. Authorize a clean Notion workspace through the product flow.
 3. Share a page or database with the integration and confirm it appears.
-4. Select a context repository and merge `notion/config.yaml`.
+4. Select a Workspace and merge `notion/config.yaml`.
 5. Confirm the initial mirror writes readable files under `notion/`.
 6. Edit an in-scope source and confirm the deployment webhook receives the
    event.
-7. Confirm the generated Git file changes and repository ingestion runs again.
+7. Confirm the generated git file changes and the Workspace re-indexes.
 
 ## Troubleshooting
 
@@ -176,6 +176,6 @@ repository layout, review workflow, and user-facing recovery steps.
 
 ## Related pages
 
-- [Connector context repository](/docs/connections/context-repository)
+- [Workspaces](/docs/workspaces)
 - [GitHub connector](/docs/connections/source-connectors/github)
-- [Ingestion](/docs/connections/ingestion)
+- [Indexing](/docs/connections/ingestion)

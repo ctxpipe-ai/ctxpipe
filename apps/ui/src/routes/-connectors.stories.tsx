@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
+import { expect, within } from "storybook/test"
+import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { ConnectorsPageContent } from "./$orgSlug.connectors"
 
@@ -8,7 +9,7 @@ const orgSlug = "acme"
 
 const meta = {
   title: "Pages/Connections",
-  decorators: entryPageInnerDecorators,
+  decorators: orgPageDecorators,
   parameters: {
     layout: "fullscreen",
   },
@@ -43,6 +44,13 @@ export const Empty: Story = {
 
 export const Loading: Story = {
   render: () => <ConnectorsPageContent orgSlug={orgSlug} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      canvas.getByRole("navigation", { name: "Main navigation" }),
+    ).toBeVisible()
+    expect(canvas.getByText("Loading connectors")).toBeInTheDocument()
+  },
   parameters: {
     storyRoute: {
       pattern: "orgConnectors",

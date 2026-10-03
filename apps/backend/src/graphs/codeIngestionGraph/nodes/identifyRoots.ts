@@ -1,3 +1,4 @@
+import { extractionRootsSchema } from "../../../domain/workspaces/extraction.js"
 import { getLogger } from "../../../observability/logger.js"
 import type { CodeIngestionState } from "../schemas.js"
 import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
@@ -19,12 +20,12 @@ export async function identifyRoots(
   const { repositoryId, targetHash } = state
   const deterministic = await deterministicDetectRoots(state)
 
+  extractionRootsSchema.parse(deterministic.roots)
+  if (deterministic.decision === "ambiguous")
+    extractionRootsSchema.parse(deterministic.partialRoots)
+
   let resolved: string[]
-  let rootSource:
-    | "deterministic"
-    | "llm"
-    | "partialRoots"
-    | "repoRoot"
+  let rootSource: "deterministic" | "llm" | "partialRoots" | "repoRoot"
   let defaultedToRepoRoot = false
 
   if (deterministic.decision === "confident") {
@@ -36,7 +37,7 @@ export async function identifyRoots(
       partialRoots: deterministic.partialRoots,
       reason: deterministic.reason,
     })
-    resolved = fallback.roots
+    resolved = extractionRootsSchema.parse(fallback.roots)
     rootSource = fallback.source
     defaultedToRepoRoot = fallback.source === "repoRoot"
   }

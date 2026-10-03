@@ -13,8 +13,10 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
 } from "drizzle-orm/pg-core"
 import { connections } from "./connections.js"
+import { orgIsolationPolicy } from "./org-rls.js"
 
 export const repositoryIndexingStatusValues = [
   "queued",
@@ -29,13 +31,14 @@ export const repositoryIndexingStatusEnum = pgEnum(
   repositoryIndexingStatusValues,
 )
 
-export const repositories = pgTable(
+export const repositories = pgTable.withRLS(
   "repositories",
   {
     id: text("id").primaryKey(),
     orgId: text("org_id").notNull(),
     name: text("name").notNull(),
     gitUrl: text("git_url").notNull(),
+    repositoryKey: text("repository_key"),
     indexReady: boolean("index_ready").notNull().default(false),
     indexingStatus: repositoryIndexingStatusEnum("indexing_status"),
     indexingFollowUpPending: boolean("indexing_follow_up_pending")
@@ -73,7 +76,38 @@ export const repositories = pgTable(
   (t) => [
     unique().on(t.name, t.orgId),
     unique().on(t.gitUrl, t.orgId),
+    uniqueIndex("repositories_org_id_repository_key_uidx").on(
+      t.orgId,
+      t.repositoryKey,
+    ),
     index().on(t.name),
     index("repositories_github_connection_id_idx").on(t.githubConnectionId),
+    orgIsolationPolicy(t.orgId),
+  ],
+)
+
+/** One current admission intent per repository; native OpenWorkflow owns execution. */
+export const repositoryIngestionRequests = pgTable.withRLS(
+  "repository_ingestion_requests",
+  {
+    repositoryId: text("repository_id")
+      .primaryKey()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    orgId: text("org_id").notNull(),
+    requestId: text("request_id").notNull(),
+    targetBranch: text("target_branch"),
+    indexingReason: text("indexing_reason"),
+    repositoryUrl: text("repository_url").notNull(),
+    githubConnectionId: text("github_connection_id"),
+    workflowRunId: text("workflow_run_id"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("repository_ingestion_requests_request_id_uidx").on(
+      t.requestId,
+    ),
+    orgIsolationPolicy(t.orgId),
   ],
 )

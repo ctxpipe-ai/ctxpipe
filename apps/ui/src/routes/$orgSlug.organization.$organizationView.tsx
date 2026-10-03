@@ -1,6 +1,6 @@
 import { OrganizationView } from "@daveyplate/better-auth-ui"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
-import { AppShell } from "@/components/AppShell"
+import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { organizationApiKeyLocalization } from "@/features/organization/apiKeyCopy"
 import { OrganizationApiKeysCard } from "@/features/organization/OrganizationApiKeysCard"
 import { OrganizationSettingsNav } from "@/features/organization/OrganizationSettingsNav"
@@ -22,13 +22,9 @@ export function OrganizationViewRoutePage() {
 
   if (isPending || orgsPending) {
     return (
-      <AppShell>
-        <main className="flex min-h-screen items-center justify-center px-6 text-center text-zinc-100">
-          <p className="text-sm text-zinc-400">
-            Loading organisation settings…
-          </p>
-        </main>
-      </AppShell>
+      <main className="mx-auto max-w-3xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
+        <PageBodySkeleton label="Loading organisation settings" />
+      </main>
     )
   }
   if (!session) return <Navigate to="/.auth/sign-in" replace />
@@ -37,19 +33,17 @@ export function OrganizationViewRoutePage() {
     onboardingCompletedAt?: string | null
   }
   if (!user.onboardingCompletedAt) {
-    return <Navigate to="/onboarding" replace />
+    return <Navigate to="/onboarding" search={{ orgSlug: undefined }} replace />
   }
 
   const organization = organizations?.find((org) => org.slug === orgSlug)
 
   return (
-    <AppShell>
-      <OrganizationSettingsBody
-        orgSlug={orgSlug}
-        organizationView={organizationView}
-        organizationId={organization?.id}
-      />
-    </AppShell>
+    <OrganizationSettingsBody
+      orgSlug={orgSlug}
+      organizationView={organizationView}
+      organizationId={organization?.id}
+    />
   )
 }
 

@@ -8,9 +8,10 @@ import {
 } from "drizzle-orm/pg-core"
 import { organizations } from "./auth.js"
 import { connections } from "./connections.js"
+import { orgIsolationPolicy } from "./org-rls.js"
 import { repositories } from "./repositories.js"
 
-export const confluenceSyncTargets = pgTable(
+export const confluenceSyncTargets = pgTable.withRLS(
   "confluence_sync_targets",
   {
     id: text("id").primaryKey(),
@@ -41,5 +42,6 @@ export const confluenceSyncTargets = pgTable(
   (t) => [
     uniqueIndex("confluence_sync_targets_connection_id_uq").on(t.connectionId),
     index("confluence_sync_targets_repository_id_idx").on(t.repositoryId),
+    orgIsolationPolicy(t.orgId),
   ],
 )

@@ -95,7 +95,7 @@ describe("identifyInfrastructure", () => {
 
       expect(extractedObjects).toHaveLength(1)
       expect(extractedClaims).toHaveLength(1)
-      expect(extractedObjects[0].payload).toMatchObject({
+      expect(extractedObjects[0]?.payload).toMatchObject({
         evidence: "Dockerfile; duplicate",
       })
     })
@@ -128,7 +128,7 @@ describe("identifyInfrastructure", () => {
       )
 
       expect(extractedObjects).toHaveLength(1)
-      expect(extractedObjects[0].deduplicationKey).toBe(
+      expect(extractedObjects[0]?.deduplicationKey).toBe(
         "inf:repo_abc:apps/api:Kubernetes",
       )
     })
@@ -146,11 +146,11 @@ describe("identifyInfrastructure", () => {
         )
 
       expect(extractedObjects).toHaveLength(1)
-      expect(extractedObjects[0].deduplicationKey).toBe(
+      expect(extractedObjects[0]?.deduplicationKey).toBe(
         "inf:repo_abc:apps/web:Docker",
       )
       expect(extractedClaims).toHaveLength(1)
-      expect(extractedClaims[0].subjectRef).toBe("svc:repo_abc:apps/web")
+      expect(extractedClaims[0]?.subjectRef).toBe("svc:repo_abc:apps/web")
     })
   })
 })

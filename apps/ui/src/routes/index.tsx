@@ -1,5 +1,14 @@
+import { useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
+import { Suspense } from "react"
+import { PageBodySkeleton } from "@/components/ui/Skeleton"
+import {
+  landingWorkspace,
+  workspaceListOptions,
+} from "@/features/workspaces/queries"
 import { useListOrganizations, useSession } from "@/lib/auth-client"
+import { fetchSsrOrganizations, fetchSsrSession } from "@/lib/auth-ssr"
+import { useUserPreferences } from "@/lib/user-preferences"
 
 export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -13,6 +22,16 @@ export const Route = createFileRoute("/")({
         ? search.pendingAccountClaim
         : undefined,
   }),
+  loader: async ({ context }) => {
+    const session = await fetchSsrSession()
+    if (!session?.user.onboardingCompletedAt) return
+    const organizations = await fetchSsrOrganizations()
+    await Promise.all(
+      organizations.map((org) =>
+        context.queryClient.ensureQueryData(workspaceListOptions(org.slug)),
+      ),
+    )
+  },
   component: IndexRoutePage,
 })
 
@@ -20,9 +39,16 @@ export const Route = createFileRoute("/")({
 export function IndexRoutePage() {
   const { data: session, isPending } = useSession()
   const { data: organizations, isPending: orgsPending } = useListOrganizations()
+  const [{ selectedOrganizationSlug }] = useUserPreferences()
   const { error, error_description, pendingAccountClaim } = Route.useSearch()
 
-  if (isPending || orgsPending) return null
+  if (isPending || orgsPending) {
+    return (
+      <div className="flex min-h-screen items-center bg-zinc-950 px-6 py-16">
+        <PageBodySkeleton label="Loading" className="mx-auto" />
+      </div>
+    )
+  }
   if (!session) return <Navigate to="/.auth/sign-in" replace />
 
   const user = session.user as {
@@ -33,25 +59,50 @@ export function IndexRoutePage() {
     return <Navigate to="/onboarding" search={{ orgSlug: undefined }} replace />
   }
 
-  const firstOrg = organizations?.[0]
-  if (firstOrg) {
-    const forward =
-      error != null || pendingAccountClaim != null
-        ? ("/$orgSlug/connectors" as const)
-        : ("/$orgSlug" as const)
+  const orgList = organizations ?? []
+  const selected =
+    orgList.find((org) => org.slug === selectedOrganizationSlug) ?? orgList[0]
+  if (!selected) {
+    return <Navigate to="/onboarding" search={{ orgSlug: undefined }} replace />
+  }
+
+  if (error != null || pendingAccountClaim != null) {
     return (
       <Navigate
-        to={forward}
-        params={{ orgSlug: firstOrg.slug }}
+        to="/$orgSlug/connectors"
+        params={{ orgSlug: selected.slug }}
         search={{
           error,
           error_description,
           pendingAccountClaim,
+          notionConnectionId: undefined,
         }}
         replace
       />
     )
   }
 
-  return <Navigate to="/onboarding" search={{ orgSlug: undefined }} replace />
+  return (
+    <Suspense fallback={null}>
+      <WorkspaceLandingRedirect orgSlug={selected.slug} />
+    </Suspense>
+  )
+}
+
+function WorkspaceLandingRedirect(props: { orgSlug: string }) {
+  const { orgSlug } = props
+  const { data } = useSuspenseQuery(workspaceListOptions(orgSlug))
+  const workspace = landingWorkspace(data)
+  if (!workspace) {
+    return (
+      <Navigate to="/$orgSlug/workspaces/new" params={{ orgSlug }} replace />
+    )
+  }
+  return (
+    <Navigate
+      to="/$orgSlug/ws/$workspaceSlug"
+      params={{ orgSlug, workspaceSlug: workspace.slug }}
+      replace
+    />
+  )
 }

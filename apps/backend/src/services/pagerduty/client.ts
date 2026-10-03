@@ -112,7 +112,6 @@ type TokenResponse = {
 }
 
 async function exchangePagerdutyToken(
-  env: Env,
   creds: PagerdutyOAuthAppCreds,
   body: URLSearchParams,
 ): Promise<TokenResponse> {
@@ -155,7 +154,7 @@ export async function exchangePagerdutyOAuthCode(input: {
     redirect_uri: pagerdutyRedirectUri(input.env),
     code_verifier: input.codeVerifier,
   })
-  const token = await exchangePagerdutyToken(input.env, input.creds, body)
+  const token = await exchangePagerdutyToken(input.creds, body)
   return {
     accessToken: token.access_token,
     refreshToken: token.refresh_token ?? null,
@@ -176,7 +175,7 @@ export async function refreshPagerdutyOAuthToken(input: {
     grant_type: "refresh_token",
     refresh_token: input.refreshToken,
   })
-  const token = await exchangePagerdutyToken(input.env, input.creds, body)
+  const token = await exchangePagerdutyToken(input.creds, body)
   return {
     accessToken: token.access_token,
     refreshToken: token.refresh_token ?? input.refreshToken,

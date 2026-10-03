@@ -13,6 +13,13 @@ describe("zoektRepositoryName", () => {
     expect(
       zoektRepositoryName({ orgId: "org_alpha", repoId: "repo_same" }),
     ).not.toBe(zoektRepositoryName({ orgId: "org_beta", repoId: "repo_same" }))
+    expect(
+      zoektRepositoryName({
+        orgId: "org_alpha",
+        repoId: "repo_same",
+        checkoutKey: "ws:ws_1",
+      }),
+    ).toBe("ctxpipe:v1:org:org_alpha:repo:repo_same:checkout:ws:ws_1")
   })
 })
 

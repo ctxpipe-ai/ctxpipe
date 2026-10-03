@@ -1,0 +1,74 @@
+---
+title: Linked repositories
+description: Add code repositories to a Workspace so chat and agents can search them.
+---
+
+**Linked repositories** are code repositories a Workspace searches. ctx|
+indexes each one for code search and extracts services, APIs, libraries, and
+their relationships into the workspace repository as knowledge files.
+
+A repository can be linked to several Workspaces. Each Workspace keeps its own
+index, so search in one Workspace never returns another Workspace's code.
+
+## Link repositories
+
+<Steps>
+  <Step>
+    ### Open Settings
+
+    In the Workspace, open the **Settings** tab and find **Linked
+    repositories**.
+  </Step>
+
+  <Step>
+    ### Add repositories
+
+    Choose **Add repositories**. Search the repositories the ctx| GitHub App can
+    see (sort by recently pushed, newest, oldest, or name) and select one or
+    more. You can also enter any **Git URL**.
+  </Step>
+
+  <Step>
+    ### Wait for indexing
+
+    ctx| commits a declaration for each repository to `repositories/` in the
+    workspace repository and queues it for indexing.
+  </Step>
+</Steps>
+
+To remove a repository, choose the unlink button on its row. ctx| removes its
+declaration from `repositories/` and stops searching it.
+
+You can also add or remove declarations in `repositories/` directly with git.
+See [Knowledge files](/docs/workspaces/knowledge-files#linked-repository-declarations).
+
+## Indexing status
+
+| Status | Meaning |
+| --- | --- |
+| **Pending** | Linked, waiting to be indexed. |
+| **Indexing** | ctx| is building search and extracting knowledge. Answers may be incomplete. |
+| **Indexed** | Search and extraction finished for the current commit. |
+| **Indexed with issues** | Search works, but part of the index failed, usually code navigation for one language. The reason is shown on the row. |
+
+Indexing runs again when the repository's default branch changes.
+
+## What indexing builds
+
+- **Code search**: text, file, and symbol search over the default branch.
+- **Code navigation**: definitions and references for supported languages.
+- **Extracted knowledge**: services, APIs, libraries, infrastructure, and
+  instructions such as `AGENTS.md`, skills, and ADRs, committed to the
+  workspace repository as knowledge files with claims.
+
+Extraction uses models on parts of the code. Treat extracted claims like any
+other knowledge file: review them in git and correct them when they are wrong.
+
+## Merged pull requests
+
+For a linked GitHub repository, ctx| also mirrors its merged pull requests into
+`github/pulls/` in the workspace repository. When ctx| first reads a link,
+whether you added it in **Settings** or committed the declaration with git, it
+backfills up to 200 recent merged pull requests; after that, new merges arrive
+as GitHub reports them. Unlinking stops new pull requests and keeps the files
+already mirrored. See [GitHub connector](/docs/connections/source-connectors/github).

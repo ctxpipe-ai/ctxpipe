@@ -1,0 +1,257 @@
+import { readFileSync } from "node:fs"
+import { basename } from "node:path"
+import { afterEach, describe, expect, it } from "vitest"
+import {
+  WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV,
+  WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT,
+  WORKSPACE_CHAT_OPENCODE_CLI,
+  WORKSPACE_CHAT_OPENCODE_HOME_SLUG_MAX_LENGTH,
+  workspaceChatOpenCodeConfig,
+  workspaceChatOpenCodeConfigPath,
+  workspaceChatOpenCodeContract,
+  workspaceChatOpenCodeHomeDir,
+  workspaceChatOpenCodeHomeEnv,
+  writeWorkspaceChatOpenCodeConfig,
+} from "./workspace-chat-opencode-contract.js"
+
+describe("workspaceChatOpenCodeContract", () => {
+  const saved = { ...process.env }
+
+  afterEach(() => {
+    process.env = { ...saved }
+  })
+
+  it("defaults chat to the LangChain fast spec and addresses OpenCode as ctxpipe/<base>", () => {
+    const result = workspaceChatOpenCodeContract({
+      MODEL_PROVIDER: "openai-like",
+      MODEL_PROVIDER_API_KEY: "sk-test",
+    })
+    expect(result).toEqual({
+      ok: true,
+      tier: "fast",
+      modelSpec: "openai/gpt-5.6-terra?reasoning.effort=low",
+      modelBase: "openai/gpt-5.6-terra",
+      opencodeModel: "ctxpipe/openai/gpt-5.6-terra",
+      provider: "openai-like",
+      upstreamBaseUrl: "https://openrouter.ai/api/v1",
+      modelParams: { reasoning: { effort: "low" } },
+      apiKey: "sk-test",
+    })
+  })
+
+  it("uses MODEL_FAST_NAME when set and keeps query params on the proxy, not the OpenCode id", () => {
+    const result = workspaceChatOpenCodeContract({
+      MODEL_PROVIDER: "openrouter",
+      MODEL_PROVIDER_API_KEY: "sk-or",
+      MODEL_PROVIDER_URL: "https://openrouter.ai/api/v1",
+      MODEL_FAST_NAME: "openai/gpt-5.6-terra?reasoning.effort=high",
+    })
+    expect(result).toMatchObject({
+      ok: true,
+      tier: "fast",
+      modelSpec: "openai/gpt-5.6-terra?reasoning.effort=high",
+      modelBase: "openai/gpt-5.6-terra",
+      opencodeModel: "ctxpipe/openai/gpt-5.6-terra",
+      provider: "openrouter",
+      modelParams: { reasoning: { effort: "high" } },
+    })
+  })
+
+  it("fails closed without MODEL_PROVIDER_API_KEY", () => {
+    expect(
+      workspaceChatOpenCodeContract({
+        MODEL_PROVIDER: "openai-like",
+      }),
+    ).toEqual({
+      ok: false,
+      status: 503,
+      reason: "missing_provider_key",
+      error:
+        "Workspace chat needs MODEL_PROVIDER_API_KEY for the configured model provider.",
+    })
+  })
+
+  it("fails closed for azure and bedrock until a later slice", () => {
+    expect(
+      workspaceChatOpenCodeContract({
+        MODEL_PROVIDER: "azure",
+        MODEL_PROVIDER_API_KEY: "sk",
+        MODEL_PROVIDER_URL: "https://example.openai.azure.com",
+      }),
+    ).toMatchObject({
+      ok: false,
+      status: 503,
+      reason: "unsupported_provider",
+    })
+    expect(
+      workspaceChatOpenCodeContract({
+        MODEL_PROVIDER: "bedrock",
+      }),
+    ).toMatchObject({
+      ok: false,
+      status: 503,
+      reason: "unsupported_provider",
+    })
+  })
+
+  it("builds an OpenCode config that allowlists only ctxpipe", () => {
+    expect(
+      workspaceChatOpenCodeConfig({
+        modelBase: "openai/gpt-5.6-terra",
+      }),
+    ).toEqual({
+      $schema: "https://opencode.ai/config.json",
+      enabled_providers: ["ctxpipe"],
+      provider: {
+        ctxpipe: {
+          npm: "@ai-sdk/openai-compatible",
+          name: "ctxpipe",
+          options: {
+            baseURL: "{env:CTXPIPE_MODEL_PROXY_URL}",
+            apiKey: "{env:CTXPIPE_OPENCODE_RUN_TOKEN}",
+          },
+          models: {
+            "openai/gpt-5.6-terra": { name: "openai/gpt-5.6-terra" },
+          },
+        },
+      },
+      model: "ctxpipe/openai/gpt-5.6-terra",
+      permission: {
+        task: "deny",
+        webfetch: "deny",
+        websearch: "deny",
+      },
+      agent: {
+        title: { disable: true },
+        build: {
+          prompt: WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT,
+        },
+      },
+    })
+    expect(WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT).toMatch(/smallest tool set/)
+    expect(WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT).toMatch(/one step/)
+    expect(WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT).not.toMatch(
+      /what'?s in this repo/i,
+    )
+  })
+
+  it("embeds a bridged MCP server when tools are provisioned", () => {
+    expect(
+      workspaceChatOpenCodeConfig({
+        modelBase: "openai/gpt-5.6-terra",
+        mcp: {
+          name: "tanstack",
+          url: "http://host.docker.internal:4123/mcp",
+          token: "tok",
+        },
+      }).mcp,
+    ).toEqual({
+      tanstack: {
+        type: "remote",
+        url: "http://host.docker.internal:4123/mcp",
+        enabled: true,
+        headers: { Authorization: "Bearer tok" },
+      },
+    })
+  })
+
+  it("scrubs host provider keys and pins the OpenCode CLI", () => {
+    expect(WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV).toEqual(
+      expect.arrayContaining([
+        "AUTH_SECRET",
+        "DATABASE_URL",
+        "MODEL_PROVIDER_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "GITHUB_PRIVATE_KEY",
+      ]),
+    )
+    expect(WORKSPACE_CHAT_OPENCODE_CLI).toBe("opencode-ai@1.18.34")
+  })
+
+  it("isolates OpenCode HOME away from the host config dir", () => {
+    const env = workspaceChatOpenCodeHomeEnv("conv_1")
+    expect(env.HOME).toContain("ctxpipe-opencode-home")
+    expect(env.HOME).toContain("conv_1")
+    expect(env.HOME).not.toBe(process.env.HOME)
+    expect(env.XDG_CONFIG_HOME).toBe(`${env.HOME}/config`)
+    expect(env.OPENCODE_CONFIG).toBe(`${env.HOME}/opencode.json`)
+    expect((env.PATH ?? "").split(":")).toEqual(
+      expect.arrayContaining(["/bin", "/usr/bin"]),
+    )
+  })
+
+  it("keeps punctuation-distinct conversation ids in separate HOME dirs", () => {
+    const slash = basename(workspaceChatOpenCodeHomeDir("a/b"))
+    const query = basename(workspaceChatOpenCodeHomeDir("a?b"))
+    expect(slash).not.toBe(query)
+    expect(slash).toMatch(/^[A-Za-z0-9_-]+$/)
+    expect(query).toMatch(/^[A-Za-z0-9_-]+$/)
+    expect(slash.length).toBeLessThanOrEqual(
+      WORKSPACE_CHAT_OPENCODE_HOME_SLUG_MAX_LENGTH,
+    )
+    expect(query.length).toBeLessThanOrEqual(
+      WORKSPACE_CHAT_OPENCODE_HOME_SLUG_MAX_LENGTH,
+    )
+  })
+
+  it("bounds a long conversation id to a path-safe HOME slug", () => {
+    const conversationId = `session/${"y".repeat(300)}?tail`
+    const slug = basename(workspaceChatOpenCodeHomeDir(conversationId))
+    expect(slug).toMatch(/^[A-Za-z0-9_-]+$/)
+    expect(slug.length).toBeLessThanOrEqual(
+      WORKSPACE_CHAT_OPENCODE_HOME_SLUG_MAX_LENGTH,
+    )
+    expect(slug).not.toContain(conversationId)
+    expect(
+      writeWorkspaceChatOpenCodeConfig({
+        conversationId,
+        modelBase: "openai/gpt-5.6-terra",
+        isolation: "docker",
+      }).homeEnv.HOME,
+    ).toBe(`/home/node/ctxpipe-opencode/${slug}`)
+  })
+
+  it("uses a writable nonroot container home without backend PATH entries", () => {
+    process.env.PATH = "/backend/private/bin"
+    const written = writeWorkspaceChatOpenCodeConfig({
+      conversationId: "conv_container",
+      modelBase: "openai/gpt-5.6-terra",
+      isolation: "docker",
+    })
+    expect(written.homeEnv.HOME).toBe(
+      "/home/node/ctxpipe-opencode/conv_container",
+    )
+    expect(written.homeEnv.OPENCODE_CONFIG).toBe(
+      `${written.homeEnv.HOME}/opencode.json`,
+    )
+    expect(written.homeEnv.PATH).toBe("/usr/local/bin:/usr/bin:/bin")
+    expect(JSON.parse(written.configJson).provider.ctxpipe.options.apiKey).toBe(
+      "{env:CTXPIPE_OPENCODE_RUN_TOKEN}",
+    )
+  })
+
+  it("writes OpenCode config next to that home, not as cwd opencode.json", () => {
+    const written = writeWorkspaceChatOpenCodeConfig({
+      conversationId: "conv_cfg",
+      modelBase: "openai/gpt-5.6-terra",
+    })
+    const configPath = workspaceChatOpenCodeConfigPath("conv_cfg")
+    expect(written.homeEnv.OPENCODE_CONFIG).toBe(configPath)
+    expect(readFileSync(configPath, "utf8")).toContain("enabled_providers")
+    expect(configPath).toContain("ctxpipe-opencode-home")
+    expect(configPath.endsWith("opencode.json")).toBe(true)
+  })
+
+  it("never returns a Claude or Anthropic model id", () => {
+    const result = workspaceChatOpenCodeContract({
+      MODEL_PROVIDER: "openai-like",
+      MODEL_PROVIDER_API_KEY: "sk-test",
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.opencodeModel).not.toMatch(/anthropic|claude/i)
+    expect(result.modelBase).not.toMatch(/anthropic|claude/i)
+  })
+})

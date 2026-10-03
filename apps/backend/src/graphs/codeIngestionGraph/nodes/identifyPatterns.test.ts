@@ -67,7 +67,7 @@ describe("identifyPatterns post-processing", () => {
       { patternName: "cqrs", path: "./" },
       { patternName: "Saga", path: "./" },
     ]
-    const { objects, claims } = postProcessPatterns(captured, state)
+    const { objects } = postProcessPatterns(captured, state)
 
     expect(objects).toHaveLength(2) // CQRS (deduped), Saga
     const names = objects.map((o) => o.name).sort()
@@ -81,8 +81,8 @@ describe("identifyPatterns post-processing", () => {
     ]
     const { objects } = postProcessPatterns(captured, state)
     expect(objects).toHaveLength(1)
-    expect(objects[0].name).toBe("Event Sourcing")
-    expect(objects[0].deduplicationKey).toBe("pat:repo_abc:./:Event Sourcing")
+    expect(objects[0]?.name).toBe("Event Sourcing")
+    expect(objects[0]?.deduplicationKey).toBe("pat:repo_abc:./:Event Sourcing")
   })
 
   it("filters by pathMatchesRoot", () => {
@@ -95,8 +95,8 @@ describe("identifyPatterns post-processing", () => {
       roots: ["apps/api"],
     })
     expect(objects).toHaveLength(1)
-    expect(objects[0].name).toBe("Repository")
-    expect(objects[0].deduplicationKey).toBe("pat:repo_abc:apps/api:Repository")
+    expect(objects[0]?.name).toBe("Repository")
+    expect(objects[0]?.deduplicationKey).toBe("pat:repo_abc:apps/api:Repository")
   })
 
   it("produces correct output shape for objects and claims", () => {
@@ -129,6 +129,6 @@ describe("identifyPatterns post-processing", () => {
   it("uses confidence 0.6 (lower than other extractors)", () => {
     const captured = [{ patternName: "CQRS", path: "./" }]
     const { claims } = postProcessPatterns(captured, state)
-    expect(claims[0].confidence).toBe(0.6)
+    expect(claims[0]?.confidence).toBe(0.6)
   })
 })

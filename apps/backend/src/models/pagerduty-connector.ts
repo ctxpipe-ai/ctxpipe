@@ -1,6 +1,6 @@
 import { and, desc, eq, sql } from "drizzle-orm"
 import type { Env } from "../config/env.js"
-import { type Db, getOrgDb, getSystemDb } from "../db/client.js"
+import { type Db, getOrgDb, withOrgDbContext } from "../db/client.js"
 import {
   CONNECTION_TYPE_PAGERDUTY,
   connections,
@@ -21,6 +21,12 @@ import {
   pagerdutyRedirectUri,
   pagerdutyWebhookDeliveryUrl,
 } from "../services/pagerduty/client.js"
+import {
+  deleteConnectionDirectory,
+  listConnectionDirectoryByType,
+  loadConnectionViaDirectory,
+  upsertConnectionDirectory,
+} from "./connection-directory.js"
 import {
   type ConnectionRow,
   type PagerdutyConnectionShape,
@@ -50,6 +56,7 @@ export type PagerdutyBinding = {
 
 export type PagerdutyBindingWithRepo = PagerdutyBinding & {
   repositoryName: string
+  repositoryGitUrl: string
   githubConnectionId: string | null
 }
 
@@ -125,10 +132,6 @@ export function planPagerdutySyncBindingUpdate(input: {
 
 function pagerdutyConfigAccountIdRef() {
   return sql<string>`${connections.config}->>'accountId'`
-}
-
-function pagerdutyConfigWebhookSubscriptionIdRef() {
-  return sql<string>`${connections.config}->>'webhookSubscriptionId'`
 }
 
 function isPagerdutyPlaceholderDraft(connection: {
@@ -227,7 +230,7 @@ export async function upsertPagerdutyConnectionFromOAuth(input: {
   connectionId?: string | null
 }): Promise<PagerdutyConnection> {
   const db = getOrgDb()
-  return db.transaction(async (tx) => {
+  const saved = await db.transaction(async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${`${input.orgId}:${input.accountId}`}, 0))`,
     )
@@ -386,7 +389,7 @@ export async function upsertPagerdutyConnectionFromOAuth(input: {
           throw new Error("PagerDuty connection was removed during OAuth")
         }
       }
-      return pagerdutyConnectionToShape(row, input.env)
+      return row
     }
 
     const [row] = await tx
@@ -399,8 +402,10 @@ export async function upsertPagerdutyConnectionFromOAuth(input: {
       })
       .returning()
     if (!row) throw new Error("Failed to create PagerDuty connection")
-    return pagerdutyConnectionToShape(row, input.env)
+    return row
   })
+  await upsertConnectionDirectory(saved)
+  return pagerdutyConnectionToShape(saved, input.env)
 }
 
 export async function persistPagerdutyWebhookSubscriptionIfAbsent(input: {
@@ -411,7 +416,7 @@ export async function persistPagerdutyWebhookSubscriptionIfAbsent(input: {
   webhookSecret: string
 }): Promise<string> {
   const db = getOrgDb()
-  return db.transaction(async (tx) => {
+  const saved = await db.transaction(async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
@@ -429,7 +434,7 @@ export async function persistPagerdutyWebhookSubscriptionIfAbsent(input: {
     if (!row) throw new Error("PagerDuty connection not found")
     const current = pagerdutyConnectionToShape(row, input.env)
     if (current.webhookSubscriptionId && current.webhookSecretEnc) {
-      return current.webhookSubscriptionId
+      return { subscriptionId: current.webhookSubscriptionId, row }
     }
 
     const [updated] = await tx
@@ -452,8 +457,10 @@ export async function persistPagerdutyWebhookSubscriptionIfAbsent(input: {
         "PagerDuty connection was removed while saving its webhook",
       )
     }
-    return input.webhookSubscriptionId
+    return { subscriptionId: input.webhookSubscriptionId, row }
   })
+  await upsertConnectionDirectory(saved.row)
+  return saved.subscriptionId
 }
 
 export async function refreshPagerdutyConnectionTokensWithLock(input: {
@@ -542,20 +549,21 @@ export async function listPagerdutyConnectionsByWebhookSubscriptionId(input: {
   webhookSubscriptionId: string
   env: Env
 }): Promise<PagerdutyConnection[]> {
-  const db = getSystemDb()
-  const rows = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
-        eq(
-          pagerdutyConfigWebhookSubscriptionIdRef(),
-          input.webhookSubscriptionId,
-        ),
-      ),
+  const directoryRows = await listConnectionDirectoryByType(
+    CONNECTION_TYPE_PAGERDUTY,
+  )
+  const rows = await Promise.all(
+    directoryRows.map((row) => loadConnectionViaDirectory(row.connectionId)),
+  )
+  return rows
+    .filter(
+      (row): row is ConnectionRow => row?.type === CONNECTION_TYPE_PAGERDUTY,
     )
-  return rows.map((row) => pagerdutyConnectionToShape(row, input.env))
+    .map((row) => pagerdutyConnectionToShape(row, input.env))
+    .filter(
+      (connection) =>
+        connection.webhookSubscriptionId === input.webhookSubscriptionId,
+    )
 }
 
 export async function createOrReusePagerdutyDraft(input: {
@@ -593,6 +601,7 @@ export async function createOrReusePagerdutyDraft(input: {
     })
     .returning()
   if (!row) throw new Error("Failed to create PagerDuty draft connection")
+  await upsertConnectionDirectory(row)
   return pagerdutyConnectionToShape(row, input.env)
 }
 
@@ -711,11 +720,11 @@ export async function deletePagerdutyConnectionById(
   connectionId: string,
 ): Promise<boolean> {
   const db = getOrgDb()
-  return db.transaction(async (tx) => {
+  const removed = await db.transaction(async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${connectionId}, 0))`,
     )
-    const removed = await tx
+    const deleted = await tx
       .delete(connections)
       .where(
         and(
@@ -725,103 +734,117 @@ export async function deletePagerdutyConnectionById(
         ),
       )
       .returning({ id: connections.id })
-    return removed.length > 0
+    return deleted.length > 0
   })
+  if (removed) await deleteConnectionDirectory(connectionId)
+  return removed
 }
 
 export async function getPagerdutyBindingByConnectionId(
+  orgId: string,
   connectionId: string,
 ): Promise<PagerdutyBinding | undefined> {
-  const db = getSystemDb()
-  const [row] = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.id, connectionId),
-        eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
-      ),
-    )
-    .limit(1)
-  return row ? bindingFromConnectionRow(row) : undefined
+  return withOrgDbContext(orgId, async (db) => {
+    const [row] = await db
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, connectionId),
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
+        ),
+      )
+      .limit(1)
+    return row ? bindingFromConnectionRow(row) : undefined
+  })
 }
 
 export async function getPagerdutyBindingWithRepoByConnectionId(
   orgId: string,
   connectionId: string,
 ): Promise<PagerdutyBindingWithRepo | undefined> {
-  const db = getSystemDb()
-  const [row] = await db
-    .select({
-      connection: connections,
-      repositoryName: repositories.name,
-      githubConnectionId: repositories.githubConnectionId,
-    })
-    .from(connections)
-    .innerJoin(
-      repositories,
-      and(
-        eq(repositories.orgId, connections.orgId),
-        eq(repositories.id, sql`${connections.config}->>'repositoryId'`),
-      ),
-    )
-    .where(
-      and(
-        eq(connections.id, connectionId),
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
-        eq(repositories.orgId, orgId),
-      ),
-    )
-    .limit(1)
-  if (!row) return undefined
-  const binding = bindingFromConnectionRow(row.connection)
-  if (!binding) return undefined
-  return {
-    ...binding,
-    repositoryName: row.repositoryName,
-    githubConnectionId: row.githubConnectionId,
-  }
+  return withOrgDbContext(orgId, async () => {
+    const [row] = await getOrgDb()
+      .select({
+        connection: connections,
+        repositoryName: repositories.name,
+        repositoryGitUrl: repositories.gitUrl,
+        githubConnectionId: repositories.githubConnectionId,
+      })
+      .from(connections)
+      .innerJoin(
+        repositories,
+        and(
+          eq(repositories.orgId, connections.orgId),
+          eq(repositories.id, sql`${connections.config}->>'repositoryId'`),
+        ),
+      )
+      .where(
+        and(
+          eq(connections.id, connectionId),
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
+          eq(repositories.orgId, orgId),
+        ),
+      )
+      .limit(1)
+    if (!row) return undefined
+    const binding = bindingFromConnectionRow(row.connection)
+    if (!binding) return undefined
+    return {
+      ...binding,
+      repositoryName: row.repositoryName,
+      repositoryGitUrl: row.repositoryGitUrl,
+      githubConnectionId: row.githubConnectionId,
+    }
+  })
 }
 
 export async function listPagerdutyBindingsWithRepoByRepositoryId(
+  orgId: string,
   repositoryId: string,
 ): Promise<PagerdutyBindingWithRepo[]> {
-  const db = getSystemDb()
-  const rows = await db
-    .select({
-      connection: connections,
-      repositoryName: repositories.name,
-      githubConnectionId: repositories.githubConnectionId,
+  return withOrgDbContext(orgId, async (db) => {
+    const rows = await db
+      .select({
+        connection: connections,
+        repositoryName: repositories.name,
+        repositoryGitUrl: repositories.gitUrl,
+        githubConnectionId: repositories.githubConnectionId,
+      })
+      .from(connections)
+      .innerJoin(
+        repositories,
+        and(
+          eq(repositories.orgId, connections.orgId),
+          eq(repositories.id, sql`${connections.config}->>'repositoryId'`),
+        ),
+      )
+      .where(
+        and(
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
+          eq(sql`${connections.config}->>'repositoryId'`, repositoryId),
+        ),
+      )
+    return rows.flatMap((row) => {
+      const binding = bindingFromConnectionRow(row.connection)
+      if (!binding) return []
+      return [
+        {
+          ...binding,
+          repositoryName: row.repositoryName,
+          repositoryGitUrl: row.repositoryGitUrl,
+          githubConnectionId: row.githubConnectionId,
+        },
+      ]
     })
-    .from(connections)
-    .innerJoin(
-      repositories,
-      and(
-        eq(repositories.orgId, connections.orgId),
-        eq(repositories.id, sql`${connections.config}->>'repositoryId'`),
-      ),
-    )
-    .where(
-      and(
-        eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
-        eq(sql`${connections.config}->>'repositoryId'`, repositoryId),
-      ),
-    )
-  return rows.flatMap((row) => {
-    const binding = bindingFromConnectionRow(row.connection)
-    if (!binding) return []
-    return [
-      {
-        ...binding,
-        repositoryName: row.repositoryName,
-        githubConnectionId: row.githubConnectionId,
-      },
-    ]
   })
 }
 
 export async function claimPagerdutyConfigPrCreation(input: {
+  orgId: string
   connectionId: string
 }): Promise<
   | {
@@ -830,8 +853,7 @@ export async function claimPagerdutyConfigPrCreation(input: {
     }
   | undefined
 > {
-  const db = getSystemDb()
-  return db.transaction(async (tx) => {
+  return withOrgDbContext(input.orgId, async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
@@ -841,6 +863,7 @@ export async function claimPagerdutyConfigPrCreation(input: {
       .where(
         and(
           eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
           eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
         ),
       )
@@ -860,6 +883,7 @@ export async function claimPagerdutyConfigPrCreation(input: {
       .where(
         and(
           eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
           eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
           sql`coalesce((${connections.config}->>'pendingConfigPrCreating')::boolean, false) = false`,
         ),
@@ -874,14 +898,14 @@ export async function claimPagerdutyConfigPrCreation(input: {
 }
 
 export async function releasePagerdutyConfigPrCreationClaim(input: {
+  orgId: string
   connectionId: string
   previousState: {
     pendingConfigPullUrl: string | null
     setupPhase: PagerdutySetupPhase
   }
 }): Promise<void> {
-  const db = getSystemDb()
-  await db.transaction(async (tx) => {
+  await withOrgDbContext(input.orgId, async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
@@ -891,6 +915,7 @@ export async function releasePagerdutyConfigPrCreationClaim(input: {
       .where(
         and(
           eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
           eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
         ),
       )
@@ -919,6 +944,7 @@ export async function releasePagerdutyConfigPrCreationClaim(input: {
 }
 
 export async function transitionPagerdutyBindingState(input: {
+  orgId: string
   connectionId: string
   expectedSetupPhase: PagerdutySetupPhase
   expectedPendingConfigPrCreating: boolean
@@ -928,8 +954,7 @@ export async function transitionPagerdutyBindingState(input: {
   pendingConfigPrCreating: boolean
   setupPhase: PagerdutySetupPhase
 }): Promise<boolean> {
-  const db = getSystemDb()
-  return db.transaction(async (tx) => {
+  return withOrgDbContext(input.orgId, async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
@@ -939,6 +964,7 @@ export async function transitionPagerdutyBindingState(input: {
       .where(
         and(
           eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
           eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
         ),
       )
@@ -972,12 +998,12 @@ export async function transitionPagerdutyBindingState(input: {
 }
 
 export async function claimPagerdutyBindingInitialSync(input: {
+  orgId: string
   connectionId: string
   repositoryId: string
   branch: string
 }): Promise<boolean> {
-  const db = getSystemDb()
-  return db.transaction(async (tx) => {
+  return withOrgDbContext(input.orgId, async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
@@ -987,6 +1013,7 @@ export async function claimPagerdutyBindingInitialSync(input: {
       .where(
         and(
           eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
           eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
         ),
       )
@@ -1022,20 +1049,21 @@ export async function claimPagerdutyBindingInitialSync(input: {
   })
 }
 
-export async function claimPagerdutyContentSyncRetry(
-  connectionId: string,
-): Promise<boolean> {
-  const db = getSystemDb()
-  return db.transaction(async (tx) => {
+export async function claimPagerdutyContentSyncRetry(input: {
+  orgId: string
+  connectionId: string
+}): Promise<boolean> {
+  return withOrgDbContext(input.orgId, async (tx) => {
     await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${connectionId}, 0))`,
+      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
     const [row] = await tx
       .select()
       .from(connections)
       .where(
         and(
-          eq(connections.id, connectionId),
+          eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
           eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
         ),
       )
@@ -1059,7 +1087,7 @@ export async function claimPagerdutyContentSyncRetry(
         }),
         updatedAt: new Date(),
       })
-      .where(eq(connections.id, connectionId))
+      .where(eq(connections.id, input.connectionId))
       .returning({ id: connections.id })
     return Boolean(claimed)
   })
@@ -1069,8 +1097,7 @@ export async function resetPagerdutyConnectorAfterMissingConfig(input: {
   orgId: string
   connectionId: string
 }): Promise<void> {
-  const db = getSystemDb()
-  await db.transaction(async (tx) => {
+  await withOrgDbContext(input.orgId, async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
@@ -1157,11 +1184,11 @@ export async function clearPagerdutySyncBindingsForRepository(input: {
 }
 
 export async function finalizePagerdutyBindingAfterContentWorkflow(input: {
+  orgId: string
   connectionId: string
   workflowStatus: "completed" | "partial_failed" | "failed"
 }): Promise<boolean> {
-  const db = getSystemDb()
-  return db.transaction(async (tx) => {
+  return withOrgDbContext(input.orgId, async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
@@ -1171,6 +1198,7 @@ export async function finalizePagerdutyBindingAfterContentWorkflow(input: {
       .where(
         and(
           eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
           eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
         ),
       )
@@ -1263,6 +1291,7 @@ async function resolveRepositoryIdForPagerdutySync(
     .insert(repositoryCheckouts)
     .values({
       id: checkoutId,
+      orgId,
       repositoryId: id,
       ref: "main",
       checkoutKey: DEFAULT_CHECKOUT_KEY,

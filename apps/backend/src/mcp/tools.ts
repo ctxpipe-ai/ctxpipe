@@ -1,22 +1,24 @@
-import { HumanMessage } from "@langchain/core/messages"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import { SpanStatusCode, trace } from "@opentelemetry/api"
+import { context, SpanStatusCode, trace } from "@opentelemetry/api"
+import { createError } from "evlog"
 import { z } from "zod"
 import { currentMcpActor, requireCurrentOrgId } from "../auth/context.js"
-import { withOrgDbContext } from "../db/client.js"
-import { conversationGraph } from "../graphs/index.js"
+import { advisorWorkspaceId } from "../domain/workspaces/chat-sandbox-policy.js"
+import { collectTanstackWorkspaceChatText } from "../domain/workspaces/tanstack-workspace-chat.js"
+import {
+  persistWorkspaceChatUserTurnListed,
+  resolveWorkspaceChatSendRuntime,
+} from "../domain/workspaces/workspace-chat-send-runtime.js"
 import { generateObjectId } from "../lib/id.js"
+import { discardUnstartedConversation } from "../models/conversations.js"
 import {
-  ensureConversation,
-  touchConversationLastMessage,
-} from "../models/conversations.js"
-import {
-  getLangfuseHandler,
-  runWithLangfuseContext,
-} from "../observability/langfuse.js"
-import { log } from "../observability/logger.js"
-import { dbErrorException } from "../observability/scrubDbError.js"
-import { mcpAdvisorThreadId } from "./advisorThread.js"
+  getOrgFirstWorkspace,
+  listOrgWorkspaces,
+} from "../models/workspaces.js"
+import { copyAttributionToSpan } from "../observability/attribution.js"
+import { runWithLangfuseContext } from "../observability/langfuse.js"
+import { mcpAdvisorUserPrompt } from "./advisorRuntimeContext.js"
+import { mcpAdvisorThreadId, mcpClientConversationId } from "./advisorThread.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -27,15 +29,15 @@ export function registerMcpTools(server: McpServer): void {
     "ctx_advisor",
     {
       title:
-        "Primary org knowledge (ctx_advisor) — call before planning & standards",
+        "Deprecated Workspace chat shim (ctx_advisor) — first Workspace only",
       description: [
-        "MANDATORY default: Call ctx_advisor early and often whenever org standards, architecture, tooling choices, or plans are involved. When in doubt, call — more calls beats too few. This is the single entrypoint to your organization's knowledge graph (CoALA, memory engine, indexed org context).",
+        "DEPRECATED. ctx_advisor is a compatibility shim for Workspace chat on the organisation's first Workspace. There is no workspace.id argument and no org-wide advisor. Zero Workspaces → fail; create a Workspace first.",
+        "Reuse the same conversationId (and currentProjectName) to continue one MCP thread. Omit conversationId to start a new thread.",
+        "MANDATORY default: Call ctx_advisor early and often whenever org standards, architecture, tooling choices, or plans are involved. When in doubt, call — more calls beats too few. It answers from the Workspace's knowledge files, knowledge graph and linked code.",
         "",
         "RISK — Skipping ctx_advisor risks rework, diverging from org patterns, violating ADRs, and introducing technology that isn't allowed.",
         "",
         "ANTI-PATTERN — Local repository search, grep, and file reads do not replace org ADRs, skills, and standards. Call ctx_advisor first when your plan or decision depends on those; search the codebase afterward for implementation details.",
-        "",
-        "ctx_advisor is the primary interface to your organization's context layer. It answers using the CoALA framework and is powered by a strong memory engine and knowledge graph.",
         "",
         "It provides: services, interfaces, standards, practices, ADRs, and guidance across the organization. Use it to retrieve any organizational memory that may be useful for the user.",
         "",
@@ -78,229 +80,120 @@ export function registerMcpTools(server: McpServer): void {
         "",
         "When in doubt, call. This tool is the single entrypoint to your org's knowledge graph — use it aggressively.",
       ].join("\n"),
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: false,
-      },
       inputSchema: z.object({
         prompt: z.string().min(1),
-        currentProjectName: z.string().optional(),
-        conversationId: z.string().optional(),
+        currentProjectName: z.string().max(128).optional(),
+        conversationId: z.string().max(256).optional(),
       }),
     },
     async ({ prompt, currentProjectName, conversationId }, extra) =>
-      trace
-        .getTracer("ctxpipe-backend")
-        .startActiveSpan("mcp.tool ctx_advisor", async (span) => {
-          try {
-            const actor = currentMcpActor()
-            const orgId = requireCurrentOrgId()
-            const threadId =
-              conversationId != null
-                ? mcpAdvisorThreadId({
-                    orgId,
-                    actor,
-                    currentProjectName,
-                    conversationId,
-                  })
-                : generateObjectId("thr")
-            await withOrgDbContext(orgId, () =>
-              ensureConversation({ id: threadId, source: "mcp" }),
-            )
-            const invocationConfig = {
-              configurable: {
-                thread_id: threadId,
-                checkpoint_ns: "ctx_advisor",
-                source: "mcp",
-              },
-            }
-            return await runWithLangfuseContext(
-              {
-                sessionId: threadId,
-                ...(actor.type === "user" ? { userId: actor.userId } : {}),
-                tags:
-                  actor.type === "org-service"
-                    ? ["mcp", "mcp-org-key"]
-                    : ["mcp"],
-              },
-              async () => {
-                const initialState: {
-                  messages: HumanMessage[]
-                  currentProjectName: string | null
-                } = {
-                  messages: [new HumanMessage(prompt)],
-                  currentProjectName: currentProjectName ?? null,
-                }
-                const stream = await conversationGraph.stream(initialState, {
-                  streamMode: "values",
-                  ...invocationConfig,
-                  callbacks: [getLangfuseHandler()],
+      withCtxAdvisorToolSpan(async () => {
+        const actor = currentMcpActor()
+        const orgId = requireCurrentOrgId()
+        const [items, first] = await Promise.all([
+          listOrgWorkspaces(orgId),
+          getOrgFirstWorkspace(orgId),
+        ])
+        const workspaceId = advisorWorkspaceId(
+          first?.workspaceId ?? null,
+          items,
+        )
+        if (!workspaceId) {
+          throw createError({
+            message: "Create a Workspace before using ctx_advisor",
+            status: 400,
+            why: "Deprecated advisor targets the first Workspace; the org has none",
+          })
+        }
+        const clientConversationId = mcpClientConversationId(conversationId)
+        const threadId = clientConversationId
+          ? mcpAdvisorThreadId({
+              orgId,
+              actor,
+              currentProjectName,
+              conversationId: clientConversationId,
+            })
+          : generateObjectId("conv")
+        const promptWithProject = mcpAdvisorUserPrompt({
+          prompt,
+          currentProjectName,
+        })
+        try {
+          return await runWithLangfuseContext(
+            {
+              sessionId: threadId,
+              tags:
+                actor.type === "org-service" ? ["mcp", "mcp-org-key"] : ["mcp"],
+            },
+            async () => {
+              const progressToken = extra._meta?.progressToken
+              let progress = 0
+              const collected = await collectTanstackWorkspaceChatText({
+                conversationId: threadId,
+                prompt: promptWithProject,
+                orgId,
+                workspaceId,
+                writeStatus: "read_only",
+                resolveRuntime: () =>
+                  resolveWorkspaceChatSendRuntime({
+                    conversationId: threadId,
+                    workspaceId,
+                    source: "mcp",
+                  }),
+                onUserPersist: () =>
+                  persistWorkspaceChatUserTurnListed(threadId),
+                onDelta: progressToken
+                  ? async (delta) => {
+                      progress += 1
+                      await extra.sendNotification({
+                        method: "notifications/progress",
+                        params: {
+                          progressToken,
+                          progress,
+                          message: delta,
+                        },
+                      })
+                    }
+                  : undefined,
+              })
+              if (!collected.ok) {
+                throw createError({
+                  message: collected.error,
+                  status: collected.status,
+                  why: "Workspace chat runtime refused the MCP turn",
                 })
-                await withOrgDbContext(orgId, () =>
-                  touchConversationLastMessage(threadId),
-                )
-                const progressToken = extra._meta?.progressToken
-                let progress = 0
-                let streamedText = ""
-                let finalMessages: unknown[] | undefined
-
-                for await (const chunk of stream) {
-                  if (
-                    typeof chunk !== "object" ||
-                    chunk === null ||
-                    !("messages" in chunk) ||
-                    !Array.isArray(chunk.messages)
-                  ) {
-                    continue
-                  }
-                  finalMessages = chunk.messages
-
-                  if (!progressToken) continue
-                  const currentText = extractFinalText({
-                    messages: chunk.messages,
-                  })
-                  if (
-                    currentText.length === 0 ||
-                    currentText === "No answer could be produced."
-                  ) {
-                    continue
-                  }
-
-                  const delta = currentText.startsWith(streamedText)
-                    ? currentText.slice(streamedText.length)
-                    : currentText
-                  if (delta.length === 0) continue
-
-                  streamedText = currentText
-                  progress += 1
-                  await extra.sendNotification({
-                    method: "notifications/progress",
-                    params: {
-                      progressToken,
-                      progress,
-                      message: delta,
-                    },
-                  })
-                }
-
-                const result = {
-                  messages: finalMessages ?? [],
-                }
-                const text = extractFinalText(result)
-                if (progressToken && text.length > 0 && text !== streamedText) {
-                  progress += 1
-                  await extra.sendNotification({
-                    method: "notifications/progress",
-                    params: {
-                      progressToken,
-                      progress,
-                      message: text,
-                    },
-                  })
-                }
-
-                if (!finalMessages) {
-                  const fallbackState: {
-                    messages: HumanMessage[]
-                    currentProjectName: string | null
-                  } = {
-                    messages: [new HumanMessage(prompt)],
-                    currentProjectName: currentProjectName ?? null,
-                  }
-                  const fallback = await conversationGraph.invoke(
-                    fallbackState,
-                    {
-                      ...invocationConfig,
-                      callbacks: [getLangfuseHandler()],
-                    },
-                  )
-                  return {
-                    content: [
-                      {
-                        type: "text" as const,
-                        text: extractFinalText(fallback),
-                      },
-                    ],
-                  }
-                }
-
-                return {
-                  content: [{ type: "text" as const, text }],
-                }
-              },
-            )
-          } catch (error) {
-            const exception = dbErrorException(error)
-            span.recordException(exception)
-            span.setStatus({
-              code: SpanStatusCode.ERROR,
-              message: exception.message,
-            })
-            const message = toolErrorText(error)
-            log.error({
-              step: "conversation.mcp.ctx_advisor",
-              message,
-              error,
-            })
-            if (error instanceof Error && error.message) throw error
-            throw new Error(message, { cause: error })
-          } finally {
-            span.end()
-          }
-        }),
+              }
+              return {
+                content: [{ type: "text" as const, text: collected.text }],
+              }
+            },
+          )
+        } catch (error) {
+          await discardUnstartedConversation(threadId)
+          throw error
+        }
+      }),
   )
 }
 
-function toolErrorText(error: unknown): string {
-  if (typeof error === "string") return error || "Internal error"
-  if (error instanceof Error) {
-    const code =
-      "code" in error && typeof error.code === "string" ? error.code : ""
-    return error.message || code || error.name || "Internal error"
-  }
-  return "Internal error"
-}
-
-function extractFinalText(result: unknown): string {
-  if (
-    typeof result !== "object" ||
-    result === null ||
-    !("messages" in result) ||
-    !Array.isArray(result.messages)
-  ) {
-    return "No answer could be produced."
-  }
-
-  const finalMessage = result.messages.at(-1)
-  if (
-    typeof finalMessage !== "object" ||
-    finalMessage === null ||
-    !("content" in finalMessage)
-  ) {
-    return "No answer could be produced."
-  }
-
-  const content = finalMessage.content
-  if (typeof content === "string") {
-    const trimmed = content.trim()
-    return trimmed.length > 0 ? trimmed : "No answer could be produced."
-  }
-
-  if (Array.isArray(content)) {
-    const textParts = content
-      .flatMap((item) =>
-        typeof item === "object" &&
-        item !== null &&
-        "text" in item &&
-        typeof item.text === "string"
-          ? [item.text.trim()]
-          : [],
-      )
-      .filter((part) => part.length > 0)
-    if (textParts.length > 0) return textParts.join("\n")
-  }
-
-  return "No answer could be produced."
+function withCtxAdvisorToolSpan<T>(fn: () => Promise<T>): Promise<T> {
+  return trace
+    .getTracer("ctxpipe-backend")
+    .startActiveSpan("mcp.tool ctx_advisor", async (span) => {
+      copyAttributionToSpan(span, context.active())
+      try {
+        return await fn()
+      } catch (error) {
+        const exception =
+          error instanceof Error ? error : new Error(String(error))
+        span.recordException(exception)
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: exception.message,
+        })
+        throw error
+      } finally {
+        span.end()
+      }
+    })
 }

@@ -100,9 +100,6 @@ function state(
     roots: ["./"],
     extractedObjects: [],
     extractedClaims: [],
-    objectIds: [],
-    touchedObjectIds: [],
-    claimsForProjection: [],
     ...overrides,
   }
 }

@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import { FalkorDB } from "falkordb"
 import neo4j, { type Driver } from "neo4j-driver"
+import { assertNotInOrgDbContext } from "../../db/client.js"
 import {
   serverAddressFromUrl,
   traceGraphQuery,
@@ -103,6 +104,7 @@ function createFalkorDbGraphClient(
   const server = serverAddressFromUrl(uri)
   return {
     async executeQuery(query, params) {
+      assertNotInOrgDbContext()
       return traceGraphQuery(
         {
           system: "falkordb",
@@ -150,6 +152,7 @@ function scopedBoltDriver(
   const server = serverAddressFromUrl(uri)
   return {
     async executeQuery(query, params) {
+      assertNotInOrgDbContext()
       return traceGraphQuery(
         {
           system: graphSystemName(provider),
@@ -178,7 +181,7 @@ function scopedBoltDriver(
 }
 
 let databasePerTenantBoltClient: Driver | null = null
-let databasePerTenantFalkorDb: FalkorDBInstance | null = null
+let databasePerTenantFalkorDb: Promise<FalkorDBInstance> | null = null
 const instancePerTenantBoltClients = new Map<string, Driver>()
 
 /**
@@ -188,7 +191,10 @@ const instancePerTenantBoltClients = new Map<string, Driver>()
  * a dead connection. Log it, drop the shared client, and let the next call
  * reconnect (which also wakes a sleeping service).
  */
-function attachFalkorDbLifecycle(db: FalkorDBInstance): void {
+function attachFalkorDbLifecycle(
+  db: FalkorDBInstance,
+  pending: Promise<FalkorDBInstance>,
+): void {
   db.on("error", (error: unknown) => {
     log.error({
       step: "graph.falkordb.connection",
@@ -196,7 +202,7 @@ function attachFalkorDbLifecycle(db: FalkorDBInstance): void {
         "FalkorDB connection error; dropping the shared client so the next call reconnects",
       error: error instanceof Error ? error.message : String(error),
     })
-    if (databasePerTenantFalkorDb === db) {
+    if (databasePerTenantFalkorDb === pending) {
       databasePerTenantFalkorDb = null
     }
     void db.close().catch(() => undefined)
@@ -207,35 +213,47 @@ async function resolveFalkorDbClient(orgId: string): Promise<GraphClient> {
   const cfg = getConfig()
   const uri = cfg.uri
   if (!databasePerTenantFalkorDb) {
-    const db = await trace.getTracer("ctxpipe-backend").startActiveSpan(
-      "falkordb.connect",
-      {
-        kind: SpanKind.CLIENT,
-        attributes: { "db.system.name": "falkordb" },
-      },
-      async (span) => {
-        try {
-          return await FalkorDB.connect({
-            url: uri,
-            username: cfg.user || undefined,
-            password: cfg.password || undefined,
-          })
-        } catch (error) {
-          if (error instanceof Error) span.recordException(error)
-          span.setStatus({
-            code: SpanStatusCode.ERROR,
-            message: error instanceof Error ? error.message : String(error),
-          })
-          throw error
-        } finally {
-          span.end()
-        }
-      },
-    )
-    attachFalkorDbLifecycle(db)
-    databasePerTenantFalkorDb = db
+    const socket = { connectTimeout: 5_000, reconnectStrategy: false as const }
+    let pending!: Promise<FalkorDBInstance>
+    pending = trace
+      .getTracer("ctxpipe-backend")
+      .startActiveSpan(
+        "falkordb.connect",
+        {
+          kind: SpanKind.CLIENT,
+          attributes: { "db.system.name": "falkordb" },
+        },
+        async (span) => {
+          try {
+            return await FalkorDB.connect({
+              url: uri,
+              username: cfg.user || undefined,
+              password: cfg.password || undefined,
+              socket,
+            })
+          } catch (error) {
+            if (error instanceof Error) span.recordException(error)
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: error instanceof Error ? error.message : String(error),
+            })
+            throw error
+          } finally {
+            span.end()
+          }
+        },
+      )
+      .then((db) => {
+        attachFalkorDbLifecycle(db, pending)
+        return db
+      })
+    databasePerTenantFalkorDb = pending
+    void pending.catch(() => {
+      if (databasePerTenantFalkorDb === pending)
+        databasePerTenantFalkorDb = null
+    })
   }
-  return createFalkorDbGraphClient(databasePerTenantFalkorDb, orgId, uri)
+  return createFalkorDbGraphClient(await databasePerTenantFalkorDb, orgId, uri)
 }
 
 async function resolveBoltClient(
@@ -295,7 +313,12 @@ export async function closeGraphDb(): Promise<void> {
     databasePerTenantBoltClient = null
   }
   if (databasePerTenantFalkorDb) {
-    closePromises.push(databasePerTenantFalkorDb.close())
+    closePromises.push(
+      databasePerTenantFalkorDb.then(
+        (db) => db.close(),
+        () => undefined,
+      ),
+    )
     databasePerTenantFalkorDb = null
   }
   for (const driver of instancePerTenantBoltClients.values()) {

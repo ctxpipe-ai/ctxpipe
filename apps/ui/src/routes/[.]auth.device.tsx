@@ -34,7 +34,7 @@ function devicePathWithSearch(search: { user_code?: string }): string {
   return `/.auth/device?${qs.toString()}`
 }
 
-function DeviceAuthorizationPage() {
+export function DeviceAuthorizationPage() {
   const search = Route.useSearch()
   const { data: session, isPending: sessionPending } = useSession()
   const initialCode = normalizeUserCode(search.user_code ?? "")

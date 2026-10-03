@@ -51,7 +51,12 @@ const config = defineConfig({
     tsconfigPaths({ projects: ["./tsconfig.json"] }),
     tailwindcss(),
     tanstackStart(),
-    nitroV2Plugin({ preset: "bun" }),
+    nitroV2Plugin({
+      preset: "bun",
+      alias: {
+        "@/cosmograph/style.module.css": cosmographStyleAlias,
+      },
+    }),
     motionwind(),
     viteReact(),
   ],
