@@ -4,6 +4,7 @@ import { createError } from "evlog"
 import { z } from "zod"
 import { currentMcpActor, requireCurrentOrgId } from "../auth/context.js"
 import { advisorWorkspaceId } from "../domain/workspaces/chat-sandbox-policy.js"
+import { SandboxCapacityError } from "../domain/workspaces/conversation-sandbox-lifecycle.js"
 import { collectTanstackWorkspaceChatText } from "../domain/workspaces/tanstack-workspace-chat.js"
 import {
   persistWorkspaceChatUserTurnListed,
@@ -134,6 +135,7 @@ export function registerMcpTools(server: McpServer): void {
                 orgId,
                 workspaceId,
                 writeStatus: "read_only",
+                stopSandboxWhenDone: true,
                 resolveRuntime: () =>
                   resolveWorkspaceChatSendRuntime({
                     conversationId: threadId,
@@ -170,6 +172,12 @@ export function registerMcpTools(server: McpServer): void {
           )
         } catch (error) {
           await discardUnstartedConversation(threadId)
+          if (error instanceof SandboxCapacityError)
+            throw createError({
+              message: error.message,
+              status: 429,
+              why: "The organization runs its maximum number of chat sandboxes",
+            })
           throw error
         }
       }),

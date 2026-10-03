@@ -1,6 +1,12 @@
 import { chatSandboxAllowsRemotePush } from "./chat-sandbox-policy.js"
 
 export const CHAT_SANDBOX_IDLE_MS = 30 * 60 * 1000
+/** A conversation sandbox stops (files kept) after this long unused. */
+export const CHAT_SANDBOX_IDLE_STOP_MS = 5 * 60 * 1000
+/** A conversation's saved sandbox state is deleted this long after its last use. */
+export const CHAT_SANDBOX_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+/** Conversation sandboxes one organization may run at once. */
+export const ORG_RUNNING_SANDBOX_LIMIT = 50
 export const JOB_SANDBOX_IDLE_MS = 60 * 60 * 1000
 export const CHAT_HEARTBEAT_INTERVAL_MS = 60 * 1000
 export const CHAT_SESSION_BRANCH_PREFIX = "ctxpipe/chat"
@@ -71,18 +77,6 @@ export function chatMayPublishPullRequest(input: {
   if (!input.explicitRequest) return false
   if (input.host !== "github") return false
   return chatSandboxAllowsRemotePush(input.writeStatus, input.readOnlyReason)
-}
-
-export function shouldDestroyChatSandbox(input: {
-  conversationDeleted: boolean
-  lastTurnAt: Date | null
-  now: Date
-}): boolean {
-  if (input.conversationDeleted) return true
-  if (!input.lastTurnAt) return true
-  return (
-    input.now.getTime() - input.lastTurnAt.getTime() >= CHAT_SANDBOX_IDLE_MS
-  )
 }
 
 export function shouldDestroyJobSandbox(input: {

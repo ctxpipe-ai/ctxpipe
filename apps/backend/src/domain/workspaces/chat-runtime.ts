@@ -97,7 +97,8 @@ fi
 true`,
 ] as const
 
-export const CHAT_SANDBOX_KEEP_ALIVE = "30m" as const
+/** A hint only; the conversation sandbox sweep stops idle sandboxes. */
+export const CHAT_SANDBOX_KEEP_ALIVE = "5m" as const
 
 export const WORKSPACE_CHAT_CLONE_TOKEN_SECRET = "CTXPIPE_CLONE_TOKEN" as const
 export const WORKSPACE_CHAT_CLONE_URL_SECRET = "CTXPIPE_CLONE_URL" as const

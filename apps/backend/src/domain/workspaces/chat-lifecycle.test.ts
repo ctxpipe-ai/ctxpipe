@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
   applyQuietChatUpdate,
-  CHAT_SANDBOX_IDLE_MS,
   chatHeartbeatKeepsSandbox,
   chatMayPublishPullRequest,
   chatSessionBranchName,
@@ -14,7 +13,6 @@ import {
   quietUpdateChatBranch,
   quietUpdateGitCommand,
   restoreBranchAfterIdle,
-  shouldDestroyChatSandbox,
   shouldDestroyJobSandbox,
   shouldHeartbeatChatSandbox,
   treeDirtyFromPorcelain,
@@ -69,22 +67,8 @@ describe("chat lifecycle", () => {
     ).toBe(false)
   })
 
-  it("destroys chat after 30 minutes and jobs after 60", () => {
+  it("destroys job sandboxes after 60 minutes", () => {
     const now = new Date("2026-08-16T12:00:00.000Z")
-    expect(
-      shouldDestroyChatSandbox({
-        conversationDeleted: true,
-        lastTurnAt: now,
-        now,
-      }),
-    ).toBe(true)
-    expect(
-      shouldDestroyChatSandbox({
-        conversationDeleted: false,
-        lastTurnAt: new Date(now.getTime() - CHAT_SANDBOX_IDLE_MS),
-        now,
-      }),
-    ).toBe(true)
     expect(
       shouldDestroyJobSandbox({
         desiredUrlChanged: true,

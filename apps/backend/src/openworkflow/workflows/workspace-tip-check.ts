@@ -9,9 +9,7 @@ import {
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
 import { shouldEnqueueCronHydrate } from "../../domain/workspaces/tip-resolve.js"
 import {
-  chatSandboxesDueForDestroy,
   collectUnusedWorkspaceChatBases,
-  destroySandboxesForConversation,
   destroySandboxesForWorkspace,
   jobSandboxesDueForDestroy,
 } from "../../domain/workspaces/workspace-sandbox-cleanup.js"
@@ -20,7 +18,6 @@ import {
   nextPersistedWriteProbe,
   probeWorkspaceWriteAccess,
 } from "../../domain/workspaces/write-status.js"
-import { listOrgConversationsForSandboxGc } from "../../models/conversations.js"
 import {
   claimPausedWriteJob,
   getWorkspaceProjection,
@@ -41,6 +38,7 @@ import {
   type EnqueueWorkspaceWriteCommitInput,
   enqueueWorkspaceWriteCommit,
 } from "../enqueue-workspace-write-commit.js"
+import { scheduleConversationSandboxSweep } from "./conversation-sandbox-sweep.js"
 
 const workspaceTipCheckInputSchema = z.object({
   orgId: z.string().min(1),
@@ -207,15 +205,8 @@ export const workspaceTipCheck = defineWorkflow(
         )
       }
       const now = new Date()
-      const idleChats = chatSandboxesDueForDestroy({
-        conversations: await withOrgDbContext(input.orgId, () =>
-          listOrgConversationsForSandboxGc(input.orgId),
-        ),
-        now,
-      })
-      for (const conversationId of idleChats) {
-        await destroySandboxesForConversation(conversationId)
-      }
+      // Also restarts the sandbox sweep chain if it was ever lost.
+      await scheduleConversationSandboxSweep(input.orgId, now)
       const idleJobs = jobSandboxesDueForDestroy({
         workspaces: workspaces.map((row) => ({
           id: row.id,

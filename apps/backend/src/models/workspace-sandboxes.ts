@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm"
+import { and, count, eq, inArray, isNotNull, isNull, ne } from "drizzle-orm"
 import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { workspaceSandboxInstances } from "../db/schema/workspaces.js"
 import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
@@ -19,9 +19,12 @@ export type SandboxInstanceRecord = {
   revision?: WorkspaceRevision | null
   latestSnapshotId?: string | null
   latestRunId?: string | null
-  state: "live" | "destroy_failed"
+  /** `stopped`: the provider sandbox is stopped with its files kept; the next turn resumes it. */
+  state: SandboxInstanceState
   lastHeartbeatAt: Date
 }
+
+export type SandboxInstanceState = "live" | "stopped" | "destroy_failed"
 
 export type SandboxInstanceOwnership = Pick<
   SandboxInstanceRecord,
@@ -44,7 +47,12 @@ function toSandboxInstanceRecord(
   row: typeof workspaceSandboxInstances.$inferSelect,
 ): SandboxInstanceRecord | null {
   if (row.kind !== "chat" && row.kind !== "job") return null
-  if (row.state !== "live" && row.state !== "destroy_failed") return null
+  if (
+    row.state !== "live" &&
+    row.state !== "stopped" &&
+    row.state !== "destroy_failed"
+  )
+    return null
   return {
     id: row.id,
     kind: row.kind,
@@ -140,7 +148,7 @@ export async function persistSandboxInstance(
           provider: input.provider ?? null,
           providerSandboxId: input.providerSandboxId ?? null,
           image: input.image ?? null,
-            revision: input.revision ?? null,
+          revision: input.revision ?? null,
           latestSnapshotId: input.latestSnapshotId ?? null,
           latestRunId: input.latestRunId ?? null,
           state: input.state,
@@ -177,7 +185,7 @@ export async function listSandboxInstances(input: {
   workspaceId?: string
   conversationId?: string
   kind?: "chat" | "job"
-  state?: "live" | "destroy_failed"
+  state?: SandboxInstanceState
 }): Promise<SandboxInstanceRecord[]> {
   return orgSql(async () => {
     const db = getOrgDb()
@@ -201,6 +209,33 @@ export async function listSandboxInstances(input: {
       const record = toSandboxInstanceRecord(row)
       return record ? [record] : []
     })
+  })
+}
+
+/**
+ * Conversation sandboxes the org is running now: live Docker or Vercel rows,
+ * including slots reserved for a create in progress. `excludingId` leaves out
+ * the sandbox about to start, so starting it again never counts twice.
+ */
+export async function countRunningConversationSandboxes(
+  orgId: string,
+  excludingId: string,
+): Promise<number> {
+  return withSandboxInstanceDb(orgId, async () => {
+    const [row] = await getOrgDb()
+      .select({ running: count() })
+      .from(workspaceSandboxInstances)
+      .where(
+        and(
+          eq(workspaceSandboxInstances.orgId, orgId),
+          eq(workspaceSandboxInstances.kind, "chat"),
+          eq(workspaceSandboxInstances.state, "live"),
+          isNotNull(workspaceSandboxInstances.conversationId),
+          inArray(workspaceSandboxInstances.provider, ["docker", "vercel"]),
+          ne(workspaceSandboxInstances.id, excludingId),
+        ),
+      )
+    return row?.running ?? 0
   })
 }
 

@@ -167,6 +167,11 @@ const listTreeRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
     },
+    429: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "At capacity: the organization runs its maximum number of chat sandboxes",
+    },
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Sandbox provider unavailable",
@@ -204,6 +209,11 @@ const getBlobRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
     },
+    429: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "At capacity: the organization runs its maximum number of chat sandboxes",
+    },
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Sandbox provider unavailable",
@@ -240,6 +250,11 @@ const getStatusRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
     },
+    429: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "At capacity: the organization runs its maximum number of chat sandboxes",
+    },
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Sandbox provider unavailable",
@@ -273,6 +288,11 @@ const getDiffRoute = createRoute({
     404: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
+    },
+    429: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "At capacity: the organization runs its maximum number of chat sandboxes",
     },
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -319,6 +339,11 @@ const putFileRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
     },
+    429: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "At capacity: the organization runs its maximum number of chat sandboxes",
+    },
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Sandbox provider unavailable",
@@ -354,6 +379,11 @@ const postPushRoute = createRoute({
     404: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
+    },
+    429: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "At capacity: the organization runs its maximum number of chat sandboxes",
     },
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },

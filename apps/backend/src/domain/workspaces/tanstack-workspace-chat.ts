@@ -33,7 +33,10 @@ import { organizations } from "../../db/schema/auth.js"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
 import { getRepoReadCloneToken } from "../../models/github-installation.js"
 import { sandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
-import { SandboxInstanceOwnershipConflict } from "../../models/workspace-sandboxes.js"
+import {
+  heartbeatSandboxInstance,
+  SandboxInstanceOwnershipConflict,
+} from "../../models/workspace-sandboxes.js"
 import { getLogger, log } from "../../observability/logger.js"
 import {
   CHAT_SANDBOX_KEEP_ALIVE,
@@ -51,6 +54,11 @@ import {
   workspaceChatRuntimeConfig,
 } from "./chat-runtime.js"
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
+import {
+  SandboxCapacityError,
+  stopConversationSandboxes,
+  withConversationSandboxSlots,
+} from "./conversation-sandbox-lifecycle.js"
 import { nameConversationIfUnnamed } from "./conversation-title.js"
 import { type WorkspaceRevision, workspaceRevisionSchema } from "./revision.js"
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
@@ -144,6 +152,11 @@ export type TanstackWorkspaceChatInput = {
   onDelta?: (delta: string) => Promise<void> | void
   resolveRuntime?: () => Promise<Partial<TanstackWorkspaceChatInput>>
   wireFormat?: WorkspaceChatWireFormat
+  /**
+   * Nobody is watching this run (an MCP turn): stop its sandbox as soon as
+   * the run ends, so it never holds one of the org's slots while idle.
+   */
+  stopSandboxWhenDone?: boolean
 }
 
 export { conversationRenameChunk } from "./workspace-chat-agui.js"
@@ -306,29 +319,44 @@ async function* streamTanstackWorkspaceChatBody(
   yield workspaceChatSandboxSetupChunk("starting")
   const resolved = input.resolveRuntime ? await input.resolveRuntime() : {}
   const turn: TanstackWorkspaceChatInput = { ...input, ...resolved }
-  await turn.onUserPersist?.()
-  const prepared = await startWorkspaceChat(turn)
-  if (!prepared.ok) throw new Error(prepared.error)
-  yield workspaceChatSandboxSetupChunk("ready")
-  for await (const chunk of prepared.stream) {
-    const typed = chunk as StreamChunk
-    if (typed.type === "RUN_STARTED") continue
-    if (typed.type === "RUN_ERROR") await turn.onError?.()
-    if (typed.type === "RUN_FINISHED") {
-      const name = await nameConversationIfUnnamed({
-        conversationId: turn.conversationId,
-        prompt: turn.prompt,
-      })
-      if (name) yield conversationRenameChunk(name)
-      await turn.onFinish?.()
+  try {
+    await turn.onUserPersist?.()
+    const prepared = await startWorkspaceChat(turn)
+    if (!prepared.ok) throw new Error(prepared.error)
+    yield workspaceChatSandboxSetupChunk("ready")
+    for await (const chunk of prepared.stream) {
+      const typed = chunk as StreamChunk
+      if (typed.type === "RUN_STARTED") continue
+      if (typed.type === "RUN_ERROR") await turn.onError?.()
+      if (typed.type === "RUN_FINISHED") {
+        const name = await nameConversationIfUnnamed({
+          conversationId: turn.conversationId,
+          prompt: turn.prompt,
+        })
+        if (name) yield conversationRenameChunk(name)
+        await turn.onFinish?.()
+      }
+      if (
+        typed.type === "TEXT_MESSAGE_CONTENT" ||
+        typed.type === "REASONING_MESSAGE_CONTENT" ||
+        typed.type === "TOOL_CALL_START"
+      )
+        markWorkspaceChatFirstShownToken(turnId)
+      yield typed
     }
-    if (
-      typed.type === "TEXT_MESSAGE_CONTENT" ||
-      typed.type === "REASONING_MESSAGE_CONTENT" ||
-      typed.type === "TOOL_CALL_START"
-    )
-      markWorkspaceChatFirstShownToken(turnId)
-    yield typed
+  } finally {
+    // Success, error or abort: the run released the conversation by now.
+    if (turn.stopSandboxWhenDone)
+      await stopConversationSandboxes({
+        orgId: turn.orgId,
+        conversationId: turn.conversationId,
+      }).catch((error: unknown) =>
+        log.error({
+          step: "workspace-chat-stop-sandbox",
+          message: `Stopping the sandbox after an unattended run failed: ${String(error)}`,
+          conversationId: turn.conversationId,
+        }),
+      )
   }
 }
 
@@ -380,7 +408,7 @@ export async function warmTanstackWorkspaceChat(
   },
 ): Promise<
   | { ok: true; handle: SandboxHandle; effectiveRevision?: WorkspaceRevision }
-  | { ok: false; status: 400 | 409 | 503; error: string }
+  | { ok: false; status: 400 | 409 | 429 | 503; error: string }
 > {
   if (!options?.existingOnly && !options?.transcriptLocked) {
     return postgresSandboxLocks(
@@ -427,6 +455,8 @@ export async function warmTanstackWorkspaceChat(
   } catch (error) {
     if (error instanceof SandboxInstanceOwnershipConflict)
       return { ok: false, status: 409, error: error.message }
+    if (error instanceof SandboxCapacityError)
+      return { ok: false, status: 429, error: error.message }
     getLogger().error(
       error instanceof Error ? error : new Error(String(error)),
       { step: "workspace-chat-prepare-ensure" },
@@ -490,6 +520,27 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   const chatStarted = Date.now()
   const abortController = abortControllerFrom(input.abortSignal)
   let transcriptOwner: string | undefined
+  // The idle clock starts when the turn ends. Runs before the conversation
+  // lock is released, so the sweep never sees a free lock with a stale time.
+  const markSandboxUsed = async (ctx: { runId: string }) => {
+    try {
+      await heartbeatSandboxInstance(
+        definition.key({
+          threadId: input.conversationId,
+          runId: ctx.runId,
+          tenant: { userId: undefined, orgId: input.orgId },
+        }),
+        new Date(),
+        input.orgId,
+      )
+    } catch (error) {
+      log.warn({
+        step: "workspace-chat-sandbox-used",
+        message: `Recording the sandbox's last use failed: ${String(error)}`,
+        conversationId: input.conversationId,
+      })
+    }
+  }
   const stream = await chat({
     adapter: opencodeText(built.contract.opencodeModel, {
       ...opencodeListen,
@@ -511,6 +562,12 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     middleware: [
       otelMiddleware({
         tracer: trace.getTracer("ctxpipe-workspace-chat"),
+      }),
+      defineChatMiddleware({
+        name: "workspace-chat-sandbox-used",
+        onFinish: markSandboxUsed,
+        onError: markSandboxUsed,
+        onAbort: markSandboxUsed,
       }),
       workspaceChatThreadLock({
         locks: postgresSandboxLocks(
@@ -771,15 +828,26 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
     proxyUrl: session.proxyUrl,
     modelBase: contract.modelBase,
   })
+  const provider = conversationSandboxProvider(
+    selectedProvider,
+    vercel?.ok ? vercel.options : undefined,
+  )
   return {
     ok: true as const,
     isolation: selectedProvider,
     publicBaseUrl,
     definition: conversationSandboxDefinition({
-      provider: conversationSandboxProvider(
-        selectedProvider,
-        vercel?.ok ? vercel.options : undefined,
-      ),
+      provider:
+        selectedProvider === "unsandboxed"
+          ? provider
+          : withConversationSandboxSlots(provider, {
+              orgId: input.orgId,
+              workspaceId: input.workspaceId,
+              conversationId: input.conversationId,
+              provider: selectedProvider,
+              image,
+              revision: revision.data,
+            }),
       workspace,
       image,
       revision: revision.data,

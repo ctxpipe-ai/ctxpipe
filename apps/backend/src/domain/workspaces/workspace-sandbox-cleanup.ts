@@ -11,7 +11,6 @@ import {
 import { log } from "../../observability/logger.js"
 import {
   CHAT_SANDBOX_IDLE_MS,
-  shouldDestroyChatSandbox,
   shouldDestroyJobSandbox,
 } from "./chat-lifecycle.js"
 import { workspaceChatDockerImage } from "./chat-runtime.js"
@@ -253,24 +252,6 @@ export async function withDestroyedWorkspaceSandboxes<T>(
       )
     },
   )
-}
-
-export function chatSandboxesDueForDestroy(input: {
-  conversations: ReadonlyArray<{
-    id: string
-    lastMessageAt: Date | null
-  }>
-  now: Date
-}): string[] {
-  return input.conversations
-    .filter((row) =>
-      shouldDestroyChatSandbox({
-        conversationDeleted: false,
-        lastTurnAt: row.lastMessageAt,
-        now: input.now,
-      }),
-    )
-    .map((row) => row.id)
 }
 
 export function jobSandboxesDueForDestroy(input: {

@@ -48,12 +48,12 @@ export async function getConversationSandboxBinding(
   conversationId: string,
   expected: WorkspaceRevision,
 ) {
-  const rows = await listSandboxInstances({
-    conversationId,
-    kind: "chat",
-    state: "live",
-  })
-  const available = rows.filter((row) => row.providerSandboxId && row.revision)
+  const rows = await listSandboxInstances({ conversationId, kind: "chat" })
+  // An idle-stopped sandbox keeps its files; reading them resumes it.
+  const available = rows.filter(
+    (row) =>
+      row.state !== "destroy_failed" && row.providerSandboxId && row.revision,
+  )
   const matching = available.find(
     (row) =>
       row.revision &&

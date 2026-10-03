@@ -17,7 +17,9 @@ import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
 import { withNativeHttpsGitFixture } from "../../test/native-https-git-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
+import { CHAT_SANDBOX_IDLE_STOP_MS } from "./chat-lifecycle.js"
 import { workspaceChatRuntimeConfig } from "./chat-runtime.js"
+import { sweepConversationSandboxes } from "./conversation-sandbox-lifecycle.js"
 import { workspaceChatInstanceAccess } from "./sandbox-instance-store.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import {
@@ -677,6 +679,71 @@ it(
                   expect(recoveredEvents).not.toContain("RUN_ERROR")
                   expect(recoveredText).toBe("Native reply completed.")
                   expect(f.modelRequests.length).toBeGreaterThanOrEqual(2)
+                  const containerRunning = async () =>
+                    (await docker.getContainer(recovered.handle.id).inspect())
+                      .State.Running
+                  const chatTurn = async (
+                    name: string,
+                    extra: { stopSandboxWhenDone?: boolean } = {},
+                  ) => {
+                    const events: string[] = []
+                    let text = ""
+                    for await (const chunk of streamTanstackWorkspaceChat({
+                      ...input,
+                      ...extra,
+                      prompt: name,
+                      runId: `${f.conversationId}-${name}`,
+                      messages: [
+                        ...(await persistence.stores.messages.loadThread(
+                          f.conversationId,
+                        )),
+                        { id: `user-${name}`, role: "user", content: name },
+                      ],
+                    })) {
+                      events.push(chunk.type)
+                      if (chunk.type === "TEXT_MESSAGE_CONTENT")
+                        text += chunk.delta
+                    }
+                    expect(events).toContain("RUN_FINISHED")
+                    expect(events).not.toContain("RUN_ERROR")
+                    expect(text).toBe("Native reply completed.")
+                  }
+                  phase = "idle stop"
+                  await recovered.handle.fs.write(
+                    "/workspace/idle.txt",
+                    "kept through the idle stop",
+                  )
+                  const swept = await sweepConversationSandboxes(
+                    f.orgId,
+                    new Date(Date.now() + CHAT_SANDBOX_IDLE_STOP_MS),
+                  )
+                  expect(swept.stopped).toBe(1)
+                  expect(await containerRunning()).toBe(false)
+                  phase = "chat after idle stop"
+                  await chatTurn("after-idle")
+                  expect(await containerRunning()).toBe(true)
+                  const resumed = await warmTanstackWorkspaceChat({
+                    ...input,
+                    prompt: "prepare",
+                  })
+                  if (!resumed.ok) throw new Error(resumed.error)
+                  expect(resumed.handle.id).toBe(recovered.handle.id)
+                  expect(
+                    await resumed.handle.fs.read("/workspace/idle.txt"),
+                  ).toBe("kept through the idle stop")
+                  phase = "unattended chat"
+                  await chatTurn("unattended", { stopSandboxWhenDone: true })
+                  expect(await containerRunning()).toBe(false)
+                  expect(
+                    (
+                      await withOrgDbContext(f.orgId, () =>
+                        listSandboxInstances({
+                          conversationId: f.conversationId,
+                          kind: "chat",
+                        }),
+                      )
+                    ).map((row) => row.state),
+                  ).toEqual(["stopped"])
                 } catch (error) {
                   throw new Error(
                     `Docker chat fixture ${phase} failed: ${String(error)}`,

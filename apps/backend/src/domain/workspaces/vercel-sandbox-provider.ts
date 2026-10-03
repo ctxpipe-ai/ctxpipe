@@ -298,14 +298,22 @@ type SandboxTarget = {
   revoke?: (token: string) => Promise<void>
 }
 
-/** Stop a sandbox (its files are saved) and revoke its GitHub token. */
+/**
+ * Stop a sandbox (its files are saved) and revoke its GitHub token; already
+ * gone counts as stopped.
+ */
 export async function stopVercelSandbox(target: SandboxTarget): Promise<void> {
-  const sandbox = await Sandbox.get({
-    ...target.credentials,
-    name: target.name,
-    resume: false,
-  })
-  await sandbox.stop()
+  try {
+    const sandbox = await Sandbox.get({
+      ...target.credentials,
+      name: target.name,
+      resume: false,
+    })
+    await sandbox.stop()
+  } catch (error) {
+    if ((error as { response?: { status?: number } }).response?.status !== 404)
+      throw error
+  }
   const token = await target.tokens.take(target.name)
   if (token) await (target.revoke ?? revokeGithubToken)(token)
 }

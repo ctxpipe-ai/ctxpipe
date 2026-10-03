@@ -68,7 +68,11 @@ async function isWorkflowSystemIdle(sql: postgres.Sql): Promise<boolean> {
       (SELECT COUNT(*)::bigint FROM ${openWorkflowSchema}.workflow_runs
         WHERE namespace_id = $1
         AND status IN ('pending', 'running', 'sleeping')
-        AND COALESCE(started_at, created_at) >= (NOW() - (${staleAfterHours} * INTERVAL '1 hour')))
+        AND COALESCE(started_at, created_at) >= (NOW() - (${staleAfterHours} * INTERVAL '1 hour'))
+        -- A run scheduled far ahead (the 30-day sandbox sweep) does not keep
+        -- the worker up; the next wake runs it once it is due.
+        AND (status <> 'pending' OR available_at IS NULL
+          OR available_at <= NOW() + INTERVAL '10 minutes'))
       +
       (SELECT COUNT(*)::bigint FROM ${openWorkflowSchema}.step_attempts
         WHERE namespace_id = $1
