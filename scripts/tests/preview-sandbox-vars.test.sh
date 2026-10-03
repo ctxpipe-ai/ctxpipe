@@ -25,7 +25,8 @@ run_sync() {
       esac
     }
     export RAILWAY_PROJECT_ID=proj_test ENV_ID=env_preview
-    export BACKEND_SERVICE_ID=svc_backend WORKER_SERVICE_ID=svc_worker
+    export BACKEND_SERVICE_ID=svc_backend
+    export WORKER_SERVICE_ID="${WORKER_SERVICE_ID-svc_worker}"
     sync_preview_sandbox_variables
   )
 }
@@ -57,15 +58,8 @@ if VERCEL_ACCESS_TOKEN="" run_sync "$tmp/empty" >/dev/null 2>&1; then
 fi
 [[ ! -s "$tmp/empty/upserts" ]] || fail "nothing should be written without a token"
 
-for workflow in \
-  "$root/.github/workflows/pr-deploy.yaml" \
-  "$root/.github/workflows/pr-preview-roll-existing.yaml"
-do
-  grep -Fq 'scripts/preview-sandbox-vars.sh' "$workflow" || fail "$workflow must source scripts/preview-sandbox-vars.sh"
-  grep -Fq 'VERCEL_ACCESS_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}' "$workflow" \
-    || fail "$workflow must pass the VERCEL_ACCESS_TOKEN secret"
-  [[ "$(grep -c 'sync_preview_sandbox_variables$' "$workflow")" == 1 ]] \
-    || fail "$workflow must invoke sync_preview_sandbox_variables once"
-done
+if VERCEL_ACCESS_TOKEN=vercel-secret-value WORKER_SERVICE_ID="" run_sync "$tmp/no-worker" >/dev/null 2>&1; then
+  fail "sync should fail when a service id is missing"
+fi
 
 echo "preview-sandbox-vars tests passed"

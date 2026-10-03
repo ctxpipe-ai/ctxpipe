@@ -1212,14 +1212,15 @@ jobs:
           delete-tags: '^pr-${{ github.event.number }}-'
           use-regex: true
 
-  # After the Railway environment is gone, so no preview backend can start a
-  # new sandbox behind the cleanup. Its GitHub token rows lived in the preview's
-  # Neon branch, deleted above.
+  # Runs after the preview teardown was attempted (even if it failed), so a
+  # preview backend is unlikely to start a sandbox behind it; re-running the
+  # job deletes any straggler. The sandboxes' GitHub token rows live in the
+  # preview's Neon branch, which the teardown deletes.
   cleanup_pr_sandboxes:
     name: Delete preview Vercel sandboxes
     needs: cleanup_pr_environment
     if: |
-      always() &&
+      !cancelled() &&
       github.event_name == 'pull_request' && github.event.action == 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -1246,8 +1247,8 @@ jobs:
       - name: Force pnpm store path
         run: pnpm config set store-dir ~/.pnpm-store
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Install backend dependencies
+        run: pnpm install --frozen-lockfile --filter @ctxpipe/backend...
 
       - name: Delete sandboxes tagged with this preview environment
         working-directory: apps/backend

@@ -51,7 +51,10 @@ jobs:
       - name: Reject skipped proof and owned mocks
         run: node scripts/ci/check-test-policy.mjs
       - name: CI command regression tests
-        run: node --test scripts/tests/ci-*.test.mjs
+        run: |
+          node --test scripts/tests/ci-*.test.mjs
+          bash scripts/tests/preview-otel-vars.test.sh
+          bash scripts/tests/preview-sandbox-vars.test.sh
 
   typecheck:
     name: Typecheck
