@@ -7,22 +7,24 @@ import {
 } from "./workspace-chat-callback.js"
 
 describe("workspace chat callback routing", () => {
-  it("accepts bare hosts and rejects URLs or ports", () => {
-    expect(sandboxCallbackHost({ SANDBOX_CALLBACK_HOST: "10.0.0.8" })).toBe(
-      "10.0.0.8",
-    )
-    expect(
+  it("accepts bare hosts and rejects URLs or ports", async () => {
+    await expect(
+      sandboxCallbackHost({ SANDBOX_CALLBACK_HOST: "10.0.0.8" }),
+    ).resolves.toBe("10.0.0.8")
+    await expect(
       sandboxCallbackHost({ SANDBOX_CALLBACK_HOST: "backend.internal" }),
-    ).toBe("backend.internal")
-    expect(sandboxCallbackHost({ SANDBOX_CALLBACK_HOST: "::1" })).toBe("[::1]")
-    expect(() =>
+    ).resolves.toBe("backend.internal")
+    await expect(
+      sandboxCallbackHost({ SANDBOX_CALLBACK_HOST: "::1" }),
+    ).resolves.toBe("[::1]")
+    await expect(
       sandboxCallbackHost({ SANDBOX_CALLBACK_HOST: "backend.internal:80" }),
-    ).toThrow("hostname or IP address")
-    expect(() =>
+    ).rejects.toThrow("hostname or IP address")
+    await expect(
       sandboxCallbackHost({
         SANDBOX_CALLBACK_HOST: "https://backend.internal",
       }),
-    ).toThrow("hostname or IP address")
+    ).rejects.toThrow("hostname or IP address")
   })
 
   it("serves a bearer-authenticated native bridge and releases its listener", async () => {
