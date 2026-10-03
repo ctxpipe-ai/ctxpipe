@@ -53,11 +53,9 @@ export async function maybeActivateGithubPrMirrorOnConfigPush(input: {
   if (!touchedByCommitLists && !needsCompareFallback) return
 
   const env = parseEnv(process.env as Record<string, string | undefined>)
-  const installations = (
-    await listInstallationsByGithubInstallationId(input.installationId)
-  ).filter(
-    (installation) =>
-      !input.githubConnectionId || installation.id === input.githubConnectionId,
+  const installations = await listInstallationsByGithubInstallationId(
+    input.installationId,
+    input.githubConnectionId,
   )
 
   for (const installation of installations) {
