@@ -68,7 +68,7 @@ Customer-facing documentation lives in [`apps/docs/content/docs/`](apps/docs/con
 
 ### Preview environments
 
-**preview-env:** sweep or debug a Railway PR preview (`backend-pr-N`) — full UI+MCP suite or one area (auth, hydrate, chat, files-publish, MCP). [`.agents/skills/preview-env/`](.agents/skills/preview-env/)
+**preview-env:** critical-flow run against local host dev or a Railway PR preview (`backend-pr-N`), starting from a fresh registration — the full browser + MCP catalogue or one area (onboarding, auth, org-home, workspaces, hydrate, graph, chat, files-publish, connectors, mcp, resilience). Never production. [`.agents/skills/preview-env/`](.agents/skills/preview-env/)
 
 ### Adversarial review
 
