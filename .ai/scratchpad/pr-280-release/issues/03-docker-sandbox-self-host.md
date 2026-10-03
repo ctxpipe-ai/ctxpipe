@@ -84,6 +84,20 @@ Do not add TanStack patches or an application-level sandbox registry. Keep const
 
 ## Comments
 
+- 2026-10-04 (claude): **fast start (option B) and host prune landed** (ADR-048 "Fast start" and "Cleanup"):
+  - Base: a container of the chat image clones the Workspace repository and runs the Docker setup. `docker commit` turns it into `ctxpipe-workspace-base:<row>`, labelled `ai.ctxpipe.sandbox=workspace-base`, `ai.ctxpipe.store=<database hash>`, `ai.ctxpipe.base=<row>`, org and Workspace. The image holds no secret.
+  - New conversations use stock `dockerSandbox({ image: <base> })`; stock bootstrap skips the clone. Existing conversations keep their container.
+  - One build at a time per Workspace. Rebuilt when stale (a day old and behind, or more than 50 commits behind). Deleted when no conversation row started from it (superseded) or after 7 unused days (current). Relink and Workspace deletion delete it after the conversation containers.
+  - Host prune (`docker-sandbox-host-prune` job): at most hourly, at worker start and from every sweep. It sweeps orgs with containers past 30 days, working from `provider_sandbox_id`. It removes labelled base images of this deployment whose row is gone; the row check happens at removal, so a build in flight is safe. Other deployments' images (same daemon, different database) and images a container uses are never touched.
+  - Proven on real Docker and Postgres in `workspace-sandbox-base-native.contract.test.ts` (added to the "native sandbox ownership" lane). The remote is `git daemon` on the default bridge, so the test runs on Docker Desktop too:
+    1. no clone when a base exists: the remote is removed and the start still succeeds from the base image;
+    2. three concurrent new conversations queue exactly one build run, and three concurrent builds give `built`, `busy`, `busy`;
+    3. a stale base is rebuilt (by commit count and by age), while an existing conversation keeps its container and moves to the tip;
+    4. unused bases are deleted (superseded at once; current after 7 days);
+    5. the prune removes a dormant org's 31-day-old stopped container and an unused labelled image, and leaves a recent container, a base in use, another deployment's image and an unlabelled image.
+  - Measured locally (Docker Desktop, tiny repository on the bridge): sandbox ready 1.2 s without a base vs 1.1 s from one. The clone is all a Docker base saves, so the gain grows with repository size. The three concurrent starts without a base took 1.2/2.6/4.0 s, because the Workspace lock serializes creates (existing behaviour).
+  - Note for Compose/CDK: the worker builds bases, so it needs the same `DOCKER_HOST` / TLS and `SANDBOX_CHAT_IMAGE` as the backend (CDK already passes both).
+
 - 2026-10-03 (claude): **lifecycle landed** (shared with ticket 02; see ADR-048):
   - After 5 minutes idle, the `conversation-sandbox-sweep` OpenWorkflow job stops the container (`docker stop`, keyed by `provider_sandbox_id`) and sets the row to `stopped`. The next turn's stock `resume` starts it again with its files.
   - 30 days after last use, the sweep removes the container and the row. The same happens when the conversation is gone.

@@ -114,6 +114,17 @@ Keep each patch minimal and listed with its removal condition. Never fall back t
 
 ## Comments
 
+- 2026-10-04 (claude): **Workspace base landed** (plan step 5; shared with ticket 03; ADR-048 "Fast start" and "Cleanup" rewritten to match):
+  - A base is a `base` row in `workspace_sandbox_instances` (no migration). The worker job `workspace-sandbox-base` builds it, one at a time per Workspace (lock `workspace-base:<ws>`). The Workspace lock is held only to record the builder and to publish.
+  - Vercel, no patch: a `node24` builder (tags `ctxpipe=workspace-base, environment=<env>`, GitHub token in its firewall rule, npm registry allowed) clones, installs OpenCode, then `snapshot({ expiration: 0 })`. The stopped builder is kept as the snapshot's owner. Conversations start with `source: snapshot` through `vercelConversationProvider({ baseSnapshotId })`.
+  - Found while wiring it: the egress allowlist had no npm registry, so a sandbox that installs OpenCode could not have done so. Only base builders and conversation sandboxes that start before their Workspace has a base now reach `registry.npmjs.org`.
+  - New conversations start from the newest base; existing ones keep their sandbox (the base is in the image identity, so it is in the key). With no base, the start goes ahead as before and requests a build; the first turn never waits.
+  - Rebuilt when the branch moved and the base is a day old, or more than 50 commits behind (GitHub compare). Deleted when unused by the sweep, the tip check, relink and Workspace deletion. The worker-start backstop also sweeps orgs that have bases.
+  - The PR-close cleanup now also deletes `workspace-base` builders with their snapshots (msw test).
+  - The Vercel agent identity is now `vercel-node24/opencode-ai@<version>`, so an OpenCode bump gives new bases. It also gives existing hosted conversations a new sandbox once; production has not run hosted chat yet.
+  - **CI only, not yet run:** the new Vercel-lane contract `Workspace base` in `vercel-sandbox.contract.test.ts`. It builds a base from `octocat/Hello-World` with OpenCode, checks that the PR-close tag lookup finds the builder and that the snapshot is listed under its name, starts a conversation from it (clone and `opencode --version` present, npm blocked), and deletes the base. It reports these timings: builder create + clone + install (≈ a start without a base), snapshot, start from base, and `opencode` ready. Expect ~12 s without a base vs ~1 s from one (earlier measurements: install 11.3 s, start from snapshot 0.9 s).
+  - Open: if Vercel drops a stopped non-persistent builder, the tag lookup would miss the base snapshot on PR close. The contract asserts this.
+
 - 2026-10-03 (claude): **lifecycle landed** (shared with ticket 03; ADR-048 "Lifecycle and limits" and "Cleanup" updated):
   - Idle stop after 5 minutes and 30-day deletion run in a new OpenWorkflow job, `conversation-sandbox-sweep`. The Workspace tip check was not periodic, so each sweep schedules the next one for when a sandbox is next due. Every sandbox start and every tip check also schedule a sweep. A sweep never stops a sandbox while a turn holds `chat-thread:<conversation>`. The idle clock restarts when a turn ends.
   - Vercel stop uses `stopVercelSandbox`, which saves files and revokes the token; a sandbox that is already gone counts as stopped. Deletion uses `deleteVercelSandbox`.

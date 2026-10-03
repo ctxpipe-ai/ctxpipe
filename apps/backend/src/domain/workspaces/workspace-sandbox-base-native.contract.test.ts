@@ -635,6 +635,14 @@ it(
           () => false,
         )
     try {
+      if (!(await imageExists("alpine:3.22"))) {
+        const stream = await docker.pull("alpine:3.22")
+        await new Promise<void>((resolve, reject) =>
+          docker.modem.followProgress(stream, (error) =>
+            error ? reject(error) : resolve(),
+          ),
+        )
+      }
       const dormant = await org()
       const active = await org()
       const old = await stoppedSandbox(
