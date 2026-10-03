@@ -61,11 +61,9 @@ export async function maybeActivateLinearSyncOnConfigPush(input: {
 
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const compareCache = new Map<string, Promise<boolean>>()
-  const installations = (
-    await listInstallationsByGithubInstallationId(input.installationId)
-  ).filter(
-    (installation) =>
-      !input.githubConnectionId || installation.id === input.githubConnectionId,
+  const installations = await listInstallationsByGithubInstallationId(
+    input.installationId,
+    input.githubConnectionId,
   )
 
   for (const installation of installations) {

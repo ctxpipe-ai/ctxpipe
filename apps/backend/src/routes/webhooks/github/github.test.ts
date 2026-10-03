@@ -55,6 +55,7 @@ vi.mock("../../../models/github-installation.js", () => ({
   getGithubConnectionRowByConnectionId: vi.fn(),
   registerInstallationOnConnection: vi.fn(),
   getWebhookSecretForGithubConnection: vi.fn(),
+  githubAppOwnsInstallation: vi.fn().mockResolvedValue(true),
 }))
 
 vi.mock("../../../models/repositories.js", () => ({
@@ -883,7 +884,6 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
     } as never)
     listInstallationsMock.mockResolvedValue([
       { id: "con_abc", orgId: "org_1", ...baseInstallationRow },
-      { id: "con_other", orgId: "org_2", ...baseInstallationRow },
     ])
     findRepoMock.mockResolvedValue({
       id: "repo_abc",
@@ -918,6 +918,7 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
 
     expect(response.status).toBe(200)
     expect(findRepoMock).toHaveBeenCalledOnce()
+    expect(listInstallationsMock).toHaveBeenCalledWith(999, "con_abc")
     expect(findRepoMock).toHaveBeenCalledWith("org_1", "acme/app", "con_abc")
     expect(enqueueIngestionMock).toHaveBeenCalledOnce()
   })
