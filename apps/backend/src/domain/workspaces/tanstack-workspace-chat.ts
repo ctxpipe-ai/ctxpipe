@@ -32,10 +32,12 @@ import { organizations } from "../../db/schema/auth.js"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
 import { getRepoReadCloneToken } from "../../models/github-installation.js"
 import { sandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
-import { SandboxInstanceOwnershipConflict } from "../../models/workspace-sandboxes.js"
+import {
+  heartbeatSandboxInstance,
+  SandboxInstanceOwnershipConflict,
+} from "../../models/workspace-sandboxes.js"
 import { getLogger, log } from "../../observability/logger.js"
 import {
-  CHAT_SANDBOX_KEEP_ALIVE,
   WORKSPACE_CHAT_CLONE_BRANCH_SECRET,
   WORKSPACE_CHAT_CLONE_SHA_SECRET,
   WORKSPACE_CHAT_CLONE_TOKEN_SECRET,
@@ -50,6 +52,10 @@ import {
   workspaceChatRuntimeConfig,
 } from "./chat-runtime.js"
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
+import {
+  SandboxCapacityError,
+  withConversationSandboxSlots,
+} from "./conversation-sandbox-lifecycle.js"
 import { nameConversationIfUnnamed } from "./conversation-title.js"
 import { type WorkspaceRevision, workspaceRevisionSchema } from "./revision.js"
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
@@ -64,8 +70,8 @@ import {
 } from "./sandbox-lifecycle-timing.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import {
-  dockerImageId,
   discoverSandboxProvider,
+  dockerImageId,
   remoteDockerHost,
   type SandboxProvider as SandboxProviderName,
   withDockerAgentPort,
@@ -181,7 +187,6 @@ function conversationSandboxDefinition(input: {
     lifecycle: {
       reuse: "thread",
       snapshot: "none",
-      keepAlive: CHAT_SANDBOX_KEEP_ALIVE,
       destroyOnComplete: false,
     },
     hooks: {
@@ -344,6 +349,27 @@ async function* streamTanstackWorkspaceChatBody(
   }
 }
 
+/**
+ * Schedule the sweep that stops a sandbox once it has been idle. The
+ * scheduler sits next to its workflow, which connects to OpenWorkflow on
+ * import, so it is loaded only when a sandbox is used.
+ */
+async function scheduleIdleStop(orgId: string, usedAt: Date): Promise<void> {
+  try {
+    const { scheduleIdleSandboxStop } = await import(
+      "../../openworkflow/workflows/conversation-sandbox-sweep.js"
+    )
+    await scheduleIdleSandboxStop(orgId, usedAt)
+  } catch (error) {
+    // The worker-start backstop restarts a lost sweep.
+    log.error({
+      step: "conversation-sandbox-sweep-schedule",
+      message: `Scheduling the sandbox sweep failed: ${String(error)}`,
+      orgId,
+    })
+  }
+}
+
 export async function runTanstackWorkspaceChat(
   input: TanstackWorkspaceChatInput,
 ): Promise<Response> {
@@ -392,7 +418,7 @@ export async function warmTanstackWorkspaceChat(
   },
 ): Promise<
   | { ok: true; handle: SandboxHandle; effectiveRevision?: WorkspaceRevision }
-  | { ok: false; status: 400 | 409 | 503; error: string }
+  | { ok: false; status: 400 | 409 | 429 | 503; error: string }
 > {
   if (!options?.existingOnly && !options?.transcriptLocked) {
     return postgresSandboxLocks(
@@ -439,11 +465,18 @@ export async function warmTanstackWorkspaceChat(
   } catch (error) {
     if (error instanceof SandboxInstanceOwnershipConflict)
       return { ok: false, status: 409, error: error.message }
+    if (error instanceof SandboxCapacityError)
+      return { ok: false, status: 429, error: error.message }
     getLogger().error(
       error instanceof Error ? error : new Error(String(error)),
       { step: "workspace-chat-prepare-ensure" },
     )
     return { ok: false, status: 503, error: "workspace chat prepare failed" }
+  } finally {
+    // Opening or reading a conversation counts as use; also covers a start
+    // that failed after its sandbox began running.
+    if (built.isolation !== "unsandboxed")
+      await scheduleIdleStop(input.orgId, new Date())
   }
 }
 
@@ -502,6 +535,31 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   const chatStarted = Date.now()
   const abortController = abortControllerFrom(input.abortSignal)
   let transcriptOwner: string | undefined
+  // The idle clock starts when the turn ends. Runs before the conversation
+  // lock is released, so the sweep never sees a free lock with a stale time.
+  // The sweep it schedules is due exactly 5 minutes after this use.
+  const markSandboxUsed = async (ctx: { runId: string }) => {
+    const usedAt = new Date()
+    try {
+      await heartbeatSandboxInstance(
+        definition.key({
+          threadId: input.conversationId,
+          runId: ctx.runId,
+          tenant: { userId: undefined, orgId: input.orgId },
+        }),
+        usedAt,
+        input.orgId,
+      )
+    } catch (error) {
+      log.warn({
+        step: "workspace-chat-sandbox-used",
+        message: `Recording the sandbox's last use failed: ${String(error)}`,
+        conversationId: input.conversationId,
+      })
+    }
+    if (built.isolation !== "unsandboxed")
+      await scheduleIdleStop(input.orgId, usedAt)
+  }
   const stream = await chat({
     adapter: opencodeText(built.contract.opencodeModel, {
       ...opencodeListen,
@@ -523,6 +581,12 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     middleware: [
       otelMiddleware({
         tracer: trace.getTracer("ctxpipe-workspace-chat"),
+      }),
+      defineChatMiddleware({
+        name: "workspace-chat-sandbox-used",
+        onFinish: markSandboxUsed,
+        onError: markSandboxUsed,
+        onAbort: markSandboxUsed,
       }),
       workspaceChatThreadLock({
         locks: postgresSandboxLocks(
@@ -751,7 +815,7 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
   const publicBaseUrl = vercel?.ok ? vercel.publicBaseUrl : undefined
   let callbackHost: string | undefined
   try {
-    callbackHost = sandboxCallbackHost()
+    callbackHost = await sandboxCallbackHost()
   } catch (error) {
     return {
       ok: false as const,
@@ -762,9 +826,7 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
   const session = await resolveWorkspaceChatSession(
     input,
     selectedProvider,
-    selectedProvider === "docker"
-      ? process.env.SANDBOX_MODEL_PROXY_HOST?.trim() || callbackHost
-      : callbackHost,
+    callbackHost,
     publicBaseUrl,
   )
   if (!session.ok) return session
@@ -793,16 +855,27 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
     proxyUrl: session.proxyUrl,
     modelBase: contract.modelBase,
   })
+  const provider = conversationSandboxProvider(
+    selectedProvider,
+    input.conversationId,
+    vercel?.ok ? vercel.options : undefined,
+  )
   return {
     ok: true as const,
     isolation: selectedProvider,
     publicBaseUrl,
     definition: conversationSandboxDefinition({
-      provider: conversationSandboxProvider(
-        selectedProvider,
-        input.conversationId,
-        vercel?.ok ? vercel.options : undefined,
-      ),
+      provider:
+        selectedProvider === "unsandboxed"
+          ? provider
+          : withConversationSandboxSlots(provider, {
+              orgId: input.orgId,
+              workspaceId: input.workspaceId,
+              conversationId: input.conversationId,
+              provider: selectedProvider,
+              image,
+              revision: revision.data,
+            }),
       workspace,
       image,
       revision: revision.data,

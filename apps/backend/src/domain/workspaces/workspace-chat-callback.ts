@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto"
+import { createSocket } from "node:dgram"
 import { lookup } from "node:dns/promises"
 import { isIP } from "node:net"
 import { networkInterfaces } from "node:os"
@@ -22,16 +23,20 @@ import { remoteDockerHost } from "./sandbox-provider.js"
  * Hostname or IP that a remotely hosted sandbox uses to call this backend.
  * A port or URL is rejected because the model proxy and per-run tool bridge
  * each select their own port. With a remote Docker daemon and no explicit
- * host, it is this process's own address: the tool bridge lives in the replica
- * running the turn, so a shared service name could reach another replica.
+ * host, it is the address this process reaches the daemon from: the daemon's
+ * host routes sandbox traffic back to it, and the tool bridge lives in the
+ * replica running the turn, so a shared service name could reach another
+ * replica. A backend on several networks (Compose) gets the sandbox one.
  */
-export function sandboxCallbackHost(
+export async function sandboxCallbackHost(
   env: NodeJS.ProcessEnv = process.env,
-  interfaces: ReturnType<typeof networkInterfaces> = networkInterfaces(),
-): string | undefined {
+  network: CallbackNetwork = systemNetwork,
+): Promise<string | undefined> {
   const raw = env.SANDBOX_CALLBACK_HOST?.trim()
-  if (!raw)
-    return remoteDockerHost(env) ? soleIpv4Address(interfaces) : undefined
+  if (!raw) {
+    const daemonHost = remoteDockerHost(env)
+    return daemonHost ? localAddressTowards(daemonHost, network) : undefined
+  }
 
   const unwrapped =
     raw.startsWith("[") && raw.endsWith("]") ? raw.slice(1, -1) : raw
@@ -64,23 +69,59 @@ export function sandboxCallbackHost(
   return parsed.host
 }
 
-function soleIpv4Address(
-  interfaces: ReturnType<typeof networkInterfaces>,
-): string {
-  const addresses = [
-    ...new Set(
-      Object.values(interfaces)
-        .flatMap((entries) => entries ?? [])
-        .filter((entry) => entry.family === "IPv4" && !entry.internal)
-        .map((entry) => entry.address),
-    ),
-  ]
-  const [address] = addresses
-  if (addresses.length !== 1 || !address)
+/** Name resolution and kernel routing, the environment the default host comes from. */
+export type CallbackNetwork = {
+  lookup: (host: string) => Promise<{ address: string; family: number }>
+  /** The local address the kernel would send from to reach `address`. */
+  sourceAddress: (address: string, family: number) => Promise<string>
+}
+
+const systemNetwork: CallbackNetwork = {
+  lookup: (host) => lookup(host),
+  async sourceAddress(address, family) {
+    // A connected UDP socket only selects a route; it sends nothing.
+    const socket = createSocket(family === 6 ? "udp6" : "udp4")
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.once("error", reject)
+        socket.connect(9, address, resolve)
+      })
+      return socket.address().address
+    } finally {
+      socket.close()
+    }
+  },
+}
+
+/**
+ * The local address this process reaches the Docker daemon's host from.
+ * Undefined when that is a loopback address: the daemon runs on this machine,
+ * and its sandboxes use the provider's local defaults (`host.docker.internal`).
+ * A daemon name that does not resolve or route yet (an AWS sandbox host being
+ * replaced) fails the turn until it does.
+ */
+async function localAddressTowards(
+  host: string,
+  network: CallbackNetwork,
+): Promise<string | undefined> {
+  let source: string
+  let family: number
+  try {
+    // URL hostnames keep IPv6 brackets; the resolver does not take them.
+    const target = await network.lookup(host.replace(/^\[(.*)\]$/, "$1"))
+    family = target.family
+    source = await network.sourceAddress(target.address, target.family)
+  } catch (error) {
     throw new Error(
-      `Sandboxes on a remote Docker host call this backend back, but it has ${addresses.length} non-loopback IPv4 addresses; set SANDBOX_CALLBACK_HOST`,
+      `The sandbox host ${host} is not reachable yet; Workspace chat resumes when it is`,
+      { cause: error },
     )
-  return address
+  }
+  const mapped = source.toLowerCase().startsWith("::ffff:")
+    ? source.slice(7)
+    : source
+  if (mapped === "::1" || mapped.startsWith("127.")) return undefined
+  return family === 6 && isIP(mapped) === 6 ? `[${mapped}]` : mapped
 }
 
 /** Native per-run bridge server/token ownership on one reachable interface. */

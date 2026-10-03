@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { delay, HttpResponse, http, ws } from "msw"
+import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   conversationAguiSseResponse,
@@ -244,40 +244,22 @@ export const Streaming: Story = {
   },
 }
 
-/** The chat socket answers each run with a reply whose push failed. */
-const pushFailedSocket = ws.link(/\/api\/v1\/conversations\/conv_1(\?.*)?$/)
-
-/** The turn finishes; its push to the conversation branch did not. */
-export const TurnPushFailed: Story = {
+export const PrepareAtCapacity: Story = {
   args: threadArgs(docsConversationDetail.messages),
   parameters: {
     storyRoute: threadRoute,
     msw: {
       handlers: {
         page: [
-          pushFailedSocket.addEventListener("connection", ({ client }) => {
-            client.addEventListener("message", (event) => {
-              const run = JSON.parse(String(event.data)) as {
-                runId?: string
-              }
-              const events = conversationAguiTextEvents({
-                threadId: "conv_1",
-                runId: run.runId,
-                messageId: "msg_push_failed",
-                text: "Updated the ledger note.",
-              })
-              for (const chunk of [
-                ...events.slice(0, -1),
-                {
-                  type: "CUSTOM",
-                  name: "session-push",
-                  value: { status: "failed", error: "push rejected" },
-                },
-                ...events.slice(-1),
-              ])
-                client.send(JSON.stringify(chunk))
-            })
-          }),
+          http.post(/\/api\/v1\/conversations\/[^/]+\/prepare$/, () =>
+            HttpResponse.json(
+              {
+                error:
+                  "Workspace chat is at capacity: your organization already has 50 chats running. Try again in a few minutes, after an idle chat stops.",
+              },
+              { status: 429 },
+            ),
+          ),
           ...workspaceShellHandlers(),
         ],
       },
@@ -285,18 +267,13 @@ export const TurnPushFailed: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await userEvent.type(
-      await canvas.findByPlaceholderText(/continue the conversation/i),
-      "Update the ledger",
-    )
-    await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-    expect(
-      await canvas.findByText("Changes not on GitHub yet", undefined, {
-        timeout: SEND_WAIT_MS,
-      }),
-    ).toBeVisible()
-    expect(canvas.getByText("Updated the ledger note.")).toBeVisible()
-    expect(canvas.queryByText(/chat request failed/i)).not.toBeInTheDocument()
+    const alert = await waitFor(() => canvas.getByRole("alert"), {
+      timeout: SEND_WAIT_MS,
+    })
+    await waitFor(() => {
+      if (!/at capacity/.test(alert.textContent ?? ""))
+        throw new Error("The at-capacity message is not shown")
+    })
   },
 }
 

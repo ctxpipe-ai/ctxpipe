@@ -12,10 +12,7 @@ import {
   resolveCreatedConversationId,
   workspaceChatStreamResponse,
 } from "../../domain/conversations/transport.js"
-import {
-  conversationSessionBranch,
-  shouldDestroyChatSandbox,
-} from "../../domain/workspaces/chat-lifecycle.js"
+import { conversationSessionBranch } from "../../domain/workspaces/chat-lifecycle.js"
 import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
 import { getConversationSandboxBinding } from "../../domain/workspaces/conversation-files.js"
 import {
@@ -71,6 +68,7 @@ import {
   conversationPublicPrUrl,
   conversationPublicTreeUrl,
   readySandboxHandle,
+  sandboxAtCapacityResponse,
 } from "./conversation-files-routes.js"
 
 const ErrorResponseSchema = z
@@ -433,6 +431,7 @@ const postConversationPrepareRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
     },
+    429: sandboxAtCapacityResponse,
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Prepare failed",
@@ -508,6 +507,7 @@ const postConversationPullRequestRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
     },
+    429: sandboxAtCapacityResponse,
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Sandbox provider unavailable",
@@ -557,6 +557,7 @@ function workspaceConversationStream(
   parsed: ConversationChatRequest,
   request: Request,
   orgSlug: string | null | undefined,
+  orgId: string | null | undefined,
 ) {
   return withConversationIdHeader(
     workspaceChatStreamResponse(
@@ -569,7 +570,7 @@ function workspaceConversationStream(
         runId: parsed.runId,
         source: parsed.source ?? null,
         workspaceId: parsed.workspaceId,
-        orgId: "",
+        orgId,
         orgSlug,
         resolveRuntime: () =>
           resolveWorkspaceChatSendRuntime({
@@ -759,33 +760,25 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     const conversationId = c.req.param("conversationId")
     const existing = await getConversation(conversationId)
     if (!existing) return c.json({ error: "Not found" }, 404)
-    const shouldDestroy = shouldDestroyChatSandbox({
-      conversationDeleted: true,
-      lastTurnAt: existing.lastMessageAt ?? null,
-      now: new Date(),
+    const log = getLogger()
+    log.set({
+      conversationId,
+      workspaceId: existing.workspaceId ?? null,
+      sandbox: "chat",
     })
-    if (shouldDestroy) {
-      const log = getLogger()
-      log.set({
-        conversationId,
-        workspaceId: existing.workspaceId ?? null,
-        sandbox: "chat",
-      })
-      log.info("destroy chat sandbox after conversation delete")
-    }
-    const deleted =
-      shouldDestroy && existing.workspaceId
-        ? await withDestroyedConversationSandboxes(
-            {
-              conversationId,
-              orgId: existing.orgId,
-              workspaceId: existing.workspaceId,
-            },
-            () => deleteConversation(conversationId),
-          )
-        : await deleteConversation(conversationId)
+    log.info("destroy chat sandbox after conversation delete")
+    const deleted = existing.workspaceId
+      ? await withDestroyedConversationSandboxes(
+          {
+            conversationId,
+            orgId: existing.orgId,
+            workspaceId: existing.workspaceId,
+          },
+          () => deleteConversation(conversationId),
+        )
+      : await deleteConversation(conversationId)
     if (!deleted) return c.json({ error: "Not found" }, 404)
-    if (shouldDestroy && !existing.workspaceId) {
+    if (!existing.workspaceId) {
       await destroySandboxesForConversation(conversationId)
     }
 
@@ -838,6 +831,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       parsed,
       c.req.raw,
       c.get("orgSlug"),
+      c.get("orgId"),
     )
   })
   .openapi(postConversationMessageRoute, async (c) => {
@@ -865,6 +859,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       parsed,
       c.req.raw,
       c.get("orgSlug"),
+      c.get("orgId"),
     )
   })
   .openapi(postConversationPrepareRoute, async (c) => {
@@ -910,7 +905,10 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       cloneToken: runtime.cloneToken,
       githubConnectionId: runtime.githubConnectionId,
     })
-    if (!warmed.ok) return c.json({ error: warmed.error }, 503)
+    if (!warmed.ok)
+      return warmed.status === 429
+        ? c.json({ error: warmed.error }, 429)
+        : c.json({ error: warmed.error }, 503)
     return c.body(null, 204)
   })
   .openapi(getConversationPullRequestRoute, async (c) => {

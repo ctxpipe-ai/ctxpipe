@@ -49,15 +49,20 @@ Hosted needs CPU billed only while busy (an agent mostly waits on the model), a 
 
 ### Lifecycle and limits
 
-- An interactive sandbox stops after **5 minutes idle**; files are saved (Vercel snapshot on stop; Docker `stop`) and the next message resumes it.
-- A conversation's saved state is kept **30 days** after last use, then deleted; pushed work stays in git.
-- Each organization runs at most **50 sandboxes** at once; the limit is checked before create, with a clear "at capacity" error.
-- Runs nobody is watching (MCP `ctx_advisor` turns, Slack agent turns) stop their sandbox as soon as the run ends, so they never hold a slot.
+- An interactive sandbox stops after **5 minutes idle**; files are saved (Vercel snapshot on stop; Docker `stop`) and the next message resumes it. Idle is measured from the sandbox row's `last_heartbeat_at`, set when a turn, prepare or file read uses the sandbox and again when a turn ends (before the conversation lock is released). A sandbox is never stopped while a turn or file read holds the conversation lock `chat-thread:<conversation>`: the stop takes that lock without waiting and skips the sandbox if it is held. A stopped sandbox has row state `stopped`.
+- A conversation's saved state is kept **30 days** after last use, then deleted with its row (Vercel delete also revokes the GitHub token); pushed work stays in git.
+- Each organization runs at most **50 sandboxes** at once: live rows of a running provider (Docker or Vercel), of any kind. Every start (a create, or the resume of a stopped sandbox) counts them under the org lock `org-sandbox-slots`, re-reading the row inside the lock. A create first reserves its row, so concurrent starts in other Workspaces see it, and releases it at once if the create or its setup fails. A resume whose row was deleted meanwhile starts a fresh sandbox instead of reviving the row. Over the limit the start fails with `SandboxCapacityError` (code `sandbox_capacity`): HTTP 429 on prepare, Files, pull-request and MCP, an "at capacity" `RUN_ERROR` in the chat stream, and an alert when a conversation opens. Unsandboxed runs have no sandbox and no limit.
+- Runs nobody is watching stop their sandbox when the run ends (success, error or abort), so they never hold a slot: MCP `ctx_advisor` turns, and HTTP or WebSocket chats whose `source` is not `ui`. Each call site wraps the run (`stopConversationSandboxes`, `stoppingSandboxWhenDone`). The Slack mention agent does not use a workspace chat sandbox.
+- Opening a conversation prepares its sandbox (warm for a fast first answer) and counts as use. Reading a file never creates a sandbox.
 - Cancel kills the agent process where the provider supports it; otherwise (Vercel, until proven) it stops the sandbox.
 
 ### Cleanup
 
-- A periodic cleanup (`workspace-sandbox-cleanup.ts`) stops idle sandboxes, deletes state past 30 days, and removes rows whose Workspace or conversation is gone. Failed destroys keep their row and retry.
+- There is no cron. The OpenWorkflow job `conversation-sandbox-sweep` (one org per run) stops idle sandboxes, deletes sandboxes past 30 days or whose conversation is gone, and retries failed deletes (`destroy_failed`).
+- One chain per org: each run first sweeps, then, in a separate step (so a retried run does not compute a second next time), schedules the next run for when a running sandbox is next due. Runs are keyed by org and minute boundary. Due times come from state (last use plus 5 minutes), and retries (a turn holds the conversation, a stop or delete failed) go to the next 5-minute boundary, so runs that compute the same next time share one run.
+- Every use schedules the sweep for its own idle time: a turn's end, a prepare or file read. The worker schedules a sweep at start for every org with a running sandbox, and every Workspace tip check schedules one, so a lost chain (a failed schedule, a crashed replica) restarts.
+- Stopped sandboxes schedule nothing. Any later sweep for the org deletes those past 30 days as it passes. Vercel already expires saved state after 30 days. Docker leftovers in dormant orgs are removed by the host prune *(ticket 03)*. So no run is scheduled weeks ahead, and every retry stays inside the PR worker's 10-minute idle window.
+- Rows whose Workspace is deleted go with it; Workspace and conversation deletion destroy their sandboxes first (`workspace-sandbox-cleanup.ts`).
 - Self-hosted Docker hosts also remove stopped containers and unused images (labelled by owner), so the host never runs out of disk *(ticket 03)*. Hosted deletes Vercel snapshots past retention and unused bases.
 
 ## Consequences

@@ -4,36 +4,69 @@ import type {
 } from "@tanstack/ai-sandbox"
 import Docker from "dockerode"
 import { assertNotInOrgDbContext } from "../../db/client.js"
+import type { RunningSandboxProvider } from "../../models/workspace-sandboxes.js"
+import { log } from "../../observability/logger.js"
 
 /** Hosted runs Vercel, self-host runs Docker; unsandboxed is explicit only. */
 export const SANDBOX_PROVIDERS = ["docker", "vercel", "unsandboxed"] as const
 
 export type SandboxProvider = (typeof SANDBOX_PROVIDERS)[number]
 
-export function detectSandboxProvider(input: {
-  locked?: string | null
-  hasDocker?: boolean
-}): SandboxProvider {
-  const locked = input.locked?.trim()
-  if (locked) {
-    if ((SANDBOX_PROVIDERS as readonly string[]).includes(locked)) {
-      return locked as SandboxProvider
-    }
-    throw new Error(`Unknown SANDBOX_PROVIDER "${locked}"`)
-  }
-  if (input.hasDocker) return "docker"
-  return "unsandboxed"
+/** The provider `SANDBOX_PROVIDER` locks, if any. */
+export function lockedSandboxProvider(
+  env: Record<string, string | undefined> = process.env,
+): SandboxProvider | undefined {
+  const locked = env.SANDBOX_PROVIDER?.trim()
+  if (!locked) return undefined
+  if ((SANDBOX_PROVIDERS as readonly string[]).includes(locked))
+    return locked as SandboxProvider
+  throw new Error(`Unknown SANDBOX_PROVIDER "${locked}"`)
 }
 
-export function detectSandboxProviderFromEnv(input?: {
-  hasDocker?: boolean
-  env?: Record<string, string | undefined>
-}): SandboxProvider {
-  const env = input?.env ?? process.env
-  return detectSandboxProvider({
-    locked: env.SANDBOX_PROVIDER,
-    hasDocker: input?.hasDocker,
+let warnedUnsandboxed = false
+
+/**
+ * Logs once per process when chat is explicitly unsandboxed. Called at
+ * startup and on each provider selection.
+ */
+export function warnIfUnsandboxed(
+  env: Record<string, string | undefined> = process.env,
+): void {
+  if (warnedUnsandboxed || env.SANDBOX_PROVIDER?.trim() !== "unsandboxed")
+    return
+  warnedUnsandboxed = true
+  log.warn({
+    step: "sandbox-provider",
+    message:
+      "SANDBOX_PROVIDER=unsandboxed: Workspace chat agents run as processes in this container with its network access and credentials",
   })
+}
+
+/**
+ * The provider for a chat turn. Without a lock it is Docker, and only when
+ * the daemon answers: an unreachable daemon fails the turn (503) and never
+ * falls back to unsandboxed, which needs `SANDBOX_PROVIDER=unsandboxed`.
+ */
+export async function discoverSandboxProvider(
+  env: Record<string, string | undefined> = process.env,
+): Promise<SandboxProvider> {
+  const provider = lockedSandboxProvider(env) ?? "docker"
+  warnIfUnsandboxed(env)
+  if (provider !== "docker") return provider
+  // docker-modem accepts a connection deadline beyond Dockerode's declarations.
+  const docker = new Docker({ timeout: 2_000, connectionTimeout: 2_000 } as {
+    timeout: number
+  })
+  try {
+    await docker.ping()
+  } catch (error) {
+    const daemon = env.DOCKER_HOST?.trim() || "the local Docker socket"
+    throw new Error(
+      `Workspace chat sandboxes are unavailable: the Docker daemon at ${daemon} is not reachable`,
+      { cause: error },
+    )
+  }
+  return "docker"
 }
 
 /**
@@ -156,24 +189,6 @@ export async function dockerImageId(
   return (await docker.getImage(image).inspect()).Id
 }
 
-/** Discover an eligible provider using the native Docker client/environment. */
-export async function discoverSandboxProvider(): Promise<SandboxProvider> {
-  if (process.env.SANDBOX_PROVIDER?.trim())
-    return detectSandboxProviderFromEnv()
-  // Vercel is never discovered: hosted deployments lock SANDBOX_PROVIDER.
-  const { default: Docker } = await import("dockerode")
-  // docker-modem accepts a connection deadline beyond Dockerode's declarations.
-  const options = {
-    timeout: 2_000,
-    connectionTimeout: 2_000,
-  }
-  const hasDocker = await new Docker(options).ping().then(
-    () => true,
-    () => false,
-  )
-  return detectSandboxProviderFromEnv({ hasDocker })
-}
-
 export async function destroyDetachedProviderSandbox(input: {
   /** Required for Vercel, whose token record is org-scoped. */
   orgId?: string
@@ -195,18 +210,10 @@ export async function destroyDetachedProviderSandbox(input: {
   if (input.provider === "vercel") {
     // Deleting also removes the saved state and revokes the GitHub token.
     if (!input.orgId) throw new Error("Deleting a Vercel sandbox needs its org")
-    const { deleteVercelSandbox, vercelCredentials } = await import(
-      "./vercel-sandbox-provider.js"
+    const { deleteVercelSandbox } = await import("./vercel-sandbox-provider.js")
+    await deleteVercelSandbox(
+      await vercelSandboxTarget(input.orgId, input.providerSandboxId),
     )
-    const { sandboxGitTokenStore } = await import(
-      "../../models/sandbox-git-tokens.js"
-    )
-    const { parseEnv } = await import("../../config/env.js")
-    await deleteVercelSandbox({
-      credentials: await vercelCredentials(),
-      name: input.providerSandboxId,
-      tokens: sandboxGitTokenStore(input.orgId, parseEnv(process.env)),
-    })
     return
   }
   if (
@@ -227,6 +234,50 @@ export async function destroyDetachedProviderSandbox(input: {
   throw new Error(
     `Cannot destroy detached sandbox for provider ${input.provider ?? "unknown"}`,
   )
+}
+
+/**
+ * Stop a sandbox and keep its files: Docker stops the container (the stock
+ * provider's `resume` starts it again); Vercel saves its state and revokes
+ * its GitHub token. A sandbox that is already stopped or gone counts as
+ * stopped; the next turn resumes or recreates it.
+ */
+export async function stopDetachedProviderSandbox(input: {
+  orgId: string
+  provider: RunningSandboxProvider
+  providerSandboxId: string
+}): Promise<void> {
+  if (input.provider === "docker") {
+    try {
+      // PID 1 is the stock keep-alive command, which ignores SIGTERM.
+      await new Docker({ timeout: 30_000 })
+        .getContainer(input.providerSandboxId)
+        .stop({ t: 1 })
+    } catch (error) {
+      const status = (error as { statusCode?: number }).statusCode
+      // 304: already stopped. 404: gone.
+      if (status !== 304 && status !== 404) throw error
+    }
+    return
+  }
+  const { stopVercelSandbox } = await import("./vercel-sandbox-provider.js")
+  await stopVercelSandbox(
+    await vercelSandboxTarget(input.orgId, input.providerSandboxId),
+  )
+}
+
+/** A Vercel sandbox by name, with the org's record of its GitHub token. */
+async function vercelSandboxTarget(orgId: string, name: string) {
+  const { vercelCredentials } = await import("./vercel-sandbox-provider.js")
+  const { sandboxGitTokenStore } = await import(
+    "../../models/sandbox-git-tokens.js"
+  )
+  const { parseEnv } = await import("../../config/env.js")
+  return {
+    credentials: await vercelCredentials(),
+    name,
+    tokens: sandboxGitTokenStore(orgId, parseEnv(process.env)),
+  }
 }
 
 async function assertDockerDaemonReachable(): Promise<void> {
