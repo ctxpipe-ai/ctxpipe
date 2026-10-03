@@ -262,7 +262,7 @@ export const SelectRepository: Story = {
                 gitUrl: "https://github.com/acme/ctxpipe-context.git",
                 branch: "main",
                 githubConnectionId: "github_1",
-                usedBy: ["github"],
+                usedBy: ["notion"],
               },
             }),
           ),

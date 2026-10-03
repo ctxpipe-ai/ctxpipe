@@ -196,7 +196,7 @@ This repository is public. **Never** put the name, slug, email, username, id (`o
 Test through the module's public interface with its real collaborators. Fake the **environment**, not our own modules:
 
 - **HTTP** (codesearch, GitHub, Railway, OTLP, model providers): `msw` — `setupServer` from `msw/node`, handlers beside the test. In `apps/ui`, `apps/backend`, and `apps/codesearch`.
-- **Postgres**: a real database. Name the file `*.integration.test.ts`, gate it with `describe.skipIf(!process.env.DATABASE_URL)`, call `initDb`, and suffix ids per run — pattern: `apps/backend/src/models/github-pr-mirror.integration.test.ts`. `pnpm dev:infra` + `pnpm db:migrate` provides the database.
+- **Postgres**: a real database. Name the file `*.integration.test.ts`, fail it without a database (`if (!process.env.DATABASE_URL) throw …` in `beforeAll` — CI's test policy rejects new `skip`/`skipIf`), call `initDb`, and suffix ids per run — pattern: `apps/backend/src/models/sandbox-git-tokens.integration.test.ts`. `pnpm dev:infra` + `pnpm db:migrate` provides the database.
 - **Config**: `vi.stubEnv` (modules read `parseEnv(process.env)`), or pass the value in.
 - **Time**: `vi.useFakeTimers()`. **Telemetry**: the SDK's `InMemorySpanExporter` / `InMemoryLogRecordExporter` / `InMemoryMetricExporter`.
 

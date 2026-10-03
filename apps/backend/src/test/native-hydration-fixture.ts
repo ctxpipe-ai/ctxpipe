@@ -653,6 +653,8 @@ async function createNativeHydrationFixture(
       tokenRequests,
       appPermissionRequests,
       semanticRequests,
+      /** Add GitHub API handlers a single test needs with `server.use`. */
+      server,
       backend,
       runner,
       worker,

@@ -87,53 +87,9 @@ const MERGED_OWNED_MOCK_EXCEPTION_COUNTS = {
     // vi.mock("../db/org-sql.js", ...)
     "65a779298395ebf0b27e2d50ada3a9d743714526b7af190c8bc9ffd76b922a58": 1,
   },
-  "apps/backend/src/models/github-pr-mirror.test.ts": {
-    // vi.mock("../db/client.js", ...)
-    b0e64060c3dddfa9992cadd61f34022206458233c2463a20d4aaef8ef6315944: 1,
-  },
   "apps/backend/src/models/linear-oauth-setup.test.ts": {
     // vi.mock("../db/client.js", ...)
     "336e734ad929f812aea1df2058902ebd4e00971f5380a2510afdfdeaff5c947d": 1,
-  },
-  "apps/backend/src/openworkflow/workflows/github-ensure-pr-mirror.test.ts": {
-    // vi.mock("../../db/client.js", ...)
-    "5f33ab14feb1821e09a7fcbe83944d3fc0ce7ded27083ba8e6f0da601d43290d": 1,
-    // vi.mock("../../models/github-pr-mirror-target.js", ...)
-    "456458bb7b2fc94760bb007726da3f1ae2939fe69e5183ee500681320736382c": 1,
-    // vi.mock("../../models/github-pr-mirror.js", ...)
-    "0992a49968bc2d5e0de142a944b63102f936530b4104c467957868acd0b7d7bd": 1,
-    // vi.mock("../../models/repositories.js", ...)
-    ef16b18e3d40d2aaec9a2dc902bd3c7be17c7397ffd5b1d7071b451d4e7d4b19: 1,
-    // vi.mock("../../models/github-installation.js", ...)
-    f01949b5d66052f2e4473901dbf9ace71600156f62a66b7a094bbccbb3a0abf9: 1,
-    // vi.mock("../../domain/workspaces/capture-connector-mirror.js", ...)
-    fff8c69fcbd6c023c2408901b07b8ccca5eb009ae5bc61fc26145e2832743a9d: 1,
-    // vi.mock("../../services/github/pull-request-mirror/config-from-repo.js", ...)
-    "40b813747ed9180cb2ed3a84fee38354a8ee4c4398ab94036a5595b2081607fb": 1,
-    // vi.mock("../client.js", ...)
-    f62f3e77567fc18902c94eedca782501d198bac98055f427c7a049cdd94bd633: 1,
-  },
-  "apps/backend/src/openworkflow/workflows/github-sync-content.test.ts": {
-    // vi.mock("../../db/client.js", ...)
-    "5f33ab14feb1821e09a7fcbe83944d3fc0ce7ded27083ba8e6f0da601d43290d": 1,
-    // vi.mock("../../models/github-pr-mirror.js", ...)
-    "1f772df65d4a528176dd61f5bee1c5745d5270b31effb35aedf412f001e1cd3c": 1,
-    // vi.mock("../../domain/workspaces/capture-connector-mirror.js", ...)
-    "3ca7c391d6794f23066fe4f767af5dcd008957671868fda6cd752c7f05f7621b": 1,
-    // vi.mock("../../services/github/pull-request-mirror/sync.js", ...)
-    c68606f4939d483b1ceccd612b549316c899d9a98989ee2814effc58be58fa42: 1,
-    // vi.mock("../enqueue-repository-ingestion.js", ...)
-    "12bcb2492106e81fec5f3447a0da35ef61881673a3fd0f00773dad84b50a4f0b": 1,
-    // vi.mock("../client.js", ...)
-    f62f3e77567fc18902c94eedca782501d198bac98055f427c7a049cdd94bd633: 1,
-  },
-  "apps/backend/src/services/github/pull-request-mirror/ensure.test.ts": {
-    // vi.mock("./sync.js", ...)
-    "52d262136401ed0b113eb82944af15d749285fba5df1e717a548edd8c2b36ba8": 1,
-  },
-  "apps/backend/src/routes/webhooks/github/github-pr-mirror-push.test.ts": {
-    // vi.mock("../../../models/github-pr-mirror.js", ...)
-    ed0a4161d3d00aa3e567e19f4a67a28c1a1b6a553a9f378a30cae99481efc58c: 1,
   },
   "apps/ui/src/features/connectors/components/NotionSetupDialog.test.tsx": {
     // vi.mock("@tanstack/react-query", ...)

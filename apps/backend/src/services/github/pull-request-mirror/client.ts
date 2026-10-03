@@ -1,4 +1,8 @@
-import type { GithubPrActor, GithubPullRequestSnapshot } from "./types.js"
+import type {
+  GithubPrActor,
+  GithubPrFileStatus,
+  GithubPullRequestSnapshot,
+} from "./types.js"
 import { GITHUB_PR_FILE_STATUSES } from "./types.js"
 
 type RestClient = {
@@ -27,15 +31,6 @@ type RestClient = {
         owner: string
         repo: string
         pull_number: number
-        per_page: number
-        page: number
-      }) => Promise<{ data: Array<Record<string, unknown>> }>
-      list: (params: {
-        owner: string
-        repo: string
-        state: "closed" | "open" | "all"
-        sort: "updated"
-        direction: "desc"
         per_page: number
         page: number
       }) => Promise<{ data: Array<Record<string, unknown>> }>
@@ -96,7 +91,8 @@ function parseFileStatus(value: unknown) {
   return "modified" as const
 }
 
-export async function fetchGithubPullRequestSnapshot(input: {
+/** REST read of one pull request; only for what one GraphQL page cannot carry. */
+async function fetchGithubPullRequestSnapshot(input: {
   octokit: RestClient
   owner: string
   repo: string
@@ -266,30 +262,304 @@ export async function fetchGithubPullRequestSnapshot(input: {
   }
 }
 
-export async function listMergedPullRequestNumbers(input: {
-  octokit: RestClient
+type GraphqlClient = {
+  graphql: <T>(query: string, variables: Record<string, unknown>) => Promise<T>
+}
+
+export type GithubPrClient = RestClient & GraphqlClient
+
+type Connection<T> = {
+  pageInfo?: { hasNextPage?: boolean }
+  nodes?: Array<T | null>
+}
+
+type GraphqlActor = { login?: string; __typename?: string } | null
+
+type GraphqlComment = {
+  databaseId?: number
+  author?: GraphqlActor
+  body?: string
+  createdAt?: string
+}
+
+type GraphqlPullRequest = {
+  databaseId?: number
+  number?: number
+  url?: string
+  title?: string
+  body?: string
+  state?: string
+  merged?: boolean
+  isDraft?: boolean
+  author?: GraphqlActor
+  baseRefName?: string
+  baseRefOid?: string
+  headRefName?: string
+  headRefOid?: string
+  createdAt?: string
+  updatedAt?: string
+  mergedAt?: string | null
+  labels?: Connection<{ name?: string }>
+  reviewRequests?: Connection<{ requestedReviewer?: GraphqlActor }>
+  files?: Connection<{ path?: string; changeType?: string }>
+  reviews?: Connection<{
+    databaseId?: number
+    author?: GraphqlActor
+    state?: string
+    body?: string
+    submittedAt?: string | null
+  }>
+  comments?: Connection<GraphqlComment>
+  reviewThreads?: Connection<{
+    comments?: Connection<
+      GraphqlComment & {
+        path?: string
+        line?: number | null
+        originalLine?: number | null
+      }
+    >
+  }>
+}
+
+/**
+ * Everything the mirror renders, inlined so one request returns a whole page.
+ * Nested lists past these sizes, and renames (GraphQL omits the previous
+ * path), fall back to the REST read for that pull request.
+ */
+const PULL_REQUEST_FIELDS = `
+  databaseId number url title body state merged isDraft
+  author { login __typename }
+  baseRefName baseRefOid headRefName headRefOid
+  createdAt updatedAt mergedAt
+  labels(first: 100) { pageInfo { hasNextPage } nodes { name } }
+  reviewRequests(first: 100) {
+    pageInfo { hasNextPage }
+    nodes { requestedReviewer { __typename ... on User { login } ... on Bot { login } ... on Mannequin { login } } }
+  }
+  files(first: 100) { pageInfo { hasNextPage } nodes { path changeType } }
+  reviews(first: 100) {
+    pageInfo { hasNextPage }
+    nodes { databaseId author { login __typename } state body submittedAt }
+  }
+  comments(first: 100) {
+    pageInfo { hasNextPage }
+    nodes { databaseId author { login __typename } body createdAt }
+  }
+  reviewThreads(first: 50) {
+    pageInfo { hasNextPage }
+    nodes {
+      comments(first: 50) {
+        pageInfo { hasNextPage }
+        nodes { databaseId author { login __typename } body createdAt path line originalLine }
+      }
+    }
+  }
+`
+
+function nodesOf<T>(connection: Connection<T> | undefined): T[] {
+  return (connection?.nodes ?? []).filter((node): node is T => node != null)
+}
+
+function actorFromGraphql(actor: GraphqlActor | undefined): GithubPrActor {
+  const bot = actor?.__typename === "Bot"
+  const login = asString(actor?.login) ?? "unknown"
+  // REST names bot accounts `<app>[bot]`; keep text identical across reads.
+  return {
+    login: bot && !login.endsWith("[bot]") ? `${login}[bot]` : login,
+    type: bot ? "bot" : "human",
+  }
+}
+
+const CHANGE_TYPES: Record<string, GithubPrFileStatus> = {
+  ADDED: "added",
+  DELETED: "removed",
+  MODIFIED: "modified",
+  RENAMED: "renamed",
+  COPIED: "copied",
+  CHANGED: "changed",
+}
+
+/** Null when the page cannot carry the pull request in full. */
+function snapshotFromGraphql(
+  pull: GraphqlPullRequest,
+  repository: string,
+): GithubPullRequestSnapshot | null {
+  const threads = nodesOf(pull.reviewThreads)
+  const files = nodesOf(pull.files)
+  if (
+    [
+      pull.labels,
+      pull.reviewRequests,
+      pull.files,
+      pull.reviews,
+      pull.comments,
+      pull.reviewThreads,
+      ...threads.map((thread) => thread.comments),
+    ].some((connection) => connection?.pageInfo?.hasNextPage) ||
+    files.some(
+      (file) => file.changeType === "RENAMED" || file.changeType === "COPIED",
+    )
+  )
+    return null
+  const number = pull.number ?? 0
+  return {
+    id: pull.databaseId ?? number,
+    number,
+    repository,
+    url: pull.url ?? "",
+    title: pull.title ?? "",
+    body: pull.body ?? "",
+    state: pull.state === "OPEN" ? "open" : "closed",
+    merged: pull.merged === true,
+    draft: pull.isDraft === true,
+    author: actorFromGraphql(pull.author),
+    base: { ref: pull.baseRefName ?? "", sha: pull.baseRefOid ?? "" },
+    head: { ref: pull.headRefName ?? "", sha: pull.headRefOid ?? "" },
+    reviewDecision: null,
+    labels: nodesOf(pull.labels).flatMap((label) =>
+      label.name ? [label.name] : [],
+    ),
+    requestedReviewers: nodesOf(pull.reviewRequests).flatMap((request) =>
+      asString(request.requestedReviewer?.login)
+        ? [actorFromGraphql(request.requestedReviewer).login]
+        : [],
+    ),
+    createdAt: pull.createdAt ?? "",
+    updatedAt: pull.updatedAt ?? "",
+    mergedAt: asString(pull.mergedAt),
+    files: files.flatMap((file) =>
+      file.path
+        ? [
+            {
+              path: file.path,
+              status: CHANGE_TYPES[file.changeType ?? ""] ?? "modified",
+            },
+          ]
+        : [],
+    ),
+    reviews: nodesOf(pull.reviews).map((review) => ({
+      id: review.databaseId ?? 0,
+      author: actorFromGraphql(review.author),
+      state: review.state ?? "COMMENTED",
+      body: review.body ?? "",
+      submittedAt: asString(review.submittedAt),
+    })),
+    comments: [
+      ...nodesOf(pull.comments).map((comment) => ({
+        id: comment.databaseId ?? 0,
+        kind: "conversation" as const,
+        author: actorFromGraphql(comment.author),
+        body: comment.body ?? "",
+        createdAt: comment.createdAt ?? "",
+      })),
+      ...threads.flatMap((thread) =>
+        nodesOf(thread.comments).map((comment) => ({
+          id: comment.databaseId ?? 0,
+          kind: "review" as const,
+          author: actorFromGraphql(comment.author),
+          body: comment.body ?? "",
+          createdAt: comment.createdAt ?? "",
+          path: comment.path ?? undefined,
+          line: comment.line ?? comment.originalLine ?? null,
+        })),
+      ),
+    ].sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
+    requiredChecks: [],
+  }
+}
+
+async function completeSnapshots(input: {
+  octokit: GithubPrClient
   owner: string
   repo: string
-  max: number
-}): Promise<number[]> {
-  const numbers: number[] = []
-  for (let page = 1; page <= 10 && numbers.length < input.max; page += 1) {
-    const { data } = await input.octokit.rest.pulls.list({
+  pulls: GraphqlPullRequest[]
+}): Promise<GithubPullRequestSnapshot[]> {
+  const repository = `${input.owner}/${input.repo}`
+  const snapshots: GithubPullRequestSnapshot[] = []
+  for (const pull of input.pulls) {
+    snapshots.push(
+      snapshotFromGraphql(pull, repository) ??
+        (await fetchGithubPullRequestSnapshot({
+          octokit: input.octokit,
+          owner: input.owner,
+          repo: input.repo,
+          number: pull.number ?? 0,
+        })),
+    )
+  }
+  return snapshots
+}
+
+/** One page of merged pull requests, most recently updated first, in one request. */
+export async function fetchMergedPullRequestPage(input: {
+  octokit: GithubPrClient
+  owner: string
+  repo: string
+  first: number
+  after: string | null
+}): Promise<{
+  snapshots: GithubPullRequestSnapshot[]
+  nextAfter: string | null
+}> {
+  const data = await input.octokit.graphql<{
+    repository: {
+      pullRequests: {
+        pageInfo: { hasNextPage: boolean; endCursor: string | null }
+        nodes: Array<GraphqlPullRequest | null>
+      }
+    } | null
+  }>(
+    `query MergedPullRequests($owner: String!, $repo: String!, $first: Int!, $after: String) {
+      repository(owner: $owner, name: $repo) {
+        pullRequests(states: MERGED, orderBy: {field: UPDATED_AT, direction: DESC}, first: $first, after: $after) {
+          pageInfo { hasNextPage endCursor }
+          nodes { ${PULL_REQUEST_FIELDS} }
+        }
+      }
+    }`,
+    {
       owner: input.owner,
       repo: input.repo,
-      state: "closed",
-      sort: "updated",
-      direction: "desc",
-      per_page: 100,
-      page,
-    })
-    for (const pull of data) {
-      if (pull.merged_at == null) continue
-      if (typeof pull.number !== "number") continue
-      numbers.push(pull.number)
-      if (numbers.length >= input.max) break
-    }
-    if (data.length < 100) break
+      first: input.first,
+      after: input.after,
+    },
+  )
+  const connection = data.repository?.pullRequests
+  return {
+    snapshots: await completeSnapshots({
+      ...input,
+      pulls: nodesOf(connection),
+    }),
+    nextAfter: connection?.pageInfo.hasNextPage
+      ? connection.pageInfo.endCursor
+      : null,
   }
-  return numbers
+}
+
+/** The named pull requests in one request, however many there are. */
+export async function fetchPullRequestsByNumber(input: {
+  octokit: GithubPrClient
+  owner: string
+  repo: string
+  numbers: number[]
+}): Promise<GithubPullRequestSnapshot[]> {
+  const numbers = [...new Set(input.numbers)].filter(Number.isInteger)
+  if (numbers.length === 0) return []
+  const data = await input.octokit.graphql<{
+    repository: Record<string, GraphqlPullRequest | null> | null
+  }>(
+    `query PullRequestsByNumber($owner: String!, $repo: String!) {
+      repository(owner: $owner, name: $repo) {
+        ${numbers.map((number) => `pr${number}: pullRequest(number: ${number}) { ${PULL_REQUEST_FIELDS} }`).join("\n")}
+      }
+    }`,
+    { owner: input.owner, repo: input.repo },
+  )
+  return completeSnapshots({
+    ...input,
+    pulls: numbers.flatMap((number) => {
+      const pull = data.repository?.[`pr${number}`]
+      return pull ? [pull] : []
+    }),
+  })
 }

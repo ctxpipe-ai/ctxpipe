@@ -63,3 +63,12 @@ Indexing runs again when the repository's default branch changes.
 
 Extraction uses models on parts of the code. Treat extracted claims like any
 other knowledge file: review them in git and correct them when they are wrong.
+
+## Merged pull requests
+
+For a linked GitHub repository, ctx| also mirrors its merged pull requests into
+`github/pulls/` in the workspace repository. When ctx| first reads a link,
+whether you added it in **Settings** or committed the declaration with git, it
+backfills up to 200 recent merged pull requests; after that, new merges arrive
+as GitHub reports them. Unlinking stops new pull requests and keeps the files
+already mirrored. See [GitHub connector](/docs/connections/source-connectors/github).
