@@ -74,10 +74,12 @@ const RegisterInstallationBodySchema = z
 
 const CreateGithubDraftBodySchema = z
   .object({
-    githubAppId: z.string().min(1),
-    appSlug: z.string().min(1),
-    privateKey: z.string().min(1),
-    webhookSecret: z.string().min(1),
+    // Trimmed: blank credentials would make the connection fall back to the
+    // deployment's App while keeping an installation attached without proof.
+    githubAppId: z.string().trim().min(1),
+    appSlug: z.string().trim().min(1),
+    privateKey: z.string().trim().min(1),
+    webhookSecret: z.string().trim().min(1),
   })
   .openapi("CreateGithubDraftBody")
 
@@ -315,11 +317,8 @@ export const registerInstallationRoute = createRoute({
     },
     403: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Forbidden",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "GitHub account not linked",
+      description:
+        "Not an org admin or owner; GitHub account not linked (`why: github_not_linked`); or the linked GitHub account cannot access the installation (`why: github_installation_not_accessible`)",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -983,15 +982,51 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     if (!orgId) return c.json({ error: "Not found" }, 404)
     const body = c.req.valid("json")
     try {
-      const user = c.get("user") as { id: string }
-      const githubAccessToken = await getGithubUserAccessToken(user.id)
-      if (githubAccessToken) {
-        const canAccess = await userCanAccessInstallation(
-          githubAccessToken,
-          body.installationId,
-        )
+      // A connection with its own App credentials reaches only that App's
+      // installations. Any other attach goes through the deployment's App, so
+      // the acting user's GitHub account must be able to see the installation.
+      const connectionRow = body.connectionId
+        ? await getGithubConnectionRow(orgId, body.connectionId)
+        : undefined
+      if (body.connectionId && !connectionRow) {
+        return c.json({ error: "Unknown GitHub connection" }, 404)
+      }
+      if (
+        !connectionRow ||
+        !githubRowHasAppCredentials(connectionRow, c.var.env)
+      ) {
+        const githubNotLinked = {
+          error: "Connect your GitHub account to link this installation",
+          message: "Connect your GitHub account to link this installation",
+          why: "github_not_linked",
+          fix: "Connect your GitHub account, then finish the GitHub App installation again.",
+        }
+        const user = c.get("user") as { id: string }
+        const githubAccessToken = await getGithubUserAccessToken(user.id)
+        if (!githubAccessToken) return c.json(githubNotLinked, 403)
+        let canAccess: boolean
+        try {
+          canAccess = await userCanAccessInstallation(
+            githubAccessToken,
+            body.installationId,
+          )
+        } catch (e) {
+          // GitHub rejects a revoked or expired user token: link again.
+          if (e instanceof Error && "status" in e && e.status === 401) {
+            return c.json(githubNotLinked, 403)
+          }
+          throw e
+        }
         if (!canAccess) {
-          return c.json({ error: "Forbidden" }, 403)
+          return c.json(
+            {
+              error: "Forbidden",
+              message:
+                "Your GitHub account cannot access this GitHub App installation",
+              why: "github_installation_not_accessible",
+            },
+            403,
+          )
         }
       }
 

@@ -192,7 +192,7 @@ function ConnectGithubView({
         return
       }
 
-      toast.error(err.message)
+      toast.error(parsedError.message)
     },
   })
 
