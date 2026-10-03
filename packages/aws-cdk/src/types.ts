@@ -1,4 +1,5 @@
 import type * as cdk from "aws-cdk-lib";
+import type * as ec2 from "aws-cdk-lib/aws-ec2";
 
 export type CtxPipeSize = "small" | "medium" | "large";
 
@@ -116,6 +117,25 @@ export interface CtxPipeOtelProps {
   readonly resourceAttributes?: string;
 }
 
+/**
+ * Overrides for the EC2 Docker host that runs Workspace chat sandboxes.
+ * The host is always created; these only change its size.
+ */
+export interface CtxPipeSandboxHostProps {
+  /**
+   * Defaults by `size`: `t4g.medium` (small), `t4g.large` (medium),
+   * `t4g.xlarge` (large). Memory is the limit (~0.3–0.5 GiB per active
+   * sandbox). Graviton and x86 both work; the AMI and chat image follow the
+   * instance architecture.
+   */
+  readonly instanceType?: ec2.InstanceType;
+  /**
+   * gp3 volume for `/var/lib/docker`, in GiB. Holds images, running and
+   * stopped sandboxes (kept up to 30 days). Defaults by `size`: 30, 50, 100.
+   */
+  readonly dockerVolumeSizeGiB?: number;
+}
+
 export interface CtxPipeProps {
   /**
    * Organization slug used by self-hosted deployment.
@@ -136,4 +156,6 @@ export interface CtxPipeProps {
    * Defaults to "small" when omitted.
    */
   readonly size?: CtxPipeSize;
+  /** Optional overrides for the always-created chat sandbox host. */
+  readonly sandboxHost?: CtxPipeSandboxHostProps;
 }

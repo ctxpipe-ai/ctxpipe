@@ -92,7 +92,10 @@ try {
       )
       if (built.status !== 0) throw new Error("Required CLI build failed")
     }
-    if (name === "aws-cdk") run("packages/aws-cdk/scripts/stamp-image-tag.mjs")
+    if (name === "aws-cdk") {
+      run("packages/aws-cdk/scripts/stamp-image-tag.mjs")
+      run("packages/aws-cdk/scripts/embed-chat-sandbox.mjs")
+    }
     const vitest = join(
       dirname(require.resolve("vitest/package.json")),
       "vitest.mjs",

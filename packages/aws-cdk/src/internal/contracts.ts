@@ -1,5 +1,7 @@
 import type * as cdk from "aws-cdk-lib";
 import type * as acm from "aws-cdk-lib/aws-certificatemanager";
+import type * as autoscaling from "aws-cdk-lib/aws-autoscaling";
+import type * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import type * as ec2 from "aws-cdk-lib/aws-ec2";
 import type * as ecs from "aws-cdk-lib/aws-ecs";
 import type * as efs from "aws-cdk-lib/aws-efs";
@@ -67,6 +69,12 @@ export interface CtxPipeSizeProfile {
     readonly codesearchIndexPipelineConcurrency: number;
   };
   readonly backupRetentionDays: number;
+  readonly sandboxHost: CtxPipeSandboxHostProfile;
+}
+
+export interface CtxPipeSandboxHostProfile {
+  readonly instanceType: ec2.InstanceType;
+  readonly dockerVolumeSizeGiB: number;
 }
 
 export interface NetworkingResources {
@@ -123,6 +131,18 @@ export interface ServiceResources {
   readonly codesearchService: ecs.FargateService;
 }
 
+export interface SandboxHostResources {
+  readonly autoScalingGroup: autoscaling.AutoScalingGroup;
+  /** Attached to backend and worker: the only clients of the Docker API. */
+  readonly clientSecurityGroup: ec2.SecurityGroup;
+  readonly clientTlsSecret: secretsmanager.Secret;
+  readonly alarms: cloudwatch.Alarm[];
+  /** Plain environment for backend and worker. */
+  readonly environment: Record<string, string>;
+  /** Client TLS material, written to files by `sandboxHostClientCommand`. */
+  readonly secrets: Record<string, ecs.Secret>;
+}
+
 export interface IngressResources {
   readonly appUrl: string;
 }
@@ -152,6 +172,10 @@ export interface SecretsConstructProps {
   readonly emailFromAddress: string;
 }
 
+export interface SandboxHostConstructProps extends CtxPipeSandboxHostProfile {
+  readonly networking: NetworkingResources;
+}
+
 export interface TaskDefinitionsConstructProps {
   readonly orgSlug: string;
   readonly networking: NetworkingResources;
@@ -162,6 +186,7 @@ export interface TaskDefinitionsConstructProps {
   readonly defaultImageTag: string;
   readonly sizeProfile: CtxPipeSizeProfile;
   readonly otel?: CtxPipeOtelProps;
+  readonly sandboxHost: SandboxHostResources;
 }
 
 export interface ServicesConstructProps {
@@ -170,6 +195,7 @@ export interface ServicesConstructProps {
   readonly sizeProfile: CtxPipeSizeProfile;
   readonly migrateDependency?: IDependable;
   readonly codesearchEfsMountDependency?: IDependable;
+  readonly sandboxHost: SandboxHostResources;
 }
 
 export interface IngressConstructProps {
@@ -192,4 +218,5 @@ export interface OutputsConstructProps {
   readonly modelProviderSecretArn?: string;
   readonly smtpSecretArn: string;
   readonly connectorSecretArn?: string;
+  readonly sandboxHostAutoScalingGroupName: string;
 }

@@ -7,6 +7,7 @@ import type {
   TaskDefinitionsConstructProps,
   TaskDefinitionsResources,
 } from "./contracts";
+import { sandboxHostClientCommand } from "./sandbox-host-construct";
 
 function otelExportEnvironment(
   endpoint: string,
@@ -115,6 +116,9 @@ export class TaskDefinitionsConstruct extends Construct {
       image: ecs.ContainerImage.fromRegistry(
         `ghcr.io/ctxpipe-ai/backend:${props.defaultImageTag}`,
       ),
+      ...sandboxHostClientCommand("bun run apps/backend/src/server.ts", {
+        callbackHost: true,
+      }),
       environment: {
         NODE_ENV: "production",
         PORT: "3000",
@@ -126,6 +130,7 @@ export class TaskDefinitionsConstruct extends Construct {
         UI_PROXY_URL: "http://ui.ctxpipe.local:3002",
         CODESEARCH_URL: "http://codesearch.ctxpipe.local:3001",
         ...modelContainerConfig.environment,
+        ...props.sandboxHost.environment,
         ...otelExportEnvironment(otelEndpoint, otelResourceAttributes, "backend"),
       },
       secrets: {
@@ -144,6 +149,7 @@ export class TaskDefinitionsConstruct extends Construct {
         ),
         ...modelContainerConfig.secrets,
         ...props.secrets.connectorEnv,
+        ...props.sandboxHost.secrets,
         ...otelHeaderSecrets,
       },
       portMappings: [{ containerPort: 3000 }],
@@ -153,6 +159,11 @@ export class TaskDefinitionsConstruct extends Construct {
     workerTask.addContainer("worker", {
       image: ecs.ContainerImage.fromRegistry(
         `ghcr.io/ctxpipe-ai/worker:${props.defaultImageTag}`,
+      ),
+      // Same start as the worker image's CMD.
+      ...sandboxHostClientCommand(
+        "sh -c 'cd /app/apps/backend && exec bun run src/openworkflow/worker-supervisor.ts'",
+        { callbackHost: false },
       ),
       environment: {
         NODE_ENV: "production",
@@ -170,6 +181,7 @@ export class TaskDefinitionsConstruct extends Construct {
           props.sizeProfile.concurrency.codesearchIndexerConcurrency,
         ),
         ...modelContainerConfig.environment,
+        ...props.sandboxHost.environment,
         ...otelExportEnvironment(otelEndpoint, otelResourceAttributes, "openworkflow"),
       },
       secrets: {
@@ -188,6 +200,7 @@ export class TaskDefinitionsConstruct extends Construct {
         ),
         ...modelContainerConfig.secrets,
         ...props.secrets.connectorEnv,
+        ...props.sandboxHost.secrets,
         ...otelHeaderSecrets,
       },
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-worker" }),
@@ -275,6 +288,7 @@ export class TaskDefinitionsConstruct extends Construct {
       props.secrets.modelProviderSecret,
       props.secrets.smtpSecret,
       props.secrets.connectorSecret,
+      props.sandboxHost.clientTlsSecret,
       otelHeadersSecret,
     ]);
     this.grantTaskSecrets(workerTask, [
@@ -283,6 +297,7 @@ export class TaskDefinitionsConstruct extends Construct {
       props.secrets.modelProviderSecret,
       props.secrets.smtpSecret,
       props.secrets.connectorSecret,
+      props.sandboxHost.clientTlsSecret,
       otelHeadersSecret,
     ]);
     this.grantTaskSecrets(codesearchTask, [

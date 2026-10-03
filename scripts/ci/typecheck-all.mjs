@@ -16,12 +16,14 @@ const history = spawnSync(
 if (history.status !== 0) failed = true
 for (const { name, project } of projects) {
   if (name === "aws-cdk") {
-    const generated = spawnSync(
-      process.execPath,
-      ["packages/aws-cdk/scripts/stamp-image-tag.mjs"],
-      { stdio: "inherit" },
-    )
-    if (generated.status !== 0) failed = true
+    for (const script of ["stamp-image-tag.mjs", "embed-chat-sandbox.mjs"]) {
+      const generated = spawnSync(
+        process.execPath,
+        [`packages/aws-cdk/scripts/${script}`],
+        { stdio: "inherit" },
+      )
+      if (generated.status !== 0) failed = true
+    }
   }
   if (name === "self-host") {
     const built = spawnSync("pnpm", ["--filter", "@ctxpipe/aws-cdk", "build"], {
