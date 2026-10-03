@@ -3,7 +3,6 @@ import { expect, it } from "vitest"
 import { getSystemDb, withOrgDbContext } from "../db/client.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { getRepositoryForOrg } from "../models/repositories.js"
-import { restoreJobTelemetry } from "../observability/jobTelemetry.js"
 import { createLogger, withLogger } from "../observability/logger.js"
 import { withNativeIndexFixture } from "../test/native-index-fixture.js"
 import { withCanceledNativeInsert } from "../test/native-workflow-insert-failure.js"
@@ -39,14 +38,10 @@ it(
           ),
         ).rejects.toThrow()
         expect(errors).toHaveLength(1)
-        // As inside the parent ingestion's step: its job telemetry is active.
-        const first = await restoreJobTelemetry(
-          {
-            orgId: f.org.id,
-            repositoryId: f.repositoryId,
-            telemetry: { "request.id": "req_parent_ingestion" },
-          },
-          () => enqueueFollowUpIfTipAhead(input, logger),
+        // As repository-ingestion calls it: the parent's job telemetry in the input.
+        const first = await enqueueFollowUpIfTipAhead(
+          { ...input, telemetry: { "request.id": "req_parent_ingestion" } },
+          logger,
         )
         expect(first).toMatchObject({
           enqueued: true,
