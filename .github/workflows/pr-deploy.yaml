@@ -404,6 +404,7 @@ jobs:
           UI_IMAGE: ghcr.io/ctxpipe-ai/ui:${{ env.IMAGE_TAG }}
           CODESEARCH_IMAGE: ghcr.io/ctxpipe-ai/codesearch:${{ env.IMAGE_TAG }}
           OBSERVABILITY_OTLP_HEADERS: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
+          VERCEL_ACCESS_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
         # Single Railway roll. Do not wrap this script in nick-fields/retry —
         # a second attempt stacks serviceInstanceDeployV2 on a still-DEPLOYING
         # instance. GraphQL HTTP retries live in railway_graphql.
@@ -1019,6 +1020,12 @@ jobs:
             source "${GITHUB_WORKSPACE}/scripts/preview-otel-vars.sh"
             sync_preview_otel_variables
 
+            # Hosted chat runs in Vercel sandboxes tagged with this environment;
+            # the PR-close cleanup deletes them by that tag.
+            # shellcheck disable=SC1091
+            source "${GITHUB_WORKSPACE}/scripts/preview-sandbox-vars.sh"
+            sync_preview_sandbox_variables
+
             upsert_database_url_without_deploy "$BACKEND_SERVICE_ID" >/dev/null
             upsert_preview_service_variables "$BACKEND_SERVICE_ID" >/dev/null
             upsert_preview_backend_wake_variables "$BACKEND_SERVICE_ID" >/dev/null
@@ -1204,3 +1211,48 @@ jobs:
           packages: backend,worker,ui,codesearch
           delete-tags: '^pr-${{ github.event.number }}-'
           use-regex: true
+
+  # After the Railway environment is gone, so no preview backend can start a
+  # new sandbox behind the cleanup. Its GitHub token rows lived in the preview's
+  # Neon branch, deleted above.
+  cleanup_pr_sandboxes:
+    name: Delete preview Vercel sandboxes
+    needs: cleanup_pr_environment
+    if: |
+      always() &&
+      github.event_name == 'pull_request' && github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Checkout repository
+        uses: useblacksmith/checkout@v1
+
+      - name: Mount pnpm store sticky disk
+        uses: useblacksmith/stickydisk@v1
+        with:
+          key: ${{ github.repository }}-pnpm-store
+          path: ~/.pnpm-store
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: useblacksmith/setup-node@v5
+        with:
+          node-version: "22"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Force pnpm store path
+        run: pnpm config set store-dir ~/.pnpm-store
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Delete sandboxes tagged with this preview environment
+        working-directory: apps/backend
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+          VERCEL_TEAM_ID: ctxpipe
+          VERCEL_PROJECT_ID: ctxpipe
+        run: bun src/scripts/deletePreviewSandboxes.ts "pr-${{ github.event.number }}"

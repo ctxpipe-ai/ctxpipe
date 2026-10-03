@@ -170,6 +170,23 @@ locals {
       name  = "GITHUB_WEBHOOK_SECRET",
       value = var.github_webhook_secret
     },
+    # Hosted chat runs each conversation in a Vercel sandbox; never unsandboxed.
+    {
+      name  = "SANDBOX_PROVIDER"
+      value = "vercel"
+    },
+    {
+      name  = "VERCEL_TOKEN"
+      value = var.vercel_access_token
+    },
+    {
+      name  = "VERCEL_TEAM_ID"
+      value = "ctxpipe"
+    },
+    {
+      name  = "VERCEL_PROJECT_ID"
+      value = "ctxpipe"
+    },
   ], local.otel_shared_env, local.slack_shared_env, local.linear_shared_env, local.pagerduty_shared_env)
 }
 
