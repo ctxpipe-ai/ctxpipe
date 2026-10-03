@@ -3,6 +3,7 @@ import {
   destroyDetachedProviderSandbox,
   detectSandboxProvider,
   detectSandboxProviderFromEnv,
+  remoteDockerHost,
 } from "./sandbox-provider.js"
 
 const dockerSandbox = vi.hoisted(() => vi.fn())
@@ -82,5 +83,23 @@ describe("destroyDetachedProviderSandbox", () => {
       }),
     ).rejects.toThrow("ECONNREFUSED")
     expect(destroy).not.toHaveBeenCalled()
+  })
+})
+
+describe("remoteDockerHost", () => {
+  it("names a TCP daemon's host and nothing for the local socket", () => {
+    expect(
+      remoteDockerHost({
+        DOCKER_HOST: "tcp://sandbox-host.ctxpipe.local:2376",
+      }),
+    ).toBe("sandbox-host.ctxpipe.local")
+    expect(remoteDockerHost({ DOCKER_HOST: "dind:2376" })).toBe("dind")
+    expect(remoteDockerHost({ DOCKER_HOST: "tcp://[fd00::5]:2376" })).toBe(
+      "[fd00::5]",
+    )
+    expect(
+      remoteDockerHost({ DOCKER_HOST: "unix:///var/run/docker.sock" }),
+    ).toBeUndefined()
+    expect(remoteDockerHost({})).toBeUndefined()
   })
 })

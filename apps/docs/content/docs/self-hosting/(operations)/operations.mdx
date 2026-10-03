@@ -77,7 +77,50 @@ changes.
 | `zoekt_index_deploy` | Optional but recommended for large deployments. Rebuildable by reindexing. |
 | Secrets | Export from your secret manager or platform. Keep historical values needed for rollback. |
 
+## Chat sandbox host (AWS)
+
+`@ctxpipe/aws-cdk` runs Workspace chat sandboxes on one EC2 Docker host (see
+[AWS: Chat sandbox host](/docs/self-hosting/deployment/aws#chat-sandbox-host)).
+It holds no data you need to back up: a replaced host starts empty and
+conversations continue from their git branch.
+
+Find the instance from the `SandboxHostAutoScalingGroupName` stack output and
+open a shell with Session Manager (no SSH key or open port is needed):
+
+```bash
+aws ssm start-session --target <instance-id>
+```
+
+| Check | Command on the host | Expected result |
+|---|---|---|
+| Docker is up | `sudo systemctl is-active docker` | `active` |
+| Docker volume | `df -h /var/lib/docker` | Below 80% used. The disk alarm fires at 80%. |
+| What uses the disk | `sudo docker system df` | Images, containers, and build cache sizes |
+| Sandboxes | `sudo docker ps -a` | One container per recent conversation; stopped ones are idle sandboxes |
+| Memory cap | `systemctl status ctxpipe-sandboxes.slice` | Memory in use stays below the slice limit (85% of host memory) |
+| Chat image | `sudo docker image ls ghcr.io/ctxpipe-ai/chat-sandbox` | The tag the backend's `SANDBOX_CHAT_IMAGE` names, after the first chat of a release |
+| Boot log | `sudo tail -n 100 /var/log/cloud-init-output.log` | Ends with the CloudFormation success signal |
+
+Sandboxes stop after 5 minutes idle and are removed 30 days after last use;
+an organization runs at most 50 at once. If the volume still fills, check
+`docker system df` for what grows, then raise
+`sandboxHost.dockerVolumeSizeGiB` and run `cdk deploy`; the new size replaces
+the host. Do not run `docker system prune` while conversations are active: it
+deletes stopped sandboxes that conversations would resume.
+
 ## Recovery runbooks
+
+### Workspace chat fails to start on AWS
+
+- Confirm the sandbox host instance is `InService` in its Auto Scaling group.
+- Check backend logs for Docker connection or TLS errors. Backend and worker
+  reach the host at `sandbox-host.ctxpipe.local:2376`; the host registers that
+  name when it finishes booting.
+- If the backend reports that the chat sandbox image is missing, the host
+  could not pull `ghcr.io/ctxpipe-ai/chat-sandbox`. Check the host's outbound
+  access to `ghcr.io` through NAT.
+- Terminate the instance to get a fresh host. The Auto Scaling group replaces
+  it in a few minutes and reuses the stored TLS certificates.
 
 ### App loads but sign-in fails
 

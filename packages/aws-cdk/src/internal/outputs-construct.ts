@@ -29,5 +29,9 @@ export class OutputsConstruct extends Construct {
         value: props.connectorSecretArn,
       });
     }
+    new cdk.CfnOutput(this, "SandboxHostAutoScalingGroupName", {
+      description: "Chat sandbox host; open a Session Manager shell on its instance for checks",
+      value: props.sandboxHostAutoScalingGroupName,
+    });
   }
 }

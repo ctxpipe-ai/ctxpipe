@@ -27,7 +27,8 @@
     "src/domain/workspaces/protected-conversation-native.contract.test.ts"
   ],
   "native OpenCode port ownership": [
-    "src/domain/workspaces/workspace-chat-opencode-native.contract.test.ts"
+    "src/domain/workspaces/workspace-chat-opencode-native.contract.test.ts",
+    "src/domain/workspaces/docker-agent-port-native.contract.test.ts"
   ],
   "native callback bridge": [
     "src/domain/workspaces/workspace-chat-callback.contract.test.ts"
