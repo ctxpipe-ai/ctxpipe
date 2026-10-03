@@ -131,7 +131,15 @@ export async function prepareWorkspaceChat(
     json: { workspaceId },
   })
   if (!res.ok) {
-    throw new Error("Failed to prepare workspace chat")
+    // The server explains refusals people can act on (e.g. at capacity).
+    const body = (await res.json().catch(() => null)) as {
+      error?: unknown
+    } | null
+    throw new Error(
+      res.status === 429 && typeof body?.error === "string"
+        ? body.error
+        : "Failed to prepare workspace chat",
+    )
   }
 }
 

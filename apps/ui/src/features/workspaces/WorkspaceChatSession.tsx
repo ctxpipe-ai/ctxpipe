@@ -254,6 +254,13 @@ export function WorkspaceChatSession(props: {
           : null
       }
     >
+      {prepareQuery.isError ? (
+        <div className="px-6 pt-3">
+          <InlineAlert variant="error" title="Workspace chat is unavailable">
+            {prepareQuery.error.message}
+          </InlineAlert>
+        </div>
+      ) : null}
       {gitStatus?.stale ? (
         <InlineAlert variant="warning" title="Branch needs a rebase">
           This conversation is on {gitStatus.sha?.slice(0, 7)}; the workspace is
