@@ -22,7 +22,7 @@ export class ServicesConstruct extends Construct {
       assignPublicIp: false,
       securityGroups: [
         props.networking.appSecurityGroup,
-        props.sandboxHost.clientSecurityGroup,
+        props.sandboxHost.backendSecurityGroup,
       ],
       cloudMapOptions: {
         name: "backend",
@@ -43,7 +43,7 @@ export class ServicesConstruct extends Construct {
       assignPublicIp: false,
       securityGroups: [
         props.networking.appSecurityGroup,
-        props.sandboxHost.clientSecurityGroup,
+        props.sandboxHost.workerSecurityGroup,
       ],
       cloudMapOptions: {
         name: "worker",

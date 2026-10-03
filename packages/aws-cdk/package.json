@@ -12,8 +12,7 @@
   ],
   "scripts": {
     "stamp-image-tag": "node ./scripts/stamp-image-tag.mjs",
-    "embed-chat-sandbox": "node ./scripts/embed-chat-sandbox.mjs",
-    "prebuild": "pnpm run stamp-image-tag && pnpm run embed-chat-sandbox",
+    "prebuild": "pnpm run stamp-image-tag",
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf lib",
     "test": "vitest run"

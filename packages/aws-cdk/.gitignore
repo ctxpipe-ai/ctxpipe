@@ -2,4 +2,3 @@ node_modules/
 lib/
 *.tsbuildinfo
 src/pinned-service-image-tag.ts
-src/chat-sandbox-image.ts

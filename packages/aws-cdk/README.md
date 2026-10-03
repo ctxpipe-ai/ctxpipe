@@ -148,12 +148,13 @@ Workspace chat runs each conversation's agent in its own Docker container. `CtxP
 | `medium` | `t4g.large` | 2 / 8 GiB | 50 GB | ~$54 | ~14 |
 | `large` | `t4g.xlarge` | 4 / 16 GiB | 100 GB | ~$107 | ~30 |
 
-Costs are on-demand instance hours plus the Docker volume and a 16 GB root volume. Burstable (`t4g`) instances run in unlimited mode, so sustained CPU above baseline adds a small surcharge. Memory is the limit: an active sandbox uses ~0.3–0.5 GiB, idle ones stop after 5 minutes, and stopped ones keep their files for 30 days on the Docker volume.
+Costs are on-demand instance hours plus the Docker volume and a 16 GB root volume. Burstable (`t4g`) instances run in unlimited mode, so sustained CPU above baseline adds a small surcharge. Memory is the limit: an active sandbox uses ~0.3–0.5 GiB. A sandbox stops after 5 minutes idle and resumes on the next message; stopped sandboxes are removed 30 days after last use; an organization runs at most 50 at once.
 
 ```ts
 new CtxPipe(stack, "CtxPipe", {
   // ...orgSlug, customDomain, modelProvider
   sandboxHost: {
+    // Graviton (arm64) only; other architectures are rejected at synth.
     instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.XLARGE),
     dockerVolumeSizeGiB: 150,
   },
@@ -162,14 +163,15 @@ new CtxPipe(stack, "CtxPipe", {
 
 What the construct sets up:
 
-- A single-instance Auto Scaling group in the private subnets (Amazon Linux 2023, Graviton by default). EC2 health checks replace a failed host; `cdk deploy` waits until the host reports ready.
+- A single-instance Auto Scaling group in the private subnets (Amazon Linux 2023 on Graviton). EC2 health checks replace a failed host; `cdk deploy` waits until the host reports ready. New AMIs apply when the host is replaced, not on every deploy.
 - A gp3 volume for `/var/lib/docker`. The volume belongs to the instance: a replaced host starts empty. Conversations keep their work in their git branch, so they continue on the new host.
-- The Docker API on port 2376 with mutual TLS. The host creates the certificates on first boot and stores them in Secrets Manager; a replacement host reuses them. The CA key is not kept.
-- Security groups: only backend and worker reach the Docker API and the sandboxes' agent ports. Sandboxes reach the backend (model proxy on 3000 and per-run tool bridges), Git hosts, and the internet through NAT. They cannot reach Postgres, Neptune, EFS, codesearch, the UI, each other, the host itself, or instance metadata.
+- The Docker API on port 2376 with mutual TLS at `sandbox-host.ctxpipe.local` (Cloud Map, registered by the host). The host creates the certificates on first boot and stores them in Secrets Manager; a replacement host reuses them. The CA key is not kept.
+- Security groups: backend and worker reach the Docker API; only the backend reaches the sandboxes' agent ports, and only the backend accepts calls from sandboxes (model proxy on 3000 and per-run tool bridges). Sandboxes also reach Git hosts and the internet through NAT, but not Postgres, Neptune, EFS, codesearch, the UI, or the worker.
+- Each agent port needs a per-conversation password. Agent ports are reachable inside the VPC, so the host also blocks sandboxes from each other, from the host itself, and from instance metadata.
 - All sandbox containers run under one systemd slice capped at 85% of memory, and container logs rotate at 3 × 10 MB.
-- The Workspace chat image is built on the host at boot for its own architecture. A changed image definition replaces the host on the next deploy.
+- The Workspace chat image is `ghcr.io/ctxpipe-ai/chat-sandbox`, published for arm64 and amd64 with the same release tag as the service images. The backend pulls it through the host's Docker daemon on the first chat after a release, so releases never replace the host.
 - CloudWatch alarms: Docker volume over 80% full, and memory over 85% for 15 minutes. They have no actions; subscribe them with `ctxPipe.sandboxHostAlarms`.
-- Backend and worker get `SANDBOX_PROVIDER=docker`, `SANDBOX_CHAT_IMAGE`, `DOCKER_HOST=tcp://sandbox-host.ctxpipe.local:2376`, `DOCKER_TLS_VERIFY=1`, and the client certificates. The backend sets `SANDBOX_CALLBACK_HOST` to its own task IP at start, so sandboxes call back the replica that runs their turn.
+- Backend and worker get `SANDBOX_PROVIDER=docker`, `SANDBOX_CHAT_IMAGE`, `DOCKER_HOST`, `DOCKER_TLS_VERIFY=1`, and `DOCKER_CERT_PATH`. A short init container in each task writes the client certificates there as files; the app containers run their image's own command. Sandboxes call the backend back on its task IP, so they reach the replica that runs their turn.
 
 The stack output `SandboxHostAutoScalingGroupName` names the group. Open a shell on its instance with Session Manager (no SSH key or open port) for the checks in the [operations docs](https://docs.ctxpipe.ai/docs/self-hosting/operations).
 
@@ -286,7 +288,7 @@ That deploy:
 - rolls backend, worker, UI, codesearch, and migrate to the SHA stamped into this package
 - runs Postgres migrations (including new enum values) before ECS services update
 - creates the `ctxpipe_app` LOGIN role (no `BYPASSRLS`) during the migrate task if it is missing, then rewrites the runtime `DATABASE_URL` secret to that role. Do not run `psql`, add `CtxPipe` props, or put a second connection string in your CDK app. Image-tag-only rolls without a construct bump do not create the role.
-- adds the chat sandbox host on the first upgrade that includes it (new resources only; nothing that holds data is replaced). The deploy waits for the host to build the chat image (a few minutes) before it rolls backend and worker.
+- adds the chat sandbox host on the first upgrade that includes it (new resources only; nothing that holds data is replaced). The deploy waits for the host to report ready before it rolls backend and worker.
 
 
 ## Environment checklist
@@ -311,7 +313,7 @@ That deploy:
 - `GRAPH_DB_URI_<orgSlug>` (Neptune endpoint for the configured org slug)
 - `UI_PROXY_URL` and `CODESEARCH_URL` (internal service DNS)
 - `SMTP_CONNECTION_URL` and `EMAIL_FROM_ADDRESS` (SES SMTP + Secrets Manager)
-- `SANDBOX_PROVIDER`, `SANDBOX_CHAT_IMAGE`, `DOCKER_HOST`, `DOCKER_TLS_VERIFY`, `DOCKER_CERT_PATH` and the Docker client certificates (sandbox host), plus `SANDBOX_CALLBACK_HOST` on the backend
+- `SANDBOX_PROVIDER`, `SANDBOX_CHAT_IMAGE`, `DOCKER_HOST`, `DOCKER_TLS_VERIFY`, `DOCKER_CERT_PATH` (sandbox host; certificate files written by an init container)
 
 Because Neptune is single-graph per cluster, this construct does not support multi-tenant self-hosting in one stack. Deploy separate stacks for separate org slugs.
 

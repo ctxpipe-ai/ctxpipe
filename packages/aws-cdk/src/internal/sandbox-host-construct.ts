@@ -8,7 +8,6 @@ import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as servicediscovery from "aws-cdk-lib/aws-servicediscovery";
 import * as cr from "aws-cdk-lib/custom-resources";
 import { Construct } from "constructs";
-import { CHAT_SANDBOX_BUILD_FILES, CHAT_SANDBOX_IMAGE } from "../chat-sandbox-image";
 import type {
   SandboxHostConstructProps,
   SandboxHostResources,
@@ -20,10 +19,8 @@ const DOCKER_TLS_PORT = 2376;
  * on the host, and the backend's per-run tool bridges listen on port 0.
  */
 const EPHEMERAL_PORTS = ec2.Port.tcpRange(32768, 60999);
-const BACKEND_PORT = 3000;
 /** One fixed Cloud Map instance: a replacement host overwrites the record. */
 const DISCOVERY_INSTANCE_ID = "sandbox-host";
-const CLIENT_CERT_PATH = "/tmp/ctxpipe-docker-tls";
 
 /**
  * One EC2 Docker host for Workspace chat sandboxes (stock TanStack
@@ -46,45 +43,52 @@ export class SandboxHostConstruct extends Construct {
       vpc,
       description: "ctxpipe sandbox host",
       // Sandboxes clone from Git hosts and call the model proxy; the host
-      // pulls base images and packages. Data stores only admit the app group.
+      // pulls images and packages. Data stores only admit the app group.
       allowAllOutbound: true,
     });
-    const clientSecurityGroup = new ec2.SecurityGroup(this, "ClientSecurityGroup", {
+    // Egress for both comes from the app security group the tasks also carry.
+    const backendSecurityGroup = new ec2.SecurityGroup(this, "BackendSecurityGroup", {
       vpc,
-      description: "ctxpipe backend and worker: sandbox host clients",
-      // Egress comes from the app security group these tasks also carry.
+      description: "ctxpipe backend: sandbox host client and sandbox callbacks",
       allowAllOutbound: false,
     });
+    const workerSecurityGroup = new ec2.SecurityGroup(this, "WorkerSecurityGroup", {
+      vpc,
+      description: "ctxpipe worker: sandbox host client",
+      allowAllOutbound: false,
+    });
+    for (const client of [backendSecurityGroup, workerSecurityGroup]) {
+      hostSecurityGroup.addIngressRule(
+        client,
+        ec2.Port.tcp(DOCKER_TLS_PORT),
+        "Docker API (mutual TLS)",
+      );
+    }
     hostSecurityGroup.addIngressRule(
-      clientSecurityGroup,
-      ec2.Port.tcp(DOCKER_TLS_PORT),
-      "Docker API (mutual TLS) from backend and worker",
-    );
-    hostSecurityGroup.addIngressRule(
-      clientSecurityGroup,
+      backendSecurityGroup,
       EPHEMERAL_PORTS,
       "Published sandbox agent ports from backend",
     );
-    clientSecurityGroup.addIngressRule(
+    backendSecurityGroup.addIngressRule(
       hostSecurityGroup,
-      ec2.Port.tcp(BACKEND_PORT),
+      ec2.Port.tcp(3000),
       "Model proxy from sandboxes",
     );
-    clientSecurityGroup.addIngressRule(
+    backendSecurityGroup.addIngressRule(
       hostSecurityGroup,
       EPHEMERAL_PORTS,
       "Per-run tool bridges from sandboxes",
     );
 
-    // Filled by the host on first boot and reused by every replacement host,
-    // so running tasks keep trusting the daemon. The CA key is never stored.
+    // Created with a CloudFormation-generated placeholder that CloudFormation
+    // never rewrites; the first host replaces it and every replacement host
+    // reuses it, so running tasks keep trusting the daemon. The CA key is
+    // never stored.
     const serverTlsSecret = new secretsmanager.Secret(this, "ServerTlsSecret", {
       description: "ctxpipe sandbox host: Docker daemon TLS (written by the host)",
-      secretStringValue: cdk.SecretValue.unsafePlainText("{}"),
     });
     const clientTlsSecret = new secretsmanager.Secret(this, "ClientTlsSecret", {
       description: "ctxpipe sandbox host: Docker client TLS for backend and worker (written by the host)",
-      secretStringValue: cdk.SecretValue.unsafePlainText("{}"),
     });
 
     const discovery = new servicediscovery.Service(this, "Discovery", {
@@ -93,7 +97,7 @@ export class SandboxHostConstruct extends Construct {
       dnsRecordType: servicediscovery.DnsRecordType.A,
       dnsTtl: cdk.Duration.seconds(10),
     });
-    const dockerHostname = `sandbox-host.${namespace.namespaceName}`;
+    const dockerHostname = `${discovery.serviceName}.${namespace.namespaceName}`;
 
     const role = new iam.Role(this, "InstanceRole", {
       assumedBy: new iam.ServicePrincipal("ec2.amazonaws.com"),
@@ -128,7 +132,6 @@ export class SandboxHostConstruct extends Construct {
       }),
     );
 
-    const architecture = props.instanceType.architecture;
     const userData = ec2.UserData.forLinux();
     const launchTemplate = new ec2.LaunchTemplate(this, "LaunchTemplate", {
       instanceType: props.instanceType,
@@ -136,9 +139,7 @@ export class SandboxHostConstruct extends Construct {
       // does not replace the host on the next `cdk deploy`, and every
       // replacement host boots the latest one.
       machineImage: ec2.MachineImage.resolveSsmParameterAtLaunch(
-        `/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-${
-          architecture === ec2.InstanceArchitecture.ARM_64 ? "arm64" : "x86_64"
-        }`,
+        "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64",
       ),
       userData,
       role,
@@ -174,10 +175,10 @@ export class SandboxHostConstruct extends Construct {
       healthChecks: autoscaling.HealthChecks.ec2({
         gracePeriod: cdk.Duration.minutes(15),
       }),
-      // The host signals once Docker, TLS, and the chat image are ready, so a
-      // deploy fails instead of leaving chat without a sandbox host.
+      // The host signals once Docker and TLS are ready, so a deploy fails
+      // instead of leaving chat without a sandbox host.
       signals: autoscaling.Signals.waitForAll({ timeout: cdk.Duration.minutes(30) }),
-      // A changed image, chat build context, or AMI replaces the one host.
+      // A changed instance type, volume, or boot script replaces the one host.
       updatePolicy: autoscaling.UpdatePolicy.rollingUpdate({
         maxBatchSize: 1,
         minInstancesInService: 0,
@@ -253,56 +254,60 @@ export class SandboxHostConstruct extends Construct {
 
     this.resources = {
       autoScalingGroup,
-      clientSecurityGroup,
+      backendSecurityGroup,
+      workerSecurityGroup,
       clientTlsSecret,
+      dockerHost: `tcp://${dockerHostname}:${DOCKER_TLS_PORT}`,
       alarms: [diskAlarm, memoryAlarm],
-      environment: {
-        SANDBOX_PROVIDER: "docker",
-        SANDBOX_CHAT_IMAGE: CHAT_SANDBOX_IMAGE,
-        DOCKER_HOST: `tcp://${dockerHostname}:${DOCKER_TLS_PORT}`,
-        DOCKER_TLS_VERIFY: "1",
-        DOCKER_CERT_PATH: CLIENT_CERT_PATH,
-      },
-      // Read by the container entrypoint only; it writes them to
-      // DOCKER_CERT_PATH (dockerode reads files) and unsets them.
-      secrets: {
-        SANDBOX_HOST_TLS_CA: ecs.Secret.fromSecretsManager(clientTlsSecret, "ca"),
-        SANDBOX_HOST_TLS_CERT: ecs.Secret.fromSecretsManager(clientTlsSecret, "cert"),
-        SANDBOX_HOST_TLS_KEY: ecs.Secret.fromSecretsManager(clientTlsSecret, "key"),
-      },
     };
   }
 }
 
 /**
- * Container command for a sandbox host client. Writes the Docker client
- * certificates, and for the backend sets `SANDBOX_CALLBACK_HOST` to this
- * task's own IP: sandboxes call the model proxy and the per-run tool bridge
- * in the process that runs the turn, so a shared service name could reach the
- * wrong replica.
+ * Makes `app` a client of the sandbox host. A short init container writes the
+ * Docker client certificates (dockerode reads files only) to a task volume
+ * that `app` mounts read-only, so the image's own command runs unchanged and
+ * the private key never enters the app's environment.
  */
-export function sandboxHostClientCommand(
-  start: string,
-  options: { readonly callbackHost: boolean },
-): { entryPoint: string[]; command: string[] } {
-  const lines = [
-    "set -eu",
-    "umask 077",
-    'mkdir -p "$DOCKER_CERT_PATH"',
-    `printf '%s\\n' "$SANDBOX_HOST_TLS_CA" > "$DOCKER_CERT_PATH/ca.pem"`,
-    `printf '%s\\n' "$SANDBOX_HOST_TLS_CERT" > "$DOCKER_CERT_PATH/cert.pem"`,
-    `printf '%s\\n' "$SANDBOX_HOST_TLS_KEY" > "$DOCKER_CERT_PATH/key.pem"`,
-    "unset SANDBOX_HOST_TLS_CA SANDBOX_HOST_TLS_CERT SANDBOX_HOST_TLS_KEY",
-  ];
-  if (options.callbackHost) {
-    lines.push(
-      `SANDBOX_CALLBACK_HOST="$(bun -e 'fetch(process.env.ECS_CONTAINER_METADATA_URI_V4).then((r) => r.json()).then((m) => console.log(m.Networks[0].IPv4Addresses[0]))')"`,
-      'test -n "$SANDBOX_CALLBACK_HOST"',
-      "export SANDBOX_CALLBACK_HOST",
-    );
-  }
-  lines.push(`exec ${start}`);
-  return { entryPoint: ["/bin/sh", "-c"], command: [lines.join("\n")] };
+export function addSandboxHostClient(
+  task: ecs.FargateTaskDefinition,
+  app: ecs.ContainerDefinition,
+  /** The app's own image, already pulled for the task. */
+  image: ecs.ContainerImage,
+  host: SandboxHostResources,
+): void {
+  const certPath = "/run/ctxpipe-docker-tls";
+  task.addVolume({ name: "docker-tls" });
+  const certs = task.addContainer("docker-tls", {
+    image,
+    essential: false,
+    entryPoint: ["/bin/sh", "-c"],
+    command: [
+      [
+        "set -eu",
+        "umask 077",
+        `printf '%s\\n' "$CA" > ${certPath}/ca.pem`,
+        `printf '%s\\n' "$CERT" > ${certPath}/cert.pem`,
+        `printf '%s\\n' "$KEY" > ${certPath}/key.pem`,
+      ].join("\n"),
+    ],
+    secrets: {
+      CA: ecs.Secret.fromSecretsManager(host.clientTlsSecret, "ca"),
+      CERT: ecs.Secret.fromSecretsManager(host.clientTlsSecret, "cert"),
+      KEY: ecs.Secret.fromSecretsManager(host.clientTlsSecret, "key"),
+    },
+    logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-docker-tls" }),
+  });
+  certs.addMountPoints({ sourceVolume: "docker-tls", containerPath: certPath, readOnly: false });
+  app.addMountPoints({ sourceVolume: "docker-tls", containerPath: certPath, readOnly: true });
+  app.addContainerDependencies({
+    container: certs,
+    condition: ecs.ContainerDependencyCondition.SUCCESS,
+  });
+  app.addEnvironment("SANDBOX_PROVIDER", "docker");
+  app.addEnvironment("DOCKER_HOST", host.dockerHost);
+  app.addEnvironment("DOCKER_TLS_VERIFY", "1");
+  app.addEnvironment("DOCKER_CERT_PATH", certPath);
 }
 
 /** Cloud Map writes the instance's DNS record with the caller's permissions. */
@@ -337,20 +342,15 @@ interface HostBootstrapInput {
 /**
  * Boot script for Amazon Linux 2023. Formats and mounts the Docker volume,
  * creates or reuses the TLS material, configures the daemon (TLS on 2376, all
- * sandboxes under one capped slice, log rotation), builds the chat image for
- * this architecture, registers the Cloud Map name, then signals CloudFormation.
+ * sandboxes under one capped slice, log rotation), registers the Cloud Map
+ * name, then signals CloudFormation. Images are pulled by the backend.
  */
 function hostBootstrapScript(input: HostBootstrapInput): string[] {
-  const buildFiles = Object.entries(CHAT_SANDBOX_BUILD_FILES).map(
-    ([name, content]) =>
-      `printf '%s' '${Buffer.from(content).toString("base64")}' | base64 -d > "/opt/ctxpipe/chat-sandbox/${name}"`,
-  );
   return [
     // Output lands in /var/log/cloud-init-output.log.
     "set -euo pipefail",
     `REGION='${input.region}'`,
     `DOCKER_HOSTNAME='${input.dockerHostname}'`,
-    `CHAT_IMAGE='${CHAT_SANDBOX_IMAGE}'`,
     'IMDS_TOKEN="$(curl -sfX PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 300")"',
     'imds() { curl -sf -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" "http://169.254.169.254/latest/meta-data/$1"; }',
     'INSTANCE_ID="$(imds instance-id)"',
@@ -376,9 +376,13 @@ function hostBootstrapScript(input: HostBootstrapInput): string[] {
     "# TLS: reuse what an earlier host stored; otherwise create it once.",
     "install -d -m 700 /etc/docker/tls",
     'WORK="$(mktemp -d)"',
+    "# Private keys never outlive the script, whether it succeeds or fails.",
+    `trap 'rm -rf "$WORK"' EXIT`,
     `aws secretsmanager get-secret-value --region "$REGION" --secret-id '${input.serverTlsSecretArn}' --query SecretString --output text > "$WORK/server.json"`,
     `aws secretsmanager get-secret-value --region "$REGION" --secret-id '${input.clientTlsSecretArn}' --query SecretString --output text > "$WORK/client.json"`,
-    'if [ -z "$(jq -r ".key // empty" "$WORK/server.json")" ] || [ -z "$(jq -r ".key // empty" "$WORK/client.json")" ]; then',
+    "# The CloudFormation placeholder is not JSON with a key.",
+    `has_key() { jq -e '.key | strings' "$1" >/dev/null 2>&1; }`,
+    'if ! has_key "$WORK/server.json" || ! has_key "$WORK/client.json"; then',
     '  ( cd "$WORK"',
     '    openssl req -x509 -newkey rsa:3072 -nodes -days 3650 -subj "/CN=ctxpipe sandbox host CA" -keyout ca-key.pem -out ca.pem',
     '    openssl req -newkey rsa:3072 -nodes -subj "/CN=$DOCKER_HOSTNAME" -keyout server-key.pem -out server.csr',
@@ -415,8 +419,9 @@ function hostBootstrapScript(input: HostBootstrapInput): string[] {
         tlskey: "/etc/docker/tls/server-key.pem",
         "exec-opts": ["native.cgroupdriver=systemd"],
         "cgroup-parent": "ctxpipe-sandboxes.slice",
-        // Each sandbox's agent port is unauthenticated: sandboxes must not
-        // reach each other over the bridge.
+        // Agent ports are published for the backend, so anything that
+        // reaches the host could reach them: sandboxes must not reach each
+        // other over the bridge.
         icc: false,
         "log-driver": "json-file",
         "log-opts": { "max-size": "10m", "max-file": "3" },
@@ -431,8 +436,8 @@ function hostBootstrapScript(input: HostBootstrapInput): string[] {
     "[Service]",
     "ExecStart=",
     `ExecStart=/usr/bin/dockerd -H fd:// -H tcp://0.0.0.0:${DOCKER_TLS_PORT} --containerd=/run/containerd/containerd.sock $OPTIONS $DOCKER_STORAGE_OPTIONS $DOCKER_ADD_RUNTIMES`,
-    "# Sandboxes never reach the host itself (other sandboxes' published ports, the",
-    "# Docker API) or instance metadata (next to the IMDS hop limit). Fails closed.",
+    "# Sandboxes never reach the host itself (other sandboxes' published agent",
+    "# ports, the Docker API) or instance metadata (next to the IMDS hop limit). Fails closed.",
     "ExecStartPost=/bin/sh -c 'iptables -C INPUT -i docker0 -j REJECT 2>/dev/null || iptables -I INPUT -i docker0 -j REJECT'",
     "ExecStartPost=/bin/sh -c 'iptables -C DOCKER-USER -d 169.254.169.254/32 -j REJECT 2>/dev/null || iptables -I DOCKER-USER -d 169.254.169.254/32 -j REJECT'",
     "UNIT",
@@ -457,18 +462,11 @@ function hostBootstrapScript(input: HostBootstrapInput): string[] {
     "JSON",
     "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json",
 
-    "# Workspace chat image, built for this host's architecture.",
-    "install -d /opt/ctxpipe/chat-sandbox",
-    ...buildFiles,
-    'docker image inspect "$CHAT_IMAGE" >/dev/null 2>&1 || docker build -t "$CHAT_IMAGE" /opt/ctxpipe/chat-sandbox',
-    "docker image prune -f",
-
     "# Prove the TLS endpoint with the client certificate before taking the name.",
     'jq -r .ca "$WORK/client.json" > "$WORK/client-ca.pem"',
     'jq -r .cert "$WORK/client.json" > "$WORK/client-cert.pem"',
     'jq -r .key "$WORK/client.json" > "$WORK/client-key.pem"',
     `curl -sf --retry 10 --retry-connrefused --resolve "$DOCKER_HOSTNAME:${DOCKER_TLS_PORT}:127.0.0.1" --cacert "$WORK/client-ca.pem" --cert "$WORK/client-cert.pem" --key "$WORK/client-key.pem" "https://$DOCKER_HOSTNAME:${DOCKER_TLS_PORT}/_ping"`,
-    'rm -rf "$WORK"',
     `aws servicediscovery register-instance --region "$REGION" --service-id '${input.discoveryServiceId}' --instance-id '${DISCOVERY_INSTANCE_ID}' --attributes "AWS_INSTANCE_IPV4=$PRIVATE_IP"`,
     "signal SUCCESS",
   ];

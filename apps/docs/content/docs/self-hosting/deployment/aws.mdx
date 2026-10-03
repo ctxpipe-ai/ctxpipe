@@ -159,8 +159,8 @@ This is how codesearch memory bumps (4 / 8 / 12 GiB) and ingest behavior land to
 
 The first upgrade to a version with the [chat sandbox host](#chat-sandbox-host)
 adds it with no new required props. That deploy only adds resources and
-replaces nothing that holds data. It waits a few minutes while the host builds
-the chat image, then rolls backend and worker.
+replaces nothing that holds data. It waits until the host reports ready,
+then rolls backend and worker.
 
 ### Bonus: automate upgrades with CI/CD
 
@@ -290,7 +290,8 @@ your data stores.
 The host mostly holds idle sandboxes, so it uses burstable Graviton (ARM)
 instances. Memory is the limit: an active sandbox uses about 0.3–0.5 GiB.
 Sandboxes stop after 5 minutes idle and resume on the next message. Stopped
-sandboxes keep their files on the Docker volume for 30 days.
+sandboxes are removed 30 days after last use. An organization runs at most 50
+sandboxes at once.
 
 | `size` | Instance | vCPU / RAM | Docker volume (gp3) | ~Cost/month | Running sandboxes (est.) |
 |---|---|---|---|---|---|
@@ -316,20 +317,21 @@ new CtxPipe(stack, "CtxPipe", {
 });
 ```
 
-Graviton and x86 instance types both work; the AMI and the chat image follow
-the instance architecture.
+The instance type must be Graviton (arm64); other architectures are rejected
+at synth.
 
 ### What it sets up
 
 | Piece | Behavior |
 |---|---|
-| Instance | Amazon Linux 2023 in a single-instance Auto Scaling group in the private subnets. EC2 health checks replace a failed host. `cdk deploy` waits until the host reports ready. |
+| Instance | Amazon Linux 2023 in a single-instance Auto Scaling group in the private subnets. EC2 health checks replace a failed host. `cdk deploy` waits until the host reports ready. New AMIs apply when the host is replaced, not on every deploy. |
 | Docker volume | gp3 volume at `/var/lib/docker`. It belongs to the instance, so a replaced host starts empty. Conversations keep their work in their git branch and continue on the new host. |
-| Docker API | Port 2376 with mutual TLS. The host creates the certificates on first boot and stores them in Secrets Manager; a replacement host reuses them. The CA key is not kept. |
-| Network | Only backend and worker reach the Docker API and the sandboxes' agent ports. Sandboxes reach the backend (model proxy and per-run tool bridges), Git hosts, and the internet through NAT. They cannot reach Postgres, Neptune, EFS, codesearch, the UI, each other, the host itself, or instance metadata. |
+| Docker API | Port 2376 with mutual TLS at `sandbox-host.ctxpipe.local`, a Cloud Map name the host registers when it boots. The host creates the certificates on first boot and stores them in Secrets Manager; a replacement host reuses them. The CA key is not kept. |
+| Network | Backend and worker reach the Docker API. Only the backend reaches the sandboxes' agent ports, and only the backend accepts calls from sandboxes (model proxy and per-run tool bridges). Sandboxes also reach Git hosts and the internet through NAT, but not Postgres, Neptune, EFS, codesearch, the UI, or the worker. |
+| Isolation | Each agent port needs a per-conversation password. Agent ports are reachable inside the VPC, so the host also blocks sandboxes from each other, from the host itself, and from instance metadata. |
 | Limits | All sandbox containers share one systemd slice capped at 85% of host memory. Container logs rotate at 3 × 10 MB. |
-| Chat image | Built on the host at boot for its own architecture. A changed image definition in a new `@ctxpipe/aws-cdk` version replaces the host on that deploy. |
-| Backend and worker | Get `SANDBOX_PROVIDER=docker`, `SANDBOX_CHAT_IMAGE`, `DOCKER_HOST=tcp://sandbox-host.ctxpipe.local:2376`, `DOCKER_TLS_VERIFY=1`, and the client certificates. The backend sets `SANDBOX_CALLBACK_HOST` to its own task IP at start, so sandboxes call back the replica that runs their turn. |
+| Chat image | `ghcr.io/ctxpipe-ai/chat-sandbox`, published for arm64 and amd64 with the same release tag as the service images. The backend pulls it through the host's Docker daemon on the first chat after a release, so releases never replace the host. |
+| Backend and worker | Get `SANDBOX_PROVIDER=docker`, `SANDBOX_CHAT_IMAGE`, `DOCKER_HOST=tcp://sandbox-host.ctxpipe.local:2376`, `DOCKER_TLS_VERIFY=1`, and `DOCKER_CERT_PATH`. A short init container in each task writes the client certificates there as files. Sandboxes call the backend back on its own task IP, so they reach the replica that runs their turn. |
 
 ### Alarms
 

@@ -125,8 +125,7 @@ export interface CtxPipeSandboxHostProps {
   /**
    * Defaults by `size`: `t4g.medium` (small), `t4g.large` (medium),
    * `t4g.xlarge` (large). Memory is the limit (~0.3–0.5 GiB per active
-   * sandbox). Graviton and x86 both work; the AMI and chat image follow the
-   * instance architecture.
+   * sandbox). Must be a Graviton (arm64) type.
    */
   readonly instanceType?: ec2.InstanceType;
   /**

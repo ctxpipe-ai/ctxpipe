@@ -299,11 +299,14 @@ export class CtxPipe extends Construct {
         "sandboxHost.dockerVolumeSizeGiB must be a whole number of at least 20",
       )
     }
-    return {
-      instanceType:
-        props.sandboxHost?.instanceType ?? sizeProfile.sandboxHost.instanceType,
-      dockerVolumeSizeGiB,
+    const instanceType =
+      props.sandboxHost?.instanceType ?? sizeProfile.sandboxHost.instanceType
+    if (instanceType.architecture !== ec2.InstanceArchitecture.ARM_64) {
+      throw new Error(
+        `sandboxHost.instanceType must be a Graviton (arm64) type such as t4g.xlarge or m7g.large; got ${instanceType}`,
+      )
     }
+    return { instanceType, dockerVolumeSizeGiB }
   }
 
   private resolveCustomDomain(

@@ -133,14 +133,14 @@ export interface ServiceResources {
 
 export interface SandboxHostResources {
   readonly autoScalingGroup: autoscaling.AutoScalingGroup;
-  /** Attached to backend and worker: the only clients of the Docker API. */
-  readonly clientSecurityGroup: ec2.SecurityGroup;
+  /** Docker API client; the only group sandboxes may call back. */
+  readonly backendSecurityGroup: ec2.SecurityGroup;
+  /** Docker API client only. */
+  readonly workerSecurityGroup: ec2.SecurityGroup;
   readonly clientTlsSecret: secretsmanager.Secret;
+  /** `DOCKER_HOST` for the clients. */
+  readonly dockerHost: string;
   readonly alarms: cloudwatch.Alarm[];
-  /** Plain environment for backend and worker. */
-  readonly environment: Record<string, string>;
-  /** Client TLS material, written to files by `sandboxHostClientCommand`. */
-  readonly secrets: Record<string, ecs.Secret>;
 }
 
 export interface IngressResources {
