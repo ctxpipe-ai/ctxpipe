@@ -1,12 +1,16 @@
 # Workspace chat image
 
 Build with `docker build -t ctxpipe-chat-sandbox:local scripts/chat-sandbox`.
-The image pins its Node base and OpenCode 1.18.34, includes Git and GitHub CLI,
-and runs as UID/GID 1000 with a writable workspace and home. Resolve the built
-image to an immutable digest or local image ID before using it in a native
-sandbox definition, because that identity controls base-snapshot reuse.
+The image pins its Node base and OpenCode, includes Git and GitHub CLI, and
+runs as UID/GID 1000 with a writable workspace and home. The backend resolves
+`SANDBOX_CHAT_IMAGE` to its image ID, so a rebuilt image gets new sandboxes.
 
-This image is a Gate 4 prerequisite. It is not yet wired into production chat.
-The native provider must also enforce the resource profile and egress policy;
-the image alone does not establish those boundaries. Credentials are supplied
-to individual threads at runtime, never baked into this image.
+Where it comes from:
+
+- Docker Compose (`deploy` profile): the `chat-sandbox-image` service builds
+  it inside the `dind` daemon from this checkout.
+- AWS CDK: published as `ghcr.io/ctxpipe-ai/chat-sandbox` by `deploy.yaml`;
+  the backend pulls it through the sandbox host's daemon on first use.
+
+Credentials are supplied to individual conversations at runtime, never baked
+into this image.

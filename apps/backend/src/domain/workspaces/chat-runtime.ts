@@ -4,7 +4,6 @@ import {
   judgeChatToolWithFastModel,
 } from "./chat-sandbox-policy.js"
 import { CONVERSATION_SANDBOX_GIT_EXCLUDE_LINES } from "./conversation-files.js"
-import { detectSandboxProviderFromEnv } from "./sandbox-provider.js"
 import {
   VERCEL_AGENT_ROOT,
   WORKSPACE_CHAT_OPENCODE_CLI,
@@ -107,8 +106,6 @@ export const WORKSPACE_CHAT_SESSION_BRANCH_SECRET =
   "CTXPIPE_SESSION_BRANCH" as const
 
 export function workspaceChatRuntimeConfig(input?: {
-  hasDocker?: boolean
-  env?: Record<string, string | undefined>
   writeStatus?: string
   currentBranch?: string | null
   getCurrentBranch?: () => Promise<string>
@@ -118,13 +115,8 @@ export function workspaceChatRuntimeConfig(input?: {
     argsExcerpt: string,
   ) => Promise<"allow" | "deny" | "timeout" | "garbage">
 }) {
-  const provider = detectSandboxProviderFromEnv({
-    hasDocker: input?.hasDocker,
-    env: input?.env,
-  })
   return {
     ...WORKSPACE_CHAT_RUNTIME,
-    provider,
     onPermissionRequest: createWorkspaceChatPermissionHandler({
       writeStatus: input?.writeStatus ?? "read_only",
       currentBranch: input?.currentBranch,

@@ -108,7 +108,53 @@ an organization runs at most 50 at once. If the volume still fills, check
 the host. Do not run `docker system prune` while conversations are active: it
 deletes stopped sandboxes that conversations would resume.
 
+## Chat sandboxes (Docker Compose)
+
+The Compose deploy profile runs Workspace chat sandboxes inside the `dind`
+service (see [Docker: Chat sandboxes](/docs/self-hosting/deployment/docker#chat-sandboxes)).
+Its `sandbox_docker` volume holds no data you need to back up. Run these from
+the repository root:
+
+| Check | Command | Expected result |
+|---|---|---|
+| Daemon is up | `docker compose --profile deploy ps dind` | `healthy` |
+| Chat image | `docker compose --profile deploy logs chat-sandbox-image` | Ends with the image ID (`sha256:…`) |
+| Sandbox disk | `docker compose exec dind df -h /var/lib/docker` | Room left on the host disk that holds the Docker volumes |
+| What uses the disk | `docker compose exec dind docker system df` | Images, containers, and build cache sizes |
+| Sandboxes | `docker compose exec dind docker ps -a` | One container per recent conversation; stopped ones are idle sandboxes |
+| Memory cap | `docker compose exec dind cat /sys/fs/cgroup/ctxpipe-sandboxes/memory.current /sys/fs/cgroup/ctxpipe-sandboxes/memory.max` | Memory in use stays below the cap. Missing on hosts without cgroup v2 (`dind` logs a warning). |
+| Metadata block | `docker compose exec dind iptables -t raw -S PREROUTING` | Includes `-d 169.254.169.254/32 -j DROP` |
+| No published data stores | `docker port $(docker compose ps -q postgres falkordb)` | Prints nothing |
+| No host socket | `docker inspect --format '{{range .Mounts}}{{.Source}} {{end}}' $(docker compose ps -q backend worker)` | No `/var/run/docker.sock` |
+
+Sandboxes stop and are removed on the same schedule as on AWS. To free disk
+without touching sandboxes, remove superseded chat images and build cache:
+
+```bash
+docker compose exec dind docker image prune -f
+docker compose exec dind docker builder prune -f
+```
+
+`docker image prune` keeps every image a container still uses. Do not run
+`docker system prune` or `docker container prune` inside `dind` while
+conversations are active: they delete stopped sandboxes that conversations
+would resume.
+
 ## Recovery runbooks
+
+### Workspace chat fails to start on Docker Compose
+
+- A 503 saying the Docker daemon is not reachable means `dind` is down:
+  confirm it is healthy (`docker compose --profile deploy ps -a`) and check
+  `docker compose logs dind`.
+- A 503 saying the chat sandbox image is missing means `chat-sandbox-image`
+  has not finished or failed (for example a package mirror was unreachable,
+  or the `sandbox_docker` volume was removed). Check its logs and rerun it:
+  `docker compose --profile deploy up -d chat-sandbox-image`.
+- Check backend logs for Docker TLS errors. After the `sandbox_ca` volume is
+  removed, restart `backend` and `worker` so they read the new certificates.
+- `dind` needs a privileged container. On a host that refuses one, see the
+  last-resort option in [Docker: Chat sandboxes](/docs/self-hosting/deployment/docker#chat-sandboxes).
 
 ### Workspace chat fails to start on AWS
 

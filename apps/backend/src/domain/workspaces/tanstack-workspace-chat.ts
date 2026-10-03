@@ -843,7 +843,7 @@ async function buildWorkspaceChatSandbox(
   const publicBaseUrl = vercel?.ok ? vercel.publicBaseUrl : undefined
   let callbackHost: string | undefined
   try {
-    callbackHost = sandboxCallbackHost()
+    callbackHost = await sandboxCallbackHost()
   } catch (error) {
     return {
       ok: false as const,
@@ -854,9 +854,7 @@ async function buildWorkspaceChatSandbox(
   const session = await resolveWorkspaceChatSession(
     input,
     selectedProvider,
-    selectedProvider === "docker"
-      ? process.env.SANDBOX_MODEL_PROXY_HOST?.trim() || callbackHost
-      : callbackHost,
+    callbackHost,
     publicBaseUrl,
   )
   if (!session.ok) return session

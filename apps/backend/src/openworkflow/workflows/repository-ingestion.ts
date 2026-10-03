@@ -738,6 +738,9 @@ export const repositoryIngestion = defineWorkflow(
                         requestId: requestId ?? `legacy:${run.id}`,
                         githubConnectionId,
                         targetBranch: input.targetBranch,
+                        ...(input.telemetry
+                          ? { telemetry: input.telemetry }
+                          : {}),
                       },
                       {
                         error: (err) =>

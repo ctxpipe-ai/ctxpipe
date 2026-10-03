@@ -95,12 +95,10 @@ describe("workspace chat runtime", () => {
     expect(dockerfile).toMatch(/findutils/)
   })
 
-  it("detects the provider and exposes onPermissionRequest", async () => {
+  it("exposes onPermissionRequest", async () => {
     const runtime = workspaceChatRuntimeConfig({
-      env: { SANDBOX_PROVIDER: "docker" },
       writeStatus: "writable",
     })
-    expect(runtime.provider).toBe("docker")
     await expect(
       runtime.onPermissionRequest({
         id: "perm_1",
