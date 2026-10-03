@@ -1,6 +1,6 @@
-# ctxpipe-observability Terraform
+# observability Terraform
 
-Provisions the existing Railway project `ctxpipe-observability` (`305aa114-c6f3-4aca-b883-0faa9c331aa2`). Does not create the project or the Neon project.
+Provisions the existing Railway project `observability` (`305aa114-c6f3-4aca-b883-0faa9c331aa2`). Does not create the project or the Neon project.
 
 ClickHouse, the collector, `railway-telemetry`, and `cost-telemetry` run CI images `ghcr.io/ctxpipe-ai/obs-<svc>:<git tree hash>`, where the tag is `git rev-parse HEAD:ops/observability/<svc>`. [`.github/workflows/observability.yaml`](../../../.github/workflows/observability.yaml) builds and pushes those images, then sets `TF_VAR_collector_image`, `TF_VAR_clickhouse_image`, `TF_VAR_railway_telemetry_image`, and `TF_VAR_cost_telemetry_image`. Terraform `source_image` pins ClickHouse, the collector, and `railway-telemetry`. `cost-telemetry` is created without a source; `terraform_data.cost_telemetry_source_image` connects `var.cost_telemetry_image` after `restartPolicyType=NEVER`. Railway pulls them without registry credentials, so the `obs-*` packages must be public; GitHub has no API for that, so set a new package public once in the org's package settings. HyperDX, Langfuse, Redis, and Mongo pull public images.
 
@@ -39,7 +39,7 @@ Local apply uses the same backend. Export the four `TF_VAR_*_image` tags, `AWS_A
 
 ## Fresh project
 
-1. Railway project `ctxpipe-observability` exists. `has_pr_deploys = false`.
+1. Railway project `observability` exists. `has_pr_deploys = false`.
 2. Create Neon database `langfuse`, role `langfuse`, on the existing `ctxpipe` project. Langfuse Prisma migrations use schema `public`. Set `idle_session_timeout=60s` on that database. `DATABASE_URL` and `DIRECT_URL` on langfuse-web include `connection_limit=1&keepalives=0`.
 3. Create Railway buckets `langfuse-events` and `clickhouse-cold` (region `iad`).
 4. Set the Railway-owned secrets in the [README table](../README.md#secrets). Collector `LANGFUSE_AUTH_STRING` is `base64(pk:sk)` of the Langfuse project keys. `RAILWAY_API_TOKEN` must read both projects.
