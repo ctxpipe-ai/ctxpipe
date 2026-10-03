@@ -52,7 +52,8 @@ a separate `sandbox` network:
 | Backend model proxy and tool bridges | `3000` and per-run ports on the backend's `sandbox` address | Sandboxes | Model calls and tool calls go back to the backend |
 
 Sandboxes also reach Git hosts and the internet. They cannot reach Postgres,
-FalkorDB, codesearch, the UI, each other, or `dind`'s own ports. See
+FalkorDB, codesearch, the UI, each other, `dind`'s own ports, the Compose host,
+or private address ranges. See
 [Docker: Chat sandboxes](/docs/self-hosting/deployment/docker#chat-sandboxes).
 
 ### Chat sandbox host on AWS

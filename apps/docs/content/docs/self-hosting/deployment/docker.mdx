@@ -78,7 +78,7 @@ app, and wires the backend and worker to it. It needs no settings.
 |---|---|
 | Daemon | Stock `docker:dind`. It is the only privileged container in the stack; sandboxes are not privileged. The backend never mounts the host's Docker socket. |
 | Docker API | Port 2376 inside Compose with mutual TLS. `dind` creates its certificates on first start; backend and worker read the client certificates from the `sandbox_client_certs` volume. The API is not published on the host. |
-| Network | `dind`, `backend`, and `worker` share a separate `sandbox` network. Sandboxes reach the backend there (model proxy and per-run tool bridges), plus Git hosts and the internet. They cannot reach Postgres, FalkorDB, codesearch, or the UI. |
+| Network | `dind`, `backend`, and `worker` share a separate `sandbox` network. Sandboxes reach the backend there (model proxy and per-run tool bridges), plus Git hosts and the internet. A firewall rule in `dind` blocks the rest: the Compose host (so its published ports, such as Postgres), private address ranges (10/8, 172.16/12, 192.168/16, 100.64/10), and link-local addresses. Sandboxes cannot reach Postgres, FalkorDB, codesearch, or the UI. |
 | Isolation | Each agent port needs a per-conversation password. Sandboxes cannot reach each other, the daemon's own ports, or cloud instance metadata. |
 | Limits | All sandboxes share one cgroup capped at 85% of the memory `dind` may use, and 8192 processes. Container logs rotate at 3 × 10 MB. |
 | Chat image | `chat-sandbox-image` builds `scripts/chat-sandbox` inside `dind` on every `pnpm start`, from the same checkout as the other images. Builds after the first are cached. |
@@ -96,6 +96,11 @@ services:
   dind:
     mem_limit: 8g
 ```
+
+Because private ranges are blocked, sandboxes cannot clone from a Git server
+on your private network. To allow one, add an `ACCEPT` rule for its address
+ahead of the private ranges in `scripts/sandbox-dind/entrypoint.sh`, then
+recreate `dind`.
 
 If `dind` restarts, running sandboxes stop with it. The next turn of each
 conversation starts its container again, or creates a new one from the

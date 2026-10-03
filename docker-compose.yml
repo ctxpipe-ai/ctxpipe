@@ -74,6 +74,8 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-ctxpipe}:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       DATABASE_APP_PASSWORD: ${POSTGRES_PASSWORD:-ctxpipe}
+      # The backend modules migrate imports parse the app env, which needs it.
+      AUTH_SECRET: ${AUTH_SECRET:-}
     command: ["bun", "run", "apps/backend/src/db/migrate.ts"]
     depends_on:
       postgres:
@@ -81,8 +83,9 @@ services:
 
   # Docker daemon for Workspace chat sandboxes (stock docker:dind). Only this
   # container is privileged; sandboxes are not, and the host Docker socket is
-  # never mounted. It sits only on the `sandbox` network, so sandboxes reach
-  # the backend and the internet but not Postgres, FalkorDB, or codesearch.
+  # never mounted. It sits only on the `sandbox` network, and its firewall
+  # (scripts/sandbox-dind/entrypoint.sh) lets sandboxes reach that network and
+  # the internet, not this host's published ports or other private networks.
   dind:
     profiles: [deploy]
     image: *dind-image
