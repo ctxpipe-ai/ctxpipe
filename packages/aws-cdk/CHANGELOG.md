@@ -1,5 +1,14 @@
 # @ctxpipe/aws-cdk
 
+## 3.2.1
+
+### Patch Changes
+
+- e4e24ad: License the self-host construct under MIT, matching the repository.
+- 32fe59f: Strip characters Postgres jsonb cannot store from package extract results, so a step write is not rejected and retried.
+- 494f8d7: Accept a long TypeScript SCIP index immediately and read the result back, so a headers timeout does not fail an index that is still running.
+- f415e4d: Upgrade TanStack Start past the reflected cross-site scripting fix so docs previews and the product UI are on a patched release.
+
 ## 3.2.0
 
 ### Minor Changes
