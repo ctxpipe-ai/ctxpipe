@@ -1,4 +1,8 @@
-import type { SandboxProvider as TanstackSandboxProvider } from "@tanstack/ai-sandbox"
+import type {
+  SandboxHandle,
+  SandboxProvider as TanstackSandboxProvider,
+} from "@tanstack/ai-sandbox"
+import Docker from "dockerode"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 
 /** Hosted runs Vercel, self-host runs Docker; unsandboxed is explicit only. */
@@ -55,6 +59,101 @@ export function withSessionOnlyEnv(
         }
       : {}),
   }
+}
+
+/**
+ * The host of a TCP Docker daemon from `DOCKER_HOST` (as dockerode reads it),
+ * or undefined for the local socket.
+ */
+export function remoteDockerHost(
+  env: Record<string, string | undefined> = process.env,
+): string | undefined {
+  const value = env.DOCKER_HOST?.trim()
+  if (!value || value.startsWith("unix://") || value.startsWith("npipe://"))
+    return undefined
+  return new URL(value.includes("//") ? value : `tcp://${value}`).hostname
+}
+
+/**
+ * Docker conversation sandboxes, with the agent port behind the OpenCode
+ * password (as on Vercel) and reachable from this process. Stock `ports.connect`
+ * returns `localhost:<published port>`, which only works when the daemon runs
+ * on this machine; for a remote daemon the port is published on its host.
+ */
+export function withDockerAgentPort(
+  provider: TanstackSandboxProvider,
+  input: { agentPassword: string; daemonHost?: string },
+): TanstackSandboxProvider {
+  const authorization = `Basic ${Buffer.from(`opencode:${input.agentPassword}`).toString("base64")}`
+  const wrap = async (handle: SandboxHandle): Promise<SandboxHandle> => {
+    // On the handle, not only in workspace secrets, so `opencode serve` never
+    // starts without a password.
+    await handle.env.set({ OPENCODE_SERVER_PASSWORD: input.agentPassword })
+    const { snapshot, fork } = handle
+    return {
+      ...handle,
+      // DockerHandle keeps these on its prototype; spread drops them.
+      ...(snapshot
+        ? { snapshot: (label?: string) => snapshot.call(handle, label) }
+        : {}),
+      ...(fork ? { fork: async () => wrap(await fork.call(handle)) } : {}),
+      destroy: () => handle.destroy(),
+      ports: {
+        connect: async (port) => {
+          const channel = await handle.ports.connect(port)
+          return {
+            ...channel,
+            url: input.daemonHost
+              ? channel.url.replace(
+                  /^http:\/\/localhost(?=[:/]|$)/,
+                  `http://${input.daemonHost}`,
+                )
+              : channel.url,
+            headers: { ...channel.headers, Authorization: authorization },
+          }
+        },
+      },
+    }
+  }
+  const { restoreSnapshot } = provider
+  return {
+    name: provider.name,
+    capabilities: () => provider.capabilities(),
+    create: async (options) => wrap(await provider.create(options)),
+    resume: async (options) => {
+      const handle = await provider.resume(options)
+      return handle ? wrap(handle) : handle
+    },
+    destroy: (options) => provider.destroy(options),
+    ...(restoreSnapshot
+      ? {
+          restoreSnapshot: async (options) =>
+            wrap(await restoreSnapshot.call(provider, options)),
+        }
+      : {}),
+  }
+}
+
+/**
+ * The image's content id, pulled through the daemon on first use. The
+ * deployment names a published image; the daemon only needs registry access.
+ */
+export async function dockerImageId(
+  image: string,
+  docker = new Docker({ timeout: 30_000 }),
+): Promise<string> {
+  try {
+    return (await docker.getImage(image).inspect()).Id
+  } catch (error) {
+    if ((error as { statusCode?: number }).statusCode !== 404) throw error
+  }
+  const stream = await docker.pull(image)
+  await new Promise<void>((resolve, reject) =>
+    docker.modem.followProgress(stream, (error) =>
+      error ? reject(error) : resolve(),
+    ),
+  )
+  return (await docker.getImage(image).inspect()).Id
 }
 
 /** Discover an eligible provider using the native Docker client/environment. */
