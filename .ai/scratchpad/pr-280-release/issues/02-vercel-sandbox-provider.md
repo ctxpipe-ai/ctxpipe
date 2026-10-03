@@ -114,6 +114,21 @@ Keep each patch minimal and listed with its removal condition. Never fall back t
 
 ## Comments
 
+- 2026-10-04 (claude): **plan step 8 landed: git is the durable state, PR-only publish.**
+  - **Per-turn push:** `workspace-chat-session-push.ts`, wired into the chat middleware with one line. It runs on the turn's final `RUN_FINISHED` chunk, before the chunk is forwarded: the conversation lock and the sandbox are still held, and a result can still reach the client. (`onFinish` runs after the thread lock releases, and anything it emits is never delivered.) It commits what changed, with a subject from `generateCommitSubject`, and pushes through `pushConversationSessionBranch`. The sandbox only packs objects; the backend holds the read and write tokens, so it works the same on Vercel and Docker. It records `lastBranch`, so a recreated sandbox checks out the branch.
+  - **Skips** (no event): read-only Workspace, not GitHub, stale sandbox binding (a conflicted update), rebase in progress, nothing new. **Failure:** a non-fatal `session-push` event `{status:"failed"}`; the commit stays in the sandbox and the next turn pushes it. The UI shows "Changes not on GitHub yet".
+  - **Create PR** squashes the turn commits into one commit on the captured default commit, titled with the PR title. A sandbox restored from the session branch is shallow, so it fetches the branch history once first; a branch not based on the default commit is refused. Create PR now runs under the conversation lock, as Commit+Push did.
+  - **Removed:** the `POST …/push` route and its schema; the UI push mutation, query, type, MSW handler and stories; and the dead `collectChatPullRequestTree`, `checkoutPublishedChatBranch` and `chromePullRequestAction`.
+  - **Proof:**
+    - Native contract `workspace-chat-session-push-native.contract.test.ts` (real chat engine, production sandbox setup, real Git remote, Postgres; scripted agent). A rejected push becomes an event and is retried by the next turn. One commit per changed turn; a no-change turn pushes nothing. A destroyed sandbox comes back shallow on the session branch with its files. Create PR leaves one commit with all files, and the next turn builds on it.
+    - Route contracts moved from `/push` to Create PR.
+    - Plays: chrome CreatePr / CreatingPr / ShowPr / CleanNoPublishActions, session TurnPushFailed over a mocked socket, and the golden SharedPublishPending and the budget stories now use Create PR. All 11 golden stories pass.
+  - **Open:**
+    - Each changed turn waits for the commit-subject model (≤5 s timeout) and the push before `RUN_FINISHED`.
+    - Files-pane edits made with no later turn only reach git on the next turn or on Create PR.
+    - A sandbox restored from a branch based on an older default commit is not rebased by the pre-turn update, so Create PR refuses it until the agent rebases.
+    - Not run end to end with OpenCode on a GitHub remote, or on real Vercel.
+
 - 2026-10-03 (claude): **deploy review fixes.**
   - On Railway without `RAILWAY_ENVIRONMENT_NAME`, hosted chat now fails closed (503) instead of tagging its sandbox `local`, which the PR-close cleanup would miss. Off Railway it still tags `local`. Tags come from `conversationSandboxTags` in the provider.
   - `deleteVercelSandbox` is the one delete path: it deletes the sandbox, then any saved snapshots that remain. The token store is optional; PR-close passes none. The cleanup script lists by tag and calls it. A new Vercel-lane contract (stop a persistent sandbox, delete it, no live snapshots left) proves it against real Vercel on the next CI run.
