@@ -7,6 +7,7 @@ import { closeDb, initDb, withOrgDbContext } from "../../db/client.js"
 import { workspaceSandboxGitTokens } from "../../db/schema/workspaces.js"
 import { sandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
 import {
+  deleteVercelSandbox,
   GIT_TOKEN_ROTATE_MS,
   stopVercelSandbox,
   vercelConversationProvider,
@@ -126,6 +127,28 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
     )
     report(`[vercel] places after resume: ${kept.stdout.replace(/\n/g, " | ")}`)
     report(`[vercel] resume and read ${Date.now() - started}ms`)
+  })
+
+  it("deletes a stopped sandbox together with its saved state", async () => {
+    const sandbox = await create({
+      runtime: "node24",
+      persistent: true,
+      snapshotExpiration: 24 * 60 * 60_000,
+      keepLastSnapshots: { count: 1 },
+    })
+    await handle(sandbox).fs.write("/workspace/state.txt", "saved")
+    await sandbox.stop()
+    const live = async () =>
+      (
+        await (
+          await Snapshot.list({ ...credentials, name: sandbox.name })
+        ).toArray()
+      ).filter((snapshot) => snapshot.status !== "deleted")
+    report(`[vercel] saved snapshots after stop: ${(await live()).length}`)
+    await deleteVercelSandbox({ credentials, name: sandbox.name })
+    expect(await live()).toEqual([])
+    // Already deleted counts as deleted.
+    await deleteVercelSandbox({ credentials, name: sandbox.name })
   })
 
   it("starts a new sandbox from a snapshot of a prepared base", async () => {

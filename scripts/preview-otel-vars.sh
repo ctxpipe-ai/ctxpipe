@@ -4,6 +4,8 @@
 # Does not print values when sourced; CLI extract/build write JSON to stdout.
 # Sync uses the caller's railway_graphql and never prints secret values.
 set -euo pipefail
+# shellcheck source=scripts/preview-service-vars.sh
+source "$(dirname "${BASH_SOURCE[0]}")/preview-service-vars.sh"
 
 preview_otel_vars_extract() {
   jq -ce '
@@ -71,35 +73,15 @@ preview_otel_vars_json() {
 }
 
 sync_preview_otel_variables() {
-  local vars_json service_id
-  local -a service_ids
-  if ! declare -F railway_graphql >/dev/null; then
-    echo "preview-otel-vars: railway_graphql is not defined" >&2
-    return 1
-  fi
-  if [[ -z "${RAILWAY_PROJECT_ID:-}" || -z "${ENV_ID:-}" ]]; then
-    echo "preview-otel-vars: RAILWAY_PROJECT_ID and ENV_ID are required" >&2
-    return 1
-  fi
-  for service_id in BACKEND_SERVICE_ID WORKER_SERVICE_ID UI_SERVICE_ID CODESEARCH_SERVICE_ID; do
-    if [[ -z "${!service_id:-}" ]]; then
-      echo "preview-otel-vars: $service_id is required" >&2
-      return 1
-    fi
-    service_ids+=("${!service_id}")
-  done
+  local vars_json
   vars_json="$(preview_otel_vars_json)" || return 1
   if [[ -z "$vars_json" ]]; then
     echo "preview-otel-vars: failed to resolve exporter vars" >&2
     return 1
   fi
-  for service_id in "${service_ids[@]}"; do
-    railway_graphql \
-      'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
-      "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" --argjson vars "$vars_json" \
-        '{input:{projectId:$project,environmentId:$env,serviceId:$service,skipDeploys:true,variables:$vars}}')" >/dev/null || return 1
-    echo "Synced OTEL exporter vars onto service $service_id"
-  done
+  upsert_service_vars "OTEL exporter vars" "$vars_json" \
+    "${BACKEND_SERVICE_ID:-}" "${WORKER_SERVICE_ID:-}" \
+    "${UI_SERVICE_ID:-}" "${CODESEARCH_SERVICE_ID:-}"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
