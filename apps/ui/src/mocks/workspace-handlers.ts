@@ -423,18 +423,6 @@ export function conversationFilePutHandler() {
   )
 }
 
-export function conversationPushHandler() {
-  return http.post(
-    ({ request }) =>
-      /\/api\/v1\/conversations\/[^/]+\/push$/.test(pathnameOf(request)),
-    () =>
-      HttpResponse.json({
-        branch: "ctxpipe/chat/conv_1/1",
-        treeUrl: "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
-      }),
-  )
-}
-
 export function conversationPullRequestHandler(input?: {
   prState?: "open" | "closed" | "merged"
   delayMs?: "infinite"

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, within } from "storybook/test"
+import { expect, userEvent, within } from "storybook/test"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
@@ -61,80 +61,53 @@ export const PendingProbe: Story = {
   },
 }
 
-export const DirtyCommitPush: Story = {
-  args: {
-    title: "Repo layout",
-    branch: {
-      shortName: "chat/1",
-      fullRef: "ctxpipe/chat/conv_1/1",
-    },
-    publish: {
-      commitPush: {
-        visible: true,
-        enabled: true,
-        pending: false,
-        onPress: () => {},
-      },
-      pullRequest: {
-        visible: true,
-        action: "create",
-        pending: false,
-        onPress: () => {},
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    expect(canvas.getByRole("button", { name: "Commit+Push" })).toBeVisible()
-    expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
-  },
+const sessionBranch = {
+  shortName: "chat/1",
+  fullRef: "ctxpipe/chat/conv_1/1",
+  href: "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
 }
 
-export const CommittedCreatePrOnly: Story = {
+const createPrPresses = { count: 0 }
+
+/**
+ * Turn commits are already on the conversation branch; the only publish
+ * action is Create PR, which squashes them. There is no Commit+Push.
+ */
+export const CreatePr: Story = {
   args: {
     title: "Repo layout",
-    branch: {
-      shortName: "chat/1",
-      fullRef: "ctxpipe/chat/conv_1/1",
-    },
+    branch: sessionBranch,
     publish: {
-      commitPush: {
-        visible: false,
-        enabled: false,
-        pending: false,
-        onPress: () => {},
-      },
       pullRequest: {
         visible: true,
         action: "create",
         pending: false,
-        onPress: () => {},
+        onPress: () => {
+          createPrPresses.count += 1
+        },
       },
     },
   },
   play: async ({ canvasElement }) => {
+    createPrPresses.count = 0
     const canvas = within(canvasElement)
+    const createPr = await canvas.findByRole("button", { name: "Create PR" })
     expect(
-      canvas.queryByRole("button", { name: "Commit+Push" }),
+      canvas.queryByRole("button", { name: /commit|push/i }),
     ).not.toBeInTheDocument()
-    expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
+    expect(
+      canvas.getByRole("link", { name: sessionBranch.fullRef }),
+    ).toBeVisible()
+    await userEvent.click(createPr)
+    expect(createPrPresses.count).toBe(1)
   },
 }
 
 export const CleanNoPublishActions: Story = {
   args: {
     title: "Repo layout",
-    branch: {
-      shortName: "chat/1",
-      fullRef: "ctxpipe/chat/conv_1/1",
-    },
+    branch: { shortName: "chat/1", fullRef: "ctxpipe/chat/conv_1/1" },
     publish: {
-      commitPush: {
-        visible: false,
-        enabled: false,
-        pending: false,
-        onPress: () => {},
-      },
       pullRequest: {
         visible: false,
         action: "create",
@@ -145,8 +118,9 @@ export const CleanNoPublishActions: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    expect(await canvas.findByText("Repo layout")).toBeVisible()
     expect(
-      canvas.queryByRole("button", { name: "Commit+Push" }),
+      canvas.queryByRole("button", { name: /commit|push/i }),
     ).not.toBeInTheDocument()
     expect(
       canvas.queryByRole("button", { name: "Create PR" }),
@@ -154,61 +128,32 @@ export const CleanNoPublishActions: Story = {
   },
 }
 
-export const Pushing: Story = {
+export const CreatingPr: Story = {
   args: {
-    ...DirtyCommitPush.args,
+    ...CreatePr.args,
     publish: {
-      commitPush: {
-        visible: true,
-        enabled: true,
-        pending: true,
-        onPress: () => {},
-      },
       pullRequest: {
         visible: true,
         action: "create",
-        pending: false,
+        pending: true,
         onPress: () => {},
       },
     },
   },
-}
-
-export const CreatingPr: Story = {
-  args: {
-    ...DirtyCommitPush.args,
-    publish: {
-      commitPush: {
-        visible: true,
-        enabled: true,
-        pending: false,
-        onPress: () => {},
-      },
-      pullRequest: {
-        visible: true,
-        action: "create",
-        pending: true,
-        onPress: () => {},
-      },
-    },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const pending = await canvas.findByRole("button", {
+      name: /creating pr/i,
+    })
+    expect(pending).toHaveAttribute("aria-disabled", "true")
   },
 }
 
 export const ShowPr: Story = {
   args: {
     title: "Repo layout",
-    branch: {
-      shortName: "chat/1",
-      fullRef: "ctxpipe/chat/conv_1/1",
-      href: "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
-    },
+    branch: sessionBranch,
     publish: {
-      commitPush: {
-        visible: false,
-        enabled: false,
-        pending: false,
-        onPress: () => {},
-      },
       pullRequest: {
         visible: true,
         action: "show",
@@ -221,23 +166,14 @@ export const ShowPr: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     expect(
-      canvas.queryByRole("button", { name: "Commit+Push" }),
+      await canvas.findByRole("link", { name: "Show PR" }),
+    ).toHaveAttribute("href", "https://github.com/acme/docs/pull/41")
+    expect(
+      canvas.queryByRole("button", { name: /commit|push/i }),
     ).not.toBeInTheDocument()
     expect(
       canvas.queryByRole("button", { name: "Create PR" }),
     ).not.toBeInTheDocument()
-    expect(canvas.getByRole("link", { name: "Show PR" })).toBeVisible()
-  },
-}
-
-export const MergedCreatePrAgain: Story = {
-  args: {
-    ...DirtyCommitPush.args,
-    branch: {
-      shortName: "chat/1",
-      fullRef: "ctxpipe/chat/conv_1/1",
-      href: "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
-    },
   },
 }
 

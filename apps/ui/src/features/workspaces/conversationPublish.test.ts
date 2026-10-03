@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest"
 import {
   conversationAllowsEdits,
   conversationBranchShortName,
-  conversationCommitPushEnabled,
   conversationCreatePrEnabled,
   conversationGithubTreeHref,
   conversationPullRequestAction,
@@ -28,30 +27,6 @@ describe("conversation publish helpers", () => {
     expect(conversationPullRequestAction("open")).toBe("show")
     expect(conversationPullRequestAction("merged")).toBe("create")
     expect(conversationPullRequestAction(null)).toBe("create")
-  })
-
-  it("shows Commit+Push only when the worktree is dirty", () => {
-    expect(
-      conversationCommitPushEnabled({
-        dirty: false,
-        differsFromDefault: false,
-        unpushed: false,
-      }),
-    ).toBe(false)
-    expect(
-      conversationCommitPushEnabled({
-        dirty: false,
-        differsFromDefault: true,
-        unpushed: true,
-      }),
-    ).toBe(false)
-    expect(
-      conversationCommitPushEnabled({
-        dirty: true,
-        differsFromDefault: true,
-        unpushed: true,
-      }),
-    ).toBe(true)
   })
 
   it("shows Create PR when anything has changed versus the default branch", () => {
@@ -97,7 +72,6 @@ describe("conversation publish helpers", () => {
       unpushed: true,
       stale: true,
     } as const
-    expect(conversationCommitPushEnabled(stale)).toBe(false)
     expect(conversationCreatePrEnabled(stale)).toBe(false)
   })
 

@@ -283,63 +283,49 @@ export const SharedPublishPending: Story = {
         page: [
           http.post(
             ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+\/push$/.test(
+              /\/api\/v1\/conversations\/[^/]+\/pull-request$/.test(
                 new URL(request.url).pathname,
               ),
             async () => {
               await delay("infinite")
-              return HttpResponse.json({
-                branch: "ctxpipe/chat/conv_1/1",
-                treeUrl:
-                  "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
-              })
+              return HttpResponse.json({})
             },
           ),
-          ...workspaceShellHandlers(),
+          ...workspaceShellHandlers({
+            conversation: {
+              ...docsConversationDetail,
+              conversation: {
+                ...docsConversationDetail.conversation,
+                lastChatPrNumber: null,
+                lastChatPrUrl: null,
+                prState: null,
+              },
+            },
+          }),
         ],
       },
     },
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
-    const commitButtons = () =>
-      page
-        .getAllByRole("button")
-        .filter((button) => /commit\+push/i.test(button.textContent ?? ""))
+    // Chat chrome and Files header share one Create PR; neither offers Commit+Push.
+    const createPrButtons = () =>
+      page.queryAllByRole("button", { name: "Create PR" })
     await waitFor(
       () => {
-        expect(commitButtons().length).toBeGreaterThan(1)
+        expect(createPrButtons().length).toBeGreaterThan(1)
       },
       { timeout: 15_000 },
     )
-    await waitFor(
-      () => {
-        const enabled = commitButtons().filter(
-          (button) =>
-            button.getAttribute("aria-disabled") !== "true" &&
-            !button.hasAttribute("disabled"),
-        )
-        expect(enabled.length).toBeGreaterThan(1)
-      },
-      { timeout: 15_000 },
-    )
-    const enabled = commitButtons().filter(
-      (button) =>
-        button.getAttribute("aria-disabled") !== "true" &&
-        !button.hasAttribute("disabled"),
-    )
-    const target = enabled[enabled.length - 1]
-    if (!target) throw new Error("Commit+Push is missing")
+    expect(
+      page.queryByRole("button", { name: /commit|push/i }),
+    ).not.toBeInTheDocument()
+    const target = createPrButtons().at(-1)
+    if (!target) throw new Error("Create PR is missing")
     await userEvent.click(target)
     await waitFor(
       () => {
-        const pending = page
-          .getAllByRole("button")
-          .filter(
-            (button) =>
-              button.getAttribute("aria-busy") === "true" ||
-              /pushing/i.test(button.textContent ?? ""),
-          )
+        const pending = page.getAllByRole("button", { name: /creating pr/i })
         expect(pending.length).toBeGreaterThan(1)
       },
       { timeout: 15_000 },
@@ -459,7 +445,7 @@ export const StableRequestBudget: Story = {
     await waitFor(
       () => {
         expect(
-          page.getAllByRole("button", { name: "Commit+Push" }).length,
+          page.getAllByRole("button", { name: "Create PR" }).length,
         ).toBeGreaterThan(0)
       },
       { timeout: 10_000 },

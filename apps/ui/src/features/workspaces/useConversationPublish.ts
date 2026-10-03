@@ -6,7 +6,6 @@ import {
 } from "@tanstack/react-query"
 import type { ConversationDetail } from "@/features/chat/types"
 import {
-  conversationCommitPushEnabled,
   conversationPullRequestAction,
   conversationPullRequestVisible,
 } from "./conversationPublish"
@@ -14,21 +13,10 @@ import {
   conversationGitStatusOptions,
   conversationPullRequestOptions,
   createConversationPullRequest,
-  pushConversationBranch,
   workspaceKeys,
 } from "./queries"
-import type {
-  ConversationGitStatusResponse,
-  ConversationPullRequestResponse,
-} from "./types"
+import type { ConversationPullRequestResponse } from "./types"
 import type { ConversationPublishChrome } from "./WorkspaceChatChrome"
-
-export function conversationPushMutationKey(
-  orgSlug: string,
-  conversationId: string,
-) {
-  return ["conversation-push", orgSlug, conversationId] as const
-}
 
 export function conversationCreatePrMutationKey(
   orgSlug: string,
@@ -63,36 +51,8 @@ export function useConversationPublish(input: {
   const pullQuery = useQuery(
     conversationPullRequestOptions(orgSlug, conversationId, pullEnabled),
   )
-  const pushKey = conversationPushMutationKey(orgSlug, conversationId)
   const createPrKey = conversationCreatePrMutationKey(orgSlug, conversationId)
 
-  const pushMutation = useMutation({
-    mutationKey: pushKey,
-    mutationFn: () => pushConversationBranch(orgSlug, conversationId),
-    onSuccess: (result) => {
-      queryClient.setQueryData<ConversationDetail>(
-        workspaceKeys.conversation(orgSlug, conversationId, workspaceId),
-        (old) =>
-          old
-            ? {
-                ...old,
-                conversation: {
-                  ...old.conversation,
-                  lastBranch: result.branch,
-                  branchTreeUrl: result.treeUrl,
-                },
-              }
-            : old,
-      )
-      queryClient.setQueryData<ConversationGitStatusResponse>(
-        workspaceKeys.conversationGitStatus(orgSlug, conversationId),
-        (old) =>
-          old
-            ? { ...old, unpushed: false, published: true, dirty: false }
-            : old,
-      )
-    },
-  })
   const createPrMutation = useMutation({
     mutationKey: createPrKey,
     mutationFn: () =>
@@ -121,23 +81,13 @@ export function useConversationPublish(input: {
     },
   })
 
-  const pushPending = useIsMutating({ mutationKey: pushKey }) > 0
   const createPrPending = useIsMutating({ mutationKey: createPrKey }) > 0
   const status = statusQuery.data ?? null
   const pullAction = conversationPullRequestAction(
     pullQuery.data?.prState ?? input.fallbackPrState,
   )
-  const commitEnabled = conversationCommitPushEnabled(status)
 
   const chrome: ConversationPublishChrome = {
-    commitPush: {
-      visible: commitEnabled || pushPending,
-      enabled: commitEnabled,
-      pending: pushPending,
-      onPress: () => {
-        pushMutation.mutate()
-      },
-    },
     pullRequest: {
       visible:
         conversationPullRequestVisible(status, pullAction) || createPrPending,

@@ -999,7 +999,7 @@ function WorkspaceFilesPaneContent(props: {
                 <code className="font-mono text-xs text-zinc-200">
                   {deleteItem?.path}
                 </code>{" "}
-                from the conversation sandbox. Commit+Push publishes it.
+                from the conversation sandbox.
               </p>
               <div className="mt-6 flex justify-end gap-2">
                 <Button variant="ghost" onPress={close}>

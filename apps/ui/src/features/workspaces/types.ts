@@ -158,11 +158,6 @@ export type ConversationFileWriteResponse = WorkspaceGitBlobResponse & {
   status: ConversationGitStatusResponse
 }
 
-export type ConversationPushResponse = {
-  branch: string
-  treeUrl: string
-}
-
 export type ConversationPullRequestResponse = {
   branch: string
   prNumber: number

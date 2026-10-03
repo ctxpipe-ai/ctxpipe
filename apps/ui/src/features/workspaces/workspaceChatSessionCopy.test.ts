@@ -2,6 +2,7 @@ import type { StreamChunk } from "@tanstack/ai"
 import { describe, expect, it } from "vitest"
 import {
   sandboxPhaseFromChunk,
+  sessionPushFromChunk,
   workspaceChatHasAssistantText,
   workspaceChatWaitLabel,
 } from "./WorkspaceChatSession"
@@ -43,6 +44,35 @@ describe("workspace chat wait copy", () => {
         type: "RUN_STARTED",
         threadId: "conv_1",
         runId: "run_1",
+        timestamp: 1,
+      } as StreamChunk),
+    ).toBeNull()
+  })
+})
+
+describe("workspace chat session push", () => {
+  it("reads the turn's push result and ignores other events", () => {
+    const push = (value: unknown) =>
+      ({
+        type: "CUSTOM",
+        name: "session-push",
+        value,
+        timestamp: 1,
+      }) as StreamChunk
+    expect(
+      sessionPushFromChunk(
+        push({ status: "pushed", branch: "ctxpipe/chat/conv_1/1" }),
+      ),
+    ).toBe("pushed")
+    expect(
+      sessionPushFromChunk(push({ status: "failed", error: "rejected" })),
+    ).toBe("failed")
+    expect(sessionPushFromChunk(push({ status: "unchanged" }))).toBeNull()
+    expect(
+      sessionPushFromChunk({
+        type: "CUSTOM",
+        name: "sandbox-setup",
+        value: { phase: "ready" },
         timestamp: 1,
       } as StreamChunk),
     ).toBeNull()

@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { delay, HttpResponse, http } from "msw"
-import { userEvent, waitFor, within } from "storybook/test"
+import { delay, HttpResponse, http, ws } from "msw"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   conversationAguiSseResponse,
   conversationAguiTextEvents,
@@ -241,6 +241,62 @@ export const Streaming: Story = {
     await waitFor(() => canvas.getByText(/SSE fallback token/), {
       timeout: SEND_WAIT_MS,
     })
+  },
+}
+
+/** The chat socket answers each run with a reply whose push failed. */
+const pushFailedSocket = ws.link(/\/api\/v1\/conversations\/conv_1(\?.*)?$/)
+
+/** The turn finishes; its push to the conversation branch did not. */
+export const TurnPushFailed: Story = {
+  args: threadArgs(docsConversationDetail.messages),
+  parameters: {
+    storyRoute: threadRoute,
+    msw: {
+      handlers: {
+        page: [
+          pushFailedSocket.addEventListener("connection", ({ client }) => {
+            client.addEventListener("message", (event) => {
+              const run = JSON.parse(String(event.data)) as {
+                runId?: string
+              }
+              const events = conversationAguiTextEvents({
+                threadId: "conv_1",
+                runId: run.runId,
+                messageId: "msg_push_failed",
+                text: "Updated the ledger note.",
+              })
+              for (const chunk of [
+                ...events.slice(0, -1),
+                {
+                  type: "CUSTOM",
+                  name: "session-push",
+                  value: { status: "failed", error: "push rejected" },
+                },
+                ...events.slice(-1),
+              ])
+                client.send(JSON.stringify(chunk))
+            })
+          }),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.type(
+      await canvas.findByPlaceholderText(/continue the conversation/i),
+      "Update the ledger",
+    )
+    await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+    expect(
+      await canvas.findByText("Changes not on GitHub yet", undefined, {
+        timeout: SEND_WAIT_MS,
+      }),
+    ).toBeVisible()
+    expect(canvas.getByText("Updated the ledger note.")).toBeVisible()
+    expect(canvas.queryByText(/chat request failed/i)).not.toBeInTheDocument()
   },
 }
 

@@ -46,13 +46,6 @@ export type ConversationPublishStatus = {
   stale?: boolean
 } | null
 
-export function conversationCommitPushEnabled(
-  status: ConversationPublishStatus,
-): boolean {
-  if (!status || status.stale) return false
-  return status.dirty
-}
-
 export function conversationCreatePrEnabled(
   status: ConversationPublishStatus,
 ): boolean {
