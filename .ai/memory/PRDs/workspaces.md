@@ -33,7 +33,7 @@ ctxpipe is a job engine over **Workspaces**. An organization's portable knowledg
 
 - Stock TanStack AI: `useChat` ↔ WebSocket ↔ `chat()` with `withPersistence` + `withSandbox` + `opencodeText`. Transcripts are Postgres (TanStack persistence), not git. Models: only the configured fast/medium/high tiers through the app's model proxy (default fast).
 - One sandbox per conversation. **The conversation's durable state is its git session branch**: every turn that changes files is committed and pushed to `ctxpipe/chat/<conversation>/<n>` by the backend broker *(ticket 02)*. Sandboxes are disposable; a lost sandbox is recreated from the branch. While a sandbox lives, a moved default branch is merged in place before the next turn *(ticket 01, option D)*.
-- Publishing is **Create PR** (squashes the turn commits) and **Show PR**; there is no separate Commit+Push *(ticket 02)*. Chat never pushes the default branch.
+- Publishing is **Commit+Push**, **Create PR** and **Show PR**. The agent decides when to commit and push: it makes semantic commits, pushes the conversation's session branch when a task is done or when the user asks, and the system prompt recommends committing when a task is done. Create PR keeps those commits (no squash) *(user, 2026-10-04; ticket 02)*. Chat never pushes the default branch.
 - Sandboxes get read credentials and per-run model/git capabilities only; no GitHub write credential, App key, or provider key enters a sandbox. Tool calls follow `acceptEdits` plus a fast-model judge after hard denies.
 - Retrieval tools (knowledge, graph, codesearch) run on the backend against the active projection.
 - `ctx_advisor` (MCP) is a deprecated shim: one Workspace chat turn on the organization's first Workspace per call, hidden from the UI list.
