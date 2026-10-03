@@ -31,7 +31,7 @@ function databaseUrl(): string | undefined {
 
 /**
  * `describe.skipIf(!DATABASE_URL)` after `.env.local` is loaded.
- * Same gate as `github-pr-mirror.integration.test.ts`.
+ * Same gate as `repositories.integration.test.ts`.
  *
  * CI Tests uses `ctxpipe_app` (ENABLE RLS, no BYPASSRLS). Tenant fixture
  * INSERT/SELECT/DELETE must run inside `withOrgDbContext`. `getSystemDb()`
@@ -94,7 +94,7 @@ async function deleteSeededRows(ids: {
 
 /**
  * Org, user, personal API key, and org API key through Better Auth.
- * Suffixes ids the same way `github-pr-mirror.integration.test.ts` does.
+ * Suffixes ids the same way `repositories.integration.test.ts` does.
  * Deletes rows on failure so a partial sign-up does not linger.
  */
 export async function seedOrg(): Promise<SeededOrg> {

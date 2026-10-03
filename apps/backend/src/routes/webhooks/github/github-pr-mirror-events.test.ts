@@ -1,102 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
-
-const mocks = vi.hoisted(() => ({
-  listInstallations: vi.fn(),
-  getBinding: vi.fn(),
-  runWorkflow: vi.fn(),
-}))
-
-vi.mock("../../../models/github-installation.js", () => ({
-  listInstallationsByGithubInstallationId: mocks.listInstallations,
-}))
-vi.mock("../../../models/github-pr-mirror.js", () => ({
-  getGithubPrMirrorBinding: mocks.getBinding,
-}))
-vi.mock("../../../openworkflow/client.js", () => ({
-  runWorkflowWithWorkerWake: mocks.runWorkflow,
-}))
-vi.mock("../../../openworkflow/workflows/github-sync-pull-request.js", () => ({
-  githubSyncPullRequest: { spec: { name: "github-sync-pull-request" } },
-}))
-
+import { describe, expect, it } from "vitest"
 import {
   candidateFromPullRequestPayload,
   githubPrMirrorIdempotencyKey,
-  maybeEnqueueGithubPrMirror,
 } from "./github-pr-mirror-events.js"
 
-describe("maybeEnqueueGithubPrMirror", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mocks.listInstallations.mockResolvedValue([
-      { id: "con_gh", orgId: "org_1" },
-    ])
-    mocks.getBinding.mockResolvedValue({
-      enabled: true,
-      setupPhase: "live",
-    })
-    mocks.runWorkflow.mockResolvedValue({ workflowRun: { id: "wr_1" } })
-  })
-
-  it("enqueues a pull-request mirror job with webhook facts and an idempotency key", async () => {
-    await maybeEnqueueGithubPrMirror({
-      eventName: "pull_request",
-      payload: {
-        action: "closed",
-        pull_request: {
-          number: 42,
-          merged: true,
-          draft: false,
-          state: "closed",
-          updated_at: "2026-03-02T11:00:00Z",
-        },
-        repository: { full_name: "acme/api" },
-        installation: { id: 99 },
-      },
-      githubConnectionId: "con_gh",
-    })
-
-    expect(mocks.runWorkflow).toHaveBeenCalledWith(
-      { name: "github-sync-pull-request" },
-      {
-        orgId: "org_1",
-        connectionId: "con_gh",
-        sourceRepository: "acme/api",
-        number: 42,
-        candidate: {
-          merged: true,
-          draft: false,
-          updatedAt: "2026-03-02T11:00:00Z",
-        },
-      },
-      { idempotencyKey: "github-pr:con_gh:acme/api:42:2026-03-02T11:00:00Z" },
-    )
-  })
-
-  it("passes no candidate for issue comments and keys on the comment timestamp", async () => {
-    await maybeEnqueueGithubPrMirror({
-      eventName: "issue_comment",
-      payload: {
-        action: "created",
-        issue: { number: 7, pull_request: { url: "x" } },
-        comment: { created_at: "2026-03-03T00:00:00Z" },
-        repository: { full_name: "acme/api" },
-        installation: { id: 99 },
-      },
-      githubConnectionId: "con_gh",
-    })
-    expect(mocks.runWorkflow).toHaveBeenCalledWith(
-      { name: "github-sync-pull-request" },
-      {
-        orgId: "org_1",
-        connectionId: "con_gh",
-        sourceRepository: "acme/api",
-        number: 7,
-      },
-      { idempotencyKey: "github-pr:con_gh:acme/api:7:2026-03-03T00:00:00Z" },
-    )
-  })
-
+describe("GitHub pull-request webhook facts", () => {
   it("derives candidates from payload facts", () => {
     expect(
       candidateFromPullRequestPayload({
@@ -110,56 +18,16 @@ describe("maybeEnqueueGithubPrMirror", () => {
       candidateFromPullRequestPayload({ number: 1, updated_at: "t" }),
     ).toBeUndefined()
     expect(candidateFromPullRequestPayload(undefined)).toBeUndefined()
+  })
+
+  it("keys a delivery per Workspace, repository, pull request and version", () => {
     expect(
       githubPrMirrorIdempotencyKey({
-        connectionId: "c",
-        sourceRepository: "a/b",
+        workspaceId: "ws_a",
+        gitUrl: "https://github.com/a/b",
         number: 3,
         version: undefined,
       }),
-    ).toBe("github-pr:c:a/b:3:unknown")
-  })
-
-  it("enqueues yaml-scoped repositories that are not in the code-ingest picker", async () => {
-    await maybeEnqueueGithubPrMirror({
-      eventName: "pull_request",
-      payload: {
-        action: "closed",
-        pull_request: {
-          number: 42,
-          merged: true,
-          draft: false,
-          updated_at: "2026-03-02T11:00:00Z",
-        },
-        repository: { full_name: "acme/docs-only" },
-        installation: { id: 99 },
-      },
-      githubConnectionId: "con_gh",
-    })
-    expect(mocks.runWorkflow).toHaveBeenCalledWith(
-      { name: "github-sync-pull-request" },
-      expect.objectContaining({
-        sourceRepository: "acme/docs-only",
-        number: 42,
-      }),
-      expect.anything(),
-    )
-  })
-
-  it("skips when the mirror binding is not live", async () => {
-    mocks.getBinding.mockResolvedValue({
-      enabled: true,
-      setupPhase: "awaiting_merge",
-    })
-    await maybeEnqueueGithubPrMirror({
-      eventName: "pull_request",
-      payload: {
-        action: "closed",
-        pull_request: { number: 42, merged: true },
-        repository: { full_name: "acme/other" },
-        installation: { id: 99 },
-      },
-    })
-    expect(mocks.runWorkflow).not.toHaveBeenCalled()
+    ).toBe("github-pr:ws_a:https://github.com/a/b:3:unknown")
   })
 })

@@ -1,5 +1,6 @@
 import * as cdk from "aws-cdk-lib"
 import * as acm from "aws-cdk-lib/aws-certificatemanager"
+import type * as cloudwatch from "aws-cdk-lib/aws-cloudwatch"
 import * as ec2 from "aws-cdk-lib/aws-ec2"
 import * as lambda from "aws-cdk-lib/aws-lambda"
 import * as route53 from "aws-cdk-lib/aws-route53"
@@ -16,6 +17,7 @@ import { IngressConstruct } from "./internal/ingress-construct"
 import { MigrateOnDeployConstruct } from "./internal/migrate-on-deploy-construct"
 import { NetworkingConstruct } from "./internal/networking-construct"
 import { OutputsConstruct } from "./internal/outputs-construct"
+import { SandboxHostConstruct } from "./internal/sandbox-host-construct"
 import { SecretsConstruct } from "./internal/secrets-construct"
 import { ServicesConstruct } from "./internal/services-construct"
 import { TaskDefinitionsConstruct } from "./internal/task-definitions-construct"
@@ -58,6 +60,10 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
       codesearchIndexPipelineConcurrency: 1,
     },
     backupRetentionDays: DEFAULT_BACKUP_RETENTION_DAYS,
+    sandboxHost: {
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MEDIUM),
+      dockerVolumeSizeGiB: 30,
+    },
   },
   medium: {
     size: "medium",
@@ -89,6 +95,10 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
       codesearchIndexPipelineConcurrency: 2,
     },
     backupRetentionDays: DEFAULT_BACKUP_RETENTION_DAYS,
+    sandboxHost: {
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.LARGE),
+      dockerVolumeSizeGiB: 50,
+    },
   },
   large: {
     size: "large",
@@ -120,6 +130,10 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
       codesearchIndexPipelineConcurrency: 2,
     },
     backupRetentionDays: 14,
+    sandboxHost: {
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.XLARGE),
+      dockerVolumeSizeGiB: 100,
+    },
   },
 }
 
@@ -129,6 +143,11 @@ export class CtxPipe extends Construct {
   public readonly modelProviderSecret?: secretsmanager.ISecret
   public readonly smtpSecret: secretsmanager.ISecret
   public readonly connectorSecret?: secretsmanager.ISecret
+  /**
+   * Disk and memory alarms for the chat sandbox host. They have no actions;
+   * add your own (for example an SNS topic) with `addAlarmAction`.
+   */
+  public readonly sandboxHostAlarms: readonly cloudwatch.IAlarm[]
 
   public constructor(scope: Construct, id: string, props: CtxPipeProps) {
     super(scope, id)
@@ -140,6 +159,7 @@ export class CtxPipe extends Construct {
       cdk.Stack.of(this).region,
     )
     const sizeProfile = this.resolveSizeProfile(props)
+    const sandboxHostProfile = this.resolveSandboxHost(props, sizeProfile)
     const resolvedCustomDomain = this.resolveCustomDomain(props)
 
     const defaults = this.resolveDefaults(
@@ -168,6 +188,11 @@ export class CtxPipe extends Construct {
       emailFromAddress: defaults.emailFromAddress,
     })
 
+    const sandboxHost = new SandboxHostConstruct(this, "SandboxHost", {
+      networking: networking.resources,
+      ...sandboxHostProfile,
+    })
+
     const taskDefinitions = new TaskDefinitionsConstruct(
       this,
       "TaskDefinitions",
@@ -181,6 +206,7 @@ export class CtxPipe extends Construct {
         defaultImageTag: defaults.defaultImageTag,
         sizeProfile,
         otel: props.otel,
+        sandboxHost: sandboxHost.resources,
       },
     )
 
@@ -202,6 +228,7 @@ export class CtxPipe extends Construct {
       migrateDependency: secrets.resources.runtimeDatabaseUrlWriter,
       codesearchEfsMountDependency:
         dataPlane.resources.codesearchFileSystem.mountTargetsAvailable,
+      sandboxHost: sandboxHost.resources,
     })
 
     const ingress = new IngressConstruct(this, "Ingress", {
@@ -215,6 +242,7 @@ export class CtxPipe extends Construct {
     this.smtpSecret = secrets.resources.smtpSecret
     this.connectorSecret = secrets.resources.connectorSecret
     this.appUrl = ingress.resources.appUrl
+    this.sandboxHostAlarms = sandboxHost.resources.alarms
 
     new OutputsConstruct(this, "Outputs", {
       appUrl: this.appUrl,
@@ -223,6 +251,8 @@ export class CtxPipe extends Construct {
       modelProviderSecretArn: this.modelProviderSecret?.secretArn,
       smtpSecretArn: this.smtpSecret.secretArn,
       connectorSecretArn: this.connectorSecret?.secretArn,
+      sandboxHostAutoScalingGroupName:
+        sandboxHost.resources.autoScalingGroup.autoScalingGroupName,
     })
   }
 
@@ -255,6 +285,28 @@ export class CtxPipe extends Construct {
   private resolveSizeProfile(props: CtxPipeProps): CtxPipeSizeProfile {
     const size = props.size ?? DEFAULT_SIZE
     return SIZE_PROFILES[size]
+  }
+
+  private resolveSandboxHost(
+    props: CtxPipeProps,
+    sizeProfile: CtxPipeSizeProfile,
+  ): CtxPipeSizeProfile["sandboxHost"] {
+    const dockerVolumeSizeGiB =
+      props.sandboxHost?.dockerVolumeSizeGiB ??
+      sizeProfile.sandboxHost.dockerVolumeSizeGiB
+    if (!Number.isInteger(dockerVolumeSizeGiB) || dockerVolumeSizeGiB < 20) {
+      throw new Error(
+        "sandboxHost.dockerVolumeSizeGiB must be a whole number of at least 20",
+      )
+    }
+    const instanceType =
+      props.sandboxHost?.instanceType ?? sizeProfile.sandboxHost.instanceType
+    if (instanceType.architecture !== ec2.InstanceArchitecture.ARM_64) {
+      throw new Error(
+        `sandboxHost.instanceType must be a Graviton (arm64) type such as t4g.xlarge or m7g.large; got ${instanceType}`,
+      )
+    }
+    return { instanceType, dockerVolumeSizeGiB }
   }
 
   private resolveCustomDomain(

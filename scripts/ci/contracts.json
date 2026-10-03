@@ -11,6 +11,7 @@
     "src/domain/workspaces/write-rename-native.contract.test.ts",
     "src/domain/workspaces/write-extract-native.contract.test.ts",
     "src/domain/workspaces/write-mirror-native.contract.test.ts",
+    "src/domain/workspaces/github-pr-mirror-native.contract.test.ts",
     "src/domain/workspaces/write-merge-native.contract.test.ts",
     "src/openworkflow/workspace-admission-ack-native.contract.test.ts",
     "src/domain/workspaces/workspace-unborn-bootstrap-native.contract.test.ts",
@@ -27,7 +28,8 @@
     "src/domain/workspaces/protected-conversation-native.contract.test.ts"
   ],
   "native OpenCode port ownership": [
-    "src/domain/workspaces/workspace-chat-opencode-native.contract.test.ts"
+    "src/domain/workspaces/workspace-chat-opencode-native.contract.test.ts",
+    "src/domain/workspaces/docker-agent-port-native.contract.test.ts"
   ],
   "native callback bridge": [
     "src/domain/workspaces/workspace-chat-callback.contract.test.ts"

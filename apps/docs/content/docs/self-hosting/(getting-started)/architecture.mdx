@@ -38,6 +38,23 @@ backend origin.
 | `postgres` | `5432` in container, `5433` on host by default | Yes | Primary relational state |
 | `falkordb` | `6379` Redis, `7687` Bolt | Yes | Default graph database |
 
+### Chat sandbox host on AWS
+
+On AWS, `@ctxpipe/aws-cdk` adds one EC2 Docker host next to the Fargate
+services. Each Workspace conversation's agent runs in its own container there.
+
+| Component | Port | Reached by | Purpose |
+|---|---:|---|---|
+| Docker API (mutual TLS) | `2376` | `backend`, `worker` | Create, stop, resume, and remove sandboxes |
+| Sandbox agent ports (password per conversation) | `32768`–`60999` | `backend` | The backend talks to the agent in each sandbox |
+| Backend model proxy and tool bridges | `3000`, `32768`–`60999` | Sandboxes | Model calls and tool calls go back to the backend task that runs the turn |
+
+Sandboxes also reach Git hosts and the internet through NAT. They cannot reach
+Postgres, Neptune, EFS, codesearch, the UI, or the worker. Agent ports are
+reachable inside the VPC, so the host also blocks sandboxes from each other and
+from the host itself. See
+[AWS: Chat sandbox host](/docs/self-hosting/deployment/aws#chat-sandbox-host).
+
 ## Public surface
 
 Expose the backend origin publicly. Keep internal services private unless you

@@ -7,6 +7,7 @@ import type {
   TaskDefinitionsConstructProps,
   TaskDefinitionsResources,
 } from "./contracts";
+import { addSandboxHostClient } from "./sandbox-host-construct";
 
 function otelExportEnvironment(
   endpoint: string,
@@ -111,10 +112,13 @@ export class TaskDefinitionsConstruct extends Construct {
       }),
     );
 
-    backendTask.addContainer("backend", {
-      image: ecs.ContainerImage.fromRegistry(
-        `ghcr.io/ctxpipe-ai/backend:${props.defaultImageTag}`,
-      ),
+    // Pulled by the sandbox host's daemon on first chat; same release tag.
+    const chatSandboxImage = `ghcr.io/ctxpipe-ai/chat-sandbox:${props.defaultImageTag}`;
+    const backendImage = ecs.ContainerImage.fromRegistry(
+      `ghcr.io/ctxpipe-ai/backend:${props.defaultImageTag}`,
+    );
+    const backendContainer = backendTask.addContainer("backend", {
+      image: backendImage,
       environment: {
         NODE_ENV: "production",
         PORT: "3000",
@@ -125,6 +129,7 @@ export class TaskDefinitionsConstruct extends Construct {
         [`GRAPH_DB_URI_${props.orgSlug}`]: props.dataPlane.graphDbUri,
         UI_PROXY_URL: "http://ui.ctxpipe.local:3002",
         CODESEARCH_URL: "http://codesearch.ctxpipe.local:3001",
+        SANDBOX_CHAT_IMAGE: chatSandboxImage,
         ...modelContainerConfig.environment,
         ...otelExportEnvironment(otelEndpoint, otelResourceAttributes, "backend"),
       },
@@ -150,10 +155,11 @@ export class TaskDefinitionsConstruct extends Construct {
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-backend" }),
     });
 
-    workerTask.addContainer("worker", {
-      image: ecs.ContainerImage.fromRegistry(
-        `ghcr.io/ctxpipe-ai/worker:${props.defaultImageTag}`,
-      ),
+    const workerImage = ecs.ContainerImage.fromRegistry(
+      `ghcr.io/ctxpipe-ai/worker:${props.defaultImageTag}`,
+    );
+    const workerContainer = workerTask.addContainer("worker", {
+      image: workerImage,
       environment: {
         NODE_ENV: "production",
         AUTH_BASE_URL: appUrl,
@@ -169,6 +175,7 @@ export class TaskDefinitionsConstruct extends Construct {
         CODESEARCH_INDEXER_CONCURRENCY: String(
           props.sizeProfile.concurrency.codesearchIndexerConcurrency,
         ),
+        SANDBOX_CHAT_IMAGE: chatSandboxImage,
         ...modelContainerConfig.environment,
         ...otelExportEnvironment(otelEndpoint, otelResourceAttributes, "openworkflow"),
       },
@@ -192,6 +199,8 @@ export class TaskDefinitionsConstruct extends Construct {
       },
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-worker" }),
     });
+    addSandboxHostClient(backendTask, backendContainer, backendImage, props.sandboxHost);
+    addSandboxHostClient(workerTask, workerContainer, workerImage, props.sandboxHost);
 
     uiTask.addContainer("ui", {
       image: ecs.ContainerImage.fromRegistry(

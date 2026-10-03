@@ -1,7 +1,7 @@
 import { z } from "zod"
+import { normalizeWorkspaceRepositoryUrl } from "../../../domain/workspaces/slug.js"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
-import { getGithubPrMirrorBinding } from "../../../models/github-pr-mirror.js"
-import { getLogger } from "../../../observability/logger.js"
+import { listGithubPrMirrorWorkspaceIds } from "../../../models/github-pr-mirror.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import {
   type GithubSyncPullRequestCandidate,
@@ -30,7 +30,9 @@ const pullRequestPayloadSchema = z.object({
 const issueCommentPayloadSchema = z.object({
   issue: z.object({
     number: z.number().int().positive(),
-    pull_request: z.unknown().optional(),
+    pull_request: z
+      .object({ merged_at: z.string().nullable().optional() })
+      .optional(),
   }),
   comment: z
     .object({
@@ -44,7 +46,7 @@ const issueCommentPayloadSchema = z.object({
   installation: z.object({ id: z.number() }),
 })
 
-/** Facts the webhook payload already carries; lets the workflow apply scope policy before any API call. */
+/** Facts the webhook payload already carries; lets the workflow apply the policy before any API call. */
 export function candidateFromPullRequestPayload(
   pull: z.infer<typeof pullRequestPayloadSchema>["pull_request"],
 ): GithubSyncPullRequestCandidate | undefined {
@@ -54,67 +56,71 @@ export function candidateFromPullRequestPayload(
   return { merged, draft: pull.draft, updatedAt: pull.updated_at }
 }
 
+/** A replayed delivery maps to the same run per Workspace. */
 export function githubPrMirrorIdempotencyKey(input: {
-  connectionId: string
-  sourceRepository: string
+  workspaceId: string
+  gitUrl: string
   number: number
   version: string | undefined
 }): string {
-  return `github-pr:${input.connectionId}:${input.sourceRepository}:${input.number}:${input.version ?? "unknown"}`
+  return `github-pr:${input.workspaceId}:${input.gitUrl}:${input.number}:${input.version ?? "unknown"}`
 }
 
+/**
+ * One mirror job per Workspace that links the repository; none when no
+ * Workspace does. A failed enqueue throws so the delivery answers 5xx and
+ * GitHub's redelivery retries; the idempotency key skips jobs already started.
+ */
 async function enqueueMirror(input: {
   installationId: number
   githubConnectionId?: string
-  sourceRepository: string
+  repositoryFullName: string
   number: number
   candidate?: GithubSyncPullRequestCandidate
   version: string | undefined
 }): Promise<void> {
+  const gitUrl = normalizeWorkspaceRepositoryUrl(
+    `https://github.com/${input.repositoryFullName}`,
+  )
   const installations = (
     await listInstallationsByGithubInstallationId(input.installationId)
   ).filter(
     (installation) =>
       !input.githubConnectionId || installation.id === input.githubConnectionId,
   )
+  const failures: unknown[] = []
   for (const installation of installations) {
-    const binding = await getGithubPrMirrorBinding(
-      installation.orgId,
-      installation.id,
-    )
-    if (!binding?.enabled) continue
-    if (
-      binding.setupPhase !== "live" &&
-      binding.setupPhase !== "initial_sync"
-    ) {
-      continue
-    }
-    try {
+    const workspaceIds = await listGithubPrMirrorWorkspaceIds({
+      orgId: installation.orgId,
+      gitUrl,
+    })
+    for (const workspaceId of workspaceIds) {
       await runWorkflowWithWorkerWake(
         githubSyncPullRequest.spec,
         {
           orgId: installation.orgId,
+          workspaceId,
+          gitUrl,
           connectionId: installation.id,
-          sourceRepository: input.sourceRepository,
-          number: input.number,
+          numbers: [input.number],
           ...(input.candidate ? { candidate: input.candidate } : {}),
         },
         {
           idempotencyKey: githubPrMirrorIdempotencyKey({
-            connectionId: installation.id,
-            sourceRepository: input.sourceRepository,
+            workspaceId,
+            gitUrl,
             number: input.number,
             version: input.version,
           }),
         },
-      )
-    } catch (error) {
-      getLogger().error(
-        error instanceof Error ? error : new Error(String(error)),
-        { step: "github.pr-mirror.enqueue" },
-      )
+      ).catch((error: unknown) => failures.push(error))
     }
   }
+  if (failures.length)
+    throw new AggregateError(
+      failures,
+      "GitHub pull request mirror could not be enqueued",
+    )
 }
 
 export async function maybeEnqueueGithubPrMirror(input: {
@@ -134,7 +140,7 @@ export async function maybeEnqueueGithubPrMirror(input: {
     await enqueueMirror({
       installationId: parsed.data.installation.id,
       githubConnectionId: input.githubConnectionId,
-      sourceRepository: parsed.data.repository.full_name,
+      repositoryFullName: parsed.data.repository.full_name,
       number,
       candidate: candidateFromPullRequestPayload(parsed.data.pull_request),
       version: parsed.data.pull_request?.updated_at,
@@ -144,14 +150,22 @@ export async function maybeEnqueueGithubPrMirror(input: {
 
   if (input.eventName === "issue_comment") {
     const parsed = issueCommentPayloadSchema.safeParse(input.payload)
-    if (!parsed.success || parsed.data.issue.pull_request == null) return
+    // Only comments on merged pull requests reach the mirror.
+    const mergedAt = parsed.data?.issue.pull_request?.merged_at
+    if (!parsed.success || !mergedAt) return
+    const version =
+      parsed.data.comment?.updated_at ?? parsed.data.comment?.created_at
     await enqueueMirror({
       installationId: parsed.data.installation.id,
       githubConnectionId: input.githubConnectionId,
-      sourceRepository: parsed.data.repository.full_name,
+      repositoryFullName: parsed.data.repository.full_name,
       number: parsed.data.issue.number,
-      version:
-        parsed.data.comment?.updated_at ?? parsed.data.comment?.created_at,
+      candidate: {
+        merged: true,
+        draft: false,
+        updatedAt: version ?? mergedAt,
+      },
+      version,
     })
   }
 }

@@ -8,7 +8,7 @@ Updated: 2026-10-03. Tickets are implemented by sub-agents in separate worktrees
 | 2 | 02 | [Vercel Sandbox for hosted chat](issues/02-vercel-sandbox-provider.md) | in-progress | P0 | claude (orchestrating) | 01 |
 | 2 | 03 | [Docker sandboxing for self-hosters](issues/03-docker-sandbox-self-host.md) | in-progress | P0 | claude (orchestrating) | 01 |
 | 3 | 12 | [Mirror merged PRs into every Workspace that links the repository](issues/12-github-pr-mirror-per-workspace.md) | in-progress | P1 | claude (orchestrating) | — |
-| 3 | 04 | [End-to-end ingestion validator](issues/04-e2e-ingestion-validator.md) | in-progress (phase 1: build + dry run) | P0 | claude (orchestrating) | — |
+| 3 | 04 | [End-to-end ingestion validator](issues/04-e2e-ingestion-validator.md) | blocked: phase 1 (validator + dry run) merged after review; paid n8n run needs user inputs | P0 | claude (orchestrating) | user: Railway env, OpenRouter key ($30), validation org |
 | 4 | 05 | [Ingestion performance from traces](issues/05-ingestion-performance.md) | plan-review | P1 | unassigned | 04 |
 | 5 | 06 | [Browser end-to-end critical flows](issues/06-browser-critical-flows.md) | in-progress (phase 1: catalogue for approval) | P0 | claude (orchestrating) | 02 (final pass) |
 | 6 | 09 | [Release @ctxpipe/aws-cdk as a minor](issues/09-aws-cdk-minor-changeset.md) | in-progress | P2 | claude | 03, 06 (final wording) |

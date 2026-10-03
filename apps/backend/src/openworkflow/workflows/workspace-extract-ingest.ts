@@ -44,6 +44,11 @@ import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
+/** Native idempotency key of the hydrate an extraction write job admits after publishing. */
+export function extractionHydrateKey(jobId: string): string {
+  return `${jobId}:hydrate`
+}
+
 export const workspaceExtractIngestInputSchema = z
   .object({
     orgId: z.string().min(1),
@@ -239,7 +244,7 @@ export const workspaceExtractIngest = defineWorkflow(
                 workspaceId: input.workspaceId,
                 revision: published,
               },
-              { idempotencyKey: `${input.jobId}:hydrate` },
+              { idempotencyKey: extractionHydrateKey(input.jobId) },
             )
           })
           await step.run({ name: "complete" }, () =>

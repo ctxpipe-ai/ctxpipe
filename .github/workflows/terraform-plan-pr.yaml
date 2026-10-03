@@ -59,6 +59,7 @@ jobs:
       TF_VAR_pagerduty_redirect_uri: ${{ vars.PAGERDUTY_REDIRECT_URI }}
       TF_VAR_falkordb_password: ${{ secrets.FALKORDB_PASSWORD }}
       TF_VAR_otel_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
+      TF_VAR_vercel_access_token: ${{ secrets.VERCEL_ACCESS_TOKEN }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

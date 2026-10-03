@@ -25,7 +25,6 @@ import {
 } from "@tanstack/ai-sandbox"
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
-import Docker from "dockerode"
 import { eq } from "drizzle-orm"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
@@ -74,11 +73,15 @@ import {
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import {
   discoverSandboxProvider,
+  dockerImageId,
+  remoteDockerHost,
   type SandboxProvider as SandboxProviderName,
+  withDockerAgentPort,
   withSessionOnlyEnv,
 } from "./sandbox-provider.js"
 import {
   conversationAgentPassword,
+  conversationSandboxTags,
   vercelConversationProvider,
   vercelCredentials,
 } from "./vercel-sandbox-provider.js"
@@ -225,15 +228,13 @@ function conversationSandboxDefinition(input: {
 }
 
 /** The image's content id, so a rebuilt image gets new sandboxes. */
-async function workspaceChatImageId(): Promise<string> {
-  const image = await new Docker({ timeout: 30_000 })
-    .getImage(workspaceChatDockerImage())
-    .inspect()
-  return image.Id
+function workspaceChatImageId(): Promise<string> {
+  return dockerImageId(workspaceChatDockerImage())
 }
 
 function conversationSandboxProvider(
   isolation: SandboxProviderName,
+  conversationId: string,
   vercel?: Parameters<typeof vercelConversationProvider>[0],
 ): SandboxProvider {
   if (isolation === "vercel") {
@@ -245,11 +246,21 @@ function conversationSandboxProvider(
       scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
     })
   return withSessionOnlyEnv(
-    dockerSandbox({
-      image: workspaceChatDockerImage(),
-      publishPorts: [WORKSPACE_CHAT_OPENCODE_PORT],
-      dockerodeOptions: { timeout: 120_000 },
-    }),
+    withDockerAgentPort(
+      dockerSandbox({
+        image: workspaceChatDockerImage(),
+        publishPorts: [WORKSPACE_CHAT_OPENCODE_PORT],
+        dockerodeOptions: { timeout: 120_000 },
+      }),
+      {
+        // AUTH_SECRET is checked before the provider is built.
+        agentPassword: conversationAgentPassword(
+          process.env.AUTH_SECRET?.trim() ?? "",
+          conversationId,
+        ),
+        daemonHost: remoteDockerHost(),
+      },
+    ),
   )
 }
 
@@ -793,7 +804,16 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
       : undefined
   if (vercel && !vercel.ok) return vercel
   const publicBaseUrl = vercel?.ok ? vercel.publicBaseUrl : undefined
-  const callbackHost = sandboxCallbackHost()
+  let callbackHost: string | undefined
+  try {
+    callbackHost = sandboxCallbackHost()
+  } catch (error) {
+    return {
+      ok: false as const,
+      status: 503 as const,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
   const session = await resolveWorkspaceChatSession(
     input,
     selectedProvider,
@@ -830,6 +850,7 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
   })
   const provider = conversationSandboxProvider(
     selectedProvider,
+    input.conversationId,
     vercel?.ok ? vercel.options : undefined,
   )
   return {
@@ -892,6 +913,10 @@ async function hostedSandboxOptions(
   const credentials = await vercelCredentials().catch(() => null)
   if (!credentials)
     return unavailable("Hosted chat sandboxes are not configured")
+  // On Railway, an untagged sandbox would escape the PR-close cleanup.
+  const environment = process.env.RAILWAY_ENVIRONMENT_NAME?.trim()
+  if (!environment && process.env.RAILWAY_PROJECT_ID?.trim())
+    return unavailable("Hosted chat needs the Railway environment name")
   const authSecret = process.env.AUTH_SECRET?.trim() ?? ""
   if (authSecret.length < 32)
     return unavailable("Workspace chat needs AUTH_SECRET")
@@ -923,10 +948,7 @@ async function hostedSandboxOptions(
           return token
         },
       },
-      tags: {
-        ctxpipe: "workspace-chat",
-        environment: process.env.RAILWAY_ENVIRONMENT_NAME?.trim() || "local",
-      },
+      tags: conversationSandboxTags(environment || "local"),
     },
   }
 }

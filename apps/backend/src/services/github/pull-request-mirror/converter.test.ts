@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
   githubPullRequestMarkdownPath,
-  isGithubPullRequestMirrorPath,
   parseGithubPullRequestMarkdown,
   renderGithubPullRequest,
 } from "./converter.js"
@@ -105,13 +104,5 @@ describe("github pull request mirror paths", () => {
     expect(githubPullRequestMarkdownPath("acme/api", 7, 99)).toBe(
       "github/pulls/acme/api/7--99.md",
     )
-  })
-
-  it("recognises mirrored pull request files and the config yaml", () => {
-    expect(
-      isGithubPullRequestMirrorPath("github/pulls/acme/api/42--1.md"),
-    ).toBe(true)
-    expect(isGithubPullRequestMirrorPath("github/config.yaml")).toBe(true)
-    expect(isGithubPullRequestMirrorPath("linear/issues/foo--1.md")).toBe(false)
   })
 })

@@ -45,6 +45,12 @@ jobs:
             dockerfile: apps/ui/Dockerfile
           - image: codesearch
             dockerfile: apps/codesearch/Dockerfile
+          # Workspace chat sandboxes. The AWS sandbox host is Graviton; Compose
+          # hosts are often amd64.
+          - image: chat-sandbox
+            dockerfile: scripts/chat-sandbox/Dockerfile
+            context: scripts/chat-sandbox
+            platforms: linux/amd64,linux/arm64
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@v1
@@ -62,8 +68,9 @@ jobs:
       - name: Build and push image
         uses: useblacksmith/build-push-action@v2
         with:
-          context: .
+          context: ${{ matrix.context || '.' }}
           file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platforms }}
           push: true
           tags: |
             ghcr.io/ctxpipe-ai/${{ matrix.image }}:${{ github.sha }}
@@ -189,6 +196,7 @@ jobs:
       TF_VAR_pagerduty_redirect_uri: ${{ vars.PAGERDUTY_REDIRECT_URI }}
       TF_VAR_falkordb_password: ${{ secrets.FALKORDB_PASSWORD }}
       TF_VAR_otel_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
+      TF_VAR_vercel_access_token: ${{ secrets.VERCEL_ACCESS_TOKEN }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

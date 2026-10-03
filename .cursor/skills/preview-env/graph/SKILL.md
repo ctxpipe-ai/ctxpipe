@@ -1,38 +1,46 @@
 ---
 name: preview-env-graph
-description: Knowledge graph pane on a Railway PR preview workspace.
+description: Workspace Graph pane (Cosmograph): canvas, node detail, and direct-URL reload (preview-env).
 disable-model-invocation: true
 ---
 
 # preview-env graph
 
-Workspace Graph pane (Cosmograph). Hydrate should already be `ready` ([hydrate](../hydrate/SKILL.md)). [Harness](../harness.md) is `PASS`. One `computerUse` task.
+This Workspace's projection, not an org-wide graph. Hydrate must be `ready` ([HYD-1](../hydrate/SKILL.md)). [Harness](../harness.md) is `PASS`. Flow format: [run-setup](../run-setup.md#flow-format).
 
-## 1. Open
+### GRAPH-1 Pane loads
+**Requires** HYD-1.
+**Steps**
+1. Open `{BASE_URL}/{orgSlug}/ws/{workspace1Slug}?pane=graph` (the composer URL is enough).
 
-Go to `{BASE_URL}/{orgSlug}/ws/{workspaceSlug}?pane=graph` (compose URL is enough).
+**Expect (UI)** `pane=graph` in the URL, the **Graph** tab selected, and a painted canvas (nodes and edges) or an honest empty state. Empty after `ready` with no "derived graph unavailable" copy is a `PASS` (sparse projection). The copy **derived graph unavailable** is a `FAIL`.
+**Expect (backend)** `GET /{orgSlug}/api/v1/workspaces/{workspace1Slug}/graph` returns 200 (503 is a FAIL: the graph store or projection is down); the graph holds the template's relative links as `LINKS_TO` edges and any `claims:` as claim edges.
+**Budget** 3 s / 10 s, pane open to canvas painted.
+**Evidence** `GRAPH-1-1.png`; HTTP status; trace of the graph request.
 
-**Done when:** `pane=graph` is in the URL and the Graph tab is selected.
+### GRAPH-2 Select a node
+**Requires** GRAPH-1 with at least one node (else `SKIP(no-fixture)`).
+**Steps**
+1. Click a node.
+2. If the inspector offers a source path, open it.
 
-## 2. Canvas
+**Expect (UI)** an inspector or drawer shows a label; the source path opens **Files** (`pane=file:…` or `pane=files`). If the URL gains `?node=`, it stays.
+**Expect (backend)** none beyond the graph GET.
+**Budget** 1 s / 3 s, click to inspector.
+**Evidence** `GRAPH-2-1.png`.
 
-The pane shows a graph canvas (nodes/edges) **or** an explicit empty/error state.
+### GRAPH-3 Reload on the graph URL
+**Requires** GRAPH-1.
+**Steps**
+1. With `pane=graph` in the address bar, hard-reload; then open the same URL in a new tab.
 
-- Empty after `hydrateStatus === "ready"` with no “derived graph unavailable” → PASS (sparse projection).
-- Copy **derived graph unavailable** or HTTP 503 on `GET /{orgSlug}/api/v1/workspaces/{workspaceSlug}/graph` → FAIL (FalkorDB / projection).
-
-**Done when:** either a canvas is painted or the empty/error copy is recorded with the GET status.
-
-## 3. Select a node
-
-If any node is visible: click it. An inspector or drawer shows a label. If a source path is offered, open it and land on Files (`pane=file:…` or `pane=files`).
-
-Optional: if the URL gains `?node=`, keep it.
-
-**Done when:** a node was selected and the inspector rendered, **or** the canvas is empty (SKIP this step).
+**Expect (UI)** the shell renders, the Graph pane mounts, and no blank page or crash screen appears (the canvas is client-only; server rendering must not break). The browser console has no uncaught error from the pane.
+**Expect (backend)** the document request returns 200; the graph GET follows once.
+**Budget** 5 s / 15 s, reload to canvas or empty state.
+**Evidence** `GRAPH-3-1.png`; console excerpt on failure.
 
 ## Status
 
-- **PASS** — pane opened; canvas or honest empty; select worked when nodes exist.
-- **FAIL** — 503 / “derived graph unavailable” after ready hydrate, or the pane never mounts.
-- **SKIP** — hydrate not ready (say so; do not pretend graph works).
+- **PASS** GRAPH-1 and GRAPH-3 `PASS`; GRAPH-2 `PASS` or `SKIP`.
+- **FAIL** 503 or "derived graph unavailable" after a ready hydrate, the pane never mounting, or a crash on reload.
+- **SKIP** hydrate not ready (say so; do not pretend the graph works).

@@ -81,25 +81,6 @@ vi.mock("../../models/connection-rows.js", async (importOriginal) => {
   }
 })
 
-const resolveGithubPrMirrorRepositoryMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue("repo_ctx"),
-)
-const bindGithubPrMirrorMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue(undefined),
-)
-const enqueueGithubPrMirrorEnsureForOrgMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue(undefined),
-)
-
-vi.mock("../../models/github-pr-mirror.js", () => ({
-  resolveGithubPrMirrorRepository: resolveGithubPrMirrorRepositoryMock,
-  bindGithubPrMirror: bindGithubPrMirrorMock,
-}))
-
-vi.mock("../../openworkflow/workflows/github-ensure-pr-mirror.js", () => ({
-  enqueueGithubPrMirrorEnsureForOrg: enqueueGithubPrMirrorEnsureForOrgMock,
-}))
-
 vi.mock("../../models/github-installation.js", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
   return {
@@ -612,68 +593,9 @@ describe("PATCH /github/installation", () => {
       pruneGithubConnectionRepositoriesNotInGitUrlsMock,
     ).not.toHaveBeenCalled()
     expect(listAllReposForInstallationMock).toHaveBeenCalled()
-    expect(bulkCreateRepositoriesForOrgMock).toHaveBeenCalledWith(
-      "org_1",
-      [],
-      { githubConnectionId: "con_github" },
-    )
-    expect(bindGithubPrMirrorMock).not.toHaveBeenCalled()
-    expect(enqueueGithubPrMirrorEnsureForOrgMock).not.toHaveBeenCalled()
-  })
-
-  it("binds the chosen context repository even when it is not named ctxpipe-context", async () => {
-    const app = createApp()
-    const res = await app.request("/github/installation", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        ingestAllRepositories: false,
-        includeFutureRepos: false,
-        selectedRepositories: [
-          {
-            full_name: "acme/alpha",
-            name: "alpha",
-            clone_url: "https://github.com/acme/alpha.git",
-          },
-        ],
-        contextRepository: {
-          full_name: "acme/ctxpipe-context-demo",
-          name: "ctxpipe-context-demo",
-          clone_url: "https://github.com/acme/ctxpipe-context-demo.git",
-          default_branch: "main",
-        },
-      }),
+    expect(bulkCreateRepositoriesForOrgMock).toHaveBeenCalledWith("org_1", [], {
+      githubConnectionId: "con_github",
     })
-
-    expect(res.status).toBe(200)
-    expect(resolveGithubPrMirrorRepositoryMock).toHaveBeenCalledWith({
-      orgId: "org_1",
-      connectionId: "con_github",
-      repositoryName: "acme/ctxpipe-context-demo",
-      gitUrl: "https://github.com/acme/ctxpipe-context-demo.git",
-      branch: "main",
-    })
-    expect(bindGithubPrMirrorMock).toHaveBeenCalledWith({
-      orgId: "org_1",
-      connectionId: "con_github",
-      repositoryId: "repo_ctx",
-      branch: "main",
-    })
-    expect(enqueueGithubPrMirrorEnsureForOrgMock).toHaveBeenCalledWith("org_1")
-    expect(bulkCreateRepositoriesForOrgMock).toHaveBeenCalledWith(
-      "org_1",
-      [
-        {
-          name: "acme/alpha",
-          gitUrl: "https://github.com/acme/alpha.git",
-        },
-        {
-          name: "acme/ctxpipe-context-demo",
-          gitUrl: "https://github.com/acme/ctxpipe-context-demo.git",
-        },
-      ],
-      { githubConnectionId: "con_github" },
-    )
   })
 
   it("select mode with empty selection returns 400 and does not enqueue sync", async () => {

@@ -155,3 +155,9 @@ variable "otel_otlp_headers" {
   description = "OTEL_EXPORTER_OTLP_HEADERS for the public collector (authorization=<HYPERDX_API_KEY>). Same value as OBSERVABILITY_OTLP_HEADERS."
   sensitive   = true
 }
+
+variable "vercel_access_token" {
+  type        = string
+  description = "VERCEL_TOKEN for hosted chat sandboxes (GitHub secret VERCEL_ACCESS_TOKEN)."
+  sensitive   = true
+}

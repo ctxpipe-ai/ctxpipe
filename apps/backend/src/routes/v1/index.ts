@@ -34,7 +34,6 @@ import {
   githubInstallationReadRoutes,
   githubInstallationRoutes,
 } from "./github-installation.js"
-import { githubPrMirrorRoutes } from "./github-pr-mirror.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 import { orgOnboardingRoutes, userOnboardingRoutes } from "./onboarding.js"
 import { openaiRoutes } from "./openai.js"
@@ -50,10 +49,6 @@ import { workspaceRoutes } from "./workspaces.js"
 const githubInstallationAdminScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
   .route("/", githubInstallationRoutes)
-
-const githubPrMirrorAdminScoped = new OpenAPIHono<AppEnv>()
-  .use("*", requireOrgAdminOrOwner)
-  .route("/", githubPrMirrorRoutes)
 
 const atlassianConnectorScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
@@ -90,7 +85,6 @@ function createOrgScopedV1<BasePath extends string>(
     .route("/conversations", conversationRoutes)
     .route("/github/installation", githubInstallationReadRoutes)
     .route("/github/installation", githubInstallationAdminScoped)
-    .route("/github/pull-request-mirror", githubPrMirrorAdminScoped)
     .route("/connectors/atlassian", atlassianConnectorScoped)
     .route("/connectors/linear", linearConnectorScoped)
     .route("/connectors/notion", notionOauthAppReadRoutes)

@@ -9,6 +9,23 @@ import {
   normalizeWorkspaceRepositoryUrl,
 } from "./slug.js"
 
+function declares(file: { path: string; content: string }, target: string) {
+  if (!isLinkedRepositoryDeclaration(file.path)) return false
+  const parsed = parseLinkedRepositoryMarkdown(file.content)
+  return (
+    !parsed.malformed && normalizeWorkspaceRepositoryUrl(parsed.git) === target
+  )
+}
+
+/** Whether any well-formed declaration in `files` links `gitUrl`. */
+export function declaresLinkedRepository(
+  files: ReadonlyArray<{ path: string; content: string }>,
+  gitUrl: string,
+): boolean {
+  const target = normalizeWorkspaceRepositoryUrl(gitUrl)
+  return files.some((file) => declares(file, target))
+}
+
 /** Edit the canonical declaration, preserving every other repository's document. */
 export function changeLinkedRepository(input: {
   files: ReadonlyArray<{ path: string; content: string }>
@@ -16,14 +33,7 @@ export function changeLinkedRepository(input: {
   gitUrl: string
 }): { files: Array<{ path: string; content: string }>; deletePaths: string[] } {
   const target = linkedRepositoryUrlSchema.parse(input.gitUrl)
-  const matches = input.files.filter((file) => {
-    if (!isLinkedRepositoryDeclaration(file.path)) return false
-    const parsed = parseLinkedRepositoryMarkdown(file.content)
-    return (
-      !parsed.malformed &&
-      normalizeWorkspaceRepositoryUrl(parsed.git) === target
-    )
-  })
+  const matches = input.files.filter((file) => declares(file, target))
   if (input.action === "unlink")
     return { files: [], deletePaths: matches.map((file) => file.path) }
   if (matches.length) return { files: [], deletePaths: [] }
