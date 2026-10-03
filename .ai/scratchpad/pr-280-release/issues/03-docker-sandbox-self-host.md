@@ -84,6 +84,14 @@ Do not add TanStack patches or an application-level sandbox registry. Keep const
 
 ## Comments
 
+- 2026-10-03 (claude): **lifecycle landed** (shared with ticket 02; see ADR-048):
+  - After 5 minutes idle, the `conversation-sandbox-sweep` OpenWorkflow job stops the container (`docker stop`, keyed by `provider_sandbox_id`) and sets the row to `stopped`. The next turn's stock `resume` starts it again with its files.
+  - 30 days after last use, the sweep removes the container and the row. The same happens when the conversation is gone.
+  - Starts are capped at 50 running per org, with an "at capacity" error.
+  - MCP turns stop their container when the run ends.
+  - Proven with real Docker and Postgres in `sandbox-lifecycle-native.contract.test.ts`. The Linux-only Docker chat contract in `workspace-chat-prepare-native.contract.test.ts` now also runs a full OpenCode turn after an idle stop, and an unattended turn that stops the container (CI only).
+  - Still open for this ticket: labelled image/container prune for orphans and base images.
+
 - 2026-10-03 (claude, CDK part, after adversarial review): `SandboxHostConstruct` (`packages/aws-cdk/src/internal/sandbox-host-construct.ts`) is wired into `CtxPipe`, always on, with optional `sandboxHost.instanceType` (Graviton only, others rejected at synth) / `dockerVolumeSizeGiB` (defaults from the sizing table). Design:
   - Single-instance ASG (AL2023 arm64, AMI resolved at launch so new AMIs do not replace the host on deploy), EC2 health checks, creation/rolling-update signals so `cdk deploy` waits for a ready host; IMDSv2 with hop limit 1; Session Manager, no SSH.
   - gp3 Docker volume at `/var/lib/docker` (deleted with the instance; sandboxes are disposable). `daemon.json`: TLS on 2376, `cgroup-parent` slice (MemoryMax 85%, TasksMax 8192), json-file 3 × 10 MB, `icc: false`, live-restore. iptables: containers cannot reach the host (other sandboxes' published agent ports, Docker API) or IMDS; agent ports are reachable inside the VPC, so this is kept next to the per-conversation agent password.

@@ -8,6 +8,7 @@ import {
   type ConversationChatRequest,
   parseConversationChatRequest,
 } from "../../domain/conversations/transport.js"
+import { stoppingSandboxWhenDone } from "../../domain/workspaces/conversation-sandbox-lifecycle.js"
 import {
   conversationHasStoredTurns,
   streamTanstackWorkspaceChat,
@@ -197,35 +198,42 @@ async function* streamWorkspaceChatSocketTurn(input: {
     yield workspaceChatRunError("workspace_required")
     return
   }
+  const stream = streamTanstackWorkspaceChat({
+    conversationId: input.conversationId,
+    prompt: parsed.prompt,
+    messages: parsed.messages,
+    threadId: parsed.threadId ?? input.conversationId,
+    runId: parsed.runId ?? input.runId,
+    abortSignal: input.signal,
+    orgId: input.orgId,
+    orgSlug: input.orgSlug,
+    workspaceId: parsed.workspaceId,
+    writeStatus: "read_only",
+    resolveRuntime: () =>
+      resolveWorkspaceChatSendRuntime({
+        conversationId: input.conversationId,
+        workspaceId: parsed.workspaceId,
+        source: parsed.source,
+      }),
+    onUserPersist: () =>
+      persistWorkspaceChatUserTurnListed(input.conversationId),
+    onError: async () => {
+      if (!(await conversationHasStoredTurns(input.conversationId))) {
+        await discardUnstartedConversation(input.conversationId)
+      }
+    },
+  })
   yield* withAuthContextStream(
     { id: input.orgId, slug: input.orgSlug },
     input.userId,
     input.conversationId,
-    streamTanstackWorkspaceChat({
-      conversationId: input.conversationId,
-      prompt: parsed.prompt,
-      messages: parsed.messages,
-      threadId: parsed.threadId ?? input.conversationId,
-      runId: parsed.runId ?? input.runId,
-      abortSignal: input.signal,
-      orgId: input.orgId,
-      orgSlug: input.orgSlug,
-      workspaceId: parsed.workspaceId,
-      writeStatus: "read_only",
-      resolveRuntime: () =>
-        resolveWorkspaceChatSendRuntime({
-          conversationId: input.conversationId,
-          workspaceId: parsed.workspaceId,
-          source: parsed.source,
-        }),
-      onUserPersist: () =>
-        persistWorkspaceChatUserTurnListed(input.conversationId),
-      onError: async () => {
-        if (!(await conversationHasStoredTurns(input.conversationId))) {
-          await discardUnstartedConversation(input.conversationId)
-        }
-      },
-    }),
+    // Only the UI is a person watching; any other caller frees its slot.
+    parsed.source === "ui"
+      ? stream
+      : stoppingSandboxWhenDone(
+          { orgId: input.orgId, conversationId: input.conversationId },
+          stream,
+        ),
   )
 }
 

@@ -244,6 +244,39 @@ export const Streaming: Story = {
   },
 }
 
+export const PrepareAtCapacity: Story = {
+  args: threadArgs(docsConversationDetail.messages),
+  parameters: {
+    storyRoute: threadRoute,
+    msw: {
+      handlers: {
+        page: [
+          http.post(/\/api\/v1\/conversations\/[^/]+\/prepare$/, () =>
+            HttpResponse.json(
+              {
+                error:
+                  "Workspace chat is at capacity: your organization already has 50 chats running. Try again in a few minutes, after an idle chat stops.",
+              },
+              { status: 429 },
+            ),
+          ),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const alert = await waitFor(() => canvas.getByRole("alert"), {
+      timeout: SEND_WAIT_MS,
+    })
+    await waitFor(() => {
+      if (!/at capacity/.test(alert.textContent ?? ""))
+        throw new Error("The at-capacity message is not shown")
+    })
+  },
+}
+
 export const SendError: Story = {
   args: threadArgs(docsConversationDetail.messages),
   parameters: {

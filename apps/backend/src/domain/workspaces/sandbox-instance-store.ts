@@ -6,11 +6,10 @@ import { and, eq } from "drizzle-orm"
 import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
 import { workspaces } from "../../db/schema/workspaces.js"
-import type { SandboxInstanceRecord } from "../../models/workspace-sandboxes.js"
 import {
-  type SandboxInstanceDeleteOwnership,
-  type SandboxInstanceOwnership,
+  ownershipOf,
   SandboxInstanceOwnershipConflict,
+  type SandboxInstanceRecord,
 } from "../../models/workspace-sandboxes.js"
 import {
   deleteSandboxInstance,
@@ -47,17 +46,6 @@ function toTanstackRecord(
   if (row.latestSnapshotId) record.latestSnapshotId = row.latestSnapshotId
   if (row.latestRunId) record.latestRunId = row.latestRunId
   return record
-}
-
-function ownershipOf(row: SandboxInstanceRecord): SandboxInstanceOwnership {
-  return {
-    kind: row.kind,
-    workspaceId: row.workspaceId,
-    conversationId: row.conversationId,
-    provider: row.provider,
-    image: row.image,
-    revision: row.revision,
-  }
 }
 
 /**
@@ -181,11 +169,7 @@ export function postgresSandboxInstanceStore(input: {
       const row = await getSandboxInstance(key, input.orgId)
       if (!row) return
       assertOwnedRecord(key, row)
-      const expected: SandboxInstanceDeleteOwnership = {
-        ...ownershipOf(row),
-        providerSandboxId: row.providerSandboxId,
-      }
-      await deleteSandboxInstance(key, input.orgId, expected)
+      await deleteSandboxInstance(key, input.orgId, ownershipOf(row))
     },
   }
 }

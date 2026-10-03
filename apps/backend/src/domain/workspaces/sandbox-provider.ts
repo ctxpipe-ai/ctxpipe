@@ -4,6 +4,7 @@ import type {
 } from "@tanstack/ai-sandbox"
 import Docker from "dockerode"
 import { assertNotInOrgDbContext } from "../../db/client.js"
+import type { RunningSandboxProvider } from "../../models/workspace-sandboxes.js"
 
 /** Hosted runs Vercel, self-host runs Docker; unsandboxed is explicit only. */
 export const SANDBOX_PROVIDERS = ["docker", "vercel", "unsandboxed"] as const
@@ -195,18 +196,10 @@ export async function destroyDetachedProviderSandbox(input: {
   if (input.provider === "vercel") {
     // Deleting also removes the saved state and revokes the GitHub token.
     if (!input.orgId) throw new Error("Deleting a Vercel sandbox needs its org")
-    const { deleteVercelSandbox, vercelCredentials } = await import(
-      "./vercel-sandbox-provider.js"
+    const { deleteVercelSandbox } = await import("./vercel-sandbox-provider.js")
+    await deleteVercelSandbox(
+      await vercelSandboxTarget(input.orgId, input.providerSandboxId),
     )
-    const { sandboxGitTokenStore } = await import(
-      "../../models/sandbox-git-tokens.js"
-    )
-    const { parseEnv } = await import("../../config/env.js")
-    await deleteVercelSandbox({
-      credentials: await vercelCredentials(),
-      name: input.providerSandboxId,
-      tokens: sandboxGitTokenStore(input.orgId, parseEnv(process.env)),
-    })
     return
   }
   if (
@@ -227,6 +220,50 @@ export async function destroyDetachedProviderSandbox(input: {
   throw new Error(
     `Cannot destroy detached sandbox for provider ${input.provider ?? "unknown"}`,
   )
+}
+
+/**
+ * Stop a sandbox and keep its files: Docker stops the container (the stock
+ * provider's `resume` starts it again); Vercel saves its state and revokes
+ * its GitHub token. A sandbox that is already stopped or gone counts as
+ * stopped; the next turn resumes or recreates it.
+ */
+export async function stopDetachedProviderSandbox(input: {
+  orgId: string
+  provider: RunningSandboxProvider
+  providerSandboxId: string
+}): Promise<void> {
+  if (input.provider === "docker") {
+    try {
+      // PID 1 is the stock keep-alive command, which ignores SIGTERM.
+      await new Docker({ timeout: 30_000 })
+        .getContainer(input.providerSandboxId)
+        .stop({ t: 1 })
+    } catch (error) {
+      const status = (error as { statusCode?: number }).statusCode
+      // 304: already stopped. 404: gone.
+      if (status !== 304 && status !== 404) throw error
+    }
+    return
+  }
+  const { stopVercelSandbox } = await import("./vercel-sandbox-provider.js")
+  await stopVercelSandbox(
+    await vercelSandboxTarget(input.orgId, input.providerSandboxId),
+  )
+}
+
+/** A Vercel sandbox by name, with the org's record of its GitHub token. */
+async function vercelSandboxTarget(orgId: string, name: string) {
+  const { vercelCredentials } = await import("./vercel-sandbox-provider.js")
+  const { sandboxGitTokenStore } = await import(
+    "../../models/sandbox-git-tokens.js"
+  )
+  const { parseEnv } = await import("../../config/env.js")
+  return {
+    credentials: await vercelCredentials(),
+    name,
+    tokens: sandboxGitTokenStore(orgId, parseEnv(process.env)),
+  }
 }
 
 async function assertDockerDaemonReachable(): Promise<void> {

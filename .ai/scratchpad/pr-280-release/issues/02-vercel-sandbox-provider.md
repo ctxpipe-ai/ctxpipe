@@ -114,6 +114,13 @@ Keep each patch minimal and listed with its removal condition. Never fall back t
 
 ## Comments
 
+- 2026-10-03 (claude): **lifecycle landed** (shared with ticket 03; ADR-048 "Lifecycle and limits" and "Cleanup" updated):
+  - Idle stop after 5 minutes and 30-day deletion run in a new OpenWorkflow job, `conversation-sandbox-sweep`. The Workspace tip check was not periodic, so each sweep schedules the next one for when a sandbox is next due. Every sandbox start and every tip check also schedule a sweep. A sweep never stops a sandbox while a turn holds `chat-thread:<conversation>`. The idle clock restarts when a turn ends.
+  - Vercel stop uses `stopVercelSandbox`, which saves files and revokes the token; a sandbox that is already gone counts as stopped. Deletion uses `deleteVercelSandbox`.
+  - 50 per org: every create or resume of a stopped sandbox counts live rows under the org lock `org-sandbox-slots`. Over the limit it fails with `SandboxCapacityError`: 429 on prepare and MCP, and an "at capacity" `RUN_ERROR` in the stream.
+  - MCP `ctx_advisor` turns stop their sandbox when the run ends.
+  - Proven against real Docker and Postgres in `sandbox-lifecycle-native.contract.test.ts`. The Vercel stop, resume and delete calls are the ones the existing real-Vercel contracts already cover; this change adds no new Vercel-lane assertion.
+
 - 2026-10-03 (claude): **deploy review fixes.**
   - On Railway without `RAILWAY_ENVIRONMENT_NAME`, hosted chat now fails closed (503) instead of tagging its sandbox `local`, which the PR-close cleanup would miss. Off Railway it still tags `local`. Tags come from `conversationSandboxTags` in the provider.
   - `deleteVercelSandbox` is the one delete path: it deletes the sandbox, then any saved snapshots that remain. The token store is optional; PR-close passes none. The cleanup script lists by tag and calls it. A new Vercel-lane contract (stop a persistent sandbox, delete it, no live snapshots left) proves it against real Vercel on the next CI run.

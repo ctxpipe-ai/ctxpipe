@@ -41,6 +41,13 @@ const ErrorResponseSchema = z
   .object({ error: z.string() })
   .openapi("ConversationFileErrorResponse")
 
+/** Every route that may start a chat sandbox can hit the org's limit. */
+export const sandboxAtCapacityResponse = {
+  content: { "application/json": { schema: ErrorResponseSchema } },
+  description:
+    "At capacity: the organization already runs its maximum number of chat sandboxes",
+}
+
 const ConversationParamsSchema = z
   .object({
     conversationId: z.string().min(1),
@@ -167,6 +174,7 @@ const listTreeRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
     },
+    429: sandboxAtCapacityResponse,
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Sandbox provider unavailable",
@@ -204,6 +212,7 @@ const getBlobRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
     },
+    429: sandboxAtCapacityResponse,
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Sandbox provider unavailable",
@@ -240,6 +249,7 @@ const getStatusRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
     },
+    429: sandboxAtCapacityResponse,
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Sandbox provider unavailable",
@@ -274,6 +284,7 @@ const getDiffRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
     },
+    429: sandboxAtCapacityResponse,
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Sandbox provider unavailable",
@@ -319,6 +330,7 @@ const putFileRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
     },
+    429: sandboxAtCapacityResponse,
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Sandbox provider unavailable",
@@ -355,6 +367,7 @@ const postPushRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
     },
+    429: sandboxAtCapacityResponse,
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Sandbox provider unavailable",
@@ -565,7 +578,7 @@ export const conversationFileRoutes = fileRoutes
       c.get("sandboxAbortSignal"),
     )
     if (!loaded) return c.json({ error: "Not found" }, 404)
-    const ready = await readySandboxHandle(loaded)
+    const ready = await readySandboxHandle({ ...loaded, existingOnly: true })
     if (!ready.ok) return c.json({ error: ready.error }, ready.status)
     const { handle } = ready
     const blob = await readConversationSandboxFile(handle, path)

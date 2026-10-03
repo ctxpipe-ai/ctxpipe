@@ -370,4 +370,23 @@ describe("workspace query HTTP helpers", () => {
     expect(hits).toBe(1)
     expect(workspaceId).toBe("ws_1")
   })
+
+  it("carries the server's at-capacity message from a 429 chat prepare", async () => {
+    const message =
+      "Workspace chat is at capacity: your organization already has 50 chats running."
+    server.use(
+      http.post(
+        "http://localhost:3000/:orgSlug/api/v1/conversations/:conversationId/prepare",
+        () => HttpResponse.json({ error: message }, { status: 429 }),
+      ),
+    )
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    await expect(
+      queryClient.fetchQuery(
+        workspaceChatPrepareOptions("acme", "conv_1", "ws_1"),
+      ),
+    ).rejects.toThrow(message)
+  })
 })

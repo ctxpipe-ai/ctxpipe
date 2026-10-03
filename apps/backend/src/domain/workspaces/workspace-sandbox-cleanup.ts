@@ -5,30 +5,18 @@ import {
   getSandboxInstance,
   getWorkspaceById,
   listSandboxInstances,
+  ownershipOf,
   persistSandboxInstance,
   type SandboxInstanceRecord,
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import {
-  CHAT_SANDBOX_IDLE_MS,
-  shouldDestroyChatSandbox,
+  CHAT_SESSION_TTL_MS,
   shouldDestroyJobSandbox,
 } from "./chat-lifecycle.js"
 import { workspaceChatDockerImage } from "./chat-runtime.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import { destroyDetachedProviderSandbox } from "./sandbox-provider.js"
-
-function ownershipOf(row: SandboxInstanceRecord) {
-  return {
-    kind: row.kind,
-    workspaceId: row.workspaceId,
-    conversationId: row.conversationId,
-    provider: row.provider,
-    providerSandboxId: row.providerSandboxId,
-    image: row.image,
-    revision: row.revision,
-  }
-}
 
 /** Bases retain image ownership until every fork has released that image. */
 export async function collectUnusedWorkspaceChatBases(
@@ -93,7 +81,7 @@ export async function collectUnusedWorkspaceChatBases(
             other.lastHeartbeatAt > base.lastHeartbeatAt,
         )
         const idle =
-          Date.now() - base.lastHeartbeatAt.getTime() >= CHAT_SANDBOX_IDLE_MS
+          Date.now() - base.lastHeartbeatAt.getTime() >= CHAT_SESSION_TTL_MS
         if (
           (obsolete || superseded || idle) &&
           (await destroyWorkspaceSandboxUnderFence(base.id, orgId))
@@ -113,24 +101,54 @@ export async function destroyWorkspaceSandbox(
   assertNotInOrgDbContext()
   const initial = await getSandboxInstance(id, orgId)
   if (!initial) return true
-  return postgresSandboxLocks(initial.orgId).withLock(
+  const destroyed = await postgresSandboxLocks(initial.orgId).withLock(
     `workspace-sandboxes:${initial.workspaceId}`,
     () => destroyWorkspaceSandboxUnderFence(id, initial.orgId),
   )
+  return destroyed === true
 }
 
-/** The caller owns the workspace fence; native key and image locks stay inside it. */
+/**
+ * Delete a sandbox past retention unless something used it after `lastUse`,
+ * checked under its own lock so a resume in flight is never deleted.
+ */
+export async function destroyUnusedSandbox(
+  id: string,
+  orgId: string,
+  lastUse: Date,
+): Promise<"destroyed" | "used" | "failed"> {
+  assertNotInOrgDbContext()
+  const initial = await getSandboxInstance(id, orgId)
+  if (!initial) return "destroyed"
+  const outcome = await postgresSandboxLocks(orgId).withLock(
+    `workspace-sandboxes:${initial.workspaceId}`,
+    () =>
+      destroyWorkspaceSandboxUnderFence(
+        id,
+        orgId,
+        (row) => row.lastHeartbeatAt.getTime() !== lastUse.getTime(),
+      ),
+  )
+  return outcome === "kept" ? "used" : outcome ? "destroyed" : "failed"
+}
+
+/**
+ * The caller owns the workspace fence; native key and image locks stay inside
+ * it. `keep` is checked under the sandbox's own lock.
+ */
 async function destroyWorkspaceSandboxUnderFence(
   id: string,
   orgId: string,
-): Promise<boolean> {
+  keep?: (row: SandboxInstanceRecord) => boolean,
+): Promise<boolean | "kept"> {
   const initial = await getSandboxInstance(id, orgId)
   if (!initial) return true
   return postgresSandboxLocks(initial.orgId).withLock(
     `sandbox:${id}`,
-    async (signal) => {
+    async (signal): Promise<boolean | "kept"> => {
       const stored = await getSandboxInstance(id, initial.orgId)
       if (!stored) return true
+      if (keep?.(stored)) return "kept"
       const destroyOwned = async () => {
         signal.throwIfAborted()
         try {
@@ -253,24 +271,6 @@ export async function withDestroyedWorkspaceSandboxes<T>(
       )
     },
   )
-}
-
-export function chatSandboxesDueForDestroy(input: {
-  conversations: ReadonlyArray<{
-    id: string
-    lastMessageAt: Date | null
-  }>
-  now: Date
-}): string[] {
-  return input.conversations
-    .filter((row) =>
-      shouldDestroyChatSandbox({
-        conversationDeleted: false,
-        lastTurnAt: row.lastMessageAt,
-        now: input.now,
-      }),
-    )
-    .map((row) => row.id)
 }
 
 export function jobSandboxesDueForDestroy(input: {

@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
 import { z } from "zod"
-import { CHAT_SANDBOX_IDLE_MS } from "./chat-lifecycle.js"
+import { CHAT_SESSION_TTL_MS } from "./chat-lifecycle.js"
 
 const WorkspaceChatTokenSchema = z.object({
   exp: z.number().int().positive(),
@@ -29,7 +29,7 @@ export function mintWorkspaceChatToken(input: {
   const now = input.now ?? Date.now()
   const orgSlug = input.orgSlug.trim()
   const payload: WorkspaceChatToken = {
-    exp: now + (input.ttlMs ?? CHAT_SANDBOX_IDLE_MS),
+    exp: now + (input.ttlMs ?? CHAT_SESSION_TTL_MS),
     orgId: input.orgId,
     orgSlug,
     conversationId: input.conversationId,
