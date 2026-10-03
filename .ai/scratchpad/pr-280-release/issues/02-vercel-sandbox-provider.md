@@ -114,6 +114,12 @@ Keep each patch minimal and listed with its removal condition. Never fall back t
 
 ## Comments
 
+- 2026-10-03 (claude): **deploy review fixes.**
+  - On Railway without `RAILWAY_ENVIRONMENT_NAME`, hosted chat now fails closed (503) instead of tagging its sandbox `local`, which the PR-close cleanup would miss. Off Railway it still tags `local`. Tags come from `conversationSandboxTags` in the provider.
+  - `deleteVercelSandbox` is the one delete path: it deletes the sandbox, then any saved snapshots that remain. The token store is optional; PR-close passes none. The cleanup script lists by tag and calls it. A new Vercel-lane contract (stop a persistent sandbox, delete it, no live snapshots left) proves it against real Vercel on the next CI run.
+  - The preview variable scripts share `scripts/preview-service-vars.sh`. Both shell tests run in CI's "CI command regression tests" step. The cleanup job runs on `!cancelled()` and installs only the backend's dependencies.
+  - Docs: the data page names the 30-day sandbox-file retention as its one fixed period; chat says pushes go through ctx|.
+
 - 2026-10-03 (claude): **deploy and docs landed** (not yet run in a workflow).
   - **Production:** Terraform sets `SANDBOX_PROVIDER=vercel`, `VERCEL_TOKEN`, `VERCEL_TEAM_ID=ctxpipe` and `VERCEL_PROJECT_ID=ctxpipe` on backend and worker (`shared_backend_env_variables` in `infra/module/ctxpipe/railway.tf`). The token is the new required module variable `vercel_access_token`, fed from `secrets.VERCEL_ACCESS_TOKEN` as `TF_VAR_vercel_access_token` in `deploy.yaml` and `terraform-plan-pr.yaml`. An empty token fails the plan, so production cannot deploy without a sandbox provider.
   - **Previews:** `scripts/preview-sandbox-vars.sh` upserts the same four variables on the preview backend and worker in `pr-deploy.yaml` and `pr-preview-roll-existing.yaml`; an empty secret fails the roll. The token never reaches the log.
