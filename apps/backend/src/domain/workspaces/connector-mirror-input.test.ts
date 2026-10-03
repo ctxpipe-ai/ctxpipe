@@ -7,40 +7,16 @@ const source = {
   configBlobSha: "a".repeat(40),
 }
 
-it("accepts optional contentSyncGeneration without requiring it on other providers", () => {
-  expect(
-    connectorMirrorContentSchema.safeParse({
-      mirror: { ...source, provider: "github", contentSyncGeneration: 4 },
-      files: [{ path: "github/config.yaml", content: "version: 1\n" }],
-      deletePaths: [],
-    }).success,
-  ).toBe(true)
-  expect(
-    connectorMirrorContentSchema.safeParse({
-      mirror: { ...source, provider: "github" },
-      files: [{ path: "github/config.yaml", content: "version: 1\n" }],
-      deletePaths: [],
-    }).success,
-  ).toBe(true)
+const incident = {
+  path: "pagerduty/incidents/1--PINCIDENT.md",
+  content: "# Incident\n",
+}
+
+it("accepts a configured connector's content and rejects its config file", () => {
   expect(
     connectorMirrorContentSchema.safeParse({
       mirror: { ...source, provider: "pagerduty" },
-      files: [
-        {
-          path: "pagerduty/incidents/1--PINCIDENT.md",
-          content: "# Incident\n",
-        },
-      ],
-      deletePaths: [],
-    }).success,
-  ).toBe(true)
-})
-
-it("allows github/config.yaml on the default-branch broker path and rejects other provider config files", () => {
-  expect(
-    connectorMirrorContentSchema.safeParse({
-      mirror: { ...source, provider: "github" },
-      files: [{ path: "github/config.yaml", content: "version: 1\n" }],
+      files: [incident],
       deletePaths: [],
     }).success,
   ).toBe(true)
@@ -53,14 +29,41 @@ it("allows github/config.yaml on the default-branch broker path and rejects othe
   ).toBe(false)
   expect(
     connectorMirrorContentSchema.safeParse({
-      mirror: { ...source, provider: "pagerduty" },
-      files: [
-        {
-          path: "pagerduty/incidents/1--PINCIDENT.md",
-          content: "# Incident\n",
-        },
-      ],
+      mirror: { ...source, provider: "pagerduty", contentSyncGeneration: 4 },
+      files: [incident],
       deletePaths: [],
     }).success,
-  ).toBe(true)
+  ).toBe(false)
+})
+
+it("binds a GitHub pull-request mirror to its linked repository URL only", () => {
+  const pull = {
+    path: "github/pulls/acme/api/7--70.md",
+    content: "# Ship it\n",
+  }
+  const parsed = connectorMirrorContentSchema.safeParse({
+    mirror: { provider: "github", gitUrl: "https://github.com/Acme/API.git" },
+    files: [pull],
+    deletePaths: [],
+  })
+  expect(parsed.success).toBe(true)
+  expect(parsed.data?.mirror).toEqual({
+    provider: "github",
+    gitUrl: "https://github.com/acme/api",
+  })
+  // No binding fields, and no config file: the Workspace's link is the scope.
+  expect(
+    connectorMirrorContentSchema.safeParse({
+      mirror: { ...source, provider: "github" },
+      files: [pull],
+      deletePaths: [],
+    }).success,
+  ).toBe(false)
+  expect(
+    connectorMirrorContentSchema.safeParse({
+      mirror: { provider: "github", gitUrl: "https://github.com/acme/api" },
+      files: [{ path: "github/config.yaml", content: "version: 1\n" }],
+      deletePaths: [],
+    }).success,
+  ).toBe(false)
 })
