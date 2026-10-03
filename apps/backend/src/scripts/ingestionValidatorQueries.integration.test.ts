@@ -4,19 +4,29 @@ import { config } from "dotenv"
 import { eq, sql } from "drizzle-orm"
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { closeDb, initDb, withOrgDbContext } from "../db/client.js"
-import { repositories } from "../db/schema/repositories.js"
+import { withOrgIdContext } from "../auth/withAuth.js"
+import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
+import { organizations } from "../db/schema/auth.js"
+import {
+  repositories,
+  repositoryIngestionRequests,
+} from "../db/schema/repositories.js"
 import {
   workspaceKnowledgeUnits,
   workspaces,
   workspaceWriteJobs,
 } from "../db/schema/workspaces.js"
 import {
-  findRunByIdempotencyKey,
-  readActiveProjectionSha,
   readExtractWriteJob,
-  readRepositoryStatus,
   readRepositoryUnits,
+  unitKinds,
+} from "../models/repository-knowledge-units.js"
+import {
+  assertExtractionDestination,
+  findAttributedIngestions,
+  findInFlightIngestion,
+  findRunByIdempotencyKey,
+  readRepositoryStatus,
   readRunTree,
 } from "./ingestionValidatorQueries.js"
 import { repositoryUnitKinds } from "./repoGraphSizeCheck.js"
@@ -26,7 +36,9 @@ config({ path: resolve(__dirname, "../../.env.local"), quiet: true })
 
 const connectionString = process.env.DATABASE_URL
 const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
-const orgId = `org_validator_${suffix}`
+const org = { id: `org_validator_${suffix}`, slug: `validator-${suffix}` }
+const orgId = org.id
+const emptyOrgId = `org_validator_empty_${suffix}`
 const repositoryId = `repo_validator_${suffix}`
 const workspaceId = `ws_validator_${suffix}`
 const namespaceId = `validator-test-${suffix}`
@@ -96,6 +108,10 @@ function newRun(
   })
 }
 
+function ingestionInput(requestId: string): Json {
+  return { orgId, repositoryId, telemetry: { "request.id": requestId } }
+}
+
 describe("ingestion validator queries (Postgres)", () => {
   beforeAll(async () => {
     if (!connectionString) throw new Error("DATABASE_URL is required")
@@ -104,6 +120,9 @@ describe("ingestion validator queries (Postgres)", () => {
       namespaceId,
       runMigrations: false,
     })
+    await getSystemDb()
+      .insert(organizations)
+      .values({ ...org, name: "Validator fixture", createdAt: new Date() })
     await withOrgDbContext(orgId, async (db) => {
       await db.insert(repositories).values({
         id: repositoryId,
@@ -152,7 +171,7 @@ describe("ingestion validator queries (Postgres)", () => {
               "repo:doc": "decisions/use-git.md",
               "repo:missing": "topics/missing.md",
             },
-            extraction: { repositoryId, sourceSha: "c".repeat(40) } as never,
+            extraction: { repositoryId } as never,
           },
         },
       ])
@@ -177,6 +196,15 @@ describe("ingestion validator queries (Postgres)", () => {
           projectionSha: sha,
         },
         {
+          servingId: `unit_other_${suffix}`,
+          orgId,
+          workspaceId,
+          path: "topics/other-repo.md",
+          kind: "Topic",
+          body: "Another repository's unit",
+          projectionSha: sha,
+        },
+        {
           servingId: `unit_stale_${suffix}`,
           orgId,
           workspaceId,
@@ -191,22 +219,24 @@ describe("ingestion validator queries (Postgres)", () => {
 
   afterAll(async () => {
     await withOrgDbContext(orgId, async (db) => {
-      await db.delete(workspaces).where(eq(workspaces.id, workspaceId))
+      await db
+        .delete(repositoryIngestionRequests)
+        .where(eq(repositoryIngestionRequests.repositoryId, repositoryId))
+      await db.delete(workspaces).where(eq(workspaces.orgId, orgId))
       await db.delete(repositories).where(eq(repositories.id, repositoryId))
     })
-    await withOrgDbContext(orgId, (db) =>
-      db.execute(
-        sql`delete from openworkflow.workflow_runs where namespace_id = ${namespaceId}`,
-      ),
+    await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
+    await getSystemDb().execute(
+      sql`delete from openworkflow.workflow_runs where namespace_id = ${namespaceId}`,
     )
     await backend.stop()
     await closeDb()
   })
 
-  it("reads the native run tree with trace ids, trimmed outputs, and the hydrate run by key", async () => {
+  it("reads the native run tree with roots, request ids, trace ids, trimmed outputs, and the hydrate run by key", async () => {
     const orchestrator = await newRun(
       "repository-ingestion-orchestrator",
-      { orgId, repositoryId },
+      ingestionInput("val_tree"),
       { traceparent: `00-${traceId}-b7ad6b7169203331-01` },
     )
     await claim(orchestrator.id)
@@ -220,7 +250,7 @@ describe("ingestion validator queries (Postgres)", () => {
     })
     const ingestion = await newRun(
       "repository-ingestion",
-      { orgId, repositoryId },
+      ingestionInput("val_tree"),
       { parentStepAttemptId: childStep.id },
     )
     await backend.setStepAttemptChildWorkflowRun({
@@ -249,13 +279,14 @@ describe("ingestion validator queries (Postgres)", () => {
       { idempotencyKey: `wjob_${ingestion.id}_extract:hydrate` },
     )
 
-    const hydrateRunId = await findRunByIdempotencyKey({
-      orgId,
-      namespaceId,
-      workflowName: "workspace-hydrate",
-      idempotencyKey: `wjob_${ingestion.id}_extract:hydrate`,
-    })
-    expect(hydrateRunId).toBe(hydrate.id)
+    expect(
+      await findRunByIdempotencyKey({
+        orgId,
+        namespaceId,
+        workflowName: "workspace-hydrate",
+        idempotencyKey: `wjob_${ingestion.id}_extract:hydrate`,
+      }),
+    ).toBe(hydrate.id)
 
     const tree = await readRunTree({
       orgId,
@@ -263,15 +294,20 @@ describe("ingestion validator queries (Postgres)", () => {
       rootRunIds: [orchestrator.id, hydrate.id],
     })
     expect(
-      tree.runs.map((run) => [run.workflowName, run.status]).sort(),
+      tree.runs
+        .map((run) => [run.workflowName, run.status, run.rootRunId])
+        .sort(),
     ).toEqual([
-      ["repository-ingestion", "completed"],
-      ["repository-ingestion-orchestrator", "running"],
-      ["workspace-hydrate", "pending"],
+      ["repository-ingestion", "completed", orchestrator.id],
+      ["repository-ingestion-orchestrator", "running", orchestrator.id],
+      ["workspace-hydrate", "pending", hydrate.id],
     ])
     const byName = (name: string) =>
       tree.runs.find((run) => run.workflowName === name)
-    expect(byName("repository-ingestion-orchestrator")?.traceId).toBe(traceId)
+    expect(byName("repository-ingestion-orchestrator")).toMatchObject({
+      traceId,
+      requestId: "val_tree",
+    })
     expect(byName("repository-ingestion")).toMatchObject({
       parentRunId: orchestrator.id,
       parentStepName: "repository-ingestion-child",
@@ -280,7 +316,10 @@ describe("ingestion validator queries (Postgres)", () => {
     expect(byName("repository-ingestion")?.output).not.toHaveProperty(
       "changedPaths",
     )
-    expect(byName("workspace-hydrate")?.revisionSha).toBe(sha)
+    expect(byName("workspace-hydrate")).toMatchObject({
+      revisionSha: sha,
+      workspaceId,
+    })
     const step = (name: string) =>
       tree.steps.find((attempt) => attempt.stepName === name)
     expect(step("detect-languages:admit-1")?.output).toEqual({
@@ -294,7 +333,98 @@ describe("ingestion validator queries (Postgres)", () => {
     expect(step("repository-ingestion-child")?.childRunId).toBe(ingestion.id)
   })
 
-  it("reads the repository row, the extraction job, and the units it projected", async () => {
+  it("finds the validator's own ingestion and its follow-ups, and an in-flight owner", async () => {
+    const own = await newRun(
+      "repository-ingestion-orchestrator",
+      ingestionInput("val_follow"),
+    )
+    await newRun("repository-ingestion-orchestrator", ingestionInput("other"))
+    const followUp = await newRun(
+      "repository-ingestion-orchestrator",
+      ingestionInput("val_follow"),
+    )
+    expect(
+      await findAttributedIngestions({
+        orgId,
+        namespaceId,
+        repositoryId,
+        requestId: "val_follow",
+      }),
+    ).toEqual([own.id, followUp.id])
+
+    const repository = await withOrgDbContext(orgId, async (db) => {
+      const [row] = await db
+        .select()
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId))
+      return row
+    })
+    await withOrgDbContext(orgId, (db) =>
+      db.insert(repositoryIngestionRequests).values({
+        repositoryId,
+        orgId,
+        requestId: `request_${suffix}`,
+        repositoryUrl: repository?.gitUrl ?? "",
+        githubConnectionId: null,
+        targetBranch: null,
+        indexingReason: null,
+        workflowRunId: followUp.id,
+        createdAt: new Date(),
+      }),
+    )
+    expect(
+      await findInFlightIngestion({ orgId, namespaceId, repositoryId }),
+    ).toEqual({ id: followUp.id, requestId: "val_follow" })
+    await backend.cancelWorkflowRun({ workflowRunId: followUp.id })
+    expect(
+      await findInFlightIngestion({ orgId, namespaceId, repositoryId }),
+    ).toBeNull()
+  })
+
+  it("allows extraction only into the org's sole validation Workspace", async () => {
+    await expect(
+      assertExtractionDestination({
+        orgId: emptyOrgId,
+        mode: "index-only",
+        workspaceId: null,
+      }),
+    ).resolves.toBeUndefined()
+    await expect(
+      assertExtractionDestination({
+        orgId,
+        mode: "index-only",
+        workspaceId: null,
+      }),
+    ).rejects.toThrow(/index-only refuses an org with a Workspace/)
+    await expect(
+      assertExtractionDestination({ orgId, mode: "full", workspaceId }),
+    ).resolves.toBeUndefined()
+    await expect(
+      assertExtractionDestination({
+        orgId,
+        mode: "full",
+        workspaceId: "ws_elsewhere",
+      }),
+    ).rejects.toThrow(/only Workspace/)
+
+    await withOrgDbContext(orgId, (db) =>
+      db.insert(workspaces).values({
+        id: `${workspaceId}_second`,
+        orgId,
+        slug: `validator-second-${suffix}`,
+        displayName: "Second",
+        workspaceRepositoryUrl: `https://github.com/example/second-${suffix}`,
+      }),
+    )
+    await expect(
+      assertExtractionDestination({ orgId, mode: "full", workspaceId }),
+    ).rejects.toThrow(/found 2/)
+    await withOrgDbContext(orgId, (db) =>
+      db.delete(workspaces).where(eq(workspaces.id, `${workspaceId}_second`)),
+    )
+  })
+
+  it("reads the repository row, the extraction job, and its units at the published projection", async () => {
     expect(await readRepositoryStatus(orgId, repositoryId)).toEqual({
       indexingStatus: "complete_with_issues",
       indexingError: "scip:go incomplete",
@@ -304,25 +434,21 @@ describe("ingestion validator queries (Postgres)", () => {
     const job = await readExtractWriteJob(orgId, {
       jobId: `wjob_run_${suffix}_extract`,
     })
-    expect(job).toMatchObject({
-      status: "completed",
-      commitSha: sha,
-      sourceSha: "c".repeat(40),
-    })
-    expect(await readActiveProjectionSha(orgId, workspaceId)).toBe(sha)
-    expect(
-      await readRepositoryUnits({
-        orgId,
+    expect(job).toMatchObject({ status: "completed", commitSha: sha })
+    const read = await withOrgIdContext(org, () =>
+      readRepositoryUnits(
         workspaceId,
-        projectionSha: sha,
-        paths: Object.values(job?.knowledgePaths ?? {}),
-      }),
-    ).toEqual({
-      kinds: { Service: 1, Decision: 1 },
-      units: 2,
-      withoutEmbedding: 1,
-      presentPaths: ["decisions/use-git.md", "services/api.md"],
-    })
+        Object.values(job?.knowledgePaths ?? {}),
+      ),
+    )
+    expect(read.projectionSha).toBe(sha)
+    expect(read.units.map((unit) => unit.path).sort()).toEqual([
+      "decisions/use-git.md",
+      "services/api.md",
+    ])
+    expect(read.workspaceUnits).toHaveLength(3)
+    expect(unitKinds(read.units)).toEqual({ Service: 1, Decision: 1 })
+    expect(read.units.filter((unit) => !unit.embedding)).toHaveLength(1)
     expect(
       await readExtractWriteJob(`org_other_${suffix}`, {
         jobId: job?.id ?? "",

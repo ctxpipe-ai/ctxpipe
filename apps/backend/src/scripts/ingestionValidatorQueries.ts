@@ -1,19 +1,20 @@
 /**
- * Postgres reads for the ingestion validator and `repoGraphSizeCheck`:
- * the native OpenWorkflow run tree of one ingestion, the repository row,
- * the extraction write job, and the Workspace knowledge units it produced.
+ * Postgres reads for the ingestion validator: the native OpenWorkflow run
+ * trees of one repository's ingestions, the repository row, in-flight and
+ * follow-up ingestions, and the extraction-destination guard.
  */
-import { and, desc, eq, inArray, sql } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 import { withOrgDbContext } from "../db/client.js"
-import { repositories } from "../db/schema/repositories.js"
 import {
-  workspaceKnowledgeUnits,
-  workspaces,
-  workspaceWriteJobs,
-} from "../db/schema/workspaces.js"
+  repositories,
+  repositoryIngestionRequests,
+} from "../db/schema/repositories.js"
+import { workspaces } from "../db/schema/workspaces.js"
 
 export type ValidatorRun = {
   id: string
+  /** The root run whose tree this run belongs to. */
+  rootRunId: string
   workflowName: string
   status: string
   parentRunId: string | null
@@ -21,6 +22,10 @@ export type ValidatorRun = {
   /** Run output without per-path change lists (they can hold every file of a repository). */
   output: unknown
   error: unknown
+  /** `request.id` of the job telemetry the run was admitted with. */
+  requestId: string | null
+  /** `workspaceId` of the run input (the captured extraction destination for extract runs). */
+  workspaceId: string | null
   /** `workspace-hydrate` only: the revision SHA it was asked to project. */
   revisionSha: string | null
   /** Trace id of the `workflow_run.create` span that admitted this run. */
@@ -37,7 +42,7 @@ export type ValidatorStep = {
   status: string
   startedAt: string | null
   finishedAt: string | null
-  /** Kept only for the codesearch and commit steps the checks read. */
+  /** Kept only for the codesearch steps the checks read. */
   output: unknown
   error: unknown
   childRunId: string | null
@@ -71,11 +76,12 @@ export async function readRunTree(input: {
   return withOrgDbContext(input.orgId, async (db) => {
     const runRows = await db.execute<Record<string, unknown>>(sql`
       with recursive tree as (
-        select run.id, null::text as parent_run_id, null::text as parent_step_name, 0 as depth
+        select run.id, run.id as root_run_id, null::text as parent_run_id,
+          null::text as parent_step_name, 0 as depth
         from openworkflow.workflow_runs run
         where run.namespace_id = ${namespaceId} and run.id in (${roots})
         union all
-        select child.id, attempt.workflow_run_id, attempt.step_name, tree.depth + 1
+        select child.id, tree.root_run_id, attempt.workflow_run_id, attempt.step_name, tree.depth + 1
         from tree
         join openworkflow.step_attempts attempt
           on attempt.namespace_id = ${namespaceId} and attempt.workflow_run_id = tree.id
@@ -86,11 +92,14 @@ export async function readRunTree(input: {
         where tree.depth < 8
       )
       select distinct on (run.id)
-        run.id, run.workflow_name, run.status, tree.parent_run_id, tree.parent_step_name,
+        run.id, tree.root_run_id, run.workflow_name, run.status, tree.parent_run_id,
+        tree.parent_step_name,
         case when jsonb_typeof(run.output) = 'object'
           then run.output - 'changedPaths' - 'deletedPaths' - 'renames'
           else run.output end as output,
         run.error,
+        run.input->'telemetry'->>'request.id' as request_id,
+        run.input->>'workspaceId' as workspace_id,
         case when run.workflow_name = 'workspace-hydrate'
           then run.input->'revision'->>'sha' end as revision_sha,
         run.context->'traceContext'->>'traceparent' as traceparent,
@@ -99,18 +108,20 @@ export async function readRunTree(input: {
       join openworkflow.workflow_runs run on run.namespace_id = ${namespaceId} and run.id = tree.id
       order by run.id, tree.depth
     `)
+    const text = (value: unknown) => (value as string | null) ?? null
     const runs: ValidatorRun[] = runRows.rows.map((row) => ({
       id: String(row.id),
+      rootRunId: String(row.root_run_id),
       workflowName: String(row.workflow_name),
       status: String(row.status),
-      parentRunId: (row.parent_run_id as string | null) ?? null,
-      parentStepName: (row.parent_step_name as string | null) ?? null,
+      parentRunId: text(row.parent_run_id),
+      parentStepName: text(row.parent_step_name),
       output: row.output ?? null,
       error: row.error ?? null,
-      revisionSha: (row.revision_sha as string | null) ?? null,
-      traceId: traceIdFromTraceparent(
-        (row.traceparent as string | null) ?? null,
-      ),
+      requestId: text(row.request_id),
+      workspaceId: text(row.workspace_id),
+      revisionSha: text(row.revision_sha),
+      traceId: traceIdFromTraceparent(text(row.traceparent)),
       createdAt: iso(row.created_at) ?? "",
       startedAt: iso(row.started_at),
       finishedAt: iso(row.finished_at),
@@ -123,7 +134,7 @@ export async function readRunTree(input: {
     const stepRows = await db.execute<Record<string, unknown>>(sql`
       select workflow_run_id, step_name, kind, status, started_at, finished_at, error,
         child_workflow_run_id,
-        case when step_name ~ '^(zoekt|detect-languages|scip:|merge-scip|commit$)'
+        case when step_name ~ '^(zoekt|detect-languages|scip:|merge-scip)'
           then output end as output
       from openworkflow.step_attempts
       where namespace_id = ${namespaceId} and workflow_run_id in (${runIds})
@@ -138,7 +149,7 @@ export async function readRunTree(input: {
       finishedAt: iso(row.finished_at),
       output: row.output ?? null,
       error: row.error ?? null,
-      childRunId: (row.child_workflow_run_id as string | null) ?? null,
+      childRunId: text(row.child_workflow_run_id),
     }))
     return { runs, steps }
   })
@@ -159,6 +170,51 @@ export async function findRunByIdempotencyKey(input: {
       order by created_at desc limit 1
     `)
     return result.rows[0]?.id ?? null
+  })
+}
+
+/**
+ * Orchestrator runs of this repository admitted with the validator's request
+ * id since it started: its own enqueue and every tip-ahead follow-up, oldest first.
+ */
+export async function findAttributedIngestions(input: {
+  orgId: string
+  namespaceId: string
+  repositoryId: string
+  requestId: string
+}): Promise<string[]> {
+  return withOrgDbContext(input.orgId, async (db) => {
+    const result = await db.execute<{ id: string }>(sql`
+      select id from openworkflow.workflow_runs
+      where namespace_id = ${input.namespaceId}
+        and workflow_name = 'repository-ingestion-orchestrator'
+        and input->>'orgId' = ${input.orgId}
+        and input->>'repositoryId' = ${input.repositoryId}
+        and input->'telemetry'->>'request.id' = ${input.requestId}
+      order by created_at
+    `)
+    return result.rows.map((row) => row.id)
+  })
+}
+
+/** The repository's current ingestion owner while it is still pending, running or sleeping. */
+export async function findInFlightIngestion(input: {
+  orgId: string
+  namespaceId: string
+  repositoryId: string
+}): Promise<{ id: string; requestId: string | null } | null> {
+  return withOrgDbContext(input.orgId, async (db) => {
+    const result = await db.execute<{ id: string; requestId: string | null }>(
+      sql`
+      select owner.id, owner.input->'telemetry'->>'request.id' as "requestId"
+      from ${repositoryIngestionRequests} request
+      join openworkflow.workflow_runs owner
+        on owner.namespace_id = ${input.namespaceId} and owner.id = request.workflow_run_id
+      where request.repository_id = ${input.repositoryId} and request.org_id = ${input.orgId}
+        and owner.status in ('pending', 'running', 'sleeping')
+    `,
+    )
+    return result.rows[0] ?? null
   })
 }
 
@@ -189,120 +245,33 @@ export async function readRepositoryStatus(
   return row ?? null
 }
 
-export type ExtractWriteJob = {
-  id: string
-  status: string
-  commitSha: string | null
-  sourceSha: string | null
-  /** Exported object key → knowledge file path written by this extraction. */
-  knowledgePaths: Record<string, string>
-}
-
 /**
- * One extraction write job: by id (`wjob_<repository-ingestion run>_extract`),
- * or the latest completed one for a repository in a Workspace.
+ * Throw unless extraction can reach only where the mode allows: nowhere in
+ * index-only mode (the org has no Workspace, so ingestion stops after
+ * codesearch and makes no LLM call), and only `workspaceId` in full mode
+ * (the org's sole Workspace, so it is also the org's first one).
  */
-export async function readExtractWriteJob(
-  orgId: string,
-  target: { jobId: string } | { workspaceId: string; repositoryId: string },
-): Promise<ExtractWriteJob | null> {
-  const [row] = await withOrgDbContext(orgId, (db) =>
-    db
-      .select({
-        id: workspaceWriteJobs.id,
-        status: workspaceWriteJobs.status,
-        commitSha: workspaceWriteJobs.commitSha,
-        sourceSha: sql<
-          string | null
-        >`${workspaceWriteJobs.payload}->'extraction'->>'sourceSha'`,
-        knowledgePaths: sql<Record<
-          string,
-          string
-        > | null>`${workspaceWriteJobs.payload}->'knowledgePaths'`,
-      })
-      .from(workspaceWriteJobs)
-      .where(
-        "jobId" in target
-          ? and(
-              eq(workspaceWriteJobs.orgId, orgId),
-              eq(workspaceWriteJobs.id, target.jobId),
-            )
-          : and(
-              eq(workspaceWriteJobs.orgId, orgId),
-              eq(workspaceWriteJobs.workspaceId, target.workspaceId),
-              eq(workspaceWriteJobs.kind, "extract_ingest"),
-              eq(workspaceWriteJobs.status, "completed"),
-              sql`${workspaceWriteJobs.payload}->'extraction'->>'repositoryId' = ${target.repositoryId}`,
-            ),
-      )
-      .orderBy(desc(workspaceWriteJobs.updatedAt))
-      .limit(1),
-  )
-  return row ? { ...row, knowledgePaths: row.knowledgePaths ?? {} } : null
-}
-
-export type RepositoryUnits = {
-  /** Units per front-matter kind (`(none)` for plain knowledge files). */
-  kinds: Record<string, number>
-  units: number
-  withoutEmbedding: number
-  /** Requested paths that have a unit at this projection SHA. */
-  presentPaths: string[]
-}
-
-/** Knowledge units at one projection SHA whose paths an extraction wrote. */
-export async function readRepositoryUnits(input: {
+export async function assertExtractionDestination(input: {
   orgId: string
-  workspaceId: string
-  projectionSha: string
-  paths: string[]
-}): Promise<RepositoryUnits> {
-  const empty = { kinds: {}, units: 0, withoutEmbedding: 0, presentPaths: [] }
-  if (input.paths.length === 0) return empty
+  mode: "index-only" | "full"
+  workspaceId: string | null
+}): Promise<void> {
   const rows = await withOrgDbContext(input.orgId, (db) =>
     db
-      .select({
-        path: workspaceKnowledgeUnits.path,
-        kind: workspaceKnowledgeUnits.kind,
-        embedded: sql<boolean>`${workspaceKnowledgeUnits.embedding} is not null`,
-      })
-      .from(workspaceKnowledgeUnits)
-      .where(
-        and(
-          eq(workspaceKnowledgeUnits.orgId, input.orgId),
-          eq(workspaceKnowledgeUnits.workspaceId, input.workspaceId),
-          eq(workspaceKnowledgeUnits.projectionSha, input.projectionSha),
-          inArray(workspaceKnowledgeUnits.path, input.paths),
-        ),
-      ),
-  )
-  const kinds: Record<string, number> = {}
-  for (const row of rows) {
-    const kind = row.kind ?? "(none)"
-    kinds[kind] = (kinds[kind] ?? 0) + 1
-  }
-  return {
-    kinds,
-    units: rows.length,
-    withoutEmbedding: rows.filter((row) => !row.embedded).length,
-    presentPaths: rows.map((row) => row.path).sort(),
-  }
-}
-
-/** SHA whose units the Workspace serves (the same rule as the projection snapshot). */
-export async function readActiveProjectionSha(
-  orgId: string,
-  workspaceId: string,
-): Promise<string | null> {
-  const [row] = await withOrgDbContext(orgId, (db) =>
-    db
-      .select({
-        sha: sql<
-          string | null
-        >`coalesce(${workspaces.activeRevision}->>'sha', ${workspaces.activeProjectionSha})`,
-      })
+      .select({ id: workspaces.id })
       .from(workspaces)
-      .where(and(eq(workspaces.orgId, orgId), eq(workspaces.id, workspaceId))),
+      .where(eq(workspaces.orgId, input.orgId)),
   )
-  return row?.sha ?? null
+  const ids = rows.map((row) => row.id)
+  if (input.mode === "index-only" && ids.length > 0)
+    throw new Error(
+      `index-only refuses an org with a Workspace (${ids.length}); extraction would run and spend`,
+    )
+  if (
+    input.mode === "full" &&
+    (ids.length !== 1 || ids[0] !== input.workspaceId)
+  )
+    throw new Error(
+      `full mode needs ${input.workspaceId} to be the org's only Workspace; found ${ids.length}`,
+    )
 }

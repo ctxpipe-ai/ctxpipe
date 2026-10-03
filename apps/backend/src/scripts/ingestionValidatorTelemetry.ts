@@ -1,8 +1,12 @@
 /**
  * Spend and trace lookups for the ingestion validator: OpenRouter key usage
- * (the dedicated key's credit is the run's hard cap), Langfuse token and cost
- * totals per ingestion stage, and HyperDX / Langfuse links for the report.
+ * (the dedicated key's credit is the run's hard cap), Langfuse tokens and
+ * cost per ingestion stage and the models those generations used, and
+ * HyperDX / Langfuse links for the report.
  */
+import { setTimeout as sleep } from "node:timers/promises"
+import type { Env } from "../config/env.js"
+import { resolveChatBaseUrl } from "../retrieval/services/modelProvider.js"
 
 export type LlmUsage = {
   calls: number
@@ -16,47 +20,42 @@ export type OpenRouterKeyUsage = {
   /** Credits used by this key so far, USD. */
   usage: number
   limit: number | null
-  limitRemaining: number | null
 }
 
-/** The provider base the backend sends chat calls to (see `modelProvider.ts`). */
-export function openRouterBaseUrl(
-  env: Record<string, string | undefined>,
-): string | null {
-  if (env.MODEL_PROVIDER === "azure" || env.MODEL_PROVIDER === "bedrock")
-    return null
-  const base = env.MODEL_PROVIDER_URL?.trim() || "https://openrouter.ai/api/v1"
-  return new URL(base).hostname.endsWith("openrouter.ai")
-    ? base.replace(/\/$/, "")
+/** The key and base the backend sends chat calls to, when that is OpenRouter. */
+export function openRouterKey(
+  env: Env,
+): { baseUrl: string; apiKey: string } | null {
+  const provider = env.MODEL_PROVIDER ?? "openai-like"
+  const apiKey = env.MODEL_PROVIDER_API_KEY?.trim()
+  if (provider === "azure" || provider === "bedrock" || !apiKey) return null
+  const baseUrl = resolveChatBaseUrl(provider, env.MODEL_PROVIDER_URL).replace(
+    /\/$/,
+    "",
+  )
+  return new URL(baseUrl).hostname.endsWith("openrouter.ai")
+    ? { baseUrl, apiKey }
     : null
 }
 
 /** `GET /key`: usage and credit limit of the key the backend runs with. */
-export async function readOpenRouterKeyUsage(input: {
+export async function readOpenRouterKeyUsage(key: {
   baseUrl: string
   apiKey: string
 }): Promise<OpenRouterKeyUsage> {
-  const res = await fetch(`${input.baseUrl}/key`, {
-    headers: { Authorization: `Bearer ${input.apiKey}` },
+  const res = await fetch(`${key.baseUrl}/key`, {
+    headers: { Authorization: `Bearer ${key.apiKey}` },
     signal: AbortSignal.timeout(15_000),
   })
   if (!res.ok) throw new Error(`OpenRouter key lookup failed: ${res.status}`)
   const body = (await res.json()) as {
-    data?: {
-      usage?: unknown
-      limit?: unknown
-      limit_remaining?: unknown
-    }
+    data?: { usage?: unknown; limit?: unknown }
   }
   const number = (value: unknown) =>
     typeof value === "number" && Number.isFinite(value) ? value : null
   const usage = number(body.data?.usage)
   if (usage === null) throw new Error("OpenRouter key lookup had no usage")
-  return {
-    usage,
-    limit: number(body.data?.limit),
-    limitRemaining: number(body.data?.limit_remaining),
-  }
+  return { usage, limit: number(body.data?.limit) }
 }
 
 export type LangfuseConfig = {
@@ -89,17 +88,6 @@ export async function readLangfuseProjectId(
   return typeof id === "string" ? id : null
 }
 
-/**
- * Ingestion stages as the extraction steps name them. Every LangChain
- * generation inherits `repositoryId` and `workflowStepName` metadata from
- * `withIngestAgentContext`.
- */
-export const LLM_STAGES = [
-  { stage: "identify-roots", operator: "=", value: "identify-roots" },
-  { stage: "extract-kind", operator: "starts with", value: "extract-kind:" },
-  { stage: "identify", operator: "starts with", value: "identify:" },
-] as const
-
 function measure(row: Record<string, unknown>, name: string): number {
   const key = Object.keys(row).find((candidate) =>
     candidate.toLowerCase().endsWith(name.toLowerCase()),
@@ -108,17 +96,20 @@ function measure(row: Record<string, unknown>, name: string): number {
   return value !== undefined && Number.isFinite(value) ? value : 0
 }
 
-async function langfuseUsage(
+type Filter = Record<string, string>
+
+async function langfuseRows(
   config: LangfuseConfig,
   input: {
     from: string
     to: string
-    filters: Array<Record<string, string>>
+    filters: Filter[]
+    dimensions?: string[]
   },
-): Promise<LlmUsage> {
+): Promise<Array<Record<string, unknown>>> {
   const query = {
     view: "observations",
-    dimensions: [],
+    dimensions: (input.dimensions ?? []).map((field) => ({ field })),
     metrics: [
       { measure: "count", aggregation: "count" },
       { measure: "inputTokens", aggregation: "sum" },
@@ -137,51 +128,129 @@ async function langfuseUsage(
     config,
     `/api/public/metrics?query=${encodeURIComponent(JSON.stringify(query))}`,
   )) as { data?: Array<Record<string, unknown>> }
-  const row = body.data?.[0] ?? {}
+  return body.data ?? []
+}
+
+function usage(row: Record<string, unknown> | undefined): LlmUsage {
+  const r = row ?? {}
   return {
-    calls: measure(row, "count"),
-    inputTokens: measure(row, "inputTokens"),
-    outputTokens: measure(row, "outputTokens"),
-    totalTokens: measure(row, "totalTokens"),
-    costUsd: measure(row, "totalCost"),
+    calls: measure(r, "count"),
+    inputTokens: measure(r, "inputTokens"),
+    outputTokens: measure(r, "outputTokens"),
+    totalTokens: measure(r, "totalTokens"),
+    costUsd: measure(r, "totalCost"),
   }
 }
 
-/** Langfuse generations of one repository's ingestion, per extraction stage and in total. */
+function metadata(key: string, operator: string, value: string): Filter {
+  return { column: "metadata", operator, key, value, type: "stringObject" }
+}
+
+export type RepositoryLlm = {
+  /** Per stage; `embeddings` is hydrate's `modelProvider.generateEmbeddings`. */
+  stages: Record<string, LlmUsage>
+  total: LlmUsage
+  /** Model name → generations, from the same generations. */
+  models: Record<string, number>
+}
+
+/**
+ * Langfuse generations of one repository's ingestion window. Extraction
+ * generations inherit `repositoryId` and `workflowStepName` metadata from
+ * `withIngestAgentContext`; hydrate embeddings carry the run's `requestId`.
+ * The commit-subject call is not traced, so it appears only in the
+ * OpenRouter delta.
+ */
 export async function readRepositoryLlmUsage(
   config: LangfuseConfig,
-  input: { repositoryId: string; from: string; to: string },
-): Promise<{ stages: Record<string, LlmUsage>; total: LlmUsage }> {
-  const repository = {
-    column: "metadata",
-    operator: "=",
-    key: "repositoryId",
-    value: input.repositoryId,
-    type: "stringObject",
+  input: { repositoryId: string; requestId: string; from: string; to: string },
+): Promise<RepositoryLlm> {
+  const window = { from: input.from, to: input.to }
+  const repository = metadata("repositoryId", "=", input.repositoryId)
+  const stageFilters: Record<string, Filter[]> = {
+    "identify-roots": [
+      repository,
+      metadata("workflowStepName", "=", "identify-roots"),
+    ],
+    "extract-kind": [
+      repository,
+      metadata("workflowStepName", "starts with", "extract-kind:"),
+    ],
+    identify: [
+      repository,
+      metadata("workflowStepName", "starts with", "identify:"),
+    ],
+    embeddings: [
+      metadata("requestId", "=", input.requestId),
+      {
+        column: "name",
+        operator: "=",
+        value: "modelProvider.generateEmbeddings",
+        type: "string",
+      },
+    ],
   }
   const stages: Record<string, LlmUsage> = {}
-  for (const stage of LLM_STAGES) {
-    stages[stage.stage] = await langfuseUsage(config, {
-      from: input.from,
-      to: input.to,
-      filters: [
-        repository,
-        {
-          column: "metadata",
-          operator: stage.operator,
-          key: "workflowStepName",
-          value: stage.value,
-          type: "stringObject",
-        },
-      ],
+  const models: Record<string, number> = {}
+  for (const [stage, filters] of Object.entries(stageFilters)) {
+    const rows = await langfuseRows(config, {
+      ...window,
+      filters,
+      dimensions: ["providedModelName"],
     })
+    const sum = rows.map(usage).reduce(
+      (acc, next) => ({
+        calls: acc.calls + next.calls,
+        inputTokens: acc.inputTokens + next.inputTokens,
+        outputTokens: acc.outputTokens + next.outputTokens,
+        totalTokens: acc.totalTokens + next.totalTokens,
+        costUsd: acc.costUsd + next.costUsd,
+      }),
+      usage(undefined),
+    )
+    stages[stage] = sum
+    for (const row of rows) {
+      const name = String(row.providedModelName ?? "(unknown)")
+      models[name] = (models[name] ?? 0) + measure(row, "count")
+    }
   }
-  const total = await langfuseUsage(config, {
-    from: input.from,
-    to: input.to,
-    filters: [repository],
-  })
-  return { stages, total }
+  const total = Object.values(stages).reduce((acc, next) => ({
+    calls: acc.calls + next.calls,
+    inputTokens: acc.inputTokens + next.inputTokens,
+    outputTokens: acc.outputTokens + next.outputTokens,
+    totalTokens: acc.totalTokens + next.totalTokens,
+    costUsd: acc.costUsd + next.costUsd,
+  }))
+  return { stages, total, models }
+}
+
+/**
+ * Generations reach Langfuse through the collector's batch exporter. Wait
+ * until the run's generation count stops changing between reads (bounded).
+ */
+export async function waitForLangfuseIngestion(
+  config: LangfuseConfig,
+  input: {
+    requestId: string
+    from: string
+    intervalMs?: number
+    maxWaitMs?: number
+  },
+): Promise<number> {
+  const interval = input.intervalMs ?? 15_000
+  const deadline = Date.now() + (input.maxWaitMs ?? 300_000)
+  let previous = -1
+  for (;;) {
+    const [row] = await langfuseRows(config, {
+      from: input.from,
+      to: new Date().toISOString(),
+      filters: [metadata("requestId", "=", input.requestId)],
+    })
+    const calls = usage(row).calls
+    if (calls === previous || Date.now() >= deadline) return calls
+    previous = calls
+    await sleep(interval)
+  }
 }
 
 /** HyperDX search over spans that carry these attributes, in one environment and window. */

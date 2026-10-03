@@ -17,12 +17,15 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { config } from "dotenv"
-import { closeDb, initDb } from "../db/client.js"
+import { eq } from "drizzle-orm"
+import { withOrgIdContext } from "../auth/withAuth.js"
+import { closeDb, getSystemDb, initDb } from "../db/client.js"
+import { organizations } from "../db/schema/auth.js"
 import {
-  readActiveProjectionSha,
   readExtractWriteJob,
   readRepositoryUnits,
-} from "./ingestionValidatorQueries.js"
+  unitKinds,
+} from "../models/repository-knowledge-units.js"
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
 config({ path: resolve(__dirname, "../../.env.local") })
@@ -160,29 +163,31 @@ export function compareRepoGraph(
   })
 }
 
-/** Unit kinds the repository's latest completed extraction wrote, at the active projection. */
+/** Unit kinds the repository's latest completed extraction wrote, at the published projection. */
 export async function repositoryUnitKinds(input: {
   orgId: string
   workspaceId: string
   repositoryId: string
 }): Promise<Record<string, number>> {
-  const job = await readExtractWriteJob(input.orgId, {
-    workspaceId: input.workspaceId,
-    repositoryId: input.repositoryId,
+  const [org] = await getSystemDb()
+    .select({ id: organizations.id, slug: organizations.slug })
+    .from(organizations)
+    .where(eq(organizations.id, input.orgId))
+  if (!org) throw new Error(`Organization ${input.orgId} not found`)
+  return withOrgIdContext(org, async () => {
+    const job = await readExtractWriteJob(input.orgId, {
+      workspaceId: input.workspaceId,
+      repositoryId: input.repositoryId,
+    })
+    if (!job) throw new Error("No completed extraction for this repository")
+    const read = await readRepositoryUnits(
+      input.workspaceId,
+      Object.values(job.knowledgePaths),
+    )
+    if (!read.projectionSha)
+      throw new Error("Workspace has no published projection")
+    return unitKinds(read.units)
   })
-  if (!job) throw new Error("No completed extraction for this repository")
-  const projectionSha = await readActiveProjectionSha(
-    input.orgId,
-    input.workspaceId,
-  )
-  if (!projectionSha) throw new Error("Workspace has no active projection")
-  const units = await readRepositoryUnits({
-    orgId: input.orgId,
-    workspaceId: input.workspaceId,
-    projectionSha,
-    paths: [...new Set(Object.values(job.knowledgePaths))],
-  })
-  return units.kinds
 }
 
 async function main(argv: string[]): Promise<void> {

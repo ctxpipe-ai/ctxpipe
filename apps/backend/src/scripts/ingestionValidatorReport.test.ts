@@ -11,12 +11,24 @@ import {
   stageDurations,
   stepGroup,
   stepTimings,
+  unexpectedModels,
   type ValidatorReport,
 } from "./ingestionValidatorReport.js"
 
 const commit = "c".repeat(40)
 const at = (seconds: number) =>
   new Date(Date.UTC(2026, 9, 3, 10, 0, seconds)).toISOString()
+const quality = {
+  totalUnits: 2,
+  totalClaims: 6,
+  multiSourceUnits: 1,
+  joinDensity: 0.5,
+  orphanUnits: 0,
+  orphanRate: 0,
+  sourcedClaimRate: 1,
+  kinds: {},
+  predicates: {},
+}
 
 function run(
   id: string,
@@ -25,12 +37,15 @@ function run(
 ): ValidatorRun {
   return {
     id,
+    rootRunId: "run_orch",
     workflowName,
     status: "completed",
     parentRunId: null,
     parentStepName: null,
     output: null,
     error: null,
+    requestId: "val_1",
+    workspaceId: null,
     revisionSha: null,
     traceId: null,
     createdAt: at(0),
@@ -61,6 +76,14 @@ function step(
   }
 }
 
+const usage = (calls: number, cost: number) => ({
+  calls,
+  inputTokens: calls * 1000,
+  outputTokens: calls * 200,
+  totalTokens: calls * 1200,
+  costUsd: cost,
+})
+
 /** A full-mode ingestion where every stage succeeded. */
 function passingFacts(): RepoFacts {
   return {
@@ -70,12 +93,17 @@ function passingFacts(): RepoFacts {
       expectedLanguages: ["typescript"],
     },
     mode: "full",
+    requestId: "val_1",
+    workspaceId: "ws_1",
     repositoryId: "repo_1",
     enqueuedAt: at(0),
     finishedAt: at(200),
     timedOut: false,
     error: null,
-    orchestratorRunId: "run_orch",
+    waitedFor: null,
+    coalescedInto: null,
+    ingestionRunIds: ["run_orch"],
+    hydrateRunId: "run_hydrate",
     runs: [
       run("run_orch", "repository-ingestion-orchestrator", {
         traceId: "0af7651916cd43dd8448eb211c80319c",
@@ -91,11 +119,14 @@ function passingFacts(): RepoFacts {
       }),
       run("run_extract", "workspace-write-extract-ingest", {
         parentRunId: "run_ingest",
+        workspaceId: "ws_1",
         startedAt: at(90),
         finishedAt: at(110),
         output: { committed: true, commitSha: commit },
       }),
       run("run_hydrate", "workspace-hydrate", {
+        rootRunId: "run_hydrate",
+        workspaceId: "ws_1",
         startedAt: at(111),
         finishedAt: at(150),
         revisionSha: commit,
@@ -103,9 +134,6 @@ function passingFacts(): RepoFacts {
       }),
     ],
     steps: [
-      step("run_index", "zoekt", 3, 10, {
-        output: { admitted: true, value: { ok: true } },
-      }),
       step("run_index", "detect-languages", 10, 12, {
         output: {
           admitted: true,
@@ -128,9 +156,6 @@ function passingFacts(): RepoFacts {
       step("run_ingest", "identify-roots", 41, 50),
       step("run_ingest", "extract-kind:root-a", 50, 70),
       step("run_ingest", "identify:root-a", 70, 89),
-      step("run_extract", "commit", 100, 101, {
-        output: { sha: commit },
-      }),
       step("run_extract", "await-write-access", 101, 160, { kind: "sleep" }),
     ],
     repository: {
@@ -144,7 +169,6 @@ function passingFacts(): RepoFacts {
       id: "wjob_run_ingest_extract",
       status: "completed",
       commitSha: commit,
-      sourceSha: "a".repeat(40),
       knowledgePaths: {
         "repo:svc": "services/app.md",
         "repo:decision": "decisions/use-ts.md",
@@ -170,37 +194,18 @@ function passingFacts(): RepoFacts {
         { name: "scipDocuments", expected: 20, actual: null, ok: null },
       ],
     },
-    quality: {
-      totalUnits: 12,
-      totalClaims: 30,
-      multiSourceUnits: 4,
-      joinDensity: 0.33,
-      orphanUnits: 1,
-      orphanRate: 0.08,
-      sourcedClaimRate: 0.97,
-      kinds: {},
-      predicates: {},
-    },
-    qualityThresholds: { minJoinDensity: 0.2, maxOrphanRate: 0.2 },
+    quality,
+    workspaceQuality: { ...quality, totalUnits: 12, joinDensity: 0.2 },
+    qualityThresholds: { minJoinDensity: 0.3, maxOrphanRate: 0.2 },
     llm: {
       stages: {
-        "identify-roots": {
-          calls: 1,
-          inputTokens: 1000,
-          outputTokens: 200,
-          totalTokens: 1200,
-          costUsd: 0.0002,
-        },
+        "identify-roots": usage(1, 0.0002),
+        embeddings: usage(1, 0.0001),
       },
-      total: {
-        calls: 3,
-        inputTokens: 5000,
-        outputTokens: 900,
-        totalTokens: 5900,
-        costUsd: 0.00095,
-      },
+      total: usage(2, 0.0003),
+      models: { "openai/gpt-6-luna": 1, "openai/text-embedding-3-large": 1 },
     },
-    spendUsd: 0.001,
+    spendUsd: 0.0005,
   }
 }
 
@@ -252,7 +257,7 @@ describe("stage timings", () => {
     expect(stepGroup("mark-success")).toBe("mark-success")
   })
 
-  it("measures stages from native run and step timestamps, skipping sleeps", () => {
+  it("measures stages from native timestamps, skipping sleeps", () => {
     const facts = passingFacts()
     expect(stageDurations(facts)).toEqual({
       total: 150_000,
@@ -282,10 +287,12 @@ describe("evaluateRepo", () => {
     const report = evaluateRepo(passingFacts(), { HyperDX: "https://h/x" })
     expect(report.status).toBe("PASS")
     expect(statuses(passingFacts())).toEqual({
+      "ingestion.attribution": "pass",
       "ingestion.workflow": "pass",
       "ingestion.repository_status": "pass",
       "codesearch.zoekt": "pass",
       "codesearch.scip": "pass",
+      "extraction.destination": "pass",
       "extraction.commit": "pass",
       "extraction.knowledge_files": "pass",
       "hydrate.projection": "pass",
@@ -296,9 +303,12 @@ describe("evaluateRepo", () => {
       "quality.graph": "pass",
       "telemetry.traces": "pass",
       "telemetry.llm": "pass",
+      "telemetry.models": "pass",
     })
     expect(report.extractionCommitSha).toBe(commit)
-    expect(report.links).toEqual({ HyperDX: "https://h/x" })
+    expect(detail(passingFacts(), "extraction.commit")).toContain(
+      "Workspace git history not inspected",
+    )
   })
 
   it("fails a SCIP language whose last attempt reported an issue, and a missing expected language", () => {
@@ -318,35 +328,55 @@ describe("evaluateRepo", () => {
     expect(evaluateRepo(facts).status).toBe("FAIL")
   })
 
-  it("fails an extraction that took two commits or wrote unparseable knowledge", () => {
-    const twoCommits = passingFacts()
-    twoCommits.steps.push(step("run_extract", "commit", 102, 103))
-    expect(detail(twoCommits, "extraction.commit")).toBe(
-      "2 commit steps for one extraction",
+  it("fails an extraction captured into another Workspace or recorded with another SHA", () => {
+    const elsewhere = passingFacts()
+    const extract = elsewhere.runs.find((r) => r.id === "run_extract")
+    if (extract) extract.workspaceId = "ws_other"
+    expect(detail(elsewhere, "extraction.destination")).toBe(
+      "extraction captured ws_other, expected ws_1",
     )
 
-    const malformed = passingFacts()
-    const hydrate = malformed.runs.find(
-      (r) => r.workflowName === "workspace-hydrate",
-    )
+    const mismatch = passingFacts()
+    if (mismatch.extractJob) mismatch.extractJob.commitSha = "e".repeat(40)
+    expect(statuses(mismatch)["extraction.commit"]).toBe("fail")
+  })
+
+  it("fails knowledge files that are malformed or not projected", () => {
+    const facts = passingFacts()
+    const hydrate = facts.runs.find((r) => r.id === "run_hydrate")
     if (hydrate)
       hydrate.output = {
         hydrated: true,
         diagnostics: [{ path: "services/app.md", reason: "malformed" }],
       }
-    if (malformed.repositoryUnits)
-      malformed.repositoryUnits.presentPaths = ["decisions/use-ts.md"]
-    expect(detail(malformed, "extraction.knowledge_files")).toBe(
+    if (facts.repositoryUnits)
+      facts.repositoryUnits.presentPaths = ["decisions/use-ts.md"]
+    expect(detail(facts, "extraction.knowledge_files")).toBe(
       "malformed: services/app.md (malformed); 1 of 2 not projected (e.g. services/app.md)",
     )
   })
 
-  it("fails a hydrate that projected another SHA and stores that are not ready", () => {
+  it("fails units, graph and embeddings when the published projection is not the extraction commit", () => {
     const facts = passingFacts()
-    const hydrate = facts.runs.find(
-      (r) => r.workflowName === "workspace-hydrate",
+    facts.projection = {
+      kind: "active",
+      sha: "d".repeat(40),
+      graph: "ready",
+      embeddings: "ready",
+    }
+    expect(statuses(facts)).toMatchObject({
+      "hydrate.projection": "pass",
+      "hydrate.units": "fail",
+      "hydrate.graph": "fail",
+      "hydrate.embeddings": "fail",
+    })
+    expect(detail(facts, "hydrate.graph")).toBe(
+      `published projection is at ${"d".repeat(40)}, extraction committed ${commit}`,
     )
-    if (hydrate) hydrate.revisionSha = "d".repeat(40)
+  })
+
+  it("fails stores that are not ready at the commit", () => {
+    const facts = passingFacts()
     facts.projection = {
       kind: "active",
       sha: commit,
@@ -355,10 +385,64 @@ describe("evaluateRepo", () => {
     }
     if (facts.repositoryUnits) facts.repositoryUnits.withoutEmbedding = 1
     expect(statuses(facts)).toMatchObject({
-      "hydrate.projection": "fail",
       "hydrate.graph": "fail",
       "hydrate.embeddings": "fail",
     })
+  })
+
+  it("applies quality thresholds to the repository's units, not the cumulative Workspace", () => {
+    const facts = passingFacts()
+    expect(statuses(facts)["quality.graph"]).toBe("pass")
+    facts.quality = { ...quality, joinDensity: 0.1 }
+    expect(detail(facts, "quality.graph")).toBe(
+      "repository units: join 10.0%, orphans 0.0%, sourced 100.0%: join density < 30.0%",
+    )
+  })
+
+  it("checks the final follow-up ingestion and requires every attributed run to succeed", () => {
+    const facts = passingFacts()
+    facts.ingestionRunIds = ["run_orch", "run_follow"]
+    facts.runs.push(
+      run("run_follow", "repository-ingestion-orchestrator", {
+        rootRunId: "run_follow",
+        status: "failed",
+        error: { message: "boom" },
+      }),
+    )
+    expect(detail(facts, "ingestion.workflow")).toBe(
+      "follow-up 1: failed: boom",
+    )
+    // The final tree has no index or extraction of its own.
+    expect(statuses(facts)).toMatchObject({
+      "codesearch.zoekt": "fail",
+      "extraction.commit": "fail",
+    })
+  })
+
+  it("reports whether it waited for an in-flight ingestion or was coalesced", () => {
+    const waited = passingFacts()
+    waited.waitedFor = "run_other"
+    expect(detail(waited, "ingestion.attribution")).toBe(
+      "waited for in-flight ingestion run_other, then enqueued its own",
+    )
+    const coalesced = passingFacts()
+    coalesced.coalescedInto = "run_other"
+    expect(statuses(coalesced)["ingestion.attribution"]).toBe("fail")
+  })
+
+  it("warns when generations used a model other than GPT-6 Luna", () => {
+    expect(
+      unexpectedModels({
+        "openai/gpt-6-luna": 3,
+        "openai/text-embedding-3-large": 1,
+        "xiaomi/mimo-v2.6-pro": 2,
+      }),
+    ).toEqual(["xiaomi/mimo-v2.6-pro"])
+    const facts = passingFacts()
+    if (facts.llm) facts.llm.models["xiaomi/mimo-v2.6-pro"] = 2
+    expect(detail(facts, "telemetry.models")).toBe(
+      "not GPT-6 Luna: xiaomi/mimo-v2.6-pro",
+    )
   })
 
   it("warns on complete_with_issues and reports a timeout as TIMEOUT", () => {
@@ -375,106 +459,114 @@ describe("evaluateRepo", () => {
     slow.timedOut = true
     const root = slow.runs.find((r) => r.id === "run_orch")
     if (root) root.status = "running"
-    const report = evaluateRepo(slow)
-    expect(report.status).toBe("TIMEOUT")
-    expect(report.checks[0]).toEqual({
-      id: "ingestion.workflow",
-      status: "fail",
-      detail: "timed out while running",
-    })
+    expect(evaluateRepo(slow).status).toBe("TIMEOUT")
+    expect(detail(slow, "ingestion.workflow")).toBe(
+      "ingestion: timed out while running",
+    )
   })
 
-  it("in index-only mode skips extraction and fails if one ran or spent tokens", () => {
-    const indexOnly = passingFacts()
-    indexOnly.mode = "index-only"
-    indexOnly.runs = indexOnly.runs.filter((r) =>
+  it("in index-only mode checks ingestion and codesearch only", () => {
+    const facts = passingFacts()
+    facts.mode = "index-only"
+    facts.workspaceId = null
+    facts.hydrateRunId = null
+    facts.runs = facts.runs.filter((r) =>
       [
         "repository-ingestion-orchestrator",
         "repository-ingestion",
         "repository-index",
       ].includes(r.workflowName),
     )
-    indexOnly.llm = null
-    const report = evaluateRepo(indexOnly)
+    facts.llm = null
+    const report = evaluateRepo(facts)
     expect(report.status).toBe("PASS")
     expect(report.checks.map((check) => check.id)).toEqual([
+      "ingestion.attribution",
       "ingestion.workflow",
       "ingestion.repository_status",
       "codesearch.zoekt",
       "codesearch.scip",
-      "extraction.commit",
+      "extraction",
       "telemetry.traces",
-      "telemetry.llm",
     ])
-
-    const leaked = passingFacts()
-    leaked.mode = "index-only"
-    expect(statuses(leaked)).toMatchObject({
-      "extraction.commit": "fail",
-      "telemetry.llm": "fail",
-    })
   })
 
   it("reports a validator failure before any run existed", () => {
     const facts = passingFacts()
-    facts.orchestratorRunId = null
+    facts.ingestionRunIds = []
     facts.runs = []
     facts.steps = []
-    facts.error =
-      "link not admitted: Workspace writes require a connected GitHub repository"
+    facts.error = "full mode needs ws_1 to be the org's only Workspace; found 2"
     const report = evaluateRepo(facts)
     expect(report.status).toBe("FAIL")
     expect(report.checks).toEqual([
       {
         id: "validator",
         status: "fail",
-        detail:
-          "link not admitted: Workspace writes require a connected GitHub repository",
+        detail: "full mode needs ws_1 to be the org's only Workspace; found 2",
       },
     ])
   })
 })
 
 describe("renderMarkdown", () => {
-  it("summarizes repositories, checks, LLM stages, runs, and links", () => {
-    const facts = passingFacts()
+  function report(concurrency: number): ValidatorReport {
     const failing = passingFacts()
     failing.repo = { ...failing.repo, name: "example/broken" }
     failing.error = "lookup | failed"
-    const report: ValidatorReport = {
+    return {
       runId: "val_1",
       environment: "ingestion-validator",
       mode: "full",
       orgId: "org_1",
       workspaceId: "ws_1",
-      concurrency: 1,
+      concurrency,
       timeoutMinutes: 180,
       startedAt: at(0),
       finishedAt: at(300),
-      models: {
+      configuredModels: {
         fast: "openai/gpt-6-luna?reasoning.effort=low",
         medium: null,
         high: null,
         embedding: null,
       },
-      spend: { beforeUsd: 1, afterUsd: 1.5, limitUsd: 30 },
+      spend: { totalUsd: 0.5, limitUsd: 30 },
       links: { "HyperDX (all spans of this run)": "https://hyperdx/search" },
       repos: [
-        evaluateRepo(facts, { Langfuse: "https://langfuse/session" }),
+        evaluateRepo(passingFacts(), { Langfuse: "https://langfuse/session" }),
         evaluateRepo(failing),
       ],
     }
-    const markdown = renderMarkdown(report)
+  }
+
+  it("summarizes repositories, checks, models, LLM stages, runs, and links", () => {
+    const markdown = renderMarkdown(report(1))
     expect(markdown).toContain("# Ingestion validator val_1")
-    expect(markdown).toContain("OpenRouter spend: $0.5000 (key limit $30)")
     expect(markdown).toContain(
-      "| example/app | PASS | 150s | 38s | 48s | 20s | 39s | 5900 | $0.0010 |",
+      "Models used (Langfuse generations): `openai/gpt-6-luna` ×2, `openai/text-embedding-3-large` ×2.",
+    )
+    expect(markdown).toContain("OpenRouter spend: $0.5000 (key limit $30).")
+    expect(markdown).toContain("unverified query shape")
+    expect(markdown).toContain(
+      "| example/app | PASS | 150s | 38s | 48s | 20s | 39s | 2400 | $0.0005 |",
     )
     expect(markdown).toContain("| validator | FAIL | lookup \\| failed |")
-    expect(markdown).toContain("| identify-roots | 1 | 1000 | 200 | $0.0002 |")
+    expect(markdown).toContain("| embeddings | 1 | 1000 | 200 | $0.0001 |")
+    expect(markdown).toContain(
+      "| not in Langfuse (OpenRouter delta − Langfuse total) | — | — | — | $0.0002 |",
+    )
+    expect(markdown).toContain(
+      "Workspace at this SHA (cumulative across repositories, no thresholds): 12 units, join 20.0%",
+    )
     expect(markdown).toContain(
       "repository-ingestion-orchestrator `run_orch` completed trace `0af7651916cd43dd8448eb211c80319c`",
     )
     expect(markdown).toContain("- Langfuse: https://langfuse/session")
+  })
+
+  it("says per-repository OpenRouter deltas are unavailable above concurrency 1", () => {
+    expect(renderMarkdown(report(2))).toContain(
+      "Per-repository OpenRouter deltas are unavailable at concurrency 2; use the per-stage Langfuse cost.",
+    )
   })
 })

@@ -1,21 +1,31 @@
 /**
  * Pure checks and rendering for the ingestion validator: turns the facts
- * collected for one repository (native run tree, repository row, extraction
+ * collected for one repository (native run trees, repository row, extraction
  * write job, projection, units, size bounds, quality, spend) into checks with
  * a status, stage timings, and a JSON + Markdown report.
  */
+import { z } from "zod"
 import type { WorkspaceGraphQuality } from "../domain/workspaces/workspace-graph.js"
+import type { ExtractWriteJob } from "../models/repository-knowledge-units.js"
 import type {
-  ExtractWriteJob,
   RepositoryStatus,
-  RepositoryUnits,
   ValidatorRun,
   ValidatorStep,
 } from "./ingestionValidatorQueries.js"
-import type { LlmUsage } from "./ingestionValidatorTelemetry.js"
+import type { RepositoryLlm } from "./ingestionValidatorTelemetry.js"
 import type { RepoGraphSizeRow } from "./repoGraphSizeCheck.js"
 
-export type ValidatorMode = "full" | "index-only"
+export const validatorModeSchema = z.enum(["index-only", "full"])
+export type ValidatorMode = z.infer<typeof validatorModeSchema>
+
+export const qualityThresholdsSchema = z
+  .object({
+    minJoinDensity: z.number().min(0).max(1).optional(),
+    maxOrphanRate: z.number().min(0).max(1).optional(),
+    minSourcedClaimRate: z.number().min(0).max(1).optional(),
+  })
+  .strict()
+export type QualityThresholds = z.infer<typeof qualityThresholdsSchema>
 
 export type RepoSpec = {
   /** As written in the repos file: `owner/name` or a git URL. */
@@ -56,40 +66,55 @@ export type ProjectionFacts = {
   embeddings: string
 }
 
-export type QualityThresholds = {
-  minJoinDensity?: number
-  maxOrphanRate?: number
-  minSourcedClaimRate?: number
-}
-
 export type ZoektProbe =
   | { ok: true; files: number }
   | { ok: false; error: string }
 
+export type RepoUnitFacts = {
+  kinds: Record<string, number>
+  units: number
+  withoutEmbedding: number
+  presentPaths: string[]
+}
+
 export type RepoFacts = {
   repo: RepoSpec
   mode: ValidatorMode
+  /** The validator run id, stamped as `request.id` on every enqueue. */
+  requestId: string
+  /** Full mode: the only allowed extraction destination. */
+  workspaceId: string | null
   repositoryId: string | null
   enqueuedAt: string
   /** When the validator stopped waiting. */
   finishedAt: string
   timedOut: boolean
-  /** Failure before or outside the pipeline (link, enqueue, lookups). */
+  /** Failure before or outside the pipeline (guard, link, enqueue, lookups). */
   error: string | null
-  orchestratorRunId: string | null
+  /** In-flight ingestion the validator waited for before enqueueing its own. */
+  waitedFor: string | null
+  /** Set when the enqueue returned a run without the validator's request id. */
+  coalescedInto: string | null
+  /** Orchestrator runs with the validator's request id: its own, then follow-ups. */
+  ingestionRunIds: string[]
+  /** Hydrate admitted by the final ingestion's extraction. */
+  hydrateRunId: string | null
   runs: ValidatorRun[]
   steps: ValidatorStep[]
   repository: RepositoryStatus | null
   zoekt: ZoektProbe | null
   extractJob: ExtractWriteJob | null
   projection: ProjectionFacts | null
-  repositoryUnits: RepositoryUnits | null
+  repositoryUnits: RepoUnitFacts | null
   workspaceUnits: number | null
   size: { facts: Record<string, number>; rows: RepoGraphSizeRow[] } | null
+  /** Quality of this repository's units only; thresholds apply here. */
   quality: WorkspaceGraphQuality | null
+  /** Whole-Workspace quality at the same SHA (cumulative across repositories). */
+  workspaceQuality: WorkspaceGraphQuality | null
   qualityThresholds: QualityThresholds | null
-  llm: { stages: Record<string, LlmUsage>; total: LlmUsage } | null
-  /** OpenRouter key usage delta across this repository; null when not measured. */
+  llm: RepositoryLlm | null
+  /** OpenRouter key usage delta across this repository; null when not measurable. */
   spendUsd: number | null
 }
 
@@ -130,18 +155,35 @@ export type RepoReport = {
   projectionSha: string | null
   size: RepoFacts["size"]
   quality: WorkspaceGraphQuality | null
-  llm: RepoFacts["llm"]
+  workspaceQuality: WorkspaceGraphQuality | null
+  llm: RepositoryLlm | null
   spendUsd: number | null
   links: Record<string, string>
   enqueuedAt: string
   finishedAt: string
 }
 
-const TERMINAL = new Set(["completed", "succeeded", "failed", "canceled"])
 const SUCCEEDED = new Set(["completed", "succeeded"])
 
 export function isTerminalRunStatus(status: string): boolean {
-  return TERMINAL.has(status)
+  return ["completed", "succeeded", "failed", "canceled"].includes(status)
+}
+
+export function runNamed(
+  runs: readonly ValidatorRun[],
+  workflow: string,
+): ValidatorRun | undefined {
+  return runs.find((run) => run.workflowName === workflow)
+}
+
+/** Runs of the final ingestion (the last follow-up, else the validator's own) and its hydrate. */
+export function finalRuns(
+  facts: Pick<RepoFacts, "runs" | "ingestionRunIds" | "hydrateRunId">,
+): ValidatorRun[] {
+  const root = facts.ingestionRunIds.at(-1)
+  return facts.runs.filter(
+    (run) => run.rootRunId === root || run.id === facts.hydrateRunId,
+  )
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -174,6 +216,14 @@ function durationMs(start: string | null, end: string | null): number | null {
   return Date.parse(end) - Date.parse(start)
 }
 
+function wall(steps: readonly ValidatorStep[]): number | null {
+  const starts = steps.flatMap((s) => (s.startedAt ? [s.startedAt] : []))
+  const ends = steps.flatMap((s) => (s.finishedAt ? [s.finishedAt] : []))
+  return starts.length && ends.length
+    ? Math.max(...ends.map(Date.parse)) - Math.min(...starts.map(Date.parse))
+    : null
+}
+
 export function stepTimings(
   runs: ValidatorRun[],
   steps: ValidatorStep[],
@@ -187,59 +237,49 @@ export function stepTimings(
   }
   return [...groups].map(([key, attempts]) => {
     const [workflow = "?", step = "?"] = key.split("\u0000")
-    const starts = attempts.flatMap((a) => (a.startedAt ? [a.startedAt] : []))
-    const ends = attempts.flatMap((a) => (a.finishedAt ? [a.finishedAt] : []))
     return {
       workflow,
       step,
       attempts: attempts.length,
       failedAttempts: attempts.filter((a) => a.status === "failed").length,
-      wallMs:
-        starts.length && ends.length
-          ? Math.max(...ends.map(Date.parse)) -
-            Math.min(...starts.map(Date.parse))
-          : null,
+      wallMs: wall(attempts),
     }
   })
 }
 
-function runNamed(runs: ValidatorRun[], workflow: string) {
-  return runs.find((run) => run.workflowName === workflow)
-}
-
-/** Wall time per pipeline stage, from native run and step timestamps. */
+/** Wall time per pipeline stage of the final ingestion; total spans every attributed run. */
 export function stageDurations(
-  facts: Pick<RepoFacts, "runs" | "steps">,
+  facts: Pick<RepoFacts, "runs" | "steps" | "ingestionRunIds" | "hydrateRunId">,
 ): Record<string, number | null> {
+  const runs = finalRuns(facts)
   const run = (name: string) => {
-    const found = runNamed(facts.runs, name)
+    const found = runNamed(runs, name)
     return found ? durationMs(found.startedAt, found.finishedAt) : null
   }
-  const ingestion = runNamed(facts.runs, "repository-ingestion")
-  const extraction = facts.steps.filter(
-    (step) =>
-      step.runId === ingestion?.id &&
-      ["identify-roots", "extract-kind", "identify"].includes(
-        stepGroup(step.stepName),
-      ),
+  const ingestion = runNamed(runs, "repository-ingestion")
+  const first = facts.runs.find((r) => r.id === facts.ingestionRunIds[0])
+  const ends = facts.runs.flatMap((r) =>
+    (facts.ingestionRunIds.includes(r.rootRunId) ||
+      r.id === facts.hydrateRunId) &&
+    r.finishedAt
+      ? [r.finishedAt]
+      : [],
   )
-  const starts = extraction.flatMap((s) => (s.startedAt ? [s.startedAt] : []))
-  const ends = extraction.flatMap((s) => (s.finishedAt ? [s.finishedAt] : []))
-  const orchestrator = runNamed(facts.runs, "repository-ingestion-orchestrator")
-  const hydrate = runNamed(facts.runs, "workspace-hydrate")
   return {
-    total: orchestrator
-      ? durationMs(
-          orchestrator.createdAt,
-          hydrate?.finishedAt ?? orchestrator.finishedAt,
-        )
-      : null,
-    codesearch: run("repository-index"),
-    extraction:
-      starts.length && ends.length
-        ? Math.max(...ends.map(Date.parse)) -
-          Math.min(...starts.map(Date.parse))
+    total:
+      first && ends.length
+        ? Math.max(...ends.map(Date.parse)) - Date.parse(first.createdAt)
         : null,
+    codesearch: run("repository-index"),
+    extraction: wall(
+      facts.steps.filter(
+        (step) =>
+          step.runId === ingestion?.id &&
+          ["identify-roots", "extract-kind", "identify"].includes(
+            stepGroup(step.stepName),
+          ),
+      ),
+    ),
     write: run("workspace-write-extract-ingest"),
     hydrate: run("workspace-hydrate"),
   }
@@ -250,33 +290,49 @@ function check(id: string, status: CheckStatus, detail: string): Check {
 }
 
 function ingestionChecks(facts: RepoFacts): Check[] {
-  const root = facts.runs.find((run) => run.id === facts.orchestratorRunId)
-  const checks: Check[] = []
-  if (!root) {
-    checks.push(check("ingestion.workflow", "fail", "no orchestrator run"))
-  } else if (facts.timedOut && !isTerminalRunStatus(root.status)) {
-    checks.push(
-      check("ingestion.workflow", "fail", `timed out while ${root.status}`),
-    )
-  } else if (!SUCCEEDED.has(root.status)) {
-    checks.push(
-      check(
-        "ingestion.workflow",
-        "fail",
-        `${root.status}: ${errorMessage(root.error)}`,
-      ),
-    )
-  } else if (record(root.output).aborted) {
-    checks.push(
-      check(
-        "ingestion.workflow",
-        "fail",
-        `aborted: ${String(record(root.output).aborted)}`,
-      ),
-    )
-  } else {
-    checks.push(check("ingestion.workflow", "pass", root.status))
-  }
+  const roots = facts.ingestionRunIds.map((id) =>
+    facts.runs.find((run) => run.id === id),
+  )
+  const checks: Check[] = [
+    facts.coalescedInto
+      ? check(
+          "ingestion.attribution",
+          "fail",
+          `enqueue returned ${facts.coalescedInto}, an ingestion without the validator's request id`,
+        )
+      : check(
+          "ingestion.attribution",
+          "pass",
+          facts.waitedFor
+            ? `waited for in-flight ingestion ${facts.waitedFor}, then enqueued its own`
+            : "the validator's own full re-ingest",
+        ),
+  ]
+  const problems = roots.flatMap((root, index) => {
+    const label = index === 0 ? "ingestion" : `follow-up ${index}`
+    if (!root) return [`${label}: run missing`]
+    if (!isTerminalRunStatus(root.status))
+      return [
+        `${label}: ${facts.timedOut ? "timed out while " : ""}${root.status}`,
+      ]
+    if (!SUCCEEDED.has(root.status))
+      return [`${label}: ${root.status}: ${errorMessage(root.error)}`]
+    const aborted = record(root.output).aborted
+    return aborted ? [`${label}: aborted: ${String(aborted)}`] : []
+  })
+  checks.push(
+    roots.length === 0
+      ? check("ingestion.workflow", "fail", "no orchestrator run")
+      : problems.length
+        ? check("ingestion.workflow", "fail", problems.join("; "))
+        : check(
+            "ingestion.workflow",
+            "pass",
+            roots.length > 1
+              ? `completed, with ${roots.length - 1} tip-ahead follow-up(s); later checks read the last`
+              : "completed",
+          ),
+  )
   const status = facts.repository?.indexingStatus ?? "missing"
   checks.push(
     status === "ready"
@@ -297,7 +353,7 @@ function ingestionChecks(facts: RepoFacts): Check[] {
 }
 
 function codesearchChecks(facts: RepoFacts): Check[] {
-  const index = runNamed(facts.runs, "repository-index")
+  const index = runNamed(finalRuns(facts), "repository-index")
   if (!index || !SUCCEEDED.has(index.status))
     return [
       check(
@@ -367,10 +423,13 @@ function codesearchChecks(facts: RepoFacts): Check[] {
   )
   if (missing.length) problems.push(`not detected: ${missing.join(", ")}`)
   for (const lang of toIndex) {
-    const attempts = indexSteps.filter(
-      (step) => stepGroup(step.stepName) === `scip:${lang}`,
-    )
-    const last = attempts.filter((step) => SUCCEEDED.has(step.status)).at(-1)
+    const last = indexSteps
+      .filter(
+        (step) =>
+          stepGroup(step.stepName) === `scip:${lang}` &&
+          SUCCEEDED.has(step.status),
+      )
+      .at(-1)
     const value = last ? admittedValue(last.output) : null
     if (!value) problems.push(`${lang}: no completed attempt`)
     else if (value.ok === false)
@@ -399,31 +458,20 @@ function codesearchChecks(facts: RepoFacts): Check[] {
   return checks
 }
 
-/** The commit SHA the extraction published, when it did. */
+/** The commit SHA the final ingestion's extraction published, when it did. */
 function extractionCommit(facts: RepoFacts): string | null {
-  const extract = runNamed(facts.runs, "workspace-write-extract-ingest")
-  const output = record(extract?.output)
+  const output = record(
+    runNamed(finalRuns(facts), "workspace-write-extract-ingest")?.output,
+  )
   return output.committed === true && typeof output.commitSha === "string"
     ? output.commitSha
     : null
 }
 
 function extractionChecks(facts: RepoFacts): Check[] {
-  const extract = runNamed(facts.runs, "workspace-write-extract-ingest")
   if (facts.mode === "index-only")
-    return [
-      extract
-        ? check(
-            "extraction.commit",
-            "fail",
-            "an extraction ran in index-only mode (the org has an extraction destination)",
-          )
-        : check(
-            "extraction.commit",
-            "skip",
-            "index-only: no extraction destination",
-          ),
-    ]
+    return [check("extraction", "skip", "index-only mode")]
+  const extract = runNamed(finalRuns(facts), "workspace-write-extract-ingest")
   if (!extract)
     return [
       check(
@@ -431,17 +479,17 @@ function extractionChecks(facts: RepoFacts): Check[] {
         "fail",
         "no extraction ran (repository not linked to the Workspace?)",
       ),
-      check("extraction.knowledge_files", "fail", "no extraction"),
     ]
-  const checks: Check[] = []
-  const output = record(extract.output)
+  const checks: Check[] = [
+    extract.workspaceId === facts.workspaceId
+      ? check("extraction.destination", "pass", `${extract.workspaceId}`)
+      : check(
+          "extraction.destination",
+          "fail",
+          `extraction captured ${extract.workspaceId}, expected ${facts.workspaceId}`,
+        ),
+  ]
   const sha = extractionCommit(facts)
-  const commits = facts.steps.filter(
-    (step) =>
-      step.runId === extract.id &&
-      step.stepName === "commit" &&
-      SUCCEEDED.has(step.status),
-  ).length
   const merged = facts.runs.some(
     (run) =>
       run.workflowName === "workspace-semantic-merge" &&
@@ -460,7 +508,7 @@ function extractionChecks(facts: RepoFacts): Check[] {
       check(
         "extraction.commit",
         "fail",
-        `no commit: ${String(output.reason ?? "not committed")}`,
+        `no commit: ${String(record(extract.output).reason ?? "not committed")}`,
       ),
     )
   else if (facts.extractJob?.commitSha !== sha)
@@ -471,27 +519,19 @@ function extractionChecks(facts: RepoFacts): Check[] {
         `write job records ${facts.extractJob?.commitSha ?? "no commit"}, run published ${sha}`,
       ),
     )
-  else if (commits !== 1)
-    checks.push(
-      check(
-        "extraction.commit",
-        "fail",
-        `${commits} commit steps for one extraction`,
-      ),
-    )
   else
     checks.push(
       check(
         "extraction.commit",
         merged ? "warn" : "pass",
-        merged ? `${sha} (published through semantic merge)` : sha,
+        `${sha}${merged ? " through semantic merge" : ""}; the write job records one commit (Workspace git history not inspected)`,
       ),
     )
 
   const paths = [
     ...new Set(Object.values(facts.extractJob?.knowledgePaths ?? {})),
   ]
-  const hydrate = runNamed(facts.runs, "workspace-hydrate")
+  const hydrate = facts.runs.find((run) => run.id === facts.hydrateRunId)
   const diagnostics = (record(hydrate?.output).diagnostics ?? []) as Array<{
     path?: string
     reason?: string
@@ -533,7 +573,7 @@ function extractionChecks(facts: RepoFacts): Check[] {
 function hydrateChecks(facts: RepoFacts): Check[] {
   if (facts.mode === "index-only") return []
   const sha = extractionCommit(facts)
-  const hydrate = runNamed(facts.runs, "workspace-hydrate")
+  const hydrate = facts.runs.find((run) => run.id === facts.hydrateRunId)
   const output = record(hydrate?.output)
   const checks: Check[] = []
   if (!sha) checks.push(check("hydrate.projection", "fail", "no commit"))
@@ -558,29 +598,32 @@ function hydrateChecks(facts: RepoFacts): Check[] {
       ),
     )
   else if (output.hydrated === true)
-    checks.push(check("hydrate.projection", "pass", `active at ${sha}`))
+    checks.push(check("hydrate.projection", "pass", `activated ${sha}`))
   else
     checks.push(
       check(
         "hydrate.projection",
-        output.reason === "cas_discarded" ? "warn" : "fail",
+        "fail",
         `not activated: ${String(output.reason ?? "unknown")}`,
       ),
     )
 
+  // The stores and units below are read from the published projection, so
+  // they describe this extraction only when that projection is at its SHA.
+  const published = facts.projection?.sha ?? null
+  if (!sha || published !== sha) {
+    const detail = `published projection is at ${published ?? "nothing"}, extraction committed ${sha ?? "nothing"}`
+    for (const id of ["hydrate.units", "hydrate.graph", "hydrate.embeddings"])
+      checks.push(check(id, "fail", detail))
+    return checks
+  }
   const repoUnits = facts.repositoryUnits?.units ?? 0
   checks.push(
-    (facts.workspaceUnits ?? 0) > 0 && repoUnits > 0
-      ? check(
-          "hydrate.units",
-          "pass",
-          `${repoUnits} repository units, ${facts.workspaceUnits} in the Workspace`,
-        )
-      : check(
-          "hydrate.units",
-          "fail",
-          `${repoUnits} repository units, ${facts.workspaceUnits ?? 0} in the Workspace`,
-        ),
+    check(
+      "hydrate.units",
+      (facts.workspaceUnits ?? 0) > 0 && repoUnits > 0 ? "pass" : "fail",
+      `${repoUnits} repository units, ${facts.workspaceUnits ?? 0} in the Workspace at ${sha}`,
+    ),
   )
   const graph = facts.projection?.graph ?? "unknown"
   checks.push(
@@ -600,6 +643,10 @@ function hydrateChecks(facts: RepoFacts): Check[] {
     ),
   )
   return checks
+}
+
+function pct(value: number): string {
+  return `${(value * 100).toFixed(1)}%`
 }
 
 function qualityChecks(facts: RepoFacts): Check[] {
@@ -632,37 +679,44 @@ function qualityChecks(facts: RepoFacts): Check[] {
   const thresholds = facts.qualityThresholds
   if (!quality) {
     checks.push(check("quality.graph", "warn", "quality report unavailable"))
-  } else {
-    const summary = `join ${pct(quality.joinDensity)}, orphans ${pct(quality.orphanRate)}, sourced ${pct(quality.sourcedClaimRate)}`
-    if (!thresholds) {
-      checks.push(
-        check("quality.graph", "skip", `${summary} (no thresholds set)`),
-      )
-    } else {
-      const misses = [
-        thresholds.minJoinDensity !== undefined &&
-        quality.joinDensity < thresholds.minJoinDensity
-          ? `join density < ${pct(thresholds.minJoinDensity)}`
-          : "",
-        thresholds.maxOrphanRate !== undefined &&
-        quality.orphanRate > thresholds.maxOrphanRate
-          ? `orphan rate > ${pct(thresholds.maxOrphanRate)}`
-          : "",
-        thresholds.minSourcedClaimRate !== undefined &&
-        quality.sourcedClaimRate < thresholds.minSourcedClaimRate
-          ? `sourced claims < ${pct(thresholds.minSourcedClaimRate)}`
-          : "",
-      ].filter(Boolean)
-      checks.push(
-        check(
-          "quality.graph",
-          misses.length ? "fail" : "pass",
-          misses.length ? `${summary}: ${misses.join("; ")}` : summary,
-        ),
-      )
-    }
+    return checks
   }
+  const summary = `repository units: join ${pct(quality.joinDensity)}, orphans ${pct(quality.orphanRate)}, sourced ${pct(quality.sourcedClaimRate)}`
+  if (!thresholds) {
+    checks.push(
+      check("quality.graph", "skip", `${summary} (no thresholds set)`),
+    )
+    return checks
+  }
+  const misses = [
+    thresholds.minJoinDensity !== undefined &&
+    quality.joinDensity < thresholds.minJoinDensity
+      ? `join density < ${pct(thresholds.minJoinDensity)}`
+      : "",
+    thresholds.maxOrphanRate !== undefined &&
+    quality.orphanRate > thresholds.maxOrphanRate
+      ? `orphan rate > ${pct(thresholds.maxOrphanRate)}`
+      : "",
+    thresholds.minSourcedClaimRate !== undefined &&
+    quality.sourcedClaimRate < thresholds.minSourcedClaimRate
+      ? `sourced claims < ${pct(thresholds.minSourcedClaimRate)}`
+      : "",
+  ].filter(Boolean)
+  checks.push(
+    check(
+      "quality.graph",
+      misses.length ? "fail" : "pass",
+      misses.length ? `${summary}: ${misses.join("; ")}` : summary,
+    ),
+  )
   return checks
+}
+
+/** Chat models other than GPT-6 Luna; embedding models are expected. */
+export function unexpectedModels(models: Record<string, number>): string[] {
+  return Object.keys(models).filter(
+    (name) => !name.includes("gpt-6-luna") && !name.includes("embedding"),
+  )
 }
 
 function telemetryChecks(facts: RepoFacts): Check[] {
@@ -676,36 +730,29 @@ function telemetryChecks(facts: RepoFacts): Check[] {
         )
       : check("telemetry.traces", "warn", "no run carries a trace id"),
   ]
-  const tokens = facts.llm?.total.totalTokens
-  if (facts.mode === "index-only")
-    checks.push(
-      tokens
-        ? check(
-            "telemetry.llm",
-            "fail",
-            `${tokens} LLM tokens in index-only mode`,
-          )
-        : check(
-            "telemetry.llm",
-            "pass",
-            facts.llm ? "no LLM generations" : "no extraction, no LLM calls",
-          ),
-    )
-  else
-    checks.push(
-      facts.llm
-        ? check(
-            "telemetry.llm",
-            "pass",
-            `${facts.llm.total.totalTokens} tokens, $${facts.llm.total.costUsd.toFixed(4)} in Langfuse`,
-          )
-        : check("telemetry.llm", "warn", "Langfuse usage not measured"),
-    )
+  if (facts.mode === "index-only") return checks
+  if (!facts.llm) {
+    checks.push(check("telemetry.llm", "warn", "Langfuse usage not measured"))
+    return checks
+  }
+  checks.push(
+    check(
+      "telemetry.llm",
+      "pass",
+      `${facts.llm.total.totalTokens} tokens, $${facts.llm.total.costUsd.toFixed(4)} in Langfuse (unverified query shape)`,
+    ),
+  )
+  const other = unexpectedModels(facts.llm.models)
+  checks.push(
+    other.length
+      ? check("telemetry.models", "warn", `not GPT-6 Luna: ${other.join(", ")}`)
+      : check(
+          "telemetry.models",
+          Object.keys(facts.llm.models).length ? "pass" : "warn",
+          Object.keys(facts.llm.models).join(", ") || "no model names recorded",
+        ),
+  )
   return checks
-}
-
-function pct(value: number): string {
-  return `${(value * 100).toFixed(1)}%`
 }
 
 export function evaluateRepo(
@@ -715,7 +762,7 @@ export function evaluateRepo(
   const checks: Check[] = facts.error
     ? [check("validator", "fail", facts.error)]
     : []
-  if (facts.orchestratorRunId || !facts.error)
+  if (facts.ingestionRunIds.length || !facts.error)
     checks.push(
       ...ingestionChecks(facts),
       ...codesearchChecks(facts),
@@ -749,6 +796,7 @@ export function evaluateRepo(
     projectionSha: facts.projection?.sha ?? null,
     size: facts.size,
     quality: facts.quality,
+    workspaceQuality: facts.workspaceQuality,
     llm: facts.llm,
     spendUsd: facts.spendUsd,
     links,
@@ -767,13 +815,10 @@ export type ValidatorReport = {
   timeoutMinutes: number
   startedAt: string
   finishedAt: string
-  /** Model tier names the validator process saw (the worker must match). */
-  models: Record<string, string | null>
-  spend: {
-    beforeUsd: number | null
-    afterUsd: number | null
-    limitUsd: number | null
-  }
+  /** Tier names the validator process was configured with (the worker should match). */
+  configuredModels: Record<string, string | null>
+  /** OpenRouter key usage over the run: per-repository deltas summed at concurrency 1. */
+  spend: { totalUsd: number | null; limitUsd: number | null }
   links: Record<string, string>
   repos: RepoReport[]
 }
@@ -782,28 +827,34 @@ function seconds(ms: number | null | undefined): string {
   return ms === null || ms === undefined ? "—" : `${Math.round(ms / 1000)}s`
 }
 
-const STATUS_MARK: Record<CheckStatus, string> = {
-  pass: "ok",
-  warn: "WARN",
-  fail: "FAIL",
-  skip: "skip",
-}
-
 export function renderMarkdown(report: ValidatorReport): string {
   const spent =
-    report.spend.beforeUsd !== null && report.spend.afterUsd !== null
-      ? `$${(report.spend.afterUsd - report.spend.beforeUsd).toFixed(4)}`
-      : "not measured"
+    report.spend.totalUsd === null
+      ? "not measured"
+      : `$${report.spend.totalUsd.toFixed(4)}`
+  const used: Record<string, number> = {}
+  for (const repo of report.repos)
+    for (const [name, calls] of Object.entries(repo.llm?.models ?? {}))
+      used[name] = (used[name] ?? 0) + calls
+  const mark = { pass: "ok", warn: "WARN", fail: "FAIL", skip: "skip" }
   const lines = [
     `# Ingestion validator ${report.runId}`,
     "",
     `Environment \`${report.environment}\`, mode \`${report.mode}\`, concurrency ${report.concurrency}, timeout ${report.timeoutMinutes} min. ${report.startedAt} → ${report.finishedAt}.`,
     "",
-    `Models: ${Object.entries(report.models)
+    `Models used (Langfuse generations): ${
+      Object.entries(used)
+        .map(([name, calls]) => `\`${name}\` ×${calls}`)
+        .join(", ") || "none recorded"
+    }. Configured tiers: ${Object.entries(report.configuredModels)
       .map(([tier, name]) => `${tier} \`${name ?? "default"}\``)
-      .join(
-        ", ",
-      )}. OpenRouter spend: ${spent}${report.spend.limitUsd !== null ? ` (key limit $${report.spend.limitUsd})` : ""}.`,
+      .join(", ")}.`,
+    "",
+    `OpenRouter spend: ${spent}${report.spend.limitUsd !== null ? ` (key limit $${report.spend.limitUsd})` : ""}. ${
+      report.concurrency > 1
+        ? `Per-repository OpenRouter deltas are unavailable at concurrency ${report.concurrency}; use the per-stage Langfuse cost.`
+        : "Per-repository spend is the key's usage delta across that repository."
+    } Langfuse token and cost figures use an unverified query shape until a paid run confirms it; the commit-subject call is not traced and shows only in the OpenRouter delta.`,
     "",
     ...Object.entries(report.links).map(([name, url]) => `- ${name}: ${url}`),
     "",
@@ -825,29 +876,41 @@ export function renderMarkdown(report: ValidatorReport): string {
       "| --- | --- | --- |",
       ...repo.checks.map(
         (c) =>
-          `| ${c.id} | ${STATUS_MARK[c.status]} | ${c.detail.replaceAll("|", "\\|").replaceAll("\n", " ")} |`,
+          `| ${c.id} | ${mark[c.status]} | ${c.detail.replaceAll("|", "\\|").replaceAll("\n", " ")} |`,
       ),
     )
     if (repo.llm) {
+      const stages: Array<[string, (typeof repo.llm.stages)[string]]> = [
+        ...Object.entries(repo.llm.stages),
+        ["total (Langfuse)", repo.llm.total],
+      ]
       lines.push(
         "",
         "| LLM stage | Calls | Input | Output | Cost |",
         "| --- | --- | --- | --- | --- |",
-        ...Object.entries({ ...repo.llm.stages, total: repo.llm.total }).map(
+        ...stages.map(
           ([stage, usage]) =>
             `| ${stage} | ${usage.calls} | ${usage.inputTokens} | ${usage.outputTokens} | $${usage.costUsd.toFixed(4)} |`,
         ),
       )
+      if (repo.spendUsd !== null)
+        lines.push(
+          `| not in Langfuse (OpenRouter delta − Langfuse total) | — | — | — | $${(repo.spendUsd - repo.llm.total.costUsd).toFixed(4)} |`,
+        )
     }
+    if (repo.workspaceQuality)
+      lines.push(
+        "",
+        `Workspace at this SHA (cumulative across repositories, no thresholds): ${repo.workspaceQuality.totalUnits} units, join ${pct(repo.workspaceQuality.joinDensity)}, orphans ${pct(repo.workspaceQuality.orphanRate)}, sourced ${pct(repo.workspaceQuality.sourcedClaimRate)}.`,
+      )
     lines.push(
       "",
-      "Runs: " +
-        repo.runs
-          .map(
-            (run) =>
-              `${run.workflow} \`${run.id}\` ${run.status}${run.traceId ? ` trace \`${run.traceId}\`` : ""}`,
-          )
-          .join("; "),
+      `Runs: ${repo.runs
+        .map(
+          (run) =>
+            `${run.workflow} \`${run.id}\` ${run.status}${run.traceId ? ` trace \`${run.traceId}\`` : ""}`,
+        )
+        .join("; ")}`,
       ...Object.entries(repo.links).map(([name, url]) => `- ${name}: ${url}`),
     )
   }
