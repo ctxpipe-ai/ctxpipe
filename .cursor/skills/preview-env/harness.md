@@ -1,10 +1,8 @@
 # preview-env harness
 
-Shared setup for every [preview-env](SKILL.md) run. Complete this before any area skill. Leading word: **harness**.
+Shared preflight for every [preview-env](SKILL.md) run. Complete [run-setup](run-setup.md) first, then this, before any area. Leading word: **harness**.
 
-## Inputs already collected
-
-`BASE_URL`, email, password, `orgSlug`, optional `workspaceSlug`, `run-id`, gated flags. Drive the **backend origin** (`BASE_URL`). The UI is proxied there; a raw UI host will miss the session cookie.
+There is no sign-in step here: the run has no pre-seeded account. Registration is flow [ONB-1](onboarding/SKILL.md).
 
 ## 1. Wake
 
@@ -14,74 +12,64 @@ curl -fsS "$BASE_URL/.status"
 
 Body must be JSON with `status` equal to `"ok"`.
 
-If the run includes `hydrate`, `graph`, `chat`, or `files-publish`, wake **worker** and **codesearch** on this `pr-N` environment (Railway MCP: service status, then `redeploy` / `restart-service` when `SLEEPING`). Proof is a **new deploy timestamp**, not a SUCCESS badge. Preview workers idle-exit (~180s); waiting does not keep them warm.
+`preview` only: if the run includes `hydrate`, `graph`, `chat`, `files-publish`, `connectors`, or `resilience`, wake **worker** and **codesearch** on this `pr-N` environment (Railway MCP: service status, then `redeploy` / `restart-service` when `SLEEPING`). Proof is a **new deploy timestamp**, not a SUCCESS badge. Preview workers idle-exit (~180 s); waiting does not keep them warm.
 
-**Done when:** `/.status` is ok, and (if those areas run) worker and codesearch have a deploy timestamp newer than the wake call *or* are already `RUNNING` with a recent timestamp.
+`local` only: Docker infra and codesearch are up (`pnpm dev:infra`, `pnpm dev`); a missing codesearch container is a harness FAIL for the areas above.
+
+**Done when:** `/.status` is ok, and (if those areas run) worker and codesearch have a deploy timestamp newer than the wake call or are already `RUNNING` with a recent timestamp (`preview`), or the local stack answers (`local`).
 
 ## 2. UI canary
 
-Fetch the HTML at `BASE_URL/`, extract the proxied `/assets/main-*.js` filename, then:
+`preview` only. Fetch the HTML at `BASE_URL/`, extract the proxied `/assets/main-*.js` filename, then:
 
-1. Compare that hash to `https://app.ctxpipe.ai`’s `/assets/main-*.js`. **Same hash → harness FAIL** (production UI leak). Pin `UI_PROXY_URL` to `ui-pr-N`; do not continue.
-2. `grep -Fq 'ws/$workspaceSlug'` the **JS bundle** (single-quoted, `set -u`). Missing canary → harness FAIL. Do not grep `/` HTML — TanStack SSR of `/` omits unmatched routes.
+1. Compare that hash to `https://app.ctxpipe.ai`'s `/assets/main-*.js`. **Same hash is a harness FAIL** (production UI leak). Pin `UI_PROXY_URL` to `ui-pr-N`; do not continue.
+2. `grep -Fq 'ws/$workspaceSlug'` the **JS bundle** (single-quoted, `set -u`). Missing canary is a harness FAIL. Do not grep `/` HTML: TanStack SSR of `/` omits unmatched routes.
 
-**Done when:** the preview’s main JS hash differs from production and the bundle contains `ws/$workspaceSlug`.
+`local` runs the Vite dev server: skip the hash compare and check only that `https://app.ctxpipe.localhost/.auth/sign-up` renders from this origin.
 
-## 3. Sign in
+**Done when:** on `preview`, the main JS hash differs from production and the bundle contains `ws/$workspaceSlug`; on `local`, the sign-up page rendered from the local origin.
 
-One `computerUse` task:
+## 3. Sign-up page
 
-1. Open `{BASE_URL}/.auth/sign-in`.
-2. Submit email and password (Better Auth email/password fields).
-3. Land on `{BASE_URL}/{orgSlug}/` or `{BASE_URL}/{orgSlug}/ws/…`. An error banner or staying on sign-in is FAIL.
-4. If the URL is `/onboarding` or `/{orgSlug}/setup`, record that for [org-home](org-home/SKILL.md); the session is still valid.
+Open `{BASE_URL}/.auth/sign-up` in a fresh browser context. The form (email, password, submit) is visible and the session is signed out.
 
-**Done when:** the address bar is under `{BASE_URL}/{orgSlug}` (or onboarding/setup after a valid session) and SideNav or onboarding chrome is visible.
+**Done when:** the form is on screen and `GET /.auth/api/v1/auth/get-session` returns no user.
 
-## computerUse
+## Browser driver
 
-- One `computerUse` task per **area** after this harness login (reuse the signed-in browser).
-- Click visible labels: `Home`, `Connectors`, `Files`, `Graph`, `Settings`, `Commit+Push`, `Create PR`, `Show PR`, `Try again`.
-- Record only the area’s working path (walkthrough-artifacts). Split recordings if setup sits between areas.
-- Prefer the same viewport; desktop is enough unless the prompt names mobile.
+Any driver works (Cursor computer use, T3 Code preview tools, Playwright, another browser MCP). Name no tool in an area file; say what to click.
 
-## Write policy
+- One browser task per **area**, reusing that area's signed-in context. Account A, B, and C each get their own context.
+- Click visible labels: `Home`, `Connectors`, `Files`, `Graph`, `Settings`, `Create PR`, `Show PR`, `Try again`, and the sidebar **+** (`aria-label` "Add Workspace").
+- Record only the area's working path. Split recordings if setup sits between flows.
+- Use one desktop viewport unless the prompt names mobile.
 
-PR Neon is a **copy of production**. Default allow-list:
+## Flow failure
 
-| Action | When |
-| --- | --- |
-| Read any org surface | always |
-| Conversation file under `ctxpipe-preview-sweep/{run-id}/` + Commit+Push + Create PR | full sweep, or `files-publish` / `chat` as the named section |
-| Create workspace | flag `create-workspace` and GitHub install is live |
-| Workspace Files default-branch save | flag `default-branch-write` |
-| Connector OAuth through to GitHub config PR | flag `live-oauth` and the user named the provider |
+Stop that flow. Attach the trace and logs via [observability](../observability/SKILL.md) (Railway MCP first on a preview whose process never exported). For a chat hang, filter `step` in `opencode.chatStream` / `tanstack-workspace-chat`. Redact tokens and emails.
 
-Stay on the designated `workspaceSlug`, or the first workspace whose detail has `writeStatus` equal to `"writable"`. PR title prefix `[preview-env]`. Leave the PR open (do not merge).
-
-Delete workspace, disconnect GitHub, finish Slack/Linear/Notion/Confluence OAuth, submit **Install via PR** — only when the user names that action in this turn.
-
-## Area failure
-
-Stop that area. Attach Railway logs via [observability](../observability/SKILL.md) (Railway MCP first). For a chat hang, filter `step` in `opencode.chatStream` / `tanstack-workspace-chat`. Redact tokens and emails.
-
-Harness-class blockers (do not continue the suite): sign-in failed, production UI leak, worker/codesearch never woke when a later area needs them.
+Harness-class blockers (do not continue the suite): session gone mid-run with no way back, production UI leak, worker or codesearch never woke while a later area needs it.
 
 ## Report
 
 ```markdown
 ## preview-env report
-origin: {BASE_URL}
-org: {orgSlug}
-workspace: {slug or "none"}
+origin: {BASE_URL}  mode: {local|preview}
 run-id: {run-id}
+org: {orgSlug}  workspaces: {slug1}, {slug2}
+git: {commit sha of the checkout or preview deploy}
+catalogue approved: {date, by role}
 
-| Area | Status | Evidence |
-| --- | --- | --- |
-| harness | PASS/FAIL | /.status ok; main JS {hash} ≠ production; signed in |
-| auth | … | … |
+| Flow | Status | Measured / budget | Evidence | Trace |
+| --- | --- | --- | --- | --- |
+| harness | PASS/FAIL | - | /.status ok; hash differs; sign-up page | - |
+| ONB-1 | PASS | 1.8 s / 3 s | /tmp/preview-env/{run-id}/ONB-1-2.png | {TraceId} (env, org, HH:MM:SSZ) |
+| ONB-3 | SKIP(needs-human) | - | - | - |
 
-Worst: {area} FAIL — {one line} | all PASS
+Worst: {FLOW-ID} FAIL - {one line} | all PASS
+SLOW: {FLOW-ID list between target and fail}
+Skipped: {FLOW-ID list with reasons}
+Follow-ups: {fix with regression test | ticket link per FAIL}
 ```
 
-Status is `PASS`, `FAIL`, or `SKIP` (gated or missing fixture). Evidence is one checkable fact (URL, visible label, JSON field).
+Status is `PASS`, `FAIL`, or `SKIP(reason)` as defined in [run-setup](run-setup.md#flow-format). Evidence is a path or one checkable fact (URL, visible label, JSON field). Every `FAIL` row carries its trace and a follow-up.
