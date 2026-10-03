@@ -102,7 +102,7 @@ function uniqueModelChain(ids: string[]): string[] {
   return out
 }
 
-function resolveChatBaseUrl(
+export function resolveChatBaseUrl(
   provider: ModelProviderKind,
   url: string | undefined,
 ): string {

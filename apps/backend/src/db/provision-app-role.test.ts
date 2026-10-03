@@ -18,6 +18,7 @@ function createFakePool(options?: {
   ownedSchema?: string
   membership?: string
   namespaces?: string[]
+  databaseName?: string
 }) {
   const queries: Array<{ sql: string; params?: unknown[] }> = []
   const roleAttrs: RoleAttrs = options?.roleAttrs ?? {
@@ -62,7 +63,9 @@ function createFakePool(options?: {
         }
       }
       if (sql.includes("current_database")) {
-        return { rows: [{ current_database: "ctxpipe" }] }
+        return {
+          rows: [{ current_database: options?.databaseName ?? "ctxpipe" }],
+        }
       }
       if (sql.includes("pg_namespace")) {
         return {
@@ -155,6 +158,16 @@ describe("provisionAppRole", () => {
       membership: "rds_superuser",
     })
     await expect(provisionAppRole(pool, "pw")).rejects.toThrow(/member of/)
+  })
+
+  it("grants on a worktree database whose name carries a hyphen", async () => {
+    const { pool, queries } = createFakePool({
+      databaseName: "ctxpipe_worktree-feature-x",
+    })
+    await provisionAppRole(pool, "pw")
+    expect(queries.map((q) => q.sql)).toContain(
+      `GRANT CONNECT ON DATABASE "ctxpipe_worktree-feature-x" TO "${APP_ROLE_NAME}"`,
+    )
   })
 
   it("rejects unsafe role names instead of interpolating them", async () => {

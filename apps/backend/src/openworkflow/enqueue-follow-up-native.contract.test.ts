@@ -1,7 +1,9 @@
+import { sql } from "drizzle-orm"
 import { expect, it } from "vitest"
-import { withOrgDbContext } from "../db/client.js"
+import { getSystemDb, withOrgDbContext } from "../db/client.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { getRepositoryForOrg } from "../models/repositories.js"
+import { restoreJobTelemetry } from "../observability/jobTelemetry.js"
 import { createLogger, withLogger } from "../observability/logger.js"
 import { withNativeIndexFixture } from "../test/native-index-fixture.js"
 import { withCanceledNativeInsert } from "../test/native-workflow-insert-failure.js"
@@ -37,12 +39,24 @@ it(
           ),
         ).rejects.toThrow()
         expect(errors).toHaveLength(1)
-        const first = await enqueueFollowUpIfTipAhead(input, logger)
+        // As inside the parent ingestion's step: its job telemetry is active.
+        const first = await restoreJobTelemetry(
+          {
+            orgId: f.org.id,
+            repositoryId: f.repositoryId,
+            telemetry: { "request.id": "req_parent_ingestion" },
+          },
+          () => enqueueFollowUpIfTipAhead(input, logger),
+        )
         expect(first).toMatchObject({
           enqueued: true,
           tipHash: f.sha,
           workflowRunId: expect.any(String),
         })
+        const owner = await getSystemDb().execute<{ requestId: string }>(
+          sql`select input->'telemetry'->>'request.id' as "requestId" from openworkflow.workflow_runs where id = ${first.workflowRunId ?? ""}`,
+        )
+        expect(owner.rows[0]?.requestId).toBe("req_parent_ingestion")
         expect(await enqueueFollowUpIfTipAhead(input, logger)).toEqual(first)
         expect(
           await getRepositoryForOrg(f.org.id, f.repositoryId),

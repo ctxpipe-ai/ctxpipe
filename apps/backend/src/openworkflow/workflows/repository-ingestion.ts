@@ -67,6 +67,11 @@ const repositoryIngestionInputSchema = z.object({
   fullReingest: z.boolean().optional(),
 })
 
+/** The extraction write job one repository-ingestion run publishes through. */
+export function extractionWriteJobId(repositoryIngestionRunId: string): string {
+  return `wjob_${repositoryIngestionRunId}_extract`
+}
+
 const REPOSITORY_INGESTION_STOPPED = {
   repositoryIngestionStopped: true,
 } as const
@@ -643,7 +648,7 @@ export const repositoryIngestion = defineWorkflow(
                     orgId: input.orgId,
                     workspaceId: destination.workspaceId,
                     revision: destination.revision,
-                    jobId: `wjob_${run.id}_extract`,
+                    jobId: extractionWriteJobId(run.id),
                     extraction,
                   },
                   { name: "publish-extracted-knowledge" },

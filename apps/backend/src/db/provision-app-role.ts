@@ -3,7 +3,9 @@ import { log } from "../observability/logger.js"
 
 export const APP_ROLE_NAME = "ctxpipe_app"
 
-const SAFE_IDENT = /^[a-z_][a-z0-9_]*$/
+// Hyphens are safe inside a double-quoted identifier; worktree databases are
+// named `ctxpipe_<branch>` and branch names carry them (scripts/worktree-db.sh).
+const SAFE_IDENT = /^[a-z_][a-z0-9_-]*$/
 const APP_SCHEMAS = new Set(["public", "openworkflow"])
 
 function quoteIdent(name: string): string {
