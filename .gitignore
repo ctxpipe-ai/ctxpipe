@@ -29,3 +29,6 @@ packages/aws-cdk/src/pinned-service-image-tag.ts
 # ctxpipe local memory candidate inbox (ADR-024)
 .ai/memory/events/**
 !.ai/memory/events/.gitkeep
+
+# Claude Code on the web: FalkorDB without Bolt (no IPv6), written by .claude/hooks/session-start.sh
+docker-compose.override.yml

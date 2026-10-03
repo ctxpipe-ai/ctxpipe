@@ -1,8 +1,41 @@
 {
   "mcpServers": {
     "ctxpipe": {
-      "type": "streamable-http",
-      "url": "https://app.ctxpipe.ai/mcp?orgSlug=ctx-tev"
+      "type": "http",
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=ctx-tev",
+      "headers": {
+        "x-api-key": "${CTXPIPE_API_KEY:-}"
+      }
+    },
+    "ctxpipe-storybook": {
+      "type": "http",
+      "url": "http://127.0.0.1:6006/mcp"
+    },
+    "neon": {
+      "type": "http",
+      "url": "https://mcp.neon.tech/mcp?readonly=true",
+      "headers": {
+        "Authorization": "Bearer ${NEON_API_KEY:-}"
+      }
+    },
+    "railway": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@railway/cli@5.63.1", "mcp", "local"]
+    },
+    "hyperdx": {
+      "type": "http",
+      "url": "https://hyperdx.ctxpipe.ai/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${HYPERDX_ACCESS_KEY:-}"
+      }
+    },
+    "langfuse": {
+      "type": "http",
+      "url": "https://langfuse.ctxpipe.ai/api/public/mcp",
+      "headers": {
+        "Authorization": "Basic ${LANGFUSE_AUTH_STRING:-}"
+      }
     }
   }
 }
