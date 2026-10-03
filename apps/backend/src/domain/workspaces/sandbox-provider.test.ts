@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   destroyDetachedProviderSandbox,
-  detectSandboxProvider,
-  detectSandboxProviderFromEnv,
+  lockedSandboxProvider,
   remoteDockerHost,
 } from "./sandbox-provider.js"
 
@@ -19,28 +18,17 @@ vi.mock("dockerode", () => ({
   },
 }))
 
-describe("detectSandboxProvider", () => {
+describe("lockedSandboxProvider", () => {
   it("locks a known provider and fail-closes on an unknown lock", () => {
-    expect(detectSandboxProvider({ locked: "vercel", hasDocker: true })).toBe(
-      "vercel",
+    expect(lockedSandboxProvider({ SANDBOX_PROVIDER: "vercel" })).toBe("vercel")
+    expect(lockedSandboxProvider({ SANDBOX_PROVIDER: " docker " })).toBe(
+      "docker",
     )
-    expect(detectSandboxProvider({ locked: "docker" })).toBe("docker")
+    expect(lockedSandboxProvider({})).toBeUndefined()
     for (const retired of ["sbx", "railway", "heroku"])
-      expect(() => detectSandboxProvider({ locked: retired })).toThrow(
-        /Unknown SANDBOX_PROVIDER/,
-      )
-    expect(detectSandboxProvider({ hasDocker: true })).toBe("docker")
-    expect(detectSandboxProvider({})).toBe("unsandboxed")
-    expect(
-      detectSandboxProviderFromEnv({
-        env: { SANDBOX_PROVIDER: "docker" },
-      }),
-    ).toBe("docker")
-    expect(() =>
-      detectSandboxProviderFromEnv({
-        env: { SANDBOX_PROVIDER: "heroku" },
-      }),
-    ).toThrow(/Unknown SANDBOX_PROVIDER/)
+      expect(() =>
+        lockedSandboxProvider({ SANDBOX_PROVIDER: retired }),
+      ).toThrow(/Unknown SANDBOX_PROVIDER/)
   })
 })
 

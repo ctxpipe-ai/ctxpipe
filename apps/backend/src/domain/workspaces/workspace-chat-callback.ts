@@ -30,11 +30,12 @@ import { remoteDockerHost } from "./sandbox-provider.js"
  */
 export async function sandboxCallbackHost(
   env: NodeJS.ProcessEnv = process.env,
+  network: CallbackNetwork = systemNetwork,
 ): Promise<string | undefined> {
   const raw = env.SANDBOX_CALLBACK_HOST?.trim()
   if (!raw) {
     const daemonHost = remoteDockerHost(env)
-    return daemonHost ? localAddressTowards(daemonHost) : undefined
+    return daemonHost ? localAddressTowards(daemonHost, network) : undefined
   }
 
   const unwrapped =
@@ -68,32 +69,59 @@ export async function sandboxCallbackHost(
   return parsed.host
 }
 
+/** Name resolution and kernel routing, the environment the default host comes from. */
+export type CallbackNetwork = {
+  lookup: (host: string) => Promise<{ address: string; family: number }>
+  /** The local address the kernel would send from to reach `address`. */
+  sourceAddress: (address: string, family: number) => Promise<string>
+}
+
+const systemNetwork: CallbackNetwork = {
+  lookup: (host) => lookup(host),
+  async sourceAddress(address, family) {
+    // A connected UDP socket only selects a route; it sends nothing.
+    const socket = createSocket(family === 6 ? "udp6" : "udp4")
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.once("error", reject)
+        socket.connect(9, address, resolve)
+      })
+      return socket.address().address
+    } finally {
+      socket.close()
+    }
+  },
+}
+
 /**
- * The local address the kernel picks to reach `host` (a UDP connect sends
- * nothing). Undefined for a daemon on this machine, whose sandboxes use the
- * provider's local defaults.
+ * The local address this process reaches the Docker daemon's host from.
+ * Undefined when that is a loopback address: the daemon runs on this machine,
+ * and its sandboxes use the provider's local defaults (`host.docker.internal`).
+ * A daemon name that does not resolve or route yet (an AWS sandbox host being
+ * replaced) fails the turn until it does.
  */
-async function localAddressTowards(host: string): Promise<string | undefined> {
-  let target: { address: string; family: number }
+async function localAddressTowards(
+  host: string,
+  network: CallbackNetwork,
+): Promise<string | undefined> {
+  let source: string
+  let family: number
   try {
-    target = await lookup(host)
-  } catch {
+    // URL hostnames keep IPv6 brackets; the resolver does not take them.
+    const target = await network.lookup(host.replace(/^\[(.*)\]$/, "$1"))
+    family = target.family
+    source = await network.sourceAddress(target.address, target.family)
+  } catch (error) {
     throw new Error(
-      `Cannot resolve Docker host ${host} to pick the address sandboxes call back on; set SANDBOX_CALLBACK_HOST`,
+      `The sandbox host ${host} is not reachable yet; Workspace chat resumes when it is`,
+      { cause: error },
     )
   }
-  const socket = createSocket(target.family === 6 ? "udp6" : "udp4")
-  try {
-    await new Promise<void>((resolve, reject) => {
-      socket.once("error", reject)
-      socket.connect(9, target.address, resolve)
-    })
-    const { address } = socket.address()
-    if (address === "::1" || address.startsWith("127.")) return undefined
-    return target.family === 6 ? `[${address}]` : address
-  } finally {
-    socket.close()
-  }
+  const mapped = source.toLowerCase().startsWith("::ffff:")
+    ? source.slice(7)
+    : source
+  if (mapped === "::1" || mapped.startsWith("127.")) return undefined
+  return family === 6 && isIP(mapped) === 6 ? `[${mapped}]` : mapped
 }
 
 /** Native per-run bridge server/token ownership on one reachable interface. */

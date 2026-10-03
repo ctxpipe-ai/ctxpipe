@@ -3,23 +3,25 @@ import type { Serve } from "bun"
 import { createApp } from "./app/app.js"
 import { parseEnv } from "./config/env.js"
 import { closeDb } from "./db/client.js"
+import { warnIfUnsandboxed } from "./domain/workspaces/sandbox-provider.js"
 import { flushEvlog } from "./observability/logger.js"
 import { shutdownOtel } from "./observability/otel.js"
 import { startGithubPrMirrorEnsureSweepOnce } from "./openworkflow/workflows/github-ensure-pr-mirror.js"
 import { shutdownGraphClients } from "./platform/graph/index.js"
 import {
-  conversationWebSocketHandlers,
-  handleConversationWebSocket,
-  isWorkspaceChatWebSocketRequest,
-  type ConversationWebSocketData,
-} from "./routes/v1/conversation-websocket.js"
-import {
   handleWebSocketProxy,
   type UiProxyWebSocketData,
   uiProxyWebSocketHandlers,
 } from "./routes/ui.js"
+import {
+  type ConversationWebSocketData,
+  conversationWebSocketHandlers,
+  handleConversationWebSocket,
+  isWorkspaceChatWebSocketRequest,
+} from "./routes/v1/conversation-websocket.js"
 
 const env = parseEnv(process.env as Record<string, string | undefined>)
+warnIfUnsandboxed()
 const app = createApp()
 startGithubPrMirrorEnsureSweepOnce()
 let shuttingDown = false
