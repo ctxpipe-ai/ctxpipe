@@ -114,6 +114,13 @@ Keep each patch minimal and listed with its removal condition. Never fall back t
 
 ## Comments
 
+- 2026-10-03 (claude): **lifecycle landed** (shared with ticket 03; ADR-048 "Lifecycle and limits" and "Cleanup" updated):
+  - Idle stop after 5 minutes and 30-day deletion run in a new OpenWorkflow job, `conversation-sandbox-sweep`. The Workspace tip check was not periodic, so each sweep schedules the next one for when a sandbox is next due. Every sandbox start and every tip check also schedule a sweep. A sweep never stops a sandbox while a turn holds `chat-thread:<conversation>`. The idle clock restarts when a turn ends.
+  - Vercel stop uses `stopVercelSandbox`, which saves files and revokes the token; a sandbox that is already gone counts as stopped. Deletion uses `deleteVercelSandbox`.
+  - 50 per org: every create or resume of a stopped sandbox counts live rows under the org lock `org-sandbox-slots`. Over the limit it fails with `SandboxCapacityError`: 429 on prepare and MCP, and an "at capacity" `RUN_ERROR` in the stream.
+  - MCP `ctx_advisor` turns stop their sandbox when the run ends.
+  - Proven against real Docker and Postgres in `sandbox-lifecycle-native.contract.test.ts`. The Vercel stop, resume and delete calls are the ones the existing real-Vercel contracts already cover; this change adds no new Vercel-lane assertion.
+
 - 2026-10-03 (claude): **progress.** Done and proven in the Vercel lane (7 real-sandbox contracts):
   - `vercel-sandbox-provider.ts`: our `Sandbox.create` over the stock `VercelHandle`, with no patches. It sets persistence with 30-day saved state, the egress allowlist, the agent port behind the OpenCode password, and kill enabled.
   - GitHub read token only in the firewall rule, stored encrypted per sandbox (Vercel redacts header values). Rotated after 10 minutes in the background; the replaced token is revoked after 30 s; revoked on stop and delete. Resume costs: fresh token 0.23 s, aged token 0.24 s (rotation off the critical path), after stop 0.9 s.

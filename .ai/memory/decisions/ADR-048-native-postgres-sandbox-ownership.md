@@ -49,15 +49,16 @@ Hosted needs CPU billed only while busy (an agent mostly waits on the model), a 
 
 ### Lifecycle and limits
 
-- An interactive sandbox stops after **5 minutes idle**; files are saved (Vercel snapshot on stop; Docker `stop`) and the next message resumes it.
-- A conversation's saved state is kept **30 days** after last use, then deleted; pushed work stays in git.
-- Each organization runs at most **50 sandboxes** at once; the limit is checked before create, with a clear "at capacity" error.
-- Runs nobody is watching (MCP `ctx_advisor` turns, Slack agent turns) stop their sandbox as soon as the run ends, so they never hold a slot.
+- An interactive sandbox stops after **5 minutes idle**; files are saved (Vercel snapshot on stop; Docker `stop`) and the next message resumes it. Idle is measured from the sandbox row's `last_heartbeat_at`, which is set when a turn starts and again when it ends (before the conversation lock is released). A sandbox is never stopped while a turn holds the conversation lock `chat-thread:<conversation>`: the stop takes that lock without waiting and skips the sandbox if it is held. A stopped sandbox has row state `stopped`.
+- A conversation's saved state is kept **30 days** after last use, then deleted with its row (Vercel delete also revokes the GitHub token); pushed work stays in git.
+- Each organization runs at most **50 sandboxes** at once (live Docker or Vercel conversation rows). Every start (a create, or the resume of a stopped sandbox) counts them under the org lock `org-sandbox-slots`; a create first reserves its row, so concurrent starts in other Workspaces see it. Over the limit the start fails with `SandboxCapacityError` (code `sandbox_capacity`): HTTP 429 on prepare and MCP, and an "at capacity" `RUN_ERROR` in the chat stream. Unsandboxed runs have no sandbox and no limit.
+- Runs nobody is watching (MCP `ctx_advisor` turns) set `stopSandboxWhenDone`, so their sandbox stops when the run ends (success, error or abort) and never holds a slot. The Slack mention agent does not use a workspace chat sandbox.
 - Cancel kills the agent process where the provider supports it; otherwise (Vercel, until proven) it stops the sandbox.
 
 ### Cleanup
 
-- A periodic cleanup (`workspace-sandbox-cleanup.ts`) stops idle sandboxes, deletes state past 30 days, and removes rows whose Workspace or conversation is gone. Failed destroys keep their row and retry.
+- There is no cron. The OpenWorkflow job `conversation-sandbox-sweep` (one org per run) stops idle sandboxes, deletes state past 30 days, deletes sandboxes whose conversation is gone, and retries failed deletes. Each run schedules the next for when a sandbox is next due (`availableAt`, idempotency key per org and minute, so chains merge). Every sandbox start and every Workspace tip check schedule a run, so the chain restarts if it is ever lost. Failed destroys keep their row (`destroy_failed`) and retry.
+- Rows whose Workspace is deleted go with it; Workspace and conversation deletion destroy their sandboxes first (`workspace-sandbox-cleanup.ts`).
 - Self-hosted Docker hosts also remove stopped containers and unused images (labelled by owner), so the host never runs out of disk *(ticket 03)*. Hosted deletes Vercel snapshots past retention and unused bases.
 
 ## Consequences

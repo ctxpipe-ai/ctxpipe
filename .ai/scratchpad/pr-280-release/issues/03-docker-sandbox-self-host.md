@@ -84,6 +84,14 @@ Do not add TanStack patches or an application-level sandbox registry. Keep const
 
 ## Comments
 
+- 2026-10-03 (claude): **lifecycle landed** (shared with ticket 02; see ADR-048):
+  - After 5 minutes idle, the `conversation-sandbox-sweep` OpenWorkflow job stops the container (`docker stop`, keyed by `provider_sandbox_id`) and sets the row to `stopped`. The next turn's stock `resume` starts it again with its files.
+  - 30 days after last use, the sweep removes the container and the row. The same happens when the conversation is gone.
+  - Starts are capped at 50 running per org, with an "at capacity" error.
+  - MCP turns stop their container when the run ends.
+  - Proven with real Docker and Postgres in `sandbox-lifecycle-native.contract.test.ts`. The Linux-only Docker chat contract in `workspace-chat-prepare-native.contract.test.ts` now also runs a full OpenCode turn after an idle stop, and an unattended turn that stops the container (CI only).
+  - Still open for this ticket: labelled image/container prune for orphans and base images.
+
 - 2026-10-02 (claude): from ticket 01. Stock `dockerSandbox` sets no container labels, ignores the requested name, and uses a random Docker name, so host cleanup cannot find our containers by label. Cleanup should work from `workspace_sandbox_instances.provider_sandbox_id` (the container id), and images we build for the Workspace base can carry our own labels. Local test runs leaked idle `node:22` containers this way; a host sweep needs the same id-based approach.
 
 - 2026-10-02 (user): Docker fast start uses option B (per-Workspace base image built by our code, stock `dockerSandbox({ image })`, no patch). Same lifecycle as hosted: 5-minute idle stop, 30-day state, 50 per org, non-interactive runs stop immediately.
