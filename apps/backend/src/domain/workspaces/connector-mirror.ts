@@ -1,5 +1,4 @@
 import { getConfluenceSyncTargetWithRepoByConnectionId } from "../../models/confluence-sync-target.js"
-import { getGithubPrMirrorBinding } from "../../models/github-pr-mirror.js"
 import { getLinearBindingWithRepoByConnectionId } from "../../models/linear-connector.js"
 import { getNotionBindingWithRepoByConnectionId } from "../../models/notion-connector.js"
 import { getPagerdutyBindingWithRepoByConnectionId } from "../../models/pagerduty-connector.js"
@@ -7,38 +6,43 @@ import { getSlackBindingWithRepoByConnectionId } from "../../models/slack-connec
 import {
   type GitPack,
   nativeGit,
+  readGitFiles,
   withGitDirectory,
 } from "../../services/git/pack.js"
-import type { ConnectorMirrorSource } from "./connector-mirror-input.js"
+import type {
+  ConfiguredConnectorMirrorSource,
+  ConnectorMirrorSource,
+} from "./connector-mirror-input.js"
+import { isLinkedRepositoryDeclaration } from "./layout.js"
+import { declaresLinkedRepository } from "./link-declarations.js"
 import type { WorkspaceRevision } from "./revision.js"
 
-export type { ConnectorMirrorSource } from "./connector-mirror-input.js"
+export type {
+  ConfiguredConnectorMirrorSource,
+  ConnectorMirrorSource,
+} from "./connector-mirror-input.js"
 
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
 /** Read existing connector control-plane bindings; never resolve provider credentials here. */
 export async function assertConnectorMirrorBinding(
   orgId: string,
-  source: Pick<
-    ConnectorMirrorSource,
-    "provider" | "connectionId" | "repositoryId" | "contentSyncGeneration"
-  >,
+  source:
+    | { provider: "github" }
+    | Pick<
+        ConfiguredConnectorMirrorSource,
+        "provider" | "connectionId" | "repositoryId"
+      >,
   revision: WorkspaceRevision,
 ): Promise<void> {
+  // GitHub has no binding; assertConnectorMirrorScope checks the link.
+  if (source.provider === "github") return
   const bindingReaders = {
     linear: getLinearBindingWithRepoByConnectionId,
     notion: getNotionBindingWithRepoByConnectionId,
     slack: getSlackBindingWithRepoByConnectionId,
     confluence: getConfluenceSyncTargetWithRepoByConnectionId,
     pagerduty: getPagerdutyBindingWithRepoByConnectionId,
-    github: async (orgId: string, connectionId: string) => {
-      const binding = await getGithubPrMirrorBinding(orgId, connectionId)
-      if (!binding) return undefined
-      return {
-        ...binding,
-        repositoryGitUrl: binding.gitUrl,
-      }
-    },
   }
   const binding = await bindingReaders[source.provider](
     orgId,
@@ -55,13 +59,7 @@ export async function assertConnectorMirrorBinding(
       normalizeWorkspaceRepositoryUrl(revision.remote.url) ||
     ("setupPhase" in binding &&
       binding.setupPhase !== "live" &&
-      binding.setupPhase !== "initial_sync" &&
-      // ADR-031 writes github/config.yaml during draft (no config PR).
-      !(source.provider === "github" && binding.setupPhase === "draft")) ||
-    (source.provider === "github" &&
-      source.contentSyncGeneration != null &&
-      "contentSyncGeneration" in binding &&
-      binding.contentSyncGeneration !== source.contentSyncGeneration)
+      binding.setupPhase !== "initial_sync")
   )
     throw new Error("Connector mirror binding changed")
 }
@@ -71,6 +69,15 @@ export async function assertConnectorMirrorScope(
   source: ConnectorMirrorSource,
   pack: GitPack,
 ): Promise<void> {
+  if (source.provider === "github") {
+    // Unlinking is the GitHub scope change: a mirror never lands after it.
+    const files = await readGitFiles(pack, isLinkedRepositoryDeclaration)
+    if (!declaresLinkedRepository(files, source.gitUrl))
+      throw new Error(
+        "GitHub repository is no longer linked to this Workspace; discard this capture",
+      )
+    return
+  }
   await withGitDirectory(
     pack.sha,
     async (directory) => {

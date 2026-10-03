@@ -32,10 +32,6 @@ import {
   previewMcpConfigChanges,
 } from "../../models/github-mcp-config-pr.js"
 import {
-  bindGithubPrMirror,
-  resolveGithubPrMirrorRepository,
-} from "../../models/github-pr-mirror.js"
-import {
   bulkCreateRepositoriesForOrg,
   countRepositoriesForGithubConnection,
   listRepositoriesForGithubConnection,
@@ -43,7 +39,6 @@ import {
 } from "../../models/repositories.js"
 import { getLogger } from "../../observability/logger.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
-import { enqueueGithubPrMirrorEnsureForOrg } from "../../openworkflow/workflows/github-ensure-pr-mirror.js"
 
 const ErrorResponseSchema = z
   .object({
@@ -197,19 +192,11 @@ const SelectedRepoSchema = z.object({
   clone_url: z.string(),
 })
 
-const ContextRepositorySchema = z.object({
-  full_name: z.string().min(1),
-  name: z.string().min(1),
-  clone_url: z.string().min(1),
-  default_branch: z.string().min(1).optional(),
-})
-
 const UpdateInstallationOptionsBodySchema = z
   .object({
     ingestAllRepositories: z.boolean(),
     includeFutureRepos: z.boolean(),
     selectedRepositories: z.array(SelectedRepoSchema).optional(),
-    contextRepository: ContextRepositorySchema.optional(),
   })
   .openapi("UpdateInstallationOptionsBody")
 
@@ -1149,21 +1136,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         )
       }
 
-      const selectedRepos = [
-        ...(body.selectedRepositories ?? []),
-        ...(body.contextRepository &&
-        !(body.selectedRepositories ?? []).some(
-          (repo) => repo.clone_url === body.contextRepository?.clone_url,
-        )
-          ? [
-              {
-                full_name: body.contextRepository.full_name,
-                name: body.contextRepository.name,
-                clone_url: body.contextRepository.clone_url,
-              },
-            ]
-          : []),
-      ]
+      const selectedRepos = body.selectedRepositories ?? []
       if (!body.ingestAllRepositories && selectedRepos.length === 0) {
         return c.json({ error: "Select at least one repository" }, 400)
       }
@@ -1225,24 +1198,6 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
             ),
           ),
         )
-      }
-
-      if (body.contextRepository) {
-        const branch = body.contextRepository.default_branch?.trim() || "main"
-        const repositoryId = await resolveGithubPrMirrorRepository({
-          orgId,
-          connectionId: installation.id,
-          repositoryName: body.contextRepository.full_name,
-          gitUrl: body.contextRepository.clone_url,
-          branch,
-        })
-        await bindGithubPrMirror({
-          orgId,
-          connectionId: installation.id,
-          repositoryId,
-          branch,
-        })
-        await enqueueGithubPrMirrorEnsureForOrg(orgId)
       }
 
       return c.json(await githubInstallationResponsePayload(installation), 200)
