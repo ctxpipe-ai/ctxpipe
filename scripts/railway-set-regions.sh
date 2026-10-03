@@ -95,8 +95,9 @@ wait_deploy() {
 }
 
 # Terraform service names. Stateless first; volume-backed last (serial copy).
-# The observability set is every service load_project returns. Only the
-# volume-backed names are listed here.
+# The observability set is every service load_project returns. Services with
+# no instance in the target environment (a staged Railway Function) are
+# skipped. Only the volume-backed names are listed here.
 STATELESS_NAMES=()
 VOLUME_NAMES=()
 case "$SERVICE_SET" in
@@ -113,26 +114,20 @@ case "$SERVICE_SET" in
     ;;
 esac
 
-current_regions_json() {
+service_instance_meta() {
   local service_id="$1"
-  local response
   # shellcheck disable=SC2016
-  response="$(railway_graphql \
+  railway_graphql_body \
     'query serviceInstanceMeta($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { latestDeployment { id status meta } } }' \
-    "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')")"
-  echo "$response" | jq -c '
-    .data.serviceInstance.latestDeployment.meta.serviceManifest.deploy.multiRegionConfig // {}
-    | to_entries
-    | map(select((.value.numReplicas // 0) >= 1) | .key)
-    | sort
-  '
+    "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')"
 }
 
-already_on_region() {
-  local service_id="$1"
-  local regions
-  regions="$(current_regions_json "$service_id")"
-  [[ "$regions" == "$(jq -nc --arg r "$REGION" '[$r]')" ]]
+# A service can exist in the project without an instance in this environment.
+# Railway Functions that are only staged (for example function-bun) return
+# "ServiceInstance not found". Pinning those fails the whole run.
+instance_missing() {
+  local meta="$1"
+  echo "$meta" | jq -e '[.errors // [] | .[] | select(.message == "ServiceInstance not found")] | length > 0' >/dev/null
 }
 
 pin_region() {
@@ -155,8 +150,26 @@ pin_and_maybe_deploy() {
   local label="$1"
   local service_id="$2"
   local wait_seconds="$3"
+  local meta regions
 
-  if already_on_region "$service_id"; then
+  meta="$(service_instance_meta "$service_id")" || return $?
+  if instance_missing "$meta"; then
+    echo "Skipping $label ($service_id): no service instance in $ENVIRONMENT_NAME"
+    return 0
+  fi
+  if echo "$meta" | jq -e '(.errors // []) | length > 0' >/dev/null; then
+    echo "Railway GraphQL errors for $label ($service_id)" >&2
+    echo "$meta" | jq -c '.errors' >&2
+    return 22
+  fi
+
+  regions="$(echo "$meta" | jq -c '
+    .data.serviceInstance.latestDeployment.meta.serviceManifest.deploy.multiRegionConfig // {}
+    | to_entries
+    | map(select((.value.numReplicas // 0) >= 1) | .key)
+    | sort
+  ')"
+  if [[ "$regions" == "$(jq -nc --arg r "$REGION" '[$r]')" ]]; then
     echo "Skipping $label ($service_id): latest deployment already on $REGION"
     return 0
   fi
