@@ -1,7 +1,12 @@
 import { createHmac } from "node:crypto"
 import type { SandboxHandle, SandboxProvider } from "@tanstack/ai-sandbox"
 import { VERCEL_CAPS, VercelHandle } from "@tanstack/ai-sandbox-vercel"
-import { type NetworkPolicy, Sandbox } from "@vercel/sandbox"
+import {
+  APIError,
+  type NetworkPolicy,
+  Sandbox,
+  Snapshot,
+} from "@vercel/sandbox"
 import type { SandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
 import { log } from "../../observability/logger.js"
 import { WORKSPACE_CHAT_OPENCODE_PORT } from "./chat-runtime.js"
@@ -17,6 +22,16 @@ const SESSION_TIMEOUT_MS = 45 * 60_000
 export const GIT_TOKEN_ROTATE_MS = 10 * 60_000
 /** In-flight git calls finish on the old token before it is revoked. */
 const GIT_TOKEN_REVOKE_GRACE_MS = 30_000
+
+/**
+ * Tags on every hosted chat sandbox. `environment` is the Railway environment
+ * name, so a closed PR preview's sandboxes can be found and deleted.
+ */
+export function conversationSandboxTags(
+  environment: string,
+): Record<string, string> {
+  return { ctxpipe: "workspace-chat", environment }
+}
 
 export type VercelCredentials = {
   token: string
@@ -294,8 +309,22 @@ export function vercelConversationProvider(input: {
 type SandboxTarget = {
   credentials: VercelCredentials
   name: string
-  tokens: SandboxGitTokenStore
+  /**
+   * Where the sandbox's GitHub token is kept, so it can be revoked. PR-close
+   * cleanup has none: the preview's database is deleted with the preview, and
+   * a token that is not revoked expires within an hour.
+   */
+  tokens?: SandboxGitTokenStore
   revoke?: (token: string) => Promise<void>
+}
+
+function notFound(error: unknown): boolean {
+  return error instanceof APIError && error.response.status === 404
+}
+
+async function revokeSandboxToken(target: SandboxTarget): Promise<void> {
+  const token = await target.tokens?.take(target.name)
+  if (token) await (target.revoke ?? revokeGithubToken)(token)
 }
 
 /** Stop a sandbox (its files are saved) and revoke its GitHub token. */
@@ -306,25 +335,29 @@ export async function stopVercelSandbox(target: SandboxTarget): Promise<void> {
     resume: false,
   })
   await sandbox.stop()
-  const token = await target.tokens.take(target.name)
-  if (token) await (target.revoke ?? revokeGithubToken)(token)
+  await revokeSandboxToken(target)
 }
 
 /** Delete a sandbox and its saved state; already gone counts as deleted. */
 export async function deleteVercelSandbox(
   target: SandboxTarget,
 ): Promise<void> {
+  const { credentials, name } = target
   try {
-    const sandbox = await Sandbox.get({
-      ...target.credentials,
-      name: target.name,
-      resume: false,
-    })
+    const sandbox = await Sandbox.get({ ...credentials, name, resume: false })
     await sandbox.delete()
   } catch (error) {
-    if ((error as { response?: { status?: number } }).response?.status !== 404)
-      throw error
+    if (!notFound(error)) throw error
   }
-  const token = await target.tokens.take(target.name)
-  if (token) await (target.revoke ?? revokeGithubToken)(token)
+  // Saved snapshots can outlive the sandbox; delete what is left.
+  const saved = await (await Snapshot.list({ ...credentials, name })).toArray()
+  for (const { id, status } of saved) {
+    if (status === "deleted") continue
+    try {
+      await (await Snapshot.get({ ...credentials, snapshotId: id })).delete()
+    } catch (error) {
+      if (!notFound(error)) throw error
+    }
+  }
+  await revokeSandboxToken(target)
 }

@@ -151,7 +151,7 @@ describe("deletePreviewSandboxes", () => {
       environment: "pr-7",
     })
 
-    expect(deleted).toEqual({ sandboxes: 2, snapshots: 1 })
+    expect(deleted).toBe(2)
     expect(project.requests[0]).toBe(
       "list sandboxes prj_test ctxpipe:workspace-chat,environment:pr-7",
     )
@@ -173,7 +173,8 @@ describe("deletePreviewSandboxes", () => {
       environment: "pr-7",
     })
 
-    expect(again).toEqual({ sandboxes: 0, snapshots: 0 })
+    expect(again).toBe(0)
+    expect(project.snapshots.size).toBe(0)
   })
 
   it("treats a sandbox or snapshot deleted in the meantime as deleted", async () => {
@@ -192,7 +193,7 @@ describe("deletePreviewSandboxes", () => {
 
     await expect(
       deletePreviewSandboxes({ credentials, environment: "pr-7" }),
-    ).resolves.toEqual({ sandboxes: 1, snapshots: 0 })
+    ).resolves.toBe(1)
   })
 
   it("fails on any other API error", async () => {

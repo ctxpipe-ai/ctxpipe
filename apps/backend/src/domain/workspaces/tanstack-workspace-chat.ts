@@ -71,6 +71,7 @@ import {
 } from "./sandbox-provider.js"
 import {
   conversationAgentPassword,
+  conversationSandboxTags,
   vercelConversationProvider,
   vercelCredentials,
 } from "./vercel-sandbox-provider.js"
@@ -824,6 +825,10 @@ async function hostedSandboxOptions(
   const credentials = await vercelCredentials().catch(() => null)
   if (!credentials)
     return unavailable("Hosted chat sandboxes are not configured")
+  // On Railway, an untagged sandbox would escape the PR-close cleanup.
+  const environment = process.env.RAILWAY_ENVIRONMENT_NAME?.trim()
+  if (!environment && process.env.RAILWAY_PROJECT_ID?.trim())
+    return unavailable("Hosted chat needs the Railway environment name")
   const authSecret = process.env.AUTH_SECRET?.trim() ?? ""
   if (authSecret.length < 32)
     return unavailable("Workspace chat needs AUTH_SECRET")
@@ -855,10 +860,7 @@ async function hostedSandboxOptions(
           return token
         },
       },
-      tags: {
-        ctxpipe: "workspace-chat",
-        environment: process.env.RAILWAY_ENVIRONMENT_NAME?.trim() || "local",
-      },
+      tags: conversationSandboxTags(environment || "local"),
     },
   }
 }
