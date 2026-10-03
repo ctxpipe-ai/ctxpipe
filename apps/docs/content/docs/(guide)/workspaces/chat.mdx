@@ -83,8 +83,8 @@ with another conversation or organization:
 
 - **Your files are saved.** When a conversation goes idle, its sandbox stops
   and saves its files. Your next message resumes it with the files where the
-  agent left them. Saved files are deleted 30 days after the conversation was
-  last used.
+  agent left them. Saved files are deleted 30 days after the sandbox last
+  stopped; the conversation's branch in your repository is not affected.
 - **Network access is limited.** The sandbox can reach GitHub and ctx| only;
   every other host is blocked.
 - **The GitHub token stays outside.** Read access to the workspace repository
@@ -93,7 +93,8 @@ with another conversation or organization:
   when the sandbox stops.
 
 The sandbox never holds a credential that can push to your default branch.
-Model calls and Workspace tools go through ctx|, scoped to that conversation.
+Model calls, Workspace tools, and pushes to the conversation's branch go
+through ctx|, scoped to that conversation.
 
 ## Know the limits
 
