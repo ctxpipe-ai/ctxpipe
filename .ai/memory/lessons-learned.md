@@ -731,3 +731,10 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** convention
 - **Date:** 2026-09-26
 - **Source:** Repository owner after PR-343 ("I want CD to do these things... you are here to serve me")
+
+### Simplified Technical English for explanations
+
+- **Rule:** Write each explanation in ASD-STE100. Retained text (markdown, comments, and other kept text) uses the full standard. A reply to the user uses that standard at about 80% strength. Follow [`.cursor/rules/simplified-technical-english.mdc`](../../.cursor/rules/simplified-technical-english.mdc).
+- **Category:** convention
+- **Date:** 2026-10-04
+- **Source:** user request

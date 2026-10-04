@@ -2,7 +2,7 @@
 
 Agent instructions are **distributed**: this file covers repo-wide rules; apps and packages can have their own `AGENTS.md` with local instructions. When working in an app or package, read both the root AGENTS.md and that folder's AGENTS.md (if present).
 
-- **Root** (this file): architecture, code style.
+- **Root** (this file): architecture, code style, and Simplified Technical English for explanations.
 - **apps/backend**: [apps/backend/AGENTS.md](apps/backend/AGENTS.md) — API, OpenAPI, MCP, Drizzle, TypeScript, etc. **[Source-connectors skill](.agents/skills/source-connectors/)** when designing, building, or reviewing a source connector (Linear, Notion, Slack, git-native mirror/capture, `connections.config`, self-host), when provider requests can multiply per related record, or when a full import must resume after a crash.
 - **apps/otel-collector**: laptop OTLP debug sink for `pnpm dev:infra` (stdout only). Hosted ingest is [`ops/observability`](ops/observability/) ([ADR-038](.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md)).
 - **apps/codesearch**: [apps/codesearch/AGENTS.md](apps/codesearch/AGENTS.md) — Zoekt/SCIP orchestration, read-only DB, OpenAPI + Zod, and the manual Kubernetes ingest memory gate.
@@ -41,6 +41,18 @@ For Storybook conventions and tools, read [.agents/skills/storybook/SKILL.md](.a
 **Cursor Cloud / remote headless agents:** Do **not** use `pnpm dev` (portless). Default to **[Running dev servers on cloud VMs](#cursor-cloud-specific-instructions)** in this file (copy-paste block + migrate + `bun --env-file=.env.local`). **Claude Code on the web:** see [Claude Code on the web](#claude-code-on-the-web).
 
 **When feedback is given that should become a long-term instruction**: Save it into this structure. Repo-wide preferences and conventions go in this file (root AGENTS.md). Instructions that apply only to a specific app or package go in that folder's `AGENTS.md` (e.g. `apps/backend/AGENTS.md`); create the file if it doesn't exist. Add or update the list above when you create or change an app/package AGENTS.md so future agents know where to look.
+
+## Language
+
+Write each explanation in ASD-STE100 Simplified Technical English.
+
+- Retained text uses the full standard. This includes markdown, a code comment, a commit message, pull request text, a changeset, docs, and memory files.
+- A reply to the user uses the same standard at about 80% strength.
+- The rules are in [`.cursor/rules/simplified-technical-english.mdc`](.cursor/rules/simplified-technical-english.mdc). Examples are in [`.cursor/skills/simplified-technical-english/SKILL.md`](.cursor/skills/simplified-technical-english/SKILL.md). Read the rule before you write or edit an explanation.
+
+When you edit a file, write each new sentence to the standard. Change an old sentence only when you edit it for another reason.
+
+Product UI copy in `apps/ui` keeps UK spelling from [DESIGN.md](apps/ui/DESIGN.md).
 
 ## Agent skills
 
