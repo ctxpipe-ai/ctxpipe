@@ -257,8 +257,30 @@ fi
               ).status,
             ).toBe(404)
           if (scenario === "warm_files") {
-            // Files reads are existing-only. Prepare as a send does, then CAS from tree.
-            const warmed = await app.request(
+            // File reads never create a sandbox: 409 and no sandbox row.
+            const unwarmed = await app.request(
+              `/conversations/${conversationId}/files/blob?path=notes.md`,
+            )
+            expect({
+              status: unwarmed.status,
+              body: await unwarmed.json(),
+            }).toEqual({ status: 409, body: { error: "missing_sandbox" } })
+            expect(
+              await withOrgDbContext(f.org.id, (db) =>
+                db
+                  .select()
+                  .from(workspaceSandboxInstances)
+                  .where(
+                    eq(
+                      workspaceSandboxInstances.conversationId,
+                      conversationId,
+                    ),
+                  ),
+              ),
+            ).toEqual([])
+            // Opening the conversation prepares it, as the UI does; then CAS
+            // from the existing-only tree.
+            const prepared = await app.request(
               `/conversations/${conversationId}/prepare`,
               {
                 method: "POST",
@@ -266,7 +288,7 @@ fi
                 body: JSON.stringify({ workspaceId: f.workspaceId }),
               },
             )
-            expect(warmed.status).toBe(204)
+            expect(prepared.status).toBe(204)
             const tree = await app.request(
               `/conversations/${conversationId}/files/tree`,
             )

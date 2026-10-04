@@ -144,7 +144,7 @@ Keep each patch minimal and listed with its removal condition. Never fall back t
     - Not run against real Vercel.
     - `workspace-chat-native.contract.test.ts` times out on this laptop with or without this change.
 
-- 2026-10-04 (user): the agent decides when to commit and push (semantic commits, a push tool through the broker, or on request); Commit+Push returns next to Create PR and Show PR; Create PR keeps the commits (no squash); no automatic per-turn push. Before a sandbox is deleted after 30 days, committed work is pushed.
+- 2026-10-04 (user): Commit+Push comes back now that the sandbox provider changed. The agent decides when to commit and push: semantic commits, the user can prompt it, and the system prompt recommends committing when a task is done. Create PR does not squash. Supersedes the 2026-10-01 "drop Commit+Push, squash on PR" decision and the automatic per-turn push.
 
 - 2026-10-03 (claude): **lifecycle landed** (shared with ticket 03; ADR-048 "Lifecycle and limits" and "Cleanup" updated):
   - Idle stop after 5 minutes and 30-day deletion run in a new OpenWorkflow job, `conversation-sandbox-sweep`. The Workspace tip check was not periodic, so each sweep schedules the next one for when a sandbox is next due. Every sandbox start and every tip check also schedule a sweep. A sweep never stops a sandbox while a turn holds `chat-thread:<conversation>`. The idle clock restarts when a turn ends.

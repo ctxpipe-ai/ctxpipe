@@ -55,6 +55,7 @@ vi.mock("../../../models/github-installation.js", () => ({
   getGithubConnectionRowByConnectionId: vi.fn(),
   registerInstallationOnConnection: vi.fn(),
   getWebhookSecretForGithubConnection: vi.fn(),
+  githubAppOwnsInstallation: vi.fn().mockResolvedValue(true),
 }))
 
 vi.mock("../../../models/repositories.js", () => ({
@@ -629,6 +630,7 @@ describe("POST /api/v1/webhook/github", () => {
   })
 })
 
+// Installation registration from this endpoint: github.integration.test.ts
 describe("POST /api/v1/webhook/github/:connectionId", () => {
   const env = parseEnv({
     NODE_ENV: "test",
@@ -683,53 +685,6 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
     expect(getRowByConMock).not.toHaveBeenCalled()
   })
 
-  it("installation created links installation id on the connection row", async () => {
-    getRowByConMock.mockResolvedValue({
-      id: "con_abc",
-      orgId: "org_1",
-      type: "github",
-      contentSyncGeneration: 0,
-      contentSyncWorkflowRunId: null,
-      config: {
-        ingestAllRepositories: false,
-        includeFutureRepos: false,
-      },
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-
-    registerInstallMock.mockResolvedValue(undefined)
-
-    const app = createTestApp()
-    const payload = {
-      action: "created",
-      installation: { id: 129_416_215 },
-    }
-    const body = JSON.stringify(payload)
-    const w = new Webhooks({ secret: perConnectionSecret })
-    const sig = await w.sign(body)
-
-    const res = await app.request("/api/v1/webhook/github/con_abc", {
-      method: "POST",
-      headers: {
-        "x-github-event": "installation",
-        "x-hub-signature-256": sig,
-        "content-type": "application/json",
-      },
-      body,
-    })
-
-    expect(res.status).toBe(200)
-    expect(getWebhookSecretMock).toHaveBeenCalledWith("con_abc", env)
-    expect(getRowByConMock).toHaveBeenCalledWith("con_abc")
-    expect(registerInstallMock).toHaveBeenCalledWith({
-      orgId: "org_1",
-      connectionId: "con_abc",
-      installationId: 129_416_215,
-      env,
-    })
-  })
-
   it("attributes the connection when installation created does not enqueue a job", async () => {
     getRowByConMock.mockResolvedValue({
       id: "con_abc",
@@ -771,55 +726,6 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
       "ctxpipe.connection.id": "con_abc",
     })
     expect(requestSpanAttributes()["ctxpipe.actor.type"]).toBeUndefined()
-  })
-
-  it("installation_repositories added links installation id on the connection row", async () => {
-    getRowByConMock.mockResolvedValue({
-      id: "con_abc",
-      orgId: "org_1",
-      type: "github",
-      config: {
-        ingestAllRepositories: false,
-        includeFutureRepos: false,
-      },
-      contentSyncGeneration: 0,
-      contentSyncWorkflowRunId: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-
-    registerInstallMock.mockResolvedValue(undefined)
-
-    const app = createTestApp()
-    const payload = {
-      action: "added",
-      installation: { id: 129_416_215 },
-      repositories_added: [
-        { id: 1, name: "ctxpipe", full_name: "org/ctxpipe" },
-      ],
-    }
-    const body = JSON.stringify(payload)
-    const w = new Webhooks({ secret: perConnectionSecret })
-    const sig = await w.sign(body)
-
-    const res = await app.request("/api/v1/webhook/github/con_abc", {
-      method: "POST",
-      headers: {
-        "x-github-event": "installation_repositories",
-        "x-hub-signature-256": sig,
-        "content-type": "application/json",
-      },
-      body,
-    })
-
-    expect(res.status).toBe(200)
-    expect(getRowByConMock).toHaveBeenCalledWith("con_abc")
-    expect(registerInstallMock).toHaveBeenCalledWith({
-      orgId: "org_1",
-      connectionId: "con_abc",
-      installationId: 129_416_215,
-      env,
-    })
   })
 
   it("rejects a payload for a different GitHub installation", async () => {
@@ -883,7 +789,6 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
     } as never)
     listInstallationsMock.mockResolvedValue([
       { id: "con_abc", orgId: "org_1", ...baseInstallationRow },
-      { id: "con_other", orgId: "org_2", ...baseInstallationRow },
     ])
     findRepoMock.mockResolvedValue({
       id: "repo_abc",
@@ -918,6 +823,7 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
 
     expect(response.status).toBe(200)
     expect(findRepoMock).toHaveBeenCalledOnce()
+    expect(listInstallationsMock).toHaveBeenCalledWith(999, "con_abc")
     expect(findRepoMock).toHaveBeenCalledWith("org_1", "acme/app", "con_abc")
     expect(enqueueIngestionMock).toHaveBeenCalledOnce()
   })

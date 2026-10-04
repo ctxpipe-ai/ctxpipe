@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { Context } from "hono"
+import { RequestError } from "octokit"
 import type { AppEnv } from "../../app/env.js"
 import type { GitHubInstallationShape } from "../../models/connection-rows.js"
 import {
@@ -13,6 +14,7 @@ import {
   deleteGithubConnectionById,
   getGithubConnectionRow,
   getGithubUserAccessToken,
+  githubAppOwnsInstallation,
   isGithubInstallationTokenError,
   listAllReposForInstallation,
   listGithubConnectionRowsForOrg,
@@ -298,11 +300,8 @@ export const registerInstallationRoute = createRoute({
     },
     403: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Forbidden",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "GitHub account not linked",
+      description:
+        "Not an org admin or owner; GitHub account not linked (`why: github_not_linked`); or the linked GitHub account cannot access the installation (`why: github_installation_not_accessible`)",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -966,15 +965,70 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     if (!orgId) return c.json({ error: "Not found" }, 404)
     const body = c.req.valid("json")
     try {
-      const user = c.get("user") as { id: string }
-      const githubAccessToken = await getGithubUserAccessToken(user.id)
-      if (githubAccessToken) {
-        const canAccess = await userCanAccessInstallation(
-          githubAccessToken,
-          body.installationId,
-        )
+      // A connection with its own App credentials proves the installation with
+      // that App's key. Any other attach goes through the deployment's App, so
+      // the acting user's GitHub account must be able to see the installation.
+      const connectionRow = body.connectionId
+        ? await getGithubConnectionRow(orgId, body.connectionId)
+        : undefined
+      if (body.connectionId && !connectionRow) {
+        return c.json({ error: "Unknown GitHub connection" }, 404)
+      }
+      if (
+        connectionRow &&
+        githubRowHasAppCredentials(connectionRow, c.var.env)
+      ) {
+        if (
+          !(await githubAppOwnsInstallation(
+            connectionRow,
+            body.installationId,
+            c.var.env,
+          ))
+        ) {
+          return c.json(
+            {
+              error:
+                "This connection's GitHub App does not own that installation",
+              why: "github_installation_not_accessible",
+            },
+            403,
+          )
+        }
+      } else {
+        const githubNotLinked = {
+          error: "Connect your GitHub account to link this installation",
+          message: "Connect your GitHub account to link this installation",
+          why: "github_not_linked",
+        }
+        const user = c.get("user") as { id: string }
+        const githubAccessToken = await getGithubUserAccessToken(user.id)
+        if (!githubAccessToken) return c.json(githubNotLinked, 403)
+        let canAccess: boolean
+        try {
+          canAccess = await userCanAccessInstallation(
+            githubAccessToken,
+            body.installationId,
+          )
+        } catch (e) {
+          // A revoked token, or one GitHub will not list installations for.
+          if (
+            e instanceof RequestError &&
+            (e.status === 401 || e.status === 403)
+          ) {
+            return c.json(githubNotLinked, 403)
+          }
+          throw e
+        }
         if (!canAccess) {
-          return c.json({ error: "Forbidden" }, 403)
+          return c.json(
+            {
+              error: "Forbidden",
+              message:
+                "Your GitHub account cannot access this GitHub App installation",
+              why: "github_installation_not_accessible",
+            },
+            403,
+          )
         }
       }
 
