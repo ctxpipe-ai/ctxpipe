@@ -467,10 +467,10 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### UI copy language
-- **Rule:** use US English spelling in user-facing UI copy, for example `organization` rather than `organisation`. Keep the same register in design instructions (`apps/ui/DESIGN.md`, product-ui skill, ai-tells).
+- **Rule:** Use US English spelling everywhere, including user-facing UI copy (`organization`, not `organisation`). UI copy follows ASD-STE100 at about 80% strength. See the Language section in root `AGENTS.md`.
 - **Category:** convention
-- **Date:** 2026-08-22
-- **Source:** GitHub workspace destination flow; supersedes 2026-08-11 UK English rule; candidate `ba616391f38e94cf`
+- **Date:** 2026-10-04
+- **Source:** user correction; replaces the 2026-08-11 UK English rule
 
 ### GitHub setup copy after connect
 - **Rule:** After the GitHub App is installed, tell the user the connection is complete, then offer create a workspace, add repositories to an existing one (listed), or close the wizard. Do **not** explain that the connection is organization-wide or that repositories are linked per workspace.
