@@ -61,18 +61,20 @@ Leave `OTEL_EXPORTER_OTLP_*` unset unless this run needs a backend. `pnpm dev` d
 
 **Laptop collector.** `pnpm dev:infra` publishes `${CTXPIPE_OTEL_COLLECTOR_HOST_PORT:-4318}:4318` on every interface. Point the app at `http://127.0.0.1:4318/v1/traces`, `/v1/logs`, and `/v1/metrics`. Omit the headers. `OTEL_SERVICE_NAME` is `backend`, `openworkflow`, or `codesearch`. The collector prints OTLP to its own logs. There is no local HyperDX.
 
-**Shared collector (opt-in).** Use it when the hosted dashboards should show this run. The 4 GiB ClickHouse node and the Langfuse prompt store are why it stays opt-in.
+**Shared collector (opt-in).** Use it when the hosted dashboards should show this run; [preview-env](../../.cursor/skills/preview-env/run-setup.md#local-trace-export) local runs always do. The 4 GiB ClickHouse node and the Langfuse prompt store are why it stays opt-in.
+
+Put these lines in `apps/backend/.env.local` (gitignored; never commit the key):
 
 ```bash
 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://telemetry.ctxpipe.ai/v1/traces
 OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=https://telemetry.ctxpipe.ai/v1/logs
-OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=https://telemetry.ctxpipe.ai/v1/metrics
 OTEL_EXPORTER_OTLP_HEADERS=authorization=<HYPERDX_API_KEY>
-RAILWAY_ENVIRONMENT_NAME=local-<name>
-OTEL_SERVICE_NAME=backend
+OTEL_RESOURCE_ATTRIBUTES=deployment.environment=local-<name>
 ```
 
-`<name>` is the person or agent. Filter HyperDX to that environment. Langfuse tag is `env:local-<name>`. Set these in the shell that starts the process. `local-*` uses the 60s metric reader, so a process that exits immediately can miss gauges.
+`<name>` is the person or agent. Filter HyperDX to that environment. Langfuse tag is `env:local-<name>`. Add `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=https://telemetry.ctxpipe.ai/v1/metrics` only when the run needs metrics; `local-*` uses the 60s metric reader, so a process that exits immediately can miss gauges.
+
+`pnpm dev` hands them to every local process: Bun loads `.env.local` for the backend and the OpenWorkflow worker, `scripts/codesearch-docker-dev.sh` passes them into the codesearch container, and Turbo passes them to the UI server, whose `/.otel` relay then forwards browser spans. The worker reports as `service.name=backend` unless `OTEL_SERVICE_NAME` is set, and that is fine locally. Use `OTEL_RESOURCE_ATTRIBUTES`, not `RAILWAY_ENVIRONMENT_NAME`: the backend also reads `RAILWAY_ENVIRONMENT_NAME` for Railway-only behavior. On the cloud-VM runbook (`bun --env-file=.env.local`), export the same variables in the shell that starts the UI. The codesearch container cannot reach the laptop collector at `127.0.0.1`.
 
 ## Retention
 

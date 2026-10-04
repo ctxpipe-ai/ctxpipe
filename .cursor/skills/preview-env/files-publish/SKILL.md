@@ -1,12 +1,12 @@
 ---
 name: preview-env-files-publish
-description: Conversation files, diff, automatic turn pushes, Create PR, Show PR, stale branch, and workspace file edits (preview-env).
+description: Conversation files, diff, agent and Commit+Push commits, Create PR, Show PR, stale branch, and workspace file edits (preview-env).
 disable-model-invocation: true
 ---
 
 # preview-env files-publish
 
-Conversation sandbox, session branch `ctxpipe/chat/{conversationId}/1`, GitHub pull request. The conversation's durable state is that branch: every turn that changed files is committed and pushed by the backend broker. The UI keeps only **Create PR** (squashes the turn commits) and **Show PR**; **Commit+Push is removed** (ticket 02). Chat never pushes the default branch. [Harness](../harness.md) write policy applies (see [run-setup](../run-setup.md#write-policy)). Flow format: [run-setup](../run-setup.md#flow-format).
+Conversation sandbox, session branch `ctxpipe/chat/{conversationId}/1`, GitHub pull request. The agent decides when to commit and push to that branch: when the user asks, or when it finishes a task (its system prompt recommends committing then), with semantic commit messages. The conversation header offers **Commit+Push** (for anything not yet committed, including the user's own edits), **Create PR** (keeps every commit; no squash), and **Show PR** (decided 2026-10-04). Chat never pushes the default branch. [Harness](../harness.md) write policy applies (see [run-setup](../run-setup.md#write-policy)). Flow format: [run-setup](../run-setup.md#flow-format).
 
 If **Settings** shows **Read-only**, publish controls are hidden: `SKIP(no-fixture)` the write flows, not FAIL.
 
@@ -41,38 +41,38 @@ If **Settings** shows **Read-only**, publish controls are hidden: `SKIP(no-fixtu
 **Budget** 2 s / 8 s.
 **Evidence** `FP-3-1.png`.
 
-### FP-4 Turn commits are pushed automatically
-**Requires** CHAT-2 and `needs-ticket-02` (until the broker push lands this is `SKIP(needs-ticket-02)`); Workspace `Writable`.
+### FP-4 Agent commits and pushes; Commit+Push publishes the rest
+**Requires** CHAT-2; FP-2's saved file; Workspace `Writable`.
 **Steps**
-1. In the conversation, ask the agent to write `knowledge/preview-env/{run-id}-turn.md` with a short summary of a template file.
-2. When the turn ends, look for any **Commit+Push** or **Pushing…** control.
+1. In the conversation, ask the agent to write `knowledge/preview-env/{run-id}-turn.md` with a short summary of a template file and say the task is done. Do not mention committing. When the turn ends, record whether the agent committed and pushed on its own.
+2. Ask the agent to commit and push its work.
 3. Check the branch on GitHub.
-4. *Uncertain:* repeat with the file edit from FP-2 and the next turn; record whether the user's own saved edit is committed on save or with the next turn.
+4. Click **Commit+Push** in the conversation header to publish FP-2's saved file (the user's own edit); wait out **Pushing…**.
 
-**Expect (UI)** no **Commit+Push** or **Pushing…** anywhere (including Files empty-state copy); the header shows the branch `ctxpipe/chat/{conversationId}/1` (short name `chat/1`) and **Create PR**.
-**Expect (backend)** the branch exists on GitHub with a commit for the turn (model-written subject, not a placeholder); `lastBranch` on `GET /{orgSlug}/api/v1/conversations/{id}` has the prefix `ctxpipe/chat/{conversationId}/`; a turn that changed nothing creates no commit; the broker pushes, the sandbox holds no write credential.
-**Budget** 10 s / 30 s, turn end to the commit on the branch.
-**Evidence** `FP-4-1.png`; `gh api repos/{GH_TEST_ORG}/…/commits?sha=<branch>`; trace.
+**Expect (UI)** the header shows the branch `ctxpipe/chat/{conversationId}/1` (short name `chat/1`), **Commit+Push**, and **Create PR**; after step 2 the agent's reply says it committed and pushed; step 4 shows **Pushing…**, then clears with no error.
+**Expect (backend)** the branch exists on GitHub with the agent's commit (a semantic subject such as `docs: …`, not a placeholder) after step 1 or step 2, and a further commit with FP-2's file after step 4; nothing is pushed to the default branch; `lastBranch` on `GET /{orgSlug}/api/v1/conversations/{id}` has the prefix `ctxpipe/chat/{conversationId}/`; on `preview` the sandbox still holds no write credential ([CHAT-8](../chat/SKILL.md)).
+**Budget** 10 s / 30 s, the agent's reply (step 2) or **Commit+Push** (step 4) to the commit on the branch.
+**Evidence** `FP-4-1.png` (header after step 2), `FP-4-2.png` (after step 4); `gh api repos/{GH_TEST_ORG}/…/commits?sha=<branch>`; trace.
 
 ### FP-5 Create PR and Show PR
-**Requires** FP-4 (two or more turn commits on the branch: run FP-4 twice).
+**Requires** FP-4 (two or more commits on the branch).
 **Steps**
 1. Click **Create PR**; wait out **Creating PR…**.
 2. Click **Show PR**.
 
 **Expect (UI)** the button becomes **Show PR** with an `href` to `github.com/…/pull/N`; the PR is left open (never merged unless `merge-pr`).
-**Expect (backend)** the PR exists targeting the default branch and has **one** commit (the turn commits squashed); title starts with `[preview-env]` (*uncertain:* whether the product lets the run set the title; if not, close the PR after the run and note it); the conversation's PR state is `open`.
+**Expect (backend)** the PR exists targeting the default branch and has **every** commit of the branch, unsquashed (at least two); title starts with `[preview-env]` (*uncertain:* whether the product lets the run set the title; if not, close the PR after the run and note it); the conversation's PR state is `open`.
 **Budget** 10 s / 30 s, **Create PR** to **Show PR**.
 **Evidence** `FP-5-1.png`; `gh pr view --json commits,title,url`; trace of the pull-request request.
 
 ### FP-6 Stale branch hides publish actions
-**Requires** FP-5 not yet merged; a human or `gh` able to push to the default branch of `preview-env-{run-id}-ws`.
+**Requires** FP-5 not yet merged; a human or `gh` able to push to the default branch of `pe-{run-id}-ws`.
 **Steps**
 1. Push a commit to the default branch that edits the same file the conversation changed.
 2. Open the conversation and send one message.
 3. Read the header and the Files pane.
 
-**Expect (UI)** the conversation either shows **Branch needs a rebase** (conflict) or silently catches up (no overlap); while stale, **Create PR** is hidden; after the agent resolves the conflict the action returns.
+**Expect (UI)** the conversation either shows **Branch needs a rebase** (conflict) or silently catches up (no overlap); while stale, the publish actions (**Commit+Push**, **Create PR**) are hidden; after the agent resolves the conflict they return.
 **Expect (backend)** the moved default branch is merged into the session branch in place before the turn; a merge commit or conflict note is on the branch.
 **Budget** 15 s / 45 s, **Send** to the answer on the caught-up branch.
 **Evidence** `FP-6-1.png`; commits on the branch.
@@ -89,6 +89,6 @@ If **Settings** shows **Read-only**, publish controls are hidden: `SKIP(no-fixtu
 
 ## Status
 
-- **PASS** FP-1, FP-2, FP-3 `PASS`; FP-4 to FP-6 `PASS` or `SKIP(needs-ticket-02)`; FP-7 `PASS` or `SKIP`.
+- **PASS** FP-1 to FP-6 `PASS`; FP-7 `PASS` or `SKIP`.
 - **SKIP** read-only Workspace, or flags not set (write policy).
-- **FAIL** a save, push, or PR error on a **Writable** Workspace; **Show PR** never appearing; a **Commit+Push** control still present after ticket 02; a PR with unsquashed turn commits.
+- **FAIL** a save, push, or PR error on a **Writable** Workspace; the agent not committing when asked; **Commit+Push**, **Create PR**, or **Show PR** missing; a PR whose commits were squashed.

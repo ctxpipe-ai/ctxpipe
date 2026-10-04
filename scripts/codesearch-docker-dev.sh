@@ -99,6 +99,14 @@ fi
 if [[ -n "${AUTH_TOKEN_AUDIENCE_CODESEARCH:-}" ]]; then
   DOCKER_ARGS+=(-e "AUTH_TOKEN_AUDIENCE_CODESEARCH=$AUTH_TOKEN_AUDIENCE_CODESEARCH")
 fi
+# Telemetry export opted into in .env.local (see ops/observability/USING.md).
+# `-e NAME` copies the value from this shell, so the ingest key stays off argv.
+for otel_var in OTEL_EXPORTER_OTLP_TRACES_ENDPOINT OTEL_EXPORTER_OTLP_LOGS_ENDPOINT \
+  OTEL_EXPORTER_OTLP_METRICS_ENDPOINT OTEL_EXPORTER_OTLP_HEADERS OTEL_RESOURCE_ATTRIBUTES; do
+  if [[ -n "${!otel_var:-}" ]]; then
+    DOCKER_ARGS+=(-e "$otel_var")
+  fi
+done
 
 if [[ "$(uname -s)" == "Linux" ]]; then
   DOCKER_ARGS+=(--add-host=host.docker.internal:host-gateway)

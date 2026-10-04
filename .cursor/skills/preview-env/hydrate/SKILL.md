@@ -26,13 +26,13 @@ Workspace **revision** prepare: `workspace-hydrate` rebuilds the projection (Pos
 1. Open **Files** and find the malformed file.
 2. Check the knowledge units for that path.
 
-**Expect (UI)** hydrate is still **Hydrate ready**; the file is present in the Files tree (it is in git). *Uncertain:* whether any UI surface reports skipped files; none was found in the Workspace UI types, so record where (if anywhere) the skip is visible.
+**Expect (UI)** hydrate is still **Hydrate ready**; the file is present in the Files tree (it is in git). No UI surface reports skipped files yet (ticket 13, `needs-triage`); record where, if anywhere, the skip is visible.
 **Expect (backend)** no `workspace_knowledge_units` row for that path; the hydrate run logs it as skipped with reason `malformed`; no `hydrateError`.
 **Budget** none beyond HYD-1.
 **Evidence** `HYD-2-1.png`; the hydrate log line.
 
 ### HYD-3 New commit on the default branch triggers re-hydrate
-**Requires** HYD-1 `ready`; `gh` or a human able to push to `preview-env-{run-id}-ws`.
+**Requires** HYD-1 `ready`; `gh` or a human able to push to `pe-{run-id}-ws`.
 **Steps**
 1. Push a commit adding `knowledge/preview-env/{run-id}.md` (with a relative link to an existing file) to the default branch.
 2. Wait for the push webhook; if none arrives within 60 s, reload the Workspace (the Workspace list request enqueues a tip check).
@@ -55,7 +55,7 @@ Workspace **revision** prepare: `workspace-hydrate` rebuilds the projection (Pos
 **Evidence** `HYD-4-1.png`; trace of the retry request.
 
 ### HYD-5 Linked-repository index completes
-**Requires** WS-6 linked `preview-env-{run-id}-code`.
+**Requires** WS-6 linked `pe-{run-id}-code`.
 **Steps**
 1. On **Settings**, watch the linked row until its chip settles.
 

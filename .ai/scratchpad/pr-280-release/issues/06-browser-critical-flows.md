@@ -1,11 +1,11 @@
 # Browser end-to-end testing of critical flows
 
-Status: ready
+Status: in-progress (phase 1 approved 2026-10-04; next: first local run)
 Priority: P0
 Owner: unassigned
 Blocked by: none (skill phases); 02 for the final hosted pass
 Created: 2026-10-01
-Updated: 2026-10-03
+Updated: 2026-10-04
 
 ## Context
 
@@ -20,7 +20,7 @@ A skill that lists every critical user flow with preconditions, steps, and expec
 ## Acceptance criteria
 
 - [ ] Every run starts from registration and onboarding with freshly created accounts (no pre-seeded users).
-- [ ] Critical-flow catalogue reviewed and approved by the user before execution.
+- [x] Critical-flow catalogue reviewed and approved by the user before execution (2026-10-04).
 - [ ] Skill updated (extend `preview-env` areas; no parallel skill) so each flow has: preconditions/data, steps, expected visible result, expected backend side effect (DB row, git commit, workflow), timing budget, evidence to capture (screenshot/recording, trace id).
 - [ ] Skill works against local host dev (`https://app.ctxpipe.localhost`) and Railway previews.
 - [ ] Full run on pr-280 with a report: per flow `PASS`/`FAIL`/`SKIP`, evidence, trace links.
@@ -49,26 +49,42 @@ Superseded by the 2026-10-03 catalogue comment below (the original list is kept 
 
 1. **Catalogue.** Expand the list above with expectations, data setup, and budgets by reading the routes, PRDs (workspace-chat-*), and existing `preview-env` areas. Present to the user (this ticket's `## Comments`) for approval.
 2. **Update the skill.** Restructure `preview-env` so each area file lists its flows in a fixed format (preconditions → steps → expect → evidence → budget), plus a shared run-setup section (unique emails per run, GitHub test org/repo for onboarding, connector test workspaces) and a report template with trace links. Follow `.cursor/skills/writing-great-skills/`.
-3. **First run (local host dev),** to shake out the skill itself. Refine wording, waits, and preconditions.
+Phase 1 (steps 1-2) is approved (user, 2026-10-04). **Next: step 3, the first local run.**
+
+3. **First run (local host dev),** to shake out the skill itself. Refine wording, waits, and preconditions. Traces export to HyperDX as `local-<name>` (run-setup § Local trace export).
 4. **Run on pr-280.** Capture report and evidence. File each failure: fix immediately if small (with a regression test), otherwise a ticket.
 5. **Fix loop** until two consecutive clean runs.
 6. **Final pass after ticket 02** on Vercel sandboxes; record in `## Resolution`.
-7. (Optional, ask) Convert the most valuable flows into Playwright scripts for repeatable runs.
+7. ~~Convert the most valuable flows into Playwright scripts.~~ Not now, possibly never (user, 2026-10-04): first see in practice how repeatable the LLM-driven runs are.
 
 ## Open questions
 
-- Accounts are created by the run itself (user, 2026-10-01). Still needed: which GitHub test org/repos the onboarding may install the App on, and credentials for connector test workspaces (Linear/Notion/Slack/Confluence/PagerDuty).
-- Should OAuth-dependent flows (GitHub App install, connector OAuth) be automated, or stay `ready-for-human` checkpoints in the run?
-- Do you want the Playwright conversion (step 7) in scope for this ticket?
-- New (2026-10-03, see the catalogue comment): test email domain and invitation-link source; the template-repository and `gh` token set-up in the GitHub test org; whether the onboarding Workspace-create step exists; chat and sandbox budgets; the 50-sandbox capacity flow; when a user's own file edit is pushed; MCP OAuth automation; permission to restart preview services.
+All answered by the user on 2026-10-04 (see that comment). Still open: connector test-workspace credentials, needed only after the first run (provider flows are `SKIP(first-run)` until then); whether the two template repositories already exist in `ctxpipe-ai`.
 
 ## Delegation brief
 
 Read first: this ticket, `.cursor/skills/preview-env/` (all files), `.cursor/skills/writing-great-skills/`, `apps/ui/src/routes/`, `.ai/memory/PRDs/workspace-chat-*.md`, `.ai/scratchpad/git-backed-projects/issues/16-project-workspace-ia.md`.
 
-Phase 1 only until the user approves the catalogue. Never point flows at production. Report: catalogue diff, run report, list of fixes and new tickets.
+Phase 1 is approved; the next agent does step 3 (first local run), then step 4 (pr-280). Never point flows at production. Report: catalogue diff, run report, list of fixes and new tickets.
 
 ## Comments
+
+- 2026-10-04 (claude): **decisions applied.** Skill (`.cursor/skills/preview-env/`): inputs default to `ctxpipe-ai` and `ctxpipe.dev`; repositories renamed `pe-{run-id}-*` with a cleanup step that always runs; ONB-3 continues with **Close wizard**, ONB-4 expects the snippet on `{BASE_URL}` and no onboarding Workspace step; FP-4/FP-5 expect agent commits on request or task end, **Commit+Push**, **Create PR** keeping every commit, **Show PR**; CHAT-7 asks the agent to commit first; CHAT-9 retired to `SKIP(contract-test)` and the `capacity` flag removed; CON-3 to CON-7 `SKIP(first-run)`, CON-8 runs (ticket 12 is done); `restart-ok` limited to `local` and pr-280; budgets marked approved; human checkpoints include MCP OAuth consent; local runs export to HyperDX and cite trace ids, with a harness check. Code: onboarding MCP snippet uses `window.location.origin` (story `Pages/Onboarding › McpSnippetUsesCurrentOrigin`); Turbo `dev` passes the `OTEL_*` export variables and the codesearch dev container receives them, so `apps/backend/.env.local` alone turns on local export (`ops/observability/USING.md`). Docs: `create-workspace.mdx` and the workspaces PRD no longer claim an onboarding Workspace step. New ticket 13 (skipped-files notice).
+
+- 2026-10-04 (user): answers to the catalogue questions; phase 1 approved.
+  1. Workspace creation stays at the zero-Workspace screen after onboarding. A new onboarding is being built on a separate branch, so PRD and docs only stop claiming an onboarding "create Workspace" step (minimal edits; onboarding will change again).
+  2. Commit+Push comes back. The agent decides when to commit and push (semantic commits; the user can prompt it; the system prompt recommends committing when a task is done). Create PR does not squash. (Implemented by another agent; this ticket only updates the flows.)
+  3. OAuth and consent screens (GitHub App install, connector OAuth, MCP OAuth) stay human checkpoints.
+  4. No Playwright conversion now, possibly ever; we'll see in practice how repeatable the LLM-driven runs are.
+  5. The 50-sandbox capacity check stays in the backend contract test only; CHAT-9 is not run in the browser.
+  6. Restarting preview services is allowed on pr-280 only (`restart-ok`).
+  7. Traces must be exported for local runs too, so they can be debugged in HyperDX.
+  8. Run local first, then pr-280.
+  9. Budgets approved as proposed.
+  10. Fix now: the onboarding MCP snippet must use the current deployment's origin. Open a ticket for showing knowledge files skipped as malformed on the Workspace page (ticket 13).
+  11. GitHub test org: `ctxpipe-ai`. Runs create and delete throwaway repositories there with a run-scoped prefix (`pe-<run-id>-…`) and always clean up.
+  12. Test email domain: `ctxpipe.dev` (ours; configurable). Accounts `preview-env+<run-id>-<role>@ctxpipe.dev`; invitation mail may be delivered there.
+  13. Connector flows (Linear, Notion, Slack, Confluence, PagerDuty) are skipped on the first run (`SKIP(first-run)`); the GitHub PR mirror flow stays.
 
 - 2026-10-03 (claude): **catalogue for approval (phase 1 done, nothing has been run).** The `preview-env` skill is restructured in `.cursor/skills/preview-env/`: new `run-setup.md` (target guard, accounts, test data, flow format, evidence and traces, write policy), `harness.md` (wake, canary, report template with trace column), and two new areas (`onboarding`, `resilience`). Every flow in every area file has the same fields: Requires, Steps, Expect (UI), Expect (backend), Budget (target / fail), Evidence. 65 flows. It works for `local` (`https://app.ctxpipe.localhost`) and `preview` (`backend-pr-N.up.railway.app`); any other host, production included, is a harness FAIL. Decisions applied: Vercel Sandbox (one microVM per conversation, idle stop at 5 minutes, saved state 30 days, 50 per org with an "at capacity" error, no GitHub token in the sandbox); turn commits pushed automatically with only **Create PR** and **Show PR** (Commit+Push removed); Add Workspace is the sidebar **+**; merged PRs mirror into every Workspace linking the repository; every run starts from registration. Flows that depend on unfinished tickets are `SKIP(needs-ticket-02)` or `SKIP(needs-ticket-12)` until they land.
 

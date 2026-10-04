@@ -32,10 +32,10 @@ Workspace identity and lifecycle. [Harness](../harness.md) is `PASS`; Workspace 
 **Evidence** `WS-2-1.png`; JSON status fields.
 
 ### WS-3 Add Workspace from the sidebar +
-**Requires** WS-1; repo `preview-env-{run-id}-ws2`.
+**Requires** WS-1; repo `pe-{run-id}-ws2`.
 **Steps**
 1. Click the **+** next to the **Workspaces** label (`aria-label` "Add Workspace").
-2. In the dialog, **Select GitHub**, search `preview-env-{run-id}-ws2`, select it, click **Create Workspace**.
+2. In the dialog, **Select GitHub**, search `pe-{run-id}-ws2`, select it, click **Create Workspace**.
 3. With two Workspaces, click Workspace 2's title, then Workspace 1's title.
 
 **Expect (UI)** the dialog opens; after create the URL is `/{orgSlug}/ws/{workspace2Slug}` and the sidebar shows two rows, both collapsible; a title click on a **different** Workspace opens its most recent conversation (or its composer when it has none); on the **current** Workspace it only toggles the conversation list.
@@ -44,7 +44,7 @@ Workspace identity and lifecycle. [Harness](../harness.md) is `PASS`; Workspace 
 **Evidence** `WS-3-1.png` (dialog), `WS-3-2.png` (two rows); trace of the create request.
 
 ### WS-4 Create variants: Create on GitHub and Paste URL
-**Requires** WS-3 (any further repo); for **Create on GitHub** a human or `gh` creating `preview-env-{run-id}-v1` in `GH_TEST_ORG`; for **Paste URL** a public non-GitHub git URL (`SKIP(no-fixture)` if none) and `https://github.com/{GH_TEST_ORG}/preview-env-{run-id}-code.git`.
+**Requires** WS-3 (any further repo); for **Create on GitHub** a human or `gh` creating `pe-{run-id}-v1` in `GH_TEST_ORG`; for **Paste URL** a public non-GitHub git URL (`SKIP(no-fixture)` if none) and `https://github.com/{GH_TEST_ORG}/pe-{run-id}-code.git`.
 **Steps**
 1. **+**, tab **Create on GitHub**: the link opens `https://github.com/new` in a new tab; create the repository, return, **Select GitHub**, select it.
 2. **+**, tab **Paste URL**, paste the `-code` repo URL (a repository that already backs a Workspace in this org returns the existing row, which passes).
@@ -68,9 +68,9 @@ Delete the extra Workspaces afterward through WS-7 so later areas see only Works
 **Evidence** `WS-5-1.png`; `gh api` commit; trace and `openworkflow.run.id` of the write job. *Uncertain:* the exact job name for a display-name edit.
 
 ### WS-6 Link and unlink a repository
-**Requires** WS-2 `Writable`; Workspace 1 hydrate ready ([HYD-1](../hydrate/SKILL.md)); repo `preview-env-{run-id}-code`.
+**Requires** WS-2 `Writable`; Workspace 1 hydrate ready ([HYD-1](../hydrate/SKILL.md)); repo `pe-{run-id}-code`.
 **Steps**
-1. On Workspace 1's **Settings**, **Add repositories**, select `preview-env-{run-id}-code`, **Link**.
+1. On Workspace 1's **Settings**, **Add repositories**, select `pe-{run-id}-code`, **Link**.
 2. Watch the row's chip.
 3. Click **Unlink** (`aria-label` "Unlink {repo}") and confirm.
 
