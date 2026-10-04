@@ -84,6 +84,24 @@ Do not add TanStack patches or an application-level sandbox registry. Keep const
 
 ## Comments
 
+- 2026-10-04 (claude): **fast start and prune reworked after adversarial review** (supersedes the comment below):
+  - Measured on Docker Desktop: a stopped container restarts with its files after `docker rmi --force` of its image; a running one makes the daemon refuse (409 "cannot be forced"). So:
+    - the base is chosen when a sandbox is created, under the Workspace lock that base cleanup also takes, and is no longer part of the sandbox key;
+    - a superseded base is deleted at once, unless a running container uses it (then the next sweep retries);
+    - image removal uses `force` both in delete and in the prune.
+  - Builders are containers our code creates with labels, wrapped in the stock `DockerHandle`. Containers started from a base inherit the image's labels.
+  - Build: durable reserve/build/publish steps with a one-hour row lease. Builders take an org slot. Stale means a day old and behind. The current base is deleted after 30 unused days.
+  - One cleanup path: the org sweep. The tip-check trigger and the job's own collect step are gone. The prune is a step of every sweep on Docker; the hourly scheduler is gone. Worker start schedules sweeps for `orgsNeedingSweep`.
+  - The prune also removes labelled containers over an hour old with no row. Still unreachable, by design: a plain-chat-image container whose row was removed without destroying it. Our code keeps such rows as `destroy_failed` instead.
+  - Proof in `workspace-sandbox-base-native.contract.test.ts` (6 tests, real Docker and Postgres, all pass locally). The remote is smart HTTP that requires a token, so the production token path is exercised:
+    1. no clone from a base, three concurrent starts queue one build, one lease at a time, the builder counts toward the cap, and no token in the base image (git config, files, image config);
+    2. a stale rebuild; an existing sandbox kept; a superseded base kept while a running container uses it and deleted once it stops, after which the stopped sandbox still resumes with its files;
+    3. a gone base falls back to the chat image once (row marked failed, rebuild requested);
+    4. a lost or expired lease stops and leaves nothing; no build at capacity;
+    5. disk stays flat over three build/start/stop/delete cycles;
+    6. the prune removes a dormant org's container, an orphaned image and an orphaned labelled container, and leaves the rest.
+  - Timings (local, tiny repo): ready 0.9 s from a base vs 0.9–1.1 s without one (concurrent starts serialize on the Workspace lock).
+
 - 2026-10-04 (claude): **fast start (option B) and host prune landed** (ADR-048 "Fast start" and "Cleanup"):
   - Base: a container of the chat image clones the Workspace repository and runs the Docker setup. `docker commit` turns it into `ctxpipe-workspace-base:<row>`, labelled `ai.ctxpipe.sandbox=workspace-base`, `ai.ctxpipe.store=<database hash>`, `ai.ctxpipe.base=<row>`, org and Workspace. The image holds no secret.
   - New conversations use stock `dockerSandbox({ image: <base> })`; stock bootstrap skips the clone. Existing conversations keep their container.

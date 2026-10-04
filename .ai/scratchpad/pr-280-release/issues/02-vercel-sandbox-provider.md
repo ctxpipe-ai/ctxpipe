@@ -114,6 +114,18 @@ Keep each patch minimal and listed with its removal condition. Never fall back t
 
 ## Comments
 
+- 2026-10-04 (claude): **Workspace base reworked after adversarial review** (supersedes the comment below; ADR-048 "Isolation", "Fast start", "Cleanup"):
+  - **No conversation sandbox reaches npm.** Per environment and OpenCode version there is an agent snapshot (`vercelAgentSnapshot`). Its builder, tagged `ctxpipe=workspace-agent`, can reach only `registry.npmjs.org`; it installs OpenCode and is snapshotted with a 30-day expiry. It is built on first use and replaced in the background in its last week; spent builders are deleted. Conversations without a base start from it, and Workspace base builders start from it (GitHub only). `extraHosts` is gone from the conversation policy, so token rotation cannot add hosts. `chat.mdx` ("GitHub and ctx| only") stays true.
+  - The base is chosen when a sandbox is created, not encoded in the sandbox key. Existing sandboxes resume as they are, and a gone snapshot falls back to the agent snapshot once.
+  - Build: three durable steps (reserve / build / publish) with a one-hour row lease. Builders count toward the 50 per org. Stale means a day old and behind (age only).
+  - Crash safety: the snapshot id is written to the row as soon as `snapshot()` returns. Base deletion lists snapshots under the builder's name and deletes them before the builder, so a crash before the id was recorded still cleans up.
+  - **CI-only measurements (Vercel lane, not yet run):**
+    - whether a stopped sandbox resumes with its files after its source snapshot is deleted. Asserted, because the design relies on it;
+    - whether deleting a sandbox deletes the snapshots taken from it. Reported only: deletion handles both cases;
+    - agent-snapshot build and lookup, base build, and starts from each, with timings.
+  - The lane also asserts: `opencode` present from the agent snapshot and from a base; npm unreachable from both; no token in the base's git config, environment or files; base deletion by builder name alone removes the snapshot; the PR-close tag lookup finds the builder.
+  - PR-close cleanup also deletes agent builders (all versions), snapshots first (msw test).
+
 - 2026-10-04 (claude): **Workspace base landed** (plan step 5; shared with ticket 03; ADR-048 "Fast start" and "Cleanup" rewritten to match):
   - A base is a `base` row in `workspace_sandbox_instances` (no migration). The worker job `workspace-sandbox-base` builds it, one at a time per Workspace (lock `workspace-base:<ws>`). The Workspace lock is held only to record the builder and to publish.
   - Vercel, no patch: a `node24` builder (tags `ctxpipe=workspace-base, environment=<env>`, GitHub token in its firewall rule, npm registry allowed) clones, installs OpenCode, then `snapshot({ expiration: 0 })`. The stopped builder is kept as the snapshot's owner. Conversations start with `source: snapshot` through `vercelConversationProvider({ baseSnapshotId })`.
