@@ -1,4 +1,4 @@
-/** Copy for Better Auth API-key cards. UK English. */
+/** Copy for Better Auth API-key cards. */
 
 export const personalApiKeyLocalization = {
   API_KEYS: "API Keys",
@@ -15,5 +15,5 @@ export const personalApiKeyLocalization = {
 export const organizationApiKeyLocalization = {
   API_KEYS: "API Keys",
   API_KEYS_DESCRIPTION:
-    "For CI and shared agents. Requests are tied to this organisation, not a person.",
+    "For CI and shared agents. Requests are tied to this organization, not a person.",
 } as const

@@ -455,10 +455,10 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### UI copy language
-- **Rule:** use UK English spelling in user-facing UI copy, for example `organisation` rather than `organization`
+- **Rule:** Use US English spelling everywhere, including user-facing UI copy (`organization`, not `organisation`). UI copy follows ASD-STE100 at about 80% strength. See the Language section in root `AGENTS.md`.
 - **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
+- **Date:** 2026-10-04
+- **Source:** user correction; replaces the 2026-08-11 UK English rule
 
 ### Product UI corners
 - **Rule:** Product chrome is square. Use `rounded-none` for new or touched controls, menus, cards, dialogs, and data surfaces.
