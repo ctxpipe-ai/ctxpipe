@@ -44,15 +44,15 @@ For Storybook conventions and tools, read [.agents/skills/storybook/SKILL.md](.a
 
 ## Language
 
-Write each explanation in ASD-STE100 Simplified Technical English.
+Write each explanation in ASD-STE100 Simplified Technical English (Issue 9). You already know that standard. Follow it. Do not copy the licensed dictionary into this repo.
 
-- Retained text uses the full standard. This includes markdown, a code comment, a commit message, pull request text, a changeset, docs, and memory files.
-- A reply to the user uses the same standard at about 80% strength.
-- The rules are in [`.cursor/rules/simplified-technical-english.mdc`](.cursor/rules/simplified-technical-english.mdc). Read that file before you write or edit an explanation.
+Retained text uses the full standard. This includes markdown, a code comment, a commit message, pull request text, a changeset, docs, and other kept text.
 
-When you edit a file, write each new sentence to the standard. Change an old sentence only when you edit it for another reason.
+When you edit a file, write each new sentence to the standard. Change an old sentence only when you edit it for another reason. Keep code, an identifier, a command, and a type as they are. Keep a quote as it is. Keep text that must match a screen, a specification, or an error string.
 
-Product UI copy in `apps/ui` keeps UK spelling from [DESIGN.md](apps/ui/DESIGN.md).
+A reply to the user follows ASD-STE100 at about 80% strength. Keep sentence length, one topic, the active voice, and a command verb for a step. You may relax at most one sentence in five. A relaxed sentence may use a common word, a contraction, a phrasal verb, an "-ing" form, or a warmer tone. A procedure step stays at full strength.
+
+Product UI copy in `apps/ui` keeps UK spelling from [DESIGN.md](apps/ui/DESIGN.md). Customer docs in `apps/docs` use US spelling.
 
 ## Agent skills
 
