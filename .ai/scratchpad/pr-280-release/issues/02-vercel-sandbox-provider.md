@@ -114,6 +114,8 @@ Keep each patch minimal and listed with its removal condition. Never fall back t
 
 ## Comments
 
+- 2026-10-04 (user): Commit+Push comes back now that the sandbox provider changed. The agent decides when to commit and push: semantic commits, the user can prompt it, and the system prompt recommends committing when a task is done. Create PR does not squash. Supersedes the 2026-10-01 "drop Commit+Push, squash on PR" decision and the automatic per-turn push.
+
 - 2026-10-04 (claude): **Workspace base reworked after adversarial review** (supersedes the comment below; ADR-048 "Isolation", "Fast start", "Cleanup"):
   - **No conversation sandbox reaches npm.** Per environment and OpenCode version there is an agent snapshot (`vercelAgentSnapshot`). Its builder, tagged `ctxpipe=workspace-agent`, can reach only `registry.npmjs.org`; it installs OpenCode and is snapshotted with a 30-day expiry. It is built on first use and replaced in the background in its last week; spent builders are deleted. Conversations without a base start from it, and Workspace base builders start from it (GitHub only). `extraHosts` is gone from the conversation policy, so token rotation cannot add hosts. `chat.mdx` ("GitHub and ctx| only") stays true.
   - The base is chosen when a sandbox is created, not encoded in the sandbox key. Existing sandboxes resume as they are, and a gone snapshot falls back to the agent snapshot once.

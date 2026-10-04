@@ -17,7 +17,7 @@ The Workspace Files pane needs a path-first tree with search, git status, diffs 
 
 - Tree accessibility is Pierre's; keyboard and focus are proven in Storybook plays, not assumed from React Aria.
 - `useFileTree` is create-once: later tree and status updates go through `resetPaths` / `setGitStatus`.
-- Commit+Push is removed from the conversation chrome; turn commits are pushed automatically and squashed when the PR is created (PR 280 ticket 02).
+- The conversation chrome has Commit+Push, Create PR and Show PR. The agent commits and pushes when a task is done or when asked (semantic commits through the backend broker); Create PR keeps the commits. Automatic per-turn push and squash-on-PR were tried and dropped (user, 2026-10-04; PR 280 ticket 02).
 
 ## Alternatives considered
 

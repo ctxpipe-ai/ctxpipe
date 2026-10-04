@@ -191,60 +191,10 @@ describe("POST /github/installation", () => {
     expect(await res.json()).toEqual({ error: "Forbidden" })
   })
 
-  it("allows installation registration when GitHub account is not linked", async () => {
-    getGithubUserAccessTokenMock.mockResolvedValueOnce(undefined)
-
-    const app = createApp()
-    const res = await app.request("/github/installation", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ installationId: 123 }),
-    })
-
-    expect(res.status).toBe(200)
-    expect(upsertInstallationMock).toHaveBeenCalled()
-    expect(upsertInstallationMock.mock.calls[0]?.[0]).toBe("org_1")
-    expect(upsertInstallationMock.mock.calls[0]?.[1]).toBe(123)
-    expect(runWorkflowMock).not.toHaveBeenCalled()
-  })
-
-  it("returns 403 when installationId is not accessible to the user", async () => {
-    getActiveMemberRoleMock.mockResolvedValueOnce({ role: "owner" })
-    getGithubUserAccessTokenMock.mockResolvedValueOnce("ghu_token")
-    userCanAccessInstallationMock.mockResolvedValueOnce(false)
-
-    const app = createApp()
-    const res = await app.request("/github/installation", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ installationId: 123 }),
-    })
-
-    expect(res.status).toBe(403)
-    expect(await res.json()).toEqual({ error: "Forbidden" })
-    expect(upsertInstallationMock).not.toHaveBeenCalled()
-  })
-
-  it("upserts when installationId is accessible and user is org admin", async () => {
+  // GitHub access rules: github-installation.integration.test.ts
+  it("does not enqueue sync on registration", async () => {
     getGithubUserAccessTokenMock.mockResolvedValueOnce("ghu_token")
     userCanAccessInstallationMock.mockResolvedValueOnce(true)
-
-    const app = createApp()
-    const res = await app.request("/github/installation", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ installationId: 123 }),
-    })
-
-    expect(res.status).toBe(200)
-    expect(upsertInstallationMock).toHaveBeenCalled()
-    expect(upsertInstallationMock.mock.calls[0]?.[0]).toBe("org_1")
-    expect(upsertInstallationMock.mock.calls[0]?.[1]).toBe(123)
-    expect(runWorkflowMock).not.toHaveBeenCalled()
-  })
-
-  it("does not enqueue sync on registration", async () => {
-    getGithubUserAccessTokenMock.mockResolvedValueOnce(undefined)
 
     const app = createApp()
     const res = await app.request("/github/installation", {
@@ -445,47 +395,6 @@ describe("GET /github/installation/connector-status", () => {
         "https://github.com/apps/acme/installations/new",
       suggestedNextStep: "install_app",
     })
-  })
-})
-
-describe("POST /github/installation with connectionId", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    getActiveMemberRoleMock.mockResolvedValue({ role: "admin" })
-    getGithubUserAccessTokenMock.mockResolvedValue(undefined)
-    registerInstallationOnConnectionMock.mockResolvedValue({
-      id: "con_draft",
-      installationId: 999,
-      orgId: "org_1",
-      accountSlug: "acme",
-      appSlug: "my-app",
-      ingestAllRepositories: false,
-      includeFutureRepos: false,
-      createdAt: new Date("2026-03-01T00:00:00.000Z"),
-      updatedAt: new Date("2026-03-01T00:00:00.000Z"),
-    })
-  })
-
-  it("registers installation on existing draft connection", async () => {
-    const app = createApp()
-    const res = await app.request("/github/installation", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        installationId: 999,
-        connectionId: "con_draft",
-      }),
-    })
-    expect(res.status).toBe(200)
-    expect(registerInstallationOnConnectionMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        orgId: "org_1",
-        connectionId: "con_draft",
-        installationId: 999,
-      }),
-    )
-    expect(upsertInstallationMock).not.toHaveBeenCalled()
-    expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 })
 
