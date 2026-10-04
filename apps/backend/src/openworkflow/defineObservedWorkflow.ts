@@ -70,7 +70,12 @@ export function defineWorkflow<S extends z.ZodType, Output>(
     },
     (ctx) => {
       attachChildTelemetry(ctx.step)
-      return restoreJobTelemetry(ctx.input, () => fn(ctx))
+      // Telemetry is enqueue-only: bodies re-parse `input` with their own
+      // strict schema, which has no `telemetry` key.
+      const { telemetry: _telemetry, ...input } = ctx.input as JobInput<S>
+      return restoreJobTelemetry(ctx.input, () =>
+        fn({ ...ctx, input: input as JobInput<S> }),
+      )
     },
   )
 }
