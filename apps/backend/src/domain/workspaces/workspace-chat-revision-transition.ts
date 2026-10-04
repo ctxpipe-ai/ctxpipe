@@ -5,6 +5,12 @@ import {
   getSandboxInstance,
 } from "../../models/workspace-sandboxes.js"
 import { getDesiredWorkspaceRevision } from "../../models/workspaces.js"
+import { log } from "../../observability/logger.js"
+import {
+  checkoutSessionBranch,
+  restoredSessionBase,
+  rotateClosedSessionBranch,
+} from "./conversation-session-branch.js"
 import {
   sameWorkspaceBinding,
   sameWorkspaceRevision,
@@ -30,10 +36,58 @@ export async function updateConversationSandboxRevision(input: {
 }): Promise<{ effective?: WorkspaceRevision; conflict?: boolean }> {
   const { handle, desired } = input
   const row = await getSandboxInstance(input.sandboxKey, input.orgId)
-  const previousRevision = row?.revision
+  let previousRevision = row?.revision
   if (!previousRevision || !sameWorkspaceBinding(previousRevision, desired))
     throw new Error("Conversation sandbox revision is missing")
-  if (previousRevision.sha === desired.sha) return {}
+  const record = async (to: WorkspaceRevision) => {
+    if (!previousRevision || previousRevision.sha === to.sha) return
+    await advanceSandboxInstanceRevision({
+      id: input.sandboxKey,
+      orgId: input.orgId,
+      from: previousRevision,
+      to,
+    })
+    previousRevision = to
+  }
+  const conversationId = row?.conversationId
+  if (conversationId) {
+    const rotated = await rotateClosedSessionBranch({
+      handle,
+      orgId: input.orgId,
+      conversationId,
+      desired,
+    }).catch((error: unknown) => {
+      log.warn({
+        step: "conversation-session-rotate",
+        message: `Checking the session branch's PR failed: ${String(error)}`,
+        conversationId,
+      })
+      return false
+    })
+    // The fresh branch starts on the desired commit.
+    if (rotated) {
+      await record(desired)
+      return {}
+    }
+  }
+  // A sandbox restored from its session branch is recorded at the commit it
+  // was created for; rebase from the commit the branch really builds on.
+  const base = await restoredSessionBase({
+    handle,
+    recorded: previousRevision.sha,
+    desired: desired.sha,
+  })
+  if (base) await record({ ...previousRevision, sha: base })
+  if (previousRevision.sha === desired.sha) {
+    if (conversationId)
+      await checkoutSessionBranch({
+        handle,
+        orgId: input.orgId,
+        conversationId,
+        desired,
+      })
+    return {}
+  }
   const current = await withOrgDbContext(input.orgId, () =>
     getDesiredWorkspaceRevision(desired.workspaceId),
   )
@@ -53,6 +107,13 @@ export async function updateConversationSandboxRevision(input: {
     from: previousRevision,
     to: desired,
   })
+  if (conversationId)
+    await checkoutSessionBranch({
+      handle,
+      orgId: input.orgId,
+      conversationId,
+      desired,
+    })
   return {}
 }
 

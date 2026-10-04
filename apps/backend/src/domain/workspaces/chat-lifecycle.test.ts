@@ -5,9 +5,11 @@ import {
   chatMayPublishPullRequest,
   chatSessionBranchName,
   conversationSessionBranch,
+  isChatSessionBranch,
   JOB_SANDBOX_IDLE_MS,
   lastBranchExistsOnRemote,
   mayForcePushBranch,
+  nextConversationSessionBranch,
   planChatPullRequest,
   promptRequestsChatPullRequest,
   quietUpdateChatBranch,
@@ -23,6 +25,19 @@ describe("chat lifecycle", () => {
   it("names session branches and never force-pushes default", () => {
     expect(chatSessionBranchName("conv_1", 2)).toBe("ctxpipe/chat/conv_1/2")
     expect(conversationSessionBranch("conv_1")).toBe("ctxpipe/chat/conv_1/1")
+    expect(conversationSessionBranch("conv_1", "ctxpipe/chat/conv_1/3")).toBe(
+      "ctxpipe/chat/conv_1/3",
+    )
+    // Another conversation's branch is never this conversation's.
+    expect(conversationSessionBranch("conv_1", "ctxpipe/chat/conv_2/3")).toBe(
+      "ctxpipe/chat/conv_1/1",
+    )
+    expect(
+      nextConversationSessionBranch("conv_1", "ctxpipe/chat/conv_1/3"),
+    ).toBe("ctxpipe/chat/conv_1/4")
+    expect(isChatSessionBranch("ctxpipe/chat/conv_1/1")).toBe(true)
+    expect(isChatSessionBranch("main")).toBe(false)
+    expect(isChatSessionBranch("ctxpipe/chat/../main")).toBe(false)
     expect(mayForcePushBranch("ctxpipe/chat/conv_1/1", "main")).toBe(true)
     expect(mayForcePushBranch("main", "main")).toBe(false)
   })

@@ -2,13 +2,9 @@ import { createHash } from "node:crypto"
 import { listSandboxInstances } from "../../models/workspaces.js"
 import {
   conversationSessionBranch,
+  isChatSessionBranch,
   mayForcePushBranch,
 } from "./chat-lifecycle.js"
-import {
-  chatPullRequestPathIsSafe,
-  isChatSessionBranch,
-  splitGitNulPaths,
-} from "./chat-pull-request.js"
 import {
   type ExplorerGitStatusEntry,
   explorerBlobFromContent,
@@ -20,6 +16,19 @@ import type { JobSandboxHandle } from "./job-worktree.js"
 import { sameWorkspaceBinding, type WorkspaceRevision } from "./revision.js"
 
 export { conversationSessionBranch }
+
+export function splitGitNulPaths(stdout: string): string[] {
+  return stdout.split("\0").filter((path) => path.length > 0)
+}
+
+export function chatPullRequestPathIsSafe(path: string): boolean {
+  if (path.startsWith("/") || path.includes("\0")) return false
+  const parts = path.replaceAll("\\", "/").split("/")
+  return (
+    parts.length > 0 &&
+    parts.every((part) => part.length > 0 && part !== "." && part !== "..")
+  )
+}
 
 /** Harness writes that must stay out of the git workdir listing and publish. */
 export const CONVERSATION_SANDBOX_GIT_EXCLUDE_LINES = [
@@ -101,10 +110,10 @@ async function execGitOk(
 
 export async function ensureConversationSessionBranch(input: {
   handle: JobSandboxHandle
-  conversationId: string
+  branch: string
   defaultBranch: string
 }): Promise<string> {
-  const branch = conversationSessionBranch(input.conversationId)
+  const { branch } = input
   if (!mayForcePushBranch(branch, input.defaultBranch)) {
     throw new Error(`Refusing to check out ${branch}`)
   }

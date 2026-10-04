@@ -66,28 +66,6 @@ export function sandboxPhaseFromChunk(chunk: StreamChunk): SandboxPhase | null {
   return null
 }
 
-/**
- * Each turn's changes are pushed to the conversation branch before the turn
- * finishes. A failed push is not a failed turn: the commit stays in the
- * sandbox and the next turn pushes it.
- */
-export function sessionPushFromChunk(
-  chunk: StreamChunk,
-): "pushed" | "failed" | null {
-  if (chunk.type !== "CUSTOM") return null
-  if (!("name" in chunk) || chunk.name !== "session-push") return null
-  const value = "value" in chunk ? chunk.value : null
-  if (
-    value &&
-    typeof value === "object" &&
-    "status" in value &&
-    (value.status === "pushed" || value.status === "failed")
-  ) {
-    return value.status
-  }
-  return null
-}
-
 function renameFromChunk(chunk: StreamChunk): string | null {
   if (chunk.type !== "CUSTOM") return null
   if (!("name" in chunk) || chunk.name !== "rename-conversation") return null
@@ -127,7 +105,6 @@ export function WorkspaceChatSession(props: {
   const [headerTitle, setHeaderTitle] = useState(title)
   const [sandboxPhase, setSandboxPhase] = useState<SandboxPhase>("idle")
   const [sendError, setSendError] = useState<Error | null>(null)
-  const [pushFailed, setPushFailed] = useState(false)
   useEffect(() => {
     setHeaderTitle(title)
   }, [title])
@@ -206,16 +183,6 @@ export function WorkspaceChatSession(props: {
       if (name) applyRename(name)
       const phase = sandboxPhaseFromChunk(chunk)
       if (phase) setSandboxPhase(phase)
-      const pushed = sessionPushFromChunk(chunk)
-      if (pushed) setPushFailed(pushed === "failed")
-      if (pushed === "pushed")
-        void queryClient.invalidateQueries({
-          queryKey: workspaceKeys.conversation(
-            orgSlug,
-            conversationId,
-            workspace.id,
-          ),
-        })
       if (chunk.type === "RUN_FINISHED" || chunk.type === "RUN_ERROR") {
         setSandboxPhase("idle")
         if (chunk.type === "RUN_ERROR") {
@@ -299,12 +266,6 @@ export function WorkspaceChatSession(props: {
           This conversation is on {gitStatus.sha?.slice(0, 7)}; the workspace is
           now {gitStatus.desiredSha?.slice(0, 7)}. Continue chatting to resolve
           the conflict before publishing.
-        </InlineAlert>
-      ) : null}
-      {pushFailed ? (
-        <InlineAlert variant="warning" title="Changes not on GitHub yet">
-          The last changes could not be pushed to the conversation branch. They
-          are kept in the sandbox and pushed after your next message.
         </InlineAlert>
       ) : null}
       {startState?.status === "error" ? (

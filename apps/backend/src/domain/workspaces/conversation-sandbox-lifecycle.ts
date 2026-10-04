@@ -27,6 +27,7 @@ import {
   withSandboxLockIfFree,
 } from "./sandbox-lock-store.js"
 import { stopDetachedProviderSandbox } from "./sandbox-provider.js"
+import { pushBeforeSandboxDelete } from "./conversation-branch-push.js"
 import { destroyUnusedSandbox } from "./workspace-sandbox-cleanup.js"
 
 /**
@@ -297,12 +298,30 @@ export async function sweepConversationSandboxes(
       const outcome = await withSandboxLockIfFree(
         orgId,
         `chat-thread:${conversationId}`,
-        async () =>
-          expired
+        async () => {
+          // Committed work reaches the session branch before the sandbox is
+          // deleted. An idle stop keeps the files, so it needs nothing.
+          if (
+            expired &&
+            row.state !== "destroy_failed" &&
+            isRunningSandboxProvider(row.provider) &&
+            row.providerSandboxId &&
+            row.workspaceId &&
+            conversations.has(conversationId)
+          )
+            await pushBeforeSandboxDelete({
+              orgId,
+              conversationId,
+              workspaceId: row.workspaceId,
+              provider: row.provider,
+              providerSandboxId: row.providerSandboxId,
+            })
+          return expired
             ? destroyUnusedSandbox(row.id, orgId, row.lastHeartbeatAt)
             : (await stopSandboxRow(orgId, row.id, idleSince))
               ? "stopped"
-              : "used",
+              : "used"
+        },
       )
       const result = outcome.busy ? "busy" : outcome.value
       if (result === "stopped") stopped += 1

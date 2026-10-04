@@ -146,6 +146,11 @@ it.each([
           await raw.process.exec(`git fetch ${shellSingleQuote(f.remote)} main`)
           await raw.process.exec("git checkout -B main FETCH_HEAD")
           await raw.fs.write("notes.md", "# Saved conversation\n")
+          // The agent commits its work; Create PR publishes commits only.
+          if (scenario !== "warm_files")
+            await raw.process.exec(
+              "git add notes.md && git -c user.name=Agent -c user.email=agent@example.test commit -q -m 'Save notes'",
+            )
           if (scenario !== "missing" && scenario !== "warm_files") {
             await withOrgDbContext(f.org.id, (db) =>
               db
@@ -252,11 +257,16 @@ fi
               ).status,
             ).toBe(404)
           if (scenario === "warm_files") {
-            // Tree GET is existing-only. Warm via blob read, then CAS from tree.
+            // Files reads are existing-only. Prepare as a send does, then CAS from tree.
             const warmed = await app.request(
-              `/conversations/${conversationId}/files/blob?path=notes.md`,
+              `/conversations/${conversationId}/prepare`,
+              {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ workspaceId: f.workspaceId }),
+              },
             )
-            expect([200, 404]).toContain(warmed.status)
+            expect(warmed.status).toBe(204)
             const tree = await app.request(
               `/conversations/${conversationId}/files/tree`,
             )
@@ -323,8 +333,9 @@ fi
               )
             }
           }
+          // Commit+Push publishes a Files edit nobody committed.
           const pendingResponse = app.request(
-            `/conversations/${conversationId}/pull-request`,
+            `/conversations/${conversationId}/${scenario === "warm_files" ? "push" : "pull-request"}`,
             {
               method: "POST",
               headers: { "content-type": "application/json" },
@@ -357,8 +368,8 @@ fi
             ).toBe("1")
           } else if (scenario === "sha_before_push") {
             expect({ status: response.status, body }).toEqual({
-              status: 400,
-              body: { error: "Conversation write binding changed before push" },
+              status: 409,
+              body: { error: "stale_binding" },
             })
             expect(pullRequests).toEqual([])
             expect(
@@ -379,14 +390,15 @@ fi
                   getConversation(conversationId),
                 ),
               ),
-            ).toMatchObject({ lastChatPrNumber: null, lastBranch: null })
+            ).toMatchObject({ lastChatPrNumber: null })
           } else if (scenario === "missing" || scenario.startsWith("stale")) {
+            // Without a sandbox Create PR publishes what is on GitHub: nothing.
             expect({ status: response.status, body }).toEqual({
-              status: scenario === "missing" ? 409 : 400,
+              status: 400,
               body: {
                 error:
                   scenario === "missing"
-                    ? "missing_sandbox"
+                    ? "no_changes"
                     : scenario === "stale"
                       ? "stale_url"
                       : scenario,

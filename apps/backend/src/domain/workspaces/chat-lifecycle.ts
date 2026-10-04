@@ -19,9 +19,46 @@ export function chatSessionBranchName(
   return `${CHAT_SESSION_BRANCH_PREFIX}/${conversationId}/${prNumber}`
 }
 
-/** One working branch per conversation. */
-export function conversationSessionBranch(conversationId: string): string {
-  return chatSessionBranchName(conversationId, 1)
+const SESSION_BRANCH = /^ctxpipe\/chat\/[A-Za-z0-9._/-]+$/
+
+export function isChatSessionBranch(branch: string): boolean {
+  return SESSION_BRANCH.test(branch) && !branch.includes("..")
+}
+
+function isConversationSessionBranch(
+  conversationId: string,
+  branch: string,
+): boolean {
+  return (
+    isChatSessionBranch(branch) &&
+    /^\d+$/.test(
+      branch.slice(`${CHAT_SESSION_BRANCH_PREFIX}/${conversationId}/`.length),
+    ) &&
+    branch.startsWith(`${CHAT_SESSION_BRANCH_PREFIX}/${conversationId}/`)
+  )
+}
+
+/**
+ * The conversation's working branch: the recorded one (`lastBranch`), else
+ * its first. A merged or closed PR moves the conversation to the next one.
+ */
+export function conversationSessionBranch(
+  conversationId: string,
+  lastBranch?: string | null,
+): string {
+  return lastBranch && isConversationSessionBranch(conversationId, lastBranch)
+    ? lastBranch
+    : chatSessionBranchName(conversationId, 1)
+}
+
+/** The fresh branch after `branch`'s PR was merged or closed. */
+export function nextConversationSessionBranch(
+  conversationId: string,
+  branch: string,
+): string {
+  const current = conversationSessionBranch(conversationId, branch)
+  const n = Number(current.slice(current.lastIndexOf("/") + 1))
+  return chatSessionBranchName(conversationId, n + 1)
 }
 
 export function planChatPullRequest(input: {

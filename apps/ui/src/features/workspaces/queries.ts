@@ -15,6 +15,7 @@ import type {
   ConversationGitStatusResponse,
   ConversationGitTreeResponse,
   ConversationPullRequestResponse,
+  ConversationPushResponse,
   Workspace,
   WorkspaceActivityResponse,
   WorkspaceDetail,
@@ -648,6 +649,19 @@ export async function persistConversationFileMutation(
     from: input.from,
     ...expected,
   })
+}
+
+export async function pushConversationBranch(
+  orgSlug: string,
+  conversationId: string,
+): Promise<ConversationPushResponse> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.conversations[
+    ":conversationId"
+  ].push.$post({
+    param: { orgSlug, conversationId },
+  })
+  return readApiJson(res, { message: "Failed to push conversation branch" })
 }
 
 export async function fetchConversationPullRequest(

@@ -183,8 +183,7 @@ export function writeWorkspaceChatOpenCodeConfig(input: {
     // Container paths belong to its nonroot user, never the backend host's
     // temporary directory or PATH. Native thread setup writes this config.
     const slug = workspaceChatOpenCodeHomeSlug(input.conversationId)
-    const user =
-      input.isolation === "vercel" ? VERCEL_AGENT_ROOT : "/home/node"
+    const user = input.isolation === "vercel" ? VERCEL_AGENT_ROOT : "/home/node"
     const home = `${user}/ctxpipe-opencode/${slug}`
     return {
       configJson,
@@ -223,6 +222,8 @@ export const WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT = [
   "Issue independent glob, grep, and read calls in one step when they do not depend on each other.",
   "Do not use subagents or the web.",
   "After the first useful files, answer. Do not keep searching for completeness.",
+  "When you change files, commit with git when a task is done, with a clear message that says why.",
+  "Publish your commits with push_conversation_branch when the user should see the work on GitHub, or when they ask; never use git push.",
 ].join(" ")
 
 export function workspaceChatOpenCodeConfig(input: {

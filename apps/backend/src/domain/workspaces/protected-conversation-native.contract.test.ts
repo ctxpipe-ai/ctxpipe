@@ -128,17 +128,11 @@ it(
             body: "# Conversation edit\n",
           })
           expect(await raw.fs.read("notes.md")).toBe("# Conversation edit\n")
-          // Issue 14: a new conversation stays on default until an explicit branch change.
+          // A writable conversation works on its session branch from the start:
+          // the agent commits there (commits on the default branch are refused).
           expect(
             (await raw.process.exec("git branch --show-current")).stdout.trim(),
-          ).toBe("main")
-          expect(
-            (
-              await raw.process.exec('git checkout -b "$SESSION_BRANCH"', {
-                env: { SESSION_BRANCH: `ctxpipe/chat/${conversationId}/1` },
-              })
-            ).exitCode,
-          ).toBe(0)
+          ).toBe(`ctxpipe/chat/${conversationId}/1`)
           expect((await save()).status).toBe(200)
           expect(
             (await raw.process.exec("git branch --show-current")).stdout.trim(),

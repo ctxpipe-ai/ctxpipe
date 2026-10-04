@@ -428,7 +428,7 @@ it(
 )
 
 it(
-  "serializes Create PR with Files and stops a pending write when its native lease is lost",
+  "refuses Create PR while Files holds the conversation and stops a pending write when its native lease is lost",
   { timeout: 30_000 },
   async () => {
     await withNativeChatFixture(async (f) => {
@@ -477,20 +477,20 @@ it(
           { timeout: 5_000 },
         )
         .toHaveLength(1)
-      let pushed = false
-      const push = Promise.resolve(
-        f.request(`/conversations/${f.conversationId}/pull-request`, {
+      // Create PR answers at once instead of queueing behind the write.
+      const busy = await f.request(
+        `/conversations/${f.conversationId}/pull-request`,
+        {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({}),
-        }),
-      ).then((response) => {
-        pushed = true
-        return response
+        },
+      )
+      expect({ status: busy.status, body: await busy.json() }).toEqual({
+        status: 409,
+        body: { error: "turn_running" },
       })
       try {
-        await new Promise((resolve) => setTimeout(resolve, 200))
-        expect(pushed).toBe(false)
         // Remove this fixture's real lock ownership. The next native renewal
         // must abort the pending operation before its request body can write.
         await withOrgDbContext(f.orgId, (db) =>
@@ -510,7 +510,6 @@ it(
         body.close()
       }
       expect((await pending).status).toBe(500)
-      await push
       const blob = await f.request(
         `/conversations/${f.conversationId}/files/blob?path=after-lease-loss.md`,
       )

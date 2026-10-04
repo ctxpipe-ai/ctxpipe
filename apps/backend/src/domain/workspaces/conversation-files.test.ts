@@ -11,11 +11,13 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
+  chatPullRequestPathIsSafe,
   conversationWorktreeVersion,
   ensureConversationSessionBranch,
   fingerprintConversationWorktree,
   listConversationSandboxPaths,
   sanitizeGitRemoteError,
+  splitGitNulPaths,
 } from "./conversation-files.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
 
@@ -124,14 +126,14 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
       },
       async ({ handle, git }) => {
         const branch = await ensureConversationSessionBranch({
-          conversationId: "conv_1",
+          branch: "ctxpipe/chat/conv_1/1",
           defaultBranch: "main",
           handle,
         })
         expect(branch).toBe("ctxpipe/chat/conv_1/1")
         expect(git("branch", "--show-current")).toBe("ctxpipe/chat/conv_1/1")
         const again = await ensureConversationSessionBranch({
-          conversationId: "conv_1",
+          branch: "ctxpipe/chat/conv_1/1",
           defaultBranch: "main",
           handle,
         })
@@ -229,5 +231,23 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
         )
       },
     )
+  })
+})
+
+describe("conversation sandbox paths", () => {
+  it("splits NUL-delimited git paths including names with spaces", () => {
+    expect(splitGitNulPaths("knowledge/a file.md\0linear/issue.md\0")).toEqual([
+      "knowledge/a file.md",
+      "linear/issue.md",
+    ])
+    expect(splitGitNulPaths("")).toEqual([])
+  })
+
+  it("refuses path traversal", () => {
+    expect(chatPullRequestPathIsSafe("knowledge/a.md")).toBe(true)
+    expect(chatPullRequestPathIsSafe("knowledge/a file.md")).toBe(true)
+    expect(chatPullRequestPathIsSafe("../secret")).toBe(false)
+    expect(chatPullRequestPathIsSafe("/etc/passwd")).toBe(false)
+    expect(chatPullRequestPathIsSafe("foo/../bar")).toBe(false)
   })
 })

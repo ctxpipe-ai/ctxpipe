@@ -345,6 +345,22 @@ export async function stopVercelSandbox(target: SandboxTarget): Promise<void> {
   await revokeSandboxToken(target)
 }
 
+/** A command handle on a sandbox, resumed from its saved state if stopped. */
+export async function attachVercelSandbox(
+  target: SandboxTarget,
+): Promise<SandboxHandle | null> {
+  try {
+    const sandbox = await Sandbox.get({
+      ...target.credentials,
+      name: target.name,
+    })
+    return new VercelHandle({ sandbox, workdir: WORKDIR, ports: [] })
+  } catch (error) {
+    if (notFound(error)) return null
+    throw error
+  }
+}
+
 /** Delete a sandbox and its saved state; already gone counts as deleted. */
 export async function deleteVercelSandbox(
   target: SandboxTarget,

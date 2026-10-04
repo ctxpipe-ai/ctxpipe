@@ -56,18 +56,13 @@ While the agent works:
 - the **Diff** tab shows everything the conversation has changed.
 
 Each conversation works on its own branch, `ctxpipe/chat/<conversation>/<n>`,
-and never pushes to the default branch. After each message that changed files,
-ctx| commits the changes and pushes them to that branch, so the work is kept
-even when the conversation's sandbox is replaced. If a push fails, the
-conversation shows **Changes not on GitHub yet** and your next message pushes
-them again.
+and never pushes to the default branch.
 
 ## Publish with a pull request
 
-When you are happy with the changes, choose **Create PR**. ctx| combines the
-conversation's commits into one commit and opens a pull request from the
-conversation's branch to the default branch, and the button becomes
-**Show PR**. Review and merge it like any other pull request; once
+When you are happy with the changes, choose **Create PR**. ctx| opens a pull
+request from the conversation's branch to the default branch, and the button
+becomes **Show PR**. Review and merge it like any other pull request; once
 merged, the Workspace re-indexes the new commit.
 
 If the default branch moves while a conversation is open, ctx| brings the

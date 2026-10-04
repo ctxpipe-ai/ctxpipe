@@ -52,6 +52,7 @@ import {
   workspaceChatRuntimeConfig,
 } from "./chat-runtime.js"
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
+import { conversationBranchPushTool } from "./conversation-branch-push.js"
 import {
   SandboxCapacityError,
   withConversationSandboxSlots,
@@ -114,7 +115,6 @@ import {
 } from "./workspace-chat-otel.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
 import { updateConversationSandboxRevision } from "./workspace-chat-revision-transition.js"
-import { workspaceChatSessionPush } from "./workspace-chat-session-push.js"
 import { mintWorkspaceChatRunCapability } from "./workspace-chat-run-capability.js"
 import { workspaceChatThreadLock } from "./workspace-chat-thread-lock.js"
 import { mintWorkspaceChatToken } from "./workspace-chat-token.js"
@@ -577,7 +577,16 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       ? messagesForOpenCodeChat(input.messages, input.prompt)
       : []) as Array<ModelMessage | UIMessage>,
     abortController,
-    tools: WORKSPACE_CHAT_TOOLS,
+    tools: [
+      ...WORKSPACE_CHAT_TOOLS,
+      conversationBranchPushTool({
+        conversationId: input.conversationId,
+        orgId: input.orgId,
+        orgSlug: session.orgSlug,
+        workspaceId: input.workspaceId,
+        sandbox: () => activeSandbox,
+      }),
+    ],
     middleware: [
       otelMiddleware({
         tracer: trace.getTracer("ctxpipe-workspace-chat"),
@@ -687,7 +696,6 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
           })
         },
       }),
-      workspaceChatSessionPush(input),
       openCodeTrailingUserMiddleware(input.prompt),
     ],
   })

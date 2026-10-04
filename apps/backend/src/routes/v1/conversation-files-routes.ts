@@ -417,6 +417,7 @@ export async function readySandboxHandle(
 async function conversationFileSnapshot(input: {
   handle: JobSandboxHandle
   conversationId: string
+  lastBranch: string | null
   workspace: { id: string; desiredDefaultBranch?: string | null }
 }) {
   const defaultBranch = input.workspace.desiredDefaultBranch?.trim() || "main"
@@ -427,7 +428,10 @@ async function conversationFileSnapshot(input: {
       conversationSandboxStatus({
         handle: input.handle,
         defaultBranch,
-        sessionBranch: sessionBranchName(input.conversationId),
+        sessionBranch: sessionBranchName(
+          input.conversationId,
+          input.lastBranch,
+        ),
       }),
       conversationWorktreeVersion(input.handle),
       getDesiredWorkspaceRevision(input.workspace.id),
@@ -487,8 +491,6 @@ const withConversationFileLock = createMiddleware<ConversationFileEnv>(
 )
 const fileRoutes = new OpenAPIHono<ConversationFileEnv>()
 fileRoutes.use("/:conversationId/files/*", withConversationFileLock)
-// Create PR rewrites the session branch in the sandbox; never under a running turn.
-fileRoutes.on("POST", "/:conversationId/pull-request", withConversationFileLock)
 export const conversationFileRoutes = fileRoutes
   .openapi(listTreeRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
@@ -556,7 +558,10 @@ export const conversationFileRoutes = fileRoutes
       conversationSandboxStatus({
         handle,
         defaultBranch,
-        sessionBranch: sessionBranchName(conversationId),
+        sessionBranch: sessionBranchName(
+          conversationId,
+          loaded.conversation.lastBranch,
+        ),
       }),
       conversationWorktreeVersion(handle),
       getDesiredWorkspaceRevision(loaded.workspace.id),
@@ -640,6 +645,7 @@ export const conversationFileRoutes = fileRoutes
     const snapshot = await conversationFileSnapshot({
       handle,
       conversationId,
+      lastBranch: loaded.conversation.lastBranch,
       workspace: loaded.workspace,
     })
     return c.json(

@@ -523,10 +523,8 @@ export const ConversationSandboxFiles: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expectWorkspaceFiles(canvas, /e2e-session-branch-note/)
+    expect(canvas.getByRole("button", { name: "Commit+Push" })).toBeVisible()
     expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
-    expect(
-      canvas.queryByRole("button", { name: /commit|push/i }),
-    ).not.toBeInTheDocument()
     expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
   },
 }
@@ -831,7 +829,7 @@ export const StableFilesRequestBudget: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     expect(
-      await canvas.findByRole("button", { name: "Create PR" }),
+      await canvas.findByRole("button", { name: "Commit+Push" }),
     ).toBeVisible()
     await waitFor(() => {
       expect(filesTreeGets.count).toBeGreaterThan(0)

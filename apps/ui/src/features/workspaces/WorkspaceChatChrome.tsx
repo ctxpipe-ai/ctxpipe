@@ -13,11 +13,13 @@ import {
 } from "./workspaceChrome"
 import { writeStatusLabel } from "./writeStatusLabel"
 
-/**
- * Turn commits reach the session branch automatically; publishing is only
- * Create PR (squashes them) and Show PR.
- */
 export type ConversationPublishChrome = {
+  commitPush: {
+    visible: boolean
+    enabled: boolean
+    pending: boolean
+    onPress: () => void
+  }
   pullRequest: {
     visible: boolean
     action: "create" | "show"
@@ -46,7 +48,10 @@ export function WorkspaceChatChrome(props: {
   children: ReactNode
 }) {
   const write = writeStatusLabel(props.workspace.writeStatus)
-  const publishHasActions = Boolean(props.publish?.pullRequest.visible)
+  const publishHasActions = Boolean(
+    props.publish &&
+      (props.publish.commitPush.visible || props.publish.pullRequest.visible),
+  )
   const showWriteBadge =
     !props.publish && (write.tone === "read_only" || write.tone === "pending")
   return (
@@ -133,12 +138,25 @@ export function WorkspaceChatChrome(props: {
 export function ConversationPublishActions(props: {
   publish: ConversationPublishChrome
 }) {
-  const { pullRequest } = props.publish
+  const { commitPush, pullRequest } = props.publish
+  const showCommit = commitPush.visible
   const showPrLink = pullRequest.action === "show" && Boolean(pullRequest.href)
   const showCreatePr = pullRequest.visible && pullRequest.action === "create"
-  if (!showPrLink && !showCreatePr) return null
+  if (!showCommit && !showPrLink && !showCreatePr) return null
   return (
     <div className="mb-px flex h-[37px] shrink-0 items-center gap-1">
+      {showCommit ? (
+        <Button
+          variant="ghost"
+          size="default"
+          isDisabled={!commitPush.enabled || commitPush.pending}
+          isPending={commitPush.pending}
+          onPress={commitPush.onPress}
+          className="h-8 px-2 text-xs"
+        >
+          {commitPush.pending ? "Pushing…" : "Commit+Push"}
+        </Button>
+      ) : null}
       {showPrLink ? (
         <AriaLink
           href={pullRequest.href ?? undefined}
