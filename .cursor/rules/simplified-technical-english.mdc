@@ -5,13 +5,9 @@ alwaysApply: true
 
 # Simplified Technical English
 
-Write each explanation in ASD-STE100 Simplified Technical English (Issue 9, 2025).
+Write each explanation in ASD-STE100 Simplified Technical English (Issue 9). You already know that standard. Follow it. Do not copy the licensed dictionary into this repo.
 
-The STE dictionary is a licensed specification. Do not copy the dictionary into this repo. Follow the rules in this file.
-
-Examples of rewrites are in `.cursor/skills/simplified-technical-english/SKILL.md`. Read that file when you cannot keep a sentence short and clear. When you change a rule, change this file and the skill in the same commit.
-
-## Where the standard applies
+## Retained text
 
 Use the full standard for an explanation that you keep:
 
@@ -30,77 +26,12 @@ Keep these texts as they are:
 - A quote from the user, a log, or another document
 - Text that must match a screen, a specification, or an error string
 
-Product UI copy in `apps/ui` keeps UK spelling from `apps/ui/DESIGN.md`. For an explanation in that copy, still use the sentence rules in this file.
+Product UI copy in `apps/ui` keeps UK spelling from `apps/ui/DESIGN.md`. For an explanation in that copy, still follow ASD-STE100.
 
-Customer docs in `apps/docs` already use US spelling. That spelling agrees with this standard.
+Customer docs in `apps/docs` use US spelling. That spelling agrees with ASD-STE100.
 
-## Full standard
+## Replies to the user
 
-### Words
+A reply to the user follows ASD-STE100 at about 80% strength.
 
-- Use one word for one meaning. Use that same word each time you mean that thing.
-- Use American spelling. Product UI copy is the exception (UK spelling).
-- Use the technical name for a code name, a product name, or a term in `.ai/memory/glossary.md`. At the first use in a document, add a short definition.
-- Use a word as one part of speech. Keep a noun as a noun.
-- Use a plain word that a new reader can understand. Skip slang. Use the same word, not a synonym, when you repeat a meaning.
-
-### Nouns
-
-- A noun group has at most three words. When you need more words, use "of", "for", "in", or "on".
-- Put "a", "an", "the", "this", or "these" before a noun when you mean one specific thing.
-
-### Verbs
-
-- Use the active voice. The subject does the action.
-- For a procedure, start the sentence with a command verb.
-- Use the simple present, the simple past, or the simple future.
-- Use an "-ing" word only inside a technical name.
-- In a description, use the passive voice only when you do not know the actor.
-
-### Sentences
-
-- Put one topic in each sentence.
-- A procedure sentence has at most 20 words.
-- A description sentence has at most 25 words.
-- Write each word that the reader needs. Write "do not" in full. Do the same for other short forms.
-- Write two sentences in place of a semicolon.
-- Use a vertical list for many items or many actions. The line before the colon follows the word limit. Each item follows the same limit.
-
-### Paragraphs
-
-- Put one topic in each paragraph. Start the paragraph with that topic.
-- A paragraph has at most six sentences.
-
-### Safety text
-
-- Start with "WARNING" when a person can be injured.
-- Start with "CAUTION" when only equipment can be damaged.
-- Then write the command. Then write the result if the reader does not follow the command.
-
-## Replies to the user (about 80%)
-
-A reply to the user uses this standard at about 80% strength.
-
-Keep these rules at full strength:
-
-- The word limits (20 words for a step, 25 words for a description)
-- One topic in each sentence
-- The active voice
-- A command verb for a step
-- "a", "an", or "the" before a specific noun
-- A noun group of at most three words
-- One topic in each paragraph
-
-You may relax at most one sentence in five. Relax only these points:
-
-- A common word, when the short substitute is less clear
-- A contraction, such as "do not" written as "don't"
-- A phrasal verb
-- An "-ing" form in normal speech
-- A warmer tone
-
-A procedure step in a reply stays at full strength.
-
-## Check before you finish
-
-Count the words in each new sentence. Confirm the voice, the single topic, and each noun group. In a reply to the user, confirm that relaxed sentences are not more than one in five.
+Keep sentence length, one topic, the active voice, and a command verb for a step. You may relax at most one sentence in five. A relaxed sentence may use a common word, a contraction, a phrasal verb, an "-ing" form, or a warmer tone. A procedure step stays at full strength.

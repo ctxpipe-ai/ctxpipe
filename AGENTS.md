@@ -48,7 +48,7 @@ Write each explanation in ASD-STE100 Simplified Technical English.
 
 - Retained text uses the full standard. This includes markdown, a code comment, a commit message, pull request text, a changeset, docs, and memory files.
 - A reply to the user uses the same standard at about 80% strength.
-- The rules are in [`.cursor/rules/simplified-technical-english.mdc`](.cursor/rules/simplified-technical-english.mdc). Examples are in [`.cursor/skills/simplified-technical-english/SKILL.md`](.cursor/skills/simplified-technical-english/SKILL.md). Read the rule before you write or edit an explanation.
+- The rules are in [`.cursor/rules/simplified-technical-english.mdc`](.cursor/rules/simplified-technical-english.mdc). Read that file before you write or edit an explanation.
 
 When you edit a file, write each new sentence to the standard. Change an old sentence only when you edit it for another reason.
 
