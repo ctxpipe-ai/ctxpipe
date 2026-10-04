@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 `/{orgSlug}/connectors`. Types: GitHub, Confluence, Linear, Notion, Slack, PagerDuty. Content connectors fetch provider content and hand it to a typed mirror job that commits it into a Workspace repository (`linear/`, `notion/`, `slack/`, `confluence/`, `pagerduty/`, `github/`); scope is a `<connector>/config.yaml` reviewed in a pull request. [Harness](../harness.md) is `PASS`. Flow format: [run-setup](../run-setup.md#flow-format).
 
-Provider flows (CON-3 to CON-7) are `SKIP(first-run)` on the first run (decided 2026-10-04); CON-1, CON-2, and the GitHub mirror CON-8 run. Later runs depend on the `ready-for-human` test workspaces in [run-setup](../run-setup.md#connector-test-workspaces): each is `SKIP(needs-human)` until the user supplies them and a human is at the OAuth consent screen. A flow that completes OAuth also needs flag `live-oauth` and this origin's OAuth and webhook URLs registered with that provider (hosted previews: *uncertain*; ask before assuming).
+Provider flows (CON-3 to CON-7) depend on the `ready-for-human` test workspaces in [run-setup](../run-setup.md#connector-test-workspaces): each is `SKIP(needs-human)` until the user supplies them and a human is at the OAuth consent screen. A flow that completes OAuth also needs flag `live-oauth` and this origin's OAuth and webhook URLs registered with that provider (hosted previews: *uncertain*; ask before assuming).
 
 Health chips on a closed card: **Connected** · **Not yet connected** · **Couldn't load** · **Sync failed** · **Config PR failed** · **Checking**. **Connected** means Postgres plus UI health and a finished initial mirror, not Slack capture or a merged config PR by itself.
 
@@ -89,6 +89,6 @@ Same shape as CON-3. **Requires** `PAGERDUTY_TEST` with a service and an inciden
 
 ## Status
 
-- **PASS** CON-1, CON-2, and CON-8 `PASS`; provider flows `PASS`, `SKIP(first-run)`, or `SKIP(needs-human)`.
+- **PASS** CON-1, CON-2, and CON-8 `PASS`; provider flows `PASS` or `SKIP(needs-human)`.
 - **FAIL** catalog missing cards, every chip **Couldn't load**, a wizard first screen erroring, a config PR not appearing, an initial mirror not committing, or a merged PR missing from a linking Workspace.
 - Delete no connector unless the user names it in this turn.

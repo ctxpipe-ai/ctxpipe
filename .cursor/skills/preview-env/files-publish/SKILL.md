@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # preview-env files-publish
 
-Conversation sandbox, session branch `ctxpipe/chat/{conversationId}/1`, GitHub pull request. The agent decides when to commit and push to that branch: when the user asks, or when it finishes a task (its system prompt recommends committing then), with semantic commit messages. The conversation header offers **Commit+Push** (for anything not yet committed, including the user's own edits), **Create PR** (keeps every commit; no squash), and **Show PR** (decided 2026-10-04). Chat never pushes the default branch. [Harness](../harness.md) write policy applies (see [run-setup](../run-setup.md#write-policy)). Flow format: [run-setup](../run-setup.md#flow-format).
+Conversation sandbox, session branch `ctxpipe/chat/{conversationId}/1`, GitHub pull request. The agent decides when to commit and push to that branch: when the user asks, or when it finishes a task (its system prompt recommends committing then), with semantic commit messages. The conversation header offers **Commit+Push** (for anything not yet committed, including the user's own edits), **Create PR** (keeps every commit; no squash), and **Show PR**. Chat never pushes the default branch. [Harness](../harness.md) write policy applies (see [run-setup](../run-setup.md#write-policy)). Flow format: [run-setup](../run-setup.md#flow-format).
 
 If **Settings** shows **Read-only**, publish controls are hidden: `SKIP(no-fixture)` the write flows, not FAIL.
 

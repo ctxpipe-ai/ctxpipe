@@ -30,12 +30,14 @@ Mint `run-id` once (`YYYYMMDD-HHMMSS`, UTC). Everything the run creates carries 
 
 ### GitHub test org and repositories
 
-`GH_TEST_ORG` is `ctxpipe-ai`, with the ctx| GitHub App installed on **all repositories**, so repositories created during the run are readable without another install step. It is the team's own organization, so the run creates and deletes only throwaway repositories whose names start with `pe-{run-id}-`, and touches nothing else there. It holds two persistent **template** repositories:
+`GH_TEST_ORG` is `ctxpipe-ai`, with the ctx| GitHub App installed on **all repositories**, so repositories created during the run are readable without another install step. It is the team's own organization, so the run creates and deletes only throwaway repositories whose names start with `pe-{run-id}-`, and touches nothing else there. It holds two persistent private **template** repositories:
 
 | Template | Content |
 | --- | --- |
-| `preview-env-seed-knowledge` | `AGENTS.md` with a `name`, 3-5 knowledge files with relative links and `claims:`, one file with malformed front matter |
-| `preview-env-seed-code` | a small TypeScript repo with a README and one named function whose behavior has a known answer |
+| `preview-env-seed-knowledge` | `AGENTS.md` (`name: Orchard Rewards Knowledge`); 4 knowledge files under `knowledge/` (`rewards/loyalty-program.md`, `rewards/point-rules.md`, `services/rewards-api.md`, `operations/support-escalation.md`) with 7 relative links between them and one `claims:` entry each (`DEPENDS_ON`, `IMPLEMENTED_IN`, `OWNS`, `PART_OF`); `knowledge/operations/legacy-migration-notes.md` with malformed front matter (an unclosed YAML flow). No `.agents/skills/ctxpipe-knowledge/SKILL.md`, so the Workspace bootstrap always commits one |
+| `preview-env-seed-code` | a small TypeScript repo; `src/loyalty.ts` exports `loyaltyPoints(orderTotalCents)`: `loyaltyPoints(12345) === 17`, `loyaltyPoints(9999) === 9`, `loyaltyPoints(1_000_000) === 50` |
+
+Known answers for chat questions: per `support-escalation.md` a manual adjustment of 600 points needs a second approver, and on-call acknowledges a page within 30 minutes; per `point-rules.md` an order of 123.45 dollars earns 17 points.
 
 Per run, create copies (`gh repo create {GH_TEST_ORG}/pe-{run-id}-<suffix> --template …`, or the human uses **Create on GitHub**):
 
@@ -62,7 +64,7 @@ Delete only names with this run's `pe-{run-id}-` prefix (the token needs the `de
 
 ### Connector test workspaces
 
-Each provider needs its own test account. They are `ready-for-human` placeholders until the user supplies them; their flows `SKIP(needs-human)` meanwhile. On the first run every provider flow (Linear, Notion, Slack, Confluence, PagerDuty) is `SKIP(first-run)`; the GitHub merged-PR mirror ([CON-8](connectors/SKILL.md)) still runs.
+Each provider needs its own test account. They are `ready-for-human` placeholders until the user supplies them; their flows `SKIP(needs-human)` meanwhile.
 
 | Placeholder | Needs |
 | --- | --- |
@@ -94,9 +96,7 @@ Status of a flow:
 
 - `PASS` every Expect met and time at or under the fail budget (note `SLOW` between target and fail).
 - `FAIL` an Expect unmet, or time over the fail budget.
-- `SKIP(reason)` with one of `needs-human`, `needs-ticket-NN`, `blocked-by FLOW-ID`, `hosted-only`, `preview-only`, `gated-<flag>`, `no-fixture`, `needs-inbox`, `first-run`, `contract-test`.
-
-Budgets are approved (user, 2026-10-04).
+- `SKIP(reason)` with one of `needs-human`, `needs-ticket-NN`, `blocked-by FLOW-ID`, `hosted-only`, `preview-only`, `gated-<flag>`, `no-fixture`, `needs-inbox`, `contract-test`.
 
 ### Human checkpoints
 
@@ -109,21 +109,11 @@ Start the clock at the triggering action (click, send, navigation) and stop it w
 ## Evidence and traces
 
 - Artifacts go to `/tmp/preview-env/{run-id}/` (not the repository): screenshots `{FLOW-ID}-{step}.png`, one recording per area `{area}.webm` of the working path only.
-- **Trace** per flow, in both modes: after the flow, find the trace for its key request with [observability](../observability/SKILL.md): environment `pr-<N>` (`preview`) or `local-<name>` (`local`), `ctxpipe.org.slug={orgSlug}`, the flow's time window, then the `TraceId`. For a curl step, take `x-request-id` from the response (`curl -D -`) and search by `request.id`. Record `trace: {TraceId} (env, org, HH:MM:SSZ)` plus the HyperDX link. For a job, record `openworkflow.run.id`. A flow with no exported trace has incomplete evidence: say so in the row; a `FAIL` without a trace is a harness problem to fix before the next run.
-- Redact tokens, passwords, and emails in anything pasted outside `/tmp`.
+- **Trace** per flow, in both modes: after the flow, find the trace for its key request with [observability](../observability/SKILL.md): environment `pr-<N>` (`preview`) or `local-<name>` (`local`), `ctxpipe.org.slug={orgSlug}`, the flow's time window, then the `TraceId`. For a curl step, take `x-request-id` from the response (`curl -D -`) and search by `request.id`. Record `trace: {TraceId} (env, org, HH:MM:SSZ)` plus the HyperDX link. For a job, record `openworkflow.run.id`.- Redact tokens, passwords, and emails in anything pasted outside `/tmp`.
 
 ### Local trace export
 
-A `local` run exports traces and logs to the hosted collector so every flow is debuggable in HyperDX. Before `pnpm dev`, `apps/backend/.env.local` (gitignored) must hold:
-
-```bash
-OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://telemetry.ctxpipe.ai/v1/traces
-OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=https://telemetry.ctxpipe.ai/v1/logs
-OTEL_EXPORTER_OTLP_HEADERS=authorization=<HYPERDX_API_KEY>
-OTEL_RESOURCE_ATTRIBUTES=deployment.environment=local-<name>
-```
-
-`<name>` is the person or agent running it (for example `local-preview-env`). `HYPERDX_API_KEY` is the collector's ingest token, not the personal `HYPERDX_ACCESS_KEY` the MCP uses; ask the human for it when it is not already in `.env.local`, and never print or commit it. `pnpm dev` passes these to the backend, the worker, the codesearch container, and the UI's `/.otel` relay ([USING.md](../../../ops/observability/USING.md#localhost-telemetry)). Restart `pnpm dev` after editing `.env.local`. The [harness](harness.md#1-wake) checks that export works.
+A `local` run exports to the hosted collector so every flow is debuggable in HyperDX: set up the **shared collector** in `apps/backend/.env.local` as [USING.md](../../../ops/observability/USING.md#localhost-telemetry) shows, then restart `pnpm dev`. Name the environment `local-<name>` after the person or agent running it (for example `local-preview-env`). The header value is the ingest token `HYPERDX_API_KEY`, not the personal `HYPERDX_ACCESS_KEY` the MCP uses; ask the human for it when `.env.local` lacks it, and never print or commit it. The [harness](harness.md#1-wake) checks that export works.
 
 ## Verify backend side effects
 

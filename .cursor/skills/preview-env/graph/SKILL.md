@@ -14,7 +14,7 @@ This Workspace's projection, not an org-wide graph. Hydrate must be `ready` ([HY
 1. Open `{BASE_URL}/{orgSlug}/ws/{workspace1Slug}?pane=graph` (the composer URL is enough).
 
 **Expect (UI)** `pane=graph` in the URL, the **Graph** tab selected, and a painted canvas (nodes and edges) or an honest empty state. Empty after `ready` with no "derived graph unavailable" copy is a `PASS` (sparse projection). The copy **derived graph unavailable** is a `FAIL`.
-**Expect (backend)** `GET /{orgSlug}/api/v1/workspaces/{workspace1Slug}/graph` returns 200 (503 is a FAIL: the graph store or projection is down); the graph holds the template's relative links as `LINKS_TO` edges and any `claims:` as claim edges.
+**Expect (backend)** `GET /{orgSlug}/api/v1/workspaces/{workspace1Slug}/graph` returns 200 (503 is a FAIL: the graph store or projection is down); the projection has 4 `WorkspaceKnowledgeUnit` nodes and 11 `WorkspaceSignal` edges, told apart by their `predicate` property: 7 `LINKS_TO` from the template's relative links and 4 claim edges (`DEPENDS_ON`, `IMPLEMENTED_IN`, `OWNS`, `PART_OF`). Edges are not typed relationships named after the predicate.
 **Budget** 3 s / 10 s, pane open to canvas painted.
 **Evidence** `GRAPH-1-1.png`; HTTP status; trace of the graph request.
 
