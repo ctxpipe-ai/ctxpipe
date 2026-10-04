@@ -15,7 +15,7 @@ Use a **real** question about the Workspace's repository (a named file, how a fe
 ### CHAT-1 First message creates a conversation
 **Requires** HYD-1; Workspace 1 composer open.
 **Steps**
-1. Send a question about a named knowledge file from the template.
+1. Send a question about a named knowledge file from the template, for example: "Per support-escalation.md, who must approve a manual adjustment of 600 points, and how fast does on-call acknowledge a page?" (answer: a second approver; within 30 minutes).
 2. Watch **Setting up sandbox**, then **Thinking…**, then the streamed answer.
 
 **Expect (UI)** the URL becomes `/{orgSlug}/ws/{workspace1Slug}/conv_…`; the user bubble holds the question; **Setting up sandbox** and **Thinking…** clear; assistant text arrives progressively (more than one text update, not one dump) with tool or reasoning chips; the answer cites the named file; the sidebar entry changes from **New conversation** to a model-written title.
@@ -101,8 +101,7 @@ Use a **real** question about the Workspace's repository (a named file, how a fe
 **Budget** 15 s / 45 s.
 **Evidence** `CHAT-8-1.png` of the tool output (redact values).
 
-### CHAT-9 At capacity: not a browser flow
-The 50-sandbox cap is proven by the backend contract test of ticket 02 only (decided 2026-10-04); a run never opens 50 sandboxes. Report the row as `SKIP(contract-test)` with the test's name.
+CHAT-9 (at capacity) is retired: `apps/backend/src/domain/workspaces/sandbox-lifecycle-native.contract.test.ts` covers the 50-sandbox cap. Report it as `SKIP(contract-test)`.
 
 ## Status
 
