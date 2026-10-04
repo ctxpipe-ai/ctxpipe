@@ -79,8 +79,9 @@ git checkout -q -B "$NEXT" "$NEW_SHA"`,
 }
 
 /**
- * A writable conversation works on its session branch from the start, so the
- * agent can commit there (commits on the default branch are refused).
+ * A turn in a writable conversation works on its session branch, so the agent
+ * can commit there (commits on the default branch are refused). Opening a
+ * conversation leaves a new sandbox on the default branch.
  */
 export async function checkoutSessionBranch(input: {
   handle: SandboxHandle

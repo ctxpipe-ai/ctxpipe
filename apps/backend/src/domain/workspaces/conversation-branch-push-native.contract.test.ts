@@ -116,7 +116,10 @@ async function openSession(
     if (!warmed.ok) throw new Error(warmed.error)
     return warmed.handle
   }
-  /** The agent commits in its sandbox, as its bash tool would. */
+  /**
+   * The agent commits in its sandbox, as its bash tool would, on the session
+   * branch a turn checks out.
+   */
   const agentCommit = async (
     handle: SandboxHandle,
     path: string,
@@ -124,7 +127,7 @@ async function openSession(
   ) => {
     await handle.fs.write(path, `# ${message}\n`)
     const committed = await handle.process.exec(
-      `git add -A && git -c user.name=Agent -c user.email=agent@example.test commit -q -m '${message}'`,
+      `{ [ "$(git branch --show-current)" != main ] || git checkout -q -b ${branch}; } && git add -A && git -c user.name=Agent -c user.email=agent@example.test commit -q -m '${message}'`,
     )
     expect(committed).toMatchObject({ exitCode: 0 })
   }
@@ -371,9 +374,6 @@ it(
   async () => {
     await withSession({}, async (f, s) => {
       let handle = await s.warm()
-      expect(
-        (await handle.process.exec("git branch --show-current")).stdout,
-      ).toBe(`${s.branch}\n`)
       await s.agentCommit(handle, "one.md", "Add note one")
       // A Files edit nobody committed.
       await handle.fs.write("files.md", "# Edited in Files\n")

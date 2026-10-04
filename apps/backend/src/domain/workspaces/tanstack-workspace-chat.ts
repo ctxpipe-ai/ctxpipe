@@ -53,6 +53,7 @@ import {
 } from "./chat-runtime.js"
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
 import { conversationBranchPushTool } from "./conversation-branch-push.js"
+import { checkoutSessionBranch } from "./conversation-session-branch.js"
 import {
   SandboxCapacityError,
   withConversationSandboxSlots,
@@ -637,6 +638,13 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
               signal: abortController.signal,
             })
             if (updated.conflict) revisionConflict = updated.effective
+            else
+              await checkoutSessionBranch({
+                handle,
+                orgId: input.orgId,
+                conversationId: input.conversationId,
+                desired: built.revision,
+              })
           })
         },
         onConfig(_ctx, config) {

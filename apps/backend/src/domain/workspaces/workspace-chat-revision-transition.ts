@@ -7,7 +7,6 @@ import {
 import { getDesiredWorkspaceRevision } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import {
-  checkoutSessionBranch,
   restoredSessionBase,
   rotateClosedSessionBranch,
 } from "./conversation-session-branch.js"
@@ -78,16 +77,7 @@ export async function updateConversationSandboxRevision(input: {
     desired: desired.sha,
   })
   if (base) await record({ ...previousRevision, sha: base })
-  if (previousRevision.sha === desired.sha) {
-    if (conversationId)
-      await checkoutSessionBranch({
-        handle,
-        orgId: input.orgId,
-        conversationId,
-        desired,
-      })
-    return {}
-  }
+  if (previousRevision.sha === desired.sha) return {}
   const current = await withOrgDbContext(input.orgId, () =>
     getDesiredWorkspaceRevision(desired.workspaceId),
   )
@@ -107,13 +97,6 @@ export async function updateConversationSandboxRevision(input: {
     from: previousRevision,
     to: desired,
   })
-  if (conversationId)
-    await checkoutSessionBranch({
-      handle,
-      orgId: input.orgId,
-      conversationId,
-      desired,
-    })
   return {}
 }
 
