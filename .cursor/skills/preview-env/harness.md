@@ -14,9 +14,9 @@ Body must be JSON with `status` equal to `"ok"`.
 
 `preview` only: if the run includes `hydrate`, `graph`, `chat`, `files-publish`, `connectors`, or `resilience`, wake **worker** and **codesearch** on this `pr-N` environment (Railway MCP: service status, then `redeploy` / `restart-service` when `SLEEPING`). Proof is a **new deploy timestamp**, not a SUCCESS badge. Preview workers idle-exit (~180 s); waiting does not keep them warm.
 
-`local` only: Docker infra and codesearch are up (`pnpm dev:infra`, `pnpm dev`); a missing codesearch container is a harness FAIL for the areas above.
+`local` only: Docker infra and codesearch are up (`pnpm dev:infra`, `pnpm dev`); a missing codesearch container is a harness FAIL for the areas above. Trace export is on ([local trace export](run-setup.md#local-trace-export)): send `curl -fsS -H "x-request-id: pe-{run-id}-wake" "$BASE_URL/.status"`, then find `SpanAttributes['request.id'] = 'pe-{run-id}-wake'` in HyperDX under `local-<name>` within a minute. No span is a harness FAIL.
 
-**Done when:** `/.status` is ok, and (if those areas run) worker and codesearch have a deploy timestamp newer than the wake call or are already `RUNNING` with a recent timestamp (`preview`), or the local stack answers (`local`).
+**Done when:** `/.status` is ok, and (if those areas run) worker and codesearch have a deploy timestamp newer than the wake call or are already `RUNNING` with a recent timestamp (`preview`), or the local stack answers and its wake request is in HyperDX (`local`).
 
 ## 2. UI canary
 

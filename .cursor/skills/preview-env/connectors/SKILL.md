@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 `/{orgSlug}/connectors`. Types: GitHub, Confluence, Linear, Notion, Slack, PagerDuty. Content connectors fetch provider content and hand it to a typed mirror job that commits it into a Workspace repository (`linear/`, `notion/`, `slack/`, `confluence/`, `pagerduty/`, `github/`); scope is a `<connector>/config.yaml` reviewed in a pull request. [Harness](../harness.md) is `PASS`. Flow format: [run-setup](../run-setup.md#flow-format).
 
-Provider flows depend on the `ready-for-human` test workspaces in [run-setup](../run-setup.md#connector-test-workspaces): each is `SKIP(needs-human)` until the user supplies them and a human is at the OAuth consent screen. A flow that completes OAuth also needs flag `live-oauth` and this origin's OAuth and webhook URLs registered with that provider (hosted previews: *uncertain*; ask before assuming).
+Provider flows (CON-3 to CON-7) depend on the `ready-for-human` test workspaces in [run-setup](../run-setup.md#connector-test-workspaces): each is `SKIP(needs-human)` until the user supplies them and a human is at the OAuth consent screen. A flow that completes OAuth also needs flag `live-oauth` and this origin's OAuth and webhook URLs registered with that provider (hosted previews: *uncertain*; ask before assuming).
 
 Health chips on a closed card: **Connected** · **Not yet connected** · **Couldn't load** · **Sync failed** · **Config PR failed** · **Checking**. **Connected** means Postgres plus UI health and a finished initial mirror, not Slack capture or a merged config PR by itself.
 
@@ -74,10 +74,10 @@ Same shape as CON-3. **Requires** `NOTION_TEST` with a page or database shared w
 ### CON-7 PagerDuty: connect, config PR, initial sync (`needs-human`, `gated-live-oauth`)
 Same shape as CON-3. **Requires** `PAGERDUTY_TEST` with a service and an incident. **Expect (backend)** `pagerduty/config.yaml` PR; after merge `pagerduty-sync-config`, `pagerduty-sync-entity`, files under `pagerduty/incidents/`. **Budget**, **Evidence** as CON-3.
 
-### CON-8 Merged GitHub PRs mirror into every Workspace that links the repository (`needs-ticket-12`)
-**Requires** ONB-3; Workspace 1 and Workspace 2 (WS-3); `preview-env-{run-id}-code` with a few merged PRs (create them with `gh` before linking so the backfill has input); `gh` able to open and merge PRs in that repo (run-created, so `merge-pr` is implied).
+### CON-8 Merged GitHub PRs mirror into every Workspace that links the repository
+**Requires** ONB-3; Workspace 1 and Workspace 2 (WS-3); `pe-{run-id}-code` with a few merged PRs (create them with `gh` before linking so the backfill has input); `gh` able to open and merge PRs in that repo (run-created, so `merge-pr` is implied).
 **Steps**
-1. Link `preview-env-{run-id}-code` to Workspace 1 and to Workspace 2 (WS-6 steps; no connector setup).
+1. Link `pe-{run-id}-code` to Workspace 1 and to Workspace 2 (WS-6 steps; no connector setup).
 2. Wait for the backfill; list `github/` in both workspace repositories.
 3. Open and merge a **new** PR in the code repository; wait.
 4. Unlink the repository from Workspace 2; merge another PR; wait.
@@ -89,6 +89,6 @@ Same shape as CON-3. **Requires** `PAGERDUTY_TEST` with a service and an inciden
 
 ## Status
 
-- **PASS** CON-1 and CON-2 `PASS`; provider flows `PASS` or `SKIP(needs-human)`; CON-8 `PASS` or `SKIP(needs-ticket-12)`.
+- **PASS** CON-1, CON-2, and CON-8 `PASS`; provider flows `PASS` or `SKIP(needs-human)`.
 - **FAIL** catalog missing cards, every chip **Couldn't load**, a wizard first screen erroring, a config PR not appearing, an initial mirror not committing, or a merged PR missing from a linking Workspace.
 - Delete no connector unless the user names it in this turn.

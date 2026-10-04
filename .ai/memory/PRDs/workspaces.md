@@ -51,6 +51,7 @@ ctxpipe is a job engine over **Workspaces**. An organization's portable knowledg
 - Navigation: Home, Search (palette), Connectors, then Workspace rows (last 5 conversations each). No org-wide Chat, Repositories, or Knowledge graph pages.
 - `/$orgSlug/ws/$workspaceSlug` composes; the first message creates the conversation at `/$orgSlug/ws/$workspaceSlug/$conversationId`. Right pane tabs: Files (Pierre tree/diff/editor), Graph (this Workspace's projection), Settings (name, slug, repository, linked repositories with index health).
 - Add Workspace is a **+** next to the Workspaces label in the sidebar, plus the zero-Workspace gate (decided 2026-10-02, replacing the org-settings entry).
+- Onboarding has no dedicated Workspace slide: after GitHub connects, **Create workspace** ends onboarding at Add Workspace; otherwise an organization with no Workspace reaches the zero-Workspace gate when onboarding finishes (2026-10-04; onboarding is being redesigned separately).
 
 ## Out of scope for this release
 

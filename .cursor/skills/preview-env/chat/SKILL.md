@@ -1,6 +1,6 @@
 ---
 name: preview-env-chat
-description: Workspace chat in per-conversation sandboxes: turns, streaming, reload, stop, isolation, idle resume, capacity (preview-env).
+description: Workspace chat in per-conversation sandboxes: turns, streaming, reload, stop, isolation, idle resume, lost-sandbox rebuild (preview-env).
 disable-model-invocation: true
 ---
 
@@ -15,7 +15,7 @@ Use a **real** question about the Workspace's repository (a named file, how a fe
 ### CHAT-1 First message creates a conversation
 **Requires** HYD-1; Workspace 1 composer open.
 **Steps**
-1. Send a question about a named knowledge file from the template.
+1. Send a question about a named knowledge file from the template, for example: "Per support-escalation.md, who must approve a manual adjustment of 600 points, and how fast does on-call acknowledge a page?" (answer: a second approver; within 30 minutes).
 2. Watch **Setting up sandbox**, then **Thinking…**, then the streamed answer.
 
 **Expect (UI)** the URL becomes `/{orgSlug}/ws/{workspace1Slug}/conv_…`; the user bubble holds the question; **Setting up sandbox** and **Thinking…** clear; assistant text arrives progressively (more than one text update, not one dump) with tool or reasoning chips; the answer cites the named file; the sidebar entry changes from **New conversation** to a model-written title.
@@ -63,7 +63,7 @@ Use a **real** question about the Workspace's repository (a named file, how a fe
 2. Return to conversation X (from CHAT-1) and ask it to list files under `knowledge/preview-env/`.
 
 **Expect (UI)** X's answer does not list Y's file; each transcript has only its own turns; sidebar shows both conversations.
-**Expect (backend)** two `workspace_sandbox_instances` rows with different sandbox ids; Y's file exists only on Y's session branch.
+**Expect (backend)** two `workspace_sandbox_instances` rows with different sandbox ids; Y's file exists only in Y's sandbox (and on Y's session branch once the agent commits it).
 **Budget** 5 s / 15 s per answer.
 **Evidence** `CHAT-5-1.png`, `CHAT-5-2.png`; both conversation ids and sandbox ids.
 
@@ -80,7 +80,7 @@ Use a **real** question about the Workspace's repository (a named file, how a fe
 **Evidence** `CHAT-6-1.png`; sandbox state before and after; trace; token rows.
 
 ### CHAT-7 Lost sandbox is recreated from the session branch (`needs-ticket-02`)
-**Requires** CHAT-5 with Y's turn commit pushed ([FP-4](../files-publish/SKILL.md)); an operator who can delete the sandbox (human checkpoint; `SKIP(needs-human)` otherwise).
+**Requires** CHAT-5, then ask Y's agent to commit and push its file (the agent commits on request; see [FP-4](../files-publish/SKILL.md)) and confirm the commit is on the branch; an operator who can delete the sandbox (human checkpoint; `SKIP(needs-human)` otherwise).
 **Steps**
 1. Delete Y's sandbox (provider console or the database row plus the sandbox).
 2. Send a follow-up asking for the file's content.
@@ -101,16 +101,7 @@ Use a **real** question about the Workspace's repository (a named file, how a fe
 **Budget** 15 s / 45 s.
 **Evidence** `CHAT-8-1.png` of the tool output (redact values).
 
-### CHAT-9 At capacity (`hosted-only`, `needs-ticket-02`, `gated-capacity`)
-**Requires** flag `capacity`: 50 running sandboxes in one org (many conversations opened in parallel by script); costly, so off by default. The contract test proves the cap; this flow only proves what a person sees.
-**Steps**
-1. With 50 sandboxes running, send a message in a 51st conversation.
-2. Stop one other conversation, then **retry** the 51st.
-
-**Expect (UI)** an inline "at capacity" error in the conversation (not a blank page, not an endless spinner) that says to try again; the retry succeeds after a slot frees.
-**Expect (backend)** the 51st create is refused by the count under the Workspace lock; no sandbox row for it; counts stay at 50.
-**Budget** 3 s / 10 s, **Send** to the error.
-**Evidence** `CHAT-9-1.png`; the count query.
+CHAT-9 (at capacity) is retired: `apps/backend/src/domain/workspaces/sandbox-lifecycle-native.contract.test.ts` covers the 50-sandbox cap. Report it as `SKIP(contract-test)`.
 
 ## Status
 

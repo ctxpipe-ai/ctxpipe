@@ -9,7 +9,7 @@ disable-model-invocation: true
 Last area: it disturbs the target. [Harness](../harness.md) is `PASS`; run it after the other areas. Flow format: [run-setup](../run-setup.md#flow-format).
 
 ### RES-1 Backend restart mid-chat (`gated-restart-ok`)
-**Requires** flag `restart-ok` (a human or the run may restart the backend: `local` stop and start `pnpm dev`; `preview` Railway `restart-service` or redeploy of the backend); CHAT-2.
+**Requires** flag `restart-ok` (a human or the run may restart the backend: `local` stop and start `pnpm dev`; `preview` Railway `restart-service` or redeploy of the backend, allowed on `pr-280` only per the [write policy](../run-setup.md#write-policy)); CHAT-2.
 **Steps**
 1. Send a long-answer prompt in the Workspace 1 conversation; while it streams, restart the backend.
 2. Watch the UI until the backend is back, then reload the conversation URL.

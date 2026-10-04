@@ -39,34 +39,33 @@ First area of every run. Creates account A, the org, the GitHub connection, and 
 **Steps**
 1. Click **Connect GitHub**.
 2. Human: install the App on `GH_TEST_ORG` with access to **all repositories**, then return.
-3. Wait for **Finalising connection...** to clear.
+3. Wait for **Finalizing connection...** (and **Finalizing your GitHub connection...**) to clear.
+4. Click **Close wizard** to go on to the MCP slide. Do not click **Create workspace** here: it ends onboarding early and opens the same **Add Workspace** screen that [ONB-5](#onb-5-create-workspace-1-at-the-zero-workspace-gate) reaches, skipping the MCP and invite slides.
 
-**Expect (UI)** the button reads **Manage GitHub App**; the copy says GitHub is connected.
+**Expect (UI)** the slide reads **GitHub is connected** and offers **Create workspace** and **Close wizard**.
 **Expect (backend)** `connections` row of type `github` (`con_*`) for the org with an installation id; `GET /{orgSlug}/api/v1/github/installation` returns a non-null `installationId`.
-**Budget** 15 s / 60 s, popup closed to **Manage GitHub App** (the UI holds "Finalising" for at least 1.8 s).
+**Budget** 15 s / 60 s, popup closed to **GitHub is connected** (the UI holds **Finalizing connection...** for at least 1.8 s).
 **Evidence** `ONB-3-1.png`; trace of the installation request; the webhook delivery trace for the install event.
 
 ### ONB-4 MCP slide, invite slide, finish
 **Requires** ONB-2 (ONB-3 optional; **I'll do this later** skips GitHub).
 **Steps**
-1. On the MCP slide read the snippet and **Install via CLI**; do not click **Install via PR**. Click **Continue**.
+1. On the MCP slide read the **Install via CLI** card; do not click **Install via PR**. Click **Install manually**, read the snippet, then click **Continue**.
 2. On the invite slide choose **I'll do this later**.
 3. Wait for the transition into the app.
 
-**Expect (UI)** the MCP snippet URL is recorded (today it always reads `https://app.ctxpipe.ai/mcp?orgSlug={orgSlug}`, which is not the target origin on `local` or `preview`; note it). After finishing, an org with zero Workspaces lands on `/{orgSlug}/workspaces/new` (**Add Workspace**).
-**Expect (backend)** `users.onboardingCompletedAt` set for A; `org_onboarding` row for the org.
+**Expect (UI)** the manual MCP snippet (**Install manually**) names this target's origin: `{BASE_URL}/mcp?orgSlug={orgSlug}`; `https://app.ctxpipe.ai` there is a FAIL. After finishing, an org with zero Workspaces lands on `/{orgSlug}/workspaces/new` (**Add Workspace**).**Expect (backend)** `users.onboardingCompletedAt` set for A; `org_onboarding` row for the org.
 **Budget** 3 s / 10 s, finish to **Add Workspace** visible (includes a 320 ms fade).
 **Evidence** `ONB-4-1.png` (snippet), `ONB-4-2.png` (Add Workspace); trace of the two onboarding-complete requests.
-*Uncertain:* the PRD and public docs say onboarding offers a Workspace-create step; the slide list (`ADMIN_SLIDES`) has none, so creation happens at this zero-Workspace gate. Record which is true.
 
 ### ONB-5 Create Workspace 1 at the zero-Workspace gate
-**Requires** ONB-4 and ONB-3 `PASS`; repo `preview-env-{run-id}-ws`.
+**Requires** ONB-4 and ONB-3 `PASS`; repo `pe-{run-id}-ws`.
 **Steps**
-1. On **Add Workspace**, stay on **Select GitHub**, search `preview-env-{run-id}-ws`, select it.
+1. On **Add Workspace**, stay on **Select GitHub**, search `pe-{run-id}-ws`, select it.
 2. Click **Create Workspace**.
 
 **Expect (UI)** redirect to `/{orgSlug}/ws/{slug}` (slug defaults to the repository name); the composer is visible; the sidebar lists the Workspace; **Settings** shows **Writable** and a hydrate chip (**Hydrate pending** or **Hydrating**; later flows wait for **Hydrate ready**).
-**Expect (backend)** `workspaces` row (`ws_*`, slug unique per org); a `workspace-bootstrap` run; on a writable repo, one setup commit adding any missing `AGENTS.md` and `.agents/skills/ctxpipe-knowledge/SKILL.md` on the default branch (none when the template has them); a `workspace-hydrate` run enqueued.
+**Expect (backend)** `workspaces` row (`ws_*`, slug unique per org); a `workspace-bootstrap` run; on a writable repo, one setup commit on the default branch adding `.agents/skills/ctxpipe-knowledge/SKILL.md` (the template deliberately has none) and possibly normalizing `AGENTS.md` front matter and its folder map; a `workspace-hydrate` run enqueued.
 **Budget** 3 s / 10 s, **Create Workspace** to composer visible. Bootstrap commit and hydrate are timed in [HYD-1](../hydrate/SKILL.md).
 **Evidence** `ONB-5-1.png` (composer and sidebar); `gh api` commit list of the repo; trace of the create request and the `openworkflow.run.id` of `workspace-bootstrap`.
 

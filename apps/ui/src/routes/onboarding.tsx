@@ -123,11 +123,12 @@ export function OnboardingPageContent({
   }, [])
 
   const mcpSnippetOrgSlug = orgSlug ?? "your-org"
+  // ssr: false, so the browser is on the deployment's origin, which serves /mcp.
   const mcpSnippet = `{
   "mcpServers": {
     "ctxpipe": {
       "type": "http",
-      "url": "https://app.ctxpipe.ai/mcp?orgSlug=${mcpSnippetOrgSlug}"
+      "url": "${window.location.origin}/mcp?orgSlug=${mcpSnippetOrgSlug}"
     }
   }
 }`

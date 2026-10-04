@@ -15,24 +15,24 @@ Workspace **revision** prepare: `workspace-hydrate` rebuilds the projection (Pos
 2. When `ready`, `GET …/files/tree` (expect 200, not 409) and open **Files**.
 3. Compare the Settings hydrate chip with the JSON.
 
-**Expect (UI)** chip **Hydrate ready** matching the JSON; **Files** shows the tree with `AGENTS.md` and the template's knowledge files.
-**Expect (backend)** `workspace_commit_projections` row for the head SHA; `workspace_knowledge_units` rows for each valid knowledge file; `activeProjectionSha` equals `desiredSha`; `workspace-hydrate` then `workspace-index` runs succeeded; the bootstrap commit from [ONB-5](../onboarding/SKILL.md) is part of the projected revision.
+**Expect (UI)** chip **Hydrate ready** matching the JSON; **Files** shows the tree with `AGENTS.md`, the 4 knowledge files, the malformed file, and `.agents/skills/ctxpipe-knowledge/SKILL.md` from the bootstrap commit.
+**Expect (backend)** `workspace_commit_projections` row for the head SHA; exactly 4 `workspace_knowledge_units` rows (one per valid knowledge file; `AGENTS.md`, `.agents/`, and the malformed file have none); `activeProjectionSha` equals `desiredSha`; `workspace-hydrate` then `workspace-index` runs succeeded; the bootstrap commit from [ONB-5](../onboarding/SKILL.md) is part of the projected revision.
 **Budget** 60 s / 3 min, Workspace created to `hydrateStatus === "ready"`. If the worker deploy timestamp did not move after enqueue, wake again ([harness](../harness.md#1-wake)) and keep polling.
 **Evidence** `HYD-1-1.png` (Settings chips), `HYD-1-2.png` (Files); JSON status; trace and `openworkflow.run.id` of both runs.
 
 ### HYD-2 Malformed file is skipped, not fatal
-**Requires** HYD-1; the knowledge template holds one file with malformed front matter (run-setup).
+**Requires** HYD-1; `knowledge/operations/legacy-migration-notes.md` from the knowledge template (run-setup).
 **Steps**
-1. Open **Files** and find the malformed file.
+1. Open **Files** and find `knowledge/operations/legacy-migration-notes.md`.
 2. Check the knowledge units for that path.
 
-**Expect (UI)** hydrate is still **Hydrate ready**; the file is present in the Files tree (it is in git). *Uncertain:* whether any UI surface reports skipped files; none was found in the Workspace UI types, so record where (if anywhere) the skip is visible.
-**Expect (backend)** no `workspace_knowledge_units` row for that path; the hydrate run logs it as skipped with reason `malformed`; no `hydrateError`.
+**Expect (UI)** hydrate is still **Hydrate ready**; the file is present in the Files tree (it is in git). No UI surface reports skipped files yet (ticket 13, `needs-triage`); record where, if anywhere, the skip is visible.
+**Expect (backend)** no `workspace_knowledge_units` row for that path; the `workspace-hydrate` run's output (OpenWorkflow `output` JSON) has `skipped: 1` and `diagnostics: [{ "path": "knowledge/operations/legacy-migration-notes.md", "reason": "malformed" }]`; no `hydrateError`.
 **Budget** none beyond HYD-1.
-**Evidence** `HYD-2-1.png`; the hydrate log line.
+**Evidence** `HYD-2-1.png`; the run output.
 
 ### HYD-3 New commit on the default branch triggers re-hydrate
-**Requires** HYD-1 `ready`; `gh` or a human able to push to `preview-env-{run-id}-ws`.
+**Requires** HYD-1 `ready`; `gh` or a human able to push to `pe-{run-id}-ws`.
 **Steps**
 1. Push a commit adding `knowledge/preview-env/{run-id}.md` (with a relative link to an existing file) to the default branch.
 2. Wait for the push webhook; if none arrives within 60 s, reload the Workspace (the Workspace list request enqueues a tip check).
@@ -55,12 +55,12 @@ Workspace **revision** prepare: `workspace-hydrate` rebuilds the projection (Pos
 **Evidence** `HYD-4-1.png`; trace of the retry request.
 
 ### HYD-5 Linked-repository index completes
-**Requires** WS-6 linked `preview-env-{run-id}-code`.
+**Requires** WS-6 linked `pe-{run-id}-code`.
 **Steps**
 1. On **Settings**, watch the linked row until its chip settles.
 
 **Expect (UI)** **Indexed** (or **Indexed with issues** with a note); never stuck on **Indexing** or **Pending** beyond the budget (a stuck chip means codesearch is down or asleep).
-**Expect (backend)** a `repository-index` run finished; the code index answers a query (verify through a chat question in [CHAT-1](../chat/SKILL.md) that names the template's known function).
+**Expect (backend)** a `repository-index` run finished; the code index answers a query: in Workspace chat ask what `loyaltyPoints(12345)` returns in `pe-{run-id}-code`; the answer is 17 and cites `src/loyalty.ts`.
 **Budget** 90 s / 5 min, link to **Indexed** (same clock as WS-6).
 **Evidence** `HYD-5-1.png`; Railway codesearch logs on a fail.
 

@@ -55,7 +55,7 @@ Rows already stored may still use `requestId`, `userId`, or `environment`. New w
 
 ## Localhost OTLP
 
-Export stays off until `OTEL_EXPORTER_OTLP_*` is set. `pnpm dev` leaves it unset. Laptop collector and the opt-in shared collector: [USING.md](../../../ops/observability/USING.md#localhost-telemetry). A shared export uses `RAILWAY_ENVIRONMENT_NAME=local-<name>` and is never the default.
+Export stays off until `OTEL_EXPORTER_OTLP_*` is set. `pnpm dev` leaves it unset. Laptop collector and the opt-in shared collector: [USING.md](../../../ops/observability/USING.md#localhost-telemetry).
 
 ## Instrument
 
