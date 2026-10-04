@@ -1,3 +1,4 @@
+import { getGithubInstallationByConnectionId } from "../../models/github-installation.js"
 import {
   bulkCreateRepositoriesForOrg,
   findRepositoriesByNormalizedGitUrls,
@@ -8,6 +9,7 @@ import {
   displayNameFromGitUrl,
   normalizeWorkspaceRepositoryUrl,
 } from "./slug.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 export function repositoryNameFromGitUrl(gitUrl: string): string {
   const normalized = normalizeWorkspaceRepositoryUrl(gitUrl)
@@ -26,6 +28,29 @@ export function repositoryNameFromGitUrl(gitUrl: string): string {
   return displayNameFromGitUrl(normalized)
 }
 
+/**
+ * The connection to bind, `null` when the requested installation cannot cover
+ * the repository (a public repository of another GitHub account, read
+ * anonymously), or `undefined` when no connection was requested.
+ */
+async function bindableConnectionId(input: {
+  orgId: string
+  gitUrl: string
+  githubConnectionId?: string | null
+}): Promise<string | null | undefined> {
+  if (!input.githubConnectionId) return undefined
+  const owner = githubRepoFullNameFromWorkspaceUrl(input.gitUrl)
+    ?.split("/")[0]
+    ?.toLowerCase()
+  const account = (
+    await getGithubInstallationByConnectionId(
+      input.orgId,
+      input.githubConnectionId,
+    )
+  )?.accountSlug?.toLowerCase()
+  return owner && account && owner !== account ? null : input.githubConnectionId
+}
+
 export async function ensureOrgRepositoryForGitUrl(input: {
   orgId: string
   gitUrl: string
@@ -33,13 +58,14 @@ export async function ensureOrgRepositoryForGitUrl(input: {
 }): Promise<{ id: string; created: boolean } | null> {
   const gitUrl = normalizeWorkspaceRepositoryUrl(input.gitUrl)
   if (!gitUrl) return null
+  const githubConnectionId = await bindableConnectionId({ ...input, gitUrl })
 
   const existing = await findRepositoriesByNormalizedGitUrls([gitUrl])
   if (existing[0]) {
-    if (input.githubConnectionId) {
+    if (githubConnectionId !== undefined) {
       await setRepositoryGithubConnectionId({
         repositoryId: existing[0].id,
-        githubConnectionId: input.githubConnectionId,
+        githubConnectionId,
       })
     }
     return { id: existing[0].id, created: false }
@@ -48,18 +74,16 @@ export async function ensureOrgRepositoryForGitUrl(input: {
   const created = await bulkCreateRepositoriesForOrg(
     input.orgId,
     [{ name: repositoryNameFromGitUrl(gitUrl), gitUrl }],
-    input.githubConnectionId
-      ? { githubConnectionId: input.githubConnectionId }
-      : undefined,
+    githubConnectionId ? { githubConnectionId } : undefined,
   )
   if (created[0]) return { id: created[0].id, created: true }
 
   const raced = await findRepositoriesByNormalizedGitUrls([gitUrl])
   if (!raced[0]) return null
-  if (input.githubConnectionId) {
+  if (githubConnectionId !== undefined) {
     await setRepositoryGithubConnectionId({
       repositoryId: raced[0].id,
-      githubConnectionId: input.githubConnectionId,
+      githubConnectionId,
     })
   }
   return { id: raced[0].id, created: false }

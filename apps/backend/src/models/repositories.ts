@@ -319,7 +319,7 @@ export async function findRepositoriesByNormalizedGitUrls(
 
 export async function setRepositoryGithubConnectionId(input: {
   repositoryId: string
-  githubConnectionId: string
+  githubConnectionId: string | null
 }): Promise<void> {
   return orgSql(async () => {
     const db = getOrgDb()
