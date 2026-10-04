@@ -10,14 +10,14 @@ The Workspace Files pane needs a path-first tree with search, git status, diffs 
 
 - Files pane chrome is **`@pierre/trees`** (`FileTree`, search, git badges, rename) and **`@pierre/diffs`** (`File`, `FileDiff`, `EditProvider`). React Aria stays the primitive for the rest of the product; Pierre renders in Shadow DOM, the same exception as Cosmograph. Theme it through host CSS variables, not utility classes on rows. Context menus stay React Aria.
 - **Compose Files** (`/$org/ws/$slug`, no conversation) browse the workspace repository at the active projection SHA and are read-only.
-- **Conversation Files** read and write the conversation's sandbox worktree through `…/conversations/{id}/files/…` routes with per-file version checks. Work reaches GitHub on the conversation session branch (`ctxpipe/chat/<conversation>/<n>`), pushed by the backend broker, and is published with **Create PR** / **Show PR** ([ADR-048](ADR-048-native-postgres-sandbox-ownership.md)).
+- **Conversation Files** read and write the conversation's sandbox worktree through `…/conversations/{id}/files/…` routes with per-file version checks. Work reaches GitHub on the conversation session branch (`ctxpipe/chat/<conversation>/<n>`), pushed by the backend broker (the agent's push tool or **Commit+Push**), and is published with **Create PR** / **Show PR** ([ADR-048](ADR-048-native-postgres-sandbox-ownership.md)).
 - A read-only Workspace (no Contents:write, non-GitHub host) allows no pane edits.
 
 ## Consequences
 
 - Tree accessibility is Pierre's; keyboard and focus are proven in Storybook plays, not assumed from React Aria.
 - `useFileTree` is create-once: later tree and status updates go through `resetPaths` / `setGitStatus`.
-- Commit+Push is removed from the conversation chrome; turn commits are pushed automatically and squashed when the PR is created (PR 280 ticket 02).
+- The conversation chrome has **Commit+Push**, **Create PR** and **Show PR**. The agent makes its own commits and pushes when a task is ready or when asked; Create PR keeps the commits (PR 280 ticket 02, decided 2026-10-04).
 
 ## Alternatives considered
 

@@ -24,7 +24,7 @@ Decisions (user, 2026-10-02):
   - keep saved state 30 days after last use;
   - at most 50 running sandboxes per organization;
   - non-interactive runs stop their sandbox as soon as they finish.
-- **Publish UI:** turn commits are pushed automatically; the UI keeps only Create PR (squashes turn commits) and Show PR; Commit+Push is removed.
+- **Publish UI** (revised 2026-10-04): the agent commits when a task is done and pushes through a workspace tool when asked or when the work is ready; the UI has Commit+Push, Create PR (keeps the commits, no squash) and Show PR. No automatic per-turn push.
 - **Credentials:** GitHub Actions secret `VERCEL_ACCESS_TOKEN`, team `ctxpipe`, project `ctxpipe`. Deploy passes them to the Railway backend and worker. Region `iad1` (next to Railway and Neon).
 - Unsandboxed is never used on hosted; a missing or failing provider fails closed.
 
@@ -51,7 +51,7 @@ Every hosted conversation (production and PR previews) runs in its own Vercel sa
   
   Each is proven by a test.
 - [ ] Cancel stops the agent: by kill if proven, otherwise by stopping the sandbox.
-- [ ] Each turn that changed files is committed and pushed to the session branch through the backend broker. Create PR squashes; Show PR links; Commit+Push is gone (Storybook play + native git contract).
+- [ ] The agent commits in the sandbox and pushes the session branch through a workspace tool that calls the backend broker; Commit+Push, Create PR (commits kept) and Show PR work from the UI; committed work is pushed before a sandbox is deleted after 30 days (Storybook play + native git contract).
 - [ ] Deploy:
   - `deploy.yaml` and `pr-deploy.yaml` pass the token, team and project to Railway backend and worker;
   - previews tag their sandboxes by environment;
@@ -89,7 +89,7 @@ Every hosted conversation (production and PR previews) runs in its own Vercel sa
    - Idle timeout 5 minutes. Persistent sandboxes with `keepLastSnapshots: 1` and 30-day expiry.
    - The org cap is counted from our sandbox table under the Workspace lock before create.
    - Non-interactive callers (MCP, Slack) call stop in `finally`. Semantic merge no longer uses a sandbox (ticket 01).
-8. **Git as durable state + publish UI.** Per-turn commit and push via the broker. Squash on Create PR; remove Commit+Push (route, mutation, chrome, stories).
+8. **Git as durable state + publish UI.** The agent commits and pushes through a broker tool; Commit+Push, Create PR (no squash) and Show PR in the UI; push committed work before the 30-day deletion.
 9. **Deploy.** Pass the GitHub secret through `deploy.yaml` and `pr-deploy.yaml` (and Terraform variables if that's where Railway env lives). Preview tag plus cleanup on PR close.
 10. **Proof.**
     - Real-Vercel contract lane: fails, never skips, without credentials.
@@ -114,20 +114,37 @@ Keep each patch minimal and listed with its removal condition. Never fall back t
 
 ## Comments
 
-- 2026-10-04 (claude): **plan step 8 landed: git is the durable state, PR-only publish.**
-  - **Per-turn push:** `workspace-chat-session-push.ts`, wired into the chat middleware with one line. It runs on the turn's final `RUN_FINISHED` chunk, before the chunk is forwarded: the conversation lock and the sandbox are still held, and a result can still reach the client. (`onFinish` runs after the thread lock releases, and anything it emits is never delivered.) It commits what changed, with a subject from `generateCommitSubject`, and pushes through `pushConversationSessionBranch`. The sandbox only packs objects; the backend holds the read and write tokens, so it works the same on Vercel and Docker. It records `lastBranch`, so a recreated sandbox checks out the branch.
-  - **Skips** (no event): read-only Workspace, not GitHub, stale sandbox binding (a conflicted update), rebase in progress, nothing new. **Failure:** a non-fatal `session-push` event `{status:"failed"}`; the commit stays in the sandbox and the next turn pushes it. The UI shows "Changes not on GitHub yet".
-  - **Create PR** squashes the turn commits into one commit on the captured default commit, titled with the PR title. A sandbox restored from the session branch is shallow, so it fetches the branch history once first; a branch not based on the default commit is refused. Create PR now runs under the conversation lock, as Commit+Push did.
-  - **Removed:** the `POST …/push` route and its schema; the UI push mutation, query, type, MSW handler and stories; and the dead `collectChatPullRequestTree`, `checkoutPublishedChatBranch` and `chromePullRequestAction`.
+- 2026-10-04 (claude): **plan step 8 landed: the agent commits and pushes; Commit+Push, Create PR and Show PR.**
+  - **Agent:** it commits with git in the sandbox. Commits on the default branch are refused, so a writable conversation now starts on its session branch: the pre-turn update checks it out. It pushes with the bridged tool `push_conversation_branch` (`conversation-branch-push.ts`). The tool calls the broker; the sandbox only packs objects and never holds a write credential. The agent prompt says to commit when a task is done and to push when the user should see the work on GitHub.
+  - **Broker** (`pushConversationSession`):
+    - It runs one preflight: edits allowed, GitHub, the sandbox on the current revision.
+    - A clean sandbox with no unpushed commits does no network work.
+    - It replaces the remote tip only when that tip is the one ctx| pushed last (`conversations.last_pushed_sha`), that is, its own history rebased by option D. Commits someone else pushed are fetched, and ours are rebased onto them.
+    - A completed revision-transition marker no longer blocks a push; only an unfinished transition or a real rebase does.
+    - Results are typed reasons; the client never gets raw Git text.
+  - **UI and routes:**
+    - **Commit+Push** (`POST …/push`) commits Files edits and pushes. It shows when the sandbox has uncommitted changes or unpushed commits.
+    - **Create PR** pushes unpushed commits from a live sandbox, then opens the PR from the session branch as it is. It works without a live sandbox.
+    - Both answer 409 `turn_running` at once while a turn holds the conversation.
+  - **Session branch:**
+    - A sandbox restored from its branch records the commit the branch really builds on, so option D rebases it onto the current default.
+    - After the branch's PR is merged or closed, the next prepare or turn moves to `…/<n+1>` from the current default.
+  - **Deletion:** before the sweep deletes a sandbox after 30 days, committed work is pushed (the sandbox is started once if stopped); uncommitted files are not. An idle stop keeps files and pushes nothing.
   - **Proof:**
-    - Native contract `workspace-chat-session-push-native.contract.test.ts` (real chat engine, production sandbox setup, real Git remote, Postgres; scripted agent). A rejected push becomes an event and is retried by the next turn. One commit per changed turn; a no-change turn pushes nothing. A destroyed sandbox comes back shallow on the session branch with its files. Create PR leaves one commit with all files, and the next turn builds on it.
-    - Route contracts moved from `/push` to Create PR.
-    - Plays: chrome CreatePr / CreatingPr / ShowPr / CleanNoPublishActions, session TurnPushFailed over a mocked socket, and the golden SharedPublishPending and the budget stories now use Create PR. All 11 golden stories pass.
+    - Native contract `conversation-branch-push-native.contract.test.ts`. One case runs a production turn with OpenCode and a scripted model: it commits twice and calls the tool, giving two commits on GitHub; a turn that commits without pushing changes nothing. The other cases cover:
+      - Commit+Push and Create PR (commits kept, 409 while a turn runs);
+      - option D with the completed marker;
+      - commits someone else pushed, including ones the agent fetched itself;
+      - the shallow-restore rebase;
+      - a fresh branch after merge;
+      - the 30-day Docker deletion pushing commits and not drafts.
+    - Mutation checks fail the matching cases.
+    - The route contracts were updated, and a Storybook play covers the chrome with all three actions.
   - **Open:**
-    - Each changed turn waits for the commit-subject model (≤5 s timeout) and the push before `RUN_FINISHED`.
-    - Files-pane edits made with no later turn only reach git on the next turn or on Create PR.
-    - A sandbox restored from a branch based on an older default commit is not rebased by the pre-turn update, so Create PR refuses it until the agent rebases.
-    - Not run end to end with OpenCode on a GitHub remote, or on real Vercel.
+    - Not run against real Vercel.
+    - `workspace-chat-native.contract.test.ts` times out on this laptop with or without this change.
+
+- 2026-10-04 (user): the agent decides when to commit and push (semantic commits, a push tool through the broker, or on request); Commit+Push returns next to Create PR and Show PR; Create PR keeps the commits (no squash); no automatic per-turn push. Before a sandbox is deleted after 30 days, committed work is pushed.
 
 - 2026-10-03 (claude): **lifecycle landed** (shared with ticket 03; ADR-048 "Lifecycle and limits" and "Cleanup" updated):
   - Idle stop after 5 minutes and 30-day deletion run in a new OpenWorkflow job, `conversation-sandbox-sweep`. The Workspace tip check was not periodic, so each sweep schedules the next one for when a sandbox is next due. Every sandbox start and every tip check also schedule a sweep. A sweep never stops a sandbox while a turn holds `chat-thread:<conversation>`. The idle clock restarts when a turn ends.

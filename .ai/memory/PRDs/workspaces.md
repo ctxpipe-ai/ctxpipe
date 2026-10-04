@@ -32,8 +32,8 @@ ctxpipe is a job engine over **Workspaces**. An organization's portable knowledg
 ## Workspace chat
 
 - Stock TanStack AI: `useChat` ↔ WebSocket ↔ `chat()` with `withPersistence` + `withSandbox` + `opencodeText`. Transcripts are Postgres (TanStack persistence), not git. Models: only the configured fast/medium/high tiers through the app's model proxy (default fast).
-- One sandbox per conversation. **The conversation's durable state is its git session branch**: every turn that changes files is committed and pushed to `ctxpipe/chat/<conversation>/<n>` by the backend broker *(ticket 02)*. Sandboxes are disposable; a lost sandbox is recreated from the branch. While a sandbox lives, a moved default branch is merged in place before the next turn *(ticket 01, option D)*.
-- Publishing is **Create PR** (squashes the turn commits) and **Show PR**; there is no separate Commit+Push *(ticket 02)*. Chat never pushes the default branch.
+- One sandbox per conversation. **The conversation's durable state is its git session branch**: the agent commits its work and pushes `ctxpipe/chat/<conversation>/<n>` through a broker tool when a task is ready or when asked; nothing is pushed automatically *(ticket 02)*. Sandboxes are disposable; a lost sandbox is recreated from the branch, and committed work is pushed before a sandbox is deleted after 30 days. While a sandbox lives, a moved default branch is merged in place before the next turn *(ticket 01, option D)*.
+- Publishing is **Commit+Push** (commits Files edits, pushes the branch), **Create PR** (keeps the commits) and **Show PR** *(ticket 02)*. After the PR is merged or closed, the conversation continues on `…/<n+1>`. Chat never pushes the default branch.
 - Sandboxes get read credentials and per-run model/git capabilities only; no GitHub write credential, App key, or provider key enters a sandbox. Tool calls follow `acceptEdits` plus a fast-model judge after hard denies.
 - Retrieval tools (knowledge, graph, codesearch) run on the backend against the active projection.
 - `ctx_advisor` (MCP) is a deprecated shim: one Workspace chat turn on the organization's first Workspace per call, hidden from the UI list.
