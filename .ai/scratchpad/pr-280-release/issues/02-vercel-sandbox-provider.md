@@ -24,7 +24,7 @@ Decisions (user, 2026-10-02):
   - keep saved state 30 days after last use;
   - at most 50 running sandboxes per organization;
   - non-interactive runs stop their sandbox as soon as they finish.
-- **Publish UI** (revised 2026-10-04): the agent commits when a task is done and pushes through a workspace tool when asked or when the work is ready; the UI has Commit+Push, Create PR (keeps the commits, no squash) and Show PR. No automatic per-turn push.
+- **Publish UI** (revised 2026-10-04): the agent makes semantic commits when a task is done (the system prompt recommends it) and pushes through a workspace tool when the user asks or the work is ready; the UI has Commit+Push, Create PR (keeps the commits, no squash) and Show PR. No automatic per-turn push.
 - **Credentials:** GitHub Actions secret `VERCEL_ACCESS_TOKEN`, team `ctxpipe`, project `ctxpipe`. Deploy passes them to the Railway backend and worker. Region `iad1` (next to Railway and Neon).
 - Unsandboxed is never used on hosted; a missing or failing provider fails closed.
 
