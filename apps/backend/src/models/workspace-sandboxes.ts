@@ -1,4 +1,4 @@
-import { and, count, eq, inArray, isNull, ne, or } from "drizzle-orm"
+import { and, count, eq, inArray, isNull, ne, or, sql } from "drizzle-orm"
 import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { workspaceSandboxInstances } from "../db/schema/workspaces.js"
 import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
@@ -261,11 +261,26 @@ export function isRunningSandboxProvider(
 }
 
 /**
+ * A Workspace base's `building` row is its build's lease, measured from
+ * `last_heartbeat_at` (set when the build was reserved). A build older than
+ * this is lost: its writes stop matching and cleanup removes it.
+ */
+export const BASE_BUILD_LEASE_MS = 60 * 60_000
+
+/** SQL: this row is a base build whose lease has not lapsed. */
+const baseLeaseHeld = and(
+  eq(workspaceSandboxInstances.kind, "base"),
+  eq(workspaceSandboxInstances.state, "building"),
+  sql`${workspaceSandboxInstances.lastHeartbeatAt} > clock_timestamp() - make_interval(secs => ${BASE_BUILD_LEASE_MS / 1000})`,
+)
+
+/**
  * Sandboxes the org is running now: live conversation and job rows of a
  * running provider, including slots reserved for a create in progress, and
- * Workspace base builds (their builder runs). A finished base is an image or
- * a snapshot and runs nothing, so it does not count. `excludingId` leaves out
- * the sandbox about to start, so starting it again never counts twice.
+ * Workspace base builds whose lease holds (their builder runs). A finished
+ * base is an image or a snapshot and runs nothing, and a lapsed build is
+ * being cleaned up, so neither counts. `excludingId` leaves out the sandbox
+ * about to start, so starting it again never counts twice.
  */
 export async function countRunningSandboxes(
   orgId: string,
@@ -283,10 +298,7 @@ export async function countRunningSandboxes(
               eq(workspaceSandboxInstances.state, "live"),
               ne(workspaceSandboxInstances.kind, "base"),
             ),
-            and(
-              eq(workspaceSandboxInstances.state, "building"),
-              eq(workspaceSandboxInstances.kind, "base"),
-            ),
+            baseLeaseHeld,
           ),
           inArray(workspaceSandboxInstances.provider, [
             ...RUNNING_SANDBOX_PROVIDERS,
@@ -407,5 +419,45 @@ export async function advanceSandboxInstanceRevision(input: {
       )
       .returning({ id: workspaceSandboxInstances.id })
     if (moved.length !== 1) throw new SandboxInstanceOwnershipConflict(input.id)
+  })
+}
+
+/**
+ * Write a Workspace base build's progress (its builder, its capture, or
+ * `state: "live"` to publish it) only while its lease holds and its builder
+ * is still `builderId`. One conditional UPDATE: it never recreates a row
+ * that cleanup deleted, and 0 rows means the build lost its lease.
+ */
+export async function updateBuildingBase(input: {
+  id: string
+  orgId: string
+  builderId: string | null
+  set: Partial<
+    Pick<
+      SandboxInstanceRecord,
+      "providerSandboxId" | "latestSnapshotId" | "revision" | "state"
+    >
+  >
+}): Promise<boolean> {
+  return withSandboxInstanceDb(input.orgId, async () => {
+    const updated = await getOrgDb()
+      .update(workspaceSandboxInstances)
+      .set({
+        ...input.set,
+        ...(input.set.state === "live" ? { lastHeartbeatAt: new Date() } : {}),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(workspaceSandboxInstances.id, input.id),
+          eq(workspaceSandboxInstances.orgId, input.orgId),
+          baseLeaseHeld,
+          input.builderId === null
+            ? isNull(workspaceSandboxInstances.providerSandboxId)
+            : eq(workspaceSandboxInstances.providerSandboxId, input.builderId),
+        ),
+      )
+      .returning({ id: workspaceSandboxInstances.id })
+    return updated.length === 1
   })
 }

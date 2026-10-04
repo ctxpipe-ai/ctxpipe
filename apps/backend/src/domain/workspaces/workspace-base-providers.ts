@@ -9,6 +9,7 @@ import type {
   RunningSandboxProvider,
   SandboxInstanceRecord,
 } from "../../models/workspace-sandboxes.js"
+import { CHAT_SANDBOX_RETENTION_MS } from "./chat-lifecycle.js"
 import { workspaceChatDockerImage } from "./chat-runtime.js"
 import { hostedSandboxAccess } from "./hosted-sandbox-access.js"
 import type { WorkspaceRevision } from "./revision.js"
@@ -35,22 +36,33 @@ export const DOCKER_LABELS = {
   workspace: "ai.ctxpipe.workspace",
 } as const
 
-/** The agent identity for Vercel conversations; part of their sandbox key. */
-export const VERCEL_AGENT_IMAGE = `vercel-agent/${WORKSPACE_CHAT_OPENCODE_CLI}`
-
 /** The deployment's sandbox provider and the agent image bases are built on. */
 export type SandboxAgent = { provider: RunningSandboxProvider; image: string }
 
 /**
- * The agent image conversation sandboxes use (and their key covers): the
- * chat image's content id on Docker, the OpenCode version on Vercel.
+ * The agent image Workspace bases are built on, so a new one gets new bases:
+ * the chat image's content id on Docker, the OpenCode version on Vercel.
  */
 export function sandboxAgentImage(
   provider: RunningSandboxProvider,
 ): Promise<string> {
   return provider === "docker"
     ? dockerImageId(workspaceChatDockerImage())
-    : Promise.resolve(VERCEL_AGENT_IMAGE)
+    : Promise.resolve(`vercel-agent/${WORKSPACE_CHAT_OPENCODE_CLI}`)
+}
+
+/**
+ * The image part of a conversation sandbox's key. Docker: the chat image's
+ * content id (a new image gives new sandboxes, as before). Vercel: one fixed
+ * value, so an OpenCode upgrade never orphans existing hosted conversations;
+ * a resumed sandbox keeps the OpenCode it started with.
+ */
+export function conversationKeyImage(
+  provider: RunningSandboxProvider,
+): Promise<string> {
+  return provider === "docker"
+    ? sandboxAgentImage(provider)
+    : Promise.resolve("vercel-agent")
 }
 
 /**
@@ -197,10 +209,10 @@ export function dockerWorkspaceBaseBuilder(input: {
  * have no provider snapshot (unsandboxed).
  */
 export async function workspaceBaseBuilder(input: {
-  provider: string
+  provider: RunningSandboxProvider
   orgId: string
   revision: WorkspaceRevision
-}): Promise<WorkspaceBaseBuilder | null> {
+}): Promise<WorkspaceBaseBuilder> {
   const { revision } = input
   if (input.provider === "docker") {
     const chatImage = workspaceChatDockerImage()
@@ -213,47 +225,53 @@ export async function workspaceBaseBuilder(input: {
       : ""
     return dockerWorkspaceBaseBuilder({
       chatImage,
-      agentImage: await dockerImageId(chatImage),
+      agentImage: await sandboxAgentImage("docker"),
       cloneToken,
     })
   }
-  if (input.provider === "vercel") {
-    const hosted = await hostedSandboxAccess({
-      orgId: input.orgId,
-      githubConnectionId: revision.remote.connectionId,
-      desiredUrl: revision.remote.url,
-    })
-    if (!hosted.ok) throw new Error(hosted.error)
-    return {
-      provider: "vercel",
-      agentImage: VERCEL_AGENT_IMAGE,
-      cloneToken: "",
-      async start() {
-        const build = await startVercelWorkspaceBase({
+  const hosted = await hostedSandboxAccess({
+    orgId: input.orgId,
+    githubConnectionId: revision.remote.connectionId,
+    desiredUrl: revision.remote.url,
+  })
+  if (!hosted.ok) throw new Error(hosted.error)
+  return {
+    provider: "vercel",
+    agentImage: await sandboxAgentImage("vercel"),
+    cloneToken: "",
+    async start() {
+      const build = await startVercelWorkspaceBase({
+        credentials: hosted.credentials,
+        agentSnapshotId: await vercelAgentSnapshot({
           credentials: hosted.credentials,
-          agentSnapshotId: await vercelAgentSnapshot({
-            credentials: hosted.credentials,
-            environment: hosted.environment,
-          }),
-          mintGitToken: hosted.mintGitToken,
-          backendHost: hosted.backendHost,
-          tags: workspaceBaseTags(hosted.environment),
-        })
-        return {
-          builderId: build.name,
-          handle: build.handle,
-          capture: build.capture,
-          finish: build.release,
-        }
-      },
-    }
+          environment: hosted.environment,
+        }),
+        mintGitToken: hosted.mintGitToken,
+        backendHost: hosted.backendHost,
+        tags: workspaceBaseTags(hosted.environment),
+        // Production bases are deleted from their rows. A preview's are
+        // also found through its tagged builders on PR close; the expiry
+        // bounds what is left should a builder no longer be listed.
+        expiration: /^pr-\d+$/.test(hosted.environment)
+          ? CHAT_SANDBOX_RETENTION_MS
+          : 0,
+      })
+      return {
+        builderId: build.name,
+        handle: build.handle,
+        capture: build.capture,
+        finish: build.release,
+      }
+    },
   }
-  return null
 }
 
-/** Whether a base's image or snapshot can still start a sandbox. */
+/**
+ * Whether a base's image or snapshot can still start a sandbox. False only
+ * when the provider says it is gone; any other failure throws.
+ */
 export async function workspaceBaseExists(
-  provider: string,
+  provider: RunningSandboxProvider,
   ref: string,
 ): Promise<boolean> {
   if (provider === "docker")

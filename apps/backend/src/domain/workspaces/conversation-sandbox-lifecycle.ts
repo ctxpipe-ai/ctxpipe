@@ -15,6 +15,7 @@ import {
   persistSandboxInstance,
   type RunningSandboxProvider,
   SandboxInstanceOwnershipConflict,
+  type SandboxInstanceRecord,
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import {
@@ -29,7 +30,7 @@ import {
 } from "./sandbox-lock-store.js"
 import { stopDetachedProviderSandbox } from "./sandbox-provider.js"
 import {
-  collectUnusedWorkspaceChatBases,
+  collectUnusedWorkspaceBases,
   destroyUnusedSandbox,
 } from "./workspace-sandbox-cleanup.js"
 
@@ -254,11 +255,11 @@ export async function* stoppingSandboxWhenDone<T>(
 }
 
 /**
- * Orgs whose sandbox rows need a sweep: any with a conversation sandbox past
- * 30 days or a failed delete (their chain may have ended), and with
- * `includeRunning` also any running a sandbox or holding a Workspace base.
- * The worker-start backstop schedules all of them; the Docker host prune
- * sweeps the dormant ones.
+ * Orgs whose sandbox rows need a sweep, though their chain may have ended:
+ * a conversation sandbox past 30 days or a failed delete, or a Workspace
+ * base cleanup may now delete. With `includeRunning` also any running a
+ * sandbox. The worker-start backstop schedules all of them; the Docker host
+ * prune sweeps the dormant ones.
  */
 export async function orgsNeedingSweep(input: {
   now: Date
@@ -271,19 +272,25 @@ export async function orgsNeedingSweep(input: {
   for (const { id } of orgs) {
     try {
       const rows = await withOrgDbContext(id, () => listSandboxInstances({}))
-      const expired = rows.some(
-        (row) =>
-          row.kind === "chat" &&
-          (row.state === "destroy_failed" ||
-            input.now.getTime() - row.lastHeartbeatAt.getTime() >=
-              CHAT_SANDBOX_RETENTION_MS),
-      )
+      const old = (row: SandboxInstanceRecord) =>
+        input.now.getTime() - row.lastHeartbeatAt.getTime() >=
+        CHAT_SANDBOX_RETENTION_MS
+      const bases = rows.filter((row) => row.kind === "base")
+      const liveBases = bases.filter((row) => row.state === "live")
+      const expired =
+        rows.some(
+          (row) =>
+            row.kind === "chat" && (row.state === "destroy_failed" || old(row)),
+        ) ||
+        // Bases cleanup may delete: superseded (more than one live in a
+        // Workspace), unused for 30 days, failed, or a build gone quiet.
+        bases.some((row) => row.state !== "live" || old(row)) ||
+        new Set(liveBases.map((row) => row.workspaceId)).size < liveBases.length
       const active =
         input.includeRunning &&
         rows.some(
           (row) =>
-            row.kind === "base" ||
-            (row.state === "live" && isRunningSandboxProvider(row.provider)),
+            row.state === "live" && isRunningSandboxProvider(row.provider),
         )
       if (expired || active) due.push(id)
     } catch (error) {
@@ -373,7 +380,7 @@ export async function sweepConversationSandboxes(
   // Bases whose conversations are gone (deleted above, or long ago) go too.
   for (const workspaceId of new Set(bases.map((row) => row.workspaceId))) {
     try {
-      await collectUnusedWorkspaceChatBases(orgId, workspaceId, now)
+      await collectUnusedWorkspaceBases(orgId, workspaceId, now)
     } catch (error) {
       log.error({
         step: "conversation-sandbox-sweep",

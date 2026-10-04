@@ -116,6 +116,15 @@ Keep each patch minimal and listed with its removal condition. Never fall back t
 
 - 2026-10-04 (user): Commit+Push comes back now that the sandbox provider changed. The agent decides when to commit and push: semantic commits, the user can prompt it, and the system prompt recommends committing when a task is done. Create PR does not squash. Supersedes the 2026-10-01 "drop Commit+Push, squash on PR" decision and the automatic per-turn push.
 
+- 2026-10-04 (claude): **Workspace base, third review round** (ADR-048 "Fast start" and "Cleanup" updated):
+  - **Sandbox key:** the Vercel key image is now the fixed value `vercel-agent`, so an OpenCode upgrade never orphans hosted conversations; a resumed sandbox keeps its OpenCode. Bases still match the versioned agent image. The change from the earlier key gives hosted conversations a new sandbox once, before launch.
+  - **Retention:** the Vercel survival question (does a sandbox outlive its source snapshot) is still not measured: no Vercel credentials outside CI. Until it is, a Vercel base is kept while any Vercel conversation sandbox of its Workspace that could have started from it exists.
+  - **Agent snapshot:** cached in the process, rebuilt when no builder is found, so discovery no longer depends on Vercel keeping stopped builders. A failed start forgets the cache entry; a failed lookup uses a cached snapshot that has not expired. Spent builders are deleted after a build, off any start.
+  - **Outages:** a base check that fails with anything but 404 starts the conversation without the base and keeps it (msw + Postgres integration test).
+  - **Preview bases:** they expire after 30 days, so a PR-close cleanup that misses a builder leaves a bounded leftover.
+  - **Builds:** retry-safe. The reserve id comes from the workflow run, publish is folded into the build as one conditional UPDATE, a failed builder is deleted, and the token is always revoked. Only builds with a held lease count toward the 50.
+  - **Still CI-only:** the Vercel lane (survival, stopped builder kept, snapshot deletion, npm blocked, no token in the base).
+
 - 2026-10-04 (claude): **Workspace base reworked after adversarial review** (supersedes the comment below; ADR-048 "Isolation", "Fast start", "Cleanup"):
   - **No conversation sandbox reaches npm.** Per environment and OpenCode version there is an agent snapshot (`vercelAgentSnapshot`). Its builder, tagged `ctxpipe=workspace-agent`, can reach only `registry.npmjs.org`; it installs OpenCode and is snapshotted with a 30-day expiry. It is built on first use and replaced in the background in its last week; spent builders are deleted. Conversations without a base start from it, and Workspace base builders start from it (GitHub only). `extraHosts` is gone from the conversation policy, so token rotation cannot add hosts. `chat.mdx` ("GitHub and ctx| only") stays true.
   - The base is chosen when a sandbox is created, not encoded in the sandbox key. Existing sandboxes resume as they are, and a gone snapshot falls back to the agent snapshot once.

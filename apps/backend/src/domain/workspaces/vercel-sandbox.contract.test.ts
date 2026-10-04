@@ -532,6 +532,7 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
       },
       backendHost: "ctxpipe-contract.invalid",
       tags: workspaceBaseTags(environment),
+      expiration: 0,
     })
     await bootstrapWorkspace(
       build.handle,

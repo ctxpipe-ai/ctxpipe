@@ -25,11 +25,13 @@ import {
 } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
 import {
+  BASE_BUILD_LEASE_MS,
   countRunningSandboxes,
   getSandboxInstance,
   listSandboxInstances,
 } from "../../models/workspaces.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
+import { withTestLogger } from "../../test/with-test-logger.js"
 import {
   CHAT_SANDBOX_RETENTION_MS,
   ORG_RUNNING_SANDBOX_LIMIT,
@@ -45,13 +47,11 @@ import {
   type WorkspaceBaseBuilder,
 } from "./workspace-base-providers.js"
 import {
-  BASE_BUILD_LEASE_MS,
-  publishWorkspaceBase,
   reserveWorkspaceBaseBuild,
   runWorkspaceBaseBuild,
 } from "./workspace-sandbox-base.js"
 import {
-  collectUnusedWorkspaceChatBases,
+  collectUnusedWorkspaceBases,
   destroySandboxesForConversation,
   destroySandboxesForWorkspace,
 } from "./workspace-sandbox-cleanup.js"
@@ -351,34 +351,33 @@ function dockerChat(f: Fixture, remoteUrl: string) {
       agentImage: (await agent()).image,
       cloneToken: TOKEN,
     })
-  /** The base workflow's three steps, in order. */
-  const build = async (
-    wrap?: (b: WorkspaceBaseBuilder) => WorkspaceBaseBuilder,
-  ) => {
-    const baseId = await reserveWorkspaceBaseBuild({
+  const reserve = async (runId = randomUUID()) =>
+    reserveWorkspaceBaseBuild({
       orgId: f.orgId,
       workspaceId: f.workspaceId,
+      runId,
       agent: await agent(),
     })
-    if (!baseId) return null
+  const run = async (
+    baseId: string,
+    wrap?: (b: WorkspaceBaseBuilder) => WorkspaceBaseBuilder,
+  ) => {
     const plain = await builder()
-    const built = await runWorkspaceBaseBuild({
+    return runWorkspaceBaseBuild({
       orgId: f.orgId,
       baseId,
       builder: wrap ? wrap(plain) : plain,
     })
-    if (!built) return null
-    await publishWorkspaceBase({
-      orgId: f.orgId,
-      workspaceId: f.workspaceId,
-      baseId,
-      built,
-      provider: "docker",
-    })
-    return (await getSandboxInstance(baseId, f.orgId))?.latestSnapshotId ?? null
+  }
+  /** The base workflow's two steps, in order. */
+  const build = async (
+    wrap?: (b: WorkspaceBaseBuilder) => WorkspaceBaseBuilder,
+  ) => {
+    const baseId = await reserve()
+    return baseId ? run(baseId, wrap) : null
   }
   const collect = (now = new Date()) =>
-    collectUnusedWorkspaceChatBases(f.orgId, f.workspaceId, now)
+    collectUnusedWorkspaceBases(f.orgId, f.workspaceId, now)
   const head = async (handle: {
     process: { exec: (command: string) => Promise<{ stdout: string }> }
   }) => (await handle.process.exec("git rev-parse HEAD")).stdout.trim()
@@ -421,6 +420,8 @@ function dockerChat(f: Fixture, remoteUrl: string) {
     bases,
     agent,
     builder,
+    reserve,
+    run,
     build,
     collect,
     head,
@@ -478,39 +479,30 @@ it(
       expect(await chat.bases()).toEqual([])
 
       // One build at a time: concurrent reservations give one lease.
-      const agent = await chat.agent()
-      const leases = await Promise.all(
-        [1, 2, 3].map(() =>
-          reserveWorkspaceBaseBuild({
-            orgId: f.orgId,
-            workspaceId: f.workspaceId,
-            agent,
-          }),
-        ),
-      )
+      const runs = [randomUUID(), randomUUID(), randomUUID()]
+      const leases = await Promise.all(runs.map((runId) => chat.reserve(runId)))
       const [lease, ...others] = leases.filter(Boolean)
       expect(others).toEqual([])
       if (!lease) throw new Error("no lease")
+      // A retried reserve finds its own row, not someone else's lease.
+      const winner = runs[leases.indexOf(lease)]
+      expect(await chat.reserve(winner)).toBe(lease)
+      expect(await chat.bases()).toHaveLength(1)
       // The builder runs a sandbox: it holds one of the org's slots.
       expect(await countRunningSandboxes(f.orgId, "")).toBe(4)
-      const built = await runWorkspaceBaseBuild({
-        orgId: f.orgId,
-        baseId: lease,
-        builder: await chat.builder(),
-      })
-      if (!built) throw new Error("build lost its lease")
-      expect(
-        await publishWorkspaceBase({
-          orgId: f.orgId,
-          workspaceId: f.workspaceId,
-          baseId: lease,
-          built,
-          provider: "docker",
-        }),
-      ).toBe(true)
-      // A finished base runs nothing.
+      const image = await chat.run(lease)
+      if (!image) throw new Error("build lost its lease")
+      // A finished base runs nothing; the Docker builder is gone.
       expect(await countRunningSandboxes(f.orgId, "")).toBe(3)
-      const image = built.ref
+      expect(await getSandboxInstance(lease, f.orgId)).toMatchObject({
+        state: "live",
+        latestSnapshotId: image,
+        providerSandboxId: null,
+      })
+      // A retried build after publishing returns the same base, untouched.
+      expect(await chat.run(lease)).toBe(image)
+      expect(await exists("image", image)).toBe(true)
+      expect((await chat.bases()).map((row) => row.state)).toEqual(["live"])
       expect(
         (await docker.getImage(image).inspect()).Config.Labels,
       ).toMatchObject({
@@ -685,14 +677,12 @@ it(
       expect(lost).toBeNull()
       expect(await leftovers()).toEqual([])
 
-      // An expired lease is not resumed; cleanup removes its row.
+      // A held lease takes a slot; a lapsed one does not, is not resumed,
+      // and cleanup removes its row.
       const agent = await chat.agent()
-      const expired = await reserveWorkspaceBaseBuild({
-        orgId: f.orgId,
-        workspaceId: f.workspaceId,
-        agent,
-      })
+      const expired = await chat.reserve()
       if (!expired) throw new Error("no lease")
+      expect(await countRunningSandboxes(f.orgId, "")).toBe(1)
       await withOrgDbContext(f.orgId, (db) =>
         db
           .update(workspaceSandboxInstances)
@@ -701,13 +691,8 @@ it(
           })
           .where(eq(workspaceSandboxInstances.id, expired)),
       )
-      expect(
-        await runWorkspaceBaseBuild({
-          orgId: f.orgId,
-          baseId: expired,
-          builder: await chat.builder(),
-        }),
-      ).toBeNull()
+      expect(await countRunningSandboxes(f.orgId, "")).toBe(0)
+      expect(await chat.run(expired)).toBeNull()
       expect(await chat.collect()).toBe(1)
       expect(await chat.bases()).toEqual([])
 
@@ -736,6 +721,7 @@ it(
           await reserveWorkspaceBaseBuild({
             orgId: f.orgId,
             workspaceId: f.workspaceId,
+            runId: randomUUID(),
             agent,
           }),
         ).toBeNull()
@@ -747,6 +733,82 @@ it(
               .where(eq(workspaceSandboxInstances.id, id))
         })
       }
+    })
+  },
+)
+
+it(
+  "a retried build cleans up a failed attempt's builder, and publishes a capture recorded before a crash",
+  { timeout: 300_000 },
+  async () => {
+    await withDockerBases(async (f, _remote, chat) => {
+      const ourContainers = async () =>
+        (
+          await docker.listContainers({
+            all: true,
+            filters: JSON.stringify({
+              label: [`${DOCKER_LABELS.org}=${f.orgId}`],
+            }),
+          })
+        ).map((container) => container.Id)
+      const baseId = await chat.reserve()
+      if (!baseId) throw new Error("no lease")
+      // Attempt 1 fails after its builder is recorded.
+      let failedBuilder = ""
+      await expect(
+        chat.run(baseId, (builder) => ({
+          ...builder,
+          start: async (base) => {
+            const build = await builder.start(base)
+            failedBuilder = build.builderId
+            return {
+              ...build,
+              capture: () => Promise.reject(new Error("capture failed")),
+            }
+          },
+        })),
+      ).rejects.toThrow("capture failed")
+      expect(failedBuilder).not.toBe("")
+      expect(await exists("container", failedBuilder)).toBe(false)
+      expect(
+        (await getSandboxInstance(baseId, f.orgId))?.providerSandboxId,
+      ).toBe(failedBuilder)
+      // Attempt 2 (the OpenWorkflow retry) builds and publishes.
+      const image = await chat.run(baseId)
+      if (!image) throw new Error("retry lost its lease")
+      expect(await getSandboxInstance(baseId, f.orgId)).toMatchObject({
+        state: "live",
+        latestSnapshotId: image,
+        providerSandboxId: null,
+      })
+      expect(await ourContainers()).toEqual([])
+
+      // A crash after the capture was recorded, before publishing, with the
+      // builder still running: the retry publishes that capture and removes
+      // the builder.
+      const leftBuilder = await docker.createContainer({
+        Image: CHAT_IMAGE,
+        Cmd: ["sleep", "600"],
+        Labels: { [DOCKER_LABELS.org]: f.orgId },
+      })
+      await withOrgDbContext(f.orgId, (db) =>
+        db
+          .update(workspaceSandboxInstances)
+          .set({
+            state: "building",
+            providerSandboxId: leftBuilder.id,
+            lastHeartbeatAt: new Date(),
+          })
+          .where(eq(workspaceSandboxInstances.id, baseId)),
+      )
+      expect(await chat.run(baseId)).toBe(image)
+      expect(await getSandboxInstance(baseId, f.orgId)).toMatchObject({
+        state: "live",
+        latestSnapshotId: image,
+        providerSandboxId: null,
+      })
+      expect(await exists("container", leftBuilder.id)).toBe(false)
+      expect(await exists("image", image)).toBe(true)
     })
   },
 )
@@ -935,9 +997,11 @@ it(
       const unlabelled = await labelledImage({})
 
       // Two hours on: orphaned objects are past the create grace.
-      const pruned = await pruneDockerSandboxHost({
-        now: new Date(now.getTime() + 2 * 60 * 60_000),
-      })
+      const pruned = await withTestLogger(() =>
+        pruneDockerSandboxHost({
+          now: new Date(now.getTime() + 2 * 60 * 60_000),
+        }),
+      )
       expect(pruned).toMatchObject({ removedImages: 1, removedContainers: 1 })
       expect(await exists("container", old)).toBe(false)
       expect(

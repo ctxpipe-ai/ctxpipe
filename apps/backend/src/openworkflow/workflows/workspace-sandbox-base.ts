@@ -1,7 +1,6 @@
 import { z } from "zod"
 import { currentSandboxAgent } from "../../domain/workspaces/workspace-base-providers.js"
 import {
-  publishWorkspaceBase,
   reserveWorkspaceBaseBuild,
   runWorkspaceBaseBuild,
 } from "../../domain/workspaces/workspace-sandbox-base.js"
@@ -9,12 +8,12 @@ import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 
 /**
- * Build (or refresh) one Workspace's base in durable steps (ADR-047): reserve
- * the build (its `building` row is the lease, cleaned up by the sweep once
- * expired), build (create the builder, clone and set up, capture; retried by
- * OpenWorkflow), publish. Requested by new conversation starts; reserve
- * decides whether a build is needed. Unused bases are deleted by the org's
- * sandbox sweep.
+ * Build (or refresh) one Workspace's base in durable steps (ADR-047):
+ * `reserve` (the `building` row, keyed by this run, is the lease; cleaned up
+ * by the sweep once it lapses) and `build` (create the builder, clone and set
+ * up, capture, publish; retried by OpenWorkflow, and safe to retry at any
+ * point). Requested by new sandbox starts when the base is missing or stale;
+ * reserve decides. Unused bases are deleted by the org's sandbox sweep.
  */
 export const workspaceSandboxBase = defineWorkflow(
   {
@@ -24,24 +23,18 @@ export const workspaceSandboxBase = defineWorkflow(
       workspaceId: z.string().min(1),
     }),
   },
-  async ({ input, step }) => {
-    const reserved = await step.run({ name: "reserve" }, async () => {
+  async ({ input, step, run }) => {
+    const baseId = await step.run({ name: "reserve" }, async () => {
       const agent = await currentSandboxAgent()
       if (!agent) return null
-      const baseId = await reserveWorkspaceBaseBuild({ ...input, agent })
-      return baseId ? { baseId, provider: agent.provider } : null
+      return reserveWorkspaceBaseBuild({ ...input, runId: run.id, agent })
     })
-    if (!reserved) return { built: false }
-    const built = await step.run(
+    if (!baseId) return { built: false }
+    const ref = await step.run(
       { name: "build", retryPolicy: { maximumAttempts: 3 } },
-      () =>
-        runWorkspaceBaseBuild({ orgId: input.orgId, baseId: reserved.baseId }),
+      () => runWorkspaceBaseBuild({ orgId: input.orgId, baseId }),
     )
-    if (!built) return { built: false }
-    const published = await step.run({ name: "publish" }, () =>
-      publishWorkspaceBase({ ...input, ...reserved, built }),
-    )
-    return { built: published }
+    return { built: ref !== null }
   },
 )
 

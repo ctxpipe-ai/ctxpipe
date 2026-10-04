@@ -46,14 +46,16 @@ export function workspaceBaseTags(environment: string): Record<string, string> {
   return { ctxpipe: "workspace-base", environment }
 }
 
-/** Tags on the builder of the agent snapshot (OpenCode, nothing else). */
+/**
+ * Tags on every builder of an environment's agent snapshot (OpenCode,
+ * nothing else); each also carries `opencode: <version>`.
+ */
 export function agentSnapshotTags(environment: string): Record<string, string> {
-  return {
-    ctxpipe: "workspace-agent",
-    environment,
-    opencode: WORKSPACE_CHAT_OPENCODE_CLI.replace(/[^\w.-]/g, "-"),
-  }
+  return { ctxpipe: "workspace-agent", environment }
 }
+
+/** The `opencode` tag value of this deployment's agent snapshot builders. */
+const AGENT_VERSION = WORKSPACE_CHAT_OPENCODE_CLI.replace(/[^\w.-]/g, "-")
 
 export type VercelCredentials = {
   token: string
@@ -296,6 +298,10 @@ export function vercelConversationProvider(input: {
         keepLastSnapshots: { count: 1, expiration: STATE_RETENTION_MS },
         networkPolicy: conversationNetworkPolicy({ ...access, gitToken }),
         tags: input.tags,
+      }).catch((error: unknown) => {
+        // The next start looks the agent snapshot up again.
+        forgetAgentSnapshot(snapshotId)
+        throw error
       })
       await access.tokens.put(sandbox.name, gitToken)
       return conversationHandle(sandbox, input.agentPassword)
@@ -425,12 +431,27 @@ export async function deleteVercelBuilder(input: {
 }
 
 /**
+ * Sandboxes carrying all of `tags`. The tag filter is the server's; it is
+ * checked again before anyone acts on the result.
+ */
+export async function listTaggedSandboxes(
+  credentials: VercelCredentials,
+  tags: Record<string, string>,
+) {
+  return (
+    await (await Sandbox.list({ ...credentials, tags })).toArray()
+  ).filter((sandbox) =>
+    Object.entries(tags).every(([key, value]) => sandbox.tags?.[key] === value),
+  )
+}
+
+/**
  * Start the sandbox that builds a Workspace base, from the agent snapshot
  * (OpenCode already installed), reaching GitHub only (token in the firewall
  * rule, as for conversations). The caller clones and runs setup on `handle`
- * and then calls `capture`, which snapshots it with no expiry (stopping it).
- * `release` revokes the builder's GitHub token; call it however the build
- * ends.
+ * and then calls `capture`, which snapshots it (stopping it) with
+ * `expiration` (0: none). `release` revokes the builder's GitHub token; call
+ * it however the build ends.
  */
 export async function startVercelWorkspaceBase(input: {
   credentials: VercelCredentials
@@ -440,6 +461,7 @@ export async function startVercelWorkspaceBase(input: {
   revokeGitToken?: (token: string) => Promise<void>
   backendHost: string
   tags: Record<string, string>
+  expiration: number
 }): Promise<{
   name: string
   handle: SandboxHandle
@@ -478,80 +500,91 @@ export async function startVercelWorkspaceBase(input: {
   return {
     name: sandbox.name,
     handle: new VercelHandle({ sandbox, workdir: WORKDIR, ports: [] }),
-    capture: async () => (await sandbox.snapshot({ expiration: 0 })).snapshotId,
+    capture: async () =>
+      (await sandbox.snapshot({ expiration: input.expiration })).snapshotId,
     release,
   }
 }
 
-/** In-flight agent builds in this process, so concurrent starts share one. */
-const agentBuilds = new Map<string, Promise<string>>()
+type AgentSnapshot = { snapshotId: string; expiresAt: number }
 
 /**
- * The longest-lived agent snapshot for this environment and OpenCode
- * version. Agent snapshots expire after 30 days, so old versions go on their
- * own; builders left with no live snapshot (an older version, an expired
- * one, a failed build) are deleted here once they are an hour old.
+ * This process's view of the agent snapshot per environment and version, and
+ * the build in flight. Builds are deduplicated within a process only; two
+ * replicas may each build one, and both are valid.
+ */
+const agentSnapshots = new Map<string, AgentSnapshot>()
+const agentBuilds = new Map<string, Promise<AgentSnapshot>>()
+
+/** Forget a cached agent snapshot that failed to start a sandbox. */
+export function forgetAgentSnapshot(snapshotId: string): void {
+  for (const [key, cached] of agentSnapshots)
+    if (cached.snapshotId === snapshotId) agentSnapshots.delete(key)
+}
+
+/**
+ * The longest-lived live agent snapshot for this environment and version,
+ * found through its tagged builder. Finding nothing only costs a rebuild.
  */
 async function findAgentSnapshot(
   credentials: VercelCredentials,
-  tags: Record<string, string>,
-): Promise<{ snapshotId: string; expiresAt: number } | undefined> {
-  const scope = {
-    ctxpipe: tags.ctxpipe ?? "",
-    environment: tags.environment ?? "",
-  }
-  const builders = (
-    await (await Sandbox.list({ ...credentials, tags: scope })).toArray()
-  ).filter((sandbox) =>
-    Object.entries(scope).every(
-      ([key, value]) => sandbox.tags?.[key] === value,
-    ),
-  )
-  let best: { snapshotId: string; expiresAt: number } | undefined
-  for (const builder of builders) {
-    const live = (
-      await (
-        await Snapshot.list({ ...credentials, name: builder.name })
-      ).toArray()
-    ).filter((snapshot) => snapshot.status === "created")
-    if (!live.length && Date.now() - builder.createdAt > 60 * 60_000) {
-      await deleteVercelBuilder({
-        credentials,
-        builderName: builder.name,
-      }).catch((error: unknown) =>
-        log.warn({
-          step: "workspace-agent-snapshot",
-          message: `Deleting a spent agent builder failed: ${String(error)}`,
-          sandboxId: builder.name,
-        }),
-      )
-      continue
-    }
-    if (builder.tags?.opencode !== tags.opencode) continue
-    for (const snapshot of live) {
+  environment: string,
+): Promise<AgentSnapshot | undefined> {
+  let best: AgentSnapshot | undefined
+  for (const builder of await listTaggedSandboxes(credentials, {
+    ...agentSnapshotTags(environment),
+    opencode: AGENT_VERSION,
+  }))
+    for (const snapshot of await (
+      await Snapshot.list({ ...credentials, name: builder.name })
+    ).toArray()) {
+      if (snapshot.status !== "created") continue
       const expiresAt = snapshot.expiresAt ?? Number.POSITIVE_INFINITY
       if (!best || expiresAt > best.expiresAt)
         best = { snapshotId: snapshot.id, expiresAt }
     }
-  }
   return best
 }
 
 /**
+ * Delete this environment's agent builders that no longer hold a live
+ * snapshot (older versions, expired snapshots, failed builds) once they are
+ * an hour old. Runs after a build, off any conversation's start.
+ */
+async function deleteSpentAgentBuilders(
+  credentials: VercelCredentials,
+  environment: string,
+): Promise<void> {
+  for (const builder of await listTaggedSandboxes(
+    credentials,
+    agentSnapshotTags(environment),
+  )) {
+    if (Date.now() - builder.createdAt < 60 * 60_000) continue
+    const live = (
+      await (
+        await Snapshot.list({ ...credentials, name: builder.name })
+      ).toArray()
+    ).some((snapshot) => snapshot.status === "created")
+    if (!live)
+      await deleteVercelBuilder({ credentials, builderName: builder.name })
+  }
+}
+
+/**
  * Install OpenCode in a `node24` sandbox that reaches only the npm registry
- * (no repository, no credential) and snapshot it. The one hosted sandbox
- * that installs anything.
+ * (no repository, no credential) and snapshot it with a 30-day expiry. The
+ * one hosted sandbox that installs anything.
  */
 async function buildAgentSnapshot(
   credentials: VercelCredentials,
-  tags: Record<string, string>,
-): Promise<string> {
+  environment: string,
+): Promise<AgentSnapshot> {
   const sandbox = await Sandbox.create({
     ...credentials,
     runtime: "node24",
     timeout: 15 * 60_000,
     networkPolicy: { allow: ["registry.npmjs.org"] },
-    tags,
+    tags: { ...agentSnapshotTags(environment), opencode: AGENT_VERSION },
   })
   try {
     const installed = await new VercelHandle({
@@ -563,8 +596,12 @@ async function buildAgentSnapshot(
       throw new Error(
         `Installing OpenCode failed (exit ${installed.exitCode}): ${installed.stderr.slice(-500)}`,
       )
-    return (await sandbox.snapshot({ expiration: STATE_RETENTION_MS }))
-      .snapshotId
+    const snapshot = await sandbox.snapshot({ expiration: STATE_RETENTION_MS })
+    return {
+      snapshotId: snapshot.snapshotId,
+      expiresAt:
+        snapshot.expiresAt?.getTime() ?? Date.now() + STATE_RETENTION_MS,
+    }
   } catch (error) {
     await deleteVercelBuilder({ credentials, builderName: sandbox.name })
     throw error
@@ -573,38 +610,64 @@ async function buildAgentSnapshot(
 
 /**
  * The snapshot a conversation without a Workspace base starts from: OpenCode
- * at this deployment's version, nothing else. Built on first use (once per
- * environment and version), replaced before it expires after 30 days.
+ * at this deployment's version, nothing else. Cached in the process; looked
+ * up through its tagged builder, built when none is found (once per
+ * environment and version, and again if builders are ever gone), and
+ * replaced in the background in its last week. A failed lookup falls back to
+ * a cached snapshot that has not expired.
  */
 export async function vercelAgentSnapshot(input: {
   credentials: VercelCredentials
   environment: string
 }): Promise<string> {
-  const tags = agentSnapshotTags(input.environment)
-  const key = JSON.stringify(tags)
+  const { credentials, environment } = input
+  const key = `${environment}:${AGENT_VERSION}`
+  const usable = (found?: AgentSnapshot) =>
+    found && found.expiresAt - Date.now() > 60 * 60_000 ? found : undefined
+  const fresh = (found?: AgentSnapshot) =>
+    found && found.expiresAt - Date.now() > 7 * DAY_MS ? found : undefined
+  const cached = agentSnapshots.get(key)
+  if (fresh(cached)) return (cached as AgentSnapshot).snapshotId
   const build = () => {
     let building = agentBuilds.get(key)
     if (!building) {
-      building = buildAgentSnapshot(input.credentials, tags).finally(() =>
-        agentBuilds.delete(key),
-      )
+      building = buildAgentSnapshot(credentials, environment)
+        .then((built) => {
+          agentSnapshots.set(key, built)
+          void deleteSpentAgentBuilders(credentials, environment).catch(
+            (error: unknown) =>
+              log.warn({
+                step: "workspace-agent-snapshot",
+                message: `Deleting spent agent builders failed: ${String(error)}`,
+                environment,
+              }),
+          )
+          return built
+        })
+        .finally(() => agentBuilds.delete(key))
       agentBuilds.set(key, building)
     }
     return building
   }
-  const found = await findAgentSnapshot(input.credentials, tags)
-  const left = (found?.expiresAt ?? 0) - Date.now()
-  if (found && left > 7 * DAY_MS) return found.snapshotId
-  // Within a week of expiry: replaced in the background, still used meanwhile.
-  if (found && left > 60 * 60_000) {
+  let found: AgentSnapshot | undefined
+  try {
+    found = await findAgentSnapshot(credentials, environment)
+  } catch (error) {
+    if (usable(cached)) return (cached as AgentSnapshot).snapshotId
+    throw error
+  }
+  if (found) agentSnapshots.set(key, found)
+  if (fresh(found)) return (found as AgentSnapshot).snapshotId
+  if (usable(found)) {
+    // In its last week: still used while a replacement is built.
     build().catch((error: unknown) =>
       log.error({
         step: "workspace-agent-snapshot",
         message: `Replacing the agent snapshot failed: ${String(error)}`,
-        environment: input.environment,
+        environment,
       }),
     )
-    return found.snapshotId
+    return (found as AgentSnapshot).snapshotId
   }
-  return build()
+  return (await build()).snapshotId
 }

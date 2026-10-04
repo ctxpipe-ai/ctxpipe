@@ -4,11 +4,11 @@ import {
   orgsNeedingSweep,
   sweepConversationSandboxes,
 } from "../../domain/workspaces/conversation-sandbox-lifecycle.js"
-import { pruneDockerSandboxHost } from "../../domain/workspaces/docker-sandbox-host-prune.js"
 import { discoverSandboxProvider } from "../../domain/workspaces/sandbox-provider.js"
-import { log } from "../../observability/logger.js"
+import { getLogger, log } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { requestDockerSandboxHostPrune } from "./docker-sandbox-host-prune.js"
 
 /**
  * One organization's conversation sandbox lifecycle (idle stop, 30-day
@@ -16,8 +16,8 @@ import { defineWorkflow } from "../defineObservedWorkflow.js"
  * running sandbox is next due, so the chain lasts while the org runs
  * sandboxes. The schedule step is separate, so a retried run reuses the
  * swept result instead of computing a second next time. On Docker hosts each
- * run also prunes what no chain will remove, so the prune follows the sweep
- * cadence (the host's disk only grows while sandboxes run).
+ * run asks for the host prune, which runs once per 5-minute window however
+ * many orgs sweep (the host's disk only grows while sandboxes run).
  */
 export const conversationSandboxSweep = defineWorkflow(
   {
@@ -38,17 +38,19 @@ export const conversationSandboxSweep = defineWorkflow(
       await step.run({ name: "schedule-next" }, () =>
         scheduleConversationSandboxSweep(input.orgId, new Date(nextSweepAt)),
       )
-    await step.run({ name: "prune-host" }, async () => {
+    await step.run({ name: "request-host-prune" }, async () => {
       try {
         if ((await discoverSandboxProvider()) === "docker")
-          await pruneDockerSandboxHost()
+          await requestDockerSandboxHostPrune()
       } catch (error) {
-        // The next sweep prunes again; the org's own sweep is done.
-        log.error({
-          step: "docker-sandbox-host-prune",
-          message: `Pruning the Docker host failed: ${String(error)}`,
-          orgId: input.orgId,
-        })
+        // The next sweep asks again; the org's own sweep is done.
+        getLogger().error(
+          error instanceof Error ? error : new Error(String(error)),
+          {
+            step: "docker-sandbox-host-prune",
+            orgId: input.orgId,
+          },
+        )
       }
     })
     return swept

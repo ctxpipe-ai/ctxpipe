@@ -80,7 +80,10 @@ import {
   vercelAgentSnapshot,
   vercelConversationProvider,
 } from "./vercel-sandbox-provider.js"
-import { sandboxAgentImage } from "./workspace-base-providers.js"
+import {
+  conversationKeyImage,
+  sandboxAgentImage,
+} from "./workspace-base-providers.js"
 import {
   aguiTextDelta,
   conversationRenameChunk,
@@ -168,10 +171,11 @@ export const workspaceChatDockerOwnership = {
 
 /**
  * One stock definition per request. The sandbox key covers the conversation,
- * the Workspace's repository and default branch, and the image identity (the
- * agent image plus the Workspace base the sandbox started from); the commit
- * and credentials are not part of it, so a conversation keeps its sandbox
- * while the default branch moves (option D).
+ * the Workspace's repository and default branch, and the key image (the
+ * Docker chat image, or a fixed Vercel value). The commit, the credentials
+ * and the Workspace base a sandbox started from are not part of it, so a
+ * conversation keeps its sandbox while the default branch moves (option D)
+ * and when its Workspace gets a new base.
  */
 function conversationSandboxDefinition(input: {
   provider: SandboxProvider
@@ -855,11 +859,13 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
     publicBaseUrl,
   )
   if (!session.ok) return session
-  // Part of the sandbox key: a new agent image gets new sandboxes.
+  // `image` is part of the sandbox key; `agentImage` picks the base.
   let image = "local-process"
+  let agentImage = image
   if (selectedProvider !== "unsandboxed") {
     try {
-      image = await sandboxAgentImage(selectedProvider)
+      image = await conversationKeyImage(selectedProvider)
+      agentImage = await sandboxAgentImage(selectedProvider)
     } catch (error) {
       getLogger().error(
         error instanceof Error ? error : new Error(String(error)),
@@ -874,7 +880,6 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
   }
   // A new sandbox starts from the Workspace base, chosen at create (under the
   // Workspace lock); an existing one is resumed whatever it started from.
-  const agentImage = image
   const baseImage = async (): Promise<string | undefined> => {
     if (selectedProvider === "unsandboxed") return undefined
     const choice = await baseForNewSandbox({

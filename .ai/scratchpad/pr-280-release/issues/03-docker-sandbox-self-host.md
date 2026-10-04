@@ -84,6 +84,18 @@ Do not add TanStack patches or an application-level sandbox registry. Keep const
 
 ## Comments
 
+- 2026-10-04 (claude): **Workspace base, third review round:**
+  - Builds are retry-safe:
+    - the reserve id comes from the workflow run;
+    - publish is folded into the build as one conditional UPDATE, and a published or recorded capture is reused on retry;
+    - a failed attempt's builder is removed;
+    - the Docker base row no longer stores the image id as `provider_sandbox_id`.
+  - Only builds with a held lease count toward the 50.
+  - New builds are requested only when the base is stale.
+  - The host prune runs once per 5-minute sweep window (one OpenWorkflow run, not one per org) and reads each org's rows once.
+  - `orgsNeedingSweep` includes orgs whose bases cleanup may delete.
+  - New native proofs: a retried reserve, a retried build after a failed attempt and after a crash before publish, and cap accounting with a lapsed lease.
+
 - 2026-10-04 (claude): **fast start and prune reworked after adversarial review** (supersedes the comment below):
   - Measured on Docker Desktop: a stopped container restarts with its files after `docker rmi --force` of its image; a running one makes the daemon refuse (409 "cannot be forced"). So:
     - the base is chosen when a sandbox is created, under the Workspace lock that base cleanup also takes, and is no longer part of the sandbox key;

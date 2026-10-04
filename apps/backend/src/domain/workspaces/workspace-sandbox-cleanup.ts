@@ -1,14 +1,18 @@
 import { assertNotInOrgDbContext, withOrgDbContext } from "../../db/client.js"
 import {
   deleteSandboxInstance,
+  getDesiredWorkspaceRevision,
   getSandboxInstance,
   listSandboxInstances,
   ownershipOf,
   persistSandboxInstance,
   type SandboxInstanceRecord,
 } from "../../models/workspaces.js"
-import { log } from "../../observability/logger.js"
-import { shouldDestroyJobSandbox } from "./chat-lifecycle.js"
+import { getLogger, log } from "../../observability/logger.js"
+import {
+  CHAT_SANDBOX_RETENTION_MS,
+  shouldDestroyJobSandbox,
+} from "./chat-lifecycle.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import { destroyDetachedProviderSandbox } from "./sandbox-provider.js"
 import {
@@ -16,40 +20,93 @@ import {
   deleteWorkspaceBaseArtifacts,
   type SandboxAgent,
 } from "./workspace-base-providers.js"
-import { collectUnusedWorkspaceSandboxBases } from "./workspace-sandbox-base.js"
+import { baseLeaseHeld, readyBases } from "./workspace-sandbox-base.js"
 
 /**
- * Delete the Workspace's bases no new conversation should start from (see
- * `collectUnusedWorkspaceSandboxBases`). Skipped when the deployment's
- * provider and agent image cannot be read (a daemon briefly unreachable),
- * so a blip never deletes the base new conversations should use.
+ * Delete the Workspace's bases no new sandbox will start from. The current
+ * base is the newest ready one for the deployment's agent image and the
+ * Workspace binding.
+ * - Builds past their lease, and failed deletes.
+ * - Docker: every other base at once (a stopped container restarts without
+ *   its image, measured; the daemon refuses while a running one uses it, and
+ *   the row waits for a later sweep), and the current one once no sandbox
+ *   started from it for 30 days.
+ * - Vercel: the same, but only once no Vercel conversation sandbox of the
+ *   Workspace was created before the base was superseded (or before now, for
+ *   the current one). Whether a sandbox survives deletion of its source
+ *   snapshot has not been measured, so a base is kept while a sandbox that
+ *   could have started from it exists; conversation sandboxes are deleted 30
+ *   days after last use.
+ * Runs under the Workspace lock, which new sandboxes take to choose their
+ * base. Skipped when the agent image cannot be read (a daemon blip never
+ * deletes the base new conversations should use).
  */
-export async function collectUnusedWorkspaceChatBases(
+export async function collectUnusedWorkspaceBases(
   orgId: string,
   workspaceId: string,
-  now?: Date,
+  now: Date = new Date(),
 ): Promise<number> {
+  const logger = getLogger()
   let agent: SandboxAgent | null
   try {
     agent = await currentSandboxAgent()
   } catch (error) {
-    log.warn({
-      step: "workspace-base-cleanup",
-      message: `Skipping base cleanup: the agent image is unreadable: ${String(error)}`,
-      orgId,
-      workspaceId,
-    })
+    logger.warn(
+      `Skipping base cleanup: the agent image is unreadable: ${String(error)}`,
+      { step: "workspace-base-cleanup", orgId, workspaceId },
+    )
     return 0
   }
   if (!agent) return 0
-  return collectUnusedWorkspaceSandboxBases({
-    orgId,
-    workspaceId,
-    agent,
-    ...(now ? { now } : {}),
-    destroy: async (row) =>
-      (await destroyWorkspaceSandboxUnderFence(row.id, orgId)) === true,
-  })
+  const current = agent
+  return postgresSandboxLocks(orgId).withLock(
+    `workspace-sandboxes:${workspaceId}`,
+    async (signal) => {
+      const { rows, desired } = await withOrgDbContext(orgId, async () => ({
+        rows: await listSandboxInstances({ workspaceId }),
+        desired: await getDesiredWorkspaceRevision(workspaceId),
+      }))
+      const bases = rows.filter((row) => row.kind === "base")
+      const ready = desired ? readyBases(bases, current, desired) : []
+      const at = now.getTime()
+      /** Vercel: a conversation sandbox created before `at` might use the base. */
+      const mayBeInUse = (base: SandboxInstanceRecord) => {
+        if (base.provider !== "vercel") return false
+        const supersededAt =
+          bases
+            .filter(
+              (other) =>
+                other.state === "live" &&
+                (other.createdAt?.getTime() ?? 0) >
+                  (base.createdAt?.getTime() ?? 0),
+            )
+            .map((other) => other.createdAt?.getTime() ?? at)
+            .sort((a, b) => a - b)[0] ?? at
+        return rows.some(
+          (row) =>
+            row.kind === "chat" &&
+            row.provider === "vercel" &&
+            (row.createdAt?.getTime() ?? 0) < supersededAt,
+        )
+      }
+      let deleted = 0
+      for (const base of bases) {
+        const due =
+          base.state === "destroy_failed" ||
+          (base.state === "building" && !baseLeaseHeld(base, at)) ||
+          (base.state === "live" &&
+            (base.id !== ready[0]?.id ||
+              at - base.lastHeartbeatAt.getTime() >=
+                CHAT_SANDBOX_RETENTION_MS) &&
+            !mayBeInUse(base))
+        if (!due) continue
+        signal.throwIfAborted()
+        if ((await destroyWorkspaceSandboxUnderFence(base.id, orgId)) === true)
+          deleted += 1
+      }
+      return deleted
+    },
+  )
 }
 
 /** Share allocation's workspace fence, including idle and direct cleanup calls. */
@@ -109,6 +166,7 @@ async function destroyWorkspaceSandboxUnderFence(
       if (!stored) return true
       if (keep?.(stored)) return "kept"
       if (stored.kind === "base") {
+        signal.throwIfAborted()
         try {
           // A running container still uses the image: kept for a later sweep.
           if ((await deleteWorkspaceBaseArtifacts(stored)) === "in-use")
