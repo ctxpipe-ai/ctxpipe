@@ -26,6 +26,10 @@ import {
   useListOrganizations,
   useSession,
 } from "@/lib/auth-client"
+import {
+  buildOrMergeCursorClaudeMcpJson,
+  mcpStreamUrlForOrg,
+} from "@/lib/mcpOnboardingPreview"
 import { useUserPreferences } from "@/lib/user-preferences"
 
 export const Route = createFileRoute("/onboarding")({
@@ -122,15 +126,11 @@ export function OnboardingPageContent({
     setShowWelcomeDotNav(true)
   }, [])
 
-  const mcpSnippetOrgSlug = orgSlug ?? "your-org"
-  const mcpSnippet = `{
-  "mcpServers": {
-    "ctxpipe": {
-      "type": "http",
-      "url": "https://app.ctxpipe.ai/mcp?orgSlug=${mcpSnippetOrgSlug}"
-    }
-  }
-}`
+  // The browser is on the deployment's public origin, which also serves /mcp.
+  const mcpSnippet = buildOrMergeCursorClaudeMcpJson(
+    null,
+    mcpStreamUrlForOrg(window.location.origin, orgSlug ?? "your-org"),
+  ).trimEnd()
 
   if (isPending || orgsPending || isJoinerLocked === null) {
     return (
