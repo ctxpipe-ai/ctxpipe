@@ -236,7 +236,7 @@ function OrgSetupPage() {
                 <div className="onb-in-2 mx-auto mb-14 flex min-h-[280px] max-w-3xl flex-col">
                   <p className="mx-auto mb-3 text-balance text-zinc-300">
                     {isSyncing
-                      ? "Finalising your GitHub connection..."
+                      ? "Finalizing your GitHub connection..."
                       : hasGithubInstallation
                         ? "GitHub is connected. Continue onboarding, or link repositories from a workspace."
                         : "Connect the GitHub App. Then create a workspace or add repositories to one you already have."}
@@ -256,7 +256,7 @@ function OrgSetupPage() {
                       onClick={handleConnectGitHub}
                     >
                       {isSyncing
-                        ? "Finalising connection..."
+                        ? "Finalizing connection..."
                         : installationPending
                           ? "Checking..."
                           : hasGithubInstallation
