@@ -34,6 +34,8 @@ cdk deploy
 
 This release’s migrate task also creates the `ctxpipe_app` runtime role and rewrites the injected `DATABASE_URL` secret. You do not run `psql` or add `CtxPipe` props. Image-only retags without a package bump skip that role split.
 
+The first upgrade to a version with the [chat sandbox host](/docs/self-hosting/deployment/aws#chat-sandbox-host) adds the host with no new required props. That deploy only adds resources and replaces nothing that holds data. It waits until the host is ready, then rolls backend and worker.
+
 ## Docker Compose flow
 
 For source-based Compose deployments:
@@ -44,6 +46,10 @@ git checkout <target-ref>
 docker compose --profile deploy build
 docker compose --profile deploy up -d
 ```
+
+`docker compose --profile deploy up -d` also runs `chat-sandbox-image` again.
+If the chat image changed, it builds the new image inside `dind`. New
+sandboxes use the new image.
 
 The `deploy` profile runs the `migrate` service before app services. Migrate
 connects as the Postgres owner (`ctxpipe` by default) and provisions
@@ -80,6 +86,7 @@ After deployment:
 | Codesearch | Search and file retrieval work for an indexed repository |
 | Graph | Knowledge graph page loads for an organization with indexed data |
 | MCP | MCP client connects using OAuth |
+| Workspace chat | A conversation answers, and its sandbox shows on the Docker daemon (see [Operations](/docs/self-hosting/operations)) |
 | Connectors | GitHub webhooks, scoped mirrors, and Slack thread capture still work |
 | Observability | Logs and traces continue to reach your configured sinks |
 
@@ -107,6 +114,7 @@ Rollback depends on whether the upgrade ran database migrations.
 | Worker | Workflow compatibility, connector job changes, Forge provisioning changes |
 | UI | Build-time public URL values, connector wizard behavior |
 | Codesearch | Index format or clone/cache behavior |
+| Chat sandboxes | Chat image changes, Docker daemon and TLS settings, sandbox host size (AWS) |
 | Graph database | Provider configuration and graph projection compatibility |
 | Model provider | Default model names, embedding dimensions, provider-specific auth |
 
