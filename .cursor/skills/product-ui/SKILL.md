@@ -71,7 +71,7 @@ Error: [`InlineAlert`](../../../apps/ui/src/components/ui/InlineAlert.tsx) + a n
 - Product chrome: `rounded-none`.
 - Icons: `@tabler/icons-react` at ~16–20px, `text-muted-foreground`, `aria-hidden`. Lucide only if Tabler has no equivalent. Enclose in `.ctx-node` if the hit area must be large.
 - Destructive on the page: `outline` or `quiet`. Filled red only on [`AlertDialog`](../../../apps/ui/src/components/ui/AlertDialog.tsx).
-- Copy: UK English, plain, specific. Semantic `h1` at `text-lg` / `text-xl` on product screens.
+- Copy: US English. Follow ASD-STE100 at about 80% strength. Keep the copy plain and specific. Semantic `h1` at `text-lg` / `text-xl` on product screens.
 
 Then follow the [react](../react/SKILL.md) skill for data flow.
 

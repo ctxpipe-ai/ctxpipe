@@ -28,6 +28,9 @@ import {
 } from "../../models/github-installation.js"
 import { registerV1Routes } from "./index.js"
 
+// registerV1Routes loads the conversation graph, which builds its model at import time.
+vi.hoisted(() => vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key"))
+
 const installationId = 424_242
 const ownAppInstallationId = 515_151
 const visibleToken = "gho_can_see_installation"
