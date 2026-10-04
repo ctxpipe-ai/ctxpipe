@@ -55,7 +55,7 @@ Rows already stored may still use `requestId`, `userId`, or `environment`. New w
 
 ## Localhost OTLP
 
-Export stays off until `OTEL_EXPORTER_OTLP_*` is set. `pnpm dev` leaves it unset. Laptop collector and the opt-in shared collector: [USING.md](../../../ops/observability/USING.md#localhost-telemetry). A shared export sets the variables in `apps/backend/.env.local` with `OTEL_RESOURCE_ATTRIBUTES=deployment.environment=local-<name>`; it is never the default, except that [preview-env](../preview-env/SKILL.md) local runs require it.
+Export stays off until `OTEL_EXPORTER_OTLP_*` is set. `pnpm dev` leaves it unset. Laptop collector and the opt-in shared collector: [USING.md](../../../ops/observability/USING.md#localhost-telemetry).
 
 ## Instrument
 

@@ -78,17 +78,23 @@ fi
 
 PG_HOST_PORT="${CTXPIPE_POSTGRES_HOST_PORT:-5433}"
 DB_URL="${DATABASE_URL:-postgresql://ctxpipe:ctxpipe@localhost:${PG_HOST_PORT}/ctxpipe}"
-DB_FOR_CONTAINER="${DB_URL//localhost/host.docker.internal}"
-DB_FOR_CONTAINER="${DB_FOR_CONTAINER//127.0.0.1/host.docker.internal}"
+# The container reaches host services through host.docker.internal.
+container_host_url() {
+  local url="${1//localhost/host.docker.internal}"
+  printf '%s' "${url//127.0.0.1/host.docker.internal}"
+}
+DB_FOR_CONTAINER="$(container_host_url "$DB_URL")"
 
+# Secrets are passed by name (`-e NAME`); docker reads the values from the
+# environment of the `docker run` below, so they stay off argv.
 DOCKER_ARGS=(
   -d --rm
   --name "$CONTAINER_NAME"
   -p 0:3001
   -v "$CODESEARCH_DATA/zoekt-index:/data/zoekt-index"
   -v "$CODESEARCH_DATA/repo-cache:/data/repo-cache"
-  -e "DATABASE_URL=$DB_FOR_CONTAINER"
-  -e "AUTH_SECRET=$AUTH_SECRET"
+  -e DATABASE_URL
+  -e AUTH_SECRET
   -e "ZOEKT_WEBSERVER_URL=http://127.0.0.1:6070"
   -e "PORT=3001"
   -e "NODE_ENV=development"
@@ -100,9 +106,9 @@ if [[ -n "${AUTH_TOKEN_AUDIENCE_CODESEARCH:-}" ]]; then
   DOCKER_ARGS+=(-e "AUTH_TOKEN_AUDIENCE_CODESEARCH=$AUTH_TOKEN_AUDIENCE_CODESEARCH")
 fi
 # Telemetry export opted into in .env.local (see ops/observability/USING.md).
-# `-e NAME` copies the value from this shell, so the ingest key stays off argv.
-for otel_var in OTEL_EXPORTER_OTLP_TRACES_ENDPOINT OTEL_EXPORTER_OTLP_LOGS_ENDPOINT \
-  OTEL_EXPORTER_OTLP_METRICS_ENDPOINT OTEL_EXPORTER_OTLP_HEADERS OTEL_RESOURCE_ATTRIBUTES; do
+OTEL_ENDPOINT_VARS=(OTEL_EXPORTER_OTLP_TRACES_ENDPOINT OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
+  OTEL_EXPORTER_OTLP_METRICS_ENDPOINT)
+for otel_var in "${OTEL_ENDPOINT_VARS[@]}" OTEL_EXPORTER_OTLP_HEADERS OTEL_RESOURCE_ATTRIBUTES; do
   if [[ -n "${!otel_var:-}" ]]; then
     DOCKER_ARGS+=(-e "$otel_var")
   fi
@@ -145,7 +151,16 @@ else
   echo "codesearch-docker-dev: image $IMAGE up to date (source $SOURCE_HASH)" >&2
 fi
 
-docker run "${DOCKER_ARGS[@]}" "$IMAGE"
+# Subshell: the container-side values never reach the dev shell's backend/UI.
+(
+  export DATABASE_URL="$DB_FOR_CONTAINER" AUTH_SECRET
+  for otel_var in "${OTEL_ENDPOINT_VARS[@]}"; do
+    if [[ -n "${!otel_var:-}" ]]; then
+      export "$otel_var=$(container_host_url "${!otel_var}")"
+    fi
+  done
+  docker run "${DOCKER_ARGS[@]}" "$IMAGE"
+)
 
 # Wait for bind
 for _ in $(seq 1 30); do
