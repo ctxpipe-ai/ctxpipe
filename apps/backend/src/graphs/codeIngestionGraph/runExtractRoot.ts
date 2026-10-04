@@ -16,6 +16,7 @@ import {
   linkLocatedPaths,
   resolveReferenceClaims,
 } from "./nodes/linkLocatedPaths.js"
+import { sanitizePostgresJson } from "./postgresJson.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
@@ -110,7 +111,7 @@ export async function runIdentifyPhaseForRoot(
     (sum, part) => sum + (part.extractionSkippedFiles ?? 0),
     0,
   )
-  return {
+  return sanitizePostgresJson({
     ...concatExtracted([
       extracted,
       linkLocatedPaths({
@@ -121,7 +122,7 @@ export async function runIdentifyPhaseForRoot(
       }),
     ]),
     extractionSkippedFiles,
-  }
+  })
 }
 
 /**

@@ -85,6 +85,7 @@ export function useGithubConnectFlow({
 
   const handleInstallSettled = useCallback(
     (status: GithubSetupRegistrationStatus) => {
+      if (status === "redirected") return
       if (status === "registered") {
         HyperDX.addAction("connector_connect", { connector: "github" })
         onRegistered?.()

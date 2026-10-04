@@ -35,7 +35,10 @@ vi.mock("../observability/logger.js", () => ({
 }))
 
 import { errorFromIndexerExit } from "../domain/indexing/memoryFitError.js"
-import { registerIndexPhaseRoutes } from "./indexPhases.js"
+import {
+  registerIndexPhaseRoutes,
+  resetScipPhaseRunsForTests,
+} from "./indexPhases.js"
 
 function createTestApp() {
   const app = new OpenAPIHono<AppEnv>()
@@ -56,6 +59,7 @@ function createTestApp() {
 describe("POST /{repoId}/index/scip/{lang}", () => {
   afterEach(() => {
     resetIndexPipelineAdmissionForTests()
+    resetScipPhaseRunsForTests()
   })
 
   beforeEach(() => {
@@ -76,6 +80,57 @@ describe("POST /{repoId}/index/scip/{lang}", () => {
     })
   })
 
+  it("accepts a SCIP language phase and reports it on a follow-up read without starting a second index", async () => {
+    let finish: (() => void) | undefined
+    phaseScipLanguageMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        }),
+    )
+    const app = createTestApp()
+    const post = () =>
+      app.request("/repo_aaaaaa/index/scip/typescript", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ detectedLanguages: ["typescript"] }),
+      })
+
+    const started = await Promise.race([
+      post(),
+      new Promise<Response>((_, reject) => {
+        setTimeout(
+          () =>
+            reject(
+              new Error("SCIP phase POST blocked until the index finished"),
+            ),
+          50,
+        )
+      }),
+    ])
+    expect(started.status).toBe(202)
+    await expect(started.json()).resolves.toEqual({
+      ok: true,
+      status: "running",
+    })
+    expect(phaseScipLanguageMock).toHaveBeenCalledTimes(1)
+
+    const again = await post()
+    expect(again.status).toBe(202)
+    expect(phaseScipLanguageMock).toHaveBeenCalledTimes(1)
+
+    const running = await app.request("/repo_aaaaaa/index/scip/typescript")
+    expect(running.status).toBe(200)
+    await expect(running.json()).resolves.toEqual({ status: "running" })
+
+    if (!finish) throw new Error("phase did not start")
+    finish()
+    await vi.waitFor(async () => {
+      const done = await app.request("/repo_aaaaaa/index/scip/typescript")
+      expect(await done.json()).toEqual({ status: "succeeded" })
+    })
+  })
+
   it("returns the canonical memory-fit error when the SCIP indexer is SIGKILL'd", async () => {
     phaseScipLanguageMock.mockRejectedValue(
       errorFromIndexerExit({
@@ -91,9 +146,13 @@ describe("POST /{repoId}/index/scip/{lang}", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ detectedLanguages: ["go"] }),
     })
-    expect(res.status).toBe(500)
-    await expect(res.json()).resolves.toEqual({
-      error: CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY,
+    expect(res.status).toBe(202)
+    await vi.waitFor(async () => {
+      const status = await app.request("/repo_aaaaaa/index/scip/go")
+      expect(await status.json()).toEqual({
+        status: "failed",
+        error: CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY,
+      })
     })
   })
 })

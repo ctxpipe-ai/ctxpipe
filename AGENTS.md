@@ -2,7 +2,7 @@
 
 Agent instructions are **distributed**: this file covers repo-wide rules; apps and packages can have their own `AGENTS.md` with local instructions. When working in an app or package, read both the root AGENTS.md and that folder's AGENTS.md (if present).
 
-- **Root** (this file): architecture, code style.
+- **Root** (this file): architecture, code style, and Simplified Technical English for explanations.
 - **apps/backend**: [apps/backend/AGENTS.md](apps/backend/AGENTS.md) — API, OpenAPI, MCP, Drizzle, TypeScript, etc. **[Source-connectors skill](.agents/skills/source-connectors/)** when designing, building, or reviewing a source connector (Linear, Notion, Slack, git-native mirror/capture, `connections.config`, self-host), when provider requests can multiply per related record, or when a full import must resume after a crash.
 - **apps/otel-collector**: laptop OTLP debug sink for `pnpm dev:infra` (stdout only). Hosted ingest is [`ops/observability`](ops/observability/) ([ADR-038](.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md)).
 - **apps/codesearch**: [apps/codesearch/AGENTS.md](apps/codesearch/AGENTS.md) — Zoekt/SCIP orchestration, read-only DB, OpenAPI + Zod, and the manual Kubernetes ingest memory gate.
@@ -38,9 +38,21 @@ For Storybook conventions and tools, read [.agents/skills/storybook/SKILL.md](.a
 
 **Host dev (agents):** Run **`pnpm`** from the repo root; follow **Agent runbook — host dev** under [Local development](#local-development) (install → `.env.local` → `dev:infra` → `dev`).
 
-**Cursor Cloud / remote headless agents:** Do **not** use `pnpm dev` (portless). Default to **[Running dev servers on cloud VMs](#cursor-cloud-specific-instructions)** in this file (copy-paste block + migrate + `bun --env-file=.env.local`).
+**Cursor Cloud / remote headless agents:** Do **not** use `pnpm dev` (portless). Default to **[Running dev servers on cloud VMs](#cursor-cloud-specific-instructions)** in this file (copy-paste block + migrate + `bun --env-file=.env.local`). **Claude Code on the web:** see [Claude Code on the web](#claude-code-on-the-web).
 
 **When feedback is given that should become a long-term instruction**: Save it into this structure. Repo-wide preferences and conventions go in this file (root AGENTS.md). Instructions that apply only to a specific app or package go in that folder's `AGENTS.md` (e.g. `apps/backend/AGENTS.md`); create the file if it doesn't exist. Add or update the list above when you create or change an app/package AGENTS.md so future agents know where to look.
+
+## Language
+
+Write each explanation in ASD-STE100 Simplified Technical English (Issue 9). You already know that standard. Follow it. Do not copy the licensed dictionary into this repo.
+
+Use US English spelling in every text you write. Write `organization`, not `organisation`.
+
+Retained text uses the full standard. This includes markdown, a code comment, a commit message, pull request text, a changeset, docs, and other kept text. User-facing UI copy is the exception: it follows ASD-STE100 at about 80% strength.
+
+A reply to the user uses that same 80% level. Keep sentence length, one topic, the active voice, and a command verb for a step. You may relax at most one sentence in five. A relaxed sentence may use a common word, a contraction, a phrasal verb, an "-ing" form, or a warmer tone. A procedure step stays at full strength.
+
+When you edit a file, write each new sentence to the standard. Change an old sentence only when you edit it for another reason. Keep code, an identifier, a command, and a type as they are. Keep a quote as it is. Keep text that must match a screen, a specification, or an error string.
 
 ## Agent skills
 
@@ -125,6 +137,15 @@ cd apps/ui && VITE_PUBLIC_API_URL=http://localhost:3000 npx vite dev --host 0.0.
 ```
 
 Open **`http://localhost:3000`** for the integrated app.
+
+### Claude Code on the web
+
+[`.claude/hooks/session-start.sh`](.claude/hooks/session-start.sh) runs on every cloud session (no-op locally): starts `dockerd` with the `mirror.gcr.io` Docker Hub mirror, brings up Compose **`infra`**, runs `pnpm install`, stamps the `@ctxpipe/aws-cdk` image tag, installs Zoekt with `go install`, writes `apps/backend/.env.local`, migrates, exports `DATABASE_URL` / `AUTH_SECRET` / `GRAPH_DB_URI` to the shell, and starts Storybook for the `ctxpipe-storybook` MCP.
+
+- **Tests:** run them as in CI; no extra env needed (`pnpm --filter @ctxpipe/backend test`, `@ctxpipe/ui`, `ctxpipe`, `@ctxpipe/aws-cdk`). For codesearch use `pnpm --filter @ctxpipe/codesearch test:vitest`; `test` builds the Docker image, which cannot build here.
+- **App:** `bash scripts/dev-headless.sh` runs codesearch (host, [`scripts/codesearch-host-dev.sh`](scripts/codesearch-host-dev.sh)), backend, worker, and UI; browse `http://localhost:3000`. The backend will not boot without `MODEL_PROVIDER_API_KEY`.
+- **Sandbox quirks:** no IPv6, so the hook writes a gitignored `docker-compose.override.yml` that turns off FalkorDB's Bolt listener, which the backend never uses. Container egress is TLS-intercepted, so Docker image builds that download over HTTPS fail. Hosts the environment's network policy blocks fail with `403` on CONNECT; `curl -sS "$HTTPS_PROXY/__agentproxy/status"` lists them.
+- **MCP:** [`.mcp.json`](.mcp.json) mirrors `.cursor/mcp.json` in Claude Code syntax (`${VAR:-}`), with API-key auth for headless use: `CTXPIPE_API_KEY` (sent as `x-api-key`; empty falls back to OAuth), `NEON_API_KEY`, `RAILWAY_API_TOKEN` (`railway mcp local`), `HYPERDX_ACCESS_KEY` (personal key, not the `HYPERDX_API_KEY` ingest token), `LANGFUSE_AUTH_STRING`. A claude.ai HyperDX connector, if connected, exposes the same tools as `mcp__HyperDX__*`; the repo server works for every account.
 
 ### Agent runbook — host dev (run from repo root)
 
