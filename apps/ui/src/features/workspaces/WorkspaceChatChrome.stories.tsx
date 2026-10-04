@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, within } from "storybook/test"
+import { expect, userEvent, within } from "storybook/test"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
@@ -85,7 +85,9 @@ export const DirtyCommitPush: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(canvas.getByRole("button", { name: "Commit+Push" })).toBeVisible()
+    expect(
+      await canvas.findByRole("button", { name: "Commit+Push" }),
+    ).toBeVisible()
     expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
   },
 }
@@ -227,6 +229,53 @@ export const ShowPr: Story = {
       canvas.queryByRole("button", { name: "Create PR" }),
     ).not.toBeInTheDocument()
     expect(canvas.getByRole("link", { name: "Show PR" })).toBeVisible()
+  },
+}
+
+const commitPushPresses = { count: 0 }
+
+/** A PR is open and the agent made commits it did not push: all three actions. */
+export const CommitPushWithOpenPr: Story = {
+  args: {
+    title: "Repo layout",
+    branch: {
+      shortName: "chat/1",
+      fullRef: "ctxpipe/chat/conv_1/1",
+      href: "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
+    },
+    publish: {
+      commitPush: {
+        visible: true,
+        enabled: true,
+        pending: false,
+        onPress: () => {
+          commitPushPresses.count += 1
+        },
+      },
+      pullRequest: {
+        visible: true,
+        action: "show",
+        pending: false,
+        href: "https://github.com/acme/docs/pull/41",
+        onPress: () => {},
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    commitPushPresses.count = 0
+    const canvas = within(canvasElement)
+    const commitPush = await canvas.findByRole("button", {
+      name: "Commit+Push",
+    })
+    expect(canvas.getByRole("link", { name: "Show PR" })).toHaveAttribute(
+      "href",
+      "https://github.com/acme/docs/pull/41",
+    )
+    expect(
+      canvas.queryByRole("button", { name: "Create PR" }),
+    ).not.toBeInTheDocument()
+    await userEvent.click(commitPush)
+    expect(commitPushPresses.count).toBe(1)
   },
 }
 

@@ -30,7 +30,7 @@ describe("conversation publish helpers", () => {
     expect(conversationPullRequestAction(null)).toBe("create")
   })
 
-  it("shows Commit+Push only when the worktree is dirty", () => {
+  it("shows Commit+Push when the sandbox has changes GitHub lacks", () => {
     expect(
       conversationCommitPushEnabled({
         dirty: false,
@@ -38,11 +38,20 @@ describe("conversation publish helpers", () => {
         unpushed: false,
       }),
     ).toBe(false)
+    // The agent committed but did not push.
     expect(
       conversationCommitPushEnabled({
         dirty: false,
         differsFromDefault: true,
         unpushed: true,
+      }),
+    ).toBe(true)
+    // Everything is on GitHub.
+    expect(
+      conversationCommitPushEnabled({
+        dirty: false,
+        differsFromDefault: true,
+        unpushed: false,
       }),
     ).toBe(false)
     expect(

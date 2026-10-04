@@ -46,11 +46,15 @@ export type ConversationPublishStatus = {
   stale?: boolean
 } | null
 
+/**
+ * Commit+Push publishes what the conversation branch on GitHub lacks: files
+ * nobody committed yet and commits the agent made but did not push.
+ */
 export function conversationCommitPushEnabled(
   status: ConversationPublishStatus,
 ): boolean {
   if (!status || status.stale) return false
-  return status.dirty
+  return status.dirty || status.unpushed
 }
 
 export function conversationCreatePrEnabled(

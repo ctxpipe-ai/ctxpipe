@@ -56,14 +56,25 @@ While the agent works:
 - the **Diff** tab shows everything the conversation has changed.
 
 Each conversation works on its own branch, `ctxpipe/chat/<conversation>/<n>`,
-and never pushes to the default branch.
+and never pushes to the default branch. The agent commits its work with a
+message when it finishes a task, and pushes the branch to GitHub when you ask
+it to or when the work is ready for you to see there.
 
 ## Publish with a pull request
 
-When you are happy with the changes, choose **Create PR**. ctx| opens a pull
-request from the conversation's branch to the default branch, and the button
-becomes **Show PR**. Review and merge it like any other pull request; once
-merged, the Workspace re-indexes the new commit.
+The conversation header offers:
+
+- **Commit+Push**, when the sandbox has changes GitHub does not have yet: your
+  own Files edits are committed, and everything is pushed to the
+  conversation's branch;
+- **Create PR**, which opens a pull request from the conversation's branch to
+  the default branch, keeping the agent's commits;
+- **Show PR**, which opens that pull request while it is open. Commits pushed
+  later land on it.
+
+Review and merge the pull request like any other; once merged, the Workspace
+re-indexes the new commit, and the conversation's next message starts a fresh
+branch from the default branch.
 
 If the default branch moves while a conversation is open, ctx| brings the
 conversation's branch up to date before the next message. If that update
@@ -84,7 +95,8 @@ with another conversation or organization:
 - **Your files are saved.** When a conversation goes idle, its sandbox stops
   and saves its files. Your next message resumes it with the files where the
   agent left them. Saved files are deleted 30 days after the sandbox last
-  stopped; the conversation's branch in your repository is not affected.
+  stopped; commits not yet on GitHub are pushed to the conversation's branch
+  first, while files nobody committed are deleted with the sandbox.
 - **Network access is limited.** The sandbox can reach GitHub and ctx| only;
   every other host is blocked.
 - **The GitHub token stays outside.** Read access to the workspace repository
