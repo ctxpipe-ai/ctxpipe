@@ -735,11 +735,12 @@ function telemetryChecks(facts: RepoFacts): Check[] {
     checks.push(check("telemetry.llm", "warn", "Langfuse usage not measured"))
     return checks
   }
+  const unpriced = facts.llm.unpricedModels
   checks.push(
     check(
       "telemetry.llm",
-      "pass",
-      `${facts.llm.total.totalTokens} tokens, $${facts.llm.total.costUsd.toFixed(4)} in Langfuse (unverified query shape)`,
+      unpriced.length ? "warn" : "pass",
+      `${facts.llm.total.totalTokens} tokens, $${facts.llm.total.costUsd.toFixed(4)} in Langfuse (unverified query shape)${unpriced.length ? `; no price for ${unpriced.join(", ")}, so its cost reads $0` : ""}`,
     ),
   )
   const other = unexpectedModels(facts.llm.models)

@@ -204,6 +204,7 @@ function passingFacts(): RepoFacts {
       },
       total: usage(2, 0.0003),
       models: { "openai/gpt-6-luna": 1, "openai/text-embedding-3-large": 1 },
+      unpricedModels: [],
     },
     spendUsd: 0.0005,
   }
@@ -442,6 +443,15 @@ describe("evaluateRepo", () => {
     if (facts.llm) facts.llm.models["xiaomi/mimo-v2.6-pro"] = 2
     expect(detail(facts, "telemetry.models")).toBe(
       "not GPT-6 Luna: xiaomi/mimo-v2.6-pro",
+    )
+  })
+
+  it("warns that the cost of a model with no price reads as zero", () => {
+    const facts = passingFacts()
+    if (facts.llm) facts.llm.unpricedModels = ["vendor/no-price-anywhere"]
+    expect(statuses(facts)["telemetry.llm"]).toBe("warn")
+    expect(detail(facts, "telemetry.llm")).toContain(
+      "no price for vendor/no-price-anywhere",
     )
   })
 
