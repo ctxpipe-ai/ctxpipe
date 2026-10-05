@@ -65,7 +65,7 @@ Amends [ADR-035](ADR-035-weighted-graph-traversal-and-node-id-indexes.md) §1
    | general | 1 each | recency 0 |
    | ownership | `OWNS` 3 | recency 0, specificity 0 |
    | why | `INFLUENCES` 3, `SUPERSEDES` 2 | recency 0 |
-   | change | change family 3, `TARGETS` 3, `REFERENCES` 2 | specificity 0.5 |
+   | change | change family 3, `TARGETS` 3, `REFERENCES` 2 | specificity 0 |
    | structure | structural predicates 3 | recency 0 |
 
    In `pickRoundRobin`, a family with `k` turns takes up to `k` edges in
@@ -122,8 +122,19 @@ Amends [ADR-035](ADR-035-weighted-graph-traversal-and-node-id-indexes.md) §1
   walks a synthetic engineering org (`test/engineeringOrgGraph.ts`) and checks
   recall of the top five gold answers from graph queries against a floor per
   intent: ownership 1.0, why 0.95, change 0.85, structure 0.95. It measured
-  1.00, 1.00, 0.93 and 1.00; with the intent off, 1.00, 0.89, 0.13 and 0.64.
+  1.00, 1.00, 0.87 and 1.00; with the intent off, 1.00, 0.89, 0.13 and 0.64.
   Search hits are not part of it, because the fixture has no search index.
+- **Real org graphs** (two production orgs, re-projected read-only into a
+  local FalkorDB; aggregates only). With the `CHANGED` edges a re-index adds,
+  recall of the newest pull requests went from 0 (why-walk) and 0.41 to 0.45
+  (core walk) on `main` to 0.93 to 1.00 and 0.83 to 0.95; recall of
+  dependencies from 0.65 to 0.68 to 0.83 to 0.91; and the share of questions
+  with at least one gold answer from 0.42 to 0.43 to 0.97 to 0.98. The intent
+  gave most of the gain. Specificity lowered recall of the newest pull
+  requests by 0.07 to 0.16 on both graphs, so the `change` intent does not use
+  it. Ownership and scoped ADRs could not be measured there: the production
+  graphs had no `OWNS Service` edges and almost no scoped `INFLUENCES` edges
+  before the re-index of this change.
 - **Engines verified:** `graphTraversal.integration.test.ts` (18 scenarios)
   and `graphProjection.integration.test.ts` pass on FalkorDB, Neo4j 5 and
   Memgraph; `indexes.integration.test.ts` passes on FalkorDB and Neo4j 5.

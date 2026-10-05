@@ -164,10 +164,12 @@ export const INTENT_PROFILES: Readonly<Record<QueryIntent, IntentProfile>> = {
     turns: { INFLUENCES: 3, SUPERSEDES: 2 },
     history: true,
   },
-  // The question is about time. A pull request that changed many files is
-  // less specific, but it still changed the package: half the penalty.
+  // The question is about time. A pull request that changed many files still
+  // changed the package, and a recent large change is often the answer: on two
+  // real org graphs, the hub penalty lowered recall of the newest pull
+  // requests by 0.07 to 0.16. No specificity.
   change: {
-    weights: { ...BASE_WEIGHTS, recency: 1, specificity: 0.5 },
+    weights: { ...BASE_WEIGHTS, recency: 1, specificity: 0 },
     turns: { CHANGED: 3, TARGETS: 3, REFERENCES: 2 },
     history: true,
   },
