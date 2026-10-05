@@ -403,9 +403,7 @@ export async function repositoryIndexAlreadyPublished(
         and(eq(repositories.orgId, orgId), eq(repositories.id, repositoryId)),
       )
       .limit(1)
-    return (
-      row?.indexingStatus === "ready" && row.lastIngestedHash === targetHash
-    )
+    return row?.indexingStatus === "ready" && row.lastIngestedHash === targetHash
   })
 }
 
