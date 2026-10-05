@@ -731,3 +731,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** convention
 - **Date:** 2026-09-26
 - **Source:** Repository owner after PR-343 ("I want CD to do these things... you are here to serve me")
+
+### Write example ADR numbers as `ADR-N` in decision records
+- **Rule:** The decision extractor reads supersession from the status header, from field lines, and from prose sentences about the ADR itself ("This ADR is superseded by ADR-N", a sentence that starts with "Supersedes"). An ADR that quotes such a sentence with a real number as an example creates a false `SUPERSEDES` edge in every org graph that ingests this repository. Write example numbers as `ADR-N`, and state a real supersession only in the status header ([ADR-036](decisions/ADR-036-decision-scope-and-status.md)).
+- **Category:** convention
+- **Date:** 2026-10-05
+- **Source:** PR-350 review: ADR-036 quoted "superseded by ADR-24" and the extractor made ADR-024 supersede ADR-036
