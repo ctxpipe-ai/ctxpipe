@@ -23,8 +23,8 @@ import { getSandboxInstance } from "../../models/workspaces.js"
 import { scheduleConversationSandboxSweep } from "../../openworkflow/workflows/conversation-sandbox-sweep.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
 import {
+  CHAT_SANDBOX_DELETE_AFTER_MS,
   CHAT_SANDBOX_IDLE_STOP_MS,
-  CHAT_SANDBOX_RETENTION_MS,
   ORG_RUNNING_SANDBOX_LIMIT,
 } from "./chat-lifecycle.js"
 import {
@@ -299,11 +299,11 @@ it(
       )
       expect(await running(handle.id)).toBe(true)
 
-      // Stopped sandboxes schedule nothing; a later sweep deletes them.
+      // A stopped sandbox schedules its deletion, before its saved state expires.
       expect(await sweepConversationSandboxes(org.orgId, idleAt)).toEqual({
         stopped: 1,
         deleted: 0,
-        nextSweepAt: null,
+        nextSweepAt: new Date(lastUse + CHAT_SANDBOX_DELETE_AFTER_MS),
       })
       expect(await running(handle.id)).toBe(false)
       expect((await sandbox.row())?.state).toBe("stopped")
@@ -408,13 +408,17 @@ it(
       expect(
         await sweepConversationSandboxes(
           org.orgId,
-          new Date(lastUse + CHAT_SANDBOX_RETENTION_MS - 1_000),
+          new Date(lastUse + CHAT_SANDBOX_DELETE_AFTER_MS - 1_000),
         ),
-      ).toEqual({ stopped: 0, deleted: 0, nextSweepAt: null })
+      ).toEqual({
+        stopped: 0,
+        deleted: 0,
+        nextSweepAt: new Date(lastUse + CHAT_SANDBOX_DELETE_AFTER_MS),
+      })
       expect(
         await sweepConversationSandboxes(
           org.orgId,
-          new Date(lastUse + CHAT_SANDBOX_RETENTION_MS),
+          new Date(lastUse + CHAT_SANDBOX_DELETE_AFTER_MS),
         ),
       ).toEqual({ stopped: 0, deleted: 1, nextSweepAt: null })
       expect(await kept.row()).toBeNull()
@@ -445,7 +449,7 @@ it(
           const swept = await sweepConversationSandboxes(
             org.orgId,
             new Date(
-              stopped.lastHeartbeatAt.getTime() + CHAT_SANDBOX_RETENTION_MS,
+              stopped.lastHeartbeatAt.getTime() + CHAT_SANDBOX_DELETE_AFTER_MS,
             ),
           )
           expect(swept.deleted).toBe(1)

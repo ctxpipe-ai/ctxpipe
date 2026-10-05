@@ -1,10 +1,6 @@
 import { createHash } from "node:crypto"
 import { listSandboxInstances } from "../../models/workspaces.js"
-import {
-  conversationSessionBranch,
-  isChatSessionBranch,
-  mayForcePushBranch,
-} from "./chat-lifecycle.js"
+import { conversationSessionBranch } from "./chat-lifecycle.js"
 import {
   type ExplorerGitStatusEntry,
   explorerBlobFromContent,
@@ -21,7 +17,15 @@ export function splitGitNulPaths(stdout: string): string[] {
   return stdout.split("\0").filter((path) => path.length > 0)
 }
 
-export function chatPullRequestPathIsSafe(path: string): boolean {
+/**
+ * Commits GitHub lacks: HEAD commits no remote-tracking ref reaches.
+ * `refs/remotes/ctxpipe/base` marks the default commit the sandbox builds on.
+ * Prints one commit, or nothing.
+ */
+export const UNPUSHED_COMMITS_COMMAND = "git rev-list -n 1 HEAD --not --remotes"
+
+/** A relative path inside the conversation worktree, never escaping it. */
+export function conversationPathIsSafe(path: string): boolean {
   if (path.startsWith("/") || path.includes("\0")) return false
   const parts = path.replaceAll("\\", "/").split("/")
   return (
@@ -48,9 +52,7 @@ export function isConversationSandboxHarnessPath(path: string): boolean {
 }
 
 function isConversationSandboxListedPath(path: string): boolean {
-  return (
-    chatPullRequestPathIsSafe(path) && !isConversationSandboxHarnessPath(path)
-  )
+  return conversationPathIsSafe(path) && !isConversationSandboxHarnessPath(path)
 }
 
 export async function getConversationSandboxBinding(
@@ -108,26 +110,6 @@ async function execGitOk(
   return result.stdout
 }
 
-export async function ensureConversationSessionBranch(input: {
-  handle: JobSandboxHandle
-  branch: string
-  defaultBranch: string
-}): Promise<string> {
-  const { branch } = input
-  if (!mayForcePushBranch(branch, input.defaultBranch)) {
-    throw new Error(`Refusing to check out ${branch}`)
-  }
-  if (!isChatSessionBranch(branch)) {
-    throw new Error(`Refusing to check out ${branch}`)
-  }
-  const current = await execGit(input.handle.exec, "git branch --show-current")
-  if (current.exitCode === 0 && current.stdout.trim() === branch) {
-    return branch
-  }
-  await execGitOk(input.handle.exec, `git checkout -B ${branch}`)
-  return branch
-}
-
 export async function listConversationSandboxPaths(
   handle: JobSandboxHandle,
 ): Promise<string[]> {
@@ -149,7 +131,7 @@ export async function readConversationSandboxFile(
   handle: JobSandboxHandle,
   path: string,
 ): Promise<{ path: string; body: string | null; binary: boolean } | null> {
-  if (!chatPullRequestPathIsSafe(path)) return null
+  if (!conversationPathIsSafe(path)) return null
   try {
     const content = await handle.fs.read(path)
     const blob = explorerBlobFromContent(content)
@@ -225,7 +207,7 @@ export async function writeConversationSandboxFile(input: {
   path: string
   body: string
 }): Promise<void> {
-  if (!chatPullRequestPathIsSafe(input.path)) {
+  if (!conversationPathIsSafe(input.path)) {
     throw new Error(`Unsafe path: ${input.path}`)
   }
   const parent = input.path.split("/").slice(0, -1).join("/")
@@ -237,7 +219,7 @@ export async function removeConversationSandboxPath(input: {
   handle: JobSandboxHandle
   path: string
 }): Promise<void> {
-  if (!chatPullRequestPathIsSafe(input.path)) {
+  if (!conversationPathIsSafe(input.path)) {
     throw new Error(`Unsafe path: ${input.path}`)
   }
   await input.handle.fs.remove(input.path)
@@ -249,8 +231,8 @@ export async function renameConversationSandboxPath(input: {
   to: string
 }): Promise<void> {
   if (
-    !chatPullRequestPathIsSafe(input.from) ||
-    !chatPullRequestPathIsSafe(input.to)
+    !conversationPathIsSafe(input.from) ||
+    !conversationPathIsSafe(input.to)
   ) {
     throw new Error(`Unsafe path: ${input.from} → ${input.to}`)
   }
@@ -294,7 +276,7 @@ export async function conversationSandboxStatus(input: {
   defaultBranch: string
   sessionBranch: string
 }): Promise<ConversationSandboxStatus> {
-  const [porcelain, numstat, revList, remoteAhead, currentBranch] =
+  const [porcelain, numstat, revList, remoteSession, unpushed, currentBranch] =
     await Promise.all([
       execGitOk(input.handle.exec, "git status --porcelain"),
       execGitOk(input.handle.exec, "git diff --numstat HEAD"),
@@ -305,9 +287,10 @@ export async function conversationSandboxStatus(input: {
       ),
       execGit(
         input.handle.exec,
-        'git rev-list --count "refs/remotes/origin/$CTXPIPE_SESSION_BRANCH"..HEAD',
+        'git rev-parse -q --verify "refs/remotes/origin/$CTXPIPE_SESSION_BRANCH"',
         { CTXPIPE_SESSION_BRANCH: input.sessionBranch },
       ),
+      execGitOk(input.handle.exec, UNPUSHED_COMMITS_COMMAND),
       execGitOk(input.handle.exec, "git branch --show-current"),
     ])
   const branch = currentBranch.trim()
@@ -320,15 +303,14 @@ export async function conversationSandboxStatus(input: {
   const [behindRaw, aheadRaw] = (revList.stdout.trim() || "0\t0").split(/\s+/)
   const ahead = Number.parseInt(aheadRaw || "0", 10) || 0
   const behind = Number.parseInt(behindRaw || "0", 10) || 0
-  const published = branch === input.sessionBranch && remoteAhead.exitCode === 0
-  const remoteUnpushed = published
-    ? (Number.parseInt(remoteAhead.stdout.trim() || "0", 10) || 0) > 0
-    : ahead > 0
+  const published =
+    branch === input.sessionBranch && remoteSession.exitCode === 0
   return {
     branch,
     dirty,
     differsFromDefault: dirty || ahead > 0,
-    unpushed: dirty || remoteUnpushed,
+    // The same test the broker uses before a push.
+    unpushed: dirty || unpushed.trim().length > 0,
     published,
     ahead,
     behind,

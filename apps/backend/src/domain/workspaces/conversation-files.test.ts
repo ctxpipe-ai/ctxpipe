@@ -11,14 +11,14 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
-  chatPullRequestPathIsSafe,
+  conversationPathIsSafe,
   conversationWorktreeVersion,
-  ensureConversationSessionBranch,
   fingerprintConversationWorktree,
   listConversationSandboxPaths,
   sanitizeGitRemoteError,
   splitGitNulPaths,
 } from "./conversation-files.js"
+import { switchToSessionBranch } from "./conversation-session-branch.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
 
 function realHandle(directory: string): JobSandboxHandle {
@@ -119,26 +119,35 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
     expect(afterEdit).not.toBe(first)
   })
 
-  it("checks out the session branch and skips when HEAD already matches", async () => {
+  it("moves to the session branch with its files and never resets an existing one", async () => {
     await withWorktree(
       (directory) => {
         writeFileSync(join(directory, "AGENTS.md"), "# Agents\n")
       },
-      async ({ handle, git }) => {
-        const branch = await ensureConversationSessionBranch({
-          branch: "ctxpipe/chat/conv_1/1",
-          defaultBranch: "main",
-          handle,
-        })
-        expect(branch).toBe("ctxpipe/chat/conv_1/1")
-        expect(git("branch", "--show-current")).toBe("ctxpipe/chat/conv_1/1")
-        const again = await ensureConversationSessionBranch({
-          branch: "ctxpipe/chat/conv_1/1",
-          defaultBranch: "main",
-          handle,
-        })
-        expect(again).toBe("ctxpipe/chat/conv_1/1")
-        expect(git("branch", "--show-current")).toBe("ctxpipe/chat/conv_1/1")
+      async ({ directory, handle, git }) => {
+        const session = "ctxpipe/chat/conv_1/1"
+        const move = () =>
+          switchToSessionBranch({
+            handle,
+            branch: session,
+            defaultBranch: "main",
+          })
+        writeFileSync(join(directory, "draft.md"), "# Draft\n")
+        expect(await move()).toBe(true)
+        expect(git("branch", "--show-current")).toBe(session)
+        expect(git("status", "--porcelain")).toBe("?? draft.md")
+        git("add", "draft.md")
+        git("commit", "-m", "Session work")
+        const work = git("rev-parse", "HEAD")
+        // The agent went back to the default branch; the session keeps its work.
+        git("checkout", "main")
+        expect(await move()).toBe(true)
+        expect(git("branch", "--show-current")).toBe(session)
+        expect(git("rev-parse", "HEAD")).toBe(work)
+        // Another branch is left alone.
+        git("checkout", "-b", "elsewhere")
+        expect(await move()).toBe(true)
+        expect(git("branch", "--show-current")).toBe("elsewhere")
       },
     )
   })
@@ -244,10 +253,10 @@ describe("conversation sandbox paths", () => {
   })
 
   it("refuses path traversal", () => {
-    expect(chatPullRequestPathIsSafe("knowledge/a.md")).toBe(true)
-    expect(chatPullRequestPathIsSafe("knowledge/a file.md")).toBe(true)
-    expect(chatPullRequestPathIsSafe("../secret")).toBe(false)
-    expect(chatPullRequestPathIsSafe("/etc/passwd")).toBe(false)
-    expect(chatPullRequestPathIsSafe("foo/../bar")).toBe(false)
+    expect(conversationPathIsSafe("knowledge/a.md")).toBe(true)
+    expect(conversationPathIsSafe("knowledge/a file.md")).toBe(true)
+    expect(conversationPathIsSafe("../secret")).toBe(false)
+    expect(conversationPathIsSafe("/etc/passwd")).toBe(false)
+    expect(conversationPathIsSafe("foo/../bar")).toBe(false)
   })
 })

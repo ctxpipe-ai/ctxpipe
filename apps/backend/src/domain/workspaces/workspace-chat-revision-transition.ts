@@ -6,9 +6,10 @@ import {
 } from "../../models/workspace-sandboxes.js"
 import { getDesiredWorkspaceRevision } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
+import { SANDBOX_READ_GIT } from "./chat-runtime.js"
 import {
   restoredSessionBase,
-  rotateClosedSessionBranch,
+  rotateMergedSessionBranch,
 } from "./conversation-session-branch.js"
 import {
   sameWorkspaceBinding,
@@ -48,27 +49,6 @@ export async function updateConversationSandboxRevision(input: {
     })
     previousRevision = to
   }
-  const conversationId = row?.conversationId
-  if (conversationId) {
-    const rotated = await rotateClosedSessionBranch({
-      handle,
-      orgId: input.orgId,
-      conversationId,
-      desired,
-    }).catch((error: unknown) => {
-      log.warn({
-        step: "conversation-session-rotate",
-        message: `Checking the session branch's PR failed: ${String(error)}`,
-        conversationId,
-      })
-      return false
-    })
-    // The fresh branch starts on the desired commit.
-    if (rotated) {
-      await record(desired)
-      return {}
-    }
-  }
   // A sandbox restored from its session branch is recorded at the commit it
   // was created for; rebase from the commit the branch really builds on.
   const base = await restoredSessionBase({
@@ -83,6 +63,30 @@ export async function updateConversationSandboxRevision(input: {
   )
   if (!current || !sameWorkspaceRevision(current, desired))
     return { effective: previousRevision }
+  // The default moved, as a merged PR moves it: a merged session branch
+  // continues on a fresh one instead of being rebased.
+  const conversationId = row?.conversationId
+  if (conversationId) {
+    const rotation = await rotateMergedSessionBranch({
+      handle,
+      orgId: input.orgId,
+      conversationId,
+      desired,
+    }).catch((error: unknown) => {
+      log.warn({
+        step: "conversation-session-rotate",
+        message: `Checking the session branch's PR failed: ${String(error)}`,
+        conversationId,
+      })
+      return "kept" as const
+    })
+    if (rotation === "conflict")
+      return { effective: previousRevision, conflict: true }
+    if (rotation === "rotated") {
+      await record(desired)
+      return {}
+    }
+  }
   const moved = await advanceConversationWorktree({
     handle,
     from: previousRevision,
@@ -121,10 +125,10 @@ STATE=$(git rev-parse --git-path ctxpipe-revision-transition)
 BRANCH=$(git branch --show-current)
 test -n "$BRANCH"
 if ! git cat-file -e "$NEW_SHA^{commit}" 2>/dev/null; then
-  git -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f' fetch origin "$NEW_SHA"
+  ${SANDBOX_READ_GIT} fetch origin "$NEW_SHA"
 fi
 if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
-  git -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f' fetch --unshallow origin
+  ${SANDBOX_READ_GIT} fetch --unshallow origin
 fi
 # An interrupted/conflicting rebase remains available to the repair turn.
 if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ] || [ -n "$(git diff --name-only --diff-filter=U)" ]; then exit 42; fi
@@ -212,6 +216,7 @@ if [ -n "$STASH" ]; then
 fi
 PHASE=complete
 write_state
+git update-ref refs/remotes/ctxpipe/base "$NEW_SHA"
 )`,
     {
       signal: input.signal,

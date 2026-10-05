@@ -6,6 +6,7 @@ import { OpenAPIHono } from "@hono/zod-openapi"
 import type { StreamChunk } from "@tanstack/ai"
 import { defineSandbox, type SandboxHandle } from "@tanstack/ai-sandbox"
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
+import Docker from "dockerode"
 import { eq } from "drizzle-orm"
 import { expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
@@ -32,7 +33,7 @@ import {
 } from "../../test/native-hydration-fixture.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
 import {
-  CHAT_SANDBOX_RETENTION_MS,
+  CHAT_SANDBOX_DELETE_AFTER_MS,
   chatSessionBranchName,
 } from "./chat-lifecycle.js"
 import { workspaceChatDockerImage } from "./chat-runtime.js"
@@ -209,6 +210,13 @@ async function openSession(
     `/${f.org.slug}/api/v1/workspace-chat/openai`,
     workspaceChatOpenaiRoutes,
   )
+  const status = async () => {
+    const response = await app.request(
+      `/conversations/${conversationId}/files/status`,
+    )
+    expect(response.status).toBe(200)
+    return (await response.json()) as { unpushed: boolean }
+  }
   const post = (path: string, body?: unknown) =>
     app.request(`/conversations/${conversationId}/${path}`, {
       method: "POST",
@@ -231,6 +239,7 @@ async function openSession(
     remoteLog,
     humanCommit,
     advanceDefault,
+    status,
     commitPush: () => post("push"),
     createPr: (title: string) => post("pull-request", { title }),
     pullRequests,
@@ -310,10 +319,9 @@ async function withSession(
         vi.stubEnv("MODEL_FAST_NAME", "openai/gpt-5.6-terra")
         await run(f, s)
       } finally {
-        await new Promise<void>((resolve) => {
-          server.close(() => resolve())
-          server.closeAllConnections()
-        })
+        // The agent may still hold a streaming connection; never wait on it.
+        server.close()
+        server.closeAllConnections()
         await s.asUser(() => destroySandboxesForConversation(s.conversationId))
         await rm(workspaceChatOpenCodeHomeDir(s.conversationId), {
           recursive: true,
@@ -375,6 +383,8 @@ it(
     await withSession({}, async (f, s) => {
       let handle = await s.warm()
       await s.agentCommit(handle, "one.md", "Add note one")
+      // The Files status and the push agree on what GitHub lacks.
+      expect(await s.status()).toMatchObject({ unpushed: true })
       // A Files edit nobody committed.
       await handle.fs.write("files.md", "# Edited in Files\n")
       // A turn holds the conversation: both answer at once.
@@ -413,6 +423,32 @@ it(
         },
       })
       expect(s.remoteLog()).toBe("Chat changes\nAdd note one")
+      expect(await s.status()).toMatchObject({ unpushed: false })
+      // The agent went back to the default branch: the next push keeps the
+      // session's commits on GitHub.
+      expect((await handle.process.exec("git checkout -q main")).exitCode).toBe(
+        0,
+      )
+      await handle.fs.write("later.md", "# Later\n")
+      expect((await s.commitPush()).status).toBe(200)
+      expect(s.remoteLog()).toBe("Chat changes\nChat changes\nAdd note one")
+      // A failing commit answers a typed error; Git's own output stays in the log.
+      await handle.fs.write(
+        ".git/hooks/pre-commit",
+        "#!/bin/sh\necho SECRET-HOOK-OUTPUT >&2\nexit 1\n",
+      )
+      await handle.process.exec("chmod 700 .git/hooks/pre-commit")
+      await handle.fs.write("refused.md", "# Refused\n")
+      const refused = await s.commitPush()
+      const refusedBody = await refused.text()
+      expect({ status: refused.status, body: JSON.parse(refusedBody) }).toEqual(
+        {
+          status: 502,
+          body: { error: "push_failed" },
+        },
+      )
+      expect(refusedBody).not.toContain("SECRET-HOOK-OUTPUT")
+      await handle.process.exec("rm .git/hooks/pre-commit refused.md")
       // Create PR pushes the agent's unpushed commit and keeps every commit.
       await s.agentCommit(handle, "two.md", "Add note two")
       const created = await s.createPr("Write the notes")
@@ -430,8 +466,10 @@ it(
           title: "Write the notes",
         }),
       ])
-      expect(s.remoteLog()).toBe("Add note two\nChat changes\nAdd note one")
-      // Nothing to publish answers with a typed reason, not a raw error.
+      expect(s.remoteLog()).toBe(
+        "Add note two\nChat changes\nChat changes\nAdd note one",
+      )
+      // Nothing to publish answers with a typed reason.
       const nothing = await s.commitPush()
       expect({ status: nothing.status, body: await nothing.json() }).toEqual({
         status: 400,
@@ -439,6 +477,7 @@ it(
       })
       // Without a live sandbox Create PR uses the branch on GitHub.
       await s.asUser(() => destroySandboxesForConversation(s.conversationId))
+      expect((await s.createPr("Write the notes")).status).toBe(200)
       handle = await s.warm()
       expect(await handle.fs.read("two.md")).toBe("# Add note two\n")
       expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
@@ -465,23 +504,30 @@ it(
       // A person pushes to the session branch on GitHub.
       const human = await s.humanCommit(s.branch, "person.md", "# Person\n")
       await s.agentCommit(handle, "three.md", "Add note three")
-      expect((await s.commitPush()).status).toBe(200)
-      expect(s.remote("merge-base", "--is-ancestor", human, s.branch)).toBe("")
-      expect(s.remote("show", `${s.branch}:three.md`)).toBe("# Add note three")
-      // Even when the agent fetched that commit itself (the tracking ref
-      // matches GitHub), only the tip ctx| pushed may be replaced.
-      const again = await s.humanCommit(s.branch, "again.md", "# Again\n")
+      const refuse = async () => {
+        const response = await s.commitPush()
+        expect({
+          status: response.status,
+          body: await response.json(),
+        }).toEqual({ status: 409, body: { error: "session_moved" } })
+        expect(s.remote("rev-parse", s.branch)).toBe(human)
+      }
+      await refuse()
+      // Fetching alone (the tracking ref matches GitHub) is not enough.
+      const fetch = `git fetch -q origin +refs/heads/${s.branch}:refs/remotes/origin/${s.branch}`
+      expect((await handle.process.exec(fetch)).exitCode).toBe(0)
+      await refuse()
+      // The agent rebases onto it, as the tool tells it to: both survive.
       expect(
         (
           await handle.process.exec(
-            `git fetch -q origin +refs/heads/${s.branch}:refs/remotes/origin/${s.branch}`,
+            `git -c user.name=Agent -c user.email=agent@example.test rebase -q refs/remotes/origin/${s.branch}`,
           )
         ).exitCode,
       ).toBe(0)
-      await s.agentCommit(handle, "four.md", "Add note four")
       expect((await s.commitPush()).status).toBe(200)
-      expect(s.remote("merge-base", "--is-ancestor", again, s.branch)).toBe("")
-      expect(s.remote("show", `${s.branch}:four.md`)).toBe("# Add note four")
+      expect(s.remote("merge-base", "--is-ancestor", human, s.branch)).toBe("")
+      expect(s.remote("show", `${s.branch}:three.md`)).toBe("# Add note three")
       // A clean sandbox does no network work at all (GitHub unreachable).
       const away = `${f.remote}.away`
       await rename(f.remote, away)
@@ -534,115 +580,251 @@ it(
   },
 )
 
+const mergedPull = () => ({
+  number: 41,
+  head: { ref: "" },
+  state: "open",
+  merged_at: null as string | null,
+  html_url: "https://github.com/fixture/hydration-contract/pull/41",
+})
+
 it(
-  "moves to a fresh session branch from the current default once the PR is merged",
-  { timeout: 180_000 },
+  "keeps the branch after a closed PR and continues on a fresh branch, with unpushed work, once it is merged",
+  { timeout: 300_000 },
   async () => {
-    const pull = {
-      number: 41,
-      head: { ref: "" },
-      state: "open",
-      html_url: "https://github.com/fixture/hydration-contract/pull/41",
-    }
+    const pull = mergedPull()
     await withSession({ githubPullRequest: pull }, async (_f, s) => {
       pull.head.ref = s.branch
-      let handle = await s.warm()
+      const handle = await s.warm()
       await s.agentCommit(handle, "one.md", "Add note one")
       expect((await s.createPr("Add note one")).status).toBe(200)
-      // Merged as a squash: the default gains the content, not the commits.
+      // Closed without a merge: the branch stays, Create PR opens a new PR.
       pull.state = "closed"
+      await s.advanceDefault("other.md", "# Someone else\n")
+      await s.turn("Write note two", [
+        commitStep("two.md", "Add note two"),
+        pushTool,
+      ])
+      expect(await s.conversation()).toMatchObject({ lastBranch: s.branch })
+      expect(s.remoteLog()).toBe("Add note two\nAdd note one")
+      expect((await s.createPr("Notes")).status).toBe(200)
+      expect(s.pullRequests).toHaveLength(2)
+      // Merged as a squash; the agent made one more commit and did not push.
+      pull.state = "open"
+      await s.agentCommit(handle, "three.md", "Add note three")
+      pull.state = "closed"
+      pull.merged_at = "2026-10-05T00:00:00Z"
       await s.advanceDefault("one.md", "# Add note one\n")
-      handle = await s.warm()
+      // Never a second PR from a merged branch.
+      const again = await s.createPr("Notes")
+      expect({ status: again.status, body: await again.json() }).toEqual({
+        status: 409,
+        body: { error: "pr_merged" },
+      })
       const next = chatSessionBranchName(s.conversationId, 2)
-      expect(
-        (await handle.process.exec("git branch --show-current")).stdout,
-      ).toBe(`${next}\n`)
+      await s.turn("Publish it", [pushTool])
       expect(await s.conversation()).toMatchObject({
         lastBranch: next,
         lastChatPrNumber: null,
       })
+      expect(s.remoteLog(next)).toBe("Add note three")
+    })
+  },
+)
+
+it(
+  "carries the session branch's unpushed work to the fresh branch when the sandbox sits on the default branch",
+  { timeout: 300_000 },
+  async () => {
+    const pull = mergedPull()
+    await withSession({ githubPullRequest: pull }, async (_f, s) => {
+      pull.head.ref = s.branch
+      const handle = await s.warm()
+      await s.agentCommit(handle, "one.md", "Add note one")
+      expect((await s.createPr("Add note one")).status).toBe(200)
       await s.agentCommit(handle, "two.md", "Add note two")
-      expect((await s.commitPush()).status).toBe(200)
+      expect((await handle.process.exec("git checkout -q main")).exitCode).toBe(
+        0,
+      )
+      pull.state = "closed"
+      pull.merged_at = "2026-10-05T00:00:00Z"
+      await s.advanceDefault("one.md", "# Add note one\n")
+      const next = chatSessionBranchName(s.conversationId, 2)
+      await s.turn("Publish it", [pushTool])
+      expect(await s.conversation()).toMatchObject({ lastBranch: next })
       expect(s.remoteLog(next)).toBe("Add note two")
     })
   },
 )
 
 it(
-  "pushes committed work, never uncommitted files, before the sweep deletes a 30-day-old Docker sandbox",
-  { timeout: 180_000 },
+  "starts the fresh branch at the new default when everything was pushed before the merge",
+  { timeout: 300_000 },
   async () => {
-    await withSession({}, async (f, s) => {
-      const image = workspaceChatDockerImage()
-      const owner = {
-        orgId: f.org.id,
-        workspaceId: f.workspaceId,
-        conversationId: s.conversationId,
-        provider: "docker" as const,
-        image,
-        revision: { ...f.revision, access: "read" as const },
-      }
-      const definition = defineSandbox({
-        id: "conversation-branch-push-delete-proof",
-        provider: withConversationSandboxSlots(dockerSandbox({ image }), owner),
-        lifecycle: {
-          reuse: "thread",
-          snapshot: "none",
-          destroyOnComplete: false,
-        },
-      })
-      const ctx = {
-        threadId: s.conversationId,
-        runId: `run-${s.conversationId}`,
-        store: postgresSandboxInstanceStore(owner),
-        locks: postgresSandboxLocks(
-          f.org.id,
-          undefined,
-          `workspace-sandboxes:${f.workspaceId}`,
-        ),
-        tenant: { userId: undefined, orgId: f.org.id },
-      }
-      const handle = await definition.ensure(ctx)
-      try {
-        // The container cannot reach the fixture remote; hand it the history.
-        const bundle = join(f.directory, "main.bundle")
-        f.git("--git-dir", f.remote, "bundle", "create", "-q", bundle, "main")
-        await handle.fs.write(
-          "/tmp/main.bundle.b64",
-          (await readFile(bundle)).toString("base64"),
-        )
-        const prepared = await handle.process.exec(
-          `set -e
+    const pull = mergedPull()
+    await withSession({ githubPullRequest: pull }, async (_f, s) => {
+      pull.head.ref = s.branch
+      const handle = await s.warm()
+      await s.agentCommit(handle, "one.md", "Add note one")
+      expect((await s.createPr("Add note one")).status).toBe(200)
+      pull.state = "closed"
+      pull.merged_at = "2026-10-05T00:00:00Z"
+      const merged = await s.advanceDefault("one.md", "# Add note one\n")
+      const next = chatSessionBranchName(s.conversationId, 2)
+      await s.turn("Anything new?", [])
+      expect(
+        (await handle.process.exec("git branch --show-current")).stdout,
+      ).toBe(`${next}\n`)
+      expect((await handle.process.exec("git rev-parse HEAD")).stdout).toBe(
+        `${merged}\n`,
+      )
+      expect(await s.conversation()).toMatchObject({ lastBranch: next })
+    })
+  },
+)
+
+/** A Docker sandbox as chat creates it, holding Git work the remote lacks. */
+async function dockerSessionSandbox(
+  f: NativeHydrationFixture,
+  s: Session,
+  script: string,
+) {
+  const image = workspaceChatDockerImage()
+  const owner = {
+    orgId: f.org.id,
+    workspaceId: f.workspaceId,
+    conversationId: s.conversationId,
+    provider: "docker" as const,
+    image,
+    revision: { ...f.revision, access: "read" as const },
+  }
+  const definition = defineSandbox({
+    id: "conversation-branch-push-delete-proof",
+    provider: withConversationSandboxSlots(dockerSandbox({ image }), owner),
+    lifecycle: { reuse: "thread", snapshot: "none", destroyOnComplete: false },
+  })
+  const ctx = {
+    threadId: s.conversationId,
+    runId: `run-${s.conversationId}`,
+    store: postgresSandboxInstanceStore(owner),
+    locks: postgresSandboxLocks(
+      f.org.id,
+      undefined,
+      `workspace-sandboxes:${f.workspaceId}`,
+    ),
+    tenant: { userId: undefined, orgId: f.org.id },
+  }
+  const handle = await definition.ensure(ctx)
+  // The container cannot reach the fixture remote; hand it the history.
+  const bundle = join(f.directory, "main.bundle")
+  f.git("--git-dir", f.remote, "bundle", "create", "-q", bundle, "main")
+  await handle.fs.write(
+    "/tmp/main.bundle.b64",
+    (await readFile(bundle)).toString("base64"),
+  )
+  const prepared = await handle.process.exec(
+    `set -e
 base64 -d /tmp/main.bundle.b64 > /tmp/main.bundle
 git init -q -b main . && git fetch -q /tmp/main.bundle main && git checkout -q -B main FETCH_HEAD
-git checkout -q -b ${s.branch}
+git update-ref refs/remotes/ctxpipe/base HEAD
+${script}`,
+  )
+  expect(prepared).toMatchObject({ exitCode: 0 })
+  const row = await getSandboxInstance(definition.key(ctx), f.org.id)
+  if (!row?.providerSandboxId) throw new Error("Sandbox row missing")
+  const id = row.providerSandboxId
+  return {
+    row,
+    /** Stopped long ago, as the idle sweep leaves it. */
+    stop: async () => {
+      await new Docker({ timeout: 30_000 }).getContainer(id).stop({ t: 1 })
+      await withOrgDbContext(f.org.id, (db) =>
+        db
+          .update(workspaceSandboxInstances)
+          .set({ state: "stopped" })
+          .where(eq(workspaceSandboxInstances.id, row.id)),
+      )
+    },
+    destroy: () => definition.destroy(ctx).catch(() => undefined),
+  }
+}
+
+it(
+  "pushes committed work, never uncommitted files, before the sweep deletes a stopped Docker sandbox, after the default moved",
+  { timeout: 180_000 },
+  async () => {
+    await withSession({ chatAgent: true }, async (f, s) => {
+      const sandbox = await dockerSessionSandbox(
+        f,
+        s,
+        `git checkout -q -b ${s.branch}
 printf '# Committed\\n' > committed.md && git add committed.md
 git -c user.name=Agent -c user.email=agent@example.test commit -q -m "Agent commit"
 printf '# Draft\\n' > draft.md`,
-        )
-        expect(prepared).toMatchObject({ exitCode: 0 })
-        const row = await getSandboxInstance(definition.key(ctx), f.org.id)
-        if (!row) throw new Error("Sandbox row missing")
-        // Stopped long ago: the deletion starts it once to push.
-        await withOrgDbContext(f.org.id, (db) =>
-          db
-            .update(workspaceSandboxInstances)
-            .set({ state: "stopped" })
-            .where(eq(workspaceSandboxInstances.id, row.id)),
-        )
-        const expired = new Date(
-          row.lastHeartbeatAt.getTime() + CHAT_SANDBOX_RETENTION_MS + 60_000,
-        )
+      )
+      try {
+        await sandbox.stop()
+        // The Workspace moved on while the sandbox was stopped.
+        await s.advanceDefault("default.md", "# Default moved\n")
+        const lastUse = sandbox.row.lastHeartbeatAt.getTime()
+        // A stopped sandbox is due for deletion before its saved state expires.
         expect(
           await withTestLogger(() =>
-            sweepConversationSandboxes(f.org.id, expired),
+            sweepConversationSandboxes(f.org.id, new Date(lastUse + 60_000)),
+          ),
+        ).toMatchObject({
+          deleted: 0,
+          nextSweepAt: new Date(lastUse + CHAT_SANDBOX_DELETE_AFTER_MS),
+        })
+        expect(
+          await withTestLogger(() =>
+            sweepConversationSandboxes(
+              f.org.id,
+              new Date(lastUse + CHAT_SANDBOX_DELETE_AFTER_MS),
+            ),
           ),
         ).toMatchObject({ deleted: 1 })
         expect(s.remoteLog()).toBe("Agent commit")
         expect(s.remote("show", `${s.branch}:committed.md`)).toBe("# Committed")
         expect(() => s.remote("show", `${s.branch}:draft.md`)).toThrow()
       } finally {
-        await definition.destroy(ctx).catch(() => undefined)
+        await sandbox.destroy()
+      }
+    })
+  },
+)
+
+it(
+  "moves a deleted sandbox's commits to a fresh branch when someone else pushed to the session branch",
+  { timeout: 180_000 },
+  async () => {
+    await withSession({ chatAgent: true }, async (f, s) => {
+      s.remote("update-ref", `refs/heads/${s.branch}`, f.sha)
+      const foreign = await s.humanCommit(s.branch, "person.md", "# Person\n")
+      const sandbox = await dockerSessionSandbox(
+        f,
+        s,
+        `git checkout -q -b ${s.branch}
+printf '# Committed\\n' > committed.md && git add committed.md
+git -c user.name=Agent -c user.email=agent@example.test commit -q -m "Agent commit"`,
+      )
+      try {
+        await sandbox.stop()
+        const lastUse = sandbox.row.lastHeartbeatAt.getTime()
+        expect(
+          await withTestLogger(() =>
+            sweepConversationSandboxes(
+              f.org.id,
+              new Date(lastUse + CHAT_SANDBOX_DELETE_AFTER_MS),
+            ),
+          ),
+        ).toMatchObject({ deleted: 1 })
+        const next = chatSessionBranchName(s.conversationId, 2)
+        expect(s.remote("rev-parse", s.branch)).toBe(foreign)
+        expect(s.remoteLog(next)).toBe("Agent commit")
+        expect(await s.conversation()).toMatchObject({ lastBranch: next })
+      } finally {
+        await sandbox.destroy()
       }
     })
   },

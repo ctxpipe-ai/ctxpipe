@@ -15,6 +15,7 @@ import {
 } from "../../services/git/clone-tree.js"
 import { nativeGit, withGitDirectory } from "../../services/git/pack.js"
 import {
+  type ChatPublishBlock,
   conversationSessionBranch,
   isChatSessionBranch,
   mayForcePushBranch,
@@ -22,10 +23,11 @@ import {
 } from "./chat-lifecycle.js"
 import { workspaceAllowsConversationEdits } from "./chat-sandbox-policy.js"
 import {
-  ensureConversationSessionBranch,
   getConversationSandboxBinding,
   sanitizeGitRemoteError,
+  UNPUSHED_COMMITS_COMMAND,
 } from "./conversation-files.js"
+import { switchToSessionBranch } from "./conversation-session-branch.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
 import { resolveRepositoryReadCredential } from "./resolve-revision.js"
 import {
@@ -48,7 +50,9 @@ export function planCapturedConversationPublication(input: {
   writeStatus: string
   readOnlyReason?: string | null
   sandbox: ConversationSandboxBinding | null
-}): ReturnType<typeof planChatPullRequest> {
+}):
+  | { publish: true }
+  | { publish: false; reason: ChatPublishBlock | "stale_connection" } {
   if (input.sandbox?.githubConnectionId !== input.revision.remote.connectionId)
     return { publish: false, reason: "stale_connection" }
   return planChatPullRequest({
@@ -73,9 +77,6 @@ export function shellSingleQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`
 }
 
-/** Same read credential the sandbox setup uses; it can never push. */
-const SANDBOX_READ_CREDENTIAL = `-c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f'`
-
 const COMMIT_IDENTITY = {
   GIT_AUTHOR_NAME: "ctxpipe",
   GIT_AUTHOR_EMAIL: "workspace-chat@ctxpipe.local",
@@ -83,19 +84,35 @@ const COMMIT_IDENTITY = {
   GIT_COMMITTER_EMAIL: "workspace-chat@ctxpipe.local",
 }
 
-/**
- * Why nothing was published. Preflight reasons mirror the planner's
- * (`stale_*`, `read_only`, ...); the rest are named here.
- */
-export type SessionPublishSkip = string
+/** Why nothing was published (nothing reached GitHub). */
+export type SessionPublishSkip =
+  | ChatPublishBlock
+  | "missing_conversation"
+  | "missing_workspace"
+  | "read_only"
+  | "not_github"
+  | "missing_sandbox"
+  | "stale_connection"
+  /** The Workspace was relinked or lost write access meanwhile. */
+  | "stale_binding"
+  /** The session branch name would reach the default branch. */
+  | "default_branch"
+  /** The sandbox is on a branch that is not this conversation's. */
+  | "other_branch"
+  /** An option-D update is unfinished or a rebase is in progress. */
+  | "rebase_in_progress"
+  /** Only uncommitted files changed; a push publishes commits. */
+  | "nothing_committed"
+  /** The session branch is not on GitHub. */
+  | "no_changes"
 
 /** A publish that was attempted and did not reach GitHub. */
 export type SessionPublishFailure =
-  /** The session branch has commits that do not rebase cleanly under ours. */
+  /** The session branch has commits ctx| did not push; fetch and rebase. */
   | "session_moved"
   /** No write credential for the Workspace repository. */
   | "no_write_access"
-  /** GitHub or Git refused or failed the transfer. */
+  /** Git or GitHub failed the commit or the transfer. */
   | "push_failed"
 
 export type SessionPushResult =
@@ -104,30 +121,37 @@ export type SessionPushResult =
   | { status: "skipped"; reason: SessionPublishSkip }
   | { status: "failed"; reason: SessionPublishFailure }
 
-type PublishTarget = {
+/** Everything a publish needs, resolved once per request. */
+export type PublishTarget = {
+  orgId: string
+  conversationId: string
+  workspaceId: string
   revision: WorkspaceRevision
   repositoryName: string
   connectionId: string
   branch: string
   /** The tip ctx| last pushed; only that tip may be replaced. */
   pushedSha: string | null
+  /** A default-branch commit the sandbox builds on and GitHub has. */
+  baseSha: string
 }
 
 /**
- * Everything a publish needs before touching Git: the conversation is in the
- * Workspace, the Workspace accepts edits and is on GitHub, and (with a
- * sandbox) the sandbox is on the Workspace's current commit.
+ * The conversation is in the Workspace, the Workspace accepts edits and is on
+ * GitHub, and the sandbox is on the Workspace's current commit:
+ * - `required`: a push from a sandbox (agent tool, Commit+Push);
+ * - `if-live`: Create PR, which works without a sandbox;
+ * - `ignore`: the push before a deletion, from a sandbox that may predate the
+ *   current commit.
  */
-async function publishTarget(input: {
+export async function resolvePublishTarget(input: {
   orgId: string
   conversationId: string
   workspaceId: string
-  /** `required`: a turn's push; `if-live`: Create PR, which needs no sandbox. */
-  sandboxBinding: "required" | "if-live"
-  /** Create PR publishes the revision it started with, or nothing. */
-  expected?: WorkspaceRevision
+  sandbox: "required" | "if-live" | "ignore"
 }): Promise<
-  { ok: true; target: PublishTarget } | { ok: false; reason: string }
+  | { ok: true; target: PublishTarget }
+  | { ok: false; reason: SessionPublishSkip }
 > {
   const conversation = await getConversationSession(
     input.orgId,
@@ -149,76 +173,56 @@ async function publishTarget(input: {
   const connectionId = revision.remote.connectionId
   if (!repositoryName || !connectionId)
     return { ok: false, reason: "not_github" }
-  if (input.expected && !sameWorkspaceRevision(revision, input.expected))
-    return { ok: false, reason: "stale_binding" }
-  const sandbox = await getConversationSandboxBinding(
-    input.conversationId,
-    revision,
-  )
-  if (!sandbox && input.sandboxBinding === "required")
-    return { ok: false, reason: "missing_sandbox" }
-  if (sandbox) {
-    // A sandbox left on an older commit (a conflicted update) waits for the
-    // agent to rebase it before anything is published.
-    const planned = planCapturedConversationPublication({
+  if (input.sandbox !== "ignore") {
+    const sandbox = await getConversationSandboxBinding(
+      input.conversationId,
       revision,
-      writeStatus: admission.writeStatus,
-      readOnlyReason: admission.readOnlyReason,
-      sandbox,
-    })
-    if (!planned.publish) return { ok: false, reason: planned.reason }
+    )
+    if (!sandbox && input.sandbox === "required")
+      return { ok: false, reason: "missing_sandbox" }
+    if (sandbox) {
+      // A sandbox left on an older commit (a conflicted update) waits for the
+      // agent to rebase it before anything is published.
+      const planned = planCapturedConversationPublication({
+        revision,
+        writeStatus: admission.writeStatus,
+        readOnlyReason: admission.readOnlyReason,
+        sandbox,
+      })
+      if (!planned.publish) return { ok: false, reason: planned.reason }
+    }
   }
-  const branch = conversationSessionBranch(
-    input.conversationId,
-    conversation.lastBranch,
-  )
-  if (!mayForcePushBranch(branch, revision.defaultBranch))
-    return { ok: false, reason: "default_branch" }
   return {
     ok: true,
     target: {
+      orgId: input.orgId,
+      conversationId: input.conversationId,
+      workspaceId: input.workspaceId,
       revision,
       repositoryName,
       connectionId,
-      branch,
+      branch: conversationSessionBranch(
+        input.conversationId,
+        conversation.lastBranch,
+      ),
       pushedSha: conversation.lastPushedSha,
+      baseSha: revision.sha,
     },
   }
 }
 
-/**
- * Create PR's first check: the Workspace accepts edits on GitHub and a live
- * sandbox (if any) is on its current commit. Returns the revision the rest of
- * Create PR must still find.
- */
-export async function conversationPublishPreflight(input: {
-  orgId: string
-  conversationId: string
-  workspaceId: string
-}): Promise<
-  { ok: true; revision: WorkspaceRevision } | { ok: false; reason: string }
-> {
-  const planned = await publishTarget({ ...input, sandboxBinding: "if-live" })
-  return planned.ok ? { ok: true, revision: planned.target.revision } : planned
-}
-
 /** Re-checked right before a push: nothing relinked the Workspace meanwhile. */
-async function assertStillBound(input: {
-  orgId: string
-  conversationId: string
-  workspaceId: string
-  revision: WorkspaceRevision
-}): Promise<void> {
+async function assertStillBound(target: PublishTarget): Promise<void> {
   const conversation = await getConversationSession(
-    input.orgId,
-    input.conversationId,
+    target.orgId,
+    target.conversationId,
   )
-  const current = await getWorkspaceWriteAdmission(input.workspaceId)
+  const current = await getWorkspaceWriteAdmission(target.workspaceId)
   if (
-    conversation?.workspaceId !== input.workspaceId ||
+    conversation?.workspaceId !== target.workspaceId ||
     !current ||
     !sameWorkspaceRevision(current.revision, {
-      ...input.revision,
+      ...target.revision,
       access: current.revision.access,
     }) ||
     !workspaceAllowsConversationEdits(
@@ -226,12 +230,12 @@ async function assertStillBound(input: {
       current.readOnlyReason,
     )
   )
-    throw new BindingChanged()
+    throw new PublishRefused("stale_binding")
 }
 
-class BindingChanged extends Error {
-  constructor() {
-    super("Conversation write binding changed before push")
+class PublishRefused extends Error {
+  constructor(readonly reason: SessionPublishSkip) {
+    super(`Conversation publish refused: ${reason}`)
   }
 }
 
@@ -241,9 +245,9 @@ type SandboxSessionState =
 
 /**
  * Local only, no network: the sandbox's branch, whether its files changed,
- * and whether HEAD has commits no remote-tracking ref knows. A rebase in
- * progress (a conflicted option-D update the agent is repairing) blocks;
- * a completed update's marker does not.
+ * and whether it has commits GitHub lacks (the same test the Files status
+ * uses). An unfinished option-D update or a rebase in progress blocks; a
+ * completed update's marker does not.
  */
 async function readSandboxSessionState(
   handle: JobSandboxHandle,
@@ -254,15 +258,13 @@ T=$(git rev-parse --git-path ctxpipe-revision-transition)
 if [ -z "$B" ] || [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ] || { [ -f "$T" ] && [ "$(sed -n 5p "$T")" != complete ]; } || [ -n "$(git diff --name-only --diff-filter=U)" ]; then echo blocked; exit 0; fi
 printf 'branch %s\\n' "$B"
 [ -z "$(git status --porcelain --untracked-files=all)" ] || echo dirty
-[ -z "$(git rev-list -n 1 HEAD --not --remotes)" ] || echo unpushed`,
+[ -z "$(${UNPUSHED_COMMITS_COMMAND})" ] || echo unpushed`,
     { env: {} },
   )
-  if (result.exitCode !== 0)
-    throw new Error("Cannot read the sandbox Git state")
   const lines = result.stdout.split("\n")
-  if (lines.includes("blocked")) return { blocked: true }
   const branch = lines.find((line) => line.startsWith("branch "))?.slice(7)
-  if (!branch) return { blocked: true }
+  if (result.exitCode !== 0 || lines.includes("blocked") || !branch)
+    return { blocked: true }
   return {
     blocked: false,
     branch,
@@ -274,112 +276,99 @@ printf 'branch %s\\n' "$B"
 /**
  * Push the sandbox's commits to the conversation's session branch. The
  * sandbox only hands over Git objects; this process holds the read and write
- * tokens. The agent pushes through its workspace tool when it decides to;
- * people push with Commit+Push (`commit`: uncommitted files are committed
- * first); Create PR and the 30-day deletion push what is committed.
+ * tokens. Used by the agent's push tool, Commit+Push (`commit`: uncommitted
+ * files are committed first), Create PR and the push before a deletion.
  *
- * A clean sandbox whose HEAD every remote-tracking ref already covers does no
- * network or database work. The remote tip is replaced only when it is the
- * tip ctx| last pushed (its own history, rebased onto a moved default);
- * commits someone else pushed are fetched and the sandbox's work is rebased
- * onto them instead.
+ * A clean sandbox with nothing unpushed does no network or database work.
+ * The remote tip is replaced only when it is the tip ctx| pushed last (its
+ * own history, rebased onto a moved default); anything else on the branch
+ * that HEAD lacks answers `session_moved`.
  */
 export async function pushConversationSession(input: {
   handle: JobSandboxHandle
-  conversationId: string
   orgId: string
+  conversationId: string
   workspaceId: string
   env: Env
-  /** Commit+Push: commit uncommitted files with this subject first. */
   commit?: { subject: string }
-  /** `if-live`: the deletion's last push, from a sandbox no longer current. */
-  sandboxBinding?: "required" | "if-live"
+  /** Resolved by a caller that already checked it. */
+  target?: PublishTarget
 }): Promise<SessionPushResult> {
-  const state = await readSandboxSessionState(input.handle)
-  if (state.blocked) return { status: "skipped", reason: "rebase_in_progress" }
-  const committing = state.dirty && Boolean(input.commit)
-  if (!committing && !state.unpushed)
-    return state.dirty
-      ? { status: "skipped", reason: "nothing_committed" }
-      : { status: "unchanged" }
-  const planned = await publishTarget({
-    ...input,
-    sandboxBinding: input.sandboxBinding ?? "required",
-  })
-  if (!planned.ok) return { status: "skipped", reason: planned.reason }
-  const { target } = planned
-  if (state.branch === target.revision.defaultBranch)
-    await ensureConversationSessionBranch({
-      handle: input.handle,
-      branch: target.branch,
-      defaultBranch: target.revision.defaultBranch,
-    })
-  else if (state.branch !== target.branch)
-    return { status: "skipped", reason: "other_branch" }
-  if (committing && input.commit) {
-    const committed = await input.handle.exec(
-      `git add -A && git commit -q -m ${shellSingleQuote(input.commit.subject)}`,
-      { env: COMMIT_IDENTITY },
+  try {
+    const state = await readSandboxSessionState(input.handle)
+    if (state.blocked)
+      return { status: "skipped", reason: "rebase_in_progress" }
+    const committing = state.dirty && Boolean(input.commit)
+    if (!committing && !state.unpushed)
+      return state.dirty
+        ? { status: "skipped", reason: "nothing_committed" }
+        : { status: "unchanged" }
+    const resolved = input.target
+      ? ({ ok: true, target: input.target } as const)
+      : await resolvePublishTarget({ ...input, sandbox: "required" })
+    if (!resolved.ok) return { status: "skipped", reason: resolved.reason }
+    const { target } = resolved
+    if (
+      !(await switchToSessionBranch({
+        handle: input.handle,
+        branch: target.branch,
+        defaultBranch: target.revision.defaultBranch,
+      }))
     )
-    if (committed.exitCode !== 0)
-      throw new Error(
-        committed.stderr || "Cannot commit the conversation files",
+      throw new Error("Cannot check out the session branch")
+    const current = await input.handle.exec("git branch --show-current", {
+      env: {},
+    })
+    if (current.stdout.trim() !== target.branch)
+      return { status: "skipped", reason: "other_branch" }
+    if (committing && input.commit) {
+      const committed = await input.handle.exec(
+        `git add -A && git commit -q -m ${shellSingleQuote(input.commit.subject)}`,
+        { env: COMMIT_IDENTITY },
       )
+      if (committed.exitCode !== 0)
+        throw new Error(
+          `Cannot commit the conversation files: ${committed.stderr}`,
+        )
+    }
+    return await brokerPush({
+      handle: input.handle,
+      env: input.env,
+      target,
+    })
+  } catch (error) {
+    if (error instanceof PublishRefused)
+      return { status: "skipped", reason: error.reason }
+    log.warn({
+      step: "conversation-session-push",
+      message: error instanceof Error ? error.message : String(error),
+      conversationId: input.conversationId,
+    })
+    return { status: "failed", reason: "push_failed" }
   }
-  return brokerPush({ ...input, target })
 }
 
 async function brokerPush(input: {
   handle: JobSandboxHandle
-  conversationId: string
-  orgId: string
-  workspaceId: string
   env: Env
   target: PublishTarget
 }): Promise<SessionPushResult> {
   const { handle, target } = input
   const { revision, branch } = target
   const run = (command: string) => handle.exec(command, { env: {} })
-  const head = async () => {
-    const result = await run("git rev-parse HEAD")
-    if (result.exitCode !== 0)
-      throw new Error("Cannot capture the conversation commit")
-    return gitObjectIdSchema.parse(result.stdout.trim())
-  }
-  const isAncestor = async (ancestor: string, of: string) =>
-    (
-      await run(
-        `git merge-base --is-ancestor ${shellSingleQuote(ancestor)} ${shellSingleQuote(of)}`,
-      )
-    ).exitCode === 0
   const agentPack = `.git/ctxpipe-publish-${randomUUID()}.pack`
   let readToken: string | undefined
   let writeToken: string | undefined
   try {
     readToken = await resolveRepositoryReadCredential({
-      orgId: input.orgId,
+      orgId: target.orgId,
       env: input.env,
       remote: revision.remote,
     })
-    const defaultTip = await resolveGitRemoteTip({
-      url: revision.remote.url,
-      token: readToken,
-    })
-    if (
-      defaultTip?.branch !== revision.defaultBranch ||
-      defaultTip.branch === branch ||
-      !isChatSessionBranch(branch)
-    )
-      return { status: "skipped", reason: "default_branch" }
-    let sha = await head()
-    if (sha === revision.sha || sha === defaultTip.sha) {
-      // Nothing of the session's own: remember the commit so the next clean
-      // turn stays local.
-      await run(
-        `git update-ref refs/remotes/ctxpipe/default ${shellSingleQuote(sha)}`,
-      )
-      return { status: "unchanged" }
-    }
+    const head = await run("git rev-parse HEAD")
+    if (head.exitCode !== 0)
+      throw new Error("Cannot capture the conversation commit")
+    const sha = gitObjectIdSchema.parse(head.stdout.trim())
     const remote = (
       await resolveGitRemoteTip({
         url: revision.remote.url,
@@ -387,46 +376,35 @@ async function brokerPush(input: {
         token: readToken,
       })
     )?.sha
-    const tracking = (
-      await run(
-        `git rev-parse -q --verify ${shellSingleQuote(`refs/remotes/origin/${branch}`)}`,
-      )
-    ).stdout.trim()
-    if (remote && (remote !== tracking || remote !== target.pushedSha)) {
-      // The branch moved without this sandbox (a push on GitHub, or from an
-      // earlier sandbox of this conversation): build on it, never over it. Only a remote tip that
-      // ctx| pushed itself is replaced, after an option-D rebase.
-      if (!(await adoptRemoteSessionTip(handle, branch, target.pushedSha)))
-        return { status: "failed", reason: "session_moved" }
-      sha = await head()
-    }
-    if (remote && sha === remote) {
-      await recordConversationSessionPush({
-        orgId: input.orgId,
-        conversationId: input.conversationId,
-        branch,
-        sha,
-      })
+    if (remote === sha) {
+      await recordConversationSessionPush({ ...target, sha })
       return { status: "unchanged" }
     }
-    const fastForward = !remote || (await isAncestor(remote, sha))
+    const fastForward =
+      remote !== undefined &&
+      (
+        await run(
+          `git merge-base --is-ancestor ${shellSingleQuote(remote)} ${shellSingleQuote(sha)}`,
+        )
+      ).exitCode === 0
+    // Replacing the remote tip is only for the tip ctx| pushed itself, after
+    // an option-D rebase. Anything else the agent must fetch and rebase onto.
+    if (remote && !fastForward && remote !== target.pushedSha)
+      return { status: "failed", reason: "session_moved" }
+    // Never replace the session's commits with a branch that has none.
+    if (
+      remote &&
+      !fastForward &&
+      (
+        await run(
+          `git merge-base --is-ancestor ${shellSingleQuote(sha)} ${shellSingleQuote(target.baseSha)}`,
+        )
+      ).exitCode === 0
+    )
+      return { status: "skipped", reason: "no_changes" }
     // The commit the broker fetches from GitHub to apply the sandbox's delta:
-    // the session tip, the Workspace's commit, or (for an older sandbox) the
-    // default-branch commit it was created on.
-    const localDefault = (
-      await run(
-        `git merge-base HEAD ${shellSingleQuote(`refs/heads/${revision.defaultBranch}`)}`,
-      )
-    ).stdout.trim()
-    const packBase =
-      remote && fastForward
-        ? remote
-        : (await isAncestor(revision.sha, sha))
-          ? revision.sha
-          : /^[0-9a-f]{40,64}$/.test(localDefault)
-            ? localDefault
-            : undefined
-    if (!packBase) return { status: "failed", reason: "session_moved" }
+    // the remote tip it builds on, else the default commit it builds on.
+    const packBase = fastForward && remote ? remote : target.baseSha
     const packed = await run(
       `printf '%s\\n' ${shellSingleQuote(sha)} ${shellSingleQuote(`^${packBase}`)} | git pack-objects --stdout --revs --thin > ${shellSingleQuote(agentPack)}`,
     )
@@ -440,7 +418,7 @@ async function brokerPush(input: {
       packBytes <= 0
     )
       throw new Error("Invalid conversation Git pack size")
-    writeToken = await getRepoWriteCloneToken(input.orgId, input.env, {
+    writeToken = await getRepoWriteCloneToken(target.orgId, input.env, {
       githubConnectionId: target.connectionId,
       repoFullName: target.repositoryName,
     })
@@ -482,17 +460,20 @@ async function brokerPush(input: {
         file: localPack,
       })
       await nativeGit(directory, ["cat-file", "-e", `${sha}^{commit}`])
-      // The write token must never reach a branch that became the default.
+      // The write token only ever reaches this conversation's session branch,
+      // never a branch that is (or became) the default.
       const latestDefault = await resolveGitRemoteTip({
         url: revision.remote.url,
         token,
       })
       if (
+        !isChatSessionBranch(branch) ||
+        !mayForcePushBranch(branch, revision.defaultBranch) ||
         latestDefault?.branch !== revision.defaultBranch ||
         latestDefault.branch === branch
       )
-        throw new BindingChanged()
-      await assertStillBound({ ...input, revision })
+        throw new PublishRefused("default_branch")
+      await assertStillBound(target)
       await nativeGit(
         directory,
         [
@@ -510,22 +491,11 @@ async function brokerPush(input: {
     await run(
       `git update-ref ${shellSingleQuote(`refs/remotes/origin/${branch}`)} ${shellSingleQuote(sha)}`,
     )
-    await recordConversationSessionPush({
-      orgId: input.orgId,
-      conversationId: input.conversationId,
-      branch,
-      sha,
-    })
+    await recordConversationSessionPush({ ...target, sha })
     return { status: "pushed", branch, sha }
   } catch (error) {
-    if (error instanceof BindingChanged)
-      return { status: "skipped", reason: "stale_binding" }
-    log.warn({
-      step: "conversation-session-push",
-      message: sanitizeCredentials(error, [readToken, writeToken]),
-      conversationId: input.conversationId,
-    })
-    return { status: "failed", reason: "push_failed" }
+    if (error instanceof PublishRefused) throw error
+    throw new Error(sanitizeCredentials(error, [readToken, writeToken]))
   } finally {
     await run(`rm -f -- ${shellSingleQuote(agentPack)}`)
   }
@@ -541,67 +511,23 @@ function sanitizeCredentials(
   return message
 }
 
-/**
- * Move the sandbox onto the session branch's remote tip, keeping the commits
- * it has not pushed: they are rebased onto that tip. The sandbox fetches with
- * its own read credential. False when they do not apply cleanly.
- */
-async function adoptRemoteSessionTip(
-  handle: JobSandboxHandle,
-  branch: string,
-  /** The tip ctx| last pushed: the sandbox's work since then is replayed. */
-  pushedSha: string | null,
+/** Create PR without a sandbox: whether the session branch is on GitHub. */
+export async function sessionBranchOnGithub(
+  target: PublishTarget,
+  env: Env,
 ): Promise<boolean> {
-  const result = await handle.exec(
-    `set -u
-OLD=
-for C in "$PUSHED" "$(git rev-parse -q --verify "refs/remotes/origin/$SESSION" || true)"; do
-  if [ -n "$C" ] && git cat-file -e "$C^{commit}" 2>/dev/null && git merge-base --is-ancestor "$C" HEAD; then OLD=$C; break; fi
-done
-git ${SANDBOX_READ_CREDENTIAL} fetch -q --depth 1 origin "+refs/heads/$SESSION:refs/remotes/origin/$SESSION" || exit 42
-NEW=$(git rev-parse "refs/remotes/origin/$SESSION")
-if [ -n "$OLD" ]; then
-  git rebase -q --onto "$NEW" "$OLD" || { git rebase --abort; exit 42; }
-elif [ "$(git rev-parse 'HEAD^{tree}')" = "$(git rev-parse "$NEW^{tree}")" ]; then
-  git reset -q --soft "$NEW"
-else
-  exit 42
-fi`,
-    { env: { ...COMMIT_IDENTITY, SESSION: branch, PUSHED: pushedSha ?? "" } },
-  )
-  return result.exitCode === 0
-}
-
-/**
- * Create PR: the session branch as it is on GitHub (the agent's commits are
- * kept). Checks the revision Create PR started with is still the Workspace's.
- */
-export async function publishedSessionBranch(input: {
-  conversationId: string
-  orgId: string
-  workspaceId: string
-  env: Env
-  expected: WorkspaceRevision
-}): Promise<
-  | { status: "published"; branch: string }
-  | { status: "skipped"; reason: SessionPublishSkip }
-> {
-  const planned = await publishTarget({ ...input, sandboxBinding: "if-live" })
-  if (!planned.ok) return { status: "skipped", reason: planned.reason }
-  const { revision, branch } = planned.target
   const readToken = await resolveRepositoryReadCredential({
-    orgId: input.orgId,
-    env: input.env,
-    remote: revision.remote,
+    orgId: target.orgId,
+    env,
+    remote: target.revision.remote,
   })
-  const tip = await resolveGitRemoteTip({
-    url: revision.remote.url,
-    branch,
-    token: readToken,
-  })
-  return tip
-    ? { status: "published", branch }
-    : { status: "skipped", reason: "no_changes" }
+  return Boolean(
+    await resolveGitRemoteTip({
+      url: target.revision.remote.url,
+      branch: target.branch,
+      token: readToken,
+    }),
+  )
 }
 
 export function conversationGithubTreeUrl(input: {
