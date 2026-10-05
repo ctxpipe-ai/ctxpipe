@@ -17,3 +17,5 @@ Updated: 2026-10-04. Tickets are implemented by sub-agents in separate worktrees
 | — | 10 | [Flaky SCIP indexer serialization test](issues/10-scip-indexer-test-flake.md) | done | P2 | claude | — |
 | — | 11 | [Add a second Workspace from the UI](issues/11-add-workspace-entry-point.md) | done | P1 | claude | — |
 | — | 13 | [Show knowledge files skipped as malformed on the Workspace page](issues/13-skipped-files-notice.md) | done | P2 | claude | — |
+| — | 14 | [Extraction capture over 8 MiB fails ingestion](issues/14-extraction-capture-size.md) | in-progress (B + D) | P0 | claude (orchestrating) | — |
+| — | 15 | [A chat turn can send its final message but never finish](issues/15-turn-finish-hang.md) | plan-review | P1 | unassigned | — |
