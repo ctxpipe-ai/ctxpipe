@@ -259,13 +259,22 @@ async function runTraversal(
   const maxDepth = (params.maxDepth as number | undefined) ?? depthLimit
   const useExtensionLayer = step.type === "extension_traversal"
 
-  // Phase 1 ran hybrid search before this phase, so its hits are known here.
+  // Phase 1 ran hybrid search before this phase, so its hits and their
+  // scores are known here. The question sets the intent of the walk.
   const result = await graphTraversal(orgId, orgSlug, startId, {
     maxDepth,
     limit: resultLimit,
     useExtensionLayer,
-    preferIds: (state.hybridResults ?? []).flatMap((r) =>
-      typeof r.objectId === "string" ? [r.objectId] : [],
+    query: state.query,
+    searchHits: (state.hybridResults ?? []).flatMap((r) =>
+      typeof r.objectId === "string"
+        ? [
+            {
+              id: r.objectId,
+              score: typeof r.score === "number" ? r.score : undefined,
+            },
+          ]
+        : [],
     ),
   })
 

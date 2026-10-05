@@ -60,19 +60,69 @@ describe("graphTraversal query dialect", () => {
 
     const query = String(executeQueryMock.mock.calls[0]?.[0])
     expect(query).toContain(
-      "type(rel) IN ['REFERENCES','MENTIONS','INFLUENCES','SUPERSEDES','OWNS','DECLARED_IN','TARGETS','ADDED','MODIFIED','REMOVED','RENAMED']",
+      "type(rel) IN ['REFERENCES','MENTIONS','INFLUENCES','SUPERSEDES','OWNS','DECLARED_IN','TARGETS','CHANGED','ADDED','MODIFIED','REMOVED','RENAMED']",
     )
     expect(query).not.toContain("'PART_OF'")
   })
 
-  it("sends the search hits, so the query can keep them first at equal trust", async () => {
+  it("sends the search hits, so the per-type slice keeps them, unless the search signal is off", async () => {
     await graphTraversal("org_1", "acme", "obj_start", {
-      preferIds: ["obj_hit"],
+      searchHits: [{ id: "obj_hit", score: 0.03 }],
+    })
+    await graphTraversal("org_1", "acme", "obj_start", {
+      searchHits: [{ id: "obj_hit", score: 0.03 }],
+      weights: { search: 0 },
     })
 
     expect(executeQueryMock.mock.calls[0]?.[1]).toMatchObject({
-      preferIds: ["obj_hit"],
+      searchIds: ["obj_hit"],
     })
+    expect(executeQueryMock.mock.calls[1]?.[1]).toMatchObject({
+      searchIds: [],
+    })
+  })
+
+  it("fetches a wider slice per relation type than the hop keeps, so the score can reorder it", async () => {
+    await graphTraversal("org_1", "acme", "obj_start", { limit: 5 })
+    await graphTraversal("org_1", "acme", "obj_start", { limit: 20 })
+    await graphTraversal("org_1", "acme", "obj_start", { limit: 100 })
+
+    expect(executeQueryMock.mock.calls.map((call) => call[1]?.perType)).toEqual(
+      [40, 80, 200],
+    )
+  })
+
+  it("reads the degree of the reached nodes in one more query, and not when specificity is off", async () => {
+    const row = (toId: string) => ({
+      get: (key: string) =>
+        ({
+          toId,
+          toKind: "File",
+          predicate: "PART_OF",
+          claimId: `clm_${toId}`,
+        })[key] ?? null,
+    })
+    executeQueryMock.mockResolvedValueOnce({
+      records: [row("file_a"), row("file_b"), row("file_a")],
+    })
+    await graphTraversal("org_1", "acme", "svc", { maxDepth: 1 })
+
+    expect(executeQueryMock).toHaveBeenCalledTimes(2)
+    const query = String(executeQueryMock.mock.calls[1]?.[0])
+    expect(query).toContain("b.id IN $ids AND b.orgId = $orgId")
+    expect(query).toContain("count(x) AS degree")
+    expect(executeQueryMock.mock.calls[1]?.[1]).toEqual({
+      ids: ["file_a", "file_b"],
+      orgId: "org_1",
+    })
+
+    executeQueryMock.mockClear()
+    executeQueryMock.mockResolvedValueOnce({ records: [row("file_a")] })
+    await graphTraversal("org_1", "acme", "svc", {
+      maxDepth: 1,
+      weights: { specificity: 0 },
+    })
+    expect(executeQueryMock).toHaveBeenCalledTimes(1)
   })
 
   it("gives the start node with the reached nodes, so each end of a kept claim is readable", async () => {
@@ -120,6 +170,15 @@ describe("graphTraversal query dialect", () => {
       },
     ])
     expect(result.edgeClaimIds).toEqual(["clm_1"])
+    expect(result.edges).toEqual([
+      {
+        claimId: "clm_1",
+        toId: "pr_1",
+        predicate: "TARGETS",
+        score: expect.any(Number),
+        signals: expect.objectContaining({ truth: 0.5 }),
+      },
+    ])
   })
 })
 
@@ -127,13 +186,21 @@ describe("pickRoundRobin", () => {
   const e = (
     predicate: string,
     toId: string,
-    trust: number,
+    score: number,
     more: Partial<HopEdge> = {},
   ): HopEdge => ({
     to: { id: toId, kind: null, name: null, status: null, summary: null },
     predicate,
     claimId: `clm_${toId}`,
-    trust,
+    trust: score,
+    score,
+    signals: {
+      truth: score,
+      authority: 1,
+      search: 0.5,
+      recency: 1,
+      specificity: 1,
+    },
     validFrom: null,
     preferred: false,
     ...more,
@@ -157,7 +224,7 @@ describe("pickRoundRobin", () => {
     ])
   })
 
-  it("takes the most trusted edges within a type", () => {
+  it("takes the highest scores within a type", () => {
     const edges = [
       e("DEPENDS_ON", "weak", 0.6),
       e("DEPENDS_ON", "strong", 0.95),
@@ -167,8 +234,9 @@ describe("pickRoundRobin", () => {
     expect(ids(pickRoundRobin(edges, 2))).toEqual(["strong", "middle"])
   })
 
-  it("gives the four file change types one turn together, so pull request changes do not take four turns", () => {
+  it("gives the change types one turn together, so pull request changes do not take five turns", () => {
     const edges = [
+      e("CHANGED", "svc_changed", 0.95),
       e("ADDED", "file_added", 0.95),
       e("MODIFIED", "file_modified", 0.95),
       e("REMOVED", "file_removed", 0.95),
@@ -181,10 +249,12 @@ describe("pickRoundRobin", () => {
 
     expect(picked).toContain("issue")
     expect(picked).toContain("adr_file")
-    expect(picked.filter((id) => id.startsWith("file_"))).toHaveLength(1)
+    expect(
+      picked.filter((id) => id.startsWith("file_") || id.startsWith("svc_")),
+    ).toHaveLength(1)
   })
 
-  it("at equal trust, keeps search hits first, then the newest valid_from, then open-ended edges", () => {
+  it("at equal score, keeps search hits first, then the newest valid_from, then open-ended edges", () => {
     const edges = [
       e("TARGETS", "pr_open", 0.95, { claimId: "clm_a" }),
       e("TARGETS", "pr_old", 0.95, {
@@ -222,5 +292,56 @@ describe("pickRoundRobin", () => {
     const expected = ["file_digit", "file_upper", "file_lower"]
     expect(ids(pickRoundRobin(edges, 3))).toEqual(expected)
     expect(ids(pickRoundRobin([...edges].reverse(), 3))).toEqual(expected)
+  })
+
+  it("gives a family as many edges per round as its turns, and every other family still one", () => {
+    const edges = [
+      ...["a", "b", "c", "d"].map((x) => e("PART_OF", `file_${x}`, 0.95)),
+      ...["a", "b", "c", "d"].map((x) => e("OWNS", `team_${x}`, 0.9)),
+      e("INFLUENCES", "adr", 0.8),
+    ]
+
+    expect(ids(pickRoundRobin(edges, 6, { OWNS: 3 }))).toEqual([
+      "file_a",
+      "team_a",
+      "team_b",
+      "team_c",
+      "adr",
+      "file_b",
+    ])
+    expect(ids(pickRoundRobin(edges, 6))).toEqual([
+      "file_a",
+      "team_a",
+      "adr",
+      "file_b",
+      "team_b",
+      "file_c",
+    ])
+  })
+
+  it("counts turns for the change family as one family", () => {
+    const edges = [
+      e("CHANGED", "pr_1", 0.95),
+      e("MODIFIED", "pr_2", 0.94),
+      e("ADDED", "pr_3", 0.93),
+      e("PART_OF", "file_a", 0.99),
+      e("PART_OF", "file_b", 0.99),
+    ]
+
+    expect(ids(pickRoundRobin(edges, 4, { CHANGED: 3 }))).toEqual([
+      "file_a",
+      "pr_1",
+      "pr_2",
+      "pr_3",
+    ])
+  })
+
+  it("orders by score, not by path truth", () => {
+    const edges = [
+      e("TARGETS", "pr_old", 0.2, { trust: 0.95 }),
+      e("TARGETS", "pr_new", 0.6, { trust: 0.9 }),
+    ]
+
+    expect(ids(pickRoundRobin(edges, 2))).toEqual(["pr_new", "pr_old"])
   })
 })

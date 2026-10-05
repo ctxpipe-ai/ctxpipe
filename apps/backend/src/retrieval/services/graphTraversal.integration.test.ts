@@ -446,7 +446,11 @@ describe.skipIf(!graphUri)("graph traversal evaluation (FalkorDB)", () => {
     const result = await traverse(orgId, "svc_billing", {
       maxDepth: 1,
       limit: 5,
-      preferIds: ["iu_217", "iu_42", "obj_not_in_graph"],
+      searchHits: [
+        { id: "iu_217", score: 0.03 },
+        { id: "iu_42", score: 0.02 },
+        { id: "obj_not_in_graph", score: 0.01 },
+      ],
     })
 
     expect(result.nodeIds).toEqual(expect.arrayContaining(["iu_217", "iu_42"]))
