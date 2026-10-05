@@ -6,7 +6,7 @@ import {
 } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
 import {
-  orgsNeedingSweep,
+  orgsWithSandboxes,
   sweepConversationSandboxes,
 } from "./conversation-sandbox-lifecycle.js"
 import {
@@ -18,35 +18,31 @@ import {
 /**
  * Keep a self-hosted Docker host from filling up with what no org's sweep
  * chain will remove. Runs once per sweep window on Docker deployments.
- * - Orgs with a conversation sandbox past 30 days, a failed delete, or a base
- *   cleanup may delete are swept now: their chain may have ended (dormant
- *   orgs). Stock containers carry no labels, so this works from
+ * - Every org with a sandbox row is swept now: its chain may have ended (a
+ *   dormant org). Stock containers carry no labels, so this works from
  *   `provider_sandbox_id`.
- * - Labelled objects of this deployment (by database) with no row: base
+ * - Labeled objects of this deployment (by database) with no row: base
  *   images whose base row is gone, and containers (base builders, and
  *   conversation containers started from a base, which inherit the image's
- *   labels) that no row records. Images go with `force`, as in base cleanup
- *   (a stopped container keeps working without its image); the daemon
- *   refuses images a running container uses. Other deployments' and
- *   unlabelled objects are never touched.
+ *   labels) that no row records and that are older than `orphanAgeMs` (a
+ *   create may not have recorded its row yet). Images go with `force`, as
+ *   in base cleanup (a stopped container keeps working without its image);
+ *   the daemon refuses images a running container uses. Other deployments'
+ *   and unlabeled objects are never touched.
  * Not reachable: a container started from the plain chat image whose row was
  * removed without destroying it. Our code never removes such a row while its
  * delete fails (it is kept as `destroy_failed` and retried).
  */
 export async function pruneDockerSandboxHost(
-  input: { now?: Date; docker?: Docker } = {},
-): Promise<{
-  sweptOrgs: number
-  removedImages: number
-  removedContainers: number
-}> {
-  const now = input.now ?? new Date()
+  input: { docker?: Docker; orphanAgeMs?: number } = {},
+): Promise<{ removedImages: string[]; removedContainers: string[] }> {
   const docker = input.docker ?? new Docker({ timeout: 30_000 })
+  const orphanAgeMs = input.orphanAgeMs ?? 60 * 60_000
   const logger = getLogger()
-  const dormant = await orgsNeedingSweep({ now, includeRunning: false })
-  for (const orgId of dormant) {
+  const swept = await orgsWithSandboxes()
+  for (const orgId of swept) {
     try {
-      await sweepConversationSandboxes(orgId, now)
+      await sweepConversationSandboxes(orgId)
     } catch (error) {
       logger.error(error instanceof Error ? error : new Error(String(error)), {
         step: "docker-sandbox-host-prune",
@@ -60,7 +56,7 @@ export async function pruneDockerSandboxHost(
     baseId: labels?.[DOCKER_LABELS.base],
   })
 
-  let removedImages = 0
+  const removedImages: string[] = []
   const images = await docker.listImages({
     filters: JSON.stringify({
       label: [store, `${DOCKER_LABELS.kind}=workspace-base`],
@@ -75,10 +71,10 @@ export async function pruneDockerSandboxHost(
         docker.getImage(image.Id).remove({ force: true }),
       )) === "removed"
     )
-      removedImages += 1
+      removedImages.push(image.Id)
   }
 
-  let removedContainers = 0
+  const removedContainers: string[] = []
   /** Container ids each org's rows record, read once per org. */
   const recorded = new Map<string, Promise<Set<string>>>()
   const recordedBy = (orgId: string) => {
@@ -102,27 +98,25 @@ export async function pruneDockerSandboxHost(
   })
   for (const container of containers) {
     const { orgId } = owner(container.Labels)
-    // Younger than an hour: may be a create that has not recorded its row yet.
-    if (!orgId || now.getTime() - container.Created * 1000 < 60 * 60_000)
-      continue
+    if (!orgId || Date.now() - container.Created * 1000 < orphanAgeMs) continue
     if ((await recordedBy(orgId)).has(container.Id)) continue
     if (
       (await removeDockerObject(() =>
         docker.getContainer(container.Id).remove({ force: true, v: true }),
       )) === "removed"
     )
-      removedContainers += 1
+      removedContainers.push(container.Id)
   }
 
-  if (dormant.length || removedImages || removedContainers)
+  if (removedImages.length || removedContainers.length)
     logger.info(
-      `Swept ${dormant.length} orgs; removed ${removedImages} orphaned base images and ${removedContainers} orphaned containers`,
+      `Removed ${removedImages.length} orphaned base images and ${removedContainers.length} orphaned containers`,
       {
         step: "docker-sandbox-host-prune",
-        sweptOrgs: dormant.length,
-        removedImages,
-        removedContainers,
+        sweptOrgs: swept.length,
+        removedImages: removedImages.length,
+        removedContainers: removedContainers.length,
       },
     )
-  return { sweptOrgs: dormant.length, removedImages, removedContainers }
+  return { removedImages, removedContainers }
 }

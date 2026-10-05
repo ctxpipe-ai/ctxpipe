@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { CHAT_SANDBOX_IDLE_STOP_MS } from "../../domain/workspaces/chat-lifecycle.js"
 import {
-  orgsNeedingSweep,
+  orgsWithSandboxes,
   sweepConversationSandboxes,
 } from "../../domain/workspaces/conversation-sandbox-lifecycle.js"
 import { discoverSandboxProvider } from "../../domain/workspaces/sandbox-provider.js"
@@ -100,11 +100,11 @@ export async function scheduleIdleSandboxStop(
 
 /**
  * Backstop for a lost chain (a failed schedule, a crashed replica): on worker
- * start, sweep every org that needs it (`orgsNeedingSweep`).
+ * start, sweep every org that has a sandbox row (`orgsWithSandboxes`).
  */
 export async function scheduleSweepsForOrgsNeedingIt(): Promise<void> {
   const now = new Date()
-  for (const orgId of await orgsNeedingSweep({ now, includeRunning: true })) {
+  for (const orgId of await orgsWithSandboxes()) {
     try {
       await scheduleConversationSandboxSweep(orgId, now)
     } catch (error) {

@@ -15,7 +15,6 @@ import {
   persistSandboxInstance,
   type RunningSandboxProvider,
   SandboxInstanceOwnershipConflict,
-  type SandboxInstanceRecord,
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import {
@@ -29,6 +28,10 @@ import {
   withSandboxLockIfFree,
 } from "./sandbox-lock-store.js"
 import { stopDetachedProviderSandbox } from "./sandbox-provider.js"
+import {
+  currentSandboxAgent,
+  type SandboxAgent,
+} from "./workspace-base-providers.js"
 import {
   collectUnusedWorkspaceBases,
   destroyUnusedSandbox,
@@ -255,16 +258,12 @@ export async function* stoppingSandboxWhenDone<T>(
 }
 
 /**
- * Orgs whose sandbox rows need a sweep, though their chain may have ended:
- * a conversation sandbox past 30 days or a failed delete, or a Workspace
- * base cleanup may now delete. With `includeRunning` also any running a
- * sandbox. The worker-start backstop schedules all of them; the Docker host
- * prune sweeps the dormant ones.
+ * Orgs that have any sandbox row (conversation, job or Workspace base): the
+ * sweep decides what is due. The worker-start backstop schedules a sweep for
+ * each; the Docker host prune sweeps them, so a dormant org's leftovers go
+ * even when its own chain has ended.
  */
-export async function orgsNeedingSweep(input: {
-  now: Date
-  includeRunning: boolean
-}): Promise<string[]> {
+export async function orgsWithSandboxes(): Promise<string[]> {
   const orgs = await getSystemDb()
     .select({ id: organizations.id })
     .from(organizations)
@@ -272,27 +271,7 @@ export async function orgsNeedingSweep(input: {
   for (const { id } of orgs) {
     try {
       const rows = await withOrgDbContext(id, () => listSandboxInstances({}))
-      const old = (row: SandboxInstanceRecord) =>
-        input.now.getTime() - row.lastHeartbeatAt.getTime() >=
-        CHAT_SANDBOX_RETENTION_MS
-      const bases = rows.filter((row) => row.kind === "base")
-      const liveBases = bases.filter((row) => row.state === "live")
-      const expired =
-        rows.some(
-          (row) =>
-            row.kind === "chat" && (row.state === "destroy_failed" || old(row)),
-        ) ||
-        // Bases cleanup may delete: superseded (more than one live in a
-        // Workspace), unused for 30 days, failed, or a build gone quiet.
-        bases.some((row) => row.state !== "live" || old(row)) ||
-        new Set(liveBases.map((row) => row.workspaceId)).size < liveBases.length
-      const active =
-        input.includeRunning &&
-        rows.some(
-          (row) =>
-            row.state === "live" && isRunningSandboxProvider(row.provider),
-        )
-      if (expired || active) due.push(id)
+      if (rows.length) due.push(id)
     } catch (error) {
       log.error({
         step: "conversation-sandbox-sweep-backstop",
@@ -378,9 +357,23 @@ export async function sweepConversationSandboxes(
     }
   }
   // Bases whose conversations are gone (deleted above, or long ago) go too.
-  for (const workspaceId of new Set(bases.map((row) => row.workspaceId))) {
+  // Skipped when the agent image cannot be read: a daemon blip never deletes
+  // the base new conversations should use.
+  const workspacesWithBases = new Set(bases.map((row) => row.workspaceId))
+  let agent: SandboxAgent | null = null
+  if (workspacesWithBases.size)
+    agent = await currentSandboxAgent().catch((error: unknown) => {
+      log.warn({
+        step: "workspace-base-cleanup",
+        message: `Skipping base cleanup: the agent image is unreadable: ${String(error)}`,
+        orgId,
+      })
+      return null
+    })
+  for (const workspaceId of agent ? workspacesWithBases : []) {
     try {
-      await collectUnusedWorkspaceBases(orgId, workspaceId, now)
+      if (agent)
+        await collectUnusedWorkspaceBases({ orgId, workspaceId, agent, now })
     } catch (error) {
       log.error({
         step: "conversation-sandbox-sweep",

@@ -8,10 +8,11 @@ import { withOrgDbContext } from "../../db/client.js"
 import {
   BASE_BUILD_LEASE_MS,
   countRunningSandboxes,
-  deleteSandboxInstance,
+  failBuildingBase,
   getDesiredWorkspaceRevision,
   getSandboxInstance,
   heartbeatSandboxInstance,
+  isRunningSandboxProvider,
   listSandboxInstances,
   ownershipOf,
   persistSandboxInstance,
@@ -91,7 +92,8 @@ export function baseLeaseHeld(
  *   and the sandbox starts without one.
  * - When the provider cannot say (an outage), the sandbox starts without the
  *   base this time and the base is kept.
- * `requestBuild`: there is no usable base, or it is stale.
+ * `requestBuild`: there is no usable base, or it is stale. `failed` marks
+ * the chosen base failed when it then cannot start a sandbox.
  */
 export async function baseForNewSandbox(input: {
   orgId: string
@@ -99,13 +101,26 @@ export async function baseForNewSandbox(input: {
   agent: SandboxAgent
   revision: WorkspaceRevision
   now?: Date
-}): Promise<{ ref?: string; requestBuild: boolean }> {
+}): Promise<{
+  ref?: string
+  requestBuild: boolean
+  failed: () => Promise<void>
+}> {
+  const nothing = async () => undefined
   const now = input.now ?? new Date()
   const rows = await withOrgDbContext(input.orgId, () =>
     listSandboxInstances({ workspaceId: input.workspaceId, kind: "base" }),
   )
   const [base] = readyBases(rows, input.agent, input.revision)
-  if (!base?.latestSnapshotId) return { requestBuild: true }
+  if (!base?.latestSnapshotId) return { requestBuild: true, failed: nothing }
+  const markFailed = async () => {
+    const stored = await getSandboxInstance(base.id, input.orgId)
+    if (stored?.state === "live")
+      await persistSandboxInstance(
+        { ...stored, state: "destroy_failed" },
+        ownershipOf(stored),
+      )
+  }
   const context = {
     orgId: input.orgId,
     workspaceId: input.workspaceId,
@@ -123,7 +138,7 @@ export async function baseForNewSandbox(input: {
       message: `Could not check the Workspace base; starting without it: ${String(error)}`,
       ...context,
     })
-    return { requestBuild: false }
+    return { requestBuild: false, failed: nothing }
   }
   if (!exists) {
     log.warn({
@@ -132,11 +147,8 @@ export async function baseForNewSandbox(input: {
         "A Workspace base's image or snapshot is gone; starting without it",
       ...context,
     })
-    await persistSandboxInstance(
-      { ...base, state: "destroy_failed" },
-      ownershipOf(base),
-    )
-    return { requestBuild: true }
+    await markFailed()
+    return { requestBuild: true, failed: nothing }
   }
   // Last start from it: cleanup keeps a current base 30 days after this.
   await heartbeatSandboxInstance(base.id, now, input.orgId)
@@ -147,6 +159,7 @@ export async function baseForNewSandbox(input: {
       desiredSha: input.revision.sha,
       now,
     }),
+    failed: markFailed,
   }
 }
 
@@ -212,7 +225,7 @@ export async function reserveWorkspaceBaseBuild(input: {
     `workspace-sandboxes:${workspaceId}`,
     async (signal) => {
       const { desired, rows } = await withOrgDbContext(orgId, async () => ({
-        desired: await getDesiredWorkspaceRevision(workspaceId),
+        desired: await getDesiredWorkspaceRevision(workspaceId, "read", orgId),
         rows: await listSandboxInstances({ workspaceId, kind: "base" }),
       }))
       if (rows.some((row) => row.id === id)) return id
@@ -264,14 +277,16 @@ export async function reserveWorkspaceBaseBuild(input: {
 
 /**
  * Build step 2 (`build`): start the builder, clone and set up, capture, and
- * publish (state `live`). Every write is one conditional UPDATE that holds
- * only while the lease does and the row still names this builder, so a
- * lapsed or deleted lease stops the build and it deletes what it made. The
- * builder id and then the capture are written as soon as they exist, so a
- * crash at any point leaves them findable. However the attempt ends, its
- * builder is removed (Docker), or stopped and its token revoked (Vercel).
+ * publish. Each write is one conditional UPDATE that holds only while the
+ * lease does and the row still names this builder: recording the builder,
+ * then recording the capture and publishing it (state `live`) together. So
+ * a lapsed or deleted lease stops the build, and it deletes what it made.
+ * However the attempt ends, its builder is removed (Docker), or deleted and
+ * its token revoked (Vercel). A crash between the capture and its UPDATE
+ * leaves a labeled Docker image (the host prune removes it) or a snapshot
+ * under the Vercel builder (deleted with it).
  * Retries (OpenWorkflow): a published row returns its image or snapshot; a
- * recorded capture is published; a failed attempt's builder is deleted first.
+ * failed attempt's builder is deleted before the build starts again.
  * Returns the image or snapshot id, or null when the lease is gone.
  */
 export async function runWorkspaceBaseBuild(input: {
@@ -283,31 +298,13 @@ export async function runWorkspaceBaseBuild(input: {
   const { orgId, baseId } = input
   const row = await getSandboxInstance(baseId, orgId)
   if (row?.state === "live" && row.latestSnapshotId) return row.latestSnapshotId
-  if (!row?.revision || !row.provider || !baseLeaseHeld(row, Date.now()))
+  if (
+    !row?.revision ||
+    !isRunningSandboxProvider(row.provider) ||
+    !baseLeaseHeld(row, Date.now())
+  )
     return null
-  const provider = row.provider as RunningSandboxProvider
-  const publish = (builderId: string | null, ref: string) =>
-    updateBuildingBase({
-      id: baseId,
-      orgId,
-      builderId,
-      // Docker's builder is gone once captured; the image is the base.
-      set: {
-        state: "live",
-        providerSandboxId: provider === "docker" ? null : builderId,
-      },
-    }).then((published) => (published ? ref : null))
-  if (row.latestSnapshotId) {
-    // Captured before a crash. A Docker builder left running goes now; a
-    // Vercel builder owns the snapshot and stays.
-    if (provider === "docker" && row.providerSandboxId)
-      await deleteWorkspaceBaseArtifacts({
-        provider,
-        providerSandboxId: row.providerSandboxId,
-        latestSnapshotId: null,
-      })
-    return publish(row.providerSandboxId ?? null, row.latestSnapshotId)
-  }
+  const provider = row.provider
   if (row.providerSandboxId) {
     // A failed attempt's builder.
     await deleteWorkspaceBaseArtifacts(row)
@@ -324,25 +321,7 @@ export async function runWorkspaceBaseBuild(input: {
   const revision = row.revision
   const builder =
     input.builder ?? (await workspaceBaseBuilder({ provider, orgId, revision }))
-  if (builder.agentImage !== row.image) {
-    // The deployment changed under the build: drop it.
-    await postgresSandboxLocks(orgId).withLock(
-      `workspace-sandboxes:${row.workspaceId}`,
-      async (signal) => {
-        signal.throwIfAborted()
-        await deleteSandboxInstance(baseId, orgId, {
-          ...ownershipOf(row),
-          providerSandboxId: null,
-        })
-      },
-    )
-    return null
-  }
-  const build = await builder.start({
-    id: baseId,
-    orgId,
-    workspaceId: row.workspaceId,
-  })
+  const build = await builder.start({ id: baseId, orgId })
   const made: Pick<
     SandboxInstanceRecord,
     "provider" | "providerSandboxId" | "latestSnapshotId"
@@ -357,18 +336,12 @@ export async function runWorkspaceBaseBuild(input: {
     })
     return null
   }
-  const stillOurs = (set: Parameters<typeof updateBuildingBase>[0]["set"]) =>
-    updateBuildingBase({ id: baseId, orgId, builderId: build.builderId, set })
-  let recorded = false
+  const write = (
+    builderId: string | null,
+    set: Parameters<typeof updateBuildingBase>[0]["set"],
+  ) => updateBuildingBase({ id: baseId, orgId, builderId, set })
   try {
-    if (
-      !(await updateBuildingBase({
-        id: baseId,
-        orgId,
-        builderId: null,
-        set: { providerSandboxId: build.builderId },
-      }))
-    )
+    if (!(await write(null, { providerSandboxId: build.builderId })))
       return await lapsed()
     const started = Date.now()
     await bootstrapWorkspace(
@@ -384,19 +357,17 @@ export async function runWorkspaceBaseBuild(input: {
     if (head.exitCode !== 0 || !sha)
       throw new Error("The base clone has no commit")
     // Still ours before taking a snapshot nobody would publish.
-    if (!(await stillOurs({}))) return await lapsed()
+    if (!(await write(build.builderId, {}))) return await lapsed()
     const ref = await build.capture()
     made.latestSnapshotId = ref
-    if (
-      !(await stillOurs({
-        latestSnapshotId: ref,
-        revision: { ...revision, sha },
-      }))
-    )
-      return await lapsed()
-    // Recorded: from here a retry publishes this capture, so it is kept.
-    recorded = true
-    const published = await publish(build.builderId, ref)
+    const published = await write(build.builderId, {
+      state: "live",
+      latestSnapshotId: ref,
+      revision: { ...revision, sha },
+      // Docker's builder is gone once captured; the image is the base. A
+      // Vercel builder owns its snapshot and is kept.
+      providerSandboxId: provider === "docker" ? null : build.builderId,
+    })
     if (!published) return await lapsed()
     logger.info(`Built the Workspace base in ${Date.now() - started}ms`, {
       step: "workspace-base-build",
@@ -404,14 +375,25 @@ export async function runWorkspaceBaseBuild(input: {
       workspaceId: row.workspaceId,
       ms: Date.now() - started,
     })
-    return published
+    return ref
   } catch (error) {
-    // Before its capture is recorded nothing of this attempt is kept: the
-    // retry starts over. A Vercel builder that failed mid-setup is deleted
-    // here rather than left running.
-    if (!recorded) await deleteWorkspaceBaseArtifacts(made)
+    // Nothing of this attempt is kept: the retry starts over. A Vercel
+    // builder that failed mid-setup is deleted here, not left running.
+    await deleteWorkspaceBaseArtifacts(made)
     throw error
   } finally {
     await build.finish()
   }
+}
+
+/**
+ * After the build's last attempt failed: release its lease at once (a
+ * conditional UPDATE to `destroy_failed`), so it stops blocking new builds
+ * and holding one of the org's slots. The sweep deletes the row.
+ */
+export async function releaseFailedBaseBuild(input: {
+  orgId: string
+  baseId: string
+}): Promise<void> {
+  await failBuildingBase(input.baseId, input.orgId)
 }

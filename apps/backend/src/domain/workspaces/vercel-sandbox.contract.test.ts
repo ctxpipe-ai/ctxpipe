@@ -20,16 +20,17 @@ import {
   deleteVercelBuilder,
   deleteVercelSandbox,
   GIT_TOKEN_ROTATE_MS,
+  listTaggedSandboxes,
   startVercelWorkspaceBase,
   stopVercelSandbox,
   vercelAgentSnapshot,
   vercelConversationProvider,
   workspaceBaseTags,
 } from "./vercel-sandbox-provider.js"
-import { VERCEL_AGENT_ROOT } from "./workspace-chat-opencode-contract.js"
+import { writeWorkspaceChatOpenCodeConfig } from "./workspace-chat-opencode-contract.js"
 
 /**
- * Real Vercel Sandbox behaviour the hosted provider relies on (ticket 02).
+ * Real Vercel Sandbox behavior the hosted provider relies on (ticket 02).
  * Runs only in the "hosted sandbox (Vercel)" CI lane, which has the deploy
  * credentials; without them it fails rather than skips.
  */
@@ -123,16 +124,13 @@ afterAll(async () => {
     agentSnapshotTags(environment),
     workspaceBaseTags(environment),
   ])
-    for (const builder of await (
-      await Sandbox.list({ ...credentials, tags: builderTags })
-    ).toArray())
-      if (builder.tags?.environment === environment)
-        await deleteVercelBuilder({
-          credentials,
-          builderName: builder.name,
-        }).catch((error: unknown) =>
-          report(`[vercel] cleanup ${builder.name}: ${String(error)}`),
-        )
+    for (const builder of await listTaggedSandboxes(credentials, builderTags))
+      await deleteVercelBuilder({
+        credentials,
+        builderName: builder.name,
+      }).catch((error: unknown) =>
+        report(`[vercel] cleanup ${builder.name}: ${String(error)}`),
+      )
 })
 
 describe("Vercel Sandbox", { timeout: 600_000 }, () => {
@@ -370,7 +368,8 @@ describe("hosted conversation provider", { timeout: 600_000 }, () => {
       agentPassword: "contract-agent-password",
       access,
       tags,
-      startSnapshot: agentSnapshot,
+      base: async () => ({ failed: async () => undefined }),
+      agentSnapshot,
     })
     const handle = await provider.create({
       workspace: { source: { type: "none" } },
@@ -460,7 +459,8 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
       },
     }
   }
-  const conversationFrom = (startSnapshot: () => Promise<string>) =>
+  /** A conversation provider starting from `baseRef`, else the agent snapshot. */
+  const conversationFrom = (baseRef?: string) =>
     vercelConversationProvider({
       credentials,
       agentPassword: "contract-agent-password",
@@ -471,7 +471,11 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
         revokeGitToken: async () => undefined,
       },
       tags,
-      startSnapshot,
+      base: async () => ({
+        ...(baseRef ? { ref: baseRef } : {}),
+        failed: async () => undefined,
+      }),
+      agentSnapshot,
     })
   const start = async (provider: ReturnType<typeof conversationFrom>) => {
     const handle = await provider.create({
@@ -480,14 +484,27 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
     created.push(handle.id)
     return handle
   }
+  /**
+   * OpenCode and Node with the PATH a conversation session sets, which
+   * replaces the image's PATH: the agent and its commands find both.
+   */
   const opencode = (handle: {
     process: {
-      exec: (c: string) => Promise<{ stdout: string; exitCode: number }>
+      exec: (
+        c: string,
+        o: { env: Record<string, string> },
+      ) => Promise<{ stdout: string; exitCode: number }>
     }
   }) =>
-    handle.process.exec(
-      `PATH="${VERCEL_AGENT_ROOT}/.local/bin:$PATH" opencode --version`,
-    )
+    handle.process.exec("opencode --version && node --version && npm --version", {
+      env: {
+        PATH: writeWorkspaceChatOpenCodeConfig({
+          conversationId: "conv_contract",
+          modelBase: "openai/gpt-5.6-terra",
+          isolation: "vercel",
+        }).homeEnv.PATH,
+      },
+    })
   const npmReachable = async (handle: {
     process: { exec: (c: string) => Promise<{ stdout: string }> }
   }) =>
@@ -503,18 +520,19 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
     report(
       `[vercel] agent snapshot (install + snapshot) ${Date.now() - started}ms`,
     )
-    // Found again, not rebuilt.
+    // Found again (cached in the process), not rebuilt.
     started = Date.now()
     expect(await vercelAgentSnapshot({ credentials, environment })).toBe(
       snapshotId,
     )
     report(`[vercel] agent snapshot lookup ${Date.now() - started}ms`)
     started = Date.now()
-    const conversation = await start(conversationFrom(agentSnapshot))
+    const conversation = await start(conversationFrom())
     report(
       `[vercel] conversation sandbox from agent snapshot ${Date.now() - started}ms`,
     )
     const version = await opencode(conversation)
+    expect(version.exitCode).toBe(0)
     expect(version.stdout).toContain(OPENCODE_VERSION)
     expect(await npmReachable(conversation)).toBe(false)
   })
@@ -530,7 +548,6 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
       revokeGitToken: async (value) => {
         revoked.push(value)
       },
-      backendHost: "ctxpipe-contract.invalid",
       tags: workspaceBaseTags(environment),
       expiration: 0,
     })
@@ -546,34 +563,34 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
         setup: [...WORKSPACE_CHAT_VERCEL_SETUP],
       }),
     )
+    // The builder reaches GitHub only: not the npm registry.
+    expect(await npmReachable(build.handle)).toBe(false)
     report(
       `[vercel] base builder start + clone + setup ${Date.now() - started}ms`,
     )
     started = Date.now()
     const snapshotId = await build.capture()
-    await build.release()
+    await build.finish()
     report(`[vercel] base snapshot ${Date.now() - started}ms`)
     expect(revoked).toEqual([token])
 
     // PR-close cleanup finds the stopped builder by its tags, and a crash
     // before the id was recorded still finds the snapshot under its builder.
-    const listed = await (
-      await Sandbox.list({
-        ...credentials,
-        tags: workspaceBaseTags(environment),
-      })
-    ).toArray()
-    expect(listed.map((sandbox) => sandbox.name)).toContain(build.name)
+    expect(
+      (
+        await listTaggedSandboxes(credentials, workspaceBaseTags(environment))
+      ).map((sandbox) => sandbox.name),
+    ).toContain(build.builderId)
     expect(
       (
         await (
-          await Snapshot.list({ ...credentials, name: build.name })
+          await Snapshot.list({ ...credentials, name: build.builderId })
         ).toArray()
       ).map((snapshot) => snapshot.id),
     ).toContain(snapshotId)
 
     started = Date.now()
-    const conversation = await start(conversationFrom(async () => snapshotId))
+    const conversation = await start(conversationFrom(snapshotId))
     report(`[vercel] conversation sandbox from base ${Date.now() - started}ms`)
     expect(await conversation.fs.exists("/workspace/.git")).toBe(true)
     expect(await conversation.fs.read("/workspace/README")).toContain(
@@ -581,27 +598,28 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
     )
     expect((await opencode(conversation)).stdout).toContain(OPENCODE_VERSION)
     expect(await npmReachable(conversation)).toBe(false)
-    // The base holds the token nowhere: git config, files, environment.
+    // The base holds the token nowhere: git config, environment and the
+    // small files a credential would land in. The token never enters the
+    // sandbox; the output is checked here, in the test process.
     const scan = await conversation.process.exec(
-      'git -C /vercel/sandbox config --list; env; grep -rIlF -- "$NEEDLE" /vercel/sandbox "$HOME" /etc /tmp 2>/dev/null; true',
-      { env: { NEEDLE: token } },
+      'git -C /vercel/sandbox config --list --show-origin; env; for f in $(find /vercel/sandbox/.git "$HOME" -maxdepth 1 -type f -size -1M 2>/dev/null) /etc/gitconfig; do cat "$f" 2>/dev/null; done; true',
     )
+    expect(scan.stdout.length).toBeGreaterThan(0)
     expect(scan.stdout.includes(token)).toBe(false)
-    expect(scan.stdout).not.toMatch(/^\/(vercel|home|etc|tmp)/m)
 
     // Measure (ADR-048): does a sandbox survive deletion of its source
     // snapshot? Delete the base the way a crashed build would be cleaned up:
     // by builder only, without the recorded snapshot id.
     await conversation.fs.write("/workspace/kept.txt", "kept")
     await stopVercelSandbox({ credentials, name: conversation.id })
-    await deleteVercelBuilder({ credentials, builderName: build.name })
+    await deleteVercelBuilder({ credentials, builderName: build.builderId })
     const remaining = await Snapshot.get({ ...credentials, snapshotId }).then(
       (snapshot) => snapshot.status,
       () => "deleted",
     )
     expect(remaining).toBe("deleted")
     started = Date.now()
-    const resumed = await conversationFrom(async () => snapshotId).resume({
+    const resumed = await conversationFrom(snapshotId).resume({
       id: conversation.id,
     })
     report(
@@ -612,28 +630,8 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
     // Already deleted counts as deleted.
     await deleteVercelBuilder({
       credentials,
-      builderName: build.name,
+      builderName: build.builderId,
       snapshotId,
     })
-  })
-
-  it("measures whether deleting a sandbox deletes the snapshots taken from it", async () => {
-    const sandbox = await create({ runtime: "node24" })
-    const snapshot = await sandbox.snapshot({ expiration: 60 * 60_000 })
-    snapshots.push(snapshot.snapshotId)
-    await (
-      await Sandbox.get({ ...credentials, name: sandbox.name, resume: false })
-    ).delete()
-    const status = await Snapshot.get({
-      ...credentials,
-      snapshotId: snapshot.snapshotId,
-    }).then(
-      (found) => found.status,
-      (error: unknown) => `gone (${String(error)})`,
-    )
-    // Either way the builder delete removes snapshots first.
-    report(
-      `[vercel] measured: snapshot after its sandbox is deleted: ${status}`,
-    )
   })
 })

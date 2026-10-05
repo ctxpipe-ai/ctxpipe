@@ -8,7 +8,7 @@ import {
   persistSandboxInstance,
   type SandboxInstanceRecord,
 } from "../../models/workspaces.js"
-import { getLogger, log } from "../../observability/logger.js"
+import { log } from "../../observability/logger.js"
 import {
   CHAT_SANDBOX_RETENTION_MS,
   shouldDestroyJobSandbox,
@@ -16,7 +16,6 @@ import {
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import { destroyDetachedProviderSandbox } from "./sandbox-provider.js"
 import {
-  currentSandboxAgent,
   deleteWorkspaceBaseArtifacts,
   type SandboxAgent,
 } from "./workspace-base-providers.js"
@@ -32,44 +31,40 @@ import { baseLeaseHeld, readyBases } from "./workspace-sandbox-base.js"
  *   the row waits for a later sweep), and the current one once no sandbox
  *   started from it for 30 days.
  * - Vercel: the same, but only once no Vercel conversation sandbox of the
- *   Workspace was created before the base was superseded (or before now, for
- *   the current one). Whether a sandbox survives deletion of its source
- *   snapshot has not been measured, so a base is kept while a sandbox that
- *   could have started from it exists; conversation sandboxes are deleted 30
- *   days after last use.
+ *   Workspace was created before the base was superseded, that is before a
+ *   newer base was published (or before now, for the current one). Whether a
+ *   sandbox survives deletion of its source snapshot has not been measured,
+ *   so a base is kept while a sandbox that could have started from it
+ *   exists; conversation sandboxes are deleted 30 days after last use.
  * Runs under the Workspace lock, which new sandboxes take to choose their
- * base. Skipped when the agent image cannot be read (a daemon blip never
- * deletes the base new conversations should use).
+ * base. `agent` is the deployment's provider and agent image; the caller
+ * skips cleanup when it cannot be read (a daemon blip never deletes the base
+ * new conversations should use).
  */
-export async function collectUnusedWorkspaceBases(
-  orgId: string,
-  workspaceId: string,
-  now: Date = new Date(),
-): Promise<number> {
-  const logger = getLogger()
-  let agent: SandboxAgent | null
-  try {
-    agent = await currentSandboxAgent()
-  } catch (error) {
-    logger.warn(
-      `Skipping base cleanup: the agent image is unreadable: ${String(error)}`,
-      { step: "workspace-base-cleanup", orgId, workspaceId },
-    )
-    return 0
-  }
-  if (!agent) return 0
-  const current = agent
+export async function collectUnusedWorkspaceBases(input: {
+  orgId: string
+  workspaceId: string
+  agent: SandboxAgent
+  now?: Date
+}): Promise<number> {
+  const { orgId, workspaceId, agent: current } = input
+  const now = input.now ?? new Date()
   return postgresSandboxLocks(orgId).withLock(
     `workspace-sandboxes:${workspaceId}`,
     async (signal) => {
       const { rows, desired } = await withOrgDbContext(orgId, async () => ({
         rows: await listSandboxInstances({ workspaceId }),
-        desired: await getDesiredWorkspaceRevision(workspaceId),
+        desired: await getDesiredWorkspaceRevision(workspaceId, "read", orgId),
       }))
       const bases = rows.filter((row) => row.kind === "base")
       const ready = desired ? readyBases(bases, current, desired) : []
       const at = now.getTime()
-      /** Vercel: a conversation sandbox created before `at` might use the base. */
+      /**
+       * Vercel: a conversation sandbox created before the base was
+       * superseded might use it. A live base's `created_at` is its publish
+       * time, so a sandbox started while the next base was still building
+       * counts.
+       */
       const mayBeInUse = (base: SandboxInstanceRecord) => {
         if (base.provider !== "vercel") return false
         const supersededAt =

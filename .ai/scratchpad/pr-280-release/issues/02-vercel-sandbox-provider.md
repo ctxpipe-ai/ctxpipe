@@ -116,13 +116,25 @@ Keep each patch minimal and listed with its removal condition. Never fall back t
 
 - 2026-10-04 (user): Commit+Push comes back now that the sandbox provider changed. The agent decides when to commit and push: semantic commits, the user can prompt it, and the system prompt recommends committing when a task is done. Create PR does not squash. Supersedes the 2026-10-01 "drop Commit+Push, squash on PR" decision and the automatic per-turn push.
 
+- 2026-10-05 (claude): **Workspace base, review round 2** (ADR-048 "Fast start" and "Cleanup" updated):
+  - **Retention race fixed:** publish sets the base's `created_at` to the publish time. A conversation that starts from the old base while the next one builds now keeps the old base. Proven with msw + Postgres (`workspace-sandbox-base-vercel.integration.test.ts`).
+  - **Org context fixed:** the sweep's base cleanup and the build's reserve step read the Workspace with the explicit org id. Before, both needed a request org context that a workflow does not have, so in production they failed with "Missing org context". The native tests hid this, because they run inside an org context. The integration tests now call both without one.
+  - **Failed builds:** OpenWorkflow runs the build at most three times. After the last failure, `release` marks the row `destroy_failed`, so it stops blocking builds and holding a slot at once.
+  - **Builder egress:** a base builder reaches GitHub only (token in the firewall rule). It cannot reach our backend.
+  - **Bad base:** if `Sandbox.create` fails on a base that Vercel still lists, the base is marked `destroy_failed` and that start goes on from the agent snapshot, once.
+  - **Agent snapshot:** no expiry in production, 30 days on previews. Builders of other OpenCode versions are deleted after a build. The last-week replacement, the age windows and the stale-cache fallback are gone.
+  - **Simpler build:** capture and publish are one conditional UPDATE. A capture that a crash left unpublished is deleted with its builder, whose id the row holds.
+  - **No-token proof:** the lane no longer puts the token into the sandbox. It reads the repository config, the environment and small credential files, and the test process checks the output.
+  - **Not measured yet:** a crash during a build leaves the builder's token unrevoked until it expires (one hour at most). A production builder that a crash leaves before its id is recorded has no cleanup path. Whether a base outlives deletion of the agent snapshot it was built from. The token is revoked on every path except a process crash.
+  - **Still CI-only:** the Vercel lane. With msw + Postgres, publish, retry and failure of the build step are tested (a local-process builder stands in for the Vercel sandbox), and preview expiry as a unit. The Vercel branch of `workspaceBaseBuilder` runs only in the lane.
+
 - 2026-10-04 (claude): **Workspace base, third review round** (ADR-048 "Fast start" and "Cleanup" updated):
   - **Sandbox key:** the Vercel key image is now the fixed value `vercel-agent`, so an OpenCode upgrade never orphans hosted conversations; a resumed sandbox keeps its OpenCode. Bases still match the versioned agent image. The change from the earlier key gives hosted conversations a new sandbox once, before launch.
   - **Retention:** the Vercel survival question (does a sandbox outlive its source snapshot) is still not measured: no Vercel credentials outside CI. Until it is, a Vercel base is kept while any Vercel conversation sandbox of its Workspace that could have started from it exists.
   - **Agent snapshot:** cached in the process, rebuilt when no builder is found, so discovery no longer depends on Vercel keeping stopped builders. A failed start forgets the cache entry; a failed lookup uses a cached snapshot that has not expired. Spent builders are deleted after a build, off any start.
   - **Outages:** a base check that fails with anything but 404 starts the conversation without the base and keeps it (msw + Postgres integration test).
   - **Preview bases:** they expire after 30 days, so a PR-close cleanup that misses a builder leaves a bounded leftover.
-  - **Builds:** retry-safe. The reserve id comes from the workflow run, publish is folded into the build as one conditional UPDATE, a failed builder is deleted, and the token is always revoked. Only builds with a held lease count toward the 50.
+  - **Builds:** retry-safe. The reserve id comes from the workflow run, publish is folded into the build as one conditional UPDATE, a failed builder is deleted, and the token is revoked on every path except a process crash. Only builds with a held lease count toward the 50.
   - **Still CI-only:** the Vercel lane (survival, stopped builder kept, snapshot deletion, npm blocked, no token in the base).
 
 - 2026-10-04 (claude): **Workspace base reworked after adversarial review** (supersedes the comment below; ADR-048 "Isolation", "Fast start", "Cleanup"):

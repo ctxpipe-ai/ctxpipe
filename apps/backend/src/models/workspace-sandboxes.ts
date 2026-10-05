@@ -423,10 +423,12 @@ export async function advanceSandboxInstanceRevision(input: {
 }
 
 /**
- * Write a Workspace base build's progress (its builder, its capture, or
+ * Write a Workspace base build's progress (its builder, or its capture with
  * `state: "live"` to publish it) only while its lease holds and its builder
  * is still `builderId`. One conditional UPDATE: it never recreates a row
  * that cleanup deleted, and 0 rows means the build lost its lease.
+ * Publishing sets `created_at` to the publish time: the base's age, and when
+ * it superseded the one before.
  */
 export async function updateBuildingBase(input: {
   id: string
@@ -444,7 +446,9 @@ export async function updateBuildingBase(input: {
       .update(workspaceSandboxInstances)
       .set({
         ...input.set,
-        ...(input.set.state === "live" ? { lastHeartbeatAt: new Date() } : {}),
+        ...(input.set.state === "live"
+          ? { lastHeartbeatAt: new Date(), createdAt: new Date() }
+          : {}),
         updatedAt: new Date(),
       })
       .where(
@@ -459,5 +463,29 @@ export async function updateBuildingBase(input: {
       )
       .returning({ id: workspaceSandboxInstances.id })
     return updated.length === 1
+  })
+}
+
+/**
+ * End a Workspace base build that will not be retried: its row becomes
+ * `destroy_failed`, which holds no lease and no slot, and the sweep deletes
+ * it with whatever it made. Only a row still `building` changes.
+ */
+export async function failBuildingBase(
+  id: string,
+  orgId: string,
+): Promise<void> {
+  await withSandboxInstanceDb(orgId, async () => {
+    await getOrgDb()
+      .update(workspaceSandboxInstances)
+      .set({ state: "destroy_failed", updatedAt: new Date() })
+      .where(
+        and(
+          eq(workspaceSandboxInstances.id, id),
+          eq(workspaceSandboxInstances.orgId, orgId),
+          eq(workspaceSandboxInstances.kind, "base"),
+          eq(workspaceSandboxInstances.state, "building"),
+        ),
+      )
   })
 }

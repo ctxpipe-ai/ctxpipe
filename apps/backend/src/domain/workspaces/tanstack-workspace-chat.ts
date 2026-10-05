@@ -80,10 +80,7 @@ import {
   vercelAgentSnapshot,
   vercelConversationProvider,
 } from "./vercel-sandbox-provider.js"
-import {
-  conversationKeyImage,
-  sandboxAgentImage,
-} from "./workspace-base-providers.js"
+import { sandboxAgentImage } from "./workspace-base-providers.js"
 import {
   aguiTextDelta,
   conversationRenameChunk,
@@ -864,8 +861,11 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
   let agentImage = image
   if (selectedProvider !== "unsandboxed") {
     try {
-      image = await conversationKeyImage(selectedProvider)
       agentImage = await sandboxAgentImage(selectedProvider)
+      // Docker: the chat image's id, so a new image gives new sandboxes.
+      // Vercel: one fixed value, so an OpenCode upgrade never orphans
+      // hosted conversations (a resumed sandbox keeps its OpenCode).
+      image = selectedProvider === "docker" ? agentImage : "vercel-agent"
     } catch (error) {
       getLogger().error(
         error instanceof Error ? error : new Error(String(error)),
@@ -880,8 +880,12 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
   }
   // A new sandbox starts from the Workspace base, chosen at create (under the
   // Workspace lock); an existing one is resumed whatever it started from.
-  const baseImage = async (): Promise<string | undefined> => {
-    if (selectedProvider === "unsandboxed") return undefined
+  const base = async (): Promise<{
+    ref?: string
+    failed: () => Promise<void>
+  }> => {
+    if (selectedProvider === "unsandboxed")
+      return { failed: async () => undefined }
     const choice = await baseForNewSandbox({
       orgId: input.orgId,
       workspaceId: input.workspaceId,
@@ -890,7 +894,7 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
     })
     if (choice.requestBuild)
       void requestBaseBuild(input.orgId, input.workspaceId)
-    return choice.ref
+    return choice
   }
   const workspace = conversationSandboxWorkspace({
     isolation: selectedProvider,
@@ -903,13 +907,13 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
   const provider = conversationSandboxProvider(
     selectedProvider,
     input.conversationId,
-    baseImage,
+    async () => (await base()).ref,
     vercel?.ok
       ? {
           ...vercel.options,
-          // No base yet: the agent snapshot (OpenCode only), never npm.
-          startSnapshot: async () =>
-            (await baseImage()) ??
+          base,
+          // No base: the agent snapshot (OpenCode only), never npm.
+          agentSnapshot: () =>
             vercelAgentSnapshot({
               credentials: vercel.options.credentials,
               environment: vercel.environment,
@@ -968,7 +972,7 @@ async function hostedSandboxOptions(
       environment: string
       options: Omit<
         Parameters<typeof vercelConversationProvider>[0],
-        "startSnapshot"
+        "base" | "agentSnapshot"
       >
     }
   | { ok: false; status: 503; error: string }

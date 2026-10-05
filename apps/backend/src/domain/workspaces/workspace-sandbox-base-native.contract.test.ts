@@ -47,6 +47,7 @@ import {
   type WorkspaceBaseBuilder,
 } from "./workspace-base-providers.js"
 import {
+  releaseFailedBaseBuild,
   reserveWorkspaceBaseBuild,
   runWorkspaceBaseBuild,
 } from "./workspace-sandbox-base.js"
@@ -346,11 +347,7 @@ function dockerChat(f: Fixture, remoteUrl: string) {
     image: await sandboxAgentImage("docker"),
   })
   const builder = async (): Promise<WorkspaceBaseBuilder> =>
-    dockerWorkspaceBaseBuilder({
-      chatImage: CHAT_IMAGE,
-      agentImage: (await agent()).image,
-      cloneToken: TOKEN,
-    })
+    dockerWorkspaceBaseBuilder({ chatImage: CHAT_IMAGE, cloneToken: TOKEN })
   const reserve = async (runId = randomUUID()) =>
     reserveWorkspaceBaseBuild({
       orgId: f.orgId,
@@ -376,8 +373,13 @@ function dockerChat(f: Fixture, remoteUrl: string) {
     const baseId = await reserve()
     return baseId ? run(baseId, wrap) : null
   }
-  const collect = (now = new Date()) =>
-    collectUnusedWorkspaceBases(f.orgId, f.workspaceId, now)
+  const collect = async (now = new Date()) =>
+    collectUnusedWorkspaceBases({
+      orgId: f.orgId,
+      workspaceId: f.workspaceId,
+      agent: await agent(),
+      now,
+    })
   const head = async (handle: {
     process: { exec: (command: string) => Promise<{ stdout: string }> }
   }) => (await handle.process.exec("git rev-parse HEAD")).stdout.trim()
@@ -468,6 +470,12 @@ it(
   { timeout: 300_000 },
   async () => {
     await withDockerBases(async (f, remote, chat) => {
+      // Build requests share a run per 10-minute window: start well inside
+      // one, so the three starts below cannot cross a boundary.
+      const window = 10 * 60_000
+      const left = window - (Date.now() % window)
+      if (left < 60_000)
+        await new Promise((resolve) => setTimeout(resolve, left + 1_000))
       // No base yet: three new conversations start at once, as before
       // (cloning), and ask for one build in the background.
       const first = await Promise.all(
@@ -510,7 +518,6 @@ it(
         [DOCKER_LABELS.store]: sandboxStoreId(),
         [DOCKER_LABELS.base]: lease,
         [DOCKER_LABELS.org]: f.orgId,
-        [DOCKER_LABELS.workspace]: f.workspaceId,
       })
       expect(await chat.build()).toBeNull()
 
@@ -738,7 +745,7 @@ it(
 )
 
 it(
-  "a retried build cleans up a failed attempt's builder, and publishes a capture recorded before a crash",
+  "a retried build cleans up a failed attempt's builder, then builds and publishes",
   { timeout: 300_000 },
   async () => {
     await withDockerBases(async (f, _remote, chat) => {
@@ -782,33 +789,41 @@ it(
         providerSandboxId: null,
       })
       expect(await ourContainers()).toEqual([])
-
-      // A crash after the capture was recorded, before publishing, with the
-      // builder still running: the retry publishes that capture and removes
-      // the builder.
-      const leftBuilder = await docker.createContainer({
-        Image: CHAT_IMAGE,
-        Cmd: ["sleep", "600"],
-        Labels: { [DOCKER_LABELS.org]: f.orgId },
-      })
-      await withOrgDbContext(f.orgId, (db) =>
-        db
-          .update(workspaceSandboxInstances)
-          .set({
-            state: "building",
-            providerSandboxId: leftBuilder.id,
-            lastHeartbeatAt: new Date(),
-          })
-          .where(eq(workspaceSandboxInstances.id, baseId)),
-      )
+      // A retry after publishing returns the published base.
       expect(await chat.run(baseId)).toBe(image)
-      expect(await getSandboxInstance(baseId, f.orgId)).toMatchObject({
-        state: "live",
-        latestSnapshotId: image,
-        providerSandboxId: null,
-      })
-      expect(await exists("container", leftBuilder.id)).toBe(false)
-      expect(await exists("image", image)).toBe(true)
+    })
+  },
+)
+
+it(
+  "a build whose last attempt failed releases its lease at once: no slot held, the next build may start",
+  { timeout: 300_000 },
+  async () => {
+    await withDockerBases(async (f, _remote, chat) => {
+      const baseId = await chat.reserve()
+      if (!baseId) throw new Error("no lease")
+      await expect(
+        chat.run(baseId, (builder) => ({
+          ...builder,
+          start: async (base) => ({
+            ...(await builder.start(base)),
+            capture: () => Promise.reject(new Error("capture failed")),
+          }),
+        })),
+      ).rejects.toThrow("capture failed")
+      // Still leased: it blocks a second build and holds a slot.
+      expect(await countRunningSandboxes(f.orgId, "")).toBe(1)
+      expect(await chat.reserve()).toBeNull()
+      await releaseFailedBaseBuild({ orgId: f.orgId, baseId })
+      expect((await getSandboxInstance(baseId, f.orgId))?.state).toBe(
+        "destroy_failed",
+      )
+      expect(await countRunningSandboxes(f.orgId, "")).toBe(0)
+      expect(await chat.run(baseId)).toBeNull()
+      // A new build may start; the sweep deletes the failed row.
+      expect(await chat.build()).not.toBeNull()
+      expect(await chat.collect()).toBe(1)
+      expect(await getSandboxInstance(baseId, f.orgId)).toBeNull()
     })
   },
 )
@@ -860,7 +875,7 @@ it(
 )
 
 it(
-  "the host prune sweeps a dormant org's 30-day-old container and removes orphaned labelled objects, and nothing else",
+  "the host prune sweeps a dormant org's 30-day-old container and removes orphaned labeled objects, and nothing else",
   { timeout: 180_000 },
   async () => {
     if (!process.env.DATABASE_URL)
@@ -930,7 +945,7 @@ it(
       })
       return id
     }
-    const labelledImage = async (labels: Record<string, string>) => {
+    const labeledImage = async (labels: Record<string, string>) => {
       const source = await docker.createContainer({
         Image: "alpine:3.22",
         Cmd: ["true"],
@@ -975,8 +990,8 @@ it(
         [DOCKER_LABELS.store]: "another-deployment",
       })
       const keptBaseId = `base:${active.workspaceId}:${randomUUID()}`
-      const unusedImage = await labelledImage(ours("base:gone", dormant.orgId))
-      const baseImage = await labelledImage(ours(keptBaseId, active.orgId))
+      const unusedImage = await labeledImage(ours("base:gone", dormant.orgId))
+      const baseImage = await labeledImage(ours(keptBaseId, active.orgId))
       await withOrgDbContext(active.orgId, (db) =>
         db.insert(workspaceSandboxInstances).values({
           id: keptBaseId,
@@ -990,19 +1005,19 @@ it(
           lastHeartbeatAt: now,
         }),
       )
-      const foreignImage = await labelledImage({
+      const foreignImage = await labeledImage({
         ...ours("base:gone", dormant.orgId),
         [DOCKER_LABELS.store]: "another-deployment",
       })
-      const unlabelled = await labelledImage({})
+      const unlabeled = await labeledImage({})
 
-      // Two hours on: orphaned objects are past the create grace.
+      // The sweep runs at real time; the orphan age is the only knob, so
+      // the just-created orphan counts as old enough.
       const pruned = await withTestLogger(() =>
-        pruneDockerSandboxHost({
-          now: new Date(now.getTime() + 2 * 60 * 60_000),
-        }),
+        pruneDockerSandboxHost({ orphanAgeMs: 0 }),
       )
-      expect(pruned).toMatchObject({ removedImages: 1, removedContainers: 1 })
+      expect(pruned.removedImages).toContain(unusedImage)
+      expect(pruned.removedContainers).toContain(orphan)
       expect(await exists("container", old)).toBe(false)
       expect(
         await getSandboxInstance(`prune-proof-${old}`, dormant.orgId),
@@ -1011,7 +1026,7 @@ it(
       expect(await exists("image", unusedImage)).toBe(false)
       for (const id of [recent, foreignContainer])
         expect(await exists("container", id)).toBe(true)
-      for (const id of [baseImage, foreignImage, unlabelled])
+      for (const id of [baseImage, foreignImage, unlabeled])
         expect(await exists("image", id)).toBe(true)
     } finally {
       for (const id of containers)
@@ -1036,6 +1051,58 @@ it(
           .delete(organizations)
           .where(eq(organizations.id, orgId))
       }
+    }
+  },
+)
+
+it(
+  "measures time to ready with and without a base on a large public repository",
+  { timeout: 900_000 },
+  async () => {
+    // Ticket 03 records these numbers. The repository is public: GitHub asks
+    // for no credential, so the fixture token is never sent.
+    const url = "https://github.com/facebook/react.git"
+    const sha = (await exec("git", ["ls-remote", url, "HEAD"])).stdout.split(
+      /\s/,
+    )[0]
+    if (!sha) throw new Error(`No HEAD for ${url}`)
+    const previous = process.env.SANDBOX_CHAT_IMAGE
+    try {
+      await withNativeChatFixture(async (f) => {
+        process.env.SANDBOX_PROVIDER = "docker"
+        process.env.SANDBOX_CHAT_IMAGE = CHAT_IMAGE
+        await withOrgDbContext(f.orgId, (db) =>
+          db
+            .update(workspaces)
+            .set({ workspaceRepositoryUrl: url, desiredSha: sha })
+            .where(eq(workspaces.id, f.workspaceId)),
+        )
+        await withOrgIdContext({ id: f.orgId, slug: f.orgSlug }, async () => {
+          const chat = dockerChat(f, url)
+          try {
+            const without = await chat.warm(await chat.conversation(), sha)
+            expect(await chat.head(without.handle)).toBe(sha)
+            const started = Date.now()
+            const image = await chat.build()
+            const buildMs = Date.now() - started
+            if (!image) throw new Error("no base")
+            const withBase = await chat.warm(await chat.conversation(), sha)
+            expect(await chat.imageOf(withBase.handle.id)).toBe(image)
+            expect(await chat.head(withBase.handle)).toBe(sha)
+            const size = async (ref: string) =>
+              (await docker.getImage(ref).inspect()).Size
+            const added = (await size(image)) - (await size(CHAT_IMAGE))
+            report(
+              `[workspace-base] ${url} at ${sha.slice(0, 12)}: ready without base ${without.ms}ms, with base ${withBase.ms}ms; base build ${buildMs}ms; the base adds ${Math.round(added / 1e6)}MB to the chat image`,
+            )
+          } finally {
+            await destroySandboxesForWorkspace(f.workspaceId)
+          }
+        })
+      })
+    } finally {
+      if (previous === undefined) delete process.env.SANDBOX_CHAT_IMAGE
+      else process.env.SANDBOX_CHAT_IMAGE = previous
     }
   },
 )
