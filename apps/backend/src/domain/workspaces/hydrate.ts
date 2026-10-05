@@ -41,19 +41,27 @@ export type HydrateUnit = {
 }
 
 /**
- * A committed file that hydrate keeps out of the projection.
+ * Why hydrate keeps a committed file out of the projection.
  * `malformed`: the front matter, or the `git` URL of a linked-repository file, is not valid.
- * `duplicate_repository`: a linked-repository file names a repository that an earlier file links.
+ * `duplicate_repository`: a linked-repository file names a repository that an earlier
+ * file links, or the Workspace repository itself.
  */
+export const HYDRATE_SKIP_REASONS = [
+  "malformed",
+  "duplicate_repository",
+] as const
+
 export type HydrateSkip = {
   path: string
-  reason: "malformed" | "duplicate_repository"
+  reason: (typeof HYDRATE_SKIP_REASONS)[number]
 }
 
 const MD_LINK = /\[([^\]]*)\]\(([^)]+)\)/g
 
 export function hydrateKnowledgeTree(input: {
   workspaceId: string
+  /** The Workspace repository. A linked-repository file that names it is skipped. */
+  workspaceUrl?: string
   files: ReadonlyArray<{ path: string; content: string }>
 }): {
   units: HydrateUnit[]
@@ -63,7 +71,11 @@ export function hydrateKnowledgeTree(input: {
   const units: HydrateUnit[] = []
   const skipped: HydrateSkip[] = []
   const linked: Array<{ path: string; git: string; branch: string | null }> = []
-  const seenLinked = new Set<string>()
+  const seenLinked = new Set<string>(
+    input.workspaceUrl
+      ? [normalizeWorkspaceRepositoryUrl(input.workspaceUrl)]
+      : [],
+  )
 
   for (const file of input.files) {
     const path = file.path.replace(/^\/+/, "")

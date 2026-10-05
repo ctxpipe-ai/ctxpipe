@@ -25,11 +25,13 @@ import {
 import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import { workspaceIndex } from "../../openworkflow/workflows/workspace-index.js"
+import { workspaceRoutes } from "../../routes/v1/workspaces.js"
 import { resolveWorkspaceRepositoryTip } from "../../routes/webhooks/github/github-workspace-tip.js"
 import {
   type NativeHydrationFixture,
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
+import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 
 it(
   "hydrates 0 committed native Git files without reading uncommitted replacements",
@@ -571,13 +573,17 @@ async function prepareReplacement(f: NativeHydrationFixture) {
 
 it(
   "atomically replaces published units while reporting a malformed sibling",
-  { timeout: 60_000 },
+  { timeout: 120_000 },
   async () =>
     withNativeHydrationFixture({}, async (f) => {
-      const { sha, expected, runner, org, workspaceId } = f
+      const { sha, expected, runner, org, workspaceId, git, directory } = f
       await f.publish()
-      const { nextSha, nextRevision, readSnapshot } =
+      const { nextSha, nextRevision, selectRevision, readSnapshot } =
         await prepareReplacement(f)
+      const storedSkipped = async () =>
+        (await withOrgIdContext(org, () => getWorkspaceById(workspaceId)))
+          ?.hydratePhases?.skipped
+      expect(await storedSkipped()).toEqual([])
       expect(await readSnapshot()).toMatchObject({
         projection: {
           kind: "building",
@@ -607,6 +613,51 @@ it(
           body: "# Replacement\nNew committed content.\n",
         },
       ])
+      // Later phase writes (embeddings, index) merge into the record and keep the list.
+      const brokenSkipped = [{ path: "broken.md", reason: "malformed" }]
+      expect(await storedSkipped()).toEqual(brokenSkipped)
+      const detail = await workspaceHttpApp(org, workspaceRoutes).request(
+        "/workspaces/knowledge",
+      )
+      expect(await detail.json()).toMatchObject({ skippedFiles: brokenSkipped })
+
+      // A re-hydrate of the same SHA does not rebuild Postgres and keeps the list.
+      const again = await runner.runWorkflow(workspaceHydrate.spec, {
+        orgId: org.id,
+        workspaceId,
+        revision: nextRevision,
+      })
+      await again.result({ timeoutMs: 30_000 })
+      expect(await storedSkipped()).toEqual(brokenSkipped)
+
+      // A commit that fixes the file activates a projection with no skipped files.
+      writeFileSync(
+        join(directory, "broken.md"),
+        "---\ntitle: Fixed\n---\nFixed front matter.\n",
+      )
+      git("add", "--", "broken.md")
+      git(
+        "-c",
+        "user.name=Contract",
+        "-c",
+        "user.email=contract@example.test",
+        "commit",
+        "-m",
+        "Fix the malformed sibling",
+      )
+      const fixedSha = git("rev-parse", "HEAD")
+      git("push", f.remote, "HEAD:main")
+      const fixed = await runner.runWorkflow(workspaceHydrate.spec, {
+        orgId: org.id,
+        workspaceId,
+        revision: await selectRevision(fixedSha, nextSha),
+      })
+      expect(await fixed.result({ timeoutMs: 30_000 })).toMatchObject({
+        hydrated: true,
+        units: 2,
+        skipped: 0,
+      })
+      expect(await storedSkipped()).toEqual([])
     }),
 )
 

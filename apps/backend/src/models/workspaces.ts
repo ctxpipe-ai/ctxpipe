@@ -1137,7 +1137,6 @@ export async function commitHydrateProjection(input: {
           activeRevision: input.revision,
           activeProjectionUrl: input.revision.remote.url,
           activeProjectionSha: input.revision.sha,
-          activeProjectionSkipped: [...input.skipped],
           hydrateStatus: "ready",
           hydrateError: null,
           hydratePhases: sql`${JSON.stringify(
@@ -1145,6 +1144,7 @@ export async function commitHydrateProjection(input: {
               url: input.revision.remote.url,
               sha: input.revision.sha,
               revision: input.revision,
+              skipped: input.skipped,
             }),
           )}::jsonb || jsonb_build_object('publishedIndex', coalesce(
             ${workspaces.hydratePhases}->'publishedIndex',

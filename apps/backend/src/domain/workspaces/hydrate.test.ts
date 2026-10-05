@@ -84,6 +84,23 @@ describe("hydrateKnowledgeTree", () => {
     ])
   })
 
+  it("skips a linked-repository file that names the Workspace repository", () => {
+    const result = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      workspaceUrl: "https://github.com/acme/knowledge",
+      files: [
+        {
+          path: "repositories/self.md",
+          content: "---\ngit: git@github.com:Acme/Knowledge.git\n---\n",
+        },
+      ],
+    })
+    expect(result.linked).toEqual([])
+    expect(result.skipped).toEqual([
+      { path: "repositories/self.md", reason: "duplicate_repository" },
+    ])
+  })
+
   it("keeps the ontology kind from front matter for the workspace graph", () => {
     const { units } = hydrateKnowledgeTree({
       workspaceId: "ws_1",

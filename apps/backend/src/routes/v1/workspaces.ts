@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
 import {
-  type HydrateSkip,
+  HYDRATE_SKIP_REASONS,
   shouldHydrateBeforeMigrationExport,
 } from "../../domain/workspaces/hydrate.js"
 import {
@@ -43,9 +43,9 @@ const WorkspaceSkippedFileSchema = z
     path: z
       .string()
       .openapi({ description: "Path in the Workspace repository" }),
-    reason: z.enum(["malformed", "duplicate_repository"]).openapi({
+    reason: z.enum(HYDRATE_SKIP_REASONS).openapi({
       description:
-        "`malformed`: the front matter, or the `git` URL of a linked-repository file, is not valid. `duplicate_repository`: the file links a repository that an earlier file links.",
+        "`malformed`: the front matter, or the `git` URL of a linked-repository file, is not valid. `duplicate_repository`: the file links a repository that an earlier file links, or the Workspace repository itself.",
     }),
   })
   .openapi("WorkspaceSkippedFile")
@@ -62,10 +62,6 @@ const WorkspaceSchema = z
     desiredSha: z.string().nullable(),
     activeProjectionUrl: z.string().nullable(),
     activeProjectionSha: z.string().nullable(),
-    skippedFiles: z.array(WorkspaceSkippedFileSchema).openapi({
-      description:
-        "Committed files that the active projection skipped. Empty when hydrate read every file.",
-    }),
     indexedSha: z.string().nullable(),
     writeStatus: z.string(),
     conversationWritable: z.boolean(),
@@ -81,6 +77,10 @@ const WorkspaceSchema = z
 
 const WorkspaceDetailSchema = WorkspaceSchema.extend({
   linkedRepositories: z.array(LinkedRepositorySchema),
+  skippedFiles: z.array(WorkspaceSkippedFileSchema).openapi({
+    description:
+      "Committed files that the active projection skipped. Empty when hydrate read every file.",
+  }),
 }).openapi("WorkspaceDetail")
 
 const ListWorkspacesResponseSchema = z
@@ -130,7 +130,6 @@ function serializeWorkspace(
     desiredSha: string | null
     activeProjectionUrl: string | null
     activeProjectionSha: string | null
-    activeProjectionSkipped: HydrateSkip[]
     indexedSha: string | null
     writeStatus: string
     hydrateStatus: string
@@ -153,7 +152,6 @@ function serializeWorkspace(
     desiredSha: row.desiredSha,
     activeProjectionUrl: row.activeProjectionUrl,
     activeProjectionSha: row.activeProjectionSha,
-    skippedFiles: row.activeProjectionSkipped,
     indexedSha: row.indexedSha,
     writeStatus: row.writeStatus,
     conversationWritable: workspaceAllowsConversationEdits(
@@ -398,6 +396,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
           ...row,
           createdAt: row.createdAt.toISOString(),
         })),
+        skippedFiles: [...(workspace.hydratePhases?.skipped ?? [])],
       },
       200,
     )

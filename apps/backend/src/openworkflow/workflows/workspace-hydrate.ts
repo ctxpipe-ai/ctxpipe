@@ -275,6 +275,7 @@ export const workspaceHydrate = defineWorkflow(
             const parsed = pending.postgres
               ? hydrateKnowledgeTree({
                   workspaceId: workspace.id,
+                  workspaceUrl: revision.remote.url,
                   files,
                 })
               : { units: snapshot.units, linked: [], skipped: [] }

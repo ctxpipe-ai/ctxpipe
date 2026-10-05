@@ -1,8 +1,11 @@
+import type { HydrateSkip } from "./hydrate.js"
 import type { DerivedStoreResult, WorkspaceRevision } from "./revision.js"
 
 export type HydratePhaseRecord = {
   url: string
   sha: string
+  /** Committed files that this projection skipped. Each hydrate commit replaces the list. */
+  skipped?: readonly HydrateSkip[]
   embeddings: boolean
   embeddingError?: string
   revision?: WorkspaceRevision
@@ -29,11 +32,15 @@ export function initialHydratePhases(input: {
   url: string
   sha: string
   revision?: WorkspaceRevision
+  /** Only the hydrate commit sets this. Later `||` merges omit it, so they keep the stored list. */
+  skipped?: readonly HydrateSkip[]
 }): HydratePhaseRecord {
   return {
     url: input.url,
     sha: input.sha,
     embeddings: false,
     ...(input.revision ? { revision: input.revision } : {}),
+    // Keep an empty list. The hydrate commit uses it to replace the previous list.
+    ...(input.skipped !== undefined ? { skipped: input.skipped } : {}),
   }
 }

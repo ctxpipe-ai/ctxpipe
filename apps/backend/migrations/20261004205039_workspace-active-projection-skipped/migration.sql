@@ -1,1 +1,0 @@
-ALTER TABLE "workspaces" ADD COLUMN "active_projection_skipped" jsonb DEFAULT '[]' NOT NULL;
