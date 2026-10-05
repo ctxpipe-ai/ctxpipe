@@ -33,6 +33,11 @@ describe("truth", () => {
     expect(edgeTruth(0.6, 10)).toBeCloseTo(edgeTruth(0.6, 3))
   })
 
+  it("never goes above 0.98, however many sources agree", () => {
+    expect(edgeTruth(0.95, 3)).toBe(0.98)
+    expect(edgeTruth(1, 1)).toBe(0.98)
+  })
+
   it("keeps one strong source above three weak ones", () => {
     expect(edgeTruth(0.95, 1)).toBeGreaterThan(edgeTruth(0.6, 3))
   })
@@ -57,6 +62,12 @@ describe("authority", () => {
     const changesRequested = authority("PullRequest", null, "CHANGES_REQUESTED")
     expect(approved).toBeGreaterThan(unreviewed)
     expect(unreviewed).toBeGreaterThan(changesRequested)
+  })
+
+  it("does not lower a superseded or proposed decision when the question is about history", () => {
+    expect(authority("Decision", "superseded", null, true)).toBe(1)
+    expect(authority("Decision", "proposed", null, true)).toBe(1)
+    expect(authority("PullRequest", null, "CHANGES_REQUESTED", true)).toBe(0.6)
   })
 
   it("is 1 for other kinds, whatever their status", () => {
@@ -137,16 +148,21 @@ describe("recency", () => {
     }
   })
 
+  it("keeps an old event at 0.1 at least", () => {
+    expect(recency(change(daysAgo(900)), asOf)).toBe(0.1)
+  })
+
   it("counts an undated change as one half-life old", () => {
     expect(recency(change(null), asOf)).toBe(0.5)
   })
 })
 
 describe("specificity", () => {
-  it("penalizes hubs on a log scale", () => {
+  it("is degree^-0.5", () => {
     expect(specificity(0)).toBe(1)
-    expect(specificity(50)).toBeCloseTo(0.77, 2)
-    expect(specificity(6000)).toBeCloseTo(0.32, 2)
+    expect(specificity(1)).toBe(1)
+    expect(specificity(4)).toBe(0.5)
+    expect(specificity(100)).toBeCloseTo(0.1)
     expect(specificity(null)).toBe(1)
   })
 })
@@ -227,6 +243,26 @@ describe("intent", () => {
     ).toMatchObject({ intent: "general", turns: {} })
   })
 
+  it("decays only for questions about time", () => {
+    for (const intent of [
+      "general",
+      "ownership",
+      "why",
+      "structure",
+    ] as const) {
+      expect(INTENT_PROFILES[intent].weights.recency, intent).toBe(0)
+    }
+    expect(INTENT_PROFILES.change.weights.recency).toBeGreaterThan(0)
+  })
+
+  it("treats why and change questions as history, so ADR status does not lower a decision", () => {
+    expect(INTENT_PROFILES.why.history).toBe(true)
+    expect(INTENT_PROFILES.change.history).toBe(true)
+    expect(INTENT_PROFILES.general.history).toBe(false)
+    expect(INTENT_PROFILES.structure.history).toBe(false)
+    expect(INTENT_PROFILES.ownership.history).toBe(false)
+  })
+
   it("gives the why walk more turns for decisions than for their files and changes", () => {
     const { turns } = INTENT_PROFILES.why
     expect(turns.INFLUENCES).toBeGreaterThan(turns.DECLARED_IN ?? 1)
@@ -262,12 +298,12 @@ describe("scoreEdge", () => {
     searchScore: undefined,
     ...more,
   })
-  const weights = INTENT_PROFILES.general.weights
+  const general = INTENT_PROFILES.general
 
   it("passes the path truth on, without the other signals", () => {
     const scored = scoreEdge(
       candidate({ parentTruth: 0.9, degree: 6000 }),
-      weights,
+      general,
       asOf,
     )
     expect(scored.truth).toBeCloseTo(0.72)
@@ -275,18 +311,59 @@ describe("scoreEdge", () => {
   })
 
   it("ranks a corroborated fact above a single-source fact at the same confidence", () => {
-    const one = scoreEdge(candidate(), weights, asOf)
-    const two = scoreEdge(candidate({ sourceCount: 2 }), weights, asOf)
+    const one = scoreEdge(candidate(), general, asOf)
+    const two = scoreEdge(candidate({ sourceCount: 2 }), general, asOf)
     expect(two.score).toBeGreaterThan(one.score)
   })
 
   it("ranks a search hit above a miss with somewhat higher confidence", () => {
     const hit = scoreEdge(
       candidate({ confidence: 0.72, searchScore: 1 }),
-      weights,
+      general,
       asOf,
     )
-    const miss = scoreEdge(candidate({ confidence: 0.95 }), weights, asOf)
+    const miss = scoreEdge(candidate({ confidence: 0.95 }), general, asOf)
     expect(hit.score).toBeGreaterThan(miss.score)
+  })
+
+  it("gives a search hit no hub penalty, because the question names it", () => {
+    const hub = candidate({ degree: 6000, searchScore: 1 })
+    expect(scoreEdge(hub, general, asOf).signals.specificity).toBe(1)
+    expect(
+      scoreEdge({ ...hub, searchScore: undefined }, general, asOf).signals
+        .specificity,
+    ).toBeLessThan(0.05)
+  })
+
+  it("ranks an old pull request below a new one only for a question about time", () => {
+    const pull = (days: number) =>
+      candidate({
+        predicate: "CHANGED",
+        toKind: "PullRequest",
+        validFrom: daysAgo(days),
+      })
+    const change = INTENT_PROFILES.change
+    expect(scoreEdge(pull(5), change, asOf).score).toBeGreaterThan(
+      scoreEdge(pull(400), change, asOf).score,
+    )
+    expect(scoreEdge(pull(5), general, asOf).score).toBe(
+      scoreEdge(pull(400), general, asOf).score,
+    )
+  })
+
+  it("keeps a superseded decision level with an accepted one for a why question, and below it otherwise", () => {
+    const decision = (status: string) =>
+      candidate({
+        predicate: "INFLUENCES",
+        toKind: "Decision",
+        toStatus: status,
+      })
+    const why = INTENT_PROFILES.why
+    expect(scoreEdge(decision("superseded"), why, asOf).score).toBe(
+      scoreEdge(decision("accepted"), why, asOf).score,
+    )
+    expect(scoreEdge(decision("superseded"), general, asOf).score).toBeLessThan(
+      scoreEdge(decision("accepted"), general, asOf).score,
+    )
   })
 })

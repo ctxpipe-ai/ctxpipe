@@ -48,20 +48,27 @@ export const SIGNAL_FLOOR = 0.05
 /**
  * Evidence rows are distinct logical sources (an extractor and its target,
  * without the commit hash). A repeat observation of a source updates its row
- * and does not add one. But two extractors can read the same file, and one
- * extractor can see the same fact in two packages, so the sources are not
- * fully independent. Thus noisy-OR counts at most three of them.
+ * and does not add one. But two extractors can read the same file, one
+ * extractor can see the same fact in two packages, and a mirror copies a
+ * source, so the sources are not fully independent. Noisy-OR assumes that
+ * they are (NELL), thus it counts at most three of them.
+ * Follow-up: group the evidence by an independence key (producer and
+ * upstream artifact) when the claim is written, and combine one value for
+ * each group, as Knowledge Vault counts each domain once.
  */
 const MAX_INDEPENDENT_SOURCES = 3
 
-/** Same half-life as the evidence decay in `aggregateConfidence`. */
+/** No combination of evidence makes a fact certain. */
+const MAX_TRUTH = 0.98
+
+/** Half-life of pull requests and threads. */
 const RECENCY_HALF_LIFE_DAYS = 90
+
+/** An old event still counts for this much. */
+const RECENCY_FLOOR = 0.1
 
 /** A decaying fact with no date counts as one half-life old. */
 const UNDATED_RECENCY = 0.5
-
-/** A node with this many edges gets a specificity of about 0.77. */
-const HUB_DEGREE_SCALE = 50
 
 /** The search signal of a node that the search did not find. */
 const SEARCH_MISS = 0.5
@@ -101,16 +108,20 @@ export const UNDECLARED_DECISION_FACTOR = 0.9
  */
 const REVIEW_DECISION_FACTORS: Readonly<Record<string, number>> = {
   APPROVED: 1,
-  CHANGES_REQUESTED: 0.5,
+  CHANGES_REQUESTED: 0.6,
 }
 const UNREVIEWED_FACTOR = 0.8
 
+/**
+ * Every weight starts at 1 (a log-linear model, Metzler and Croft), except
+ * recency: a recency prior helps only questions about time (Li and Croft).
+ */
 const BASE_WEIGHTS: SignalWeights = {
   truth: 1,
   authority: 1,
   search: 1,
-  recency: 0.5,
-  specificity: 0.5,
+  recency: 0,
+  specificity: 1,
 }
 
 /** The predicates that describe how the code is built and connected. */
@@ -127,36 +138,43 @@ const STRUCTURAL_PREDICATES = [
   "RUNS_ON",
 ]
 
-/**
- * For each intent: the signal weights, and the turns that a relation family
- * takes in each round of the walk (default 1). The keys of `turns` are
- * {@link turnGroup} values.
- */
-export const INTENT_PROFILES: Readonly<
-  Record<
-    QueryIntent,
-    { weights: SignalWeights; turns: Readonly<Record<string, number>> }
-  >
-> = {
-  general: { weights: BASE_WEIGHTS, turns: {} },
+export type IntentProfile = {
+  weights: SignalWeights
+  /** Turns of a relation family in each round of the walk (default 1), by {@link turnGroup} */
+  turns: Readonly<Record<string, number>>
+  /**
+   * True when the question asks about history. Then a superseded, rejected
+   * or proposed ADR is part of the answer, and its status does not lower it.
+   */
+  history: boolean
+}
+
+export const INTENT_PROFILES: Readonly<Record<QueryIntent, IntentProfile>> = {
+  general: { weights: BASE_WEIGHTS, turns: {}, history: false },
   // A team that owns many services and issues is still the owner.
   ownership: {
     weights: { ...BASE_WEIGHTS, specificity: 0 },
     turns: { OWNS: 3 },
+    history: false,
   },
-  // The pull request that added an old ADR still tells why. The ADRs come
-  // before the files that declare them and the changes to those files.
+  // The ADRs come before the files that declare them and the changes to
+  // those files.
   why: {
-    weights: { ...BASE_WEIGHTS, recency: 0 },
+    weights: BASE_WEIGHTS,
     turns: { INFLUENCES: 3, SUPERSEDES: 2 },
+    history: true,
   },
+  // The question is about time. A pull request that changed many files is
+  // less specific, but it still changed the package: half the penalty.
   change: {
-    weights: { ...BASE_WEIGHTS, recency: 1.5 },
+    weights: { ...BASE_WEIGHTS, recency: 1, specificity: 0.5 },
     turns: { CHANGED: 3, TARGETS: 3, REFERENCES: 2 },
+    history: true,
   },
   structure: {
     weights: BASE_WEIGHTS,
     turns: Object.fromEntries(STRUCTURAL_PREDICATES.map((p) => [p, 3])),
+    history: false,
   },
 }
 
@@ -195,32 +213,31 @@ export function turnGroup(predicate: string): string {
 }
 
 /**
- * The weights and turns for a walk. `intent` replaces the intent of
- * `query`, and `weights` replaces single signal weights of that intent.
+ * The profile for a walk. `intent` replaces the intent of `query`, and
+ * `weights` replaces single signal weights of that intent.
  */
 export function retrievalProfile(options: {
   query?: string
   intent?: QueryIntent
   weights?: Partial<SignalWeights>
-}): {
-  intent: QueryIntent
-  weights: SignalWeights
-  turns: Readonly<Record<string, number>>
-} {
+}): IntentProfile & { intent: QueryIntent } {
   const intent = options.intent ?? classifyIntent(options.query)
   const profile = INTENT_PROFILES[intent]
   return {
+    ...profile,
     intent,
     weights: { ...profile.weights, ...options.weights },
-    turns: profile.turns,
   }
 }
 
 /**
- * Truth of one edge: noisy-OR of its evidence, 1 - (1 - c)^n. `c` is the
- * stored confidence (0.5 when missing) and `n` the evidence count, at least
- * 1 and at most {@link MAX_INDEPENDENT_SOURCES}. Agreement raises it: two
- * sources at 0.6 give 0.84, but one source at 0.95 still beats three at 0.6.
+ * Truth of one edge: noisy-OR of its evidence, 1 - (1 - c)^n, at most
+ * {@link MAX_TRUTH}. `c` is the stored confidence (0.5 when missing) and `n`
+ * the evidence count, at least 1 and at most {@link MAX_INDEPENDENT_SOURCES}.
+ * Agreement raises it: two sources at 0.6 give 0.84, but one source at 0.95
+ * still beats three at 0.6. Recency is not part of truth. (The stored
+ * confidence is an average of the evidence, weighted with a 90-day decay of
+ * each row; for one row the weight cancels.)
  */
 export function edgeTruth(
   confidence: number | null,
@@ -231,16 +248,21 @@ export function edgeTruth(
     MAX_INDEPENDENT_SOURCES,
     Math.max(1, Math.floor(sourceCount ?? 1)),
   )
-  return 1 - (1 - c) ** n
+  return Math.min(MAX_TRUTH, 1 - (1 - c) ** n)
 }
 
-/** Decision status and pull request review decision; 1 for other kinds. */
+/**
+ * Decision status and pull request review decision; 1 for other kinds. For a
+ * question about history, the status of a decision does not lower it.
+ */
 export function authority(
   kind: string | null,
   status: string | null,
   reviewDecision: string | null,
+  history = false,
 ): number {
   if (kind === "Decision") {
+    if (history) return 1
     return DECISION_STATUS_FACTORS[status ?? ""] ?? UNDECLARED_DECISION_FACTOR
   }
   if (kind === "PullRequest") {
@@ -278,11 +300,13 @@ export function searchRelevance(normalizedScore: number | undefined): number {
 }
 
 /**
- * Half-life decay for facts that go out of date: change edges (from their
+ * max(0.1, 2^(-age / 90 days)) for events: change edges (from their
  * `valid_from`, the merge date), pull requests (`merged_at`) and threads
- * (`captured_at`). Decisions and instructions do not decay: their status and
- * supersession control them. `last_observed_at` is not used: after a
- * backfill, every fact has the same ingest time.
+ * (`captured_at`). State facts (decisions, instructions, ownership,
+ * containment, dependencies) do not decay: their status, supersession and
+ * validity control them. `last_observed_at` is not used: after a backfill,
+ * every fact has the same ingest time. Only the `change` intent gives this
+ * signal a weight.
  */
 export function recency(
   input: {
@@ -306,13 +330,16 @@ export function recency(
   )
   if (Number.isNaN(date)) return UNDATED_RECENCY
   const ageDays = Math.max(0, asOf.getTime() - date) / 86_400_000
-  return 0.5 ** (ageDays / RECENCY_HALF_LIFE_DAYS)
+  return Math.max(RECENCY_FLOOR, 0.5 ** (ageDays / RECENCY_HALF_LIFE_DAYS))
 }
 
-/** 1 / (1 + log10(1 + degree / 50)): 1 for a leaf, about 0.32 for 6,000 edges. */
+/**
+ * degree^-0.5, as in HippoRAG and RP3β: 1 for a leaf, 0.1 for 100 edges.
+ * The signal floor applies from 400 edges.
+ */
 export function specificity(degree: number | null): number {
   if (degree === null) return 1
-  return 1 / (1 + Math.log10(1 + Math.max(0, degree) / HUB_DEGREE_SCALE))
+  return Math.max(1, degree) ** -0.5
 }
 
 /** exp(Σ wᵢ · ln max(sᵢ, floor)): the weighted product of the signals. */
@@ -350,11 +377,13 @@ export type EdgeCandidate = {
 /**
  * Scores one candidate edge. `truth` is the path truth that the reached node
  * passes to the next hop. Only truth goes along the path: the other signals
- * describe the edge and the node that it reaches.
+ * describe the edge and the node that it reaches. A search hit gets no hub
+ * penalty, because the question names it. (The start node is never a
+ * candidate.)
  */
 export function scoreEdge(
   candidate: EdgeCandidate,
-  weights: SignalWeights,
+  profile: Pick<IntentProfile, "weights" | "history">,
   asOf: Date,
 ): { truth: number; signals: RetrievalSignals; score: number } {
   const truth =
@@ -366,10 +395,12 @@ export function scoreEdge(
       candidate.toKind,
       candidate.toStatus,
       candidate.toReviewDecision,
+      profile.history,
     ),
     search: searchRelevance(candidate.searchScore),
     recency: recency(candidate, asOf),
-    specificity: specificity(candidate.degree),
+    specificity:
+      candidate.searchScore === undefined ? specificity(candidate.degree) : 1,
   }
-  return { truth, signals, score: combineSignals(signals, weights) }
+  return { truth, signals, score: combineSignals(signals, profile.weights) }
 }

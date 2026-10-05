@@ -222,7 +222,8 @@ function readNode(
 /**
  * The status factor of a reached Decision, as Cypher. Only the per-type
  * slice uses it, so that the slice keeps the candidates that the trust order
- * of ADR-035 puts first. The score applies the same table in TypeScript.
+ * of ADR-035 puts first. The score applies the same table in TypeScript. A
+ * question about history does not use it.
  */
 const DECISION_STATUS_CASE = `CASE WHEN coalesce(b.kind, '') <> 'Decision' THEN 1.0 ${Object.entries(
   DECISION_STATUS_FACTORS,
@@ -257,11 +258,13 @@ export async function graphTraversal(
   const extensionFilter = options?.useExtensionLayer
     ? ` AND type(rel) IN ['${EXTENSION_TRAVERSAL_PREDICATES.join("','")}']`
     : ""
-  const { weights, turns } = retrievalProfile({
+  const profile = retrievalProfile({
     query: options?.query,
     intent: options?.intent,
     weights: options?.weights,
   })
+  const { weights, turns } = profile
+  const statusFactor = profile.history ? "1.0" : DECISION_STATUS_CASE
   // With the search signal off, hits get no tie-break and no slot priority.
   const searchScores = normalizeSearchHits(
     weights.search === 0 ? [] : (options?.searchHits ?? []),
@@ -323,7 +326,7 @@ export async function graphTraversal(
            AND (coalesce(rel.valid_from, '') = '' OR substring(rel.valid_from, 0, 10) <= $validDay)
            AND (coalesce(rel.valid_to, '') = '' OR substring(rel.valid_to, 0, 10) > $validDay)${extensionFilter}
          WITH a, b, rel, f.trust AS fromTrust,
-              f.trust * coalesce(rel.aggregate_confidence, 0.5) * ${DECISION_STATUS_CASE} AS trust
+              f.trust * coalesce(rel.aggregate_confidence, 0.5) * ${statusFactor} AS trust
          WITH a, b, rel, fromTrust, trust, coalesce(rel.valid_from, '') AS validFrom,
               coalesce(rel.source_count, 1) AS sources,
               CASE WHEN b.id IN $searchIds THEN 0 ELSE 1 END AS searchRank
@@ -365,13 +368,17 @@ export async function graphTraversal(
         to: readNode(r, "to", String(r.get("toId"))),
       }))
       // Specificity needs the degree of each reached node: one more query
-      // per hop, over the candidate ids only.
+      // per hop, over the candidates only. Search hits get no hub penalty.
       const degrees =
-        weights.specificity === 0 || rows.length === 0
+        weights.specificity === 0
           ? new Map<string, number>()
-          : await nodeDegrees(driver, orgId, [
-              ...new Set(rows.map((row) => row.to.id)),
-            ])
+          : await nodeDegrees(
+              driver,
+              orgId,
+              rows.flatMap((row) =>
+                searchScores.has(row.to.id) ? [] : [row.to],
+              ),
+            )
 
       const edges: HopEdge[] = rows.map(({ record: r, to }) => {
         const predicate = String(r.get("predicate"))
@@ -395,7 +402,7 @@ export async function graphTraversal(
             degree: degrees.get(to.id) ?? null,
             searchScore: searchScores.get(to.id),
           },
-          weights,
+          profile,
           asOf,
         )
         return {
@@ -429,17 +436,46 @@ export async function graphTraversal(
   })
 }
 
-/** Edge count of each node, in one scan over the ids. */
+/**
+ * Edge count of each node. The query has one part for each kind, so that the
+ * `id` index of each kind (ADR-035) finds the nodes: a label-less match
+ * scans every node of the graph. The kind becomes a label in the query text,
+ * so it must pass the same check as `SAFE_CYPHER_IDENT` in
+ * `platform/graph/indexes.ts`. That module is not imported, so that the walk
+ * depends only on the graph client. A node with no safe kind gets no degree.
+ */
 async function nodeDegrees(
   driver: ReturnType<typeof getGraphClient>,
   orgId: string,
-  ids: string[],
+  nodes: TraversalNode[],
 ): Promise<Map<string, number>> {
+  const idsByKind = new Map<string, Set<string>>()
+  for (const node of nodes) {
+    if (!node.kind || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(node.kind)) continue
+    const ids = idsByKind.get(node.kind)
+    if (ids) ids.add(node.id)
+    else idsByKind.set(node.kind, new Set([node.id]))
+  }
+  if (idsByKind.size === 0) return new Map()
+
+  const kinds = [...idsByKind.keys()]
   const { records } = await driver.executeQuery(
-    `MATCH (b) WHERE b.id IN $ids AND b.orgId = $orgId
+    kinds
+      .map(
+        (
+          kind,
+          i,
+        ) => `MATCH (b:${kind}) WHERE b.id IN $ids${i} AND b.orgId = $orgId
      OPTIONAL MATCH (b)--(x)
      RETURN b.id AS id, count(x) AS degree`,
-    { ids, orgId },
+      )
+      .join(" UNION ALL "),
+    {
+      orgId,
+      ...Object.fromEntries(
+        kinds.map((kind, i) => [`ids${i}`, [...(idsByKind.get(kind) ?? [])]]),
+      ),
+    },
   )
   return new Map(
     records.map((r) => [String(r.get("id")), num(r.get("degree")) ?? 0]),

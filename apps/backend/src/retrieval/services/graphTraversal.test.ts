@@ -92,37 +92,88 @@ describe("graphTraversal query dialect", () => {
     )
   })
 
-  it("reads the degree of the reached nodes in one more query, and not when specificity is off", async () => {
-    const row = (toId: string) => ({
+  it("reads the degree of the reached nodes in one more query, one part per kind so the id index serves it", async () => {
+    const row = (toId: string, toKind: string | null) => ({
       get: (key: string) =>
-        ({
-          toId,
-          toKind: "File",
-          predicate: "PART_OF",
-          claimId: `clm_${toId}`,
-        })[key] ?? null,
+        ({ toId, toKind, predicate: "PART_OF", claimId: `clm_${toId}` })[key] ??
+        null,
     })
     executeQueryMock.mockResolvedValueOnce({
-      records: [row("file_a"), row("file_b"), row("file_a")],
+      records: [
+        row("file_a", "File"),
+        row("file_b", "File"),
+        row("file_a", "File"),
+        row("lib_a", "Library"),
+        row("odd_a", "Bad Kind) DETACH DELETE b //"),
+        row("odd_b", null),
+      ],
     })
     await graphTraversal("org_1", "acme", "svc", { maxDepth: 1 })
 
     expect(executeQueryMock).toHaveBeenCalledTimes(2)
     const query = String(executeQueryMock.mock.calls[1]?.[0])
-    expect(query).toContain("b.id IN $ids AND b.orgId = $orgId")
+    expect(query).toContain(
+      "MATCH (b:File) WHERE b.id IN $ids0 AND b.orgId = $orgId",
+    )
+    expect(query).toContain("UNION ALL MATCH (b:Library) WHERE b.id IN $ids1")
     expect(query).toContain("count(x) AS degree")
+    expect(query).not.toContain("DETACH")
     expect(executeQueryMock.mock.calls[1]?.[1]).toEqual({
-      ids: ["file_a", "file_b"],
       orgId: "org_1",
+      ids0: ["file_a", "file_b"],
+      ids1: ["lib_a"],
+    })
+  })
+
+  it("orders the slice by decision status, except for a question about history", async () => {
+    await graphTraversal("org_1", "acme", "obj_start", {
+      query: "What does billing depend on?",
+    })
+    await graphTraversal("org_1", "acme", "obj_start", {
+      query: "Why does billing use a queue?",
     })
 
-    executeQueryMock.mockClear()
-    executeQueryMock.mockResolvedValueOnce({ records: [row("file_a")] })
+    const [structure, why] = executeQueryMock.mock.calls.map((call) =>
+      String(call[0]),
+    )
+    expect(structure).toContain("WHEN b.status = 'superseded' THEN 0.3")
+    expect(why).not.toContain("b.status = 'superseded'")
+    expect(why).toContain("* 1.0 AS trust")
+  })
+
+  it("reads no degree for a search hit, which gets no hub penalty", async () => {
+    const row = (toId: string) => ({
+      get: (key: string) =>
+        ({ toId, toKind: "File", predicate: "PART_OF" })[key] ?? null,
+    })
+    executeQueryMock.mockResolvedValueOnce({
+      records: [row("file_hit"), row("file_other")],
+    })
+    await graphTraversal("org_1", "acme", "svc", {
+      maxDepth: 1,
+      searchHits: [{ id: "file_hit", score: 0.03 }],
+    })
+
+    expect(executeQueryMock.mock.calls[1]?.[1]).toEqual({
+      orgId: "org_1",
+      ids0: ["file_other"],
+    })
+  })
+
+  it("reads no degree when specificity is off or no candidate has a kind", async () => {
+    const row = (toKind: string | null) => ({
+      get: (key: string) =>
+        ({ toId: "file_a", toKind, predicate: "PART_OF" })[key] ?? null,
+    })
+    executeQueryMock.mockResolvedValueOnce({ records: [row("File")] })
     await graphTraversal("org_1", "acme", "svc", {
       maxDepth: 1,
       weights: { specificity: 0 },
     })
-    expect(executeQueryMock).toHaveBeenCalledTimes(1)
+    executeQueryMock.mockResolvedValueOnce({ records: [row(null)] })
+    await graphTraversal("org_1", "acme", "svc", { maxDepth: 1 })
+
+    expect(executeQueryMock).toHaveBeenCalledTimes(2)
   })
 
   it("gives the start node with the reached nodes, so each end of a kept claim is readable", async () => {
