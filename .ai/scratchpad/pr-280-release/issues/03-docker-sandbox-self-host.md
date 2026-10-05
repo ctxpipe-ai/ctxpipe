@@ -126,6 +126,7 @@ Do not add TanStack patches or an application-level sandbox registry. Keep const
     4. unused bases are deleted (superseded at once; current after 7 days);
     5. the prune removes a dormant org's 31-day-old stopped container and an unused labeled image, and leaves a recent container, a base in use, another deployment's image and an unlabeled image.
   - Measured locally (Docker Desktop, tiny repository on the bridge): sandbox ready 1.2 s without a base vs 1.1 s from one. The clone is all a Docker base saves, so the gain grows with repository size. The three concurrent starts without a base took 1.2/2.6/4.0 s, because the Workspace lock serializes creates (existing behavior).
+  - Measured on a large public repository (2026-10-06, Docker Desktop, `facebook/react` at `278794d7dee9`, depth-1 clone over the internet, test "measures time to ready with and without a base"): sandbox ready 16.1 s without a base and 8.9 s from one. The base build took 21.9 s, and the base adds 53 MB to the chat image. In the same run, the tiny bridge repository gave 6.3/12.3/22.9 s for three concurrent starts without a base and 9.6 s from one, because other test suites loaded the machine. Decision for the user: the base saves about 7 s on a large repository and almost nothing on a small one.
   - Note for Compose/CDK: the worker builds bases, so it needs the same `DOCKER_HOST` / TLS and `SANDBOX_CHAT_IMAGE` as the backend (CDK already passes both).
 
 - 2026-10-03 (claude, Compose part, after adversarial review): supersedes the isolation notes in the comment below.
