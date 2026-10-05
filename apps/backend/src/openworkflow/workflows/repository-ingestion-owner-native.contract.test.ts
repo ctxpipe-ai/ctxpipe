@@ -16,6 +16,7 @@ import {
   findRepositoryIngestionOwner,
   prepareRepositoryIngestionRequest,
 } from "../../models/repository-ingestion-requests.js"
+import { storeTestExtraction } from "../../test/extraction-capture-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { withCanceledNativeInsert } from "../../test/native-workflow-insert-failure.js"
 import { ow } from "../client.js"
@@ -405,7 +406,7 @@ it(
               workspaceId: f.workspaceId,
               jobId: `wjob_${f.id}_source_owner`,
               revision: { ...f.revision, access: "write-default" },
-              extraction: {
+              extraction: await storeTestExtraction(f.org.id, {
                 repositoryId: repository.id,
                 repositoryUrl: f.workspaceUrl,
                 sourceSha: f.sha,
@@ -419,7 +420,7 @@ it(
                   },
                 ],
                 claims: [],
-              },
+              }),
             },
           )
           await expect(handle.result({ timeoutMs: 15_000 })).rejects.toThrow()

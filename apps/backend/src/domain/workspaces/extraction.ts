@@ -25,34 +25,59 @@ export const extractionCaptureBudgetSchema = z
       })
   })
 
-/** Immutable extractor output. Projection tables are never an extraction source. */
-const capturedExtractionSchema = z
+/** Source identity of a queued extraction. Write jobs check it before a push. */
+const extractionHeaderShape = {
+  repositoryId: z.string().min(1),
+  ingestionRequestId: z.string().min(1).optional(),
+  repositoryUrl: linkedRepositoryUrlSchema,
+  sourceDeclaration: z
+    .object({
+      path: repositoryFilePathSchema.refine(isLinkedRepositoryDeclaration),
+      blobSha: gitObjectIdSchema,
+    })
+    .strict()
+    .optional(),
+  retraction: z
+    .discriminatedUnion("mode", [
+      z
+        .object({ mode: z.literal("full"), observedAt: z.iso.datetime() })
+        .strict(),
+      z
+        .object({
+          mode: z.literal("partial"),
+          observedAt: z.iso.datetime(),
+          paths: z.array(repositoryFilePathSchema).max(100_000),
+        })
+        .strict(),
+    ])
+    .optional(),
+  sourceSha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
+}
+
+/**
+ * Queued extraction command. The extractor output stays in
+ * `repository_extraction_captures`; the command carries only its key, so the
+ * workflow input and the write-job payload stay small for any repository size.
+ */
+export const workspaceExtractionSchema = z
   .object({
-    repositoryId: z.string().min(1),
-    ingestionRequestId: z.string().min(1).optional(),
-    repositoryUrl: linkedRepositoryUrlSchema,
-    sourceDeclaration: z
+    ...extractionHeaderShape,
+    capture: z
       .object({
-        path: repositoryFilePathSchema.refine(isLinkedRepositoryDeclaration),
-        blobSha: gitObjectIdSchema,
+        scope: z.string().min(1),
+        extractorVersion: z.number().int().positive(),
+        roots: extractionRootsSchema,
       })
-      .strict()
-      .optional(),
-    retraction: z
-      .discriminatedUnion("mode", [
-        z
-          .object({ mode: z.literal("full"), observedAt: z.iso.datetime() })
-          .strict(),
-        z
-          .object({
-            mode: z.literal("partial"),
-            observedAt: z.iso.datetime(),
-            paths: z.array(repositoryFilePathSchema).max(100_000),
-          })
-          .strict(),
-      ])
-      .optional(),
-    sourceSha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
+      .strict(),
+  })
+  .strict()
+
+export type WorkspaceExtraction = z.infer<typeof workspaceExtractionSchema>
+
+/** Immutable extractor output. Projection tables are never an extraction source. */
+const capturedExtractionShapeSchema = z
+  .object({
+    ...extractionHeaderShape,
     objects: z.array(
       z
         .object({
@@ -79,13 +104,12 @@ const capturedExtractionSchema = z
   })
   .strict()
 
-export type WorkspaceExtraction = z.infer<typeof capturedExtractionSchema>
+export type CapturedExtraction = z.infer<typeof capturedExtractionShapeSchema>
 
 /** Merge partial observations in encounter order before the command is persisted. */
-export const workspaceExtractionSchema = extractionCaptureBudgetSchema
-  .pipe(capturedExtractionSchema)
-  .transform((batch): WorkspaceExtraction => {
-    const objects = new Map<string, WorkspaceExtraction["objects"][number]>()
+export const capturedExtractionSchema = capturedExtractionShapeSchema.transform(
+  (batch): CapturedExtraction => {
+    const objects = new Map<string, CapturedExtraction["objects"][number]>()
     for (const object of batch.objects) {
       const payload = {
         ...object.payload,
@@ -102,7 +126,8 @@ export const workspaceExtractionSchema = extractionCaptureBudgetSchema
       })
     }
     return { ...batch, objects: [...objects.values()] }
-  })
+  },
+)
 
 /** Prefer the concrete evidence path; directory-only provenance remains repository-scoped. */
 export function captureExtractionClaimSourcePath(

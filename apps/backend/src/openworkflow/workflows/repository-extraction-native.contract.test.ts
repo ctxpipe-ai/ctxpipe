@@ -9,6 +9,8 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { captureRepositoryExtractionTarget } from "../../domain/workspaces/capture-repository-extraction.js"
 import { ensureOrgRepositoryForGitUrl } from "../../domain/workspaces/ensure-org-repository.js"
+import { EXTRACTOR_VERSION } from "../../graphs/codeIngestionGraph/runExtractRoot.js"
+import { storeRootCapture } from "../../models/repository-extraction-captures.js"
 import { persistOrgFirstWorkspace } from "../../models/workspaces.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { enqueueRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
@@ -195,20 +197,25 @@ it.each([
                   ? largeCaptureRoots
                   : ["billing"]
             await step.run({ name: "identify-roots" }, () => ({ roots }))
+            const captureKey = {
+              orgId: f.org.id,
+              repositoryId: repository.id,
+              sourceSha: f.sha,
+              scope: "full",
+              extractorVersion: EXTRACTOR_VERSION,
+            }
             for (const root of roots) {
-              if (mode === "capture-over-8-mib") {
-                // Each paid root capture fits 8 MiB; together they exceed it, as for a large monorepo.
-                await step.run({ name: `extract-kind:${root}` }, () => ({
-                  extractedObjects: [],
-                  extractedClaims: [],
-                }))
-                await step.run({ name: `identify:${root}` }, () =>
-                  largeRootCapture(repository.id, root),
-                )
-                continue
-              }
               await step.run({ name: `extract-kind:${root}` }, () => extracted)
-              await step.run({ name: `identify:${root}` }, () => extracted)
+              // Together the large roots hold more than 8 MiB, as for a large monorepo.
+              await step.run({ name: `identify:${root}` }, () =>
+                storeRootCapture(
+                  captureKey,
+                  root,
+                  (mode === "capture-over-8-mib"
+                    ? largeRootCapture(repository.id, root)
+                    : extracted) as Parameters<typeof storeRootCapture>[2],
+                ),
+              )
             }
             await step.run({ name: "deduplicateAndStore" }, () => ({
               objectIds: [],

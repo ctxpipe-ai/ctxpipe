@@ -1,5 +1,16 @@
 import { isUnresolvedProviderIdentity } from "../../domain/codeIngestion/referenceResolver.js"
-import { extractionCaptureBudgetSchema } from "../../domain/workspaces/extraction.js"
+import {
+  type CapturedExtraction,
+  capturedExtractionSchema,
+  captureExtractionClaimSourcePath,
+  extractionCaptureBudgetSchema,
+  type WorkspaceExtraction,
+} from "../../domain/workspaces/extraction.js"
+import {
+  type ExtractionCaptureKey,
+  loadExtractionCapture,
+  storeRootCapture,
+} from "../../models/repository-extraction-captures.js"
 import { CONNECTOR_EXTRACTORS } from "./nodes/connectorExtractors.js"
 import { extractCodeowners } from "./nodes/extractCodeowners.js"
 import { extractDecisions } from "./nodes/extractDecisions.js"
@@ -15,6 +26,7 @@ import { identifyServiceDependencies } from "./nodes/identifyServiceDependencies
 import { identifyStreams } from "./nodes/identifyStreams.js"
 import {
   linkLocatedPaths,
+  linkPackageHierarchy,
   resolveReferenceClaims,
 } from "./nodes/linkLocatedPaths.js"
 import { sanitizePostgresJson } from "./postgresJson.js"
@@ -23,6 +35,13 @@ import type {
   ExtractedClaim,
   ExtractedObject,
 } from "./schemas.js"
+
+/**
+ * Version of the extractor output in `repository_extraction_captures`. Increase
+ * it when an extractor changes its output, so that a new run does not reuse
+ * root captures of an older extractor.
+ */
+export const EXTRACTOR_VERSION = 1
 
 /** Stable OpenWorkflow step-name fragment for a package root path. */
 export function stableRootStepId(root: string): string {
@@ -75,16 +94,16 @@ export async function runExtractKindForRoot(
   return result
 }
 
+/**
+ * Run the identify phase of one root and store the root capture (kind output,
+ * identify output, located paths). The step output is only the counts.
+ */
 export async function runIdentifyPhaseForRoot(
   state: CodeIngestionState,
   root: string,
   kindPartial: Partial<CodeIngestionState>,
-): Promise<{
-  extractedObjects: ExtractedObject[]
-  extractedClaims: ExtractedClaim[]
-  /** Files an extractor skipped on LLM failure; gates the full-ingest sweep. */
-  extractionSkippedFiles: number
-}> {
+  captureKey: ExtractionCaptureKey,
+): Promise<{ objects: number; claims: number }> {
   const rootState: CodeIngestionState = {
     ...state,
     ...kindPartial,
@@ -109,22 +128,21 @@ export async function runIdentifyPhaseForRoot(
   ])
 
   const extracted = concatExtracted([kindPartial, ...parts])
-  const extractionSkippedFiles = parts.reduce(
-    (sum, part) => sum + (part.extractionSkippedFiles ?? 0),
-    0,
+  return storeRootCapture(
+    captureKey,
+    root,
+    sanitizePostgresJson(
+      concatExtracted([
+        extracted,
+        linkLocatedPaths({
+          repositoryId: state.repositoryId,
+          targetHash: state.targetHash,
+          objects: extracted.extractedObjects,
+          claims: extracted.extractedClaims,
+        }),
+      ]),
+    ),
   )
-  return sanitizePostgresJson({
-    ...concatExtracted([
-      extracted,
-      linkLocatedPaths({
-        repositoryId: state.repositoryId,
-        targetHash: state.targetHash,
-        objects: extracted.extractedObjects,
-        claims: extracted.extractedClaims,
-      }),
-    ]),
-    extractionSkippedFiles,
-  })
 }
 
 /**
@@ -161,19 +179,44 @@ export async function finalizeExtractedReferences(input: {
 }
 
 /**
- * Full per-root extract (kind → parallel identify → reference resolution).
- * Prefer splitting across OW steps via {@link runExtractKindForRoot} +
- * {@link runIdentifyPhaseForRoot} + {@link finalizeExtractedReferences}
- * when durability at the kind boundary is needed.
+ * Read the stored roots of a queued extraction and build the publishable
+ * capture: reference resolution and package hierarchy need all roots.
  */
-export async function runExtractForRoot(
-  state: CodeIngestionState,
-  root: string,
-): Promise<{
-  extractedObjects: ExtractedObject[]
-  extractedClaims: ExtractedClaim[]
-}> {
-  const kindPartial = await runExtractKindForRoot(state, root)
-  const extracted = await runIdentifyPhaseForRoot(state, root, kindPartial)
-  return finalizeExtractedReferences({ orgId: state.orgId, ...extracted })
+export async function loadCapturedExtraction(
+  orgId: string,
+  extraction: WorkspaceExtraction,
+): Promise<CapturedExtraction> {
+  const { capture, ...header } = extraction
+  const stored = await loadExtractionCapture(
+    {
+      orgId,
+      repositoryId: header.repositoryId,
+      sourceSha: header.sourceSha,
+      scope: capture.scope,
+      extractorVersion: capture.extractorVersion,
+    },
+    capture.roots,
+  )
+  const finalized = await finalizeExtractedReferences({ orgId, ...stored })
+  const claims = [
+    ...finalized.extractedClaims,
+    ...linkPackageHierarchy({
+      repositoryId: header.repositoryId,
+      targetHash: header.sourceSha,
+      objects: finalized.extractedObjects,
+      claims: finalized.extractedClaims,
+    }),
+  ]
+  return capturedExtractionSchema.parse({
+    ...header,
+    objects: finalized.extractedObjects,
+    claims: claims.map((claim) => ({
+      subjectRef: claim.subjectRef,
+      objectRef: claim.objectRef,
+      predicate: claim.predicate,
+      confidence: claim.confidence,
+      sourceId: claim.sourceId,
+      sourcePath: captureExtractionClaimSourcePath(claim.provenance),
+    })),
+  })
 }

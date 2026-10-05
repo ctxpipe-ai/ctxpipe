@@ -23,6 +23,7 @@ import {
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
+import { loadCapturedExtraction } from "../../graphs/codeIngestionGraph/runExtractRoot.js"
 import { loadExtractionPathIdentity } from "../../models/workspace-export.js"
 import {
   persistBoundWriteJob,
@@ -134,7 +135,10 @@ export const workspaceExtractIngest = defineWorkflow(
               )
               const plan = await planCapturedExtraction({
                 ...identity,
-                extraction: input.extraction,
+                extraction: await loadCapturedExtraction(
+                  input.orgId,
+                  input.extraction,
+                ),
                 workspaceId: input.workspaceId,
                 workspaceRepositoryUrl: revision.remote.url,
                 existingKnowledge,

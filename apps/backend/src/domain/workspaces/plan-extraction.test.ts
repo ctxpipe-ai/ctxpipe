@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { linkPackageHierarchy } from "../../graphs/codeIngestionGraph/nodes/linkLocatedPaths.js"
-import { workspaceExtractionSchema } from "./extraction.js"
+import { capturedExtractionSchema } from "./extraction.js"
 import { planCapturedExtraction } from "./plan-extraction.js"
 
 describe("planCapturedExtraction", () => {
@@ -26,7 +26,7 @@ describe("planCapturedExtraction", () => {
     ])
 
     const plan = await planCapturedExtraction({
-      extraction: workspaceExtractionSchema.parse({
+      extraction: capturedExtractionSchema.parse({
         repositoryId,
         repositoryUrl,
         sourceSha: "a".repeat(40),

@@ -14,10 +14,11 @@ import {
   persistOrgFirstWorkspace,
 } from "../../models/workspaces.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
+import { storeTestExtraction } from "../../test/extraction-capture-fixture.js"
 import { seedLegacyExtractionObject } from "../../test/legacy-extraction-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
-import type { WorkspaceExtraction } from "./extraction.js"
+import type { CapturedExtraction } from "./extraction.js"
 
 it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
   "preserves extraction identity at %s and a same-name collision after migration cutover",
@@ -45,7 +46,7 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
         ],
       },
       async (f) => {
-        const extraction: WorkspaceExtraction = {
+        const captured: CapturedExtraction = {
           repositoryId: "repo_captured",
           repositoryUrl: f.workspaceUrl,
           sourceSha: f.sha,
@@ -74,6 +75,7 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
           ],
           claims: [],
         }
+        const extraction = await storeTestExtraction(f.org.id, captured)
         await withOrgIdContext(f.org, async () => {
           const repo = await ensureOrgRepositoryForGitUrl({
             orgId: f.org.id,
@@ -217,8 +219,8 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
             workspaceExtractIngest.spec,
             {
               ...workspaceExtractIngestInputSchema.parse(queued?.input),
-              extraction: {
-                ...extraction,
+              extraction: await storeTestExtraction(f.org.id, {
+                ...captured,
                 objects: [
                   {
                     kind: "Service",
@@ -229,7 +231,7 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
                     },
                   },
                 ],
-              },
+              }),
             },
             { deadlineAt: new Date(Date.now() + 1_500) },
           )
@@ -264,10 +266,10 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
               orgId: f.org.id,
               workspaceId: f.workspaceId,
               jobId: `${jobId}_omitted`,
-              extraction: {
-                ...extraction,
-                objects: extraction.objects.slice(0, 1),
-              },
+              extraction: await storeTestExtraction(f.org.id, {
+                ...captured,
+                objects: captured.objects.slice(0, 1),
+              }),
               revision: {
                 ...(await f.resolveRevision()),
                 access: "write-default",
@@ -332,7 +334,7 @@ it.each(["migration_export", "extract_ingest"] as const)(
       async (f) => {
         const jobId = `wjob_${f.id}_paused`
         expect(
-          await withOrgIdContext(f.org, () =>
+          await withOrgIdContext(f.org, async () =>
             enqueueWriteJob(
               {
                 orgId: f.org.id,
@@ -341,13 +343,13 @@ it.each(["migration_export", "extract_ingest"] as const)(
                 kind,
                 ...(kind === "extract_ingest"
                   ? {
-                      extraction: {
+                      extraction: await storeTestExtraction(f.org.id, {
                         repositoryId: "repo_fixture",
                         repositoryUrl: f.workspaceUrl,
                         sourceSha: f.sha,
                         objects: [],
                         claims: [],
-                      },
+                      }),
                     }
                   : {}),
               },
@@ -664,7 +666,7 @@ it.each([
               workspaceId: f.workspaceId,
               jobId: `wjob_${f.id}_existing_subject`,
               revision: { ...f.revision, access: "write-default" },
-              extraction: {
+              extraction: await storeTestExtraction(f.org.id, {
                 repositoryId: "repo_captured",
                 repositoryUrl: f.workspaceUrl,
                 sourceSha: f.sha,
@@ -688,7 +690,7 @@ it.each([
                     sourcePath: "src/billing.ts",
                   },
                 ],
-              },
+              }),
             },
           )
           expect(await handle.result({ timeoutMs: 15_000 })).toMatchObject({
