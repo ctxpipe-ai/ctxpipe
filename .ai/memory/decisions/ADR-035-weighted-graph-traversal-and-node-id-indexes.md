@@ -7,6 +7,10 @@ layer now manages indexes per provider) and
 [ADR-033](ADR-033-graph-ontology-v2.md) §2 (the families that the extension
 traversal walks).
 
+**Amended by:** [ADR-040](ADR-040-read-time-retrieval-score-signals.md) —
+§1: the walk orders edges by a read-time score from five signals, and the
+intent of the question sets the turns of each relation family.
+
 ## Context
 
 - `graphTraversal` returned the first 20 paths the engine produced. FalkorDB

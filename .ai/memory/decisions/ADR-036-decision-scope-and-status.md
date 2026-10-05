@@ -6,6 +6,10 @@ Amends [ADR-033](ADR-033-graph-ontology-v2.md) (`Decision INFLUENCES Service`
 was by location only). Builds on
 [ADR-035](ADR-035-weighted-graph-traversal-and-node-id-indexes.md).
 
+**Amended by:** [ADR-040](ADR-040-read-time-retrieval-score-signals.md) —
+§3: the status factor is the authority signal of the walk's score, and a
+question about history (`why`, `change`) does not apply it.
+
 ## Context
 
 - Two production orgs hold ADRs (ctxpipe 35, another org 4). Production had two

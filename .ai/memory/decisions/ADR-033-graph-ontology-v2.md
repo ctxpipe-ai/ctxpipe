@@ -12,6 +12,8 @@ so a "why" walk reaches pull requests.
 `Decision INFLUENCES Service` follows the ADR's scope, not only its location.
 [ADR-037](ADR-037-committed-memory-reaches-the-graph.md) — §8:
 `.ai/memory/lessons-learned.md` is an instruction source (tier 2).
+[ADR-040](ADR-040-read-time-retrieval-score-signals.md) — §2: the change
+family also has `PullRequest CHANGED Service|App|Library`.
 
 ## Context
 
