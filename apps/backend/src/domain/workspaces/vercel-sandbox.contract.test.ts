@@ -496,15 +496,19 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
       ) => Promise<{ stdout: string; exitCode: number }>
     }
   }) =>
-    handle.process.exec("opencode --version && node --version && npm --version", {
-      env: {
-        PATH: writeWorkspaceChatOpenCodeConfig({
-          conversationId: "conv_contract",
-          modelBase: "openai/gpt-5.6-terra",
-          isolation: "vercel",
-        }).homeEnv.PATH,
+    handle.process.exec(
+      "opencode --version && node --version && npm --version",
+      {
+        env: {
+          PATH:
+            writeWorkspaceChatOpenCodeConfig({
+              conversationId: "conv_contract",
+              modelBase: "openai/gpt-5.6-terra",
+              isolation: "vercel",
+            }).homeEnv.PATH ?? "",
+        },
       },
-    })
+    )
   const npmReachable = async (handle: {
     process: { exec: (c: string) => Promise<{ stdout: string }> }
   }) =>

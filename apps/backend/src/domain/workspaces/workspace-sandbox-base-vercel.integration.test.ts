@@ -574,12 +574,15 @@ describe("Vercel build step", () => {
           )
         },
       ),
-      http.delete("https://api.github.com/installation/token", ({ request }) => {
-        revoked.push(
-          (request.headers.get("authorization") ?? "").replace(/^\S+ /, ""),
-        )
-        return new HttpResponse(null, { status: 204 })
-      }),
+      http.delete(
+        "https://api.github.com/installation/token",
+        ({ request }) => {
+          revoked.push(
+            (request.headers.get("authorization") ?? "").replace(/^\S+ /, ""),
+          )
+          return new HttpResponse(null, { status: 204 })
+        },
+      ),
       // The agent snapshot, found through its tagged builder.
       http.get(API, () =>
         HttpResponse.json({
@@ -640,7 +643,10 @@ describe("Vercel build step", () => {
     })
     expect(created).toHaveLength(1)
     const [create] = created
-    expect(create?.source).toEqual({ type: "snapshot", snapshotId: "snap_agent" })
+    expect(create?.source).toEqual({
+      type: "snapshot",
+      snapshotId: "snap_agent",
+    })
     expect(create?.tags).toMatchObject({
       ctxpipe: "workspace-base",
       environment,

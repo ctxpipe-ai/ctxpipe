@@ -183,8 +183,7 @@ export function writeWorkspaceChatOpenCodeConfig(input: {
     // Container paths belong to its nonroot user, never the backend host's
     // temporary directory or PATH. Native thread setup writes this config.
     const slug = workspaceChatOpenCodeHomeSlug(input.conversationId)
-    const user =
-      input.isolation === "vercel" ? VERCEL_AGENT_ROOT : "/home/node"
+    const user = input.isolation === "vercel" ? VERCEL_AGENT_ROOT : "/home/node"
     const home = `${user}/ctxpipe-opencode/${slug}`
     return {
       configJson,
