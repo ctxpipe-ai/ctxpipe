@@ -50,11 +50,15 @@ function withTelemetry(schema: z.ZodType): z.ZodType {
     })
 }
 
+/** The body sees its own schema's output; enqueue telemetry is restored, not passed. */
+type BodyContext<S extends z.ZodType> = Omit<
+  Parameters<Workflow<JobInput<S>, unknown, unknown>["fn"]>[0],
+  "input"
+> & { input: z.output<S> }
+
 export function defineWorkflow<S extends z.ZodType, Output>(
   spec: ObservedSpec<S>,
-  fn: (
-    ctx: Parameters<Workflow<JobInput<S>, unknown, unknown>["fn"]>[0],
-  ) => Promise<Output>,
+  fn: (ctx: BodyContext<S>) => Promise<Output>,
 ): Workflow<JobInput<S>, Output, JobRaw<S>> {
   const schema = withTelemetry(spec.schema)
   return defineOpenWorkflow<JobInput<S>, Output, JobRaw<S>>(
@@ -72,9 +76,9 @@ export function defineWorkflow<S extends z.ZodType, Output>(
       attachChildTelemetry(ctx.step)
       // Telemetry is enqueue-only: bodies re-parse `input` with their own
       // strict schema, which has no `telemetry` key.
-      const { telemetry: _telemetry, ...input } = ctx.input as JobInput<S>
+      const { telemetry: _telemetry, ...input } = ctx.input
       return restoreJobTelemetry(ctx.input, () =>
-        fn({ ...ctx, input: input as JobInput<S> }),
+        fn({ ...ctx, input: input as z.output<S> }),
       )
     },
   )

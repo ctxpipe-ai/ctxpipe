@@ -1,5 +1,4 @@
 import { resolveRepositoryRef } from "../domain/codeIngestion/queue.js"
-import type { JobTelemetry } from "../observability/jobTelemetry.js"
 
 export type EnqueueFollowUpIfTipAheadInput = {
   orgId: string
@@ -9,8 +8,6 @@ export type EnqueueFollowUpIfTipAheadInput = {
   githubConnectionId?: string | null
   targetBranch?: string | null
   requestId?: string
-  /** The parent run's job telemetry; the follow-up keeps its request id. */
-  telemetry?: JobTelemetry
 }
 
 /** Await durable admission so native step retry recovers a failed or lost acknowledgement. */
@@ -37,7 +34,6 @@ export async function enqueueFollowUpIfTipAhead(
       targetBranch: input.targetBranch,
       indexingReason: "follow-up",
       afterRequestId: input.requestId,
-      ...(input.telemetry ? { telemetry: input.telemetry } : {}),
     },
     log,
   )
