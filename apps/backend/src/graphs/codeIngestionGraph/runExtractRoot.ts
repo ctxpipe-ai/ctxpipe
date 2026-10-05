@@ -3,7 +3,6 @@ import {
   type CapturedExtraction,
   capturedExtractionSchema,
   captureExtractionClaimSourcePath,
-  extractionCaptureBudgetSchema,
   type WorkspaceExtraction,
 } from "../../domain/workspaces/extraction.js"
 import {
@@ -68,10 +67,6 @@ function concatExtracted(parts: Array<Partial<CodeIngestionState>>): {
       extractedClaims.push(...part.extractedClaims)
     }
   }
-  extractionCaptureBudgetSchema.parse({
-    objects: extractedObjects,
-    claims: extractedClaims,
-  })
   return { extractedObjects, extractedClaims }
 }
 
@@ -90,12 +85,7 @@ export async function runExtractKindForRoot(
   captureKey: ExtractionCaptureKey,
 ): Promise<Partial<CodeIngestionState> | null> {
   if (await storedRootCapture(captureKey, root)) return null
-  const result = await extractKind({ ...state, roots: [root] })
-  extractionCaptureBudgetSchema.parse({
-    objects: result.extractedObjects ?? [],
-    claims: result.extractedClaims ?? [],
-  })
-  return result
+  return extractKind({ ...state, roots: [root] })
 }
 
 /**
@@ -138,21 +128,15 @@ export async function runIdentifyPhaseForRoot(
   ])
 
   const extracted = concatExtracted([kindPartial, ...parts])
-  return storeRootCapture(
-    captureKey,
-    root,
-    sanitizePostgresJson(
-      concatExtracted([
-        extracted,
-        linkLocatedPaths({
-          repositoryId: state.repositoryId,
-          targetHash: state.targetHash,
-          objects: extracted.extractedObjects,
-          claims: extracted.extractedClaims,
-        }),
-      ]),
-    ),
-  )
+  const located = linkLocatedPaths({
+    repositoryId: state.repositoryId,
+    targetHash: state.targetHash,
+    objects: extracted.extractedObjects,
+    claims: extracted.extractedClaims,
+  })
+  extracted.extractedObjects.push(...located.extractedObjects)
+  extracted.extractedClaims.push(...located.extractedClaims)
+  return storeRootCapture(captureKey, root, sanitizePostgresJson(extracted))
 }
 
 /**

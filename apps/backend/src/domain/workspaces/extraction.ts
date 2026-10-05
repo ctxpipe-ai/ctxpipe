@@ -10,21 +10,6 @@ export const extractionRootsSchema = z
   .array(z.string().min(1).max(4096))
   .max(128, "Extraction root capture exceeds 128 roots")
 
-/** Bound each durable capture and the final merged command before parsing nested payloads. */
-export const extractionCaptureBudgetSchema = z
-  .object({
-    objects: z.array(z.unknown()).max(10_000),
-    claims: z.array(z.unknown()).max(50_000),
-  })
-  .passthrough()
-  .superRefine((capture, context) => {
-    if (Buffer.byteLength(JSON.stringify(capture)) > 8 * 1024 * 1024)
-      context.addIssue({
-        code: "custom",
-        message: "Extraction capture exceeds 8 MiB",
-      })
-  })
-
 /** Source identity of a queued extraction. Write jobs check it before a push. */
 const extractionHeaderShape = {
   repositoryId: z.string().min(1),
