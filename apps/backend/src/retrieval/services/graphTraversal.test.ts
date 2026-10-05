@@ -302,12 +302,12 @@ describe("pickRoundRobin", () => {
     ]
 
     expect(ids(pickRoundRobin(edges, 6, { OWNS: 3 }))).toEqual([
-      "file_a",
       "team_a",
       "team_b",
       "team_c",
+      "file_a",
       "adr",
-      "file_b",
+      "team_d",
     ])
     expect(ids(pickRoundRobin(edges, 6))).toEqual([
       "file_a",
@@ -317,6 +317,21 @@ describe("pickRoundRobin", () => {
       "team_b",
       "file_c",
     ])
+  })
+
+  it("puts the families with more turns first, so a small budget goes to them", () => {
+    const edges = [
+      e("PART_OF", "file_a", 0.95),
+      e("INFLUENCES", "adr", 0.9),
+      e("OWNS", "team_a", 0.8),
+      e("OWNS", "team_b", 0.8),
+    ]
+
+    expect(ids(pickRoundRobin(edges, 2, { OWNS: 3 }))).toEqual([
+      "team_a",
+      "team_b",
+    ])
+    expect(ids(pickRoundRobin(edges, 2))).toEqual(["file_a", "adr"])
   })
 
   it("counts turns for the change family as one family", () => {
@@ -329,10 +344,10 @@ describe("pickRoundRobin", () => {
     ]
 
     expect(ids(pickRoundRobin(edges, 4, { CHANGED: 3 }))).toEqual([
-      "file_a",
       "pr_1",
       "pr_2",
       "pr_3",
+      "file_a",
     ])
   })
 

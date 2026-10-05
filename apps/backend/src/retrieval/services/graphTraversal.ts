@@ -166,10 +166,11 @@ function byScore(a: HopEdge, b: HopEdge): number {
 /**
  * Takes the best edges of each relation family in turns, so one plentiful
  * type (e.g. file containment) cannot use the whole budget. In each round, a
- * family takes up to `turns[family]` edges (default 1, at least 1), so the
- * families that the question asks about go first and every family still
- * gets a turn. The change types (CHANGED, ADDED, MODIFIED, REMOVED, RENAMED)
- * are one family.
+ * family takes up to `turns[family]` edges (default 1, at least 1), and
+ * every family gets a turn. Families with more turns go first in a round, so
+ * a small budget still goes to the families that the question asks about;
+ * families with equal turns go in the order of their best score. The change
+ * types (CHANGED, ADDED, MODIFIED, REMOVED, RENAMED) are one family.
  */
 export function pickRoundRobin(
   edges: HopEdge[],
@@ -183,13 +184,18 @@ export function pickRoundRobin(
     if (group) group.push(e)
     else byFamily.set(family, [e])
   }
+  const families = [...byFamily]
+    .map(([family, group]) => ({
+      group,
+      take: Math.max(1, Math.floor(turns[family] ?? 1)),
+    }))
+    .sort((a, b) => b.take - a.take)
 
   const picked: HopEdge[] = []
   for (let round = 0; picked.length < budget; round++) {
-    const batch = [...byFamily].flatMap(([family, group]) => {
-      const take = Math.max(1, Math.floor(turns[family] ?? 1))
-      return group.slice(round * take, (round + 1) * take)
-    })
+    const batch = families.flatMap(({ group, take }) =>
+      group.slice(round * take, (round + 1) * take),
+    )
     if (batch.length === 0) break
     picked.push(...batch.slice(0, budget - picked.length))
   }
