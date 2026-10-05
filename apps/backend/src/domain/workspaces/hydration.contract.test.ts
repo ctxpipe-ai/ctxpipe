@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { eq } from "drizzle-orm"
 import { BackendPostgres } from "openworkflow/postgres"
@@ -25,11 +25,13 @@ import {
 import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import { workspaceIndex } from "../../openworkflow/workflows/workspace-index.js"
+import { workspaceRoutes } from "../../routes/v1/workspaces.js"
 import { resolveWorkspaceRepositoryTip } from "../../routes/webhooks/github/github-workspace-tip.js"
 import {
   type NativeHydrationFixture,
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
+import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 
 it(
   "hydrates 0 committed native Git files without reading uncommitted replacements",
@@ -527,7 +529,13 @@ it(
     }),
 )
 
-async function prepareReplacement(f: NativeHydrationFixture) {
+async function prepareReplacement(
+  f: NativeHydrationFixture,
+  options?: {
+    includeWorkspaceRepository?: boolean
+    githubConnectionId?: string | null
+  },
+) {
   const { org, workspaceId, workspaceUrl, directory, git, remote, sha } = f
   const selectRevision = (targetSha: string, previousSha: string) =>
     withOrgIdContext(org, async () => {
@@ -538,7 +546,7 @@ async function prepareReplacement(f: NativeHydrationFixture) {
           url: workspaceUrl,
           sha: previousSha,
           defaultBranch: "main",
-          githubConnectionId: null,
+          githubConnectionId: options?.githubConnectionId ?? null,
         },
         tip: { sha: targetSha, branch: "main" },
       })
@@ -553,7 +561,22 @@ async function prepareReplacement(f: NativeHydrationFixture) {
     "# Replacement\nNew committed content.\n",
   )
   writeFileSync(join(directory, "broken.md"), "---\nUnclosed front matter\n")
-  git("add", "-A", "--", "document-000.md", "replacement.md", "broken.md")
+  if (options?.includeWorkspaceRepository) {
+    mkdirSync(join(directory, "repositories"), { recursive: true })
+    writeFileSync(
+      join(directory, "repositories/self.md"),
+      `---\ngit: ${workspaceUrl}\n---\n`,
+    )
+  }
+  git(
+    "add",
+    "-A",
+    "--",
+    "document-000.md",
+    "replacement.md",
+    "broken.md",
+    ...(options?.includeWorkspaceRepository ? ["repositories/self.md"] : []),
+  )
   git(
     "-c",
     "user.name=Contract",
@@ -571,13 +594,20 @@ async function prepareReplacement(f: NativeHydrationFixture) {
 
 it(
   "atomically replaces published units while reporting a malformed sibling",
-  { timeout: 60_000 },
+  { timeout: 120_000 },
   async () =>
-    withNativeHydrationFixture({}, async (f) => {
-      const { sha, expected, runner, org, workspaceId } = f
+    withNativeHydrationFixture({ github: true }, async (f) => {
+      const { sha, expected, runner, org, workspaceId, git, directory } = f
       await f.publish()
-      const { nextSha, nextRevision, readSnapshot } =
-        await prepareReplacement(f)
+      const { nextSha, nextRevision, selectRevision, readSnapshot } =
+        await prepareReplacement(f, {
+          includeWorkspaceRepository: true,
+          githubConnectionId: f.connectionId,
+        })
+      const storedSkipped = async () =>
+        (await withOrgIdContext(org, () => getWorkspaceById(workspaceId)))
+          ?.hydratePhases?.skipped
+      expect(await storedSkipped()).toEqual([])
       expect(await readSnapshot()).toMatchObject({
         projection: {
           kind: "building",
@@ -593,8 +623,14 @@ it(
       expect(await next.result({ timeoutMs: 30_000 })).toMatchObject({
         hydrated: true,
         units: 1,
-        skipped: 1,
-        diagnostics: [{ path: "broken.md", reason: "malformed" }],
+        skipped: 2,
+        diagnostics: [
+          { path: "broken.md", reason: "malformed" },
+          {
+            path: "repositories/self.md",
+            reason: "duplicate_repository",
+          },
+        ],
       })
       const replaced = await readSnapshot()
       expect(replaced.projection).toMatchObject({
@@ -607,6 +643,66 @@ it(
           body: "# Replacement\nNew committed content.\n",
         },
       ])
+      // Later phase writes (embeddings, index) merge into the record and keep the list.
+      const indexRun = await runner.runWorkflow(workspaceIndex.spec, {
+        orgId: org.id,
+        revision: nextRevision,
+      })
+      expect(await indexRun.result({ timeoutMs: 30_000 })).toEqual({
+        published: false,
+        reason: "no_repository",
+      })
+      const brokenSkipped = [
+        { path: "broken.md", reason: "malformed" },
+        {
+          path: "repositories/self.md",
+          reason: "duplicate_repository",
+        },
+      ]
+      expect(await storedSkipped()).toEqual(brokenSkipped)
+      const detail = await workspaceHttpApp(org, workspaceRoutes).request(
+        "/workspaces/knowledge",
+      )
+      expect(await detail.json()).toMatchObject({ skippedFiles: brokenSkipped })
+
+      // A re-hydrate of the same SHA does not rebuild Postgres and keeps the list.
+      const again = await runner.runWorkflow(workspaceHydrate.spec, {
+        orgId: org.id,
+        workspaceId,
+        revision: nextRevision,
+      })
+      await again.result({ timeoutMs: 30_000 })
+      expect(await storedSkipped()).toEqual(brokenSkipped)
+
+      // A commit that fixes the file activates a projection with no skipped files.
+      writeFileSync(
+        join(directory, "broken.md"),
+        "---\ntitle: Fixed\n---\nFixed front matter.\n",
+      )
+      rmSync(join(directory, "repositories/self.md"))
+      git("add", "-A", "--", "broken.md", "repositories/self.md")
+      git(
+        "-c",
+        "user.name=Contract",
+        "-c",
+        "user.email=contract@example.test",
+        "commit",
+        "-m",
+        "Fix the malformed sibling",
+      )
+      const fixedSha = git("rev-parse", "HEAD")
+      git("push", f.remote, "HEAD:main")
+      const fixed = await runner.runWorkflow(workspaceHydrate.spec, {
+        orgId: org.id,
+        workspaceId,
+        revision: await selectRevision(fixedSha, nextSha),
+      })
+      expect(await fixed.result({ timeoutMs: 30_000 })).toMatchObject({
+        hydrated: true,
+        units: 2,
+        skipped: 0,
+      })
+      expect(await storedSkipped()).toEqual([])
     }),
 )
 
@@ -680,6 +776,7 @@ it(
             displayName: null,
             remotes: [],
             units: [duplicate, duplicate],
+            skipped: [],
           }),
         ),
       ).rejects.toMatchObject({ cause: { code: "23505" } })

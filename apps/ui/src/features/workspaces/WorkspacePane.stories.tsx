@@ -45,6 +45,7 @@ import {
   docsWorkspaceGitBlobs,
   docsWorkspaceGitTree,
   readOnlyWorkspaceDetail,
+  skippedFilesWorkspaceDetail,
 } from "./workspace-fixtures"
 
 const paneCallbacks = {
@@ -440,6 +441,34 @@ export const Settings: Story = {
         page: [workspaceListHandler([docsWorkspace])],
       },
     },
+  },
+}
+
+export const SettingsSkippedFileOpensInFiles: Story = {
+  args: { pane: { kind: "settings" }, workspace: skippedFilesWorkspaceDetail },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      pane: "settings",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [workspaceListHandler([docsWorkspace]), ...gitFilesHandlers],
+      },
+    },
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("link", { name: "knowledge/billing/tax.md" }),
+    )
+    await expect(args.onPinFile).toHaveBeenCalledWith(
+      "knowledge/billing/tax.md",
+    )
+    await canvas.findByRole("tab", { name: "tax.md", selected: true })
+    await canvas.findByTitle("knowledge/billing/tax.md")
   },
 }
 

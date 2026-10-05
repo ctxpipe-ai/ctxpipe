@@ -22,8 +22,15 @@ export type Workspace = {
   updatedAt: string
 }
 
+export type WorkspaceSkippedFile = {
+  path: string
+  reason: "malformed" | "duplicate_repository"
+}
+
 export type WorkspaceDetail = Workspace & {
   linkedRepositories: WorkspaceLinkedRepository[]
+  /** Absent on a detail seeded from the list. */
+  skippedFiles?: WorkspaceSkippedFile[]
 }
 
 export type WorkspaceLinkedRepository = {

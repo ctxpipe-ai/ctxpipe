@@ -186,6 +186,14 @@ export const emptyLinkedWorkspaceDetail: WorkspaceDetail = {
   linkedRepositories: [],
 }
 
+export const skippedFilesWorkspaceDetail: WorkspaceDetail = {
+  ...docsWorkspaceDetail,
+  skippedFiles: [
+    { path: "knowledge/billing/tax.md", reason: "malformed" },
+    { path: "repositories/app-copy.md", reason: "duplicate_repository" },
+  ],
+}
+
 export const waitingForTipWorkspace: Workspace = {
   ...hydratingWorkspace,
   id: "ws_waiting_tip",

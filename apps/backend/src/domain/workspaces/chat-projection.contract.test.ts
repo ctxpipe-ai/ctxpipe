@@ -96,6 +96,7 @@ async function withChatProjection(
           orgId: org.id,
           revision,
           units: parsed.units,
+          skipped: [],
           remotes: [],
           displayName: null,
         }),
@@ -277,7 +278,8 @@ it(
         orgId: f.org.id,
         revision: next,
         units: [],
-        remotes: [{ git: "https://example.test/other.git", branch: "release" }],
+        skipped: [],
+        remotes: [{ git: "https://example.test/other", branch: "release" }],
         displayName: null,
       })
       expect(await listOrgLinkedRepositories(f.org.id)).toMatchObject([
