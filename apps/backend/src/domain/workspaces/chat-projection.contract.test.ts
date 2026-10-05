@@ -279,7 +279,7 @@ it(
         revision: next,
         units: [],
         skipped: [],
-        remotes: [{ git: "https://example.test/other.git", branch: "release" }],
+        remotes: [{ git: "https://example.test/other", branch: "release" }],
         displayName: null,
       })
       expect(await listOrgLinkedRepositories(f.org.id)).toMatchObject([

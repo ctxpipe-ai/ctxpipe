@@ -1139,14 +1139,14 @@ export async function commitHydrateProjection(input: {
           activeProjectionSha: input.revision.sha,
           hydrateStatus: "ready",
           hydrateError: null,
-          hydratePhases: sql`${JSON.stringify(
-            initialHydratePhases({
+          hydratePhases: sql`${JSON.stringify({
+            ...initialHydratePhases({
               url: input.revision.remote.url,
               sha: input.revision.sha,
               revision: input.revision,
-              skipped: input.skipped,
             }),
-          )}::jsonb || jsonb_build_object('publishedIndex', coalesce(
+            skipped: input.skipped,
+          })}::jsonb || jsonb_build_object('publishedIndex', coalesce(
             ${workspaces.hydratePhases}->'publishedIndex',
             case when ${workspaces.hydratePhases}->'index'->'result'->>'kind' = 'ready'
               then ${workspaces.hydratePhases}->'index'->'revision' end
@@ -1197,15 +1197,9 @@ export async function commitHydrateProjection(input: {
         )
       }
 
-      const workspaceUrl = normalizeWorkspaceRepositoryUrl(
-        input.revision.remote.url,
+      const desired = new Map<string, string | null>(
+        input.remotes.map((remote) => [remote.git, remote.branch] as const),
       )
-      const desired = new Map<string, string | null>()
-      for (const remote of input.remotes) {
-        const gitUrl = normalizeWorkspaceRepositoryUrl(remote.git)
-        if (!gitUrl || gitUrl === workspaceUrl || desired.has(gitUrl)) continue
-        desired.set(gitUrl, remote.branch)
-      }
       const existingLinked = await tx
         .select()
         .from(workspaceLinkedRepositories)

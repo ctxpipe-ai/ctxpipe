@@ -29,7 +29,7 @@ export type WorkspaceSkippedFile = {
 
 export type WorkspaceDetail = Workspace & {
   linkedRepositories: WorkspaceLinkedRepository[]
-  /** Committed files that the active projection skipped. Absent on older responses. */
+  /** Absent on a detail seeded from the list. */
   skippedFiles?: WorkspaceSkippedFile[]
 }
 

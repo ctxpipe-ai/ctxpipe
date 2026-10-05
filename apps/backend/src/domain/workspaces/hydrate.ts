@@ -40,12 +40,6 @@ export type HydrateUnit = {
   confidence?: number | null
 }
 
-/**
- * Why hydrate keeps a committed file out of the projection.
- * `malformed`: the front matter, or the `git` URL of a linked-repository file, is not valid.
- * `duplicate_repository`: a linked-repository file names a repository that an earlier
- * file links, or the Workspace repository itself.
- */
 export const HYDRATE_SKIP_REASONS = [
   "malformed",
   "duplicate_repository",

@@ -396,7 +396,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
           ...row,
           createdAt: row.createdAt.toISOString(),
         })),
-        skippedFiles: [...(workspace.hydratePhases?.skipped ?? [])],
+        skippedFiles: workspace.hydratePhases?.skipped ?? [],
       },
       200,
     )

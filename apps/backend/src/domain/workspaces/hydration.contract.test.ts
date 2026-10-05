@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { eq } from "drizzle-orm"
 import { BackendPostgres } from "openworkflow/postgres"
@@ -529,7 +529,13 @@ it(
     }),
 )
 
-async function prepareReplacement(f: NativeHydrationFixture) {
+async function prepareReplacement(
+  f: NativeHydrationFixture,
+  options?: {
+    includeWorkspaceRepository?: boolean
+    githubConnectionId?: string | null
+  },
+) {
   const { org, workspaceId, workspaceUrl, directory, git, remote, sha } = f
   const selectRevision = (targetSha: string, previousSha: string) =>
     withOrgIdContext(org, async () => {
@@ -540,7 +546,7 @@ async function prepareReplacement(f: NativeHydrationFixture) {
           url: workspaceUrl,
           sha: previousSha,
           defaultBranch: "main",
-          githubConnectionId: null,
+          githubConnectionId: options?.githubConnectionId ?? null,
         },
         tip: { sha: targetSha, branch: "main" },
       })
@@ -555,7 +561,22 @@ async function prepareReplacement(f: NativeHydrationFixture) {
     "# Replacement\nNew committed content.\n",
   )
   writeFileSync(join(directory, "broken.md"), "---\nUnclosed front matter\n")
-  git("add", "-A", "--", "document-000.md", "replacement.md", "broken.md")
+  if (options?.includeWorkspaceRepository) {
+    mkdirSync(join(directory, "repositories"), { recursive: true })
+    writeFileSync(
+      join(directory, "repositories/self.md"),
+      `---\ngit: ${workspaceUrl}\n---\n`,
+    )
+  }
+  git(
+    "add",
+    "-A",
+    "--",
+    "document-000.md",
+    "replacement.md",
+    "broken.md",
+    ...(options?.includeWorkspaceRepository ? ["repositories/self.md"] : []),
+  )
   git(
     "-c",
     "user.name=Contract",
@@ -575,11 +596,14 @@ it(
   "atomically replaces published units while reporting a malformed sibling",
   { timeout: 120_000 },
   async () =>
-    withNativeHydrationFixture({}, async (f) => {
+    withNativeHydrationFixture({ github: true }, async (f) => {
       const { sha, expected, runner, org, workspaceId, git, directory } = f
       await f.publish()
       const { nextSha, nextRevision, selectRevision, readSnapshot } =
-        await prepareReplacement(f)
+        await prepareReplacement(f, {
+          includeWorkspaceRepository: true,
+          githubConnectionId: f.connectionId,
+        })
       const storedSkipped = async () =>
         (await withOrgIdContext(org, () => getWorkspaceById(workspaceId)))
           ?.hydratePhases?.skipped
@@ -599,8 +623,14 @@ it(
       expect(await next.result({ timeoutMs: 30_000 })).toMatchObject({
         hydrated: true,
         units: 1,
-        skipped: 1,
-        diagnostics: [{ path: "broken.md", reason: "malformed" }],
+        skipped: 2,
+        diagnostics: [
+          { path: "broken.md", reason: "malformed" },
+          {
+            path: "repositories/self.md",
+            reason: "duplicate_repository",
+          },
+        ],
       })
       const replaced = await readSnapshot()
       expect(replaced.projection).toMatchObject({
@@ -614,7 +644,21 @@ it(
         },
       ])
       // Later phase writes (embeddings, index) merge into the record and keep the list.
-      const brokenSkipped = [{ path: "broken.md", reason: "malformed" }]
+      const indexRun = await runner.runWorkflow(workspaceIndex.spec, {
+        orgId: org.id,
+        revision: nextRevision,
+      })
+      expect(await indexRun.result({ timeoutMs: 30_000 })).toEqual({
+        published: false,
+        reason: "no_repository",
+      })
+      const brokenSkipped = [
+        { path: "broken.md", reason: "malformed" },
+        {
+          path: "repositories/self.md",
+          reason: "duplicate_repository",
+        },
+      ]
       expect(await storedSkipped()).toEqual(brokenSkipped)
       const detail = await workspaceHttpApp(org, workspaceRoutes).request(
         "/workspaces/knowledge",
@@ -635,7 +679,8 @@ it(
         join(directory, "broken.md"),
         "---\ntitle: Fixed\n---\nFixed front matter.\n",
       )
-      git("add", "--", "broken.md")
+      rmSync(join(directory, "repositories/self.md"))
+      git("add", "-A", "--", "broken.md", "repositories/self.md")
       git(
         "-c",
         "user.name=Contract",

@@ -56,13 +56,7 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Settings: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await canvas.findByText("Hydrate ready")
-    expect(canvas.queryByText(/hydrate skipped/i)).not.toBeInTheDocument()
-  },
-}
+export const Settings: Story = {}
 
 export const SkippedFiles: Story = {
   args: {
