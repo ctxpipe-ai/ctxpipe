@@ -1,9 +1,10 @@
 /**
- * Answer-level evaluation of `ctx_advisor` on questions answered by the ctxpipe
- * org's own ADRs (`evals/advisor/questions.json`). Scoring is deterministic:
- * the answer must cite every expected ADR, state every expected term (`a|b`
- * means either), and put each supersession pair `[successor, superseded]` on
- * one line.
+ * Answer-level evaluation of `ctx_advisor` on questions that the ctxpipe org's
+ * own ADRs, merged pull requests and lessons answer
+ * (`evals/advisor/questions.json`). Scoring is deterministic: the answer must
+ * cite every expected ADR, state every expected term (`a|b` means either), and
+ * put each supersession pair `[successor, superseded]` on one line. The score
+ * does not penalize extra ADRs, and a pair does not check direction.
  *
  * Usage (apps/backend; `CTXPIPE_API_KEY` is an organization MCP API key):
  *   bun run src/scripts/advisorEval.ts --url https://app.ctxpipe.ai/mcp [--out evals/advisor/results/<name>.json]
@@ -23,15 +24,14 @@ export type Expectation = {
 
 export type Question = {
   id: string
-  kind: "lookup" | "aggregation"
+  kind: "lookup" | "aggregation" | "prior-work"
   prompt: string
   expect: Expectation
 }
 
-const ADR_MENTION = /\bADR[-\s]?0*(\d{1,4})\b/gi
-
 function adrsIn(text: string): number[] {
-  return [...new Set([...text.matchAll(ADR_MENTION)].map((m) => Number(m[1])))]
+  const mentions = text.matchAll(/\bADR[-\s]?0*(\d{1,4})\b/gi)
+  return [...new Set([...mentions].map((m) => Number(m[1])))]
 }
 
 export function scoreAnswer(answer: string, expect: Expectation) {
