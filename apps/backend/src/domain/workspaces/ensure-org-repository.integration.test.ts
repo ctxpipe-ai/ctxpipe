@@ -415,3 +415,59 @@ it(
     })
   },
 )
+
+it(
+  "leaves a binding that changed while GitHub answered the coverage check",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      const otherConnectionId = `con_${f.id}_other`
+      await withOrgDbContext(f.org.id, (db) =>
+        db.insert(connections).values({
+          id: otherConnectionId,
+          orgId: f.org.id,
+          type: "github",
+          config: {
+            installationId: otherInstallationId,
+            ingestAllRepositories: false,
+            includeFutureRepos: false,
+          },
+        }),
+      )
+      const repositoryId = `repo_${f.id}_rebound`
+      await insertRepository(
+        f,
+        repositoryId,
+        "https://github.com/fixture/rebound-service",
+        f.connectionId,
+      )
+      // GitHub says this installation cannot read the repository. While it
+      // answers, another link binds the repository to the other connection.
+      f.server.use(
+        http.post(
+          `https://api.github.com/app/installations/${installationId}/access_tokens`,
+          async () => {
+            await withOrgDbContext(f.org.id, (db) =>
+              db
+                .update(repositories)
+                .set({ githubConnectionId: otherConnectionId })
+                .where(eq(repositories.id, repositoryId)),
+            )
+            return HttpResponse.json(
+              { message: "Not accessible" },
+              { status: 422 },
+            )
+          },
+        ),
+      )
+
+      await link(
+        f,
+        "https://github.com/fixture/rebound-service",
+        f.connectionId,
+      )
+
+      expect(await bindingOf(f, repositoryId)).toBe(otherConnectionId)
+    })
+  },
+)

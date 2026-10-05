@@ -38,6 +38,7 @@ export async function ensureOrgRepositoryForGitUrl(input: {
   if (!gitUrl) return null
   const requested = input.githubConnectionId
   const repoFullName = githubRepoFullNameFromWorkspaceUrl(gitUrl)
+  const existing = await findRepositoriesByNormalizedGitUrls([gitUrl])
   // Fail closed: bind only a connection that GitHub confirms can read the repository.
   const coverage =
     requested && repoFullName
@@ -64,13 +65,14 @@ export async function ensureOrgRepositoryForGitUrl(input: {
           ? null
           : repository.githubConnectionId
     if (target === repository.githubConnectionId) return
+    // The read above holds no lock: write only if no one changed the binding since.
     await setRepositoryGithubConnectionId({
       repositoryId: repository.id,
       githubConnectionId: target,
+      expectedGithubConnectionId: repository.githubConnectionId,
     })
   }
 
-  const existing = await findRepositoriesByNormalizedGitUrls([gitUrl])
   if (existing[0]) {
     await reconcileBinding(existing[0])
     return { id: existing[0].id, created: false }

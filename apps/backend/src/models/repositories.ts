@@ -326,6 +326,8 @@ export async function findRepositoriesByNormalizedGitUrls(
 export async function setRepositoryGithubConnectionId(input: {
   repositoryId: string
   githubConnectionId: string | null
+  /** Compare-and-set: write only when the row still has this connection. */
+  expectedGithubConnectionId?: string | null
 }): Promise<void> {
   return orgSql(async () => {
     const db = getOrgDb()
@@ -341,7 +343,9 @@ export async function setRepositoryGithubConnectionId(input: {
       .for("update")
     if (
       !repository ||
-      repository.githubConnectionId === input.githubConnectionId
+      repository.githubConnectionId === input.githubConnectionId ||
+      (input.expectedGithubConnectionId !== undefined &&
+        repository.githubConnectionId !== input.expectedGithubConnectionId)
     )
       return
     await db
