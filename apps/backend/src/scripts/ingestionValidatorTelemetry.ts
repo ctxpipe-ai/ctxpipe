@@ -102,6 +102,7 @@ type Filter = Record<string, string>
 async function langfuseRows(
   config: LangfuseConfig,
   input: {
+    environment: string
     from: string
     to: string
     filters: Filter[]
@@ -120,6 +121,12 @@ async function langfuseRows(
     ],
     filters: [
       { column: "type", operator: "=", value: "GENERATION", type: "string" },
+      {
+        column: "environment",
+        operator: "=",
+        value: input.environment,
+        type: "string",
+      },
       ...input.filters,
     ],
     fromTimestamp: input.from,
@@ -184,12 +191,18 @@ export async function readRepositoryLlmUsage(
   config: LangfuseConfig,
   input: {
     repositoryId: string
+    /** `deployment.environment` of the run; Langfuse stores it as the environment. */
+    environment: string
     exclusiveWindow: boolean
     from: string
     to: string
   },
 ): Promise<RepositoryLlm> {
-  const window = { from: input.from, to: input.to }
+  const window = {
+    environment: input.environment,
+    from: input.from,
+    to: input.to,
+  }
   const repository = metadata("repositoryId", "=", input.repositoryId)
   const stageFilters: Record<string, Filter[] | null> = {
     "identify-roots": [
@@ -238,13 +251,14 @@ export async function readRepositoryLlmUsage(
 
 /**
  * Generations reach Langfuse through the collector's batch exporter. Wait
- * until the run's generation count stops changing between reads (bounded).
- * The count is the extraction generations of the run's repositories.
+ * until the count of all generations in the environment since the run
+ * started stops changing between reads (bounded). The count includes the
+ * hydrate embeddings, which carry no repository.
  */
 export async function waitForLangfuseIngestion(
   config: LangfuseConfig,
   input: {
-    repositoryIds: string[]
+    environment: string
     from: string
     intervalMs?: number
     maxWaitMs?: number
@@ -254,18 +268,13 @@ export async function waitForLangfuseIngestion(
   const deadline = Date.now() + (input.maxWaitMs ?? 300_000)
   let previous = -1
   for (;;) {
-    const to = new Date().toISOString()
-    const counts = await Promise.all(
-      input.repositoryIds.map(async (repositoryId) => {
-        const [row] = await langfuseRows(config, {
-          from: input.from,
-          to,
-          filters: [metadata("repositoryId", "=", repositoryId)],
-        })
-        return usage(row).calls
-      }),
-    )
-    const calls = counts.reduce((sum, count) => sum + count, 0)
+    const [row] = await langfuseRows(config, {
+      environment: input.environment,
+      from: input.from,
+      to: new Date().toISOString(),
+      filters: [],
+    })
+    const calls = usage(row).calls
     if (calls === previous || Date.now() >= deadline) return calls
     previous = calls
     await sleep(interval)

@@ -129,6 +129,7 @@ describe("Langfuse usage", () => {
     )
     const usage = await readRepositoryLlmUsage(langfuse, {
       repositoryId: "repo_1",
+      environment: "ingestion-validator",
       exclusiveWindow: true,
       from: "2026-10-03T10:00:00.000Z",
       to: "2026-10-03T11:00:00.000Z",
@@ -154,8 +155,24 @@ describe("Langfuse usage", () => {
       "openai/text-embedding-3-large": 4,
     })
     expect(queries[1]?.dimensions).toEqual([{ field: "providedModelName" }])
+    // Every query reads only this environment, so other environments and
+    // retrieval query embeddings elsewhere do not count.
+    expect(queries).toHaveLength(4)
+    for (const query of queries)
+      expect(query.filters).toContainEqual({
+        column: "environment",
+        operator: "=",
+        value: "ingestion-validator",
+        type: "string",
+      })
     expect(queries[1]?.filters).toEqual([
       { column: "type", operator: "=", value: "GENERATION", type: "string" },
+      {
+        column: "environment",
+        operator: "=",
+        value: "ingestion-validator",
+        type: "string",
+      },
       {
         column: "metadata",
         operator: "=",
@@ -175,6 +192,12 @@ describe("Langfuse usage", () => {
     // embeddings are found by name inside the repository's own window.
     expect(queries[3]?.filters).toEqual([
       { column: "type", operator: "=", value: "GENERATION", type: "string" },
+      {
+        column: "environment",
+        operator: "=",
+        value: "ingestion-validator",
+        type: "string",
+      },
       {
         column: "name",
         operator: "=",
@@ -210,6 +233,7 @@ describe("Langfuse usage", () => {
     )
     const usage = await readRepositoryLlmUsage(langfuse, {
       repositoryId: "repo_1",
+      environment: "ingestion-validator",
       exclusiveWindow: false,
       from: "2026-10-03T10:00:00.000Z",
       to: "2026-10-03T11:00:00.000Z",
@@ -266,6 +290,7 @@ describe("Langfuse usage", () => {
     )
     const usage = await readRepositoryLlmUsage(langfuse, {
       repositoryId: "repo_1",
+      environment: "ingestion-validator",
       exclusiveWindow: true,
       from: "2026-10-03T10:00:00.000Z",
       to: "2026-10-03T11:00:00.000Z",
@@ -290,7 +315,7 @@ describe("Langfuse usage", () => {
     )
     await expect(
       waitForLangfuseIngestion(langfuse, {
-        repositoryIds: ["repo_1"],
+        environment: "ingestion-validator",
         from: "2026-10-03T10:00:00.000Z",
         intervalMs: 1,
       }),
@@ -298,31 +323,38 @@ describe("Langfuse usage", () => {
     expect(counts).toEqual([])
   })
 
-  it("counts the generations of every repository of the run by repository id", async () => {
-    const seen: string[] = []
+  it("counts every generation of the environment in the window with one query, embeddings included", async () => {
+    const queries: Array<{
+      filters: Array<Record<string, string>>
+      fromTimestamp: string
+    }> = []
     server.use(
       http.get(metricsUrl, ({ request }) => {
-        const query = JSON.parse(
-          new URL(request.url).searchParams.get("query") ?? "{}",
-        )
-        seen.push(
-          ...query.filters
-            .filter((f: Record<string, string>) => f.key)
-            .map((f: Record<string, string>) => `${f.key}=${f.value}`),
+        queries.push(
+          JSON.parse(new URL(request.url).searchParams.get("query") ?? "{}"),
         )
         return HttpResponse.json({ data: [{ count_count: 3 }] })
       }),
     )
     await expect(
       waitForLangfuseIngestion(langfuse, {
-        repositoryIds: ["repo_1", "repo_2"],
+        environment: "ingestion-validator",
         from: "2026-10-03T10:00:00.000Z",
         intervalMs: 1,
       }),
-    ).resolves.toBe(6)
-    expect(new Set(seen)).toEqual(
-      new Set(["repositoryId=repo_1", "repositoryId=repo_2"]),
-    )
+    ).resolves.toBe(3)
+    // Two reads with the same count: one query per read.
+    expect(queries).toHaveLength(2)
+    expect(queries[0]?.fromTimestamp).toBe("2026-10-03T10:00:00.000Z")
+    expect(queries[0]?.filters).toEqual([
+      { column: "type", operator: "=", value: "GENERATION", type: "string" },
+      {
+        column: "environment",
+        operator: "=",
+        value: "ingestion-validator",
+        type: "string",
+      },
+    ])
   })
 
   it("stops waiting at the bound even while counts still change", async () => {
@@ -333,7 +365,7 @@ describe("Langfuse usage", () => {
       ),
     )
     await waitForLangfuseIngestion(langfuse, {
-      repositoryIds: ["repo_1"],
+      environment: "ingestion-validator",
       from: "2026-10-03T10:00:00.000Z",
       intervalMs: 1,
       maxWaitMs: 0,
