@@ -117,6 +117,13 @@ Amends [ADR-035](ADR-035-weighted-graph-traversal-and-node-id-indexes.md) §1
   20 edges (median): 28.6 ms; 26.1 ms with specificity off; 20.6 ms for the
   walk of ADR-035. The label-less degree query took 40.8 ms. The wider slice
   costs about 5 ms; the degree query about 2.5 ms.
+- **Evaluation in CI:** the backend test job starts FalkorDB, so the live
+  graph tests run on every pull request. `graphRetrievalEval.integration.test.ts`
+  walks a synthetic engineering org (`test/engineeringOrgGraph.ts`) and checks
+  recall of the top five gold answers from graph queries against a floor per
+  intent: ownership 1.0, why 0.95, change 0.85, structure 0.95. It measured
+  1.00, 1.00, 0.93 and 1.00; with the intent off, 1.00, 0.89, 0.13 and 0.64.
+  Search hits are not part of it, because the fixture has no search index.
 - **Engines verified:** `graphTraversal.integration.test.ts` (18 scenarios)
   and `graphProjection.integration.test.ts` pass on FalkorDB, Neo4j 5 and
   Memgraph; `indexes.integration.test.ts` passes on FalkorDB and Neo4j 5.
