@@ -963,7 +963,8 @@ async function bulkCreateRepositoriesWithDb(
 ) {
   if (input.length === 0) return []
   const db = getOrgDb()
-  return db.transaction(async (tx) => {
+  const bound: string[] = []
+  const created = await db.transaction(async (tx) => {
     const created: RepositoryWithSearch[] = []
     for (const r of input) {
       const repositoryKey = repositoryKeyFromGitUrl(r.gitUrl)
@@ -982,8 +983,8 @@ async function bulkCreateRepositoriesWithDb(
         .onConflictDoNothing()
         .returning()
       if (!repository) {
-        if (opts?.githubConnectionId)
-          await tx
+        if (opts?.githubConnectionId) {
+          const rows = await tx
             .update(repositories)
             .set({
               githubConnectionId: opts.githubConnectionId,
@@ -999,6 +1000,9 @@ async function bulkCreateRepositoriesWithDb(
                 isNull(repositories.githubConnectionId),
               ),
             )
+            .returning({ gitUrl: repositories.gitUrl })
+          bound.push(...rows.map((row) => row.gitUrl))
+        }
         continue
       }
       const [checkout] = await tx
@@ -1016,6 +1020,9 @@ async function bulkCreateRepositoriesWithDb(
     }
     return created
   })
+  // A new binding changes the read credential, as in setRepositoryGithubConnectionId.
+  await invalidateLinkedReadBindings(bound)
+  return created
 }
 
 /**

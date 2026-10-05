@@ -5,6 +5,7 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
 import { repositories } from "../../db/schema/repositories.js"
+import { workspaceLinkedRepositories } from "../../db/schema/workspaces.js"
 import { bulkCreateRepositoriesForOrg } from "../../models/repositories.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
@@ -392,6 +393,17 @@ it(
         f.connectionId,
       )
       expect(await bindingOf(f, linked?.id)).toBeNull()
+      const linkedId = `wlr_${f.id}_later`
+      await withOrgDbContext(f.org.id, (db) =>
+        db.insert(workspaceLinkedRepositories).values({
+          id: linkedId,
+          orgId: f.org.id,
+          workspaceId: f.workspaceId,
+          gitUrl: "https://github.com/fixture/later-granted",
+          desiredSha: "a".repeat(40),
+          indexedSha: "a".repeat(40),
+        }),
+      )
 
       // The sync stores GitHub's clone URL, not the link's normalized URL.
       const created = await bulkCreateRepositoriesForOrg(
@@ -412,6 +424,17 @@ it(
       expect(created).toEqual([])
       expect(await bindingOf(f, linked?.id)).toBe(f.connectionId)
       expect(await bindingOf(f, otherId)).toBe(otherConnectionId)
+      // The new credential resolves the linked revision again.
+      const [revision] = await withOrgDbContext(f.org.id, (db) =>
+        db
+          .select({
+            desiredSha: workspaceLinkedRepositories.desiredSha,
+            indexedSha: workspaceLinkedRepositories.indexedSha,
+          })
+          .from(workspaceLinkedRepositories)
+          .where(eq(workspaceLinkedRepositories.id, linkedId)),
+      )
+      expect(revision).toEqual({ desiredSha: null, indexedSha: null })
     })
   },
 )
