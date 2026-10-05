@@ -743,6 +743,7 @@ it.each(["pending", "failed"])(
             displayName: null,
             remotes: [],
             units: [],
+            skipped: [],
           }),
         ).toBe(true)
         if (state === "failed") {

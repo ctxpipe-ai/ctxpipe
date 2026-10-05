@@ -9,6 +9,8 @@ export type Workspace = {
   desiredSha: string | null
   activeProjectionUrl: string | null
   activeProjectionSha: string | null
+  /** Committed files that the active projection skipped. Absent on older responses. */
+  skippedFiles?: WorkspaceSkippedFile[]
   indexedSha: string | null
   /** Server capability; older responses retain the write-status fallback. */
   conversationWritable?: boolean
@@ -20,6 +22,11 @@ export type Workspace = {
   migrationExportSha: string | null
   createdAt: string
   updatedAt: string
+}
+
+export type WorkspaceSkippedFile = {
+  path: string
+  reason: "malformed" | "duplicate_repository"
 }
 
 export type WorkspaceDetail = Workspace & {

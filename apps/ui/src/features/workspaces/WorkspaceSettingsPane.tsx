@@ -2,7 +2,7 @@ import { IconAlertCircle, IconGitBranch, IconPencil } from "@tabler/icons-react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
-import { Heading } from "react-aria-components"
+import { Heading, Link } from "react-aria-components"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
@@ -13,9 +13,10 @@ import {
   githubRepoFullNameFromGitUrl,
   githubWebUrl,
 } from "@/features/repositories/github-web-url"
+import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 import { deleteWorkspace, updateWorkspace, workspaceKeys } from "./queries"
-import type { WorkspaceDetail } from "./types"
+import type { WorkspaceDetail, WorkspaceSkippedFile } from "./types"
 import { WorkspaceLinkedRepositories } from "./WorkspaceLinkedRepositories"
 import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
 import { workspaceDeleteNameMatches } from "./workspaceDeleteNameMatches"
@@ -101,9 +102,54 @@ function StatusTag({
   )
 }
 
+const skippedReasonCopy: Record<WorkspaceSkippedFile["reason"], string> = {
+  malformed: "Front matter could not be read",
+  duplicate_repository: "Repeats a repository that is already linked",
+}
+
+function SkippedFilesNotice(props: {
+  files: WorkspaceSkippedFile[]
+  onOpenFile: (path: string) => void
+}) {
+  const count = props.files.length
+  return (
+    <div className="mt-4 max-w-lg">
+      <InlineAlert
+        variant="warning"
+        title={`Hydrate skipped ${count} ${count === 1 ? "file" : "files"}`}
+      >
+        <p>
+          Chat, MCP, and the graph do not use these files. Fix each file and
+          push the change to the default branch.
+        </p>
+        <ul className="mt-3 flex flex-col gap-2">
+          {props.files.map((file) => (
+            <li key={file.path} className="min-w-0">
+              <Link
+                onPress={() => props.onOpenFile(file.path)}
+                className={cn(
+                  "block cursor-pointer truncate rounded-md font-mono text-xs text-amber-50 underline decoration-amber-200/40 underline-offset-2 hover:decoration-amber-50",
+                  focusVisibleClassName,
+                )}
+              >
+                {file.path}
+              </Link>
+              <p className="text-xs text-amber-100/70">
+                {skippedReasonCopy[file.reason]}
+              </p>
+            </li>
+          ))}
+        </ul>
+      </InlineAlert>
+    </div>
+  )
+}
+
 export function WorkspaceSettingsPane(props: {
   orgSlug: string
   workspace: WorkspaceDetail
+  /** Opens a Workspace file in the Files pane. */
+  onOpenFile: (path: string) => void
 }) {
   const { orgSlug, workspace } = props
   const navigate = useNavigate()
@@ -232,6 +278,12 @@ export function WorkspaceSettingsPane(props: {
         />
       </div>
 
+      {workspace.skippedFiles?.length ? (
+        <SkippedFilesNotice
+          files={workspace.skippedFiles}
+          onOpenFile={props.onOpenFile}
+        />
+      ) : null}
       {workspace.readOnlyReason ? (
         <div className="mt-4 max-w-lg">
           <InlineAlert variant="warning" title="Read-only">

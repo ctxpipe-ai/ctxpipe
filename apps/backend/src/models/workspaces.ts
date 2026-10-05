@@ -28,7 +28,7 @@ import {
   type DestWorkspaceLinkPlan,
   planDestWorkspaceLinks,
 } from "../domain/workspaces/dest-workspace-assignment.js"
-import type { HydrateUnit } from "../domain/workspaces/hydrate.js"
+import type { HydrateSkip, HydrateUnit } from "../domain/workspaces/hydrate.js"
 import { initialHydratePhases } from "../domain/workspaces/hydrate-phases.js"
 import { nextRelinkFields } from "../domain/workspaces/relink.js"
 import {
@@ -1126,6 +1126,7 @@ export async function commitHydrateProjection(input: {
   displayName: string | null
   remotes: ReadonlyArray<{ git: string; branch: string | null }>
   units: readonly HydrateUnit[]
+  skipped: readonly HydrateSkip[]
 }): Promise<boolean> {
   return orgSql(async () => {
     const db = getOrgDb()
@@ -1136,6 +1137,7 @@ export async function commitHydrateProjection(input: {
           activeRevision: input.revision,
           activeProjectionUrl: input.revision.remote.url,
           activeProjectionSha: input.revision.sha,
+          activeProjectionSkipped: [...input.skipped],
           hydrateStatus: "ready",
           hydrateError: null,
           hydratePhases: sql`${JSON.stringify(

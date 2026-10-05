@@ -398,6 +398,10 @@ export function WorkspacePane(props: {
               <WorkspaceSettingsPane
                 orgSlug={props.orgSlug}
                 workspace={props.workspace}
+                onOpenFile={(path) => {
+                  setPane({ kind: "file", path })
+                  props.onPinFile(path)
+                }}
               />
             ) : null}
             {pane.kind === "unknown" ? (

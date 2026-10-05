@@ -80,7 +80,7 @@ describe("hydrateKnowledgeTree", () => {
     })
     expect(result.linked).toHaveLength(1)
     expect(result.skipped).toEqual([
-      { path: "repositories/billing-dup.md", reason: "malformed" },
+      { path: "repositories/billing-dup.md", reason: "duplicate_repository" },
     ])
   })
 

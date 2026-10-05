@@ -313,6 +313,7 @@ export const workspaceHydrate = defineWorkflow(
                   revision,
                   displayName,
                   remotes: parsed.linked,
+                  skipped: parsed.skipped,
                   units: applyEffectiveValidFromToUnits(
                     parsed.units,
                     new Map(

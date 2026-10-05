@@ -1,7 +1,10 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
-import { shouldHydrateBeforeMigrationExport } from "../../domain/workspaces/hydrate.js"
+import {
+  type HydrateSkip,
+  shouldHydrateBeforeMigrationExport,
+} from "../../domain/workspaces/hydrate.js"
 import {
   createWorkspaceLifecycle,
   relinkWorkspaceLifecycle,
@@ -35,6 +38,18 @@ import {
   workspaceSlugParams,
 } from "./workspace-route-shared.js"
 
+const WorkspaceSkippedFileSchema = z
+  .object({
+    path: z
+      .string()
+      .openapi({ description: "Path in the Workspace repository" }),
+    reason: z.enum(["malformed", "duplicate_repository"]).openapi({
+      description:
+        "`malformed`: the front matter, or the `git` URL of a linked-repository file, is not valid. `duplicate_repository`: the file links a repository that an earlier file links.",
+    }),
+  })
+  .openapi("WorkspaceSkippedFile")
+
 const WorkspaceSchema = z
   .object({
     id: z.string(),
@@ -47,6 +62,10 @@ const WorkspaceSchema = z
     desiredSha: z.string().nullable(),
     activeProjectionUrl: z.string().nullable(),
     activeProjectionSha: z.string().nullable(),
+    skippedFiles: z.array(WorkspaceSkippedFileSchema).openapi({
+      description:
+        "Committed files that the active projection skipped. Empty when hydrate read every file.",
+    }),
     indexedSha: z.string().nullable(),
     writeStatus: z.string(),
     conversationWritable: z.boolean(),
@@ -111,6 +130,7 @@ function serializeWorkspace(
     desiredSha: string | null
     activeProjectionUrl: string | null
     activeProjectionSha: string | null
+    activeProjectionSkipped: HydrateSkip[]
     indexedSha: string | null
     writeStatus: string
     hydrateStatus: string
@@ -133,6 +153,7 @@ function serializeWorkspace(
     desiredSha: row.desiredSha,
     activeProjectionUrl: row.activeProjectionUrl,
     activeProjectionSha: row.activeProjectionSha,
+    skippedFiles: row.activeProjectionSkipped,
     indexedSha: row.indexedSha,
     writeStatus: row.writeStatus,
     conversationWritable: workspaceAllowsConversationEdits(

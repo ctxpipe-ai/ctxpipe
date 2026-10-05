@@ -680,6 +680,7 @@ it(
             displayName: null,
             remotes: [],
             units: [duplicate, duplicate],
+            skipped: [],
           }),
         ),
       ).rejects.toMatchObject({ cause: { code: "23505" } })

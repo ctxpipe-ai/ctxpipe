@@ -40,9 +40,14 @@ export type HydrateUnit = {
   confidence?: number | null
 }
 
+/**
+ * A committed file that hydrate keeps out of the projection.
+ * `malformed`: the front matter, or the `git` URL of a linked-repository file, is not valid.
+ * `duplicate_repository`: a linked-repository file names a repository that an earlier file links.
+ */
 export type HydrateSkip = {
   path: string
-  reason: "malformed" | "not_knowledge"
+  reason: "malformed" | "duplicate_repository"
 }
 
 const MD_LINK = /\[([^\]]*)\]\(([^)]+)\)/g
@@ -69,8 +74,12 @@ export function hydrateKnowledgeTree(input: {
         continue
       }
       const git = normalizeWorkspaceRepositoryUrl(parsed.git)
-      if (!git || seenLinked.has(git)) {
+      if (!git) {
         skipped.push({ path, reason: "malformed" })
+        continue
+      }
+      if (seenLinked.has(git)) {
+        skipped.push({ path, reason: "duplicate_repository" })
         continue
       }
       seenLinked.add(git)

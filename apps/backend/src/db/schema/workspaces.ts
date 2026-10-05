@@ -13,6 +13,7 @@ import {
 import type { UnbornBootstrapBinding } from "../../domain/workspaces/bootstrap-input.js"
 import type { ConnectorMirrorSource } from "../../domain/workspaces/connector-mirror.js"
 import type { WorkspaceExtraction } from "../../domain/workspaces/extraction.js"
+import type { HydrateSkip } from "../../domain/workspaces/hydrate.js"
 import type { HydratePhaseRecord } from "../../domain/workspaces/hydrate-phases.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
 import type {
@@ -44,6 +45,11 @@ export const workspaces = pgTable.withRLS(
     activeRevision: jsonb("active_revision").$type<WorkspaceRevision>(),
     activeProjectionUrl: text("active_projection_url"),
     activeProjectionSha: text("active_projection_sha"),
+    /** Committed files that the active projection skipped. Each hydrate commit replaces the list. */
+    activeProjectionSkipped: jsonb("active_projection_skipped")
+      .$type<HydrateSkip[]>()
+      .notNull()
+      .default([]),
     indexedSha: text("indexed_sha"),
     writeStatus: text("write_status").notNull().default("unknown"),
     hydrateStatus: text("hydrate_status").notNull().default("pending"),

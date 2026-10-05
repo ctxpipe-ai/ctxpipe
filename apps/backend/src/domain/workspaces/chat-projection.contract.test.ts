@@ -96,6 +96,7 @@ async function withChatProjection(
           orgId: org.id,
           revision,
           units: parsed.units,
+          skipped: [],
           remotes: [],
           displayName: null,
         }),
@@ -277,6 +278,7 @@ it(
         orgId: f.org.id,
         revision: next,
         units: [],
+        skipped: [],
         remotes: [{ git: "https://example.test/other.git", branch: "release" }],
         displayName: null,
       })
