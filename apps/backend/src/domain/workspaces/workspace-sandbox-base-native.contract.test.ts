@@ -27,6 +27,7 @@ import { generateObjectId } from "../../lib/id.js"
 import {
   BASE_BUILD_LEASE_MS,
   countRunningSandboxes,
+  getDesiredWorkspaceRevision,
   getSandboxInstance,
   listSandboxInstances,
 } from "../../models/workspaces.js"
@@ -902,6 +903,8 @@ it(
           slug: "context",
           displayName: "Context",
           workspaceRepositoryUrl: "https://example.test/context.git",
+          desiredSha: "a".repeat(40),
+          desiredDefaultBranch: "main",
         }),
       )
       return { orgId, workspaceId }
@@ -970,7 +973,11 @@ it(
       [DOCKER_LABELS.base]: baseId,
       [DOCKER_LABELS.org]: orgId,
     })
+    const previousProvider = process.env.SANDBOX_PROVIDER
     try {
+      // Every org with a row is swept, so the active org's base must be one
+      // the sweep keeps: the current agent image and the desired binding.
+      process.env.SANDBOX_PROVIDER = "docker"
       await ensureImage("alpine:3.22")
       const dormant = await org()
       const active = await org()
@@ -992,6 +999,10 @@ it(
       const keptBaseId = `base:${active.workspaceId}:${randomUUID()}`
       const unusedImage = await labeledImage(ours("base:gone", dormant.orgId))
       const baseImage = await labeledImage(ours(keptBaseId, active.orgId))
+      const agentImage = await sandboxAgentImage("docker")
+      const desired = await withOrgDbContext(active.orgId, () =>
+        getDesiredWorkspaceRevision(active.workspaceId, "read", active.orgId),
+      )
       await withOrgDbContext(active.orgId, (db) =>
         db.insert(workspaceSandboxInstances).values({
           id: keptBaseId,
@@ -1001,6 +1012,8 @@ it(
           provider: "docker",
           providerSandboxId: baseImage,
           latestSnapshotId: baseImage,
+          image: agentImage,
+          revision: desired,
           state: "live",
           lastHeartbeatAt: now,
         }),
@@ -1029,6 +1042,8 @@ it(
       for (const id of [baseImage, foreignImage, unlabeled])
         expect(await exists("image", id)).toBe(true)
     } finally {
+      if (previousProvider === undefined) delete process.env.SANDBOX_PROVIDER
+      else process.env.SANDBOX_PROVIDER = previousProvider
       for (const id of containers)
         await docker
           .getContainer(id)
