@@ -34,6 +34,8 @@ type Edge = {
   confidence: number
   validFrom?: string
   validTo?: string
+  /** Evidence rows behind the claim (`source_count`), default 1 */
+  sources?: number
 }
 
 function edge(
@@ -41,10 +43,15 @@ function edge(
   predicate: string,
   to: Node,
   confidence: number,
-  validity: { validFrom?: string; validTo?: string } = {},
+  more: { validFrom?: string; validTo?: string; sources?: number } = {},
 ): Edge {
-  return { from, predicate, to, confidence, ...validity }
+  return { from, predicate, to, confidence, ...more }
 }
+
+/** The day that the recency scenarios measure from. */
+const asOf = new Date("2026-10-05T00:00:00.000Z")
+const daysAgo = (days: number) =>
+  new Date(asOf.getTime() - days * 86_400_000).toISOString()
 
 function claimId(e: Edge): string {
   return `clm_${e.predicate}_${e.from[1]}_${e.to[1]}`
@@ -60,6 +67,8 @@ async function seed(
   edges: Edge[],
   statuses: Record<string, string> = {},
   summaries: Record<string, string> = {},
+  /** Other node properties by node id, for example `review_decision` */
+  props: Record<string, Record<string, string>> = {},
 ): Promise<string> {
   const orgId = `org_eval_${name}_${Date.now()}`
   seededOrgIds.push(orgId)
@@ -87,6 +96,7 @@ async function seed(
            claim_id: row.claimId,
            status: 'active',
            aggregate_confidence: row.confidence,
+           source_count: row.sources,
            valid_from: row.validFrom,
            valid_to: row.validTo
          }]->(o)`,
@@ -97,9 +107,24 @@ async function seed(
             to: e.to[1],
             claimId: claimId(e),
             confidence: e.confidence,
+            sources: e.sources ?? 1,
             validFrom: e.validFrom ?? "",
             validTo: e.validTo ?? "",
           })),
+        },
+      )
+    }
+    const keys = new Set(Object.values(props).flatMap((p) => Object.keys(p)))
+    for (const key of keys) {
+      await driver.executeQuery(
+        `UNWIND $rows AS row
+         MATCH (n) WHERE n.id = row.id AND n.orgId = $orgId
+         SET n.${key} = row.value`,
+        {
+          orgId,
+          rows: Object.entries(props).flatMap(([id, values]) =>
+            values[key] === undefined ? [] : [{ id, value: values[key] }],
+          ),
         },
       )
     }
@@ -455,5 +480,251 @@ describe.skipIf(!graphUri)("graph traversal evaluation (FalkorDB)", () => {
 
     expect(result.nodeIds).toEqual(expect.arrayContaining(["iu_217", "iu_42"]))
     expect(result.edgeClaimIds).toHaveLength(5)
+  })
+
+  it("what does billing depend on: facts that two sources agree on win over single-source facts with more confidence", async () => {
+    const corroborated = Array.from({ length: 5 }, (_, i) =>
+      edge(billing, "DEPENDS_ON", ["Library", `lib_agreed_${i}`], 0.8, {
+        sources: 2,
+      }),
+    )
+    const single = Array.from({ length: 25 }, (_, i) =>
+      edge(billing, "DEPENDS_ON", ["Library", `lib_single_${i}`], 0.9),
+    )
+    const orgId = await seed("corroborated", [...single, ...corroborated])
+
+    const result = await traverse(orgId, "svc_billing", {
+      maxDepth: 1,
+      limit: 5,
+      query: "What does billing depend on?",
+    })
+
+    expect([...result.nodeIds].sort()).toEqual([
+      ...corroborated.map((e) => e.to[1]),
+      "svc_billing",
+    ])
+  })
+
+  it("what did the retry pull request change: its own files win over files that every pull request touches", async () => {
+    const pr: Node = ["PullRequest", "pr_retry"]
+    const hubs = ["changelog", "ci", "lockfile", "package_json", "tsconfig"]
+    const merged = { validFrom: daysAgo(10) }
+    const orgId = await seed("hub", [
+      ...hubs.flatMap((hub) =>
+        Array.from({ length: 100 }, (_, i) =>
+          edge(
+            ["PullRequest", `pr_history_${i}`],
+            "MODIFIED",
+            ["File", `file_${hub}`],
+            0.95,
+            { validFrom: daysAgo(20 + i) },
+          ),
+        ),
+      ),
+      ...hubs.map((hub) =>
+        edge(pr, "MODIFIED", ["File", `file_${hub}`], 0.95, merged),
+      ),
+      ...Array.from({ length: 5 }, (_, i) =>
+        edge(pr, "MODIFIED", ["File", `file_retry_${i}`], 0.95, merged),
+      ),
+    ])
+
+    const result = await traverse(orgId, "pr_retry", {
+      maxDepth: 1,
+      limit: 5,
+    })
+
+    expect([...result.nodeIds].sort()).toEqual([
+      "file_retry_0",
+      "file_retry_1",
+      "file_retry_2",
+      "file_retry_3",
+      "file_retry_4",
+      "pr_retry",
+    ])
+  })
+
+  it("who owns billing: every owning team comes first when files, instructions and dependencies are plentiful", async () => {
+    const teams = ["team_payments", "team_platform", "team_sre"]
+    const orgId = await seed("owners", [
+      ...files(300, "PART_OF", billing),
+      ...teams.map((team) => edge(["Team", team], "OWNS", billing, 0.95)),
+      ...Array.from({ length: 50 }, (_, i) =>
+        edge(billing, "HAS_INSTRUCTION", ["InstructionUnit", `iu_${i}`], 0.72),
+      ),
+      ...Array.from({ length: 3 }, (_, i) =>
+        edge(["Decision", `adr_${i}`], "INFLUENCES", billing, 0.9),
+      ),
+      ...Array.from({ length: 10 }, (_, i) =>
+        edge(billing, "DEPENDS_ON", ["Library", `lib_${i}`], 0.8),
+      ),
+    ])
+
+    const result = await traverse(orgId, "svc_billing", {
+      maxDepth: 1,
+      limit: 5,
+      query: "Who owns billing?",
+    })
+
+    expect(result.nodeIds).toEqual(expect.arrayContaining(teams))
+  })
+
+  it("what work was done on the retry issue lately: the newest pull requests that reference it win over two-year-old ones", async () => {
+    const issue: Node = ["Issue", "iss_retry"]
+    // pr_00 merged 750 days ago and pr_29 25 days ago, so claim id order is
+    // oldest first. The reference edges carry no valid_from: the walk reads
+    // the merge date from the pull request.
+    const ids = Array.from(
+      { length: 30 },
+      (_, i) => `pr_${String(i).padStart(2, "0")}`,
+    )
+    const orgId = await seed(
+      "recent_prs",
+      ids
+        .filter((_, i) => i % 3 !== 0)
+        .concat(ids.filter((_, i) => i % 3 === 0))
+        .map((id) => edge(["PullRequest", id], "REFERENCES", issue, 0.9)),
+      {},
+      {},
+      Object.fromEntries(
+        ids.map((id, i) => [id, { merged_at: daysAgo((30 - i) * 25) }]),
+      ),
+    )
+
+    const result = await traverse(orgId, "iss_retry", {
+      maxDepth: 1,
+      limit: 5,
+      validAt: asOf,
+      query: "What work was done on the retry issue recently?",
+    })
+
+    expect([...result.nodeIds].sort()).toEqual([
+      "iss_retry",
+      "pr_25",
+      "pr_26",
+      "pr_27",
+      "pr_28",
+      "pr_29",
+    ])
+  })
+
+  it("what changed the ledger: an approved pull request wins over one merged with changes requested", async () => {
+    const ledger: Node = ["File", "file_ledger"]
+    const merged = { validFrom: daysAgo(30) }
+    const orgId = await seed(
+      "review",
+      [
+        edge(
+          ["PullRequest", "pr_a_disputed"],
+          "MODIFIED",
+          ledger,
+          0.95,
+          merged,
+        ),
+        edge(
+          ["PullRequest", "pr_b_unreviewed"],
+          "MODIFIED",
+          ledger,
+          0.95,
+          merged,
+        ),
+        edge(
+          ["PullRequest", "pr_c_approved"],
+          "MODIFIED",
+          ledger,
+          0.95,
+          merged,
+        ),
+      ],
+      {},
+      {},
+      {
+        pr_a_disputed: { review_decision: "CHANGES_REQUESTED" },
+        pr_c_approved: { review_decision: "APPROVED" },
+      },
+    )
+
+    const result = await traverse(orgId, "file_ledger", {
+      maxDepth: 1,
+      limit: 2,
+      validAt: asOf,
+    })
+
+    expect([...result.nodeIds].sort()).toEqual([
+      "file_ledger",
+      "pr_b_unreviewed",
+      "pr_c_approved",
+    ])
+  })
+
+  it("what changed recently in billing: the newest pull requests through CHANGED win over 900 files", async () => {
+    // 400 pull requests over two years, one every 1.8 days, written in no
+    // order of merge date.
+    const pulls = Array.from({ length: 400 }, (_, i) =>
+      edge(
+        ["PullRequest", `pr_${String(i).padStart(3, "0")}`],
+        "CHANGED",
+        billing,
+        0.95,
+        {
+          validFrom: daysAgo(1 + i * 1.8),
+        },
+      ),
+    )
+    const orgId = await seed("changed", [
+      ...files(900, "PART_OF", billing),
+      ...pulls.filter((_, i) => i % 2 === 1),
+      ...pulls.filter((_, i) => i % 2 === 0),
+      edge(payments, "OWNS", billing, 0.95),
+    ])
+
+    for (const useExtensionLayer of [false, true]) {
+      const result = await traverse(orgId, "svc_billing", {
+        maxDepth: 3,
+        limit: 20,
+        useExtensionLayer,
+        validAt: asOf,
+        query: "What changed recently in billing?",
+      })
+
+      // The ten newest, and no pull request older than the newest twenty.
+      const newest = pulls.slice(0, 10).map((e) => e.from[1])
+      expect(result.nodeIds).toEqual(expect.arrayContaining(newest))
+      const reachedPulls = result.nodeIds.filter((id) => id.startsWith("pr_"))
+      expect(reachedPulls.every((id) => Number(id.slice(3)) < 20)).toBe(true)
+    }
+  })
+
+  it("why is billing built this way: its decisions come before the many pull requests that changed it", async () => {
+    const decisions = Array.from({ length: 6 }, (_, i) => `adr_${i}`)
+    const orgId = await seed("why_intent", [
+      ...decisions.map((id, i) =>
+        edge(["Decision", id], "INFLUENCES", billing, i < 2 ? 0.8 : 0.6),
+      ),
+      ...decisions.map((id) =>
+        edge(["Decision", id], "DECLARED_IN", ["File", `file_${id}`], 0.95),
+      ),
+      ...decisions.flatMap((id) =>
+        Array.from({ length: 20 }, (_, i) =>
+          edge(["Decision", id], "MENTIONS", ["File", `file_${id}_${i}`], 0.9),
+        ),
+      ),
+      ...Array.from({ length: 200 }, (_, i) =>
+        edge(["PullRequest", `pr_${i}`], "CHANGED", billing, 0.95, {
+          validFrom: daysAgo(1 + i),
+        }),
+      ),
+      edge(payments, "OWNS", billing, 0.95),
+    ])
+
+    const result = await traverse(orgId, "svc_billing", {
+      maxDepth: 3,
+      limit: 20,
+      useExtensionLayer: true,
+      validAt: asOf,
+      query: "Why is billing built this way?",
+    })
+
+    expect(result.nodeIds).toEqual(expect.arrayContaining(decisions))
   })
 })
