@@ -16,4 +16,4 @@ Updated: 2026-10-04. Tickets are implemented by sub-agents in separate worktrees
 | — | 08 | [Consolidate intent and ADRs](issues/08-consolidate-intent-and-adrs.md) | done | P0 | claude | — |
 | — | 10 | [Flaky SCIP indexer serialization test](issues/10-scip-indexer-test-flake.md) | done | P2 | claude | — |
 | — | 11 | [Add a second Workspace from the UI](issues/11-add-workspace-entry-point.md) | done | P1 | claude | — |
-| — | 13 | [Show knowledge files skipped as malformed on the Workspace page](issues/13-skipped-files-notice.md) | needs-triage | P2 | unassigned | — |
+| — | 13 | [Show knowledge files skipped as malformed on the Workspace page](issues/13-skipped-files-notice.md) | done | P2 | claude | — |
