@@ -36,16 +36,16 @@ export async function ensureOrgRepositoryForGitUrl(input: {
 }): Promise<{ id: string; created: boolean } | null> {
   const gitUrl = normalizeWorkspaceRepositoryUrl(input.gitUrl)
   if (!gitUrl) return null
-  const requested = input.githubConnectionId
+  const requestedConnectionId = input.githubConnectionId
   const repoFullName = githubRepoFullNameFromWorkspaceUrl(gitUrl)
   const existing = await findRepositoriesByNormalizedGitUrls([gitUrl])
   // Fail closed: bind only a connection that GitHub confirms can read the repository.
   const coverage =
-    requested && repoFullName
+    requestedConnectionId && repoFullName
       ? await resolveRepoReadCoverage(
           input.orgId,
           parseEnv(process.env as Record<string, string | undefined>),
-          { githubConnectionId: requested, repoFullName },
+          { githubConnectionId: requestedConnectionId, repoFullName },
         )
       : "unknown"
   /**
@@ -57,15 +57,16 @@ export async function ensureOrgRepositoryForGitUrl(input: {
     id: string
     githubConnectionId: string | null
   }) => {
-    if (!requested) return
+    if (!requestedConnectionId) return
     const target =
       coverage === "covers"
-        ? requested
-        : coverage === "foreign" && repository.githubConnectionId === requested
+        ? requestedConnectionId
+        : coverage === "foreign" &&
+            repository.githubConnectionId === requestedConnectionId
           ? null
           : repository.githubConnectionId
     if (target === repository.githubConnectionId) return
-    // The read above holds no lock: write only if no one changed the binding since.
+    // The read does not lock the row. Write only if the binding did not change after the read.
     await setRepositoryGithubConnectionId({
       repositoryId: repository.id,
       githubConnectionId: target,
@@ -81,8 +82,8 @@ export async function ensureOrgRepositoryForGitUrl(input: {
   const created = await bulkCreateRepositoriesForOrg(
     input.orgId,
     [{ name: repositoryNameFromGitUrl(gitUrl), gitUrl }],
-    requested && coverage === "covers"
-      ? { githubConnectionId: requested }
+    requestedConnectionId && coverage === "covers"
+      ? { githubConnectionId: requestedConnectionId }
       : undefined,
   )
   if (created[0]) return { id: created[0].id, created: true }
