@@ -129,7 +129,7 @@ describe("Langfuse usage", () => {
     )
     const usage = await readRepositoryLlmUsage(langfuse, {
       repositoryId: "repo_1",
-      requestId: "val_1",
+      exclusiveWindow: true,
       from: "2026-10-03T10:00:00.000Z",
       to: "2026-10-03T11:00:00.000Z",
     })
@@ -171,13 +171,51 @@ describe("Langfuse usage", () => {
         type: "stringObject",
       },
     ])
-    expect(queries[3]?.filters).toContainEqual({
-      column: "metadata",
-      operator: "=",
-      key: "requestId",
-      value: "val_1",
-      type: "stringObject",
+    // Generations carry no `requestId` at the observation level, so the
+    // embeddings are found by name inside the repository's own window.
+    expect(queries[3]?.filters).toEqual([
+      { column: "type", operator: "=", value: "GENERATION", type: "string" },
+      {
+        column: "name",
+        operator: "=",
+        value: "modelProvider.generateEmbeddings",
+        type: "string",
+      },
+    ])
+    expect(queries[3]).toMatchObject({
+      fromTimestamp: "2026-10-03T10:00:00.000Z",
+      toTimestamp: "2026-10-03T11:00:00.000Z",
     })
+    expect(
+      queries
+        .flatMap((query) => query.filters)
+        .some((f) => f.key === "requestId"),
+    ).toBe(false)
+  })
+
+  it("does not read embeddings when another repository's run overlaps the window", async () => {
+    const names: string[] = []
+    server.use(
+      http.get(metricsUrl, ({ request }) => {
+        const query = JSON.parse(
+          new URL(request.url).searchParams.get("query") ?? "{}",
+        )
+        names.push(
+          ...query.filters
+            .filter((f: Record<string, string>) => f.column === "name")
+            .map((f: Record<string, string>) => f.value),
+        )
+        return HttpResponse.json({ data: [] })
+      }),
+    )
+    const usage = await readRepositoryLlmUsage(langfuse, {
+      repositoryId: "repo_1",
+      exclusiveWindow: false,
+      from: "2026-10-03T10:00:00.000Z",
+      to: "2026-10-03T11:00:00.000Z",
+    })
+    expect(names).toEqual([])
+    expect(usage.stages.embeddings?.calls).toBe(0)
   })
 
   it("waits until the run's generation count stops changing", async () => {
@@ -189,12 +227,39 @@ describe("Langfuse usage", () => {
     )
     await expect(
       waitForLangfuseIngestion(langfuse, {
-        requestId: "val_1",
+        repositoryIds: ["repo_1"],
         from: "2026-10-03T10:00:00.000Z",
         intervalMs: 1,
       }),
     ).resolves.toBe(7)
     expect(counts).toEqual([])
+  })
+
+  it("counts the generations of every repository of the run by repository id", async () => {
+    const seen: string[] = []
+    server.use(
+      http.get(metricsUrl, ({ request }) => {
+        const query = JSON.parse(
+          new URL(request.url).searchParams.get("query") ?? "{}",
+        )
+        seen.push(
+          ...query.filters
+            .filter((f: Record<string, string>) => f.key)
+            .map((f: Record<string, string>) => `${f.key}=${f.value}`),
+        )
+        return HttpResponse.json({ data: [{ count_count: 3 }] })
+      }),
+    )
+    await expect(
+      waitForLangfuseIngestion(langfuse, {
+        repositoryIds: ["repo_1", "repo_2"],
+        from: "2026-10-03T10:00:00.000Z",
+        intervalMs: 1,
+      }),
+    ).resolves.toBe(6)
+    expect(new Set(seen)).toEqual(
+      new Set(["repositoryId=repo_1", "repositoryId=repo_2"]),
+    )
   })
 
   it("stops waiting at the bound even while counts still change", async () => {
@@ -205,7 +270,7 @@ describe("Langfuse usage", () => {
       ),
     )
     await waitForLangfuseIngestion(langfuse, {
-      requestId: "val_1",
+      repositoryIds: ["repo_1"],
       from: "2026-10-03T10:00:00.000Z",
       intervalMs: 1,
       maxWaitMs: 0,

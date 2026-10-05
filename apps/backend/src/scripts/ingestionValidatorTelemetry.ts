@@ -154,20 +154,38 @@ export type RepositoryLlm = {
   models: Record<string, number>
 }
 
+function addUsage(left: LlmUsage, right: LlmUsage): LlmUsage {
+  return {
+    calls: left.calls + right.calls,
+    inputTokens: left.inputTokens + right.inputTokens,
+    outputTokens: left.outputTokens + right.outputTokens,
+    totalTokens: left.totalTokens + right.totalTokens,
+    costUsd: left.costUsd + right.costUsd,
+  }
+}
+
 /**
  * Langfuse generations of one repository's ingestion window. Extraction
  * generations inherit `repositoryId` and `workflowStepName` metadata from
- * `withIngestAgentContext`; hydrate embeddings carry the run's `requestId`.
- * The commit-subject call is not traced, so it appears only in the
- * OpenRouter delta.
+ * `withIngestAgentContext`. Hydrate embeddings carry no repository: the
+ * run id is only a trace-level attribute, which an observation filter cannot
+ * match. They are found by name inside the repository's window, which is
+ * this repository's alone only when `exclusiveWindow` (concurrency 1);
+ * otherwise they are not read. The commit-subject call is not traced, so it
+ * appears only in the OpenRouter delta.
  */
 export async function readRepositoryLlmUsage(
   config: LangfuseConfig,
-  input: { repositoryId: string; requestId: string; from: string; to: string },
+  input: {
+    repositoryId: string
+    exclusiveWindow: boolean
+    from: string
+    to: string
+  },
 ): Promise<RepositoryLlm> {
   const window = { from: input.from, to: input.to }
   const repository = metadata("repositoryId", "=", input.repositoryId)
-  const stageFilters: Record<string, Filter[]> = {
+  const stageFilters: Record<string, Filter[] | null> = {
     "identify-roots": [
       repository,
       metadata("workflowStepName", "=", "identify-roots"),
@@ -180,58 +198,47 @@ export async function readRepositoryLlmUsage(
       repository,
       metadata("workflowStepName", "starts with", "identify:"),
     ],
-    embeddings: [
-      metadata("requestId", "=", input.requestId),
-      {
-        column: "name",
-        operator: "=",
-        value: "modelProvider.generateEmbeddings",
-        type: "string",
-      },
-    ],
+    embeddings: input.exclusiveWindow
+      ? [
+          {
+            column: "name",
+            operator: "=",
+            value: "modelProvider.generateEmbeddings",
+            type: "string",
+          },
+        ]
+      : null,
   }
   const stages: Record<string, LlmUsage> = {}
   const models: Record<string, number> = {}
   for (const [stage, filters] of Object.entries(stageFilters)) {
-    const rows = await langfuseRows(config, {
-      ...window,
-      filters,
-      dimensions: ["providedModelName"],
-    })
-    const sum = rows.map(usage).reduce(
-      (acc, next) => ({
-        calls: acc.calls + next.calls,
-        inputTokens: acc.inputTokens + next.inputTokens,
-        outputTokens: acc.outputTokens + next.outputTokens,
-        totalTokens: acc.totalTokens + next.totalTokens,
-        costUsd: acc.costUsd + next.costUsd,
-      }),
-      usage(undefined),
-    )
-    stages[stage] = sum
+    const rows = filters
+      ? await langfuseRows(config, {
+          ...window,
+          filters,
+          dimensions: ["providedModelName"],
+        })
+      : []
+    stages[stage] = usage(undefined)
     for (const row of rows) {
       const name = String(row.providedModelName ?? "(unknown)")
+      stages[stage] = addUsage(stages[stage], usage(row))
       models[name] = (models[name] ?? 0) + measure(row, "count")
     }
   }
-  const total = Object.values(stages).reduce((acc, next) => ({
-    calls: acc.calls + next.calls,
-    inputTokens: acc.inputTokens + next.inputTokens,
-    outputTokens: acc.outputTokens + next.outputTokens,
-    totalTokens: acc.totalTokens + next.totalTokens,
-    costUsd: acc.costUsd + next.costUsd,
-  }))
+  const total = Object.values(stages).reduce(addUsage)
   return { stages, total, models }
 }
 
 /**
  * Generations reach Langfuse through the collector's batch exporter. Wait
  * until the run's generation count stops changing between reads (bounded).
+ * The count is the extraction generations of the run's repositories.
  */
 export async function waitForLangfuseIngestion(
   config: LangfuseConfig,
   input: {
-    requestId: string
+    repositoryIds: string[]
     from: string
     intervalMs?: number
     maxWaitMs?: number
@@ -241,12 +248,18 @@ export async function waitForLangfuseIngestion(
   const deadline = Date.now() + (input.maxWaitMs ?? 300_000)
   let previous = -1
   for (;;) {
-    const [row] = await langfuseRows(config, {
-      from: input.from,
-      to: new Date().toISOString(),
-      filters: [metadata("requestId", "=", input.requestId)],
-    })
-    const calls = usage(row).calls
+    const to = new Date().toISOString()
+    const counts = await Promise.all(
+      input.repositoryIds.map(async (repositoryId) => {
+        const [row] = await langfuseRows(config, {
+          from: input.from,
+          to,
+          filters: [metadata("repositoryId", "=", repositoryId)],
+        })
+        return usage(row).calls
+      }),
+    )
+    const calls = counts.reduce((sum, count) => sum + count, 0)
     if (calls === previous || Date.now() >= deadline) return calls
     previous = calls
     await sleep(interval)
