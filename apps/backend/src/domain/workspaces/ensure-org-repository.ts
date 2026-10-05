@@ -1,5 +1,5 @@
 import { parseEnv } from "../../config/env.js"
-import { resolveInstallationOwnerCoverage } from "../../models/github-installation.js"
+import { resolveRepoReadCoverage } from "../../models/github-installation.js"
 import {
   bulkCreateRepositoriesForOrg,
   findRepositoriesByNormalizedGitUrls,
@@ -37,21 +37,20 @@ export async function ensureOrgRepositoryForGitUrl(input: {
   const gitUrl = normalizeWorkspaceRepositoryUrl(input.gitUrl)
   if (!gitUrl) return null
   const requested = input.githubConnectionId
-  const owner = githubRepoFullNameFromWorkspaceUrl(gitUrl)?.split("/")[0]
-  // Fail closed: bind only a connection GitHub confirms covers the owner.
+  const repoFullName = githubRepoFullNameFromWorkspaceUrl(gitUrl)
+  // Fail closed: bind only a connection that GitHub confirms can read the repository.
   const coverage =
-    requested && owner
-      ? await resolveInstallationOwnerCoverage(
+    requested && repoFullName
+      ? await resolveRepoReadCoverage(
           input.orgId,
-          requested,
-          owner,
           parseEnv(process.env as Record<string, string | undefined>),
+          { githubConnectionId: requested, repoFullName },
         )
       : "unknown"
   /**
    * Bind a covering connection. Clear a binding only when it is the requested
-   * connection and GitHub confirms it cannot cover the owner; a binding that
-   * belongs to another connection stays.
+   * connection and GitHub confirms that it cannot read the repository. A
+   * binding that belongs to another connection stays.
    */
   const reconcileBinding = async (repository: {
     id: string

@@ -10,39 +10,119 @@ import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 
 type Fixture = Parameters<Parameters<typeof withNativeHydrationFixture>[1]>[0]
 
+const installationId = 123456789
 const otherInstallationId = 987654321
 
-/** GitHub's view of an installation's account, as the App reads it. */
-function githubAccount(installationId: number, login: string) {
+type GithubRepository = { id: number; fullName: string }
+
+/**
+ * GitHub's view of one installation. `mint` is the status of the
+ * repository-scoped token request. `granted` lists the repositories that the
+ * installation can read; GitHub resolves a token request by repository name
+ * inside the installation's account. `lookups` maps a requested owner/name
+ * (an old name included) to the repository that GitHub answers with.
+ */
+function githubInstallation(input: {
+  installationId: number
+  mint: 201 | 404 | 422 | 500
+  granted?: GithubRepository[]
+  lookups?: Record<string, GithubRepository>
+}) {
+  const token = `fixture-only-read-token-${input.installationId}`
+  const granted = input.granted ?? []
+  const lookups = input.lookups ?? {}
+  const authorized = (request: Request) =>
+    request.headers.get("authorization")?.endsWith(token) ?? false
   return [
-    http.get(`https://api.github.com/app/installations/${installationId}`, () =>
-      HttpResponse.json({ id: installationId, account: { login } }),
-    ),
     http.post(
-      `https://api.github.com/app/installations/${installationId}/access_tokens`,
-      () =>
-        HttpResponse.json({
-          token: "fixture-only-github-read-token",
-          expires_at: new Date(Date.now() + 3_600_000).toISOString(),
-        }),
+      `https://api.github.com/app/installations/${input.installationId}/access_tokens`,
+      async ({ request }) => {
+        if (input.mint !== 201)
+          return HttpResponse.json(
+            { message: "GitHub answer" },
+            { status: input.mint },
+          )
+        const body = (await request.json()) as { repositories?: string[] }
+        const names = body.repositories ?? []
+        const repositories = granted.filter((repository) =>
+          names.includes(repository.fullName.split("/")[1] ?? ""),
+        )
+        if (repositories.length !== names.length)
+          return HttpResponse.json(
+            {
+              message:
+                "There is at least one repository that does not exist or is not accessible to the parent installation.",
+            },
+            { status: 422 },
+          )
+        return HttpResponse.json(
+          {
+            token,
+            expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+            permissions: { contents: "read", metadata: "read" },
+            repositories: repositories.map((repository) => ({
+              id: repository.id,
+              name: repository.fullName.split("/")[1],
+              full_name: repository.fullName,
+            })),
+          },
+          { status: 201 },
+        )
+      },
+    ),
+    http.get(
+      "https://api.github.com/installation/repositories",
+      ({ request }) => {
+        if (!authorized(request)) return undefined
+        return HttpResponse.json({
+          total_count: granted.length,
+          repositories: granted.map((repository) => ({
+            id: repository.id,
+            full_name: repository.fullName,
+          })),
+        })
+      },
+    ),
+    http.get(
+      "https://api.github.com/repos/:owner/:repo",
+      ({ request, params }) => {
+        if (!authorized(request)) return undefined
+        const repository = lookups[`${params.owner}/${params.repo}`]
+        return repository
+          ? HttpResponse.json({
+              id: repository.id,
+              full_name: repository.fullName,
+            })
+          : HttpResponse.json({ message: "Not Found" }, { status: 404 })
+      },
     ),
   ]
 }
 
-async function setAccountSlug(f: Fixture, accountSlug: string | undefined) {
+async function setAccountSlug(f: Fixture, accountSlug: string) {
   await withOrgDbContext(f.org.id, (db) =>
     db
       .update(connections)
       .set({
         config: {
-          installationId: 123456789,
-          ...(accountSlug ? { accountSlug } : {}),
+          installationId,
+          accountSlug,
           ingestAllRepositories: false,
           includeFutureRepos: false,
         },
       })
       .where(eq(connections.id, f.connectionId)),
   )
+}
+
+async function storedConfig(f: Fixture) {
+  const [row] = await withOrgDbContext(f.org.id, (db) =>
+    db
+      .select({ config: connections.config })
+      .from(connections)
+      .where(eq(connections.id, f.connectionId)),
+  )
+  return row?.config
 }
 
 async function insertRepository(
@@ -82,51 +162,122 @@ async function bindingOf(f: Fixture, repositoryId: string | undefined) {
   return row?.githubConnectionId
 }
 
-async function storedAccountSlug(f: Fixture) {
-  const [row] = await withOrgDbContext(f.org.id, (db) =>
-    db
-      .select({ config: connections.config })
-      .from(connections)
-      .where(eq(connections.id, f.connectionId)),
-  )
-  return (row?.config as { accountSlug?: string } | undefined)?.accountSlug
-}
-
 it(
-  "binds a linked repository to the Workspace's connection only within the installation's account",
+  "binds a linked repository to the connection when GitHub mints a read token for it",
   { timeout: 30_000 },
   async () => {
     await withNativeHydrationFixture({ github: true }, async (f) => {
-      await setAccountSlug(f, "fixture")
-      // A public dependency that an earlier link bound to this connection.
-      const staleId = `repo_${f.id}_stale`
-      await insertRepository(
-        f,
-        staleId,
-        "https://github.com/upstream/stale-dependency",
-        f.connectionId,
+      const own = { id: 101, fullName: "fixture/own-service" }
+      f.server.use(
+        ...githubInstallation({
+          installationId,
+          mint: 201,
+          granted: [own],
+          lookups: { [own.fullName]: own },
+        }),
       )
-      f.server.use(...githubAccount(123456789, "fixture"))
 
-      const own = await link(
+      const linked = await link(
         f,
         "https://github.com/fixture/own-service",
         f.connectionId,
       )
-      const foreign = await link(
+
+      expect(linked?.created).toBe(true)
+      expect(await bindingOf(f, linked?.id)).toBe(f.connectionId)
+    })
+  },
+)
+
+it(
+  "does not bind a repository that a selected-repositories installation is not granted, and clears that stale binding",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      // The stored account equals the owner, but GitHub does not grant the repository.
+      await setAccountSlug(f, "fixture")
+      const staleId = `repo_${f.id}_stale`
+      await insertRepository(
         f,
-        "https://github.com/upstream/public-dependency",
+        staleId,
+        "https://github.com/fixture/revoked-service",
+        f.connectionId,
+      )
+      f.server.use(...githubInstallation({ installationId, mint: 422 }))
+
+      const created = await link(
+        f,
+        "https://github.com/fixture/not-granted",
         f.connectionId,
       )
       await link(
         f,
-        "https://github.com/upstream/stale-dependency",
+        "https://github.com/fixture/revoked-service",
         f.connectionId,
       )
 
-      expect(await bindingOf(f, own?.id)).toBe(f.connectionId)
-      expect(await bindingOf(f, foreign?.id)).toBeNull()
+      expect(created?.created).toBe(true)
+      expect(await bindingOf(f, created?.id)).toBeNull()
       expect(await bindingOf(f, staleId)).toBeNull()
+    })
+  },
+)
+
+it(
+  "binds a repository of a renamed account when GitHub mints a read token for it",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      // The stored account is stale, and the URL still uses the old owner name.
+      await setAccountSlug(f, "fixture")
+      const before = await storedConfig(f)
+      const renamed = { id: 202, fullName: "new-org-name/private-service" }
+      f.server.use(
+        ...githubInstallation({
+          installationId,
+          mint: 201,
+          granted: [renamed],
+          lookups: { "old-org-name/private-service": renamed },
+        }),
+      )
+
+      const linked = await link(
+        f,
+        "https://github.com/old-org-name/private-service",
+        f.connectionId,
+      )
+
+      expect(await bindingOf(f, linked?.id)).toBe(f.connectionId)
+      expect(await storedConfig(f)).toEqual(before)
+    })
+  },
+)
+
+it(
+  "does not bind another owner's repository that has the same name as a granted one",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      // GitHub resolves the token request by name in the installation's
+      // account, so the mint succeeds for the fork, not for the upstream.
+      const fork = { id: 303, fullName: "fixture/shared-name" }
+      const upstream = { id: 304, fullName: "upstream/shared-name" }
+      f.server.use(
+        ...githubInstallation({
+          installationId,
+          mint: 201,
+          granted: [fork],
+          lookups: { [fork.fullName]: fork, [upstream.fullName]: upstream },
+        }),
+      )
+
+      const linked = await link(
+        f,
+        "https://github.com/upstream/shared-name",
+        f.connectionId,
+      )
+
+      expect(await bindingOf(f, linked?.id)).toBeNull()
     })
   },
 )
@@ -136,7 +287,6 @@ it(
   { timeout: 30_000 },
   async () => {
     await withNativeHydrationFixture({ github: true }, async (f) => {
-      await setAccountSlug(f, "fixture")
       const otherConnectionId = `con_${f.id}_other`
       await withOrgDbContext(f.org.id, (db) =>
         db.insert(connections).values({
@@ -158,7 +308,12 @@ it(
         "https://github.com/fixture/private-service",
         f.connectionId,
       )
-      f.server.use(...githubAccount(otherInstallationId, "other-account"))
+      f.server.use(
+        ...githubInstallation({
+          installationId: otherInstallationId,
+          mint: 422,
+        }),
+      )
 
       await link(
         f,
@@ -167,65 +322,18 @@ it(
       )
 
       expect(await bindingOf(f, privateId)).toBe(f.connectionId)
-      await withOrgDbContext(f.org.id, (db) =>
-        db.delete(connections).where(eq(connections.id, otherConnectionId)),
-      )
     })
   },
 )
 
 it(
-  "refreshes a renamed installation account before it decides the owner does not match",
-  { timeout: 30_000 },
+  "changes no binding when GitHub fails to answer the token request",
+  // Octokit retries a 5xx with backoff before it fails.
+  { timeout: 60_000 },
   async () => {
     await withNativeHydrationFixture({ github: true }, async (f) => {
-      await setAccountSlug(f, "old-org-name")
-      f.server.use(...githubAccount(123456789, "fixture"))
-
-      const own = await link(
-        f,
-        "https://github.com/fixture/private-service",
-        f.connectionId,
-      )
-
-      expect(await bindingOf(f, own?.id)).toBe(f.connectionId)
-      expect(await storedAccountSlug(f)).toBe("fixture")
-    })
-  },
-)
-
-it(
-  "reads the account of a legacy connection without a stored slug from GitHub",
-  { timeout: 30_000 },
-  async () => {
-    await withNativeHydrationFixture({ github: true }, async (f) => {
-      await setAccountSlug(f, undefined)
-      f.server.use(...githubAccount(123456789, "fixture"))
-
-      const foreign = await link(
-        f,
-        "https://github.com/upstream/public-dependency",
-        f.connectionId,
-      )
-      const own = await link(
-        f,
-        "https://github.com/fixture/own-service",
-        f.connectionId,
-      )
-
-      expect(await bindingOf(f, foreign?.id)).toBeNull()
-      expect(await bindingOf(f, own?.id)).toBe(f.connectionId)
-      expect(await storedAccountSlug(f)).toBe("fixture")
-    })
-  },
-)
-
-it(
-  "changes no binding when GitHub cannot confirm the installation's account",
-  { timeout: 30_000 },
-  async () => {
-    await withNativeHydrationFixture({ github: true }, async (f) => {
-      await setAccountSlug(f, "old-org-name")
+      await setAccountSlug(f, "fixture")
+      const before = await storedConfig(f)
       const boundId = `repo_${f.id}_bound`
       await insertRepository(
         f,
@@ -233,28 +341,17 @@ it(
         "https://github.com/fixture/bound-service",
         f.connectionId,
       )
-      f.server.use(
-        http.get(
-          "https://api.github.com/app/installations/123456789",
-          () => new HttpResponse(null, { status: 404 }),
-        ),
-      )
+      f.server.use(...githubInstallation({ installationId, mint: 500 }))
 
       const bound = await link(
         f,
         "https://github.com/fixture/bound-service",
         f.connectionId,
       )
-      const created = await link(
-        f,
-        "https://github.com/fixture/new-service",
-        f.connectionId,
-      )
 
-      expect(await bindingOf(f, bound?.id)).toBe(f.connectionId)
-      expect(created?.created).toBe(true)
-      expect(await bindingOf(f, created?.id)).toBeNull()
-      expect(await storedAccountSlug(f)).toBe("old-org-name")
+      expect(bound?.id).toBe(boundId)
+      expect(await bindingOf(f, boundId)).toBe(f.connectionId)
+      expect(await storedConfig(f)).toEqual(before)
     })
   },
 )

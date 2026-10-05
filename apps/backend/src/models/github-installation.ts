@@ -939,6 +939,22 @@ export async function getRepoReadCloneToken(
     fresh?: boolean
   },
 ): Promise<string | undefined> {
+  return (await mintRepoReadToken(orgId, env, input))?.token
+}
+
+/**
+ * Repository-scoped read token. `repositoryIds` comes from GitHub's answer to
+ * a new mint; a token from the cache does not have it.
+ */
+async function mintRepoReadToken(
+  orgId: string,
+  env: Env,
+  input: {
+    githubConnectionId?: string
+    repoFullName: string
+    fresh?: boolean
+  },
+): Promise<{ token: string; repositoryIds?: number[] } | undefined> {
   const installation = input.githubConnectionId
     ? await getGithubInstallationByConnectionId(orgId, input.githubConnectionId)
     : await resolveGithubInstallationForOrg(orgId, null)
@@ -949,13 +965,59 @@ export async function getRepoReadCloneToken(
   const app = buildAppForConnection(row, env)
   const octokit = await app.getInstallationOctokit(installation.installationId)
   const request = repoReadCloneTokenRequest(input.repoFullName)
-  const { token } = (await octokit.auth({
+  const { token, repositoryIds } = (await octokit.auth({
     type: "installation",
     repositoryNames: request.repositoryNames,
     permissions: request.permissions,
     ...(input.fresh ? { refresh: true } : {}),
-  })) as { token: string }
-  return token
+  })) as { token: string; repositoryIds?: number[] }
+  return { token, repositoryIds }
+}
+
+/**
+ * Whether the connection's installation can read the repository. GitHub
+ * decides this, not the stored account name: the check mints a new
+ * repository-scoped read token. GitHub finds the token's repository by name
+ * in the installation's account, so the check also reads the repository of
+ * the URL with that token and compares the ids. A fork in the installation's
+ * account has the same name but another id. A renamed owner redirects to the
+ * same id. `unknown`: GitHub did not answer, so the caller must not change a
+ * binding.
+ */
+export async function resolveRepoReadCoverage(
+  orgId: string,
+  env: Env,
+  input: { githubConnectionId: string; repoFullName: string },
+): Promise<"covers" | "foreign" | "unknown"> {
+  const [owner, repo, ...rest] = input.repoFullName.split("/")
+  if (!owner || !repo || rest.length > 0) return "unknown"
+  try {
+    const minted = await mintRepoReadToken(orgId, env, {
+      ...input,
+      fresh: true,
+    })
+    if (!minted?.repositoryIds) return "unknown"
+    const { data } = await new Octokit({
+      auth: minted.token,
+    }).rest.repos.get({ owner, repo })
+    return minted.repositoryIds.includes(data.id) ? "covers" : "foreign"
+  } catch (error) {
+    const status =
+      error && typeof error === "object" && "status" in error
+        ? (error as { status?: unknown }).status
+        : undefined
+    // 422: the installation has no repository of that name. 404: the
+    // installation or the repository is not visible to it.
+    if (status === 422 || status === 404) return "foreign"
+    log.warn({
+      step: "github.repo_read_coverage",
+      message: "GitHub did not confirm repository read access",
+      connectionId: input.githubConnectionId,
+      status: typeof status === "number" ? status : null,
+      error: error instanceof Error ? error.name : String(error),
+    })
+    return "unknown"
+  }
 }
 
 /** Broker-only workspace read scope; never reuse the App's default permissions. */
