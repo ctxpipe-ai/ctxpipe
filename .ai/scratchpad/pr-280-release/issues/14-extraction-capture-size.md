@@ -1,11 +1,11 @@
 # Extraction capture over 8 MiB fails ingestion and loses the paid extraction
 
-Status: plan-review
+Status: in-review
 Priority: P0
 Owner: claude
 Blocked by: none
 Created: 2026-10-05
-Updated: 2026-10-05
+Updated: 2026-10-06
 
 ## Context
 
@@ -57,11 +57,11 @@ A repository of n8n size, and up to about ten times that size (linux, kubernetes
 
 ## Acceptance criteria
 
-- [ ] The `capture-over-8-mib` mode of `repository-extraction-native.contract.test.ts` passes: three recorded roots that hold more than 8 MiB together publish all 900 objects. (It fails on the current code with `Extraction capture exceeds 8 MiB`.)
-- [ ] No check stops a capture after the model calls because of its total size. A limit that remains comes from a real limit (memory or `jsonb`) and stops the work before the model calls, or it bounds one piece of a chunked publish.
-- [ ] After a failure that follows extraction, a new run for the same commit does not call the model for roots that were already stored (option D).
-- [ ] Peak worker memory for a synthetic capture ten times the size of n8n stays inside the small CDK worker (option C).
-- [ ] ADR-047 (or a new ADR) records where captures are stored and how a large capture is published.
+- [x] The `capture-over-8-mib` mode of `repository-extraction-native.contract.test.ts` passes: three recorded roots that hold more than 8 MiB together publish all 900 objects. (It fails on the current code with `Extraction capture exceeds 8 MiB`.)
+- [x] No check stops a capture after the model calls because of its total size. A limit that remains comes from a real limit (memory or `jsonb`) and stops the work before the model calls, or it bounds one piece of a chunked publish.
+- [x] After a failure that follows extraction, a new run for the same commit does not call the model for roots that were already stored (option D).
+- [ ] Peak worker memory for a synthetic capture ten times the size of n8n stays inside the small CDK worker (option C). Not in this build: the user chose B + D. Follow-up if ten times n8n comes into scope.
+- [x] ADR-047 (or a new ADR) records where captures are stored and how a large capture is published.
 
 ## Plan
 
@@ -92,5 +92,29 @@ Read `domain/workspaces/extraction.ts`, `graphs/codeIngestionGraph/runExtractRoo
 ## Comments
 
 - 2026-10-05 (claude): investigation done, red test written. Stopped before the build, as the brief asks for a stop before more than about 400 lines. Waiting for the user to choose an option.
+- 2026-10-05 (user): build B + D, with the small fixes.
+- 2026-10-06 (claude): B + D built. See Resolution.
 
 ## Resolution
+
+Built options B and D, with the small fixes.
+
+**Storage by reference (B).** The new table `repository_extraction_captures` holds the paid extractor output of each root, in parts of about 4 MiB of JSON. `identify:<root>` writes the rows of its root in one transaction and returns only the counts. The extraction command (`WorkspaceExtraction`) now has the source header and a `capture` key (scope, extractor version, roots), not objects and claims. Thus the child workflow input, the write-job payload, and the semantic-merge input stay small. The `transform-extract-ingest` step reads the rows, resolves references (`finalizeExtractedReferences`), and adds the package hierarchy. These steps ran before in the workflow body on each replay; now they run once in a durable step. A root without rows stops the publication with an error, so a partial capture never causes a full retraction.
+
+**Reuse (D).** The key is repository, target commit, scope (`full`, or `since:<base>` for a partial ingest), `EXTRACTOR_VERSION`, and root. The scope is in the key because a partial capture holds only the changed paths: a full run must not reuse it. When the root is stored, `extract-kind:<root>` and `identify:<root>` make no model calls. Increase `EXTRACTOR_VERSION` when an extractor changes its output.
+
+**Retention.** The parent deletes the rows of its key after the publication succeeds. Each store also deletes the rows of the organization that are older than seven days. The foreign key to `repositories` deletes the rows with their repository. Reason: rows are only useful until one publication succeeds; a failed run is usually retried within hours, and seven days bounds the storage of a run that nobody retries without a scheduled job.
+
+**Caps.** Removed `extractionCaptureBudgetSchema` at all four points (a, b, c, d) and the admission test for it. The caps only protected payload size, and B removes the large payloads. The 128-root cap stays: it protects the OpenWorkflow step limit, and it fails before the per-root model calls. The `identify` output no longer copies the `extract-kind` output.
+
+**Publication speed.** `stageGitFiles` ran two Git processes for each file. 900 files took more than 150 s. It now writes all blobs with one `hash-object --stdin-paths` and one `update-index --index-info` (about 16 s for the whole contract mode).
+
+**Proof.**
+- `capture-over-8-mib` passes (red before: `Extraction capture exceeds 8 MiB`).
+- New mode `after-failed-publish` in `repository-producer-native.contract.test.ts`: the remote refuses the first push, so the first run fails after extraction; the second run for the same commit makes 0 extractor model calls (msw count). Before D it made 9. Both modes also check that no capture rows remain after success.
+- The extraction, write, retraction, export, and owner contract tests pass.
+
+**Open points.**
+- Option C (memory for ten times n8n) is not built. One in-memory plan over the whole capture remains, and the `transform`, `stage`, and `commit` step outputs still grow with the capture. `nativeGit` has a 64 MiB output buffer and a 60 s timeout, which a very large publication can reach.
+- An in-flight run from before this deploy has old `identify` step outputs and no rows. Its publication fails with "Extraction capture is missing for root"; the next run extracts again.
+
