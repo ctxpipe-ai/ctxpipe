@@ -1,7 +1,8 @@
 import { log } from "../../observability/logger.js"
 import { getConfig, getGraphClient } from "./client.js"
 
-const SAFE_LABEL = /^[A-Za-z_][A-Za-z0-9_]*$/
+/** A label or relationship type that is safe to put in Cypher text. */
+export const SAFE_CYPHER_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 /** `${orgId}\0${kind}` already attempted by this process. */
 const attempted = new Set<string>()
@@ -38,7 +39,7 @@ export async function ensureNodeIdIndexes(
 
   for (const kind of new Set(kinds)) {
     const key = `${orgId}\0${kind}`
-    if (attempted.has(key) || !SAFE_LABEL.test(kind)) continue
+    if (attempted.has(key) || !SAFE_CYPHER_IDENT.test(kind)) continue
     attempted.add(key)
 
     const statement = nodeIdIndexStatement(provider, kind)

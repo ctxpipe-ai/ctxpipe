@@ -39,7 +39,9 @@ vi.mock("../../platform/graph/client.js", () => ({
   withGraphClient: withGraphClientMock,
 }))
 
-vi.mock("../../platform/graph/indexes.js", () => ({
+// Index DDL would add queries to the mocked graph client that these tests count.
+vi.mock("../../platform/graph/indexes.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../platform/graph/indexes.js")>()),
   ensureNodeIdIndexes: vi.fn(async () => undefined),
 }))
 
@@ -49,16 +51,16 @@ vi.mock("../../observability/logger.js", () => ({
   log: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }))
 
+import type { ClaimForProjection } from "../schema/claimForProjection.js"
 import {
   deleteObjectsFromGraph,
   groupClaimsForBatchProjection,
   PROJECT_CLAIM_BATCH_SIZE,
-  projectClaimsFromState,
-  retractClaimsFromGraph,
-  refreshClaimProjections,
   type PreparedProjectionRow,
+  projectClaimsFromState,
+  refreshClaimProjections,
+  retractClaimsFromGraph,
 } from "./graphProjection.js"
-import type { ClaimForProjection } from "../schema/claimForProjection.js"
 
 function makeClaim(
   overrides: Partial<ClaimForProjection> & Pick<ClaimForProjection, "id">,
@@ -98,7 +100,11 @@ describe("groupClaimsForBatchProjection", () => {
         objectProps: { id: "db_1", kind: "Database" },
       },
       {
-        claim: makeClaim({ id: "c3", predicate: "EXPOSES_API", objectId: "api_c" }),
+        claim: makeClaim({
+          id: "c3",
+          predicate: "EXPOSES_API",
+          objectId: "api_c",
+        }),
         subjectProps: { id: "svc_a", kind: "Service" },
         objectProps: { id: "api_c", kind: "API" },
       },
