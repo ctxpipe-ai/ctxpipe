@@ -1,9 +1,5 @@
 import type { ConversationPrState } from "@/features/chat/types"
 
-export function conversationSessionBranch(conversationId: string): string {
-  return `ctxpipe/chat/${conversationId}/1`
-}
-
 export function conversationAllowsEdits(
   writeStatus: string,
   conversationWritable?: boolean,
@@ -11,8 +7,10 @@ export function conversationAllowsEdits(
   return conversationWritable ?? writeStatus === "writable"
 }
 
+/** `ctxpipe/chat/<conversation>/<n>` shows as `chat/<n>`. */
 export function conversationBranchShortName(branch: string): string {
-  return branch.startsWith("ctxpipe/chat/") ? "chat/1" : branch
+  const session = /^ctxpipe\/chat\/[^/]+\/(\d+)$/.exec(branch)
+  return session ? `chat/${session[1]}` : branch
 }
 
 export function conversationPullRequestAction(
@@ -43,6 +41,10 @@ export type ConversationPublishStatus = {
   dirty: boolean
   differsFromDefault: boolean
   unpushed: boolean
+  /** The session branch is on GitHub. */
+  published?: boolean
+  /** Commits ahead of the default branch. */
+  ahead?: number
   stale?: boolean
 } | null
 
@@ -57,11 +59,15 @@ export function conversationCommitPushEnabled(
   return status.dirty || status.unpushed
 }
 
+/**
+ * Create PR publishes commits: those on GitHub already, or ones Create PR
+ * pushes first. Uncommitted files alone are Commit+Push's.
+ */
 export function conversationCreatePrEnabled(
   status: ConversationPublishStatus,
 ): boolean {
   if (!status || status.stale) return false
-  return status.dirty || status.differsFromDefault || status.unpushed
+  return Boolean(status.published) || (status.ahead ?? 0) > 0
 }
 
 export function conversationPullRequestVisible(

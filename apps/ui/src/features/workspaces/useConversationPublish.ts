@@ -46,8 +46,8 @@ export function useConversationPublish(input: {
   pullEnabled: boolean
   fallbackPrState?: string | null
   fallbackPullUrl?: string | null
-  /** The conversation's pushed session branch, if any. */
-  publishedBranch?: string | null
+  /** The session branch is on GitHub (known without a running sandbox). */
+  published?: boolean
 }) {
   const {
     orgSlug,
@@ -144,7 +144,7 @@ export function useConversationPublish(input: {
       visible:
         conversationPullRequestVisible(status, pullAction) ||
         // Without a running sandbox the pushed branch is still publishable.
-        (!status && Boolean(input.publishedBranch)) ||
+        (!status && Boolean(input.published)) ||
         createPrPending,
       action: pullAction,
       pending: createPrPending,
