@@ -4,11 +4,9 @@
 
 ## Context
 
-Each Workspace conversation runs its agent in a sandbox ([ADR-044](ADR-044-workspace-chat-stock-tanstack.md), [ADR-048](ADR-048-native-postgres-sandbox-ownership.md)). Hosted ctx| uses Vercel Sandbox. Self-hosters need a sandbox on the two supported deploy paths: Docker Compose ([ADR-015](ADR-015-docker-compose-profiles-and-small-scale-deploy.md)) and the `@ctxpipe/aws-cdk` construct.
+Each Workspace conversation runs its agent in a sandbox ([ADR-044](ADR-044-workspace-chat-stock-tanstack.md), [ADR-048](ADR-048-native-postgres-sandbox-ownership.md)). Hosted ctx| uses Vercel Sandbox (`SANDBOX_PROVIDER=vercel`). The Terraform module in `infra/` is our own hosted Railway layout, and it sets that provider. Self-hosters on the Docker Compose path ([ADR-015](ADR-015-docker-compose-profiles-and-small-scale-deploy.md)) and the `@ctxpipe/aws-cdk` path need a sandbox that runs in their own infrastructure.
 
-Before PR 280, Compose ran a custom sandbox runner: Docker-in-Docker (DinD) with a Btrfs storage file, a quota probe, an egress proxy, and a model relay. The CDK stack ran only on Fargate, with no Docker daemon, so chat ran without a sandbox there. ADR-048 removed the vendor patches that the custom design needed. This ADR records the self-host design that replaces it.
-
-Items marked *(ticket 03)* are decided but not yet shipped. See `.ai/scratchpad/pr-280-release/issues/03-docker-sandbox-self-host.md`.
+Earlier PR 280 work had a custom sandbox runner for Compose. It was Docker-in-Docker (DinD) with a Btrfs storage file, a quota probe, an egress proxy, and a model relay. On CDK, Fargate has no Docker daemon, so chat would have run without a sandbox. ADR-048 removed the vendor patches that the custom design needed. This ADR records the self-host design that replaces it.
 
 ## Decision
 
@@ -16,14 +14,15 @@ Items marked *(ticket 03)* are decided but not yet shipped. See `.ai/scratchpad/
 
 - Self-host uses the stock TanStack `dockerSandbox`. There is no vendor patch and no application-level sandbox registry. Ownership, locks, and lifecycle are the same as in ADR-048.
 - The backend and the worker connect to a Docker daemon over TCP with mutual TLS (`DOCKER_HOST`, `DOCKER_TLS_VERIFY`, `DOCKER_CERT_PATH`). They never mount the host Docker socket.
-- `SANDBOX_CHAT_IMAGE` names the chat image. Compose builds it inside DinD from the checkout. CDK uses `ghcr.io/ctxpipe-ai/chat-sandbox:<release tag>`, which `deploy.yaml` publishes for arm64 and amd64 with the service images. The backend pulls it through the daemon on first use, so a release does not replace the host.
-- Sandboxes call the backend back on the local address that the backend uses to reach the daemon. `SANDBOX_CALLBACK_HOST` overrides this address.
+- `SANDBOX_CHAT_IMAGE` names the chat image. Compose builds it inside DinD from the checkout. CDK uses `ghcr.io/ctxpipe-ai/chat-sandbox:<commit SHA>`, at the tag that the package pins (`PINNED_SERVICE_IMAGE_TAG`). `deploy.yaml` publishes it for arm64 and amd64 with the service images. The backend pulls it through the daemon on first use, so a release does not replace the host.
+- With a remote daemon, sandboxes send requests to the backend on the local address that the backend uses to reach the daemon. `SANDBOX_CALLBACK_HOST` overrides this address.
 
 ### Docker Compose
 
 - The `deploy` profile runs `dind`: stock `docker:dind` at a pinned digest, privileged, with TLS from `DOCKER_TLS_CERTDIR`. It is the only privileged container. Sandboxes are not privileged.
-- `dind`, `backend`, and `worker` share a separate `sandbox` network. Compose does not publish the Docker API (port 2376) on the host.
-- `scripts/sandbox-dind/` holds the daemon config and a small entrypoint. They apply the same rules as the CDK host: one cgroup parent for all sandboxes (memory cap at 85% of the memory `dind` can use, 8192 processes), `icc: false`, log rotation at 3 × 10 MB, and the instance-metadata drop.
+- `dind`, `backend`, `worker`, and `chat-sandbox-image` share a separate `sandbox` network. Compose does not publish the Docker API (port 2376) on the host.
+- `scripts/sandbox-dind/` holds the daemon config and a small entrypoint. They put all sandboxes in one cgroup parent, capped at 85% of the memory `dind` can use and 8192 processes. They also set `icc: false`, log rotation at 3 × 10 MB, and a raw-table drop of instance-metadata traffic.
+- The CDK host has more: `CPUWeight=50` on the sandbox slice, `live-restore`, a host `INPUT` reject from `docker0`, and a metadata `REJECT` in `DOCKER-USER`.
 - The one-shot `chat-sandbox-image` service builds the chat image inside `dind`. No service waits for it. Until the image exists, chat returns 503 and the rest of the app works.
 
 ### AWS CDK
@@ -43,56 +42,42 @@ Items marked *(ticket 03)* are decided but not yet shipped. See `.ai/scratchpad/
 
 ### Network policy
 
-There is one documented policy for Compose and AWS (`apps/docs/content/docs/self-hosting/(getting-started)/architecture.mdx`, section "Chat sandbox network policy"):
-
-- Inside the sandbox, only the stock TanStack policy applies.
-- Sandboxes reach the internet and the backend model proxy and tool bridges.
-- Data stores are never exposed to sandboxes. Compose does not publish Postgres or FalkorDB in any profile. Host dev gets its host ports from the infra-only `infra-host-ports` forwarder. On AWS, security groups admit only the app.
-- One added rule drops traffic to instance metadata (`169.254.169.254`). On AWS, the host also blocks sandboxes from the host itself.
-- Each agent port needs a per-conversation password. `icc: false` stops traffic between sandboxes on the bridge.
-- Sandboxes can reach other services that are published on a sandbox host. The docs tell operators not to publish unauthenticated services there.
+- One policy applies to Compose and AWS. The details are in the [chat sandbox network policy](<../../../apps/docs/content/docs/self-hosting/(getting-started)/architecture.mdx#chat-sandbox-network-policy>).
+- The root cause of data-store exposure was published ports. Docker routes to published ports from other networks, so Compose publishes no data store in any profile. On AWS, security groups admit only the app.
+- One added rule blocks instance metadata (`169.254.169.254`). Apart from this rule and the CDK host's block on traffic to the host itself, only the stock TanStack policy applies.
 
 ### Lifecycle
 
-The lifecycle is the same as hosted (ADR-048):
-
-- A sandbox stops (`docker stop`) after 5 minutes idle. The next turn starts it again (`docker start`) with its files.
-- A stopped container is removed 30 days after last use.
-- An organization runs at most 50 sandboxes at once.
-- A run that nobody watches stops its container when the run ends.
-
-Git is the durable state. When a host or a container is lost, no pushed work is lost.
+Lifecycle, limits, and cleanup are as in [ADR-048](ADR-048-native-postgres-sandbox-ownership.md).
 
 ### Fast start: Workspace base image (option B)
 
-- Each Workspace has a base image. Our code builds it: it creates a sandbox from the stock chat image, clones the Workspace repository, runs setup, and commits the container to an image with owner labels. One build runs at a time per Workspace, under the Workspace lock. *(ticket 03)*
-- A new conversation starts with `dockerSandbox({ image: base })`. The pre-turn update fetches the tip and checks out the session branch. *(ticket 03)*
-- Our code rebuilds a stale base and deletes a base that no sandbox uses. *(ticket 03)*
-- A periodic host prune removes orphan containers and images, so the Docker disk stays flat. Stock `dockerSandbox` sets no container labels, so the prune finds containers by the id in our sandbox row. It finds base images by our own labels. *(ticket 03)*
+- The Workspace base of [ADR-048](ADR-048-native-postgres-sandbox-ownership.md) is a Docker image on self-host. Our code commits a prepared builder container to an image. A new conversation starts from it with stock `dockerSandbox({ image })` and no patch. *(lands with the Workspace base change)*
+- Our labels are on each base image, each builder, and each container started from a base. They are `ai.ctxpipe.sandbox` (kind), `ai.ctxpipe.store` (a hash of the deployment's database), `ai.ctxpipe.base`, and `ai.ctxpipe.org`. *(lands with the Workspace base change)*
+- A host prune first sweeps every organization that has a sandbox row. Stock containers have no labels, so the sweep works from the container id in the row. *(lands with the Workspace base change)*
+- The prune then removes labeled objects of this deployment that have no row. It removes a base image whose base row is gone. It removes a labeled container that no row records and that is older than one hour, because a create can record its row late. It never touches unlabeled objects or objects of another deployment. *(lands with the Workspace base change)*
 
 ## Consequences
 
 - Self-hosters get sandboxed chat with no extra settings on Compose and on AWS.
 - Compose needs a host that can run a privileged container. Where it cannot, chat fails closed. The operator can select unsandboxed as a last resort.
-- The Compose `sandbox_client_certs` volume and the AWS client TLS secret give root on the Docker host. Only the backend and the worker read them.
+- The Compose `sandbox_client_certs` volume and the AWS client TLS secret give root on the Docker host. Only the services that use the Docker API read them: on Compose `backend`, `worker`, and `chat-sandbox-image`; on AWS the backend and worker tasks.
 - Isolation is Docker plus stock policy. This is weaker than the microVMs that hosted uses. A self-host deployment is single-tenant, which decreases this risk.
-- The CDK upgrade only adds resources (host, security groups, secrets, Cloud Map service, alarms) and changes the backend and worker services in place. It replaces nothing that holds data.
+- The CDK upgrade only adds resources (host, security groups, secrets, Cloud Map service, alarms). It changes the backend and worker services in place. It replaces nothing that holds data.
 - On Compose, sandboxes use public DNS resolvers. Compose service names and private DNS zones do not resolve in a sandbox.
-- Docker 29 uses the containerd image store, so the chat image uses more disk in DinD (about 1.9 GB).
 
 ## Alternatives considered
 
-- **Custom sandbox runner** (DinD with a Btrfs storage file, per-sandbox disk quotas, a quota probe, an egress proxy, and a model relay). Rejected: it needed vendor patches (ADR-048) and much code to maintain. Stock policy and Docker limits are sufficient for a single-tenant deployment. PR 280 deleted it (ticket 03 deletion ledger).
+- **Custom sandbox runner** (DinD with a Btrfs storage file, per-sandbox disk quotas, a quota probe, an egress proxy, and a model relay). Rejected: it needed vendor patches (ADR-048) and much code to maintain. Stock policy and Docker limits are sufficient for a single-tenant deployment. PR 280 replaced it before release.
 - **Mount the host Docker socket into the backend.** Rejected: each process in the backend then has root on the host, and sandboxes share a daemon with the app containers.
 - **Automatic unsandboxed fallback when the daemon does not answer.** Rejected: a daemon outage would silently run agents inside the backend, with its network access and credentials. The backend fails closed instead.
-- **A private-range egress chain in DinD** (reject 10/8, 172.16/12, 192.168/16, 100.64/10, 169.254/16). Rejected after review: it did not block the host's public address, and it blocked private Git servers. The root cause was published data stores, so Compose no longer publishes them.
+- **A private-range egress chain in DinD** (reject 10/8, 172.16/12, 192.168/16, 100.64/10, 169.254/16). Rejected after review: it did not block the host's public address, and it blocked private Git servers. The root cause was published data stores. Compose no longer publishes them.
 - **An opt-out prop for the CDK sandbox host.** Rejected: the sandbox is a safety feature.
-- **ECS RunTask per conversation on AWS.** Rejected in ADR-048: slower start and higher cost per task than one shared host.
-- **sbx (Docker microVM sandboxes).** Parked: it needs KVM, has no snapshots or forks, has a local-only CLI, and has unclear headless login and licensing.
+- **sbx (Docker microVM sandboxes).** Parked: it needs KVM and has no snapshots or forks. Its CLI is local-only, and its headless login and licensing are unclear. It also adds a second runtime without a need that stock policy leaves unmet.
 - **Fast start from a patched shared base in `@tanstack/ai-sandbox`.** Rejected: option B gives the same start with stock `dockerSandbox({ image })` and no patch.
 
 ## Related
 
 - [ADR-015](ADR-015-docker-compose-profiles-and-small-scale-deploy.md): Compose profiles, including `dind` and `chat-sandbox-image`.
-- [ADR-048](ADR-048-native-postgres-sandbox-ownership.md): ownership, providers, lifecycle, and cleanup shared with hosted.
-- Self-hosting docs: `apps/docs/content/docs/self-hosting/` (architecture, Docker, AWS, operations).
+- [ADR-048](ADR-048-native-postgres-sandbox-ownership.md): ownership, providers, lifecycle, Workspace base, and cleanup shared with hosted.
+- Self-hosting docs: `apps/docs/content/docs/self-hosting/` (architecture, configuration, Docker, AWS, operations).

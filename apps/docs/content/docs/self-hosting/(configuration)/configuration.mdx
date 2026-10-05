@@ -100,28 +100,18 @@ and tenancy behavior.
 
 ## Chat sandboxes
 
-Workspace chat runs each conversation's agent in a container on a Docker
-daemon. Docker Compose and AWS CDK set these values for you. On other
-platforms, set them on backend and worker.
+Workspace chat runs each conversation's agent in a sandbox. Docker Compose and
+AWS CDK set these values for you. On other platforms, set them on backend and
+worker.
 
 | Variable | Description |
 |---|---|
-| `SANDBOX_PROVIDER` | Optional. `docker` (default when unset) or `unsandboxed`. If the Docker daemon does not answer, chat returns 503. It never falls back to `unsandboxed`. |
-| `DOCKER_HOST` | Docker API address, for example `tcp://dind:2376`. Unset, the backend uses the local Docker socket. |
-| `DOCKER_TLS_VERIFY`, `DOCKER_CERT_PATH` | Mutual TLS to the Docker API. `DOCKER_CERT_PATH` is a directory with `ca.pem`, `cert.pem`, and `key.pem`. |
-| `SANDBOX_CHAT_IMAGE` | Chat sandbox image on that daemon. Compose builds `ctxpipe-chat-sandbox:local`; AWS CDK uses `ghcr.io/ctxpipe-ai/chat-sandbox` at the release tag. |
-| `SANDBOX_CALLBACK_HOST` | Optional. Host or IP address that sandboxes use to call the backend back. Unset with a remote `DOCKER_HOST`, the backend uses its own address on the route to the Docker daemon. |
-
-<Callout type="warn" title="Unsandboxed chat is a last resort">
-  `SANDBOX_PROVIDER=unsandboxed` runs the agent as a process inside the
-  backend container, with the backend's network access and credentials. The
-  backend logs a warning at startup. Use it only where no Docker daemon can
-  run, and treat every Workspace user as trusted with the backend.
-</Callout>
-
-The client certificate gives root on the Docker host. Give it only to backend
-and worker. See the
-[chat sandbox network policy](/docs/self-hosting/architecture#chat-sandbox-network-policy).
+| `SANDBOX_PROVIDER` | Optional. `docker` (default if you do not set it), `vercel`, or `unsandboxed`. If the Docker daemon does not answer, chat returns 503. It never falls back to `unsandboxed`. `unsandboxed` is a last resort; see [Docker: Chat sandboxes](/docs/self-hosting/deployment/docker#chat-sandboxes). |
+| `DOCKER_HOST` | Docker API address, for example `tcp://dind:2376`. If you do not set it, the backend uses the local Docker socket. |
+| `DOCKER_TLS_VERIFY`, `DOCKER_CERT_PATH` | Mutual TLS to the Docker API. Set `DOCKER_TLS_VERIFY=1`. `DOCKER_CERT_PATH` is a directory with `ca.pem`, `cert.pem`, and `key.pem`. |
+| `SANDBOX_CHAT_IMAGE` | Chat sandbox image on that daemon. The default is `ctxpipe-chat-sandbox:opencode-<version>`, which is in no registry. On other platforms, build `scripts/chat-sandbox` on that daemon, or use `ghcr.io/ctxpipe-ai/chat-sandbox:<backend commit SHA>` once that package is public. Compose builds `ctxpipe-chat-sandbox:local`. AWS CDK uses `ghcr.io/ctxpipe-ai/chat-sandbox` at the commit SHA tag that the package pins. |
+| `SANDBOX_CALLBACK_HOST` | Optional. Host or IP address that sandboxes use to send requests to the backend. If you do not set it and `DOCKER_HOST` is remote, the backend uses its own address on the route to the Docker daemon. |
+| `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` | Required when `SANDBOX_PROVIDER=vercel`. A Vercel access token, and the team and project (slug or id) that own the sandboxes. Hosted ctx\| uses this provider. |
 
 ## GitHub App connector
 

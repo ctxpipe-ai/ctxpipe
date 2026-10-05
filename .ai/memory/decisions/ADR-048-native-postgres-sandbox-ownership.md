@@ -20,8 +20,8 @@ Every Workspace conversation runs OpenCode in its own sandbox with a checkout of
 | Deployment | Provider |
 | --- | --- |
 | Hosted | `@tanstack/ai-sandbox-vercel` *(ticket 02)* |
-| Self-host (Compose) | stock `dockerSandbox` against a Docker-in-Docker service *(ticket 03)* |
-| Self-host (AWS CDK) | stock `dockerSandbox` against an always-created EC2 Graviton Docker host *(ticket 03)* |
+| Self-host (Compose) | stock `dockerSandbox` against a Docker-in-Docker service. See [ADR-049](ADR-049-self-host-chat-sandbox-stock-docker.md). |
+| Self-host (AWS CDK) | stock `dockerSandbox` against an always-created EC2 Graviton Docker host. See [ADR-049](ADR-049-self-host-chat-sandbox-stock-docker.md). |
 | Local dev | stock `dockerSandbox` against the developer's Docker |
 | Unsandboxed | explicit `SANDBOX_PROVIDER=unsandboxed` only; never chosen automatically, never recommended |
 
@@ -63,7 +63,7 @@ Hosted needs CPU billed only while busy (an agent mostly waits on the model), a 
 - Every use schedules the sweep for its own idle time: a turn's end, a prepare or file read. The worker schedules a sweep at start for every org with a running sandbox, and every Workspace tip check schedules one, so a lost chain (a failed schedule, a crashed replica) restarts.
 - Stopped sandboxes schedule nothing. Any later sweep for the org deletes those past 30 days as it passes. Vercel already expires saved state after 30 days. Docker leftovers in dormant orgs are removed by the host prune *(ticket 03)*. So no run is scheduled weeks ahead, and every retry stays inside the PR worker's 10-minute idle window.
 - Rows whose Workspace is deleted go with it; Workspace and conversation deletion destroy their sandboxes first (`workspace-sandbox-cleanup.ts`).
-- Self-hosted Docker hosts also remove stopped containers and unused images (labelled by owner), so the host never runs out of disk *(ticket 03)*. Hosted deletes Vercel snapshots past retention and unused bases.
+- On self-hosted Docker, a host prune keeps the disk from filling. Stock containers have no labels, so it sweeps every org with a sandbox row and works from the container id in each row. Then it removes base images, builders, and containers with our labels that no row records ([ADR-049](ADR-049-self-host-chat-sandbox-stock-docker.md)) *(ticket 03)*. Hosted deletes Vercel snapshots past retention and unused bases.
 
 ## Consequences
 
@@ -81,6 +81,6 @@ Hosted needs CPU billed only while busy (an agent mostly waits on the model), a 
 - **E2B, Daytona.** Rejected: CPU and memory billed while reserved, not only while busy. Daytona is also closed source since June 2026, and its lower tiers cannot reach our backend.
 - **Fly.io Sprites.** Fallback: microVM, durable files, idle is free, but no shared snapshot start and concurrency bought by plan.
 - **ECS RunTask per conversation for AWS CDK.** Rejected: start time and per-task cost are worse than one shared Docker host.
-- **sbx.** Parked: it adds a second runtime without a need stock policy leaves unmet.
+- **sbx.** Parked; see [ADR-049](ADR-049-self-host-chat-sandbox-stock-docker.md).
 - **Moving a sandbox between SHA-keyed records (the patched transition hooks).** Rejected in favour of option D, which needs no patch.
 - **Pinning a conversation to its start commit.** Rejected: the agent would read stale knowledge.

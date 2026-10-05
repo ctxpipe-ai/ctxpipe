@@ -82,13 +82,13 @@ app, and wires the backend and worker to it. It needs no settings.
 | Isolation | Each agent port needs a per-conversation password, and sandboxes cannot reach each other over the bridge. |
 | Limits | On cgroup v2 hosts, all sandboxes share one cgroup capped at 85% of the memory `dind` may use, and 8192 processes. Without cgroup v2 the caps are skipped and `dind` logs a warning. Container logs rotate at 3 × 10 MB. |
 | Chat image | `chat-sandbox-image` builds `scripts/chat-sandbox` inside `dind` on every `pnpm start`, from the same checkout as the other images. Builds after the first are cached. Nothing waits for it: until it exists, chat answers 503 and the rest of the app works. Once the published `ghcr.io/ctxpipe-ai/chat-sandbox` image is public, Compose will pull it instead. |
-| Storage | The `sandbox_docker` volume holds sandboxes and the chat image. It is disposable: conversations keep their work in their git branch. |
+| Storage | The `sandbox_docker` volume holds sandboxes and the chat image. It is disposable: conversations keep their work in their git branch. Docker 29 in `dind` uses the containerd image store, so the chat image uses about 1.9 GB there, not 1.4 GB. |
 
 <Callout type="warn" title="The Docker client certificate is root on dind">
   Anyone with the files in `sandbox_client_certs` can start privileged
   containers on `dind`, which amounts to root on the Docker host. Only
-  `backend` and `worker` mount that volume; do not mount it anywhere else or
-  copy it off the host.
+  `backend`, `worker`, and the one-shot `chat-sandbox-image` mount that
+  volume. Do not mount it anywhere else or copy it off the host.
 </Callout>
 
 To cap sandboxes below the host's memory, limit `dind` in a

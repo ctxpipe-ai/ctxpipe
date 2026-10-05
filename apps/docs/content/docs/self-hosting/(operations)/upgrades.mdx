@@ -34,8 +34,6 @@ cdk deploy
 
 This release’s migrate task also creates the `ctxpipe_app` runtime role and rewrites the injected `DATABASE_URL` secret. You do not run `psql` or add `CtxPipe` props. Image-only retags without a package bump skip that role split.
 
-The first upgrade to a version with the [chat sandbox host](/docs/self-hosting/deployment/aws#chat-sandbox-host) adds the host with no new required props. That deploy only adds resources and replaces nothing that holds data. It waits until the host is ready, then rolls backend and worker.
-
 ## Docker Compose flow
 
 For source-based Compose deployments:
@@ -48,8 +46,9 @@ docker compose --profile deploy up -d
 ```
 
 `docker compose --profile deploy up -d` also runs `chat-sandbox-image` again.
-If the chat image changed, it builds the new image inside `dind`. New
-sandboxes use the new image.
+If the chat image changed, it builds the new image inside `dind`. Then each
+conversation gets a new sandbox at its next turn, and continues from its git
+branch.
 
 The `deploy` profile runs the `migrate` service before app services. Migrate
 connects as the Postgres owner (`ctxpipe` by default) and provisions
