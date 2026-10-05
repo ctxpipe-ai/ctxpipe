@@ -65,6 +65,13 @@ Neon gets a `ctxpipe_app` role. Railway `DATABASE_URL` on backend, worker, and
 codesearch is the app-role pooler URL. Migrate / `PRODUCTION_DATABASE_URL` stays
 the owner. Do not collapse those two identities.
 
+## Chat sandboxes
+
+The module runs Workspace chat in Vercel Sandbox (`SANDBOX_PROVIDER=vercel`).
+It takes the Vercel token from `vercel_access_token`. The Vercel team and
+project are set to ctx|'s own values, so a fork must change them. See
+[Configuration](/docs/self-hosting/configuration#chat-sandboxes).
+
 ## Observability
 
 This stack is the hosted Railway layout. It does not deploy Langfuse or

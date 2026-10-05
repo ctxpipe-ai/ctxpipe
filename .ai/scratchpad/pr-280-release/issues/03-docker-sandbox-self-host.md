@@ -5,7 +5,7 @@ Priority: P0
 Owner: unassigned
 Blocked by: 01
 Created: 2026-10-01
-Updated: 2026-10-02
+Updated: 2026-10-05
 
 ## Context
 
@@ -34,7 +34,7 @@ Self-hosters get sandboxed workspace chat by default on both Compose and CDK, us
 - [ ] CDK: a new internal construct provisions one EC2 Docker sandbox host (private subnet, Docker API over TLS, certs in Secrets Manager); backend + worker get `SANDBOX_PROVIDER=docker` and the connection settings automatically.
 - [ ] Existing CDK users upgrade with `pnpm update @ctxpipe/aws-cdk` + `cdk deploy`; no new required props; optional props for instance type and disk size; minor changeset.
 - [ ] Host protection without patches: all sandbox containers run under one capped cgroup (`cgroup-parent` in `daemon.json`), and the host has a disk-usage alarm.
-- [ ] Cleanup: containers removed on destroy and idle expiry; snapshot images deleted when their last owner row goes; a periodic labelled prune catches orphans; disk stays flat across repeated browser-suite runs.
+- [ ] Cleanup: containers removed on destroy and idle expiry; snapshot images deleted when their last owner row goes; a periodic labeled prune catches orphans; disk stays flat across repeated browser-suite runs. When the Workspace base images and the prune land, add them to the operations disk checks and update the `docker system prune` warnings in the self-hosting docs.
 - [ ] Sandboxes reach only what they need (backend model proxy + tool bridge, Git host); documented, not enforced beyond stock policy.
 - [ ] `examples/aws-cdk-self-host` deploys and passes preview-env `chat` against it (manual e2e, recorded).
 - [ ] Fast start (option B, no patch): each Workspace has a base image (committed after clone + setup). New conversations start from it with `dockerSandbox({ image })`. Bases are rebuilt when stale and deleted when unused. Proven by a native contract test: no clone in the first turn, one build under concurrent starts.
@@ -43,7 +43,7 @@ Self-hosters get sandboxed workspace chat by default on both Compose and CDK, us
   - stopped containers removed 30 days after last use;
   - at most 50 running sandboxes per organization;
   - non-interactive runs stop their container as soon as they finish.
-- [ ] Self-hosting docs updated: architecture, Compose and CDK sandbox sections, operations checks (disk, health), unsandboxed marked last resort.
+- [x] Self-hosting docs updated: architecture, Compose and CDK sandbox sections, operations checks (disk, health), unsandboxed marked last resort.
 
 ## Plan
 
@@ -83,6 +83,13 @@ Read first: this ticket, ticket 01's ledger, `docker-compose.yml`, `scripts/sand
 Do not add TanStack patches or an application-level sandbox registry. Keep construct changes backwards compatible. Report: deletion ledger, cleanup proof output, CDK synth diff summary, upgrade-path result.
 
 ## Comments
+
+- 2026-10-05 (claude, review fixes to the docs and ADR-049): ADR-049 now gives the true history (the custom runner existed only inside PR 280), the real CDK-only host rules, the pinned commit SHA image tag, and the base-image labels and prune rule from the Workspace base change. ADR-048 and the Workspaces PRD link ADR-049 and drop the stale *(ticket 03)* markers on the shipped providers. The docs now list `vercel` (the Terraform path) next to `docker` and `unsandboxed`, with the `VERCEL_*` variables.
+  - **Follow-up (not done here):** `infra/module/ctxpipe/railway.tf` hard-codes `VERCEL_TEAM_ID` and `VERCEL_PROJECT_ID` to our own Vercel team and project. A third party that reuses the module cannot use them. Make them module variables. The Terraform is unchanged in this PR.
+
+- 2026-10-05 (claude, docs and ADR): plan step 7 done, except the parts that wait for unshipped work.
+  - **ADR-049** (`.ai/memory/decisions/ADR-049-self-host-chat-sandbox-stock-docker.md`) records the self-host design: stock `dockerSandbox`, Compose `dind` with TLS and no host socket, `SandboxHostConstruct` with no opt-out, fail closed, one network policy, lifecycle from ADR-048, and Workspace base images (option B). It lists the rejected options: custom runner, Btrfs, egress proxy, model relay, private-range egress chain, host socket mount, unsandboxed auto-fallback, CDK opt-out. Base images and the host prune are marked *(lands with the Workspace base change)*, because they are not shipped yet. The prune sweeps every org with a sandbox row, working from the container id in the row (stock containers have no labels). Then it removes base images, builders, and base-started containers that carry our labels and that no row records. ADR-015 links to ADR-049. `decisions/index.md` is updated.
+  - **Docs check.** Architecture, the Docker and AWS sandbox sections, the operations checks (disk, health), and the unsandboxed last-resort callouts were already in place. Gaps filled: `configuration.mdx` listed the `deploy` services without `dind` and `chat-sandbox-image` and had no sandbox variables (new "Chat sandboxes" section with `SANDBOX_PROVIDER`, `DOCKER_HOST`, TLS, `SANDBOX_CHAT_IMAGE`, `SANDBOX_CALLBACK_HOST`, and the last-resort callout); `deployment/index.mdx` shared requirements had no Docker daemon; `production-readiness.mdx` had no exposure row or preflight check for the sandbox host; `upgrades.mdx` had no sandbox host note, chat validation row, or component row; the architecture stateful-data table had no sandbox storage row. The docs acceptance item is checked.
 
 - 2026-10-03 (claude, Compose part, after adversarial review): supersedes the isolation notes in the comment below.
   - **Isolation is stock policy plus one rule.** The `CTXPIPE-SANDBOX-EGRESS` private-range chain and the INPUT/gateway rejects are gone (they also missed the host's public address). Root cause fixed instead: `postgres` and `falkordb` are never published in any profile; host dev gets its `CTXPIPE_*` ports from the infra-only `infra-host-ports` socat forwarder, so dev commands and data are unchanged. `dind` keeps one rule: `iptables -t raw -I PREROUTING -d 169.254.169.254/32 -j DROP`, added before the stock entrypoint picks a backend (nf_tables first, legacy fallback; the raw table drops before Docker's rules and the kernel applies it whichever backend dockerd uses; an nf_tables rule does not flip the stock legacy detection). No cgroup v2 → caps skipped with a warning.

@@ -41,7 +41,7 @@ ctxpipe is a job engine over **Workspaces**. An organization's portable knowledg
 ## Sandboxes
 
 - **Hosted:** Vercel Sandbox (Firecracker microVM, active-CPU billing, durable files per conversation, starts from a prepared snapshot) *(ticket 02)*. Integration gaps in `@tanstack/ai-sandbox-vercel` (start from snapshot, authenticated agent port, process kill) are closed with temporary patches, then upstreamed after production launch.
-- **Self-host:** stock TanStack `dockerSandbox` — Compose uses a DinD sidecar; AWS CDK creates a small Graviton EC2 Docker host (always on, no opt-out) *(ticket 03)*. Containers and snapshot images are cleaned up so the host never fills its disk.
+- **Self-host:** stock TanStack `dockerSandbox` — Compose uses a DinD sidecar; AWS CDK creates a small Graviton EC2 Docker host (always on, no opt-out). See [ADR-049](../decisions/ADR-049-self-host-chat-sandbox-stock-docker.md). Containers and snapshot images are cleaned up so the host never fills its disk *(ticket 03)*.
 - **Isolation** is what stock TanStack sandbox policy supports (`commands`, `capabilities.fileWrite/network`, `default`). No custom quotas, egress proxy, or patched providers *(ticket 01)*.
 - **Hosted lifecycle:** a sandbox stops after 5 minutes idle (files saved; next message resumes), saved state is kept 30 days after last use, and each organization runs at most 50 sandboxes at once. Runs nobody is watching (MCP, Slack, write jobs) stop their sandbox as soon as they finish. Egress is an allowlist (our backend, GitHub, what OpenCode needs).
 - **Unsandboxed** runs only when explicitly locked (`SANDBOX_PROVIDER=unsandboxed`); it is never a default or a recommendation.
