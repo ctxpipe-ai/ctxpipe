@@ -182,10 +182,11 @@ export function parseDecisionMarkdown(
     sectionParagraph(body, /^##\s+(?:Context|Decision)\s*$/im) ??
     firstParagraph(excerpt)
 
-  // Supersession is declared in the status header or a field line, often as a
-  // link (`Superseded by [ADR-24](...)`, `**Supersedes:** [ADR-21](...)`).
-  // In prose only the plain form counts: a linked mention there usually
-  // describes another ADR.
+  // A status header or a field line declares supersession, often as a link
+  // (`Superseded by [ADR-24](...)`, `**Supersedes:** [ADR-21](...)`). In
+  // prose, only a sentence about this ADR counts: "This ADR is superseded by
+  // ADR-24", "This decision supersedes ADR-3", or a sentence that starts with
+  // "Supersedes ADR-3". Other prose can describe a different ADR.
   const declared = [
     asString(data.status),
     /^.*\*\*Status:\*\*.*$/im.exec(split?.body ?? content)?.[0],
@@ -211,11 +212,11 @@ export function parseDecisionMarkdown(
     excerpt,
     supersedes: supersession(
       /\bsupersedes\b[\s:*_[]*ADR[-\s]?0*(\d{1,5})\b/gi,
-      /\bsupersedes\s+ADR[-\s]?0*(\d{1,5})\b/gi,
+      /(?:^\s*|[.!?]\s+|\bthis\s+(?:adr|decision|record)\s+)supersedes\s+\[?ADR[-\s]?0*(\d{1,5})\b/gim,
     ),
     supersededBy: supersession(
       /\bsuperseded\s+by\b[\s:*_[]*ADR[-\s]?0*(\d{1,5})\b/gi,
-      /\bsuperseded\s+by\s+ADR[-\s]?0*(\d{1,5})\b/gi,
+      /(?:^\s*|[.!?]\s+|\bthis\s+(?:adr|decision|record)\s+(?:is|was|has\s+been)\s+)superseded\s+by\s+\[?ADR[-\s]?0*(\d{1,5})\b/gim,
     ),
     references: referencedPaths(split?.body ?? content, path),
   }
@@ -237,9 +238,14 @@ function isDecisionCandidate(path: string): boolean {
  * package, else the services it references, else every service in the
  * repository; ADR-036), `Decision SUPERSEDES Decision`, and
  * `Decision MENTIONS File` for backticked repo paths. Deterministic.
+ *
+ * The extractor reads every ADR in the repository, so it needs the packages
+ * of every root in `packageObjects`. The ingestion workflow runs it once for
+ * each root, and the state of a root holds only the package of that root.
  */
 export async function extractDecisions(
   state: CodeIngestionState,
+  packageObjects: ExtractedObject[] = state.extractedObjects ?? [],
 ): Promise<Partial<CodeIngestionState>> {
   if (shouldSkipCodeExtractorForPartialDiff(state)) return {}
 
@@ -272,11 +278,11 @@ export async function extractDecisions(
     state.orgId,
     scopedPaths,
   )
-  const packages = packageRootsFromObjects(state.extractedObjects ?? []).filter(
+  const packages = packageRootsFromObjects(packageObjects).filter(
     (entry) => entry.repositoryId === state.repositoryId,
   )
   const rootServiceKey = `svc:${state.repositoryId}:./`
-  const hasRootService = (state.extractedObjects ?? []).some(
+  const hasRootService = packageObjects.some(
     (object) =>
       object.kind === "Service" && object.deduplicationKey === rootServiceKey,
   )

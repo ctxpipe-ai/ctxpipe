@@ -31,8 +31,11 @@ export type RepositoryIngestionEnqueueInput = {
    */
   fullReingest?: boolean
   /**
-   * Re-read the whole repository with only the deterministic extractors: no
-   * LLM calls and no unobserved-evidence sweep. Operator tooling only.
+   * Re-read the whole repository with only the deterministic extractors. The
+   * LLM extractors and the unobserved-evidence sweep do not run, and the last
+   * ingested commit stays the same. Root and package detection can still ask
+   * an agent, and the run embeds the objects that it extracts. Operator
+   * tooling only.
    */
   deterministicOnly?: boolean
 }

@@ -188,6 +188,8 @@ vi.mock("openworkflow", () => ({
   }),
 }))
 
+import { identifyRoots } from "../../graphs/codeIngestionGraph/nodes/identifyRoots.js"
+import { runExtractKindForRoot } from "../../graphs/codeIngestionGraph/runExtractRoot.js"
 import {
   markRepositoryIndexingReady,
   markRepositoryIndexingReadyWithIssues,
@@ -264,6 +266,7 @@ describe("repository-ingestion index workflow boundary", () => {
       graphOrphanObjectsDeleted: 1,
     })
     repositoryIngestionBlockedByDeletionMock.mockResolvedValue(false)
+    vi.mocked(runExtractKindForRoot).mockResolvedValue({})
   })
 
   it("sweeps evidence a full ingest did not re-observe and syncs the graph", async () => {
@@ -346,7 +349,7 @@ describe("repository-ingestion index workflow boundary", () => {
     expect(full.input).not.toHaveProperty("fromHash")
   })
 
-  it("re-reads the whole repository with only deterministic extractors and never sweeps on a deterministic-only run", async () => {
+  it("re-reads the whole repository with only deterministic extractors, never sweeps, and keeps the last ingested commit on a deterministic-only run", async () => {
     repositoryRow.lastIngestedHash = "old"
     const index: { input?: unknown } = {}
 
@@ -360,10 +363,74 @@ describe("repository-ingestion index workflow boundary", () => {
       expect.anything(),
       "src",
       expect.anything(),
-      { deterministicOnly: true },
+      { deterministicOnly: true, packageObjects: [] },
     )
     expect(retractUnobservedMock).not.toHaveBeenCalled()
-    expect(markRepositoryIndexingReady).toHaveBeenCalled()
+    // The commits after "old" did not get LLM extraction yet.
+    expect(markRepositoryIndexingReady).toHaveBeenCalledWith({
+      repositoryId: "repo_1",
+      targetHash: "old",
+    })
+    expect(enqueueFollowUpIfTipAheadMock).toHaveBeenCalledWith(
+      expect.objectContaining({ ingestedHash: "old" }),
+      expect.any(Object),
+    )
+  })
+
+  it("runs extract-kind for every root before identify, and gives identify the objects of every root", async () => {
+    vi.mocked(identifyRoots).mockResolvedValueOnce({
+      roots: ["apps/a", "apps/b"],
+    })
+    vi.mocked(runExtractKindForRoot).mockImplementation(
+      async (_state, root) => {
+        // The second root finishes later than the first root.
+        if (root === "apps/b") await new Promise((done) => setTimeout(done, 5))
+        return {
+          extractedObjects: [
+            {
+              kind: "Service",
+              deduplicationKey: `svc:repo_1:${root}`,
+              name: root,
+            },
+          ],
+        }
+      },
+    )
+    const events: string[] = []
+    const step = makeStep(repositoryIndexResult)
+    const run = step.run
+    step.run = async (opts, fn) => {
+      events.push(`start ${opts.name}`)
+      const result = await run(opts, fn)
+      events.push(`done ${opts.name}`)
+      return result
+    }
+
+    await runWorkflow({ repositoryId: "repo_1", orgId: "org_1" }, step)
+
+    expect(events.indexOf("done extract-kind:apps/b")).toBeLessThan(
+      events.indexOf("start identify:apps/a"),
+    )
+    const packageObjects = [
+      {
+        kind: "Service",
+        deduplicationKey: "svc:repo_1:apps/a",
+        name: "apps/a",
+      },
+      {
+        kind: "Service",
+        deduplicationKey: "svc:repo_1:apps/b",
+        name: "apps/b",
+      },
+    ]
+    for (const root of ["apps/a", "apps/b"]) {
+      expect(runIdentifyPhaseForRootMock).toHaveBeenCalledWith(
+        expect.anything(),
+        root,
+        expect.anything(),
+        { deterministicOnly: false, packageObjects },
+      )
+    }
   })
 
   it("runs repository-index via runWorkflow outside withOrgDbContext", async () => {

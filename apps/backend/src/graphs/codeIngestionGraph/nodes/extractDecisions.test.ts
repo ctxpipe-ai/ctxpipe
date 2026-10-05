@@ -33,7 +33,7 @@ const BOLD = `# ADR-031: GitHub pull-request scoped mirror
 
 ## Context
 
-Review conversation is GitHub API metadata, not git objects. This is superseded by ADR-7.
+Review conversation is GitHub API metadata, not git objects. This ADR is superseded by ADR-7.
 
 ## Decision
 
@@ -174,6 +174,37 @@ status: "superseded by [ADR-0005](0005-example.md)"
 `),
     ).toMatchObject({ status: "accepted", supersedes: [], supersededBy: [] })
   })
+
+  it("reads supersession in prose only from a sentence about this ADR", () => {
+    const parse = (content: string) => parseDecisionMarkdown(content, "x.md")
+
+    expect(
+      parse(`# ADR-036: Decision scope and status
+
+**Status:** Accepted | **Date:** 2026-09-23
+
+## Context
+
+The parser read only plain "superseded by ADR-24" in prose. ADR-004 set the
+Compose layout. This was superseded by ADR-015, and ADR-021 is superseded by
+ADR-024. Thus ADR-024 supersedes ADR-021.
+`),
+    ).toMatchObject({ supersedes: [], supersededBy: [] })
+    expect(
+      parse(`# Queue layout
+
+This ADR is superseded by [ADR-024](ADR-024-queues.md). This decision
+supersedes ADR-9.
+`),
+    ).toMatchObject({ supersedes: ["ADR-9"], supersededBy: ["ADR-24"] })
+    expect(
+      parse(`# Queue layout
+
+This record has been superseded by ADR-12. The queue lost jobs. Superseded
+by ADR-14.
+`),
+    ).toMatchObject({ supersededBy: ["ADR-12", "ADR-14"] })
+  })
 })
 
 describe("extractDecisions", () => {
@@ -288,6 +319,52 @@ describe("extractDecisions", () => {
         0.6,
       ],
       ["apps/backend/docs/adr/0002-bun.md", "svc:repo_api:apps/backend", 0.9],
+    ])
+  })
+
+  it("scopes decisions by the packages of every root when it runs once per root", async () => {
+    const adrs: Record<string, string> = {
+      ".ai/memory/decisions/ADR-010-graph-db.md":
+        "# ADR-010: Graph DB\n\n**Status:** Accepted\n\nThe backend (`apps/backend/src/platform/graph/client.ts`) owns graph access.\n",
+      "apps/ui/docs/adr/0001-react-aria.md":
+        "# React Aria\n\nStatus: Accepted\n\nUse React Aria for widgets.\n",
+    }
+    mocks.globFiles.mockResolvedValue({
+      entries: Object.keys(adrs).map((path) => ({ type: "file", path })),
+    })
+    mocks.fetchFiles.mockImplementation(
+      async (_repo: string, _org: string, paths: string[]) =>
+        Object.fromEntries(paths.map((path) => [path, adrs[path]])),
+    )
+    const roots = ["apps/backend", "apps/ui", "apps/worker"]
+    const packages = roots.map(service)
+
+    // The workflow runs the identify phase once per root. The state of each
+    // root holds only its own package.
+    const runs = await Promise.all(
+      roots.map((root) =>
+        extractDecisions(
+          state({ roots: [root], extractedObjects: [service(root)] }),
+          packages,
+        ),
+      ),
+    )
+
+    const influences = [
+      ...new Set(
+        runs.flatMap(({ extractedClaims = [] }) =>
+          extractedClaims
+            .filter((c) => c.predicate === "INFLUENCES")
+            .map(
+              (c) =>
+                `${c.subjectRef.split(":").pop()} ${c.objectRef} ${c.confidence}`,
+            ),
+        ),
+      ),
+    ].sort()
+    expect(influences).toEqual([
+      ".ai/memory/decisions/ADR-010-graph-db.md svc:repo_api:apps/backend 0.8",
+      "apps/ui/docs/adr/0001-react-aria.md svc:repo_api:apps/ui 0.9",
     ])
   })
 

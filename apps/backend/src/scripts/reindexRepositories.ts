@@ -9,14 +9,18 @@
  *
  * `--deterministic-only` instead re-reads the repository with only the
  * deterministic extractors (decisions, CODEOWNERS, connector files, path
- * links): no LLM calls and no sweep. Use it to roll out an extractor change
- * that needs no LLM, e.g. decision scoping (ADR-036).
+ * links). The LLM extractors and the sweep do not run, and the last ingested
+ * commit stays the same. The run can still call a model: root and package
+ * detection can ask an agent, and the run embeds the objects that it
+ * extracts. Use it to roll out an extractor change that needs no LLM
+ * extractor, e.g. decision scoping (ADR-036). The script refuses a
+ * repository that was never ingested.
  *
  * Usage (apps/backend; DATABASE_URL and the OpenWorkflow / Railway wake variables
  * come from the environment, e.g. `railway run --environment <env> --service backend -- …`):
  *   bun run src/scripts/reindexRepositories.ts --org-id <org> --all [--reason "graph ontology v2"]
  *   bun run src/scripts/reindexRepositories.ts --org-id <org> --repository-id <id> [--repository-id <id> …]
- *   add --dry-run to list what would be enqueued, --deterministic-only to skip LLM extractors.
+ *   add --dry-run to list what would be enqueued, --deterministic-only to skip the LLM extractors.
  */
 import { resolve } from "node:path"
 import { setTimeout } from "node:timers/promises"
@@ -83,6 +87,14 @@ async function main(argv: string[]): Promise<void> {
       },
     }
     for (const repository of selected) {
+      // A deterministic-only run keeps the last ingested commit. A repository
+      // without one has no LLM facts yet, so it needs a full ingest first.
+      if (deterministicOnly && !repository.lastIngestedHash) {
+        errors.push(
+          `${repository.id} ${repository.name} was never ingested: run without --deterministic-only first`,
+        )
+        continue
+      }
       if (dryRun) {
         process.stdout.write(
           `would enqueue ${repository.id} ${repository.name}\n`,
