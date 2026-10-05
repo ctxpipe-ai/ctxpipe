@@ -291,8 +291,7 @@ export async function recordConversationSessionPush(input: {
 }
 
 /**
- * The session branch's PR was merged or closed: later turns work on a fresh
- * branch. Compare-and-set on the previous branch, so a concurrent rotation
+ * The session branch's PR was merged: later turns work on a fresh branch. Compare-and-set on the previous branch, so a concurrent rotation
  * wins once.
  */
 export async function rotateConversationSessionBranch(input: {

@@ -158,7 +158,10 @@ it.each([
             expect(result).toEqual(
               scenario === "session_advanced"
                 ? { status: "failed", reason: "push_failed" }
-                : { status: "skipped", reason: "stale_binding" },
+                : scenario === "default_changed"
+                  ? // The session branch became the default: never pushed to.
+                    { status: "skipped", reason: "default_branch" }
+                  : { status: "skipped", reason: "stale_binding" },
             )
             expect(
               f.git("--git-dir", f.remote, "rev-list", "--all", "--count"),

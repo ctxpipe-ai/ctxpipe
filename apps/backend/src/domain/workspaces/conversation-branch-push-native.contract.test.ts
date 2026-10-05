@@ -671,7 +671,8 @@ it(
       pull.merged_at = "2026-10-05T00:00:00Z"
       const merged = await s.advanceDefault("one.md", "# Add note one\n")
       const next = chatSessionBranchName(s.conversationId, 2)
-      await s.turn("Anything new?", [])
+      // The agent pushes: the fresh branch has nothing to publish yet.
+      await s.turn("Anything new?", [pushTool])
       expect(
         (await handle.process.exec("git branch --show-current")).stdout,
       ).toBe(`${next}\n`)
@@ -679,6 +680,7 @@ it(
         `${merged}\n`,
       )
       expect(await s.conversation()).toMatchObject({ lastBranch: next })
+      expect(s.remoteLog(next)).toBe("")
     })
   },
 )
@@ -735,13 +737,16 @@ ${script}`,
   const id = row.providerSandboxId
   return {
     row,
-    /** Stopped long ago, as the idle sweep leaves it. */
-    stop: async () => {
+    /**
+     * Stopped long ago, as the idle sweep leaves it, or after a delete that
+     * failed.
+     */
+    stop: async (state: "stopped" | "destroy_failed" = "stopped") => {
       await new Docker({ timeout: 30_000 }).getContainer(id).stop({ t: 1 })
       await withOrgDbContext(f.org.id, (db) =>
         db
           .update(workspaceSandboxInstances)
-          .set({ state: "stopped" })
+          .set({ state })
           .where(eq(workspaceSandboxInstances.id, row.id)),
       )
     },
@@ -823,6 +828,34 @@ git -c user.name=Agent -c user.email=agent@example.test commit -q -m "Agent comm
         expect(s.remote("rev-parse", s.branch)).toBe(foreign)
         expect(s.remoteLog(next)).toBe("Agent commit")
         expect(await s.conversation()).toMatchObject({ lastBranch: next })
+      } finally {
+        await sandbox.destroy()
+      }
+    })
+  },
+)
+
+it(
+  "pushes committed work before it retries a delete that failed",
+  { timeout: 180_000 },
+  async () => {
+    await withSession({ chatAgent: true }, async (f, s) => {
+      const sandbox = await dockerSessionSandbox(
+        f,
+        s,
+        `git checkout -q -b ${s.branch}
+printf '# Committed\\n' > committed.md && git add committed.md
+git -c user.name=Agent -c user.email=agent@example.test commit -q -m "Agent commit"`,
+      )
+      try {
+        await sandbox.stop("destroy_failed")
+        const lastUse = sandbox.row.lastHeartbeatAt.getTime()
+        expect(
+          await withTestLogger(() =>
+            sweepConversationSandboxes(f.org.id, new Date(lastUse + 60_000)),
+          ),
+        ).toMatchObject({ deleted: 1 })
+        expect(s.remoteLog()).toBe("Agent commit")
       } finally {
         await sandbox.destroy()
       }

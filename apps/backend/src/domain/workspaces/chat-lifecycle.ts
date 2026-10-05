@@ -47,7 +47,7 @@ function isConversationSessionBranch(
 
 /**
  * The conversation's working branch: the recorded one (`lastBranch`), else
- * its first. A merged or closed PR moves the conversation to the next one.
+ * its first. A merged PR moves the conversation to the next one.
  */
 export function conversationSessionBranch(
   conversationId: string,
@@ -58,7 +58,7 @@ export function conversationSessionBranch(
     : chatSessionBranchName(conversationId, 1)
 }
 
-/** The fresh branch after `branch`'s PR was merged or closed. */
+/** The fresh branch after `branch`'s PR was merged. */
 export function nextConversationSessionBranch(
   conversationId: string,
   branch: string,
