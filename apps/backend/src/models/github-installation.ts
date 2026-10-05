@@ -735,6 +735,54 @@ export async function fetchInstallationAccountSlug(
   }
 }
 
+/** Whether the installation's account is the repository owner (case-insensitive). */
+export function installationCoversOwner(
+  installation: Pick<GitHubInstallationShape, "accountSlug"> | undefined,
+  owner: string | undefined,
+): boolean {
+  return (
+    !!owner &&
+    !!installation?.accountSlug &&
+    installation.accountSlug.toLowerCase() === owner.toLowerCase()
+  )
+}
+
+async function storeGithubConnectionAccountSlug(
+  orgId: string,
+  row: ConnectionRow,
+  installation: GitHubInstallationShape & { installationId: number },
+  slug: string,
+): Promise<GitHubInstallationShape> {
+  const config = mergeGithubConnectionConfig(
+    row.config as Record<string, unknown>,
+    {
+      accountSlug: slug,
+      installationId: installation.installationId,
+      ingestAllRepositories: installation.ingestAllRepositories,
+      includeFutureRepos: installation.includeFutureRepos,
+    },
+  )
+  const updated = await withOrgDbContext(orgId, async () => {
+    const [result] = await getOrgDb()
+      .update(connections)
+      .set({ config, updatedAt: new Date() })
+      .where(
+        and(
+          eq(connections.id, row.id),
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_GITHUB),
+        ),
+      )
+      .returning()
+    return result
+  })
+  if (!updated)
+    throw new Error("GitHub connection was removed during account refresh")
+  await upsertConnectionDirectory(updated)
+  invalidateGithubAppCacheForConnection(row.id)
+  return githubConnectionToShape(updated)
+}
+
 export async function refreshGithubConnectionAccountSlug(
   orgId: string,
   connectionId: string,
@@ -757,35 +805,51 @@ export async function refreshGithubConnectionAccountSlug(
     row,
   )
   if (!slug) return installation
-
-  const config = mergeGithubConnectionConfig(
-    row.config as Record<string, unknown>,
-    {
-      accountSlug: slug,
-      installationId: installation.installationId,
-      ingestAllRepositories: installation.ingestAllRepositories,
-      includeFutureRepos: installation.includeFutureRepos,
-    },
+  return storeGithubConnectionAccountSlug(
+    orgId,
+    row,
+    { ...installation, installationId: installation.installationId },
+    slug,
   )
-  const updated = await withOrgDbContext(orgId, async () => {
-    const [result] = await getOrgDb()
-      .update(connections)
-      .set({ config, updatedAt: new Date() })
-      .where(
-        and(
-          eq(connections.id, connectionId),
-          eq(connections.orgId, orgId),
-          eq(connections.type, CONNECTION_TYPE_GITHUB),
-        ),
-      )
-      .returning()
-    return result
-  })
-  if (!updated)
-    throw new Error("GitHub connection was removed during account refresh")
-  await upsertConnectionDirectory(updated)
-  invalidateGithubAppCacheForConnection(connectionId)
-  return githubConnectionToShape(updated)
+}
+
+/**
+ * Whether the connection's installation can read repositories of `owner`.
+ * `unknown` means GitHub could not confirm the account, so a caller must not
+ * change what it already knows. The stored account may be stale (a renamed
+ * organization, a legacy connection without one), so a mismatch asks GitHub
+ * once and stores the fresh account.
+ */
+export async function resolveInstallationOwnerCoverage(
+  orgId: string,
+  connectionId: string,
+  owner: string,
+  env: Env,
+): Promise<"covers" | "foreign" | "unknown"> {
+  const installation = await getGithubInstallationByConnectionId(
+    orgId,
+    connectionId,
+  )
+  if (installation?.installationId == null) return "unknown"
+  if (installationCoversOwner(installation, owner)) return "covers"
+  const row = await loadGithubConnectionRow(orgId, connectionId)
+  if (!row) return "unknown"
+  const slug = await fetchInstallationAccountSlug(
+    installation.installationId,
+    env,
+    row,
+  )
+  if (!slug) return "unknown"
+  if (slug !== installation.accountSlug)
+    await storeGithubConnectionAccountSlug(
+      orgId,
+      row,
+      { ...installation, installationId: installation.installationId },
+      slug,
+    )
+  return installationCoversOwner({ accountSlug: slug }, owner)
+    ? "covers"
+    : "foreign"
 }
 
 type RepositoryInstallationScope = {
@@ -968,16 +1032,14 @@ export async function getWorkspaceGithubReadToken(
     orgId,
     input.githubConnectionId,
   )
-  if (!installation?.installationId || !installation.accountSlug)
-    return undefined
-  const owner = installation.accountSlug.toLowerCase()
+  if (!installation?.installationId) return undefined
   const names = [
     ...new Set(
       input.repoFullNames.flatMap((fullName) => {
         const parts = fullName.split("/")
         const name = parts[1]
         return parts.length === 2 &&
-          parts[0]?.toLowerCase() === owner &&
+          installationCoversOwner(installation, parts[0]) &&
           name &&
           /^[A-Za-z0-9_.-]+$/.test(name) &&
           name !== "." &&

@@ -300,7 +300,9 @@ export async function pruneGithubConnectionRepositoriesNotInGitUrls(
 
 export async function findRepositoriesByNormalizedGitUrls(
   urls: readonly string[],
-): Promise<Array<{ id: string; gitUrl: string }>> {
+): Promise<
+  Array<{ id: string; gitUrl: string; githubConnectionId: string | null }>
+> {
   if (urls.length === 0) return []
   const wanted = new Set(
     urls.map((url) => normalizeWorkspaceRepositoryUrl(url)).filter(Boolean),
@@ -308,7 +310,11 @@ export async function findRepositoriesByNormalizedGitUrls(
   if (wanted.size === 0) return []
   return orgSql(async () => {
     const rows = await getOrgDb()
-      .select({ id: repositories.id, gitUrl: repositories.gitUrl })
+      .select({
+        id: repositories.id,
+        gitUrl: repositories.gitUrl,
+        githubConnectionId: repositories.githubConnectionId,
+      })
       .from(repositories)
       .where(eq(repositories.orgId, requireCurrentOrgId()))
     return rows.filter((row) =>
@@ -393,7 +399,9 @@ export async function repositoryIndexAlreadyPublished(
         and(eq(repositories.orgId, orgId), eq(repositories.id, repositoryId)),
       )
       .limit(1)
-    return row?.indexingStatus === "ready" && row.lastIngestedHash === targetHash
+    return (
+      row?.indexingStatus === "ready" && row.lastIngestedHash === targetHash
+    )
   })
 }
 

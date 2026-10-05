@@ -1,4 +1,5 @@
-import { getGithubInstallationByConnectionId } from "../../models/github-installation.js"
+import { parseEnv } from "../../config/env.js"
+import { resolveInstallationOwnerCoverage } from "../../models/github-installation.js"
 import {
   bulkCreateRepositoriesForOrg,
   findRepositoriesByNormalizedGitUrls,
@@ -28,29 +29,6 @@ export function repositoryNameFromGitUrl(gitUrl: string): string {
   return displayNameFromGitUrl(normalized)
 }
 
-/**
- * The connection to bind, `null` when the requested installation cannot cover
- * the repository (a public repository of another GitHub account, read
- * anonymously), or `undefined` when no connection was requested.
- */
-async function bindableConnectionId(input: {
-  orgId: string
-  gitUrl: string
-  githubConnectionId?: string | null
-}): Promise<string | null | undefined> {
-  if (!input.githubConnectionId) return undefined
-  const owner = githubRepoFullNameFromWorkspaceUrl(input.gitUrl)
-    ?.split("/")[0]
-    ?.toLowerCase()
-  const account = (
-    await getGithubInstallationByConnectionId(
-      input.orgId,
-      input.githubConnectionId,
-    )
-  )?.accountSlug?.toLowerCase()
-  return owner && account && owner !== account ? null : input.githubConnectionId
-}
-
 export async function ensureOrgRepositoryForGitUrl(input: {
   orgId: string
   gitUrl: string
@@ -58,34 +36,59 @@ export async function ensureOrgRepositoryForGitUrl(input: {
 }): Promise<{ id: string; created: boolean } | null> {
   const gitUrl = normalizeWorkspaceRepositoryUrl(input.gitUrl)
   if (!gitUrl) return null
-  const githubConnectionId = await bindableConnectionId({ ...input, gitUrl })
+  const requested = input.githubConnectionId
+  const owner = githubRepoFullNameFromWorkspaceUrl(gitUrl)?.split("/")[0]
+  // Fail closed: bind only a connection GitHub confirms covers the owner.
+  const coverage =
+    requested && owner
+      ? await resolveInstallationOwnerCoverage(
+          input.orgId,
+          requested,
+          owner,
+          parseEnv(process.env as Record<string, string | undefined>),
+        )
+      : "unknown"
+  /**
+   * Bind a covering connection. Clear a binding only when it is the requested
+   * connection and GitHub confirms it cannot cover the owner; a binding that
+   * belongs to another connection stays.
+   */
+  const reconcileBinding = async (repository: {
+    id: string
+    githubConnectionId: string | null
+  }) => {
+    if (!requested) return
+    const target =
+      coverage === "covers"
+        ? requested
+        : coverage === "foreign" && repository.githubConnectionId === requested
+          ? null
+          : repository.githubConnectionId
+    if (target === repository.githubConnectionId) return
+    await setRepositoryGithubConnectionId({
+      repositoryId: repository.id,
+      githubConnectionId: target,
+    })
+  }
 
   const existing = await findRepositoriesByNormalizedGitUrls([gitUrl])
   if (existing[0]) {
-    if (githubConnectionId !== undefined) {
-      await setRepositoryGithubConnectionId({
-        repositoryId: existing[0].id,
-        githubConnectionId,
-      })
-    }
+    await reconcileBinding(existing[0])
     return { id: existing[0].id, created: false }
   }
 
   const created = await bulkCreateRepositoriesForOrg(
     input.orgId,
     [{ name: repositoryNameFromGitUrl(gitUrl), gitUrl }],
-    githubConnectionId ? { githubConnectionId } : undefined,
+    requested && coverage === "covers"
+      ? { githubConnectionId: requested }
+      : undefined,
   )
   if (created[0]) return { id: created[0].id, created: true }
 
   const raced = await findRepositoriesByNormalizedGitUrls([gitUrl])
   if (!raced[0]) return null
-  if (githubConnectionId !== undefined) {
-    await setRepositoryGithubConnectionId({
-      repositoryId: raced[0].id,
-      githubConnectionId,
-    })
-  }
+  await reconcileBinding(raced[0])
   return { id: raced[0].id, created: false }
 }
 
