@@ -2,4 +2,12 @@
 "@ctxpipe/aws-cdk": patch
 ---
 
-Rank graph traversal by relation type and evidence so large services no longer hide their dependencies, owners and decisions, skip facts that have ended, always show the advisor the evidence behind graph facts, create node id indexes so graph writes stop scanning every node, make re-ingest retraction and node deletion scan the graph once per batch instead of once per id, read ADR supersession written as links in the status header (`Superseded by [ADR-24](...)`), link ADRs to the services they govern, weight decisions by ADR status, show the advisor what each graph node it walked is, and add a deterministic-only re-index that rolls out extractor changes without LLM calls.
+Give the advisor better facts from the graph.
+
+- The graph walk ranks edges by relation type and evidence. A large service no longer hides its dependencies, owners and decisions. The walk skips facts that have ended.
+- At equal rank, the walk keeps nodes that the search found, then the newest pull requests.
+- A "why" question now reaches the pull requests that added an ADR or changed a lesson. Their descriptions hold the work summary.
+- The advisor sees each walked node by name, and each fact with its evidence and the file to cite.
+- ADRs link to the services they govern and are ranked by status. The extractor reads supersession that is written as a link.
+- Node id indexes stop graph writes from scanning every node. Retraction and node deletion scan the graph once per batch.
+- A deterministic-only re-index rolls out extractor changes without the LLM extractors.

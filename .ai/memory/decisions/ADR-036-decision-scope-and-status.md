@@ -8,7 +8,7 @@ was by location only). Builds on
 
 ## Context
 
-- Two production orgs hold ADRs (ctxpipe 35, TruRec 4). Production had two
+- Two production orgs hold ADRs (ctxpipe 35, another org 4). Production had two
   `Decision INFLUENCES Service` edges in total and none in the ctxpipe org:
   its ADRs live in a shared monorepo folder, and the repository root is not
   a service.
@@ -28,12 +28,16 @@ was by location only). Builds on
    repository root; else the services whose paths it references, from
    backticked repository paths and relative Markdown links resolved from the
    ADR's folder, URLs ignored (0.8); else every service in its repository
-   (0.6). Only `Service` targets, per the allowed triples.
+   (0.6). Only `Service` targets, per the allowed triples. The extractor
+   reads every ADR in the repository, so it needs the packages of every
+   root: the ingestion workflow finishes `extract-kind` for all roots before
+   the first `identify` step starts.
 2. **Supersession is read from declared metadata** (front-matter status, the
    bold header, `Status:` line or section, and lines starting with
-   "Supersedes" / "Superseded by"), including the linked form. Prose counts
-   only in plain form, since a linked mention there usually describes
-   another ADR.
+   "Supersedes" / "Superseded by"), including the linked form. In prose,
+   only a sentence about this ADR counts ("This ADR is superseded by
+   ADR-N", "This decision supersedes ADR-N", or a sentence that starts
+   with "Supersedes"). Other prose can describe a different ADR.
 3. **Status weights decisions at read time**, following the ADR lifecycle
    (Nygard; MADR statuses): accepted 1.0, undeclared 0.9, proposed or draft
    0.6, deprecated, superseded or rejected 0.3. The factor multiplies path
@@ -56,12 +60,19 @@ was by location only). Builds on
 
 - Scope and supersession take effect when a repository's ADRs are next
   extracted. Roll out with a deterministic-only run
-  (`reindex-repositories --deterministic-only`): it re-reads the repository
-  with only the deterministic extractors, makes no LLM calls, and skips the
-  unobserved-evidence sweep so LLM-extracted facts are kept. A full reindex
-  or the ADR files changing also picks it up. Status weighting and readable
+  (`reindex-repositories --deterministic-only`). It re-reads the repository
+  with only the deterministic extractors. The nine LLM extractors and the
+  unobserved-evidence sweep do not run, so LLM-extracted facts are kept. The
+  run keeps the last ingested commit, so the next normal run still extracts
+  the commits after it; the script refuses a repository that was never
+  ingested. The run can still call a model: root detection and package
+  classification can ask an agent when deterministic detection is not
+  sure, and the run embeds the objects that it extracts. A full reindex or
+  the ADR files changing also picks it up. Status weighting and readable
   nodes take effect on deploy.
-- ctxpipe's 35 ADRs: 14 scoped by reference, 21 repository-wide. Paths
+- ctxpipe's 35 ADRs (measured with all packages in one call): 14 scoped by
+  reference, 21 repository-wide. A first version gave each root only its own
+  package, so in the workflow every ADR fell back to every service. Paths
   written relative to a package (`domain/codeIngestion/…`) are not
   resolved, so those ADRs fall back to repository-wide; resolving them
   needs a file listing.
@@ -79,3 +90,7 @@ was by location only). Builds on
 - **Scope through `Decision MENTIONS File` edges** — rejected: `File` nodes
   exist only for path-bearing objects; production held one such edge.
 - **Matching service names in prose** — rejected: false positives.
+- **Any prose mention of supersession** — rejected: this ADR's own context
+  quotes "superseded by ADR-24", which made ADR-024 supersede ADR-036. On this
+  repository's ADRs, declared metadata and sentences about the ADR itself give
+  exactly ADR-015→ADR-004, ADR-024→ADR-021 and ADR-038→ADR-017.
