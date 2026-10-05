@@ -42,6 +42,7 @@ exports[`graph golden spec > produces the expected triple set from real connecto
   "fil:repo_api:src/http/createUser.ts PART_OF svc:repo_api:src",
   "iss:linear:ENG-123 REFERENCES prq:repo_api:42",
   "prq:repo_api:42 ADDED fil:repo_api:src/domain/user.ts @2026-03-02",
+  "prq:repo_api:42 CHANGED svc:repo_api:src @2026-03-02",
   "prq:repo_api:42 MODIFIED fil:repo_api:src/http/createUser.ts @2026-03-02",
   "prq:repo_api:42 REFERENCES iss:linear:ENG-123",
   "prq:repo_api:42 REMOVED fil:repo_api:src/legacy.ts @2026-03-02",
