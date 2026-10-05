@@ -946,7 +946,10 @@ export const createRepository = async (input: {
 
 /**
  * Insert multiple repositories in a single query. Skips repos that already
- * exist (by gitUrl + orgId) via ON CONFLICT DO NOTHING. Returns only the newly created rows.
+ * exist (same URL, repository key, or name) via ON CONFLICT DO NOTHING. Returns only the newly created rows.
+ * With `githubConnectionId`, an existing row that has no connection gets this
+ * one: the caller passes it only for repositories that the connection can
+ * read. A row bound to a connection keeps it.
  * Must be called from a context where getOrgDb() is set (request middleware or inside withOrgDbContext).
  */
 async function bulkCreateRepositoriesWithDb(
@@ -959,6 +962,7 @@ async function bulkCreateRepositoriesWithDb(
   return db.transaction(async (tx) => {
     const created: RepositoryWithSearch[] = []
     for (const r of input) {
+      const repositoryKey = repositoryKeyFromGitUrl(r.gitUrl)
       const [repository] = await tx
         .insert(repositories)
         .values({
@@ -966,14 +970,33 @@ async function bulkCreateRepositoriesWithDb(
           orgId,
           name: r.name,
           gitUrl: r.gitUrl,
-          repositoryKey: repositoryKeyFromGitUrl(r.gitUrl),
+          repositoryKey,
           githubConnectionId: opts?.githubConnectionId,
         })
-        .onConflictDoNothing({
-          target: [repositories.gitUrl, repositories.orgId],
-        })
+        // A linked row has the normalized URL, and a legacy row has no
+        // repository key, so a conflict on any unique column skips the row.
+        .onConflictDoNothing()
         .returning()
-      if (!repository) continue
+      if (!repository) {
+        if (opts?.githubConnectionId)
+          await tx
+            .update(repositories)
+            .set({
+              githubConnectionId: opts.githubConnectionId,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(repositories.orgId, orgId),
+                or(
+                  eq(repositories.repositoryKey, repositoryKey),
+                  eq(repositories.gitUrl, r.gitUrl),
+                ),
+                isNull(repositories.githubConnectionId),
+              ),
+            )
+        continue
+      }
       const [checkout] = await tx
         .insert(repositoryCheckouts)
         .values({

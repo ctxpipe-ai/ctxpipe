@@ -5,8 +5,10 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
 import { repositories } from "../../db/schema/repositories.js"
+import { bulkCreateRepositoriesForOrg } from "../../models/repositories.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
+import { repositoryKeyFromGitUrl } from "./slug.js"
 
 type Fixture = Parameters<Parameters<typeof withNativeHydrationFixture>[1]>[0]
 
@@ -137,6 +139,7 @@ async function insertRepository(
       orgId: f.org.id,
       name: gitUrl.replace("https://github.com/", ""),
       gitUrl,
+      repositoryKey: repositoryKeyFromGitUrl(gitUrl),
       githubConnectionId,
     }),
   )
@@ -352,6 +355,63 @@ it(
       expect(bound?.id).toBe(boundId)
       expect(await bindingOf(f, boundId)).toBe(f.connectionId)
       expect(await storedConfig(f)).toEqual(before)
+    })
+  },
+)
+
+it(
+  "binds an unbound repository when the installation sync lists it, and keeps another connection's binding",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      const otherConnectionId = `con_${f.id}_other`
+      await withOrgDbContext(f.org.id, (db) =>
+        db.insert(connections).values({
+          id: otherConnectionId,
+          orgId: f.org.id,
+          type: "github",
+          config: {
+            installationId: otherInstallationId,
+            ingestAllRepositories: false,
+            includeFutureRepos: false,
+          },
+        }),
+      )
+      const otherId = `repo_${f.id}_other`
+      await insertRepository(
+        f,
+        otherId,
+        "https://github.com/fixture/other-bound",
+        otherConnectionId,
+      )
+      // A link before the installation was granted the repository leaves it unbound.
+      f.server.use(...githubInstallation({ installationId, mint: 422 }))
+      const linked = await link(
+        f,
+        "https://github.com/fixture/later-granted",
+        f.connectionId,
+      )
+      expect(await bindingOf(f, linked?.id)).toBeNull()
+
+      // The sync stores GitHub's clone URL, not the link's normalized URL.
+      const created = await bulkCreateRepositoriesForOrg(
+        f.org.id,
+        [
+          {
+            name: "fixture/Later-Granted",
+            gitUrl: "https://github.com/fixture/Later-Granted.git",
+          },
+          {
+            name: "fixture/other-bound",
+            gitUrl: "https://github.com/fixture/other-bound.git",
+          },
+        ],
+        { githubConnectionId: f.connectionId },
+      )
+
+      expect(created).toEqual([])
+      expect(await bindingOf(f, linked?.id)).toBe(f.connectionId)
+      expect(await bindingOf(f, otherId)).toBe(otherConnectionId)
     })
   },
 )
