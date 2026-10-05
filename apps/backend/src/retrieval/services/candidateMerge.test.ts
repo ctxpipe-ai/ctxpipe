@@ -16,6 +16,7 @@ describe("mergeCandidates", () => {
               kind: "Decision",
               name: "Use SQS for billing events",
               status: "accepted",
+              summary: null,
             },
           ],
         },
@@ -31,5 +32,34 @@ describe("mergeCandidates", () => {
     expect(
       candidates.find((c) => c.objectId === "obj_billing")?.payload,
     ).toEqual({ fromTraversal: true })
+  })
+
+  it("gives a walked pull request its title, because its name is only owner/repo#N", () => {
+    const candidates = mergeCandidates(
+      [],
+      [],
+      [],
+      [
+        {
+          nodeIds: ["obj_pr"],
+          nodes: [
+            {
+              id: "obj_pr",
+              kind: "PullRequest",
+              name: "acme/billing#41",
+              status: null,
+              summary: "Move billing events from RabbitMQ to SQS",
+            },
+          ],
+        },
+      ],
+    )
+
+    expect(candidates[0]?.payload).toEqual({
+      fromTraversal: true,
+      kind: "PullRequest",
+      name: "acme/billing#41",
+      summary: "Move billing events from RabbitMQ to SQS",
+    })
   })
 })

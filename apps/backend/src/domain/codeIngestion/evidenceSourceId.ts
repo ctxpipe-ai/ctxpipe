@@ -42,6 +42,16 @@ export function buildEvidenceSourceId(input: {
   ].join(":")
 }
 
+/**
+ * The repository id in the second segment of a `sourceId`: the repository
+ * whose files the evidence's `provenance.path` points into. A `sourceId` of a
+ * different shape gives a value that is not a repository id, so look it up
+ * before use.
+ */
+export function evidenceSourceRepositoryId(sourceId: string): string | null {
+  return sourceId.split(":")[1] || null
+}
+
 /** True when `sourceId` follows the convention for this repository and hash. */
 export function isConventionalEvidenceSourceId(
   sourceId: string,

@@ -59,6 +59,7 @@ async function seed(
   name: string,
   edges: Edge[],
   statuses: Record<string, string> = {},
+  summaries: Record<string, string> = {},
 ): Promise<string> {
   const orgId = `org_eval_${name}_${Date.now()}`
   seededOrgIds.push(orgId)
@@ -109,6 +110,18 @@ async function seed(
       {
         orgId,
         rows: Object.entries(statuses).map(([id, status]) => ({ id, status })),
+      },
+    )
+    await driver.executeQuery(
+      `UNWIND $rows AS row
+       MATCH (n) WHERE n.id = row.id AND n.orgId = $orgId
+       SET n.summary = row.summary`,
+      {
+        orgId,
+        rows: Object.entries(summaries).map(([id, summary]) => ({
+          id,
+          summary,
+        })),
       },
     )
   })
@@ -307,6 +320,7 @@ describe.skipIf(!graphUri)("graph traversal evaluation (FalkorDB)", () => {
       kind: "Decision",
       name: "adr_sqs",
       status: "accepted",
+      summary: null,
     })
   })
 
@@ -330,5 +344,112 @@ describe.skipIf(!graphUri)("graph traversal evaluation (FalkorDB)", () => {
     expect(result.nodeIds.filter((id) => id.startsWith("lib_weak_"))).toEqual(
       [],
     )
+  })
+
+  it("why does billing use a queue: the why-walk reaches the pull request that added the ADR, which tells why and what was ruled out", async () => {
+    const adrFile: Node = ["File", "file_adr_queue"]
+    const addingPr: Node = ["PullRequest", "pr_adr_queue"]
+    const orgId = await seed(
+      "why_pr",
+      [
+        edge(addingPr, "ADDED", adrFile, 0.95, {
+          validFrom: "2025-03-04T00:00:00.000Z",
+        }),
+        edge(addingPr, "TARGETS", ["Repository", "repo_billing"], 0.95, {
+          validFrom: "2025-03-04T00:00:00.000Z",
+        }),
+        ...Array.from({ length: 100 }, (_, i) =>
+          edge(
+            ["PullRequest", `pr_other_${i}`],
+            "MODIFIED",
+            ["File", `file_${i}`],
+            0.95,
+            { validFrom: "2026-01-01T00:00:00.000Z" },
+          ),
+        ),
+        ...Array.from({ length: 100 }, (_, i) =>
+          edge(queueAdr, "MENTIONS", ["File", `file_${i}`], 0.9),
+        ),
+        edge(queueAdr, "DECLARED_IN", adrFile, 0.95),
+        edge(queueAdr, "INFLUENCES", billing, 0.9),
+        edge(payments, "OWNS", billing, 0.95),
+      ],
+      {},
+      { pr_adr_queue: "Use a queue for billing events (ADR-007)" },
+    )
+
+    const result = await traverse(orgId, "svc_billing", {
+      maxDepth: 3,
+      limit: 20,
+      useExtensionLayer: true,
+    })
+
+    expect(result.nodeIds).toEqual(
+      expect.arrayContaining(["adr_queue", "file_adr_queue", "pr_adr_queue"]),
+    )
+    expect(result.nodes).toContainEqual({
+      id: "pr_adr_queue",
+      kind: "PullRequest",
+      name: "pr_adr_queue",
+      status: null,
+      summary: "Use a queue for billing events (ADR-007)",
+    })
+  })
+
+  it("what changed in billing lately: the newest pull requests win when many have the same confidence", async () => {
+    const repo: Node = ["Repository", "repo_billing"]
+    const day = (i: number) => new Date(Date.UTC(2026, 0, 1 + i)).toISOString()
+    // Claim id order (pr_00 first) is the opposite of merge order, and the
+    // pull requests are written in neither order.
+    const pulls = Array.from({ length: 50 }, (_, i) =>
+      edge(
+        ["PullRequest", `pr_${String(i).padStart(2, "0")}`],
+        "TARGETS",
+        repo,
+        0.95,
+        {
+          validFrom: day(i),
+        },
+      ),
+    )
+    const orgId = await seed("newest", [
+      ...pulls.filter((_, i) => i % 2 === 1),
+      ...pulls.filter((_, i) => i % 2 === 0),
+    ])
+
+    for (const useExtensionLayer of [false, true]) {
+      const result = await traverse(orgId, "repo_billing", {
+        maxDepth: 1,
+        limit: 5,
+        useExtensionLayer,
+      })
+
+      expect([...result.nodeIds].sort()).toEqual([
+        "pr_45",
+        "pr_46",
+        "pr_47",
+        "pr_48",
+        "pr_49",
+        "repo_billing",
+      ])
+    }
+  })
+
+  it("what are billing's rules for retries: the instructions the search found win over hundreds with the same confidence", async () => {
+    const orgId = await seed(
+      "prefer",
+      Array.from({ length: 300 }, (_, i) =>
+        edge(billing, "HAS_INSTRUCTION", ["InstructionUnit", `iu_${i}`], 0.72),
+      ),
+    )
+
+    const result = await traverse(orgId, "svc_billing", {
+      maxDepth: 1,
+      limit: 5,
+      preferIds: ["iu_217", "iu_42", "obj_not_in_graph"],
+    })
+
+    expect(result.nodeIds).toEqual(expect.arrayContaining(["iu_217", "iu_42"]))
+    expect(result.edgeClaimIds).toHaveLength(5)
   })
 })

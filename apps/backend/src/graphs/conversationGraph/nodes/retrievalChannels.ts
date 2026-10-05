@@ -259,10 +259,14 @@ async function runTraversal(
   const maxDepth = (params.maxDepth as number | undefined) ?? depthLimit
   const useExtensionLayer = step.type === "extension_traversal"
 
+  // Phase 1 ran hybrid search before this phase, so its hits are known here.
   const result = await graphTraversal(orgId, orgSlug, startId, {
     maxDepth,
     limit: resultLimit,
     useExtensionLayer,
+    preferIds: (state.hybridResults ?? []).flatMap((r) =>
+      typeof r.objectId === "string" ? [r.objectId] : [],
+    ),
   })
 
   return {

@@ -11,6 +11,7 @@ vi.mock("../../../models/repositories.js", () => ({
   deriveRepositoryIndexingStatus: vi.fn(() => "ready"),
 }))
 
+import { listRepositoriesForOrg } from "../../../models/repositories.js"
 import type { ConversationGraphState } from "../state.js"
 import { assembleNode } from "./assemble.js"
 
@@ -94,5 +95,71 @@ describe("assembleNode claim hydration", () => {
     expect(retrievalContext).toContain("slack/llm")
     expect(retrievalContext).not.toContain(rawSourceId)
     expect(retrievalContext).not.toContain("org_1")
+  })
+
+  it("names both ends of a claim by kind and name, and cites a path with its repository", async () => {
+    vi.mocked(listRepositoriesForOrg).mockResolvedValueOnce([
+      { id: "repo_ctx", name: "acme/context", orgId: "org_1" },
+      { id: "repo_api", name: "acme/api", orgId: "org_1" },
+    ] as Awaited<ReturnType<typeof listRepositoriesForOrg>>)
+    hydrateClaimsWithEvidenceMock.mockResolvedValue([
+      {
+        id: "clm_pr",
+        orgId: "org_1",
+        subjectId: "obj_pr",
+        predicate: "ADDED",
+        objectId: "obj_unknown",
+        status: "active",
+        validFrom: new Date("2026-03-04T00:00:00.000Z"),
+        validTo: null,
+        firstObservedAt: new Date("2026-09-01T00:00:00.000Z"),
+        lastObservedAt: new Date("2026-09-20T00:00:00.000Z"),
+        aggregatedConfidence: 0.95,
+        evidence: [
+          {
+            id: "ev_1",
+            claimId: "clm_pr",
+            sourceType: "git",
+            sourceId:
+              "githubPull:repo_ctx:repo_api:github/pulls/acme/api/41.md:ADDED:docs/adr/0007.md:abc123",
+            sourceUrl: null,
+            extractionMethod: "deterministic",
+            confidence: 0.95,
+            observedAt: new Date("2026-09-20T00:00:00.000Z"),
+            validFrom: null,
+            validTo: null,
+            provenance: { path: "github/pulls/acme/api/41.md" },
+          },
+        ],
+      },
+    ])
+    const state = {
+      orgId: "org_1",
+      query: "why does billing use a queue?",
+      candidates: [
+        {
+          id: "cand_trav_obj_pr",
+          sourceChannels: ["graph" as const],
+          objectId: "obj_pr",
+          payload: {
+            fromTraversal: true,
+            kind: "PullRequest",
+            name: "acme/api#41",
+          },
+        },
+      ],
+      claimIds: ["clm_pr"],
+    } as unknown as ConversationGraphState
+
+    const { retrievalContext = "" } = await assembleNode(state)
+    const claims = retrievalContext.slice(
+      retrievalContext.indexOf("Claims with evidence"),
+      retrievalContext.indexOf("Repositories (TOON)"),
+    )
+
+    expect(claims).toContain("PullRequest acme/api#41")
+    expect(claims).not.toContain("obj_pr")
+    expect(claims).toContain("obj_unknown")
+    expect(claims).toContain("acme/context:github/pulls/acme/api/41.md")
   })
 })

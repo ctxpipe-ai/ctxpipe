@@ -1,15 +1,18 @@
+import { evidenceSourceRepositoryId } from "../../../domain/codeIngestion/evidenceSourceId.js"
+import { toToon } from "../../../lib/agentToolRuntime.js"
 import {
   deriveRepositoryIndexingStatus,
   listRepositoriesForOrg,
 } from "../../../models/repositories.js"
-import { toToon } from "../../../lib/agentToolRuntime.js"
 import { hydrateClaimsWithEvidence } from "../../../retrieval/index.js"
 import type { ConversationGraphState } from "../state.js"
 
 /**
  * Builds retrieval context from combined candidates (graph + semantic + code)
  * and hydrated claims. Hydrates every claim the traversal kept; the traversal
- * budget bounds how many, and candidate rank does not.
+ * budget bounds how many, and candidate rank does not. A claim row names its
+ * two nodes as "Kind name" from the candidates, and cites a path with the
+ * name of the repository that holds it.
  */
 export async function assembleNode(
   state: ConversationGraphState,
@@ -52,6 +55,9 @@ export async function assembleNode(
     )
   }
 
+  const repositories =
+    state.orgId != null ? await listRepositoriesForOrg(state.orgId) : []
+
   const claimIdsToHydrate = state.claimIds ?? []
   const hydratedClaimsWithEvidence =
     state.orgId && claimIdsToHydrate.length > 0
@@ -61,13 +67,25 @@ export async function assembleNode(
   if (hydratedClaimsWithEvidence.length > 0) {
     const distinct = (values: Array<string | null | undefined>) =>
       [...new Set(values.filter((v): v is string => Boolean(v)))].join(" ")
+    const labels = new Map<string, string>()
+    for (const { objectId, payload } of state.candidates ?? []) {
+      const { kind, name } = payload
+      if (!objectId || typeof name !== "string" || name === "") continue
+      labels.set(
+        objectId,
+        typeof kind === "string" && kind !== "unknown"
+          ? `${kind} ${name}`
+          : name,
+      )
+    }
+    const repositoryNames = new Map(repositories.map((r) => [r.id, r.name]))
     contextParts.push(
       `Claims with evidence (provenance):\n${toToon({
         claims: hydratedClaimsWithEvidence.map((c) => ({
           id: c.id,
-          subjectId: c.subjectId,
+          subject: labels.get(c.subjectId) ?? c.subjectId,
           predicate: c.predicate,
-          objectId: c.objectId,
+          object: labels.get(c.objectId) ?? c.objectId,
           confidence: c.aggregatedConfidence,
           validFrom: c.validFrom?.toISOString().slice(0, 10) ?? "",
           validTo: c.validTo?.toISOString().slice(0, 10) ?? "",
@@ -76,13 +94,15 @@ export async function assembleNode(
             c.evidence.map((e) => `${e.sourceType}/${e.extractionMethod}`),
           ),
           cite: distinct(
-            c.evidence.map(
-              (e) =>
-                e.sourceUrl ??
-                (typeof e.provenance?.path === "string"
-                  ? e.provenance.path
-                  : null),
-            ),
+            c.evidence.map((e) => {
+              if (e.sourceUrl) return e.sourceUrl
+              const path = e.provenance?.path
+              if (typeof path !== "string") return null
+              const repository = repositoryNames.get(
+                evidenceSourceRepositoryId(e.sourceId) ?? "",
+              )
+              return repository ? `${repository}:${path}` : path
+            }),
           ),
         })),
       })}`,
@@ -94,10 +114,6 @@ export async function assembleNode(
       ? contextParts.join("\n\n")
       : "No retrieval results."
 
-  const repositories =
-    state.orgId != null
-      ? await listRepositoriesForOrg(state.orgId)
-      : []
   const repoSnapshot = toToon({
     repositories: repositories.map((r) => ({
       id: r.id,
