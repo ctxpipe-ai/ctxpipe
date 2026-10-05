@@ -1,6 +1,6 @@
 # Board
 
-Updated: 2026-10-04. Tickets are implemented by sub-agents in separate worktrees; each gets a three-axis adversarial review (Standards, Spec, Simplicity) and fixes before it is marked done. Rules: [README.md](README.md). Order is set by the user; unordered tickets follow.
+Updated: 2026-10-05. Tickets are implemented by sub-agents in separate worktrees; each gets a three-axis adversarial review (Standards, Spec, Simplicity) and fixes before it is marked done. Rules: [README.md](README.md). Order is set by the user; unordered tickets follow.
 
 | Order | # | Ticket | Status | Priority | Owner | Blocked by |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -17,3 +17,4 @@ Updated: 2026-10-04. Tickets are implemented by sub-agents in separate worktrees
 | — | 10 | [Flaky SCIP indexer serialization test](issues/10-scip-indexer-test-flake.md) | done | P2 | claude | — |
 | — | 11 | [Add a second Workspace from the UI](issues/11-add-workspace-entry-point.md) | done | P1 | claude | — |
 | — | 13 | [Show knowledge files skipped as malformed on the Workspace page](issues/13-skipped-files-notice.md) | needs-triage | P2 | unassigned | — |
+| — | 14 | [Extraction capture over 8 MiB fails ingestion and loses the paid extraction](issues/14-extraction-capture-size.md) | plan-review (choose an option) | P0 | claude | — |

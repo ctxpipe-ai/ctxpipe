@@ -17,6 +17,25 @@ import { repositoryIngestion } from "./repository-ingestion.js"
 import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
+const largeCaptureRoots = ["root-a", "root-b", "root-c"]
+const largeCaptureObjectsPerRoot = 300
+
+/** About 3.6 MB of JSON per root, so three roots hold more than 8 MiB. */
+function largeRootCapture(repositoryId: string, root: string) {
+  return {
+    extractedObjects: Array.from(
+      { length: largeCaptureObjectsPerRoot },
+      (_, i) => ({
+        kind: "Service",
+        deduplicationKey: `svc:${repositoryId}:${root}-${i}`,
+        name: `${root}-${i}`,
+        summary: `Service ${i} of ${root}. ${"Handles one integration. ".repeat(500)}`,
+      }),
+    ),
+    extractedClaims: [],
+  }
+}
+
 it.each([
   "workspace",
   "superseded-before-resume",
@@ -24,11 +43,15 @@ it.each([
   "linked",
   "unlinked-before-resume",
   "edited-before-resume",
+  "capture-over-8-mib",
 ] as const)(
   "resumes captured repository extraction against canonical source ownership (%s)",
-  { timeout: 45_000 },
+  { timeout: 180_000 },
   async (mode) => {
-    const ownSource = mode === "workspace" || mode === "too-many-roots"
+    const ownSource =
+      mode === "workspace" ||
+      mode === "too-many-roots" ||
+      mode === "capture-over-8-mib"
     await withNativeHydrationFixture(
       {
         github: true,
@@ -168,9 +191,22 @@ it.each([
             const roots =
               mode === "too-many-roots"
                 ? Array.from({ length: 129 }, (_, i) => `root-${i}`)
-                : ["billing"]
+                : mode === "capture-over-8-mib"
+                  ? largeCaptureRoots
+                  : ["billing"]
             await step.run({ name: "identify-roots" }, () => ({ roots }))
             for (const root of roots) {
+              if (mode === "capture-over-8-mib") {
+                // Each paid root capture fits 8 MiB; together they exceed it, as for a large monorepo.
+                await step.run({ name: `extract-kind:${root}` }, () => ({
+                  extractedObjects: [],
+                  extractedClaims: [],
+                }))
+                await step.run({ name: `identify:${root}` }, () =>
+                  largeRootCapture(repository.id, root),
+                )
+                continue
+              }
               await step.run({ name: `extract-kind:${root}` }, () => extracted)
               await step.run({ name: `identify:${root}` }, () => extracted)
             }
@@ -324,6 +360,27 @@ it.each([
                 `${f.sha}..main`,
               ),
             ).toBe("1")
+            return
+          }
+          if (mode === "capture-over-8-mib") {
+            await handle.result({ timeoutMs: 150_000 })
+            const published = f
+              .git(
+                "--git-dir",
+                f.remote,
+                "ls-tree",
+                "-r",
+                "--name-only",
+                "main",
+                "knowledge/services",
+              )
+              .split("\n")
+              .filter(Boolean)
+            expect(published).toHaveLength(
+              largeCaptureRoots.length * largeCaptureObjectsPerRoot,
+            )
+            for (const root of largeCaptureRoots)
+              expect(published).toContain(`knowledge/services/${root}-0.md`)
             return
           }
           await handle.result({ timeoutMs: 25_000 })
