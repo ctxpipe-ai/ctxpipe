@@ -9,6 +9,7 @@ import {
 import {
   type ExtractionCaptureKey,
   loadExtractionCapture,
+  storedRootCapture,
   storeRootCapture,
 } from "../../models/repository-extraction-captures.js"
 import { CONNECTOR_EXTRACTORS } from "./nodes/connectorExtractors.js"
@@ -80,12 +81,15 @@ function concatExtracted(parts: Array<Partial<CodeIngestionState>>): {
  * registry, then path locating.
  *
  * Used by OpenWorkflow `repository-ingestion` so each phase is a durable step
- * boundary when callers wrap these in `step.run`.
+ * boundary when callers wrap these in `step.run`. A root that an earlier run
+ * already stored under the same key returns null and makes no model calls.
  */
 export async function runExtractKindForRoot(
   state: CodeIngestionState,
   root: string,
-): Promise<Partial<CodeIngestionState>> {
+  captureKey: ExtractionCaptureKey,
+): Promise<Partial<CodeIngestionState> | null> {
+  if (await storedRootCapture(captureKey, root)) return null
   const result = await extractKind({ ...state, roots: [root] })
   extractionCaptureBudgetSchema.parse({
     objects: result.extractedObjects ?? [],
@@ -96,14 +100,20 @@ export async function runExtractKindForRoot(
 
 /**
  * Run the identify phase of one root and store the root capture (kind output,
- * identify output, located paths). The step output is only the counts.
+ * identify output, located paths). The step output is only the counts. A
+ * stored root is reused without model calls.
  */
 export async function runIdentifyPhaseForRoot(
   state: CodeIngestionState,
   root: string,
-  kindPartial: Partial<CodeIngestionState>,
+  kindOutput: Partial<CodeIngestionState> | null,
   captureKey: ExtractionCaptureKey,
 ): Promise<{ objects: number; claims: number }> {
+  const stored = await storedRootCapture(captureKey, root)
+  if (stored) return stored
+  // The kind step found a stored root that is gone now (a concurrent publish deleted it).
+  const kindPartial =
+    kindOutput ?? (await extractKind({ ...state, roots: [root] }))
   const rootState: CodeIngestionState = {
     ...state,
     ...kindPartial,
