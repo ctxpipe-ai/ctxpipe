@@ -4,8 +4,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
+import { OpenWorkflow } from "openworkflow"
+import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { useMswServer } from "../../../test/msw.js"
 import {
@@ -667,6 +669,58 @@ describe("Vercel build step", () => {
     expect(builderSnapshotExpiration("pr-12")).toBe(30 * DAY)
     expect(builderSnapshotExpiration("production")).toBe(0)
   })
+
+  it("a workflow whose every build attempt fails releases its lease, so the next build may start", async () => {
+    const ws = await workspace()
+    // Vercel refuses everything, so each attempt of the build step fails.
+    server.use(
+      http.all(`${API}*`, () => HttpResponse.json({}, { status: 500 })),
+    )
+    const { workspaceSandboxBase } = await import(
+      "../../openworkflow/workflows/workspace-sandbox-base.js"
+    )
+    const { closeOpenWorkflowClient } = await import(
+      "../../openworkflow/client.js"
+    )
+    const namespaceId = `base-release-${ws.id}`
+    const backend = await BackendPostgres.connect(
+      process.env.DATABASE_URL ?? "",
+      { runMigrations: false, namespaceId },
+    )
+    const runner = new OpenWorkflow({ backend })
+    runner.implementWorkflow(workspaceSandboxBase.spec, workspaceSandboxBase.fn)
+    const worker = runner.newWorker({ concurrency: 1 })
+    try {
+      await worker.start()
+      const handle = await runner.runWorkflow(workspaceSandboxBase.spec, {
+        orgId,
+        workspaceId: ws.id,
+      })
+      await expect(
+        withTestLogger(() => handle.result({ timeoutMs: 60_000 })),
+      ).rejects.toThrow()
+      const baseId = `base:${ws.id}:${handle.workflowRun.id}`
+      expect((await getSandboxInstance(baseId, orgId))?.state).toBe(
+        "destroy_failed",
+      )
+      // The released row holds no lease: a new build reserves at once.
+      expect(
+        await reserveWorkspaceBaseBuild({
+          orgId,
+          workspaceId: ws.id,
+          runId: "next",
+          agent,
+        }),
+      ).toBe(`base:${ws.id}:next`)
+    } finally {
+      await worker.stop()
+      await backend.stop()
+      await closeOpenWorkflowClient()
+      await getSystemDb().execute(
+        sql`delete from openworkflow.workflow_runs where namespace_id = ${namespaceId}`,
+      )
+    }
+  }, 90_000)
 })
 
 describe("agent snapshot lookup", () => {
