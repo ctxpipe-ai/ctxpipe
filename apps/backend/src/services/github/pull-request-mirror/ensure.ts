@@ -79,6 +79,7 @@ export async function ensureGithubPrMirror(input: {
   if (
     current &&
     sameRepositoryList(current.repositories, repositories) &&
+    current.issues &&
     contentStarted
   ) {
     return { status: "unchanged" }

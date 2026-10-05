@@ -83,13 +83,22 @@ You can connect GitHub during onboarding, or later from the **Connectors** page.
   the source repository, `File PART_OF` the owning service when that
   repository is already classified, and `PullRequest REFERENCES Issue` when
   the title, body, or branch names a Linear issue.
+- Mirroring of open and closed **issues** (body, labels, assignees, and
+  comments) into the same context repository. After ingest, each issue is an
+  `Issue` node that is `PART_OF` its source repository. A mirrored pull request
+  that writes `#12`, `owner/repo#12`, or an issue URL of its own repository
+  records `PullRequest REFERENCES Issue`.
 
 Selecting GitHub repositories also captures **merged** pull requests into the
 organization context repository (`ctxpipe-context`, or the repo already used
 by Linear, Notion, or Slack). ctx| writes `github/config.yaml` and backfills
-up to 200 newest updated merged pull requests per selected repository. No
-separate toggle. If the organization has no context repository yet, capture
-starts when one is bound.
+up to 200 newest updated merged pull requests per selected repository. It also
+backfills up to 200 newest updated issues per selected repository. No separate
+toggle. If the organization has no context repository yet, capture starts when
+one is bound. Issue capture needs the **Issues: Read** permission on the GitHub
+App. If your installation is older than issue capture, accept the App's
+updated permissions in GitHub. Until then, ctx| skips issues and still captures
+pull requests.
 
 ## Where to manage repositories
 

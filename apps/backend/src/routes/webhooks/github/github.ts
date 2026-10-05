@@ -362,6 +362,7 @@ export async function processGithubWebhookPayload(
     case "pull_request_review":
     case "pull_request_review_comment":
     case "issue_comment":
+    case "issues":
       await maybeEnqueueGithubPrMirror({
         eventName,
         payload,

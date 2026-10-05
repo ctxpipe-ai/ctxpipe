@@ -14,7 +14,16 @@ describe("github/config.yaml", () => {
       states: ["merged"],
       includeDrafts: false,
       maxPullRequestsPerRepository: 200,
+      issues: { maxIssuesPerRepository: 200 },
     })
+  })
+
+  it("reads a yaml written before issue capture as having no issue section", () => {
+    const config = parseGithubPrConfigYamlContent(
+      "version: 1\nsource: github\npullRequests:\n  repositories: [acme/api]\n",
+    )
+    expect(config?.repositories).toEqual(["acme/api"])
+    expect(config?.issues).toBeUndefined()
   })
 
   it("defaults an omitted pull-request cap to 200", () => {

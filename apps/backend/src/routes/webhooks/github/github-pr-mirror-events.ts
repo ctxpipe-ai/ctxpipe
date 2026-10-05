@@ -3,6 +3,7 @@ import { listInstallationsByGithubInstallationId } from "../../../models/github-
 import { getGithubPrMirrorBinding } from "../../../models/github-pr-mirror.js"
 import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
+import { githubSyncIssue } from "../../../openworkflow/workflows/github-sync-issue.js"
 import {
   type GithubSyncPullRequestCandidate,
   githubSyncPullRequest,
@@ -28,6 +29,7 @@ const pullRequestPayloadSchema = z.object({
 })
 
 const issueCommentPayloadSchema = z.object({
+  action: z.string(),
   issue: z.object({
     number: z.number().int().positive(),
     pull_request: z.unknown().optional(),
@@ -38,6 +40,18 @@ const issueCommentPayloadSchema = z.object({
       created_at: z.string().optional(),
     })
     .optional(),
+  repository: z.object({
+    full_name: z.string(),
+  }),
+  installation: z.object({ id: z.number() }),
+})
+
+const issuesPayloadSchema = z.object({
+  action: z.string(),
+  issue: z.object({
+    number: z.number().int().positive(),
+    updated_at: z.string(),
+  }),
   repository: z.object({
     full_name: z.string(),
   }),
@@ -64,6 +78,7 @@ export function githubPrMirrorIdempotencyKey(input: {
 }
 
 async function enqueueMirror(input: {
+  kind: "pull_request" | "issue"
   installationId: number
   githubConnectionId?: string
   sourceRepository: string
@@ -87,14 +102,23 @@ async function enqueueMirror(input: {
     ) {
       continue
     }
+    const target = {
+      orgId: installation.orgId,
+      connectionId: installation.id,
+      sourceRepository: input.sourceRepository,
+      number: input.number,
+    }
     try {
+      if (input.kind === "issue") {
+        await runWorkflowWithWorkerWake(githubSyncIssue.spec, target, {
+          idempotencyKey: `github-issue:${installation.id}:${input.sourceRepository}:${input.number}:${input.version ?? "unknown"}`,
+        })
+        continue
+      }
       await runWorkflowWithWorkerWake(
         githubSyncPullRequest.spec,
         {
-          orgId: installation.orgId,
-          connectionId: installation.id,
-          sourceRepository: input.sourceRepository,
-          number: input.number,
+          ...target,
           ...(input.candidate ? { candidate: input.candidate } : {}),
         },
         {
@@ -130,6 +154,7 @@ export async function maybeEnqueueGithubPrMirror(input: {
     const number = parsed.data.pull_request?.number ?? parsed.data.number
     if (number == null) return
     await enqueueMirror({
+      kind: "pull_request",
       installationId: parsed.data.installation.id,
       githubConnectionId: input.githubConnectionId,
       sourceRepository: parsed.data.repository.full_name,
@@ -142,14 +167,44 @@ export async function maybeEnqueueGithubPrMirror(input: {
 
   if (input.eventName === "issue_comment") {
     const parsed = issueCommentPayloadSchema.safeParse(input.payload)
-    if (!parsed.success || parsed.data.issue.pull_request == null) return
+    if (!parsed.success) return
+    const onPullRequest = parsed.data.issue.pull_request != null
+    const commentAt =
+      parsed.data.comment?.updated_at ?? parsed.data.comment?.created_at
     await enqueueMirror({
+      kind: onPullRequest ? "pull_request" : "issue",
       installationId: parsed.data.installation.id,
       githubConnectionId: input.githubConnectionId,
       sourceRepository: parsed.data.repository.full_name,
       number: parsed.data.issue.number,
-      version:
-        parsed.data.comment?.updated_at ?? parsed.data.comment?.created_at,
+      // A deleted comment keeps its timestamp, so issue keys carry the action.
+      version: onPullRequest ? commentAt : `${parsed.data.action}:${commentAt}`,
+    })
+    return
+  }
+
+  if (input.eventName === "issues") {
+    const parsed = issuesPayloadSchema.safeParse(input.payload)
+    // Only actions that change the mirrored file. A deleted or transferred
+    // issue cannot be read here; its file stays.
+    const rendered = [
+      "opened",
+      "edited",
+      "closed",
+      "reopened",
+      "labeled",
+      "unlabeled",
+      "assigned",
+      "unassigned",
+    ]
+    if (!parsed.success || !rendered.includes(parsed.data.action)) return
+    await enqueueMirror({
+      kind: "issue",
+      installationId: parsed.data.installation.id,
+      githubConnectionId: input.githubConnectionId,
+      sourceRepository: parsed.data.repository.full_name,
+      number: parsed.data.issue.number,
+      version: `${parsed.data.action}:${parsed.data.issue.updated_at}`,
     })
   }
 }

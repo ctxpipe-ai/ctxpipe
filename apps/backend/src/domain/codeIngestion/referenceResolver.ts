@@ -49,6 +49,45 @@ export function pullRequestDedupKey(input: {
   return `prq:${scope}:${input.number}`
 }
 
+/** GitHub issue of a connected repository: `iss:${sourceRepositoryId}:${number}`. */
+export function githubIssueDedupKey(
+  sourceRepositoryId: string,
+  number: number,
+): string {
+  return `iss:${sourceRepositoryId}:${number}`
+}
+
+/**
+ * Issue numbers of `repository` referenced in free text: `#12`,
+ * `owner/repo#12`, and `https://github.com/owner/repo/issues/12`. GitHub
+ * numbers issues and pull requests from one sequence, so a `#12` that is a
+ * pull request matches no issue and its claim is dropped at resolution.
+ * References to other repositories, and text in code, are ignored.
+ */
+export function findGithubIssueNumbers(
+  text: string,
+  repository: string,
+): number[] {
+  const self = repository.toLowerCase()
+  const prose = text.replace(/```[\s\S]*?```|`[^`\n]*`/g, " ")
+  const found = new Set<number>()
+  for (const url of extractUrls(prose)) {
+    const match =
+      /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/issues\/(\d+)(?:[/?#]|$)/i.exec(
+        url,
+      )
+    if (match?.[1]?.toLowerCase() === self) found.add(Number(match[2]))
+  }
+  for (const match of prose.matchAll(
+    /(?:^|[^\w/#&])(?:([\w.-]+\/[\w.-]+))?#(\d+)\b/g,
+  )) {
+    if (match[1] && match[1].toLowerCase() !== self) continue
+    const number = Number(match[2])
+    if (number > 0) found.add(number)
+  }
+  return [...found]
+}
+
 /** Unconnected GitHub identities — dropped in `finalizeExtractedReferences`. */
 export function isUnresolvedProviderIdentity(key: string): boolean {
   return key.startsWith("prq:github:") || key.startsWith("fil:github:")

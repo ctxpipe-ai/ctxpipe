@@ -188,6 +188,31 @@ describe("buildGithubPullRequestGraph", () => {
     ).toEqual(["iss:linear:ENG-123", "iss:linear:OPS-4"])
   })
 
+  it("references same-repository GitHub issues by #N, owner/repo#N and URL", () => {
+    const file = renderGithubPullRequest({
+      ...snapshot,
+      body: "Fixes #12 and ACME/api#13. See https://github.com/acme/api/issues/14#issuecomment-1, other/repo#15, &#16; and color #000.",
+    })
+    const result = parseGithubPullRequestMarkdown(file.content)
+    if (!result) throw new Error("expected frontmatter to parse")
+    const { extractedClaims } = buildGithubPullRequestGraph({
+      parsed: result,
+      markdownPath: file.path,
+      targetHash: "abc123",
+      contextRepositoryId: "repo_ctx",
+      sourceRepositoryId: "repo_api",
+    })
+    expect(
+      extractedClaims
+        .filter((claim) => claim.objectRef.startsWith("iss:repo_api:"))
+        .map((claim) => [claim.predicate, claim.objectKind, claim.objectRef]),
+    ).toEqual([
+      ["REFERENCES", "Issue", "iss:repo_api:14"],
+      ["REFERENCES", "Issue", "iss:repo_api:12"],
+      ["REFERENCES", "Issue", "iss:repo_api:13"],
+    ])
+  })
+
   it("falls back to name-scoped keys and skips TARGETS when the source repository is unknown", () => {
     const { file, result } = parsed()
     const { extractedObjects, extractedClaims } = buildGithubPullRequestGraph({

@@ -4,7 +4,9 @@ import {
   extractBacktickedPaths,
   extractUrls,
   findAdrReferences,
+  findGithubIssueNumbers,
   findLinearIdentifiers,
+  githubIssueDedupKey,
   githubTeamDedupKey,
   isoDateOf,
   isUnresolvedProviderIdentity,
@@ -57,6 +59,28 @@ describe("GitHub pull request references", () => {
     expect(pullRequestDedupKey({ repository: "acme/api", number: 42 })).toBe(
       "prq:github:acme/api:42",
     )
+  })
+})
+
+describe("GitHub issue references", () => {
+  it("keys issues by source repository id", () => {
+    expect(githubIssueDedupKey("repo_api", 12)).toBe("iss:repo_api:12")
+  })
+
+  it("finds only references to the given repository", () => {
+    expect(
+      findGithubIssueNumbers(
+        "#1 at start\n- closes #2, acme/api#3 (https://github.com/acme/api/issues/4)\nnot other/repo#5, https://github.com/acme/api/pull/6, docs/x.md#7, a#8",
+        "acme/api",
+      ).sort((a, b) => a - b),
+    ).toEqual([1, 2, 3, 4])
+    expect(findGithubIssueNumbers("## Heading #0", "acme/api")).toEqual([])
+    expect(
+      findGithubIssueNumbers(
+        "Fixes #9\n```css\ncolor: #333;\n```\nand `#444`",
+        "acme/api",
+      ),
+    ).toEqual([9])
   })
 })
 

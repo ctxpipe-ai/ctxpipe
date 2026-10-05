@@ -18,6 +18,9 @@ vi.mock("../../../openworkflow/client.js", () => ({
 vi.mock("../../../openworkflow/workflows/github-sync-pull-request.js", () => ({
   githubSyncPullRequest: { spec: { name: "github-sync-pull-request" } },
 }))
+vi.mock("../../../openworkflow/workflows/github-sync-issue.js", () => ({
+  githubSyncIssue: { spec: { name: "github-sync-issue" } },
+}))
 
 import {
   candidateFromPullRequestPayload,
@@ -95,6 +98,71 @@ describe("maybeEnqueueGithubPrMirror", () => {
       },
       { idempotencyKey: "github-pr:con_gh:acme/api:7:2026-03-03T00:00:00Z" },
     )
+  })
+
+  it("enqueues an issue mirror job for issue events and plain-issue comments", async () => {
+    await maybeEnqueueGithubPrMirror({
+      eventName: "issues",
+      payload: {
+        action: "labeled",
+        issue: { number: 12, updated_at: "2026-03-04T00:00:00Z" },
+        repository: { full_name: "acme/api" },
+        installation: { id: 99 },
+      },
+      githubConnectionId: "con_gh",
+    })
+    await maybeEnqueueGithubPrMirror({
+      eventName: "issue_comment",
+      payload: {
+        action: "deleted",
+        issue: { number: 12 },
+        comment: { updated_at: "2026-03-05T00:00:00Z" },
+        repository: { full_name: "acme/api" },
+        installation: { id: 99 },
+      },
+      githubConnectionId: "con_gh",
+    })
+
+    const job = {
+      orgId: "org_1",
+      connectionId: "con_gh",
+      sourceRepository: "acme/api",
+      number: 12,
+    }
+    expect(mocks.runWorkflow.mock.calls).toEqual([
+      [
+        { name: "github-sync-issue" },
+        job,
+        {
+          idempotencyKey:
+            "github-issue:con_gh:acme/api:12:labeled:2026-03-04T00:00:00Z",
+        },
+      ],
+      [
+        { name: "github-sync-issue" },
+        job,
+        {
+          idempotencyKey:
+            "github-issue:con_gh:acme/api:12:deleted:2026-03-05T00:00:00Z",
+        },
+      ],
+    ])
+  })
+
+  it("skips issue actions that do not change the mirrored file", async () => {
+    for (const action of ["deleted", "transferred", "pinned", "locked"]) {
+      await maybeEnqueueGithubPrMirror({
+        eventName: "issues",
+        payload: {
+          action,
+          issue: { number: 12, updated_at: "2026-03-04T00:00:00Z" },
+          repository: { full_name: "acme/api" },
+          installation: { id: 99 },
+        },
+        githubConnectionId: "con_gh",
+      })
+    }
+    expect(mocks.runWorkflow).not.toHaveBeenCalled()
   })
 
   it("derives candidates from payload facts", () => {

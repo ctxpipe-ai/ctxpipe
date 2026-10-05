@@ -61,7 +61,8 @@ async function enqueueStartupEnsure(input: {
 }): Promise<void> {
   // OpenWorkflow retains idempotency keys for 24 hours, coalescing deploy
   // restart storms without disabling reconciliation on later process starts.
-  const baseKey = `github-pr-mirror-startup:v1:${input.orgId}:${input.connectionId}`
+  // v2: the first deploy with issue capture must rewrite every yaml.
+  const baseKey = `github-pr-mirror-startup:v2:${input.orgId}:${input.connectionId}`
   let idempotencyKey = baseKey
   const failedRunIds = new Set<string>()
   for (;;) {

@@ -66,6 +66,7 @@ Set repository permissions:
 
 - **Contents:** Read and write
 - **Pull requests:** Read and write
+- **Issues:** Read-only
 
 Set account permissions:
 
@@ -76,11 +77,13 @@ Subscribe to these events:
 - **Pull request**
 - **Pull request review**
 - **Pull request review comment**
-- **Issue comment** (conversation on pull requests)
+- **Issues**
+- **Issue comment** (conversation on issues and pull requests)
 - **Push**
 - **Repository**
 
-Optional for richer PR conversation: **Issues: Read**. Required-check
+ctx| uses **Issues** to mirror issues and pull request conversation. Without
+it, ctx| skips issues and still mirrors pull requests. Required-check
 conclusions are not mirrored in v1.
 
 Write access is required because ctx| can open configuration pull requests and

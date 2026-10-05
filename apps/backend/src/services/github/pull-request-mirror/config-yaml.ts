@@ -2,6 +2,7 @@ import { parse as parseYaml, stringify } from "yaml"
 import { z } from "zod"
 
 const DEFAULT_MAX_PULL_REQUESTS_PER_REPOSITORY = 200
+const DEFAULT_MAX_ISSUES_PER_REPOSITORY = 200
 
 const GithubPrConfigFileSchema = z.object({
   version: z.literal(1).default(1),
@@ -24,6 +25,15 @@ const GithubPrConfigFileSchema = z.object({
       includeDrafts: false,
       maxPullRequestsPerRepository: DEFAULT_MAX_PULL_REQUESTS_PER_REPOSITORY,
     }),
+  issues: z
+    .object({
+      maxIssuesPerRepository: z
+        .number()
+        .int()
+        .positive()
+        .default(DEFAULT_MAX_ISSUES_PER_REPOSITORY),
+    })
+    .optional(),
 })
 
 export type GithubPrMirrorRepoConfig = {
@@ -32,6 +42,11 @@ export type GithubPrMirrorRepoConfig = {
   includeDrafts: boolean
   updatedSince?: string
   maxPullRequestsPerRepository: number
+  /**
+   * Issues of the same repositories, open and closed. Absent in yaml written
+   * before issue capture, which the startup sweep rewrites.
+   */
+  issues?: { maxIssuesPerRepository: number }
 }
 
 export function parseGithubPrConfigYamlContent(
@@ -46,7 +61,7 @@ export function parseGithubPrConfigYamlContent(
   }
   const result = GithubPrConfigFileSchema.safeParse(parsed)
   if (!result.success) return undefined
-  const pullRequests = result.data.pullRequests
+  const { pullRequests, issues } = result.data
   return {
     repositories: [...new Set(pullRequests.repositories)].sort((a, b) =>
       a.localeCompare(b),
@@ -55,6 +70,7 @@ export function parseGithubPrConfigYamlContent(
     includeDrafts: pullRequests.includeDrafts,
     updatedSince: pullRequests.updatedSince,
     maxPullRequestsPerRepository: pullRequests.maxPullRequestsPerRepository,
+    issues,
   }
 }
 
@@ -72,5 +88,6 @@ export function renderGithubPrConfigYaml(input: {
       includeDrafts: false,
       maxPullRequestsPerRepository: DEFAULT_MAX_PULL_REQUESTS_PER_REPOSITORY,
     },
+    issues: { maxIssuesPerRepository: DEFAULT_MAX_ISSUES_PER_REPOSITORY },
   })
 }

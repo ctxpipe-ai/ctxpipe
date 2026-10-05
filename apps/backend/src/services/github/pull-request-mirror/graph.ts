@@ -3,7 +3,9 @@ import {
   asLocatedPath,
   extractUrls,
   fileDedupKey,
+  findGithubIssueNumbers,
   findLinearIdentifiers,
+  githubIssueDedupKey,
   isoDateOf,
   issueDedupKey,
   parseLinearIssueUrl,
@@ -67,7 +69,8 @@ export function linearIssueIdentifiersForPullRequest(
  * Deterministic graph for one mirrored pull request (ADR-031, ADR-033):
  * `PullRequest TARGETS Repository`, `PullRequest ADDED|MODIFIED|REMOVED|RENAMED File`,
  * `File PART_OF Repository|package` for paths still present, and
- * `PullRequest REFERENCES Issue` for Linear identifiers in the PR text.
+ * `PullRequest REFERENCES Issue` for Linear identifiers and same-repository
+ * GitHub issues in the PR text.
  * Change edges carry `validFrom` = merge date.
  */
 export function buildGithubPullRequestGraph(input: {
@@ -222,6 +225,27 @@ export function buildGithubPullRequestGraph(input: {
       confidence: 0.9,
       provenance: { path: input.markdownPath, identifier },
     })
+  }
+
+  const { sourceRepositoryId } = input
+  if (sourceRepositoryId) {
+    for (const number of findGithubIssueNumbers(
+      `${parsed.title}\n${parsed.bodyExcerpt}`,
+      parsed.repository,
+    )) {
+      claims.push({
+        subjectRef: pullKey,
+        subjectKind: "PullRequest",
+        objectRef: githubIssueDedupKey(sourceRepositoryId, number),
+        objectKind: "Issue",
+        predicate: "REFERENCES",
+        sourceId: sourceId(["REFERENCES", `#${number}`]),
+        sourceType: "git",
+        extractionMethod: "deterministic",
+        confidence: 0.9,
+        provenance: { path: input.markdownPath, issue: number },
+      })
+    }
   }
 
   return { extractedObjects: objects, extractedClaims: claims }
