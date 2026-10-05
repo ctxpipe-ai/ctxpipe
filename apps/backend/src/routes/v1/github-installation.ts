@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import { RequestError } from "octokit"
 import type { AppEnv } from "../../app/env.js"
+import { rebindUnboundWorkspaces } from "../../domain/workspaces/workspace-lifecycle.js"
 import type { GitHubInstallationShape } from "../../models/connection-rows.js"
 import {
   githubConnectionToShape,
@@ -1058,6 +1059,12 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
             c.var.env,
           )) ?? installation
       }
+      await rebindUnboundWorkspaces({
+        orgId,
+        connectionId: installation.id,
+        env: c.var.env,
+        log: c.get("log"),
+      })
 
       return c.json(await githubInstallationResponsePayload(installation), 200)
     } catch (e) {
