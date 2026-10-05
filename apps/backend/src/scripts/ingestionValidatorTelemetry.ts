@@ -179,13 +179,14 @@ function addUsage(left: LlmUsage, right: LlmUsage): LlmUsage {
 
 /**
  * Langfuse generations of one repository's ingestion window. Extraction
- * generations inherit `repositoryId` and `workflowStepName` metadata from
- * `withIngestAgentContext`. Hydrate embeddings carry no repository: the
- * run id is only a trace-level attribute, which an observation filter cannot
- * match. They are found by name inside the repository's window, which is
- * this repository's alone only when `exclusiveWindow` (concurrency 1);
- * otherwise they are not read. The commit-subject call is not traced, so it
- * appears only in the OpenRouter delta.
+ * generations get `repositoryId` and `workflowStepName` metadata from
+ * `withIngestAgentContext`. Hydrate embeddings have no repository metadata.
+ * The run id is an attribute of the trace only, and an observation filter
+ * cannot read it. The query finds the embeddings by name in the window of
+ * the repository. The window is this repository's alone only when
+ * `exclusiveWindow` is true (concurrency 1). Otherwise the query does not
+ * read the embeddings. The commit-subject call has no trace, so only the
+ * OpenRouter delta includes it.
  */
 export async function readRepositoryLlmUsage(
   config: LangfuseConfig,

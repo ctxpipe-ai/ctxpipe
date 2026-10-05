@@ -50,7 +50,10 @@ function withTelemetry(schema: z.ZodType): z.ZodType {
     })
 }
 
-/** The body sees its own schema's output; enqueue telemetry is restored, not passed. */
+/**
+ * The body gets the output of its own schema. The wrapper removes the
+ * enqueue telemetry from the input and restores it in the context.
+ */
 type BodyContext<S extends z.ZodType> = Omit<
   Parameters<Workflow<JobInput<S>, unknown, unknown>["fn"]>[0],
   "input"
