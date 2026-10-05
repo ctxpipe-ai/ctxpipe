@@ -73,22 +73,33 @@ in answers.
 
 ## Skipped files
 
-When ctx| cannot read a file, it skips that file and continues with the other
-files. One bad file does not stop the Workspace. A skipped file stays in
-**Files** because it is in git, but chat, MCP, search, and the graph do not
-use it.
+ctx| skips a file when it has one of the errors in the table below. ctx|
+then continues with the other files, so one bad file does not stop the
+Workspace. A skipped file stays in **Files** because it is in git. Chat, MCP,
+search, and the graph do not use it.
 
-**Settings** on the Workspace page shows the skipped files of the current
-version. Each row gives the path and the reason. Select the path to open the
-file in **Files**.
+Other errors do not cause a skip. For example, a set of files that is too
+large stops the hydrate, and **Settings** shows **Hydrate failed** with the
+error.
+
+**Settings** on the Workspace page shows the skipped files of the latest
+hydrated commit. Each row gives the path and the reason. Select the path to
+open the file in **Files**.
 
 | Reason | Cause | Fix |
 | --- | --- | --- |
-| Front matter could not be read | The front matter has no closing `---` line, or its YAML is not valid. In a `repositories/` file, the `git` URL is missing or not valid. | Correct the front matter. |
-| Repeats a repository that is already linked | A second file in `repositories/` has the same `git` URL as an earlier file. | Delete one of the two files. |
+| Front matter or git URL is not valid | The front matter has no closing `---` line, or its YAML is not valid. In a `repositories/` file, the front matter has no `git` URL, or the `git` URL is not valid. | Correct the front matter or the `git` URL. |
+| Repeats a linked repository or the Workspace's own repository | A file in `repositories/` has the same `git` URL as an earlier file in `repositories/`, or as the Workspace repository. | Delete the file. |
 
-Push the fix to the default branch. When ctx| reads the new commit, the file
-goes back into chat, MCP, search, and the graph, and the notice goes away.
+Push the fix to the default branch. When ctx| hydrates the new commit, it
+reads the fixed file again:
+
+- A fixed knowledge file is a knowledge unit again. Chat, MCP, search, and
+  the graph use it.
+- A fixed file in `repositories/` links its repository.
+
+The file is then not in the list of skipped files. When the list is empty,
+**Settings** does not show the notice.
 
 ## Linked repository declarations
 

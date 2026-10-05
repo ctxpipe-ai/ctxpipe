@@ -107,6 +107,12 @@ export function WorkspacePane(props: {
     )
   }
 
+  /** Open a file as a pinned tab in Files. */
+  const openFile = (path: string) => {
+    setPane({ kind: "file", path })
+    props.onPinFile(path)
+  }
+
   const selectPane = (next: ParsedPane) => {
     setPane(next)
     prefetchPane(next)
@@ -361,10 +367,7 @@ export function WorkspacePane(props: {
                     setPane({ kind: "file", path })
                     props.onPreviewFile(path)
                   }}
-                  onPinFile={(path) => {
-                    setPane({ kind: "file", path })
-                    props.onPinFile(path)
-                  }}
+                  onPinFile={openFile}
                   onToggleTree={props.onToggleTree}
                   onCloseActiveFile={props.onCloseActiveFile}
                 />
@@ -375,10 +378,7 @@ export function WorkspacePane(props: {
                 <WorkspaceConversationDiffPane
                   orgSlug={props.orgSlug}
                   conversationId={props.conversationId}
-                  onOpenFile={(path) => {
-                    setPane({ kind: "file", path })
-                    props.onPinFile(path)
-                  }}
+                  onOpenFile={openFile}
                 />
               </Suspense>
             ) : null}
@@ -387,10 +387,7 @@ export function WorkspacePane(props: {
                 <WorkspaceGraphPaneBody
                   orgSlug={props.orgSlug}
                   workspaceSlug={props.workspace.slug}
-                  onOpenSource={(path) => {
-                    setPane({ kind: "file", path })
-                    props.onPinFile(path)
-                  }}
+                  onOpenSource={openFile}
                 />
               </ClientOnly>
             ) : null}
@@ -398,10 +395,7 @@ export function WorkspacePane(props: {
               <WorkspaceSettingsPane
                 orgSlug={props.orgSlug}
                 workspace={props.workspace}
-                onOpenFile={(path) => {
-                  setPane({ kind: "file", path })
-                  props.onPinFile(path)
-                }}
+                onOpenFile={openFile}
               />
             ) : null}
             {pane.kind === "unknown" ? (

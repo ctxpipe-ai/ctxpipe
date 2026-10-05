@@ -60,4 +60,15 @@ Proof:
 - `apps/backend/src/routes/v1/workspace-skipped-files.integration.test.ts` (real Postgres, native git, real `workspace-hydrate` workflow, `GET` through the Workspace routes): a clean projection returns `[]`; a commit with a broken file and a repeated linked repository returns both entries; a commit that fixes the file and removes the repeat returns `[]`. The test fails when `commitHydrateProjection` does not persist the list.
 - Storybook plays (MSW): `Components/Workspaces/SettingsPane` `Settings` (no notice) and `SkippedFiles` (title, both reasons, link calls `onOpenFile`); `Components/Workspaces/Pane` `SettingsSkippedFileOpensInFiles` (the link opens and selects the file tab in **Files**). Run in Chromium against a static build.
 
+### 2026-10-05 — review round 1 fixes
+
+The review replaced parts of the comment above. The current state:
+
+- No new column and no migration. The list is the `skipped` key of the `hydrate_phases` jsonb (`HydratePhaseRecord.skipped`). `commitHydrateProjection` writes it through `initialHydratePhases({ …, skipped })` in the compare-and-set. The later `||` merges (embeddings, index, graph) do not set the key, so they keep the list.
+- Only `GET /workspaces/{slug}` returns `skippedFiles`, next to `linkedRepositories`. The route `z.enum` uses the exported `HYDRATE_SKIP_REASONS` tuple. In the UI, `skippedFiles` is on `WorkspaceDetail`.
+- `hydrateKnowledgeTree` takes the Workspace URL. It reports a `repositories/` file that names the Workspace repository as `duplicate_repository`, so the skipped list is complete in one place.
+- Reason copy: "Front matter or git URL is not valid" and "Repeats a linked repository or the Workspace's own repository". The notice names search too. The docs and HYD-2 use the same copy. The docs now say which errors cause a skip and what a fixed `repositories/` file does.
+- `WorkspacePane` has one local `openFile` for the four places that open a pinned file.
+- Proof moved into `hydration.contract.test.ts`, test "atomically replaces published units while reporting a malformed sibling". It checks the stored list after the malformed commit and `skippedFiles` in the detail response. It checks that a re-hydrate of the same SHA keeps the list, and that a commit that fixes the file clears it. Mutation checks: the test fails when the commit omits the list, and when the commit always writes `[]`. A unit test covers the own-repository case. The integration test file is deleted. The `SkippedFiles` play no longer clicks. The Pane play keeps the link-opens-file check.
+
 ## Resolution

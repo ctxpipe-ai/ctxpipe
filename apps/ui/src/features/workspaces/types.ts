@@ -9,8 +9,6 @@ export type Workspace = {
   desiredSha: string | null
   activeProjectionUrl: string | null
   activeProjectionSha: string | null
-  /** Committed files that the active projection skipped. Absent on older responses. */
-  skippedFiles?: WorkspaceSkippedFile[]
   indexedSha: string | null
   /** Server capability; older responses retain the write-status fallback. */
   conversationWritable?: boolean
@@ -31,6 +29,8 @@ export type WorkspaceSkippedFile = {
 
 export type WorkspaceDetail = Workspace & {
   linkedRepositories: WorkspaceLinkedRepository[]
+  /** Committed files that the active projection skipped. Absent on older responses. */
+  skippedFiles?: WorkspaceSkippedFile[]
 }
 
 export type WorkspaceLinkedRepository = {

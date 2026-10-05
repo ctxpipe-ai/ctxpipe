@@ -68,17 +68,16 @@ export const SkippedFiles: Story = {
   args: {
     workspace: skippedFilesWorkspaceDetail,
   },
-  play: async ({ args, canvasElement }) => {
+  play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Hydrate skipped 2 files")
-    await canvas.findByText("Front matter could not be read")
-    await canvas.findByText("Repeats a repository that is already linked")
-    await userEvent.click(
+    await canvas.findByText("Front matter or git URL is not valid")
+    await canvas.findByText(
+      "Repeats a linked repository or the Workspace's own repository",
+    )
+    expect(
       canvas.getByRole("link", { name: "knowledge/billing/tax.md" }),
-    )
-    await expect(args.onOpenFile).toHaveBeenCalledWith(
-      "knowledge/billing/tax.md",
-    )
+    ).toBeVisible()
   },
 }
 

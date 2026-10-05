@@ -103,8 +103,9 @@ function StatusTag({
 }
 
 const skippedReasonCopy: Record<WorkspaceSkippedFile["reason"], string> = {
-  malformed: "Front matter could not be read",
-  duplicate_repository: "Repeats a repository that is already linked",
+  malformed: "Front matter or git URL is not valid",
+  duplicate_repository:
+    "Repeats a linked repository or the Workspace's own repository",
 }
 
 function SkippedFilesNotice(props: {
@@ -119,8 +120,8 @@ function SkippedFilesNotice(props: {
         title={`Hydrate skipped ${count} ${count === 1 ? "file" : "files"}`}
       >
         <p>
-          Chat, MCP, and the graph do not use these files. Fix each file and
-          push the change to the default branch.
+          Chat, MCP, search, and the graph do not use these files. Fix each file
+          and push the change to the default branch.
         </p>
         <ul className="mt-3 flex flex-col gap-2">
           {props.files.map((file) => (

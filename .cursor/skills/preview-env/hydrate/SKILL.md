@@ -27,7 +27,7 @@ Workspace **revision** prepare: `workspace-hydrate` rebuilds the projection (Pos
 2. In the **Hydrate skipped 1 file** notice, select `knowledge/operations/legacy-migration-notes.md`.
 3. Check the knowledge units for that path.
 
-**Expect (UI)** hydrate is still **Hydrate ready**; below the chips, a warning notice **Hydrate skipped 1 file** names `knowledge/operations/legacy-migration-notes.md` with the reason **Front matter could not be read**; selecting the path opens that file in **Files** (it is in git). A Workspace with no skipped files shows no notice.
+**Expect (UI)** the chip is still **Hydrate ready**. Below the chips, the warning notice **Hydrate skipped 1 file** shows `knowledge/operations/legacy-migration-notes.md` with the reason **Front matter or git URL is not valid**. When you select the path, **Files** opens that file (it is in git). A Workspace with no skipped files shows no notice.
 **Expect (backend)** `GET …/workspaces/{slug}` has `skippedFiles: [{ "path": "knowledge/operations/legacy-migration-notes.md", "reason": "malformed" }]`; no `workspace_knowledge_units` row for that path; the `workspace-hydrate` run's output (OpenWorkflow `output` JSON) has `skipped: 1` and the same entry in `diagnostics`; no `hydrateError`.
 **Budget** none beyond HYD-1.
 **Evidence** `HYD-2-1.png` (Settings notice), `HYD-2-2.png` (file open in **Files**); the Workspace JSON and the run output.
