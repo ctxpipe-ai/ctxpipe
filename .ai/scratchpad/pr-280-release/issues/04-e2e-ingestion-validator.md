@@ -81,6 +81,10 @@ Read first: this ticket, `repository-ingestion.ts`, `repository-index.ts`, `work
 
 Needs: a Railway token for the validator environment, a dedicated OpenRouter key with a credit limit, HyperDX + Langfuse access, a validation org/workspace with a writable GitHub workspace repository. Never change model defaults in code, production, or pr-280. Report per-repo status, the worst failures with trace links, and the fixes landed.
 
+## Follow-ups
+
+- [ ] Define the GPT-6 Luna price in Langfuse before the next paid run. This is an ops step: add a Langfuse model definition for `openai/gpt-6-luna`. Until then, the report shows "cost unknown" for each stage that used Luna.
+
 ## Comments
 
 - 2026-10-01 (ticket 07): `graphQualityReport` now reads a Workspace projection (`--org-id --workspace-id`). `repoGraphSizeCheck` still counts legacy `objects` rows, which this branch no longer writes — port it to workspace knowledge units as part of the validator.

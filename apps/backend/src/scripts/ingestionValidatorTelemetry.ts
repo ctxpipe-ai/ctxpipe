@@ -13,7 +13,8 @@ export type LlmUsage = {
   inputTokens: number
   outputTokens: number
   totalTokens: number
-  costUsd: number
+  /** Langfuse cost; `null` when a generation has tokens and no Langfuse cost. */
+  costUsd: number | null
 }
 
 export type OpenRouterKeyUsage = {
@@ -133,12 +134,14 @@ async function langfuseRows(
 
 function usage(row: Record<string, unknown> | undefined): LlmUsage {
   const r = row ?? {}
+  const totalTokens = measure(r, "totalTokens")
+  const costUsd = measure(r, "totalCost")
   return {
     calls: measure(r, "count"),
     inputTokens: measure(r, "inputTokens"),
     outputTokens: measure(r, "outputTokens"),
-    totalTokens: measure(r, "totalTokens"),
-    costUsd: measure(r, "totalCost"),
+    totalTokens,
+    costUsd: costUsd === 0 && totalTokens > 0 ? null : costUsd,
   }
 }
 
@@ -152,8 +155,6 @@ export type RepositoryLlm = {
   total: LlmUsage
   /** Model name → generations, from the same generations. */
   models: Record<string, number>
-  /** Models with tokens, no Langfuse cost, and no price here: their cost reads $0. */
-  unpricedModels: string[]
 }
 
 function addUsage(left: LlmUsage, right: LlmUsage): LlmUsage {
@@ -162,38 +163,10 @@ function addUsage(left: LlmUsage, right: LlmUsage): LlmUsage {
     inputTokens: left.inputTokens + right.inputTokens,
     outputTokens: left.outputTokens + right.outputTokens,
     totalTokens: left.totalTokens + right.totalTokens,
-    costUsd: left.costUsd + right.costUsd,
-  }
-}
-
-/**
- * Dollars per million tokens for models Langfuse has no price for, matched by
- * a substring of the provided model name. Measured with the run that found
- * the gap; used only when Langfuse reports no cost, never to change a model.
- */
-const modelPrices = [
-  { match: "gpt-6-luna", inputPerMillion: 0.1, outputPerMillion: 0.5 },
-]
-
-/** Langfuse's own cost when it has one, else tokens times the price table. */
-function pricedUsage(
-  model: string,
-  row: Record<string, unknown>,
-): { usage: LlmUsage; unpriced: boolean } {
-  const reported = usage(row)
-  if (reported.costUsd > 0 || reported.totalTokens === 0)
-    return { usage: reported, unpriced: false }
-  const price = modelPrices.find((entry) => model.includes(entry.match))
-  if (!price) return { usage: reported, unpriced: true }
-  return {
-    usage: {
-      ...reported,
-      costUsd:
-        (reported.inputTokens * price.inputPerMillion +
-          reported.outputTokens * price.outputPerMillion) /
-        1_000_000,
-    },
-    unpriced: false,
+    costUsd:
+      left.costUsd === null || right.costUsd === null
+        ? null
+        : left.costUsd + right.costUsd,
   }
 }
 
@@ -244,7 +217,6 @@ export async function readRepositoryLlmUsage(
   }
   const stages: Record<string, LlmUsage> = {}
   const models: Record<string, number> = {}
-  const unpriced = new Set<string>()
   for (const [stage, filters] of Object.entries(stageFilters)) {
     const rows = filters
       ? await langfuseRows(config, {
@@ -256,14 +228,12 @@ export async function readRepositoryLlmUsage(
     stages[stage] = usage(undefined)
     for (const row of rows) {
       const name = String(row.providedModelName ?? "(unknown)")
-      const priced = pricedUsage(name, row)
-      stages[stage] = addUsage(stages[stage], priced.usage)
-      if (priced.unpriced) unpriced.add(name)
+      stages[stage] = addUsage(stages[stage], usage(row))
       models[name] = (models[name] ?? 0) + measure(row, "count")
     }
   }
   const total = Object.values(stages).reduce(addUsage)
-  return { stages, total, models, unpricedModels: [...unpriced] }
+  return { stages, total, models }
 }
 
 /**

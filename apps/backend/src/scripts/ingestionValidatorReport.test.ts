@@ -76,7 +76,7 @@ function step(
   }
 }
 
-const usage = (calls: number, cost: number) => ({
+const usage = (calls: number, cost: number | null) => ({
   calls,
   inputTokens: calls * 1000,
   outputTokens: calls * 200,
@@ -204,7 +204,6 @@ function passingFacts(): RepoFacts {
       },
       total: usage(2, 0.0003),
       models: { "openai/gpt-6-luna": 1, "openai/text-embedding-3-large": 1 },
-      unpricedModels: [],
     },
     spendUsd: 0.0005,
   }
@@ -446,13 +445,12 @@ describe("evaluateRepo", () => {
     )
   })
 
-  it("warns that the cost of a model with no price reads as zero", () => {
+  it("reports cost unknown when Langfuse has no cost for a stage", () => {
     const facts = passingFacts()
-    if (facts.llm) facts.llm.unpricedModels = ["vendor/no-price-anywhere"]
-    expect(statuses(facts)["telemetry.llm"]).toBe("warn")
-    expect(detail(facts, "telemetry.llm")).toContain(
-      "no price for vendor/no-price-anywhere",
-    )
+    if (facts.llm) facts.llm.total = usage(2, null)
+    expect(statuses(facts)["telemetry.llm"]).toBe("pass")
+    expect(detail(facts, "telemetry.llm")).toContain("cost unknown")
+    expect(detail(facts, "telemetry.llm")).not.toContain("$")
   })
 
   it("warns on complete_with_issues and reports a timeout as TIMEOUT", () => {
@@ -572,6 +570,24 @@ describe("renderMarkdown", () => {
       "repository-ingestion-orchestrator `run_orch` completed trace `0af7651916cd43dd8448eb211c80319c`",
     )
     expect(markdown).toContain("- Langfuse: https://langfuse/session")
+  })
+
+  it("writes cost unknown for a stage and the delta when Langfuse has no cost", () => {
+    const input = report(1)
+    const facts = passingFacts()
+    if (facts.llm) {
+      facts.llm.stages.embeddings = usage(1, null)
+      facts.llm.total = usage(2, null)
+    }
+    input.repos = [evaluateRepo(facts)]
+    const markdown = renderMarkdown(input)
+    expect(markdown).toContain("| embeddings | 1 | 1000 | 200 | cost unknown |")
+    expect(markdown).toContain(
+      "| total (Langfuse) | 2 | 2000 | 400 | cost unknown |",
+    )
+    expect(markdown).toContain(
+      "| not in Langfuse (OpenRouter delta − Langfuse total) | — | — | — | cost unknown |",
+    )
   })
 
   it("says per-repository OpenRouter deltas are unavailable above concurrency 1", () => {

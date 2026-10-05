@@ -218,7 +218,7 @@ describe("Langfuse usage", () => {
     expect(usage.stages.embeddings?.calls).toBe(0)
   })
 
-  it("prices a generation from its tokens when Langfuse reports no cost", async () => {
+  it("reports cost unknown for a stage whose generations have tokens but no Langfuse cost", async () => {
     server.use(
       http.get(metricsUrl, ({ request }) => {
         const query = JSON.parse(
@@ -227,20 +227,25 @@ describe("Langfuse usage", () => {
         const stage = query.filters.find(
           (f: Record<string, string>) => f.key === "workflowStepName",
         )
+        if (stage?.value === "identify-roots")
+          return HttpResponse.json({
+            data: [
+              {
+                providedModelName: "vendor/priced",
+                count_count: 1,
+                sum_inputTokens: 10,
+                sum_outputTokens: 10,
+                sum_totalTokens: 20,
+                sum_totalCost: 0.5,
+              },
+            ],
+          })
         if (stage?.value !== "extract-kind:")
           return HttpResponse.json({ data: [] })
         return HttpResponse.json({
           data: [
             {
-              providedModelName: "openai/gpt-6-luna",
-              count_count: 2,
-              sum_inputTokens: 2_000_000,
-              sum_outputTokens: 100_000,
-              sum_totalTokens: 2_100_000,
-              sum_totalCost: 0,
-            },
-            {
-              providedModelName: "vendor/priced-elsewhere",
+              providedModelName: "vendor/priced",
               count_count: 1,
               sum_inputTokens: 10,
               sum_outputTokens: 10,
@@ -248,11 +253,11 @@ describe("Langfuse usage", () => {
               sum_totalCost: 0.5,
             },
             {
-              providedModelName: "vendor/no-price-anywhere",
-              count_count: 1,
-              sum_inputTokens: 10,
-              sum_outputTokens: 10,
-              sum_totalTokens: 20,
+              providedModelName: "vendor/no-price",
+              count_count: 2,
+              sum_inputTokens: 2_000_000,
+              sum_outputTokens: 100_000,
+              sum_totalTokens: 2_100_000,
               sum_totalCost: 0,
             },
           ],
@@ -265,10 +270,15 @@ describe("Langfuse usage", () => {
       from: "2026-10-03T10:00:00.000Z",
       to: "2026-10-03T11:00:00.000Z",
     })
-    // Luna: 2 M input at $0.10 / M plus 0.1 M output at $0.50 / M, plus the $0.5 Langfuse reported.
-    expect(usage.stages["extract-kind"]?.costUsd).toBeCloseTo(0.25 + 0.5)
-    expect(usage.total.costUsd).toBeCloseTo(0.75)
-    expect(usage.unpricedModels).toEqual(["vendor/no-price-anywhere"])
+    expect(usage.stages["identify-roots"]?.costUsd).toBe(0.5)
+    expect(usage.stages["extract-kind"]).toMatchObject({
+      calls: 3,
+      totalTokens: 2_100_020,
+      costUsd: null,
+    })
+    expect(usage.stages.identify?.costUsd).toBe(0)
+    expect(usage.total.costUsd).toBeNull()
+    expect(usage).not.toHaveProperty("unpricedModels")
   })
 
   it("waits until the run's generation count stops changing", async () => {

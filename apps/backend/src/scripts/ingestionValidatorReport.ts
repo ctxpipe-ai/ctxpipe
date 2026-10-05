@@ -719,6 +719,11 @@ export function unexpectedModels(models: Record<string, number>): string[] {
   )
 }
 
+/** Langfuse has no cost for a model it has no price for; that is not $0. */
+function cost(usd: number | null): string {
+  return usd === null ? "cost unknown" : `$${usd.toFixed(4)}`
+}
+
 function telemetryChecks(facts: RepoFacts): Check[] {
   const traced = facts.runs.filter((run) => run.traceId).length
   const checks = [
@@ -735,12 +740,11 @@ function telemetryChecks(facts: RepoFacts): Check[] {
     checks.push(check("telemetry.llm", "warn", "Langfuse usage not measured"))
     return checks
   }
-  const unpriced = facts.llm.unpricedModels
   checks.push(
     check(
       "telemetry.llm",
-      unpriced.length ? "warn" : "pass",
-      `${facts.llm.total.totalTokens} tokens, $${facts.llm.total.costUsd.toFixed(4)} in Langfuse (unverified query shape)${unpriced.length ? `; no price for ${unpriced.join(", ")}, so its cost reads $0` : ""}`,
+      "pass",
+      `${facts.llm.total.totalTokens} tokens, ${cost(facts.llm.total.costUsd)} in Langfuse (unverified query shape)`,
     ),
   )
   const other = unexpectedModels(facts.llm.models)
@@ -891,12 +895,12 @@ export function renderMarkdown(report: ValidatorReport): string {
         "| --- | --- | --- | --- | --- |",
         ...stages.map(
           ([stage, usage]) =>
-            `| ${stage} | ${usage.calls} | ${usage.inputTokens} | ${usage.outputTokens} | $${usage.costUsd.toFixed(4)} |`,
+            `| ${stage} | ${usage.calls} | ${usage.inputTokens} | ${usage.outputTokens} | ${cost(usage.costUsd)} |`,
         ),
       )
       if (repo.spendUsd !== null)
         lines.push(
-          `| not in Langfuse (OpenRouter delta − Langfuse total) | — | — | — | $${(repo.spendUsd - repo.llm.total.costUsd).toFixed(4)} |`,
+          `| not in Langfuse (OpenRouter delta − Langfuse total) | — | — | — | ${cost(repo.llm.total.costUsd === null ? null : repo.spendUsd - repo.llm.total.costUsd)} |`,
         )
     }
     if (repo.workspaceQuality)
