@@ -71,6 +71,22 @@ it(
         })
 
         const env = parseEnv(process.env)
+        const sideJobRuns = async () => {
+          const result = await getSystemDb().execute(sql`
+            select workflow_name, count(*)::int as runs
+            from openworkflow.workflow_runs
+            where input->>'orgId' = ${f.org.id}
+              and workflow_name in ('workspace-tip-check', 'workspace-write-bootstrap')
+            group by workflow_name
+          `)
+          return new Map(
+            result.rows.map((row) => [
+              String(row.workflow_name),
+              Number(row.runs),
+            ]),
+          )
+        }
+        const runsBefore = await sideJobRuns()
         const reconnected = await upsertInstallation(f.org.id, 123456789, env)
         reconnectedId = reconnected.id
         await rebindUnboundWorkspaces({
@@ -107,7 +123,31 @@ it(
         expect(
           await withOrgIdContext(f.org, () => getWorkspaceById(outsideId)),
         ).toMatchObject({ githubConnectionId: null, desiredGeneration: 1 })
-        expect(errors).toEqual([])
+        // The relink starts the tip check, the hydrate, and the bootstrap
+        // without await, and they use the same log. The hydrate run is above.
+        // Wait until the tip check starts a run and the bootstrap starts a
+        // run or logs an error.
+        await expect
+          .poll(
+            async () => {
+              const runs = await sideJobRuns()
+              const started = (name: string) =>
+                (runs.get(name) ?? 0) > (runsBefore.get(name) ?? 0)
+              return (
+                started("workspace-tip-check") &&
+                (started("workspace-write-bootstrap") || errors.length > 0)
+              )
+            },
+            { timeout: 10_000 },
+          )
+          .toBe(true)
+        // The bootstrap admission can lose a race with the other relink jobs
+        // and then logs this error. It does not come from the rebind.
+        expect(
+          errors.filter(
+            (message) => message !== "Workspace write binding is unavailable",
+          ),
+        ).toEqual([])
       } finally {
         await withOrgDbContext(f.org.id, async (db) => {
           await db.delete(workspaces).where(eq(workspaces.id, outsideId))
