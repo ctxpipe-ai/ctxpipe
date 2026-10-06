@@ -154,14 +154,14 @@ jobs:
           pnpm exec tsx src/db/migrate-checkpoints.ts
           pnpm exec tsx src/db/backfill-pagerduty-connection-directory-cli.ts
           pnpm exec tsx src/db/provision-app-role-cli.ts
+      - name: Required chat sandbox image
+        run: docker build -t ctxpipe-chat-sandbox:opencode-1.18.34 scripts/chat-sandbox
       - name: Backend tests
         env:
           GRAPH_DB_URI: redis://127.0.0.1:6379
           AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
           DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
         run: pnpm --filter @ctxpipe/backend test
-      - name: Required chat sandbox image
-        run: docker build -t ctxpipe-chat-sandbox:opencode-1.18.34 scripts/chat-sandbox
       - name: Required deterministic contracts
         env:
           GRAPH_DB_URI: redis://127.0.0.1:6379
