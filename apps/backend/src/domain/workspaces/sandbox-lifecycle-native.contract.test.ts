@@ -369,7 +369,7 @@ it(
 )
 
 it(
-  "deletes a sandbox and its saved state 30 days after last use, or once its conversation is gone",
+  "deletes a sandbox and its saved state 29 days after last use, or once its conversation is gone",
   { timeout: 120_000 },
   async () => {
     await withOrg(async (org) => {

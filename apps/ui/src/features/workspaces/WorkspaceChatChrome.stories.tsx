@@ -232,7 +232,7 @@ export const ShowPr: Story = {
   },
 }
 
-/** A PR is open and the agent made commits it did not push: all three actions. */
+/** A PR is open and the agent made commits it did not push: Commit+Push and Show PR. */
 export const CommitPushWithOpenPr: Story = {
   args: {
     title: "Repo layout",

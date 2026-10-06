@@ -176,7 +176,10 @@ export async function ensureConversation(input: {
         ),
       )
       .limit(1)
-    if (!winner || (input.workspaceId && winner.workspaceId !== input.workspaceId)) {
+    if (
+      !winner ||
+      (input.workspaceId && winner.workspaceId !== input.workspaceId)
+    ) {
       throw createError({
         message: "Conversation not found",
         status: 404,
@@ -291,8 +294,11 @@ export async function recordConversationSessionPush(input: {
 }
 
 /**
- * The session branch's PR was merged: later turns work on a fresh branch. Compare-and-set on the previous branch, so a concurrent rotation
- * wins once.
+ * Move the conversation to a fresh branch: its PR was merged, or someone else
+ * pushed to its branch before a deletion. The old PR number is cleared.
+ * The update applies only while the row still has the previous branch, so
+ * when two writers rotate at the same time, only one wins. Returns whether
+ * this call won.
  */
 export async function rotateConversationSessionBranch(input: {
   orgId: string

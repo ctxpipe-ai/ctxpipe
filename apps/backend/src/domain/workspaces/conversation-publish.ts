@@ -110,7 +110,7 @@ export type SessionPublishFailure =
   | "push_failed"
 
 export type SessionPushResult =
-  | { status: "pushed"; branch: string; sha: string }
+  | { status: "pushed"; branch: string; sha: string; treeUrl: string }
   | { status: "unchanged" }
   | { status: "skipped"; reason: SessionPublishSkip }
   | { status: "failed"; reason: SessionPublishFailure }
@@ -495,7 +495,15 @@ async function brokerPush(input: {
       `git update-ref ${shellSingleQuote(`refs/remotes/origin/${branch}`)} ${shellSingleQuote(sha)}`,
     )
     await recordConversationSessionPush({ ...target, sha })
-    return { status: "pushed", branch, sha }
+    return {
+      status: "pushed",
+      branch,
+      sha,
+      treeUrl: conversationGithubTreeUrl({
+        repositoryName: target.repositoryName,
+        branch,
+      }),
+    }
   } catch (error) {
     if (error instanceof PublishRefused) throw error
     throw new Error(sanitizeCredentials(error, [readToken, writeToken]))
