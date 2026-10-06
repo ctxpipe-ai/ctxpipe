@@ -60,31 +60,8 @@ export async function collectUnusedWorkspaceBases(input: {
       const bases = rows.filter((row) => row.kind === "base")
       const ready = desired ? readyBases(bases, current, desired) : []
       const at = now.getTime()
-      /**
-       * Vercel: a conversation sandbox created before the base was
-       * superseded might use it. A live base's `created_at` is its publish
-       * time, so a sandbox started while the next base was still building
-       * counts.
-       */
-      const mayBeInUse = (base: SandboxInstanceRecord) => {
-        if (base.provider !== "vercel") return false
-        const supersededAt =
-          bases
-            .filter(
-              (other) =>
-                other.state === "live" &&
-                (other.createdAt?.getTime() ?? 0) >
-                  (base.createdAt?.getTime() ?? 0),
-            )
-            .map((other) => other.createdAt?.getTime() ?? at)
-            .sort((a, b) => a - b)[0] ?? at
-        return rows.some(
-          (row) =>
-            row.kind === "chat" &&
-            row.provider === "vercel" &&
-            (row.createdAt?.getTime() ?? 0) < supersededAt,
-        )
-      }
+      const mayBeInUse = (base: SandboxInstanceRecord) =>
+        workspaceBaseHeldUntil(base, rows) !== null
       let deleted = 0
       for (const base of bases) {
         const due =
@@ -105,6 +82,42 @@ export async function collectUnusedWorkspaceBases(input: {
       return deleted
     },
   )
+}
+
+/**
+ * Vercel: when the last conversation sandbox that may have started from this
+ * base expires, or null when none can use it. A sandbox created before the
+ * base was superseded may use it. A live base's `created_at` is its publish
+ * time, so a sandbox started while the next base was still building counts.
+ * A base with no snapshot (a failed build) is the source of no sandbox.
+ * `rows` are the Workspace's sandbox rows, bases and conversation sandboxes.
+ */
+export function workspaceBaseHeldUntil(
+  base: SandboxInstanceRecord,
+  rows: SandboxInstanceRecord[],
+): number | null {
+  if (base.provider !== "vercel" || !base.latestSnapshotId) return null
+  const created = base.createdAt?.getTime() ?? 0
+  const supersededAt =
+    rows
+      .filter(
+        (other) =>
+          other.kind === "base" &&
+          other.state === "live" &&
+          (other.createdAt?.getTime() ?? 0) > created,
+      )
+      .map((other) => other.createdAt?.getTime() ?? Number.POSITIVE_INFINITY)
+      .sort((a, b) => a - b)[0] ?? Number.POSITIVE_INFINITY
+  const expiries = rows
+    .filter(
+      (row) =>
+        row.kind === "chat" &&
+        row.provider === "vercel" &&
+        row.workspaceId === base.workspaceId &&
+        (row.createdAt?.getTime() ?? 0) < supersededAt,
+    )
+    .map((row) => row.lastHeartbeatAt.getTime() + CHAT_SANDBOX_RETENTION_MS)
+  return expiries.length ? Math.max(...expiries) : null
 }
 
 /** Share allocation's workspace fence, including idle and direct cleanup calls. */

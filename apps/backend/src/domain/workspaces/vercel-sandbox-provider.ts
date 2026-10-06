@@ -327,15 +327,14 @@ export function vercelConversationProvider(input: {
         } catch (error) {
           // This start goes on from the agent snapshot, once. The base is
           // marked failed (cleanup removes it, the next start asks for a
-          // rebuild) only when it is the cause: Vercel refused its snapshot,
-          // or the snapshot is gone or not usable. A rate limit, a server
-          // error or a network error keeps it.
+          // rebuild) only when it is the cause: a read of the snapshot finds
+          // it gone or not usable. Any other failure keeps it.
           log.warn({
             step: "workspace-base-start",
             message: `Starting from the Workspace base failed; using the agent snapshot: ${String(error)}`,
             ...input.logContext,
           })
-          if (await baseSnapshotIsBad(credentials, base.ref, error))
+          if (await baseSnapshotIsBad(credentials, base.ref))
             await base.failed()
           sandbox = await fromAgent()
         }
@@ -378,19 +377,15 @@ type SandboxTarget = {
 }
 
 /**
- * Whether a failed start from a Workspace base was the base's fault: Vercel
- * refused the request with a client error that is not about access or rate
- * (the source snapshot), or the snapshot is now gone or not `created`. When
- * the check itself fails, the base is kept.
+ * Whether a failed start from a Workspace base was the base's fault: the
+ * snapshot is now gone or not `created`. The start's own error does not
+ * decide it, as a client error can be about another option. When the check
+ * itself fails, the base is kept.
  */
 async function baseSnapshotIsBad(
   credentials: VercelCredentials,
   snapshotId: string,
-  error: unknown,
 ): Promise<boolean> {
-  const status = error instanceof APIError ? error.response.status : 0
-  if (status >= 400 && status < 500 && ![401, 403, 408, 429].includes(status))
-    return true
   try {
     const snapshot = await Snapshot.get({ ...credentials, snapshotId })
     return snapshot.status !== "created"

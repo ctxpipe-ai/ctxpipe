@@ -299,14 +299,37 @@ export async function runWorkspaceBaseBuild(input: {
     return null
   const provider = row.provider
   const revision = row.revision
-  const builder =
-    input.builder ?? (await workspaceBaseBuilder({ provider, orgId, revision }))
-  const build = await builder.start({ id: baseId, orgId })
+  const logger = getLogger()
+  const write = (
+    builderId: string | null,
+    set: Parameters<typeof updateBuildingBase>[0]["set"],
+  ) => updateBuildingBase({ id: baseId, orgId, builderId, set })
+  // End the lease (`destroy_failed`) of a build that stopped. A failed write
+  // only logs: the lease then lapses on its own.
+  const fail = (builderId: string | null) =>
+    write(builderId, { state: "destroy_failed" }).catch((failError: unknown) =>
+      logger.warn(
+        `Ending a failed Workspace base build's lease failed: ${String(failError)}`,
+        { step: "workspace-base-build", orgId, workspaceId: row.workspaceId },
+      ),
+    )
+  // A builder that cannot start (no access, no capacity, a provider error)
+  // made nothing, but the row must not keep its lease and slot.
+  let builder: WorkspaceBaseBuilder
+  let build: Awaited<ReturnType<WorkspaceBaseBuilder["start"]>>
+  try {
+    builder =
+      input.builder ??
+      (await workspaceBaseBuilder({ provider, orgId, revision }))
+    build = await builder.start({ id: baseId, orgId })
+  } catch (error) {
+    await fail(null)
+    throw error
+  }
   const made: Pick<
     SandboxInstanceRecord,
     "provider" | "providerSandboxId" | "latestSnapshotId"
   > = { provider, providerSandboxId: build.builderId, latestSnapshotId: null }
-  const logger = getLogger()
   const lapsed = async () => {
     await deleteWorkspaceBaseArtifacts(made)
     logger.warn("A Workspace base build lost its lease and stopped", {
@@ -316,10 +339,6 @@ export async function runWorkspaceBaseBuild(input: {
     })
     return null
   }
-  const write = (
-    builderId: string | null,
-    set: Parameters<typeof updateBuildingBase>[0]["set"],
-  ) => updateBuildingBase({ id: baseId, orgId, builderId, set })
   // Renew the lease while the clone and setup run. A failed renewal stops
   // nothing here: the checks before capture and publish find the lost lease.
   const heartbeat = setInterval(
@@ -386,13 +405,7 @@ export async function runWorkspaceBaseBuild(input: {
     // (`destroy_failed`: no lease, no slot); the sweep deletes it, and the
     // next window's first start requests a new build.
     await deleteWorkspaceBaseArtifacts(made)
-    await write(build.builderId, { state: "destroy_failed" }).catch(
-      (failError: unknown) =>
-        logger.warn(
-          `Ending a failed Workspace base build's lease failed: ${String(failError)}`,
-          { step: "workspace-base-build", orgId, workspaceId: row.workspaceId },
-        ),
-    )
+    await fail(build.builderId)
     throw error
   } finally {
     clearInterval(heartbeat)

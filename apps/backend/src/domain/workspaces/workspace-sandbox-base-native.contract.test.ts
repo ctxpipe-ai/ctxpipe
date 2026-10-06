@@ -545,6 +545,21 @@ it(
       expect(lost).toBeNull()
       expect(await leftovers()).toEqual([])
 
+      // A builder that cannot start ends its lease at once: the slot is
+      // free, and the next build is not blocked for the lease's hour.
+      await expect(
+        chat.build((builder) => ({
+          ...builder,
+          start: async () => {
+            throw new Error("no capacity")
+          },
+        })),
+      ).rejects.toThrow("no capacity")
+      const [unstarted] = await chat.bases()
+      expect(unstarted?.state).toBe("destroy_failed")
+      expect(await countRunningSandboxes(f.orgId, "")).toBe(0)
+      expect(await chat.collect()).toBe(1)
+
       // A held lease takes a slot; a lapsed one does not, is not resumed,
       // and cleanup removes its row.
       const agent = await chat.agent()

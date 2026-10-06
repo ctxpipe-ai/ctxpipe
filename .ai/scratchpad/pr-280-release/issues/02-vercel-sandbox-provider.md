@@ -116,6 +116,13 @@ Keep each patch minimal and listed with its removal condition. Never fall back t
 
 - 2026-10-04 (user): Commit+Push comes back now that the sandbox provider changed. The agent decides when to commit and push: semantic commits, the user can prompt it, and the system prompt recommends committing when a task is done. Create PR does not squash. Supersedes the 2026-10-01 "drop Commit+Push, squash on PR" decision and the automatic per-turn push.
 
+- 2026-10-07 (claude): **Workspace base, review round 4:**
+  - **Builder start failure:** when the builder cannot start (no hosted access, no agent snapshot, a Vercel 429 or 5xx, a Docker create or start error), the build ends its lease at once (`destroy_failed`). Before, the row stayed `building` and held its slot for up to 1 hour.
+  - **Failed start from a base:** the status of the start's error no longer marks the base failed. Only `Snapshot.get` decides: the snapshot is gone or not `created`. A 400, 402 or 409 can be about another option.
+  - **Failed builds:** a `destroy_failed` base with no snapshot is the source of no sandbox, so cleanup deletes it at once.
+  - **Sweep schedule:** a Vercel base kept for a conversation sandbox waits for that sandbox's expiry, not the 5-minute retry. A time already past becomes the next retry, so the sweep chain does not stop.
+  - **Known gap:** the hosted lane calls `startVercelWorkspaceBase` and `bootstrapWorkspace` directly. So `runWorkspaceBaseBuild` (lease and publish) never runs against real Vercel; msw + Postgres tests cover it with a local-process builder.
+
 - 2026-10-06 (claude): **Workspace base, review round 3** (ADR-048 "Fast start" and "Cleanup" updated):
   - **Lease:** the build renews its lease while the clone and setup run, and checks the lease in SQL right before the capture and at the publish. A lost lease stops the build and deletes its builder. The lease predicate is written once, in SQL (`leaseHeld` on each read).
   - **Publish lock:** the publish takes the Workspace lock that a create holds while it chooses its base and records its row. A create that interleaves with a publish keeps the old base (msw + Postgres test).

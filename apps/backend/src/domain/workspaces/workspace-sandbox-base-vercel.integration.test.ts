@@ -17,6 +17,7 @@ import {
 } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { connections } from "../../db/schema/connections.js"
+import { conversations } from "../../db/schema/conversations.js"
 import {
   workspaceSandboxInstances,
   workspaces,
@@ -271,10 +272,15 @@ describe("hosted base choice", () => {
       state: "live",
       lastHeartbeatAt: new Date(),
     })
+    // The choice reads a good snapshot; the re-check after the failed
+    // start finds it gone.
+    let reads = 0
     const sources: string[] = []
     server.use(
       http.get(`${API}/snapshots/snap_bad`, () =>
-        HttpResponse.json(snapshotBody("snap_bad", "created")),
+        reads++ === 0
+          ? HttpResponse.json(snapshotBody("snap_bad", "created"))
+          : HttpResponse.json({}, { status: 404 }),
       ),
       http.post(API, async ({ request }) => {
         const body = (await request.json()) as {
@@ -329,6 +335,9 @@ describe("hosted base choice", () => {
   it.each([
     { answer: 500, snapshot: "created", kept: true },
     { answer: 429, snapshot: "created", kept: true },
+    // A client error can be about another option, not the snapshot.
+    { answer: 400, snapshot: "created", kept: true },
+    { answer: 409, snapshot: "created", kept: true },
     { answer: 500, snapshot: "failed", kept: false },
   ] as const)("a start that fails with $answer keeps the base only while its snapshot is $snapshot", async ({
     answer,
@@ -915,9 +924,68 @@ describe("Vercel build step", () => {
   })
 })
 
+describe("hosted failed build", () => {
+  it("deletes a failed build that has no snapshot, though a conversation sandbox exists", async () => {
+    const ws = await workspace()
+    const now = Date.now()
+    const failedId = `base:${ws.id}:unbuilt`
+    await row({
+      id: failedId,
+      kind: "base",
+      orgId,
+      workspaceId: ws.id,
+      provider: "vercel",
+      providerSandboxId: null,
+      latestSnapshotId: null,
+      image: agent.image,
+      revision: ws.revision,
+      state: "destroy_failed",
+      lastHeartbeatAt: new Date(now - 60_000),
+      createdAt: new Date(now - 60_000),
+    })
+    await row({
+      id: `chat-${ws.id}`,
+      kind: "chat",
+      orgId,
+      workspaceId: ws.id,
+      conversationId: generateObjectId("conv"),
+      provider: "vercel",
+      providerSandboxId: "conversation-unbuilt",
+      state: "stopped",
+      lastHeartbeatAt: new Date(now - 5 * 60_000),
+      createdAt: new Date(now - 5 * 60_000),
+    })
+    server.use(
+      http.get(`${API}/snapshots`, () =>
+        HttpResponse.json({
+          snapshots: [],
+          pagination: { count: 0, next: null },
+        }),
+      ),
+      http.get(`${API}/:name`, () => HttpResponse.json({}, { status: 404 })),
+    )
+    expect(
+      await withTestLogger(() =>
+        collectUnusedWorkspaceBases({ orgId, workspaceId: ws.id, agent }),
+      ),
+    ).toBe(1)
+    expect(await getSandboxInstance(failedId, orgId)).toBeNull()
+  })
+})
+
 describe("base sweep schedule", () => {
-  it("schedules the org's next sweep for its bases: a current base at its retention end, a build at its lease end, a failed delete at the next retry", async () => {
-    // An org of its own: the sweep reads every base of the org.
+  /** An org of its own: the sweep reads every sandbox row of the org. */
+  async function withSweptOrg(
+    test: (org: {
+      workspaceId: string
+      row: (
+        id: string,
+        values: Partial<typeof workspaceSandboxInstances.$inferInsert>,
+      ) => Promise<unknown>
+      sweep: (now: Date) => Promise<number | undefined>
+      conversation: () => Promise<string>
+    }) => Promise<void>,
+  ) {
     const sweptOrg = generateObjectId("org")
     await getSystemDb().insert(organizations).values({
       id: sweptOrg,
@@ -927,30 +995,6 @@ describe("base sweep schedule", () => {
     })
     const workspaceId = generateObjectId("ws")
     const url = `https://github.com/acme/${workspaceId}.git`
-    const base = (
-      id: string,
-      values: Partial<typeof workspaceSandboxInstances.$inferInsert>,
-    ) =>
-      withOrgDbContext(sweptOrg, (db) =>
-        db.insert(workspaceSandboxInstances).values({
-          id,
-          kind: "base",
-          orgId: sweptOrg,
-          workspaceId,
-          provider: "vercel",
-          image: agent.image,
-          revision: revision(workspaceId, url),
-          state: "live",
-          lastHeartbeatAt: new Date(),
-          ...values,
-        }),
-      )
-    server.use(
-      http.get(`${API}/snapshots/:id`, ({ params }) =>
-        HttpResponse.json(snapshotBody(String(params.id), "created")),
-      ),
-      http.all(`${API}*`, () => HttpResponse.json({}, { status: 500 })),
-    )
     try {
       await withOrgDbContext(sweptOrg, (db) =>
         db.insert(workspaces).values({
@@ -963,47 +1007,152 @@ describe("base sweep schedule", () => {
           desiredDefaultBranch: "main",
         }),
       )
-      const now = new Date()
-      const lastStart = now.getTime() - DAY
-      await base(`base:${workspaceId}:current`, {
-        providerSandboxId: "builder-current",
-        latestSnapshotId: "snap_current",
-        lastHeartbeatAt: new Date(lastStart),
+      await test({
+        workspaceId,
+        row: (id, values) =>
+          withOrgDbContext(sweptOrg, (db) =>
+            db.insert(workspaceSandboxInstances).values({
+              id,
+              kind: "base",
+              orgId: sweptOrg,
+              workspaceId,
+              provider: "vercel",
+              image: agent.image,
+              revision: revision(workspaceId, url),
+              state: "live",
+              lastHeartbeatAt: new Date(),
+              ...values,
+            }),
+          ),
+        sweep: async (now) =>
+          (
+            await withTestLogger(() =>
+              sweepConversationSandboxes(sweptOrg, now),
+            )
+          ).nextSweepAt?.getTime(),
+        conversation: async () => {
+          const id = generateObjectId("conv")
+          await withOrgDbContext(sweptOrg, (db) =>
+            db
+              .insert(conversations)
+              .values({ id, orgId: sweptOrg, workspaceId }),
+          )
+          return id
+        },
       })
-      const sweep = () =>
-        withTestLogger(() => sweepConversationSandboxes(sweptOrg, now))
-      expect((await sweep()).nextSweepAt?.getTime()).toBe(
-        lastStart + CHAT_SANDBOX_RETENTION_MS,
-      )
-
-      const renewed = now.getTime() - 10 * 60_000
-      await base(`base:${workspaceId}:building`, {
-        state: "building",
-        lastHeartbeatAt: new Date(renewed),
-      })
-      expect((await sweep()).nextSweepAt?.getTime()).toBe(
-        renewed + BASE_BUILD_LEASE_MS,
-      )
-
-      // Its delete fails (Vercel answers 500): the sweep tries again.
-      await base(`base:${workspaceId}:failed`, {
-        state: "destroy_failed",
-        providerSandboxId: "builder-failed",
-      })
-      const retry = (await sweep()).nextSweepAt?.getTime() ?? 0
-      expect(retry).toBeGreaterThan(now.getTime())
-      expect(retry).toBeLessThanOrEqual(now.getTime() + 5 * 60_000)
     } finally {
       await withOrgDbContext(sweptOrg, async (db) => {
         await db
           .delete(workspaceSandboxInstances)
           .where(eq(workspaceSandboxInstances.orgId, sweptOrg))
+        await db.delete(conversations).where(eq(conversations.orgId, sweptOrg))
         await db.delete(workspaces).where(eq(workspaces.orgId, sweptOrg))
       })
       await getSystemDb()
         .delete(organizations)
         .where(eq(organizations.id, sweptOrg))
     }
+  }
+
+  it("schedules the org's next sweep for its bases: a current base at its retention end, a build at its lease end, a failed delete at the next retry", async () => {
+    server.use(
+      http.get(`${API}/snapshots/:id`, ({ params }) =>
+        HttpResponse.json(snapshotBody(String(params.id), "created")),
+      ),
+      http.all(`${API}*`, () => HttpResponse.json({}, { status: 500 })),
+    )
+    await withSweptOrg(async ({ workspaceId, row, sweep }) => {
+      const now = new Date()
+      const lastStart = now.getTime() - DAY
+      await row(`base:${workspaceId}:current`, {
+        providerSandboxId: "builder-current",
+        latestSnapshotId: "snap_current",
+        lastHeartbeatAt: new Date(lastStart),
+      })
+      expect(await sweep(now)).toBe(lastStart + CHAT_SANDBOX_RETENTION_MS)
+
+      const renewed = now.getTime() - 10 * 60_000
+      await row(`base:${workspaceId}:building`, {
+        state: "building",
+        lastHeartbeatAt: new Date(renewed),
+      })
+      expect(await sweep(now)).toBe(renewed + BASE_BUILD_LEASE_MS)
+
+      // Its delete fails (Vercel answers 500): the sweep tries again.
+      await row(`base:${workspaceId}:failed`, {
+        state: "destroy_failed",
+        providerSandboxId: "builder-failed",
+      })
+      const retry = (await sweep(now)) ?? 0
+      expect(retry).toBeGreaterThan(now.getTime())
+      expect(retry).toBeLessThanOrEqual(now.getTime() + 5 * 60_000)
+    })
+  })
+
+  it("schedules a kept base at its conversation sandbox's expiry, and never in the past", async () => {
+    server.use(
+      http.get(`${API}/snapshots/:id`, ({ params }) =>
+        HttpResponse.json(snapshotBody(String(params.id), "created")),
+      ),
+    )
+    await withSweptOrg(async ({ workspaceId, row, sweep, conversation }) => {
+      const now = new Date()
+      const used = now.getTime() - 2 * DAY
+      // A conversation sandbox that started from the old bases before the
+      // current base was published: Vercel keeps those bases for it.
+      await row(`chat-${workspaceId}`, {
+        kind: "chat",
+        conversationId: await conversation(),
+        image: null,
+        revision: null,
+        providerSandboxId: "conversation-held",
+        state: "stopped",
+        lastHeartbeatAt: new Date(used),
+        createdAt: new Date(now.getTime() - 40 * DAY),
+      })
+      await row(`base:${workspaceId}:current`, {
+        providerSandboxId: "builder-current",
+        latestSnapshotId: "snap_current",
+        createdAt: new Date(now.getTime() - DAY),
+      })
+      await row(`base:${workspaceId}:failed`, {
+        state: "destroy_failed",
+        providerSandboxId: "builder-failed",
+        latestSnapshotId: "snap_failed",
+        lastHeartbeatAt: new Date(now.getTime() - 3 * DAY),
+        createdAt: new Date(now.getTime() - 45 * DAY),
+      })
+      // The failed base waits for that sandbox's expiry, not the next retry.
+      expect(await sweep(now)).toBe(used + CHAT_SANDBOX_RETENTION_MS)
+
+      // A superseded base past its retention end, still in use, also waits
+      // for that sandbox's expiry.
+      await row(`base:${workspaceId}:old`, {
+        providerSandboxId: "builder-old",
+        latestSnapshotId: "snap_old",
+        lastHeartbeatAt: new Date(now.getTime() - 31 * DAY),
+        createdAt: new Date(now.getTime() - 50 * DAY),
+      })
+      expect(await sweep(now)).toBe(used + CHAT_SANDBOX_RETENTION_MS)
+
+      // A build whose lease lapsed, while cleanup is skipped (the agent
+      // image is unreadable), is due in the past: the sweep schedules the
+      // next retry instead.
+      await row(`base:${workspaceId}:lapsed`, {
+        state: "building",
+        latestSnapshotId: null,
+        lastHeartbeatAt: new Date(now.getTime() - 2 * BASE_BUILD_LEASE_MS),
+      })
+      const dockerHost = process.env.DOCKER_HOST
+      vi.stubEnv("SANDBOX_PROVIDER", "docker")
+      vi.stubEnv("DOCKER_HOST", "tcp://127.0.0.1:1")
+      const next = await sweep(now).finally(() => {
+        vi.stubEnv("SANDBOX_PROVIDER", "vercel")
+        vi.stubEnv("DOCKER_HOST", dockerHost)
+      })
+      expect(next ?? 0).toBeGreaterThan(now.getTime())
+      expect(next).toBeLessThanOrEqual(now.getTime() + 5 * 60_000)
+    })
   })
 })
 
