@@ -91,10 +91,12 @@ describe("repository extraction captures (Postgres)", () => {
     expect(await storeRootCapture(full, "billing", capture, 0)).toEqual({
       objects: 1,
       claims: 1,
+      skippedFiles: 0,
     })
     expect(await storedRootCapture(full, "billing")).toEqual({
       objects: 1,
       claims: 1,
+      skippedFiles: 0,
     })
     const partial = { ...full, scope: `since:${"b".repeat(40)}` }
     expect(await storedRootCapture(partial, "billing")).toBeNull()

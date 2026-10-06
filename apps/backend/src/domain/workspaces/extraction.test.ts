@@ -1,5 +1,9 @@
 import { expect, it } from "vitest"
-import { partialRetractionPaths, workspaceExtractionSchema } from "./extraction.js"
+import {
+  extractionRetraction,
+  partialRetractionPaths,
+  workspaceExtractionSchema,
+} from "./extraction.js"
 
 it("lists each changed, deleted, and renamed path of a partial ingest once", () => {
   expect(
@@ -28,4 +32,23 @@ it("falls back to a full ingest before the model calls when a partial change set
       capture: { scope: "full", extractorVersion: 1, roots: ["."] },
     }).success,
   ).toBe(false)
+})
+
+it("retracts nothing when the extractors skipped files after a model error", () => {
+  const observedAt = new Date(0).toISOString()
+  expect(
+    extractionRetraction({ partialPaths: null, observedAt, skippedFiles: 0 }),
+  ).toEqual({ mode: "full", observedAt })
+  expect(
+    extractionRetraction({
+      partialPaths: ["src/a.ts"],
+      observedAt,
+      skippedFiles: 0,
+    }),
+  ).toEqual({ mode: "partial", observedAt, paths: ["src/a.ts"] })
+  // The facts of a skipped file are not in the capture; a retraction would expire them.
+  for (const partialPaths of [null, ["src/a.ts"]])
+    expect(
+      extractionRetraction({ partialPaths, observedAt, skippedFiles: 1 }),
+    ).toBeUndefined()
 })

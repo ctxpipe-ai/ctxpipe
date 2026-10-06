@@ -86,6 +86,26 @@ export const workspaceExtractionSchema = z
 
 export type WorkspaceExtraction = z.infer<typeof workspaceExtractionSchema>
 
+/**
+ * The retraction of a queued extraction. When the extractors skipped files
+ * after a model error, the capture does not hold the facts of those files, and
+ * a retraction would expire them. Then the command retracts nothing.
+ */
+export function extractionRetraction(input: {
+  partialPaths: string[] | null
+  observedAt: string
+  skippedFiles: number
+}): WorkspaceExtraction["retraction"] {
+  if (input.skippedFiles) return undefined
+  return input.partialPaths
+    ? {
+        mode: "partial",
+        observedAt: input.observedAt,
+        paths: input.partialPaths,
+      }
+    : { mode: "full", observedAt: input.observedAt }
+}
+
 /** Immutable extractor output. Projection tables are never an extraction source. */
 const capturedExtractionShapeSchema = z
   .object({

@@ -6,6 +6,7 @@ import { resolveRepositoryRef } from "../../domain/codeIngestion/queue.js"
 import { isRepositoryGoneError } from "../../domain/codeIngestion/repositoryGone.js"
 import { captureRepositoryExtractionTarget } from "../../domain/workspaces/capture-repository-extraction.js"
 import {
+  extractionRetraction,
   extractionRootsSchema,
   partialRetractionPaths,
   workspaceExtractionSchema,
@@ -484,6 +485,7 @@ export const repositoryIngestion = defineWorkflow(
 
                     let extractedObjectsCount = 0
                     let extractedClaimsCount = 0
+                    let skippedFiles = 0
                     // Two roots at a time bound provider fan-out before the next batch is allocated.
                     for (let offset = 0; offset < roots.length; offset += 2) {
                       const rootExtractResults = await Promise.all(
@@ -591,22 +593,29 @@ export const repositoryIngestion = defineWorkflow(
                       for (const counts of rootExtractResults) {
                         extractedObjectsCount += counts.objects
                         extractedClaimsCount += counts.claims
+                        skippedFiles += counts.skippedFiles
                       }
                     }
                     return {
                       roots,
                       extractedObjectsCount,
                       extractedClaimsCount,
+                      skippedFiles,
                     }
                   })
                 : {
                     roots: [],
                     extractedObjectsCount: 0,
                     extractedClaimsCount: 0,
+                    skippedFiles: 0,
                   }
 
-              const { roots, extractedObjectsCount, extractedClaimsCount } =
-                extractResult
+              const {
+                roots,
+                extractedObjectsCount,
+                extractedClaimsCount,
+                skippedFiles,
+              } = extractResult
               if (destination) {
                 await assertRepositoryIngestionRequest({
                   ...input,
@@ -620,19 +629,12 @@ export const repositoryIngestion = defineWorkflow(
                   repositoryUrl: repository.gitUrl,
                   sourceSha: captureKey.sourceSha,
                   sourceDeclaration: destination.sourceDeclaration,
-                  retraction: partialPaths
-                    ? {
-                        mode: "partial",
-                        observedAt:
-                          reindexState.indexedAt ?? run.createdAt.toISOString(),
-                        paths: partialPaths,
-                      }
-                      : {
-                          mode: "full",
-                          observedAt:
-                            reindexState.indexedAt ??
-                            run.createdAt.toISOString(),
-                        },
+                  retraction: extractionRetraction({
+                    partialPaths,
+                    observedAt:
+                      reindexState.indexedAt ?? run.createdAt.toISOString(),
+                    skippedFiles,
+                  }),
                   capture: {
                     scope: captureKey.scope,
                     extractorVersion: captureKey.extractorVersion,

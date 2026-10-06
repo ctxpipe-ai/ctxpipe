@@ -17,8 +17,12 @@ export type ExtractionCaptureKey = {
   extractorVersion: number
 }
 
-/** Counts of the objects and claims of a stored capture. */
-export type ExtractionCounts = { objects: number; claims: number }
+/** Counts of a stored root capture, with the files its extractors skipped. */
+export type ExtractionCounts = {
+  objects: number
+  claims: number
+  skippedFiles: number
+}
 
 /** The stored capture of a publishable root cannot be published. */
 export class InvalidExtractionCaptureError extends Error {
@@ -70,6 +74,7 @@ export async function storeRootCapture(
   return {
     objects: capture.extractedObjects.length,
     claims: capture.extractedClaims.length,
+    skippedFiles,
   }
 }
 
@@ -86,10 +91,15 @@ export async function storedRootCapture(
       .select({
         objects: sql<number>`jsonb_array_length(${captures.objects})`,
         claims: sql<number>`jsonb_array_length(${captures.claims})`,
+        skippedFiles: captures.skippedFiles,
       })
       .from(captures)
       .where(
-        and(matches(key), eq(captures.root, root), eq(captures.skippedFiles, 0)),
+        and(
+          matches(key),
+          eq(captures.root, root),
+          eq(captures.skippedFiles, 0),
+        ),
       ),
   )
   return row ?? null
@@ -113,7 +123,10 @@ export async function loadExtractionCapture(
       .from(captures)
       .where(and(matches(key), inArray(captures.root, roots))),
   )
-  const capture: ExtractedCapture = { extractedObjects: [], extractedClaims: [] }
+  const capture: ExtractedCapture = {
+    extractedObjects: [],
+    extractedClaims: [],
+  }
   for (const root of roots) {
     const row = rows.find((candidate) => candidate.root === root)
     if (!row) throw new Error(`Extraction capture is missing for root ${root}`)
