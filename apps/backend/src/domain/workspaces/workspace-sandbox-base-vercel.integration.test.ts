@@ -29,9 +29,9 @@ import {
   getSandboxInstance,
 } from "../../models/workspaces.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
-import type { WorkspaceRevision } from "./revision.js"
 import { CHAT_SANDBOX_RETENTION_MS } from "./chat-lifecycle.js"
 import { sweepConversationSandboxes } from "./conversation-sandbox-lifecycle.js"
+import type { WorkspaceRevision } from "./revision.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import {
   builderSnapshotExpiration,
@@ -327,10 +327,98 @@ describe("hosted base choice", () => {
       "destroy_failed",
     )
   })
+
+  it.each([
+    { answer: 500, snapshot: "created", kept: true },
+    { answer: 429, snapshot: "created", kept: true },
+    { answer: 500, snapshot: "failed", kept: false },
+  ])("a start that fails with $answer keeps the base only while its snapshot is $snapshot", async ({
+    answer,
+    snapshot,
+    kept,
+  }) => {
+    const ws = await workspace()
+    const baseId = `base:${ws.id}:blip`
+    await row({
+      id: baseId,
+      kind: "base",
+      orgId,
+      workspaceId: ws.id,
+      provider: "vercel",
+      providerSandboxId: "builder-blip",
+      latestSnapshotId: "snap_blip",
+      image: agent.image,
+      revision: ws.revision,
+      state: "live",
+      lastHeartbeatAt: new Date(),
+    })
+    // The choice reads a good snapshot; the re-check after the failed
+    // start reads `snapshot`.
+    let reads = 0
+    const sources: string[] = []
+    server.use(
+      http.get(`${API}/snapshots/snap_blip`, () =>
+        HttpResponse.json(
+          snapshotBody("snap_blip", reads++ === 0 ? "created" : snapshot),
+        ),
+      ),
+      http.post(API, async ({ request }) => {
+        const body = (await request.json()) as {
+          source?: { snapshotId?: string }
+        }
+        const source = body.source?.snapshotId ?? ""
+        sources.push(source)
+        if (source === "snap_blip")
+          return HttpResponse.json(
+            { error: { code: "busy", message: "try again" } },
+            { status: answer },
+          )
+        return HttpResponse.json(sandboxBody("conversation-1"))
+      }),
+    )
+    const provider = vercelConversationProvider({
+      credentials,
+      agentPassword: "password",
+      access: {
+        backendHost: "ctxpipe.test",
+        mintGitToken: async () => "read-token",
+        revokeGitToken: async () => undefined,
+        tokens: {
+          get: async () => null,
+          put: async () => undefined,
+          take: async () => null,
+        },
+      },
+      tags: { ctxpipe: "workspace-chat", environment: "pr-1" },
+      base: () =>
+        baseForNewSandbox({
+          orgId,
+          workspaceId: ws.id,
+          agent,
+          revision: ws.revision,
+        }),
+      agentSnapshot: async () => "snap_agent",
+    })
+    const handle = await withTestLogger(() =>
+      provider.create({
+        workspace: { source: { type: "none" } },
+      } as Parameters<typeof provider.create>[0]),
+    )
+    expect(handle.id).toBe("conversation-1")
+    // The SDK may retry the failed start before it gives up.
+    expect(sources[0]).toBe("snap_blip")
+    expect(sources.at(-1)).toBe("snap_agent")
+    expect((await getSandboxInstance(baseId, orgId))?.state).toBe(
+      kept ? "live" : "destroy_failed",
+    )
+  })
 })
 
 describe("hosted base retention", () => {
-  it("keeps a superseded base while a conversation sandbox created before the next base was published exists", async () => {
+  it.each([
+    "live",
+    "destroy_failed",
+  ] as const)("keeps a superseded %s base while a conversation sandbox created before the next base was published exists", async (oldState) => {
     const ws = await workspace()
     const now = Date.now()
     const base = (id: string, publishedAt: number) => ({
@@ -348,7 +436,7 @@ describe("hosted base retention", () => {
       createdAt: new Date(publishedAt),
     })
     const oldId = `base:${ws.id}:old`
-    await row(base(oldId, now - 2 * DAY))
+    await row({ ...base(oldId, now - 2 * DAY), state: oldState })
     await row(base(`base:${ws.id}:new`, now - 60_000))
     // Started from the old base while the new one was still building: it
     // was created after the new build was reserved, before it published.

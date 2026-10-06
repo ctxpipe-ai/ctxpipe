@@ -70,7 +70,8 @@ export function workspaceChatThreadLock(input: {
         `chat-thread:${ctx.threadId}`,
         async (signal) => {
           const lost = () => {
-            if (!ctx.signal?.aborted) ctx.abort("Chat thread lock ownership lost")
+            if (!ctx.signal?.aborted)
+              ctx.abort("Chat thread lock ownership lost")
           }
           signal.addEventListener("abort", lost, { once: true })
           try {

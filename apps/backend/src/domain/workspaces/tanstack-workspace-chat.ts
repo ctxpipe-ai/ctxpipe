@@ -912,6 +912,7 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
       ? {
           ...vercel.options,
           base,
+          logContext: { orgId: input.orgId, workspaceId: input.workspaceId },
           // No base: the agent snapshot (OpenCode only), never npm.
           agentSnapshot: () =>
             vercelAgentSnapshot({

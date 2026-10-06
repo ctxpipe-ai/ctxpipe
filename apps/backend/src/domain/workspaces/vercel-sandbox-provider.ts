@@ -289,6 +289,8 @@ export function vercelConversationProvider(input: {
   base: () => Promise<{ ref?: string; failed: () => Promise<void> }>
   /** Without a base: the agent snapshot (OpenCode only). Never a bare runtime. */
   agentSnapshot: () => Promise<string>
+  /** Added to this provider's log entries. */
+  logContext?: { orgId: string; workspaceId: string }
 }): SandboxProvider {
   const { credentials, access } = input
   return {
@@ -323,14 +325,18 @@ export function vercelConversationProvider(input: {
         try {
           sandbox = await start(base.ref)
         } catch (error) {
-          // A base that cannot start a sandbox is marked failed (cleanup
-          // removes it, the next start asks for a rebuild); this start
-          // goes on from the agent snapshot, once.
+          // This start goes on from the agent snapshot, once. The base is
+          // marked failed (cleanup removes it, the next start asks for a
+          // rebuild) only when it is the cause: Vercel refused its snapshot,
+          // or the snapshot is gone or not usable. A rate limit, a server
+          // error or a network error keeps it.
           log.warn({
             step: "workspace-base-start",
             message: `Starting from the Workspace base failed; using the agent snapshot: ${String(error)}`,
+            ...input.logContext,
           })
-          await base.failed()
+          if (await baseSnapshotIsBad(credentials, base.ref, error))
+            await base.failed()
           sandbox = await fromAgent()
         }
       } else sandbox = await fromAgent()
@@ -369,6 +375,28 @@ type SandboxTarget = {
    */
   tokens?: SandboxGitTokenStore
   revoke?: (token: string) => Promise<void>
+}
+
+/**
+ * Whether a failed start from a Workspace base was the base's fault: Vercel
+ * refused the request with a client error that is not about access or rate
+ * (the source snapshot), or the snapshot is now gone or not `created`. When
+ * the check itself fails, the base is kept.
+ */
+async function baseSnapshotIsBad(
+  credentials: VercelCredentials,
+  snapshotId: string,
+  error: unknown,
+): Promise<boolean> {
+  const status = error instanceof APIError ? error.response.status : 0
+  if (status >= 400 && status < 500 && ![401, 403, 408, 429].includes(status))
+    return true
+  try {
+    const snapshot = await Snapshot.get({ ...credentials, snapshotId })
+    return snapshot.status !== "created"
+  } catch (checkError) {
+    return notFound(checkError)
+  }
 }
 
 function notFound(error: unknown): boolean {

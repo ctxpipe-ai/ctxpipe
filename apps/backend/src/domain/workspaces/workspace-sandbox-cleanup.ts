@@ -25,7 +25,8 @@ import { readyBases } from "./workspace-sandbox-base.js"
  * Delete the Workspace's bases no new sandbox will start from. The current
  * base is the newest ready one for the deployment's agent image and the
  * Workspace binding.
- * - Builds past their lease, and failed deletes.
+ * - Builds past their lease, and failed deletes (on Vercel, with the same
+ *   in-use check as below).
  * - Docker: every other base at once (a stopped container restarts without
  *   its image, measured; the daemon refuses while a running one uses it, and
  *   the row waits for a later sweep), and the current one once no sandbox
@@ -87,8 +88,10 @@ export async function collectUnusedWorkspaceBases(input: {
       let deleted = 0
       for (const base of bases) {
         const due =
-          base.state === "destroy_failed" ||
           (base.state === "building" && !base.leaseHeld) ||
+          // A Vercel base marked failed may still be the source of a
+          // sandbox that started from it before it failed.
+          (base.state === "destroy_failed" && !mayBeInUse(base)) ||
           (base.state === "live" &&
             (base.id !== ready[0]?.id ||
               at - base.lastHeartbeatAt.getTime() >=
