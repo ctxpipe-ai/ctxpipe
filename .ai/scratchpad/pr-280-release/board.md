@@ -18,4 +18,4 @@ Updated: 2026-10-07. Tickets are implemented by sub-agents in separate worktrees
 | — | 11 | [Add a second Workspace from the UI](issues/11-add-workspace-entry-point.md) | done | P1 | claude | — |
 | — | 13 | [Show knowledge files skipped as malformed on the Workspace page](issues/13-skipped-files-notice.md) | done | P2 | claude | — |
 | — | 14 | [Extraction capture over 8 MiB fails ingestion](issues/14-extraction-capture-size.md) | done | P0 | claude | — |
-| — | 15 | [A chat turn can send its final message but never finish](issues/15-turn-finish-hang.md) | in-review (final cleanups) | P1 | claude (orchestrating) | — |
+| — | 15 | [A chat turn can send its final message but never finish](issues/15-turn-finish-hang.md) | done | P1 | claude | — |

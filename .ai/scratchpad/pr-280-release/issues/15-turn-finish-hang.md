@@ -1,6 +1,6 @@
 # A chat turn can send its final message but never finish
 
-Status: in-review
+Status: done
 Priority: P1
 Owner: unassigned
 Blocked by: none
