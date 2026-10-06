@@ -83,6 +83,7 @@ export const EXTENSION_ALLOWED_CONNECTIONS: Array<{
     objectKind: "File",
   },
   { subjectKind: "Decision", predicate: "DECLARED_IN", objectKind: "File" },
+  { subjectKind: "Workflow", predicate: "DECLARED_IN", objectKind: "File" },
   // containment
   { subjectKind: "File", predicate: "PART_OF", objectKind: "Repository" },
   ...PACKAGE_KINDS.map((objectKind) => ({
@@ -117,6 +118,11 @@ export const EXTENSION_ALLOWED_CONNECTIONS: Array<{
   { subjectKind: "Issue", predicate: "MENTIONS", objectKind: "File" },
   { subjectKind: "Thread", predicate: "MENTIONS", objectKind: "File" },
   { subjectKind: "Decision", predicate: "MENTIONS", objectKind: "File" },
+  ...PACKAGE_KINDS.map((objectKind) => ({
+    subjectKind: "Workflow",
+    predicate: "MENTIONS",
+    objectKind,
+  })),
   { subjectKind: "Decision", predicate: "SUPERSEDES", objectKind: "Decision" },
   // ownership
   { subjectKind: "Team", predicate: "OWNS", objectKind: "Issue" },
@@ -147,7 +153,7 @@ export const PREDICATE_DESCRIPTIONS: Record<string, string> = {
     "a Repository or Service is governed by this InstructionUnit (stated norm)",
   MEMBER_OF_PRIMARY: "an InstructionUnit belongs to this Skill",
   DECLARED_IN:
-    "provenance: the InstructionUnit or Decision is stated in this File",
+    "provenance: the InstructionUnit, Decision or Workflow is stated in this File",
   PART_OF:
     "containment: the File is inside this Repository, Service, App or Library; a monorepo Service, App or Library is nested in this outer one or the workspace root",
   TARGETS: "the PullRequest's base Repository",
@@ -161,7 +167,8 @@ export const PREDICATE_DESCRIPTIONS: Record<string, string> = {
     "change event: the PullRequest renamed a file to this File (valid_from = merge date)",
   REFERENCES:
     "explicit cross-tool link by URL or identifier: Issue and PullRequest reference each other; a Thread references a PullRequest, Issue or Decision",
-  MENTIONS: "lexical mention of a File in an Issue, Thread or Decision",
+  MENTIONS:
+    "lexical mention of a File in an Issue, Thread or Decision; a GitHub Actions Workflow names a Service, App or Library directory in a path filter or working directory",
   OWNS: "ownership: a Team owns a Service, App or Library (CODEOWNERS) or an Issue (tracker team)",
   INFLUENCES: "a Decision (ADR) shapes this Service",
   SUPERSEDES: "a Decision replaces an earlier Decision",

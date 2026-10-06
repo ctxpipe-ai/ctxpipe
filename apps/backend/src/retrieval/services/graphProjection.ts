@@ -41,6 +41,7 @@ const KIND_PAYLOAD_KEYS: Record<string, string[]> = {
   Issue: ["identifier", "state", "priority", "team", "project", "url"],
   Team: ["key", "source", "url"],
   Thread: ["channel_name", "permalink", "captured_at", "message_count"],
+  Workflow: ["path"],
 }
 
 const SAFE_CYPHER_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/

@@ -2,6 +2,7 @@ import { isUnresolvedProviderIdentity } from "../../domain/codeIngestion/referen
 import { CONNECTOR_EXTRACTORS } from "./nodes/connectorExtractors.js"
 import { extractCodeowners } from "./nodes/extractCodeowners.js"
 import { extractDecisions } from "./nodes/extractDecisions.js"
+import { extractGithubWorkflows } from "./nodes/extractGithubWorkflows.js"
 import { extractInstructionUnits } from "./nodes/extractInstructionUnits.js"
 import { extractKind } from "./nodes/extractKind.js"
 import { identifyAPIClients } from "./nodes/identifyAPIClients.js"
@@ -53,7 +54,7 @@ function concatExtracted(parts: Array<Partial<CodeIngestionState>>): {
 /**
  * Per-root extract DAG (same shape as extractionSubgraph):
  * extractKind, then parallel identify_* + extractInstructionUnits + decisions +
- * CODEOWNERS + the connector extractor registry, then path locating.
+ * CODEOWNERS + workflows + the connector extractor registry, then path locating.
  *
  * Used by OpenWorkflow `repository-ingestion` so each phase is a durable step
  * boundary when callers wrap these in `step.run`.
@@ -95,6 +96,7 @@ export async function runIdentifyPhaseForRoot(
     extractInstructionUnits(rootState),
     extractDecisions(rootState),
     extractCodeowners(rootState),
+    extractGithubWorkflows(rootState),
     ...CONNECTOR_EXTRACTORS.map((extractor) => extractor.extract(rootState)),
   ])
 
