@@ -6,10 +6,6 @@ import {
 } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
 import {
-  orgsWithSandboxes,
-  sweepConversationSandboxes,
-} from "./conversation-sandbox-lifecycle.js"
-import {
   DOCKER_LABELS,
   removeDockerObject,
   sandboxStoreId,
@@ -18,19 +14,17 @@ import {
 /**
  * Keep a self-hosted Docker host from filling up with what no org's sweep
  * chain will remove. Runs once per sweep window on Docker deployments.
- * - Every org with a sandbox row is swept now: its chain may have ended (a
- *   dormant org). Stock containers carry no labels, so this works from
- *   `provider_sandbox_id`.
- * - Labeled objects of this deployment (by database) that no row records:
- *   base images whose base row is gone or names another image (a build
- *   that crashed between its capture and its publish) while no build of
- *   that row holds its lease, and containers (base builders, and
- *   conversation containers started from a base, which inherit the image's
- *   labels) that no row records and that are older than `orphanAgeMs` (a
- *   create may not have recorded its row yet). Images go with `force`, as
- *   in base cleanup (a stopped container keeps working without its image);
- *   the daemon refuses images a running container uses. Other deployments'
- *   and unlabeled objects are never touched.
+ * Each org's own sweep chain removes what its rows record (bases included).
+ * This removes only labeled objects of this deployment (by database) that
+ * no row records: base images whose base row is gone or names another image
+ * (a build that crashed between its capture and its publish) while no build
+ * of that row holds its lease, and containers (base builders, and
+ * conversation containers started from a base, which inherit the image's
+ * labels) that no row records and that are older than `orphanAgeMs` (a
+ * create may not have recorded its row yet). Images go with `force`, as in
+ * base cleanup (a stopped container keeps working without its image); the
+ * daemon refuses images a running container uses. Other deployments' and
+ * unlabeled objects are never touched.
  * Not reachable: a container started from the plain chat image whose row was
  * removed without destroying it. Our code never removes such a row while its
  * delete fails (it is kept as `destroy_failed` and retried).
@@ -46,17 +40,6 @@ export async function pruneDockerSandboxHost(
   const docker = input.docker ?? new Docker({ timeout: 30_000 })
   const orphanAgeMs = input.orphanAgeMs ?? 60 * 60_000
   const logger = getLogger()
-  const swept = await orgsWithSandboxes()
-  for (const orgId of swept) {
-    try {
-      await sweepConversationSandboxes(orgId)
-    } catch (error) {
-      logger.error(error instanceof Error ? error : new Error(String(error)), {
-        step: "docker-sandbox-host-prune",
-        orgId,
-      })
-    }
-  }
   const store = `${DOCKER_LABELS.store}=${input.store ?? sandboxStoreId()}`
   const owner = (labels: Record<string, string> | undefined) => ({
     orgId: labels?.[DOCKER_LABELS.org],

@@ -6,6 +6,7 @@ import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { listOrgConversationsForSandboxGc } from "../../models/conversations.js"
 import {
+  BASE_BUILD_LEASE_MS,
   countRunningSandboxes,
   deleteSandboxInstance,
   getSandboxInstance,
@@ -260,8 +261,7 @@ export async function* stoppingSandboxWhenDone<T>(
 /**
  * Orgs that have any sandbox row (conversation, job or Workspace base): the
  * sweep decides what is due. The worker-start backstop schedules a sweep for
- * each; the Docker host prune sweeps them, so a dormant org's leftovers go
- * even when its own chain has ended.
+ * each, in case a chain was lost.
  */
 export async function orgsWithSandboxes(): Promise<string[]> {
   const orgs = await getSystemDb()
@@ -291,7 +291,8 @@ export async function orgsWithSandboxes(): Promise<string[]> {
  *   conversation is gone, or when an earlier delete failed.
  * Returns when the next sweep is due, or null when nothing is running and
  * nothing needs a retry. Stopped sandboxes schedule nothing: whichever sweep
- * passes after 30 days deletes them.
+ * passes after 30 days deletes them. Workspace bases always schedule the
+ * next sweep (see below).
  */
 export async function sweepConversationSandboxes(
   orgId: string,
@@ -381,6 +382,21 @@ export async function sweepConversationSandboxes(
         workspaceId,
       })
     }
+  }
+  // Each base left schedules the org's next sweep, so a dormant org's
+  // bases still go: a live base at its retention end, a build at its
+  // lease end, a failed delete at the next retry.
+  const left = bases.length
+    ? await withOrgDbContext(orgId, () =>
+        listSandboxInstances({ kind: "base" }),
+      )
+    : []
+  for (const base of left) {
+    if (base.state === "live")
+      dueAt(base.lastHeartbeatAt.getTime() + CHAT_SANDBOX_RETENTION_MS)
+    else if (base.state === "building")
+      dueAt(base.lastHeartbeatAt.getTime() + BASE_BUILD_LEASE_MS)
+    else if (base.state === "destroy_failed") dueAt(retryAt)
   }
   if (stopped || deleted)
     log.info({
