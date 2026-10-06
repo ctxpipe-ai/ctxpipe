@@ -20,6 +20,7 @@ When `roots` includes both `./` and package paths (e.g. `apps/web`), post-proces
 | extractInstructionUnits | InstructionUnit, Skill | HAS_INSTRUCTION, MEMBER_OF_PRIMARY | inu:${repositoryId}:${root}:${hash}, skl:${repositoryId}:${hash} |
 | extractDecisions | Decision | INFLUENCES, SUPERSEDES, MENTIONS | dec:${repositoryId}:${path} |
 | extractCodeowners | Team | OWNS (Team → Service/App/Library) | team:github:${org}/${slug} |
+| extractGithubWorkflows | Workflow | DECLARED_IN (via linkLocatedPaths), MENTIONS (→ Service/App/Library named by a path filter or working directory) | wfl:${repositoryId}:${path} |
 | extractGithubPullRequests (connector) | PullRequest, File | TARGETS, ADDED, MODIFIED, REMOVED, RENAMED, PART_OF, REFERENCES (→ Issue) | prq:${sourceRepo}:${number}, fil:${sourceRepo}:${path} |
 | extractLinear (connector) | Issue, Team | OWNS (Team → Issue), REFERENCES (→ PullRequest) | iss:linear:${identifier}, team:linear:${key} |
 | extractSlackThreads (connector) | Thread | REFERENCES (→ PullRequest / Issue) | thr:slack:${channelId}:${threadTs} |

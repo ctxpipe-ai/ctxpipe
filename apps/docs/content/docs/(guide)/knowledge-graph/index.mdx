@@ -30,6 +30,8 @@ Node kinds are grouped by what they describe:
 - **Knowledge and norms**: `Decision` (ADR files), `InstructionUnit`, `Skill`,
   `Pattern`.
 - **Ownership**: `Team` (CODEOWNERS, tracker teams).
+- **Automation**: `Workflow` (GitHub Actions workflow files), linked to the
+  packages that its path filters and working directories name.
 
 Edges belong to relation families with fixed meanings: containment
 (`PART_OF`), provenance (`DECLARED_IN`), change (`TARGETS`, `ADDED`, …),
