@@ -29,6 +29,7 @@ import { workspaceHydrate } from "../openworkflow/workflows/workspace-hydrate.js
 import { workspaceIndex } from "../openworkflow/workflows/workspace-index.js"
 import { workspaceTipCheck } from "../openworkflow/workflows/workspace-tip-check.js"
 import { closeGraphDb } from "../platform/graph/client.js"
+import { listenWithDockerOutsideMsw } from "./docker-outside-msw.js"
 
 export type NativeHydrationOptions = {
   namespaceId?: string
@@ -550,7 +551,7 @@ async function createNativeHydrationFixture(
     if (new URL(request.url).hostname === "api.github.com")
       options.onGithubRequest?.(request.method, request.url)
   })
-  server.listen({ onUnhandledRequest: "error" })
+  listenWithDockerOutsideMsw(server, { onUnhandledRequest: "error" })
   initDb(databaseUrl)
   const backend = await BackendPostgres.connect(databaseUrl, {
     runMigrations: false,
