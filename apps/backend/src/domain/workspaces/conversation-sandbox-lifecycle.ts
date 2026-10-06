@@ -370,7 +370,7 @@ export async function sweepConversationSandboxes(
             now.getTime() - row.lastHeartbeatAt.getTime() <
               CHAT_SANDBOX_RETENTION_MS
           )
-            return "used"
+            return "unpushed"
           return expired
             ? destroyUnusedSandbox(row.id, orgId, row.lastHeartbeatAt)
             : (await stopSandboxRow(orgId, row.id, idleSince))
@@ -383,8 +383,18 @@ export async function sweepConversationSandboxes(
         stopped += 1
         dueAt(row.lastHeartbeatAt.getTime() + CHAT_SANDBOX_DELETE_AFTER_MS)
       } else if (result === "destroyed") deleted += 1
-      // Busy, used since it was listed, or failed: look again soon.
-      else dueAt(retryAt)
+      else {
+        // Busy, used since it was listed, unpushed commits, or a failed
+        // delete: look again soon.
+        log.info({
+          step: "conversation-sandbox-sweep",
+          message: `Sandbox kept for the next sweep (${result})`,
+          sandboxId: row.id,
+          conversationId,
+          reason: result,
+        })
+        dueAt(retryAt)
+      }
     } catch (error) {
       log.error({
         step: "conversation-sandbox-sweep",
