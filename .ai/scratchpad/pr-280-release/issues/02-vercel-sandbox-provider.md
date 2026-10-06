@@ -116,6 +116,15 @@ Keep each patch minimal and listed with its removal condition. Never fall back t
 
 - 2026-10-04 (user): Commit+Push comes back now that the sandbox provider changed. The agent decides when to commit and push: semantic commits, the user can prompt it, and the system prompt recommends committing when a task is done. Create PR does not squash. Supersedes the 2026-10-01 "drop Commit+Push, squash on PR" decision and the automatic per-turn push.
 
+- 2026-10-06 (claude): **Workspace base, review round 3** (ADR-048 "Fast start" and "Cleanup" updated):
+  - **Lease:** the build renews its lease while the clone and setup run, and checks the lease in SQL right before the capture and at the publish. A lost lease stops the build and deletes its builder. The lease predicate is written once, in SQL (`leaseHeld` on each read).
+  - **Publish lock:** the publish takes the Workspace lock that a create holds while it chooses its base and records its row. A create that interleaves with a publish keeps the old base (msw + Postgres test).
+  - **Temporary Vercel errors:** a 429, 5xx or network error on `Sandbox.create` no longer marks the base failed; that start goes on without a base. Only a 4xx about the source snapshot, or `Snapshot.get` showing it gone or not usable, marks it. A `destroy_failed` base is kept while a sandbox may use it.
+  - **One retry layer:** the build step runs once. A failed build marks its row `destroy_failed` in its own catch; the next 10-minute window's first start retries. The `release` step, the step retries and their tests are gone.
+  - **Scheduling:** each base schedules the org's next sweep (retention end, lease end, retry), so a dormant hosted org's bases go without a worker restart.
+  - **No-token proof:** the lane streams a tar of `.git`, `$HOME`, `/etc` and `/tmp` from the conversation sandbox and searches it in the test process, with the git config and environment. The token never enters the sandbox.
+  - **Not changed:** the msw builder test still runs the builder's commands in a local process, because the fake Vercel API cannot run commands. The hosted lane runs the same clone and setup in a real Vercel builder.
+
 - 2026-10-05 (claude): **Workspace base, review round 2** (ADR-048 "Fast start" and "Cleanup" updated):
   - **Retention race fixed:** publish sets the base's `created_at` to the publish time. A conversation that starts from the old base while the next one builds now keeps the old base. Proven with msw + Postgres (`workspace-sandbox-base-vercel.integration.test.ts`).
   - **Org context fixed:** the sweep's base cleanup and the build's reserve step read the Workspace with the explicit org id. Before, both needed a request org context that a workflow does not have, so in production they failed with "Missing org context". The native tests hid this, because they run inside an org context. The integration tests now call both without one.

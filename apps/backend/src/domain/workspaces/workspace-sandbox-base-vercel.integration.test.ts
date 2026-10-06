@@ -532,6 +532,8 @@ describe("Vercel build step", () => {
       revision: ws.revision,
       state: "building",
       lastHeartbeatAt: new Date(),
+      // Inserted an hour back: the publish must move it.
+      createdAt: new Date(Date.now() - 60 * 60_000),
     })
     const builder = localBuilder(async () => "snap_built")
     const reservedAt = Date.now()
@@ -749,7 +751,9 @@ describe("Vercel build step", () => {
   it("runs with the production Vercel builder: GitHub-only egress, the builder kept as the snapshot's owner, preview expiry, the token revoked", async () => {
     // The production builder, wired through hostedSandboxAccess; Vercel and
     // GitHub are msw. Only the builder's commands run in a local process,
-    // because Vercel streams command output over its own protocol.
+    // because Vercel streams command output over its own protocol. The
+    // hosted lane (vercel-sandbox.contract.test.ts) runs the same clone and
+    // setup, and the no-token scan, in a real Vercel builder.
     const environment = `pr-${Date.now()}`
     vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", environment)
     vi.stubEnv("AUTH_BASE_URL", "https://backend.ctxpipe.test")

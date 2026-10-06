@@ -1,3 +1,4 @@
+import { gunzipSync } from "node:zlib"
 import {
   bootstrapWorkspace,
   defineWorkspace,
@@ -602,14 +603,21 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
     )
     expect((await opencode(conversation)).stdout).toContain(OPENCODE_VERSION)
     expect(await npmReachable(conversation)).toBe(false)
-    // The base holds the token nowhere: git config, environment and the
-    // small files a credential would land in. The token never enters the
-    // sandbox; the output is checked here, in the test process.
-    const scan = await conversation.process.exec(
-      'git -C /vercel/sandbox config --list --show-origin; env; for f in $(find /vercel/sandbox/.git "$HOME" -maxdepth 1 -type f -size -1M 2>/dev/null) /etc/gitconfig; do cat "$f" 2>/dev/null; done; true',
+    // The base holds the token nowhere: not in the git config or the
+    // environment, and not in any file under .git, $HOME, /etc or /tmp. The
+    // token never enters the sandbox: the sandbox streams those trees as a
+    // tar, and the search runs here, in the test process.
+    const config = await conversation.process.exec(
+      "git -C /vercel/sandbox config --list --show-origin; env",
     )
-    expect(scan.stdout.length).toBeGreaterThan(0)
-    expect(scan.stdout.includes(token)).toBe(false)
+    expect(config.stdout.length).toBeGreaterThan(0)
+    expect(config.stdout.includes(token)).toBe(false)
+    const tree = await conversation.process.exec(
+      'tar -czf - --ignore-failed-read /vercel/sandbox/.git "$HOME" /etc /tmp 2>/dev/null | base64 -w0',
+    )
+    const archive = gunzipSync(Buffer.from(tree.stdout, "base64"))
+    expect(archive.includes("vercel/sandbox/.git/config")).toBe(true)
+    expect(archive.includes(token)).toBe(false)
 
     // Measure (ADR-048): does a sandbox survive deletion of its source
     // snapshot? Delete the base the way a crashed build would be cleaned up:

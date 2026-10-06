@@ -114,6 +114,12 @@ Do not add TanStack patches or an application-level sandbox registry. Keep const
     6. the prune removes a dormant org's container, an orphaned image and an orphaned labeled container, and leaves the rest.
   - Timings (local, tiny repo): ready 0.9 s from a base vs 0.9–1.1 s without one (concurrent starts serialize on the Workspace lock).
 
+- 2026-10-06 (claude): **Workspace base, review round 3** (ADR-048 updated):
+  - The base image carries its row id as a label. A crash between `docker commit` and the publish leaves an image the row does not name; the host prune removes it when no build of that row holds its lease.
+  - The host prune no longer sweeps every org. Each base schedules its org's next sweep (retention end, lease end, retry), and the worker-start backstop still schedules a sweep for every org with a sandbox row.
+  - The time-to-ready measurement left the contract suite. Run it by hand, with Docker, the chat sandbox image and a migrated database (`pnpm dev:infra`, `pnpm db:migrate`), from `apps/backend`: `DATABASE_URL=… bun run src/scripts/workspaceBaseTimeToReady.ts [public-repository-url]` (default `facebook/react`). It prints one `[workspace-base]` line with the ready times, the build time and the image size the base adds.
+  - The prune test uses its own store label, so it never removes objects of other test runs.
+
 - 2026-10-04 (claude): **fast start (option B) and host prune landed** (ADR-048 "Fast start" and "Cleanup"):
   - Base: a container of the chat image clones the Workspace repository and runs the Docker setup. `docker commit` turns it into `ctxpipe-workspace-base:<row>`, labeled `ai.ctxpipe.sandbox=workspace-base`, `ai.ctxpipe.store=<database hash>`, `ai.ctxpipe.base=<row>`, org and Workspace. The image holds no secret.
   - New conversations use stock `dockerSandbox({ image: <base> })`; stock bootstrap skips the clone. Existing conversations keep their container.
@@ -126,7 +132,7 @@ Do not add TanStack patches or an application-level sandbox registry. Keep const
     4. unused bases are deleted (superseded at once; current after 7 days);
     5. the prune removes a dormant org's 31-day-old stopped container and an unused labeled image, and leaves a recent container, a base in use, another deployment's image and an unlabeled image.
   - Measured locally (Docker Desktop, tiny repository on the bridge): sandbox ready 1.2 s without a base vs 1.1 s from one. The clone is all a Docker base saves, so the gain grows with repository size. The three concurrent starts without a base took 1.2/2.6/4.0 s, because the Workspace lock serializes creates (existing behavior).
-  - Measured on a large public repository (2026-10-06, Docker Desktop, `facebook/react` at `278794d7dee9`, depth-1 clone over the internet, test "measures time to ready with and without a base"): sandbox ready 16.1 s without a base and 8.9 s from one. The base build took 21.9 s, and the base adds 53 MB to the chat image. In the same run, the tiny bridge repository gave 6.3/12.3/22.9 s for three concurrent starts without a base and 9.6 s from one, because other test suites loaded the machine. Decision for the user: the base saves about 7 s on a large repository and almost nothing on a small one.
+  - Measured on a large public repository (2026-10-06, Docker Desktop, `facebook/react` at `278794d7dee9`, depth-1 clone over the internet, now `src/scripts/workspaceBaseTimeToReady.ts`): sandbox ready 16.1 s without a base and 8.9 s from one. The base build took 21.9 s, and the base adds 53 MB to the chat image. In the same run, the tiny bridge repository gave 6.3/12.3/22.9 s for three concurrent starts without a base and 9.6 s from one, because other test suites loaded the machine. Decision for the user: the base saves about 7 s on a large repository and almost nothing on a small one.
   - Note for Compose/CDK: the worker builds bases, so it needs the same `DOCKER_HOST` / TLS and `SANDBOX_CHAT_IMAGE` as the backend (CDK already passes both).
 
 - 2026-10-03 (claude, Compose part, after adversarial review): supersedes the isolation notes in the comment below.

@@ -9,7 +9,7 @@ import { promisify } from "node:util"
 import Docker from "dockerode"
 import { eq } from "drizzle-orm"
 import { BackendPostgres } from "openworkflow/postgres"
-import { afterAll, expect, it } from "vitest"
+import { afterAll, expect, it, vi } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import {
   closeDb,
@@ -18,7 +18,6 @@ import {
   withOrgDbContext,
 } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
-import { conversations } from "../../db/schema/conversations.js"
 import {
   workspaceSandboxInstances,
   workspaces,
@@ -28,8 +27,13 @@ import {
   BASE_BUILD_LEASE_MS,
   countRunningSandboxes,
   getSandboxInstance,
-  listSandboxInstances,
 } from "../../models/workspaces.js"
+import {
+  CHAT_IMAGE,
+  dockerChat,
+  type Fixture,
+  TOKEN,
+} from "../../test/docker-workspace-base.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
 import {
@@ -38,20 +42,9 @@ import {
 } from "./chat-lifecycle.js"
 import { stopConversationSandboxes } from "./conversation-sandbox-lifecycle.js"
 import { pruneDockerSandboxHost } from "./docker-sandbox-host-prune.js"
-import { warmTanstackWorkspaceChat } from "./tanstack-workspace-chat.js"
+import { DOCKER_LABELS, sandboxStoreId } from "./workspace-base-providers.js"
+import { reserveWorkspaceBaseBuild } from "./workspace-sandbox-base.js"
 import {
-  DOCKER_LABELS,
-  dockerWorkspaceBaseBuilder,
-  sandboxAgentImage,
-  sandboxStoreId,
-  type WorkspaceBaseBuilder,
-} from "./workspace-base-providers.js"
-import {
-  reserveWorkspaceBaseBuild,
-  runWorkspaceBaseBuild,
-} from "./workspace-sandbox-base.js"
-import {
-  collectUnusedWorkspaceBases,
   destroySandboxesForConversation,
   destroySandboxesForWorkspace,
 } from "./workspace-sandbox-cleanup.js"
@@ -64,11 +57,6 @@ import {
  */
 
 const exec = promisify(execFile)
-const CHAT_IMAGE =
-  process.env.CTXPIPE_TEST_CHAT_SANDBOX_IMAGE?.trim() ||
-  "ctxpipe-chat-sandbox:opencode-1.18.34"
-/** Stands in for a minted GitHub read token; must never land in a base. */
-const TOKEN = `ghs_fixture${randomUUID().replaceAll("-", "")}`
 const docker = new Docker({ timeout: 60_000 })
 
 afterAll(async () => {
@@ -307,132 +295,6 @@ async function ensureImage(image: string) {
   )
 }
 
-type Fixture = Parameters<Parameters<typeof withNativeChatFixture>[0]>[0]
-
-/** Docker conversations and bases for one fixture Workspace served by `remote`. */
-function dockerChat(f: Fixture, remoteUrl: string) {
-  const conversation = async () => {
-    const id = generateObjectId("conv")
-    await withOrgDbContext(f.orgId, (db) =>
-      db
-        .insert(conversations)
-        .values({ id, orgId: f.orgId, workspaceId: f.workspaceId }),
-    )
-    return id
-  }
-  const warm = async (conversationId: string, sha: string) => {
-    const started = Date.now()
-    const warmed = await warmTanstackWorkspaceChat({
-      conversationId,
-      orgId: f.orgId,
-      orgSlug: f.orgSlug,
-      workspaceId: f.workspaceId,
-      desiredUrl: remoteUrl,
-      desiredSha: sha,
-      defaultBranch: "main",
-      writeStatus: "read_only",
-      prompt: "prepare",
-      cloneToken: TOKEN,
-    })
-    if (!warmed.ok) throw new Error(`prepare failed: ${warmed.error}`)
-    return { handle: warmed.handle, ms: Date.now() - started }
-  }
-  const bases = async () =>
-    withOrgDbContext(f.orgId, () =>
-      listSandboxInstances({ workspaceId: f.workspaceId, kind: "base" }),
-    )
-  const agent = async () => ({
-    provider: "docker" as const,
-    image: await sandboxAgentImage("docker"),
-  })
-  const builder = async (): Promise<WorkspaceBaseBuilder> =>
-    dockerWorkspaceBaseBuilder({ chatImage: CHAT_IMAGE, cloneToken: TOKEN })
-  const reserve = async (runId = randomUUID()) =>
-    reserveWorkspaceBaseBuild({
-      orgId: f.orgId,
-      workspaceId: f.workspaceId,
-      runId,
-      agent: await agent(),
-    })
-  const run = async (
-    baseId: string,
-    wrap?: (b: WorkspaceBaseBuilder) => WorkspaceBaseBuilder,
-  ) => {
-    const plain = await builder()
-    return runWorkspaceBaseBuild({
-      orgId: f.orgId,
-      baseId,
-      builder: wrap ? wrap(plain) : plain,
-    })
-  }
-  /** The base workflow's two steps, in order. */
-  const build = async (
-    wrap?: (b: WorkspaceBaseBuilder) => WorkspaceBaseBuilder,
-  ) => {
-    const baseId = await reserve()
-    return baseId ? run(baseId, wrap) : null
-  }
-  const collect = async (now = new Date()) =>
-    collectUnusedWorkspaceBases({
-      orgId: f.orgId,
-      workspaceId: f.workspaceId,
-      agent: await agent(),
-      now,
-    })
-  const head = async (handle: {
-    process: { exec: (command: string) => Promise<{ stdout: string }> }
-  }) => (await handle.process.exec("git rev-parse HEAD")).stdout.trim()
-  const imageOf = async (containerId: string) =>
-    (await docker.getContainer(containerId).inspect()).Image
-  const setDesired = (sha: string) =>
-    withOrgDbContext(f.orgId, (db) =>
-      db
-        .update(workspaces)
-        .set({ desiredSha: sha })
-        .where(eq(workspaces.id, f.workspaceId)),
-    )
-  const commit = async (text: string) => {
-    await writeFile(join(f.directory, "README.md"), text)
-    await exec("git", [
-      "-C",
-      f.directory,
-      "-c",
-      "user.name=Fixture",
-      "-c",
-      "user.email=fixture@example.test",
-      "commit",
-      "-am",
-      text,
-    ])
-    return (
-      await exec("git", ["-C", f.directory, "rev-parse", "HEAD"])
-    ).stdout.trim()
-  }
-  const backdateBases = () =>
-    withOrgDbContext(f.orgId, (db) =>
-      db
-        .update(workspaceSandboxInstances)
-        .set({ createdAt: new Date(Date.now() - 25 * 60 * 60_000) })
-        .where(eq(workspaceSandboxInstances.kind, "base")),
-    )
-  return {
-    conversation,
-    warm,
-    bases,
-    agent,
-    builder,
-    reserve,
-    run,
-    build,
-    collect,
-    head,
-    imageOf,
-    setDesired,
-    commit,
-    backdateBases,
-  }
-}
-
 /** Docker provider and chat image; the remote becomes the Workspace URL. */
 async function withDockerBases<T>(
   fn: (
@@ -441,12 +303,13 @@ async function withDockerBases<T>(
     chat: ReturnType<typeof dockerChat>,
   ) => Promise<T>,
 ): Promise<T> {
-  const previous = process.env.SANDBOX_CHAT_IMAGE
-  try {
-    return await withNativeChatFixture(async (f) => {
-      process.env.SANDBOX_PROVIDER = "docker"
-      process.env.SANDBOX_CHAT_IMAGE = CHAT_IMAGE
-      return withGitRemote(f.directory, async (remote) => {
+  return withNativeChatFixture(async (f) => {
+    // Stubbed after the fixture sets its own provider, and restored before
+    // the fixture restores its environment.
+    vi.stubEnv("SANDBOX_PROVIDER", "docker")
+    vi.stubEnv("SANDBOX_CHAT_IMAGE", CHAT_IMAGE)
+    try {
+      return await withGitRemote(f.directory, async (remote) => {
         await withOrgDbContext(f.orgId, (db) =>
           db
             .update(workspaces)
@@ -457,11 +320,10 @@ async function withDockerBases<T>(
           fn(f, remote, dockerChat(f, remote.url)),
         )
       })
-    })
-  } finally {
-    if (previous === undefined) delete process.env.SANDBOX_CHAT_IMAGE
-    else process.env.SANDBOX_CHAT_IMAGE = previous
-  }
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
 }
 
 it(
@@ -963,58 +825,6 @@ it(
       await getSystemDb()
         .delete(organizations)
         .where(eq(organizations.id, orgId))
-    }
-  },
-)
-
-it(
-  "measures time to ready with and without a base on a large public repository",
-  { timeout: 900_000 },
-  async () => {
-    // Ticket 03 records these numbers. The repository is public: GitHub asks
-    // for no credential, so the fixture token is never sent.
-    const url = "https://github.com/facebook/react.git"
-    const sha = (await exec("git", ["ls-remote", url, "HEAD"])).stdout.split(
-      /\s/,
-    )[0]
-    if (!sha) throw new Error(`No HEAD for ${url}`)
-    const previous = process.env.SANDBOX_CHAT_IMAGE
-    try {
-      await withNativeChatFixture(async (f) => {
-        process.env.SANDBOX_PROVIDER = "docker"
-        process.env.SANDBOX_CHAT_IMAGE = CHAT_IMAGE
-        await withOrgDbContext(f.orgId, (db) =>
-          db
-            .update(workspaces)
-            .set({ workspaceRepositoryUrl: url, desiredSha: sha })
-            .where(eq(workspaces.id, f.workspaceId)),
-        )
-        await withOrgIdContext({ id: f.orgId, slug: f.orgSlug }, async () => {
-          const chat = dockerChat(f, url)
-          try {
-            const without = await chat.warm(await chat.conversation(), sha)
-            expect(await chat.head(without.handle)).toBe(sha)
-            const started = Date.now()
-            const image = await chat.build()
-            const buildMs = Date.now() - started
-            if (!image) throw new Error("no base")
-            const withBase = await chat.warm(await chat.conversation(), sha)
-            expect(await chat.imageOf(withBase.handle.id)).toBe(image)
-            expect(await chat.head(withBase.handle)).toBe(sha)
-            const size = async (ref: string) =>
-              (await docker.getImage(ref).inspect()).Size
-            const added = (await size(image)) - (await size(CHAT_IMAGE))
-            report(
-              `[workspace-base] ${url} at ${sha.slice(0, 12)}: ready without base ${without.ms}ms, with base ${withBase.ms}ms; base build ${buildMs}ms; the base adds ${Math.round(added / 1e6)}MB to the chat image`,
-            )
-          } finally {
-            await destroySandboxesForWorkspace(f.workspaceId)
-          }
-        })
-      })
-    } finally {
-      if (previous === undefined) delete process.env.SANDBOX_CHAT_IMAGE
-      else process.env.SANDBOX_CHAT_IMAGE = previous
     }
   },
 )
