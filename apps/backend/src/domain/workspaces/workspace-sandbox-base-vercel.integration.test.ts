@@ -3,6 +3,7 @@ import { generateKeyPairSync } from "node:crypto"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { setTimeout as delay } from "node:timers/promises"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { eq, sql } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
@@ -23,9 +24,13 @@ import {
   workspaces,
 } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
-import { getSandboxInstance } from "../../models/workspaces.js"
+import {
+  BASE_BUILD_LEASE_MS,
+  getSandboxInstance,
+} from "../../models/workspaces.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
 import type { WorkspaceRevision } from "./revision.js"
+import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import {
   builderSnapshotExpiration,
   forgetAgentSnapshot,
@@ -463,6 +468,140 @@ describe("Vercel build step", () => {
     ).toBe("snap_built")
     expect(builder.finished()).toBe(1)
   })
+
+  it("keeps its lease while the clone and setup run past the lease's end", async () => {
+    const ws = await workspace(join(repository, ".git"))
+    const baseId = `base:${ws.id}:long`
+    await row({
+      id: baseId,
+      kind: "base",
+      orgId,
+      workspaceId: ws.id,
+      provider: "vercel",
+      image: agent.image,
+      revision: ws.revision,
+      state: "building",
+      lastHeartbeatAt: new Date(),
+    })
+    const builder = localBuilder(async () => "snap_long")
+    const start = builder.start
+    builder.start = async (base) => {
+      const build = await start(base)
+      const exec = build.handle.process.exec.bind(build.handle.process)
+      build.handle.process.exec = async (command, options) => {
+        if (command === "git rev-parse HEAD") {
+          // The build has run for almost the whole lease; it goes on longer.
+          await withOrgDbContext(orgId, (db) =>
+            db
+              .update(workspaceSandboxInstances)
+              .set({
+                lastHeartbeatAt: new Date(
+                  Date.now() - BASE_BUILD_LEASE_MS + 1_000,
+                ),
+              })
+              .where(eq(workspaceSandboxInstances.id, baseId)),
+          )
+          await delay(2_500)
+        }
+        return exec(command, options)
+      }
+      return build
+    }
+    expect(
+      await withTestLogger(() =>
+        runWorkspaceBaseBuild({ orgId, baseId, builder, heartbeatMs: 500 }),
+      ),
+    ).toBe("snap_long")
+    expect(await getSandboxInstance(baseId, orgId)).toMatchObject({
+      state: "live",
+      latestSnapshotId: "snap_long",
+    })
+  }, 30_000)
+
+  it("publishes under the Workspace lock, so a sandbox created from the old base meanwhile keeps it", async () => {
+    const ws = await workspace(`file://${repository}/.git`)
+    const oldId = `base:${ws.id}:before`
+    await row({
+      id: oldId,
+      kind: "base",
+      orgId,
+      workspaceId: ws.id,
+      provider: "vercel",
+      providerSandboxId: "builder-before",
+      latestSnapshotId: "snap_before",
+      image: agent.image,
+      revision: ws.revision,
+      state: "live",
+      lastHeartbeatAt: new Date(),
+      createdAt: new Date(Date.now() - 2 * DAY),
+    })
+    const baseId = `base:${ws.id}:after`
+    await row({
+      id: baseId,
+      kind: "base",
+      orgId,
+      workspaceId: ws.id,
+      provider: "vercel",
+      image: agent.image,
+      revision: ws.revision,
+      state: "building",
+      lastHeartbeatAt: new Date(),
+    })
+    server.use(
+      http.get(`${API}/snapshots/:id`, ({ params }) =>
+        HttpResponse.json(snapshotBody(String(params.id), "created")),
+      ),
+      http.delete(`${API}/snapshots/:id`, ({ params }) =>
+        HttpResponse.json(snapshotBody(String(params.id), "deleted")),
+      ),
+      http.get(`${API}/snapshots`, () =>
+        HttpResponse.json({
+          snapshots: [],
+          pagination: { count: 0, next: null },
+        }),
+      ),
+      http.get(`${API}/:name`, () => HttpResponse.json({}, { status: 404 })),
+    )
+    let captured: () => void = () => undefined
+    const capturing = new Promise<void>((resolve) => {
+      captured = resolve
+    })
+    const builder = localBuilder(async () => {
+      captured()
+      return "snap_after"
+    })
+    let build: Promise<string | null> | undefined
+    // A create: it picks the old base and records its sandbox under the
+    // Workspace lock, while the build reaches its publish.
+    await postgresSandboxLocks(orgId).withLock(
+      `workspace-sandboxes:${ws.id}`,
+      async () => {
+        build = withTestLogger(() =>
+          runWorkspaceBaseBuild({ orgId, baseId, builder }),
+        )
+        await capturing
+        await delay(1_000)
+        await row({
+          id: `chat-${ws.id}`,
+          kind: "chat",
+          orgId,
+          workspaceId: ws.id,
+          conversationId: generateObjectId("conv"),
+          provider: "vercel",
+          providerSandboxId: "conversation-meanwhile",
+          state: "live",
+          lastHeartbeatAt: new Date(),
+        })
+      },
+    )
+    expect(await build).toBe("snap_after")
+    expect(
+      await withTestLogger(() =>
+        collectUnusedWorkspaceBases({ orgId, workspaceId: ws.id, agent }),
+      ),
+    ).toBe(0)
+    expect(await getSandboxInstance(oldId, orgId)).not.toBeNull()
+  }, 30_000)
 
   it("a failed attempt deletes its Vercel builder (not left running) and revokes through finish", async () => {
     const ws = await workspace(`file://${repository}`)

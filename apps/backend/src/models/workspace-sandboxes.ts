@@ -262,8 +262,9 @@ export function isRunningSandboxProvider(
 
 /**
  * A Workspace base's `building` row is its build's lease, measured from
- * `last_heartbeat_at` (set when the build was reserved). A build older than
- * this is lost: its writes stop matching and cleanup removes it.
+ * `last_heartbeat_at` (set when the build was reserved, and renewed by the
+ * build while it runs). A build with no heartbeat for this long is lost: its
+ * writes stop matching and cleanup removes it.
  */
 export const BASE_BUILD_LEASE_MS = 60 * 60_000
 
@@ -426,7 +427,8 @@ export async function advanceSandboxInstanceRevision(input: {
  * Write a Workspace base build's progress (its builder, or its capture with
  * `state: "live"` to publish it) only while its lease holds and its builder
  * is still `builderId`. One conditional UPDATE: it never recreates a row
- * that cleanup deleted, and 0 rows means the build lost its lease.
+ * that cleanup deleted, and 0 rows means the build lost its lease. Each
+ * write renews the lease (an empty `set` is the build's heartbeat).
  * Publishing sets `created_at` to the publish time: the base's age, and when
  * it superseded the one before.
  */
@@ -446,9 +448,9 @@ export async function updateBuildingBase(input: {
       .update(workspaceSandboxInstances)
       .set({
         ...input.set,
-        ...(input.set.state === "live"
-          ? { lastHeartbeatAt: new Date(), createdAt: new Date() }
-          : {}),
+        // Each write renews the lease; publishing also dates the base.
+        lastHeartbeatAt: new Date(),
+        ...(input.set.state === "live" ? { createdAt: new Date() } : {}),
         updatedAt: new Date(),
       })
       .where(

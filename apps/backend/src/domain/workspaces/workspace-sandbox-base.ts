@@ -294,6 +294,8 @@ export async function runWorkspaceBaseBuild(input: {
   baseId: string
   /** Tests pass their own; production uses the deployment's provider. */
   builder?: WorkspaceBaseBuilder
+  /** How often the running build renews its lease. */
+  heartbeatMs?: number
 }): Promise<string | null> {
   const { orgId, baseId } = input
   const row = await getSandboxInstance(baseId, orgId)
@@ -340,6 +342,23 @@ export async function runWorkspaceBaseBuild(input: {
     builderId: string | null,
     set: Parameters<typeof updateBuildingBase>[0]["set"],
   ) => updateBuildingBase({ id: baseId, orgId, builderId, set })
+  // Renew the lease while the clone and setup run. A failed renewal stops
+  // nothing here: the checks before capture and publish find the lost lease.
+  const heartbeat = setInterval(
+    () => {
+      write(build.builderId, {}).catch((error: unknown) =>
+        logger.warn(
+          `Renewing a Workspace base build's lease failed: ${String(error)}`,
+          {
+            step: "workspace-base-build",
+            orgId,
+            workspaceId: row.workspaceId,
+          },
+        ),
+      )
+    },
+    input.heartbeatMs ?? BASE_BUILD_LEASE_MS / 6,
+  )
   try {
     if (!(await write(null, { providerSandboxId: build.builderId })))
       return await lapsed()
@@ -360,14 +379,21 @@ export async function runWorkspaceBaseBuild(input: {
     if (!(await write(build.builderId, {}))) return await lapsed()
     const ref = await build.capture()
     made.latestSnapshotId = ref
-    const published = await write(build.builderId, {
-      state: "live",
-      latestSnapshotId: ref,
-      revision: { ...revision, sha },
-      // Docker's builder is gone once captured; the image is the base. A
-      // Vercel builder owns its snapshot and is kept.
-      providerSandboxId: provider === "docker" ? null : build.builderId,
-    })
+    // Under the Workspace lock, which a create holds while it chooses its
+    // base and records its sandbox: a sandbox that chose the old base is
+    // recorded before this base supersedes it (Vercel retention reads that).
+    const published = await postgresSandboxLocks(orgId).withLock(
+      `workspace-sandboxes:${row.workspaceId}`,
+      () =>
+        write(build.builderId, {
+          state: "live",
+          latestSnapshotId: ref,
+          revision: { ...revision, sha },
+          // Docker's builder is gone once captured; the image is the base. A
+          // Vercel builder owns its snapshot and is kept.
+          providerSandboxId: provider === "docker" ? null : build.builderId,
+        }),
+    )
     if (!published) return await lapsed()
     logger.info(`Built the Workspace base in ${Date.now() - started}ms`, {
       step: "workspace-base-build",
@@ -382,6 +408,7 @@ export async function runWorkspaceBaseBuild(input: {
     await deleteWorkspaceBaseArtifacts(made)
     throw error
   } finally {
+    clearInterval(heartbeat)
     await build.finish()
   }
 }
