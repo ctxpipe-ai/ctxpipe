@@ -1195,6 +1195,30 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         return c.json({ error: "Select at least one repository" }, 400)
       }
 
+      // List first: a GitHub failure must change nothing.
+      let reposToSync: { name: string; gitUrl: string }[] | undefined
+      if (resolved.installation.installationId != null) {
+        // The client sends the selection. Sync only the repositories that
+        // GitHub lists for the installation, because the sync binds them to
+        // this connection.
+        const selectedNames = new Set(
+          selectedRepos.map((repo) => repo.full_name.toLowerCase()),
+        )
+        reposToSync = (
+          await listAllReposForInstallation(
+            orgId,
+            resolved.installation.id,
+            c.var.env,
+          )
+        )
+          .filter(
+            (repo) =>
+              body.ingestAllRepositories ||
+              selectedNames.has(repo.full_name.toLowerCase()),
+          )
+          .map((repo) => ({ name: repo.full_name, gitUrl: repo.clone_url }))
+      }
+
       const installation = await updateInstallationOptions(
         orgId,
         resolved.installation.id,
@@ -1219,22 +1243,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         )
       }
 
-      if (installation.installationId != null) {
-        // The client sends the selection. Sync only the repositories that
-        // GitHub lists for the installation, because the sync binds them to
-        // this connection.
-        const selectedNames = new Set(
-          selectedRepos.map((repo) => repo.full_name.toLowerCase()),
-        )
-        const reposToSync = (
-          await listAllReposForInstallation(orgId, installation.id, c.var.env)
-        )
-          .filter(
-            (repo) =>
-              body.ingestAllRepositories ||
-              selectedNames.has(repo.full_name.toLowerCase()),
-          )
-          .map((repo) => ({ name: repo.full_name, gitUrl: repo.clone_url }))
+      if (reposToSync) {
         const created = await bulkCreateRepositoriesForOrg(orgId, reposToSync, {
           githubConnectionId: installation.id,
         })

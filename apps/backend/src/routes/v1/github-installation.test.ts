@@ -531,6 +531,37 @@ describe("PATCH /github/installation", () => {
     )
   })
 
+  it("changes nothing when GitHub fails to list the installation repositories", async () => {
+    listAllReposForInstallationMock.mockRejectedValueOnce(
+      new Error("GitHub 500"),
+    )
+
+    const app = createApp()
+    const res = await app.request("/github/installation", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ingestAllRepositories: false,
+        includeFutureRepos: false,
+        selectedRepositories: [
+          {
+            id: 1,
+            full_name: "acme/alpha",
+            name: "alpha",
+            clone_url: "https://github.com/acme/alpha.git",
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(500)
+    expect(updateInstallationOptionsMock).not.toHaveBeenCalled()
+    expect(
+      pruneGithubConnectionRepositoriesNotInGitUrlsMock,
+    ).not.toHaveBeenCalled()
+    expect(bulkCreateRepositoriesForOrgMock).not.toHaveBeenCalled()
+  })
+
   it("all mode does not enqueue org ingest sync", async () => {
     const app = createApp()
     const res = await app.request("/github/installation", {
