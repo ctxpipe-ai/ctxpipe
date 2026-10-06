@@ -17,7 +17,10 @@ Workspace chat runs OpenCode inside a per-conversation sandbox. A homemade attac
 ## Consequences
 
 - Persistence, streaming and resume behave as upstream documents; fixes go upstream or into our wiring, not into vendored package code.
-- One patch remains, on `@tanstack/ai-opencode` 0.4.14: it classifies streamed parts by message role, waits for the event stream before prompting and for the assistant's final update before finishing, and bounds dispose. It is accepted until an upstream PR merges, raised after the production launch.
+- One patch remains, on `@tanstack/ai-opencode` 0.4.14. It has two parts:
+  - Ticket 01 scope (`process/server.js`, `stream/translate.js`): it classifies streamed parts by message role, waits for the event stream before prompting and for the assistant's final update before finishing, and bounds dispose. It is accepted until an upstream PR merges, raised after the production launch.
+  - Ticket 15 scope (`adapters/text.js`, one hunk): the adapter `finally` block gives each teardown step (session dispose, server dispose, tool bridge close) at most 1 s, and logs a step that fails. The engine holds `RUN_FINISHED` until this generator returns, so our code cannot do this. The user accepted this hunk on 2026-10-06, as this ADR requires. Upstream issue: to be opened.
+- Process cleanup for chat sandboxes is our code, not a patch: a kill escalation to `SIGKILL` in the timed sandbox wrapper, an owner watchdog for unsandboxed (local-process) sandboxes, and a stop of an earlier `opencode serve` before a new one starts in a reused Docker or Vercel sandbox (ticket 15).
 
 ## Alternatives considered
 

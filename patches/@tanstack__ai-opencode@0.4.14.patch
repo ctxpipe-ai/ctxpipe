@@ -1,3 +1,23 @@
+diff --git a/dist/esm/adapters/text.js b/dist/esm/adapters/text.js
+index d11df14ae2159d0558a0f928b72c3d24867b164a..5dd0a49a97af157c7d7e108b955dd97b87db636f 100644
+--- a/dist/esm/adapters/text.js
++++ b/dist/esm/adapters/text.js
+@@ -223,9 +223,12 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
+ 		} finally {
+ 			if (externalSignal !== void 0 && onAbort !== void 0) externalSignal.removeEventListener("abort", onAbort);
+ 			channel.close();
+-			await handle?.dispose();
+-			await server?.dispose();
+-			await bridge?.close();
++			// ctxpipe patch (ticket 15, upstream issue: to be opened): the engine
++			// holds RUN_FINISHED until this generator returns, so each step gets 1s.
++			const bounded = (step) => Promise.race([Promise.resolve().then(step).catch((error) => logger.errors("opencode teardown failed", { error, source: "opencode.chatStream" })), new Promise((resolve) => setTimeout(resolve, 1e3).unref())]);
++			await bounded(() => handle?.dispose());
++			await bounded(() => server?.dispose());
++			await bounded(() => bridge?.close());
+ 		}
+ 	}
+ 	structuredOutput(_options) {
 diff --git a/dist/esm/process/server.js b/dist/esm/process/server.js
 index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..e46983d0b02d5a9583fbb8f097c7427863961289 100644
 --- a/dist/esm/process/server.js
