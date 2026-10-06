@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { eq, sql } from "drizzle-orm"
 import { FalkorDB } from "falkordb"
-import { HttpResponse, http } from "msw"
+import { HttpResponse, http, passthrough } from "msw"
 import { setupServer } from "msw/node"
 import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
@@ -38,6 +38,23 @@ export type NativeHydrationOptions = {
     files: Array<{ path: string; content: string | null }>
   }
   semanticMergeDelayMs?: number
+  /**
+   * A real chat agent (OpenCode) runs against this fixture: streamed model
+   * requests get a short streamed reply, and loopback HTTP (the agent, the
+   * model proxy, the Docker daemon) is not intercepted.
+   */
+  chatAgent?:
+    | boolean
+    | {
+        /**
+         * The model's next step for a streamed request: a reply, or one tool
+         * call by the name the agent offered (e.g. `bash`).
+         */
+        next: (request: {
+          messages: Array<{ role: string }>
+          tools: string[]
+        }) => { text: string } | { tool: string; args: Record<string, unknown> }
+      }
   count?: number
   traceGitCommands?: boolean
   github?: boolean
@@ -48,7 +65,7 @@ export type NativeHydrationOptions = {
   githubContentFiles?: Record<string, string>
   githubPullRequest?: {
     number: number
-    head: { ref: string }
+    head: { ref: string; sha?: string }
     state: string
     html_url: string
   }
@@ -123,6 +140,13 @@ async function createNativeHydrationFixture(
   let beforeWriteProbe: (() => Promise<void>) | undefined
   let beforeWriteCredential: (() => Promise<void>) | undefined
   const server = setupServer(
+    ...(options.chatAgent
+      ? [
+          http.all(/^http:\/\/(127\.0\.0\.1|localhost)[:/]/, () =>
+            passthrough(),
+          ),
+        ]
+      : []),
     http.get(
       "https://api.github.com/repos/fixture/hydration-contract/pulls/:number/files",
       () => HttpResponse.json([]),
@@ -375,6 +399,52 @@ async function createNativeHydrationFixture(
         const body = (await request.json()) as {
           messages?: Array<{ role: string }>
           tools?: Array<{ function: { name: string } }>
+          stream?: boolean
+          model?: string
+        }
+        if (options.chatAgent && body.stream) {
+          const step =
+            typeof options.chatAgent === "object"
+              ? options.chatAgent.next({
+                  messages: body.messages ?? [],
+                  tools: (body.tools ?? []).map((tool) => tool.function.name),
+                })
+              : { text: "Fixture reply." }
+          const choices =
+            "tool" in step
+              ? [
+                  {
+                    delta: {
+                      role: "assistant",
+                      tool_calls: [
+                        {
+                          index: 0,
+                          id: `call_${body.messages?.length ?? 0}`,
+                          type: "function",
+                          function: {
+                            name: step.tool,
+                            arguments: JSON.stringify(step.args),
+                          },
+                        },
+                      ],
+                    },
+                  },
+                  { delta: {}, finish_reason: "tool_calls" },
+                ]
+              : [
+                  { delta: { role: "assistant", content: step.text } },
+                  { delta: {}, finish_reason: "stop" },
+                ]
+          return new HttpResponse(
+            choices
+              .map(
+                (choice) =>
+                  `data: ${JSON.stringify({ id: "fixture-chat", object: "chat.completion.chunk", created: 1, model: body.model, choices: [{ index: 0, finish_reason: null, ...choice }] })}\n\n`,
+              )
+              .join("")
+              .concat("data: [DONE]\n\n"),
+            { headers: { "content-type": "text/event-stream" } },
+          )
         }
         const tool = body.tools?.[0]?.function.name
         const captureIntent =

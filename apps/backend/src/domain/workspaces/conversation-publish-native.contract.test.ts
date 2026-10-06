@@ -7,14 +7,43 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
-import { workspaces } from "../../db/schema/workspaces.js"
+import {
+  workspaceSandboxInstances,
+  workspaces,
+} from "../../db/schema/workspaces.js"
+import type { NativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { conversationSessionBranch } from "./chat-lifecycle.js"
 import {
-  pushConversationSessionBranch,
+  pushConversationSession,
   shellSingleQuote,
 } from "./conversation-publish.js"
 import { adaptTanstackHandle } from "./job-sandbox.js"
+import type { WorkspaceRevision } from "./revision.js"
+
+/** The conversation's sandbox record, as chat writes it when it creates one. */
+async function recordSandbox(
+  f: NativeHydrationFixture,
+  conversationId: string,
+  providerSandboxId: string,
+  revision: WorkspaceRevision,
+) {
+  await withOrgDbContext(f.org.id, (db) =>
+    db.insert(workspaceSandboxInstances).values({
+      id: `sandbox-${conversationId}`,
+      kind: "chat",
+      orgId: f.org.id,
+      workspaceId: f.workspaceId,
+      conversationId,
+      provider: "local-process",
+      providerSandboxId,
+      image: "local-process",
+      revision: { ...revision, access: "read" },
+      state: "live",
+      lastHeartbeatAt: new Date(),
+    }),
+  )
+}
 
 it.each([
   "publish",
@@ -72,14 +101,14 @@ it.each([
             '#!/bin/sh\nprintf "%s\\n%s\\n" "$1" "$2" > .git/agent-observed-push\n',
           )
           await raw.process.exec("chmod 700 .git/hooks/pre-push")
+          await recordSandbox(f, conversationId, raw.id, f.revision)
           const request = {
             handle: adaptTanstackHandle(raw),
             conversationId,
             orgId: f.org.id,
             workspaceId: f.workspaceId,
-            revision: f.revision,
             env: parseEnv(process.env),
-            commitMessage: "Publish conversation edit",
+            commit: { subject: "Publish conversation edit" },
           }
           const branch = conversationSessionBranch(conversationId)
           f.onWriteCredentialRequest(async () => {
@@ -113,16 +142,29 @@ it.each([
           })
           const result = await withOrgIdContext(f.org, () =>
             withUserIdContext(`user_${f.id}`, () =>
-              pushConversationSessionBranch(request),
+              pushConversationSession(request),
             ),
           )
           if (scenario === "publish" || scenario === "large_base") {
-            expect(result).toEqual({ ok: true, branch, pushed: true })
+            expect(result).toEqual({
+              status: "pushed",
+              branch,
+              sha: expect.any(String),
+              treeUrl: expect.any(String),
+              dirty: false,
+            })
             expect(
               f.git("--git-dir", f.remote, "show", `${branch}:notes.md`),
             ).toBe("# Conversation edit")
           } else {
-            expect(result.ok).toBe(false)
+            expect(result).toEqual(
+              scenario === "session_advanced"
+                ? { status: "failed", reason: "push_failed", dirty: false }
+                : scenario === "default_changed"
+                  ? // The session branch became the default: never pushed to.
+                    { status: "skipped", reason: "default_branch", dirty: false }
+                  : { status: "skipped", reason: "stale_binding", dirty: false },
+            )
             expect(
               f.git("--git-dir", f.remote, "rev-list", "--all", "--count"),
             ).toBe("1")
@@ -196,6 +238,16 @@ it.each(["unchanged", "edited", "rebased"])(
             (await raw.process.exec(`git cat-file -e ${f.sha}`)).exitCode,
           ).not.toBe(0)
           let revision = f.revision
+          // ctx| pushed the published session itself.
+          await withOrgDbContext(f.org.id, (db) =>
+            db
+              .update(conversations)
+              .set({
+                lastBranch: branch,
+                lastPushedSha: f.git("rev-parse", "HEAD"),
+              })
+              .where(eq(conversations.id, conversationId)),
+          )
           if (mode === "rebased") {
             f.git("checkout", "main")
             writeFileSync(join(f.directory, "human.md"), "# Default advanced\n")
@@ -223,24 +275,30 @@ it.each(["unchanged", "edited", "rebased"])(
           }
           if (mode === "edited")
             await raw.fs.write("notes.md", "# Restored edit\n")
+          await recordSandbox(f, conversationId, raw.id, revision)
           const result = await withOrgIdContext(f.org, () =>
             withUserIdContext(`user_${f.id}`, () =>
-              pushConversationSessionBranch({
+              pushConversationSession({
                 handle: adaptTanstackHandle(raw),
                 conversationId,
                 orgId: f.org.id,
                 workspaceId: f.workspaceId,
-                revision,
                 env: parseEnv(process.env),
-                commitMessage: "Publish restored session",
+                commit: { subject: "Publish restored session" },
               }),
             ),
           )
-          expect(result).toEqual({
-            ok: true,
-            branch,
-            pushed: mode !== "unchanged",
-          })
+          expect(result).toEqual(
+            mode === "unchanged"
+              ? { status: "unchanged", dirty: false }
+              : {
+                  status: "pushed",
+                  branch,
+                  sha: expect.any(String),
+                  treeUrl: expect.any(String),
+                  dirty: false,
+                },
+          )
           expect(
             f.git("--git-dir", f.remote, "show", `${branch}:notes.md`),
           ).toBe(mode === "edited" ? "# Restored edit" : "# Published session")

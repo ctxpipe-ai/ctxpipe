@@ -13,16 +13,15 @@ import {
   workspaceChatStreamResponse,
 } from "../../domain/conversations/transport.js"
 import { conversationSessionBranch } from "../../domain/workspaces/chat-lifecycle.js"
-import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
-import { getConversationSandboxBinding } from "../../domain/workspaces/conversation-files.js"
 import {
-  planCapturedConversationPublication,
-  pushConversationSessionBranch,
+  pushConversationSession,
+  resolvePublishTarget,
+  type SessionPublishFailure,
+  type SessionPublishSkip,
+  sessionBranchOnGithub,
 } from "../../domain/workspaces/conversation-publish.js"
-import {
-  sameWorkspaceBinding,
-  sameWorkspaceRevision,
-} from "../../domain/workspaces/revision.js"
+import { sameWorkspaceBinding } from "../../domain/workspaces/revision.js"
+import { withSandboxLockIfFree } from "../../domain/workspaces/sandbox-lock-store.js"
 import {
   conversationHasStoredTurns,
   warmTanstackWorkspaceChat,
@@ -53,10 +52,7 @@ import {
   persistConversationPublication,
   updateConversation,
 } from "../../models/conversations.js"
-import {
-  getDesiredWorkspaceRevision,
-  getWorkspaceById,
-} from "../../models/workspaces.js"
+import { getWorkspaceById } from "../../models/workspaces.js"
 import { applyAttribution } from "../../observability/attribution.js"
 import { getLogger } from "../../observability/logger.js"
 import {
@@ -108,10 +104,13 @@ function publicConversation(
       workspaceRepositoryUrl: row.lastChatPrRevision?.remote.url ?? "",
       lastChatPrNumber: row.lastChatPrNumber ?? null,
     }),
-    branchTreeUrl: conversationPublicTreeUrl({
-      workspaceRepositoryUrl,
-      lastBranch: row.lastBranch ?? null,
-    }),
+    // Only a branch ctx| pushed is on GitHub (a fresh one after a merge is not).
+    branchTreeUrl: row.lastPushedSha
+      ? conversationPublicTreeUrl({
+          workspaceRepositoryUrl,
+          lastBranch: row.lastBranch ?? null,
+        })
+      : null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
@@ -477,6 +476,64 @@ const getConversationPullRequestRoute = createRoute({
   },
 })
 
+const ConversationPushResponseSchema = z
+  .object({ branch: z.string(), treeUrl: z.string() })
+  .openapi("ConversationPushResponse")
+
+const publishErrorResponses = {
+  400: {
+    content: { "application/json": { schema: ErrorResponseSchema } },
+    description:
+      "Not publishable: missing_conversation, missing_workspace, read_only, not_github, not_allowed, workspace_required, default_branch (the branch would reach the default), other_branch (the sandbox is on another branch), nothing_committed, no_changes, no_write_access, or a sandbox on an older revision (stale_url, stale_generation, stale_sha, stale_default_branch, stale_connection)",
+  },
+  401: {
+    content: { "application/json": { schema: ErrorResponseSchema } },
+    description: "Unauthorized",
+  },
+  404: {
+    content: { "application/json": { schema: ErrorResponseSchema } },
+    description: "Not found",
+  },
+  429: {
+    ...sandboxAtCapacityResponse,
+    description: `sandbox_capacity: ${sandboxAtCapacityResponse.description}`,
+  },
+  503: {
+    content: { "application/json": { schema: ErrorResponseSchema } },
+    description: "sandbox_unavailable: the sandbox provider is unavailable",
+  },
+  502: {
+    content: { "application/json": { schema: ErrorResponseSchema } },
+    description:
+      "push_failed (Git or GitHub failed the commit or the push) or github_unavailable (the pull request call failed)",
+  },
+} as const
+
+function publishConflictResponse(description: string) {
+  return {
+    content: { "application/json": { schema: ErrorResponseSchema } },
+    description,
+  }
+}
+
+const postConversationPushRoute = createRoute({
+  method: "post",
+  path: "/{conversationId}/push",
+  request: { params: ConversationParamsSchema },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: ConversationPushResponseSchema },
+      },
+      description: "Committed and pushed the session branch",
+    },
+    ...publishErrorResponses,
+    409: publishConflictResponse(
+      "turn_running (a turn holds the conversation), missing_sandbox, rebase_in_progress, session_moved (the branch on GitHub has commits ctx| did not push; ask the agent to fetch and rebase) or stale_binding (the Workspace was relinked)",
+    ),
+  },
+})
+
 const postConversationPullRequestRoute = createRoute({
   method: "post",
   path: "/{conversationId}/pull-request",
@@ -495,29 +552,291 @@ const postConversationPullRequestRoute = createRoute({
       },
       description: "Brokered pull request",
     },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Refused",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Not found",
-    },
-    429: sandboxAtCapacityResponse,
-    503: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Sandbox provider unavailable",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Chat sandbox missing",
-    },
+    ...publishErrorResponses,
+    409: publishConflictResponse(
+      "turn_running (a turn holds the conversation), missing_sandbox, rebase_in_progress, session_moved (the branch on GitHub has commits ctx| did not push; ask the agent to fetch and rebase), pr_merged (the branch's PR was merged; send a message to continue on a fresh branch) or stale_binding (the Workspace was relinked)",
+    ),
   },
 })
+
+type PublishError = {
+  status: 400 | 409 | 429 | 502 | 503
+  error: PublishErrorCode
+}
+
+/** Every error a publish route answers; the OpenAPI responses list them. */
+type PublishErrorCode =
+  | SessionPublishSkip
+  | SessionPublishFailure
+  | "turn_running"
+  | "pr_merged"
+  | "github_unavailable"
+  | "workspace_required"
+  | "sandbox_capacity"
+  | "sandbox_unavailable"
+
+/** A sandbox that could not be prepared, as a publish error. */
+function sandboxError(ready: {
+  status: 400 | 409 | 429 | 503
+  error: string
+}): PublishError {
+  if (ready.status === 400) return { status: 400, error: "workspace_required" }
+  if (ready.status === 429) return { status: 429, error: "sandbox_capacity" }
+  if (ready.error === "missing_sandbox")
+    return { status: 409, error: "missing_sandbox" }
+  return { status: 503, error: "sandbox_unavailable" }
+}
+
+function publishError(
+  reason: SessionPublishSkip | SessionPublishFailure,
+): PublishError {
+  switch (reason) {
+    case "missing_conversation":
+    case "missing_workspace":
+    case "read_only":
+    case "not_github":
+    case "not_allowed":
+    case "default_branch":
+    case "other_branch":
+    case "nothing_committed":
+    case "no_changes":
+    case "no_write_access":
+    case "stale_url":
+    case "stale_generation":
+    case "stale_sha":
+    case "stale_default_branch":
+    case "stale_connection":
+      return { status: 400, error: reason }
+    case "missing_sandbox":
+    case "rebase_in_progress":
+    case "stale_binding":
+    case "session_moved":
+      return { status: 409, error: reason }
+    case "push_failed":
+      return { status: 502, error: reason }
+    default:
+      return reason satisfies never
+  }
+}
+
+type ConversationRecordFor = NonNullable<
+  Awaited<ReturnType<typeof getConversation>>
+>
+type WorkspaceRecordFor = NonNullable<
+  Awaited<ReturnType<typeof getWorkspaceById>>
+>
+
+/**
+ * Create PR, under the conversation's lock: push the commits a live sandbox
+ * still holds (uncommitted files are Commit+Push's), then open (or reuse) the
+ * pull request from the session branch as it is. Without a live sandbox the
+ * branch on GitHub is used. A merged branch never gets a second PR; the next
+ * turn moves the conversation to a fresh branch.
+ */
+async function createConversationPullRequest(input: {
+  conversation: ConversationRecordFor
+  workspace: WorkspaceRecordFor
+  title: string
+  body: string
+}): Promise<
+  | {
+      pullRequest: {
+        branch: string
+        prNumber: number
+        pullUrl: string
+        prState: "open" | "closed" | "merged"
+      }
+    }
+  | PublishError
+> {
+  const { conversation, workspace, title } = input
+  const env = parseEnv(process.env as Record<string, string | undefined>)
+  try {
+    // A merged branch never gets a second PR; checked first, as the merge
+    // also moves the default the sandbox is compared against.
+    const prRevision = conversation.lastChatPrRevision
+    const prRepository = prRevision
+      ? githubRepoFullNameFromWorkspaceUrl(prRevision.remote.url)
+      : null
+    const existing =
+      conversation.lastChatPrNumber != null && prRevision && prRepository
+        ? await getPullRequestState({
+            orgId: workspace.orgId,
+            repositoryName: prRepository,
+            env,
+            githubConnectionId: prRevision.remote.connectionId ?? undefined,
+            pullNumber: conversation.lastChatPrNumber,
+          })
+        : null
+    if (
+      existing?.prState === "merged" &&
+      existing.branch ===
+        conversationSessionBranch(conversation.id, conversation.lastBranch)
+    )
+      return { status: 409, error: "pr_merged" }
+    const resolved = await resolvePublishTarget({
+      orgId: workspace.orgId,
+      conversationId: conversation.id,
+      workspaceId: workspace.id,
+      sandbox: "if-live",
+    })
+    if (!resolved.ok) return publishError(resolved.reason)
+    const { target } = resolved
+    const { revision, branch } = target
+    const github = {
+      orgId: workspace.orgId,
+      repositoryName: target.repositoryName,
+      env,
+      githubConnectionId: target.connectionId,
+    }
+    const ready = await readySandboxHandle({
+      conversation,
+      workspace,
+      existingOnly: true,
+      transcriptLocked: true,
+    })
+    if (!ready.ok && ready.error !== "missing_sandbox")
+      return sandboxError(ready)
+    const pushed = ready.ok
+      ? await pushConversationSession({
+          handle: ready.handle,
+          orgId: workspace.orgId,
+          conversationId: conversation.id,
+          workspaceId: workspace.id,
+          env,
+          target,
+        })
+      : null
+    if (
+      pushed?.status === "failed" ||
+      (pushed?.status === "skipped" && pushed.reason !== "nothing_committed")
+    )
+      return publishError(pushed.reason)
+    if (
+      pushed?.status !== "pushed" &&
+      !(await sessionBranchOnGithub(target, env))
+    )
+      return publishError("no_changes")
+    if (
+      existing?.prState === "open" &&
+      existing.branch === branch &&
+      sameWorkspaceBinding(prRevision, revision)
+    ) {
+      if (
+        !(await persistConversationPublication({
+          conversationId: conversation.id,
+          lastChatPrNumber: existing.prNumber,
+          lastBranch: branch,
+          revision,
+        }))
+      )
+        return publishError("stale_binding")
+      return {
+        pullRequest: {
+          branch,
+          prNumber: existing.prNumber,
+          pullUrl: existing.pullUrl,
+          prState: existing.prState,
+        },
+      }
+    }
+    const created = await createPullRequestFromBranch({
+      ...github,
+      revision,
+      baseBranch: revision.defaultBranch,
+      branch,
+      title,
+      body: input.body,
+    })
+    if (
+      !created ||
+      !(await persistConversationPublication({
+        conversationId: conversation.id,
+        lastChatPrNumber: created.pullNumber,
+        lastBranch: created.branch,
+        revision,
+      }))
+    )
+      return publishError("stale_binding")
+    return {
+      pullRequest: {
+        branch: created.branch,
+        prNumber: created.pullNumber,
+        pullUrl: created.pullUrl,
+        prState: created.prState,
+      },
+    }
+  } catch (error) {
+    getLogger().error(
+      error instanceof Error ? error : new Error(String(error)),
+      { step: "conversation-pull-request" },
+    )
+    return { status: 502, error: "github_unavailable" }
+  }
+}
+
+/**
+ * Commit+Push, under the conversation's lock: commit the sandbox's
+ * uncommitted files and push the session branch through the broker.
+ */
+async function pushConversationBranch(input: {
+  conversation: ConversationRecordFor
+  workspace: WorkspaceRecordFor
+}): Promise<{ pushed: { branch: string; treeUrl: string } } | PublishError> {
+  const { conversation, workspace } = input
+  // Refused before the sandbox is attached, so a clean one does not answer
+  // no_changes.
+  if (!githubRepoFullNameFromWorkspaceUrl(workspace.workspaceRepositoryUrl))
+    return publishError("not_github")
+  const ready = await readySandboxHandle({
+    conversation,
+    workspace,
+    existingOnly: true,
+    transcriptLocked: true,
+  })
+  if (!ready.ok) return sandboxError(ready)
+  const pushed = await pushConversationSession({
+    handle: ready.handle,
+    conversationId: conversation.id,
+    orgId: workspace.orgId,
+    workspaceId: workspace.id,
+    env: parseEnv(process.env as Record<string, string | undefined>),
+    commit: { subject: conversation.name },
+  })
+  if (pushed.status === "unchanged") return publishError("no_changes")
+  if (pushed.status !== "pushed") return publishError(pushed.reason)
+  return { pushed: { branch: pushed.branch, treeUrl: pushed.treeUrl } }
+}
+
+/**
+ * The publish routes: find the conversation and its Workspace, then publish
+ * while no turn holds the conversation. A turn answers 409 at once.
+ */
+async function publishWhenNoTurnRuns<T>(input: {
+  signedIn: boolean
+  conversationId: string
+  publish: (target: {
+    conversation: ConversationRecordFor
+    workspace: WorkspaceRecordFor
+  }) => Promise<T | PublishError>
+}): Promise<
+  | T
+  | PublishError
+  | { status: 401; error: "Unauthorized" }
+  | { status: 404; error: "Not found" }
+> {
+  if (!input.signedIn) return { status: 401, error: "Unauthorized" }
+  const conversation = await getConversation(input.conversationId)
+  if (!conversation?.workspaceId) return { status: 404, error: "Not found" }
+  const workspace = await getWorkspaceById(conversation.workspaceId)
+  if (!workspace) return { status: 404, error: "Not found" }
+  const locked = await withSandboxLockIfFree(
+    conversation.orgId,
+    `chat-thread:${conversation.id}`,
+    () => input.publish({ conversation, workspace }),
+  )
+  return locked.busy ? { status: 409, error: "turn_running" } : locked.value
+}
 
 async function getReadableConversation(
   conversationId: string,
@@ -936,7 +1255,8 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     const current = await getConversation(conversationId)
     if (
       !state ||
-      state.branch !== conversationSessionBranch(conversationId) ||
+      state.branch !==
+        conversationSessionBranch(conversationId, conversation.lastBranch) ||
       current?.lastChatPrNumber !== conversation.lastChatPrNumber ||
       !sameWorkspaceBinding(current?.lastChatPrRevision, revision)
     )
@@ -951,137 +1271,32 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       200,
     )
   })
+  .openapi(postConversationPushRoute, async (c) => {
+    const outcome = await publishWhenNoTurnRuns({
+      signedIn: Boolean(c.get("user") && c.get("session")),
+      conversationId: c.req.param("conversationId"),
+      publish: pushConversationBranch,
+    })
+    if ("error" in outcome)
+      return c.json({ error: outcome.error }, outcome.status)
+    return c.json(outcome.pushed, 200)
+  })
   .openapi(postConversationPullRequestRoute, async (c) => {
-    const user = c.get("user")
-    const session = c.get("session")
-    if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
-
-    const conversationId = c.req.param("conversationId")
-    const body = CreateConversationPullRequestSchema.parse(await c.req.json())
-    const conversation = await getConversation(conversationId)
-    if (!conversation?.workspaceId) {
-      return c.json({ error: "Not found" }, 404)
-    }
-    const workspace = await getWorkspaceById(conversation.workspaceId)
-    if (!workspace) return c.json({ error: "Not found" }, 404)
-    if (
-      !workspaceAllowsConversationEdits(
-        workspace.writeStatus,
-        workspace.readOnlyReason,
-      )
-    ) {
-      return c.json({ error: "read_only" }, 400)
-    }
-    const env = parseEnv(process.env as Record<string, string | undefined>)
-    const revision = await getDesiredWorkspaceRevision(
-      workspace.id,
-      "publish-session",
-    )
-    if (!revision) return c.json({ error: "missing_revision" }, 409)
-    const sandbox = await getConversationSandboxBinding(
-      conversationId,
-      revision,
-    )
-    if (!sandbox) return c.json({ error: "missing_sandbox" }, 409)
-    const repoName = githubRepoFullNameFromWorkspaceUrl(revision.remote.url)
-    if (!repoName) return c.json({ error: "not_github" }, 400)
-    const defaultBranch = revision.defaultBranch
-    const planned = planCapturedConversationPublication({
-      revision,
-      writeStatus: workspace.writeStatus,
-      readOnlyReason: workspace.readOnlyReason,
-      sandbox,
-    })
-    if (!planned.publish) {
-      return c.json({ error: planned.reason }, 400)
-    }
-    const ready = await readySandboxHandle({
-      conversation,
-      workspace,
-      existingOnly: true,
-    })
-    if (!ready.ok) return c.json({ error: ready.error }, ready.status)
-    const { handle } = ready
-    const title = body.title ?? conversation.name
-    const pushed = await pushConversationSessionBranch({
-      handle,
-      conversationId,
-      orgId: workspace.orgId,
-      workspaceId: workspace.id,
-      revision,
-      env,
-      commitMessage: title,
-    })
-    if (!pushed.ok) return c.json({ error: pushed.error }, 400)
-    const bindingIsCurrent = async () =>
-      sameWorkspaceRevision(
-        await getDesiredWorkspaceRevision(workspace.id, "publish-session"),
-        revision,
-      )
-    if (!(await bindingIsCurrent()))
-      return c.json({ error: "stale_binding" }, 409)
-    if (
-      conversation.lastChatPrNumber != null &&
-      sameWorkspaceBinding(conversation.lastChatPrRevision, revision)
-    ) {
-      const existing = await getPullRequestState({
-        orgId: workspace.orgId,
-        repositoryName: repoName,
-        env,
-        githubConnectionId: revision.remote.connectionId ?? undefined,
-        pullNumber: conversation.lastChatPrNumber,
-      })
-      if (existing?.prState === "open" && existing.branch === pushed.branch) {
-        if (
-          !(await persistConversationPublication({
-            conversationId,
-            lastChatPrNumber: existing.prNumber,
-            lastBranch: pushed.branch,
-            revision,
-          }))
+    const outcome = await publishWhenNoTurnRuns({
+      signedIn: Boolean(c.get("user") && c.get("session")),
+      conversationId: c.req.param("conversationId"),
+      publish: async (target) => {
+        const body = CreateConversationPullRequestSchema.parse(
+          await c.req.json(),
         )
-          return c.json({ error: "stale_binding" }, 409)
-        return c.json(
-          {
-            branch: pushed.branch,
-            prNumber: existing.prNumber,
-            pullUrl: existing.pullUrl,
-            prState: existing.prState,
-          },
-          200,
-        )
-      }
-    }
-    if (!(await bindingIsCurrent()))
-      return c.json({ error: "stale_binding" }, 409)
-    const created = await createPullRequestFromBranch({
-      revision,
-      orgId: workspace.orgId,
-      repositoryName: repoName,
-      env,
-      githubConnectionId: revision.remote.connectionId ?? undefined,
-      baseBranch: defaultBranch,
-      branch: pushed.branch,
-      title,
-      body: body.body ?? "",
-    })
-    if (!created) return c.json({ error: "stale_binding" }, 409)
-    if (
-      !(await persistConversationPublication({
-        conversationId,
-        lastChatPrNumber: created.pullNumber,
-        lastBranch: created.branch,
-        revision,
-      }))
-    )
-      return c.json({ error: "stale_binding" }, 409)
-    return c.json(
-      {
-        branch: created.branch,
-        prNumber: created.pullNumber,
-        pullUrl: created.pullUrl,
-        prState: created.prState,
+        return createConversationPullRequest({
+          ...target,
+          title: body.title ?? target.conversation.name,
+          body: body.body ?? "",
+        })
       },
-      200,
-    )
+    })
+    if ("error" in outcome)
+      return c.json({ error: outcome.error }, outcome.status)
+    return c.json(outcome.pullRequest, 200)
   })

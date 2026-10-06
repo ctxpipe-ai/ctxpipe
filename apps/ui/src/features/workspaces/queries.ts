@@ -6,7 +6,6 @@ import {
   readConversationGitTreeSnapshot,
   writeConversationGitTreeSnapshot,
 } from "./conversation-git-tree-snapshot"
-import { conversationSessionBranch } from "./conversationPublish"
 import { destinationAfterMove } from "./fileTreeMutations"
 import type {
   ConversationFileMutation,
@@ -717,7 +716,8 @@ export function conversationGitTreeOptions(
         return {
           sha: "HEAD",
           paths: [],
-          branch: conversationSessionBranch(conversationId),
+          // Unknown until the sandbox answers.
+          branch: "",
           ready: false,
         }
       }

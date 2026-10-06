@@ -5,6 +5,12 @@ import {
   getSandboxInstance,
 } from "../../models/workspace-sandboxes.js"
 import { getDesiredWorkspaceRevision } from "../../models/workspaces.js"
+import { log } from "../../observability/logger.js"
+import { SANDBOX_READ_GIT } from "./chat-runtime.js"
+import {
+  restoredSessionBase,
+  rotateMergedSessionBranch,
+} from "./conversation-session-branch.js"
 import {
   sameWorkspaceBinding,
   sameWorkspaceRevision,
@@ -30,15 +36,71 @@ export async function updateConversationSandboxRevision(input: {
 }): Promise<{ effective?: WorkspaceRevision; conflict?: boolean }> {
   const { handle, desired } = input
   const row = await getSandboxInstance(input.sandboxKey, input.orgId)
-  const previousRevision = row?.revision
+  let previousRevision = row?.revision
   if (!previousRevision || !sameWorkspaceBinding(previousRevision, desired))
     throw new Error("Conversation sandbox revision is missing")
-  if (previousRevision.sha === desired.sha) return {}
+  const record = async (to: WorkspaceRevision) => {
+    if (!previousRevision || previousRevision.sha === to.sha) return
+    await advanceSandboxInstanceRevision({
+      id: input.sandboxKey,
+      orgId: input.orgId,
+      from: previousRevision,
+      to,
+    })
+    previousRevision = to
+  }
+  const defaultMoved = previousRevision.sha !== desired.sha
+  // A sandbox restored from its session branch is recorded at the commit it
+  // was created for; rebase from the commit the branch really builds on.
+  // After the agent repaired a conflict, that can already be `desired`; it
+  // is then recorded only after the PR check, so a failed check runs again.
+  const base = await restoredSessionBase({
+    handle,
+    recorded: previousRevision.sha,
+    desired: desired.sha,
+  })
+  const repaired = base === desired.sha
+  if (base && !repaired) await record({ ...previousRevision, sha: base })
+  if (!defaultMoved && previousRevision.sha === desired.sha) return {}
   const current = await withOrgDbContext(input.orgId, () =>
     getDesiredWorkspaceRevision(desired.workspaceId),
   )
-  if (!current || !sameWorkspaceRevision(current, desired))
+  if (!current || !sameWorkspaceRevision(current, desired)) {
+    if (base) await record({ ...previousRevision, sha: base })
     return { effective: previousRevision }
+  }
+  // The default moved, as a merged PR moves it: a merged session branch
+  // continues on a fresh one instead of being rebased.
+  const conversationId = row?.conversationId
+  if (defaultMoved && conversationId) {
+    const rotation = await rotateMergedSessionBranch({
+      handle,
+      orgId: input.orgId,
+      conversationId,
+      desired,
+    }).catch((error: unknown) => {
+      log.warn({
+        step: "conversation-session-rotate",
+        message: `Checking the session branch's PR failed: ${String(error)}`,
+        conversationId,
+      })
+      return "unknown" as const
+    })
+    // Without the PR state, keep the sandbox as it is; the next turn checks
+    // again.
+    if (rotation === "unknown") return { effective: previousRevision }
+    if (rotation === "conflict")
+      return { effective: previousRevision, conflict: true }
+    if (rotation === "rotated") {
+      await record(desired)
+      return {}
+    }
+  }
+  if (repaired) {
+    await record(desired)
+    return {}
+  }
+  if (previousRevision.sha === desired.sha) return {}
   const moved = await advanceConversationWorktree({
     handle,
     from: previousRevision,
@@ -77,10 +139,10 @@ STATE=$(git rev-parse --git-path ctxpipe-revision-transition)
 BRANCH=$(git branch --show-current)
 test -n "$BRANCH"
 if ! git cat-file -e "$NEW_SHA^{commit}" 2>/dev/null; then
-  git -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f' fetch origin "$NEW_SHA"
+  ${SANDBOX_READ_GIT} fetch origin "$NEW_SHA"
 fi
 if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
-  git -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f' fetch --unshallow origin
+  ${SANDBOX_READ_GIT} fetch --unshallow origin
 fi
 # An interrupted/conflicting rebase remains available to the repair turn.
 if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ] || [ -n "$(git diff --name-only --diff-filter=U)" ]; then exit 42; fi
@@ -168,6 +230,7 @@ if [ -n "$STASH" ]; then
 fi
 PHASE=complete
 write_state
+git update-ref refs/remotes/ctxpipe/base "$NEW_SHA"
 )`,
     {
       signal: input.signal,

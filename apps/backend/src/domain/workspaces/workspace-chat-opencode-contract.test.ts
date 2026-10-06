@@ -130,6 +130,12 @@ describe("workspaceChatOpenCodeContract", () => {
     })
     expect(WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT).toMatch(/smallest tool set/)
     expect(WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT).toMatch(/one step/)
+    expect(WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT).toMatch(
+      /commit with git when a task is done/,
+    )
+    expect(WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT).toMatch(
+      /push_conversation_branch/,
+    )
     expect(WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT).not.toMatch(
       /what'?s in this repo/i,
     )

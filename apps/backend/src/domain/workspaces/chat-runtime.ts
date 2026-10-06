@@ -70,19 +70,39 @@ export const WORKSPACE_CHAT_VERCEL_SETUP = [
   ...WORKSPACE_CHAT_SANDBOX_SETUP.slice(1),
 ] as const
 
-/** Checks out the conversation: the desired commit, then its session branch if published. */
+/**
+ * `git` with the sandbox's read credential (the clone token, empty on Vercel
+ * where the firewall adds it). It can never push. The empty helper first
+ * removes the other helpers, so no keychain stores or prompts for the token.
+ */
+export const SANDBOX_READ_GIT = `git -c credential.helper= -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f'`
+
+/** The author and committer of the commits ctx| makes in a sandbox. */
+export const COMMIT_IDENTITY = {
+  GIT_AUTHOR_NAME: "ctxpipe",
+  GIT_AUTHOR_EMAIL: "workspace-chat@ctxpipe.local",
+  GIT_COMMITTER_NAME: "ctxpipe",
+  GIT_COMMITTER_EMAIL: "workspace-chat@ctxpipe.local",
+}
+
+/**
+ * Checks out the conversation: the desired commit, then its session branch if
+ * published. `refs/remotes/ctxpipe/base` marks the default commit the sandbox
+ * builds on, so commits no remote-tracking ref covers are the unpushed ones.
+ */
 export const WORKSPACE_CHAT_THREAD_SETUP = [
   `(git rev-parse --git-dir >/dev/null 2>&1 || { echo "Workspace clone failed: $CTXPIPE_CLONE_URL" >&2; exit 1; }
 # The stock clone is shallow; fetch the desired commit when the tip has moved on.
 git cat-file -e "$CTXPIPE_CLONE_SHA^{commit}" 2>/dev/null ||
-  git -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f' fetch --depth 1 origin "$CTXPIPE_CLONE_SHA" || exit 1
+  ${SANDBOX_READ_GIT} fetch --depth 1 origin "$CTXPIPE_CLONE_SHA" || exit 1
 git checkout -B "$CTXPIPE_CLONE_BRANCH" "$CTXPIPE_CLONE_SHA" &&
+git update-ref refs/remotes/ctxpipe/base "$CTXPIPE_CLONE_SHA" &&
 if [ -n "\${CTXPIPE_SESSION_BRANCH:-}" ]; then
   git check-ref-format "refs/heads/$CTXPIPE_SESSION_BRANCH" || exit 1
-  git -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f' ls-remote --exit-code --heads origin "refs/heads/$CTXPIPE_SESSION_BRANCH" >/dev/null
+  ${SANDBOX_READ_GIT} ls-remote --exit-code --heads origin "refs/heads/$CTXPIPE_SESSION_BRANCH" >/dev/null
   REMOTE_STATUS=$?
   if [ "$REMOTE_STATUS" = 0 ]; then
-    git -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f' fetch --depth 1 origin "+refs/heads/$CTXPIPE_SESSION_BRANCH:refs/remotes/origin/$CTXPIPE_SESSION_BRANCH" &&
+    ${SANDBOX_READ_GIT} fetch --depth 1 origin "+refs/heads/$CTXPIPE_SESSION_BRANCH:refs/remotes/origin/$CTXPIPE_SESSION_BRANCH" &&
     git checkout -B "$CTXPIPE_SESSION_BRANCH" FETCH_HEAD || exit 1
   elif [ "$REMOTE_STATUS" != 2 ]; then
     exit "$REMOTE_STATUS"

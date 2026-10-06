@@ -52,10 +52,12 @@ import {
   workspaceChatRuntimeConfig,
 } from "./chat-runtime.js"
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
+import { conversationBranchPushTool } from "./conversation-branch-push.js"
 import {
   SandboxCapacityError,
   withConversationSandboxSlots,
 } from "./conversation-sandbox-lifecycle.js"
+import { checkoutSessionBranch } from "./conversation-session-branch.js"
 import { nameConversationIfUnnamed } from "./conversation-title.js"
 import { type WorkspaceRevision, workspaceRevisionSchema } from "./revision.js"
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
@@ -584,7 +586,16 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       ? messagesForOpenCodeChat(input.messages, input.prompt)
       : []) as Array<ModelMessage | UIMessage>,
     abortController,
-    tools: WORKSPACE_CHAT_TOOLS,
+    tools: [
+      ...WORKSPACE_CHAT_TOOLS,
+      conversationBranchPushTool({
+        conversationId: input.conversationId,
+        orgId: input.orgId,
+        orgSlug: session.orgSlug,
+        workspaceId: input.workspaceId,
+        sandbox: () => activeSandbox,
+      }),
+    ],
     middleware: [
       otelMiddleware({
         tracer: trace.getTracer("ctxpipe-workspace-chat"),
@@ -635,6 +646,13 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
               signal: abortController.signal,
             })
             if (updated.conflict) revisionConflict = updated.effective
+            else
+              await checkoutSessionBranch({
+                handle,
+                orgId: input.orgId,
+                conversationId: input.conversationId,
+                desired: built.revision,
+              })
           })
         },
         onConfig(_ctx, config) {

@@ -56,14 +56,30 @@ While the agent works:
 - the **Diff** tab shows everything the conversation has changed.
 
 Each conversation works on its own branch, `ctxpipe/chat/<conversation>/<n>`,
-and never pushes to the default branch.
+and never pushes to the default branch. The agent commits its work with a
+message when it finishes a task, and pushes the branch to GitHub when you ask
+it to or when the work is ready for you to see there.
 
 ## Publish with a pull request
 
-When you are happy with the changes, choose **Create PR**. ctx| opens a pull
-request from the conversation's branch to the default branch, and the button
-becomes **Show PR**. Review and merge it like any other pull request; once
-merged, the Workspace re-indexes the new commit.
+The conversation header offers:
+
+- **Commit+Push**, when the sandbox has changes that GitHub does not have
+  yet. It commits all uncommitted changes in the sandbox (your Files edits
+  and the agent's). Then it pushes all commits to the conversation's branch;
+- **Create PR**, which opens a pull request from the conversation's branch to
+  the default branch, keeping the agent's commits;
+- **Show PR**, which opens that pull request while it is open. Commits that
+  you push later are added to it.
+
+Review and merge the pull request like any other. Once it is merged, the
+Workspace re-indexes the new commit. After the merge, the next message
+continues on a fresh branch (`…/<n+1>`) from the new default commit. Work
+that is not in the merged pull request moves to that branch. A pull request
+that is closed without a merge keeps its branch: choose **Create PR** again to
+open a new pull request from it. If someone else pushes to the conversation's
+branch, ctx| does not overwrite their commits: ask the agent to rebase onto
+their commits before you push again.
 
 If the default branch moves while a conversation is open, ctx| brings the
 conversation's branch up to date before the next message. If that update
@@ -83,8 +99,13 @@ with another conversation or organization:
 
 - **Your files are saved.** When a conversation goes idle, its sandbox stops
   and saves its files. Your next message resumes it with the files where the
-  agent left them. Saved files are deleted 30 days after the sandbox last
-  stopped; the conversation's branch in your repository is not affected.
+  agent left them. Saved files are deleted 29 days after the conversation was
+  last used. Before that, commits not yet on GitHub are pushed to the
+  conversation's branch. If someone else pushed to that branch, the commits
+  go to a fresh branch. The pull request stays with the old branch, so choose
+  **Create PR** to open one from the fresh branch. If the push fails, ctx|
+  keeps the sandbox and tries again later. Files nobody committed are deleted
+  with the sandbox.
 - **Network access is limited.** The sandbox can reach GitHub and ctx| only;
   every other host is blocked.
 - **The GitHub token stays outside.** Read access to the workspace repository

@@ -164,6 +164,7 @@ export function WorkspaceChatSession(props: {
     pullEnabled: (props.conversation?.lastChatPrNumber ?? null) != null,
     fallbackPrState: props.conversation?.prState,
     fallbackPullUrl: props.conversation?.lastChatPrUrl,
+    published: Boolean(props.conversation?.branchTreeUrl),
   })
   const gitStatus = publish.status
 

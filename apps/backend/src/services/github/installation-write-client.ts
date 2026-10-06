@@ -702,6 +702,8 @@ export async function getPullRequestState(
   pullUrl: string
   prState: GithubPullRequestState
   branch: string
+  /** The head commit; for a merged PR, the commit GitHub merged. */
+  headSha: string
 } | null> {
   try {
     const context = await getInstallationContext(input, {
@@ -724,6 +726,7 @@ export async function getPullRequestState(
       pullUrl: data.html_url,
       prState,
       branch: data.head.ref,
+      headSha: data.head.sha,
     }
   } catch (error) {
     if ((error as { status?: number }).status === 404) return null

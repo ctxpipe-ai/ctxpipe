@@ -10,7 +10,7 @@ The Workspace Files pane needs a path-first tree with search, git status, diffs 
 
 - Files pane chrome is **`@pierre/trees`** (`FileTree`, search, git badges, rename) and **`@pierre/diffs`** (`File`, `FileDiff`, `EditProvider`). React Aria stays the primitive for the rest of the product; Pierre renders in Shadow DOM, the same exception as Cosmograph. Theme it through host CSS variables, not utility classes on rows. Context menus stay React Aria.
 - **Compose Files** (`/$org/ws/$slug`, no conversation) browse the workspace repository at the active projection SHA and are read-only.
-- **Conversation Files** read and write the conversation's sandbox worktree through `…/conversations/{id}/files/…` routes with per-file version checks. Work reaches GitHub on the conversation session branch (`ctxpipe/chat/<conversation>/<n>`), pushed by the backend broker, and is published with **Create PR** / **Show PR** ([ADR-048](ADR-048-native-postgres-sandbox-ownership.md)).
+- **Conversation Files** read and write the conversation's sandbox worktree through `…/conversations/{id}/files/…` routes with per-file version checks. Work reaches GitHub on the conversation session branch (`ctxpipe/chat/<conversation>/<n>`), pushed by the backend broker (the agent's push tool or **Commit+Push**), and is published with **Create PR** / **Show PR** ([ADR-048](ADR-048-native-postgres-sandbox-ownership.md)).
 - A read-only Workspace (no Contents:write, non-GitHub host) allows no pane edits.
 
 ## Consequences

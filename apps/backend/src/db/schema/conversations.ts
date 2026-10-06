@@ -21,6 +21,11 @@ export const conversations = pgTable.withRLS(
     name: text("name").notNull().default("New conversation"),
     source: text("source"),
     lastBranch: text("last_branch"),
+    /**
+     * The session branch tip ctx| last pushed. A remote tip that differs was
+     * pushed by someone else and is never overwritten.
+     */
+    lastPushedSha: text("last_pushed_sha"),
     lastChatPrNumber: integer("last_chat_pr_number"),
     lastChatPrRevision: jsonb(
       "last_chat_pr_revision",

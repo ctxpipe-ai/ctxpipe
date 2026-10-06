@@ -16,7 +16,7 @@ import {
   requireCurrentOrgId,
   requireCurrentUserId,
 } from "../auth/context.js"
-import { getOrgDb } from "../db/client.js"
+import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { withAmbientOrgDb } from "../db/org-sql.js"
 import { conversations } from "../db/schema/conversations.js"
 import { workspaces } from "../db/schema/workspaces.js"
@@ -176,7 +176,10 @@ export async function ensureConversation(input: {
         ),
       )
       .limit(1)
-    if (!winner || (input.workspaceId && winner.workspaceId !== input.workspaceId)) {
+    if (
+      !winner ||
+      (input.workspaceId && winner.workspaceId !== input.workspaceId)
+    ) {
       throw createError({
         message: "Conversation not found",
         status: 404,
@@ -228,6 +231,102 @@ export async function persistConversationPublication(input: {
       )
       .returning({ id: conversations.id })
     return row != null
+  })
+}
+
+/**
+ * A conversation's session branch state, for the broker that pushes it. Not
+ * filtered by actor: callers already authorized the conversation (routes) or
+ * act for the organization (turns, the sandbox sweep).
+ */
+export async function getConversationSession(
+  orgId: string,
+  conversationId: string,
+): Promise<{
+  workspaceId: string | null
+  lastBranch: string | null
+  lastPushedSha: string | null
+  lastChatPrNumber: number | null
+  lastChatPrRevision: WorkspaceRevision | null
+} | null> {
+  return withOrgDbContext(orgId, async (db) => {
+    const [row] = await db
+      .select({
+        workspaceId: conversations.workspaceId,
+        lastBranch: conversations.lastBranch,
+        lastPushedSha: conversations.lastPushedSha,
+        lastChatPrNumber: conversations.lastChatPrNumber,
+        lastChatPrRevision: conversations.lastChatPrRevision,
+      })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.id, conversationId),
+          eq(conversations.orgId, orgId),
+        ),
+      )
+      .limit(1)
+    return row ?? null
+  })
+}
+
+/**
+ * Record a push to the session branch: a recreated sandbox checks the branch
+ * out, and the next push may only replace this tip.
+ */
+export async function recordConversationSessionPush(input: {
+  orgId: string
+  conversationId: string
+  branch: string
+  sha: string
+}): Promise<void> {
+  await withOrgDbContext(input.orgId, (db) =>
+    db
+      .update(conversations)
+      .set({ lastBranch: input.branch, lastPushedSha: input.sha })
+      .where(
+        and(
+          eq(conversations.id, input.conversationId),
+          eq(conversations.orgId, input.orgId),
+        ),
+      ),
+  )
+}
+
+/**
+ * Move the conversation to a fresh branch: its PR was merged, or someone else
+ * pushed to its branch before a deletion. The old PR number is cleared.
+ * The update applies only while the row still has the previous branch, so
+ * when two writers rotate at the same time, only one wins. Returns whether
+ * this call won.
+ */
+export async function rotateConversationSessionBranch(input: {
+  orgId: string
+  conversationId: string
+  from: string | null
+  to: string
+}): Promise<boolean> {
+  return withOrgDbContext(input.orgId, async (db) => {
+    const rows = await db
+      .update(conversations)
+      .set({
+        lastBranch: input.to,
+        lastPushedSha: null,
+        lastChatPrNumber: null,
+        lastChatPrRevision: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(conversations.id, input.conversationId),
+          eq(conversations.orgId, input.orgId),
+          input.from === null
+            ? isNull(conversations.lastBranch)
+            : eq(conversations.lastBranch, input.from),
+        ),
+      )
+      .returning({ id: conversations.id })
+    return rows.length > 0
   })
 }
 

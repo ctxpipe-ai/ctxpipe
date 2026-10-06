@@ -18,8 +18,6 @@ import {
 import {
   conversationGithubPullUrl,
   conversationGithubTreeUrl,
-  planCapturedConversationPublication,
-  pushConversationSessionBranch,
 } from "../../domain/workspaces/conversation-publish.js"
 import { adaptTanstackHandle } from "../../domain/workspaces/job-sandbox.js"
 import type { JobSandboxHandle } from "../../domain/workspaces/job-worktree.js"
@@ -27,10 +25,7 @@ import { postgresSandboxLocks } from "../../domain/workspaces/sandbox-lock-store
 import { warmTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
 import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
-import {
-  getConversation,
-  persistConversationPublication,
-} from "../../models/conversations.js"
+import { getConversation } from "../../models/conversations.js"
 import {
   getDesiredWorkspaceRevision,
   getWorkspaceById,
@@ -141,13 +136,6 @@ const ConversationFileConflictSchema = z
     worktreeVersion: z.string().optional(),
   })
   .openapi("ConversationFileConflictResponse")
-
-const ConversationPushResponseSchema = z
-  .object({
-    branch: z.string(),
-    treeUrl: z.string(),
-  })
-  .openapi("ConversationPushResponse")
 
 const listTreeRoute = createRoute({
   method: "get",
@@ -344,41 +332,6 @@ const putFileRoute = createRoute({
   },
 })
 
-const postPushRoute = createRoute({
-  method: "post",
-  path: "/{conversationId}/push",
-  request: { params: ConversationParamsSchema },
-  responses: {
-    200: {
-      content: {
-        "application/json": { schema: ConversationPushResponseSchema },
-      },
-      description: "Pushed the session branch",
-    },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Refused",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Not found",
-    },
-    429: sandboxAtCapacityResponse,
-    503: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Sandbox provider unavailable",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Chat sandbox missing",
-    },
-  },
-})
-
 async function loadConversationWorkspace(
   conversationId: string,
   abortSignal?: AbortSignal,
@@ -464,6 +417,7 @@ export async function readySandboxHandle(
 async function conversationFileSnapshot(input: {
   handle: JobSandboxHandle
   conversationId: string
+  lastBranch: string | null
   workspace: { id: string; desiredDefaultBranch?: string | null }
 }) {
   const defaultBranch = input.workspace.desiredDefaultBranch?.trim() || "main"
@@ -474,7 +428,10 @@ async function conversationFileSnapshot(input: {
       conversationSandboxStatus({
         handle: input.handle,
         defaultBranch,
-        sessionBranch: sessionBranchName(input.conversationId),
+        sessionBranch: sessionBranchName(
+          input.conversationId,
+          input.lastBranch,
+        ),
       }),
       conversationWorktreeVersion(input.handle),
       getDesiredWorkspaceRevision(input.workspace.id),
@@ -534,7 +491,6 @@ const withConversationFileLock = createMiddleware<ConversationFileEnv>(
 )
 const fileRoutes = new OpenAPIHono<ConversationFileEnv>()
 fileRoutes.use("/:conversationId/files/*", withConversationFileLock)
-fileRoutes.use("/:conversationId/push", withConversationFileLock)
 export const conversationFileRoutes = fileRoutes
   .openapi(listTreeRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
@@ -602,7 +558,10 @@ export const conversationFileRoutes = fileRoutes
       conversationSandboxStatus({
         handle,
         defaultBranch,
-        sessionBranch: sessionBranchName(conversationId),
+        sessionBranch: sessionBranchName(
+          conversationId,
+          loaded.conversation.lastBranch,
+        ),
       }),
       conversationWorktreeVersion(handle),
       getDesiredWorkspaceRevision(loaded.workspace.id),
@@ -686,6 +645,7 @@ export const conversationFileRoutes = fileRoutes
     const snapshot = await conversationFileSnapshot({
       handle,
       conversationId,
+      lastBranch: loaded.conversation.lastBranch,
       workspace: loaded.workspace,
     })
     return c.json(
@@ -696,74 +656,6 @@ export const conversationFileRoutes = fileRoutes
         worktreeVersion: snapshot.worktreeVersion,
         tree: snapshot.tree,
         status: snapshot.status,
-      },
-      200,
-    )
-  })
-  .openapi(postPushRoute, async (c) => {
-    if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
-    const conversationId = c.req.param("conversationId")
-    const loaded = await loadConversationWorkspace(
-      conversationId,
-      c.get("sandboxAbortSignal"),
-    )
-    if (!loaded) return c.json({ error: "Not found" }, 404)
-    if (
-      !workspaceAllowsConversationEdits(
-        loaded.workspace.writeStatus,
-        loaded.workspace.readOnlyReason,
-      )
-    ) {
-      return c.json({ error: "read_only" }, 400)
-    }
-    const env = parseEnv(process.env as Record<string, string | undefined>)
-    const revision = await getDesiredWorkspaceRevision(
-      loaded.workspace.id,
-      "publish-session",
-    )
-    if (!revision) return c.json({ error: "missing_revision" }, 409)
-    const sandbox = await getConversationSandboxBinding(
-      conversationId,
-      revision,
-    )
-    if (!sandbox) return c.json({ error: "missing_sandbox" }, 409)
-    const repoName = githubRepoFullNameFromWorkspaceUrl(revision.remote.url)
-    if (!repoName) return c.json({ error: "not_github" }, 400)
-    const planned = planCapturedConversationPublication({
-      revision,
-      writeStatus: loaded.workspace.writeStatus,
-      readOnlyReason: loaded.workspace.readOnlyReason,
-      sandbox,
-    })
-    if (!planned.publish) return c.json({ error: planned.reason }, 400)
-    const ready = await readySandboxHandle({ ...loaded, existingOnly: true })
-    if (!ready.ok) return c.json({ error: ready.error }, ready.status)
-    const { handle } = ready
-    const pushed = await pushConversationSessionBranch({
-      handle,
-      conversationId,
-      orgId: loaded.workspace.orgId,
-      workspaceId: loaded.workspace.id,
-      revision,
-      env,
-      commitMessage: loaded.conversation.name,
-    })
-    if (!pushed.ok) return c.json({ error: pushed.error }, 400)
-    if (
-      !(await persistConversationPublication({
-        conversationId,
-        lastBranch: pushed.branch,
-        revision,
-      }))
-    )
-      return c.json({ error: "stale_binding" }, 409)
-    return c.json(
-      {
-        branch: pushed.branch,
-        treeUrl: conversationGithubTreeUrl({
-          repositoryName: repoName,
-          branch: pushed.branch,
-        }),
       },
       200,
     )
