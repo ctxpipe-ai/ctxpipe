@@ -52,19 +52,23 @@ export async function updateConversationSandboxRevision(input: {
   const defaultMoved = previousRevision.sha !== desired.sha
   // A sandbox restored from its session branch is recorded at the commit it
   // was created for; rebase from the commit the branch really builds on.
-  // After the agent repaired a conflict, that can already be `desired`.
+  // After the agent repaired a conflict, that can already be `desired`; it
+  // is then recorded only after the PR check, so a failed check runs again.
   const base = await restoredSessionBase({
     handle,
     recorded: previousRevision.sha,
     desired: desired.sha,
   })
-  if (base) await record({ ...previousRevision, sha: base })
+  const repaired = base === desired.sha
+  if (base && !repaired) await record({ ...previousRevision, sha: base })
   if (!defaultMoved && previousRevision.sha === desired.sha) return {}
   const current = await withOrgDbContext(input.orgId, () =>
     getDesiredWorkspaceRevision(desired.workspaceId),
   )
-  if (!current || !sameWorkspaceRevision(current, desired))
+  if (!current || !sameWorkspaceRevision(current, desired)) {
+    if (base) await record({ ...previousRevision, sha: base })
     return { effective: previousRevision }
+  }
   // The default moved, as a merged PR moves it: a merged session branch
   // continues on a fresh one instead of being rebased.
   const conversationId = row?.conversationId
@@ -80,14 +84,21 @@ export async function updateConversationSandboxRevision(input: {
         message: `Checking the session branch's PR failed: ${String(error)}`,
         conversationId,
       })
-      return "kept" as const
+      return "unknown" as const
     })
+    // Without the PR state, keep the sandbox as it is; the next turn checks
+    // again.
+    if (rotation === "unknown") return { effective: previousRevision }
     if (rotation === "conflict")
       return { effective: previousRevision, conflict: true }
     if (rotation === "rotated") {
       await record(desired)
       return {}
     }
+  }
+  if (repaired) {
+    await record(desired)
+    return {}
   }
   if (previousRevision.sha === desired.sha) return {}
   const moved = await advanceConversationWorktree({

@@ -889,6 +889,59 @@ it(
 )
 
 it(
+  "rotates a repaired merged branch on a later turn when the PR lookup failed",
+  { timeout: 300_000 },
+  async () => {
+    const pull = mergedPull()
+    let lookupFails = false
+    await withSession(
+      {
+        githubPullRequest: pull,
+        onGithubPullRequestRead: () => {
+          if (lookupFails) throw new Error("GitHub is unavailable")
+        },
+      },
+      async (_f, s) => {
+        pull.head.ref = s.branch
+        const handle = await s.warm()
+        await s.agentCommit(handle, "one.md", "Add note one")
+        expect((await s.createPr("Add note one")).status).toBe(200)
+        pull.head.sha = s.remote("rev-parse", s.branch)
+        await s.agentCommit(handle, "one.md", "Note one, edited")
+        pull.state = "closed"
+        pull.merged_at = "2026-10-05T00:00:00Z"
+        const merged = await s.advanceDefault(
+          "one.md",
+          "# Note one, reviewed\n",
+        )
+        await s.warm()
+        expect(
+          (
+            await handle.process.exec(
+              `git -c user.name=Agent -c user.email=agent@example.test rebase -q -X theirs --onto ${merged} ${pull.head.sha}`,
+            )
+          ).exitCode,
+        ).toBe(0)
+        // The lookup fails on the turn after the repair: the branch stays.
+        lookupFails = true
+        await s.warm()
+        expect(
+          (await handle.process.exec("git branch --show-current")).stdout,
+        ).toBe(`${s.branch}\n`)
+        // The next turn looks again and moves to a fresh branch.
+        lookupFails = false
+        await s.warm()
+        const next = chatSessionBranchName(s.conversationId, 2)
+        expect(
+          (await handle.process.exec("git branch --show-current")).stdout,
+        ).toBe(`${next}\n`)
+        expect(await s.conversation()).toMatchObject({ lastBranch: next })
+      },
+    )
+  },
+)
+
+it(
   "carries commits pushed after the merge to the fresh branch",
   { timeout: 300_000 },
   async () => {
