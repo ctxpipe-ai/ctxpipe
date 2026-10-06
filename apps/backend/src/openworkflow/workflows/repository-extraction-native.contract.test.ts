@@ -337,8 +337,6 @@ it.each([
             expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(
               f.sha,
             )
-            // The failed run keeps its 129 stored roots; a later publish deletes them.
-            await deleteRepositoryExtractionCaptures(f.org.id, repository.id)
             return
           }
           if (
@@ -482,6 +480,17 @@ it.each([
             ),
           ).toBe("1")
         } finally {
+          // A failed run keeps its stored roots; a later publish deletes them.
+          await deleteRepositoryExtractionCaptures(
+            {
+              orgId: f.org.id,
+              repositoryId: repository.id,
+              sourceSha: f.sha,
+              scope: "full",
+              extractorVersion: EXTRACTOR_VERSION,
+            },
+            new Date(),
+          )
           await worker.stop()
           await backend.stop()
         }

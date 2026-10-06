@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm"
+import { and, eq, inArray, lt, or, sql } from "drizzle-orm"
 import { z } from "zod/v3"
 import { withOrgDbContext } from "../db/client.js"
 import { repositoryExtractionCaptures as captures } from "../db/schema/repository_extraction_captures.js"
@@ -152,23 +152,29 @@ export async function deleteExtractionCapture(
 }
 
 /**
- * Delete every capture of a repository after a publication succeeds: each
- * source SHA and scope, also those of failed runs that nobody retried.
- * Ingestion runs one at a time per repository: `repository_ingestion_requests`
- * holds one current request, and `prepareRepositoryIngestionRequest` replaces
- * it only after its run ends, or when the binding or the target branch
- * changes. A superseded run fails at `assertRepositoryIngestionRequest`
- * before it publishes, so no run that can publish still needs these rows.
- * One small window remains: a run superseded during its own publish can delete
- * the rows of the new run, and that run fails with a missing root. The next
- * run extracts again. A repository delete removes the rows through the
+ * Delete the captures of a repository after a publication succeeds: the rows
+ * of the publishing run's key, and each row stored before that run started
+ * (other source SHAs and scopes, also those of failed runs that nobody
+ * retried). Ingestion runs one at a time per repository, but a run can wait
+ * for write access for a long time after its request check. When the target
+ * branch changes in that time, a new run starts and stores its roots. Those
+ * rows are newer than the waiting run's start and have a different key, so
+ * the waiting run's publish keeps them. `storeRootCapture` resets `created_at`
+ * when it replaces a row. A repository delete removes the rows through the
  * foreign key.
  */
 export async function deleteRepositoryExtractionCaptures(
-  orgId: string,
-  repositoryId: string,
+  key: ExtractionCaptureKey,
+  runStartedAt: Date,
 ): Promise<void> {
-  await withOrgDbContext(orgId, (db) =>
-    db.delete(captures).where(eq(captures.repositoryId, repositoryId)),
+  await withOrgDbContext(key.orgId, (db) =>
+    db
+      .delete(captures)
+      .where(
+        and(
+          eq(captures.repositoryId, key.repositoryId),
+          or(matches(key), lt(captures.createdAt, runStartedAt)),
+        ),
+      ),
   )
 }

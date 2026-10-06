@@ -112,7 +112,7 @@ Built options B and D, with the small fixes.
 **Proof.**
 - `capture-over-8-mib` passes (red before: `Extraction capture exceeds 8 MiB`).
 - `repository-producer-native.contract.test.ts`: the remote refuses the push, so a first run and then a full re-index fail after extraction, and each one calls the extractors. The last run for the same commit makes 0 extractor model calls (msw count); before D it made 9. The test also checks that no capture rows remain after success.
-- `repository-extraction-captures.integration.test.ts`: no reuse across scope (`full` and partial, in both directions) or extractor version, no reuse of a root with skipped files, no age sweep, the delete of one key and of the repository, and a clear error for a bad row.
+- `repository-extraction-captures.integration.test.ts`: no reuse across scope (`full` and partial, in both directions) or extractor version, no reuse of a root with skipped files, no age sweep, the delete of one key and of the repository, the publish delete that keeps the rows of a newer run, and a clear error for a bad row.
 - `write-extract-native.contract.test.ts`: a stored capture that does not parse is deleted by the write job.
 - `extraction.test.ts`: the partial-retraction path limit and the retraction with skipped files.
 - The extraction, write, retraction, export, and owner contract tests pass.
@@ -120,5 +120,6 @@ Built options B and D, with the small fixes.
 **Open points.**
 - Option C (memory for ten times n8n) is not built. One in-memory plan over the whole capture remains, and the `transform`, `stage`, and `commit` step outputs still grow with the capture. `nativeGit` has a 64 MiB output buffer and a 60 s timeout, which a very large publication can reach.
 - An in-flight run from before this deploy has old `identify` step outputs (objects and claims, not counts) and no rows. Its counts are wrong, and its publication fails with "Extraction capture is missing for root". A queued write job from before this deploy has objects and claims in its input, and the strict input schema rejects it. In both cases the next run extracts again and pays again once.
-- A run that is superseded during its own publish (a new target branch) can delete the rows of the new run. That run fails with a missing root, and the next run extracts again.
+- An in-flight run from before this deploy can have a memoized `extract-kind` output of `null`. `runIdentifyPhaseForRoot` then fails with a `TypeError` at `"reused" in kindPartial`. The run fails, and the next run extracts again and pays again once.
+- After a publish, a run deletes only the rows of its own key and the rows stored before the run started. Thus a run that waits for write access does not delete the roots that a newer run (a new target branch) stores. One small window remains: when a newer run reuses a root of its own key that was stored before the publishing run started, the publish deletes that row. The newer run fails with a missing root, and the next run extracts again.
 

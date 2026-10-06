@@ -653,10 +653,7 @@ export const repositoryIngestion = defineWorkflow(
                   { name: "publish-extracted-knowledge" },
                 )
                 await step.run({ name: "delete-extraction-capture" }, () =>
-                  deleteRepositoryExtractionCaptures(
-                    input.orgId,
-                    input.repositoryId,
-                  ),
+                  deleteRepositoryExtractionCaptures(captureKey, run.createdAt),
                 )
               }
 

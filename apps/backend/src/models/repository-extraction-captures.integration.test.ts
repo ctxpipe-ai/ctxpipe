@@ -87,7 +87,7 @@ describe("repository extraction captures (Postgres)", () => {
   })
 
   it("reuses a root only under the same scope and extractor version", async () => {
-    await deleteRepositoryExtractionCaptures(orgId, repositoryId)
+    await deleteRepositoryExtractionCaptures(full, new Date())
     expect(await storeRootCapture(full, "billing", capture, 0)).toEqual({
       objects: 1,
       claims: 1,
@@ -109,7 +109,7 @@ describe("repository extraction captures (Postgres)", () => {
   })
 
   it("does not reuse a root whose extractor skipped files", async () => {
-    await deleteRepositoryExtractionCaptures(orgId, repositoryId)
+    await deleteRepositoryExtractionCaptures(full, new Date())
     await storeRootCapture(full, "billing", capture, 2)
     expect(await storedRootCapture(full, "billing")).toBeNull()
     // The run that stored it still publishes it.
@@ -117,7 +117,7 @@ describe("repository extraction captures (Postgres)", () => {
   })
 
   it("keeps old captures when a run stores a root", async () => {
-    await deleteRepositoryExtractionCaptures(orgId, repositoryId)
+    await deleteRepositoryExtractionCaptures(full, new Date())
     const live = { ...full, sourceSha: "c".repeat(40) }
     await storeRootCapture(live, "billing", capture, 0)
     await withOrgDbContext(orgId, (db) =>
@@ -131,19 +131,46 @@ describe("repository extraction captures (Postgres)", () => {
   })
 
   it("deletes one key, or every capture of the repository after a publish", async () => {
-    await deleteRepositoryExtractionCaptures(orgId, repositoryId)
+    await deleteRepositoryExtractionCaptures(full, new Date())
     const partial = { ...full, scope: `since:${"b".repeat(40)}` }
     const older = { ...full, sourceSha: "d".repeat(40) }
     for (const key of [full, partial, older])
       await storeRootCapture(key, "billing", capture, 0)
     await deleteExtractionCapture(partial)
     expect(await rows()).toHaveLength(2)
-    await deleteRepositoryExtractionCaptures(orgId, repositoryId)
+    await deleteRepositoryExtractionCaptures(full, new Date())
     expect(await rows()).toEqual([])
   })
 
+  it("keeps the captures of a run that started after the publishing run", async () => {
+    await deleteRepositoryExtractionCaptures(full, new Date())
+    const older = { ...full, sourceSha: "d".repeat(40) }
+    await storeRootCapture(older, "billing", capture, 0)
+    await storeRootCapture(full, "billing", capture, 0)
+    const runStartedAt = new Date(Date.now() + 1000)
+    // A run on a new target commit starts while the first run waits to publish.
+    const newer = { ...full, sourceSha: "e".repeat(40) }
+    await storeRootCapture(newer, "billing", capture, 0)
+    await withOrgDbContext(orgId, (db) =>
+      db
+        .update(captures)
+        .set({ createdAt: sql`now() + interval '1 minute'` })
+        .where(eq(captures.sourceSha, newer.sourceSha)),
+    )
+    // The publishing run stores its own root after it starts.
+    await withOrgDbContext(orgId, (db) =>
+      db
+        .update(captures)
+        .set({ createdAt: sql`now() + interval '1 minute'` })
+        .where(eq(captures.sourceSha, full.sourceSha)),
+    )
+    await deleteRepositoryExtractionCaptures(full, runStartedAt)
+    expect(await loadExtractionCapture(newer, ["billing"])).toEqual(capture)
+    expect(await rows()).toHaveLength(1)
+  })
+
   it("fails with a clear error when a stored row is not a valid capture", async () => {
-    await deleteRepositoryExtractionCaptures(orgId, repositoryId)
+    await deleteRepositoryExtractionCaptures(full, new Date())
     await withOrgDbContext(orgId, (db) =>
       db.execute(sql`
         insert into repository_extraction_captures

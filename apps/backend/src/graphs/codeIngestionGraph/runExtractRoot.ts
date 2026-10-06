@@ -85,8 +85,9 @@ export async function runExtractKindForRoot(
 /**
  * Run the identify phase of one root and store the root capture (kind output,
  * identify output, located paths). The step output is only the counts. A
- * root that the kind step reused makes no model calls. Ingestion runs one at a
- * time per repository, so no other run deletes the reused row before publish.
+ * root that the kind step reused makes no model calls. A publish deletes only
+ * the rows of its own key and rows older than its run, so a newer run keeps
+ * the rows it stores (see `deleteRepositoryExtractionCaptures`).
  */
 export async function runIdentifyPhaseForRoot(
   state: CodeIngestionState,
