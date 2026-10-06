@@ -76,13 +76,32 @@ jobs:
       - name: Full projects with shrinking diagnostic allowances
         run: pnpm typecheck
 
-  test:
-    name: Tests
+  test-shards:
+    timeout-minutes: 30
+    # One shard runs its files in series in its own database, so a worker in
+    # one shard cannot claim a run that a file in another shard opened.
+    name: ${{ matrix.lane }} tests (shard ${{ matrix.shard }}/${{ matrix.count }})
     if: |
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Shard counts come from the measured file times in
+        # scripts/ci/test-weights.json: about 200 s of backend test time and
+        # 240 s of contract test time per shard.
+        include:
+          - { lane: backend, shard: 1, count: 4 }
+          - { lane: backend, shard: 2, count: 4 }
+          - { lane: backend, shard: 3, count: 4 }
+          - { lane: backend, shard: 4, count: 4 }
+          - { lane: contracts, shard: 1, count: 5 }
+          - { lane: contracts, shard: 2, count: 5 }
+          - { lane: contracts, shard: 3, count: 5 }
+          - { lane: contracts, shard: 4, count: 5 }
+          - { lane: contracts, shard: 5, count: 5 }
     services:
       postgres:
         # Same pgvector image as the migrate job so default-suite persist tests
@@ -123,25 +142,34 @@ jobs:
           bun-version: 1.4.2
       - name: Required chat engine binary
         run: npm install --global opencode-ai@1.18.34
+      - name: Restore native revision index tools
+        id: zoekt
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ctxpipe-zoekt
+          key: zoekt-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1
       - uses: actions/setup-go@v5
+        if: steps.zoekt.outputs.cache-hit != 'true'
         with:
           go-version: 1.25.12
           cache: false
       - name: Required native revision index tools
         run: |
           npm install --global @ast-grep/cli@0.45.0
-          mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
-          # proxy.golang.org occasionally resets the zoekt zip mid-download.
-          for tool in zoekt-index zoekt-webserver; do
-            n=0
-            until GOBIN="$RUNNER_TEMP/ctxpipe-zoekt" go install \
-              "github.com/sourcegraph/zoekt/cmd/${tool}@596c362fcf1388fe0082acfcfc80c4d172efb7c1"
-            do
-              n=$((n + 1))
-              [ "$n" -lt 4 ] || exit 1
-              sleep $((n * 4))
+          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ]; then
+            mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
+            # proxy.golang.org occasionally resets the zoekt zip mid-download.
+            for tool in zoekt-index zoekt-webserver; do
+              n=0
+              until GOBIN="$RUNNER_TEMP/ctxpipe-zoekt" go install \
+                "github.com/sourcegraph/zoekt/cmd/${tool}@596c362fcf1388fe0082acfcfc80c4d172efb7c1"
+              do
+                n=$((n + 1))
+                [ "$n" -lt 4 ] || exit 1
+                sleep $((n * 4))
+              done
             done
-          done
+          fi
           echo "$RUNNER_TEMP/ctxpipe-zoekt" >> "$GITHUB_PATH"
       - name: Migrate backend schema
         env:
@@ -154,26 +182,100 @@ jobs:
           pnpm exec tsx src/db/migrate-checkpoints.ts
           pnpm exec tsx src/db/backfill-pagerduty-connection-directory-cli.ts
           pnpm exec tsx src/db/provision-app-role-cli.ts
+      - uses: docker/setup-buildx-action@v3
       - name: Required chat sandbox image
-        run: docker build -t ctxpipe-chat-sandbox:opencode-1.18.34 scripts/chat-sandbox
-      - name: Backend tests
+        uses: docker/build-push-action@v6
+        with:
+          context: scripts/chat-sandbox
+          tags: ctxpipe-chat-sandbox:opencode-1.18.34
+          load: true
+          cache-from: type=gha,scope=chat-sandbox
+          # One writer avoids nine jobs racing to save the same layers.
+          cache-to: ${{ matrix.lane == 'backend' && matrix.shard == 1 && 'type=gha,mode=max,scope=chat-sandbox' || '' }}
+      - name: Required ${{ matrix.lane }} tests
         env:
           GRAPH_DB_URI: redis://127.0.0.1:6379
           AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
           DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
-        run: pnpm --filter @ctxpipe/backend test
-      - name: Required deterministic contracts
-        env:
-          GRAPH_DB_URI: redis://127.0.0.1:6379
-          AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
-          DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
-        run: pnpm test:contracts
+        run: node scripts/ci/test-suite.mjs ${{ matrix.lane }} --shard=${{ matrix.shard }}/${{ matrix.count }}
+      - name: Preserve shard results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.lane }}-${{ matrix.shard }}
+          path: .ci-results/
+          include-hidden-files: true
+          if-no-files-found: error
+
+  package-tests:
+    timeout-minutes: 30
+    name: UI, CLI and CDK tests
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
       - name: UI tests
         run: pnpm --filter @ctxpipe/ui test
       - name: CLI tests
         run: node scripts/ci/test-suite.mjs cli
       - name: CDK tests
         run: node scripts/ci/test-suite.mjs aws-cdk
+      - name: Preserve package test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-packages
+          path: .ci-results/
+          include-hidden-files: true
+          if-no-files-found: error
+
+  test:
+    # Keeps the single "Tests" check: it passes only when every shard and
+    # package job passed and the shard union matches each full inventory.
+    name: Tests
+    needs: [test-shards, package-tests]
+    if: |
+      always() && (github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every test job
+        env:
+          SHARDS: ${{ needs.test-shards.result }}
+          PACKAGES: ${{ needs.package-tests.result }}
+        run: |
+          [ "$SHARDS" = success ] && [ "$PACKAGES" = success ] || {
+            echo "Test shards: $SHARDS; package tests: $PACKAGES"
+            exit 1
+          }
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: test-results-*
+          path: .ci-results/
+          merge-multiple: true
+      - name: Check the union of the backend shards
+        run: node scripts/ci/test-suite.mjs backend --merge
+      - name: Check the union of the contract shards
+        run: node scripts/ci/test-suite.mjs contracts --merge
       - name: Preserve executed test inventories and results
         if: always()
         uses: actions/upload-artifact@v4
@@ -207,7 +309,15 @@ jobs:
             dockerfile: apps/docs/Dockerfile
     steps:
       - uses: actions/checkout@v6
-      - run: docker build --progress=plain -f '${{ matrix.dockerfile }}' .
+      - uses: docker/setup-buildx-action@v3
+      # Only codesearch keeps a layer cache: its toolchain stages are the slow
+      # part, and the repository GHA cache cannot hold all five images.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          cache-from: ${{ matrix.name == 'codesearch' && 'type=gha,scope=production-codesearch' || '' }}
+          cache-to: ${{ matrix.name == 'codesearch' && 'type=gha,mode=max,scope=production-codesearch' || '' }}
 
   packages:
     name: Runnable packages and examples
