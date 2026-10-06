@@ -40,7 +40,7 @@ const server = setupServer(
       )
     const matching = sandboxes.filter((sandbox) =>
       filters.every((filter) => {
-        const [key, value] = filter.split(":")
+        const [key = "", value] = filter.split(":")
         return (sandbox.tags as Record<string, string>)[key] === value
       }),
     )

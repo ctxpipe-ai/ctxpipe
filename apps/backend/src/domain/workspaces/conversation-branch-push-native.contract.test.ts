@@ -1148,21 +1148,21 @@ git -c user.name=Agent -c user.email=agent@example.test commit -q -m "Agent comm
       )
       try {
         await sandbox.stop()
-        const lastUse = sandbox.row.lastHeartbeatAt.getTime()
-        expect(
-          await withTestLogger(() =>
-            sweepConversationSandboxes(
-              f.org.id,
-              new Date(lastUse + CHAT_SANDBOX_DELETE_AFTER_MS),
-            ),
-          ),
-        ).toMatchObject({ deleted: 1 })
+        const swept = await sweepAfter(f, sandbox, CHAT_SANDBOX_DELETE_AFTER_MS)
         const next = chatSessionBranchName(s.conversationId, 2)
-        expect(s.remote("rev-parse", s.branch)).toBe(foreign)
-        expect(s.remoteLog(next)).toBe("Agent commit")
-        expect(await s.conversation()).toMatchObject({
-          lastBranch: next,
-          lastChatPrNumber: null,
+        // One assertion, so that a failure shows the push and the row too.
+        expect({
+          swept,
+          sessionTip: s.remote("rev-parse", s.branch),
+          rescued: s.remoteLog(next),
+          conversation: await s.conversation(),
+          row: await afterSweep(f, sandbox),
+        }).toMatchObject({
+          swept: { deleted: 1 },
+          sessionTip: foreign,
+          rescued: "Agent commit",
+          conversation: { lastBranch: next, lastChatPrNumber: null },
+          row: null,
         })
       } finally {
         await sandbox.destroy()
@@ -1212,6 +1212,25 @@ const sweepAfter = (
     ),
   )
 
+/**
+ * The sandbox row after a sweep (null when it was deleted), with the last use
+ * the test read before the sweep. A failure then shows whether the sweep saw
+ * the sandbox as due.
+ */
+const afterSweep = async (
+  f: NativeHydrationFixture,
+  sandbox: { row: { id: string; lastHeartbeatAt: Date } },
+) => {
+  const row = await getSandboxInstance(sandbox.row.id, f.org.id)
+  return row
+    ? {
+        state: row.state,
+        lastHeartbeatAt: row.lastHeartbeatAt.toISOString(),
+        readBeforeSweep: sandbox.row.lastHeartbeatAt.toISOString(),
+      }
+    : null
+}
+
 it(
   "aborts a rebase in progress and pushes the commits before the sweep deletes the sandbox",
   { timeout: 180_000 },
@@ -1254,10 +1273,17 @@ git checkout -q main`,
       )
       try {
         await sandbox.stop()
-        expect(
-          await sweepAfter(f, sandbox, CHAT_SANDBOX_DELETE_AFTER_MS),
-        ).toMatchObject({ deleted: 1 })
-        expect(s.remoteLog()).toBe("Agent commit")
+        const swept = await sweepAfter(f, sandbox, CHAT_SANDBOX_DELETE_AFTER_MS)
+        // One assertion, so that a failure shows the push and the row too.
+        expect({
+          swept,
+          pushed: s.remoteLog(),
+          row: await afterSweep(f, sandbox),
+        }).toMatchObject({
+          swept: { deleted: 1 },
+          pushed: "Agent commit",
+          row: null,
+        })
       } finally {
         await sandbox.destroy()
       }
