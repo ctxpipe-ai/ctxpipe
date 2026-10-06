@@ -607,6 +607,22 @@ it(
   },
 )
 
+it(
+  "refuses Commit+Push for a Workspace that is not on GitHub before it uses the sandbox",
+  { timeout: 180_000 },
+  async () => {
+    await withSession({ github: false }, async (_f, s) => {
+      // A clean sandbox: the refusal names the Workspace, not "no_changes".
+      await s.warm()
+      const refused = await s.commitPush()
+      expect({ status: refused.status, body: await refused.json() }).toEqual({
+        status: 400,
+        body: { error: "not_github" },
+      })
+    })
+  },
+)
+
 /**
  * Serve the fixture remote over HTTP, as GitHub does: a fetch without the
  * read credential is refused. Only the sandbox's `origin` uses it; ctx|'s own

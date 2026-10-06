@@ -784,6 +784,10 @@ async function pushConversationBranch(input: {
   workspace: WorkspaceRecordFor
 }): Promise<{ pushed: { branch: string; treeUrl: string } } | PublishError> {
   const { conversation, workspace } = input
+  // Refused before the sandbox is attached, so a clean one does not answer
+  // no_changes.
+  if (!githubRepoFullNameFromWorkspaceUrl(workspace.workspaceRepositoryUrl))
+    return publishError("not_github")
   const ready = await readySandboxHandle({
     conversation,
     workspace,
@@ -1278,19 +1282,19 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     return c.json(outcome.pushed, 200)
   })
   .openapi(postConversationPullRequestRoute, async (c) => {
-    const signedIn = Boolean(c.get("user") && c.get("session"))
-    const body: z.infer<typeof CreateConversationPullRequestSchema> = signedIn
-      ? CreateConversationPullRequestSchema.parse(await c.req.json())
-      : {}
     const outcome = await publishWhenNoTurnRuns({
-      signedIn,
+      signedIn: Boolean(c.get("user") && c.get("session")),
       conversationId: c.req.param("conversationId"),
-      publish: (target) =>
-        createConversationPullRequest({
+      publish: async (target) => {
+        const body = CreateConversationPullRequestSchema.parse(
+          await c.req.json(),
+        )
+        return createConversationPullRequest({
           ...target,
           title: body.title ?? target.conversation.name,
           body: body.body ?? "",
-        }),
+        })
+      },
     })
     if ("error" in outcome)
       return c.json({ error: outcome.error }, outcome.status)
