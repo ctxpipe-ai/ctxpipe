@@ -228,6 +228,28 @@ it(
 )
 
 it(
+  "clears the requested connection's binding when GitHub answers 404 to the token request",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      // 404: the installation or the repository is not visible to the App.
+      const staleId = `repo_${f.id}_hidden`
+      await insertRepository(
+        f,
+        staleId,
+        "https://github.com/fixture/hidden-service",
+        f.connectionId,
+      )
+      f.server.use(...githubInstallation({ installationId, mint: 404 }))
+
+      await link(f, "https://github.com/fixture/hidden-service", f.connectionId)
+
+      expect(await bindingOf(f, staleId)).toBeNull()
+    })
+  },
+)
+
+it(
   "binds a repository of a renamed account when GitHub mints a read token for it",
   { timeout: 30_000 },
   async () => {
@@ -332,8 +354,8 @@ it(
 
 it(
   "changes no binding when GitHub fails to answer the token request",
-  // Octokit retries a 5xx with backoff before it fails.
-  { timeout: 60_000 },
+  // The coverage check does not retry, so an outage does not hold the link.
+  { timeout: 10_000 },
   async () => {
     await withNativeHydrationFixture({ github: true }, async (f) => {
       await setAccountSlug(f, "fixture")
