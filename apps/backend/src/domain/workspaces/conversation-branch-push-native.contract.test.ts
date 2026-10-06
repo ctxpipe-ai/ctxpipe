@@ -1154,3 +1154,47 @@ git -c user.name=Agent -c user.email=agent@example.test commit -q -m "Agent comm
     })
   },
 )
+
+it(
+  "keeps a sandbox whose Git repository exists but cannot be read",
+  { timeout: 180_000 },
+  async () => {
+    await withSession({ chatAgent: true }, async (f, s) => {
+      // A crash can leave HEAD empty; the session branch still has the commit.
+      const sandbox = await dockerSessionSandbox(
+        f,
+        s,
+        `git checkout -q -b ${s.branch}
+printf '# Committed\\n' > committed.md && git add committed.md
+git -c user.name=Agent -c user.email=agent@example.test commit -q -m "Agent commit"
+: > .git/HEAD`,
+      )
+      try {
+        await sandbox.stop()
+        expect(
+          await sweepAfter(f, sandbox, CHAT_SANDBOX_DELETE_AFTER_MS),
+        ).toMatchObject({ deleted: 0 })
+      } finally {
+        await sandbox.destroy()
+      }
+    })
+  },
+)
+
+it(
+  "deletes a sandbox that has no Git repository",
+  { timeout: 180_000 },
+  async () => {
+    await withSession({ chatAgent: true }, async (f, s) => {
+      const sandbox = await dockerSessionSandbox(f, s, "rm -rf .git")
+      try {
+        await sandbox.stop()
+        expect(
+          await sweepAfter(f, sandbox, CHAT_SANDBOX_DELETE_AFTER_MS),
+        ).toMatchObject({ deleted: 1 })
+      } finally {
+        await sandbox.destroy()
+      }
+    })
+  },
+)

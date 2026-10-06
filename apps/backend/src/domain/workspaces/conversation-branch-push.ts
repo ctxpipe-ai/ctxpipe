@@ -171,9 +171,10 @@ export async function pushBeforeSandboxDelete(input: {
           conversationId: input.conversationId,
           reason: resolved.reason,
         })
-      // A sandbox without a Git repository has nothing to push.
+      // A sandbox without a Git repository has nothing to push. A repository
+      // that Git cannot read makes the command fail, so the sandbox stays.
       const unpushed = await handle.exec(
-        `git rev-parse --git-dir >/dev/null 2>&1 || exit 0; ${UNPUSHED_COMMITS_COMMAND}`,
+        `[ -e .git ] || exit 0; ${UNPUSHED_COMMITS_COMMAND}`,
         { env: {} },
       )
       if (unpushed.exitCode === 0 && !unpushed.stdout.trim()) return "done"
