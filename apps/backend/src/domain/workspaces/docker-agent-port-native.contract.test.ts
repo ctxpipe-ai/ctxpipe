@@ -98,6 +98,7 @@ it(
     const provider = conversationSandboxProvider(
       "docker",
       `docker-reuse-${Date.now()}`,
+      async () => undefined,
     )
     const options = {
       port: WORKSPACE_CHAT_OPENCODE_PORT,

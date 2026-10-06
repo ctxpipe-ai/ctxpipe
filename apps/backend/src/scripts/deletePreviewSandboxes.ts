@@ -1,17 +1,22 @@
-import { Sandbox } from "@vercel/sandbox"
 import {
+  agentSnapshotTags,
   conversationSandboxTags,
+  deleteVercelBuilder,
   deleteVercelSandbox,
+  listTaggedSandboxes,
   type VercelCredentials,
   vercelCredentials,
+  workspaceBaseTags,
 } from "../domain/workspaces/vercel-sandbox-provider.js"
 import { log } from "../observability/logger.js"
 
 /**
- * Delete every hosted chat sandbox a closed PR preview created, with its
- * saved state. Sandboxes are tagged with the Railway environment name, so the
- * filter never reaches production. Already deleted counts as deleted; any
- * other API error fails the run. Returns how many sandboxes were deleted.
+ * Delete every hosted sandbox a closed PR preview created: chat sandboxes
+ * with their saved state, and the builders of Workspace bases and agent
+ * snapshots (any OpenCode version) with the snapshots taken from them.
+ * Sandboxes are tagged with the Railway environment name, so the filter
+ * never reaches production. Already deleted counts as deleted; any other API
+ * error fails the run. Returns how many sandboxes were deleted.
  */
 export async function deletePreviewSandboxes(input: {
   credentials: VercelCredentials
@@ -23,18 +28,22 @@ export async function deletePreviewSandboxes(input: {
     throw new Error(
       `Refusing to delete sandboxes outside a PR preview: "${environment}"`,
     )
-  const tags = conversationSandboxTags(environment)
-  const listed = await (await Sandbox.list({ ...credentials, tags })).toArray()
-  // The tag filter is the server's; check it again before deleting anything.
-  const names = listed
-    .filter((sandbox) =>
-      Object.entries(tags).every(
-        ([key, value]) => sandbox.tags?.[key] === value,
-      ),
+  const tagged = async (tags: Record<string, string>) =>
+    (await listTaggedSandboxes(credentials, tags)).map(
+      (sandbox) => sandbox.name,
     )
-    .map((sandbox) => sandbox.name)
-  for (const name of names) await deleteVercelSandbox({ credentials, name })
-  return names.length
+  const chats = await tagged(conversationSandboxTags(environment))
+  // Snapshots carry no tags; a builder's are found under its name. Base
+  // snapshots of a preview also expire after 30 days, should a builder no
+  // longer be listed.
+  const builders = [
+    ...(await tagged(workspaceBaseTags(environment))),
+    ...(await tagged(agentSnapshotTags(environment))),
+  ]
+  for (const name of chats) await deleteVercelSandbox({ credentials, name })
+  for (const builderName of builders)
+    await deleteVercelBuilder({ credentials, builderName })
+  return chats.length + builders.length
 }
 
 if (import.meta.main) {

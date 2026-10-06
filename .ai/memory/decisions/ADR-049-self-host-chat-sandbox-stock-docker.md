@@ -52,10 +52,10 @@ Lifecycle, limits, and cleanup are as in [ADR-048](ADR-048-native-postgres-sandb
 
 ### Fast start: Workspace base image (option B)
 
-- The Workspace base of [ADR-048](ADR-048-native-postgres-sandbox-ownership.md) is a Docker image on self-host. Our code commits a prepared builder container to an image. A new conversation starts from it with stock `dockerSandbox({ image })` and no patch. *(lands with the Workspace base change)*
-- Our labels are on each base image, each builder, and each container started from a base. They are `ai.ctxpipe.sandbox` (kind), `ai.ctxpipe.store` (a hash of the deployment's database), `ai.ctxpipe.base`, and `ai.ctxpipe.org`. *(lands with the Workspace base change)*
-- A host prune first sweeps every organization that has a sandbox row. Stock containers have no labels, so the sweep works from the container id in the row. *(lands with the Workspace base change)*
-- The prune then removes labeled objects of this deployment that have no row. It removes a base image whose base row is gone. It removes a labeled container that no row records and that is older than one hour, because a create can record its row late. It never touches unlabeled objects or objects of another deployment. *(lands with the Workspace base change)*
+- The Workspace base of [ADR-048](ADR-048-native-postgres-sandbox-ownership.md) is a Docker image on self-host. Our code commits a prepared builder container to an image. A new conversation starts from it with stock `dockerSandbox({ image })` and no patch.
+- Our labels are on each base image, each builder, and each container started from a base. They are `ai.ctxpipe.sandbox` (kind), `ai.ctxpipe.store` (a hash of the deployment's database), `ai.ctxpipe.base`, and `ai.ctxpipe.org`.
+- A host prune runs once per sweep window. It sweeps no organization: each organization's own sweep chain deletes what its rows record, and each base schedules the next sweep of its organization. Stock containers have no labels, so the sweep works from the container id in the row.
+- The prune then removes labeled objects of this deployment that have no row. It removes a base image whose base row is gone, or whose row names another image while no build of that row holds its lease. It removes a labeled container that no row records and that is older than one hour, because a create can record its row late. It never touches unlabeled objects or objects of another deployment.
 
 ## Consequences
 

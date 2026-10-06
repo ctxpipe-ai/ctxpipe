@@ -26,12 +26,9 @@ import {
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { eq } from "drizzle-orm"
-import { parseEnv } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
-import { getRepoReadCloneToken } from "../../models/github-installation.js"
-import { sandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
 import {
   heartbeatSandboxInstance,
   SandboxInstanceOwnershipConflict,
@@ -59,6 +56,7 @@ import {
 } from "./conversation-sandbox-lifecycle.js"
 import { checkoutSessionBranch } from "./conversation-session-branch.js"
 import { nameConversationIfUnnamed } from "./conversation-title.js"
+import { hostedSandboxAccess } from "./hosted-sandbox-access.js"
 import { type WorkspaceRevision, workspaceRevisionSchema } from "./revision.js"
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
 import {
@@ -77,7 +75,6 @@ import {
 } from "./sandbox-process-guards.js"
 import {
   discoverSandboxProvider,
-  dockerImageId,
   remoteDockerHost,
   type SandboxProvider as SandboxProviderName,
   withDockerAgentPort,
@@ -86,9 +83,10 @@ import {
 import {
   conversationAgentPassword,
   conversationSandboxTags,
+  vercelAgentSnapshot,
   vercelConversationProvider,
-  vercelCredentials,
 } from "./vercel-sandbox-provider.js"
+import { sandboxAgentImage } from "./workspace-base-providers.js"
 import {
   aguiTextDelta,
   conversationRenameChunk,
@@ -124,7 +122,10 @@ import { mintWorkspaceChatRunCapability } from "./workspace-chat-run-capability.
 import { workspaceChatThreadLock } from "./workspace-chat-thread-lock.js"
 import { mintWorkspaceChatToken } from "./workspace-chat-token.js"
 import { WORKSPACE_CHAT_TOOLS } from "./workspace-chat-tools.js"
-import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
+import {
+  baseForNewSandbox,
+  startingFromBase,
+} from "./workspace-sandbox-base.js"
 
 export type TanstackWorkspaceChatMessage = {
   id?: string
@@ -173,9 +174,11 @@ export const workspaceChatDockerOwnership = {
 
 /**
  * One stock definition per request. The sandbox key covers the conversation,
- * the Workspace's repository and default branch, and the agent image; the
- * commit and credentials are not part of it, so a conversation keeps its
- * sandbox while the default branch moves (option D).
+ * the Workspace's repository and default branch, and the key image (the
+ * Docker chat image, or a fixed Vercel value). The commit, the credentials
+ * and the Workspace base a sandbox started from are not part of it, so a
+ * conversation keeps its sandbox while the default branch moves (option D)
+ * and when its Workspace gets a new base.
  */
 function conversationSandboxDefinition(input: {
   provider: SandboxProvider
@@ -225,14 +228,11 @@ function conversationSandboxDefinition(input: {
   return definition
 }
 
-/** The image's content id, so a rebuilt image gets new sandboxes. */
-function workspaceChatImageId(): Promise<string> {
-  return dockerImageId(workspaceChatDockerImage())
-}
-
 export function conversationSandboxProvider(
   isolation: SandboxProviderName,
   conversationId: string,
+  /** Docker: the Workspace base image a new sandbox starts from, if any. */
+  baseImage: () => Promise<string | undefined>,
   vercel?: Parameters<typeof vercelConversationProvider>[0],
 ): SandboxProvider {
   if (isolation === "vercel") {
@@ -248,10 +248,14 @@ export function conversationSandboxProvider(
   return withSingleOpencodeServer(
     withSessionOnlyEnv(
       withDockerAgentPort(
-        dockerSandbox({
-          image: workspaceChatDockerImage(),
-          publishPorts: [WORKSPACE_CHAT_OPENCODE_PORT],
-          dockerodeOptions: { timeout: 120_000 },
+        startingFromBase({
+          make: (image) =>
+            dockerSandbox({
+              image: image ?? workspaceChatDockerImage(),
+              publishPorts: [WORKSPACE_CHAT_OPENCODE_PORT],
+              dockerodeOptions: { timeout: 120_000 },
+            }),
+          baseImage,
         }),
         {
           // AUTH_SECRET is checked before the provider is built.
@@ -375,6 +379,30 @@ async function scheduleIdleStop(orgId: string, usedAt: Date): Promise<void> {
       step: "conversation-sandbox-sweep-schedule",
       message: `Scheduling the sandbox sweep failed: ${String(error)}`,
       orgId,
+    })
+  }
+}
+
+/**
+ * Ask the worker to build (or refresh) the Workspace base, without waiting:
+ * this start goes ahead as it is. Loaded lazily like the sweep scheduler.
+ */
+async function requestBaseBuild(
+  orgId: string,
+  workspaceId: string,
+): Promise<void> {
+  try {
+    const { requestWorkspaceSandboxBase } = await import(
+      "../../openworkflow/workflows/workspace-sandbox-base.js"
+    )
+    await requestWorkspaceSandboxBase(orgId, workspaceId)
+  } catch (error) {
+    // The next new conversation asks again.
+    log.error({
+      step: "workspace-base-request",
+      message: `Requesting the Workspace base build failed: ${String(error)}`,
+      orgId,
+      workspaceId,
     })
   }
 }
@@ -854,11 +882,16 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
     publicBaseUrl,
   )
   if (!session.ok) return session
-  // Part of the sandbox key: a new agent image or base gets new sandboxes.
-  let image = selectedProvider === "vercel" ? "vercel-node24" : "local-process"
-  if (selectedProvider === "docker") {
+  // `image` is part of the sandbox key; `agentImage` picks the base.
+  let image = "local-process"
+  let agentImage = image
+  if (selectedProvider !== "unsandboxed") {
     try {
-      image = await workspaceChatImageId()
+      agentImage = await sandboxAgentImage(selectedProvider)
+      // Docker: the chat image's id, so a new image gives new sandboxes.
+      // Vercel: one fixed value, so an OpenCode upgrade never orphans
+      // hosted conversations (a resumed sandbox keeps its OpenCode).
+      image = selectedProvider === "docker" ? agentImage : "vercel-agent"
     } catch (error) {
       getLogger().error(
         error instanceof Error ? error : new Error(String(error)),
@@ -871,6 +904,24 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
       }
     }
   }
+  // A new sandbox starts from the Workspace base, chosen at create (under the
+  // Workspace lock); an existing one is resumed whatever it started from.
+  const base = async (): Promise<{
+    ref?: string
+    failed: () => Promise<void>
+  }> => {
+    if (selectedProvider === "unsandboxed")
+      return { failed: async () => undefined }
+    const choice = await baseForNewSandbox({
+      orgId: input.orgId,
+      workspaceId: input.workspaceId,
+      agent: { provider: selectedProvider, image: agentImage },
+      revision: revision.data,
+    })
+    if (choice.requestBuild)
+      void requestBaseBuild(input.orgId, input.workspaceId)
+    return choice
+  }
   const workspace = conversationSandboxWorkspace({
     isolation: selectedProvider,
     input,
@@ -882,7 +933,20 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
   const provider = conversationSandboxProvider(
     selectedProvider,
     input.conversationId,
-    vercel?.ok ? vercel.options : undefined,
+    async () => (await base()).ref,
+    vercel?.ok
+      ? {
+          ...vercel.options,
+          base,
+          logContext: { orgId: input.orgId, workspaceId: input.workspaceId },
+          // No base: the agent snapshot (OpenCode only), never npm.
+          agentSnapshot: () =>
+            vercelAgentSnapshot({
+              credentials: vercel.options.credentials,
+              environment: vercel.environment,
+            }),
+        }
+      : undefined,
   )
   return {
     ok: true as const,
@@ -932,54 +996,43 @@ async function hostedSandboxOptions(
   | {
       ok: true
       publicBaseUrl: string
-      options: Parameters<typeof vercelConversationProvider>[0]
+      environment: string
+      options: Omit<
+        Parameters<typeof vercelConversationProvider>[0],
+        "base" | "agentSnapshot"
+      >
     }
   | { ok: false; status: 503; error: string }
 > {
-  const unavailable = (error: string) => ({
-    ok: false as const,
-    status: 503 as const,
-    error,
+  const hosted = await hostedSandboxAccess({
+    orgId: input.orgId,
+    githubConnectionId: input.githubConnectionId,
+    desiredUrl,
   })
-  const credentials = await vercelCredentials().catch(() => null)
-  if (!credentials)
-    return unavailable("Hosted chat sandboxes are not configured")
-  // On Railway, an untagged sandbox would escape the PR-close cleanup.
-  const environment = process.env.RAILWAY_ENVIRONMENT_NAME?.trim()
-  if (!environment && process.env.RAILWAY_PROJECT_ID?.trim())
-    return unavailable("Hosted chat needs the Railway environment name")
+  if (!hosted.ok) return hosted
   const authSecret = process.env.AUTH_SECRET?.trim() ?? ""
   if (authSecret.length < 32)
-    return unavailable("Workspace chat needs AUTH_SECRET")
-  const repoFullName = githubRepoFullNameFromWorkspaceUrl(desiredUrl)
-  if (!repoFullName)
-    return unavailable("Hosted chat needs a GitHub Workspace repository")
-  const env = parseEnv(process.env as Record<string, string | undefined>)
-  const publicBaseUrl = new URL(env.AUTH_BASE_URL).origin
+    return {
+      ok: false,
+      status: 503,
+      error: "Workspace chat needs AUTH_SECRET",
+    }
   return {
     ok: true,
-    publicBaseUrl,
+    publicBaseUrl: hosted.publicBaseUrl,
+    environment: hosted.environment,
     options: {
-      credentials,
+      credentials: hosted.credentials,
       agentPassword: conversationAgentPassword(
         authSecret,
         input.conversationId,
       ),
       access: {
-        backendHost: new URL(publicBaseUrl).hostname,
-        tokens: sandboxGitTokenStore(input.orgId, env),
-        mintGitToken: async () => {
-          const token = await getRepoReadCloneToken(input.orgId, env, {
-            githubConnectionId: input.githubConnectionId ?? undefined,
-            repoFullName,
-            fresh: true,
-          })
-          if (!token)
-            throw new Error("Workspace GitHub read access is unavailable")
-          return token
-        },
+        backendHost: hosted.backendHost,
+        tokens: hosted.tokens,
+        mintGitToken: hosted.mintGitToken,
       },
-      tags: conversationSandboxTags(environment || "local"),
+      tags: conversationSandboxTags(hosted.environment),
     },
   }
 }

@@ -7,9 +7,14 @@ import {
   Sandbox,
   Snapshot,
 } from "@vercel/sandbox"
+import { assertNotInOrgDbContext } from "../../db/client.js"
 import type { SandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
 import { log } from "../../observability/logger.js"
-import { WORKSPACE_CHAT_OPENCODE_PORT } from "./chat-runtime.js"
+import {
+  WORKSPACE_CHAT_OPENCODE_PORT,
+  WORKSPACE_CHAT_VERCEL_AGENT_INSTALL,
+} from "./chat-runtime.js"
+import { WORKSPACE_CHAT_OPENCODE_CLI } from "./workspace-chat-opencode-contract.js"
 
 /** Where the stock Vercel handle maps the `/workspace` root. */
 const WORKDIR = "/vercel/sandbox"
@@ -32,6 +37,26 @@ export function conversationSandboxTags(
 ): Record<string, string> {
   return { ctxpipe: "workspace-chat", environment }
 }
+
+/**
+ * Tags on the sandbox that builds a Workspace base. Snapshots carry no tags,
+ * so the stopped builder is kept as the base snapshot's owner: the PR-close
+ * cleanup finds it by environment and deletes its snapshots with it.
+ */
+export function workspaceBaseTags(environment: string): Record<string, string> {
+  return { ctxpipe: "workspace-base", environment }
+}
+
+/**
+ * Tags on every builder of an environment's agent snapshot (OpenCode,
+ * nothing else); each also carries `opencode: <version>`.
+ */
+export function agentSnapshotTags(environment: string): Record<string, string> {
+  return { ctxpipe: "workspace-agent", environment }
+}
+
+/** The `opencode` tag value of this deployment's agent snapshot builders. */
+const AGENT_VERSION = WORKSPACE_CHAT_OPENCODE_CLI.replace(/[^\w.-]/g, "-")
 
 export type VercelCredentials = {
   token: string
@@ -88,36 +113,43 @@ export function conversationAgentPassword(
 }
 
 /**
- * Egress is limited to GitHub and the backend. The GitHub read token travels
- * in the firewall rule, so it never enters the sandbox.
+ * Egress is limited to GitHub and the backend; nothing else, ever (no npm:
+ * OpenCode comes from the agent snapshot). The GitHub read token travels in
+ * the firewall rule, so it never enters the sandbox.
  */
 export function conversationNetworkPolicy(input: {
   gitToken: string
   backendHost: string
-  extraHosts?: string[]
 }): NetworkPolicy {
-  const basic = Buffer.from(`x-access-token:${input.gitToken}`).toString(
-    "base64",
-  )
   return {
-    allow: {
-      "github.com": [
-        { transform: [{ headers: { authorization: `Basic ${basic}` } }] },
-      ],
-      "codeload.github.com": [
-        { transform: [{ headers: { authorization: `Basic ${basic}` } }] },
-      ],
-      "api.github.com": [
-        {
-          transform: [
-            { headers: { authorization: `Bearer ${input.gitToken}` } },
-          ],
-        },
-      ],
-      [input.backendHost]: [],
-      ...Object.fromEntries((input.extraHosts ?? []).map((host) => [host, []])),
-    },
+    allow: { ...githubAllowlist(input.gitToken), [input.backendHost]: [] },
   }
+}
+
+/** GitHub hosts, each with the read token added by the firewall. */
+function githubAllowlist(gitToken: string) {
+  const basic = Buffer.from(`x-access-token:${gitToken}`).toString("base64")
+  return {
+    "github.com": [
+      { transform: [{ headers: { authorization: `Basic ${basic}` } }] },
+    ],
+    "codeload.github.com": [
+      { transform: [{ headers: { authorization: `Basic ${basic}` } }] },
+    ],
+    "api.github.com": [
+      { transform: [{ headers: { authorization: `Bearer ${gitToken}` } }] },
+    ],
+  }
+}
+
+/**
+ * Builder snapshots on a PR preview expire after 30 days, so a PR-close
+ * cleanup that misses a builder leaves a bounded leftover. Production ones
+ * have no expiry; they are deleted from their rows (bases) or when another
+ * OpenCode version replaces them (agent snapshots).
+ */
+export function builderSnapshotExpiration(environment: string): number {
+  return /^pr-\d+$/.test(environment) ? STATE_RETENTION_MS : 0
 }
 
 export async function revokeGithubToken(token: string): Promise<void> {
@@ -161,7 +193,6 @@ export type ConversationSandboxAccess = {
   /** Defaults to GitHub's revoke endpoint. */
   revokeGitToken?: (token: string) => Promise<void>
   backendHost: string
-  extraHosts?: string[]
 }
 
 /** Replace the sandbox's GitHub token and revoke the old one after a grace. */
@@ -251,35 +282,64 @@ export function vercelConversationProvider(input: {
   agentPassword: string
   access: ConversationSandboxAccess
   tags: Record<string, string>
-  /** The Workspace base snapshot; without one the sandbox starts empty. */
-  baseSnapshotId?: string
+  /**
+   * The Workspace base a new sandbox starts from (clone and OpenCode in
+   * place), resolved at create, and how to mark it failed.
+   */
+  base: () => Promise<{ ref?: string; failed: () => Promise<void> }>
+  /** Without a base: the agent snapshot (OpenCode only). Never a bare runtime. */
+  agentSnapshot: () => Promise<string>
+  /** Added to this provider's log entries. */
+  logContext?: { orgId: string; workspaceId: string }
 }): SandboxProvider {
-  const { credentials } = input
+  const { credentials, access } = input
   return {
     name: "vercel",
     capabilities: () => ({ ...VERCEL_CAPS, killableProcesses: true }),
     async create() {
       // Secrets reach the session through `env.set`, not the create request.
-      const gitToken = await input.access.mintGitToken()
-      const sandbox = await Sandbox.create({
-        ...credentials,
-        ...(input.baseSnapshotId
-          ? {
-              source: {
-                type: "snapshot" as const,
-                snapshotId: input.baseSnapshotId,
-              },
-            }
-          : { runtime: "node24" }),
-        ports: [WORKSPACE_CHAT_OPENCODE_PORT],
-        persistent: true,
-        timeout: SESSION_TIMEOUT_MS,
-        snapshotExpiration: STATE_RETENTION_MS,
-        keepLastSnapshots: { count: 1, expiration: STATE_RETENTION_MS },
-        networkPolicy: conversationNetworkPolicy({ ...input.access, gitToken }),
-        tags: input.tags,
-      })
-      await input.access.tokens.put(sandbox.name, gitToken)
+      const gitToken = await access.mintGitToken()
+      const start = (snapshotId: string) =>
+        Sandbox.create({
+          ...credentials,
+          source: { type: "snapshot", snapshotId },
+          ports: [WORKSPACE_CHAT_OPENCODE_PORT],
+          persistent: true,
+          timeout: SESSION_TIMEOUT_MS,
+          snapshotExpiration: STATE_RETENTION_MS,
+          keepLastSnapshots: { count: 1, expiration: STATE_RETENTION_MS },
+          networkPolicy: conversationNetworkPolicy({ ...access, gitToken }),
+          tags: input.tags,
+        })
+      const fromAgent = async () => {
+        const snapshotId = await input.agentSnapshot()
+        return start(snapshotId).catch((error: unknown) => {
+          // The next start looks the agent snapshot up again.
+          forgetAgentSnapshot(snapshotId)
+          throw error
+        })
+      }
+      const base = await input.base()
+      let sandbox: Sandbox
+      if (base.ref) {
+        try {
+          sandbox = await start(base.ref)
+        } catch (error) {
+          // This start goes on from the agent snapshot, once. The base is
+          // marked failed (cleanup removes it, the next start asks for a
+          // rebuild) only when it is the cause: a read of the snapshot finds
+          // it gone or not usable. Any other failure keeps it.
+          log.warn({
+            step: "workspace-base-start",
+            message: `Starting from the Workspace base failed; using the agent snapshot: ${String(error)}`,
+            ...input.logContext,
+          })
+          if (await baseSnapshotIsBad(credentials, base.ref))
+            await base.failed()
+          sandbox = await fromAgent()
+        }
+      } else sandbox = await fromAgent()
+      await access.tokens.put(sandbox.name, gitToken)
       return conversationHandle(sandbox, input.agentPassword)
     },
     async resume({ id }) {
@@ -290,17 +350,15 @@ export function vercelConversationProvider(input: {
         // Deleted or past retention: TanStack creates a new one.
         return null
       }
-      await refreshGitAccess(sandbox, input.access)
+      await refreshGitAccess(sandbox, access)
       return conversationHandle(sandbox, input.agentPassword)
     },
     async destroy({ id }) {
       await deleteVercelSandbox({
         credentials,
         name: id,
-        tokens: input.access.tokens,
-        ...(input.access.revokeGitToken
-          ? { revoke: input.access.revokeGitToken }
-          : {}),
+        tokens: access.tokens,
+        ...(access.revokeGitToken ? { revoke: access.revokeGitToken } : {}),
       })
     },
   }
@@ -316,6 +374,24 @@ type SandboxTarget = {
    */
   tokens?: SandboxGitTokenStore
   revoke?: (token: string) => Promise<void>
+}
+
+/**
+ * Whether a failed start from a Workspace base was the base's fault: the
+ * snapshot is now gone or not `created`. The start's own error does not
+ * decide it, as a client error can be about another option. When the check
+ * itself fails, the base is kept.
+ */
+async function baseSnapshotIsBad(
+  credentials: VercelCredentials,
+  snapshotId: string,
+): Promise<boolean> {
+  try {
+    const snapshot = await Snapshot.get({ ...credentials, snapshotId })
+    return snapshot.status !== "created"
+  } catch (checkError) {
+    return notFound(checkError)
+  }
 }
 
 function notFound(error: unknown): boolean {
@@ -387,4 +463,247 @@ export async function deleteVercelSandbox(
     }
   }
   await revokeSandboxToken(target)
+}
+
+async function deleteSnapshot(
+  credentials: VercelCredentials,
+  snapshotId: string,
+): Promise<void> {
+  try {
+    await (await Snapshot.get({ ...credentials, snapshotId })).delete()
+  } catch (error) {
+    if (!notFound(error)) throw error
+  }
+}
+
+/**
+ * Delete a builder (Workspace base or agent snapshot) and every snapshot
+ * taken from it. Snapshots go first, so a failed sandbox delete never leaves
+ * a snapshot nobody can find; `snapshotId` also covers one whose builder is
+ * already gone. Already deleted counts as deleted.
+ */
+export async function deleteVercelBuilder(input: {
+  credentials: VercelCredentials
+  builderName?: string | null
+  snapshotId?: string | null
+}): Promise<void> {
+  const { credentials, builderName } = input
+  if (input.snapshotId) await deleteSnapshot(credentials, input.snapshotId)
+  if (!builderName) return
+  const taken = await (
+    await Snapshot.list({ ...credentials, name: builderName })
+  ).toArray()
+  for (const { id, status } of taken)
+    if (status !== "deleted") await deleteSnapshot(credentials, id)
+  try {
+    await (
+      await Sandbox.get({ ...credentials, name: builderName, resume: false })
+    ).delete()
+  } catch (error) {
+    if (!notFound(error)) throw error
+  }
+}
+
+/**
+ * Sandboxes carrying all of `tags`. The tag filter is the server's; it is
+ * checked again before anyone acts on the result.
+ */
+export async function listTaggedSandboxes(
+  credentials: VercelCredentials,
+  tags: Record<string, string>,
+) {
+  return (
+    await (await Sandbox.list({ ...credentials, tags })).toArray()
+  ).filter((sandbox) =>
+    Object.entries(tags).every(([key, value]) => sandbox.tags?.[key] === value),
+  )
+}
+
+/**
+ * Start the sandbox that builds a Workspace base, from the agent snapshot
+ * (OpenCode already installed). It reaches GitHub only, with the read token
+ * in the firewall rule. The caller clones and runs setup on `handle`, then
+ * calls `capture`, which snapshots it (stopping it) with `expiration` (0:
+ * none). `finish` revokes the builder's GitHub token; the caller calls it
+ * once, however the build ends.
+ */
+export async function startVercelWorkspaceBase(input: {
+  credentials: VercelCredentials
+  agentSnapshotId: string
+  mintGitToken: () => Promise<string>
+  /** Defaults to GitHub's revoke endpoint. */
+  revokeGitToken?: (token: string) => Promise<void>
+  tags: Record<string, string>
+  expiration: number
+}): Promise<{
+  builderId: string
+  handle: SandboxHandle
+  capture: () => Promise<string>
+  finish: () => Promise<void>
+}> {
+  assertNotInOrgDbContext()
+  const gitToken = await input.mintGitToken()
+  const finish = () =>
+    (input.revokeGitToken ?? revokeGithubToken)(gitToken).catch(
+      (error: unknown) =>
+        log.warn({
+          step: "workspace-base-token-revoke",
+          message: `Revoking a base builder's GitHub token failed: ${String(error)}`,
+        }),
+    )
+  let sandbox: Sandbox
+  try {
+    sandbox = await Sandbox.create({
+      ...input.credentials,
+      source: { type: "snapshot", snapshotId: input.agentSnapshotId },
+      timeout: 15 * 60_000,
+      networkPolicy: { allow: githubAllowlist(gitToken) },
+      tags: input.tags,
+    })
+  } catch (error) {
+    await finish()
+    throw error
+  }
+  return {
+    builderId: sandbox.name,
+    handle: new VercelHandle({ sandbox, workdir: WORKDIR, ports: [] }),
+    capture: async () =>
+      (await sandbox.snapshot({ expiration: input.expiration })).snapshotId,
+    finish,
+  }
+}
+
+/**
+ * This process's agent snapshot per environment and OpenCode version, and
+ * the build in flight. Builds are deduplicated within a process only; two
+ * replicas may each build one, and both are valid.
+ */
+const agentSnapshots = new Map<string, string>()
+const agentBuilds = new Map<string, Promise<string>>()
+
+/** Forget a cached agent snapshot that failed to start a sandbox. */
+export function forgetAgentSnapshot(snapshotId: string): void {
+  for (const [key, cached] of agentSnapshots)
+    if (cached === snapshotId) agentSnapshots.delete(key)
+}
+
+/** A live agent snapshot for this environment and version, found through its tagged builder. */
+async function findAgentSnapshot(
+  credentials: VercelCredentials,
+  environment: string,
+): Promise<string | undefined> {
+  for (const builder of await listTaggedSandboxes(credentials, {
+    ...agentSnapshotTags(environment),
+    opencode: AGENT_VERSION,
+  }))
+    for (const snapshot of await (
+      await Snapshot.list({ ...credentials, name: builder.name })
+    ).toArray())
+      if (snapshot.status === "created") return snapshot.id
+  return undefined
+}
+
+/**
+ * Delete this environment's agent builders of other OpenCode versions, and
+ * any (an hour old, so not a build in progress) with no live snapshot.
+ * Runs after a build, off any conversation's start.
+ */
+async function deleteOldAgentBuilders(
+  credentials: VercelCredentials,
+  environment: string,
+): Promise<void> {
+  for (const builder of await listTaggedSandboxes(
+    credentials,
+    agentSnapshotTags(environment),
+  )) {
+    if (Date.now() - builder.createdAt < 60 * 60_000) continue
+    const current = builder.tags?.opencode === AGENT_VERSION
+    const live =
+      current &&
+      (
+        await (
+          await Snapshot.list({ ...credentials, name: builder.name })
+        ).toArray()
+      ).some((snapshot) => snapshot.status === "created")
+    if (!live)
+      await deleteVercelBuilder({ credentials, builderName: builder.name })
+  }
+}
+
+/**
+ * Install OpenCode in a `node24` sandbox that reaches only the npm registry
+ * (no repository, no credential) and snapshot it. The one hosted sandbox
+ * that installs anything.
+ */
+async function buildAgentSnapshot(
+  credentials: VercelCredentials,
+  environment: string,
+): Promise<string> {
+  const sandbox = await Sandbox.create({
+    ...credentials,
+    runtime: "node24",
+    timeout: 15 * 60_000,
+    networkPolicy: { allow: ["registry.npmjs.org"] },
+    tags: { ...agentSnapshotTags(environment), opencode: AGENT_VERSION },
+  })
+  try {
+    const installed = await new VercelHandle({
+      sandbox,
+      workdir: WORKDIR,
+      ports: [],
+    }).process.exec(WORKSPACE_CHAT_VERCEL_AGENT_INSTALL)
+    if (installed.exitCode !== 0)
+      throw new Error(
+        `Installing OpenCode failed (exit ${installed.exitCode}): ${installed.stderr.slice(-500)}`,
+      )
+    return (
+      await sandbox.snapshot({
+        expiration: builderSnapshotExpiration(environment),
+      })
+    ).snapshotId
+  } catch (error) {
+    await deleteVercelBuilder({ credentials, builderName: sandbox.name })
+    throw error
+  }
+}
+
+/**
+ * The snapshot a conversation without a Workspace base starts from: OpenCode
+ * at this deployment's version, nothing else. Cached in the process; found
+ * through its tagged builder, or built when none is found (once per
+ * environment and version, and again if builders are ever gone).
+ */
+export async function vercelAgentSnapshot(input: {
+  credentials: VercelCredentials
+  environment: string
+}): Promise<string> {
+  assertNotInOrgDbContext()
+  const { credentials, environment } = input
+  const key = `${environment}:${AGENT_VERSION}`
+  const cached = agentSnapshots.get(key)
+  if (cached) return cached
+  const found = await findAgentSnapshot(credentials, environment)
+  if (found) {
+    agentSnapshots.set(key, found)
+    return found
+  }
+  let building = agentBuilds.get(key)
+  if (!building) {
+    building = buildAgentSnapshot(credentials, environment)
+      .then((built) => {
+        agentSnapshots.set(key, built)
+        void deleteOldAgentBuilders(credentials, environment).catch(
+          (error: unknown) =>
+            log.warn({
+              step: "workspace-agent-snapshot",
+              message: `Deleting old agent builders failed: ${String(error)}`,
+              environment,
+            }),
+        )
+        return built
+      })
+      .finally(() => agentBuilds.delete(key))
+    agentBuilds.set(key, building)
+  }
+  return building
 }

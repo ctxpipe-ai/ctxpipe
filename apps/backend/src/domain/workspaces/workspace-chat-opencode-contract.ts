@@ -196,7 +196,8 @@ export function writeWorkspaceChatOpenCodeConfig(input: {
         OPENCODE_CONFIG: `${home}/opencode.json`,
         PATH:
           input.isolation === "vercel"
-            ? `${VERCEL_AGENT_ROOT}/.local/bin:/usr/local/bin:/usr/bin:/bin`
+            ? // The node24 image keeps Node and npm under /vercel/runtimes.
+              `${VERCEL_AGENT_ROOT}/.local/bin:/vercel/runtimes/node24/bin:/usr/local/bin:/usr/bin:/bin`
             : "/usr/local/bin:/usr/bin:/bin",
       },
     }

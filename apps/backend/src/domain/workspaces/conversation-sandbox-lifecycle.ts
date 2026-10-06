@@ -2,9 +2,11 @@ import type {
   SandboxHandle,
   SandboxProvider as TanstackSandboxProvider,
 } from "@tanstack/ai-sandbox"
-import { withOrgDbContext } from "../../db/client.js"
+import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { organizations } from "../../db/schema/auth.js"
 import { listOrgConversationsForSandboxGc } from "../../models/conversations.js"
 import {
+  BASE_BUILD_LEASE_MS,
   countRunningSandboxes,
   deleteSandboxInstance,
   getSandboxInstance,
@@ -29,7 +31,15 @@ import {
   withSandboxLockIfFree,
 } from "./sandbox-lock-store.js"
 import { stopDetachedProviderSandbox } from "./sandbox-provider.js"
-import { destroyUnusedSandbox } from "./workspace-sandbox-cleanup.js"
+import {
+  currentSandboxAgent,
+  type SandboxAgent,
+} from "./workspace-base-providers.js"
+import {
+  collectUnusedWorkspaceBases,
+  destroyUnusedSandbox,
+  workspaceBaseHeldUntil,
+} from "./workspace-sandbox-cleanup.js"
 
 /**
  * Retries (a turn holds the conversation, a stop or delete failed) land on
@@ -252,6 +262,31 @@ export async function* stoppingSandboxWhenDone<T>(
 }
 
 /**
+ * Orgs that have any sandbox row (conversation, job or Workspace base): the
+ * sweep decides what is due. The worker-start backstop schedules a sweep for
+ * each, in case a chain was lost.
+ */
+export async function orgsWithSandboxes(): Promise<string[]> {
+  const orgs = await getSystemDb()
+    .select({ id: organizations.id })
+    .from(organizations)
+  const due: string[] = []
+  for (const { id } of orgs) {
+    try {
+      const rows = await withOrgDbContext(id, () => listSandboxInstances({}))
+      if (rows.length) due.push(id)
+    } catch (error) {
+      log.error({
+        step: "conversation-sandbox-sweep-backstop",
+        message: `Reading an org's sandboxes failed: ${String(error)}`,
+        orgId: id,
+      })
+    }
+  }
+  return due
+}
+
+/**
  * The lifecycle sweep for one organization's conversation sandboxes:
  * - stop a running sandbox after 5 minutes unused (never while a turn or file
  *   read holds the conversation);
@@ -259,18 +294,23 @@ export async function* stoppingSandboxWhenDone<T>(
  *   expire (29 days after its last use), when its conversation is gone, or
  *   when an earlier delete failed; committed work is pushed first.
  * Returns when the next sweep is due (an idle stop, a deletion, a retry), or
- * null when no sandbox is left.
+ * null when no sandbox is left. Workspace bases always schedule the next
+ * sweep (see below).
  */
 export async function sweepConversationSandboxes(
   orgId: string,
   now: Date = new Date(),
 ): Promise<{ stopped: number; deleted: number; nextSweepAt: Date | null }> {
-  const { rows, conversations } = await withOrgDbContext(orgId, async () => ({
-    rows: await listSandboxInstances({ kind: "chat" }),
-    conversations: new Set(
-      (await listOrgConversationsForSandboxGc(orgId)).map((row) => row.id),
-    ),
-  }))
+  const { rows, bases, conversations } = await withOrgDbContext(
+    orgId,
+    async () => ({
+      rows: await listSandboxInstances({ kind: "chat" }),
+      bases: await listSandboxInstances({ kind: "base" }),
+      conversations: new Set(
+        (await listOrgConversationsForSandboxGc(orgId)).map((row) => row.id),
+      ),
+    }),
+  )
   let stopped = 0
   let deleted = 0
   let next: number | null = null
@@ -353,6 +393,58 @@ export async function sweepConversationSandboxes(
       })
       dueAt(retryAt)
     }
+  }
+  // Bases whose conversations are gone (deleted above, or long ago) go too.
+  // Skipped when the agent image cannot be read: a daemon blip never deletes
+  // the base new conversations should use.
+  const workspacesWithBases = new Set(bases.map((row) => row.workspaceId))
+  let agent: SandboxAgent | null = null
+  if (workspacesWithBases.size)
+    agent = await currentSandboxAgent().catch((error: unknown) => {
+      log.warn({
+        step: "workspace-base-cleanup",
+        message: `Skipping base cleanup: the agent image is unreadable: ${String(error)}`,
+        orgId,
+      })
+      return null
+    })
+  for (const workspaceId of agent ? workspacesWithBases : []) {
+    try {
+      if (agent)
+        await collectUnusedWorkspaceBases({ orgId, workspaceId, agent, now })
+    } catch (error) {
+      log.error({
+        step: "conversation-sandbox-sweep",
+        message: `Deleting unused Workspace bases failed: ${String(error)}`,
+        workspaceId,
+      })
+    }
+  }
+  // Each base left schedules the org's next sweep, so a dormant org's
+  // bases still go: a live base at its retention end, a build at its lease
+  // end, a failed delete at the next retry. A Vercel base kept for a
+  // conversation sandbox that may use it waits for that sandbox's expiry. A
+  // time already past (a lapsed lease, a skipped cleanup) becomes the next
+  // retry: sweeps are keyed by minute, so a past time would not run again.
+  const left = bases.length
+    ? await withOrgDbContext(orgId, () => listSandboxInstances({}))
+    : []
+  for (const base of left) {
+    if (base.kind !== "base") continue
+    const own =
+      base.state === "live"
+        ? base.lastHeartbeatAt.getTime() + CHAT_SANDBOX_RETENTION_MS
+        : base.state === "building"
+          ? base.lastHeartbeatAt.getTime() + BASE_BUILD_LEASE_MS
+          : base.state === "destroy_failed"
+            ? retryAt
+            : null
+    const held = workspaceBaseHeldUntil(
+      base,
+      left.filter((row) => row.workspaceId === base.workspaceId),
+    )
+    const due = own === null ? null : Math.max(own, held ?? own)
+    if (due !== null) dueAt(Math.max(due, retryAt))
   }
   if (stopped || deleted)
     log.info({

@@ -49,7 +49,7 @@ Self-hosters get sandboxed workspace chat by default on both Compose and CDK, us
 
 1. **Compose simplification.** Replace the custom runner with stock `docker:dind` (TLS on via `DOCKER_TLS_CERTDIR`, named volume for `/var/lib/docker`, `daemon.json` with `cgroup-parent` + log rotation). Backend/worker use `DOCKER_HOST=tcp://dind:2376` + client certs. Build the chat image inside dind at startup (keep the existing `chat-sandbox-image` step if still needed). Remove `sandbox-model-relay`; sandboxes reach the backend through the dind network / `hostGateway`. Prove: two chats, restart dind, chats resume or re-create cleanly.
 2. **Workspace base images (option B).** Base builder: create a sandbox from the stock chat image, clone the Workspace repository, run setup, `docker commit` with owner labels; record the image in the sandbox table. One build at a time per Workspace under the existing Postgres lock. Rebuild when the base is more than N commits or a day behind; delete bases no container uses. New conversations use `dockerSandbox({ image: base })`; the pre-turn update fetches the tip and checks out the session branch.
-3. **Cleanup owner.** Label every sandbox container and snapshot image with org/workspace/conversation ids. Extend `workspace-sandbox-cleanup.ts`: destroy idle sandboxes past keep-alive, delete snapshot images whose owner rows are gone, then `docker container prune` / `image prune` filtered by our labels. Run it from the existing periodic workflow. Prove with a native contract test that creates, snapshots, forks, expires, and asserts nothing labelled remains.
+3. **Cleanup owner.** Label every sandbox container and snapshot image with org/workspace/conversation ids. Extend `workspace-sandbox-cleanup.ts`: destroy idle sandboxes past keep-alive, delete snapshot images whose owner rows are gone, then `docker container prune` / `image prune` filtered by our labels. Run it from the existing periodic workflow. Prove with a native contract test that creates, snapshots, forks, expires, and asserts nothing labeled remains.
 4. **CDK sandbox host construct.** Add `SandboxHostConstruct` to `packages/aws-cdk/src/internal/`: single-instance ASG (self-healing) on the Graviton instance for the `size` profile (table above, overridable), gp3 root + data volume for `/var/lib/docker`, user data installing Docker with TLS and the same `daemon.json`, certs generated once into Secrets Manager, security group allowing 2376 only from backend/worker and sandbox → backend ports. Inject `SANDBOX_PROVIDER=docker`, `DOCKER_HOST`, and certs into backend/worker task definitions. CloudWatch disk + memory alarms. Default on; no new required props.
 5. **Backend wiring.** Provider selection reads the configured daemon; remove unsandboxed auto-fallback when a daemon is configured but unreachable (fail closed). Keep `unsandboxed` reachable only by explicit `SANDBOX_PROVIDER=unsandboxed`, with a startup warning.
 6. **Upgrade path test.** Deploy the previous published construct in a sandbox AWS account, then upgrade to this one: no data loss, no manual steps. Record in the ticket.
@@ -84,6 +84,57 @@ Do not add TanStack patches or an application-level sandbox registry. Keep const
 
 ## Comments
 
+- 2026-10-04 (claude): **Workspace base, third review round:**
+  - Builds are retry-safe:
+    - the reserve id comes from the workflow run;
+    - publish is folded into the build as one conditional UPDATE, and a published or recorded capture is reused on retry;
+    - a failed attempt's builder is removed;
+    - the Docker base row no longer stores the image id as `provider_sandbox_id`.
+  - Only builds with a held lease count toward the 50.
+  - New builds are requested only when the base is stale.
+  - The host prune runs once per 5-minute sweep window (one OpenWorkflow run, not one per org) and reads each org's rows once.
+  - `orgsNeedingSweep` includes orgs whose bases cleanup may delete.
+  - New native proofs: a retried reserve, a retried build after a failed attempt and after a crash before publish, and cap accounting with a lapsed lease.
+
+- 2026-10-04 (claude): **fast start and prune reworked after adversarial review** (supersedes the comment below):
+  - Measured on Docker Desktop: a stopped container restarts with its files after `docker rmi --force` of its image; a running one makes the daemon refuse (409 "cannot be forced"). So:
+    - the base is chosen when a sandbox is created, under the Workspace lock that base cleanup also takes, and is no longer part of the sandbox key;
+    - a superseded base is deleted at once, unless a running container uses it (then the next sweep retries);
+    - image removal uses `force` both in delete and in the prune.
+  - Builders are containers our code creates with labels, wrapped in the stock `DockerHandle`. Containers started from a base inherit the image's labels.
+  - Build: durable reserve/build/publish steps with a one-hour row lease. Builders take an org slot. Stale means a day old and behind. The current base is deleted after 30 unused days.
+  - One cleanup path: the org sweep. The tip-check trigger and the job's own collect step are gone. The prune is a step of every sweep on Docker; the hourly scheduler is gone. Worker start schedules sweeps for `orgsNeedingSweep`.
+  - The prune also removes labeled containers over an hour old with no row. Still unreachable, by design: a plain-chat-image container whose row was removed without destroying it. Our code keeps such rows as `destroy_failed` instead.
+  - Proof in `workspace-sandbox-base-native.contract.test.ts` (6 tests, real Docker and Postgres, all pass locally). The remote is smart HTTP that requires a token, so the production token path is exercised:
+    1. no clone from a base, three concurrent starts queue one build, one lease at a time, the builder counts toward the cap, and no token in the base image (git config, files, image config);
+    2. a stale rebuild; an existing sandbox kept; a superseded base kept while a running container uses it and deleted once it stops, after which the stopped sandbox still resumes with its files;
+    3. a gone base falls back to the chat image once (row marked failed, rebuild requested);
+    4. a lost or expired lease stops and leaves nothing; no build at capacity;
+    5. disk stays flat over three build/start/stop/delete cycles;
+    6. the prune removes a dormant org's container, an orphaned image and an orphaned labeled container, and leaves the rest.
+  - Timings (local, tiny repo): ready 0.9 s from a base vs 0.9–1.1 s without one (concurrent starts serialize on the Workspace lock).
+
+- 2026-10-06 (claude): **Workspace base, review round 3** (ADR-048 updated):
+  - The base image carries its row id as a label. A crash between `docker commit` and the publish leaves an image the row does not name; the host prune removes it when no build of that row holds its lease.
+  - The host prune no longer sweeps every org. Each base schedules its org's next sweep (retention end, lease end, retry), and the worker-start backstop still schedules a sweep for every org with a sandbox row.
+  - The time-to-ready measurement left the contract suite. Run it by hand, with Docker, the chat sandbox image and a migrated database (`pnpm dev:infra`, `pnpm db:migrate`), from `apps/backend`: `DATABASE_URL=… bun run src/scripts/workspaceBaseTimeToReady.ts [public-repository-url]` (default `facebook/react`). It prints one `[workspace-base]` line with the ready times, the build time and the image size the base adds.
+  - The prune test uses its own store label, so it never removes objects of other test runs.
+
+- 2026-10-04 (claude): **fast start (option B) and host prune landed** (ADR-048 "Fast start" and "Cleanup"):
+  - Base: a container of the chat image clones the Workspace repository and runs the Docker setup. `docker commit` turns it into `ctxpipe-workspace-base:<row>`, labeled `ai.ctxpipe.sandbox=workspace-base`, `ai.ctxpipe.store=<database hash>`, `ai.ctxpipe.base=<row>`, org and Workspace. The image holds no secret.
+  - New conversations use stock `dockerSandbox({ image: <base> })`; stock bootstrap skips the clone. Existing conversations keep their container.
+  - One build at a time per Workspace. Rebuilt when stale (a day old and behind, or more than 50 commits behind). Deleted when no conversation row started from it (superseded) or after 7 unused days (current). Relink and Workspace deletion delete it after the conversation containers.
+  - Host prune (`docker-sandbox-host-prune` job): at most hourly, at worker start and from every sweep. It sweeps orgs with containers past 30 days, working from `provider_sandbox_id`. It removes labeled base images of this deployment whose row is gone; the row check happens at removal, so a build in flight is safe. Other deployments' images (same daemon, different database) and images a container uses are never touched.
+  - Proven on real Docker and Postgres in `workspace-sandbox-base-native.contract.test.ts` (added to the "native sandbox ownership" lane). The remote is `git daemon` on the default bridge, so the test runs on Docker Desktop too:
+    1. no clone when a base exists: the remote is removed and the start still succeeds from the base image;
+    2. three concurrent new conversations queue exactly one build run, and three concurrent builds give `built`, `busy`, `busy`;
+    3. a stale base is rebuilt (by commit count and by age), while an existing conversation keeps its container and moves to the tip;
+    4. unused bases are deleted (superseded at once; current after 7 days);
+    5. the prune removes a dormant org's 31-day-old stopped container and an unused labeled image, and leaves a recent container, a base in use, another deployment's image and an unlabeled image.
+  - Measured locally (Docker Desktop, tiny repository on the bridge): sandbox ready 1.2 s without a base vs 1.1 s from one. The clone is all a Docker base saves, so the gain grows with repository size. The three concurrent starts without a base took 1.2/2.6/4.0 s, because the Workspace lock serializes creates (existing behavior).
+  - Measured on a large public repository (2026-10-06, Docker Desktop, `facebook/react` at `278794d7dee9`, depth-1 clone over the internet, now `src/scripts/workspaceBaseTimeToReady.ts`): sandbox ready 16.1 s without a base and 8.9 s from one. The base build took 21.9 s, and the base adds 53 MB to the chat image. In the same run, the tiny bridge repository gave 6.3/12.3/22.9 s for three concurrent starts without a base and 9.6 s from one, because other test suites loaded the machine. Decision for the user: the base saves about 7 s on a large repository and almost nothing on a small one.
+  - Note for Compose/CDK: the worker builds bases, so it needs the same `DOCKER_HOST` / TLS and `SANDBOX_CHAT_IMAGE` as the backend (CDK already passes both).
+
 - 2026-10-05 (claude, review fixes to the docs and ADR-049): ADR-049 now gives the true history (the custom runner existed only inside PR 280), the real CDK-only host rules, the pinned commit SHA image tag, and the base-image labels and prune rule from the Workspace base change. ADR-048 and the Workspaces PRD link ADR-049 and drop the stale *(ticket 03)* markers on the shipped providers. The docs now list `vercel` (the Terraform path) next to `docker` and `unsandboxed`, with the `VERCEL_*` variables.
   - **Follow-up (not done here):** `infra/module/ctxpipe/railway.tf` hard-codes `VERCEL_TEAM_ID` and `VERCEL_PROJECT_ID` to our own Vercel team and project. A third party that reuses the module cannot use them. Make them module variables. The Terraform is unchanged in this PR.
 
@@ -117,7 +168,7 @@ Do not add TanStack patches or an application-level sandbox registry. Keep const
   - Starts are capped at 50 running per org, with an "at capacity" error.
   - MCP turns stop their container when the run ends.
   - Proven with real Docker and Postgres in `sandbox-lifecycle-native.contract.test.ts`. The Linux-only Docker chat contract in `workspace-chat-prepare-native.contract.test.ts` now also runs a full OpenCode turn after an idle stop, and an unattended turn that stops the container (CI only).
-  - Still open for this ticket: labelled image/container prune for orphans and base images.
+  - Still open for this ticket: labeled image/container prune for orphans and base images.
 
 - 2026-10-03 (claude, CDK part, after adversarial review): `SandboxHostConstruct` (`packages/aws-cdk/src/internal/sandbox-host-construct.ts`) is wired into `CtxPipe`, always on, with optional `sandboxHost.instanceType` (Graviton only, others rejected at synth) / `dockerVolumeSizeGiB` (defaults from the sizing table). Design:
   - Single-instance ASG (AL2023 arm64, AMI resolved at launch so new AMIs do not replace the host on deploy), EC2 health checks, creation/rolling-update signals so `cdk deploy` waits for a ready host; IMDSv2 with hop limit 1; Session Manager, no SSH.

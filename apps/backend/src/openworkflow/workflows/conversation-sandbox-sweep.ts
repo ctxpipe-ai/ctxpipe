@@ -1,19 +1,23 @@
 import { z } from "zod"
-import { getSystemDb } from "../../db/client.js"
-import { organizations } from "../../db/schema/auth.js"
 import { CHAT_SANDBOX_IDLE_STOP_MS } from "../../domain/workspaces/chat-lifecycle.js"
-import { sweepConversationSandboxes } from "../../domain/workspaces/conversation-sandbox-lifecycle.js"
-import { countRunningSandboxes } from "../../models/workspaces.js"
-import { log } from "../../observability/logger.js"
+import {
+  orgsWithSandboxes,
+  sweepConversationSandboxes,
+} from "../../domain/workspaces/conversation-sandbox-lifecycle.js"
+import { discoverSandboxProvider } from "../../domain/workspaces/sandbox-provider.js"
+import { getLogger, log } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { requestDockerSandboxHostPrune } from "./docker-sandbox-host-prune.js"
 
 /**
  * One organization's conversation sandbox lifecycle (idle stop, 30-day
- * deletion). Each run schedules the next for when a running sandbox is next
- * due, so the chain lasts while the org runs sandboxes. The schedule step is
- * separate, so a retried run reuses the swept result instead of computing a
- * second next time.
+ * deletion, unused Workspace bases). Each run schedules the next for when a
+ * running sandbox is next due, so the chain lasts while the org runs
+ * sandboxes. The schedule step is separate, so a retried run reuses the
+ * swept result instead of computing a second next time. On Docker hosts each
+ * run asks for the host prune, which runs once per 5-minute window however
+ * many orgs sweep (the host's disk only grows while sandboxes run).
  */
 export const conversationSandboxSweep = defineWorkflow(
   {
@@ -34,6 +38,21 @@ export const conversationSandboxSweep = defineWorkflow(
       await step.run({ name: "schedule-next" }, () =>
         scheduleConversationSandboxSweep(input.orgId, new Date(nextSweepAt)),
       )
+    await step.run({ name: "request-host-prune" }, async () => {
+      try {
+        if ((await discoverSandboxProvider()) === "docker")
+          await requestDockerSandboxHostPrune()
+      } catch (error) {
+        // The next sweep asks again; the org's own sweep is done.
+        getLogger().error(
+          error instanceof Error ? error : new Error(String(error)),
+          {
+            step: "docker-sandbox-host-prune",
+            orgId: input.orgId,
+          },
+        )
+      }
+    })
     return swept
   },
 )
@@ -81,21 +100,18 @@ export async function scheduleIdleSandboxStop(
 
 /**
  * Backstop for a lost chain (a failed schedule, a crashed replica): on worker
- * start, sweep every org that still has a running sandbox.
+ * start, sweep every org that has a sandbox row (`orgsWithSandboxes`).
  */
-export async function scheduleSweepsForRunningSandboxes(): Promise<void> {
-  const orgs = await getSystemDb()
-    .select({ id: organizations.id })
-    .from(organizations)
-  for (const { id } of orgs) {
+export async function scheduleSweepsForOrgsNeedingIt(): Promise<void> {
+  const now = new Date()
+  for (const orgId of await orgsWithSandboxes()) {
     try {
-      if ((await countRunningSandboxes(id, "")) > 0)
-        await scheduleConversationSandboxSweep(id, new Date())
+      await scheduleConversationSandboxSweep(orgId, now)
     } catch (error) {
       log.error({
         step: "conversation-sandbox-sweep-backstop",
         message: `Scheduling the startup sandbox sweep failed: ${String(error)}`,
-        orgId: id,
+        orgId,
       })
     }
   }

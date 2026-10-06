@@ -1,12 +1,29 @@
-import { and, count, eq, inArray, isNull, ne } from "drizzle-orm"
+import {
+  and,
+  count,
+  eq,
+  getTableColumns,
+  inArray,
+  isNull,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm"
 import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { workspaceSandboxInstances } from "../db/schema/workspaces.js"
 import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
 import { orgSql } from "./workspace-sql.js"
 
+/**
+ * `base`: a Workspace base (ADR-048, "Fast start"): a provider snapshot of a
+ * sandbox that cloned the Workspace repository and ran setup. New
+ * conversations start from it; it runs nothing itself.
+ */
+export type SandboxInstanceKind = "chat" | "job" | "base"
+
 export type SandboxInstanceRecord = {
   id: string
-  kind: "chat" | "job"
+  kind: SandboxInstanceKind
   orgId: string
   workspaceId: string
   conversationId?: string | null
@@ -22,9 +39,21 @@ export type SandboxInstanceRecord = {
   /** `stopped`: the provider sandbox is stopped with its files kept; the next turn resumes it. */
   state: SandboxInstanceState
   lastHeartbeatAt: Date
+  /**
+   * Set when read. A Workspace base's publish time: the insert sets it, and
+   * the publish (`updateBuildingBase`) sets it again.
+   */
+  createdAt?: Date
+  /** Set when read: a `building` base whose lease holds (decided in SQL). */
+  leaseHeld?: boolean
 }
 
-export type SandboxInstanceState = "live" | "stopped" | "destroy_failed"
+/** `building`: a Workspace base whose build has not finished. */
+export type SandboxInstanceState =
+  | "live"
+  | "stopped"
+  | "destroy_failed"
+  | "building"
 
 export type SandboxInstanceOwnership = Pick<
   SandboxInstanceRecord,
@@ -58,14 +87,40 @@ export class SandboxInstanceOwnershipConflict extends Error {
   }
 }
 
+/**
+ * A Workspace base's `building` row is its build's lease, measured from
+ * `last_heartbeat_at` (set when the build was reserved, and renewed by the
+ * build while it runs). A build with no heartbeat for this long is lost: its
+ * writes stop matching and cleanup removes it.
+ */
+export const BASE_BUILD_LEASE_MS = 60 * 60_000
+
+/**
+ * SQL: this row is a base build whose lease has not lapsed. The one
+ * definition: reads return it as `leaseHeld`.
+ */
+const baseLeaseHeld = and(
+  eq(workspaceSandboxInstances.kind, "base"),
+  eq(workspaceSandboxInstances.state, "building"),
+  sql`${workspaceSandboxInstances.lastHeartbeatAt} > clock_timestamp() - make_interval(secs => ${BASE_BUILD_LEASE_MS / 1000})`,
+)
+
+/** A row as read, with whether its base build lease holds. */
+const sandboxInstanceColumns = {
+  ...getTableColumns(workspaceSandboxInstances),
+  leaseHeld: sql<boolean>`coalesce(${baseLeaseHeld}, false)`,
+}
+
 function toSandboxInstanceRecord(
-  row: typeof workspaceSandboxInstances.$inferSelect,
+  row: typeof workspaceSandboxInstances.$inferSelect & { leaseHeld: boolean },
 ): SandboxInstanceRecord | null {
-  if (row.kind !== "chat" && row.kind !== "job") return null
+  if (row.kind !== "chat" && row.kind !== "job" && row.kind !== "base")
+    return null
   if (
     row.state !== "live" &&
     row.state !== "stopped" &&
-    row.state !== "destroy_failed"
+    row.state !== "destroy_failed" &&
+    row.state !== "building"
   )
     return null
   return {
@@ -85,6 +140,8 @@ function toSandboxInstanceRecord(
     latestRunId: row.latestRunId,
     state: row.state,
     lastHeartbeatAt: row.lastHeartbeatAt,
+    createdAt: row.createdAt,
+    leaseHeld: row.leaseHeld,
   }
 }
 
@@ -199,7 +256,7 @@ export async function heartbeatSandboxInstance(
 export async function listSandboxInstances(input: {
   workspaceId?: string
   conversationId?: string
-  kind?: "chat" | "job"
+  kind?: SandboxInstanceKind
   state?: SandboxInstanceState
 }): Promise<SandboxInstanceRecord[]> {
   return orgSql(async () => {
@@ -217,7 +274,7 @@ export async function listSandboxInstances(input: {
         : undefined,
     ].filter((value): value is NonNullable<typeof value> => value != null)
     const rows = await db
-      .select()
+      .select(sandboxInstanceColumns)
       .from(workspaceSandboxInstances)
       .where(filters.length > 0 ? and(...filters) : undefined)
     return rows.flatMap((row) => {
@@ -244,10 +301,12 @@ export function isRunningSandboxProvider(
 }
 
 /**
- * Sandboxes the org is running now, of any kind: live rows of a running
- * provider, including slots reserved for a create in progress. `excludingId`
- * leaves out the sandbox about to start, so starting it again never counts
- * twice.
+ * Sandboxes the org is running now: live conversation and job rows of a
+ * running provider, including slots reserved for a create in progress, and
+ * Workspace base builds whose lease holds (their builder runs). A finished
+ * base is an image or a snapshot and runs nothing, and a lapsed build is
+ * being cleaned up, so neither counts. `excludingId` leaves out the sandbox
+ * about to start, so starting it again never counts twice.
  */
 export async function countRunningSandboxes(
   orgId: string,
@@ -260,7 +319,13 @@ export async function countRunningSandboxes(
       .where(
         and(
           eq(workspaceSandboxInstances.orgId, orgId),
-          eq(workspaceSandboxInstances.state, "live"),
+          or(
+            and(
+              eq(workspaceSandboxInstances.state, "live"),
+              ne(workspaceSandboxInstances.kind, "base"),
+            ),
+            baseLeaseHeld,
+          ),
           inArray(workspaceSandboxInstances.provider, [
             ...RUNNING_SANDBOX_PROVIDERS,
           ]),
@@ -278,7 +343,7 @@ export async function getSandboxInstance(
   const scopedOrgId = requireSandboxOrgId(orgId)
   return withSandboxInstanceDb(scopedOrgId, async () => {
     const [row] = await getOrgDb()
-      .select()
+      .select(sandboxInstanceColumns)
       .from(workspaceSandboxInstances)
       .where(
         and(
@@ -380,5 +445,50 @@ export async function advanceSandboxInstanceRevision(input: {
       )
       .returning({ id: workspaceSandboxInstances.id })
     if (moved.length !== 1) throw new SandboxInstanceOwnershipConflict(input.id)
+  })
+}
+
+/**
+ * Write a Workspace base build's progress (its builder, or its capture with
+ * `state: "live"` to publish it) only while its lease holds and its builder
+ * is still `builderId`. One conditional UPDATE: it never recreates a row
+ * that cleanup deleted, and 0 rows means the build lost its lease. Each
+ * write renews the lease (an empty `set` is the build's heartbeat).
+ * Publishing sets `created_at` to the publish time: the base's age, and when
+ * it superseded the one before.
+ */
+export async function updateBuildingBase(input: {
+  id: string
+  orgId: string
+  builderId: string | null
+  set: Partial<
+    Pick<
+      SandboxInstanceRecord,
+      "providerSandboxId" | "latestSnapshotId" | "revision" | "state"
+    >
+  >
+}): Promise<boolean> {
+  return withSandboxInstanceDb(input.orgId, async () => {
+    const updated = await getOrgDb()
+      .update(workspaceSandboxInstances)
+      .set({
+        ...input.set,
+        // Each write renews the lease; publishing also dates the base.
+        lastHeartbeatAt: new Date(),
+        ...(input.set.state === "live" ? { createdAt: new Date() } : {}),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(workspaceSandboxInstances.id, input.id),
+          eq(workspaceSandboxInstances.orgId, input.orgId),
+          baseLeaseHeld,
+          input.builderId === null
+            ? isNull(workspaceSandboxInstances.providerSandboxId)
+            : eq(workspaceSandboxInstances.providerSandboxId, input.builderId),
+        ),
+      )
+      .returning({ id: workspaceSandboxInstances.id })
+    return updated.length === 1
   })
 }

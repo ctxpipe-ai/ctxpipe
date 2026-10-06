@@ -171,16 +171,18 @@ export async function getWorkspaceBySlug(
   })
 }
 
+/** Pass `orgId` where no request or auth org context exists (workflows, sweeps). */
 export async function getWorkspaceById(
   workspaceId: string,
+  orgId?: string,
 ): Promise<WorkspaceRecord | null> {
   return orgSql(async () => {
-    const orgId = requireCurrentOrgId()
+    const id = orgId ?? requireCurrentOrgId()
     const db = getOrgDb()
     const [row] = await db
       .select()
       .from(workspaces)
-      .where(and(eq(workspaces.orgId, orgId), eq(workspaces.id, workspaceId)))
+      .where(and(eq(workspaces.orgId, id), eq(workspaces.id, workspaceId)))
       .limit(1)
     return row ?? null
   })
@@ -280,8 +282,9 @@ export async function getWorkspaceProjection(
 export async function getDesiredWorkspaceRevision(
   workspaceId: string,
   access: WorkspaceRevision["access"] = "read",
+  orgId?: string,
 ): Promise<WorkspaceRevision | null> {
-  const row = await getWorkspaceById(workspaceId)
+  const row = await getWorkspaceById(workspaceId, orgId)
   const revision = row ? desiredWorkspaceRevision(row) : null
   return revision ? { ...revision, access } : null
 }
