@@ -213,6 +213,26 @@ describe("buildGithubPullRequestGraph", () => {
     ])
   })
 
+  it("finds issue references past the stored excerpt", () => {
+    const file = renderGithubPullRequest({
+      ...snapshot,
+      body: `${"Context. ".repeat(400)}\n\nFixes #31`,
+    })
+    const result = parseGithubPullRequestMarkdown(file.content)
+    if (!result) throw new Error("expected frontmatter to parse")
+    expect(result.bodyExcerpt.length).toBe(2_000)
+    const { extractedClaims } = buildGithubPullRequestGraph({
+      parsed: result,
+      markdownPath: file.path,
+      targetHash: "abc123",
+      contextRepositoryId: "repo_ctx",
+      sourceRepositoryId: "repo_api",
+    })
+    expect(extractedClaims.map((claim) => claim.objectRef)).toContain(
+      "iss:repo_api:31",
+    )
+  })
+
   it("falls back to name-scoped keys and skips TARGETS when the source repository is unknown", () => {
     const { file, result } = parsed()
     const { extractedObjects, extractedClaims } = buildGithubPullRequestGraph({

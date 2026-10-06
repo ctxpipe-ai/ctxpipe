@@ -83,7 +83,8 @@ typed change edges.
 11. Graph: `Issue` keyed `iss:${sourceRepositoryId}:${number}`, `Issue PART_OF
     Repository`, and `Issue REFERENCES PullRequest` for each pull request
     GitHub links as closing it (`closedByPullRequestsReferences`, merged
-    included, in the same request; frontmatter `closedBy`). That link holds
+    included, in the same request; frontmatter `closedBy`; at most 10 per
+    issue, since more is rare). That link holds
     across repositories and does not depend on pull-request files being
     re-extracted. An issue of a repository that is not connected is skipped.
     A mirrored pull request that writes `#N`, `owner/repo#N` or an issue URL

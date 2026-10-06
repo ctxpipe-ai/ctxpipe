@@ -91,6 +91,7 @@ export async function ensureGithubPrMirror(input: {
       env: input.env,
       binding,
       repositories,
+      current,
     })
     await runWorkflowWithWorkerWake(
       githubSyncContent.spec,

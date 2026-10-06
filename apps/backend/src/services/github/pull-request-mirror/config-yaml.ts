@@ -76,7 +76,10 @@ export function parseGithubPrConfigYamlContent(
 
 export function renderGithubPrConfigYaml(input: {
   repositories: string[]
+  /** The yaml on the branch: its policy is kept, only the list is replaced. */
+  current?: GithubPrMirrorRepoConfig
 }): string {
+  const { current } = input
   return stringify({
     version: 1,
     source: "github",
@@ -84,10 +87,17 @@ export function renderGithubPrConfigYaml(input: {
       repositories: [...new Set(input.repositories)].sort((a, b) =>
         a.localeCompare(b),
       ),
-      states: ["merged"],
-      includeDrafts: false,
-      maxPullRequestsPerRepository: DEFAULT_MAX_PULL_REQUESTS_PER_REPOSITORY,
+      states: current?.states ?? ["merged"],
+      includeDrafts: current?.includeDrafts ?? false,
+      ...(current?.updatedSince ? { updatedSince: current.updatedSince } : {}),
+      maxPullRequestsPerRepository:
+        current?.maxPullRequestsPerRepository ??
+        DEFAULT_MAX_PULL_REQUESTS_PER_REPOSITORY,
     },
-    issues: { maxIssuesPerRepository: DEFAULT_MAX_ISSUES_PER_REPOSITORY },
+    issues: {
+      maxIssuesPerRepository:
+        current?.issues?.maxIssuesPerRepository ??
+        DEFAULT_MAX_ISSUES_PER_REPOSITORY,
+    },
   })
 }

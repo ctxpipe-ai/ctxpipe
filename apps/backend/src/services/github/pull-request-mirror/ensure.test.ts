@@ -137,14 +137,15 @@ describe("ensureGithubPrMirror", () => {
     expect(mocks.commitYaml).not.toHaveBeenCalled()
   })
 
-  it("rewrites a live yaml written before issue capture", async () => {
+  it("rewrites a live yaml written before issue capture, keeping its policy", async () => {
     mocks.bind.mockResolvedValue({ ...binding, setupPhase: "live" })
-    mocks.loadConfig.mockResolvedValue({
+    const current = {
       repositories: ["acme/api"],
-      states: ["merged"],
-      includeDrafts: false,
-      maxPullRequestsPerRepository: 200,
-    })
+      states: ["open", "merged"],
+      includeDrafts: true,
+      maxPullRequestsPerRepository: 50,
+    }
+    mocks.loadConfig.mockResolvedValue(current)
     await expect(
       ensureGithubPrMirror({
         orgId: "org_1",
@@ -152,7 +153,9 @@ describe("ensureGithubPrMirror", () => {
         env: {} as never,
       }),
     ).resolves.toEqual({ status: "started" })
-    expect(mocks.commitYaml).toHaveBeenCalled()
+    expect(mocks.commitYaml).toHaveBeenCalledWith(
+      expect.objectContaining({ repositories: ["acme/api"], current }),
+    )
   })
 
   it("retries content when a matching mirror previously failed", async () => {

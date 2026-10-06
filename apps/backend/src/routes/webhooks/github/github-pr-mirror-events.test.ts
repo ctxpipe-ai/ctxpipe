@@ -22,6 +22,7 @@ vi.mock("../../../openworkflow/workflows/github-sync-issue.js", () => ({
   githubSyncIssue: { spec: { name: "github-sync-issue" } },
 }))
 
+import { createLogger, withLogger } from "../../../observability/logger.js"
 import {
   candidateFromPullRequestPayload,
   githubPrMirrorIdempotencyKey,
@@ -116,7 +117,7 @@ describe("maybeEnqueueGithubPrMirror", () => {
       payload: {
         action: "deleted",
         issue: { number: 12 },
-        comment: { updated_at: "2026-03-05T00:00:00Z" },
+        comment: { id: 501, updated_at: "2026-03-05T00:00:00Z" },
         repository: { full_name: "acme/api" },
         installation: { id: 99 },
       },
@@ -143,10 +144,30 @@ describe("maybeEnqueueGithubPrMirror", () => {
         job,
         {
           idempotencyKey:
-            "github-issue:con_gh:acme/api:12:deleted:2026-03-05T00:00:00Z",
+            "github-issue:con_gh:acme/api:12:deleted:501:2026-03-05T00:00:00Z",
         },
       ],
     ])
+  })
+
+  it("fails the delivery when a mirror job cannot be enqueued", async () => {
+    mocks.runWorkflow.mockRejectedValueOnce(new Error("queue unavailable"))
+
+    // The webhook route runs inside the request logger.
+    await expect(
+      withLogger(createLogger({}), () =>
+        maybeEnqueueGithubPrMirror({
+          eventName: "issues",
+          payload: {
+            action: "opened",
+            issue: { number: 12, updated_at: "2026-03-04T00:00:00Z" },
+            repository: { full_name: "acme/api" },
+            installation: { id: 99 },
+          },
+          githubConnectionId: "con_gh",
+        }),
+      ),
+    ).rejects.toThrow("queue unavailable")
   })
 
   it("skips issue actions that do not change the mirrored file", async () => {

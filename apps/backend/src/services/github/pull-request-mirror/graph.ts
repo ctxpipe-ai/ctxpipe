@@ -230,7 +230,7 @@ export function buildGithubPullRequestGraph(input: {
   const { sourceRepositoryId } = input
   if (sourceRepositoryId) {
     for (const number of findGithubIssueNumbers(
-      `${parsed.title}\n${parsed.bodyExcerpt}`,
+      `${parsed.title}\n${parsed.body}`,
       parsed.repository,
     )) {
       claims.push({

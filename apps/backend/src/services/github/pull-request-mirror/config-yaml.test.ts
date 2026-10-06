@@ -26,6 +26,31 @@ describe("github/config.yaml", () => {
     expect(config?.issues).toBeUndefined()
   })
 
+  it("keeps the operator's policy when only the repository list changes", () => {
+    const current = parseGithubPrConfigYamlContent(
+      [
+        "pullRequests:",
+        "  repositories: [acme/api]",
+        "  states: [open, merged]",
+        "  includeDrafts: true",
+        "  updatedSince: 2026-01-01",
+        "  maxPullRequestsPerRepository: 50",
+      ].join("\n"),
+    )
+    expect(
+      parseGithubPrConfigYamlContent(
+        renderGithubPrConfigYaml({ repositories: ["acme/web"], current }),
+      ),
+    ).toEqual({
+      repositories: ["acme/web"],
+      states: ["open", "merged"],
+      includeDrafts: true,
+      updatedSince: "2026-01-01",
+      maxPullRequestsPerRepository: 50,
+      issues: { maxIssuesPerRepository: 200 },
+    })
+  })
+
   it("defaults an omitted pull-request cap to 200", () => {
     expect(
       parseGithubPrConfigYamlContent(

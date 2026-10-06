@@ -36,6 +36,7 @@ const issueCommentPayloadSchema = z.object({
   }),
   comment: z
     .object({
+      id: z.number().optional(),
       updated_at: z.string().optional(),
       created_at: z.string().optional(),
     })
@@ -90,6 +91,7 @@ async function enqueueMirror(input: {
     input.installationId,
     input.githubConnectionId,
   )
+  let failure: unknown
   for (const installation of installations) {
     const binding = await getGithubPrMirrorBinding(
       installation.orgId,
@@ -135,8 +137,11 @@ async function enqueueMirror(input: {
         error instanceof Error ? error : new Error(String(error)),
         { step: "github.pr-mirror.enqueue" },
       )
+      failure ??= error
     }
   }
+  // Fail the delivery (5xx) so GitHub records it and it can be redelivered.
+  if (failure) throw failure
 }
 
 export async function maybeEnqueueGithubPrMirror(input: {
@@ -177,8 +182,11 @@ export async function maybeEnqueueGithubPrMirror(input: {
       githubConnectionId: input.githubConnectionId,
       sourceRepository: parsed.data.repository.full_name,
       number: parsed.data.issue.number,
-      // A deleted comment keeps its timestamp, so issue keys carry the action.
-      version: onPullRequest ? commentAt : `${parsed.data.action}:${commentAt}`,
+      // A deleted comment keeps its timestamp, and two comments can share a
+      // second, so issue keys carry the action and the comment id.
+      version: onPullRequest
+        ? commentAt
+        : [parsed.data.action, parsed.data.comment?.id, commentAt].join(":"),
     })
     return
   }
