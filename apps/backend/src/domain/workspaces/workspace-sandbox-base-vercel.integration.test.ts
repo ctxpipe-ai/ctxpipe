@@ -30,6 +30,8 @@ import {
 } from "../../models/workspaces.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
 import type { WorkspaceRevision } from "./revision.js"
+import { CHAT_SANDBOX_RETENTION_MS } from "./chat-lifecycle.js"
+import { sweepConversationSandboxes } from "./conversation-sandbox-lifecycle.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import {
   builderSnapshotExpiration,
@@ -860,6 +862,98 @@ describe("Vercel build step", () => {
       )
     }
   }, 90_000)
+})
+
+describe("base sweep schedule", () => {
+  it("schedules the org's next sweep for its bases: a current base at its retention end, a build at its lease end, a failed delete at the next retry", async () => {
+    // An org of its own: the sweep reads every base of the org.
+    const sweptOrg = generateObjectId("org")
+    await getSystemDb().insert(organizations).values({
+      id: sweptOrg,
+      slug: sweptOrg,
+      name: "Base sweep schedule",
+      createdAt: new Date(),
+    })
+    const workspaceId = generateObjectId("ws")
+    const url = `https://github.com/acme/${workspaceId}.git`
+    const base = (
+      id: string,
+      values: Partial<typeof workspaceSandboxInstances.$inferInsert>,
+    ) =>
+      withOrgDbContext(sweptOrg, (db) =>
+        db.insert(workspaceSandboxInstances).values({
+          id,
+          kind: "base",
+          orgId: sweptOrg,
+          workspaceId,
+          provider: "vercel",
+          image: agent.image,
+          revision: revision(workspaceId, url),
+          state: "live",
+          lastHeartbeatAt: new Date(),
+          ...values,
+        }),
+      )
+    server.use(
+      http.get(`${API}/snapshots/:id`, ({ params }) =>
+        HttpResponse.json(snapshotBody(String(params.id), "created")),
+      ),
+      http.all(`${API}*`, () => HttpResponse.json({}, { status: 500 })),
+    )
+    try {
+      await withOrgDbContext(sweptOrg, (db) =>
+        db.insert(workspaces).values({
+          id: workspaceId,
+          orgId: sweptOrg,
+          slug: workspaceId,
+          displayName: "Context",
+          workspaceRepositoryUrl: url,
+          desiredSha: sha,
+          desiredDefaultBranch: "main",
+        }),
+      )
+      const now = new Date()
+      const lastStart = now.getTime() - DAY
+      await base(`base:${workspaceId}:current`, {
+        providerSandboxId: "builder-current",
+        latestSnapshotId: "snap_current",
+        lastHeartbeatAt: new Date(lastStart),
+      })
+      const sweep = () =>
+        withTestLogger(() => sweepConversationSandboxes(sweptOrg, now))
+      expect((await sweep()).nextSweepAt?.getTime()).toBe(
+        lastStart + CHAT_SANDBOX_RETENTION_MS,
+      )
+
+      const renewed = now.getTime() - 10 * 60_000
+      await base(`base:${workspaceId}:building`, {
+        state: "building",
+        lastHeartbeatAt: new Date(renewed),
+      })
+      expect((await sweep()).nextSweepAt?.getTime()).toBe(
+        renewed + BASE_BUILD_LEASE_MS,
+      )
+
+      // Its delete fails (Vercel answers 500): the sweep tries again.
+      await base(`base:${workspaceId}:failed`, {
+        state: "destroy_failed",
+        providerSandboxId: "builder-failed",
+      })
+      const retry = (await sweep()).nextSweepAt?.getTime() ?? 0
+      expect(retry).toBeGreaterThan(now.getTime())
+      expect(retry).toBeLessThanOrEqual(now.getTime() + 5 * 60_000)
+    } finally {
+      await withOrgDbContext(sweptOrg, async (db) => {
+        await db
+          .delete(workspaceSandboxInstances)
+          .where(eq(workspaceSandboxInstances.orgId, sweptOrg))
+        await db.delete(workspaces).where(eq(workspaces.orgId, sweptOrg))
+      })
+      await getSystemDb()
+        .delete(organizations)
+        .where(eq(organizations.id, sweptOrg))
+    }
+  })
 })
 
 describe("agent snapshot lookup", () => {

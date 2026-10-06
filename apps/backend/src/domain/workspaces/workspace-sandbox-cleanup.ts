@@ -19,7 +19,7 @@ import {
   deleteWorkspaceBaseArtifacts,
   type SandboxAgent,
 } from "./workspace-base-providers.js"
-import { baseLeaseHeld, readyBases } from "./workspace-sandbox-base.js"
+import { readyBases } from "./workspace-sandbox-base.js"
 
 /**
  * Delete the Workspace's bases no new sandbox will start from. The current
@@ -88,7 +88,7 @@ export async function collectUnusedWorkspaceBases(input: {
       for (const base of bases) {
         const due =
           base.state === "destroy_failed" ||
-          (base.state === "building" && !baseLeaseHeld(base, at)) ||
+          (base.state === "building" && !base.leaseHeld) ||
           (base.state === "live" &&
             (base.id !== ready[0]?.id ||
               at - base.lastHeartbeatAt.getTime() >=

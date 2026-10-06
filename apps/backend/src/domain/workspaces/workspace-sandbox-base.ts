@@ -72,17 +72,6 @@ export function workspaceBaseIsStale(input: {
   return input.now.getTime() - builtAt >= BASE_STALE_AGE_MS
 }
 
-/** Whether a `building` row's lease still holds at `now`. */
-export function baseLeaseHeld(
-  row: Pick<SandboxInstanceRecord, "state" | "lastHeartbeatAt"> | null,
-  now: number,
-): boolean {
-  return (
-    row?.state === "building" &&
-    now - row.lastHeartbeatAt.getTime() < BASE_BUILD_LEASE_MS
-  )
-}
-
 /**
  * The base a new sandbox starts from, chosen when it is created. The caller
  * holds the Workspace lock (stock `ensure` takes it before create), which is
@@ -230,7 +219,7 @@ export async function reserveWorkspaceBaseBuild(input: {
       }))
       if (rows.some((row) => row.id === id)) return id
       if (!desired) return null
-      if (rows.some((row) => baseLeaseHeld(row, now.getTime()))) return null
+      if (rows.some((row) => row.leaseHeld)) return null
       const [current] = readyBases(rows, input.agent, desired)
       if (
         current &&
@@ -283,7 +272,8 @@ export async function reserveWorkspaceBaseBuild(input: {
  * a lapsed or deleted lease stops the build, and it deletes what it made.
  * However the attempt ends, its builder is removed (Docker), or deleted and
  * its token revoked (Vercel). A crash between the capture and its UPDATE
- * leaves a labeled Docker image (the host prune removes it) or a snapshot
+ * leaves a Docker image labeled with this row's id that the row does not
+ * name (the host prune removes it once the lease lapsed) or a snapshot
  * under the Vercel builder (deleted with it).
  * Retries (OpenWorkflow): a published row returns its image or snapshot; a
  * failed attempt's builder is deleted before the build starts again.
@@ -303,7 +293,7 @@ export async function runWorkspaceBaseBuild(input: {
   if (
     !row?.revision ||
     !isRunningSandboxProvider(row.provider) ||
-    !baseLeaseHeld(row, Date.now())
+    !row.leaseHeld
   )
     return null
   const provider = row.provider

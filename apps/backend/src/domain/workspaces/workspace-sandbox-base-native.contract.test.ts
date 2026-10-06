@@ -876,39 +876,26 @@ it(
 )
 
 it(
-  "the host prune sweeps a dormant org's 30-day-old container and removes orphaned labeled objects, and nothing else",
+  "the host prune removes orphaned labeled objects of its own store, including a captured image whose build never published, and nothing else",
   { timeout: 180_000 },
   async () => {
     if (!process.env.DATABASE_URL)
       throw new Error("DATABASE_URL is required for the host prune proof")
     initDb(process.env.DATABASE_URL)
     const now = new Date()
-    const orgs: string[] = []
+    // This test's own store: the prune sees only the objects made here, so
+    // the zero orphan age cannot touch other runs' objects.
+    const store = `prune-proof-${randomUUID()}`
     const containers: string[] = []
     const images: string[] = []
-    const org = async () => {
-      const orgId = generateObjectId("org")
-      const workspaceId = generateObjectId("ws")
-      await getSystemDb().insert(organizations).values({
-        id: orgId,
-        slug: orgId,
-        name: "Host prune proof",
-        createdAt: now,
-      })
-      orgs.push(orgId)
-      await withOrgDbContext(orgId, (db) =>
-        db.insert(workspaces).values({
-          id: workspaceId,
-          orgId,
-          slug: "context",
-          displayName: "Context",
-          workspaceRepositoryUrl: "https://example.test/context.git",
-          desiredSha: "a".repeat(40),
-          desiredDefaultBranch: "main",
-        }),
-      )
-      return { orgId, workspaceId }
-    }
+    const orgId = generateObjectId("org")
+    const workspaceId = generateObjectId("ws")
+    await getSystemDb().insert(organizations).values({
+      id: orgId,
+      slug: orgId,
+      name: "Host prune proof",
+      createdAt: now,
+    })
     const container = async (labels: Record<string, string> = {}) => {
       const created = await docker.createContainer({
         Image: "alpine:3.22",
@@ -919,34 +906,6 @@ it(
       await created.start()
       await created.stop({ t: 0 })
       return created.id
-    }
-    /** A stopped container recorded as an org's conversation sandbox. */
-    const recorded = async (
-      owner: { orgId: string; workspaceId: string },
-      lastUse: Date,
-      labels: Record<string, string> = {},
-    ) => {
-      const id = await container(labels)
-      const conversationId = generateObjectId("conv")
-      await withOrgDbContext(owner.orgId, async (db) => {
-        await db.insert(conversations).values({
-          id: conversationId,
-          orgId: owner.orgId,
-          workspaceId: owner.workspaceId,
-        })
-        await db.insert(workspaceSandboxInstances).values({
-          id: `prune-proof-${id}`,
-          kind: "chat",
-          orgId: owner.orgId,
-          workspaceId: owner.workspaceId,
-          conversationId,
-          provider: "docker",
-          providerSandboxId: id,
-          state: "stopped",
-          lastHeartbeatAt: lastUse,
-        })
-      })
-      return id
     }
     const labeledImage = async (labels: Record<string, string>) => {
       const source = await docker.createContainer({
@@ -967,83 +926,110 @@ it(
         await source.remove({ force: true })
       }
     }
-    const ours = (baseId: string, orgId: string) => ({
+    const ours = (baseId: string) => ({
       [DOCKER_LABELS.kind]: "workspace-base",
-      [DOCKER_LABELS.store]: sandboxStoreId(),
+      [DOCKER_LABELS.store]: store,
       [DOCKER_LABELS.base]: baseId,
       [DOCKER_LABELS.org]: orgId,
     })
-    const previousProvider = process.env.SANDBOX_PROVIDER
-    try {
-      // Every org with a row is swept, so the active org's base must be one
-      // the sweep keeps: the current agent image and the desired binding.
-      process.env.SANDBOX_PROVIDER = "docker"
-      await ensureImage("alpine:3.22")
-      const dormant = await org()
-      const active = await org()
-      const old = await recorded(
-        dormant,
-        new Date(now.getTime() - CHAT_SANDBOX_RETENTION_MS - 60_000),
-      )
-      const recent = await recorded(
-        active,
-        new Date(now.getTime() - 24 * 60 * 60_000),
-        ours("base:recorded", active.orgId),
-      )
-      // A builder or base-started container whose row is gone.
-      const orphan = await container(ours("base:gone", active.orgId))
-      const foreignContainer = await container({
-        ...ours("base:gone", active.orgId),
-        [DOCKER_LABELS.store]: "another-deployment",
-      })
-      const keptBaseId = `base:${active.workspaceId}:${randomUUID()}`
-      const unusedImage = await labeledImage(ours("base:gone", dormant.orgId))
-      const baseImage = await labeledImage(ours(keptBaseId, active.orgId))
-      const agentImage = await sandboxAgentImage("docker")
-      const desired = await withOrgDbContext(active.orgId, () =>
-        getDesiredWorkspaceRevision(active.workspaceId, "read", active.orgId),
-      )
-      await withOrgDbContext(active.orgId, (db) =>
+    /** A base row; `image` is the image it published, if any. */
+    const base = async (
+      state: "live" | "building",
+      lastHeartbeatAt: Date,
+      image: string | null,
+    ) => {
+      const id = `base:${workspaceId}:${randomUUID()}`
+      await withOrgDbContext(orgId, (db) =>
         db.insert(workspaceSandboxInstances).values({
-          id: keptBaseId,
+          id,
           kind: "base",
-          orgId: active.orgId,
-          workspaceId: active.workspaceId,
+          orgId,
+          workspaceId,
           provider: "docker",
-          providerSandboxId: baseImage,
-          latestSnapshotId: baseImage,
-          image: agentImage,
-          revision: desired,
-          state: "live",
+          latestSnapshotId: image,
+          state,
+          lastHeartbeatAt,
+        }),
+      )
+      return id
+    }
+    try {
+      await withOrgDbContext(orgId, (db) =>
+        db.insert(workspaces).values({
+          id: workspaceId,
+          orgId,
+          slug: "context",
+          displayName: "Context",
+          workspaceRepositoryUrl: "https://example.test/context.git",
+          desiredSha: "a".repeat(40),
+          desiredDefaultBranch: "main",
+        }),
+      )
+      await ensureImage("alpine:3.22")
+      const recordedContainer = await container(ours("base:recorded"))
+      await withOrgDbContext(orgId, (db) =>
+        db.insert(workspaceSandboxInstances).values({
+          id: `prune-proof-${recordedContainer}`,
+          kind: "chat",
+          orgId,
+          workspaceId,
+          provider: "docker",
+          providerSandboxId: recordedContainer,
+          state: "stopped",
           lastHeartbeatAt: now,
         }),
       )
+      // A builder or base-started container whose row is gone.
+      const orphan = await container(ours("base:gone"))
+      const unlabeledContainer = await container()
+
+      const rowGone = await labeledImage(ours("base:gone"))
+      // Published: the row names the image.
+      const publishedId = await base("live", now, null)
+      const published = await labeledImage(ours(publishedId))
+      await withOrgDbContext(orgId, (db) =>
+        db
+          .update(workspaceSandboxInstances)
+          .set({ latestSnapshotId: published })
+          .where(eq(workspaceSandboxInstances.id, publishedId)),
+      )
+      // Captured, and the publish is still to come: the lease holds.
+      const publishing = await labeledImage(
+        ours(await base("building", now, null)),
+      )
+      // Captured, then the build crashed before it published.
+      const crashed = await labeledImage(
+        ours(
+          await base(
+            "building",
+            new Date(now.getTime() - BASE_BUILD_LEASE_MS - 60_000),
+            null,
+          ),
+        ),
+      )
+      // A later attempt of the same row published another image.
+      const replaced = await labeledImage(ours(publishedId))
       const foreignImage = await labeledImage({
-        ...ours("base:gone", dormant.orgId),
+        ...ours("base:gone"),
         [DOCKER_LABELS.store]: "another-deployment",
       })
-      const unlabeled = await labeledImage({})
+      const unlabeledImage = await labeledImage({})
 
-      // The sweep runs at real time; the orphan age is the only knob, so
-      // the just-created orphan counts as old enough.
       const pruned = await withTestLogger(() =>
-        pruneDockerSandboxHost({ orphanAgeMs: 0 }),
+        pruneDockerSandboxHost({ orphanAgeMs: 0, store }),
       )
-      expect(pruned.removedImages).toContain(unusedImage)
-      expect(pruned.removedContainers).toContain(orphan)
-      expect(await exists("container", old)).toBe(false)
-      expect(
-        await getSandboxInstance(`prune-proof-${old}`, dormant.orgId),
-      ).toBeNull()
-      expect(await exists("container", orphan)).toBe(false)
-      expect(await exists("image", unusedImage)).toBe(false)
-      for (const id of [recent, foreignContainer])
-        expect(await exists("container", id)).toBe(true)
-      for (const id of [baseImage, foreignImage, unlabeled])
+      expect(new Set(pruned.removedImages)).toEqual(
+        new Set([rowGone, crashed, replaced]),
+      )
+      expect(pruned.removedContainers).toEqual([orphan])
+      for (const id of [rowGone, crashed, replaced])
+        expect(await exists("image", id)).toBe(false)
+      for (const id of [published, publishing, foreignImage, unlabeledImage])
         expect(await exists("image", id)).toBe(true)
+      expect(await exists("container", orphan)).toBe(false)
+      for (const id of [recordedContainer, unlabeledContainer])
+        expect(await exists("container", id)).toBe(true)
     } finally {
-      if (previousProvider === undefined) delete process.env.SANDBOX_PROVIDER
-      else process.env.SANDBOX_PROVIDER = previousProvider
       for (const id of containers)
         await docker
           .getContainer(id)
@@ -1054,18 +1040,15 @@ it(
           .getImage(id)
           .remove({ force: true })
           .catch(() => undefined)
-      for (const orgId of orgs) {
-        await withOrgDbContext(orgId, async (db) => {
-          await db
-            .delete(workspaceSandboxInstances)
-            .where(eq(workspaceSandboxInstances.orgId, orgId))
-          await db.delete(conversations).where(eq(conversations.orgId, orgId))
-          await db.delete(workspaces).where(eq(workspaces.orgId, orgId))
-        })
-        await getSystemDb()
-          .delete(organizations)
-          .where(eq(organizations.id, orgId))
-      }
+      await withOrgDbContext(orgId, async (db) => {
+        await db
+          .delete(workspaceSandboxInstances)
+          .where(eq(workspaceSandboxInstances.orgId, orgId))
+        await db.delete(workspaces).where(eq(workspaces.orgId, orgId))
+      })
+      await getSystemDb()
+        .delete(organizations)
+        .where(eq(organizations.id, orgId))
     }
   },
 )

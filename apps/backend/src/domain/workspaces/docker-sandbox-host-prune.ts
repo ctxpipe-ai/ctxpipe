@@ -21,8 +21,10 @@ import {
  * - Every org with a sandbox row is swept now: its chain may have ended (a
  *   dormant org). Stock containers carry no labels, so this works from
  *   `provider_sandbox_id`.
- * - Labeled objects of this deployment (by database) with no row: base
- *   images whose base row is gone, and containers (base builders, and
+ * - Labeled objects of this deployment (by database) that no row records:
+ *   base images whose base row is gone or names another image (a build
+ *   that crashed between its capture and its publish) while no build of
+ *   that row holds its lease, and containers (base builders, and
  *   conversation containers started from a base, which inherit the image's
  *   labels) that no row records and that are older than `orphanAgeMs` (a
  *   create may not have recorded its row yet). Images go with `force`, as
@@ -34,7 +36,12 @@ import {
  * delete fails (it is kept as `destroy_failed` and retried).
  */
 export async function pruneDockerSandboxHost(
-  input: { docker?: Docker; orphanAgeMs?: number } = {},
+  input: {
+    docker?: Docker
+    orphanAgeMs?: number
+    /** Tests prune their own objects only. */
+    store?: string
+  } = {},
 ): Promise<{ removedImages: string[]; removedContainers: string[] }> {
   const docker = input.docker ?? new Docker({ timeout: 30_000 })
   const orphanAgeMs = input.orphanAgeMs ?? 60 * 60_000
@@ -50,7 +57,7 @@ export async function pruneDockerSandboxHost(
       })
     }
   }
-  const store = `${DOCKER_LABELS.store}=${sandboxStoreId()}`
+  const store = `${DOCKER_LABELS.store}=${input.store ?? sandboxStoreId()}`
   const owner = (labels: Record<string, string> | undefined) => ({
     orgId: labels?.[DOCKER_LABELS.org],
     baseId: labels?.[DOCKER_LABELS.base],
@@ -64,8 +71,10 @@ export async function pruneDockerSandboxHost(
   })
   for (const image of images) {
     const { orgId, baseId } = owner(image.Labels)
-    // A build publishes its row after it commits; checked now, not earlier.
-    if (!orgId || !baseId || (await getSandboxInstance(baseId, orgId))) continue
+    if (!orgId || !baseId) continue
+    // Read now, not earlier: a build publishes its row after it commits.
+    const row = await getSandboxInstance(baseId, orgId)
+    if (row && (row.latestSnapshotId === image.Id || row.leaseHeld)) continue
     if (
       (await removeDockerObject(() =>
         docker.getImage(image.Id).remove({ force: true }),

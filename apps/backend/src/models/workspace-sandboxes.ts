@@ -1,4 +1,14 @@
-import { and, count, eq, inArray, isNull, ne, or, sql } from "drizzle-orm"
+import {
+  and,
+  count,
+  eq,
+  getTableColumns,
+  inArray,
+  isNull,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm"
 import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { workspaceSandboxInstances } from "../db/schema/workspaces.js"
 import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
@@ -29,8 +39,13 @@ export type SandboxInstanceRecord = {
   /** `stopped`: the provider sandbox is stopped with its files kept; the next turn resumes it. */
   state: SandboxInstanceState
   lastHeartbeatAt: Date
-  /** Set when read; a Workspace base's build time. Never written. */
+  /**
+   * Set when read. A Workspace base's publish time: the insert sets it, and
+   * the publish (`updateBuildingBase`) sets it again.
+   */
   createdAt?: Date
+  /** Set when read: a `building` base whose lease holds (decided in SQL). */
+  leaseHeld?: boolean
 }
 
 /** `building`: a Workspace base whose build has not finished. */
@@ -72,8 +87,32 @@ export class SandboxInstanceOwnershipConflict extends Error {
   }
 }
 
+/**
+ * A Workspace base's `building` row is its build's lease, measured from
+ * `last_heartbeat_at` (set when the build was reserved, and renewed by the
+ * build while it runs). A build with no heartbeat for this long is lost: its
+ * writes stop matching and cleanup removes it.
+ */
+export const BASE_BUILD_LEASE_MS = 60 * 60_000
+
+/**
+ * SQL: this row is a base build whose lease has not lapsed. The one
+ * definition: reads return it as `leaseHeld`.
+ */
+const baseLeaseHeld = and(
+  eq(workspaceSandboxInstances.kind, "base"),
+  eq(workspaceSandboxInstances.state, "building"),
+  sql`${workspaceSandboxInstances.lastHeartbeatAt} > clock_timestamp() - make_interval(secs => ${BASE_BUILD_LEASE_MS / 1000})`,
+)
+
+/** A row as read, with whether its base build lease holds. */
+const sandboxInstanceColumns = {
+  ...getTableColumns(workspaceSandboxInstances),
+  leaseHeld: sql<boolean>`coalesce(${baseLeaseHeld}, false)`,
+}
+
 function toSandboxInstanceRecord(
-  row: typeof workspaceSandboxInstances.$inferSelect,
+  row: typeof workspaceSandboxInstances.$inferSelect & { leaseHeld: boolean },
 ): SandboxInstanceRecord | null {
   if (row.kind !== "chat" && row.kind !== "job" && row.kind !== "base")
     return null
@@ -102,6 +141,7 @@ function toSandboxInstanceRecord(
     state: row.state,
     lastHeartbeatAt: row.lastHeartbeatAt,
     createdAt: row.createdAt,
+    leaseHeld: row.leaseHeld,
   }
 }
 
@@ -234,7 +274,7 @@ export async function listSandboxInstances(input: {
         : undefined,
     ].filter((value): value is NonNullable<typeof value> => value != null)
     const rows = await db
-      .select()
+      .select(sandboxInstanceColumns)
       .from(workspaceSandboxInstances)
       .where(filters.length > 0 ? and(...filters) : undefined)
     return rows.flatMap((row) => {
@@ -259,21 +299,6 @@ export function isRunningSandboxProvider(
     RUNNING_SANDBOX_PROVIDERS as readonly (string | null | undefined)[]
   ).includes(provider)
 }
-
-/**
- * A Workspace base's `building` row is its build's lease, measured from
- * `last_heartbeat_at` (set when the build was reserved, and renewed by the
- * build while it runs). A build with no heartbeat for this long is lost: its
- * writes stop matching and cleanup removes it.
- */
-export const BASE_BUILD_LEASE_MS = 60 * 60_000
-
-/** SQL: this row is a base build whose lease has not lapsed. */
-const baseLeaseHeld = and(
-  eq(workspaceSandboxInstances.kind, "base"),
-  eq(workspaceSandboxInstances.state, "building"),
-  sql`${workspaceSandboxInstances.lastHeartbeatAt} > clock_timestamp() - make_interval(secs => ${BASE_BUILD_LEASE_MS / 1000})`,
-)
 
 /**
  * Sandboxes the org is running now: live conversation and job rows of a
@@ -318,7 +343,7 @@ export async function getSandboxInstance(
   const scopedOrgId = requireSandboxOrgId(orgId)
   return withSandboxInstanceDb(scopedOrgId, async () => {
     const [row] = await getOrgDb()
-      .select()
+      .select(sandboxInstanceColumns)
       .from(workspaceSandboxInstances)
       .where(
         and(
