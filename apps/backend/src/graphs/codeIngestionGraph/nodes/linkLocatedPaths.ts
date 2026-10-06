@@ -1,5 +1,5 @@
 import { and, eq, inArray, or, sql } from "drizzle-orm"
-import { getOrgDb } from "../../../db/client.js"
+import { getOrgDb, withOrgDbContext } from "../../../db/client.js"
 import { objects } from "../../../db/schema/objects.js"
 import { buildEvidenceSourceId } from "../../../domain/codeIngestion/evidenceSourceId.js"
 import {
@@ -95,29 +95,34 @@ export function matchPackageForPath(
   return packages.find((entry) => entry.root === root) ?? null
 }
 
+/**
+ * Opens its own org DB scope: extractors run in `repository-ingestion`'s
+ * identify step, which is outside `withOrgDbContext`.
+ */
 export async function listPackageRootsForRepository(input: {
   orgId: string
   repositoryId: string
 }): Promise<PackageRoot[]> {
   try {
-    const db = getOrgDb()
-    const rows = await db
-      .select({
-        kind: objects.kind,
-        deduplicationKey: objects.deduplicationKey,
-      })
-      .from(objects)
-      .where(
-        and(
-          eq(objects.orgId, input.orgId),
-          inArray(objects.kind, ["Service", "App", "Library"]),
-          or(
-            sql`starts_with(${objects.deduplicationKey}, ${`svc:${input.repositoryId}:`})`,
-            sql`starts_with(${objects.deduplicationKey}, ${`app:${input.repositoryId}:`})`,
-            sql`starts_with(${objects.deduplicationKey}, ${`lib:${input.repositoryId}:`})`,
+    const rows = await withOrgDbContext(input.orgId, (db) =>
+      db
+        .select({
+          kind: objects.kind,
+          deduplicationKey: objects.deduplicationKey,
+        })
+        .from(objects)
+        .where(
+          and(
+            eq(objects.orgId, input.orgId),
+            inArray(objects.kind, ["Service", "App", "Library"]),
+            or(
+              sql`starts_with(${objects.deduplicationKey}, ${`svc:${input.repositoryId}:`})`,
+              sql`starts_with(${objects.deduplicationKey}, ${`app:${input.repositoryId}:`})`,
+              sql`starts_with(${objects.deduplicationKey}, ${`lib:${input.repositoryId}:`})`,
+            ),
           ),
         ),
-      )
+    )
     const out: PackageRoot[] = []
     for (const row of rows) {
       if (!row.deduplicationKey) continue

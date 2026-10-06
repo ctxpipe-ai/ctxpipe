@@ -1,7 +1,9 @@
 /**
  * A partial ingest that edits a workflow runs without the repository's
  * packages in state, after retraction removed the workflow's edges. The
- * extractor must rebuild them from the packages already on the graph.
+ * extractor must rebuild them from the packages already on the graph, and
+ * open its own org DB scope to read them: `repository-ingestion` runs the
+ * identify step inside the org id context but outside `withOrgDbContext`.
  *
  * Requires DATABASE_URL (apps/backend/.env.local). Skipped otherwise.
  */
@@ -13,12 +15,7 @@ import { HttpResponse, http } from "msw"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { useMswServer } from "../../../../test/msw.js"
 import { withOrgIdContext } from "../../../auth/withAuth.js"
-import {
-  closeDb,
-  getSystemDb,
-  initDb,
-  withOrgDbContext,
-} from "../../../db/client.js"
+import { closeDb, getSystemDb, initDb } from "../../../db/client.js"
 import { objects } from "../../../db/schema/objects.js"
 import { generateObjectId } from "../../../lib/id.js"
 import { extractGithubWorkflows } from "./extractGithubWorkflows.js"
@@ -109,21 +106,19 @@ describe.skipIf(!connectionString)(
       const result = await withOrgIdContext(
         { id: ORG_ID, slug: "workflows" },
         () =>
-          withOrgDbContext(ORG_ID, () =>
-            extractGithubWorkflows({
-              repositoryId: REPO_ID,
-              orgId: ORG_ID,
-              targetHash: "abc",
-              ingestMode: "partial",
-              changedPaths: [".github/workflows/ci.yml"],
-              roots: ["./"],
-              extractedObjects: [],
-              extractedClaims: [],
-              objectIds: [],
-              touchedObjectIds: [],
-              claimsForProjection: [],
-            }),
-          ),
+          extractGithubWorkflows({
+            repositoryId: REPO_ID,
+            orgId: ORG_ID,
+            targetHash: "abc",
+            ingestMode: "partial",
+            changedPaths: [".github/workflows/ci.yml"],
+            roots: ["./"],
+            extractedObjects: [],
+            extractedClaims: [],
+            objectIds: [],
+            touchedObjectIds: [],
+            claimsForProjection: [],
+          }),
       )
       vi.unstubAllEnvs()
 
