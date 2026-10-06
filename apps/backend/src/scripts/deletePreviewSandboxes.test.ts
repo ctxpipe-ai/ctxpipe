@@ -103,6 +103,9 @@ function vercelProject(input: {
       requests.push(
         `list sandboxes ${url.searchParams.get("project")} ${url.searchParams.getAll("tags").join(",")}`,
       )
+      // The Vercel API filters on one tag only and rejects more.
+      if (url.searchParams.getAll("tags").length > 1)
+        return HttpResponse.json({}, { status: 400 })
       // Simulates a filter that returns too much: the cleanup must not trust it.
       return HttpResponse.json({
         sandboxes: [...sandboxes.values()],
@@ -160,7 +163,7 @@ describe("deletePreviewSandboxes", () => {
 
     expect(deleted).toBe(2)
     expect(project.requests[0]).toBe(
-      "list sandboxes prj_test ctxpipe:workspace-chat,environment:pr-7",
+      "list sandboxes prj_test environment:pr-7",
     )
     expect([...project.sandboxes.keys()]).toEqual(["chat-prod"])
     expect([...project.snapshots.keys()]).toEqual(["snap_a0", "snap_prod"])
@@ -191,10 +194,10 @@ describe("deletePreviewSandboxes", () => {
 
     expect(deleted).toBe(3)
     expect(project.requests).toContain(
-      "list sandboxes prj_test ctxpipe:workspace-base,environment:pr-7",
+      "list sandboxes prj_test ctxpipe:workspace-base",
     )
     expect(project.requests).toContain(
-      "list sandboxes prj_test ctxpipe:workspace-agent,environment:pr-7",
+      "list sandboxes prj_test ctxpipe:workspace-agent",
     )
     expect([...project.sandboxes.keys()]).toEqual(["base-prod"])
     expect([...project.snapshots.keys()]).toEqual(["snap_base_prod"])
