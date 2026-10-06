@@ -21,18 +21,22 @@ graph before §8. Most README text describes rather than instructs.
 
 ## Decision
 
-1. **New extension kind `Document`**, one node per README file
-   (`**/{README,Readme,readme}.md`, minus dependency, vendor and connector
-   warehouse paths). Identity is `doc:${repositoryId}:${path}`
-   (`referenceResolver.documentDedupKey`).
+1. **New extension kind `Document`**, one node per `README.md` in any letter
+   case, minus dependency, vendor and connector warehouse paths. Identity is
+   `doc:${repositoryId}:${path}` (`referenceResolver.documentDedupKey`).
 2. **Deterministic, no model call.** Name is the first H1, else frontmatter
-   `title`, else the directory. Summary is the first prose paragraph. Payload
-   `excerpt` is the first 2,000 characters after the title; the generic
-   embedding builder already embeds `name`, `summary` and `excerpt`, so
-   Documents are found by hybrid search.
+   `title`, else the directory. Summary is the first prose paragraph (badge
+   rows, images and HTML blocks are skipped). Payload `excerpt` is the first
+   2,000 characters after the title; the generic embedding builder already
+   embeds `name`, `summary` and `excerpt`, so Documents are found by hybrid
+   search.
 3. **Located like Decisions.** `Document DECLARED_IN File`, and that `File` is
    `PART_OF` its package and the `Repository` (`linkLocatedPaths`). The core
-   walk reaches a package's READMEs in two hops. No new predicate.
+   walk reaches a package's READMEs in two hops. No new predicate. A push
+   re-extracts only packages whose manifest changed, so on a partial ingest
+   the other packages come from the graph (`listPackageRootsForRepository`);
+   otherwise retraction would drop the README's package link until the next
+   full ingest.
 4. **One repository-wide pass after all roots** (`extract-readme-documents`
    workflow step), not a per-root extractor. Each root branch knows only its
    own root, so per-root extraction would either drop READMEs outside every
@@ -43,7 +47,12 @@ graph before §8. Most README text describes rather than instructs.
    hold what it tells you to do. No other Markdown is added to the Document
    pass in this decision.
 6. **At most 2,000 READMEs per ingest**, shallowest first, so the repository
-   and package READMEs survive; hitting the cap logs a warning.
+   and package READMEs survive; hitting the cap logs a warning. The cap is
+   applied before a push is narrowed to its diff, so a push never adds a
+   README the next full ingest would drop.
+7. **The step output is passed through `sanitizePostgresJson`**, like the
+   per-root output: a cut at 2,000 characters can split an emoji, and jsonb
+   rejects the unpaired surrogate.
 
 ## Consequences
 
@@ -54,6 +63,7 @@ graph before §8. Most README text describes rather than instructs.
   does.
 - Only the first 2,000 characters are embedded. The advisor can open the full
   file once a Document matches.
+- `README.mdx` and `README.markdown` are not included.
 - A README whose H1 is generic ("Overview") is found by its body rather than
   its name; the path is a payload field, not embedded text.
 - The unused LangGraph `codeIngestionGraph` does not run the pass; it already

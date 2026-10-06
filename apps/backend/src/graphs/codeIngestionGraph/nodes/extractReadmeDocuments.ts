@@ -1,3 +1,4 @@
+import { withOrgDbContext } from "../../../db/client.js"
 import {
   fetchFiles,
   globFiles,
@@ -6,6 +7,7 @@ import { isConnectorMirrorPath } from "../../../domain/codeIngestion/connectorMi
 import { isUnderDependencyVendorPath } from "../../../domain/codeIngestion/dependencyVendorPaths.js"
 import { documentDedupKey } from "../../../domain/codeIngestion/referenceResolver.js"
 import { getLogger } from "../../../observability/logger.js"
+import { sanitizePostgresJson } from "../postgresJson.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
@@ -16,7 +18,11 @@ import {
   firstParagraph,
   splitFrontmatter,
 } from "./connectorFrontmatter.js"
-import { linkLocatedPaths } from "./linkLocatedPaths.js"
+import {
+  linkLocatedPaths,
+  listPackageRootsForRepository,
+  packageRootsFromObjects,
+} from "./linkLocatedPaths.js"
 import {
   filterPathsByPartialScan,
   partialScanPathsForExtractors,
@@ -33,8 +39,10 @@ export type ParsedReadme = {
 }
 
 /**
- * Title from the first H1 or frontmatter `title`, else the README's directory;
- * summary is the first prose paragraph. Null for an empty file.
+ * Title from the first H1 or frontmatter `title`, else the README's directory
+ * (the file name at the repository root). Summary is the first prose
+ * paragraph: badge rows, images and HTML blocks are skipped. Null for an
+ * empty file.
  */
 export function parseReadmeMarkdown(
   content: string,
@@ -51,12 +59,17 @@ export function parseReadmeMarkdown(
       body.slice(headingMatch.index + headingMatch[0].length)
   }
   const excerpt = body.trim().slice(0, 2_000)
-  const directory = path.includes("/")
-    ? path.slice(0, path.lastIndexOf("/"))
-    : path
-  const title = headingMatch?.[1] ?? asString(split?.data.title) ?? directory
+  const prose = excerpt
+    .split(/\n\s*\n/)
+    .filter((paragraph) => !/^\s*(?:!\[|\[!\[|<)/.test(paragraph))
+    .join("\n\n")
+  const slash = path.lastIndexOf("/")
+  const title =
+    headingMatch?.[1] ??
+    asString(split?.data.title) ??
+    (slash === -1 ? path : path.slice(0, slash))
 
-  return { title, summary: firstParagraph(excerpt), excerpt }
+  return { title, summary: firstParagraph(prose), excerpt }
 }
 
 /**
@@ -64,7 +77,7 @@ export function parseReadmeMarkdown(
  * as name and summary, the opening 2,000 characters as the embedded excerpt,
  * and `DECLARED_IN File` → `File PART_OF` its package or the repository via
  * {@link linkLocatedPaths}. Deterministic. Runs once after all roots, so a
- * README outside every package is kept and none is read twice.
+ * README outside every package is kept and each README is read once.
  */
 export async function extractReadmeDocuments(
   state: CodeIngestionState,
@@ -77,34 +90,33 @@ export async function extractReadmeDocuments(
   }
 
   const globbed = await globFiles(state.repositoryId, state.orgId, {
-    pattern: "**/{README,Readme,readme}.md",
+    pattern: "**/[Rr][Ee][Aa][Dd][Mm][Ee].[Mm][Dd]",
     onlyFiles: true,
   })
-  const candidates = globbed.entries
+  const ranked = globbed.entries
     .filter((entry) => entry.type === "file")
     .map((entry) => entry.path)
     .filter(
       (path) =>
         !isUnderDependencyVendorPath(path) && !isConnectorMirrorPath(path),
     )
-  const scoped = (
-    state.ingestMode === "partial"
-      ? filterPathsByPartialScan(
-          candidates,
-          partialScanPathsForExtractors(state),
-        )
-      : candidates
-  ).sort(
-    (a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b),
-  )
-  if (scoped.length > MAX_README_DOCUMENTS) {
+    .sort(
+      (a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b),
+    )
+  if (ranked.length > MAX_README_DOCUMENTS) {
     getLogger().warn("extractReadmeDocuments: README cap reached", {
       repositoryId: state.repositoryId,
-      found: scoped.length,
+      found: ranked.length,
       kept: MAX_README_DOCUMENTS,
     })
   }
-  const paths = scoped.slice(0, MAX_README_DOCUMENTS)
+  // Cap before narrowing to the diff, so a push never adds a README that the
+  // next full ingest would drop.
+  const kept = ranked.slice(0, MAX_README_DOCUMENTS)
+  const paths =
+    state.ingestMode === "partial"
+      ? filterPathsByPartialScan(kept, partialScanPathsForExtractors(state))
+      : kept
   if (paths.length === 0) return { extractedObjects: [], extractedClaims: [] }
 
   const contents = await fetchFiles(state.repositoryId, state.orgId, paths)
@@ -121,20 +133,33 @@ export async function extractReadmeDocuments(
     })
   }
 
-  const packages = (state.extractedObjects ?? []).filter(
-    (object) =>
-      object.kind === "Service" ||
-      object.kind === "App" ||
-      object.kind === "Library",
-  )
+  const packages = packageRootsFromObjects(state.extractedObjects ?? [])
+  // A push re-extracts only packages whose manifest changed; the rest are in
+  // the graph already.
+  if (state.ingestMode === "partial") {
+    packages.push(
+      ...(await withOrgDbContext(state.orgId, () =>
+        listPackageRootsForRepository({
+          orgId: state.orgId,
+          repositoryId: state.repositoryId,
+        }),
+      )),
+    )
+  }
   const located = linkLocatedPaths({
     repositoryId: state.repositoryId,
     targetHash: state.targetHash,
-    objects: [...packages, ...documents],
+    objects: [
+      ...packages.map((pkg) => ({
+        kind: pkg.kind,
+        deduplicationKey: pkg.deduplicationKey,
+      })),
+      ...documents,
+    ],
     claims: [],
   })
-  return {
+  return sanitizePostgresJson({
     extractedObjects: [...documents, ...located.extractedObjects],
     extractedClaims: located.extractedClaims,
-  }
+  })
 }

@@ -534,8 +534,8 @@ export const repositoryIngestion = defineWorkflow(
                   concatenatedClaims.push(...part.extractedClaims)
                   extractionSkippedFiles += part.extractionSkippedFiles ?? 0
                 }
-                // Repo-wide, after all roots: READMEs outside every package
-                // are kept and none is read once per root (ADR-050).
+                // Repo-wide, after all roots, so READMEs outside every package
+                // are kept and each README is read once (ADR-050).
                 const readmeDocuments = await step.run(
                   {
                     name: "extract-readme-documents",

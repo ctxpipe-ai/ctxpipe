@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { HttpResponse, http } from "msw"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { useMswServer } from "../../../test/msw.js"
 
 const repositoryRow = vi.hoisted(() => ({
   id: "repo_1",
@@ -109,15 +111,6 @@ vi.mock("../../graphs/codeIngestionGraph/runExtractRoot.js", () => ({
   runIdentifyPhaseForRoot: runIdentifyPhaseForRootMock,
 }))
 
-vi.mock(
-  "../../graphs/codeIngestionGraph/nodes/extractReadmeDocuments.js",
-  () => ({
-    extractReadmeDocuments: vi
-      .fn()
-      .mockResolvedValue({ extractedObjects: [], extractedClaims: [] }),
-  }),
-)
-
 vi.mock("../../graphs/codeIngestionGraph/nodes/deduplicateAndStore.js", () => ({
   deduplicateAndStore: vi.fn().mockResolvedValue({
     objectIds: [],
@@ -197,11 +190,31 @@ vi.mock("openworkflow", () => ({
   }),
 }))
 
+import { deduplicateAndStore } from "../../graphs/codeIngestionGraph/nodes/deduplicateAndStore.js"
 import {
   markRepositoryIndexingReady,
   markRepositoryIndexingReadyWithIssues,
 } from "../../models/repositories.js"
 import { repositoryIngestion } from "./repository-ingestion.js"
+
+const CODESEARCH = "http://codesearch.test"
+
+useMswServer(
+  http.post(`${CODESEARCH}/repo_1/glob`, () =>
+    HttpResponse.json({
+      entries: [{ name: "README.md", path: "docs/README.md", type: "file" }],
+      truncated: false,
+      matched: 1,
+    }),
+  ),
+  http.post(`${CODESEARCH}/repo_1/files-query`, () =>
+    HttpResponse.json({
+      "docs/README.md": Buffer.from("# Docs\n\nHow we write docs.\n").toString(
+        "base64",
+      ),
+    }),
+  ),
+)
 
 type StepOpts = { name: string; retryPolicy?: { maximumAttempts?: number } }
 
@@ -243,6 +256,9 @@ async function runWorkflow(
 describe("repository-ingestion index workflow boundary", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubEnv("CODESEARCH_URL", CODESEARCH)
+    vi.stubEnv("AUTH_SECRET", "x".repeat(32))
+    vi.stubEnv("DATABASE_URL", "postgresql://unused@localhost/unused")
     repositoryRow.lastIngestedHash = null
     runIdentifyPhaseForRootMock.mockResolvedValue({
       extractedObjects: [],
@@ -294,6 +310,26 @@ describe("repository-ingestion index workflow boundary", () => {
       repositoryId: "repo_1",
       targetHash: "abc",
     })
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it("stores a Document for every README after all roots", async () => {
+    await runWorkflow(
+      { repositoryId: "repo_1", orgId: "org_1" },
+      makeStep(repositoryIndexResult),
+    )
+
+    const stored = vi.mocked(deduplicateAndStore).mock.calls[0]?.[0]
+    expect(stored?.extractedObjects).toContainEqual(
+      expect.objectContaining({
+        kind: "Document",
+        deduplicationKey: "doc:repo_1:docs/README.md",
+        name: "Docs",
+      }),
+    )
   })
 
   it("does not sweep after a partial ingest", async () => {
