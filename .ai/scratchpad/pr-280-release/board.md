@@ -21,3 +21,4 @@ Updated: 2026-10-07. Tickets are implemented by sub-agents in separate worktrees
 | — | 15 | [A chat turn can send its final message but never finish](issues/15-turn-finish-hang.md) | done | P1 | claude | — |
 | — | 16 | [Backend CI is red after the ticket 04 merge](issues/16-ci-red-after-ticket-04.md) | done | P0 | claude | — |
 | — | 17 | [Follow-ups from ticket 16 and the Workspace base merge](issues/17-follow-ups-from-tickets-16-and-workspace-base.md) | needs-triage | P2 | unassigned | — |
+| — | 18 | [PR 280 CI under 10 minutes from commit to green](issues/18-ci-under-ten-minutes.md) | done | P1 | claude | — |
