@@ -327,7 +327,7 @@ export async function setRepositoryGithubConnectionId(input: {
   repositoryId: string
   githubConnectionId: string | null
   /** Compare-and-set: write only when the row still has this connection. */
-  expectedGithubConnectionId?: string | null
+  expectedGithubConnectionId: string | null
 }): Promise<void> {
   return orgSql(async () => {
     const db = getOrgDb()
@@ -344,8 +344,7 @@ export async function setRepositoryGithubConnectionId(input: {
     if (
       !repository ||
       repository.githubConnectionId === input.githubConnectionId ||
-      (input.expectedGithubConnectionId !== undefined &&
-        repository.githubConnectionId !== input.expectedGithubConnectionId)
+      repository.githubConnectionId !== input.expectedGithubConnectionId
     )
       return
     await db
@@ -403,7 +402,9 @@ export async function repositoryIndexAlreadyPublished(
         and(eq(repositories.orgId, orgId), eq(repositories.id, repositoryId)),
       )
       .limit(1)
-    return row?.indexingStatus === "ready" && row.lastIngestedHash === targetHash
+    return (
+      row?.indexingStatus === "ready" && row.lastIngestedHash === targetHash
+    )
   })
 }
 
@@ -961,7 +962,7 @@ async function bulkCreateRepositoriesWithDb(
 ) {
   if (input.length === 0) return []
   const db = getOrgDb()
-  const bound: string[] = []
+  const boundGitUrls: string[] = []
   const created = await db.transaction(async (tx) => {
     const created: RepositoryWithSearch[] = []
     for (const r of input) {
@@ -999,7 +1000,7 @@ async function bulkCreateRepositoriesWithDb(
               ),
             )
             .returning({ gitUrl: repositories.gitUrl })
-          bound.push(...rows.map((row) => row.gitUrl))
+          boundGitUrls.push(...rows.map((row) => row.gitUrl))
         }
         continue
       }
@@ -1019,7 +1020,7 @@ async function bulkCreateRepositoriesWithDb(
     return created
   })
   // A new binding changes the read credential, as in setRepositoryGithubConnectionId.
-  await invalidateLinkedReadBindings(bound)
+  await invalidateLinkedReadBindings(boundGitUrls)
   return created
 }
 
