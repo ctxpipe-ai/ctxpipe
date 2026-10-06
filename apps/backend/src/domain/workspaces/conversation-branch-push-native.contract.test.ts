@@ -608,12 +608,11 @@ it(
 )
 
 it(
-  "refuses Commit+Push for a Workspace that is not on GitHub before it uses the sandbox",
+  "refuses Commit+Push for a Workspace that is not on GitHub before it looks for the sandbox",
   { timeout: 180_000 },
   async () => {
     await withSession({ github: false }, async (_f, s) => {
-      // A clean sandbox: the refusal names the Workspace, not "no_changes".
-      await s.warm()
+      // Refused before the sandbox is looked up: not "missing_sandbox".
       const refused = await s.commitPush()
       expect({ status: refused.status, body: await refused.json() }).toEqual({
         status: 400,
