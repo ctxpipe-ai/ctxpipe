@@ -53,3 +53,13 @@ Open risks:
 
 - The run starts about 18 jobs at the same time. If the account concurrency limit is lower, jobs wait in the queue.
 - The weights come from one run. Refresh `scripts/ci/test-weights.json` when a file becomes much slower.
+
+### Measured in CI (2026-10-07, commit ad9b8ed1, run 37546123918)
+
+| Run | Commit to green | Slowest job |
+| --- | --- | --- |
+| Before this ticket (run 37532458859) | 45 min | Tests, 46 min (the two lanes ran one after the other) |
+| First run, cold caches (attempt 1) | 17.6 min | Codesearch production build, 16.8 min (it wrote every layer to the cache) |
+| Second run, warm caches (attempt 2) | 8.3 min | Backend shard 3/4, 7.9 min |
+
+With warm caches, the backend shards took 6.3-7.9 min, the contract shards 6.0-7.2 min, and the codesearch toolchain contracts 6.9 min. The codesearch production build took less than 2.2 min. Each change to a cached input makes the next run slower once.
