@@ -550,7 +550,7 @@ it(
               env: parseEnv(process.env),
             }),
           ),
-        ).toEqual({ status: "unchanged" })
+        ).toEqual({ status: "unchanged", dirty: false })
       } finally {
         await rename(away, f.remote)
       }

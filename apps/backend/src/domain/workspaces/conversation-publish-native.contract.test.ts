@@ -150,6 +150,8 @@ it.each([
               status: "pushed",
               branch,
               sha: expect.any(String),
+              treeUrl: expect.any(String),
+              dirty: false,
             })
             expect(
               f.git("--git-dir", f.remote, "show", `${branch}:notes.md`),
@@ -157,11 +159,11 @@ it.each([
           } else {
             expect(result).toEqual(
               scenario === "session_advanced"
-                ? { status: "failed", reason: "push_failed" }
+                ? { status: "failed", reason: "push_failed", dirty: false }
                 : scenario === "default_changed"
                   ? // The session branch became the default: never pushed to.
-                    { status: "skipped", reason: "default_branch" }
-                  : { status: "skipped", reason: "stale_binding" },
+                    { status: "skipped", reason: "default_branch", dirty: false }
+                  : { status: "skipped", reason: "stale_binding", dirty: false },
             )
             expect(
               f.git("--git-dir", f.remote, "rev-list", "--all", "--count"),
@@ -288,8 +290,14 @@ it.each(["unchanged", "edited", "rebased"])(
           )
           expect(result).toEqual(
             mode === "unchanged"
-              ? { status: "unchanged" }
-              : { status: "pushed", branch, sha: expect.any(String) },
+              ? { status: "unchanged", dirty: false }
+              : {
+                  status: "pushed",
+                  branch,
+                  sha: expect.any(String),
+                  treeUrl: expect.any(String),
+                  dirty: false,
+                },
           )
           expect(
             f.git("--git-dir", f.remote, "show", `${branch}:notes.md`),

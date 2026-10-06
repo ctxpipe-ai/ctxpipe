@@ -171,7 +171,11 @@ export async function pushBeforeSandboxDelete(input: {
           conversationId: input.conversationId,
           reason: resolved.reason,
         })
-      const unpushed = await handle.exec(UNPUSHED_COMMITS_COMMAND, { env: {} })
+      // A sandbox without a Git repository has nothing to push.
+      const unpushed = await handle.exec(
+        `git rev-parse --git-dir >/dev/null 2>&1 || exit 0; ${UNPUSHED_COMMITS_COMMAND}`,
+        { env: {} },
+      )
       if (unpushed.exitCode === 0 && !unpushed.stdout.trim()) return "done"
       log.warn({
         step: "conversation-branch-push",

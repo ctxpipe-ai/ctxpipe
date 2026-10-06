@@ -191,7 +191,8 @@ function conversationSandbox(input: {
     revision,
   }
   const provider = withConversationSandboxSlots(
-    dockerSandbox({ image, workdir: "/tmp" }),
+    // Chat sandboxes work in /workspace; the push before a deletion runs there.
+    dockerSandbox({ image, workdir: "/workspace" }),
     owner,
   )
   const definition = defineSandbox({
