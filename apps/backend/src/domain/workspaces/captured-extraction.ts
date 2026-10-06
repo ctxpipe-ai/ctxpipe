@@ -70,10 +70,12 @@ export async function loadCapturedExtraction(
 }
 
 /**
- * Load and plan the stored capture of a queued extraction. When the capture
- * does not parse or does not plan, delete its rows and fail: a retry with the
- * same rows fails again, and the next ingestion run must extract it again.
- * A database error is not a capture error and keeps the rows.
+ * Load and plan the stored capture of a queued extraction. When a stored row
+ * does not parse, or the loaded capture is not valid, delete the rows of the
+ * key and fail: a retry with the same rows fails again, and the next ingestion
+ * run must extract it again. Any other error keeps the rows. A plan error can
+ * come from a workspace file (for example a malformed `claims:` key) and not
+ * from the capture, and a database error is not a capture error.
  */
 export async function planStoredExtraction(
   input: Omit<Parameters<typeof planCapturedExtraction>[0], "extraction"> & {
@@ -82,17 +84,12 @@ export async function planStoredExtraction(
   },
 ): Promise<Awaited<ReturnType<typeof planCapturedExtraction>>> {
   const { orgId, extraction, ...planInput } = input
-  const discard = async (error: unknown): Promise<never> => {
-    await deleteExtractionCapture(captureKey(orgId, extraction))
-    throw error
-  }
   const captured = await loadCapturedExtraction(orgId, extraction).catch(
-    (error: unknown) => {
-      if (error instanceof InvalidExtractionCaptureError) return discard(error)
+    async (error: unknown) => {
+      if (error instanceof InvalidExtractionCaptureError)
+        await deleteExtractionCapture(captureKey(orgId, extraction))
       throw error
     },
   )
-  return planCapturedExtraction({ ...planInput, extraction: captured }).catch(
-    discard,
-  )
+  return planCapturedExtraction({ ...planInput, extraction: captured })
 }
