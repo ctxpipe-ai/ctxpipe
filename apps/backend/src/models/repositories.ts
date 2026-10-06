@@ -300,7 +300,9 @@ export async function pruneGithubConnectionRepositoriesNotInGitUrls(
 
 export async function findRepositoriesByNormalizedGitUrls(
   urls: readonly string[],
-): Promise<Array<{ id: string; gitUrl: string }>> {
+): Promise<
+  Array<{ id: string; gitUrl: string; githubConnectionId: string | null }>
+> {
   if (urls.length === 0) return []
   const wanted = new Set(
     urls.map((url) => normalizeWorkspaceRepositoryUrl(url)).filter(Boolean),
@@ -308,7 +310,11 @@ export async function findRepositoriesByNormalizedGitUrls(
   if (wanted.size === 0) return []
   return orgSql(async () => {
     const rows = await getOrgDb()
-      .select({ id: repositories.id, gitUrl: repositories.gitUrl })
+      .select({
+        id: repositories.id,
+        gitUrl: repositories.gitUrl,
+        githubConnectionId: repositories.githubConnectionId,
+      })
       .from(repositories)
       .where(eq(repositories.orgId, requireCurrentOrgId()))
     return rows.filter((row) =>
@@ -319,7 +325,9 @@ export async function findRepositoriesByNormalizedGitUrls(
 
 export async function setRepositoryGithubConnectionId(input: {
   repositoryId: string
-  githubConnectionId: string
+  githubConnectionId: string | null
+  /** Compare-and-set: write only when the row still has this connection. */
+  expectedGithubConnectionId: string | null
 }): Promise<void> {
   return orgSql(async () => {
     const db = getOrgDb()
@@ -335,7 +343,8 @@ export async function setRepositoryGithubConnectionId(input: {
       .for("update")
     if (
       !repository ||
-      repository.githubConnectionId === input.githubConnectionId
+      repository.githubConnectionId === input.githubConnectionId ||
+      repository.githubConnectionId !== input.expectedGithubConnectionId
     )
       return
     await db
@@ -393,7 +402,9 @@ export async function repositoryIndexAlreadyPublished(
         and(eq(repositories.orgId, orgId), eq(repositories.id, repositoryId)),
       )
       .limit(1)
-    return row?.indexingStatus === "ready" && row.lastIngestedHash === targetHash
+    return (
+      row?.indexingStatus === "ready" && row.lastIngestedHash === targetHash
+    )
   })
 }
 
@@ -938,7 +949,10 @@ export const createRepository = async (input: {
 
 /**
  * Insert multiple repositories in a single query. Skips repos that already
- * exist (by gitUrl + orgId) via ON CONFLICT DO NOTHING. Returns only the newly created rows.
+ * exist (same URL, repository key, or name) via ON CONFLICT DO NOTHING. Returns only the newly created rows.
+ * With `githubConnectionId`, an existing row that has no connection gets this
+ * one: the caller passes it only for repositories that the connection can
+ * read. A row bound to a connection keeps it.
  * Must be called from a context where getOrgDb() is set (request middleware or inside withOrgDbContext).
  */
 async function bulkCreateRepositoriesWithDb(
@@ -948,9 +962,11 @@ async function bulkCreateRepositoriesWithDb(
 ) {
   if (input.length === 0) return []
   const db = getOrgDb()
-  return db.transaction(async (tx) => {
+  const boundGitUrls: string[] = []
+  const created = await db.transaction(async (tx) => {
     const created: RepositoryWithSearch[] = []
     for (const r of input) {
+      const repositoryKey = repositoryKeyFromGitUrl(r.gitUrl)
       const [repository] = await tx
         .insert(repositories)
         .values({
@@ -958,14 +974,36 @@ async function bulkCreateRepositoriesWithDb(
           orgId,
           name: r.name,
           gitUrl: r.gitUrl,
-          repositoryKey: repositoryKeyFromGitUrl(r.gitUrl),
+          repositoryKey,
           githubConnectionId: opts?.githubConnectionId,
         })
-        .onConflictDoNothing({
-          target: [repositories.gitUrl, repositories.orgId],
-        })
+        // A linked row has the normalized URL, and a legacy row has no
+        // repository key, so a conflict on any unique column skips the row.
+        .onConflictDoNothing()
         .returning()
-      if (!repository) continue
+      if (!repository) {
+        if (opts?.githubConnectionId) {
+          const rows = await tx
+            .update(repositories)
+            .set({
+              githubConnectionId: opts.githubConnectionId,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(repositories.orgId, orgId),
+                or(
+                  eq(repositories.repositoryKey, repositoryKey),
+                  eq(repositories.gitUrl, r.gitUrl),
+                ),
+                isNull(repositories.githubConnectionId),
+              ),
+            )
+            .returning({ gitUrl: repositories.gitUrl })
+          boundGitUrls.push(...rows.map((row) => row.gitUrl))
+        }
+        continue
+      }
       const [checkout] = await tx
         .insert(repositoryCheckouts)
         .values({
@@ -981,6 +1019,9 @@ async function bulkCreateRepositoriesWithDb(
     }
     return created
   })
+  // A new binding changes the read credential, as in setRepositoryGithubConnectionId.
+  await invalidateLinkedReadBindings(boundGitUrls)
+  return created
 }
 
 /**

@@ -70,6 +70,36 @@ describe("defineObservedWorkflow", () => {
     })
   })
 
+  it("lets a body re-parse its strict input schema when enqueue added telemetry", async () => {
+    // Workspace write workflows (link-unlink, extract-ingest, bootstrap, …) parse
+    // `queuedInput` with their own strict schema as their first line.
+    const schema = z
+      .object({ orgId: z.string(), workspaceId: z.string() })
+      .strict()
+    const workflow = defineWorkflow(
+      { name: "workspace-write-link-unlink-strict", schema },
+      async ({ input }) => ({
+        input: schema.parse(input),
+        attribution: readAttribution(),
+      }),
+    )
+    await expect(
+      workflow.fn({
+        input: {
+          orgId: "org_1",
+          workspaceId: "ws_1",
+          telemetry: { "request.id": "req_1" },
+        },
+        step: {} as never,
+        version: null,
+        run: {} as never,
+      }),
+    ).resolves.toMatchObject({
+      input: { orgId: "org_1", workspaceId: "ws_1" },
+      attribution: { "request.id": "req_1" },
+    })
+  })
+
   it("accepts enqueue telemetry on a union schema and still rejects invalid input", async () => {
     const workflow = defineWorkflow(
       {

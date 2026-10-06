@@ -5,12 +5,18 @@ import { eq, sql } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { useMswServer } from "../../test/msw.js"
+import { recordSpans } from "../../test/spans.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import {
   repositories,
   repositoryIngestionRequests,
 } from "../db/schema/repositories.js"
+import { restoreJobTelemetry } from "../observability/jobTelemetry.js"
 import { createLogger, withLogger } from "../observability/logger.js"
+
+// The worker's OpenTelemetry SDK installs a context manager; restored job
+// attribution reaches an awaited enqueue through it.
+recordSpans()
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
 config({ path: resolve(__dirname, "../../.env.local"), quiet: true })
@@ -59,22 +65,25 @@ describe("enqueueFollowUpIfTipAhead (Postgres)", () => {
     await closeDb()
   })
 
-  it("admits the follow-up with the parent's request id, with no OTel context active", async () => {
+  it("admits the follow-up with the request id of the parent's restored job telemetry", async () => {
     // Loaded after DATABASE_URL is checked: the OpenWorkflow client connects on import.
     const { enqueueFollowUpIfTipAhead } = await import(
       "./enqueue-follow-up-if-tip-ahead.js"
     )
     const errors: Error[] = []
     const result = await withLogger(createLogger({ test: "follow-up" }), () =>
-      enqueueFollowUpIfTipAhead(
-        {
-          orgId,
-          repositoryId,
-          ingestedHash: "a".repeat(40),
-          requestId: "completed-request",
-          telemetry: { "request.id": "req_parent_ingestion" },
-        },
-        { error: (error) => errors.push(error) },
+      restoreJobTelemetry(
+        { orgId, telemetry: { "request.id": "req_parent_ingestion" } },
+        () =>
+          enqueueFollowUpIfTipAhead(
+            {
+              orgId,
+              repositoryId,
+              ingestedHash: "a".repeat(40),
+              requestId: "completed-request",
+            },
+            { error: (error) => errors.push(error) },
+          ),
       ),
     )
     expect(errors).toEqual([])

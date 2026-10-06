@@ -129,7 +129,8 @@ describe("Langfuse usage", () => {
     )
     const usage = await readRepositoryLlmUsage(langfuse, {
       repositoryId: "repo_1",
-      requestId: "val_1",
+      environment: "ingestion-validator",
+      exclusiveWindow: true,
       from: "2026-10-03T10:00:00.000Z",
       to: "2026-10-03T11:00:00.000Z",
     })
@@ -154,8 +155,24 @@ describe("Langfuse usage", () => {
       "openai/text-embedding-3-large": 4,
     })
     expect(queries[1]?.dimensions).toEqual([{ field: "providedModelName" }])
+    // Every query reads only this environment, so other environments and
+    // retrieval query embeddings elsewhere do not count.
+    expect(queries).toHaveLength(4)
+    for (const query of queries)
+      expect(query.filters).toContainEqual({
+        column: "environment",
+        operator: "=",
+        value: "ingestion-validator",
+        type: "string",
+      })
     expect(queries[1]?.filters).toEqual([
       { column: "type", operator: "=", value: "GENERATION", type: "string" },
+      {
+        column: "environment",
+        operator: "=",
+        value: "ingestion-validator",
+        type: "string",
+      },
       {
         column: "metadata",
         operator: "=",
@@ -171,13 +188,135 @@ describe("Langfuse usage", () => {
         type: "stringObject",
       },
     ])
-    expect(queries[3]?.filters).toContainEqual({
-      column: "metadata",
-      operator: "=",
-      key: "requestId",
-      value: "val_1",
-      type: "stringObject",
+    // Generations carry no `requestId` at the observation level, so the
+    // embeddings are found by name inside the repository's own window.
+    expect(queries[3]?.filters).toEqual([
+      { column: "type", operator: "=", value: "GENERATION", type: "string" },
+      {
+        column: "environment",
+        operator: "=",
+        value: "ingestion-validator",
+        type: "string",
+      },
+      {
+        column: "name",
+        operator: "=",
+        value: "modelProvider.generateEmbeddings",
+        type: "string",
+      },
+    ])
+    expect(queries[3]).toMatchObject({
+      fromTimestamp: "2026-10-03T10:00:00.000Z",
+      toTimestamp: "2026-10-03T11:00:00.000Z",
     })
+    expect(
+      queries
+        .flatMap((query) => query.filters)
+        .some((f) => f.key === "requestId"),
+    ).toBe(false)
+  })
+
+  it("does not read embeddings when another repository's run overlaps the window", async () => {
+    const names: string[] = []
+    server.use(
+      http.get(metricsUrl, ({ request }) => {
+        const query = JSON.parse(
+          new URL(request.url).searchParams.get("query") ?? "{}",
+        )
+        names.push(
+          ...query.filters
+            .filter((f: Record<string, string>) => f.column === "name")
+            .map((f: Record<string, string>) => f.value),
+        )
+        return HttpResponse.json({ data: [] })
+      }),
+    )
+    const usage = await readRepositoryLlmUsage(langfuse, {
+      repositoryId: "repo_1",
+      environment: "ingestion-validator",
+      exclusiveWindow: false,
+      from: "2026-10-03T10:00:00.000Z",
+      to: "2026-10-03T11:00:00.000Z",
+    })
+    expect(names).toEqual([])
+    expect(usage.stages.embeddings?.calls).toBe(0)
+  })
+
+  it("reports cost unknown only for a model that has no Langfuse cost, not for a real cost of 0", async () => {
+    server.use(
+      http.get(metricsUrl, ({ request }) => {
+        const query = JSON.parse(
+          new URL(request.url).searchParams.get("query") ?? "{}",
+        )
+        const stage = query.filters.find(
+          (f: Record<string, string>) => f.key === "workflowStepName",
+        )
+        if (stage?.value === "identify-roots")
+          return HttpResponse.json({
+            data: [
+              {
+                providedModelName: "vendor/priced",
+                count_count: 1,
+                sum_inputTokens: 10,
+                sum_outputTokens: 10,
+                sum_totalTokens: 20,
+                sum_totalCost: 0.5,
+              },
+            ],
+          })
+        // A free model: Langfuse knows its price, and the cost is really 0.
+        if (stage?.value === "identify:")
+          return HttpResponse.json({
+            data: [
+              {
+                providedModelName: "vendor/free",
+                count_count: 1,
+                sum_inputTokens: 10,
+                sum_outputTokens: 10,
+                sum_totalTokens: 20,
+                sum_totalCost: 0,
+              },
+            ],
+          })
+        if (stage?.value !== "extract-kind:")
+          return HttpResponse.json({ data: [] })
+        return HttpResponse.json({
+          data: [
+            {
+              providedModelName: "vendor/priced",
+              count_count: 1,
+              sum_inputTokens: 10,
+              sum_outputTokens: 10,
+              sum_totalTokens: 20,
+              sum_totalCost: 0.5,
+            },
+            {
+              providedModelName: "vendor/no-price",
+              count_count: 2,
+              sum_inputTokens: 2_000_000,
+              sum_outputTokens: 100_000,
+              sum_totalTokens: 2_100_000,
+              sum_totalCost: null,
+            },
+          ],
+        })
+      }),
+    )
+    const usage = await readRepositoryLlmUsage(langfuse, {
+      repositoryId: "repo_1",
+      environment: "ingestion-validator",
+      exclusiveWindow: true,
+      from: "2026-10-03T10:00:00.000Z",
+      to: "2026-10-03T11:00:00.000Z",
+    })
+    expect(usage.stages["identify-roots"]?.costUsd).toBe(0.5)
+    expect(usage.stages["extract-kind"]).toMatchObject({
+      calls: 3,
+      totalTokens: 2_100_020,
+      costUsd: null,
+    })
+    expect(usage.stages.identify).toMatchObject({ totalTokens: 20, costUsd: 0 })
+    expect(usage.total.costUsd).toBeNull()
   })
 
   it("waits until the run's generation count stops changing", async () => {
@@ -189,12 +328,46 @@ describe("Langfuse usage", () => {
     )
     await expect(
       waitForLangfuseIngestion(langfuse, {
-        requestId: "val_1",
+        environment: "ingestion-validator",
         from: "2026-10-03T10:00:00.000Z",
         intervalMs: 1,
       }),
     ).resolves.toBe(7)
     expect(counts).toEqual([])
+  })
+
+  it("counts every generation of the environment in the window with one query, embeddings included", async () => {
+    const queries: Array<{
+      filters: Array<Record<string, string>>
+      fromTimestamp: string
+    }> = []
+    server.use(
+      http.get(metricsUrl, ({ request }) => {
+        queries.push(
+          JSON.parse(new URL(request.url).searchParams.get("query") ?? "{}"),
+        )
+        return HttpResponse.json({ data: [{ count_count: 3 }] })
+      }),
+    )
+    await expect(
+      waitForLangfuseIngestion(langfuse, {
+        environment: "ingestion-validator",
+        from: "2026-10-03T10:00:00.000Z",
+        intervalMs: 1,
+      }),
+    ).resolves.toBe(3)
+    // Two reads with the same count: one query per read.
+    expect(queries).toHaveLength(2)
+    expect(queries[0]?.fromTimestamp).toBe("2026-10-03T10:00:00.000Z")
+    expect(queries[0]?.filters).toEqual([
+      { column: "type", operator: "=", value: "GENERATION", type: "string" },
+      {
+        column: "environment",
+        operator: "=",
+        value: "ingestion-validator",
+        type: "string",
+      },
+    ])
   })
 
   it("stops waiting at the bound even while counts still change", async () => {
@@ -205,7 +378,7 @@ describe("Langfuse usage", () => {
       ),
     )
     await waitForLangfuseIngestion(langfuse, {
-      requestId: "val_1",
+      environment: "ingestion-validator",
       from: "2026-10-03T10:00:00.000Z",
       intervalMs: 1,
       maxWaitMs: 0,
