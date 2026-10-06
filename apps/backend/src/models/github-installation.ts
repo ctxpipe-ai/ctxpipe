@@ -939,18 +939,6 @@ export async function getRepoReadCloneToken(
     fresh?: boolean
   },
 ): Promise<string | undefined> {
-  return (await mintRepoReadToken(orgId, env, input))?.token
-}
-
-async function mintRepoReadToken(
-  orgId: string,
-  env: Env,
-  input: {
-    githubConnectionId?: string
-    repoFullName: string
-    fresh?: boolean
-  },
-): Promise<{ token: string } | undefined> {
   const installation = input.githubConnectionId
     ? await getGithubInstallationByConnectionId(orgId, input.githubConnectionId)
     : await resolveGithubInstallationForOrg(orgId, null)
@@ -967,7 +955,7 @@ async function mintRepoReadToken(
     permissions: request.permissions,
     ...(input.fresh ? { refresh: true } : {}),
   })) as { token: string }
-  return { token }
+  return token
 }
 
 /**
