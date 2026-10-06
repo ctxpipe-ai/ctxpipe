@@ -447,6 +447,7 @@ describe("PATCH /github/installation", () => {
         clone_url: "https://github.com/acme/beta.git",
       },
     ]
+    listAllReposForInstallationMock.mockResolvedValueOnce(selectedRepositories)
 
     const app = createApp()
     const res = await app.request("/github/installation", {
@@ -482,6 +483,50 @@ describe("PATCH /github/installation", () => {
           gitUrl: "https://github.com/acme/beta.git",
         },
       ],
+      { githubConnectionId: "con_github" },
+    )
+  })
+
+  it("select mode syncs only the selected repositories that GitHub lists for the installation", async () => {
+    // The client sends the selection. A repository that GitHub does not
+    // list is not readable by this connection, so the sync must not bind it.
+    listAllReposForInstallationMock.mockResolvedValueOnce([
+      {
+        id: 1,
+        full_name: "acme/alpha",
+        name: "alpha",
+        clone_url: "https://github.com/acme/alpha.git",
+      },
+    ])
+
+    const app = createApp()
+    const res = await app.request("/github/installation", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ingestAllRepositories: false,
+        includeFutureRepos: false,
+        selectedRepositories: [
+          {
+            id: 1,
+            full_name: "acme/alpha",
+            name: "alpha",
+            clone_url: "https://github.com/acme/alpha.git",
+          },
+          {
+            id: 9,
+            full_name: "other/private",
+            name: "private",
+            clone_url: "https://github.com/other/private.git",
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(bulkCreateRepositoriesForOrgMock).toHaveBeenCalledWith(
+      "org_1",
+      [{ name: "acme/alpha", gitUrl: "https://github.com/acme/alpha.git" }],
       { githubConnectionId: "con_github" },
     )
   })
