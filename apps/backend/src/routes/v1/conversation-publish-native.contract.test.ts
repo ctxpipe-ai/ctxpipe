@@ -26,23 +26,19 @@ import { withTestLogger } from "../../test/with-test-logger.js"
 import { conversationRoutes } from "./conversations.js"
 
 it.each([
-  "push",
   "sha_before_push",
   "other_revision_heartbeat",
   "warm_files",
   "provider_unavailable",
-  "provider_unavailable_push",
   "pull-request",
   "pr_collision",
   "missing",
   "stale",
-  "stale_push",
   "stale_connection",
   "stale_generation",
   "stale_sha",
   "stale_default_branch",
   "relink_after_push",
-  "relink_after_push_push",
   "relink_during_pr",
   "relink_before_pr",
 ])(
@@ -150,6 +146,11 @@ it.each([
           await raw.process.exec(`git fetch ${shellSingleQuote(f.remote)} main`)
           await raw.process.exec("git checkout -B main FETCH_HEAD")
           await raw.fs.write("notes.md", "# Saved conversation\n")
+          // The agent commits its work; Create PR publishes commits only.
+          if (scenario !== "warm_files")
+            await raw.process.exec(
+              "git add notes.md && git -c user.name=Agent -c user.email=agent@example.test commit -q -m 'Save notes'",
+            )
           if (scenario !== "missing" && scenario !== "warm_files") {
             await withOrgDbContext(f.org.id, (db) =>
               db
@@ -160,7 +161,7 @@ it.each([
                     access: "read",
                     remote: {
                       url:
-                        scenario === "stale" || scenario === "stale_push"
+                        scenario === "stale"
                           ? "https://github.com/fixture/other"
                           : f.workspaceUrl,
                       connectionId:
@@ -354,8 +355,9 @@ fi
               )
             }
           }
+          // Commit+Push publishes a Files edit nobody committed.
           const pendingResponse = app.request(
-            `/conversations/${conversationId}/${scenario === "push" || scenario === "provider_unavailable_push" || scenario === "warm_files" || scenario === "stale_push" || scenario === "relink_after_push_push" ? "push" : "pull-request"}`,
+            `/conversations/${conversationId}/${scenario === "warm_files" ? "push" : "pull-request"}`,
             {
               method: "POST",
               headers: { "content-type": "application/json" },
@@ -388,8 +390,8 @@ fi
             ).toBe("1")
           } else if (scenario === "sha_before_push") {
             expect({ status: response.status, body }).toEqual({
-              status: 400,
-              body: { error: "Conversation write binding changed before push" },
+              status: 409,
+              body: { error: "stale_binding" },
             })
             expect(pullRequests).toEqual([])
             expect(
@@ -410,15 +412,16 @@ fi
                   getConversation(conversationId),
                 ),
               ),
-            ).toMatchObject({ lastChatPrNumber: null, lastBranch: null })
+            ).toMatchObject({ lastChatPrNumber: null })
           } else if (scenario === "missing" || scenario.startsWith("stale")) {
+            // Without a sandbox Create PR publishes what is on GitHub: nothing.
             expect({ status: response.status, body }).toEqual({
-              status: scenario === "missing" ? 409 : 400,
+              status: 400,
               body: {
                 error:
                   scenario === "missing"
-                    ? "missing_sandbox"
-                    : scenario === "stale" || scenario === "stale_push"
+                    ? "no_changes"
+                    : scenario === "stale"
                       ? "stale_url"
                       : scenario,
               },

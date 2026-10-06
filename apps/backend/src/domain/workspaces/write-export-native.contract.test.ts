@@ -12,6 +12,7 @@ import {
   persistOrgFirstWorkspace,
 } from "../../models/workspaces.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
+import { storeTestExtraction } from "../../test/extraction-capture-fixture.js"
 import { seedLegacyExtractionObject } from "../../test/legacy-extraction-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
@@ -334,7 +335,7 @@ it(
               orgId: f.org.id,
               workspaceId: f.workspaceId,
               jobId: `${jobId}_extract`,
-              extraction: {
+              extraction: await storeTestExtraction(f.org.id, {
                 repositoryId: "repo_fixture",
                 repositoryUrl: f.workspaceUrl,
                 sourceSha: f.sha,
@@ -346,7 +347,7 @@ it(
                   },
                 ],
                 claims: [],
-              },
+              }),
               revision: {
                 ...(await f.resolveRevision()),
                 access: "write-default",

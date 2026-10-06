@@ -1,7 +1,10 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
-import { shouldHydrateBeforeMigrationExport } from "../../domain/workspaces/hydrate.js"
+import {
+  HYDRATE_SKIP_REASONS,
+  shouldHydrateBeforeMigrationExport,
+} from "../../domain/workspaces/hydrate.js"
 import {
   createWorkspaceLifecycle,
   relinkWorkspaceLifecycle,
@@ -35,6 +38,18 @@ import {
   workspaceSlugParams,
 } from "./workspace-route-shared.js"
 
+const WorkspaceSkippedFileSchema = z
+  .object({
+    path: z
+      .string()
+      .openapi({ description: "Path in the Workspace repository" }),
+    reason: z.enum(HYDRATE_SKIP_REASONS).openapi({
+      description:
+        "`malformed`: the front matter, or the `git` URL of a linked-repository file, is not valid. `duplicate_repository`: the file links a repository that an earlier file links, or the Workspace repository itself.",
+    }),
+  })
+  .openapi("WorkspaceSkippedFile")
+
 const WorkspaceSchema = z
   .object({
     id: z.string(),
@@ -62,6 +77,10 @@ const WorkspaceSchema = z
 
 const WorkspaceDetailSchema = WorkspaceSchema.extend({
   linkedRepositories: z.array(LinkedRepositorySchema),
+  skippedFiles: z.array(WorkspaceSkippedFileSchema).openapi({
+    description:
+      "Committed files that the active projection skipped. Empty when hydrate read every file.",
+  }),
 }).openapi("WorkspaceDetail")
 
 const ListWorkspacesResponseSchema = z
@@ -377,6 +396,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
           ...row,
           createdAt: row.createdAt.toISOString(),
         })),
+        skippedFiles: workspace.hydratePhases?.skipped ?? [],
       },
       200,
     )

@@ -5,7 +5,7 @@ Priority: P0
 Owner: unassigned
 Blocked by: none
 Created: 2026-10-01
-Updated: 2026-10-04
+Updated: 2026-10-05
 
 ## Context
 
@@ -81,6 +81,10 @@ Read first: this ticket, `repository-ingestion.ts`, `repository-index.ts`, `work
 
 Needs: a Railway token for the validator environment, a dedicated OpenRouter key with a credit limit, HyperDX + Langfuse access, a validation org/workspace with a writable GitHub workspace repository. Never change model defaults in code, production, or pr-280. Report per-repo status, the worst failures with trace links, and the fixes landed.
 
+## Follow-ups
+
+- [ ] Define the GPT-6 Luna price in Langfuse before the next paid run. This is an ops step: add a Langfuse model definition for `openai/gpt-6-luna`. Until then, the report shows "cost unknown" for each stage that used Luna.
+
 ## Comments
 
 - 2026-10-01 (ticket 07): `graphQualityReport` now reads a Workspace projection (`--org-id --workspace-id`). `repoGraphSizeCheck` still counts legacy `objects` rows, which this branch no longer writes — port it to workspace knowledge units as part of the validator.
@@ -118,5 +122,45 @@ Needs: a Railway token for the validator environment, a dedicated OpenRouter key
   - **Repos line fix:** `n8n-io/n8n typescript`. Code search has no `javascript` indexer (JS is covered by `typescript`), so `typescript,javascript` would always fail `codesearch.scip`.
   - Railway SSH does not forward stdin, so secrets go in as `pr-385` service variables, not on the command line. A backend redeploy replaces the container: it wipes `/tmp` and kills a running validator. Launch the run with `nohup` and copy the reports out before any redeploy.
   - Next (user): create a private repository with a README under a GitHub account or org that no production ctx| org uses. Install the production App (`ctxpipe-agent`, which the preview inherits) on it with "Only select repositories". Do not add it to the existing ctxpipe-ai installation. Then: register the installation on the preview org (`POST /{orgSlug}/api/v1/github/installation`), create the Workspace (`POST /{orgSlug}/api/v1/workspaces` with `gitUrl` + `githubConnectionId`), and run inside the backend: `nohup bun run src/scripts/ingestionValidator.ts --org-id <org> --mode full --workspace-id <ws> --repos /tmp/val/n8n.txt --concurrency 1 --timeout-minutes 240 --poll-seconds 30 --out-dir /tmp/val --run-id val_pr385_n8n_1 > /tmp/val/n8n1.log 2>&1 &`.
+
+- 2026-10-05 (claude): **Phase 3: n8n measurement run. Total spend $0.64 of the $30 key. n8n FAILs at the extraction capture cap.**
+  - Setup: the user added a private test repository in the company's own GitHub org to the existing App installation. The validation org on `pr-385` registered that installation and has one Workspace on that repository. Bootstrap and hydrate reached `ready`.
+  - Runs 1 to 3 failed in seconds and spent nothing. Each one found a defect, fixed with a regression test:
+    1. `val_pr385_n8n_1`: the link write job failed with `Unrecognized key: "telemetry"` (trace `4abcf4270ae2410cdee8e13d9071a888`). Each Workspace write workflow re-parses `queuedInput` with its strict schema, and enqueue had added job telemetry. Fix: `defineObservedWorkflow` gives the body its input without `telemetry` and still restores attribution from it.
+    2. `val_pr385_n8n_2`: ingestion failed with "There is at least one repository that does not exist or is not accessible to the parent installation" (trace `22cbc556d35af5b918ffa9d2f43e827f`). The link stamped the Workspace's GitHub connection on the public upstream repository row, so ingestion asked the installation for a token it cannot issue. The same happens when a user links a public repository of another account in the product.
+    3. `val_pr385_n8n_3`: an attempt to return no token for such a repository hit the deliberate fail-closed guard in `resolveRepositoryReadCredential` ("The connected repository has no read credential", trace `35fe6b4ead4f3c1bd23ed8951d2764c4`). That attempt was dropped. Fix: `ensureOrgRepositoryForGitUrl` binds the connection only when the repository owner is the installation account. It also clears such a binding that an earlier link left.
+  - `val_pr385_n8n_4` (`n8n-io/n8n typescript`, `--mode full`, concurrency 1), 20:50 to 21:55 UTC, 64 min 13 s:
+    - Codesearch: 475 s. SCIP indexed `typescript` and `python` (detected the same). `codesearch.zoekt` FAILs: the `f:.` probe matched no files. Not yet investigated: a validator probe defect or a real Zoekt gap on a large repository. Trace `cc7c8b5b9366438958b71c0fc8a64006`.
+    - Extraction: 3374 s and 545 Luna generations, then the ingestion failed with **`Extraction capture exceeds 8 MiB`** (`extractionCaptureBudgetSchema` in `domain/workspaces/extraction.ts`, "reject rather than truncate"). Nothing was committed, so the hydrate, size, and quality checks did not run. Orchestrator trace `a233af717b2d7c891202cec658f9ecd7`, ingestion trace `68c9e4c0cfa68d626ce7df97b658fc2a`, Langfuse session `repository-ingestion:fb410d19-3739-4641-ae48-b08f3becca54`.
+    - Spend per stage. Langfuse gives the tokens; dollars are tokens × Luna prices ($0.10 / M input, $0.50 / M output), because Langfuse has no price for the model:
+
+      | Stage | Calls | Input | Output | Dollars |
+      | --- | --- | --- | --- | --- |
+      | identify-roots | 5 | 9,686 | 1,199 | $0.002 |
+      | extract-kind | 6 | 65,352 | 544 | $0.007 |
+      | identify | 534 | 2,729,130 | 750,563 | $0.648 |
+      | embeddings (hydrate) | not reached | | | |
+      | total | 545 | 2,804,168 | 752,306 | $0.657 |
+
+      The OpenRouter key's usage delta across the repository was $0.611. The key now reads $0.639 in total for runs 1 to 4, setup, and a small amount after the validator's last read. `identify` is 98% of the cost; output (reasoning) tokens are 57% of it.
+  - Validator defects:
+    - The Langfuse filter `metadata.requestId = <run id>` matches no generation, so the bounded wait for Langfuse ingestion and the hydrate `embeddings` stage read zero. Filtering by `repositoryId` + `workflowStepName` works.
+    - The per-stage cost column reads $0 because Langfuse has no price for the Luna model. Compute it from tokens, as in the table above.
+  - **Blocker before any further paid run:** the 8 MiB capture cap. Every repository larger than n8n will fail the same way after it has spent its extraction budget. Split the capture (per root or per kind, each its own durable capture and commit), or change the cap with an ADR-047 decision. Do not re-run n8n until then: the run spends about $0.65 and fails at the same point.
+  - Proposed budgets (key spend, Luna tiers, 1.5× margin over the n8n measurement, scaled by repository size):
+    - Per stage per repository: identify-roots $0.01; extract-kind $0.02; identify about $0.20 per million tokens of extractor input (n8n: 2.7 M input, $0.65); hydrate embeddings at most $0.10, which is not yet measured.
+    - Per repository: n8n, react, next.js, ollama $1 each; flutter, golang/go, cpython $2 each; vscode, kubernetes $3 each; linux, tensorflow, rust $4 each. The full set is about $30 at that cap. Use a new key with a $35 limit after the capture fix, one repository at a time first.
+  - Wall time for n8n: about 8 min codesearch and 56 min extraction at OpenWorkflow concurrency 6. A 240-minute per-repository timeout is enough for n8n. linux and tensorflow need a measured bound.
+
+- 2026-10-06 (final review fixes): repository binding on link and on the installation sync.
+  - Coverage. A link no longer compares the installation's account name with the URL owner. That check failed on renamed and transferred accounts, on a stale name that equals the owner, on selected-repositories installations, and on two Apps on one account. It also rewrote the connection config from a stale copy. Now GitHub decides: the link mints a new repository-scoped read token for the requested connection. GitHub finds the token's repository by name in the installation's account, so the link also reads the URL's repository with that token and compares the ids. Thus a fork with the same name in the installation's account does not cover another owner's repository. Same id: `covers`, and the link binds. 422 or 404: `foreign`, and the link clears the binding only when it is the requested connection. Other errors (429, 5xx, network): `unknown`, the link changes nothing and logs a warning. The write is a compare-and-set, so a binding that changed while GitHub answered stays.
+  - Sync. The installation sync inserted rows with ON CONFLICT DO NOTHING on the URL, so it never bound a row that a link created unbound. It also failed on the repository key, because a link stores the normalized URL and the sync stores GitHub's clone URL. Now the sync skips a row on any unique conflict and binds an existing row only when it has no connection. The installation listed that repository, so it can read it. A row bound to another connection keeps it. The sync clears the linked revisions of each row that it binds, as a binding change does.
+  - Not changed: `getWorkspaceGithubReadToken` keeps its owner filter. It narrows one token for up to 500 names, so a stale name only removes repositories from the scope.
+- 2026-10-06 (round 3 review fixes):
+  - Sync. A selected-repositories sync now syncs only the selected repositories that GitHub lists for the installation. The client sends the selection, so the sync must not bind a repository that GitHub did not list.
+  - Coverage. The coverage check mints its token with retries off, so a GitHub outage does not hold a link. 404 has its own test.
+  - Cost. "cost unknown" applies only when Langfuse has no cost for a model. A cost of 0 is a real cost.
+  - Known limit: the embeddings stage at concurrency 1 also counts retrieval query embeddings from the same environment in the window. They have the same name and no other mark.
+  - Known limit: a renamed repository (same owner, new name) is `foreign` until the URL is updated. The clone path has the same limit.
 
 ## Resolution

@@ -19,10 +19,12 @@ import {
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import {
+  CHAT_SANDBOX_DELETE_AFTER_MS,
   CHAT_SANDBOX_IDLE_STOP_MS,
   CHAT_SANDBOX_RETENTION_MS,
   ORG_RUNNING_SANDBOX_LIMIT,
 } from "./chat-lifecycle.js"
+import { pushBeforeSandboxDelete } from "./conversation-branch-push.js"
 import type { WorkspaceRevision } from "./revision.js"
 import {
   postgresSandboxLocks,
@@ -288,12 +290,12 @@ export async function orgsWithSandboxes(): Promise<string[]> {
  * The lifecycle sweep for one organization's conversation sandboxes:
  * - stop a running sandbox after 5 minutes unused (never while a turn or file
  *   read holds the conversation);
- * - delete a sandbox and its saved state 30 days after its last use, when its
- *   conversation is gone, or when an earlier delete failed.
- * Returns when the next sweep is due, or null when nothing is running and
- * nothing needs a retry. Stopped sandboxes schedule nothing: whichever sweep
- * passes after 30 days deletes them. Workspace bases always schedule the
- * next sweep (see below).
+ * - delete a sandbox and its saved state a day before that state would
+ *   expire (29 days after its last use), when its conversation is gone, or
+ *   when an earlier delete failed; committed work is pushed first.
+ * Returns when the next sweep is due (an idle stop, a deletion, a retry), or
+ * null when no sandbox is left. Workspace bases always schedule the next
+ * sweep (see below).
  */
 export async function sweepConversationSandboxes(
   orgId: string,
@@ -325,10 +327,16 @@ export async function sweepConversationSandboxes(
     const expired =
       row.state === "destroy_failed" ||
       !conversations.has(conversationId) ||
-      now.getTime() - row.lastHeartbeatAt.getTime() >= CHAT_SANDBOX_RETENTION_MS
+      now.getTime() - row.lastHeartbeatAt.getTime() >=
+        CHAT_SANDBOX_DELETE_AFTER_MS
     const running =
       row.state === "live" && isRunningSandboxProvider(row.provider)
-    if (!expired && !running) continue
+    // A stopped sandbox is deleted while its saved state still exists, so
+    // the last push can resume it.
+    if (!expired && !running) {
+      dueAt(row.lastHeartbeatAt.getTime() + CHAT_SANDBOX_DELETE_AFTER_MS)
+      continue
+    }
     if (!expired && row.lastHeartbeatAt > idleSince) {
       dueAt(row.lastHeartbeatAt.getTime() + CHAT_SANDBOX_IDLE_STOP_MS)
       continue
@@ -337,16 +345,44 @@ export async function sweepConversationSandboxes(
       const outcome = await withSandboxLockIfFree(
         orgId,
         `chat-thread:${conversationId}`,
-        async () =>
-          expired
+        async () => {
+          // Committed work reaches GitHub before the sandbox is deleted (also
+          // when an earlier delete failed). An idle stop keeps the files, so
+          // it needs nothing. Commits that no remote has keep the sandbox for
+          // the next sweep, until its saved state would be gone anyway.
+          const pushed =
+            expired &&
+            isRunningSandboxProvider(row.provider) &&
+            row.providerSandboxId &&
+            row.workspaceId &&
+            row.revision
+              ? await pushBeforeSandboxDelete({
+                  orgId,
+                  conversationId,
+                  workspaceId: row.workspaceId,
+                  provider: row.provider,
+                  providerSandboxId: row.providerSandboxId,
+                  baseSha: row.revision.sha,
+                })
+              : "done"
+          if (
+            pushed === "retry" &&
+            now.getTime() - row.lastHeartbeatAt.getTime() <
+              CHAT_SANDBOX_RETENTION_MS
+          )
+            return "used"
+          return expired
             ? destroyUnusedSandbox(row.id, orgId, row.lastHeartbeatAt)
             : (await stopSandboxRow(orgId, row.id, idleSince))
               ? "stopped"
-              : "used",
+              : "used"
+        },
       )
       const result = outcome.busy ? "busy" : outcome.value
-      if (result === "stopped") stopped += 1
-      else if (result === "destroyed") deleted += 1
+      if (result === "stopped") {
+        stopped += 1
+        dueAt(row.lastHeartbeatAt.getTime() + CHAT_SANDBOX_DELETE_AFTER_MS)
+      } else if (result === "destroyed") deleted += 1
       // Busy, used since it was listed, or failed: look again soon.
       else dueAt(retryAt)
     } catch (error) {

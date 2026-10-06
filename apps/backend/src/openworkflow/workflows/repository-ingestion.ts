@@ -6,24 +6,19 @@ import { resolveRepositoryRef } from "../../domain/codeIngestion/queue.js"
 import { isRepositoryGoneError } from "../../domain/codeIngestion/repositoryGone.js"
 import { captureRepositoryExtractionTarget } from "../../domain/workspaces/capture-repository-extraction.js"
 import {
-  captureExtractionClaimSourcePath,
-  extractionCaptureBudgetSchema,
+  extractionRetraction,
   extractionRootsSchema,
+  partialRetractionPaths,
   workspaceExtractionSchema,
 } from "../../domain/workspaces/extraction.js"
 import { identifyRoots } from "../../graphs/codeIngestionGraph/nodes/identifyRoots.js"
-import { linkPackageHierarchy } from "../../graphs/codeIngestionGraph/nodes/linkLocatedPaths.js"
 import {
-  finalizeExtractedReferences,
+  EXTRACTOR_VERSION,
   runExtractKindForRoot,
   runIdentifyPhaseForRoot,
   stableRootStepId,
 } from "../../graphs/codeIngestionGraph/runExtractRoot.js"
-import type {
-  CodeIngestionState,
-  ExtractedClaim,
-  ExtractedObject,
-} from "../../graphs/codeIngestionGraph/schemas.js"
+import type { CodeIngestionState } from "../../graphs/codeIngestionGraph/schemas.js"
 import { withIngestAgentContext } from "../../graphs/codeIngestionGraph/withIngestAgentContext.js"
 import {
   markRepositoryIndexingIssues,
@@ -33,6 +28,11 @@ import {
   repositoryIngestionBlockedByDeletion,
   setRepositoryIndexingStep,
 } from "../../models/repositories.js"
+import {
+  deleteExtractionCapture,
+  deleteRepositoryExtractionCaptures,
+  type ExtractionCaptureKey,
+} from "../../models/repository-extraction-captures.js"
 import {
   assertRepositoryIngestionRequest,
   captureRepositoryIngestionRequest,
@@ -363,6 +363,10 @@ export const repositoryIngestion = defineWorkflow(
                 targetHash: reindexState.targetHash ?? resolved.hash,
               })
 
+              const partialPaths =
+                reindexState.ingestMode === "partial"
+                  ? partialRetractionPaths(reindexState)
+                  : null
               const baseIngestState: CodeIngestionState = {
                 requestId,
                 repositoryId: input.repositoryId,
@@ -371,14 +375,35 @@ export const repositoryIngestion = defineWorkflow(
                 fromHash,
                 targetHash: reindexState.targetHash ?? resolved.hash,
                 indexedAt: reindexState.indexedAt,
-                ingestMode: reindexState.ingestMode,
-                changedPaths: reindexState.changedPaths,
-                deletedPaths: reindexState.deletedPaths,
-                renames: reindexState.renames,
+                ...(partialPaths
+                  ? {
+                      ingestMode: "partial",
+                      changedPaths: reindexState.changedPaths,
+                      deletedPaths: reindexState.deletedPaths,
+                      renames: reindexState.renames,
+                    }
+                  : { ingestMode: "full" }),
                 roots: [],
                 extractedObjects: [],
                 extractedClaims: [],
               }
+
+              const captureKey: ExtractionCaptureKey = {
+                orgId: input.orgId,
+                repositoryId: input.repositoryId,
+                sourceSha: baseIngestState.targetHash,
+                // A partial capture holds only the changed paths since its base commit.
+                scope:
+                  baseIngestState.ingestMode === "partial"
+                    ? `since:${baseIngestState.fromHash ?? ""}`
+                    : "full",
+                extractorVersion: EXTRACTOR_VERSION,
+              }
+              if (input.fullReingest)
+                // A full re-index extracts each root again; it reuses no stored root.
+                await step.run({ name: "discard-extraction-capture" }, () =>
+                  deleteExtractionCapture(captureKey),
+                )
 
               const workflowRunId = run?.id ?? "unknown"
               const ingestionRunId = `repository-ingestion:${workflowRunId}`
@@ -458,8 +483,9 @@ export const repositoryIngestion = defineWorkflow(
                       },
                     )
 
-                    const extractedObjects: ExtractedObject[] = []
-                    const extractedClaims: ExtractedClaim[] = []
+                    let extractedObjectsCount = 0
+                    let extractedClaimsCount = 0
+                    let skippedFiles = 0
                     // Two roots at a time bound provider fan-out before the next batch is allocated.
                     for (let offset = 0; offset < roots.length; offset += 2) {
                       const rootExtractResults = await Promise.all(
@@ -504,6 +530,7 @@ export const repositoryIngestion = defineWorkflow(
                                         runExtractKindForRoot(
                                           baseIngestState,
                                           root,
+                                          captureKey,
                                         ),
                                     ),
                                 ),
@@ -554,6 +581,7 @@ export const repositoryIngestion = defineWorkflow(
                                           baseIngestState,
                                           root,
                                           kindPartial,
+                                          captureKey,
                                         ),
                                     ),
                                 ),
@@ -562,38 +590,32 @@ export const repositoryIngestion = defineWorkflow(
                         }),
                       )
 
-                      for (const part of rootExtractResults) {
-                        extractedObjects.push(...part.extractedObjects)
-                        extractedClaims.push(...part.extractedClaims)
+                      for (const counts of rootExtractResults) {
+                        extractedObjectsCount += counts.objects
+                        extractedClaimsCount += counts.claims
+                        skippedFiles += counts.skippedFiles
                       }
-                      extractionCaptureBudgetSchema.parse({
-                        objects: extractedObjects,
-                        claims: extractedClaims,
-                      })
                     }
-
-                    const finalized = await finalizeExtractedReferences({
-                      orgId: baseIngestState.orgId,
-                      extractedObjects,
-                      extractedClaims,
-                    })
                     return {
                       roots,
-                      extractedObjects: finalized.extractedObjects,
-                      extractedClaims: [
-                        ...finalized.extractedClaims,
-                        ...linkPackageHierarchy({
-                          repositoryId: input.repositoryId,
-                          targetHash: baseIngestState.targetHash,
-                          objects: finalized.extractedObjects,
-                          claims: finalized.extractedClaims,
-                        }),
-                      ],
+                      extractedObjectsCount,
+                      extractedClaimsCount,
+                      skippedFiles,
                     }
                   })
-                : { roots: [], extractedObjects: [], extractedClaims: [] }
+                : {
+                    roots: [],
+                    extractedObjectsCount: 0,
+                    extractedClaimsCount: 0,
+                    skippedFiles: 0,
+                  }
 
-              const { roots, extractedObjects, extractedClaims } = extractResult
+              const {
+                roots,
+                extractedObjectsCount,
+                extractedClaimsCount,
+                skippedFiles,
+              } = extractResult
               if (destination) {
                 await assertRepositoryIngestionRequest({
                   ...input,
@@ -605,42 +627,19 @@ export const repositoryIngestion = defineWorkflow(
                   ingestionRequestId: requestId,
                   repositoryId: input.repositoryId,
                   repositoryUrl: repository.gitUrl,
-                  sourceSha: reindexState.targetHash ?? resolved.hash,
+                  sourceSha: captureKey.sourceSha,
                   sourceDeclaration: destination.sourceDeclaration,
-                  retraction:
-                    reindexState.ingestMode === "partial"
-                      ? {
-                          mode: "partial",
-                          observedAt:
-                            reindexState.indexedAt ??
-                            run.createdAt.toISOString(),
-                          paths: [
-                            ...new Set([
-                              ...(reindexState.changedPaths ?? []),
-                              ...(reindexState.deletedPaths ?? []),
-                              ...(reindexState.renames ?? []).flatMap(
-                                (rename) => [rename.from, rename.to],
-                              ),
-                            ]),
-                          ],
-                        }
-                      : {
-                          mode: "full",
-                          observedAt:
-                            reindexState.indexedAt ??
-                            run.createdAt.toISOString(),
-                        },
-                  objects: extractedObjects,
-                  claims: extractedClaims.map((claim) => ({
-                    subjectRef: claim.subjectRef,
-                    objectRef: claim.objectRef,
-                    predicate: claim.predicate,
-                    confidence: claim.confidence,
-                    sourceId: claim.sourceId,
-                    sourcePath: captureExtractionClaimSourcePath(
-                      claim.provenance,
-                    ),
-                  })),
+                  retraction: extractionRetraction({
+                    partialPaths,
+                    observedAt:
+                      reindexState.indexedAt ?? run.createdAt.toISOString(),
+                    skippedFiles,
+                  }),
+                  capture: {
+                    scope: captureKey.scope,
+                    extractorVersion: captureKey.extractorVersion,
+                    roots,
+                  },
                 })
                 await step.runWorkflow(
                   workspaceExtractIngest.spec,
@@ -653,6 +652,9 @@ export const repositoryIngestion = defineWorkflow(
                   },
                   { name: "publish-extracted-knowledge" },
                 )
+                await step.run({ name: "delete-extraction-capture" }, () =>
+                  deleteRepositoryExtractionCaptures(captureKey, run.createdAt),
+                )
               }
 
               logWorkflowMilestone("repository-ingestion.extract.complete", {
@@ -660,8 +662,8 @@ export const repositoryIngestion = defineWorkflow(
                 orgId: input.orgId,
                 targetHash: reindexState.targetHash ?? resolved.hash,
                 rootsCount: roots.length,
-                extractedObjectsCount: extractedObjects.length,
-                extractedClaimsCount: extractedClaims.length,
+                extractedObjectsCount,
+                extractedClaimsCount,
               })
 
               const result = {
@@ -738,9 +740,6 @@ export const repositoryIngestion = defineWorkflow(
                         requestId: requestId ?? `legacy:${run.id}`,
                         githubConnectionId,
                         targetBranch: input.targetBranch,
-                        ...(input.telemetry
-                          ? { telemetry: input.telemetry }
-                          : {}),
                       },
                       {
                         error: (err) =>

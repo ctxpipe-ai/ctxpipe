@@ -40,15 +40,22 @@ export type HydrateUnit = {
   confidence?: number | null
 }
 
+export const HYDRATE_SKIP_REASONS = [
+  "malformed",
+  "duplicate_repository",
+] as const
+
 export type HydrateSkip = {
   path: string
-  reason: "malformed" | "not_knowledge"
+  reason: (typeof HYDRATE_SKIP_REASONS)[number]
 }
 
 const MD_LINK = /\[([^\]]*)\]\(([^)]+)\)/g
 
 export function hydrateKnowledgeTree(input: {
   workspaceId: string
+  /** The Workspace repository. A linked-repository file that names it is skipped. */
+  workspaceUrl?: string
   files: ReadonlyArray<{ path: string; content: string }>
 }): {
   units: HydrateUnit[]
@@ -58,7 +65,11 @@ export function hydrateKnowledgeTree(input: {
   const units: HydrateUnit[] = []
   const skipped: HydrateSkip[] = []
   const linked: Array<{ path: string; git: string; branch: string | null }> = []
-  const seenLinked = new Set<string>()
+  const seenLinked = new Set<string>(
+    input.workspaceUrl
+      ? [normalizeWorkspaceRepositoryUrl(input.workspaceUrl)]
+      : [],
+  )
 
   for (const file of input.files) {
     const path = file.path.replace(/^\/+/, "")
@@ -69,8 +80,12 @@ export function hydrateKnowledgeTree(input: {
         continue
       }
       const git = normalizeWorkspaceRepositoryUrl(parsed.git)
-      if (!git || seenLinked.has(git)) {
+      if (!git) {
         skipped.push({ path, reason: "malformed" })
+        continue
+      }
+      if (seenLinked.has(git)) {
+        skipped.push({ path, reason: "duplicate_repository" })
         continue
       }
       seenLinked.add(git)

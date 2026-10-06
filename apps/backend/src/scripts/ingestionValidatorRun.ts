@@ -502,14 +502,15 @@ async function validate(options: ValidatorOptions): Promise<number> {
   if (langfuse && options.mode === "full") {
     projectId = await readLangfuseProjectId(langfuse).catch(() => null)
     await waitForLangfuseIngestion(langfuse, {
-      requestId: options.runId,
+      environment,
       from: startedAt,
     }).catch(() => 0)
     for (const facts of results) {
       if (!facts.repositoryId) continue
       facts.llm = await readRepositoryLlmUsage(langfuse, {
         repositoryId: facts.repositoryId,
-        requestId: options.runId,
+        environment,
+        exclusiveWindow: options.concurrency === 1,
         from: facts.enqueuedAt,
         to: facts.finishedAt,
       }).catch((error) => {

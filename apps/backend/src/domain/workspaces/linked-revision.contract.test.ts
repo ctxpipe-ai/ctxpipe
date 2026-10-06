@@ -148,6 +148,7 @@ it.each([
         await setRepositoryGithubConnectionId({
           repositoryId,
           githubConnectionId: newConnectionId,
+          expectedGithubConnectionId: connectionId,
         })
       }
       const invalidated =

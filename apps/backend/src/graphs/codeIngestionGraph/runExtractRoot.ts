@@ -1,5 +1,10 @@
 import { isUnresolvedProviderIdentity } from "../../domain/codeIngestion/referenceResolver.js"
-import { extractionCaptureBudgetSchema } from "../../domain/workspaces/extraction.js"
+import {
+  type ExtractionCaptureKey,
+  type ExtractionCounts,
+  storedRootCapture,
+  storeRootCapture,
+} from "../../models/repository-extraction-captures.js"
 import { CONNECTOR_EXTRACTORS } from "./nodes/connectorExtractors.js"
 import { extractCodeowners } from "./nodes/extractCodeowners.js"
 import { extractDecisions } from "./nodes/extractDecisions.js"
@@ -20,9 +25,17 @@ import {
 import { sanitizePostgresJson } from "./postgresJson.js"
 import type {
   CodeIngestionState,
+  ExtractedCapture,
   ExtractedClaim,
   ExtractedObject,
 } from "./schemas.js"
+
+/**
+ * Version of the extractor output in `repository_extraction_captures`. Increase
+ * it when an extractor changes its output, so that a new run does not reuse
+ * root captures of an older extractor.
+ */
+export const EXTRACTOR_VERSION = 1
 
 /** Stable OpenWorkflow step-name fragment for a package root path. */
 export function stableRootStepId(root: string): string {
@@ -34,10 +47,9 @@ export function stableRootStepId(root: string): string {
     .slice(0, 120)
 }
 
-function concatExtracted(parts: Array<Partial<CodeIngestionState>>): {
-  extractedObjects: ExtractedObject[]
-  extractedClaims: ExtractedClaim[]
-} {
+function concatExtracted(
+  parts: Array<Partial<CodeIngestionState>>,
+): ExtractedCapture {
   const extractedObjects: ExtractedObject[] = []
   const extractedClaims: ExtractedClaim[] = []
   for (const part of parts) {
@@ -48,10 +60,6 @@ function concatExtracted(parts: Array<Partial<CodeIngestionState>>): {
       extractedClaims.push(...part.extractedClaims)
     }
   }
-  extractionCaptureBudgetSchema.parse({
-    objects: extractedObjects,
-    claims: extractedClaims,
-  })
   return { extractedObjects, extractedClaims }
 }
 
@@ -61,30 +69,33 @@ function concatExtracted(parts: Array<Partial<CodeIngestionState>>): {
  * registry, then path locating.
  *
  * Used by OpenWorkflow `repository-ingestion` so each phase is a durable step
- * boundary when callers wrap these in `step.run`.
+ * boundary when callers wrap these in `step.run`. A root that an earlier run
+ * already stored under the same key returns its counts and makes no model calls.
  */
 export async function runExtractKindForRoot(
   state: CodeIngestionState,
   root: string,
-): Promise<Partial<CodeIngestionState>> {
-  const result = await extractKind({ ...state, roots: [root] })
-  extractionCaptureBudgetSchema.parse({
-    objects: result.extractedObjects ?? [],
-    claims: result.extractedClaims ?? [],
-  })
-  return result
+  captureKey: ExtractionCaptureKey,
+): Promise<Partial<CodeIngestionState> | { reused: ExtractionCounts }> {
+  const reused = await storedRootCapture(captureKey, root)
+  if (reused) return { reused }
+  return extractKind({ ...state, roots: [root] })
 }
 
+/**
+ * Run the identify phase of one root and store the root capture (kind output,
+ * identify output, located paths). The step output is only the counts. A
+ * root that the kind step reused makes no model calls. A publish deletes only
+ * the rows of its own key and rows older than its run, so a newer run keeps
+ * the rows it stores (see `deleteRepositoryExtractionCaptures`).
+ */
 export async function runIdentifyPhaseForRoot(
   state: CodeIngestionState,
   root: string,
-  kindPartial: Partial<CodeIngestionState>,
-): Promise<{
-  extractedObjects: ExtractedObject[]
-  extractedClaims: ExtractedClaim[]
-  /** Files an extractor skipped on LLM failure; gates the full-ingest sweep. */
-  extractionSkippedFiles: number
-}> {
+  kindPartial: Awaited<ReturnType<typeof runExtractKindForRoot>>,
+  captureKey: ExtractionCaptureKey,
+): Promise<ExtractionCounts> {
+  if ("reused" in kindPartial) return kindPartial.reused
   const rootState: CodeIngestionState = {
     ...state,
     ...kindPartial,
@@ -109,22 +120,25 @@ export async function runIdentifyPhaseForRoot(
   ])
 
   const extracted = concatExtracted([kindPartial, ...parts])
-  const extractionSkippedFiles = parts.reduce(
+  const located = linkLocatedPaths({
+    repositoryId: state.repositoryId,
+    targetHash: state.targetHash,
+    objects: extracted.extractedObjects,
+    claims: extracted.extractedClaims,
+  })
+  extracted.extractedObjects.push(...located.extractedObjects)
+  extracted.extractedClaims.push(...located.extractedClaims)
+  // A root with skipped files is stored for this run, but a later run extracts it again.
+  const skippedFiles = parts.reduce(
     (sum, part) => sum + (part.extractionSkippedFiles ?? 0),
     0,
   )
-  return sanitizePostgresJson({
-    ...concatExtracted([
-      extracted,
-      linkLocatedPaths({
-        repositoryId: state.repositoryId,
-        targetHash: state.targetHash,
-        objects: extracted.extractedObjects,
-        claims: extracted.extractedClaims,
-      }),
-    ]),
-    extractionSkippedFiles,
-  })
+  return storeRootCapture(
+    captureKey,
+    root,
+    sanitizePostgresJson(extracted),
+    skippedFiles,
+  )
 }
 
 /**
@@ -133,14 +147,9 @@ export async function runIdentifyPhaseForRoot(
  * Runs after the per-root phase because sibling roots' objects are not stored
  * yet on a first ingest.
  */
-export async function finalizeExtractedReferences(input: {
-  orgId: string
-  extractedObjects: ExtractedObject[]
-  extractedClaims: ExtractedClaim[]
-}): Promise<{
-  extractedObjects: ExtractedObject[]
-  extractedClaims: ExtractedClaim[]
-}> {
+export async function finalizeExtractedReferences(
+  input: ExtractedCapture & { orgId: string },
+): Promise<ExtractedCapture> {
   const extractedObjects = input.extractedObjects.filter(
     (object) => !isUnresolvedProviderIdentity(object.deduplicationKey),
   )
@@ -158,22 +167,4 @@ export async function finalizeExtractedReferences(input: {
     extractedObjects: [...extractedObjects, ...stubs],
     extractedClaims: claims,
   }
-}
-
-/**
- * Full per-root extract (kind → parallel identify → reference resolution).
- * Prefer splitting across OW steps via {@link runExtractKindForRoot} +
- * {@link runIdentifyPhaseForRoot} + {@link finalizeExtractedReferences}
- * when durability at the kind boundary is needed.
- */
-export async function runExtractForRoot(
-  state: CodeIngestionState,
-  root: string,
-): Promise<{
-  extractedObjects: ExtractedObject[]
-  extractedClaims: ExtractedClaim[]
-}> {
-  const kindPartial = await runExtractKindForRoot(state, root)
-  const extracted = await runIdentifyPhaseForRoot(state, root, kindPartial)
-  return finalizeExtractedReferences({ orgId: state.orgId, ...extracted })
 }

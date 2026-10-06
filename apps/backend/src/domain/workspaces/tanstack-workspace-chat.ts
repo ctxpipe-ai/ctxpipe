@@ -49,10 +49,12 @@ import {
   workspaceChatRuntimeConfig,
 } from "./chat-runtime.js"
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
+import { conversationBranchPushTool } from "./conversation-branch-push.js"
 import {
   SandboxCapacityError,
   withConversationSandboxSlots,
 } from "./conversation-sandbox-lifecycle.js"
+import { checkoutSessionBranch } from "./conversation-session-branch.js"
 import { nameConversationIfUnnamed } from "./conversation-title.js"
 import { hostedSandboxAccess } from "./hosted-sandbox-access.js"
 import { type WorkspaceRevision, workspaceRevisionSchema } from "./revision.js"
@@ -67,6 +69,10 @@ import {
   wrapSandboxSetupCommand,
 } from "./sandbox-lifecycle-timing.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
+import {
+  withOwnerWatchdog,
+  withSingleOpencodeServer,
+} from "./sandbox-process-guards.js"
 import {
   discoverSandboxProvider,
   remoteDockerHost,
@@ -222,7 +228,7 @@ function conversationSandboxDefinition(input: {
   return definition
 }
 
-function conversationSandboxProvider(
+export function conversationSandboxProvider(
   isolation: SandboxProviderName,
   conversationId: string,
   /** Docker: the Workspace base image a new sandbox starts from, if any. */
@@ -231,31 +237,35 @@ function conversationSandboxProvider(
 ): SandboxProvider {
   if (isolation === "vercel") {
     if (!vercel) throw new Error("Vercel sandbox options are missing")
-    return vercelConversationProvider(vercel)
+    return withSingleOpencodeServer(vercelConversationProvider(vercel))
   }
   if (isolation === "unsandboxed")
-    return localProcessSandbox({
-      scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
-    })
-  return withSessionOnlyEnv(
-    withDockerAgentPort(
-      startingFromBase({
-        make: (image) =>
-          dockerSandbox({
-            image: image ?? workspaceChatDockerImage(),
-            publishPorts: [WORKSPACE_CHAT_OPENCODE_PORT],
-            dockerodeOptions: { timeout: 120_000 },
-          }),
-        baseImage,
+    return withOwnerWatchdog(
+      localProcessSandbox({
+        scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
       }),
-      {
-        // AUTH_SECRET is checked before the provider is built.
-        agentPassword: conversationAgentPassword(
-          process.env.AUTH_SECRET?.trim() ?? "",
-          conversationId,
-        ),
-        daemonHost: remoteDockerHost(),
-      },
+    )
+  return withSingleOpencodeServer(
+    withSessionOnlyEnv(
+      withDockerAgentPort(
+        startingFromBase({
+          make: (image) =>
+            dockerSandbox({
+              image: image ?? workspaceChatDockerImage(),
+              publishPorts: [WORKSPACE_CHAT_OPENCODE_PORT],
+              dockerodeOptions: { timeout: 120_000 },
+            }),
+          baseImage,
+        }),
+        {
+          // AUTH_SECRET is checked before the provider is built.
+          agentPassword: conversationAgentPassword(
+            process.env.AUTH_SECRET?.trim() ?? "",
+            conversationId,
+          ),
+          daemonHost: remoteDockerHost(),
+        },
+      ),
     ),
   )
 }
@@ -604,7 +614,16 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       ? messagesForOpenCodeChat(input.messages, input.prompt)
       : []) as Array<ModelMessage | UIMessage>,
     abortController,
-    tools: WORKSPACE_CHAT_TOOLS,
+    tools: [
+      ...WORKSPACE_CHAT_TOOLS,
+      conversationBranchPushTool({
+        conversationId: input.conversationId,
+        orgId: input.orgId,
+        orgSlug: session.orgSlug,
+        workspaceId: input.workspaceId,
+        sandbox: () => activeSandbox,
+      }),
+    ],
     middleware: [
       otelMiddleware({
         tracer: trace.getTracer("ctxpipe-workspace-chat"),
@@ -655,6 +674,13 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
               signal: abortController.signal,
             })
             if (updated.conflict) revisionConflict = updated.effective
+            else
+              await checkoutSessionBranch({
+                handle,
+                orgId: input.orgId,
+                conversationId: input.conversationId,
+                desired: built.revision,
+              })
           })
         },
         onConfig(_ctx, config) {

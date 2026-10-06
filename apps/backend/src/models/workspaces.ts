@@ -28,7 +28,7 @@ import {
   type DestWorkspaceLinkPlan,
   planDestWorkspaceLinks,
 } from "../domain/workspaces/dest-workspace-assignment.js"
-import type { HydrateUnit } from "../domain/workspaces/hydrate.js"
+import type { HydrateSkip, HydrateUnit } from "../domain/workspaces/hydrate.js"
 import { initialHydratePhases } from "../domain/workspaces/hydrate-phases.js"
 import { nextRelinkFields } from "../domain/workspaces/relink.js"
 import {
@@ -52,7 +52,9 @@ import {
   slugFromGitUrl,
 } from "../domain/workspaces/slug.js"
 import {
+  WORKSPACE_WRITE_STATUSES,
   type WorkspaceWriteProbe,
+  WRITE_STATUS_REASONS,
   writeStatusFromClassification,
 } from "../domain/workspaces/write-status.js"
 import { generateObjectId } from "../lib/id.js"
@@ -1129,6 +1131,7 @@ export async function commitHydrateProjection(input: {
   displayName: string | null
   remotes: ReadonlyArray<{ git: string; branch: string | null }>
   units: readonly HydrateUnit[]
+  skipped: readonly HydrateSkip[]
 }): Promise<boolean> {
   return orgSql(async () => {
     const db = getOrgDb()
@@ -1141,13 +1144,14 @@ export async function commitHydrateProjection(input: {
           activeProjectionSha: input.revision.sha,
           hydrateStatus: "ready",
           hydrateError: null,
-          hydratePhases: sql`${JSON.stringify(
-            initialHydratePhases({
+          hydratePhases: sql`${JSON.stringify({
+            ...initialHydratePhases({
               url: input.revision.remote.url,
               sha: input.revision.sha,
               revision: input.revision,
             }),
-          )}::jsonb || jsonb_build_object('publishedIndex', coalesce(
+            skipped: input.skipped,
+          })}::jsonb || jsonb_build_object('publishedIndex', coalesce(
             ${workspaces.hydratePhases}->'publishedIndex',
             case when ${workspaces.hydratePhases}->'index'->'result'->>'kind' = 'ready'
               then ${workspaces.hydratePhases}->'index'->'revision' end
@@ -1198,15 +1202,9 @@ export async function commitHydrateProjection(input: {
         )
       }
 
-      const workspaceUrl = normalizeWorkspaceRepositoryUrl(
-        input.revision.remote.url,
+      const desired = new Map<string, string | null>(
+        input.remotes.map((remote) => [remote.git, remote.branch] as const),
       )
-      const desired = new Map<string, string | null>()
-      for (const remote of input.remotes) {
-        const gitUrl = normalizeWorkspaceRepositoryUrl(remote.git)
-        if (!gitUrl || gitUrl === workspaceUrl || desired.has(gitUrl)) continue
-        desired.set(gitUrl, remote.branch)
-      }
       const existingLinked = await tx
         .select()
         .from(workspaceLinkedRepositories)
@@ -1278,7 +1276,10 @@ export async function invalidateLinkedReadBindings(
   })
 }
 
-/** Connection deletion is a relink, not an implicit foreign-key metadata edit. */
+/**
+ * Connection deletion is a relink, not an implicit foreign-key metadata edit.
+ * No job can read without the connection, so hydrate fails until a reconnect rebinds.
+ */
 export async function detachWorkspaceConnection(
   connectionId: string,
 ): Promise<void> {
@@ -1286,12 +1287,64 @@ export async function detachWorkspaceConnection(
     await getOrgDb()
       .update(workspaces)
       .set({
-        ...nextRelinkFields(0),
+        ...nextRelinkFields(0, {
+          writeStatus: WORKSPACE_WRITE_STATUSES.read_only,
+          readOnlyReason: WRITE_STATUS_REASONS.githubNotConnected,
+        }),
         desiredGeneration: sql`${workspaces.desiredGeneration} + 1`,
         githubConnectionId: null,
+        hydrateStatus: "failed",
+        hydrateError:
+          "The GitHub connection was removed. Reconnect GitHub to restore this workspace.",
         updatedAt: new Date(),
       })
       .where(eq(workspaces.githubConnectionId, connectionId))
+  })
+}
+
+/** Workspaces with no GitHub connection: detached by a disconnect, or added by Paste. */
+export async function listUnboundWorkspaces(): Promise<WorkspaceRecord[]> {
+  return orgSql(() =>
+    getOrgDb()
+      .select()
+      .from(workspaces)
+      .where(
+        and(
+          eq(workspaces.orgId, requireCurrentOrgId()),
+          sql`${workspaces.githubConnectionId} is null`,
+        ),
+      ),
+  )
+}
+
+/** Bind only while the row is still unbound at the read generation, so a concurrent relink wins. */
+export async function bindUnboundWorkspace(input: {
+  workspace: WorkspaceRecord
+  githubConnectionId: string
+}): Promise<WorkspaceRecord | null> {
+  return orgSql(async () => {
+    const [updated] = await getOrgDb()
+      .update(workspaces)
+      .set({
+        ...nextRelinkFields(
+          input.workspace.desiredGeneration,
+          writeStatusFromClassification({
+            workspaceRepositoryUrl: input.workspace.workspaceRepositoryUrl,
+            githubConnectionId: input.githubConnectionId,
+          }),
+        ),
+        githubConnectionId: input.githubConnectionId,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(workspaces.id, input.workspace.id),
+          eq(workspaces.desiredGeneration, input.workspace.desiredGeneration),
+          sql`${workspaces.githubConnectionId} is null`,
+        ),
+      )
+      .returning()
+    return updated ?? null
   })
 }
 

@@ -272,7 +272,8 @@ describe("workspace query HTTP helpers", () => {
     expect(tree).toEqual({
       sha: "HEAD",
       paths: [],
-      branch: "ctxpipe/chat/conv_1/1",
+      // The branch is unknown until the sandbox answers (it may be …/2).
+      branch: "",
       ready: false,
     })
     expect(readConversationGitTreeSnapshot("conv_1")).toBeUndefined()

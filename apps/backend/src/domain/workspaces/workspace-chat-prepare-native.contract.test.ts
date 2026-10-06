@@ -18,7 +18,7 @@ import { withNativeHttpsGitFixture } from "../../test/native-https-git-fixture.j
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
 import { CHAT_SANDBOX_IDLE_STOP_MS } from "./chat-lifecycle.js"
-import { workspaceChatRuntimeConfig } from "./chat-runtime.js"
+import { SANDBOX_READ_GIT, workspaceChatRuntimeConfig } from "./chat-runtime.js"
 import {
   stoppingSandboxWhenDone,
   sweepConversationSandboxes,
@@ -643,6 +643,17 @@ it(
                   )
                   expect(remoteHeads.exitCode).toBe(0)
                   expect(remoteHeads.stdout).toContain(f.sha)
+                  // The agent's shell holds the read token, and the fetch the
+                  // session_moved hint gives reads with it alone.
+                  phase = "read credential"
+                  const token = await first.handle.process.exec(
+                    "printenv CTXPIPE_CLONE_TOKEN",
+                  )
+                  expect(token.stdout.trim()).not.toBe("")
+                  const read = await first.handle.process.exec(
+                    `GIT_TERMINAL_PROMPT=0 ${SANDBOX_READ_GIT} ls-remote --heads origin refs/heads/main`,
+                  )
+                  expect(read.stdout).toContain(f.sha)
                   phase = "warm chat"
                   const instanceCreatesBeforeWarm =
                     workspaceChatInstanceAccess.creates

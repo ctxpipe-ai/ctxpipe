@@ -9,6 +9,12 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { captureRepositoryExtractionTarget } from "../../domain/workspaces/capture-repository-extraction.js"
 import { ensureOrgRepositoryForGitUrl } from "../../domain/workspaces/ensure-org-repository.js"
+import { EXTRACTOR_VERSION } from "../../graphs/codeIngestionGraph/runExtractRoot.js"
+import type { ExtractedCapture } from "../../graphs/codeIngestionGraph/schemas.js"
+import {
+  deleteRepositoryExtractionCaptures,
+  storeRootCapture,
+} from "../../models/repository-extraction-captures.js"
 import { persistOrgFirstWorkspace } from "../../models/workspaces.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { enqueueRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
@@ -17,6 +23,28 @@ import { repositoryIngestion } from "./repository-ingestion.js"
 import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
+const largeCaptureRoots = ["root-a", "root-b", "root-c"]
+const largeCaptureObjectsPerRoot = 300
+
+/** About 3.6 MB of JSON per root, so three roots hold more than 8 MiB. */
+function largeRootCapture(
+  repositoryId: string,
+  root: string,
+): ExtractedCapture {
+  return {
+    extractedObjects: Array.from(
+      { length: largeCaptureObjectsPerRoot },
+      (_, i) => ({
+        kind: "Service",
+        deduplicationKey: `svc:${repositoryId}:${root}-${i}`,
+        name: `${root}-${i}`,
+        summary: `Service ${i} of ${root}. ${"Handles one integration. ".repeat(500)}`,
+      }),
+    ),
+    extractedClaims: [],
+  }
+}
+
 it.each([
   "workspace",
   "superseded-before-resume",
@@ -24,11 +52,15 @@ it.each([
   "linked",
   "unlinked-before-resume",
   "edited-before-resume",
+  "capture-over-8-mib",
 ] as const)(
   "resumes captured repository extraction against canonical source ownership (%s)",
-  { timeout: 45_000 },
+  { timeout: 180_000 },
   async (mode) => {
-    const ownSource = mode === "workspace" || mode === "too-many-roots"
+    const ownSource =
+      mode === "workspace" ||
+      mode === "too-many-roots" ||
+      mode === "capture-over-8-mib"
     await withNativeHydrationFixture(
       {
         github: true,
@@ -71,7 +103,7 @@ it.each([
               sourceRepositoryId: repository.id,
             }),
           )
-        const extracted = {
+        const extracted: ExtractedCapture = {
           extractedObjects: [
             {
               kind: "Service",
@@ -95,17 +127,25 @@ it.each([
           extractedClaims: [
             {
               subjectRef: repository.id,
+              subjectKind: "Repository",
               objectRef: `svc:${repository.id}:billing`,
+              objectKind: "Service",
               predicate: "HAS_SERVICE",
               confidence: 0.9,
               sourceId: `extractKind:${repository.id}:billing:${f.sha}`,
+              sourceType: "git",
+              extractionMethod: "llm",
             },
             {
               subjectRef: `svc:${repository.id}:billing`,
+              subjectKind: "Service",
               objectRef: repository.id,
+              objectKind: "Repository",
               predicate: "IMPLEMENTED_IN",
               confidence: 0.9,
               sourceId: `extractKind:${repository.id}:billing:${f.sha}`,
+              sourceType: "git",
+              extractionMethod: "llm",
             },
           ],
         }
@@ -168,11 +208,30 @@ it.each([
             const roots =
               mode === "too-many-roots"
                 ? Array.from({ length: 129 }, (_, i) => `root-${i}`)
-                : ["billing"]
+                : mode === "capture-over-8-mib"
+                  ? largeCaptureRoots
+                  : ["billing"]
             await step.run({ name: "identify-roots" }, () => ({ roots }))
+            const captureKey = {
+              orgId: f.org.id,
+              repositoryId: repository.id,
+              sourceSha: f.sha,
+              scope: "full",
+              extractorVersion: EXTRACTOR_VERSION,
+            }
             for (const root of roots) {
               await step.run({ name: `extract-kind:${root}` }, () => extracted)
-              await step.run({ name: `identify:${root}` }, () => extracted)
+              // Together the large roots hold more than 8 MiB, as for a large monorepo.
+              await step.run({ name: `identify:${root}` }, () =>
+                storeRootCapture(
+                  captureKey,
+                  root,
+                  mode === "capture-over-8-mib"
+                    ? largeRootCapture(repository.id, root)
+                    : extracted,
+                  0,
+                ),
+              )
             }
             await step.run({ name: "deduplicateAndStore" }, () => ({
               objectIds: [],
@@ -326,6 +385,27 @@ it.each([
             ).toBe("1")
             return
           }
+          if (mode === "capture-over-8-mib") {
+            await handle.result({ timeoutMs: 150_000 })
+            const published = f
+              .git(
+                "--git-dir",
+                f.remote,
+                "ls-tree",
+                "-r",
+                "--name-only",
+                "main",
+                "knowledge/services",
+              )
+              .split("\n")
+              .filter(Boolean)
+            expect(published).toHaveLength(
+              largeCaptureRoots.length * largeCaptureObjectsPerRoot,
+            )
+            for (const root of largeCaptureRoots)
+              expect(published).toContain(`knowledge/services/${root}-0.md`)
+            return
+          }
           await handle.result({ timeoutMs: 25_000 })
           const repositoryPath = ownSource
             ? "AGENTS.md"
@@ -400,6 +480,17 @@ it.each([
             ),
           ).toBe("1")
         } finally {
+          // A failed run keeps its stored roots; a later publish deletes them.
+          await deleteRepositoryExtractionCaptures(
+            {
+              orgId: f.org.id,
+              repositoryId: repository.id,
+              sourceSha: f.sha,
+              scope: "full",
+              extractorVersion: EXTRACTOR_VERSION,
+            },
+            new Date(),
+          )
           await worker.stop()
           await backend.stop()
         }

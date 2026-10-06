@@ -1,7 +1,14 @@
+import { RequestError } from "octokit"
+import { withOrgIdContext } from "../../auth/withAuth.js"
+import type { Env } from "../../config/env.js"
+import { getSystemDb } from "../../db/client.js"
 import { generateObjectId } from "../../lib/id.js"
+import { getRepoReadCloneToken } from "../../models/github-installation.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import {
+  bindUnboundWorkspace,
   createWorkspace,
+  listUnboundWorkspaces,
   updateWorkspace,
   type WorkspaceRecord,
 } from "../../models/workspaces.js"
@@ -17,6 +24,7 @@ import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 import { destroySandboxesForWorkspace } from "./workspace-sandbox-cleanup.js"
 import {
   githubConnectionIdForWriteProbe,
+  githubRepoFullNameFromWorkspaceUrl,
   writeStatusFromClassification,
 } from "./write-status.js"
 
@@ -168,27 +176,84 @@ export async function relinkWorkspaceLifecycle(input: {
   if (!updated) {
     return { workspace: null, changed: false }
   }
-  if (changed) {
-    void destroySandboxesForWorkspace(updated.id)
-    await attachOrgRepository({
-      orgId: updated.orgId,
-      gitUrl: updated.workspaceRepositoryUrl,
-      githubConnectionId: updated.githubConnectionId,
-      log: input.log,
-    })
-    void enqueueWorkspaceTipCheck(updated.orgId, input.log)
-    void enqueueWorkspaceHydrate(
-      { orgId: updated.orgId, workspaceId: updated.id },
-      input.log,
-    )
-    void enqueueWorkspaceWriteCommit(
-      {
-        orgId: updated.orgId,
-        workspaceId: updated.id,
-        kind: "bootstrap",
-      },
-      input.log,
-    )
-  }
+  if (changed) await startRelinkedWorkspace(updated, input.log)
   return { workspace: updated, changed }
+}
+
+/**
+ * Bind each GitHub workspace that has no connection to a newly attached
+ * connection, when its installation can read the repository. This restores
+ * workspaces a disconnect detached; it also binds Paste workspaces the
+ * installation covers. A failure here never fails the connection itself;
+ * the workspace stays unbound and the error is logged.
+ */
+export async function rebindUnboundWorkspaces(input: {
+  orgId: string
+  connectionId: string
+  env: Env
+  log: WorkspaceLog
+}): Promise<void> {
+  const logError = (error: unknown) =>
+    input.log.error(error instanceof Error ? error : new Error(String(error)))
+  try {
+    const org = await getSystemDb().query.organizations.findFirst({
+      where: { id: { eq: input.orgId } },
+    })
+    if (!org) return
+    await withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
+      for (const workspace of await listUnboundWorkspaces()) {
+        const repoFullName = githubRepoFullNameFromWorkspaceUrl(
+          workspace.workspaceRepositoryUrl,
+        )
+        if (!repoFullName) continue
+        try {
+          await getRepoReadCloneToken(input.orgId, input.env, {
+            githubConnectionId: input.connectionId,
+            repoFullName,
+          })
+        } catch (error) {
+          // GitHub refuses a token for a repository outside the installation.
+          if (
+            !(error instanceof RequestError) ||
+            (error.status !== 404 && error.status !== 422)
+          )
+            logError(error)
+          continue
+        }
+        const updated = await bindUnboundWorkspace({
+          workspace,
+          githubConnectionId: input.connectionId,
+        })
+        if (updated) await startRelinkedWorkspace(updated, input.log)
+      }
+    })
+  } catch (error) {
+    logError(error)
+  }
+}
+
+async function startRelinkedWorkspace(
+  workspace: WorkspaceRecord,
+  log: WorkspaceLog,
+): Promise<void> {
+  void destroySandboxesForWorkspace(workspace.id)
+  await attachOrgRepository({
+    orgId: workspace.orgId,
+    gitUrl: workspace.workspaceRepositoryUrl,
+    githubConnectionId: workspace.githubConnectionId,
+    log,
+  })
+  void enqueueWorkspaceTipCheck(workspace.orgId, log)
+  void enqueueWorkspaceHydrate(
+    { orgId: workspace.orgId, workspaceId: workspace.id },
+    log,
+  )
+  void enqueueWorkspaceWriteCommit(
+    {
+      orgId: workspace.orgId,
+      workspaceId: workspace.id,
+      kind: "bootstrap",
+    },
+    log,
+  )
 }

@@ -958,6 +958,78 @@ export async function getRepoReadCloneToken(
   return token
 }
 
+/**
+ * Whether the connection's installation can read the repository. GitHub
+ * decides this, not the stored account name: the check mints a new
+ * repository-scoped read token. GitHub finds the token's repository by name
+ * in the installation's account, so the check also reads the repository of
+ * the URL with that token and compares the ids. A fork in the installation's
+ * account has the same name but another id. A renamed owner redirects to the
+ * same id. The GitHub calls do not retry, so an outage does not hold the
+ * caller.
+ *
+ * `unknown` means that the caller must not change a binding. The causes are:
+ * - GitHub answers with an error other than 422 or 404, or does not answer
+ *   (429, 5xx, network).
+ * - The repository name is not `owner/name`.
+ * - The connection has no installation or no App credentials.
+ * - GitHub's mint answer has no repository ids.
+ */
+export async function resolveRepoReadCoverage(
+  orgId: string,
+  env: Env,
+  input: { githubConnectionId: string; repoFullName: string },
+): Promise<"covers" | "foreign" | "unknown"> {
+  const [owner, repo, ...rest] = input.repoFullName.split("/")
+  if (!owner || !repo || rest.length > 0) return "unknown"
+  try {
+    const installation = await getGithubInstallationByConnectionId(
+      orgId,
+      input.githubConnectionId,
+    )
+    if (!installation || installation.installationId == null) return "unknown"
+    const row = await loadGithubConnectionRow(orgId, input.githubConnectionId)
+    if (!row) return "unknown"
+    const request = repoReadCloneTokenRequest(input.repoFullName)
+    // A new token, not the cache: a cached token can outlive its access.
+    const { data: minted } = await buildAppForConnection(
+      row,
+      env,
+    ).octokit.request(
+      "POST /app/installations/{installation_id}/access_tokens",
+      {
+        installation_id: installation.installationId,
+        repositories: request.repositoryNames,
+        permissions: request.permissions,
+        request: { retries: 0 },
+      },
+    )
+    const repositoryIds = minted.repositories?.map((r) => r.id)
+    if (!repositoryIds) return "unknown"
+    const { data } = await new Octokit({
+      auth: minted.token,
+      request: { retries: 0 },
+    }).rest.repos.get({ owner, repo })
+    return repositoryIds.includes(data.id) ? "covers" : "foreign"
+  } catch (error) {
+    // 422: the installation has no repository of that name. 404: the
+    // installation or the repository is not visible to it.
+    if (
+      error instanceof RequestError &&
+      (error.status === 422 || error.status === 404)
+    )
+      return "foreign"
+    log.warn({
+      step: "github.repo_read_coverage",
+      message: "GitHub did not confirm repository read access",
+      connectionId: input.githubConnectionId,
+      status: error instanceof RequestError ? error.status : null,
+      error: error instanceof Error ? error.name : String(error),
+    })
+    return "unknown"
+  }
+}
+
 /** Broker-only workspace read scope; never reuse the App's default permissions. */
 export async function getWorkspaceGithubReadToken(
   orgId: string,

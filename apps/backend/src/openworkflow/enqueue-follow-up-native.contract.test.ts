@@ -1,12 +1,18 @@
 import { sql } from "drizzle-orm"
 import { expect, it } from "vitest"
+import { recordSpans } from "../../test/spans.js"
 import { getSystemDb, withOrgDbContext } from "../db/client.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { getRepositoryForOrg } from "../models/repositories.js"
+import { restoreJobTelemetry } from "../observability/jobTelemetry.js"
 import { createLogger, withLogger } from "../observability/logger.js"
 import { withNativeIndexFixture } from "../test/native-index-fixture.js"
 import { withCanceledNativeInsert } from "../test/native-workflow-insert-failure.js"
 import { enqueueFollowUpIfTipAhead } from "./enqueue-follow-up-if-tip-ahead.js"
+
+// The worker's OpenTelemetry SDK installs a context manager; restored job
+// attribution only reaches an awaited enqueue through it.
+recordSpans()
 
 it(
   "retries failed follow-up admission against the real source tip and reuses its native owner",
@@ -38,10 +44,14 @@ it(
           ),
         ).rejects.toThrow()
         expect(errors).toHaveLength(1)
-        // As repository-ingestion calls it: the parent's job telemetry in the input.
-        const first = await enqueueFollowUpIfTipAhead(
-          { ...input, telemetry: { "request.id": "req_parent_ingestion" } },
-          logger,
+        // As repository-ingestion calls it: inside the parent's restored job
+        // telemetry. Enqueue captures the request id from that context.
+        const first = await restoreJobTelemetry(
+          {
+            orgId: f.org.id,
+            telemetry: { "request.id": "req_parent_ingestion" },
+          },
+          () => enqueueFollowUpIfTipAhead(input, logger),
         )
         expect(first).toMatchObject({
           enqueued: true,

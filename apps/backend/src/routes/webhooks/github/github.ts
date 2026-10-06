@@ -4,7 +4,9 @@ import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
 import type { Env } from "../../../config/env.js"
 import { withOrgDbContext } from "../../../db/client.js"
+import { ensureOrgRepositoryAndIngest } from "../../../domain/workspaces/ensure-org-repository.js"
 import { isDefaultBranchPush } from "../../../domain/workspaces/tip-resolve.js"
+import { rebindUnboundWorkspaces } from "../../../domain/workspaces/workspace-lifecycle.js"
 import { parseGithubConnectionStored } from "../../../lib/connection-config.js"
 import { githubRowHasAppCredentials } from "../../../models/connection-rows.js"
 import {
@@ -14,7 +16,6 @@ import {
   listInstallationsByGithubInstallationId,
   registerInstallationOnConnection,
 } from "../../../models/github-installation.js"
-import { ensureOrgRepositoryAndIngest } from "../../../domain/workspaces/ensure-org-repository.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
 import { enqueueWorkspaceTipCheck } from "../../../openworkflow/enqueue-workspace-tip-check.js"
@@ -111,6 +112,12 @@ async function registerInstallationFromConnectionWebhook(
     connectionId,
     installationId,
     env: ctx.env,
+  })
+  await rebindUnboundWorkspaces({
+    orgId: row.orgId,
+    connectionId,
+    env: ctx.env,
+    log: ctx.log,
   })
 }
 

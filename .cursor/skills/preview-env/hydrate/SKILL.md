@@ -23,13 +23,14 @@ Workspace **revision** prepare: `workspace-hydrate` rebuilds the projection (Pos
 ### HYD-2 Malformed file is skipped, not fatal
 **Requires** HYD-1; `knowledge/operations/legacy-migration-notes.md` from the knowledge template (run-setup).
 **Steps**
-1. Open **Files** and find `knowledge/operations/legacy-migration-notes.md`.
-2. Check the knowledge units for that path.
+1. Open **Settings** on the Workspace page.
+2. In the **Hydrate skipped 1 file** notice, select `knowledge/operations/legacy-migration-notes.md`.
+3. Check the knowledge units for that path.
 
-**Expect (UI)** hydrate is still **Hydrate ready**; the file is present in the Files tree (it is in git). No UI surface reports skipped files yet (ticket 13, `needs-triage`); record where, if anywhere, the skip is visible.
-**Expect (backend)** no `workspace_knowledge_units` row for that path; the `workspace-hydrate` run's output (OpenWorkflow `output` JSON) has `skipped: 1` and `diagnostics: [{ "path": "knowledge/operations/legacy-migration-notes.md", "reason": "malformed" }]`; no `hydrateError`.
+**Expect (UI)** the chip is still **Hydrate ready**. Below the chips, the warning notice **Hydrate skipped 1 file** shows `knowledge/operations/legacy-migration-notes.md` with the reason **Front matter or git URL is not valid**. When you select the path, **Files** opens that file (it is in git). A Workspace with no skipped files shows no notice.
+**Expect (backend)** `GET …/workspaces/{slug}` has `skippedFiles: [{ "path": "knowledge/operations/legacy-migration-notes.md", "reason": "malformed" }]`; no `workspace_knowledge_units` row for that path; the `workspace-hydrate` run's output (OpenWorkflow `output` JSON) has `skipped: 1` and the same entry in `diagnostics`; no `hydrateError`.
 **Budget** none beyond HYD-1.
-**Evidence** `HYD-2-1.png`; the run output.
+**Evidence** `HYD-2-1.png` (Settings notice), `HYD-2-2.png` (file open in **Files**); the Workspace JSON and the run output.
 
 ### HYD-3 New commit on the default branch triggers re-hydrate
 **Requires** HYD-1 `ready`; `gh` or a human able to push to `pe-{run-id}-ws`.

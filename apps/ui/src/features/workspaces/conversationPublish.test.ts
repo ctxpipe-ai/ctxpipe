@@ -7,7 +7,6 @@ import {
   conversationGithubTreeHref,
   conversationPullRequestAction,
   conversationPullRequestVisible,
-  conversationSessionBranch,
 } from "./conversationPublish"
 
 describe("conversation publish helpers", () => {
@@ -19,9 +18,10 @@ describe("conversation publish helpers", () => {
     expect(conversationAllowsEdits("writable", false)).toBe(false)
   })
 
-  it("uses one session branch and a short chrome name", () => {
-    expect(conversationSessionBranch("conv_1")).toBe("ctxpipe/chat/conv_1/1")
+  it("names the session branch by its number", () => {
     expect(conversationBranchShortName("ctxpipe/chat/conv_1/1")).toBe("chat/1")
+    expect(conversationBranchShortName("ctxpipe/chat/conv_1/2")).toBe("chat/2")
+    expect(conversationBranchShortName("main")).toBe("main")
   })
 
   it("shows Create PR after merge and Show PR while open", () => {
@@ -30,7 +30,7 @@ describe("conversation publish helpers", () => {
     expect(conversationPullRequestAction(null)).toBe("create")
   })
 
-  it("shows Commit+Push only when the worktree is dirty", () => {
+  it("shows Commit+Push when the sandbox has changes GitHub lacks", () => {
     expect(
       conversationCommitPushEnabled({
         dirty: false,
@@ -38,11 +38,20 @@ describe("conversation publish helpers", () => {
         unpushed: false,
       }),
     ).toBe(false)
+    // The agent committed but did not push.
     expect(
       conversationCommitPushEnabled({
         dirty: false,
         differsFromDefault: true,
         unpushed: true,
+      }),
+    ).toBe(true)
+    // Everything is on GitHub.
+    expect(
+      conversationCommitPushEnabled({
+        dirty: false,
+        differsFromDefault: true,
+        unpushed: false,
       }),
     ).toBe(false)
     expect(
@@ -54,7 +63,7 @@ describe("conversation publish helpers", () => {
     ).toBe(true)
   })
 
-  it("shows Create PR when anything has changed versus the default branch", () => {
+  it("shows Create PR when there are commits to publish", () => {
     expect(
       conversationCreatePrEnabled({
         dirty: false,
@@ -62,20 +71,34 @@ describe("conversation publish helpers", () => {
         unpushed: false,
       }),
     ).toBe(false)
+    // Commits the agent did not push yet: Create PR pushes them first.
     expect(
       conversationCreatePrEnabled({
         dirty: false,
         differsFromDefault: true,
         unpushed: true,
+        ahead: 1,
       }),
     ).toBe(true)
+    // The branch is on GitHub.
+    expect(
+      conversationCreatePrEnabled({
+        dirty: false,
+        differsFromDefault: true,
+        unpushed: false,
+        published: true,
+      }),
+    ).toBe(true)
+    // Only uncommitted files (a fresh branch after a merge): Commit+Push first.
     expect(
       conversationCreatePrEnabled({
         dirty: true,
         differsFromDefault: true,
         unpushed: true,
+        ahead: 0,
+        published: false,
       }),
-    ).toBe(true)
+    ).toBe(false)
     expect(conversationPullRequestVisible(null, "create")).toBe(false)
     expect(conversationPullRequestVisible(null, "show")).toBe(true)
     expect(

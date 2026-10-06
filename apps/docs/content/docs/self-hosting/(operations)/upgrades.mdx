@@ -45,6 +45,11 @@ docker compose --profile deploy build
 docker compose --profile deploy up -d
 ```
 
+`docker compose --profile deploy up -d` also runs `chat-sandbox-image` again.
+If the chat image changed, it builds the new image inside `dind`. Then each
+conversation gets a new sandbox at its next turn, and continues from its git
+branch.
+
 The `deploy` profile runs the `migrate` service before app services. Migrate
 connects as the Postgres owner (`ctxpipe` by default) and provisions
 `ctxpipe_app`. Backend, worker, and codesearch use the app-role `DATABASE_URL`.
@@ -80,6 +85,7 @@ After deployment:
 | Codesearch | Search and file retrieval work for an indexed repository |
 | Graph | Knowledge graph page loads for an organization with indexed data |
 | MCP | MCP client connects using OAuth |
+| Workspace chat | A conversation answers, and its sandbox shows on the Docker daemon (see [Operations](/docs/self-hosting/operations)) |
 | Connectors | GitHub webhooks, scoped mirrors, and Slack thread capture still work |
 | Observability | Logs and traces continue to reach your configured sinks |
 
@@ -107,6 +113,7 @@ Rollback depends on whether the upgrade ran database migrations.
 | Worker | Workflow compatibility, connector job changes, Forge provisioning changes |
 | UI | Build-time public URL values, connector wizard behavior |
 | Codesearch | Index format or clone/cache behavior |
+| Chat sandboxes | Chat image changes, Docker daemon and TLS settings, sandbox host size (AWS) |
 | Graph database | Provider configuration and graph projection compatibility |
 | Model provider | Default model names, embedding dimensions, provider-specific auth |
 

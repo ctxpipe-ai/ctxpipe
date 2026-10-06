@@ -1,8 +1,11 @@
+import type { HydrateSkip } from "./hydrate.js"
 import type { DerivedStoreResult, WorkspaceRevision } from "./revision.js"
 
 export type HydratePhaseRecord = {
   url: string
   sha: string
+  /** Committed files that this projection skipped. Each hydrate commit replaces the list. */
+  skipped?: HydrateSkip[]
   embeddings: boolean
   embeddingError?: string
   revision?: WorkspaceRevision

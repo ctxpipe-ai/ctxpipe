@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import { expect, userEvent, waitFor, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import {
   githubInstallationReposHandler,
   workspaceListHandler,
@@ -16,6 +16,7 @@ import {
   hydratingWorkspaceDetail,
   projectionLagWorkspaceDetail,
   readOnlyWorkspaceDetail,
+  skippedFilesWorkspaceDetail,
 } from "./workspace-fixtures"
 
 const meta = {
@@ -47,6 +48,7 @@ const meta = {
   args: {
     orgSlug: "acme",
     workspace: docsWorkspaceDetail,
+    onOpenFile: fn(),
   },
 } satisfies Meta<typeof WorkspaceSettingsPane>
 
@@ -55,6 +57,23 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Settings: Story = {}
+
+export const SkippedFiles: Story = {
+  args: {
+    workspace: skippedFilesWorkspaceDetail,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Hydrate skipped 2 files")
+    await canvas.findByText("Front matter or git URL is not valid")
+    await canvas.findByText(
+      "Repeats a linked repository or the Workspace's own repository",
+    )
+    expect(
+      canvas.getByRole("link", { name: "knowledge/billing/tax.md" }),
+    ).toBeVisible()
+  },
+}
 
 export const ReadOnly: Story = {
   args: {

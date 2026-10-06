@@ -12,7 +12,9 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
 import { repositories } from "../../db/schema/repositories.js"
+import { repositoryExtractionCaptures } from "../../db/schema/repository_extraction_captures.js"
 import { workspaces } from "../../db/schema/workspaces.js"
+import { COMMIT_SUBJECT_MODEL } from "../../domain/workspaces/commit-subject.js"
 import { getRepositoryForOrg } from "../../models/repositories.js"
 import { withNativeIndexFixture } from "../../test/native-index-fixture.js"
 import { enqueueRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
@@ -47,6 +49,8 @@ it(
     )
     Object.assign(process.env, env)
     let instructionRequests = 0
+    // Extractor calls only; the commit subject uses its own small model.
+    let extractionRequests = 0
     const server = setupServer(
       http.all(/^http:\/\/127\.0\.0\.1:/, () => passthrough()),
       http.post(
@@ -78,6 +82,7 @@ it(
         "https://producer-model.test/v1/chat/completions",
         async ({ request }) => {
           const body = (await request.json()) as {
+            model?: string
             tools?: Array<{ function: { name: string } }>
             response_format?: { json_schema?: { name: string } }
           }
@@ -106,6 +111,7 @@ it(
             ],
           }
           if (structured) instructionRequests++
+          if (body.model !== COMMIT_SUBJECT_MODEL) extractionRequests++
           return HttpResponse.json({
             id: "fixture-producer",
             object: "chat.completion",
@@ -203,10 +209,10 @@ it(
             workspaceExtractIngest.fn,
           )
           const worker = runner.newWorker({ concurrency: 4 })
-          try {
+          const ingest = async (fullReingest?: boolean) => {
             const owner = await withOrgIdContext(f.org, () =>
               enqueueRepositoryIngestionWorkflow(
-                { orgId: f.org.id, repositoryId: f.repositoryId },
+                { orgId: f.org.id, repositoryId: f.repositoryId, fullReingest },
                 {
                   error: (error) => {
                     throw error
@@ -214,7 +220,6 @@ it(
                 },
               ),
             )
-            await worker.start()
             await expect
               .poll(
                 async () =>
@@ -226,6 +231,28 @@ it(
                 { timeout: 65_000 },
               )
               .toMatch(/^(completed|failed|cancelled)$/)
+            return owner
+          }
+          try {
+            await worker.start()
+            // The remote rejects each push, so each run fails after extraction.
+            f.git("config", "receive.denyCurrentBranch", "refuse")
+            // A full re-index reuses no stored root; it extracts each root again.
+            for (const fullReingest of [false, true]) {
+              const failed = await ingest(fullReingest)
+              expect(
+                (
+                  await backend.getWorkflowRun({
+                    workflowRunId: failed.workflowRunId,
+                  })
+                )?.status,
+              ).toBe("failed")
+              expect(extractionRequests).toBeGreaterThan(0)
+              extractionRequests = 0
+            }
+            expect(f.git("rev-list", "--count", `${f.sha}..trunk`)).toBe("0")
+            f.git("config", "receive.denyCurrentBranch", "updateInstead")
+            const owner = await ingest()
             expect(
               (
                 await backend.getWorkflowRun({
@@ -235,7 +262,23 @@ it(
             ).toBe("completed")
             await worker.stop()
             expect(instructionRequests).toBeGreaterThan(0)
+            // A new run for the same commit reads the stored roots and pays nothing again.
+            expect(extractionRequests).toBe(0)
             expect(f.git("rev-list", "--count", `${f.sha}..trunk`)).toBe("1")
+            // A successful publication deletes its stored capture.
+            expect(
+              await withOrgDbContext(f.org.id, (db) =>
+                db
+                  .select()
+                  .from(repositoryExtractionCaptures)
+                  .where(
+                    eq(
+                      repositoryExtractionCaptures.repositoryId,
+                      f.repositoryId,
+                    ),
+                  ),
+              ),
+            ).toEqual([])
             const files = f
               .git("ls-tree", "-r", "--name-only", "trunk")
               .split("\n")
