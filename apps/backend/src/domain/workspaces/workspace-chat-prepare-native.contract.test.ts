@@ -596,6 +596,9 @@ it(
                     desiredSha: f.sha,
                     defaultBranch: "main",
                     writeStatus: "read_only" as const,
+                    // The turn runtime mints this read token for a GitHub
+                    // repository. The fixture remote accepts any token.
+                    cloneToken: "fixture-docker-read-token",
                   }
                   workspaceChatInstanceAccess.reset()
                   const first = await warmTanstackWorkspaceChat({
@@ -649,7 +652,7 @@ it(
                   const token = await first.handle.process.exec(
                     "printenv CTXPIPE_CLONE_TOKEN",
                   )
-                  expect(token.stdout.trim()).not.toBe("")
+                  expect(token.stdout.trim()).toBe("fixture-docker-read-token")
                   const read = await first.handle.process.exec(
                     `GIT_TERMINAL_PROMPT=0 ${SANDBOX_READ_GIT} ls-remote --heads origin refs/heads/main`,
                   )
