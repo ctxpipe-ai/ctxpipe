@@ -168,7 +168,7 @@ export const PREDICATE_DESCRIPTIONS: Record<string, string> = {
   REFERENCES:
     "explicit cross-tool link by URL or identifier: Issue and PullRequest reference each other; a Thread references a PullRequest, Issue or Decision",
   MENTIONS:
-    "lexical mention of a File in an Issue, Thread or Decision; a GitHub Actions Workflow names a Service, App or Library directory in a path filter or working directory",
+    "lexical mention of a repository path: a File in an Issue, Thread or Decision; a Service, App or Library directory in a GitHub Actions Workflow's path filter or working directory",
   OWNS: "ownership: a Team owns a Service, App or Library (CODEOWNERS) or an Issue (tracker team)",
   INFLUENCES: "a Decision (ADR) shapes this Service",
   SUPERSEDES: "a Decision replaces an earlier Decision",

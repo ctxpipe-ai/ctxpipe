@@ -114,9 +114,12 @@ cross-tool edges require shared identity.
    implicit: no toggle, no new GitHub App permission, no API calls, since the
    files are already in the indexed checkout. A workflow is `DECLARED_IN` its
    `File` (so a pull request that changes it joins on that `File`) and
-   `MENTIONS` each `Service`, `App` or `Library` that an `on.<event>.paths`
-   filter or a `working-directory` names. The workspace root is never
-   mentioned, since every workflow lives in it. Workflow runs (Actions: Read,
+   `MENTIONS` the `Service`, `App` or `Library` that each `on.<event>.paths`
+   filter or `working-directory` falls in. The workspace root is never
+   mentioned, since every workflow lives in it. Every ingest reads every
+   workflow and matches against the repository's packages on the graph as
+   well as the run's own: a partial ingest runs only the changed roots, after
+   retraction removed the edited workflow's edges. Workflow runs (Actions: Read,
    `workflow_run` events) are out of scope: they are high-volume history, not
    structure, and would need a mirror.
 

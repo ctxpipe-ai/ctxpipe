@@ -15,22 +15,14 @@ import type {
 } from "../schemas.js"
 import { asRecord, asString, asStringArray } from "./connectorFrontmatter.js"
 import {
+  listPackageRootsForRepository,
   matchPackageForPath,
+  type PackageRoot,
   packageRootsFromObjects,
 } from "./linkLocatedPaths.js"
-import {
-  filterPathsByPartialScan,
-  partialScanPathsForExtractors,
-  shouldSkipCodeExtractorForPartialDiff,
-} from "./partialIngestionScope.js"
+import { shouldSkipCodeExtractorForPartialDiff } from "./partialIngestionScope.js"
 
-/** GitHub runs workflows from the repository root only. */
-export const WORKFLOW_GLOBS = [
-  ".github/workflows/*.yml",
-  ".github/workflows/*.yaml",
-] as const
-
-export type ParsedWorkflow = {
+type ParsedWorkflow = {
   name: string
   triggers: string[]
   jobs: string[]
@@ -39,7 +31,7 @@ export type ParsedWorkflow = {
 }
 
 /** Returns null when the file is not a YAML map with jobs. */
-export function parseGithubWorkflow(
+function parseGithubWorkflow(
   content: string,
   path: string,
 ): ParsedWorkflow | null {
@@ -79,7 +71,7 @@ export function parseGithubWorkflow(
   ].filter((value): value is string => value !== null)
 
   return {
-    name: asString(doc.name) ?? path.split("/").pop() ?? path,
+    name: asString(doc.name) ?? path.slice(path.lastIndexOf("/") + 1),
     triggers,
     jobs: Object.keys(jobs),
     locations,
@@ -87,37 +79,28 @@ export function parseGithubWorkflow(
 }
 
 /**
- * The directory a path filter or working directory names, up to its first
- * glob segment. Null for negations, expressions and the repository root.
- */
-export function workflowLocationPrefix(value: string): string | null {
-  if (value.startsWith("!") || value.includes("${{")) return null
-  const segments: string[] = []
-  for (const segment of value.split("/")) {
-    if (/[*?[{]/.test(segment)) break
-    segments.push(segment)
-  }
-  return asLocatedPath(segments.join("/"))
-}
-
-/**
  * Source-repository extractor for GitHub Actions workflow files: `Workflow`
  * nodes with `DECLARED_IN File` (via the link pass) and
- * `Workflow MENTIONS Service|App|Library` for each package a path filter or
- * working directory names. The workspace root is never mentioned: every
+ * `Workflow MENTIONS Service|App|Library` for the package a path filter or
+ * working directory falls in. The workspace root is never mentioned: every
  * workflow lives in it. Deterministic.
+ *
+ * Every ingest reads every workflow and matches against the repository's
+ * packages on the graph as well as this run's: a partial ingest runs only the
+ * changed roots, after retraction removed the edited workflow's edges.
  */
 export async function extractGithubWorkflows(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
   if (shouldSkipCodeExtractorForPartialDiff(state)) return {}
 
+  // GitHub runs workflows from the repository root only.
   const globbed = await Promise.all(
-    WORKFLOW_GLOBS.map((pattern) =>
+    [".github/workflows/*.yml", ".github/workflows/*.yaml"].map((pattern) =>
       globFiles(state.repositoryId, state.orgId, { pattern, onlyFiles: true }),
     ),
   )
-  const candidates = [
+  const paths = [
     ...new Set(
       globbed.flatMap((result) =>
         result.entries
@@ -126,25 +109,22 @@ export async function extractGithubWorkflows(
       ),
     ),
   ].sort()
-  const scanPaths = partialScanPathsForExtractors(state)
-  const scopedPaths =
-    state.ingestMode === "partial" && scanPaths.length > 0
-      ? filterPathsByPartialScan(candidates, scanPaths)
-      : candidates
-  if (scopedPaths.length === 0) return {}
+  if (paths.length === 0) return {}
 
-  const contents = await fetchFiles(
-    state.repositoryId,
-    state.orgId,
-    scopedPaths,
-  )
-  const packages = packageRootsFromObjects(state.extractedObjects ?? []).filter(
+  const contents = await fetchFiles(state.repositoryId, state.orgId, paths)
+  const packages = [
+    ...packageRootsFromObjects(state.extractedObjects ?? []),
+    ...(await listPackageRootsForRepository({
+      orgId: state.orgId,
+      repositoryId: state.repositoryId,
+    })),
+  ].filter(
     (entry) => entry.repositoryId === state.repositoryId && entry.root !== "./",
   )
 
   const objects: ExtractedObject[] = []
   const claims: ExtractedClaim[] = []
-  for (const path of scopedPaths) {
+  for (const path of paths) {
     const content = contents[path]
     if (!content) continue
     const parsed = parseGithubWorkflow(content, path)
@@ -161,13 +141,13 @@ export async function extractGithubWorkflows(
           0,
           500,
         ),
-      payload: { path, triggers: parsed.triggers, jobs: parsed.jobs },
+      payload: { path },
     })
 
-    const mentioned = new Map<string, (typeof packages)[number]>()
+    const mentioned = new Map<string, PackageRoot>()
     for (const location of parsed.locations) {
-      const prefix = workflowLocationPrefix(location)
-      const pkg = prefix ? matchPackageForPath(prefix, packages) : null
+      const located = asLocatedPath(location)
+      const pkg = located ? matchPackageForPath(located, packages) : null
       if (pkg) mentioned.set(pkg.deduplicationKey, pkg)
     }
     for (const pkg of mentioned.values()) {

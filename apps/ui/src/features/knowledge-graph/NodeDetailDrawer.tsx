@@ -112,7 +112,6 @@ const KIND_CHIP_FIELDS: Record<string, ReadonlyArray<string>> = {
   Team: ["key", "source", "url"],
   Thread: ["channel_name", "permalink", "captured_at", "message_count"],
   Decision: ["status", "date", "path", "url"],
-  Workflow: ["path"],
 }
 
 function extractKindChips(node: KnowledgeGraphNode): Array<[string, string]> {
