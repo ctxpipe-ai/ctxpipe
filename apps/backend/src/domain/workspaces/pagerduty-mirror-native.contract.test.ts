@@ -34,7 +34,7 @@ it.each(["entity", "full", "no_workspace", "read_only", "not_live"] as const)(
       {
         namespaceId: "default",
         github: true,
-        githubWriteView: mode === "read_only" ? "missing" : "writable",
+        githubWriteView: "writable",
         writeStatus: mode === "read_only" ? "read_only" : "writable",
         githubContentFiles: { "pagerduty/config.yaml": PAGERDUTY_CONFIG },
         pagerdutyResponses:
@@ -60,6 +60,8 @@ it.each(["entity", "full", "no_workspace", "read_only", "not_live"] as const)(
           }),
         )
         if (!workspaceRepo) throw new Error("Fixture repository missing")
+        // GitHub confirms read access before the binding. Write access goes away after it.
+        if (mode === "read_only") f.loseWriteAccess()
         const destRepo =
           mode === "no_workspace"
             ? await withOrgIdContext(f.org, () =>
