@@ -227,10 +227,11 @@ export function buildGithubPullRequestGraph(input: {
     })
   }
 
-  // Bot descriptions (dependency updates) quote upstream changelogs whose
-  // `#N` are another repository's numbers.
+  // Dependency updates quote upstream changelogs whose `#N` are another
+  // repository's numbers.
   const { sourceRepositoryId } = input
-  if (sourceRepositoryId && parsed.author.type === "human") {
+  const dependencyBot = /^(dependabot|renovate)/i.test(parsed.author.login)
+  if (sourceRepositoryId && !dependencyBot) {
     for (const number of findGithubIssueNumbers(
       `${parsed.title}\n${parsed.body}`,
       parsed.repository,

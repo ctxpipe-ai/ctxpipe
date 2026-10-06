@@ -213,24 +213,28 @@ describe("buildGithubPullRequestGraph", () => {
     ])
   })
 
-  it("does not scan bot-authored pull requests for issue numbers", () => {
-    const file = renderGithubPullRequest({
-      ...snapshot,
-      author: { login: "dependabot[bot]", type: "bot" },
-      body: "Release notes: fixes #12 upstream",
-    })
-    const result = parseGithubPullRequestMarkdown(file.content)
-    if (!result) throw new Error("expected frontmatter to parse")
-    const { extractedClaims } = buildGithubPullRequestGraph({
-      parsed: result,
-      markdownPath: file.path,
-      targetHash: "abc123",
-      contextRepositoryId: "repo_ctx",
-      sourceRepositoryId: "repo_api",
-    })
-    expect(
-      extractedClaims.some((claim) => claim.objectRef.startsWith("iss:repo_")),
-    ).toBe(false)
+  it("does not scan dependency-update pull requests for issue numbers", () => {
+    const issueRefs = (login: string) => {
+      const file = renderGithubPullRequest({
+        ...snapshot,
+        author: { login, type: "bot" },
+        body: "Release notes: fixes #12",
+      })
+      const result = parseGithubPullRequestMarkdown(file.content)
+      if (!result) throw new Error("expected frontmatter to parse")
+      return buildGithubPullRequestGraph({
+        parsed: result,
+        markdownPath: file.path,
+        targetHash: "abc123",
+        contextRepositoryId: "repo_ctx",
+        sourceRepositoryId: "repo_api",
+      }).extractedClaims.filter((claim) =>
+        claim.objectRef.startsWith("iss:repo_"),
+      )
+    }
+    expect(issueRefs("dependabot[bot]")).toEqual([])
+    expect(issueRefs("renovate[bot]")).toEqual([])
+    expect(issueRefs("copilot-swe-agent[bot]")).toHaveLength(1)
   })
 
   it("finds issue references past the stored excerpt", () => {

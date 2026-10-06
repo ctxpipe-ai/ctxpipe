@@ -101,28 +101,31 @@ describe("maybeEnqueueGithubPrMirror", () => {
     )
   })
 
-  it("enqueues an issue mirror job for issue events and plain-issue comments", async () => {
-    await maybeEnqueueGithubPrMirror({
-      eventName: "issues",
-      payload: {
-        action: "labeled",
-        issue: { number: 12, updated_at: "2026-03-04T00:00:00Z" },
-        label: { name: "bug" },
-        repository: { full_name: "acme/api" },
-        installation: { id: 99 },
-      },
-      githubConnectionId: "con_gh",
-    })
+  it("enqueues one issue job per delivery for issue events and plain-issue comments", async () => {
+    for (const deliveryId of ["delivery-1", "delivery-2"]) {
+      await maybeEnqueueGithubPrMirror({
+        eventName: "issues",
+        payload: {
+          action: "labeled",
+          issue: { number: 12, updated_at: "2026-03-04T00:00:00Z" },
+          repository: { full_name: "acme/api" },
+          installation: { id: 99 },
+        },
+        githubConnectionId: "con_gh",
+        deliveryId,
+      })
+    }
     await maybeEnqueueGithubPrMirror({
       eventName: "issue_comment",
       payload: {
         action: "deleted",
         issue: { number: 12 },
-        comment: { id: 501, updated_at: "2026-03-05T00:00:00Z" },
+        comment: { updated_at: "2026-03-05T00:00:00Z" },
         repository: { full_name: "acme/api" },
         installation: { id: 99 },
       },
       githubConnectionId: "con_gh",
+      deliveryId: "delivery-3",
     })
 
     const job = {
@@ -135,18 +138,17 @@ describe("maybeEnqueueGithubPrMirror", () => {
       [
         { name: "github-sync-issue" },
         job,
-        {
-          idempotencyKey:
-            "github-issue:con_gh:acme/api:12:labeled:bug:2026-03-04T00:00:00Z",
-        },
+        { idempotencyKey: "github-issue:con_gh:acme/api:12:delivery-1" },
       ],
       [
         { name: "github-sync-issue" },
         job,
-        {
-          idempotencyKey:
-            "github-issue:con_gh:acme/api:12:deleted:501:2026-03-05T00:00:00Z",
-        },
+        { idempotencyKey: "github-issue:con_gh:acme/api:12:delivery-2" },
+      ],
+      [
+        { name: "github-sync-issue" },
+        job,
+        { idempotencyKey: "github-issue:con_gh:acme/api:12:delivery-3" },
       ],
     ])
   })
@@ -175,11 +177,10 @@ describe("maybeEnqueueGithubPrMirror", () => {
     for (const action of ["created", "new_permissions_accepted"]) {
       await maybeEnqueueGithubPrMirror({
         eventName: "installation",
-        payload: {
-          action,
-          installation: { id: 99, updated_at: "2026-03-06T00:00:00Z" },
-        },
+        // GitHub's own payload example carries `updated_at` as a number.
+        payload: { action, installation: { id: 99, updated_at: 1557933591 } },
         githubConnectionId: "con_gh",
+        deliveryId: "delivery-9",
       })
     }
 
@@ -188,8 +189,7 @@ describe("maybeEnqueueGithubPrMirror", () => {
       expect.objectContaining({ name: "github-sync-content" }),
       { orgId: "org_1", connectionId: "con_gh" },
       {
-        idempotencyKey:
-          "github-pr-mirror-permissions:con_gh:2026-03-06T00:00:00Z",
+        idempotencyKey: "github-pr-mirror-permissions:con_gh:delivery-9",
       },
     )
   })

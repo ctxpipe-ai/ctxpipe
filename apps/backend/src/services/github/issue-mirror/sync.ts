@@ -14,17 +14,21 @@ import { renderGithubIssue } from "./converter.js"
 /** One durable step: `step.run({ name }, run)` in a workflow. */
 export type RunStep = <T>(name: string, run: () => Promise<T>) => Promise<T>
 
-async function installationGraphql(input: {
-  orgId: string
-  env: Env
-  binding: GithubPrMirrorBinding
-}): Promise<GithubGraphql> {
+async function installationGraphql(
+  input: { orgId: string; env: Env; binding: GithubPrMirrorBinding },
+  freshToken = false,
+): Promise<GithubGraphql> {
   const installation = await getInstallationOctokitForOrg(
     input.orgId,
     input.env,
     input.binding.githubConnectionId,
   )
   if (!installation) throw new Error("GitHub installation is not available")
+  // A cached token keeps the permissions it was minted with (up to an hour),
+  // so one from before the owner accepted Issues: Read cannot read issues.
+  if (freshToken) {
+    await installation.octokit.auth({ type: "installation", refresh: true })
+  }
   return installation.octokit.graphql
 }
 
@@ -109,7 +113,7 @@ export async function mirrorGithubIssuesForConfig(input: {
     return { written: 0, failedRepositories: [] }
   }
   return mirrorGithubIssues({
-    graphql: await installationGraphql(input),
+    graphql: await installationGraphql(input, true),
     repositories: input.config.repositories,
     maxIssuesPerRepository: input.config.issues.maxIssuesPerRepository,
     runStep: input.runStep,

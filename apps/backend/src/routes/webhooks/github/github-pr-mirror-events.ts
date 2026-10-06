@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { z } from "zod"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
 import { getGithubPrMirrorBinding } from "../../../models/github-pr-mirror.js"
@@ -30,14 +31,12 @@ const pullRequestPayloadSchema = z.object({
 })
 
 const issueCommentPayloadSchema = z.object({
-  action: z.string(),
   issue: z.object({
     number: z.number().int().positive(),
     pull_request: z.unknown().optional(),
   }),
   comment: z
     .object({
-      id: z.number().optional(),
       updated_at: z.string().optional(),
       created_at: z.string().optional(),
     })
@@ -50,12 +49,7 @@ const issueCommentPayloadSchema = z.object({
 
 const issuesPayloadSchema = z.object({
   action: z.string(),
-  issue: z.object({
-    number: z.number().int().positive(),
-    updated_at: z.string(),
-  }),
-  label: z.object({ name: z.string() }).optional(),
-  assignee: z.object({ login: z.string() }).nullish(),
+  issue: z.object({ number: z.number().int().positive() }),
   repository: z.object({
     full_name: z.string(),
   }),
@@ -64,10 +58,7 @@ const issuesPayloadSchema = z.object({
 
 const installationPayloadSchema = z.object({
   action: z.string(),
-  installation: z.object({
-    id: z.number(),
-    updated_at: z.string().optional(),
-  }),
+  installation: z.object({ id: z.number() }),
 })
 
 /** Facts the webhook payload already carries; lets the workflow apply scope policy before any API call. */
@@ -89,13 +80,15 @@ export function githubPrMirrorIdempotencyKey(input: {
   return `github-pr:${input.connectionId}:${input.sourceRepository}:${input.number}:${input.version ?? "unknown"}`
 }
 
+type Installation = { installationId: number; githubConnectionId?: string }
+
 /**
  * Runs `enqueue` for each GitHub connection of this installation whose mirror
  * is live, then fails the delivery (5xx) if any enqueue failed, so GitHub
  * records it and it can be redelivered.
  */
-async function enqueueMirror(
-  input: { installationId: number; githubConnectionId?: string },
+async function forEachLiveMirror(
+  input: Installation,
   enqueue: (connection: {
     orgId: string
     connectionId: string
@@ -134,14 +127,43 @@ async function enqueueMirror(
   if (failure) throw failure
 }
 
-function enqueueIssueSync(input: {
-  installationId: number
-  githubConnectionId?: string
-  sourceRepository: string
-  number: number
-  version: string
-}): Promise<void> {
-  return enqueueMirror(input, (connection) =>
+function enqueuePullRequestSync(
+  input: Installation & {
+    sourceRepository: string
+    number: number
+    candidate?: GithubSyncPullRequestCandidate
+    version: string | undefined
+  },
+): Promise<void> {
+  return forEachLiveMirror(input, (connection) =>
+    runWorkflowWithWorkerWake(
+      githubSyncPullRequest.spec,
+      {
+        ...connection,
+        sourceRepository: input.sourceRepository,
+        number: input.number,
+        ...(input.candidate ? { candidate: input.candidate } : {}),
+      },
+      {
+        idempotencyKey: githubPrMirrorIdempotencyKey({
+          connectionId: connection.connectionId,
+          sourceRepository: input.sourceRepository,
+          number: input.number,
+          version: input.version,
+        }),
+      },
+    ),
+  )
+}
+
+function enqueueIssueSync(
+  input: Installation & {
+    sourceRepository: string
+    number: number
+    deliveryId: string
+  },
+): Promise<void> {
+  return forEachLiveMirror(input, (connection) =>
     runWorkflowWithWorkerWake(
       githubSyncIssue.spec,
       {
@@ -150,7 +172,7 @@ function enqueueIssueSync(input: {
         number: input.number,
       },
       {
-        idempotencyKey: `github-issue:${connection.connectionId}:${input.sourceRepository}:${input.number}:${input.version}`,
+        idempotencyKey: `github-issue:${connection.connectionId}:${input.sourceRepository}:${input.number}:${input.deliveryId}`,
       },
     ),
   )
@@ -160,7 +182,11 @@ export async function maybeEnqueueGithubPrMirror(input: {
   eventName: string
   payload: unknown
   githubConnectionId?: string
+  /** `X-GitHub-Delivery`: keys issue and full-sync jobs, one per event. */
+  deliveryId?: string
 }): Promise<void> {
+  const deliveryId = input.deliveryId ?? randomUUID()
+
   if (
     input.eventName === "pull_request" ||
     input.eventName === "pull_request_review" ||
@@ -170,75 +196,35 @@ export async function maybeEnqueueGithubPrMirror(input: {
     if (!parsed.success) return
     const number = parsed.data.pull_request?.number ?? parsed.data.number
     if (number == null) return
-    const sourceRepository = parsed.data.repository.full_name
-    const candidate = candidateFromPullRequestPayload(parsed.data.pull_request)
-    await enqueueMirror(
-      {
-        installationId: parsed.data.installation.id,
-        githubConnectionId: input.githubConnectionId,
-      },
-      (connection) =>
-        runWorkflowWithWorkerWake(
-          githubSyncPullRequest.spec,
-          {
-            ...connection,
-            sourceRepository,
-            number,
-            ...(candidate ? { candidate } : {}),
-          },
-          {
-            idempotencyKey: githubPrMirrorIdempotencyKey({
-              connectionId: connection.connectionId,
-              sourceRepository,
-              number,
-              version: parsed.data.pull_request?.updated_at,
-            }),
-          },
-        ),
-    )
+    await enqueuePullRequestSync({
+      installationId: parsed.data.installation.id,
+      githubConnectionId: input.githubConnectionId,
+      sourceRepository: parsed.data.repository.full_name,
+      number,
+      candidate: candidateFromPullRequestPayload(parsed.data.pull_request),
+      version: parsed.data.pull_request?.updated_at,
+    })
     return
   }
 
   if (input.eventName === "issue_comment") {
     const parsed = issueCommentPayloadSchema.safeParse(input.payload)
     if (!parsed.success) return
-    const sourceRepository = parsed.data.repository.full_name
-    const number = parsed.data.issue.number
-    const commentAt =
-      parsed.data.comment?.updated_at ?? parsed.data.comment?.created_at
+    const target = {
+      installationId: parsed.data.installation.id,
+      githubConnectionId: input.githubConnectionId,
+      sourceRepository: parsed.data.repository.full_name,
+      number: parsed.data.issue.number,
+    }
     if (parsed.data.issue.pull_request == null) {
-      // A deleted comment keeps its timestamp, and two comments can share a
-      // second, so issue keys carry the action and the comment id.
-      await enqueueIssueSync({
-        installationId: parsed.data.installation.id,
-        githubConnectionId: input.githubConnectionId,
-        sourceRepository,
-        number,
-        version: [parsed.data.action, parsed.data.comment?.id, commentAt].join(
-          ":",
-        ),
-      })
+      await enqueueIssueSync({ ...target, deliveryId })
       return
     }
-    await enqueueMirror(
-      {
-        installationId: parsed.data.installation.id,
-        githubConnectionId: input.githubConnectionId,
-      },
-      (connection) =>
-        runWorkflowWithWorkerWake(
-          githubSyncPullRequest.spec,
-          { ...connection, sourceRepository, number },
-          {
-            idempotencyKey: githubPrMirrorIdempotencyKey({
-              connectionId: connection.connectionId,
-              sourceRepository,
-              number,
-              version: commentAt,
-            }),
-          },
-        ),
-    )
+    await enqueuePullRequestSync({
+      ...target,
+      version:
+        parsed.data.comment?.updated_at ?? parsed.data.comment?.created_at,
+    })
     return
   }
 
@@ -257,16 +243,12 @@ export async function maybeEnqueueGithubPrMirror(input: {
       "unassigned",
     ]
     if (!parsed.success || !rendered.includes(parsed.data.action)) return
-    const { action, issue, label, assignee } = parsed.data
     await enqueueIssueSync({
       installationId: parsed.data.installation.id,
       githubConnectionId: input.githubConnectionId,
       sourceRepository: parsed.data.repository.full_name,
-      number: issue.number,
-      // Two label or assignee changes can share a second; name the one changed.
-      version: [action, label?.name ?? assignee?.login, issue.updated_at].join(
-        ":",
-      ),
+      number: parsed.data.issue.number,
+      deliveryId,
     })
     return
   }
@@ -276,18 +258,16 @@ export async function maybeEnqueueGithubPrMirror(input: {
     if (!parsed.success || parsed.data.action !== "new_permissions_accepted") {
       return
     }
-    // Content the old permissions could not read (e.g. issues before
-    // Issues: Read) is only mirrored by a full sync.
-    const acceptedAt =
-      parsed.data.installation.updated_at ?? new Date().toISOString()
-    await enqueueMirror(
+    // Content the old permissions could not read (issues before Issues: Read)
+    // is only mirrored by a full sync.
+    await forEachLiveMirror(
       {
         installationId: parsed.data.installation.id,
         githubConnectionId: input.githubConnectionId,
       },
       (connection) =>
         runWorkflowWithWorkerWake(githubSyncContent.spec, connection, {
-          idempotencyKey: `github-pr-mirror-permissions:${connection.connectionId}:${acceptedAt}`,
+          idempotencyKey: `github-pr-mirror-permissions:${connection.connectionId}:${deliveryId}`,
         }),
     )
   }

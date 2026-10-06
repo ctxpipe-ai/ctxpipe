@@ -51,6 +51,14 @@ const issueNode = (
   },
 })
 
+function testGraphql() {
+  return new Octokit({
+    auth: "test-token",
+    retry: { enabled: false },
+    throttle: { enabled: false },
+  }).graphql
+}
+
 type Call = { operation: string; variables: Record<string, unknown> }
 
 /**
@@ -111,12 +119,7 @@ function githubGraphql(repositories: Record<string, number[] | number>) {
       return HttpResponse.json({ data: { repository: data } })
     }),
   )
-  const octokit = new Octokit({
-    auth: "test-token",
-    retry: { enabled: false },
-    throttle: { enabled: false },
-  })
-  return { graphql: octokit.graphql, calls }
+  return { graphql: testGraphql(), calls }
 }
 
 describe("fetchGithubIssues", () => {
@@ -198,14 +201,9 @@ describe("fetchGithubIssues", () => {
         })
       }),
     )
-    const octokit = new Octokit({
-      auth: "test-token",
-      retry: { enabled: false },
-      throttle: { enabled: false },
-    })
 
     const issues = await fetchGithubIssues({
-      graphql: octokit.graphql,
+      graphql: testGraphql(),
       repository: "acme/api",
       max: 200,
     })
@@ -294,21 +292,55 @@ describe("mirrorGithubIssues", () => {
         }),
       ),
     )
-    const octokit = new Octokit({
-      auth: "test-token",
-      retry: { enabled: false },
-      throttle: { enabled: false },
-    })
 
     await expect(
       mirrorGithubIssues({
-        graphql: octokit.graphql,
+        graphql: testGraphql(),
         repositories: ["acme/api"],
         maxIssuesPerRepository: 200,
         runStep: durableSteps(new Map()).runStep,
         commit: recordCommits().commit,
       }),
-    ).rejects.toThrow()
+    ).rejects.toMatchObject({
+      errors: expect.arrayContaining([
+        expect.objectContaining({ type: "SERVICE_UNAVAILABLE" }),
+      ]),
+    })
+  })
+
+  it("does not skip a repository when one issue goes missing during comment paging", async () => {
+    server.use(
+      http.post("https://api.github.com/graphql", async ({ request }) => {
+        const { query } = (await request.json()) as { query: string }
+        if (query.includes("GithubIssuePage")) {
+          return HttpResponse.json({
+            data: {
+              repository: {
+                issues: connection([issueNode("acme/api", 1, 150)], 0, 50),
+              },
+            },
+          })
+        }
+        return HttpResponse.json({
+          data: { repository: { issue: null } },
+          errors: [
+            { type: "NOT_FOUND", path: ["repository", "issue"], message: "x" },
+          ],
+        })
+      }),
+    )
+
+    await expect(
+      mirrorGithubIssues({
+        graphql: testGraphql(),
+        repositories: ["acme/api"],
+        maxIssuesPerRepository: 200,
+        runStep: durableSteps(new Map()).runStep,
+        commit: recordCommits().commit,
+      }),
+    ).rejects.toMatchObject({
+      errors: [expect.objectContaining({ type: "NOT_FOUND" })],
+    })
   })
 
   it("fails the run on any other GitHub error instead of skipping", async () => {

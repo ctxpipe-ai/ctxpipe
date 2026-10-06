@@ -74,13 +74,16 @@ typed change edges.
    **Issues: Read**, `NOT_FOUND` without access) is skipped, so pull-request
    capture still completes. Any other error fails the run, and the next sync
    retries it. When the owner accepts new App permissions
-   (`installation.new_permissions_accepted`), a full sync runs, so issues
-   skipped before **Issues: Read** was granted are backfilled. Removing a
-   repository from scope does not yet delete its mirrored files (pull
-   requests and issues alike).
+   (`installation.new_permissions_accepted`), a full sync runs with a freshly
+   minted installation token (a cached one keeps its old permissions), so
+   issues skipped before **Issues: Read** was granted are backfilled.
+   Removing a repository from scope does not yet delete its mirrored files
+   (pull requests and issues alike). Issues outside the newest-N window are
+   never pruned: webhooks keep them current.
 10. Live updates: `issues` actions that change the file (opened, edited,
     closed, reopened, labeled, unlabeled, assigned, unassigned) and
-    plain-issue `issue_comment` run `github-sync-issue`. Not yet: removing
+    plain-issue `issue_comment` run `github-sync-issue`, keyed by
+    `X-GitHub-Delivery` so every event runs once. Not yet: removing
     deleted or transferred issues, and copying embedded images as assets
     ([ADR-028](ADR-028-git-native-connector-assets.md)); images stay links,
     as in the pull-request mirror.
@@ -93,8 +96,8 @@ typed change edges.
     re-extracted. An issue of a repository that is not connected is skipped.
     A mirrored pull request that writes `#N`, `owner/repo#N` or an issue URL
     of its own repository, outside code, records `PullRequest REFERENCES
-    Issue`; bot-authored pull requests are not scanned, since dependency
-    updates quote other repositories' `#N`. No stubs: issues and pull requests share one number sequence, so
+    Issue`; dependency-update pull requests (Dependabot, Renovate) are not
+    scanned, since they quote other repositories' `#N`. No stubs: issues and pull requests share one number sequence, so
     a `#N` that is a pull request resolves to no issue and is dropped.
 
 ## Rationale
