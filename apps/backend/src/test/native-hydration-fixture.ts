@@ -137,6 +137,16 @@ async function createNativeHydrationFixture(
   let failEmbeddings = embeddingFailure === true
   let failGithubTokens = false
   let githubWriteView = options.githubWriteView
+  // GitHub gives each repository a numeric id. A repository-scoped token mint
+  // and the repository read return the same id.
+  const githubRepositoryIds = new Map<string, number>()
+  const githubRepositoryId = (name: string) => {
+    const known = githubRepositoryIds.get(name)
+    if (known !== undefined) return known
+    const id = 700_000 + githubRepositoryIds.size
+    githubRepositoryIds.set(name, id)
+    return id
+  }
   let beforeWriteProbe: (() => Promise<void>) | undefined
   let beforeWriteCredential: (() => Promise<void>) | undefined
   const server = setupServer(
@@ -272,26 +282,42 @@ async function createNativeHydrationFixture(
               contents: writing ? "write" : "read",
               metadata: "read",
             },
+            ...(Array.isArray(requestBody.repositories)
+              ? {
+                  repositories: requestBody.repositories.map(
+                    (name: string) => ({
+                      id: githubRepositoryId(name),
+                      full_name: `fixture/${name}`,
+                    }),
+                  ),
+                }
+              : {}),
           },
           { status: 201 },
         )
       },
     ),
-    http.get("https://api.github.com/repos/fixture/:repo", async () => {
-      await beforeWriteProbe?.()
-      return githubWriteView === "writable"
-        ? HttpResponse.json({
-            default_branch: options.githubDefaultBranch?.() ?? "main",
-            ...(options.githubRepoPermissions === null
-              ? {}
-              : {
-                  permissions: options.githubRepoPermissions ?? {
-                    push: true,
-                  },
-                }),
-          })
-        : HttpResponse.json({ message: "Use native Git" }, { status: 404 })
-    }),
+    http.get(
+      "https://api.github.com/repos/fixture/:repo",
+      async ({ params }) => {
+        await beforeWriteProbe?.()
+        const name = String(params.repo)
+        return githubWriteView === "writable"
+          ? HttpResponse.json({
+              id: githubRepositoryId(name),
+              full_name: `fixture/${name}`,
+              default_branch: options.githubDefaultBranch?.() ?? "main",
+              ...(options.githubRepoPermissions === null
+                ? {}
+                : {
+                    permissions: options.githubRepoPermissions ?? {
+                      push: true,
+                    },
+                  }),
+            })
+          : HttpResponse.json({ message: "Use native Git" }, { status: 404 })
+      },
+    ),
     http.get(
       "https://api.github.com/app/installations/123456789",
       ({ request }) => {
@@ -748,6 +774,9 @@ async function createNativeHydrationFixture(
       },
       repairWriteAccess: () => {
         githubWriteView = "writable"
+      },
+      loseWriteAccess: () => {
+        githubWriteView = "missing"
       },
       repairEmbeddings: () => {
         failEmbeddings = false
