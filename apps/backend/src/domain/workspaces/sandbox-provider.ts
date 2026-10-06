@@ -1,7 +1,4 @@
-import type {
-  SandboxHandle,
-  SandboxProvider as TanstackSandboxProvider,
-} from "@tanstack/ai-sandbox"
+import type { SandboxProvider as TanstackSandboxProvider } from "@tanstack/ai-sandbox"
 import Docker from "dockerode"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import type { RunningSandboxProvider } from "../../models/workspace-sandboxes.js"

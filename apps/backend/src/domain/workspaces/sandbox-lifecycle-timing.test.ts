@@ -80,7 +80,7 @@ describe("sandbox lifecycle timing", () => {
         spawn: async (command: string) => {
           const child = spawn("sh", ["-c", command], { stdio: "pipe" })
           const exited = new Promise<void>((resolve) =>
-            child.once("close", () => resolve()),
+            child.once("exit", () => resolve()),
           )
           const up = new Promise<void>((resolve) =>
             child.stdout.once("data", () => resolve()),
