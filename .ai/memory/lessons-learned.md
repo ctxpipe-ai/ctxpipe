@@ -898,3 +898,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** convention
 - **Date:** 2026-09-26
 - **Source:** Repository owner after PR-343 ("I want CD to do these things... you are here to serve me")
+
+### CI from commit to green stays under 10 minutes
+- **Rule:** The soft target for the whole CI, from a push to a green result, is under 10 minutes. When a change adds tests or a job, keep the critical path under that target: run independent suites as parallel jobs, shard long suites, cache tool builds and Docker layers, and do not wait on real time in tests (a short test lease or fake timers). Measure the job and step times before and after.
+- **Category:** convention
+- **Date:** 2026-10-07
+- **Source:** repository owner, after PR 280 CI took 45 minutes (ticket 18)
