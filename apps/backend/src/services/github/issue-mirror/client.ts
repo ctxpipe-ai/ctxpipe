@@ -40,7 +40,7 @@ const COMMENTS = `
 const ISSUE_FIELDS = `
   id number url title body state stateReason createdAt updatedAt closedAt
   author { login __typename }
-  labels(first: 50) { nodes { name } }
+  labels(first: 100) { nodes { name } }
   assignees(first: 20) { nodes { login } }
   comments(first: 100) { ${COMMENTS} }
   closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { url } }

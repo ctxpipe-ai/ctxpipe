@@ -28,11 +28,25 @@ async function installationGraphql(input: {
   return installation.octokit.graphql
 }
 
-/** GitHub answers `FORBIDDEN` without Issues: Read, `NOT_FOUND` without repository access. */
+/**
+ * The App cannot read this repository's issues: every error is `FORBIDDEN`
+ * (no Issues: Read) or `NOT_FOUND` (no repository access) on the repository
+ * or its issue list. Anything else, or a missing single issue, is retryable.
+ */
 function isUnreadable(error: unknown): boolean {
-  const { errors } = (error ?? {}) as { errors?: Array<{ type?: string }> }
-  return (errors ?? []).some(
-    (entry) => entry.type === "FORBIDDEN" || entry.type === "NOT_FOUND",
+  const { errors } = (error ?? {}) as {
+    errors?: Array<{ type?: string; path?: unknown[] }>
+  }
+  return (
+    errors !== undefined &&
+    errors.length > 0 &&
+    errors.every(
+      (entry) =>
+        (entry.type === "FORBIDDEN" || entry.type === "NOT_FOUND") &&
+        ["repository", "repository.issues"].includes(
+          entry.path?.join(".") ?? "",
+        ),
+    )
   )
 }
 

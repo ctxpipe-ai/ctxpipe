@@ -107,6 +107,7 @@ describe("maybeEnqueueGithubPrMirror", () => {
       payload: {
         action: "labeled",
         issue: { number: 12, updated_at: "2026-03-04T00:00:00Z" },
+        label: { name: "bug" },
         repository: { full_name: "acme/api" },
         installation: { id: 99 },
       },
@@ -136,7 +137,7 @@ describe("maybeEnqueueGithubPrMirror", () => {
         job,
         {
           idempotencyKey:
-            "github-issue:con_gh:acme/api:12:labeled:2026-03-04T00:00:00Z",
+            "github-issue:con_gh:acme/api:12:labeled:bug:2026-03-04T00:00:00Z",
         },
       ],
       [
@@ -168,6 +169,29 @@ describe("maybeEnqueueGithubPrMirror", () => {
         }),
       ),
     ).rejects.toThrow("queue unavailable")
+  })
+
+  it("runs a full sync when the owner accepts new App permissions", async () => {
+    for (const action of ["created", "new_permissions_accepted"]) {
+      await maybeEnqueueGithubPrMirror({
+        eventName: "installation",
+        payload: {
+          action,
+          installation: { id: 99, updated_at: "2026-03-06T00:00:00Z" },
+        },
+        githubConnectionId: "con_gh",
+      })
+    }
+
+    expect(mocks.runWorkflow).toHaveBeenCalledTimes(1)
+    expect(mocks.runWorkflow).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "github-sync-content" }),
+      { orgId: "org_1", connectionId: "con_gh" },
+      {
+        idempotencyKey:
+          "github-pr-mirror-permissions:con_gh:2026-03-06T00:00:00Z",
+      },
+    )
   })
 
   it("skips issue actions that do not change the mirrored file", async () => {

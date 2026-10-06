@@ -62,8 +62,8 @@ typed change edges.
    without it. That rewrite also re-runs the pull-request backfill once per
    binding. No new connection type, toggle or table.
 8. Content is `github/issues/<owner>/<repo>/<number>.md`: frontmatter
-   (`type: issue`, state, labels, assignees, timestamps), body, and every
-   comment. The number is the path id; GitHub never reuses or changes it.
+   (`type: issue`, state, up to 100 labels, assignees, timestamps), body, and
+   every comment. The number is the path id; GitHub never reuses or changes it.
 9. Reads are GraphQL: one request per 50 issues with the first 100 comments
    inlined, plus one per further 100 comments of one issue. The backfill is
    one durable step per repository (`issues-<repo>`) that reads, renders and
@@ -73,7 +73,11 @@ typed change edges.
    A repository the App cannot read (GraphQL `FORBIDDEN` without
    **Issues: Read**, `NOT_FOUND` without access) is skipped, so pull-request
    capture still completes. Any other error fails the run, and the next sync
-   retries it.
+   retries it. When the owner accepts new App permissions
+   (`installation.new_permissions_accepted`), a full sync runs, so issues
+   skipped before **Issues: Read** was granted are backfilled. Removing a
+   repository from scope does not yet delete its mirrored files (pull
+   requests and issues alike).
 10. Live updates: `issues` actions that change the file (opened, edited,
     closed, reopened, labeled, unlabeled, assigned, unassigned) and
     plain-issue `issue_comment` run `github-sync-issue`. Not yet: removing
@@ -89,7 +93,8 @@ typed change edges.
     re-extracted. An issue of a repository that is not connected is skipped.
     A mirrored pull request that writes `#N`, `owner/repo#N` or an issue URL
     of its own repository, outside code, records `PullRequest REFERENCES
-    Issue`. No stubs: issues and pull requests share one number sequence, so
+    Issue`; bot-authored pull requests are not scanned, since dependency
+    updates quote other repositories' `#N`. No stubs: issues and pull requests share one number sequence, so
     a `#N` that is a pull request resolves to no issue and is dropped.
 
 ## Rationale

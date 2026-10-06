@@ -350,6 +350,11 @@ export async function processGithubWebhookPayload(
       return
     case "installation":
       await processInstallationEvent(opts?.connectionId, payload, ctx)
+      await maybeEnqueueGithubPrMirror({
+        eventName,
+        payload,
+        githubConnectionId: opts?.connectionId,
+      })
       return
     case "installation_repositories":
       await processInstallationRepositoriesEvent(

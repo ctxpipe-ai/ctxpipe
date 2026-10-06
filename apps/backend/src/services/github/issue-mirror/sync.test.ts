@@ -282,6 +282,35 @@ describe("mirrorGithubIssues", () => {
     expect(result).toEqual({ written: 3, failedRepositories: ["acme/private"] })
   })
 
+  it("does not skip a repository when a permission error comes with another error", async () => {
+    server.use(
+      http.post("https://api.github.com/graphql", () =>
+        HttpResponse.json({
+          data: { repository: { issues: null } },
+          errors: [
+            { type: "FORBIDDEN", path: ["repository", "issues"], message: "x" },
+            { type: "SERVICE_UNAVAILABLE", path: ["repository"], message: "y" },
+          ],
+        }),
+      ),
+    )
+    const octokit = new Octokit({
+      auth: "test-token",
+      retry: { enabled: false },
+      throttle: { enabled: false },
+    })
+
+    await expect(
+      mirrorGithubIssues({
+        graphql: octokit.graphql,
+        repositories: ["acme/api"],
+        maxIssuesPerRepository: 200,
+        runStep: durableSteps(new Map()).runStep,
+        commit: recordCommits().commit,
+      }),
+    ).rejects.toThrow()
+  })
+
   it("fails the run on any other GitHub error instead of skipping", async () => {
     const github = githubGraphql({ "acme/api": 502 })
 
