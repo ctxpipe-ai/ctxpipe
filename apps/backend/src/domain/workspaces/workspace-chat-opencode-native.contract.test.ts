@@ -535,6 +535,7 @@ async function runFixtureTurn(input: {
   const provider = conversationSandboxProvider(
     "unsandboxed",
     `opencode-finish-${Date.now()}`,
+    async () => undefined,
   )
   const abortController = new AbortController()
   const result: { types: string[]; textEndedAt?: number; finishedAt?: number } =

@@ -28,7 +28,10 @@ import {
   getSandboxInstance,
 } from "../../models/workspaces.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
-import { CHAT_SANDBOX_RETENTION_MS } from "./chat-lifecycle.js"
+import {
+  CHAT_SANDBOX_DELETE_AFTER_MS,
+  CHAT_SANDBOX_RETENTION_MS,
+} from "./chat-lifecycle.js"
 import { sweepConversationSandboxes } from "./conversation-sandbox-lifecycle.js"
 import type { WorkspaceRevision } from "./revision.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
@@ -1123,7 +1126,9 @@ describe("base sweep schedule", () => {
         createdAt: new Date(now.getTime() - 45 * DAY),
       })
       // The failed base waits for that sandbox's expiry, not the next retry.
-      expect(await sweep(now)).toBe(used + CHAT_SANDBOX_RETENTION_MS)
+      // The sandbox's own deletion (a day before its expiry) comes first, so
+      // the next sweep is due then.
+      expect(await sweep(now)).toBe(used + CHAT_SANDBOX_DELETE_AFTER_MS)
 
       // A superseded base past its retention end, still in use, also waits
       // for that sandbox's expiry.
@@ -1133,7 +1138,7 @@ describe("base sweep schedule", () => {
         lastHeartbeatAt: new Date(now.getTime() - 31 * DAY),
         createdAt: new Date(now.getTime() - 50 * DAY),
       })
-      expect(await sweep(now)).toBe(used + CHAT_SANDBOX_RETENTION_MS)
+      expect(await sweep(now)).toBe(used + CHAT_SANDBOX_DELETE_AFTER_MS)
 
       // A build whose lease lapsed, while cleanup is skipped (the agent
       // image is unreadable), is due in the past: the sweep schedules the
