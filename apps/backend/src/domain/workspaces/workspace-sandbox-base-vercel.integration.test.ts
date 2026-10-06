@@ -107,7 +107,7 @@ async function row(values: typeof workspaceSandboxInstances.$inferInsert) {
   )
 }
 
-function snapshotBody(id: string, status: "created" | "deleted") {
+function snapshotBody(id: string, status: "created" | "deleted" | "failed") {
   return {
     snapshot: {
       id,
@@ -330,7 +330,7 @@ describe("hosted base choice", () => {
     { answer: 500, snapshot: "created", kept: true },
     { answer: 429, snapshot: "created", kept: true },
     { answer: 500, snapshot: "failed", kept: false },
-  ])("a start that fails with $answer keeps the base only while its snapshot is $snapshot", async ({
+  ] as const)("a start that fails with $answer keeps the base only while its snapshot is $snapshot", async ({
     answer,
     snapshot,
     kept,

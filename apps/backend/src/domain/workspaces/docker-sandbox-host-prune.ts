@@ -105,7 +105,6 @@ export async function pruneDockerSandboxHost(
       `Removed ${removedImages.length} orphaned base images and ${removedContainers.length} orphaned containers`,
       {
         step: "docker-sandbox-host-prune",
-        sweptOrgs: swept.length,
         removedImages: removedImages.length,
         removedContainers: removedContainers.length,
       },
