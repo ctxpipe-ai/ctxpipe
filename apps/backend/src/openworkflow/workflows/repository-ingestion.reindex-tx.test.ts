@@ -109,6 +109,15 @@ vi.mock("../../graphs/codeIngestionGraph/runExtractRoot.js", () => ({
   runIdentifyPhaseForRoot: runIdentifyPhaseForRootMock,
 }))
 
+vi.mock(
+  "../../graphs/codeIngestionGraph/nodes/extractReadmeDocuments.js",
+  () => ({
+    extractReadmeDocuments: vi
+      .fn()
+      .mockResolvedValue({ extractedObjects: [], extractedClaims: [] }),
+  }),
+)
+
 vi.mock("../../graphs/codeIngestionGraph/nodes/deduplicateAndStore.js", () => ({
   deduplicateAndStore: vi.fn().mockResolvedValue({
     objectIds: [],
