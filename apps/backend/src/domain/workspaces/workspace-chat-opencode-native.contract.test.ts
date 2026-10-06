@@ -1,15 +1,24 @@
-import { execFileSync } from "node:child_process"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { execFileSync, spawn } from "node:child_process"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { createServer, request as httpRequest } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { chat } from "@tanstack/ai"
 import {
+  opencodeText,
   type SandboxOpencodeServer,
   startOpencodeServerInSandbox,
   startOpencodeSession,
 } from "@tanstack/ai-opencode"
+import {
+  defineSandbox,
+  type SandboxProvider,
+  withSandbox,
+} from "@tanstack/ai-sandbox"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
+import { timedSandboxProvider } from "./sandbox-lifecycle-timing.js"
+import { conversationSandboxProvider } from "./tanstack-workspace-chat.js"
 
 function deferred<T>(): {
   promise: Promise<T>
@@ -440,4 +449,319 @@ function freeLoopbackPort(): Promise<number> {
       probe.close(() => resolve(address.port))
     })
   })
+}
+
+/**
+ * A fake `opencode` that outlives SIGTERM and keeps an unfinished request
+ * open on the tool bridge, as a live MCP stream does. It appends its pid to
+ * `pidFile` and answers one prompt.
+ */
+async function writeStubbornOpencode(bin: string, pidFile: string) {
+  await mkdir(bin, { recursive: true })
+  await writeFile(
+    join(bin, "opencode"),
+    `#!${process.execPath}
+const http = require("node:http")
+process.on("SIGTERM", () => {})
+require("node:fs").appendFileSync(${JSON.stringify(pidFile)}, process.pid + "\\n")
+const port = Number(process.argv.find((arg) => arg.startsWith("--port=")).slice(7))
+const config = JSON.parse(process.env.OPENCODE_CONFIG_CONTENT || "{}")
+const bridge = Object.values(config.mcp || {})[0]
+const sessionID = "ses_fixture"
+const streams = []
+const send = (event) => {
+  for (const stream of streams) stream.write("data: " + JSON.stringify(event) + "\\n\\n")
+}
+const json = (res, body) => {
+  res.writeHead(200, { "content-type": "application/json" })
+  res.end(JSON.stringify(body))
+}
+http
+  .createServer((req, res) => {
+    const path = new URL(req.url, "http://fixture").pathname
+    if (path === "/event") {
+      res.writeHead(200, { "content-type": "text/event-stream" })
+      streams.push(res)
+      send({ type: "server.connected", properties: {} })
+      return
+    }
+    if (req.method === "POST" && path === "/session") return json(res, { id: sessionID })
+    if (req.method === "POST" && path === "/session/" + sessionID + "/message") {
+      req.resume()
+      req.on("end", () => {
+        const info = { id: "msg_fixture", sessionID, role: "assistant", time: { created: Date.now(), completed: Date.now() } }
+        const part = { id: "prt_fixture", messageID: info.id, sessionID, type: "text", text: "Turn complete." }
+        send({ type: "message.updated", properties: { info } })
+        send({ type: "message.part.updated", properties: { part } })
+        json(res, { info, parts: [part] })
+      })
+      return
+    }
+    json(res, true)
+  })
+  .listen(port, "127.0.0.1", () => {
+    if (bridge) {
+      const held = http.request(bridge.url, {
+        method: "POST",
+        headers: { ...bridge.headers, "content-type": "application/json", "content-length": "1000" },
+      })
+      held.on("error", () => {})
+      held.write("{")
+    }
+    console.log("opencode server listening on http://127.0.0.1:" + port)
+  })
+setInterval(() => {}, 1000)
+`,
+    { mode: 0o755 },
+  )
+}
+
+async function readPids(pidFile: string): Promise<number[]> {
+  const text = await readFile(pidFile, "utf8").catch(() => "")
+  return text.split("\n").filter(Boolean).map(Number)
+}
+
+/**
+ * One chat turn through the unsandboxed product provider. `wrap` lets a test
+ * put a provider of its own between the product provider and the engine.
+ */
+async function runFixtureTurn(input: {
+  directory: string
+  wrap?: (provider: SandboxProvider) => SandboxProvider
+}): Promise<{
+  types: string[]
+  textEndedAt?: number
+  finishedAt?: number
+}> {
+  const provider = conversationSandboxProvider(
+    "unsandboxed",
+    `opencode-finish-${Date.now()}`,
+  )
+  const abortController = new AbortController()
+  const result: { types: string[]; textEndedAt?: number; finishedAt?: number } =
+    { types: [] }
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const stream = chat({
+      adapter: opencodeText("fixture/model", {
+        hostname: "127.0.0.1",
+        port: await freeLoopbackPort(),
+      }),
+      threadId: `opencode-finish-${Date.now()}`,
+      messages: [{ role: "user", content: "Finish the turn." }],
+      abortController,
+      tools: [
+        {
+          name: "fixture_tool",
+          description: "Bridged so that the run opens a tool bridge.",
+          inputSchema: { type: "object", properties: {} },
+          execute: async () => "unused",
+        },
+      ],
+      middleware: [
+        withSandbox(
+          defineSandbox({
+            id: "opencode-finish",
+            provider: timedSandboxProvider(
+              input.wrap ? input.wrap(provider) : provider,
+            ),
+            workspace: { source: { type: "none" } },
+            lifecycle: {
+              reuse: "thread",
+              snapshot: "none",
+              destroyOnComplete: false,
+            },
+          }),
+        ),
+      ],
+    })
+    const consumed = (async () => {
+      for await (const chunk of stream) {
+        result.types.push(chunk.type)
+        if (chunk.type === "TEXT_MESSAGE_END") result.textEndedAt = Date.now()
+        if (chunk.type === "RUN_FINISHED") result.finishedAt = Date.now()
+      }
+    })()
+    consumed.catch(() => undefined)
+    await Promise.race([
+      consumed,
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, 10_000)
+      }),
+    ])
+    return result
+  } finally {
+    clearTimeout(timer)
+    abortController.abort()
+  }
+}
+
+it(
+  "finishes a turn and stops its OpenCode server when the server ignores SIGTERM and holds the tool bridge open",
+  { timeout: 30_000 },
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ctxpipe-opencode-finish-"))
+    const pidFile = join(directory, "opencode.pids")
+    await writeStubbornOpencode(join(directory, "bin"), pidFile)
+    vi.stubEnv("PATH", `${join(directory, "bin")}:${process.env.PATH ?? ""}`)
+    try {
+      const turn = await runFixtureTurn({ directory })
+      expect(turn.types).toContain("TEXT_MESSAGE_END")
+      expect(turn.types).toContain("RUN_FINISHED")
+      expect(turn.types).not.toContain("RUN_ERROR")
+      expect(
+        (turn.finishedAt ?? Number.POSITIVE_INFINITY) - (turn.textEndedAt ?? 0),
+      ).toBeLessThan(5_000)
+      const pids = await readPids(pidFile)
+      expect(pids).toHaveLength(1)
+      expect(pids.filter(processIsRunning)).toEqual([])
+    } finally {
+      vi.unstubAllEnvs()
+      await killAll(await readPids(pidFile))
+      await rm(directory, { recursive: true, force: true })
+    }
+  },
+)
+
+it(
+  "finishes a turn when the sandbox never settles the OpenCode server kill",
+  { timeout: 30_000 },
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ctxpipe-opencode-hang-"))
+    const pidFile = join(directory, "opencode.pids")
+    await writeStubbornOpencode(join(directory, "bin"), pidFile)
+    vi.stubEnv("PATH", `${join(directory, "bin")}:${process.env.PATH ?? ""}`)
+    // A provider whose kill never settles and never stops the process, as a
+    // sandbox API call that never returns would do.
+    const neverKill = (provider: SandboxProvider): SandboxProvider => ({
+      name: provider.name,
+      capabilities: () => provider.capabilities(),
+      create: async (options) => {
+        const handle = await provider.create(options)
+        return {
+          ...handle,
+          process: {
+            ...handle.process,
+            spawn: async (command, options) => ({
+              ...(await handle.process.spawn(command, options)),
+              kill: () => new Promise<void>(() => undefined),
+            }),
+          },
+        }
+      },
+      resume: (options) => provider.resume(options),
+      destroy: (options) => provider.destroy(options),
+    })
+    try {
+      const turn = await runFixtureTurn({ directory, wrap: neverKill })
+      expect(turn.types).toContain("TEXT_MESSAGE_END")
+      expect(turn.types).toContain("RUN_FINISHED")
+      expect(
+        (turn.finishedAt ?? Number.POSITIVE_INFINITY) - (turn.textEndedAt ?? 0),
+      ).toBeLessThan(5_000)
+    } finally {
+      vi.unstubAllEnvs()
+      await killAll(await readPids(pidFile))
+      await rm(directory, { recursive: true, force: true })
+    }
+  },
+)
+
+it(
+  "stops the unsandboxed OpenCode servers when the process that started them dies, also after its watchdog died",
+  { timeout: 60_000 },
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ctxpipe-opencode-owner-"))
+    const bin = join(directory, "bin")
+    const pidFile = join(directory, "opencode.pids")
+    await writeStubbornOpencode(bin, pidFile)
+    // The owner is a real Node process. It starts a server in an unsandboxed
+    // conversation sandbox for each "start" line, and then it dies without a
+    // teardown.
+    const owner = spawn(
+      join(process.cwd(), "node_modules/.bin/tsx"),
+      [
+        "--input-type=module",
+        "-e",
+        `
+import { createInterface } from "node:readline"
+import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
+import { startOpencodeServerInSandbox } from "@tanstack/ai-opencode"
+import { withOwnerWatchdog } from ${JSON.stringify(join(import.meta.dirname, "sandbox-process-guards.ts"))}
+const sandbox = await withOwnerWatchdog(localProcessSandbox({ dir: ${JSON.stringify(directory)} })).create({
+  id: ${JSON.stringify(directory)},
+  workspace: { source: { type: "none" } },
+})
+await sandbox.env.set({ PATH: ${JSON.stringify(bin)} + ":" + process.env.PATH })
+let port = 40000 + Math.floor(Math.random() * 20000)
+for await (const line of createInterface({ input: process.stdin })) {
+  await startOpencodeServerInSandbox(sandbox, { port: port++, hostname: "127.0.0.1", cwd: "." })
+  console.log("started " + process.pid)
+}
+`,
+      ],
+      { cwd: process.cwd(), stdio: ["pipe", "pipe", "inherit"] },
+    )
+    // tsx runs the script in a child process; that process is the owner.
+    const started = async () =>
+      new Promise<number>((resolve, reject) => {
+        const onData = (data: Buffer) => {
+          const match = /started (\d+)/.exec(data.toString())
+          if (!match) return
+          owner.stdout.off("data", onData)
+          resolve(Number(match[1]))
+        }
+        owner.stdout.on("data", onData)
+        owner.once("exit", (code) =>
+          reject(new Error(`The owner process stopped early with ${code}`)),
+        )
+      })
+    let ownerPid = 0
+    try {
+      owner.stdin.write("start\n")
+      ownerPid = await started()
+      // Kill the owner's watchdog. The next process must get a new one that
+      // also watches the first server.
+      const watchdog = execFileSync(
+        "pgrep",
+        ["-P", String(ownerPid), "-f", "while read"],
+        { encoding: "utf8" },
+      ).trim()
+      expect(watchdog).not.toBe("")
+      process.kill(Number(watchdog), "SIGKILL")
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      owner.stdin.write("start\n")
+      await started()
+      const pids = await readPids(pidFile)
+      expect(pids).toHaveLength(2)
+      for (const pid of pids) expect(processIsRunning(pid)).toBe(true)
+      process.kill(ownerPid, "SIGKILL")
+      const deadline = Date.now() + 5_000
+      while (pids.some(processIsRunning) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+      expect(pids.filter(processIsRunning)).toEqual([])
+    } finally {
+      owner.kill("SIGKILL")
+      await killAll([ownerPid])
+      await killAll(await readPids(pidFile))
+      await rm(directory, { recursive: true, force: true })
+    }
+  },
+)
+
+async function killAll(pids: number[]): Promise<void> {
+  for (const pid of pids)
+    if (processIsRunning(pid)) process.kill(pid, "SIGKILL")
+}
+
+function processIsRunning(pid: number): boolean {
+  // Pid 0 and negative pids name process groups, not one process.
+  if (pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
 }

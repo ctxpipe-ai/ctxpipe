@@ -2,12 +2,13 @@ import { type AddressInfo, connect, createServer, type Socket } from "node:net"
 import { startOpencodeServerInSandbox } from "@tanstack/ai-opencode"
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
 import {
   WORKSPACE_CHAT_OPENCODE_PORT,
   workspaceChatDockerImage,
 } from "./chat-runtime.js"
 import { withDockerAgentPort } from "./sandbox-provider.js"
+import { conversationSandboxProvider } from "./tanstack-workspace-chat.js"
 
 /** The stock local Docker daemon: `DOCKER_HOST`, else the default socket. */
 function dockerEndpoint():
@@ -85,6 +86,48 @@ it(
       await handle?.destroy().catch(() => undefined)
       for (const socket of sockets) socket.destroy()
       await new Promise<void>((resolve) => proxy.close(() => resolve()))
+    }
+  },
+)
+
+it(
+  "starts the agent server in a reused Docker sandbox after a dead backend left its server running",
+  { timeout: 180_000 },
+  async () => {
+    vi.stubEnv("AUTH_SECRET", "native-docker-reuse-secret-0123456789abcdef")
+    const provider = conversationSandboxProvider(
+      "docker",
+      `docker-reuse-${Date.now()}`,
+    )
+    const options = {
+      port: WORKSPACE_CHAT_OPENCODE_PORT,
+      cwd: "/workspace",
+      env: { HOME: "/tmp/ctxpipe-opencode-home" },
+      timeoutMs: 60_000,
+    }
+    let handle: SandboxHandle | undefined
+    let server:
+      | Awaited<ReturnType<typeof startOpencodeServerInSandbox>>
+      | undefined
+    try {
+      handle = await provider.create({
+        workspace: { source: { type: "none" } },
+      })
+      // The first turn's backend dies: nothing disposes this server, and it
+      // keeps the agent port in the sandbox.
+      await startOpencodeServerInSandbox(handle, options)
+      // The next turn resumes the same sandbox from its id.
+      const reused = await provider.resume({ id: handle.id })
+      if (!reused) throw new Error("The Docker sandbox did not resume")
+      server = await startOpencodeServerInSandbox(reused, options)
+      const config = await fetch(`${server.baseUrl}/config`, {
+        headers: server.headers,
+      })
+      expect(config.status).toBe(200)
+    } finally {
+      vi.unstubAllEnvs()
+      await server?.dispose().catch(() => undefined)
+      await handle?.destroy().catch(() => undefined)
     }
   },
 )
