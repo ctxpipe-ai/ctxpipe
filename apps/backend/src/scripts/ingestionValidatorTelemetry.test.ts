@@ -242,7 +242,7 @@ describe("Langfuse usage", () => {
     expect(usage.stages.embeddings?.calls).toBe(0)
   })
 
-  it("reports cost unknown for a stage whose generations have tokens but no Langfuse cost", async () => {
+  it("reports cost unknown only for a model that has no Langfuse cost, not for a real cost of 0", async () => {
     server.use(
       http.get(metricsUrl, ({ request }) => {
         const query = JSON.parse(
@@ -264,6 +264,20 @@ describe("Langfuse usage", () => {
               },
             ],
           })
+        // A free model: Langfuse knows its price, and the cost is really 0.
+        if (stage?.value === "identify:")
+          return HttpResponse.json({
+            data: [
+              {
+                providedModelName: "vendor/free",
+                count_count: 1,
+                sum_inputTokens: 10,
+                sum_outputTokens: 10,
+                sum_totalTokens: 20,
+                sum_totalCost: 0,
+              },
+            ],
+          })
         if (stage?.value !== "extract-kind:")
           return HttpResponse.json({ data: [] })
         return HttpResponse.json({
@@ -282,7 +296,7 @@ describe("Langfuse usage", () => {
               sum_inputTokens: 2_000_000,
               sum_outputTokens: 100_000,
               sum_totalTokens: 2_100_000,
-              sum_totalCost: 0,
+              sum_totalCost: null,
             },
           ],
         })
@@ -301,9 +315,8 @@ describe("Langfuse usage", () => {
       totalTokens: 2_100_020,
       costUsd: null,
     })
-    expect(usage.stages.identify?.costUsd).toBe(0)
+    expect(usage.stages.identify).toMatchObject({ totalTokens: 20, costUsd: 0 })
     expect(usage.total.costUsd).toBeNull()
-    expect(usage).not.toHaveProperty("unpricedModels")
   })
 
   it("waits until the run's generation count stops changing", async () => {

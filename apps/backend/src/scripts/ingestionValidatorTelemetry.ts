@@ -142,13 +142,18 @@ async function langfuseRows(
 function usage(row: Record<string, unknown> | undefined): LlmUsage {
   const r = row ?? {}
   const totalTokens = measure(r, "totalTokens")
-  const costUsd = measure(r, "totalCost")
+  // Langfuse gives no cost (null) for a model that has no price. A cost of 0
+  // is a real cost.
+  const costKey = Object.keys(r).find((key) =>
+    key.toLowerCase().endsWith("totalcost"),
+  )
+  const noCost = costKey === undefined || r[costKey] == null
   return {
     calls: measure(r, "count"),
     inputTokens: measure(r, "inputTokens"),
     outputTokens: measure(r, "outputTokens"),
     totalTokens,
-    costUsd: costUsd === 0 && totalTokens > 0 ? null : costUsd,
+    costUsd: noCost && totalTokens > 0 ? null : measure(r, "totalCost"),
   }
 }
 
@@ -185,7 +190,9 @@ function addUsage(left: LlmUsage, right: LlmUsage): LlmUsage {
  * cannot read it. The query finds the embeddings by name in the window of
  * the repository. The window is this repository's alone only when
  * `exclusiveWindow` is true (concurrency 1). Otherwise the query does not
- * read the embeddings. The commit-subject call has no trace, so only the
+ * read the embeddings. Known limit: a retrieval query embedding in the same
+ * environment and window has the same name and no other mark, so the
+ * embeddings stage counts it too. The commit-subject call has no trace, so only the
  * OpenRouter delta includes it.
  */
 export async function readRepositoryLlmUsage(
