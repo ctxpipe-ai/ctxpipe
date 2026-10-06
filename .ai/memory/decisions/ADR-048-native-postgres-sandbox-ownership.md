@@ -58,10 +58,10 @@ Hosted needs CPU billed only while busy (an agent mostly waits on the model), a 
 
 ### Cleanup
 
-- There is no cron. The OpenWorkflow job `conversation-sandbox-sweep` (one org per run) stops idle sandboxes, deletes sandboxes past 30 days or whose conversation is gone, and retries failed deletes (`destroy_failed`).
+- There is no cron. The OpenWorkflow job `conversation-sandbox-sweep` (one org per run) stops idle sandboxes, deletes sandboxes 29 days after their last use (a day before Vercel expires saved state) or when their conversation is gone, and retries failed deletes (`destroy_failed`). Before a deletion, it pushes committed work. It keeps a sandbox while a local branch has commits that no remote has, until the saved state expires.
 - One chain per org: each run first sweeps, then, in a separate step (so a retried run does not compute a second next time), schedules the next run for when a running sandbox is next due. Runs are keyed by org and minute boundary. Due times come from state (last use plus 5 minutes), and retries (a turn holds the conversation, a stop or delete failed) go to the next 5-minute boundary, so runs that compute the same next time share one run.
 - Every use schedules the sweep for its own idle time: a turn's end, a prepare or file read. The worker schedules a sweep at start for every org with a running sandbox, and every Workspace tip check schedules one, so a lost chain (a failed schedule, a crashed replica) restarts.
-- Stopped sandboxes schedule nothing. Any later sweep for the org deletes those past 30 days as it passes. Vercel already expires saved state after 30 days. Docker leftovers in dormant orgs are removed by the host prune *(ticket 03)*. So no run is scheduled weeks ahead, and every retry stays inside the PR worker's 10-minute idle window.
+- A stopped sandbox schedules a due time for its deletion, 29 days after its last use. Vercel expires saved state after 30 days, so the push before the deletion can still resume the sandbox. Docker leftovers in dormant orgs are removed by the host prune *(ticket 03)*. Retries stay inside the PR worker's 10-minute idle window.
 - Rows whose Workspace is deleted go with it; Workspace and conversation deletion destroy their sandboxes first (`workspace-sandbox-cleanup.ts`).
 - Self-hosted Docker hosts also remove stopped containers and unused images (labelled by owner), so the host never runs out of disk *(ticket 03)*. Hosted deletes Vercel snapshots past retention and unused bases.
 

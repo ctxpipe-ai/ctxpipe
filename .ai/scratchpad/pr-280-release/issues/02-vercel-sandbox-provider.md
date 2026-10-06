@@ -51,7 +51,7 @@ Every hosted conversation (production and PR previews) runs in its own Vercel sa
   
   Each is proven by a test.
 - [ ] Cancel stops the agent: by kill if proven, otherwise by stopping the sandbox.
-- [ ] The agent commits in the sandbox and pushes the session branch through a workspace tool that calls the backend broker; Commit+Push, Create PR (commits kept) and Show PR work from the UI; committed work is pushed before a sandbox is deleted after 30 days (Storybook play + native git contract).
+- [ ] The agent commits in the sandbox and pushes the session branch through a workspace tool that calls the backend broker; Commit+Push, Create PR (commits kept) and Show PR work from the UI; committed work is pushed before a sandbox is deleted 29 days after its last use (Storybook play + native git contract).
 - [ ] Deploy:
   - `deploy.yaml` and `pr-deploy.yaml` pass the token, team and project to Railway backend and worker;
   - previews tag their sandboxes by environment;
@@ -89,7 +89,7 @@ Every hosted conversation (production and PR previews) runs in its own Vercel sa
    - Idle timeout 5 minutes. Persistent sandboxes with `keepLastSnapshots: 1` and 30-day expiry.
    - The org cap is counted from our sandbox table under the Workspace lock before create.
    - Non-interactive callers (MCP, Slack) call stop in `finally`. Semantic merge no longer uses a sandbox (ticket 01).
-8. **Git as durable state + publish UI.** The agent commits and pushes through a broker tool; Commit+Push, Create PR (no squash) and Show PR in the UI; push committed work before the 30-day deletion.
+8. **Git as durable state + publish UI.** The agent commits and pushes through a broker tool; Commit+Push, Create PR (no squash) and Show PR in the UI; push committed work before the deletion at 29 days.
 9. **Deploy.** Pass the GitHub secret through `deploy.yaml` and `pr-deploy.yaml` (and Terraform variables if that's where Railway env lives). Preview tag plus cleanup on PR close.
 10. **Proof.**
     - Real-Vercel contract lane: fails, never skips, without credentials.
@@ -114,12 +114,27 @@ Keep each patch minimal and listed with its removal condition. Never fall back t
 
 ## Comments
 
+- 2026-10-06 (claude): **Commit+Push review rounds 1 and 2.**
+  - **Round 1:**
+    - The deletion push now runs also when the default moved, and a retry after `destroy_failed` pushes too.
+    - The broker no longer rebases. Raw Git text no longer reaches the client.
+    - Rotation is checked only when the default commit moved, and it keeps unpushed work.
+    - Create PR checks the sandbox once. The OpenAPI statuses, the docs, the branch label and the story were corrected.
+  - **Round 2:**
+    - A rotation conflict clears: when the agent rebased onto the new default, the branch only gets the fresh name.
+    - Rotation rebases from the PR's merged head, so commits pushed after the merge move to the fresh branch.
+    - A rotation that loses the compare-and-set follows the recorded branch.
+    - Unpushed means commits on any local branch that no remote has. The Files status, the push and the sweep use this one test, so a sandbox on the default branch still pushes its session branch.
+    - Before a deletion, the sweep stops a rebase or an unfinished update and pushes. It keeps the sandbox while a local branch has commits that no remote has, until the saved state expires.
+    - A rescue push to a fresh branch clears the old PR number, so Show PR does not open the old PR.
+    - The `session_moved` hint fetches with the sandbox's read credential.
+
 - 2026-10-04 (claude): **plan step 8 landed: the agent commits and pushes; Commit+Push, Create PR and Show PR.**
   - **Agent:** it commits with git in the sandbox. Commits on the default branch are refused, so a writable conversation now starts on its session branch: the pre-turn update checks it out. It pushes with the bridged tool `push_conversation_branch` (`conversation-branch-push.ts`). The tool calls the broker; the sandbox only packs objects and never holds a write credential. The agent prompt says to commit when a task is done and to push when the user should see the work on GitHub.
   - **Broker** (`pushConversationSession`):
     - It runs one preflight: edits allowed, GitHub, the sandbox on the current revision.
     - A clean sandbox with no unpushed commits does no network work.
-    - It replaces the remote tip only when that tip is the one ctx| pushed last (`conversations.last_pushed_sha`), that is, its own history rebased by option D. Commits someone else pushed are fetched, and ours are rebased onto them.
+    - It replaces the remote tip only when that tip is the one ctx| pushed last (`conversations.last_pushed_sha`), that is, its own history rebased by option D. When someone else pushed commits, the broker refuses with `session_moved`. The agent fetches them with its read credential and rebases onto them; the broker does not rebase.
     - A completed revision-transition marker no longer blocks a push; only an unfinished transition or a real rebase does.
     - Results are typed reasons; the client never gets raw Git text.
   - **UI and routes:**
@@ -128,8 +143,8 @@ Keep each patch minimal and listed with its removal condition. Never fall back t
     - Both answer 409 `turn_running` at once while a turn holds the conversation.
   - **Session branch:**
     - A sandbox restored from its branch records the commit the branch really builds on, so option D rebases it onto the current default.
-    - After the branch's PR is merged or closed, the next prepare or turn moves to `…/<n+1>` from the current default.
-  - **Deletion:** before the sweep deletes a sandbox after 30 days, committed work is pushed (the sandbox is started once if stopped); uncommitted files are not. An idle stop keeps files and pushes nothing.
+    - After the branch's PR is merged, the first prepare or turn after the default moves continues on `…/<n+1>` from the current default. A closed PR keeps its branch.
+  - **Deletion:** before the sweep deletes a sandbox 29 days after its last use, committed work is pushed (the sandbox is started once if stopped); uncommitted files are not. An idle stop keeps files and pushes nothing.
   - **Proof:**
     - Native contract `conversation-branch-push-native.contract.test.ts`. One case runs a production turn with OpenCode and a scripted model: it commits twice and calls the tool, giving two commits on GitHub; a turn that commits without pushing changes nothing. The other cases cover:
       - Commit+Push and Create PR (commits kept, 409 while a turn runs);
@@ -137,7 +152,7 @@ Keep each patch minimal and listed with its removal condition. Never fall back t
       - commits someone else pushed, including ones the agent fetched itself;
       - the shallow-restore rebase;
       - a fresh branch after merge;
-      - the 30-day Docker deletion pushing commits and not drafts.
+      - the Docker deletion at 29 days pushing commits and not drafts.
     - Mutation checks fail the matching cases.
     - The route contracts were updated, and a Storybook play covers the chrome with all three actions.
   - **Open:**
