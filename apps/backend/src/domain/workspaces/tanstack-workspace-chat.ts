@@ -53,11 +53,11 @@ import {
 } from "./chat-runtime.js"
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
 import { conversationBranchPushTool } from "./conversation-branch-push.js"
-import { checkoutSessionBranch } from "./conversation-session-branch.js"
 import {
   SandboxCapacityError,
   withConversationSandboxSlots,
 } from "./conversation-sandbox-lifecycle.js"
+import { checkoutSessionBranch } from "./conversation-session-branch.js"
 import { nameConversationIfUnnamed } from "./conversation-title.js"
 import { type WorkspaceRevision, workspaceRevisionSchema } from "./revision.js"
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"

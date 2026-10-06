@@ -18,11 +18,14 @@ export function splitGitNulPaths(stdout: string): string[] {
 }
 
 /**
- * Commits GitHub lacks: HEAD commits no remote-tracking ref reaches.
- * `refs/remotes/ctxpipe/base` marks the default commit the sandbox builds on.
- * Prints one commit, or nothing.
+ * Commits GitHub lacks: commits on HEAD or on a local branch that no
+ * remote-tracking ref reaches. The session branch counts also when HEAD is on
+ * the default branch. `refs/remotes/ctxpipe/base` marks the default commit
+ * the sandbox builds on. Prints one commit, or nothing. The Files status, the
+ * push and the deletion sweep all use this test.
  */
-export const UNPUSHED_COMMITS_COMMAND = "git rev-list -n 1 HEAD --not --remotes"
+export const UNPUSHED_COMMITS_COMMAND =
+  "git rev-list -n 1 HEAD --branches --not --remotes"
 
 /** A relative path inside the conversation worktree, never escaping it. */
 export function conversationPathIsSafe(path: string): boolean {

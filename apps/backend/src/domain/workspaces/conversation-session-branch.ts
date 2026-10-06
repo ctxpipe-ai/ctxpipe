@@ -12,7 +12,7 @@ import {
   conversationSessionBranch,
   nextConversationSessionBranch,
 } from "./chat-lifecycle.js"
-import { SANDBOX_READ_GIT } from "./chat-runtime.js"
+import { COMMIT_IDENTITY, SANDBOX_READ_GIT } from "./chat-runtime.js"
 import { workspaceAllowsConversationEdits } from "./chat-sandbox-policy.js"
 import { adaptTanstackHandle } from "./job-sandbox.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
@@ -77,9 +77,11 @@ export async function checkoutSessionBranch(input: {
 /**
  * Once the session branch's PR is merged, the conversation moves to a fresh
  * branch (`…/<n+1>`) on the Workspace's new commit. The caller asks only when
- * the default commit moved, as a merge moves it. Work the sandbox has that the
- * merged branch does not (unpushed commits, uncommitted files) is carried
- * over: the commits are rebased onto the new commit. A closed but unmerged PR
+ * the default commit moved, as a merge moves it. Work the sandbox has that
+ * the merged head does not (later commits, pushed or not, and uncommitted
+ * files) is carried over: the commits are rebased onto the new commit. When
+ * the agent already rebased the branch onto the new commit (after a
+ * conflict), the branch only gets the fresh name. A closed but unmerged PR
  * keeps its branch.
  *
  * `conflict`: the carried work does not apply; the sandbox stays on the old
@@ -120,27 +122,41 @@ if [ "$(git branch --show-current)" != "$SESSION" ]; then
   git rev-parse -q --verify "refs/heads/$SESSION" >/dev/null || exit 4
   git checkout -q "$SESSION" || exit 42
 fi
-MERGED=$(git rev-parse -q --verify "refs/remotes/origin/$SESSION" || true)
-{ [ -n "$MERGED" ] && git merge-base --is-ancestor "$MERGED" HEAD; } || exit 42
 git cat-file -e "$NEW_SHA^{commit}" 2>/dev/null || ${SANDBOX_READ_GIT} fetch -q --depth 1 origin "$NEW_SHA" || exit 42
-STASH=
-if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
-  git stash push -q --include-untracked -m ctxpipe-rotate && STASH=1
+if git merge-base --is-ancestor "$NEW_SHA" HEAD; then
+  # The agent already rebased the work onto the new commit.
+  git branch -M "$NEXT" || exit 42
+else
+  # Only the commits after the merged head move to the new commit.
+  { git cat-file -e "$MERGED^{commit}" 2>/dev/null && git merge-base --is-ancestor "$MERGED" HEAD; } || exit 42
+  STASH=
+  if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
+    git stash push -q --include-untracked -m ctxpipe-rotate && STASH=1
+  fi
+  restore() {
+    git checkout -q "$SESSION" && git branch -q -D "$NEXT"
+    [ -z "$STASH" ] || git stash pop -q
+    exit 42
+  }
+  git checkout -q -B "$NEXT" HEAD
+  git -c user.name=${COMMIT_IDENTITY.GIT_COMMITTER_NAME} -c user.email=${COMMIT_IDENTITY.GIT_COMMITTER_EMAIL} rebase -q --onto "$NEW_SHA" "$MERGED" || { git rebase --abort; restore; }
+  if [ -n "$STASH" ] && ! git stash apply -q --index; then
+    git reset -q --hard
+    restore
+  fi
+  [ -z "$STASH" ] || git stash drop -q
+  # The old branch's commits now live on the fresh branch.
+  git branch -q -D "$SESSION"
 fi
-restore() {
-  git checkout -q "$SESSION" && git branch -q -D "$NEXT"
-  [ -z "$STASH" ] || git stash pop -q
-  exit 42
-}
-git checkout -q -B "$NEXT" HEAD
-git -c user.name=ctxpipe -c user.email=workspace-chat@ctxpipe.local rebase -q --onto "$NEW_SHA" "$MERGED" || { git rebase --abort; restore; }
-if [ -n "$STASH" ] && ! git stash apply -q --index; then
-  git reset -q --hard
-  restore
-fi
-[ -z "$STASH" ] || git stash drop -q
 git update-ref refs/remotes/ctxpipe/base "$NEW_SHA"`,
-    { env: { NEW_SHA: input.desired.sha, SESSION: branch, NEXT: next } },
+    {
+      env: {
+        NEW_SHA: input.desired.sha,
+        MERGED: pull.headSha,
+        SESSION: branch,
+        NEXT: next,
+      },
+    },
   )
   if (moved.exitCode !== 0 && moved.exitCode !== 4) {
     log.info({
@@ -150,14 +166,49 @@ git update-ref refs/remotes/ctxpipe/base "$NEW_SHA"`,
     })
     return "conflict"
   }
-  await rotateConversationSessionBranch({
+  const recorded = await rotateConversationSessionBranch({
     orgId: input.orgId,
     conversationId: input.conversationId,
     from: conversation.lastBranch,
     to: next,
   })
+  if (!recorded && moved.exitCode === 0)
+    await followRecordedBranch({ ...input, from: next })
   // Still on the default branch: the usual update moves it.
   return moved.exitCode === 4 ? "kept" : "rotated"
+}
+
+/**
+ * Another writer moved the conversation to a different branch while the
+ * sandbox rotated. The record wins: the sandbox's branch gets that name.
+ */
+async function followRecordedBranch(input: {
+  handle: SandboxHandle
+  orgId: string
+  conversationId: string
+  from: string
+}): Promise<void> {
+  const conversation = await getConversationSession(
+    input.orgId,
+    input.conversationId,
+  )
+  if (!conversation) return
+  const recorded = conversationSessionBranch(
+    input.conversationId,
+    conversation.lastBranch,
+  )
+  if (recorded === input.from) return
+  log.warn({
+    step: "conversation-session-rotate",
+    message: "The conversation moved to another branch during the rotation",
+    conversationId: input.conversationId,
+  })
+  const renamed = await input.handle.process.exec(
+    'git branch -M "$FROM" "$RECORDED"',
+    { env: { FROM: input.from, RECORDED: recorded } },
+  )
+  if (renamed.exitCode !== 0)
+    throw new Error("Cannot move the sandbox to the conversation's branch")
 }
 
 /** Whether the sandbox's HEAD already contains `sha` (no fetch). */

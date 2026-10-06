@@ -2,9 +2,15 @@ import type { SandboxHandle } from "@tanstack/ai-sandbox"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
+import {
+  getConversationSession,
+  rotateConversationSessionBranch,
+} from "../../models/conversations.js"
 import type { RunningSandboxProvider } from "../../models/workspace-sandboxes.js"
 import { log } from "../../observability/logger.js"
 import { nextConversationSessionBranch } from "./chat-lifecycle.js"
+import { SANDBOX_READ_GIT } from "./chat-runtime.js"
+import { UNPUSHED_COMMITS_COMMAND } from "./conversation-files.js"
 import {
   type PublishTarget,
   pushConversationSession,
@@ -12,13 +18,17 @@ import {
   type SessionPushResult,
 } from "./conversation-publish.js"
 import { adaptTanstackHandle } from "./job-sandbox.js"
+import type { JobSandboxHandle } from "./job-worktree.js"
 import { attachProviderSandbox } from "./sandbox-provider.js"
 import type { WorkspaceChatTanstackTool } from "./workspace-chat-tools.js"
 
 /** A push gives up after this long, so it never holds the conversation. */
 const PUSH_TIMEOUT_MS = 2 * 60_000
 
-function logPush(conversationId: string, outcome: SessionPushResult | Error) {
+function logPush(
+  conversationId: string,
+  outcome: SessionPushResult | Error,
+): void {
   if (outcome instanceof Error)
     log.warn({
       step: "conversation-branch-push",
@@ -75,9 +85,7 @@ export function conversationBranchPushTool(input: {
           }),
       )
       logPush(input.conversationId, outcome)
-      const uncommitted =
-        (await handle.exec("git status --porcelain", { env: {} })).stdout.trim()
-          .length > 0
+      const uncommitted = outcome.dirty
       if (outcome.status === "pushed")
         return { pushed: true, branch: outcome.branch, uncommitted }
       if (outcome.status === "unchanged")
@@ -87,7 +95,9 @@ export function conversationBranchPushTool(input: {
           pushed: false,
           reason: outcome.reason,
           uncommitted,
-          next: "The branch on GitHub has commits you do not have. Run `git fetch origin <branch>` and `git rebase FETCH_HEAD` on the session branch, resolve any conflicts, then push again.",
+          // The origin URL has no credentials; a private repository needs
+          // the sandbox's read credential to fetch.
+          next: `The branch on GitHub has commits you do not have. Fetch them with \`${SANDBOX_READ_GIT} fetch origin "$(git branch --show-current)"\`, then run \`git rebase FETCH_HEAD\` on the session branch, resolve any conflicts, and push again.`,
         }
       return { pushed: false, reason: outcome.reason, uncommitted }
     },
@@ -95,12 +105,25 @@ export function conversationBranchPushTool(input: {
 }
 
 /**
+ * Deletion only: stop a rebase or an unfinished Workspace update, so that the
+ * branch's commits can be pushed. Files stay as they are; uncommitted files
+ * are not pushed.
+ */
+const STOP_UNFINISHED_GIT_WORK = `if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then git rebase --abort; fi
+T=$(git rev-parse --git-path ctxpipe-revision-transition)
+if [ -f "$T" ] && [ "$(sed -n 5p "$T")" != complete ]; then rm -f "$T"; fi
+[ -z "$(git diff --name-only --diff-filter=U)" ] || git reset -q
+true`
+
+/**
  * Before the sweep deletes a conversation's sandbox, its committed but
- * unpushed work goes to the session branch; uncommitted files do not. When
- * the session branch moved on GitHub meanwhile, the commits go to a fresh
- * branch (`…/<n+1>`) instead, which becomes the conversation's branch.
+ * unpushed work goes to the session branch; uncommitted files do not. A
+ * rebase or a Workspace update in progress is stopped first. When the session
+ * branch moved on GitHub meanwhile, the commits go to a fresh branch
+ * (`…/<n+1>`) instead, which becomes the conversation's branch.
  *
- * `retry`: the push failed; keep the sandbox for the next sweep.
+ * `retry`: a local branch still has commits that no remote has; keep the
+ * sandbox for the next sweep.
  */
 export async function pushBeforeSandboxDelete(input: {
   orgId: string
@@ -123,57 +146,40 @@ export async function pushBeforeSandboxDelete(input: {
         ...input,
         sandbox: "ignore",
       })
-      if (!resolved.ok) {
-        logPush(input.conversationId, {
-          status: "skipped",
-          reason: resolved.reason,
-        })
+      // A deleted conversation has no branch to push to.
+      if (!resolved.ok && resolved.reason === "missing_conversation")
         return "done"
-      }
       const sandbox = await attachProviderSandbox(input)
       if (!sandbox) return "done"
       const handle = adaptTanstackHandle(
         sandbox,
         AbortSignal.timeout(PUSH_TIMEOUT_MS),
       )
-      const push = (target: PublishTarget) =>
-        pushConversationSession({
-          handle,
-          conversationId: input.conversationId,
-          orgId: input.orgId,
-          workspaceId: input.workspaceId,
-          env: parseEnv(process.env as Record<string, string | undefined>),
-          target,
-        })
-      const target = { ...resolved.target, baseSha: input.baseSha }
-      let outcome = await push(target)
-      // Someone else pushed to the session branch: the commits go to the next
-      // free branch name instead, which becomes the conversation's branch.
-      let branch = target.branch
-      for (
-        let attempt = 0;
-        attempt < 5 &&
-        outcome.status === "failed" &&
-        outcome.reason === "session_moved";
-        attempt += 1
-      ) {
-        branch = nextConversationSessionBranch(input.conversationId, branch)
-        const moved = await handle.exec('git checkout -q -B "$NEXT"', {
-          env: { NEXT: branch },
-        })
-        outcome =
-          moved.exitCode === 0
-            ? await push({ ...target, branch, pushedSha: null })
-            : { status: "failed", reason: "push_failed" }
-      }
-      if (outcome.status === "pushed" && branch !== target.branch)
+      await handle.exec(STOP_UNFINISHED_GIT_WORK, { env: {} })
+      if (resolved.ok)
+        logPush(
+          input.conversationId,
+          await pushOrRescue(handle, {
+            ...resolved.target,
+            baseSha: input.baseSha,
+          }),
+        )
+      else
         log.info({
           step: "conversation-branch-push",
-          message: `The deleted sandbox's commits went to ${branch}: the session branch moved on GitHub`,
+          message: `Conversation commits were not pushed (${resolved.reason})`,
           conversationId: input.conversationId,
+          reason: resolved.reason,
         })
-      logPush(input.conversationId, outcome)
-      return outcome.status === "failed" ? "retry" : "done"
+      const unpushed = await handle.exec(UNPUSHED_COMMITS_COMMAND, { env: {} })
+      if (unpushed.exitCode === 0 && !unpushed.stdout.trim()) return "done"
+      log.warn({
+        step: "conversation-branch-push",
+        message:
+          "The sandbox has commits that no remote has; it stays for the next sweep",
+        conversationId: input.conversationId,
+      })
+      return "retry"
     })
   } catch (error) {
     logPush(
@@ -182,4 +188,57 @@ export async function pushBeforeSandboxDelete(input: {
     )
     return "retry"
   }
+}
+
+/**
+ * Push to the session branch. When someone else pushed to it, the commits go
+ * to the next branch name instead, which becomes the conversation's branch.
+ * Its PR stays with the old branch, so the conversation has no PR then.
+ */
+async function pushOrRescue(
+  handle: JobSandboxHandle,
+  target: PublishTarget,
+): Promise<SessionPushResult> {
+  const push = (to: PublishTarget) =>
+    pushConversationSession({
+      handle,
+      conversationId: target.conversationId,
+      orgId: target.orgId,
+      workspaceId: target.workspaceId,
+      env: parseEnv(process.env as Record<string, string | undefined>),
+      target: to,
+    })
+  const outcome = await push(target)
+  if (outcome.status !== "failed" || outcome.reason !== "session_moved")
+    return outcome
+  const conversation = await getConversationSession(
+    target.orgId,
+    target.conversationId,
+  )
+  const next = nextConversationSessionBranch(
+    target.conversationId,
+    target.branch,
+  )
+  if (
+    !conversation ||
+    !(await rotateConversationSessionBranch({
+      orgId: target.orgId,
+      conversationId: target.conversationId,
+      from: conversation.lastBranch,
+      to: next,
+    }))
+  )
+    return outcome
+  const moved = await handle.exec('git checkout -q -B "$NEXT"', {
+    env: { NEXT: next },
+  })
+  if (moved.exitCode !== 0) return { status: "failed", reason: "push_failed" }
+  const rescued = await push({ ...target, branch: next, pushedSha: null })
+  if (rescued.status === "pushed")
+    log.info({
+      step: "conversation-branch-push",
+      message: `The deleted sandbox's commits went to ${next}: the session branch moved on GitHub`,
+      conversationId: target.conversationId,
+    })
+  return rescued
 }

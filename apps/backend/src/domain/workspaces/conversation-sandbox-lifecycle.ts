@@ -308,15 +308,14 @@ export async function sweepConversationSandboxes(
         async () => {
           // Committed work reaches GitHub before the sandbox is deleted (also
           // when an earlier delete failed). An idle stop keeps the files, so
-          // it needs nothing. A failed push keeps the sandbox for the next
-          // sweep, until its saved state would be gone anyway.
+          // it needs nothing. Commits that no remote has keep the sandbox for
+          // the next sweep, until its saved state would be gone anyway.
           const pushed =
             expired &&
             isRunningSandboxProvider(row.provider) &&
             row.providerSandboxId &&
             row.workspaceId &&
-            row.revision &&
-            conversations.has(conversationId)
+            row.revision
               ? await pushBeforeSandboxDelete({
                   orgId,
                   conversationId,

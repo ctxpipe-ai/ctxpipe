@@ -21,6 +21,7 @@ import {
   mayForcePushBranch,
   planChatPullRequest,
 } from "./chat-lifecycle.js"
+import { COMMIT_IDENTITY } from "./chat-runtime.js"
 import { workspaceAllowsConversationEdits } from "./chat-sandbox-policy.js"
 import {
   getConversationSandboxBinding,
@@ -75,13 +76,6 @@ export function planCapturedConversationPublication(input: {
 
 export function shellSingleQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`
-}
-
-const COMMIT_IDENTITY = {
-  GIT_AUTHOR_NAME: "ctxpipe",
-  GIT_AUTHOR_EMAIL: "workspace-chat@ctxpipe.local",
-  GIT_COMMITTER_NAME: "ctxpipe",
-  GIT_COMMITTER_EMAIL: "workspace-chat@ctxpipe.local",
 }
 
 /** Why nothing was published (nothing reached GitHub). */
@@ -277,12 +271,13 @@ printf 'branch %s\\n' "$B"
  * Push the sandbox's commits to the conversation's session branch. The
  * sandbox only hands over Git objects; this process holds the read and write
  * tokens. Used by the agent's push tool, Commit+Push (`commit`: uncommitted
- * files are committed first), Create PR and the push before a deletion.
+ * files are committed first), Create PR and the push before a deletion. A
+ * sandbox on the default branch first moves to the session branch.
  *
  * A clean sandbox with nothing unpushed does no network or database work.
  * The remote tip is replaced only when it is the tip ctx| pushed last (its
  * own history, rebased onto a moved default); anything else on the branch
- * that HEAD lacks answers `session_moved`.
+ * that HEAD lacks answers `session_moved`. `dirty`: uncommitted files remain.
  */
 export async function pushConversationSession(input: {
   handle: JobSandboxHandle
@@ -293,20 +288,23 @@ export async function pushConversationSession(input: {
   commit?: { subject: string }
   /** Resolved by a caller that already checked it. */
   target?: PublishTarget
-}): Promise<SessionPushResult> {
+}): Promise<SessionPushResult & { dirty?: boolean }> {
+  let dirty: boolean | undefined
   try {
     const state = await readSandboxSessionState(input.handle)
     if (state.blocked)
       return { status: "skipped", reason: "rebase_in_progress" }
     const committing = state.dirty && Boolean(input.commit)
+    dirty = state.dirty
     if (!committing && !state.unpushed)
       return state.dirty
-        ? { status: "skipped", reason: "nothing_committed" }
-        : { status: "unchanged" }
+        ? { status: "skipped", reason: "nothing_committed", dirty }
+        : { status: "unchanged", dirty }
     const resolved = input.target
       ? ({ ok: true, target: input.target } as const)
       : await resolvePublishTarget({ ...input, sandbox: "required" })
-    if (!resolved.ok) return { status: "skipped", reason: resolved.reason }
+    if (!resolved.ok)
+      return { status: "skipped", reason: resolved.reason, dirty }
     const { target } = resolved
     if (
       !(await switchToSessionBranch({
@@ -316,11 +314,12 @@ export async function pushConversationSession(input: {
       }))
     )
       throw new Error("Cannot check out the session branch")
-    const current = await input.handle.exec("git branch --show-current", {
-      env: {},
-    })
-    if (current.stdout.trim() !== target.branch)
-      return { status: "skipped", reason: "other_branch" }
+    // The switch leaves any branch but the default where it is.
+    if (
+      state.branch !== target.revision.defaultBranch &&
+      state.branch !== target.branch
+    )
+      return { status: "skipped", reason: "other_branch", dirty }
     if (committing && input.commit) {
       const committed = await input.handle.exec(
         `git add -A && git commit -q -m ${shellSingleQuote(input.commit.subject)}`,
@@ -330,21 +329,25 @@ export async function pushConversationSession(input: {
         throw new Error(
           `Cannot commit the conversation files: ${committed.stderr}`,
         )
+      dirty = false
     }
-    return await brokerPush({
-      handle: input.handle,
-      env: input.env,
-      target,
-    })
+    return {
+      ...(await brokerPush({
+        handle: input.handle,
+        env: input.env,
+        target,
+      })),
+      dirty,
+    }
   } catch (error) {
     if (error instanceof PublishRefused)
-      return { status: "skipped", reason: error.reason }
+      return { status: "skipped", reason: error.reason, dirty }
     log.warn({
       step: "conversation-session-push",
       message: error instanceof Error ? error.message : String(error),
       conversationId: input.conversationId,
     })
-    return { status: "failed", reason: "push_failed" }
+    return { status: "failed", reason: "push_failed", dirty }
   }
 }
 

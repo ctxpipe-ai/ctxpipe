@@ -65,7 +65,7 @@ export type NativeHydrationOptions = {
   githubContentFiles?: Record<string, string>
   githubPullRequest?: {
     number: number
-    head: { ref: string }
+    head: { ref: string; sha?: string }
     state: string
     html_url: string
   }

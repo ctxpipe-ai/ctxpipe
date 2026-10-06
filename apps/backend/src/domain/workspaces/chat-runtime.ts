@@ -76,6 +76,14 @@ export const WORKSPACE_CHAT_VERCEL_SETUP = [
  */
 export const SANDBOX_READ_GIT = `git -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f'`
 
+/** The author and committer of the commits ctx| makes in a sandbox. */
+export const COMMIT_IDENTITY = {
+  GIT_AUTHOR_NAME: "ctxpipe",
+  GIT_AUTHOR_EMAIL: "workspace-chat@ctxpipe.local",
+  GIT_COMMITTER_NAME: "ctxpipe",
+  GIT_COMMITTER_EMAIL: "workspace-chat@ctxpipe.local",
+}
+
 /**
  * Checks out the conversation: the desired commit, then its session branch if
  * published. `refs/remotes/ctxpipe/base` marks the default commit the sandbox

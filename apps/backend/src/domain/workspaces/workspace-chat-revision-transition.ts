@@ -49,15 +49,17 @@ export async function updateConversationSandboxRevision(input: {
     })
     previousRevision = to
   }
+  const defaultMoved = previousRevision.sha !== desired.sha
   // A sandbox restored from its session branch is recorded at the commit it
   // was created for; rebase from the commit the branch really builds on.
+  // After the agent repaired a conflict, that can already be `desired`.
   const base = await restoredSessionBase({
     handle,
     recorded: previousRevision.sha,
     desired: desired.sha,
   })
   if (base) await record({ ...previousRevision, sha: base })
-  if (previousRevision.sha === desired.sha) return {}
+  if (!defaultMoved && previousRevision.sha === desired.sha) return {}
   const current = await withOrgDbContext(input.orgId, () =>
     getDesiredWorkspaceRevision(desired.workspaceId),
   )
@@ -66,7 +68,7 @@ export async function updateConversationSandboxRevision(input: {
   // The default moved, as a merged PR moves it: a merged session branch
   // continues on a fresh one instead of being rebased.
   const conversationId = row?.conversationId
-  if (conversationId) {
+  if (defaultMoved && conversationId) {
     const rotation = await rotateMergedSessionBranch({
       handle,
       orgId: input.orgId,
@@ -87,6 +89,7 @@ export async function updateConversationSandboxRevision(input: {
       return {}
     }
   }
+  if (previousRevision.sha === desired.sha) return {}
   const moved = await advanceConversationWorktree({
     handle,
     from: previousRevision,
