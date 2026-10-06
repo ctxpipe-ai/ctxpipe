@@ -23,10 +23,10 @@ import { repositoryIngestion } from "./repository-ingestion.js"
 import { repositoryIngestionOrchestrator } from "./repository-ingestion-orchestrator.js"
 import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
 
-it.each(["first-run", "after-failed-publish"] as const)(
-  "publishes actual producer extraction through one typed Git write (%s)",
-  { timeout: 180_000 },
-  async (mode) => {
+it(
+  "publishes actual producer extraction through one typed Git write",
+  { timeout: 90_000 },
+  async () => {
     const directory = await mkdtemp(
       join(tmpdir(), "ctxpipe-producer-contract-"),
     )
@@ -209,10 +209,10 @@ it.each(["first-run", "after-failed-publish"] as const)(
             workspaceExtractIngest.fn,
           )
           const worker = runner.newWorker({ concurrency: 4 })
-          const ingest = async () => {
+          const ingest = async (fullReingest?: boolean) => {
             const owner = await withOrgIdContext(f.org, () =>
               enqueueRepositoryIngestionWorkflow(
-                { orgId: f.org.id, repositoryId: f.repositoryId },
+                { orgId: f.org.id, repositoryId: f.repositoryId, fullReingest },
                 {
                   error: (error) => {
                     throw error
@@ -235,10 +235,11 @@ it.each(["first-run", "after-failed-publish"] as const)(
           }
           try {
             await worker.start()
-            if (mode === "after-failed-publish") {
-              // The remote rejects the first push, so the run fails after extraction.
-              f.git("config", "receive.denyCurrentBranch", "refuse")
-              const failed = await ingest()
+            // The remote rejects each push, so each run fails after extraction.
+            f.git("config", "receive.denyCurrentBranch", "refuse")
+            // A full re-index reuses no stored root; it extracts each root again.
+            for (const fullReingest of [false, true]) {
+              const failed = await ingest(fullReingest)
               expect(
                 (
                   await backend.getWorkflowRun({
@@ -247,10 +248,10 @@ it.each(["first-run", "after-failed-publish"] as const)(
                 )?.status,
               ).toBe("failed")
               expect(extractionRequests).toBeGreaterThan(0)
-              expect(f.git("rev-list", "--count", `${f.sha}..trunk`)).toBe("0")
-              f.git("config", "receive.denyCurrentBranch", "updateInstead")
               extractionRequests = 0
             }
+            expect(f.git("rev-list", "--count", `${f.sha}..trunk`)).toBe("0")
+            f.git("config", "receive.denyCurrentBranch", "updateInstead")
             const owner = await ingest()
             expect(
               (
@@ -262,8 +263,7 @@ it.each(["first-run", "after-failed-publish"] as const)(
             await worker.stop()
             expect(instructionRequests).toBeGreaterThan(0)
             // A new run for the same commit reads the stored roots and pays nothing again.
-            if (mode === "after-failed-publish")
-              expect(extractionRequests).toBe(0)
+            expect(extractionRequests).toBe(0)
             expect(f.git("rev-list", "--count", `${f.sha}..trunk`)).toBe("1")
             // A successful publication deletes its stored capture.
             expect(
