@@ -1,7 +1,8 @@
+import { spawn } from "node:child_process"
 import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, dirname, join } from "node:path"
 import { OpenAPIHono } from "@hono/zod-openapi"
 import type { StreamChunk } from "@tanstack/ai"
 import { defineSandbox, type SandboxHandle } from "@tanstack/ai-sandbox"
@@ -606,11 +607,75 @@ it(
   },
 )
 
+/**
+ * Serve the fixture remote over HTTP, as GitHub does: a fetch without the
+ * read credential is refused. Only the sandbox's `origin` uses it; ctx|'s own
+ * Git calls keep the fixture's local remote.
+ */
+async function serveRemoteWithToken(
+  f: NativeHydrationFixture,
+  handle: SandboxHandle,
+  token: string,
+) {
+  const expected = `Basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`
+  const server = createServer((req, res) => {
+    if (req.headers.authorization !== expected) {
+      res.writeHead(401, { "WWW-Authenticate": 'Basic realm="fixture"' })
+      res.end()
+      return
+    }
+    const url = new URL(req.url ?? "/", "http://127.0.0.1")
+    const cgi = spawn("git", ["http-backend"], {
+      env: {
+        ...process.env,
+        GIT_PROJECT_ROOT: dirname(f.remote),
+        GIT_HTTP_EXPORT_ALL: "1",
+        PATH_INFO: url.pathname,
+        QUERY_STRING: url.search.slice(1),
+        REQUEST_METHOD: req.method ?? "GET",
+        CONTENT_TYPE: req.headers["content-type"] ?? "",
+        HTTP_CONTENT_ENCODING: req.headers["content-encoding"] ?? "",
+        HTTP_GIT_PROTOCOL: String(req.headers["git-protocol"] ?? ""),
+      },
+    })
+    req.pipe(cgi.stdin)
+    const out: Buffer[] = []
+    cgi.stdout.on("data", (chunk: Buffer) => out.push(chunk))
+    cgi.on("close", () => {
+      const body = Buffer.concat(out)
+      const split = body.indexOf("\r\n\r\n")
+      const headers: Record<string, string> = {}
+      let status = 200
+      for (const line of body.subarray(0, split).toString().split("\r\n")) {
+        const at = line.indexOf(":")
+        const name = line.slice(0, at).trim()
+        const value = line.slice(at + 1).trim()
+        if (name.toLowerCase() === "status") status = Number.parseInt(value)
+        else headers[name] = value
+      }
+      res.writeHead(status, headers)
+      res.end(body.subarray(split + 4))
+    })
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  const address = server.address()
+  if (!address || typeof address === "string")
+    throw new Error("Git server port missing")
+  const origin = (url: string) =>
+    handle.process.exec(`git remote set-url origin ${url}`)
+  await origin(`http://127.0.0.1:${address.port}/${basename(f.remote)}`)
+  return async () => {
+    await origin(f.workspaceUrl)
+    server.close()
+    server.closeAllConnections()
+  }
+}
+
 it(
   "tells the agent how to fetch a moved session branch with its read credential",
   { timeout: 240_000 },
   async () => {
-    await withSession({}, async (_f, s) => {
+    await withSession({}, async (f, s) => {
       await s.turn("Publish note one", [
         commitStep("one.md", "Add note one"),
         pushTool,
@@ -627,13 +692,27 @@ it(
       expect(refused.reason).toBe("session_moved")
       const fetch = /`([^`]+)`/.exec(refused.next ?? "")?.[1] ?? ""
       expect(fetch).toContain(`${SANDBOX_READ_GIT} fetch`)
-      // The agent runs the fetch the hint gives, rebases, and pushes again.
-      await s.turn("Follow the hint", [
-        bash(
-          `${fetch} && git -c user.name=Agent -c user.email=agent@example.test rebase -q FETCH_HEAD`,
-        ),
-        pushTool,
-      ])
+      const stop = await serveRemoteWithToken(
+        f,
+        await s.warm(),
+        (await s.chatInput()).cloneToken,
+      )
+      try {
+        // In the agent's shell, a fetch without the credential is refused;
+        // the fetch the hint gives works. Then it rebases and pushes again.
+        await s.turn("Follow the hint", [
+          bash(
+            `GIT_TERMINAL_PROMPT=0 git fetch -q origin "$(git branch --show-current)" && echo UNAUTHENTICATED_FETCHED || echo UNAUTHENTICATED_REFUSED`,
+          ),
+          bash(
+            `GIT_TERMINAL_PROMPT=0 ${fetch} && git -c user.name=Agent -c user.email=agent@example.test rebase -q FETCH_HEAD`,
+          ),
+          pushTool,
+        ])
+        expect(s.agent.toolResults[0]).toContain("UNAUTHENTICATED_REFUSED")
+      } finally {
+        await stop()
+      }
       expect(s.remote("merge-base", "--is-ancestor", human, s.branch)).toBe("")
       expect(s.remote("show", `${s.branch}:two.md`)).toBe("# Add note two")
     })

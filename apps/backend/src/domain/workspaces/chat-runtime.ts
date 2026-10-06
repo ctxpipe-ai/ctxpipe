@@ -72,9 +72,10 @@ export const WORKSPACE_CHAT_VERCEL_SETUP = [
 
 /**
  * `git` with the sandbox's read credential (the clone token, empty on Vercel
- * where the firewall adds it). It can never push.
+ * where the firewall adds it). It can never push. The empty helper first
+ * removes the other helpers, so no keychain stores or prompts for the token.
  */
-export const SANDBOX_READ_GIT = `git -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f'`
+export const SANDBOX_READ_GIT = `git -c credential.helper= -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f'`
 
 /** The author and committer of the commits ctx| makes in a sandbox. */
 export const COMMIT_IDENTITY = {
