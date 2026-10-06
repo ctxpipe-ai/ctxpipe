@@ -85,9 +85,10 @@ You can connect GitHub during onboarding, or later from the **Connectors** page.
   the title, body, or branch names a Linear issue.
 - Mirroring of open and closed **issues** (body, labels, assignees, and
   comments) into the same context repository. After ingest, each issue is an
-  `Issue` node that is `PART_OF` its source repository. A mirrored pull request
-  that writes `#12`, `owner/repo#12`, or an issue URL of its own repository
-  records `PullRequest REFERENCES Issue`.
+  `Issue` node that is `PART_OF` its source repository, and `REFERENCES` each
+  pull request that GitHub lists as closing it. A mirrored pull request that
+  writes `#12`, `owner/repo#12`, or an issue URL of its own repository records
+  `PullRequest REFERENCES Issue`.
 
 Selecting GitHub repositories also captures **merged** pull requests into the
 organization context repository (`ctxpipe-context`, or the repo already used
