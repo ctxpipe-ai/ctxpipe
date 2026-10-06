@@ -1,5 +1,11 @@
 import { execFileSync, spawnSync } from "node:child_process"
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { createRequire } from "node:module"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -15,10 +21,25 @@ const packages = {
 }
 try {
   const [name, ...extra] = process.argv.slice(2)
-  const listOnly = extra.length === 1 && extra[0] === "--list"
-  if (!packages[name] || (extra.length && !listOnly))
+  const listOnly = extra.includes("--list")
+  const merge = extra.includes("--merge")
+  const shardArgument = extra.find((arg) => arg.startsWith("--shard="))
+  const shard = /^--shard=([1-9]\d*)\/([1-9]\d*)$/
+    .exec(shardArgument ?? "")
+    ?.slice(1)
+    .map(Number)
+  // CI splits the two serial lanes over parallel jobs; see ci.yaml.
+  const sharded = name === "backend" || name === "contracts"
+  if (
+    !packages[name] ||
+    extra.some((arg) => ![`--list`, `--merge`, shardArgument].includes(arg)) ||
+    extra.length !== new Set(extra).size ||
+    (shardArgument && (!shard || shard[0] > shard[1] || !sharded)) ||
+    (merge && (shardArgument || listOnly || !sharded))
+  )
     throw new Error(
-      "Usage: test-suite.mjs backend|contracts|vercel|ui|cli|aws-cdk [--list]",
+      "Usage: test-suite.mjs backend|contracts|vercel|ui|cli|aws-cdk [--list]\n" +
+        "       test-suite.mjs backend|contracts [--shard=i/N] [--list] | --merge",
     )
   const cwd = join(root, packages[name])
   const run = (script, args = [], directory = root) => {
@@ -67,17 +88,87 @@ try {
     files = selection
   }
   if (!files.length) throw new Error(`No required tests selected for ${name}`)
-  if (listOnly) {
+  const resultsRoot = resolve(
+    root,
+    process.env.CI_TEST_RESULTS_DIR ?? ".ci-results",
+    name,
+  )
+  if (shard) {
+    // Longest file first to the least loaded shard. The measured seconds only
+    // balance the shards; a stale or missing weight never drops a file.
+    const [index, count] = shard
+    const weights =
+      JSON.parse(
+        readFileSync(join(root, "scripts/ci/test-weights.json"), "utf8"),
+      )[name] ?? {}
+    const weight = (file) => 1 + (weights[file] ?? 0)
+    const loads = Array(count).fill(0)
+    const owners = new Map()
+    for (const file of [...files].sort(
+      (a, b) => weight(b) - weight(a) || (a < b ? -1 : a > b ? 1 : 0),
+    )) {
+      const least = loads.indexOf(Math.min(...loads))
+      loads[least] += weight(file)
+      owners.set(file, least + 1)
+    }
+    files = files.filter((file) => owners.get(file) === index)
+    selection = files
+    if (!files.length) throw new Error(`Shard ${index}/${count} is empty`)
+  }
+  if (merge) {
+    // Each shard job stores results.json and exit-code; check their union
+    // against the full inventory with the full failure baseline.
+    const shards = readdirSync(resultsRoot)
+      .map((entry) => /^shard-(\d+)-of-(\d+)$/.exec(entry))
+      .filter(Boolean)
+    if (
+      !shards.length ||
+      shards.some(([, , count]) => Number(count) !== shards.length) ||
+      shards
+        .map(([, index]) => Number(index))
+        .sort((a, b) => a - b)
+        .some((index, position) => index !== position + 1)
+    )
+      throw new Error(`Incomplete ${name} shards in ${resultsRoot}`)
+    const counters = [
+      "numTotalTests",
+      "numPassedTests",
+      "numFailedTests",
+      "numPendingTests",
+      "numTodoTests",
+    ]
+    const merged = Object.fromEntries(counters.map((key) => [key, 0]))
+    merged.testResults = []
+    let status = 0
+    for (const [entry] of shards) {
+      const report = JSON.parse(
+        readFileSync(join(resultsRoot, entry, "results.json"), "utf8"),
+      )
+      for (const key of counters) merged[key] += report[key]
+      merged.testResults.push(...report.testResults)
+      status = Math.max(
+        status,
+        Number(readFileSync(join(resultsRoot, entry, "exit-code"), "utf8")),
+      )
+    }
+    const report = join(resultsRoot, "results.json")
+    const inventory = join(resultsRoot, "inventory.json")
+    writeFileSync(report, JSON.stringify(merged))
+    writeFileSync(inventory, JSON.stringify(files, null, 2) + "\n")
+    run(
+      "scripts/ci/check-test-report.mjs",
+      [report, join(root, baseline), String(status), inventory],
+      cwd,
+    )
+  } else if (listOnly) {
     process.stdout.write(`${JSON.stringify(files.sort(), null, 2)}\n`)
   } else {
     if (name === "backend" || name === "contracts")
       run("scripts/ci/prerequisites.mjs")
     run("scripts/ci/check-allowlist-history.mjs", [baseline])
-    const output = resolve(
-      root,
-      process.env.CI_TEST_RESULTS_DIR ?? ".ci-results",
-      name,
-    )
+    const output = shard
+      ? join(resultsRoot, `shard-${shard[0]}-of-${shard[1]}`)
+      : resultsRoot
     mkdirSync(output, { recursive: true })
     const inventory = join(output, "inventory.json")
     const report = join(output, "results.json")
@@ -126,9 +217,26 @@ try {
       throw new Error(
         `Test runner did not finish: ${result.error?.message ?? result.signal}`,
       )
+    writeFileSync(join(output, "exit-code"), String(result.status))
+    // A shard checks only the allowances for its own files. The merge step
+    // checks the full baseline against the union of the shards.
+    let shardBaseline = join(root, baseline)
+    if (shard) {
+      const { version, failures } = JSON.parse(
+        readFileSync(shardBaseline, "utf8"),
+      )
+      shardBaseline = join(output, "baseline.json")
+      writeFileSync(
+        shardBaseline,
+        JSON.stringify({
+          version,
+          failures: failures.filter(({ file }) => files.includes(file)),
+        }),
+      )
+    }
     run(
       "scripts/ci/check-test-report.mjs",
-      [report, join(root, baseline), String(result.status), inventory],
+      [report, shardBaseline, String(result.status), inventory],
       cwd,
     )
   }
